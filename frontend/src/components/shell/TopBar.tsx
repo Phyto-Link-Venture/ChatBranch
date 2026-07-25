@@ -34,14 +34,14 @@ export function TopBar({
         <div
           className="grid h-[30px] w-[30px] place-items-center rounded-[9px]"
           style={{
-            background: 'linear-gradient(135deg,#10B981,#0D9668)',
-            boxShadow: '0 4px 14px rgba(16,185,129,0.35)',
+            background: 'linear-gradient(135deg,#3B82F6,#2563EB)',
+            boxShadow: '0 4px 14px rgba(59,130,246,0.35)',
           }}
         >
-          <span className="text-[11px] font-extrabold tracking-[-0.5px] text-white">AI</span>
+          <span className="text-[11px] font-extrabold tracking-[-0.5px] text-white">CB</span>
         </div>
         <span className="hidden text-[15px] font-extrabold tracking-[-0.5px] text-text-heading sm:block">
-          ChatWood
+          ChatBranch
         </span>
       </div>
 
@@ -71,7 +71,7 @@ export function TopBar({
           style={{ background: 'linear-gradient(135deg,#4F46E5,#7C3AED)' }}
           title={user?.name || 'Not signed in'}
         >
-          {(user?.name || 'AI').slice(0, 2).toUpperCase()}
+          {(user?.name || 'CB').slice(0, 2).toUpperCase()}
         </div>
       </div>
     </header>

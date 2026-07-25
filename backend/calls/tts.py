@@ -8,6 +8,8 @@ import hashlib
 import os
 from pathlib import Path
 
+from core import app_settings
+
 _DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 _CACHE_DIR = _DATA_DIR / "voice_cache"
 
@@ -43,7 +45,7 @@ def write_cache(path: Path, data: bytes) -> None:
 
 def openai_speech(voice: str, text: str) -> bytes:
     from openai import OpenAI  # lazy
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", ""))
+    client = OpenAI(api_key=app_settings.openai_key())
     try:
         resp = client.audio.speech.create(model=OPENAI_TTS_MODEL, voice=voice, input=text)
     except Exception:
@@ -56,7 +58,7 @@ ELEVEN_MODEL = "eleven_multilingual_v2"
 
 def eleven_speech(eleven_voice_id: str, text: str, dictionary_locator: dict | None = None) -> bytes:
     import httpx  # lazy (bundled with openai)
-    key = os.getenv("ELEVENLABS_API_KEY", "")
+    key = app_settings.elevenlabs_key()
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{eleven_voice_id}"
     body = {"text": text, "model_id": ELEVEN_MODEL, "output_format": "mp3_44100_128"}
     if dictionary_locator:
@@ -86,7 +88,7 @@ def eleven_sync_pronunciation_dictionary(terms: list[dict]) -> dict:
     side (harmless, no cleanup API needed for a POC).
     """
     import httpx  # lazy
-    key = os.getenv("ELEVENLABS_API_KEY", "")
+    key = app_settings.elevenlabs_key()
     rules = [
         {"string_to_replace": t["term"], "type": "alias", "alias": t["alias"]}
         for t in terms
@@ -94,7 +96,7 @@ def eleven_sync_pronunciation_dictionary(terms: list[dict]) -> dict:
     resp = httpx.post(
         "https://api.elevenlabs.io/v1/pronunciation-dictionaries/add-from-rules",
         headers={"xi-api-key": key},
-        json={"name": "chatwood-terms", "rules": rules},
+        json={"name": "chatbranch-terms", "rules": rules},
         timeout=15.0,
     )
     resp.raise_for_status()
@@ -104,7 +106,7 @@ def eleven_sync_pronunciation_dictionary(terms: list[dict]) -> dict:
 
 def eleven_clone(name: str, audio_bytes: bytes, filename: str) -> str:
     import httpx  # lazy
-    key = os.getenv("ELEVENLABS_API_KEY", "")
+    key = app_settings.elevenlabs_key()
     resp = httpx.post(
         "https://api.elevenlabs.io/v1/voices/add",
         headers={"xi-api-key": key},
@@ -118,7 +120,7 @@ def eleven_clone(name: str, audio_bytes: bytes, filename: str) -> str:
 
 def eleven_get_voice(eleven_voice_id: str) -> dict:
     import httpx  # lazy
-    key = os.getenv("ELEVENLABS_API_KEY", "")
+    key = app_settings.elevenlabs_key()
     resp = httpx.get(
         f"https://api.elevenlabs.io/v1/voices/{eleven_voice_id}",
         headers={"xi-api-key": key},
@@ -130,7 +132,7 @@ def eleven_get_voice(eleven_voice_id: str) -> dict:
 
 def eleven_delete_voice(eleven_voice_id: str) -> None:
     import httpx  # lazy
-    key = os.getenv("ELEVENLABS_API_KEY", "")
+    key = app_settings.elevenlabs_key()
     resp = httpx.delete(
         f"https://api.elevenlabs.io/v1/voices/{eleven_voice_id}",
         headers={"xi-api-key": key},

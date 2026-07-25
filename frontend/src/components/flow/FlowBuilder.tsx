@@ -34,7 +34,7 @@ const freshId = (prefix: string) =>
 
 /** Offline fallback only — the server library (/api/flows/library) is the
  * source of truth now; "Reset flow" restores a default. */
-const STORAGE_KEY = 'chatwood-flow-builder-v1'
+const STORAGE_KEY = 'chatbranch-flow-builder-v1'
 
 /** Toolbar sync badge copy, keyed by the sync state. */
 const SYNC_LABEL: Record<string, string> = {

@@ -51,7 +51,7 @@ export function CampaignModal() {
   return (
     <div
       onClick={closeCampaign}
-      className="fixed inset-0 z-50 flex animate-fadeIn items-center justify-center p-6"
+      className="fixed inset-0 z-50 flex animate-fadeIn items-center justify-center p-6 backdrop-blur-sm"
       style={{ background: 'rgba(4,8,18,0.72)' }}
     >
       <div

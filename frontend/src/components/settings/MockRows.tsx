@@ -12,7 +12,7 @@ export function Toggle({ defaultOn }: { defaultOn: boolean }) {
     <div
       onClick={() => setOn(!on)}
       className="relative h-[22px] w-[38px] cursor-pointer rounded-full transition-colors"
-      style={{ background: on ? '#10B981' : 'var(--fill-hover)' }}
+      style={{ background: on ? '#3B82F6' : 'var(--fill-hover)' }}
     >
       <div
         className="absolute top-[3px] h-4 w-4 rounded-full bg-white transition-all"
@@ -58,7 +58,7 @@ export function ControlledToggle({ on, onChange }: { on: boolean; onChange: (v: 
     <div
       onClick={() => onChange(!on)}
       className="relative h-[22px] w-[38px] cursor-pointer rounded-full transition-colors"
-      style={{ background: on ? '#10B981' : 'var(--fill-hover)' }}
+      style={{ background: on ? '#3B82F6' : 'var(--fill-hover)' }}
     >
       <div className="absolute top-[3px] h-4 w-4 rounded-full bg-white transition-all" style={{ left: on ? 18 : 3 }} />
     </div>

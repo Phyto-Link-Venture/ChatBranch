@@ -1,6 +1,6 @@
 # API conventions
 
-ChatWood has **two REST surfaces**, and that is worth knowing up front:
+ChatBranch has **two REST surfaces**, and that is worth knowing up front:
 
 | Surface | Style | Where |
 |---|---|---|

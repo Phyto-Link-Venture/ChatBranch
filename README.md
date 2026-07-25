@@ -1,4 +1,4 @@
-# ChatWood
+# ChatBranch
 
 An industry-agnostic **multi-channel conversation platform** you can clone and
 configure for your own business. One operator dashboard, one AI brain, and one
@@ -40,7 +40,7 @@ see **[docs/vertical-guide.md](docs/vertical-guide.md)**.
 
 ## The four processes
 
-ChatWood is four cooperating processes. They are separate on purpose.
+ChatBranch is four cooperating processes. They are separate on purpose.
 
 | # | Process | Path | Port | What it does |
 |---|---|---|---|---|
@@ -97,8 +97,8 @@ Nothing above is required to explore the product.
 ## Quick start
 
 ```powershell
-git clone <your-fork-url> chatwood
-cd chatwood
+git clone <your-fork-url> chatbranch
+cd chatbranch
 npm install         # root dev tooling (concurrently)
 npm run setup       # backend venv + pip install + migrate + seed_demo,
                     # frontend npm install, baileys npm install, .env from example
@@ -231,7 +231,7 @@ The seven integration actions available to flow-builder Action nodes:
 ## Repo layout
 
 ```
-ChatWood/
+ChatBranch/
 ├── backend/
 │   ├── core/              Django project: settings, root urls
 │   ├── crm/               THE DATABASE — Contact, Record, RecordEvent, Thread,

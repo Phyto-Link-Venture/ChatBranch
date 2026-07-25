@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import threading
 import time
@@ -231,10 +230,10 @@ def summarize_conversation(contact, source: str, channel: str, ref: str,
 # AICORE_SUMMARY_IDLE_MIN minutes — the ticker below sweeps for those.
 
 def _idle_minutes() -> int:
-    try:
-        return max(1, int(os.getenv("AICORE_SUMMARY_IDLE_MIN", "120") or 120))
-    except ValueError:
-        return 120
+    # Read LIVE each sweep (Setting-over-env) so a dashboard change to the idle
+    # threshold applies without a restart.
+    from core import app_settings
+    return app_settings.aicore_summary_idle_min()
 
 
 def thread_ref(thread) -> str:
@@ -309,10 +308,9 @@ def start_ticker() -> bool:
             return False
         _ticker_started = True
 
-    try:
-        interval = max(5, int(os.getenv("AICORE_SUMMARY_INTERVAL", "600") or 600))
-    except ValueError:
-        interval = 600
+    # Interval is read once here (at thread start); a change applies on restart.
+    from core import app_settings
+    interval = app_settings.aicore_summary_interval()
 
     def loop():
         from django.db import close_old_connections

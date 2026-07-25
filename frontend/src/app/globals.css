@@ -7,20 +7,36 @@
    vars for light. Every semantic Tailwind color (app/surface/card/text-*) and
    the neutral line/fill tokens resolve to these — so the whole UI flips by
    swapping one attribute on <html>. Brand accents stay identical in both. */
-/* Palette: "Navy + Emerald" console (design_handoff_full_app/design.md).
-   Dark = navy ground (#080D18) with layered panels; EMERALD is the single
-   brand accent. Surface layers, lightest→deepest:
+/* Palette: "Navy + Ocean Blue" console (design_handoff_full_app/design.md).
+   Dark = navy ground (#080D18) with layered panels; OCEAN BLUE is the single
+   brand accent (was emerald). Surface layers, lightest→deepest:
      --app   page ground            (#080D18)
      --surface topbar / sidebar / outer shell panels (#101A2E)
      --panel main content panel + wells inside cards  (#0D1526)
      --card  nested cards           (#111C33)
      --well  recessed well inside a card (same as --panel) */
 :root {
-  --app: #080d18;
-  --surface: #101a2e;
-  --panel: #0d1526;
-  --card: #111c33;
-  --well: #0d1526;
+  /* Glass tuning (shared) — one blur radius reused everywhere so the GPU
+     cost stays predictable. Bump --glass-blur if you want frostier panels. */
+  --glass-blur: 16px;
+  --glass-sat: 135%;
+  /* Opaque root fallback painted behind the fixed gradient backdrop. */
+  --bg-base: #06090f;
+  /* Top sheen (glass edge highlight) layered as a background-image on the
+     surface tiers — it never clobbers component box-shadows. */
+  --glass-sheen: rgba(255, 255, 255, 0.09);
+  /* Frosted-edge hairline sitting just inside the border of each glass tier. */
+  --glass-edge: rgba(255, 255, 255, 0.10);
+
+  /* Surfaces are lightly TRANSLUCENT so the backdrop tints them and glows in the
+     gutters — but kept fairly OPAQUE (no live backdrop-filter on scrolling
+     surfaces; that was the source of the jank). The glass read comes from the
+     ambient backdrop + tint + edge sheen, not a per-surface blur. */
+  --app: rgba(9, 14, 26, 0.30);
+  --surface: rgba(19, 28, 48, 0.85);
+  --panel: rgba(13, 20, 37, 0.74);
+  --card: rgba(24, 35, 60, 0.66);
+  --well: rgba(8, 13, 25, 0.50);
 
   --text-primary: #e7ecf5;
   --text-heading: #ffffff;
@@ -29,18 +45,18 @@
   --text-muted: #7c8aa6;
   --text-faint: #5b6b87;
 
-  --line: rgba(255, 255, 255, 0.06);
-  --line-strong: rgba(255, 255, 255, 0.1);
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.13);
   --fill: rgba(255, 255, 255, 0.04);
   --fill-hover: rgba(255, 255, 255, 0.07);
   --fill-subtle: rgba(255, 255, 255, 0.025);
 
-  /* Selected/active nav = emerald tint fill + light-emerald text. */
-  --nav-active-bg: rgba(16, 185, 129, 0.14);
-  --nav-active-text: #5eeab2;
+  /* Selected/active nav = blue tint fill + light-blue text. */
+  --nav-active-bg: rgba(59, 130, 246, 0.15);
+  --nav-active-text: #93c5fd;
 
   /* Accent "ink" — readable accent TEXT color per theme. */
-  --brand-ink: #5eeab2;
+  --brand-ink: #93c5fd;
   --amber-ink: #fbbf24;
   --green-ink: #34d399;
   --red-ink: #f87171;
@@ -53,11 +69,21 @@
    a soft cool-grey desk (--app), white chrome (--surface), an off-white main
    panel (--panel) so white cards pop on it, and cooler recessed wells. */
 :root.light {
-  --app: #eceff5;
-  --surface: #ffffff;
-  --panel: #f5f7fb;
-  --card: #ffffff;
-  --well: #eef1f7;
+  --bg-base: #e7ebf3;
+  /* A glossier white edge reads better on the pale desk. */
+  --glass-sheen: rgba(255, 255, 255, 0.5);
+
+  /* Translucent white glass over the cool-grey backdrop. Alphas raised (glass
+     refinement pass) so stacked panels separate instead of washing to one flat
+     white — surface (white chrome) and card (white) sit brighter than the
+     off-white panel between them, and every tier carries a visible edge via the
+     bumped line tokens. Dark text stays crisp because higher alpha = lighter,
+     higher-contrast surfaces. Tune these four alphas to taste. */
+  --app: rgba(228, 233, 242, 0.4);
+  --surface: rgba(255, 255, 255, 0.82);
+  --panel: rgba(245, 247, 251, 0.74);
+  --card: rgba(255, 255, 255, 0.84);
+  --well: rgba(235, 239, 246, 0.72);
 
   --text-primary: #1c2536;
   --text-heading: #0b1220;
@@ -66,16 +92,16 @@
   --text-muted: #737e9c;
   --text-faint: #9aa4bb;
 
-  --line: rgba(16, 24, 40, 0.09);
-  --line-strong: rgba(16, 24, 40, 0.16);
-  --fill: rgba(16, 24, 40, 0.045);
-  --fill-hover: rgba(16, 24, 40, 0.075);
-  --fill-subtle: rgba(16, 24, 40, 0.03);
+  --line: rgba(16, 24, 40, 0.14);
+  --line-strong: rgba(16, 24, 40, 0.22);
+  --fill: rgba(16, 24, 40, 0.06);
+  --fill-hover: rgba(16, 24, 40, 0.095);
+  --fill-subtle: rgba(16, 24, 40, 0.042);
 
-  --nav-active-bg: rgba(16, 185, 129, 0.13);
-  --nav-active-text: #047857;
+  --nav-active-bg: rgba(59, 130, 246, 0.14);
+  --nav-active-text: #2563eb;
 
-  --brand-ink: #047857;
+  --brand-ink: #2563eb;
   --amber-ink: #b45309;
   --green-ink: #059669;
   --red-ink: #dc2626;
@@ -90,10 +116,10 @@
    and dark mode is untouched. */
 :root.light .text-brand-200,
 :root.light .text-brand-300 {
-  color: #047857;
+  color: #2563eb;
 }
 :root.light .text-brand-400 {
-  color: #059669;
+  color: #2563eb;
 }
 :root.light .text-cyan-300 {
   color: #0891b2;
@@ -117,10 +143,58 @@
     height: 100%;
   }
   body {
-    background: var(--app);
+    background: var(--bg-base);
     color: var(--text-primary);
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
+  }
+  /* Fixed, full-viewport glass backdrop the frosted panels blur OVER. It sits
+     behind every route (shell, login, settings, flow-builder all render a
+     translucent bg-app over it) and never scrolls. Dark = navy gradient with
+     two diffuse ocean-blue glow blobs; light = cool-grey with a paler tint. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(58% 52% at 82% 6%, rgba(56, 132, 255, 0.45), transparent 60%),
+      radial-gradient(50% 46% at 12% 28%, rgba(99, 102, 241, 0.34), transparent 62%),
+      radial-gradient(46% 44% at 24% 74%, rgba(37, 99, 235, 0.26), transparent 64%),
+      radial-gradient(44% 40% at 96% 70%, rgba(34, 211, 238, 0.16), transparent 64%),
+      linear-gradient(158deg, #060b18 0%, #0b1730 46%, #070c1a 100%);
+  }
+  :root.light body::before {
+    background:
+      radial-gradient(58% 52% at 82% 8%, rgba(59, 130, 246, 0.22), transparent 60%),
+      radial-gradient(50% 46% at 10% 28%, rgba(99, 102, 241, 0.16), transparent 62%),
+      radial-gradient(46% 44% at 22% 74%, rgba(37, 99, 235, 0.12), transparent 64%),
+      radial-gradient(44% 40% at 96% 70%, rgba(34, 211, 238, 0.09), transparent 64%),
+      linear-gradient(158deg, #eaeff8 0%, #dfe6f4 50%, #e8edf7 100%);
+  }
+}
+
+/* ── Glassmorphism: frost the surface tiers ────────────────────────────────
+   backdrop-filter blurs whatever is painted behind each surface (the backdrop
+   through the translucent desk, and nested panels through each other). One
+   reused blur radius. The top sheen is a background-IMAGE (not box-shadow) so
+   it never overrides a component's own shadow. --app (the desk) is left
+   unblurred on purpose so the gutters show the crisp glow. */
+@layer utilities {
+  /* PERF: NO live backdrop-filter on persistent/scrolling surfaces — blurring the
+     backdrop under the sidebar and the big scrolling content panel on every
+     repaint was the source of the lag (the pre-glass version had none and was
+     smooth). The glass look now comes from translucency (the backdrop tints the
+     surfaces and glows in the gutters) plus a cheap edge sheen + rim — all of
+     which are paint-once, GPU-free. backdrop-filter is reserved for transient
+     overlays only (modal scrims use Tailwind's backdrop-blur-sm). */
+  .bg-surface,
+  .bg-panel,
+  .bg-card,
+  .bg-well {
+    background-image: linear-gradient(180deg, var(--glass-sheen), transparent 44%);
+    box-shadow: inset 0 1px 0 var(--glass-edge);
   }
 }
 
@@ -133,7 +207,7 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(16, 185, 129, 0.35);
+  background: rgba(59, 130, 246, 0.4);
   border-radius: 4px;
 }
 
@@ -184,13 +258,13 @@
 }
 @keyframes pulseRing {
   0% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5);
   }
   70% {
-    box-shadow: 0 0 0 7px rgba(16, 185, 129, 0);
+    box-shadow: 0 0 0 7px rgba(59, 130, 246, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
   }
 }
 @keyframes pulseGreen {
@@ -259,11 +333,11 @@
   border: 1px solid var(--line);
   border-bottom: none;
   border-radius: 10px 10px 0 0;
-  background: #182238;
+  background: rgba(24, 34, 56, 0.5);
   transition: background 0.12s, color 0.12s;
 }
 :root.light .fan-tab {
-  background: #e6ebf3;
+  background: rgba(230, 235, 243, 0.6);
 }
 .fan-tab.active {
   background: var(--panel);

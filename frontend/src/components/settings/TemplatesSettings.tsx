@@ -699,7 +699,7 @@ export function TemplatesSettings() {
                 {(t.bindings || []).some(Boolean) && (
                   <span
                     className="rounded-full px-2 py-px text-[10px] font-semibold"
-                    style={{ color: 'var(--brand-ink)', background: 'rgba(16,185,129,0.1)' }}
+                    style={{ color: 'var(--brand-ink)', background: 'rgba(59,130,246,0.1)' }}
                     title={(t.bindings || [])
                       .map((b, i) => `{{${i + 1}}} → ${b ? bindingLabel(b) : 'manual'}`)
                       .join(', ')}

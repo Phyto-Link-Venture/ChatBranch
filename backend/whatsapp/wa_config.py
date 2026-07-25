@@ -20,7 +20,7 @@ GRAPH_BASE_URL = "https://graph.facebook.com"
 
 # The value shipped in the repo/docs — anyone can read it, so it must never be
 # the token a live webhook actually verifies against (see verify_token()).
-DEFAULT_VERIFY_TOKEN = "chatwood-verify"
+DEFAULT_VERIFY_TOKEN = "chatbranch-verify"
 
 _GLOBAL_ENV = {
     # Any string you choose; must match what you type into the Meta webhook form.

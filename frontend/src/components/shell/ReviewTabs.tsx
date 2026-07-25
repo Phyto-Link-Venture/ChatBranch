@@ -29,7 +29,7 @@ export function ReviewTabs() {
             className="rounded-full px-4 py-1.5 text-[12.5px] font-semibold transition-colors"
             style={
               active
-                ? { background: 'linear-gradient(135deg,#10B981,#0D9668)', color: '#ffffff' }
+                ? { background: 'linear-gradient(135deg,#3B82F6,#2563EB)', color: '#ffffff' }
                 : { background: 'var(--fill)', color: 'var(--text-muted)' }
             }
           >

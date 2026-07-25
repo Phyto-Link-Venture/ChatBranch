@@ -79,9 +79,9 @@ export default function CallLogsPage() {
               onClick={() => setTab(t.id)}
               className="cursor-pointer rounded-[7px] px-3.5 py-1.5 text-[12px] font-semibold transition-all"
               style={{
-                background: active ? 'rgba(16,185,129,0.12)' : 'var(--fill)',
+                background: active ? 'rgba(59,130,246,0.12)' : 'var(--fill)',
                 color: active ? 'var(--brand-ink)' : 'var(--text-muted)',
-                border: `1px solid ${active ? 'rgba(16,185,129,0.25)' : 'var(--line)'}`,
+                border: `1px solid ${active ? 'rgba(59,130,246,0.25)' : 'var(--line)'}`,
               }}
             >
               {t.lbl} {n > 0 && <span className="opacity-70">{n}</span>}

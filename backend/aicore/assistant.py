@@ -15,7 +15,15 @@ vertical customises both from one place.
 """
 from __future__ import annotations
 
+import json
+import logging
 import re
+
+logger = logging.getLogger(__name__)
+
+# Hard stop on the tool-calling loop — a runaway model that keeps emitting tool
+# calls can execute at most this many rounds before we force a plain reply.
+MAX_TOOL_ROUNDS = 4
 
 # The AI provider keys + chat model are GLOBAL app settings that happen to
 # live in the whatsapp config module (Setting rows override backend/.env,
@@ -209,6 +217,22 @@ def generate_reply(history: list[dict], *, contact_name: str, phone: str, channe
     if block:
         messages.append({"role": "system", "content": block})
 
+    # TOOLS: only the tools whose integration is actually connected (empty in
+    # the zero-credential sandbox). Computed here so the guidance line joins the
+    # other system messages; when empty, NOTHING below changes and this reply is
+    # byte-for-byte the single completion it has always been. Tools are only
+    # reached via generate_reply, which the channel layers already skip for
+    # opted-out / do-not-contact threads — so they sit inside that gate.
+    tools = _tool_specs(contact, channel)
+    if tools:
+        messages.append({"role": "system", "content": (
+            "You can take real actions using the provided tools when it helps the "
+            "customer. Before booking an appointment, offer the open slots and get "
+            "the customer's explicit confirmation of one specific time in the "
+            "conversation, THEN call book_appointment — never book a slot they have "
+            "not agreed to."
+        )})
+
     for m in history:
         role = "assistant" if m.get("role") == "assistant" else "user"
         messages.append({"role": role, "content": str(m.get("content", ""))})
@@ -220,14 +244,18 @@ def generate_reply(history: list[dict], *, contact_name: str, phone: str, channe
         # (ILMU docs) so internal deliberation can never leak into a contact
         # message. The voice agent applies the same setting (_pipeline_llm).
         kwargs["reasoning_effort"] = "low"
-    resp = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        max_tokens=300,
-        temperature=0.4,
-        **kwargs,
-    )
-    text = (resp.choices[0].message.content or "").strip()
+    base_create = {"model": model, "messages": messages,
+                   "max_tokens": 300, "temperature": 0.4, **kwargs}
+    if tools and _tools_supported(base_url):
+        # Additive tool-calling loop. Falls back to a plain completion if the
+        # provider rejects `tools=`, so this never breaks a reply.
+        text = _run_tool_loop(client, base_create, tools, contact=contact,
+                              channel=channel).strip()
+    else:
+        # No tools (sandbox / disabled / unsupported provider): the EXACT single
+        # completion — identical kwargs — that generate_reply has always made.
+        resp = client.chat.completions.create(**base_create)
+        text = (resp.choices[0].message.content or "").strip()
     # Belt and braces for reasoning models: strip any leaked think-block —
     # a whole <think>…</think> section, or everything before a stray closing
     # tag (observed on a live call: reasoning streamed with NO opening tag).
@@ -242,3 +270,92 @@ def generate_reply(history: list[dict], *, contact_name: str, phone: str, channe
         from flows.engine import render, variables_for
         text = render(text, variables_for(contact))
     return text
+
+
+# ---- tool-calling loop ------------------------------------------------------
+
+def _tool_specs(contact, channel: str) -> list:
+    """The connected-integration tool schemas, or [] — exception-safe so a
+    registry error can never break a reply (degrades to today's no-tools path)."""
+    try:
+        from aicore import tools as tools_mod
+
+        return tools_mod.tool_specs(contact, channel)
+    except Exception:
+        logger.exception("aicore: tool_specs failed — replying without tools")
+        return []
+
+
+def _tools_supported(base_url: str) -> bool:
+    """Offer tools only to OpenAI-compatible chat providers that support them.
+    ilmu runs the reasoning_effort=low path and is NOT verified for tools, so it
+    is excluded. Any other provider that actually rejects `tools=` is caught by
+    the one-shot fallback in _run_tool_loop."""
+    return "ilmu" not in (base_url or "")
+
+
+def _assistant_tool_msg(message, tool_calls) -> dict:
+    """Rebuild the model's tool-call turn as a plain dict to feed back."""
+    return {
+        "role": "assistant",
+        "content": getattr(message, "content", None) or "",
+        "tool_calls": [
+            {"id": getattr(tc, "id", ""), "type": "function",
+             "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+            for tc in tool_calls
+        ],
+    }
+
+
+def _execute_tool(tool_call, *, contact, channel: str) -> dict:
+    """Run one tool call via the registry. Never raises — the registry turns any
+    failure into an `ok: False` result the model reads back."""
+    from aicore import tools as tools_mod
+
+    name = getattr(tool_call.function, "name", "") or ""
+    try:
+        args = json.loads(tool_call.function.arguments or "{}")
+        if not isinstance(args, dict):
+            args = {}
+    except Exception:
+        args = {}
+    return tools_mod.dispatch(name, args, contact=contact, channel=channel)
+
+
+def _run_tool_loop(client, base_create: dict, tools: list, *, contact, channel: str) -> str:
+    """Bounded function-calling loop. Passes tools + tool_choice="auto"; while
+    the model returns tool_calls we execute them, feed each result back and
+    re-call, up to MAX_TOOL_ROUNDS. The first call is retried ONCE without tools
+    if the provider rejects the `tools=` param, so tool support never breaks a
+    reply. Returns the final assistant prose (unstripped — the caller strips)."""
+    convo = base_create["messages"]  # live list; tool turns are appended to it
+    create = {**base_create, "tools": tools, "tool_choice": "auto"}
+
+    try:
+        resp = client.chat.completions.create(**create)
+    except Exception as exc:
+        # Provider that 400s on an unknown `tools` param — one plain retry.
+        logger.warning("aicore: provider rejected tools= (%s); replying without tools",
+                       type(exc).__name__)
+        resp = client.chat.completions.create(**base_create)
+        return resp.choices[0].message.content or ""
+
+    for _round in range(MAX_TOOL_ROUNDS):
+        message = resp.choices[0].message
+        tool_calls = getattr(message, "tool_calls", None) or []
+        if not tool_calls:
+            return message.content or ""
+        convo.append(_assistant_tool_msg(message, tool_calls))
+        for tc in tool_calls:
+            result = _execute_tool(tc, contact=contact, channel=channel)
+            convo.append({"role": "tool", "tool_call_id": getattr(tc, "id", ""),
+                          "content": json.dumps(result, default=str)})
+        resp = client.chat.completions.create(**create)
+
+    # Cap hit while the model still wants tools: force a final tool-free reply.
+    message = resp.choices[0].message
+    if getattr(message, "tool_calls", None):
+        logger.warning("aicore: tool loop hit MAX_TOOL_ROUNDS; forcing a plain reply")
+        resp = client.chat.completions.create(**base_create)
+        return resp.choices[0].message.content or ""
+    return message.content or ""

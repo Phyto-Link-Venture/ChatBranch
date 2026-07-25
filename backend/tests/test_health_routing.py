@@ -452,7 +452,7 @@ class TestVoiceSettings:
     def test_put_saves_and_audits(self, client, superadmin):
         r = self._put(client, {"sip_username": "automation",
                                "sip_password": "tok-abcdefgh",
-                               "termination_uri": "chatwood.pstn.twilio.com"})
+                               "termination_uri": "chatbranch.pstn.twilio.com"})
         assert r.status_code == 200
         assert health.voice_settings()["sip_password"] == "tok-abcdefgh"
         assert AuditLog.objects.filter(action="settings.update",

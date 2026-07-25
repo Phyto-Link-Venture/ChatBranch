@@ -63,7 +63,7 @@ const ROLE_LABEL: Record<Role, string> = {
   agent: 'Agent',
 }
 
-// superadmin = emerald brand, admin = neutral zinc, agent = amber
+// superadmin = blue brand, admin = neutral zinc, agent = amber
 const ROLE_CHIP: Record<Role, string> = {
   superadmin: 'bg-brand-400/15 text-brand-200',
   admin: 'bg-fill-hover text-text-mid',

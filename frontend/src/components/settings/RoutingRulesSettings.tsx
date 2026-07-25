@@ -206,7 +206,7 @@ function Toggle({
       disabled={disabled}
       onClick={() => onChange(!on)}
       className="relative h-[22px] w-[38px] shrink-0 cursor-pointer rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-      style={{ background: on ? '#10B981' : 'var(--fill-hover)' }}
+      style={{ background: on ? '#3B82F6' : 'var(--fill-hover)' }}
     >
       <span
         className="absolute top-[3px] h-4 w-4 rounded-full bg-white transition-all"

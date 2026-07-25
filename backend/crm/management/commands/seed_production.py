@@ -99,10 +99,10 @@ class Command(BaseCommand):
             "and purge seed_demo fixtures.")
 
     def add_arguments(self, parser):
-        parser.add_argument("--tenant-name", default="ChatWood",
-                            help="Organization name (default: ChatWood)")
-        parser.add_argument("--tenant-slug", default="chatwood",
-                            help="Tenant slug (default: chatwood)")
+        parser.add_argument("--tenant-name", default="ChatBranch",
+                            help="Organization name (default: ChatBranch)")
+        parser.add_argument("--tenant-slug", default="chatbranch",
+                            help="Tenant slug (default: chatbranch)")
         parser.add_argument("--brand-name", default=None,
                             help="Brand name (default: same as tenant name)")
         parser.add_argument("--brand-slug", default=None,

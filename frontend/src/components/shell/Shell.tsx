@@ -74,7 +74,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <TopBar user={user} onToggleNav={toggleNav} />
 
       <div className="flex min-h-0 flex-1 gap-2.5">
-        <SideNav collapsed={collapsed} />
+        <SideNav collapsed={collapsed} onToggle={toggleNav} />
 
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[20px] border border-line bg-panel">
           {isChats ? (
@@ -87,9 +87,6 @@ export function Shell({ children }: { children: ReactNode }) {
           )}
         </main>
       </div>
-
-      {/* Reserved footer bar (design.md: intentionally blank) */}
-      <div className="h-[30px] shrink-0 rounded-[14px] border border-line bg-surface" />
 
       <CampaignModal />
     </div>

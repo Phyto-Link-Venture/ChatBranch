@@ -564,8 +564,8 @@ def settings_test(request):
     if "@" not in to:
         return JsonResponse({"detail": "Valid 'to' email required."}, status=400)
     try:
-        email_client.send_email(to, "Test email from ChatWood — SMTP settings work.",
-                                subject="ChatWood SMTP test")
+        email_client.send_email(to, "Test email from ChatBranch — SMTP settings work.",
+                                subject="ChatBranch SMTP test")
     except Exception as e:
         return JsonResponse({"detail": f"Send failed: {e}"}, status=502)
     return JsonResponse({"ok": True})
@@ -761,8 +761,8 @@ def account_test(request, account_id: str):
                 return JsonResponse({"detail": "Valid 'to' email required."}, status=400)
             try:
                 email_client.send_email(
-                    to, "Test email from ChatWood — this account's SMTP settings work.",
-                    subject="ChatWood SMTP test", settings=settings)
+                    to, "Test email from ChatBranch — this account's SMTP settings work.",
+                    subject="ChatBranch SMTP test", settings=settings)
             except Exception as e:
                 return JsonResponse({"detail": f"Send failed: {e}"}, status=502)
         return JsonResponse({"ok": True, "name": account.get("name", ""),

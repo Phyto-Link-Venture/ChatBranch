@@ -401,7 +401,7 @@ export default function DashboardPage() {
               >
                 <div
                   className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full text-[11px] font-bold text-white"
-                  style={{ background: 'linear-gradient(135deg,#10B981,#0D9668)' }}
+                  style={{ background: 'linear-gradient(135deg,#3B82F6,#2563EB)' }}
                 >
                   {initials(d.name)}
                 </div>

@@ -128,7 +128,7 @@ function BaileysPairModal({ account, onClose }: { account: WaAccount; onClose: (
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 flex animate-fadeIn items-center justify-center p-6"
+      className="fixed inset-0 z-50 flex animate-fadeIn items-center justify-center p-6 backdrop-blur-sm"
       style={{ background: 'rgba(4,8,18,0.72)' }}
     >
       <div
@@ -212,7 +212,7 @@ export function WhatsAppSettings({
   onAccountsChanged?: (count: number) => void
 } = {}) {
   const [accounts, setAccounts] = useState<WaAccount[] | null>(null)
-  const [verifyToken, setVerifyToken] = useState('chatwood-verify')
+  const [verifyToken, setVerifyToken] = useState('chatbranch-verify')
   const [showAdd, setShowAdd] = useState(false)
   const [method, setMethod] = useState<'cloud' | 'baileys'>('cloud')
   const [pairAcct, setPairAcct] = useState<WaAccount | null>(null)

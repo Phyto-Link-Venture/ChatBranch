@@ -315,7 +315,7 @@ function EmailAccountsPanel({
               type="checkbox"
               checked={tls}
               onChange={(e) => setTls(e.target.checked)}
-              style={{ accentColor: '#10B981' }}
+              style={{ accentColor: '#3B82F6' }}
             />
             Use TLS
           </label>

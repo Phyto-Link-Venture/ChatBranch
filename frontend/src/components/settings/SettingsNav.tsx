@@ -15,6 +15,7 @@ import { SettingsDirtyProvider, useSettingsDirty } from './SettingsDirtyContext'
  */
 export const SETTINGS_TABS: { id: string; lbl: string; superadminOnly?: boolean }[] = [
   { id: 'ai', lbl: 'AI Configuration' },
+  { id: 'ai-providers', lbl: 'AI & Providers' }, // GET any role (read-only); PUT superadmin
   { id: 'persona', lbl: 'AI Persona' },
   { id: 'knowledge', lbl: 'Knowledge Base' },
   { id: 'skills', lbl: 'AI Skills' },
@@ -58,7 +59,7 @@ function DirtyControls() {
           onClick={() => void save()}
           disabled={saving}
           className="flex cursor-pointer items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-[12px] font-bold text-white disabled:opacity-60"
-          style={{ background: 'linear-gradient(135deg,#10B981,#0D9668)' }}
+          style={{ background: 'linear-gradient(135deg,#3B82F6,#2563EB)' }}
         >
           {saving && <Loader2 size={13} className="animate-spin" aria-hidden />}
           Save changes

@@ -3,7 +3,7 @@ import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from 'react'
 type Variant = 'primary' | 'secondary' | 'danger' | 'success' | 'ghost'
 
 const VARIANTS: Record<Variant, CSSProperties> = {
-  primary: { background: 'linear-gradient(135deg,#10B981,#0D9668)', color: 'white', border: 'none' },
+  primary: { background: 'linear-gradient(135deg,#3B82F6,#2563EB)', color: 'white', border: 'none' },
   secondary: { background: 'var(--fill)', color: 'var(--text-high)', border: '1px solid var(--line-strong)' },
   danger: { background: 'rgba(239,68,68,0.12)', color: '#FCA5A5', border: '1px solid rgba(239,68,68,0.2)' },
   success: { background: 'rgba(16,185,129,0.12)', color: '#6EE7B7', border: '1px solid rgba(16,185,129,0.2)' },

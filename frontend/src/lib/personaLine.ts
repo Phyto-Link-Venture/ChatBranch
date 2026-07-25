@@ -8,6 +8,6 @@ export function buildOpeningLine(tone: string): string {
       ? 'I’m calling about a matter on your account that needs your attention today. '
       : tone === 'empathetic'
       ? 'I know these calls aren’t always convenient, and I’m here to help you find a way forward. '
-      : 'Good afternoon, I’m reaching out from ChatWood about your account. '
+      : 'Good afternoon, I’m reaching out from ChatBranch about your account. '
   return opening + 'May I take a few minutes of your time?'
 }

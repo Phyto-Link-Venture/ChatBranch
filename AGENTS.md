@@ -5,7 +5,7 @@ read it before any non-trivial change. This file is the short version.
 
 ## What this is
 
-**ChatWood** — an industry-agnostic multi-channel conversation platform, shipped
+**ChatBranch** — an industry-agnostic multi-channel conversation platform, shipped
 as a template. WhatsApp (two transports), email, Telegram, Messenger, Instagram
 and AI voice calls, behind one operator dashboard and one AI brain.
 `README.md` is the user-facing entry point; `docs/vertical-guide.md` explains

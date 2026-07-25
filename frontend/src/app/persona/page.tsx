@@ -70,14 +70,14 @@ function voiceFilterOpts(voices: Voice[], field: 'gender' | 'accent' | 'language
 }
 const SAMPLE_LINES: Record<string, string> = {
   en: buildOpeningLine('professional'),
-  ms: 'Selamat tengah hari, saya menghubungi daripada ChatWood berkaitan akaun anda. Bolehkah saya mengambil sedikit masa anda?',
-  zh: '下午好,这里是ChatWood,想和您聊聊您的账户。请问现在方便占用您几分钟时间吗?',
+  ms: 'Selamat tengah hari, saya menghubungi daripada ChatBranch berkaitan akaun anda. Bolehkah saya mengambil sedikit masa anda?',
+  zh: '下午好,这里是ChatBranch,想和您聊聊您的账户。请问现在方便占用您几分钟时间吗?',
 }
 const VOICE_WAVES = ['wave1', 'wave3', 'wave2', 'wave4', 'wave2', 'wave3', 'wave1', 'wave2']
 const RECORDING_SCRIPTS: Record<string, string> = {
-  en: 'Good afternoon. My name is Aisha, and I’m calling from ChatWood regarding your account. I’m here to help make sure everything is on track. We can go over the latest updates and any questions you might have. Please let me know if now is a convenient time to talk. Thank you for your time, and please feel free to ask me any questions.',
-  ms: 'Selamat tengah hari. Nama saya Aisha, dan saya menghubungi daripada ChatWood berkaitan akaun anda. Saya di sini untuk membantu memastikan semuanya berjalan lancar. Kita boleh semak kemas kini terkini dan sebarang soalan yang anda ada. Sila beritahu saya jika sekarang adalah masa yang sesuai untuk bercakap. Terima kasih atas masa anda, dan jangan segan untuk bertanya sebarang soalan.',
-  zh: '下午好。我叫Aisha,是ChatWood打来关于您账户的电话。我在这里是想确保一切进展顺利。我们可以聊聊最新的进展以及您可能有的任何问题。请告诉我现在是否方便通话。谢谢您的时间,如果您有任何问题,请随时提出。',
+  en: 'Good afternoon. My name is Aisha, and I’m calling from ChatBranch regarding your account. I’m here to help make sure everything is on track. We can go over the latest updates and any questions you might have. Please let me know if now is a convenient time to talk. Thank you for your time, and please feel free to ask me any questions.',
+  ms: 'Selamat tengah hari. Nama saya Aisha, dan saya menghubungi daripada ChatBranch berkaitan akaun anda. Saya di sini untuk membantu memastikan semuanya berjalan lancar. Kita boleh semak kemas kini terkini dan sebarang soalan yang anda ada. Sila beritahu saya jika sekarang adalah masa yang sesuai untuk bercakap. Terima kasih atas masa anda, dan jangan segan untuk bertanya sebarang soalan.',
+  zh: '下午好。我叫Aisha,是ChatBranch打来关于您账户的电话。我在这里是想确保一切进展顺利。我们可以聊聊最新的进展以及您可能有的任何问题。请告诉我现在是否方便通话。谢谢您的时间,如果您有任何问题,请随时提出。',
 }
 
 export default function PersonaPage() {
@@ -259,10 +259,10 @@ export default function PersonaPage() {
       {/* Intro */}
       <div
         className="flex items-start gap-3 rounded-2xl px-[18px] py-3.5"
-        style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.16)' }}
+        style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.16)' }}
       >
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-brand-400/15">
-          <Mic size={16} strokeWidth={1.75} color="#6EE7B7" />
+          <Mic size={16} strokeWidth={1.75} color="#93C5FD" />
         </div>
         <div>
           <div className="mb-0.5 text-[13px] font-bold text-text-high">AI Voice &amp; Persona</div>
@@ -310,9 +310,9 @@ export default function PersonaPage() {
                 onClick={() => setPreviewLangTab(l.id)}
                 className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
                 style={{
-                  border: `1px solid ${previewLangTab === l.id ? 'rgba(16,185,129,0.5)' : 'var(--line)'}`,
-                  background: previewLangTab === l.id ? 'rgba(16,185,129,0.12)' : 'transparent',
-                  color: previewLangTab === l.id ? '#6EE7B7' : 'var(--text-muted)',
+                  border: `1px solid ${previewLangTab === l.id ? 'rgba(59,130,246,0.5)' : 'var(--line)'}`,
+                  background: previewLangTab === l.id ? 'rgba(59,130,246,0.12)' : 'transparent',
+                  color: previewLangTab === l.id ? '#93C5FD' : 'var(--text-muted)',
                 }}
               >
                 {l.label}
@@ -329,7 +329,7 @@ export default function PersonaPage() {
         {showAddVoice && (
           <div
             onClick={() => setShowAddVoice(false)}
-            className="fixed inset-0 z-50 flex animate-fadeIn items-center justify-center p-6"
+            className="fixed inset-0 z-50 flex animate-fadeIn items-center justify-center p-6 backdrop-blur-sm"
             style={{ background: 'rgba(4,8,18,0.72)' }}
           >
             <div
@@ -468,8 +468,8 @@ export default function PersonaPage() {
                 onClick={() => !editing && ready && setSelectedVoice(v.id)}
                 className="relative flex h-full flex-col rounded-[11px] p-3.5 transition-all"
                 style={{
-                  border: `1.5px solid ${sel ? 'rgba(16,185,129,0.5)' : 'var(--line)'}`,
-                  background: sel ? 'rgba(16,185,129,0.08)' : 'var(--fill-subtle)',
+                  border: `1.5px solid ${sel ? 'rgba(59,130,246,0.5)' : 'var(--line)'}`,
+                  background: sel ? 'rgba(59,130,246,0.08)' : 'var(--fill-subtle)',
                   cursor: editing ? 'default' : ready ? 'pointer' : 'default',
                   opacity: ready ? 1 : 0.7,
                 }}
@@ -514,16 +514,16 @@ export default function PersonaPage() {
                 <div className="mb-2.5 flex items-start gap-2.5 pr-[132px]">
                   <div
                     className="relative flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px]"
-                    style={{ background: v.custom ? 'rgba(139,92,246,0.18)' : 'rgba(16,185,129,0.15)' }}
+                    style={{ background: v.custom ? 'rgba(139,92,246,0.18)' : 'rgba(59,130,246,0.15)' }}
                   >
                     {v.custom ? (
                       <User size={15} strokeWidth={1.75} color="#C4B5FD" />
                     ) : (
-                      <Mic size={15} strokeWidth={1.75} color="#6EE7B7" />
+                      <Mic size={15} strokeWidth={1.75} color="#93C5FD" />
                     )}
                     {sel && !editing && (
                       <div className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-card">
-                        <CheckCircle size={14} strokeWidth={2} color="#10B981" />
+                        <CheckCircle size={14} strokeWidth={2} color="#3B82F6" />
                       </div>
                     )}
                   </div>

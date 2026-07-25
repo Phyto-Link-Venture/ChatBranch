@@ -17,7 +17,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { authHeaders, getAuth } from './auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
-const ACTIVE_KEY = 'chatwood-active-brand'
+const ACTIVE_KEY = 'chatbranch-active-brand'
 
 export interface Brand {
   slug: string

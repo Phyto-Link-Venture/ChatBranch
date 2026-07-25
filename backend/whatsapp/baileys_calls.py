@@ -70,7 +70,7 @@ def _dispatch_agent(wa_id: str, name: str | None, voice_meta: dict | None = None
         try:
             await lkapi.agent_dispatch.create_dispatch(
                 api.CreateAgentDispatchRequest(
-                    agent_name=os.getenv("AGENT_NAME", "chatwood-agent"),
+                    agent_name=os.getenv("AGENT_NAME", "chatbranch-agent"),
                     room=room,
                     metadata=json.dumps(meta),
                 )

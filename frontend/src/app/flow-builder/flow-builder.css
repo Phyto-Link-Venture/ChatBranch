@@ -16,6 +16,27 @@
   min-height: 0;
 }
 
+/* Glassmorphism scope: the canvas ground (--app) stays translucent so the app
+   backdrop's glow shows through as a glassy workspace, but NODES and inline
+   controls get a nearly-opaque --card/--surface so their text stays crisp
+   floating on that glass. The big chrome (toolbar / sidebar / config panel)
+   is frosted below — a few elements, so blur cost is negligible. */
+.flow-studio {
+  --card: rgba(21, 31, 53, 0.9);
+  --surface: rgba(17, 25, 43, 0.82);
+}
+:root.light .flow-studio {
+  --card: rgba(255, 255, 255, 0.92);
+  --surface: rgba(248, 250, 253, 0.86);
+}
+.flow-studio .fb-toolbar,
+.flow-studio .fb-sidebar,
+.flow-studio .config-panel,
+.flow-studio .config-header {
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+}
+
 /* ---------- toolbar strip above the workspace (full-page navy bar) ---------- */
 .flow-studio .fb-toolbar {
   flex-shrink: 0;
@@ -125,7 +146,7 @@
   background: var(--fill-hover);
 }
 .flow-studio .fb-live-toggle:focus-visible {
-  outline: 2px solid #10b981;
+  outline: 2px solid #3b82f6;
   outline-offset: 2px;
 }
 .flow-studio .fb-live-toggle .fb-live-dot {
@@ -299,8 +320,8 @@
 }
 .flow-studio .skill-item.active {
   background: var(--card);
-  border-color: rgba(16, 185, 129, 0.28);
-  box-shadow: inset 3px 0 0 #10b981;
+  border-color: rgba(59, 130, 246, 0.28);
+  box-shadow: inset 3px 0 0 #3b82f6;
 }
 .flow-studio .skill-name {
   flex: 1;
@@ -322,7 +343,7 @@
   font-size: 12.5px;
   font-weight: 600;
   padding: 2px 6px;
-  border: 1px solid #10b981;
+  border: 1px solid #3b82f6;
   border-radius: 6px;
   outline: none;
   background: var(--card);
@@ -378,9 +399,9 @@
   transition: border-color 0.12s, color 0.12s, background 0.12s;
 }
 .flow-studio .skill-add:hover {
-  border-color: #10b981;
+  border-color: #3b82f6;
   color: var(--brand-ink);
-  background: rgba(16, 185, 129, 0.07);
+  background: rgba(59, 130, 246, 0.07);
 }
 .flow-studio .skill-restore {
   width: 100%;
@@ -536,11 +557,11 @@
   border-color: color-mix(in srgb, var(--kind) 60%, var(--line-strong));
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12), 0 8px 22px rgba(0, 0, 0, 0.16);
 }
-/* Selection reads emerald (the app's single brand accent) — border + ring —
+/* Selection reads ocean blue (the app's single brand accent) — border + ring —
    while the node's own type accent stays on its icon/badge/chips. */
 .flow-studio .react-flow__node.selected .node-card {
-  border-color: #10b981;
-  box-shadow: 0 0 0 3px color-mix(in srgb, #10b981 30%, transparent),
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #3b82f6 30%, transparent),
     0 8px 22px rgba(0, 0, 0, 0.16);
 }
 
@@ -636,8 +657,8 @@
 }
 .flow-studio .react-flow__node.selected .section-node {
   border-style: solid;
-  border-color: #10b981;
-  box-shadow: 0 0 0 2px color-mix(in srgb, #10b981 22%, transparent);
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #3b82f6 22%, transparent);
   background: color-mix(in srgb, var(--kind) 8%, transparent);
 }
 .flow-studio .section-head {
@@ -700,7 +721,7 @@
   transition: background 0.15s, transform 0.1s;
 }
 .flow-studio .react-flow__handle:hover {
-  background: #10b981;
+  background: #3b82f6;
   transform: scale(1.15);
 }
 .flow-studio .react-flow__handle.handle-yes {
@@ -722,11 +743,11 @@
   stroke: var(--text-mid);
 }
 .flow-studio .react-flow__edge.selected .react-flow__edge-path {
-  stroke: #10b981;
+  stroke: #3b82f6;
   stroke-width: 2.2;
 }
 .flow-studio .react-flow__connection-path {
-  stroke: #10b981;
+  stroke: #3b82f6;
   stroke-width: 2;
 }
 
@@ -849,8 +870,8 @@
 .flow-studio .config-field select:focus,
 .flow-studio .config-field textarea:focus {
   outline: none;
-  border-color: var(--kind, #10b981);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--kind, #10b981) 18%, transparent);
+  border-color: var(--kind, #3b82f6);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--kind, #3b82f6) 18%, transparent);
 }
 .flow-studio .config-field small {
   display: block;
@@ -880,9 +901,9 @@
   border-color: var(--text-faint);
 }
 .flow-studio .multi-chip.on {
-  background: color-mix(in srgb, var(--kind, #10b981) 14%, transparent);
-  border-color: var(--kind, #10b981);
-  color: color-mix(in srgb, var(--kind, #10b981) 55%, var(--text-primary));
+  background: color-mix(in srgb, var(--kind, #3b82f6) 14%, transparent);
+  border-color: var(--kind, #3b82f6);
+  color: color-mix(in srgb, var(--kind, #3b82f6) 55%, var(--text-primary));
 }
 
 /* Trigger "Apply to contacts": mode select + server-searched picker. Chips here
@@ -988,7 +1009,7 @@
   transition: background 0.12s;
 }
 .flow-studio .var-row:hover {
-  background: color-mix(in srgb, var(--kind, #10b981) 12%, transparent);
+  background: color-mix(in srgb, var(--kind, #3b82f6) 12%, transparent);
 }
 .flow-studio .var-token {
   flex-shrink: 0;
@@ -1043,9 +1064,9 @@
   color: var(--text-muted);
 }
 .flow-studio .wa-mode-btn.on {
-  background: color-mix(in srgb, var(--kind, #10b981) 14%, transparent);
-  border-color: var(--kind, #10b981);
-  color: color-mix(in srgb, var(--kind, #10b981) 55%, var(--text-primary));
+  background: color-mix(in srgb, var(--kind, #3b82f6) 14%, transparent);
+  border-color: var(--kind, #3b82f6);
+  color: color-mix(in srgb, var(--kind, #3b82f6) 55%, var(--text-primary));
 }
 
 /* template picker list */
@@ -1137,11 +1158,11 @@
   border-bottom: none;
 }
 .flow-studio .tpl-row:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--kind, #10b981) 10%, transparent);
+  background: color-mix(in srgb, var(--kind, #3b82f6) 10%, transparent);
 }
 .flow-studio .tpl-row.on {
-  background: color-mix(in srgb, var(--kind, #10b981) 14%, transparent);
-  box-shadow: inset 3px 0 0 var(--kind, #10b981);
+  background: color-mix(in srgb, var(--kind, #3b82f6) 14%, transparent);
+  box-shadow: inset 3px 0 0 var(--kind, #3b82f6);
 }
 .flow-studio .tpl-row:disabled {
   cursor: not-allowed;
@@ -1205,9 +1226,11 @@
   background: color-mix(in srgb, #f59e0b 16%, transparent);
   color: var(--amber-ink);
 }
+/* Filled placeholder = "done" — stays green (amber→green progression), so its
+   text uses --green-ink rather than the now-blue --brand-ink. */
 .flow-studio .tpl-ph.filled {
   background: color-mix(in srgb, #10b981 14%, transparent);
-  color: var(--brand-ink);
+  color: var(--green-ink);
 }
 .flow-studio .tpl-buttons {
   display: flex;
@@ -1279,8 +1302,8 @@
   transition: background 0.12s, border-color 0.12s;
 }
 .flow-studio .tpl-quick-chip:hover {
-  background: color-mix(in srgb, var(--kind, #10b981) 12%, transparent);
-  border-color: var(--kind, #10b981);
+  background: color-mix(in srgb, var(--kind, #3b82f6) 12%, transparent);
+  border-color: var(--kind, #3b82f6);
 }
 
 /* ---------- accessibility: keyboard focus + reduced motion ---------- */
@@ -1289,7 +1312,7 @@
 .flow-studio input:focus-visible,
 .flow-studio select:focus-visible,
 .flow-studio textarea:focus-visible {
-  outline: 2px solid #10b981;
+  outline: 2px solid #3b82f6;
   outline-offset: 1px;
 }
 

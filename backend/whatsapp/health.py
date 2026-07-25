@@ -708,10 +708,10 @@ def run_checks() -> dict:
 # ---- background checker (started from whatsapp/apps.py, flows-ticker pattern) ------
 
 def check_interval() -> int:
-    try:
-        return max(30, int(os.getenv("WHATSAPP_HEALTH_INTERVAL", "300") or 300))
-    except ValueError:
-        return 300
+    # Read LIVE each loop pass (Setting-over-env) so a dashboard change to the
+    # health-check cadence applies without a restart.
+    from core import app_settings
+    return app_settings.whatsapp_health_interval()
 
 
 _checker_lock = threading.Lock()

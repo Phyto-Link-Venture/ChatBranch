@@ -30,6 +30,7 @@ import uuid
 from django.http import HttpResponse, JsonResponse, HttpResponseNotAllowed, FileResponse
 from django.views.decorators.csrf import csrf_exempt
 
+from core import app_settings
 from crm.auth import role_from_request, tenant_from_request
 from . import contacts as contacts_mod
 from . import memory as memory_mod
@@ -574,7 +575,7 @@ def voice_preview(request):
         path = tts_mod.cache_path("openai", voice_id, model, text)
         audio = tts_mod.read_cache(path)
         if audio is None:
-            if not os.getenv("OPENAI_API_KEY"):
+            if not app_settings.openai_key():
                 return JsonResponse({"detail": "OpenAI key not configured."}, status=501)
             try:
                 audio = tts_mod.openai_speech(voice_id, text)
@@ -584,7 +585,7 @@ def voice_preview(request):
         return HttpResponse(audio, content_type="audio/mpeg")
 
     if provider == "elevenlabs":
-        if not os.getenv("ELEVENLABS_API_KEY"):
+        if not app_settings.elevenlabs_key():
             return JsonResponse({"detail": "ElevenLabs key not configured."}, status=501)
         el_id = voices_mod.eleven_voice_id(voice_id)
         if not el_id:
@@ -610,7 +611,7 @@ def voice_preview(request):
 def voice_clone(request):
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
-    if not os.getenv("ELEVENLABS_API_KEY"):
+    if not app_settings.elevenlabs_key():
         return JsonResponse({"detail": "Voice cloning not configured (ELEVENLABS_API_KEY unset)."}, status=501)
     name = (request.POST.get("name") or "").strip()
     upload = request.FILES.get("audio")
@@ -648,7 +649,7 @@ def voice_clone(request):
 def voice_import(request):
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
-    if not os.getenv("ELEVENLABS_API_KEY"):
+    if not app_settings.elevenlabs_key():
         return JsonResponse({"detail": "Voice import not configured (ELEVENLABS_API_KEY unset)."}, status=501)
 
     body = _json_body(request)
@@ -699,7 +700,7 @@ def voice_detail(request, voice_id):
 
     if request.method == "DELETE":
         if existing.get("provider") == "elevenlabs" and existing.get("elevenVoiceId"):
-            if not os.getenv("ELEVENLABS_API_KEY"):
+            if not app_settings.elevenlabs_key():
                 return JsonResponse({"detail": "Voice delete not configured (ELEVENLABS_API_KEY unset)."}, status=501)
             try:
                 tts_mod.eleven_delete_voice(existing["elevenVoiceId"])
@@ -761,7 +762,7 @@ def pronunciation_settings(request):
             return JsonResponse({"detail": "each term needs a non-empty term and alias."}, status=400)
         terms.append({"term": term, "alias": alias})
 
-    if not os.getenv("ELEVENLABS_API_KEY"):
+    if not app_settings.elevenlabs_key():
         return JsonResponse({"detail": "Pronunciation sync not configured (ELEVENLABS_API_KEY unset)."}, status=501)
 
     if terms:
@@ -941,6 +942,11 @@ def dial(request):
         if auto_voice:
             voice_provider, voice_id = "elevenlabs", auto_voice
     if voice_provider:
+        # DIAL pre-flight: keep reading os.environ, NOT app_settings. This gates
+        # a live call that the Django-free voice agent runs from its OWN .env at
+        # call time — a key saved only through Settings can't carry the call, so
+        # env is the honest gate here (unlike the voice-tooling paths above,
+        # which hit ElevenLabs/OpenAI from Django and use the accessor).
         if voice_provider == "elevenlabs":
             if not os.getenv("ELEVENLABS_API_KEY"):
                 return JsonResponse(

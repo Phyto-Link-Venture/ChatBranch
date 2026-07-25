@@ -4,7 +4,7 @@ Guidance for Claude Code working in this repo. Read before making changes.
 
 ## What this is
 
-ChatWood — an industry-agnostic multi-channel conversation platform
+ChatBranch — an industry-agnostic multi-channel conversation platform
 (template). Four cooperating processes:
 
 1. **Django API** (`backend/`, port 8000) — serves the contact list and brokers

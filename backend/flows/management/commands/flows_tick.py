@@ -9,6 +9,7 @@ import time
 
 from django.core.management.base import BaseCommand
 
+from core import app_settings
 from flows import engine
 
 
@@ -27,4 +28,4 @@ class Command(BaseCommand):
                 f"drained={result['drained']}"))
             if not options["loop"]:
                 return
-            time.sleep(engine.TICK_SECONDS)
+            time.sleep(app_settings.flows_tick_seconds())

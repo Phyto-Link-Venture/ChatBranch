@@ -15,6 +15,8 @@ import {
   Settings,
   TrendingUp,
   LogOut,
+  ChevronsLeft,
+  ChevronsRight,
   type LucideIcon,
 } from 'lucide-react'
 import { ThemeToggle } from './ThemeToggle'
@@ -29,10 +31,14 @@ export interface NavDef {
 }
 
 /**
- * Collapsible left sidebar (design.md): grouped nav, active = emerald tint +
- * emerald text. Width animates 208px (expanded) / 60px (collapsed, icons
- * only); labels fade out via the `.nav-collapsed` class. Groups follow the
- * operator workflow: overview -> work -> configure -> review -> settings.
+ * Collapsible left sidebar (design.md): grouped nav showing icon + text label,
+ * active = blue tint + light-blue text (--nav-active-bg / --nav-active-text).
+ * Width animates 240px (expanded) / 64px (collapsed, icons only with tooltips);
+ * labels + group headers hide via the `.nav-collapsed` class. A chevron toggle
+ * in the rail collapses/expands it (the TopBar PanelLeft button does the same);
+ * the collapsed/expanded choice is persisted + hydration-safely restored by the
+ * Shell (localStorage 'nav-collapsed'). Groups follow the operator workflow:
+ * overview -> work -> configure -> review -> settings.
  */
 export const NAV_GROUPS: { label?: string; items: NavDef[] }[] = [
   {
@@ -71,7 +77,13 @@ const ROLE_LABEL: Record<string, string> = {
   agent: 'Agent',
 }
 
-export function SideNav({ collapsed = false }: { collapsed?: boolean }) {
+export function SideNav({
+  collapsed = false,
+  onToggle,
+}: {
+  collapsed?: boolean
+  onToggle?: () => void
+}) {
   const pathname = usePathname() || '/dashboard'
   const router = useRouter()
   const [user, setUser] = useState<AuthUser | null>(null)
@@ -96,9 +108,26 @@ export function SideNav({ collapsed = false }: { collapsed?: boolean }) {
   return (
     <aside
       className={`flex h-full shrink-0 flex-col rounded-[20px] border border-line bg-surface py-2 transition-[width] duration-200 ${
-        collapsed ? 'nav-collapsed w-[60px] px-1.5' : 'w-[208px] px-2'
+        collapsed ? 'nav-collapsed w-[64px] px-1.5' : 'w-[240px] px-2'
       }`}
     >
+      {onToggle && (
+        <div className={`mb-1 flex ${collapsed ? 'justify-center' : 'justify-end pr-0.5'}`}>
+          <button
+            onClick={onToggle}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
+          >
+            {collapsed ? (
+              <ChevronsRight size={16} strokeWidth={1.9} />
+            ) : (
+              <ChevronsLeft size={16} strokeWidth={1.9} />
+            )}
+          </button>
+        </div>
+      )}
+
       <nav className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
         {visibleGroups.map((group, gi) => (
           <div key={gi} className={gi > 0 ? 'mt-3' : ''}>
@@ -159,7 +188,7 @@ export function SideNav({ collapsed = false }: { collapsed?: boolean }) {
           style={{ background: 'linear-gradient(135deg,#4F46E5,#7C3AED)' }}
           title={user?.name || 'Not signed in'}
         >
-          {(user?.name || 'AI').slice(0, 2).toUpperCase()}
+          {(user?.name || 'CB').slice(0, 2).toUpperCase()}
         </div>
         {!collapsed && (
           <div className="nav-label min-w-0 flex-1">

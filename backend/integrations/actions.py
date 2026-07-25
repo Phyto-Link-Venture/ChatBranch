@@ -17,7 +17,8 @@ steps log a clear skip.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+import math
+from datetime import datetime, time as dt_time, timedelta
 
 from . import catalog, health, oauth
 
@@ -145,6 +146,51 @@ def create_calendar_event(contact=None, config=None, text="") -> dict:
                  {"event_id": payload.get("id"), "html_link": payload.get("htmlLink")})
 
 
+def book_appointment(contact=None, config=None, text="") -> dict:
+    """Book an appointment: create the calendar event (reusing
+    create_calendar_event) AND record it as a crm.Record (type "booking") + a
+    RecordEvent so the appointment is tracked and shows on the contact.
+
+    Used by the AI tool-calling loop (aicore/tools.py); the AuditLog +
+    Notification a booking fans out live in that layer (it is an AI action).
+    The CRM write is best-effort — a booking that succeeded on the calendar is
+    never failed by a bookkeeping error, and with no contact linked it degrades
+    to just the calendar event (the same skip/fail envelope as everything else).
+    """
+    result = create_calendar_event(contact=contact, config=config, text=text)
+    if not result.get("ok"):
+        return result  # not-connected skip or a calendar failure — pass through
+    if contact is not None:
+        try:
+            _record_booking(contact, config or {}, text, result.get("data") or {})
+        except Exception:
+            logger.exception("integrations: booking CRM write failed")
+    return result
+
+
+def _record_booking(contact, cfg: dict, text: str, data: dict) -> None:
+    """The CRM half of a booking: a `booking` Record + a `note` RecordEvent."""
+    from crm.models import Record
+
+    from .mapping import book_event
+
+    start = _parse_when(cfg.get("eventStart"))
+    title = str(cfg.get("eventTitle") or text or "Appointment")[:190]
+    record = Record.objects.create(
+        contact=contact,
+        tenant=getattr(contact, "tenant", None),
+        type="booking",
+        title=title,
+        status="scheduled",
+        due_date=start.date(),
+        data={"source": "ai", "start": start.isoformat(),
+              "event_id": data.get("event_id"), "html_link": data.get("html_link")},
+    )
+    book_event(record, "note", at=start,
+               data={"kind": "booking", "start": start.isoformat(),
+                     "source": "ai", "event_id": data.get("event_id")})
+
+
 def find_free_slot(contact=None, config=None, text="") -> dict:
     cfg = config or {}
     row, token = _google_ready("google_calendar")
@@ -212,6 +258,114 @@ def _first_gap(start: datetime, end: datetime, busy: list, minutes: int):
     return cursor if end - cursor >= need else None
 
 
+def find_free_slots(contact=None, config=None, text="", *, count: int = 3) -> dict:
+    """Plural sibling of `find_free_slot`: up to `count` (default 3) open slots,
+    constrained to business hours (09:00–18:00 local, configurable) and Mon–Fri.
+
+    Reuses the same freeBusy call, then walks the business-hours grid returning
+    the first N gaps that clear every busy block. Deterministic — same
+    discipline as `_first_gap`, so tests can assert on it. `find_free_slot`
+    stays untouched (the flow builder uses it). Data shape:
+    `{"slots": [{"start": iso, "human": "...", "duration_minutes": n}, …]}`.
+    """
+    from django.utils import timezone as dj_tz
+
+    cfg = config or {}
+    row, token = _google_ready("google_calendar")
+    if row is None or not token:
+        return _skip("Google Calendar is not connected — step skipped.")
+    calendar_id = str(cfg.get("calendarId") or (row.config or {}).get("calendar_id")
+                      or "primary")
+    raw_start = cfg.get("eventStart")
+    # AI availability checks search from NOW; a flow step can pin eventStart.
+    start = _parse_when(raw_start) if raw_start else dj_tz.localtime()
+    horizon = _int(cfg.get("searchDays"), 7, lo=1, hi=60)
+    minutes = _int(cfg.get("eventMinutes"), 30, lo=5, hi=480)
+    open_h = _int(cfg.get("businessOpen"), 9, lo=0, hi=23)
+    close_h = _int(cfg.get("businessClose"), 18, lo=1, hi=23)
+    want = _int(cfg.get("slotCount"), count, lo=1, hi=10)
+    end = start + timedelta(days=horizon)
+    ok, payload = _request(
+        "POST", "https://www.googleapis.com/calendar/v3/freeBusy", token=token,
+        json_body={"timeMin": start.isoformat(), "timeMax": end.isoformat(),
+                   "items": [{"id": calendar_id}]})
+    _record_result(row, ok, "" if ok else str(payload))
+    if not ok:
+        return _fail(f"Google Calendar: {payload}")
+    busy = (((payload.get("calendars") or {}).get(calendar_id) or {}).get("busy") or [])
+    slots = _walk_business_slots(start, end, busy, minutes, open_h, close_h, want)
+    data = {"slots": [{"start": s.isoformat(), "human": _slot_human(s),
+                       "duration_minutes": minutes} for s in slots]}
+    if not slots:
+        return _done("no free business-hours slot in the search window", data)
+    return _done(f"{len(slots)} free slot(s) found", data)
+
+
+def _int(value, default: int, *, lo: int | None = None, hi: int | None = None) -> int:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        n = default
+    if lo is not None:
+        n = max(lo, n)
+    if hi is not None:
+        n = min(hi, n)
+    return n
+
+
+def _busy_spans(busy: list) -> list:
+    from django.utils.dateparse import parse_datetime
+
+    spans = []
+    for b in busy:
+        if not isinstance(b, dict):
+            continue
+        s = parse_datetime(str(b.get("start") or ""))
+        e = parse_datetime(str(b.get("end") or ""))
+        if s and e:
+            spans.append((s, e))
+    spans.sort()
+    return spans
+
+
+def _slot_busy(slot_start: datetime, slot_end: datetime, spans: list) -> bool:
+    return any(s < slot_end and slot_start < e for s, e in spans)
+
+
+def _walk_business_slots(start: datetime, end: datetime, busy: list, minutes: int,
+                         open_h: int, close_h: int, count: int) -> list:
+    """The first `count` `minutes`-long slots inside [open_h:00, close_h:00) on
+    weekdays that clear every busy block. Deterministic: candidates step by the
+    slot length from each day's opening time (aligned to the grid on day one)."""
+    from django.utils import timezone as dj_tz
+
+    spans = _busy_spans(busy)
+    need = timedelta(minutes=minutes)
+    results: list = []
+    cur_date = dj_tz.localtime(start).date()
+    last_date = dj_tz.localtime(end).date()
+    while cur_date <= last_date and len(results) < count:
+        if cur_date.weekday() < 5:  # Mon–Fri
+            day_open = dj_tz.make_aware(datetime.combine(cur_date, dt_time(open_h)))
+            day_close = dj_tz.make_aware(datetime.combine(cur_date, dt_time(close_h)))
+            cand = day_open
+            if cand < start:  # first day may begin mid-session — align to the grid
+                steps = math.ceil((start - day_open) / need)
+                cand = day_open + steps * need
+            while cand + need <= day_close and cand < end and len(results) < count:
+                if not _slot_busy(cand, cand + need, spans):
+                    results.append(cand)
+                cand += need
+        cur_date += timedelta(days=1)
+    return results
+
+
+def _slot_human(dt: datetime) -> str:
+    from django.utils import timezone as dj_tz
+
+    return dj_tz.localtime(dt).strftime("%a %d %b, %I:%M %p")
+
+
 # ---- Google Drive ---------------------------------------------------------------
 
 def upload_drive_file(contact=None, config=None, text="") -> dict:
@@ -219,7 +373,7 @@ def upload_drive_file(contact=None, config=None, text="") -> dict:
     row, token = _google_ready("google_drive")
     if row is None or not token:
         return _skip("Google Drive is not connected — step skipped.")
-    filename = str(cfg.get("fileName") or "chatwood-note.txt")[:120]
+    filename = str(cfg.get("fileName") or "chatbranch-note.txt")[:120]
     folder = str(cfg.get("folderId") or (row.config or {}).get("folder_id") or "")
     metadata = {"name": filename}
     if folder:

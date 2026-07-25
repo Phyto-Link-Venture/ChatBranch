@@ -1,4 +1,4 @@
-// Mock data + helpers for the ChatWood conversation-platform dashboard POC.
+// Mock data + helpers for the ChatBranch conversation-platform dashboard POC.
 // NOTE: this file was reconstructed after it was lost to a `.gitignore` rule.
 // It intentionally uses in-memory sample data — no backend required.
 // `.gitignore` explicitly un-ignores `frontend/src/lib/` so this file survives.
@@ -257,14 +257,14 @@ export const CALL_LOGS: CallLog[] = [
 
 export const CALL_TRANSCRIPTS: Record<number, TranscriptLine[]> = {
   1: [
-    { who: 'ai', t: 'Hello, am I speaking with Ravi? I\'m calling from ChatWood Support.' },
+    { who: 'ai', t: 'Hello, am I speaking with Ravi? I\'m calling from ChatBranch Support.' },
     { who: 'contact', t: 'Yes, this is Ravi.' },
     { who: 'ai', t: 'This is a follow-up on your open support ticket. How can I help today?', kb: 'Support follow-up script' },
     { who: 'contact', t: 'Can I talk to a real person about this?' },
     { who: 'ai', t: 'Of course — I\'ll arrange for a human agent to follow up with you shortly.', kb: 'Human handoff policy' },
   ],
   2: [
-    { who: 'ai', t: 'Hi, is this Sky? Calling from ChatWood Support.' },
+    { who: 'ai', t: 'Hi, is this Sky? Calling from ChatBranch Support.' },
     { who: 'contact', t: 'Yes, speaking.' },
     { who: 'ai', t: 'Just a gentle check-in on your order. Everything looking good so far?' },
     { who: 'contact', t: 'Yes, all good, thanks.' },
@@ -305,7 +305,7 @@ export const SCHEDULED: ScheduledCall[] = [
 
 // Seed transcript for the live-calls screen.
 export const LIVE_TRANSCRIPT: TranscriptLine[] = [
-  { who: 'ai', t: 'Hello, am I speaking with Ravi? I\'m calling from ChatWood Support.' },
+  { who: 'ai', t: 'Hello, am I speaking with Ravi? I\'m calling from ChatBranch Support.' },
   { who: 'contact', t: 'Yes, that\'s me.' },
   { who: 'ai', t: 'This is a courtesy check-in on your open ticket. How are things looking?', kb: 'Support follow-up script' },
   { who: 'contact', t: 'Still waiting on a reply, actually.' },

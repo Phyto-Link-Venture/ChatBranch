@@ -1,6 +1,6 @@
-# Configuring ChatWood for your industry
+# Configuring ChatBranch for your industry
 
-ChatWood ships neutral. It knows how to hold a conversation across six channels
+ChatBranch ships neutral. It knows how to hold a conversation across six channels
 and a phone line; it knows nothing about *your* business until you tell it.
 
 This guide walks through configuring it for a real vertical end to end. Almost

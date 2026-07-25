@@ -1,6 +1,6 @@
 # Bulk record sync
 
-How to feed ChatWood from an external system of record — an ERP, a shop
+How to feed ChatBranch from an external system of record — an ERP, a shop
 backend, a ticketing system, a partner API.
 
 This is the **push** path: the source system POSTs to us on its own schedule. We

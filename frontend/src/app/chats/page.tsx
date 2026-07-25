@@ -750,7 +750,7 @@ function TemplatePickerModal({
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 flex animate-fadeIn items-center justify-center p-6"
+      className="fixed inset-0 z-50 flex animate-fadeIn items-center justify-center p-6 backdrop-blur-sm"
       style={{ background: 'rgba(4,8,18,0.72)' }}
     >
       <div
@@ -843,7 +843,7 @@ function TemplatePickerModal({
                       {bound && (
                         <span
                           className="rounded-full px-1.5 py-px font-sans text-[9px] font-bold uppercase"
-                          style={{ color: 'var(--brand-ink)', background: 'rgba(16,185,129,0.1)' }}
+                          style={{ color: 'var(--brand-ink)', background: 'rgba(59,130,246,0.1)' }}
                           title="Filled from the contact record — edit if needed"
                         >
                           auto-filled
@@ -1811,9 +1811,9 @@ export default function ChatsPage() {
                     }}
                     className="flex shrink-0 cursor-pointer items-center gap-1 rounded-full px-2 py-[3px] text-[10.5px] font-semibold transition-colors"
                     style={{
-                      background: activeChip ? 'rgba(16,185,129,0.14)' : 'var(--fill)',
+                      background: activeChip ? 'rgba(59,130,246,0.14)' : 'var(--fill)',
                       color: activeChip ? 'var(--brand-ink)' : 'var(--text-muted)',
-                      border: `1px solid ${activeChip ? 'rgba(16,185,129,0.3)' : 'var(--line)'}`,
+                      border: `1px solid ${activeChip ? 'rgba(59,130,246,0.3)' : 'var(--line)'}`,
                     }}
                   >
                     {c === 'all' ? 'All' : CHANNEL_META[c].lbl} {n > 0 && <span>{n}</span>}
@@ -1986,7 +1986,7 @@ export default function ChatsPage() {
             <div className="grid flex-1 place-content-center text-center">
               <div
                 className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-2xl text-white"
-                style={{ background: 'linear-gradient(135deg,#10B981,#059669)', boxShadow: '0 8px 24px rgba(16,185,129,0.25)' }}
+                style={{ background: 'linear-gradient(135deg,#3B82F6,#2563EB)', boxShadow: '0 8px 24px rgba(59,130,246,0.25)' }}
               >
                 <Send size={28} aria-hidden />
               </div>
@@ -2033,13 +2033,13 @@ export default function ChatsPage() {
                       style={{
                         background: active.ai_enabled && !optedOut ? 'var(--nav-active-bg)' : 'var(--fill)',
                         color: active.ai_enabled && !optedOut ? 'var(--nav-active-text)' : 'var(--text-muted)',
-                        borderColor: active.ai_enabled && !optedOut ? 'rgba(16,185,129,0.35)' : 'var(--line)',
+                        borderColor: active.ai_enabled && !optedOut ? 'rgba(59,130,246,0.35)' : 'var(--line)',
                       }}
                     >
                       AI
                       <span
                         className="relative inline-flex h-3.5 w-6 items-center rounded-full transition-colors"
-                        style={{ background: active.ai_enabled && !optedOut ? '#10B981' : 'var(--line-strong)' }}
+                        style={{ background: active.ai_enabled && !optedOut ? '#3B82F6' : 'var(--line-strong)' }}
                       >
                         <span
                           className="absolute h-2.5 w-2.5 rounded-full bg-white transition-transform"
@@ -2143,9 +2143,9 @@ export default function ChatsPage() {
                     }}
                     className="flex shrink-0 cursor-pointer items-center gap-1 rounded-full px-2 py-[3px] text-[10.5px] font-semibold transition-colors"
                     style={{
-                      background: combinedOn && !voiceOnly ? 'rgba(16,185,129,0.14)' : 'var(--fill)',
+                      background: combinedOn && !voiceOnly ? 'rgba(59,130,246,0.14)' : 'var(--fill)',
                       color: combinedOn && !voiceOnly ? 'var(--brand-ink)' : 'var(--text-muted)',
-                      border: `1px solid ${combinedOn && !voiceOnly ? 'rgba(16,185,129,0.3)' : 'var(--line)'}`,
+                      border: `1px solid ${combinedOn && !voiceOnly ? 'rgba(59,130,246,0.3)' : 'var(--line)'}`,
                     }}
                   >
                     <Layers size={10} aria-hidden /> All channels
@@ -2184,9 +2184,9 @@ export default function ChatsPage() {
                     title="Show call history only"
                     className="flex shrink-0 cursor-pointer items-center gap-1 rounded-full px-2 py-[3px] text-[10.5px] font-semibold transition-colors"
                     style={{
-                      background: voiceOnly ? 'rgba(16,185,129,0.14)' : 'var(--fill)',
+                      background: voiceOnly ? 'rgba(59,130,246,0.14)' : 'var(--fill)',
                       color: voiceOnly ? 'var(--brand-ink)' : 'var(--text-muted)',
-                      border: `1px solid ${voiceOnly ? 'rgba(16,185,129,0.3)' : 'var(--line)'}`,
+                      border: `1px solid ${voiceOnly ? 'rgba(59,130,246,0.3)' : 'var(--line)'}`,
                     }}
                   >
                     <PhoneCall size={10} aria-hidden /> Voice

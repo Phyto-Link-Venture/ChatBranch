@@ -33,7 +33,7 @@ from . import catalog, health
 
 logger = logging.getLogger(__name__)
 
-STATE_SALT = "chatwood.integrations.oauth"
+STATE_SALT = "chatbranch.integrations.oauth"
 STATE_MAX_AGE = 600      # seconds — an authorize round-trip is fast
 REFRESH_SKEW = 60        # refresh this many seconds before real expiry
 HTTP_TIMEOUT = 20

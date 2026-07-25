@@ -28,8 +28,9 @@ module.exports = {
         fill: 'var(--fill)',
         'fill-hover': 'var(--fill-hover)',
         'fill-subtle': 'var(--fill-subtle)',
-        // Brand scales — brand = EMERALD (Whatomate design language)
-        brand: { DEFAULT: '#10B981', 400: '#34D399', 300: '#6EE7B7', 200: '#A7F3D0' },
+        // Brand scales — brand = OCEAN BLUE (rebranded from emerald)
+        // DEFAULT=primary, 400=hover, 300=light/ink, 200=palest.
+        brand: { DEFAULT: '#3B82F6', 400: '#60A5FA', 300: '#93C5FD', 200: '#BFDBFE' },
         cyan: { DEFAULT: '#06B6D4', 600: '#0891B2', 300: '#67E8F9' },
         purple: { DEFAULT: '#8B5CF6', 600: '#7C3AED', 700: '#4F46E5', 400: '#A78BFA', 300: '#C4B5FD' },
         green: { DEFAULT: '#10B981', 600: '#059669', 300: '#6EE7B7' },
@@ -43,9 +44,9 @@ module.exports = {
       },
       keyframes: {
         pulseRing: {
-          '0%': { boxShadow: '0 0 0 0 rgba(16,185,129,0.5)' },
-          '70%': { boxShadow: '0 0 0 7px rgba(16,185,129,0)' },
-          '100%': { boxShadow: '0 0 0 0 rgba(16,185,129,0)' },
+          '0%': { boxShadow: '0 0 0 0 rgba(59,130,246,0.5)' },
+          '70%': { boxShadow: '0 0 0 7px rgba(59,130,246,0)' },
+          '100%': { boxShadow: '0 0 0 0 rgba(59,130,246,0)' },
         },
         pulseGreen: {
           '0%': { boxShadow: '0 0 0 0 rgba(16,185,129,0.5)' },

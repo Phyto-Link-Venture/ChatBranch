@@ -3,8 +3,11 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 
+from core import settings_api
+
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/settings/ai-providers', settings_api.ai_providers),
     path('api/', include('calls.urls')),
     path('api/v1/sync/', include('ingest.urls')),
     path('api/v1/', include('api.urls')),

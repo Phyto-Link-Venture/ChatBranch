@@ -191,7 +191,7 @@ export function AppKeysSettings() {
           label="Webhook verify token"
           value={verifyToken}
           onChange={setVerifyToken}
-          placeholder="chatwood-verify"
+          placeholder="chatbranch-verify"
           hint="Shared by all WhatsApp accounts — must match the Meta webhook form."
         />
       </div>

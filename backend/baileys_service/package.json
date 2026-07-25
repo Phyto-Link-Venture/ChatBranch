@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "WhatsApp Web sidecar for ChatWood (unofficial Baileys transport). Django is the only client.",
+  "description": "WhatsApp Web sidecar for ChatBranch (unofficial Baileys transport). Django is the only client.",
   "scripts": {
     "start": "node index.js"
   },

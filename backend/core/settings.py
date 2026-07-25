@@ -135,8 +135,8 @@ REST_FRAMEWORK = {
 }
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'ChatWood API',
-    'DESCRIPTION': 'Internal REST API for the ChatWood conversation platform (v1).',
+    'TITLE': 'ChatBranch API',
+    'DESCRIPTION': 'Internal REST API for the ChatBranch conversation platform (v1).',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
     'SECURITY': [{'BearerAuth': []}],

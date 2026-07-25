@@ -108,7 +108,7 @@ export function PersonaSettings() {
             style={
               isDefault
                 ? { color: 'var(--text-muted)', background: 'var(--fill)' }
-                : { color: 'var(--brand-ink)', background: 'rgba(16,185,129,0.1)' }
+                : { color: 'var(--brand-ink)', background: 'rgba(59,130,246,0.1)' }
             }
           >
             {isDefault ? 'Default' : 'Customized'}

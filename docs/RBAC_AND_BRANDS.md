@@ -6,7 +6,7 @@ are cosmetic and must never be treated as the control.
 ## Hierarchy
 
 ```
-Tenant                (the organization using ChatWood)
+Tenant                (the organization using ChatBranch)
  └── Brand            (a brand it operates — users get access at THIS level)
       └── DataSource  (an external system feeding that brand's records)
 

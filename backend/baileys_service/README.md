@@ -1,6 +1,6 @@
 # Baileys gateway (unofficial WhatsApp Web sidecar)
 
-A small Node sidecar that gives ChatWood a second WhatsApp transport:
+A small Node sidecar that gives ChatBranch a second WhatsApp transport:
 a **normal WhatsApp account paired by QR** (via
 [@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys)) instead
 of a Meta Cloud API business number. Django is its only client

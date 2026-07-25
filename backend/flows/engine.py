@@ -1037,8 +1037,12 @@ def start_ticker() -> bool:
         _ticker_started = True
 
     def loop():
+        from core import app_settings
         while True:
-            time.sleep(TICK_SECONDS)
+            # Read LIVE each pass (Setting-over-env) so a dashboard change to the
+            # tick cadence applies without a restart. TICK_SECONDS stays the
+            # env-derived default (help text + the flows_tick management command).
+            time.sleep(app_settings.flows_tick_seconds())
             try:
                 tick()
             except Exception:
@@ -1046,8 +1050,9 @@ def start_ticker() -> bool:
             finally:
                 close_old_connections()
 
+    from core import app_settings
     threading.Thread(target=loop, daemon=True, name="flows-ticker").start()
-    logger.info("flows: ticker started (every %ss)", TICK_SECONDS)
+    logger.info("flows: ticker started (every %ss)", app_settings.flows_tick_seconds())
     return True
 
 

@@ -84,7 +84,7 @@ App dashboard → **WhatsApp → Configuration → Webhook → Edit**:
 - **Verify token:** the value shown in **Settings → App Keys** in the dashboard
   (or `GET /api/whatsapp/settings`). If you set `WHATSAPP_VERIFY_TOKEN` in
   `.env` that value is used; if you leave it at/blank the shipped default
-  (`chatwood-verify` is public in this repo, so it is never accepted), the
+  (`chatbranch-verify` is public in this repo, so it is never accepted), the
   app **auto-generates a random token once** and persists it as a Setting row —
   always copy the live value from the dashboard, not from this doc.
 

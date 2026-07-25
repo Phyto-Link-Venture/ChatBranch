@@ -17,14 +17,21 @@ export interface AuthUser {
   token: string
 }
 
-const KEY = 'chatwood-auth'
-const LEGACY_KEY = 'ai-collector-auth' // pre-ChatWood sessions
+const KEY = 'chatbranch-auth'
+// Older key names, newest first — read so a rename migrates live sessions
+// instead of logging everyone out ('chatwood-auth' = pre-ChatBranch,
+// 'ai-collector-auth' = pre-ChatWood).
+const LEGACY_KEYS = ['chatwood-auth', 'ai-collector-auth']
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
 export function getAuth(): AuthUser | null {
   if (typeof window === 'undefined') return null
   try {
-    const raw = localStorage.getItem(KEY) ?? localStorage.getItem(LEGACY_KEY)
+    let raw = localStorage.getItem(KEY)
+    for (const k of LEGACY_KEYS) {
+      if (raw) break
+      raw = localStorage.getItem(k)
+    }
     if (!raw) return null
     const u = JSON.parse(raw) as AuthUser
     if ((u.role as string) === 'collector') u.role = 'agent' // pre-revert cached session
@@ -45,7 +52,7 @@ export function setAuth(user: AuthUser): void {
 export function clearAuth(): void {
   try {
     localStorage.removeItem(KEY)
-    localStorage.removeItem(LEGACY_KEY)
+    for (const k of LEGACY_KEYS) localStorage.removeItem(k)
   } catch {
     /* ignore */
   }

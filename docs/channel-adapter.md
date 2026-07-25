@@ -1,6 +1,6 @@
 # Channels: how they work, and how to add one
 
-A reference for the six text channels ChatWood ships with — what each one can
+A reference for the six text channels ChatBranch ships with — what each one can
 actually do, where its code lives, and what it takes to add a seventh.
 
 > ## ⚠ Open security gap: the Messenger / Instagram webhook is not signed

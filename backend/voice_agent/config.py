@@ -101,7 +101,7 @@ SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "openai/gpt-4o-mini")
 GEMINI_SUMMARY_MODEL = os.getenv("GEMINI_SUMMARY_MODEL", "gemini-2.5-flash")
 
 # --- Agent dispatch name (used by both browser token + outbound phone dispatch) ---
-AGENT_NAME = os.getenv("AGENT_NAME", "chatwood-agent")
+AGENT_NAME = os.getenv("AGENT_NAME", "chatbranch-agent")
 
 # Hard cap on call length. Failsafe hang-up if the agent's own end_call never fires
 # (e.g. the person goes silent forever). Set 0 to disable.

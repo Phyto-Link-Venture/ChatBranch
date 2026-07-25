@@ -304,7 +304,7 @@ export function KnowledgeSettings() {
           onClick={() => setKind('')}
           className="cursor-pointer rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors"
           style={{
-            borderColor: kind === '' ? 'var(--brand-400, #10B981)' : 'var(--line)',
+            borderColor: kind === '' ? 'var(--brand-400, #3B82F6)' : 'var(--line)',
             color: kind === '' ? 'var(--brand-ink)' : 'var(--text-muted)',
           }}
         >
@@ -316,7 +316,7 @@ export function KnowledgeSettings() {
             onClick={() => setKind(k.id)}
             className="cursor-pointer rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors"
             style={{
-              borderColor: kind === k.id ? 'var(--brand-400, #10B981)' : 'var(--line)',
+              borderColor: kind === k.id ? 'var(--brand-400, #3B82F6)' : 'var(--line)',
               color: kind === k.id ? 'var(--brand-ink)' : 'var(--text-muted)',
             }}
           >
@@ -442,7 +442,7 @@ export function KnowledgeSettings() {
                     }
                     className="cursor-pointer rounded-full border px-2 py-0.5 text-[10.5px] font-semibold transition-colors"
                     style={{
-                      borderColor: on ? 'var(--brand-400, #10B981)' : 'var(--line)',
+                      borderColor: on ? 'var(--brand-400, #3B82F6)' : 'var(--line)',
                       color: on ? 'var(--brand-ink)' : 'var(--text-muted)',
                     }}
                   >

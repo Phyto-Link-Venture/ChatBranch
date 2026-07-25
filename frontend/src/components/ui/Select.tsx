@@ -14,7 +14,7 @@ export interface SelectOption {
  * Themed dropdown — replaces native <select>, whose popup list is OS-drawn
  * and ignores the app theme (white panel / blue highlight on Windows dark
  * mode). Trigger + listbox both use the semantic tokens so they flip with
- * light/dark, with emerald as the selection accent.
+ * light/dark, with the blue brand as the selection accent.
  */
 export function Select({
   value,

@@ -81,7 +81,7 @@ const STAGES = [
 /** The user's saved Flow Builder library (falls back to the shipped defaults). */
 function loadWorkflowNodes(): FlowNode[] {
   try {
-    const raw = localStorage.getItem('chatwood-flow-builder-v1')
+    const raw = localStorage.getItem('chatbranch-flow-builder-v1')
     if (raw) {
       const saved = JSON.parse(raw)
       const master =
@@ -230,7 +230,7 @@ export default function ContactDetailPage() {
           <div className="flex items-center gap-3.5">
             <div
               className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[14px] text-[16px] font-extrabold text-white"
-              style={{ background: 'linear-gradient(135deg,#10B981,#0D9668)' }}
+              style={{ background: 'linear-gradient(135deg,#3B82F6,#2563EB)' }}
             >
               {initials(d.name)}
             </div>

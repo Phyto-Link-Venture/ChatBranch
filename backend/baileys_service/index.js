@@ -1,5 +1,5 @@
 /**
- * Baileys gateway — the unofficial WhatsApp Web transport for ChatWood.
+ * Baileys gateway — the unofficial WhatsApp Web transport for ChatBranch.
  *
  * A small Node sidecar (same pattern as the voice-agent worker): Django talks
  * to it over local HTTP, it talks to WhatsApp via @whiskeysockets/baileys.
@@ -295,7 +295,7 @@ async function startAccount(id) {
     auth: state,
     logger,
     printQRInTerminal: false,
-    browser: ['ChatWood', 'Chrome', '1.0'],
+    browser: ['ChatBranch', 'Chrome', '1.0'],
     syncFullHistory: false,
   })
   a.sock = sock

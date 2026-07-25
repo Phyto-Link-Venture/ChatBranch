@@ -13,8 +13,8 @@ const jakarta = Plus_Jakarta_Sans({
 })
 
 export const metadata: Metadata = {
-  title: 'ChatWood',
-  description: 'ChatWood — multi-channel conversation platform',
+  title: 'ChatBranch',
+  description: 'ChatBranch — multi-channel conversation platform',
 }
 
 export default function RootLayout({

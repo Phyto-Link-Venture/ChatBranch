@@ -26,7 +26,7 @@ export function TenantSwitcher() {
   }, [open])
 
   const label = activeBrand?.name ?? tenant ?? (loading ? 'Loading…' : 'All brands')
-  const initials = (activeBrand?.name ?? tenant ?? 'AI').slice(0, 2).toUpperCase()
+  const initials = (activeBrand?.name ?? tenant ?? 'CB').slice(0, 2).toUpperCase()
   const canSwitch = brands.length > 1
 
   return (
@@ -39,7 +39,7 @@ export function TenantSwitcher() {
       >
         <span
           className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded-lg text-[9px] font-extrabold text-white"
-          style={{ background: 'linear-gradient(135deg,#10B981,#0D9668)' }}
+          style={{ background: 'linear-gradient(135deg,#3B82F6,#2563EB)' }}
         >
           {initials}
         </span>
