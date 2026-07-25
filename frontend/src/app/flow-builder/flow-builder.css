@@ -1,0 +1,1309 @@
+/* ── Flow Builder ──────────────────────────────────────────────────────────
+   Everything is scoped under .flow-studio and resolves to the app's theme
+   tokens (globals.css), so the canvas flips light/dark with the rest of the
+   dashboard. Each node kind carries its accent as --kind; borders, rings,
+   chips and icons derive from it via color-mix.
+
+   Design rules applied (ui-ux-pro-max): semantic tokens only (no raw hex
+   surfaces), visible :focus-visible rings, hover feedback within 150ms,
+   cursor-pointer on all clickables, reduced-motion support, dense 8px
+   spacing rhythm. */
+
+.flow-studio {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* ---------- toolbar strip above the workspace (full-page navy bar) ---------- */
+.flow-studio .fb-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.flow-studio .fb-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.flow-studio .fb-toolbar-info {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* Back-to-dashboard button — matches the toolbar's navy surface controls. */
+.flow-studio .fb-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-high);
+  background: var(--fill);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.flow-studio .fb-back:hover {
+  background: var(--fill-hover);
+  color: var(--text-heading);
+}
+.flow-studio .fb-toolbar-name {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  color: var(--text-heading);
+  white-space: nowrap;
+}
+.flow-studio .fb-toolbar-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.flow-studio .fb-toolbar-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Server-sync badge: where the library lives right now (DB vs this browser). */
+.flow-studio .fb-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  align-self: center;
+}
+.flow-studio .fb-sync-synced {
+  color: var(--green-ink);
+  border-color: color-mix(in srgb, #10b981 30%, transparent);
+}
+.flow-studio .fb-sync-local,
+.flow-studio .fb-sync-readonly {
+  color: var(--amber-ink);
+  border-color: color-mix(in srgb, #f59e0b 32%, transparent);
+}
+
+/* Live toggle: arms the active workflow so the backend engine runs it. */
+.flow-studio .fb-live-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-high);
+  background: var(--fill);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.flow-studio .fb-live-toggle:hover {
+  background: var(--fill-hover);
+}
+.flow-studio .fb-live-toggle:focus-visible {
+  outline: 2px solid #10b981;
+  outline-offset: 2px;
+}
+.flow-studio .fb-live-toggle .fb-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+.flow-studio .fb-live-toggle.on {
+  color: var(--green-ink);
+  border-color: color-mix(in srgb, #10b981 45%, transparent);
+  background: color-mix(in srgb, #10b981 12%, transparent);
+}
+.flow-studio .fb-live-toggle.on .fb-live-dot {
+  background: #10b981;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #10b981 25%, transparent);
+}
+
+/* Green dot on live workflows in the sidebar list. */
+.flow-studio .wf-live-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  margin-bottom: 1px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #10b981 25%, transparent);
+}
+
+/* ---------- workspace: sidebar | canvas | config panel ----------
+   Full-page: fills the viewport below the toolbar, edge-to-edge (no card
+   chrome — the toolbar bar and panel borders carry the structure). */
+.flow-studio .fb-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+/* ---------- generic small buttons inside panels ---------- */
+.flow-studio .fb-btn {
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-high);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--fill);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.flow-studio .fb-btn:hover {
+  background: var(--fill-hover);
+}
+.flow-studio .fb-btn-danger {
+  width: 100%;
+  margin-top: 4px;
+  color: var(--red-ink);
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.08);
+}
+.flow-studio .fb-btn-danger:hover {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.45);
+}
+
+/* ---------- sidebar / palette ---------- */
+.flow-studio .fb-sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  padding: 16px 14px;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+  overflow-y: auto;
+}
+.flow-studio .fb-section-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.flow-studio .fb-sidebar .sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 12px;
+}
+
+.flow-studio .palette-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 11px;
+  margin-bottom: 8px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  cursor: grab;
+  user-select: none;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.flow-studio .palette-item:hover {
+  border-color: color-mix(in srgb, var(--kind) 45%, var(--line-strong));
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
+  transform: translateY(-1px);
+}
+.flow-studio .palette-item:active {
+  cursor: grabbing;
+  transform: translateY(0);
+}
+.flow-studio .palette-item strong {
+  display: block;
+  font-size: 12.5px;
+  margin-bottom: 1px;
+  color: var(--text-high);
+}
+.flow-studio .palette-item small {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  display: block;
+  padding-right: 12px;
+}
+.flow-studio .palette-icon {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: var(--kind);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  margin-top: 1px;
+}
+.flow-studio .palette-grip {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-faint);
+  display: grid;
+  place-items: center;
+}
+.flow-studio .palette-item:hover .palette-grip {
+  color: var(--text-muted);
+}
+
+/* ---------- workflow + skill lists ---------- */
+.flow-studio .skill-list {
+  margin-bottom: 4px;
+}
+.flow-studio .skill-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  margin-bottom: 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.flow-studio .skill-item:hover {
+  background: var(--fill);
+}
+.flow-studio .skill-item.active {
+  background: var(--card);
+  border-color: rgba(16, 185, 129, 0.28);
+  box-shadow: inset 3px 0 0 #10b981;
+}
+.flow-studio .skill-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-mid);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.flow-studio .skill-item.active .skill-name {
+  color: var(--text-heading);
+}
+.flow-studio .skill-name-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border: 1px solid #10b981;
+  border-radius: 6px;
+  outline: none;
+  background: var(--card);
+  color: var(--text-primary);
+}
+.flow-studio .skill-actions {
+  display: none;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.flow-studio .skill-item:hover .skill-actions,
+.flow-studio .skill-item:focus-within .skill-actions {
+  display: flex;
+}
+.flow-studio .skill-actions button {
+  border: none;
+  background: none;
+  padding: 3px 5px;
+  border-radius: 5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.12s, color 0.12s;
+}
+.flow-studio .skill-actions button:hover {
+  background: var(--fill-hover);
+  color: var(--text-heading);
+}
+.flow-studio .skill-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.flow-studio .skill-actions button:disabled:hover {
+  background: none;
+  color: var(--text-muted);
+}
+.flow-studio .skill-add {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-mid);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.flow-studio .skill-add:hover {
+  border-color: #10b981;
+  color: var(--brand-ink);
+  background: rgba(16, 185, 129, 0.07);
+}
+.flow-studio .skill-restore {
+  width: 100%;
+  margin-top: 6px;
+  padding: 2px;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-faint);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.flow-studio .skill-restore:hover {
+  color: var(--brand-ink);
+}
+.flow-studio .section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+.flow-studio .section-toggle:hover {
+  color: var(--text-high);
+}
+
+.flow-studio .help {
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--text-mid);
+}
+.flow-studio .help ul {
+  padding-left: 16px;
+  margin: 0;
+}
+.flow-studio .help li {
+  margin-bottom: 7px;
+  line-height: 1.45;
+}
+.flow-studio .help kbd {
+  background: var(--fill);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 5px;
+  font-size: 11px;
+  font-family: inherit;
+}
+
+/* ---------- canvas ---------- */
+.flow-studio .fb-canvas {
+  position: relative;
+  flex: 1;
+  height: 100%;
+  min-width: 0;
+}
+.flow-studio .react-flow {
+  background: var(--app);
+  /* xyflow v12 theme hooks */
+  --xy-background-pattern-dots-color-default: var(--line-strong);
+  --xy-edge-stroke-default: var(--text-faint);
+  --xy-edge-stroke-width-default: 1.8;
+  --xy-edge-label-background-color-default: var(--surface);
+  --xy-edge-label-color-default: var(--text-mid);
+  --xy-attribution-background-color-default: transparent;
+  --xy-controls-button-background-color-default: var(--card);
+  --xy-controls-button-background-color-hover-default: var(--fill-hover);
+  --xy-controls-button-color-default: var(--text-mid);
+  --xy-controls-button-border-color-default: var(--line);
+  --xy-minimap-background-color-default: var(--surface);
+  --xy-minimap-node-stroke-color-default: transparent;
+}
+
+.flow-studio .react-flow__controls {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+.flow-studio .react-flow__controls-button {
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  color: var(--text-mid);
+}
+.flow-studio .react-flow__controls-button:hover {
+  background: var(--fill-hover);
+}
+.flow-studio .react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+.flow-studio .react-flow__minimap {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+.flow-studio .react-flow__minimap-mask {
+  fill: var(--fb-minimap-mask);
+}
+.flow-studio {
+  --fb-minimap-mask: rgba(8, 14, 28, 0.72);
+}
+:root.light .flow-studio {
+  --fb-minimap-mask: rgba(238, 241, 248, 0.78);
+}
+
+.flow-studio .react-flow__attribution {
+  background: transparent;
+}
+.flow-studio .react-flow__attribution a {
+  color: var(--text-faint);
+}
+
+/* empty-canvas state (shown when the active workflow has no nodes) */
+.flow-studio .fb-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  gap: 4px;
+  pointer-events: none;
+}
+.flow-studio .fb-empty-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-mid);
+}
+.flow-studio .fb-empty-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  max-width: 300px;
+}
+
+/* ---------- custom nodes ---------- */
+.flow-studio .node-card {
+  width: 230px;
+  background: var(--card);
+  border: 1.5px solid color-mix(in srgb, var(--kind) 34%, var(--line-strong));
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), 0 4px 14px rgba(0, 0, 0, 0.1);
+  transition: border-color 0.15s, box-shadow 0.15s;
+  /* no overflow:hidden — it clips the connection handles, which sit half-outside the card */
+}
+.flow-studio .react-flow__node:hover .node-card {
+  border-color: color-mix(in srgb, var(--kind) 60%, var(--line-strong));
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12), 0 8px 22px rgba(0, 0, 0, 0.16);
+}
+/* Selection reads emerald (the app's single brand accent) — border + ring —
+   while the node's own type accent stays on its icon/badge/chips. */
+.flow-studio .react-flow__node.selected .node-card {
+  border-color: #10b981;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #10b981 30%, transparent),
+    0 8px 22px rgba(0, 0, 0, 0.16);
+}
+
+.flow-studio .node-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px 0;
+}
+.flow-studio .node-icon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  background: var(--kind);
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
+.flow-studio .node-kind {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--kind) 65%, var(--text-primary));
+}
+.flow-studio .node-label {
+  padding: 7px 11px 9px;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  color: var(--text-primary);
+}
+.flow-studio .node-label-input {
+  width: 100%;
+  min-height: 60px;
+  border: none;
+  outline: 2px solid color-mix(in srgb, var(--kind) 55%, transparent);
+  outline-offset: -2px;
+  resize: vertical;
+  padding: 7px 11px 9px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  background: var(--fill);
+  color: var(--text-primary);
+  border-radius: 0 0 10px 10px;
+}
+.flow-studio .node-config-summary {
+  border-top: 1px dashed var(--line-strong);
+  padding: 6px 11px 8px;
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+.flow-studio .node-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 2px 0 3px;
+}
+.flow-studio .chip {
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--kind) 30%, var(--line));
+  background: color-mix(in srgb, var(--kind) 12%, transparent);
+  color: color-mix(in srgb, var(--kind) 55%, var(--text-primary));
+  font-size: 9.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.flow-studio .node-script {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.flow-studio .node-script span {
+  font-weight: 600;
+  color: var(--text-mid);
+}
+
+/* ---------- stage section (day-range lane) ---------- */
+.flow-studio .section-node {
+  width: 100%;
+  height: 100%;
+  border: 1.5px dashed color-mix(in srgb, var(--kind) 45%, var(--line-strong));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--kind) 5%, transparent);
+  transition: border-color 0.15s, background 0.15s;
+}
+.flow-studio .react-flow__node:hover .section-node {
+  border-color: color-mix(in srgb, var(--kind) 65%, var(--line-strong));
+}
+.flow-studio .react-flow__node.selected .section-node {
+  border-style: solid;
+  border-color: #10b981;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #10b981 22%, transparent);
+  background: color-mix(in srgb, var(--kind) 8%, transparent);
+}
+.flow-studio .section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--kind) 30%, var(--line));
+  background: color-mix(in srgb, var(--kind) 9%, var(--surface));
+  border-radius: 13px 13px 0 0;
+}
+.flow-studio .section-head .node-label {
+  flex: 1;
+  padding: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-high);
+}
+.flow-studio .section-head .node-label-input {
+  flex: 1;
+  min-height: 34px;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.flow-studio .section-chip {
+  flex-shrink: 0;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--kind);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.flow-studio .decision-legend {
+  display: flex;
+  justify-content: space-around;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 0 6px 5px;
+  pointer-events: none; /* don't steal the mouse from the Yes/No handles underneath */
+}
+.flow-studio .decision-legend .yes {
+  color: var(--green-ink);
+}
+.flow-studio .decision-legend .no {
+  color: var(--red-ink);
+}
+
+/* ---------- handles & edges ---------- */
+.flow-studio .react-flow__handle {
+  width: 14px;
+  height: 14px;
+  background: var(--text-muted);
+  border: 2px solid var(--surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  cursor: crosshair;
+  transition: background 0.15s, transform 0.1s;
+}
+.flow-studio .react-flow__handle:hover {
+  background: #10b981;
+  transform: scale(1.15);
+}
+.flow-studio .react-flow__handle.handle-yes {
+  background: #10b981;
+}
+.flow-studio .react-flow__handle.handle-no {
+  background: #ef4444;
+}
+.flow-studio .react-flow__handle.handle-yes:hover,
+.flow-studio .react-flow__handle.handle-no:hover {
+  filter: brightness(1.15);
+}
+
+.flow-studio .react-flow__edge-path {
+  stroke: var(--text-faint);
+  stroke-width: 1.8;
+}
+.flow-studio .react-flow__edge:hover .react-flow__edge-path {
+  stroke: var(--text-mid);
+}
+.flow-studio .react-flow__edge.selected .react-flow__edge-path {
+  stroke: #10b981;
+  stroke-width: 2.2;
+}
+.flow-studio .react-flow__connection-path {
+  stroke: #10b981;
+  stroke-width: 2;
+}
+
+.flow-studio .react-flow__edge-textbg {
+  fill: var(--surface);
+}
+.flow-studio .react-flow__edge-text {
+  font-size: 10px;
+  font-weight: 700;
+  fill: var(--text-mid);
+}
+
+/* ---------- n8n-style config panel ---------- */
+.flow-studio .config-panel {
+  width: 312px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  animation: fb-panel-in 0.16s ease-out;
+}
+@keyframes fb-panel-in {
+  from {
+    transform: translateX(14px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.flow-studio .config-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--line);
+  box-shadow: inset 0 3px 0 var(--kind);
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 1;
+}
+.flow-studio .config-icon {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: var(--kind);
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
+.flow-studio .config-title {
+  flex: 1;
+  min-width: 0;
+}
+.flow-studio .config-kind {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+.flow-studio .config-hint {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.flow-studio .config-close {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  transition: background 0.12s, color 0.12s;
+}
+.flow-studio .config-close:hover {
+  color: var(--text-heading);
+  background: var(--fill-hover);
+}
+
+.flow-studio .config-body {
+  padding: 14px;
+  flex: 1;
+}
+.flow-studio .config-field {
+  display: block;
+  margin-bottom: 14px;
+}
+.flow-studio .config-field > span {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-high);
+  margin-bottom: 4px;
+}
+.flow-studio .config-field input,
+.flow-studio .config-field select,
+.flow-studio .config-field textarea {
+  width: 100%;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--card);
+  color: var(--text-primary);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.flow-studio .config-field textarea {
+  resize: vertical;
+  line-height: 1.45;
+}
+.flow-studio .config-field input:focus,
+.flow-studio .config-field select:focus,
+.flow-studio .config-field textarea:focus {
+  outline: none;
+  border-color: var(--kind, #10b981);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--kind, #10b981) 18%, transparent);
+}
+.flow-studio .config-field small {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.flow-studio .multi-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.flow-studio .multi-chip {
+  padding: 5px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--card);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-mid);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.flow-studio .multi-chip:hover {
+  border-color: var(--text-faint);
+}
+.flow-studio .multi-chip.on {
+  background: color-mix(in srgb, var(--kind, #10b981) 14%, transparent);
+  border-color: var(--kind, #10b981);
+  color: color-mix(in srgb, var(--kind, #10b981) 55%, var(--text-primary));
+}
+
+/* Trigger "Apply to contacts": mode select + server-searched picker. Chips here
+   show only the CHOSEN contacts, never the book — it can be six figures. */
+.flow-studio .contact-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.flow-studio .contact-scope-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.flow-studio .contact-scope-chips:empty {
+  display: none;
+}
+.flow-studio .contact-scope-chips .multi-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: default;
+}
+.flow-studio .contact-scope-chips .multi-chip button {
+  display: grid;
+  place-items: center;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.65;
+}
+.flow-studio .contact-scope-chips .multi-chip button:hover {
+  opacity: 1;
+}
+
+.flow-studio .config-footer {
+  padding: 10px 14px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--line);
+  background: var(--fill-subtle);
+}
+
+/* ---------- variable picker (under script fields) ---------- */
+.flow-studio .var-picker {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--fill-subtle);
+  overflow: hidden;
+}
+.flow-studio .var-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-high);
+  cursor: pointer;
+}
+.flow-studio .var-toggle:hover {
+  background: var(--fill);
+}
+.flow-studio .var-caret {
+  transition: transform 0.15s;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.flow-studio .var-caret.open {
+  transform: rotate(90deg);
+}
+
+.flow-studio .var-group {
+  padding: 2px 6px 6px;
+}
+.flow-studio .var-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 6px 4px 3px;
+}
+.flow-studio .var-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.flow-studio .var-row:hover {
+  background: color-mix(in srgb, var(--kind, #10b981) 12%, transparent);
+}
+.flow-studio .var-token {
+  flex-shrink: 0;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--brand-ink);
+}
+.flow-studio .var-desc {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+/* ---------- WhatsApp template mode (Action step → WhatsApp channel) ---------- */
+/* "Template" badge on the node card: solid kind-color so template sends read
+   at a glance on the canvas (white text on the emerald action accent works in
+   both themes). */
+.flow-studio .chip.chip-template {
+  background: var(--kind);
+  border-color: var(--kind);
+  color: #fff;
+}
+
+/* Free text ↔ Template segmented switch */
+.flow-studio .wa-mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.flow-studio .wa-mode-btn {
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--card);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-mid);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.flow-studio .wa-mode-btn:hover {
+  border-color: var(--text-faint);
+}
+.flow-studio .wa-mode-btn small {
+  display: block;
+  margin-top: 1px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.flow-studio .wa-mode-btn.on {
+  background: color-mix(in srgb, var(--kind, #10b981) 14%, transparent);
+  border-color: var(--kind, #10b981);
+  color: color-mix(in srgb, var(--kind, #10b981) 55%, var(--text-primary));
+}
+
+/* template picker list */
+.flow-studio .tpl-list-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.flow-studio .tpl-refresh,
+.flow-studio .tpl-retry {
+  border: none;
+  background: none;
+  padding: 2px 4px;
+  border-radius: 5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  transition: background 0.12s, color 0.12s;
+}
+.flow-studio .tpl-refresh:hover,
+.flow-studio .tpl-retry:hover {
+  background: var(--fill-hover);
+  color: var(--text-heading);
+}
+.flow-studio .tpl-retry {
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.flow-studio .tpl-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 9px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.flow-studio .tpl-status.tpl-error {
+  color: var(--red-ink);
+}
+.flow-studio .tpl-spin {
+  animation: tpl-spin 0.9s linear infinite;
+}
+@keyframes tpl-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.flow-studio .tpl-list {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--fill-subtle);
+  overflow-y: auto;
+  max-height: 200px;
+}
+.flow-studio .tpl-row {
+  display: block;
+  width: 100%;
+  padding: 7px 9px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.flow-studio .tpl-row-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* two-line body excerpt so operators can pick without hovering */
+.flow-studio .tpl-row-body {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 3px;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.flow-studio .tpl-row:last-child {
+  border-bottom: none;
+}
+.flow-studio .tpl-row:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--kind, #10b981) 10%, transparent);
+}
+.flow-studio .tpl-row.on {
+  background: color-mix(in srgb, var(--kind, #10b981) 14%, transparent);
+  box-shadow: inset 3px 0 0 var(--kind, #10b981);
+}
+.flow-studio .tpl-row:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.flow-studio .tpl-row.tpl-missing {
+  cursor: default;
+}
+.flow-studio .tpl-name {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-high);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.flow-studio .tpl-tag {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--fill);
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.flow-studio .tpl-tag.tpl-status-approved {
+  color: var(--green-ink);
+  background: color-mix(in srgb, #10b981 12%, transparent);
+}
+.flow-studio .tpl-tag.tpl-status-pending {
+  color: var(--amber-ink);
+  background: color-mix(in srgb, #f59e0b 12%, transparent);
+}
+.flow-studio .tpl-tag.tpl-status-rejected {
+  color: var(--red-ink);
+  background: color-mix(in srgb, #ef4444 12%, transparent);
+}
+
+/* live body preview: {{n}} slots highlight amber until filled, then green */
+.flow-studio .tpl-preview {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-mid);
+  white-space: pre-wrap;
+}
+.flow-studio .tpl-ph {
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, #f59e0b 16%, transparent);
+  color: var(--amber-ink);
+}
+.flow-studio .tpl-ph.filled {
+  background: color-mix(in srgb, #10b981 14%, transparent);
+  color: var(--brand-ink);
+}
+.flow-studio .tpl-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px dashed var(--line);
+}
+.flow-studio .tpl-btn-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--fill);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-mid);
+  white-space: nowrap;
+}
+
+/* per-{{n}} variable inputs + CRM quick-insert chips */
+.flow-studio .tpl-vars {
+  margin-top: 8px;
+}
+.flow-studio .tpl-var-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+}
+.flow-studio .tpl-var-slot {
+  flex-shrink: 0;
+  width: 38px;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--brand-ink);
+}
+.flow-studio .tpl-var-row input {
+  flex: 1;
+  min-width: 0;
+}
+.flow-studio .tpl-quick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+}
+.flow-studio .tpl-quick-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-right: 2px;
+}
+.flow-studio .tpl-quick-chip {
+  padding: 2px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--card);
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--brand-ink);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.flow-studio .tpl-quick-chip:hover {
+  background: color-mix(in srgb, var(--kind, #10b981) 12%, transparent);
+  border-color: var(--kind, #10b981);
+}
+
+/* ---------- accessibility: keyboard focus + reduced motion ---------- */
+.flow-studio button:focus-visible,
+.flow-studio [draggable='true']:focus-visible,
+.flow-studio input:focus-visible,
+.flow-studio select:focus-visible,
+.flow-studio textarea:focus-visible {
+  outline: 2px solid #10b981;
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-studio .config-panel,
+  .flow-studio .tpl-spin {
+    animation: none;
+  }
+  .flow-studio .palette-item,
+  .flow-studio .react-flow__handle {
+    transition: none;
+    transform: none;
+  }
+  .flow-studio .react-flow__edge.animated .react-flow__edge-path {
+    animation: none;
+  }
+}

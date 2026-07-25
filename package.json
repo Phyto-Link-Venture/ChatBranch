@@ -1,0 +1,20 @@
+{
+  "name": "chatwood",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "setup": "npm run setup:api && npm run setup:web && npm run setup:baileys",
+    "setup:api": "cd backend && py -3.13 -m venv venv && venv\\Scripts\\python -m pip install -r requirements.txt && (if not exist .env copy .env.example .env) && venv\\Scripts\\python manage.py migrate && venv\\Scripts\\python manage.py seed_demo",
+    "setup:web": "cd frontend && npm install",
+    "setup:baileys": "cd backend\\baileys_service && npm install",
+    "dev:all": "concurrently -n api,agent,web,wa -c blue,magenta,green,yellow \"npm run dev:api\" \"npm run dev:agent\" \"npm run dev:web\" \"npm run dev:baileys\"",
+    "dev": "npm run dev:all",
+    "dev:api": "cd backend && venv\\Scripts\\python manage.py runserver 0.0.0.0:8000",
+    "dev:agent": "cd backend\\voice_agent && ..\\venv\\Scripts\\python agent.py dev",
+    "dev:web": "cd frontend && npm run dev",
+    "dev:baileys": "cd backend\\baileys_service && npm start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.0"
+  }
+}

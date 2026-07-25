@@ -1,0 +1,290 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Theme tokens ──────────────────────────────────────────────────────────
+   :root is the dark theme (default). the `.light` class on <html> overrides the same
+   vars for light. Every semantic Tailwind color (app/surface/card/text-*) and
+   the neutral line/fill tokens resolve to these — so the whole UI flips by
+   swapping one attribute on <html>. Brand accents stay identical in both. */
+/* Palette: "Navy + Emerald" console (design_handoff_full_app/design.md).
+   Dark = navy ground (#080D18) with layered panels; EMERALD is the single
+   brand accent. Surface layers, lightest→deepest:
+     --app   page ground            (#080D18)
+     --surface topbar / sidebar / outer shell panels (#101A2E)
+     --panel main content panel + wells inside cards  (#0D1526)
+     --card  nested cards           (#111C33)
+     --well  recessed well inside a card (same as --panel) */
+:root {
+  --app: #080d18;
+  --surface: #101a2e;
+  --panel: #0d1526;
+  --card: #111c33;
+  --well: #0d1526;
+
+  --text-primary: #e7ecf5;
+  --text-heading: #ffffff;
+  --text-high: #dce6fa;
+  --text-mid: #9aa8c2;
+  --text-muted: #7c8aa6;
+  --text-faint: #5b6b87;
+
+  --line: rgba(255, 255, 255, 0.06);
+  --line-strong: rgba(255, 255, 255, 0.1);
+  --fill: rgba(255, 255, 255, 0.04);
+  --fill-hover: rgba(255, 255, 255, 0.07);
+  --fill-subtle: rgba(255, 255, 255, 0.025);
+
+  /* Selected/active nav = emerald tint fill + light-emerald text. */
+  --nav-active-bg: rgba(16, 185, 129, 0.14);
+  --nav-active-text: #5eeab2;
+
+  /* Accent "ink" — readable accent TEXT color per theme. */
+  --brand-ink: #5eeab2;
+  --amber-ink: #fbbf24;
+  --green-ink: #34d399;
+  --red-ink: #f87171;
+  --blue-ink: #60a5fa;
+  --purple-ink: #a78bfa;
+}
+
+/* Light variant — a cohesive cool-grey / navy-tinted light theme that pairs
+   with the navy dark (design.md specs dark only). Layering is intentional:
+   a soft cool-grey desk (--app), white chrome (--surface), an off-white main
+   panel (--panel) so white cards pop on it, and cooler recessed wells. */
+:root.light {
+  --app: #eceff5;
+  --surface: #ffffff;
+  --panel: #f5f7fb;
+  --card: #ffffff;
+  --well: #eef1f7;
+
+  --text-primary: #1c2536;
+  --text-heading: #0b1220;
+  --text-high: #2b364f;
+  --text-mid: #566085;
+  --text-muted: #737e9c;
+  --text-faint: #9aa4bb;
+
+  --line: rgba(16, 24, 40, 0.09);
+  --line-strong: rgba(16, 24, 40, 0.16);
+  --fill: rgba(16, 24, 40, 0.045);
+  --fill-hover: rgba(16, 24, 40, 0.075);
+  --fill-subtle: rgba(16, 24, 40, 0.03);
+
+  --nav-active-bg: rgba(16, 185, 129, 0.13);
+  --nav-active-text: #047857;
+
+  --brand-ink: #047857;
+  --amber-ink: #b45309;
+  --green-ink: #059669;
+  --red-ink: #dc2626;
+  --blue-ink: #2563eb;
+  --purple-ink: #7c3aed;
+}
+
+/* Light-mode contrast fixes. The accent scales' pale shades (200/300/400) are
+   tuned for dark surfaces; on white they wash out. Darken them for TEXT only
+   in light mode — translucent background tints stay pale and are left alone.
+   Scoped to :root.light so specificity beats the Tailwind utility
+   and dark mode is untouched. */
+:root.light .text-brand-200,
+:root.light .text-brand-300 {
+  color: #047857;
+}
+:root.light .text-brand-400 {
+  color: #059669;
+}
+:root.light .text-cyan-300 {
+  color: #0891b2;
+}
+:root.light .text-green-300 {
+  color: #059669;
+}
+:root.light .text-amber-300 {
+  color: #b45309;
+}
+:root.light .text-red-300 {
+  color: #dc2626;
+}
+:root.light .text-purple-300 {
+  color: #7c3aed;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    background: var(--app);
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+}
+
+/* Thin brand scrollbar (matches prototype) */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(16, 185, 129, 0.35);
+  border-radius: 4px;
+}
+
+/* Hide scrollbar for horizontal nav */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Waveform bars — per-bar keyframes referenced by inline animation names */
+@keyframes wave1 {
+  0%,
+  100% {
+    height: 4px;
+  }
+  50% {
+    height: 18px;
+  }
+}
+@keyframes wave2 {
+  0%,
+  100% {
+    height: 8px;
+  }
+  50% {
+    height: 22px;
+  }
+}
+@keyframes wave3 {
+  0%,
+  100% {
+    height: 6px;
+  }
+  50% {
+    height: 14px;
+  }
+}
+@keyframes wave4 {
+  0%,
+  100% {
+    height: 10px;
+  }
+  50% {
+    height: 20px;
+  }
+}
+@keyframes pulseRing {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(16, 185, 129, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+@keyframes pulseGreen {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(16, 185, 129, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Shared hover tints (theme-aware via tokens) */
+.trow {
+  transition: background 0.1s;
+}
+.trow:hover {
+  background: var(--fill-subtle) !important;
+}
+.lcard:hover {
+  background: var(--fill-subtle) !important;
+}
+.nav-row:hover {
+  background: var(--fill-hover) !important;
+  color: var(--text-high) !important;
+}
+
+/* ── Navy-redesign helpers ─────────────────────────────────────────────────
+   Channel-Health "folder tab" fan: the active tab lifts with a soft top
+   shadow and merges into the panel below (no bottom border, square-ish top). */
+.fan-tab {
+  border: 1px solid var(--line);
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  background: #182238;
+  transition: background 0.12s, color 0.12s;
+}
+:root.light .fan-tab {
+  background: #e6ebf3;
+}
+.fan-tab.active {
+  background: var(--panel);
+  box-shadow: 0 -3px 8px rgba(0, 0, 0, 0.3);
+}
+:root.light .fan-tab.active {
+  box-shadow: 0 -3px 8px rgba(16, 24, 40, 0.08);
+}
+
+/* Placeholder/demo-data marker — 5px amber dot next to a stat sub-line.
+   title="Placeholder data — not wired to live figures" */
+.demo-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--amber-ink);
+  vertical-align: middle;
+}
+
+/* Collapsible-sidebar label fade: parent .nav-collapsed hides item labels. */
+.nav-collapsed .nav-label {
+  display: none;
+}

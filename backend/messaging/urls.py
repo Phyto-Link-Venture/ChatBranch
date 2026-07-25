@@ -1,0 +1,37 @@
+from django.urls import path
+
+from . import views
+
+urlpatterns = [
+    path("webhook", views.webhook),
+    path("webhook/telegram/<str:token>", views.telegram_webhook),
+    path("status", views.status),
+    path("settings", views.settings_view),
+    path("settings/test", views.settings_test),
+    path("email/sync", views.email_sync),
+    path("accounts", views.accounts),
+    path("accounts/<str:account_id>", views.account_detail),
+    path("accounts/<str:account_id>/test", views.account_test),
+    path("accounts/<str:account_id>/set-webhook", views.account_set_webhook),
+    path("media/<int:message_pk>", views.media_file),
+    path("agents", views.agents),
+    path("contacts", views.contacts),
+    path("contacts/vcard", views.contacts_vcard),
+    path("contacts/<int:contact_id>/conversation", views.contact_conversation),
+    path("canned", views.canned),
+    path("canned/<int:canned_id>", views.canned_detail),
+    path("engagement", views.engagement_stats),
+    path("timeline", views.contact_timeline),
+    path("timeline/summary", views.contact_summary),
+    path("threads", views.threads),
+    path("threads/<str:channel>/<str:key>", views.thread_detail),
+    path("threads/<str:channel>/<str:key>/send", views.send_message),
+    path("threads/<str:channel>/<str:key>/ai", views.toggle_ai),
+    path("threads/<str:channel>/<str:key>/status", views.set_status),
+    path("threads/<str:channel>/<str:key>/assign", views.assign),
+    path("threads/<str:channel>/<str:key>/labels", views.set_labels),
+    path("threads/<str:channel>/<str:key>/note", views.add_note),
+    path("threads/<str:channel>/<str:key>/link", views.link_contact),
+    path("threads/<str:channel>/<str:key>/summary", views.thread_summary),
+    path("threads/<str:channel>/<str:key>/simulate", views.simulate_inbound),
+]

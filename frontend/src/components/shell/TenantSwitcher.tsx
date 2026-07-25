@@ -1,0 +1,82 @@
+'use client'
+
+import { useEffect, useRef, useState } from 'react'
+import { Check, ChevronDown } from 'lucide-react'
+import { useBrand } from '@/lib/BrandContext'
+
+/**
+ * Topbar brand/tenant switcher chip (design.md): logo square + current brand
+ * name + chevron. Opens a menu of the brands the signed-in user may see (from
+ * BrandContext -> /api/v1/brands ∩ /api/v1/whoami). Picking one sets the
+ * active brand that brand-scoped screens filter by. A user with a single
+ * brand gets a static chip (no menu).
+ */
+export function TenantSwitcher() {
+  const { tenant, brands, activeBrand, setActiveBrand, loading } = useBrand()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
+  const label = activeBrand?.name ?? tenant ?? (loading ? 'Loading…' : 'All brands')
+  const initials = (activeBrand?.name ?? tenant ?? 'AI').slice(0, 2).toUpperCase()
+  const canSwitch = brands.length > 1
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => canSwitch && setOpen((v) => !v)}
+        disabled={!canSwitch}
+        title={canSwitch ? 'Switch brand' : label}
+        className="flex h-[34px] items-center gap-2 rounded-xl border border-line bg-fill px-2.5 text-text-high transition-colors hover:bg-fill-hover disabled:cursor-default disabled:hover:bg-fill"
+      >
+        <span
+          className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded-lg text-[9px] font-extrabold text-white"
+          style={{ background: 'linear-gradient(135deg,#10B981,#0D9668)' }}
+        >
+          {initials}
+        </span>
+        <span className="max-w-[130px] truncate text-[12.5px] font-semibold">{label}</span>
+        {canSwitch && <ChevronDown size={14} strokeWidth={2} className="shrink-0 text-text-muted" />}
+      </button>
+
+      {open && canSwitch && (
+        <div
+          className="absolute right-0 z-50 mt-1.5 w-[220px] animate-slideDown overflow-hidden rounded-xl border border-line bg-card p-1 shadow-2xl"
+          role="menu"
+        >
+          {tenant && (
+            <div className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-text-faint">
+              {tenant}
+            </div>
+          )}
+          {brands.map((b) => {
+            const active = b.slug === activeBrand?.slug
+            return (
+              <button
+                key={b.slug}
+                role="menuitemradio"
+                aria-checked={active}
+                onClick={() => {
+                  setActiveBrand(b.slug)
+                  setOpen(false)
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12.5px] text-text-high transition-colors hover:bg-fill-hover"
+              >
+                <span className="min-w-0 flex-1 truncate font-medium">{b.name}</span>
+                {active && <Check size={14} strokeWidth={2.25} className="shrink-0 text-brand-400" />}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}

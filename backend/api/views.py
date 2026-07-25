@@ -1,0 +1,288 @@
+"""v1 API views: identity, RBAC-scoped resources, and user/brand management.
+
+Access rules (see api/rbac.py):
+- superadmin : everything, all tenants.
+- admin      : all brands within their own tenant; creates agents.
+- agent      : only their assigned brands; read-only work queues.
+"""
+from __future__ import annotations
+
+from django.contrib.auth.models import User
+from drf_spectacular.utils import extend_schema
+from rest_framework import generics
+from rest_framework.filters import OrderingFilter, SearchFilter
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from crm import user_service as usvc
+from crm.auth import audit
+from crm.models import Contact
+from ingest.models import Brand, Tenant
+from . import rbac
+from .permissions import IsAdmin, IsAuthenticatedProfile
+from .serializers import BrandSerializer, ContactSerializer
+from .tenancy import current_tenant
+
+
+def _svc_err(e: usvc.UserMgmtError) -> Response:
+    return Response({"error": {"code": e.code, "message": e.message}}, status=e.status)
+
+
+class PingView(APIView):
+    """Liveness probe for the v1 API. No auth."""
+    authentication_classes: list = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="Ping")
+    def get(self, request):
+        return Response({"status": "ok", "version": "v1"})
+
+
+class WhoAmIView(APIView):
+    """Authenticated user: role, tenant, and accessible brand slugs."""
+    permission_classes = [IsAuthenticatedProfile]
+
+    @extend_schema(summary="Current user")
+    def get(self, request):
+        user = request.user
+        tenant = current_tenant(request)
+        return Response({
+            "username": user.username,
+            "name": user.first_name or user.username,
+            "role": rbac.role(user),
+            "tenant": tenant.slug if tenant else None,
+            "brands": list(rbac.accessible_brands(user).values_list("slug", flat=True)),
+        })
+
+
+@extend_schema(tags=["contacts"], summary="List contacts (brand-scoped)")
+class ContactListView(generics.ListAPIView):
+    """Contacts the caller may see. superadmin/admin -> their tenant; agent ->
+    only contacts active on their assigned brands (via ContactBrand)."""
+    serializer_class = ContactSerializer
+    filter_backends = [SearchFilter, OrderingFilter]
+    search_fields = ["name", "phone", "email", "external_id"]
+    ordering_fields = ["updated_at", "name", "status"]
+
+    def get_queryset(self):
+        user = self.request.user
+        r = rbac.role(user)
+        if r == "superadmin":
+            qs = Contact.objects.all()
+        elif r == "admin":
+            tenant = rbac.user_tenant(user)
+            qs = Contact.objects.filter(tenant=tenant) if tenant else Contact.objects.none()
+        elif r == "agent":
+            qs = Contact.objects.filter(
+                brand_links__brand__in=rbac.accessible_brands(user)).distinct()
+        else:
+            qs = Contact.objects.none()
+        return qs.order_by("-updated_at")
+
+    @extend_schema(summary="Create a contact (admin+)")
+    def post(self, request):
+        """Create a contact by hand (the dashboard's Add-contact form). Tenant =
+        the caller's (superadmin may pass a "tenant" slug); linked to every
+        brand in that tenant unless `brand_ids` narrows it. 409 when the phone
+        already exists in-tenant (phone is the identity key everywhere)."""
+        from crm.models import ContactBrand
+
+        if rbac.role(request.user) not in ("superadmin", "admin"):
+            return Response({"error": {"code": "forbidden",
+                                       "message": "Admin role required to create contacts."}},
+                            status=403)
+        if rbac.role(request.user) == "superadmin" and request.data.get("tenant"):
+            tenant = Tenant.objects.filter(slug=request.data["tenant"]).first()
+        else:
+            tenant = rbac.user_tenant(request.user)
+        if tenant is None:
+            return Response({"error": {"code": "bad_request",
+                                       "message": "No tenant to create the contact under."}},
+                            status=400)
+        name = str(request.data.get("name") or "").strip()
+        phone = str(request.data.get("phone") or "").strip()
+        if not name or not phone:
+            return Response({"error": {"code": "bad_request",
+                                       "message": "name and phone are required."}}, status=400)
+        if Contact.objects.filter(tenant=tenant, phone=phone).exists():
+            return Response({"error": {"code": "conflict",
+                                       "message": "A contact with this phone already exists."}},
+                            status=409)
+
+        def pick(field, choices, default):
+            value = str(request.data.get(field) or "").strip().lower()
+            return value if value in {c for c, _ in choices} else default
+
+        tags = request.data.get("tags")
+        attributes = request.data.get("attributes")
+        contact = Contact.objects.create(
+            tenant=tenant, name=name, phone=phone,
+            email=str(request.data.get("email") or "").strip(),
+            language=str(request.data.get("language") or "").strip().lower()
+            if str(request.data.get("language") or "").strip().lower() in Contact.SUPPORTED_LANGUAGES
+            else "en",
+            status=pick("status", Contact.STATUS_CHOICES, "pending"),
+            method=pick("method", Contact.METHOD_CHOICES, "ai-call"),
+            company_name=str(request.data.get("company") or tenant.name).strip(),
+            external_id=str(request.data.get("external_id") or "").strip()[:64],
+            tags=list(tags) if isinstance(tags, list) else [],
+            attributes=dict(attributes) if isinstance(attributes, dict) else {},
+            notes=str(request.data.get("notes") or "").strip(),
+        )
+        brand_ids = request.data.get("brand_ids") or []
+        brands = Brand.objects.filter(tenant=tenant)
+        if isinstance(brand_ids, list) and brand_ids:
+            brands = brands.filter(id__in=brand_ids)
+        for b in brands:
+            ContactBrand.objects.get_or_create(contact=contact, brand=b)
+        audit(request, "contact.create", target=phone,
+              detail=f"name={name} tenant={tenant.slug}")
+        return Response(ContactSerializer(contact).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema(tags=["contacts"])
+class ContactDetailView(APIView):
+    """Single-contact updates. PATCH accepts `language` only for now (the
+    contact-details page's inline editor) — the AI conducts calls and hints
+    STT in this language, so it's operator-tunable per contact. Scoping
+    mirrors ContactListView: superadmin all, admin their tenant, agent
+    their assigned brands."""
+
+    def _scoped(self, request):
+        r = rbac.role(request.user)
+        if r == "superadmin":
+            return Contact.objects.all()
+        if r == "admin":
+            tenant = rbac.user_tenant(request.user)
+            return Contact.objects.filter(tenant=tenant) if tenant else Contact.objects.none()
+        if r == "agent":
+            return Contact.objects.filter(
+                brand_links__brand__in=rbac.accessible_brands(request.user)).distinct()
+        return Contact.objects.none()
+
+    @extend_schema(summary="Update a contact (language)")
+    def patch(self, request, pk: int):
+        contact = self._scoped(request).filter(pk=pk).first()
+        if contact is None:
+            return Response({"error": {"code": "not_found",
+                                       "message": "No such contact (or not visible to you)."}},
+                            status=404)
+        changed = []
+        if "language" in request.data:
+            language = str(request.data.get("language") or "").strip().lower()
+            if language not in Contact.SUPPORTED_LANGUAGES:
+                return Response({"error": {"code": "bad_request",
+                                           "message": "language must be one of "
+                                                      f"{', '.join(Contact.SUPPORTED_LANGUAGES)}."}},
+                                status=400)
+            contact.language = language
+            changed.append("language")
+        if changed:
+            contact.save(update_fields=changed + ["updated_at"])
+            audit(request, "contact.update", target=contact.phone,
+                  detail=f"{', '.join(changed)} -> " +
+                         ", ".join(str(getattr(contact, f)) for f in changed))
+        return Response(ContactSerializer(contact).data)
+
+
+@extend_schema(tags=["brands"])
+class BrandsView(APIView):
+    """List brands the caller can access; create a brand (superadmin any tenant,
+    admin in their own tenant)."""
+    permission_classes = [IsAuthenticatedProfile]
+
+    def get(self, request):
+        brands = rbac.accessible_brands(request.user).order_by("tenant__slug", "slug")
+        return Response({"brands": BrandSerializer(brands, many=True).data})
+
+    def post(self, request):
+        if rbac.role(request.user) not in ("superadmin", "admin"):
+            return Response({"error": {"code": "forbidden",
+                                       "message": "Admin role required."}}, status=403)
+        name = (request.data.get("name") or "").strip()
+        slug = (request.data.get("slug") or "").strip().lower()
+        if not name or not slug:
+            return Response({"error": {"code": "bad_request",
+                                       "message": "name and slug are required."}}, status=400)
+        # superadmin may target any tenant; admin is pinned to their own.
+        if rbac.role(request.user) == "superadmin":
+            tslug = request.data.get("tenant")
+            tenant = Tenant.objects.filter(slug=tslug).first() if tslug else None
+            if tenant is None:
+                return Response({"error": {"code": "bad_request",
+                                           "message": "tenant slug required."}}, status=400)
+        else:
+            tenant = rbac.user_tenant(request.user)
+        if Brand.objects.filter(tenant=tenant, slug=slug).exists():
+            return Response({"error": {"code": "conflict",
+                                       "message": "Brand slug already exists in this tenant."}}, status=409)
+        brand = Brand.objects.create(tenant=tenant, name=name, slug=slug)
+        audit(request, "brand.create", target=f"{tenant.slug}/{slug}")
+        return Response(BrandSerializer(brand).data, status=201)
+
+
+@extend_schema(tags=["users"])
+class UsersView(APIView):
+    """Canonical user management (single source of truth: crm.user_service).
+    GET list / POST create. superadmin: everyone; admin: only agents in
+    their own tenant (+ brand assignment); agent: 403."""
+    permission_classes = [IsAdmin]  # admin or superadmin
+
+    def get(self, request):
+        tenant = rbac.user_tenant(request.user)
+        rows = usvc.list_users(rbac.role(request.user), tenant.id if tenant else None)
+        return Response({"users": [usvc.managed_user_payload(u) for u in rows]})
+
+    def post(self, request):
+        d = request.data
+        try:
+            user = usvc.create_user(
+                rbac.role(request.user), getattr(request.user, "profile", None),
+                username=d.get("username"), name=d.get("name"),
+                password=d.get("password"), role=d.get("role"),
+                brand_ids=d.get("brand_ids"), tenant=d.get("tenant"),
+            )
+        except usvc.UserMgmtError as e:
+            return _svc_err(e)
+        audit(request, "user.create", target=user.username, detail=f"role: {usvc.role_of(user)}")
+        return Response(usvc.managed_user_payload(user), status=201)
+
+
+@extend_schema(tags=["users"])
+class UserDetailView(APIView):
+    """Update (POST) / deactivate (DELETE) a user, same rules as create."""
+    permission_classes = [IsAdmin]
+
+    @staticmethod
+    def _target(user_id):
+        return User.objects.select_related("profile").filter(pk=user_id).first()
+
+    def post(self, request, user_id):
+        target = self._target(user_id)
+        if target is None:
+            return Response({"error": {"code": "not_found", "message": "User not found."}}, status=404)
+        d = request.data
+        try:
+            target, changed = usvc.update_user(
+                rbac.role(request.user), getattr(request.user, "profile", None), target,
+                name=d.get("name", usvc._UNSET), role=d.get("role", usvc._UNSET),
+                active=d.get("active", usvc._UNSET), password=d.get("password", usvc._UNSET),
+                brand_ids=d.get("brand_ids", usvc._UNSET),
+            )
+        except usvc.UserMgmtError as e:
+            return _svc_err(e)
+        if changed:
+            audit(request, "user.update", target=target.username, detail=f"fields: {', '.join(changed)}")
+        return Response(usvc.managed_user_payload(target))
+
+    def delete(self, request, user_id):
+        target = self._target(user_id)
+        if target is None:
+            return Response({"error": {"code": "not_found", "message": "User not found."}}, status=404)
+        try:
+            usvc.deactivate_user(rbac.role(request.user), getattr(request.user, "profile", None), target)
+        except usvc.UserMgmtError as e:
+            return _svc_err(e)
+        audit(request, "user.deactivate", target=target.username)
+        return Response(usvc.managed_user_payload(target))
