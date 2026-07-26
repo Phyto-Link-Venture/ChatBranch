@@ -132,6 +132,13 @@ class Command(BaseCommand):
         acme_brand, _ = Brand.objects.get_or_create(
             tenant=acme_tenant, slug="acme", defaults={"name": "Acme"})
 
+        # ---- RBAC capability matrix -----------------------------------------
+        # Idempotent seed of crm.RolePermission (the data-driven permission
+        # matrix). Safe on an existing DB — never clobbers operator edits.
+        from crm.permissions_store import ensure_default_permissions
+        ensure_default_permissions()
+        self.stdout.write("permissions: RBAC capability matrix seeded")
+
         # ---- users + roles (RBAC) -------------------------------------------
         for username, password, role, display in DEMO_USERS:
             user, was_created = User.objects.get_or_create(

@@ -37,10 +37,15 @@ def _json_body(request) -> dict:
 
 
 def _user_payload(user) -> dict:
+    from .permissions_store import capabilities_for
+
     return {
         "username": user.username,
         "name": user.first_name or user.username,
         "role": user.profile.role,
+        # The frontend gates on capabilities (not role); populated at login +
+        # whoami so an older session with only `role` can still fall back.
+        "capabilities": capabilities_for(user.profile.role),
     }
 
 
@@ -119,7 +124,8 @@ def notification_prefs(request):
         return JsonResponse(rbac.notification_prefs())
     if request.method != "PUT":
         return HttpResponseNotAllowed(["GET", "PUT"])
-    if role not in ("admin", "superadmin"):
+    from .permissions_store import has_capability
+    if not has_capability(role, "notifications.manage"):
         return JsonResponse({"detail": "Admin role required to change notification settings."},
                             status=403)
     body = _json_body(request)
@@ -157,6 +163,149 @@ def audit_log(request):
     })
 
 
+@csrf_exempt
+def permissions(request):
+    """GET/PUT /api/auth/permissions — the data-driven RBAC matrix.
+
+    GET (admin+): the capability catalog, the role list and the effective
+    matrix (stored rows overlaid on code defaults).
+    PUT (requires the `rbac.manage` capability — superadmin by default):
+    validates a `{matrix: {role: {capability: bool}}}` body against the
+    catalog, refuses to unset superadmin's rbac.manage, applies it, audits
+    `rbac.update` and notifies.
+    """
+    from .permissions_store import (
+        apply_permission_updates, catalog_payload, effective_matrix,
+        has_capability, ordered_role_slugs, PermissionValidationError,
+    )
+
+    role = rbac.role_from_request(request)
+    if not role:
+        return JsonResponse({"detail": "Authentication required."}, status=401)
+
+    def _snapshot() -> dict:
+        # roles list is dynamic (all Role.slugs, system first) so the matrix UI
+        # renders custom roles alongside the built-ins.
+        return {"catalog": catalog_payload(), "roles": ordered_role_slugs(),
+                "matrix": effective_matrix()}
+
+    if request.method == "GET":
+        if role not in ("admin", "superadmin"):
+            return JsonResponse({"detail": "Admin role required."}, status=403)
+        return JsonResponse(_snapshot())
+    if request.method != "PUT":
+        return HttpResponseNotAllowed(["GET", "PUT"])
+    if not has_capability(role, "rbac.manage"):
+        return JsonResponse(
+            {"detail": "The rbac.manage capability is required to edit permissions."},
+            status=403)
+    body = _json_body(request)
+    matrix = body.get("matrix") if isinstance(body.get("matrix"), dict) else body
+    try:
+        changes = apply_permission_updates(matrix)
+    except PermissionValidationError as e:
+        return JsonResponse({"detail": str(e)}, status=400)
+    if changes:
+        rbac.audit(request, "rbac.update", target="permissions",
+                   detail=f"{len(changes)} capability toggle(s)")
+        rbac.notify(("superadmin",), "system", "Permissions updated",
+                    f"{len(changes)} capability change(s) by {rbac.requester_name(request)}",
+                    "/permissions", category="admin")
+    return JsonResponse(_snapshot())
+
+
+@csrf_exempt
+def roles(request):
+    """GET/POST /api/auth/roles — custom roles / auth groups.
+
+    GET (admin+): every role with its user count, system built-ins first:
+    `{roles: [{slug, label, is_system, user_count}]}`.
+    POST (requires `rbac.manage`): `{label}` → slugifies a new CUSTOM role,
+    seeds all-false RolePermission rows (no auto-pass), audits `role.create`.
+    Rejects a blank label, a duplicate slug, or a built-in collision.
+    """
+    from .permissions_store import (
+        RoleError, create_role, has_capability, roles_payload,
+    )
+
+    role = rbac.role_from_request(request)
+    if not role:
+        return JsonResponse({"detail": "Authentication required."}, status=401)
+
+    if request.method == "GET":
+        if role not in ("admin", "superadmin"):
+            return JsonResponse({"detail": "Admin role required."}, status=403)
+        return JsonResponse({"roles": roles_payload()})
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["GET", "POST"])
+    if not has_capability(role, "rbac.manage"):
+        return JsonResponse(
+            {"detail": "The rbac.manage capability is required to manage roles."},
+            status=403)
+    body = _json_body(request)
+    try:
+        new_role = create_role(body.get("label"))
+    except RoleError as e:
+        return JsonResponse({"detail": e.message, **e.extra}, status=e.status)
+    rbac.audit(request, "role.create", target=new_role.slug,
+               detail=f"label: {new_role.label}")
+    rbac.notify(("superadmin",), "system", f"Role created: {new_role.label}",
+                f"By {rbac.requester_name(request)}", "/permissions", category="admin")
+    return JsonResponse({"role": {"slug": new_role.slug, "label": new_role.label,
+                                  "is_system": new_role.is_system, "user_count": 0}},
+                        status=201)
+
+
+@csrf_exempt
+def role_detail(request, slug: str):
+    """PATCH/DELETE /api/auth/roles/<slug> — rename or delete a CUSTOM role
+    (both require `rbac.manage`).
+
+    PATCH `{label}` renames the role's display label (the slug stays fixed —
+    it's the identity Profile.role/RolePermission point at). 404 unknown, 400 a
+    built-in or blank label, 409 a duplicate label/slug.
+    DELETE removes it: 404 unknown, 400 built-in, 409 (+ user_count) while any
+    user still holds it. Both audit + notify.
+    """
+    from .permissions_store import (
+        RoleError, delete_role, has_capability, rename_role,
+    )
+
+    role = rbac.role_from_request(request)
+    if not role:
+        return JsonResponse({"detail": "Authentication required."}, status=401)
+    if request.method not in ("PATCH", "DELETE"):
+        return HttpResponseNotAllowed(["PATCH", "DELETE"])
+    if not has_capability(role, "rbac.manage"):
+        return JsonResponse(
+            {"detail": "The rbac.manage capability is required to manage roles."},
+            status=403)
+
+    if request.method == "PATCH":
+        body = _json_body(request)
+        try:
+            renamed = rename_role(slug, body.get("label"))
+        except RoleError as e:
+            return JsonResponse({"detail": e.message, **e.extra}, status=e.status)
+        rbac.audit(request, "role.update", target=renamed.slug,
+                   detail=f"label: {renamed.label}")
+        rbac.notify(("superadmin",), "system", f"Role renamed: {renamed.label}",
+                    f"By {rbac.requester_name(request)}", "/permissions", category="admin")
+        user_count = Profile.objects.filter(role=renamed.slug).count()
+        return JsonResponse({"role": {"slug": renamed.slug, "label": renamed.label,
+                                      "is_system": renamed.is_system,
+                                      "user_count": user_count}})
+
+    try:
+        delete_role(slug)
+    except RoleError as e:
+        return JsonResponse({"detail": e.message, **e.extra}, status=e.status)
+    rbac.audit(request, "role.delete", target=slug)
+    rbac.notify(("superadmin",), "system", f"Role deleted: {slug}",
+                f"By {rbac.requester_name(request)}", "/permissions", category="admin")
+    return JsonResponse({"ok": True})
+
+
 # ---- user management -------------------------------------------------------
 # Thin backward-compat adapters over crm.user_service (the single source of
 # truth, shared with the canonical DRF endpoint /api/v1/users). These keep the
@@ -170,11 +319,17 @@ _UNSET = usvc._UNSET
 
 def _manager_gate(request):
     """Returns (actor_role, actor_profile, error_response). 401 without a role,
-    403 for agents."""
+    403 without the `users.manage` capability.
+
+    Data-driven now (capability, not a hardcoded role list) — but the admin ->
+    agent tenant/role TIERING is unchanged: it lives in crm.user_service and
+    still applies on top. Capabilities gate the action; tenancy gates the rows.
+    """
     role = rbac.role_from_request(request)
     if not role:
         return "", None, JsonResponse({"detail": "Authentication required."}, status=401)
-    if role not in ("superadmin", "admin"):
+    from .permissions_store import has_capability
+    if not has_capability(role, "users.manage"):
         return "", None, JsonResponse(
             {"detail": "Admin role required to manage users."}, status=403)
     user = rbac.user_from_request(request)

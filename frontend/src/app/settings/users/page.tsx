@@ -1,5 +1,6 @@
-import { UsersSettings } from '@/components/settings/UsersSettings'
+import { LegacyRedirect } from '@/components/shell/LegacyRedirect'
 
-export default function UsersSettingsPage() {
-  return <UsersSettings />
+// Moved to a top-level route (upgrade §1). Old link redirects.
+export default function LegacyUsersSettingsPage() {
+  return <LegacyRedirect to="/users" />
 }

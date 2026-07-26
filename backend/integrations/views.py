@@ -53,7 +53,9 @@ def _auth_required(request) -> JsonResponse | None:
 
 
 def _can_manage(request) -> bool:
-    return rbac.role_from_request(request) in ("superadmin", "admin")
+    from crm.permissions_store import has_capability
+
+    return has_capability(rbac.role_from_request(request), "integrations.manage")
 
 
 def _is_superadmin(request) -> bool:
@@ -280,10 +282,12 @@ def account_disconnect(request, account_id: int):
 # ---- OAuth ------------------------------------------------------------------------
 
 def oauth_start(request, provider: str):
-    """Returns {authorize_url} for the dashboard to navigate to.
+    """Returns {configured:true, authorize_url} for the dashboard to navigate to.
 
-    Sandbox (no Google client configured) -> 400 with the operator-facing
-    reason. Nothing is attempted over the network."""
+    Platform OAuth app not registered yet -> {configured:false, reason} (HTTP
+    200), so the card can show its one-time "Set up (admin)" state instead of a
+    hard error. NEVER 500, and nothing is attempted over the network in the
+    sandbox case (no orphan Integration row is created either)."""
     denied = _auth_required(request)
     if denied:
         return denied
@@ -294,6 +298,20 @@ def oauth_start(request, provider: str):
                             status=403)
     if provider not in catalog.PROVIDERS:
         return JsonResponse({"detail": "Unknown provider."}, status=404)
+
+    # One-time platform setup missing -> a clear "needs setup" signal, no crash,
+    # no network, no row created. This is the honest "OAuth needs a one-time app
+    # registration" state from the spec.
+    meta = catalog.PROVIDERS[provider]
+    if meta.get("kind") == "oauth" and not catalog.google_oauth_configured():
+        return JsonResponse({
+            "configured": False,
+            "reason": ("Google OAuth is not configured yet. An admin must register a "
+                       "Google OAuth app once (Settings → Integrations, or "
+                       "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET in backend/.env); "
+                       "after that anyone connects in one click."),
+        })
+
     row = None
     raw_id = str(request.GET.get("integration_id") or "").strip()
     if raw_id.isdigit():
@@ -307,8 +325,11 @@ def oauth_start(request, provider: str):
     try:
         url = oauth.authorize_url(row, request)
     except oauth.OAuthError as e:
-        return JsonResponse({"detail": str(e), "integration_id": row.pk}, status=400)
-    return JsonResponse({"authorize_url": url, "integration_id": row.pk})
+        # e.g. an apikey provider that doesn't use OAuth at all.
+        return JsonResponse({"configured": False, "reason": str(e),
+                             "detail": str(e), "integration_id": row.pk}, status=400)
+    return JsonResponse({"configured": True, "authorize_url": url,
+                         "integration_id": row.pk})
 
 
 @csrf_exempt
@@ -350,7 +371,9 @@ def oauth_callback(request, provider: str):
         return done(False, str(e), row)
     rbac.audit(None, "integration.connect", target=f"{row.provider}:{row.name}",
                detail="OAuth grant stored")
-    return done(True, row.name, row)
+    # `?connected=<provider>` (spec §5) so the integrations page can toast which
+    # provider just linked, regardless of the row's display name.
+    return done(True, row.provider, row)
 
 
 # ---- global settings ---------------------------------------------------------------

@@ -1,10 +1,12 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { AlertCircle, CheckCircle, Loader2, Megaphone, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { AlertCircle, CheckCircle, Loader2, Megaphone, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { roleHeaders, getRole } from '@/lib/role'
-import { expireSessionOn401 } from '@/lib/auth'
+import { Modal } from '@/components/ui/Modal'
+import { DataTable, type Column } from '@/components/ui/DataTable'
+import { roleHeaders } from '@/lib/role'
+import { expireSessionOn401, hasCap } from '@/lib/auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
@@ -66,7 +68,9 @@ export function ScriptTemplatesSettings() {
   const [busy, setBusy] = useState(false)
   const [canManage, setCanManage] = useState(false)
 
-  useEffect(() => setCanManage(getRole() !== 'agent'), [])
+  // capability read after mount — create/edit/delete gated on
+  // script_templates.manage (admin+ by default); others get a read-only view.
+  useEffect(() => setCanManage(hasCap('script_templates.manage')), [])
 
   const load = useCallback(async () => {
     try {
@@ -178,25 +182,73 @@ export function ScriptTemplatesSettings() {
     )
   }
 
+  const columns: Column<ScriptTemplate>[] = [
+    {
+      key: 'name',
+      header: 'Name',
+      sortable: true,
+      width: 240,
+      value: (t) => t.name,
+      render: (t) => (
+        <span className="flex items-center gap-2">
+          <Megaphone size={14} className="shrink-0 text-green-300" aria-hidden />
+          <span className="text-[12px] font-bold text-text-high">{t.name}</span>
+        </span>
+      ),
+    },
+    {
+      key: 'content',
+      header: 'Script',
+      sortable: true,
+      value: (t) => t.content,
+      render: (t) => (
+        <span className="block max-w-[560px] truncate text-[12px] text-text-muted" title={t.content}>
+          {t.content}
+        </span>
+      ),
+    },
+    ...(canManage
+      ? [
+          {
+            key: 'actions',
+            header: 'Actions',
+            align: 'right' as const,
+            width: 100,
+            render: (t: ScriptTemplate) => (
+              <div className="flex items-center justify-end gap-1">
+                <button
+                  onClick={() => openEdit(t)}
+                  title={`Edit ${t.name}`}
+                  aria-label={`Edit script ${t.name}`}
+                  className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
+                >
+                  <Pencil size={13} aria-hidden />
+                </button>
+                <button
+                  onClick={() => remove(t)}
+                  title={`Delete ${t.name}`}
+                  aria-label={`Delete script ${t.name}`}
+                  className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/15 hover:text-red-300"
+                >
+                  <Trash2 size={13} aria-hidden />
+                </button>
+              </div>
+            ),
+          },
+        ]
+      : []),
+  ]
+
   return (
     <div className="flex flex-col gap-4 pt-3.5">
-      <div className="flex items-start gap-2">
-        <p className="min-w-0 flex-1 text-[11.5px] leading-relaxed text-text-mid">
-          A script template is read <span className="font-bold text-text-high">verbatim</span> by the AI on a
-          one-way call — dial, read it, hang up. No conversation, no listening. Pick one from the phone icon next to
-          a contact&apos;s chat, or wire it into a flow step&apos;s <span className="font-bold text-text-high">Script
-          call</span> action. Variables such as <code className="rounded bg-fill px-1">{'{{name}}'}</code> and{' '}
-          <code className="rounded bg-fill px-1">{'{{record_status}}'}</code> are filled from the linked contact&apos;s
-          CRM record.
-        </p>
-        {canManage && (
-          <div className="shrink-0">
-            <Button onClick={openCreate}>
-              <Plus size={13} aria-hidden /> New script
-            </Button>
-          </div>
-        )}
-      </div>
+      <p className="text-[11.5px] leading-relaxed text-text-mid">
+        A script template is read <span className="font-bold text-text-high">verbatim</span> by the AI on a one-way
+        call — dial, read it, hang up. No conversation, no listening. Pick one from the phone icon next to a
+        contact&apos;s chat, or wire it into a flow step&apos;s <span className="font-bold text-text-high">Script
+        call</span> action. Variables such as <code className="rounded bg-fill px-1">{'{{name}}'}</code> and{' '}
+        <code className="rounded bg-fill px-1">{'{{record_status}}'}</code> are filled from the linked contact&apos;s
+        CRM record.
+      </p>
 
       {error && (
         <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-[12px]" style={{ color: 'var(--red-ink)' }}>
@@ -210,19 +262,24 @@ export function ScriptTemplatesSettings() {
       )}
 
       {form && (
-        <div className="rounded-xl border border-line bg-fill-subtle p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-[12.5px] font-bold text-text-high">
-              {form.editing ? `Edit "${form.editing.name}"` : 'New script'}
-            </span>
-            <button
-              onClick={() => setForm(null)}
-              aria-label="Close form"
-              className="grid h-7 w-7 cursor-pointer place-items-center rounded-md text-text-muted hover:bg-fill-hover"
-            >
-              <X size={14} aria-hidden />
-            </button>
-          </div>
+        <Modal
+          open
+          onClose={() => setForm(null)}
+          title={form.editing ? `Edit "${form.editing.name}"` : 'New script'}
+          subtitle="Read verbatim on a one-way bot call — no conversation."
+          size="lg"
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setForm(null)} disabled={busy}>
+                Cancel
+              </Button>
+              <Button onClick={submit} disabled={busy || !form.name.trim() || !form.content.trim()}>
+                {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <CheckCircle size={13} aria-hidden />}
+                {form.editing ? 'Save changes' : 'Save script'}
+              </Button>
+            </>
+          }
+        >
           <label className="mb-3 block">
             <span className="mb-1 block text-[11px] font-bold text-text-high">Name</span>
             <input
@@ -232,7 +289,7 @@ export function ScriptTemplatesSettings() {
                 setNameError(null)
               }}
               placeholder="Order status reminder"
-              className={`${inputCls} !w-[280px] ${nameError ? '!border-red-500/60' : ''}`}
+              className={`${inputCls} ${nameError ? '!border-red-500/60' : ''}`}
             />
             {nameError && (
               <span className="mt-1 flex items-center gap-1 text-[10.5px] font-semibold" style={{ color: 'var(--red-ink)' }}>
@@ -250,7 +307,7 @@ export function ScriptTemplatesSettings() {
               className={`${inputCls} resize-y leading-[1.6]`}
             />
           </label>
-          <div className="mb-3">
+          <div>
             <span className="mb-1 block text-[10.5px] text-text-muted">
               Click to insert a variable — filled from the contact&apos;s CRM record when called:
             </span>
@@ -267,54 +324,24 @@ export function ScriptTemplatesSettings() {
               ))}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={submit} disabled={busy || !form.name.trim() || !form.content.trim()}>
-              {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <CheckCircle size={13} aria-hidden />}
-              {form.editing ? 'Save changes' : 'Save script'}
-            </Button>
-            <Button variant="ghost" onClick={() => setForm(null)} disabled={busy}>
-              Cancel
-            </Button>
-          </div>
-        </div>
+        </Modal>
       )}
 
-      <div className="flex flex-col gap-1.5">
-        {list.length === 0 && (
-          <div className="rounded-xl border border-dashed border-line-strong px-4 py-6 text-center text-[12px] text-text-muted">
-            No script templates yet — add the reminders your one-way calls should read.
-          </div>
-        )}
-        {list.map((t) => (
-          <div key={t.id} className="flex items-center gap-3 rounded-xl border border-line bg-card px-4 py-2.5">
-            <Megaphone size={14} className="shrink-0 text-green-300" aria-hidden />
-            <span className="shrink-0 text-[12px] font-bold text-text-high">{t.name}</span>
-            <span className="min-w-0 flex-1 truncate text-[12px] text-text-muted" title={t.content}>
-              {t.content}
-            </span>
-            {canManage && (
-              <>
-                <button
-                  onClick={() => openEdit(t)}
-                  title={`Edit ${t.name}`}
-                  aria-label={`Edit script ${t.name}`}
-                  className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
-                >
-                  <Pencil size={13} aria-hidden />
-                </button>
-                <button
-                  onClick={() => remove(t)}
-                  title={`Delete ${t.name}`}
-                  aria-label={`Delete script ${t.name}`}
-                  className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/15 hover:text-red-300"
-                >
-                  <Trash2 size={13} aria-hidden />
-                </button>
-              </>
-            )}
-          </div>
-        ))}
-      </div>
+      <DataTable
+        columns={columns}
+        rows={list}
+        rowKey={(t) => t.id}
+        searchKeys={['name', 'content']}
+        searchPlaceholder="Search scripts…"
+        empty="No script templates yet — add the reminders your one-way calls should read."
+        toolbarRight={
+          canManage ? (
+            <Button onClick={openCreate}>
+              <Plus size={13} aria-hidden /> New script
+            </Button>
+          ) : undefined
+        }
+      />
     </div>
   )
 }

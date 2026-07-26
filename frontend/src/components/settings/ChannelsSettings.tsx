@@ -19,10 +19,12 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { Modal } from '@/components/ui/Modal'
+import { DataTable, type Column } from '@/components/ui/DataTable'
 import { WhatsAppSettings } from '@/components/settings/WhatsAppSettings'
 import { TemplatesSettings } from '@/components/settings/TemplatesSettings'
 import { roleHeaders } from '@/lib/role'
-import { authHeaders, expireSessionOn401 } from '@/lib/auth'
+import { authHeaders, expireSessionOn401, hasCap } from '@/lib/auth'
 import { useRole } from '@/lib/useRole'
 import {
   fetchChannelHealth,
@@ -182,10 +184,12 @@ function EmailAccountsPanel({
   accounts,
   health,
   refresh,
+  canManage,
 }: {
   accounts: EmailAccount[]
   health: HealthAccount[]
   refresh: () => Promise<void>
+  canManage: boolean
 }) {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<EmailAccount | null>(null)
@@ -275,106 +279,61 @@ function EmailAccountsPanel({
     })
   }
 
-  return (
-    <div>
-      <div className="mb-2 flex items-center gap-2">
-        <Mail size={14} className="text-amber-300" aria-hidden />
-        <span className="text-[12.5px] font-bold text-text-high">Email accounts</span>
-        <ProviderTag>SMTP</ProviderTag>
-        <div className="flex-1" />
-        <Button variant="primary" onClick={() => (showForm ? setShowForm(false) : openAdd())}>
-          <Plus size={13} aria-hidden /> Add account
-        </Button>
-      </div>
-
-      {showForm && (
-        <div className="mb-3 rounded-xl border border-line bg-fill-subtle p-4">
-          <div className="grid grid-cols-3 gap-3">
-            <Field label="Account name" value={name} onChange={setName} placeholder="e.g. Support mailbox" />
-            <Field label="From address" value={from} onChange={setFrom} placeholder="support@yourco.com" />
-            <Field label="SMTP host" value={host} onChange={setHost} placeholder="smtp.gmail.com" />
-            <Field label="Port" value={port} onChange={setPort} placeholder="587" hint="465 = implicit TLS, 587 = STARTTLS" />
-            <Field
-              label="Username"
-              value={user}
-              onChange={setUser}
-              placeholder="usually the from address"
-              hint="Gmail needs the FULL address (name@domain), not just the part before the @."
-            />
-            <Field
-              label="Password"
-              value={pass}
-              onChange={setPass}
-              secret
-              placeholder="app password"
-              hint={editing ? 'Leave the masked value untouched to keep the stored password.' : undefined}
-            />
-          </div>
-          <label className="mt-3 flex w-fit cursor-pointer items-center gap-2 text-[12px] text-text-primary">
-            <input
-              type="checkbox"
-              checked={tls}
-              onChange={(e) => setTls(e.target.checked)}
-              style={{ accentColor: '#3B82F6' }}
-            />
-            Use TLS
-          </label>
-          <div className="mt-3 flex gap-2">
-            <Button variant="primary" onClick={save} disabled={busy || !name.trim() || !host.trim()}>
-              {editing ? <Pencil size={13} aria-hidden /> : <Plus size={13} aria-hidden />}{' '}
-              {editing ? 'Save account' : 'Add account'}
-            </Button>
-            <Button variant="ghost" onClick={() => { setShowForm(false); setEditing(null) }}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      )}
-
-      <div className="flex flex-col gap-2">
-        {accounts.length === 0 && (
-          <div className="rounded-xl border border-dashed border-line-strong px-4 py-5 text-center text-[12px] text-text-muted">
-            No email sender accounts yet — outbound email uses the default / fallback SMTP settings below until
-            one is added. Add as many mailboxes as you need.
-          </div>
-        )}
-        {accounts.map((a) => {
-          const h = health.find((x) => String(x.id) === String(a.id))
-          const hm = h ? HEALTH_META[h.health] || HEALTH_META.unknown : null
-          return (
-            <div key={a.id} className="flex items-center gap-3 rounded-xl border border-line bg-card px-4 py-3">
-              <div
-                className="grid h-9 w-9 shrink-0 place-items-center rounded-[9px] text-white"
-                style={{ background: '#F59E0B' }}
-              >
-                <Mail size={16} aria-hidden />
+  const columns: Column<EmailAccount>[] = [
+    {
+      key: 'account',
+      header: 'Account',
+      sortable: true,
+      value: (a) => `${a.name} ${fromOf(a)} ${a.config?.host ?? ''}`,
+      render: (a) => {
+        const h = health.find((x) => String(x.id) === String(a.id))
+        const hm = h ? HEALTH_META[h.health] || HEALTH_META.unknown : null
+        return (
+          <div className="flex items-center gap-3">
+            <div
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-[9px] text-white"
+              style={{ background: '#F59E0B' }}
+            >
+              <Mail size={16} aria-hidden />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="truncate text-[13px] font-bold text-text-high">{a.name}</span>
+                {h && hm && (
+                  <span
+                    className="shrink-0 rounded-full px-2 py-px text-[10px] font-bold"
+                    style={{ background: hm.bg, color: hm.ink }}
+                    title={h.detail || hm.lbl}
+                  >
+                    {hm.lbl}
+                  </span>
+                )}
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="truncate text-[13px] font-bold text-text-high">{a.name}</span>
-                  {h && hm && (
-                    <span
-                      className="shrink-0 rounded-full px-2 py-px text-[10px] font-bold"
-                      style={{ background: hm.bg, color: hm.ink }}
-                      title={h.detail || hm.lbl}
-                    >
-                      {hm.lbl}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 truncate text-[11px] text-text-muted">
-                  <span className="font-mono">{fromOf(a) || '—'}</span>
-                  <span>· {a.config?.host || 'host not set'}</span>
-                  {a.owner && (
-                    <span className="flex items-center gap-0.5">
-                      · <User size={10} aria-hidden /> {a.owner}
-                    </span>
-                  )}
-                </div>
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-text-muted">
+                <span className="font-mono">{fromOf(a) || '—'}</span>
+                <span>· {a.config?.host || 'host not set'}</span>
+                {a.owner && (
+                  <span className="flex items-center gap-0.5">
+                    · <User size={10} aria-hidden /> {a.owner}
+                  </span>
+                )}
               </div>
-              <Button variant="secondary" onClick={() => testAccount(a)} disabled={busy}>
-                <Plug size={13} aria-hidden /> Test
-              </Button>
+            </div>
+          </div>
+        )
+      },
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (a) => (
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          <Button variant="secondary" onClick={() => testAccount(a)} disabled={busy}>
+            <Plug size={13} aria-hidden /> Test
+          </Button>
+          {canManage && (
+            <>
               <Button variant="secondary" onClick={() => openEdit(a)} disabled={busy}>
                 <Pencil size={13} aria-hidden /> Edit
               </Button>
@@ -387,10 +346,95 @@ function EmailAccountsPanel({
               >
                 <Trash2 size={14} aria-hidden />
               </button>
-            </div>
-          )
-        })}
+            </>
+          )}
+        </div>
+      ),
+    },
+  ]
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center gap-2">
+        <Mail size={14} className="text-amber-300" aria-hidden />
+        <span className="text-[12.5px] font-bold text-text-high">Email accounts</span>
+        <ProviderTag>SMTP</ProviderTag>
       </div>
+
+      <Modal
+        open={showForm}
+        onClose={() => {
+          setShowForm(false)
+          setEditing(null)
+        }}
+        title={editing ? `Edit ${editing.name || 'email account'}` : 'Add email account'}
+        subtitle="An SMTP sender mailbox for outbound email."
+        size="lg"
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setShowForm(false)
+                setEditing(null)
+              }}
+            >
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={save} disabled={busy || !name.trim() || !host.trim()}>
+              {editing ? <Pencil size={13} aria-hidden /> : <Plus size={13} aria-hidden />}{' '}
+              {editing ? 'Save account' : 'Add account'}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Account name" value={name} onChange={setName} placeholder="e.g. Support mailbox" />
+          <Field label="From address" value={from} onChange={setFrom} placeholder="support@yourco.com" />
+          <Field label="SMTP host" value={host} onChange={setHost} placeholder="smtp.gmail.com" />
+          <Field label="Port" value={port} onChange={setPort} placeholder="587" hint="465 = implicit TLS, 587 = STARTTLS" />
+          <Field
+            label="Username"
+            value={user}
+            onChange={setUser}
+            placeholder="usually the from address"
+            hint="Gmail needs the FULL address (name@domain), not just the part before the @."
+          />
+          <Field
+            label="Password"
+            value={pass}
+            onChange={setPass}
+            secret
+            placeholder="app password"
+            hint={editing ? 'Leave the masked value untouched to keep the stored password.' : undefined}
+          />
+        </div>
+        <label className="mt-3 flex w-fit cursor-pointer items-center gap-2 text-[12px] text-text-primary">
+          <input
+            type="checkbox"
+            checked={tls}
+            onChange={(e) => setTls(e.target.checked)}
+            style={{ accentColor: '#3B82F6' }}
+          />
+          Use TLS
+        </label>
+      </Modal>
+
+      <DataTable
+        columns={columns}
+        rows={accounts}
+        rowKey={(a) => a.id}
+        searchKeys={['account']}
+        searchPlaceholder="Search email accounts…"
+        empty="No email sender accounts yet — outbound email uses the default / fallback SMTP settings below until one is added. Add as many mailboxes as you need."
+        toolbarRight={
+          canManage ? (
+            <Button variant="primary" onClick={openAdd}>
+              <Plus size={13} aria-hidden /> Add account
+            </Button>
+          ) : undefined
+        }
+      />
 
       {msg && (
         <div className={`mt-3 text-[12px] font-semibold ${msg.ok ? 'text-green-300' : 'text-red-300'}`}>{msg.text}</div>
@@ -540,15 +584,17 @@ function EmailPanel({
   accounts,
   health,
   refresh,
+  canManage,
 }: {
   email: EmailSettings
   accounts: EmailAccount[]
   health: HealthAccount[]
   refresh: () => Promise<void>
+  canManage: boolean
 }) {
   return (
     <div className="flex flex-col gap-5">
-      <EmailAccountsPanel accounts={accounts} health={health} refresh={refresh} />
+      <EmailAccountsPanel accounts={accounts} health={health} refresh={refresh} canManage={canManage} />
       <div className="border-t border-line pt-4">
         <EmailFallbackForm email={email} refresh={refresh} />
       </div>
@@ -582,10 +628,12 @@ function SocialPanel({
   channel,
   accounts,
   refresh,
+  canManage,
 }: {
   channel: SocialChannel
   accounts: SocialAccount[]
   refresh: () => Promise<void>
+  canManage: boolean
 }) {
   const meta = SOCIAL_META[channel]
   const [showAdd, setShowAdd] = useState(false)
@@ -647,89 +695,50 @@ function SocialPanel({
     })
   }
 
-  return (
-    <div>
-      <div className="mb-2 flex items-center gap-2">
-        <meta.Icon size={14} style={{ color: meta.color }} aria-hidden />
-        <span className="text-[12.5px] font-bold text-text-high">{meta.lbl} accounts</span>
-        <ProviderTag>{meta.provider}</ProviderTag>
-        {meta.beta && <BetaChip />}
-        <div className="flex-1" />
-        <Button variant="primary" onClick={() => setShowAdd(!showAdd)}>
-          <Plus size={13} aria-hidden /> Add account
-        </Button>
-      </div>
-
-      {showAdd && (
-        <div className="mb-3 rounded-xl border border-line bg-fill-subtle p-4">
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Account name" value={accName} onChange={setAccName} placeholder={meta.namePh} />
-            {channel !== 'telegram' && (
-              <Field
-                label={channel === 'facebook' ? 'Page ID' : 'IG account ID'}
-                value={extId}
-                onChange={setExtId}
-                placeholder="1234567890"
-                hint="Used to route inbound webhook events to this account."
-              />
-            )}
-            <Field
-              label={channel === 'telegram' ? 'Bot token' : 'Page access token'}
-              value={token}
-              onChange={setToken}
-              secret
-              placeholder={channel === 'telegram' ? '123456:ABC-DEF…' : 'EAAG…'}
-              hint={
-                channel === 'telegram'
-                  ? 'From @BotFather (/newbot). The bot id is filled in automatically via getMe.'
-                  : 'Meta App Dashboard → Messenger/Instagram → Access Tokens (page-scoped).'
-              }
-            />
+  const columns: Column<SocialAccount>[] = [
+    {
+      key: 'account',
+      header: 'Account',
+      sortable: true,
+      value: (a) => `${a.name} ${a.external_id ?? ''} ${a.owner ?? ''}`,
+      render: (a) => (
+        <div className="flex items-center gap-3">
+          <div
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-[9px] text-white"
+            style={{ background: meta.color }}
+          >
+            <meta.Icon size={16} aria-hidden />
           </div>
-          <div className="mt-3 flex gap-2">
-            <Button variant="primary" onClick={addAccount} disabled={busy || !token.trim()}>
-              <Plus size={13} aria-hidden /> Link account
-            </Button>
-            <Button variant="ghost" onClick={() => setShowAdd(false)}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      )}
-
-      <div className="flex flex-col gap-2">
-        {accounts.length === 0 && (
-          <div className="rounded-xl border border-dashed border-line-strong px-4 py-5 text-center text-[12px] text-text-muted">
-            No {meta.lbl} {meta.accountLbl}s linked yet — {meta.lbl} runs in sandbox until one is. Add as many as
-            you need; inbound traffic is routed to the right one automatically.
-          </div>
-        )}
-        {accounts.map((a) => (
-          <div key={a.id} className="flex items-center gap-3 rounded-xl border border-line bg-card px-4 py-3">
-            <div
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-[9px] text-white"
-              style={{ background: meta.color }}
-            >
-              <meta.Icon size={16} aria-hidden />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] font-bold text-text-high">{a.name}</div>
-              <div className="flex items-center gap-2 text-[11px] text-text-muted">
-                <span className="font-mono">ID {a.external_id || '—'}</span>
-                <span>· token {a.access_token_masked || 'not set'}</span>
+          <div className="min-w-0">
+            <div className="truncate text-[13px] font-bold text-text-high">{a.name}</div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-text-muted">
+              <span className="font-mono">ID {a.external_id || '—'}</span>
+              <span>· token {a.access_token_masked || 'not set'}</span>
+              {a.owner && (
                 <span className="flex items-center gap-0.5">
                   · <User size={10} aria-hidden /> {a.owner}
                 </span>
-              </div>
+              )}
             </div>
-            {channel === 'telegram' && (
-              <Button variant="secondary" onClick={() => setTelegramWebhook(a)} disabled={busy || !a.configured}>
-                <Webhook size={13} aria-hidden /> Set webhook
-              </Button>
-            )}
-            <Button variant="secondary" onClick={() => testAccount(a)} disabled={busy || !a.configured}>
-              <Plug size={13} aria-hidden /> Test
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (a) => (
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {canManage && channel === 'telegram' && (
+            <Button variant="secondary" onClick={() => setTelegramWebhook(a)} disabled={busy || !a.configured}>
+              <Webhook size={13} aria-hidden /> Set webhook
             </Button>
+          )}
+          <Button variant="secondary" onClick={() => testAccount(a)} disabled={busy || !a.configured}>
+            <Plug size={13} aria-hidden /> Test
+          </Button>
+          {canManage && (
             <button
               onClick={() => removeAccount(a)}
               disabled={busy}
@@ -739,9 +748,79 @@ function SocialPanel({
             >
               <Trash2 size={14} aria-hidden />
             </button>
-          </div>
-        ))}
+          )}
+        </div>
+      ),
+    },
+  ]
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center gap-2">
+        <meta.Icon size={14} style={{ color: meta.color }} aria-hidden />
+        <span className="text-[12.5px] font-bold text-text-high">{meta.lbl} accounts</span>
+        <ProviderTag>{meta.provider}</ProviderTag>
+        {meta.beta && <BetaChip />}
       </div>
+
+      <Modal
+        open={showAdd}
+        onClose={() => setShowAdd(false)}
+        title={`Add ${meta.lbl} ${meta.accountLbl}`}
+        subtitle={`Link a ${meta.lbl} ${meta.accountLbl} via ${meta.provider}.`}
+        size="md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setShowAdd(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={addAccount} disabled={busy || !token.trim()}>
+              <Plus size={13} aria-hidden /> Link account
+            </Button>
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Account name" value={accName} onChange={setAccName} placeholder={meta.namePh} />
+          {channel !== 'telegram' && (
+            <Field
+              label={channel === 'facebook' ? 'Page ID' : 'IG account ID'}
+              value={extId}
+              onChange={setExtId}
+              placeholder="1234567890"
+              hint="Used to route inbound webhook events to this account."
+            />
+          )}
+          <Field
+            label={channel === 'telegram' ? 'Bot token' : 'Page access token'}
+            value={token}
+            onChange={setToken}
+            secret
+            placeholder={channel === 'telegram' ? '123456:ABC-DEF…' : 'EAAG…'}
+            hint={
+              channel === 'telegram'
+                ? 'From @BotFather (/newbot). The bot id is filled in automatically via getMe.'
+                : 'Meta App Dashboard → Messenger/Instagram → Access Tokens (page-scoped).'
+            }
+          />
+        </div>
+      </Modal>
+
+      <DataTable
+        columns={columns}
+        rows={accounts}
+        rowKey={(a) => a.id}
+        searchKeys={['account']}
+        searchPlaceholder={`Search ${meta.lbl} accounts…`}
+        empty={`No ${meta.lbl} ${meta.accountLbl}s linked yet — ${meta.lbl} runs in sandbox until one is. Add as many as you need; inbound traffic is routed to the right one automatically.`}
+        toolbarRight={
+          canManage ? (
+            <Button variant="primary" onClick={() => setShowAdd(true)}>
+              <Plus size={13} aria-hidden /> Add account
+            </Button>
+          ) : undefined
+        }
+      />
 
       <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
         {channel === 'telegram' ? (
@@ -970,6 +1049,10 @@ const HEALTH_RANK: Record<HealthStatus, number> = {
  */
 export function ChannelsSettings() {
   const [active, setActive] = useState<ChannelId>('whatsapp')
+  // channels.manage gates add/edit/delete across the channel panels (read after
+  // mount — localStorage). WhatsApp reads it itself; email/social get it here.
+  const [canManage, setCanManage] = useState(false)
+  useEffect(() => setCanManage(hasCap('channels.manage')), [])
   const [waCount, setWaCount] = useState<number | null>(null)
   const [email, setEmail] = useState<EmailSettings | null>(null)
   const [accounts, setAccounts] = useState<MessagingAccount[]>([])
@@ -1062,8 +1145,10 @@ export function ChannelsSettings() {
 
   return (
     <div className="flex flex-col gap-5 pt-3.5">
-      {/* channel-type picker */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6" role="tablist" aria-label="Channel type">
+      {/* channel-type picker — flex-wrap with a per-card min width so nothing
+          (e.g. "Voice") is clipped on narrower widths; cards grow to fill a
+          wide row and wrap to the next line when space runs out. */}
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Channel type">
         {CHANNEL_TYPES.map((c) => {
           const isActive = c.id === active
           const h = health[c.id]
@@ -1073,7 +1158,7 @@ export function ChannelsSettings() {
               role="tab"
               aria-selected={isActive}
               onClick={() => setActive(c.id)}
-              className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors ${
+              className={`flex min-w-[150px] flex-1 basis-[150px] cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors ${
                 isActive ? 'border-brand-400/40 bg-brand-400/10' : 'border-line bg-card hover:bg-fill'
               }`}
             >
@@ -1136,6 +1221,7 @@ export function ChannelsSettings() {
             accounts={accounts.filter((a): a is EmailAccount => a.channel === 'email')}
             health={healthAccounts.filter((h) => h.channel === 'email')}
             refresh={refreshAll}
+            canManage={canManage}
           />
         )
       ) : (
@@ -1144,6 +1230,7 @@ export function ChannelsSettings() {
           channel={active}
           accounts={accounts.filter((a): a is SocialAccount => a.channel === active)}
           refresh={refreshAll}
+          canManage={canManage}
         />
       )}
     </div>

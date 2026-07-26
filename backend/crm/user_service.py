@@ -20,9 +20,30 @@ from django.contrib.auth.models import User
 
 from .models import Profile
 
+# The 3 built-in roles. Assignment is validated against `_valid_roles()` (the
+# crm.Role table) so custom roles are accepted too; these stay as the always-
+# present built-ins and drive the privilege tiering below.
 ROLES = tuple(r for r, _ in Profile.ROLE_CHOICES)  # superadmin / admin / agent
 
+# Only these two roles are "elevated"; agent AND every custom role are
+# agent-level for the admin→agent tiering (an admin may assign/manage them, but
+# never admin/superadmin).
+PRIVILEGED_ROLES = ("admin", "superadmin")
+
 _UNSET = object()  # distinguishes "not provided" from "set to None/empty"
+
+
+def _valid_roles() -> set[str]:
+    """Every assignable role slug: the crm.Role table plus the built-ins (always
+    valid even before the Role rows are seeded)."""
+    from .models import Role
+
+    return set(Role.objects.values_list("slug", flat=True)) | set(ROLES)
+
+
+def _is_privileged(role: str) -> bool:
+    """admin/superadmin only. Custom roles + agent are agent-level."""
+    return role in PRIVILEGED_ROLES
 
 
 class UserMgmtError(Exception):
@@ -99,11 +120,12 @@ def would_remove_last_superadmin(target, new_role=None, new_active=None) -> bool
 
 
 def _assert_admin_may_manage(actor_role, actor_profile, target_profile) -> None:
-    """Admins may act only on agents in their own tenant."""
+    """Admins may act only on agent-level users (agent + custom roles) in their
+    own tenant — never on admins/superadmins."""
     if actor_role != "admin":
         return
-    if target_profile.role != "agent":
-        raise UserMgmtError("forbidden", "Admins can only manage agent users.", 403)
+    if _is_privileged(target_profile.role):
+        raise UserMgmtError("forbidden", "Admins can only manage agent-level users.", 403)
     actor_tenant_id = actor_profile.tenant_id if actor_profile else None
     if target_profile.tenant_id != actor_tenant_id:
         raise UserMgmtError("forbidden", "That user is outside your tenant.", 403)
@@ -131,10 +153,11 @@ def create_user(actor_role, actor_profile, *, username, name, password, role,
         raise UserMgmtError("bad_request", f"Username '{username}' is already taken.")
     if len(password) < 8:
         raise UserMgmtError("bad_request", "Password must be at least 8 characters.")
-    if role not in ROLES:
-        raise UserMgmtError("bad_request", f"role must be one of: {', '.join(ROLES)}.")
-    if actor_role == "admin" and role != "agent":
-        raise UserMgmtError("forbidden", "Admins can only create agents.", 403)
+    if role not in _valid_roles():
+        raise UserMgmtError("bad_request",
+                            f"role must be one of: {', '.join(sorted(_valid_roles()))}.")
+    if actor_role == "admin" and _is_privileged(role):
+        raise UserMgmtError("forbidden", "Admins can only create agent-level users.", 403)
 
     brand_ids = brand_ids or []
     if brand_ids and role != "agent":
@@ -179,10 +202,12 @@ def update_user(actor_role, actor_profile, target, *, name=_UNSET, role=_UNSET,
     new_role = None if role is _UNSET else role
     new_active = None if active is _UNSET else active
 
-    if new_role is not None and new_role not in ROLES:
-        raise UserMgmtError("bad_request", f"role must be one of: {', '.join(ROLES)}.")
-    if actor_role == "admin" and new_role is not None and new_role != "agent":
-        raise UserMgmtError("forbidden", "Admins cannot change user roles.", 403)
+    if new_role is not None and new_role not in _valid_roles():
+        raise UserMgmtError("bad_request",
+                            f"role must be one of: {', '.join(sorted(_valid_roles()))}.")
+    if actor_role == "admin" and new_role is not None and _is_privileged(new_role):
+        raise UserMgmtError("forbidden",
+                            "Admins can only assign agent-level roles.", 403)
     if new_active is not None and not isinstance(new_active, bool):
         raise UserMgmtError("bad_request", "active must be true or false.")
     if password is not _UNSET and password is not None and len(str(password)) < 8:

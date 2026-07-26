@@ -1,10 +1,12 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { AlertCircle, CheckCircle, Loader2, MessageSquare, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { AlertCircle, CheckCircle, Loader2, MessageSquare, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { roleHeaders, getRole } from '@/lib/role'
-import { expireSessionOn401 } from '@/lib/auth'
+import { Modal } from '@/components/ui/Modal'
+import { DataTable, type Column } from '@/components/ui/DataTable'
+import { roleHeaders } from '@/lib/role'
+import { expireSessionOn401, hasCap } from '@/lib/auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
@@ -77,9 +79,10 @@ export function SharedTemplatesSettings() {
   const [busy, setBusy] = useState(false)
   const [canManage, setCanManage] = useState(false)
 
-  // role read after mount (localStorage) — create/edit/delete are admin+ on
-  // the server, so agents get a read-only view here.
-  useEffect(() => setCanManage(getRole() !== 'agent'), [])
+  // capability read after mount (localStorage) — create/edit/delete are gated
+  // on templates.manage (admin+ by default), so users without it get a
+  // read-only view here.
+  useEffect(() => setCanManage(hasCap('templates.manage')), [])
 
   const load = useCallback(async () => {
     try {
@@ -169,25 +172,73 @@ export function SharedTemplatesSettings() {
     )
   }
 
+  const columns: Column<CannedResponse>[] = [
+    {
+      key: 'code',
+      header: 'Short code',
+      sortable: true,
+      width: 200,
+      value: (c) => c.short_code,
+      render: (c) => (
+        <span className="flex items-center gap-2">
+          <MessageSquare size={14} className="shrink-0 text-green-300" aria-hidden />
+          <span className="font-mono text-[12px] font-bold text-text-high">/{c.short_code}</span>
+        </span>
+      ),
+    },
+    {
+      key: 'content',
+      header: 'Content',
+      sortable: true,
+      value: (c) => c.content,
+      render: (c) => (
+        <span className="block max-w-[560px] truncate text-[12px] text-text-muted" title={c.content}>
+          {c.content}
+        </span>
+      ),
+    },
+    ...(canManage
+      ? [
+          {
+            key: 'actions',
+            header: 'Actions',
+            align: 'right' as const,
+            width: 100,
+            render: (c: CannedResponse) => (
+              <div className="flex items-center justify-end gap-1">
+                <button
+                  onClick={() => openEdit(c)}
+                  title={`Edit /${c.short_code}`}
+                  aria-label={`Edit template ${c.short_code}`}
+                  className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
+                >
+                  <Pencil size={13} aria-hidden />
+                </button>
+                <button
+                  onClick={() => remove(c)}
+                  title={`Delete /${c.short_code}`}
+                  aria-label={`Delete template ${c.short_code}`}
+                  className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/15 hover:text-red-300"
+                >
+                  <Trash2 size={13} aria-hidden />
+                </button>
+              </div>
+            ),
+          },
+        ]
+      : []),
+  ]
+
   return (
     <div className="flex flex-col gap-4 pt-3.5">
-      <div className="flex items-start gap-2">
-        <p className="min-w-0 flex-1 text-[11.5px] leading-relaxed text-text-mid">
-          Shared templates work in <span className="font-bold text-text-high">every channel&apos;s composer</span> —
-          WhatsApp, Messenger, Instagram, Telegram and Email. Type{' '}
-          <code className="rounded bg-fill px-1">/short-code</code> in any conversation to insert one.
-          Variables such as <code className="rounded bg-fill px-1">{'{{name}}'}</code> and{' '}
-          <code className="rounded bg-fill px-1">{'{{record_status}}'}</code> are filled from the linked contact&apos;s
-          CRM record. WhatsApp&apos;s Meta-approved templates live with the channel: Settings → Channels → WhatsApp.
-        </p>
-        {canManage && (
-          <div className="shrink-0">
-            <Button onClick={openCreate}>
-              <Plus size={13} aria-hidden /> New template
-            </Button>
-          </div>
-        )}
-      </div>
+      <p className="text-[11.5px] leading-relaxed text-text-mid">
+        Shared templates work in <span className="font-bold text-text-high">every channel&apos;s composer</span> —
+        WhatsApp, Messenger, Instagram, Telegram and Email. Type{' '}
+        <code className="rounded bg-fill px-1">/short-code</code> in any conversation to insert one. Variables such as{' '}
+        <code className="rounded bg-fill px-1">{'{{name}}'}</code> and{' '}
+        <code className="rounded bg-fill px-1">{'{{record_status}}'}</code> are filled from the linked contact&apos;s
+        CRM record. WhatsApp&apos;s Meta-approved templates live with the channel: Settings → Channels → WhatsApp.
+      </p>
 
       {error && (
         <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-[12px]" style={{ color: 'var(--red-ink)' }}>
@@ -201,19 +252,24 @@ export function SharedTemplatesSettings() {
       )}
 
       {form && (
-        <div className="rounded-xl border border-line bg-fill-subtle p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-[12.5px] font-bold text-text-high">
-              {form.editing ? `Edit /${form.editing.short_code}` : 'New template'}
-            </span>
-            <button
-              onClick={() => setForm(null)}
-              aria-label="Close form"
-              className="grid h-7 w-7 cursor-pointer place-items-center rounded-md text-text-muted hover:bg-fill-hover"
-            >
-              <X size={14} aria-hidden />
-            </button>
-          </div>
+        <Modal
+          open
+          onClose={() => setForm(null)}
+          title={form.editing ? `Edit /${form.editing.short_code}` : 'New template'}
+          subtitle="Works in every channel's composer via the /short-code picker."
+          size="lg"
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setForm(null)} disabled={busy}>
+                Cancel
+              </Button>
+              <Button onClick={submit} disabled={busy || !form.short_code.trim() || !form.content.trim()}>
+                {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <CheckCircle size={13} aria-hidden />}
+                {form.editing ? 'Save changes' : 'Save template'}
+              </Button>
+            </>
+          }
+        >
           <label className="mb-3 block">
             <span className="mb-1 block text-[11px] font-bold text-text-high">Short code</span>
             <input
@@ -223,7 +279,7 @@ export function SharedTemplatesSettings() {
                 setCodeError(null)
               }}
               placeholder="payment-link"
-              className={`${inputCls} !w-[240px] ${codeError ? '!border-red-500/60' : ''}`}
+              className={`${inputCls} ${codeError ? '!border-red-500/60' : ''}`}
             />
             {codeError ? (
               <span className="mt-1 flex items-center gap-1 text-[10.5px] font-semibold" style={{ color: 'var(--red-ink)' }}>
@@ -245,7 +301,7 @@ export function SharedTemplatesSettings() {
               className={`${inputCls} resize-y leading-[1.6]`}
             />
           </label>
-          <div className="mb-3">
+          <div>
             <span className="mb-1 block text-[10.5px] text-text-muted">
               Click to insert a variable — filled from the contact&apos;s CRM record when sent:
             </span>
@@ -262,54 +318,24 @@ export function SharedTemplatesSettings() {
               ))}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={submit} disabled={busy || !form.short_code.trim() || !form.content.trim()}>
-              {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <CheckCircle size={13} aria-hidden />}
-              {form.editing ? 'Save changes' : 'Save template'}
-            </Button>
-            <Button variant="ghost" onClick={() => setForm(null)} disabled={busy}>
-              Cancel
-            </Button>
-          </div>
-        </div>
+        </Modal>
       )}
 
-      <div className="flex flex-col gap-1.5">
-        {list.length === 0 && (
-          <div className="rounded-xl border border-dashed border-line-strong px-4 py-6 text-center text-[12px] text-text-muted">
-            No shared templates yet — add the replies your agents type most.
-          </div>
-        )}
-        {list.map((c) => (
-          <div key={c.id} className="flex items-center gap-3 rounded-xl border border-line bg-card px-4 py-2.5">
-            <MessageSquare size={14} className="shrink-0 text-green-300" aria-hidden />
-            <span className="shrink-0 font-mono text-[12px] font-bold text-text-high">/{c.short_code}</span>
-            <span className="min-w-0 flex-1 truncate text-[12px] text-text-muted" title={c.content}>
-              {c.content}
-            </span>
-            {canManage && (
-              <>
-                <button
-                  onClick={() => openEdit(c)}
-                  title={`Edit /${c.short_code}`}
-                  aria-label={`Edit template ${c.short_code}`}
-                  className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
-                >
-                  <Pencil size={13} aria-hidden />
-                </button>
-                <button
-                  onClick={() => remove(c)}
-                  title={`Delete /${c.short_code}`}
-                  aria-label={`Delete template ${c.short_code}`}
-                  className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/15 hover:text-red-300"
-                >
-                  <Trash2 size={13} aria-hidden />
-                </button>
-              </>
-            )}
-          </div>
-        ))}
-      </div>
+      <DataTable
+        columns={columns}
+        rows={list}
+        rowKey={(c) => c.id}
+        searchKeys={['code', 'content']}
+        searchPlaceholder="Search templates…"
+        empty="No shared templates yet — add the replies your agents type most."
+        toolbarRight={
+          canManage ? (
+            <Button onClick={openCreate}>
+              <Plus size={13} aria-hidden /> New template
+            </Button>
+          ) : undefined
+        }
+      />
     </div>
   )
 }

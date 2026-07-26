@@ -2,26 +2,18 @@
 
 import { useMemo, useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { LayoutGrid, List, Loader2, Plus } from 'lucide-react'
+import { LayoutGrid, List, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useApp } from '@/lib/AppContext'
 import { useBrand } from '@/lib/BrandContext'
-import { authHeaders } from '@/lib/auth'
-import { useRole } from '@/lib/useRole'
+import { authHeaders, hasCap } from '@/lib/auth'
 import { initials, methodLabel, primaryRecord, type ContactStatus } from '@/lib/mocks'
 import { StatusBadge } from '@/components/ui/Badges'
 import { Button } from '@/components/ui/Button'
+import { Modal } from '@/components/ui/Modal'
+import { DataTable, type Column } from '@/components/ui/DataTable'
 import { LANGUAGES } from '@/lib/languages'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
-
-const COLS = [
-  { label: 'Contact', w: 'auto' },
-  { label: 'Phone', w: 140 },
-  { label: 'Record', w: 200 },
-  { label: 'Status', w: 110 },
-  { label: 'Tags', w: 140 },
-  { label: 'Actions', w: 80 },
-]
 
 /* Kanban columns — one per contact status, in workflow order. */
 const KANBAN: { key: ContactStatus; lbl: string; color: string }[] = [
@@ -101,7 +93,15 @@ function AddField({
   )
 }
 
-function AddContactForm({ onDone }: { onDone: () => void }) {
+function ContactModal({
+  open,
+  editing,
+  onClose,
+}: {
+  open: boolean
+  editing: Contact | null
+  onClose: () => void
+}) {
   const { reloadContacts } = useApp()
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
@@ -113,22 +113,41 @@ function AddContactForm({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Reset / prefill the form each time the modal (re)opens.
+  useEffect(() => {
+    if (open) {
+      setName(editing?.name ?? '')
+      setPhone(editing?.phone ?? '')
+      setLanguage(editing?.language ?? 'en')
+      setEmail(editing?.email ?? '')
+      setCompany(editing?.company ?? '')
+      setTags((editing?.tags ?? []).join(', '))
+      setNotes(editing && typeof editing.attributes.notes === 'string' ? editing.attributes.notes : '')
+      setError(null)
+      setBusy(false)
+    }
+  }, [open, editing])
+
   const save = async () => {
     setBusy(true)
     setError(null)
     try {
-      const res = await fetch(`${API}/v1/contacts`, {
-        method: 'POST',
+      const body = JSON.stringify({
+        name: name.trim(),
+        phone: phone.trim(),
+        language,
+        email: email.trim(),
+        company_name: company.trim(),
+        tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
+        notes: notes.trim(),
+      })
+      // PATCH /api/v1/contacts/<id> for edits (backend accepting the extra
+      // fields lands in parallel; language already persists today), POST to
+      // create.
+      const res = await fetch(editing ? `${API}/v1/contacts/${editing.id}` : `${API}/v1/contacts`, {
+        method: editing ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({
-          name: name.trim(),
-          phone: phone.trim(),
-          language,
-          email: email.trim(),
-          company_name: company.trim(),
-          tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
-          notes: notes.trim(),
-        }),
+        body,
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -137,7 +156,7 @@ function AddContactForm({ onDone }: { onDone: () => void }) {
         )
       }
       await reloadContacts()
-      onDone()
+      onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -146,9 +165,30 @@ function AddContactForm({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <div className="rounded-2xl border border-line bg-card p-4">
-      <div className="mb-3 text-[13px] font-bold text-text-high">New contact</div>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={editing ? 'Edit contact' : 'New contact'}
+      subtitle={editing ? 'Update this contact’s details.' : "Add a person to this brand's contact list."}
+      size="lg"
+      footer={
+        <>
+          {error && <span className="mr-auto text-[12px] font-semibold text-red-300">{error}</span>}
+          <Button variant="secondary" onClick={onClose} style={{ padding: '8px 14px', fontSize: 12.5 }}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={save}
+            disabled={busy || !name.trim() || !phone.trim()}
+            style={{ padding: '8px 14px', fontSize: 12.5 }}
+          >
+            {busy && <Loader2 size={13} className="animate-spin" aria-hidden />} {editing ? 'Save changes' : 'Add contact'}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <AddField label="Name" value={name} onChange={setName} placeholder="Ahmad Fauzi" required />
         <AddField label="Phone (E.164)" value={phone} onChange={setPhone} placeholder="+60 12-345 6789" required />
         <label className="block">
@@ -170,21 +210,7 @@ function AddContactForm({ onDone }: { onDone: () => void }) {
         <AddField label="Tags (comma-separated)" value={tags} onChange={setTags} placeholder="vip, wholesale" />
         <AddField label="Notes (optional)" value={notes} onChange={setNotes} />
       </div>
-      <div className="mt-3 flex items-center gap-2">
-        <Button
-          variant="primary"
-          onClick={save}
-          disabled={busy || !name.trim() || !phone.trim()}
-          style={{ padding: '8px 14px', fontSize: 12.5 }}
-        >
-          {busy && <Loader2 size={13} className="animate-spin" aria-hidden />} Add contact
-        </Button>
-        <Button variant="secondary" onClick={onDone} style={{ padding: '8px 14px', fontSize: 12.5 }}>
-          Cancel
-        </Button>
-        {error && <span className="text-[12px] font-semibold text-red-300">{error}</span>}
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -248,14 +274,46 @@ function KanbanCard({ d, onOpen }: { d: Contact; onOpen: () => void }) {
 
 export default function ContactsPage() {
   const router = useRouter()
-  const { contacts } = useApp()
+  const { contacts, reloadContacts } = useApp()
   const { activeBrand } = useBrand()
-  const { role } = useRole()
 
   const [view, setView] = useState<'board' | 'list'>('board')
   const [status, setStatus] = useState('')
   const [recordType, setRecordType] = useState('')
-  const [showAdd, setShowAdd] = useState(false)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editing, setEditing] = useState<Contact | null>(null)
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
+  // contacts.manage gates add/edit/delete (read after mount — localStorage)
+  const [canManage, setCanManage] = useState(false)
+  useEffect(() => setCanManage(hasCap('contacts.manage')), [])
+
+  const openCreate = () => {
+    setEditing(null)
+    setNotice(null)
+    setModalOpen(true)
+  }
+  const openEdit = (d: Contact) => {
+    setEditing(d)
+    setNotice(null)
+    setModalOpen(true)
+  }
+  const deleteContact = async (d: Contact) => {
+    if (!window.confirm(`Delete contact "${d.name}"? Their conversations stay but the record is removed.`)) return
+    setNotice(null)
+    try {
+      // DELETE /api/v1/contacts/<id> — a 409 (e.g. blocked by linked data)
+      // returns its reason in the v1 error envelope, surfaced verbatim.
+      const res = await fetch(`${API}/v1/contacts/${d.id}`, { method: 'DELETE', headers: authHeaders() })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as { error?: { message?: string } }).error?.message || `HTTP ${res.status}`)
+      }
+      await reloadContacts()
+      setNotice({ ok: true, text: `Contact ${d.name} deleted.` })
+    } catch (e) {
+      setNotice({ ok: false, text: e instanceof Error ? e.message : String(e) })
+    }
+  }
 
   useEffect(() => {
     try {
@@ -290,6 +348,105 @@ export default function ContactsPage() {
     setRecordType('')
   }
 
+  const contactColumns: Column<Contact>[] = [
+    {
+      key: 'name',
+      header: 'Contact',
+      sortable: true,
+      value: (d) => d.name,
+      render: (d) => (
+        <div className="flex items-center gap-2.5">
+          <div
+            className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full text-[11px] font-bold text-brand-200"
+            style={{ background: 'linear-gradient(135deg,#1E3A5F,#2563EB)' }}
+          >
+            {initials(d.name)}
+          </div>
+          <div>
+            <div className="text-[13px] font-semibold text-text-high">{d.name}</div>
+            {d.method && <span className="text-[10px] font-semibold text-text-muted">{methodLabel(d.method)}</span>}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'phone',
+      header: 'Phone',
+      sortable: true,
+      width: 140,
+      value: (d) => d.phone,
+      render: (d) => <span className="font-mono text-[12px] text-text-muted">{d.phone}</span>,
+    },
+    {
+      key: 'record',
+      header: 'Record',
+      width: 200,
+      value: (d) => primaryRecord(d)?.type ?? '',
+      render: (d) => <RecordChip d={d} />,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      sortable: true,
+      width: 110,
+      value: (d) => d.status,
+      render: (d) => <StatusBadge status={d.status} />,
+    },
+    {
+      key: 'tags',
+      header: 'Tags',
+      width: 150,
+      value: (d) => d.tags.join(' '),
+      render: (d) => <TagChips tags={d.tags} />,
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      width: canManage ? 160 : 90,
+      render: (d) => (
+        <div className="flex items-center justify-end gap-1">
+          <button
+            onClick={(ev) => {
+              ev.stopPropagation()
+              router.push(`/contacts/${d.id}`)
+            }}
+            className="cursor-pointer rounded-md border border-brand-400/20 bg-brand-400/[0.12] px-2 py-[5px] text-[11px] font-semibold transition-colors hover:bg-brand-400/20"
+            style={{ color: 'var(--brand-ink)' }}
+          >
+            View
+          </button>
+          {canManage && (
+            <>
+              <button
+                onClick={(ev) => {
+                  ev.stopPropagation()
+                  openEdit(d)
+                }}
+                title={`Edit ${d.name}`}
+                aria-label={`Edit contact ${d.name}`}
+                className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
+              >
+                <Pencil size={13} aria-hidden />
+              </button>
+              <button
+                onClick={(ev) => {
+                  ev.stopPropagation()
+                  deleteContact(d)
+                }}
+                title={`Delete ${d.name}`}
+                aria-label={`Delete contact ${d.name}`}
+                className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/15 hover:text-red-300"
+              >
+                <Trash2 size={13} aria-hidden />
+              </button>
+            </>
+          )}
+        </div>
+      ),
+    },
+  ]
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3.5">
       {/* Header: title + count + view toggle */}
@@ -297,7 +454,7 @@ export default function ContactsPage() {
         <div>
           <h1 className="text-[20px] font-extrabold tracking-[-0.5px] text-text-heading">Contacts</h1>
           <div className="mt-0.5 text-[12px] text-text-muted">
-            {contacts.length} contacts
+            {contacts.length} {contacts.length === 1 ? 'contact' : 'contacts'}
             {activeBrand && <span className="text-text-faint"> · {activeBrand.name}</span>}
           </div>
         </div>
@@ -339,15 +496,21 @@ export default function ContactsPage() {
               Clear
             </button>
           )}
-          {role !== 'agent' && (
-            <Button variant="primary" onClick={() => setShowAdd((v) => !v)} style={{ padding: '6px 12px', fontSize: 12 }}>
+          {canManage && (
+            <Button variant="primary" onClick={openCreate} style={{ padding: '6px 12px', fontSize: 12 }}>
               <Plus size={13} strokeWidth={2} aria-hidden /> Add contact
             </Button>
           )}
         </div>
       </div>
 
-      {showAdd && <AddContactForm onDone={() => setShowAdd(false)} />}
+      {notice && (
+        <div className={`text-[12px] font-semibold ${notice.ok ? 'text-green-300' : 'text-red-300'}`}>
+          {notice.text}
+        </div>
+      )}
+
+      <ContactModal open={modalOpen} editing={editing} onClose={() => setModalOpen(false)} />
 
       {view === 'board' ? (
         /* Kanban — horizontally scrolling columns, one per status */
@@ -377,80 +540,17 @@ export default function ContactsPage() {
           })}
         </div>
       ) : (
-        /* List — single table (scrolls vertically when it outgrows the viewport) */
-        <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-line bg-card">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="border-b border-line">
-                {COLS.map((c) => (
-                  <th
-                    key={c.label}
-                    className="px-3.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-text-muted"
-                    style={{ width: c.w }}
-                  >
-                    {c.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={COLS.length} className="px-3.5 py-10 text-center text-[13px] text-text-muted">
-                    No contacts match these filters.
-                  </td>
-                </tr>
-              )}
-              {filtered.map((d) => (
-                <tr
-                  key={d.id}
-                  className="trow cursor-pointer border-b border-line"
-                  onClick={() => router.push(`/contacts/${d.id}`)}
-                >
-                  <td className="px-3.5 py-3 align-middle">
-                    <div className="flex items-center gap-2.5">
-                      <div
-                        className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full text-[11px] font-bold text-brand-200"
-                        style={{ background: 'linear-gradient(135deg,#1E3A5F,#2563EB)' }}
-                      >
-                        {initials(d.name)}
-                      </div>
-                      <div>
-                        <div className="text-[13px] font-semibold text-text-high">{d.name}</div>
-                        {d.method && (
-                          <span className="text-[10px] font-semibold text-text-muted">{methodLabel(d.method)}</span>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-3.5 py-3 align-middle" style={{ width: 140 }}>
-                    <span className="font-mono text-[12px] text-text-muted">{d.phone}</span>
-                  </td>
-                  <td className="px-3.5 py-3 align-middle" style={{ width: 200 }}>
-                    <RecordChip d={d} />
-                  </td>
-                  <td className="px-3.5 py-3 align-middle" style={{ width: 110 }}>
-                    <StatusBadge status={d.status} />
-                  </td>
-                  <td className="px-3.5 py-3 align-middle" style={{ width: 140 }}>
-                    <TagChips tags={d.tags} />
-                  </td>
-                  <td className="px-3.5 py-3 align-middle" style={{ width: 80 }}>
-                    <button
-                      onClick={(ev) => {
-                        ev.stopPropagation()
-                        router.push(`/contacts/${d.id}`)
-                      }}
-                      className="cursor-pointer rounded-md border border-brand-400/20 bg-brand-400/[0.12] px-2 py-[5px] text-[11px] font-semibold transition-colors hover:bg-brand-400/20"
-                      style={{ color: 'var(--brand-ink)' }}
-                    >
-                      View
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        /* List — searchable / sortable / paginated table */
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <DataTable
+            columns={contactColumns}
+            rows={filtered}
+            rowKey={(d) => d.id}
+            searchKeys={['name', 'phone', 'record', 'tags']}
+            searchPlaceholder="Search contacts…"
+            empty="No contacts match these filters."
+            onRowClick={(d) => router.push(`/contacts/${d.id}`)}
+          />
         </div>
       )}
     </div>

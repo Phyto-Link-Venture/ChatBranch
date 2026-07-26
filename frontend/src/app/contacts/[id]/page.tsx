@@ -285,7 +285,8 @@ export default function ContactDetailPage() {
             <span className="text-[13px] font-bold text-text-high">AI Case Summary</span>
             {summary && (
               <span className="ml-2 text-[10.5px] text-text-faint">
-                {summary.event_count} contacts · {timeFull(summary.generated_at)}
+                {summary.event_count} {summary.event_count === 1 ? 'interaction' : 'interactions'} ·{' '}
+                {timeFull(summary.generated_at)}
                 {summary.heuristic && ' · heuristic'}
               </span>
             )}
@@ -455,8 +456,8 @@ export default function ContactDetailPage() {
           </div>
           <div className="mb-4 text-[11px] text-text-muted">
             {!fullLoaded && total > events.length
-              ? `Showing the ${events.length} most recent of ${total} contacts — load the full log to see everything.`
-              : 'Every real contact across voice, WhatsApp and email — with the customer’s responses.'}
+              ? `Showing the ${events.length} most recent of ${total} interactions — load the full log to see everything.`
+              : 'Every real interaction across voice, WhatsApp and email — with the customer’s responses.'}
           </div>
           {events.length === 0 ? (
             <div className="p-[30px] text-center text-[12px] text-text-faint">

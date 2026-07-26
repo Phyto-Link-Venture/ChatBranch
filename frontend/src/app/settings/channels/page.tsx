@@ -1,5 +1,6 @@
-import { ChannelsSettings } from '@/components/settings/ChannelsSettings'
+import { LegacyRedirect } from '@/components/shell/LegacyRedirect'
 
-export default function ChannelsSettingsPage() {
-  return <ChannelsSettings />
+// Moved to a top-level route (upgrade §1). Old link redirects.
+export default function LegacyChannelsSettingsPage() {
+  return <LegacyRedirect to="/channels" />
 }

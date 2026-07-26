@@ -1,5 +1,6 @@
-import { IntegrationsSettings } from '@/components/settings/IntegrationsSettings'
+import { LegacyRedirect } from '@/components/shell/LegacyRedirect'
 
-export default function IntegrationsSettingsPage() {
-  return <IntegrationsSettings />
+// Moved to a top-level route (upgrade §1). Old link redirects.
+export default function LegacyIntegrationsSettingsPage() {
+  return <LegacyRedirect to="/integrations" />
 }

@@ -1,5 +1,6 @@
-import { ScriptTemplatesSettings } from '@/components/settings/ScriptTemplatesSettings'
+import { LegacyRedirect } from '@/components/shell/LegacyRedirect'
 
-export default function ScriptTemplatesSettingsPage() {
-  return <ScriptTemplatesSettings />
+// Moved to a top-level route (upgrade §1). Old link redirects.
+export default function LegacyScriptTemplatesSettingsPage() {
+  return <LegacyRedirect to="/script-templates" />
 }

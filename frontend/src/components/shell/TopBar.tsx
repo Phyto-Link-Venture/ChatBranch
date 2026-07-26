@@ -2,7 +2,6 @@
 
 import { PanelLeft, Search } from 'lucide-react'
 import type { AuthUser } from '@/lib/auth'
-import { QuickActions } from './QuickActions'
 import { TenantSwitcher } from './TenantSwitcher'
 import { NotificationsBell } from './NotificationsBell'
 
@@ -18,7 +17,6 @@ export function TopBar({
   user: AuthUser | null
   onToggleNav: () => void
 }) {
-  const role = user?.role ?? 'agent'
   return (
     <header className="flex h-[56px] shrink-0 items-center gap-3 rounded-[18px] border border-line bg-surface px-3">
       <button
@@ -59,7 +57,6 @@ export function TopBar({
       </div>
 
       <div className="ml-auto flex shrink-0 items-center gap-2.5">
-        <QuickActions role={role} />
         <div className="hidden items-center gap-1.5 rounded-xl border border-brand-400/20 bg-brand/10 px-2 py-1.5 lg:flex">
           <span className="h-[7px] w-[7px] shrink-0 animate-pulseRing rounded-full bg-brand-400" />
           <span className="text-[9px] font-bold uppercase tracking-[0.06em] text-brand-300">Live</span>

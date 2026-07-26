@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { KeyRound, Loader2, ShieldAlert, Tags, UserCheck, UserPlus, UserX } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { Modal } from '@/components/ui/Modal'
+import { DataTable, type Column } from '@/components/ui/DataTable'
 import { roleHeaders } from '@/lib/role'
-import { expireSessionOn401, getAuth, authHeaders, type Role } from '@/lib/auth'
+import { expireSessionOn401, getAuth, authHeaders } from '@/lib/auth'
 import { useRole } from '@/lib/useRole'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
@@ -19,12 +21,22 @@ interface ManagedUser {
   id: number
   username: string
   name: string
-  role: Role
+  /** Free string now — built-ins (superadmin/admin/agent) PLUS any custom role
+   *  slug from /api/auth/roles (custom roles pass, upgrade §A). */
+  role: string
   active: boolean
   created: string | null
   last_login: string | null
   tenant: string | null
   brands: UserBrand[]
+}
+
+/** /api/auth/roles row — the pool the role selectors choose from. */
+interface RoleRow {
+  slug: string
+  label: string
+  is_system: boolean
+  user_count: number
 }
 
 /** /api/v1/brands row — the pool the brand-access picker chooses from. */
@@ -55,20 +67,25 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 const inputCls =
   'w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400'
 
-const ROLES: Role[] = ['superadmin', 'admin', 'agent']
+const BUILTIN_ROLES = ['superadmin', 'admin', 'agent']
 
-const ROLE_LABEL: Record<Role, string> = {
+const FALLBACK_ROLE_LABEL: Record<string, string> = {
   superadmin: 'Super admin',
   admin: 'Admin',
   agent: 'Agent',
 }
 
-// superadmin = blue brand, admin = neutral zinc, agent = amber
-const ROLE_CHIP: Record<Role, string> = {
+// superadmin = blue brand, admin = neutral zinc, agent = amber, custom = purple
+const ROLE_CHIP: Record<string, string> = {
   superadmin: 'bg-brand-400/15 text-brand-200',
   admin: 'bg-fill-hover text-text-mid',
   agent: 'bg-amber/15 text-amber-300',
 }
+const CUSTOM_ROLE_CHIP = 'bg-purple/15 text-purple-300'
+
+const humanize = (slug: string) =>
+  FALLBACK_ROLE_LABEL[slug] ||
+  slug.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 
 /** Toggleable brand chips — used by both the add-user form and the per-user
  * brand-access editor. */
@@ -86,7 +103,7 @@ function BrandPicker({
   if (brands.length === 0) {
     return (
       <span className="text-[10.5px] text-text-muted">
-        No brands yet — create one under Settings → Brands & Tenants.
+        No brands yet — create one under Brands &amp; Tenants.
       </span>
     )
   }
@@ -151,29 +168,41 @@ function Field({
 }
 
 /**
- * User management — SUPER ADMIN only (server-enforced: /api/v1/users).
- * Creates operator logins, changes roles, resets passwords and deactivates
- * accounts. Password resets and deactivation clear the target's bearer token
- * on the server, so their existing sessions die immediately. The backend
- * refuses to demote or deactivate the last remaining active super admin.
+ * User management — admin+ (server-enforced: /api/v1/users). Creates operator
+ * logins, changes roles, resets passwords and deactivates accounts. Password
+ * resets and deactivation clear the target's bearer token on the server, so
+ * their existing sessions die immediately. The backend refuses to demote or
+ * deactivate the last remaining active super admin.
+ *
+ * Roles are dynamic (upgrade §A): the selectors list every Role.slug from
+ * /api/auth/roles — built-ins plus any custom role — not a hardcoded 3. Custom
+ * roles are agent-level for assignment tiering: an admin may assign agent + any
+ * custom role, but never admin/superadmin.
  */
 export function UsersSettings() {
   const { role: myRole, ready } = useRole()
   const me = getAuth()?.username
   const [users, setUsers] = useState<ManagedUser[] | null>(null)
+  // Seed with the built-ins so the role selectors never flash empty before the
+  // /api/auth/roles fetch (which adds any custom roles) resolves.
+  const [roleOptions, setRoleOptions] = useState<RoleRow[]>(() =>
+    BUILTIN_ROLES.map((slug) => ({ slug, label: humanize(slug), is_system: true, user_count: 0 })),
+  )
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
-  // inline reset-password expansion (one row at a time)
+  // reset-password modal (one row at a time)
   const [pwFor, setPwFor] = useState<number | null>(null)
   const [pwDraft, setPwDraft] = useState('')
-  // inline brand-access expansion (agents)
+  // brand-access modal (agents)
   const [brandsFor, setBrandsFor] = useState<number | null>(null)
   const [brandsDraft, setBrandsDraft] = useState<number[]>([])
+  // add-user modal
+  const [showAdd, setShowAdd] = useState(false)
   // add-user form
   const [newUsername, setNewUsername] = useState('')
   const [newName, setNewName] = useState('')
   const [newPassword, setNewPassword] = useState('')
-  const [newRole, setNewRole] = useState<Role>('agent')
+  const [newRole, setNewRole] = useState<string>('agent')
   const [newBrandIds, setNewBrandIds] = useState<number[]>([])
   // brand pool for the pickers (RBAC brands, /api/v1)
   const [brandPool, setBrandPool] = useState<BrandRow[]>([])
@@ -193,11 +222,33 @@ export function UsersSettings() {
       .then((r) => (r.ok ? r.json() : { brands: [] }))
       .then((d) => setBrandPool(Array.isArray(d.brands) ? d.brands : []))
       .catch(() => setBrandPool([]))
+    // Dynamic role pool — built-ins + custom roles. Falls back to the 3
+    // built-ins if the roles endpoint predates the custom-roles pass.
+    fetch(`${API}/auth/roles`, { headers: authHeaders() })
+      .then((r) => (r.ok ? r.json() : { roles: [] }))
+      .then((d) => {
+        const rows: RoleRow[] = Array.isArray(d.roles) ? d.roles : []
+        setRoleOptions(
+          rows.length > 0
+            ? rows
+            : BUILTIN_ROLES.map((slug) => ({ slug, label: humanize(slug), is_system: true, user_count: 0 })),
+        )
+      })
+      .catch(() =>
+        setRoleOptions(BUILTIN_ROLES.map((slug) => ({ slug, label: humanize(slug), is_system: true, user_count: 0 }))),
+      )
   }, [refresh])
 
   const multiTenant = new Set(brandPool.map((b) => b.tenant)).size > 1
   const toggleIn = (list: number[], id: number) =>
     list.includes(id) ? list.filter((x) => x !== id) : [...list, id]
+
+  const roleLabel = (slug: string) => roleOptions.find((r) => r.slug === slug)?.label || humanize(slug)
+  const roleChip = (slug: string) => ROLE_CHIP[slug] || CUSTOM_ROLE_CHIP
+  /** Roles the CURRENT operator may assign. Superadmin: all. Admin: agent-level
+   *  only (agent + any custom) — never admin/superadmin. */
+  const assignableRoles = (): RoleRow[] =>
+    (myRole === 'superadmin' ? roleOptions : roleOptions.filter((r) => r.slug !== 'admin' && r.slug !== 'superadmin'))
 
   const run = async (fn: () => Promise<unknown>, okText?: string) => {
     setBusy(true)
@@ -214,32 +265,14 @@ export function UsersSettings() {
   }
 
   const isSuper = myRole === 'superadmin'
-  /** Admins manage only agents (server-enforced too). */
-  const canManage = (u: ManagedUser) => isSuper || u.role === 'agent'
+  /** Admins manage agent-level users (agent + custom), never other admins /
+   *  superadmins (server-enforced too). */
+  const canManage = (u: ManagedUser) => isSuper || (u.role !== 'admin' && u.role !== 'superadmin')
 
-  if (!ready) return null // role resolves after mount — don't flash the denial
-
-  if (myRole === 'agent') {
-    return (
-      <div className="flex items-center gap-2 py-6 text-[12.5px] text-text-muted">
-        <ShieldAlert size={15} className="text-amber-300" aria-hidden />
-        Users are managed by admins.
-      </div>
-    )
-  }
-
-  if (users === null) {
-    return (
-      <div className="py-6 text-[12px] text-text-muted">
-        User management unavailable — is the backend API running on port 8000?
-      </div>
-    )
-  }
-
-  const setRole = (u: ManagedUser, role: Role) =>
+  const setRole = (u: ManagedUser, role: string) =>
     run(
       () => api(`users/${u.id}`, { method: 'POST', body: JSON.stringify({ role }) }),
-      `Role updated — ${u.username} is now ${ROLE_LABEL[role].toLowerCase()}.`,
+      `Role updated — ${u.username} is now ${roleLabel(role).toLowerCase()}.`,
     )
 
   const resetPassword = (u: ManagedUser) => {
@@ -259,10 +292,7 @@ export function UsersSettings() {
     if (u.active) {
       if (!window.confirm(`Deactivate ${u.username}? They will be signed out everywhere and unable to log in.`))
         return
-      run(
-        () => api(`users/${u.id}`, { method: 'DELETE' }),
-        `${u.username} deactivated.`,
-      )
+      run(() => api(`users/${u.id}`, { method: 'DELETE' }), `${u.username} deactivated.`)
     } else {
       run(
         () => api(`users/${u.id}`, { method: 'POST', body: JSON.stringify({ active: true }) }),
@@ -299,6 +329,7 @@ export function UsersSettings() {
       setNewPassword('')
       setNewRole('agent')
       setNewBrandIds([])
+      setShowAdd(false)
     }, `User ${username} created.`)
   }
 
@@ -311,31 +342,198 @@ export function UsersSettings() {
       setBrandsFor(null)
     }, `Brand access updated for ${u.username}.`)
 
+  if (!ready) return null // role resolves after mount — don't flash the denial
+
+  if (myRole === 'agent') {
+    return (
+      <div className="flex items-center gap-2 py-6 text-[12.5px] text-text-muted">
+        <ShieldAlert size={15} className="text-amber-300" aria-hidden />
+        Users are managed by admins.
+      </div>
+    )
+  }
+
+  if (users === null) {
+    return (
+      <div className="py-6 text-[12px] text-text-muted">
+        User management unavailable — is the backend API running on port 8000?
+      </div>
+    )
+  }
+
+  const columns: Column<ManagedUser>[] = [
+    {
+      key: 'user',
+      header: 'User',
+      sortable: true,
+      value: (u) => `${u.username} ${u.name} ${u.tenant ?? ''}`,
+      render: (u) => (
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[13px] font-semibold text-text-high">{u.username}</span>
+            {u.username === me && <span className="text-[10.5px] font-bold text-text-muted">(you)</span>}
+          </div>
+          <div className="mt-0.5 text-[11px] text-text-muted">
+            {u.name || '—'}
+            {u.tenant && (
+              <>
+                {' · tenant '}
+                <span className="font-semibold">{u.tenant}</span>
+              </>
+            )}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'role',
+      header: 'Role',
+      sortable: true,
+      width: 150,
+      value: (u) => roleLabel(u.role),
+      render: (u) =>
+        isSuper ? (
+          <select
+            value={u.role}
+            disabled={busy}
+            onChange={(e) => setRole(u, e.target.value)}
+            aria-label={`Role for ${u.username}`}
+            className="cursor-pointer rounded-[7px] border border-line-strong bg-surface px-2.5 py-1.5 text-[12px] font-semibold text-text-high outline-none"
+          >
+            {roleOptions.map((r) => (
+              <option key={r.slug} value={r.slug}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className={`rounded-full px-2 py-px text-[10px] font-bold uppercase ${roleChip(u.role)}`}>
+            {roleLabel(u.role)}
+          </span>
+        ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      sortable: true,
+      width: 110,
+      value: (u) => (u.active ? 'active' : 'deactivated'),
+      render: (u) =>
+        u.active ? (
+          <span className="rounded-full bg-green/15 px-2 py-px text-[10px] font-bold text-green-300">Active</span>
+        ) : (
+          <span className="rounded-full bg-red/15 px-2 py-px text-[10px] font-bold text-red-300">Deactivated</span>
+        ),
+    },
+    {
+      key: 'brands',
+      header: 'Brands',
+      width: 190,
+      render: (u) =>
+        u.role !== 'agent' ? (
+          <span className="text-[10.5px] text-text-faint">—</span>
+        ) : u.brands.length === 0 ? (
+          <span className="text-[10.5px] text-amber-300">No access</span>
+        ) : (
+          <div className="flex flex-wrap items-center gap-1">
+            {u.brands.slice(0, 3).map((b) => (
+              <span key={b.id} className="rounded-full bg-fill-hover px-2 py-px text-[10px] font-semibold text-text-mid">
+                {b.name}
+              </span>
+            ))}
+            {u.brands.length > 3 && <span className="text-[10px] text-text-faint">+{u.brands.length - 3}</span>}
+          </div>
+        ),
+    },
+    {
+      key: 'last_login',
+      header: 'Last login',
+      sortable: true,
+      width: 150,
+      value: (u) => u.last_login ?? '',
+      render: (u) => (
+        <span className="text-[11px] text-text-muted">
+          {u.last_login ? new Date(u.last_login).toLocaleString() : 'never'}
+        </span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (u) => (
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {u.role === 'agent' && (
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={() => {
+                setBrandsDraft(u.brands.map((b) => b.id))
+                setBrandsFor(u.id)
+              }}
+            >
+              <Tags size={13} aria-hidden /> Brands
+            </Button>
+          )}
+          {canManage(u) && (
+            <>
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={() => {
+                  setPwDraft('')
+                  setPwFor(u.id)
+                }}
+              >
+                <KeyRound size={13} aria-hidden /> Reset password
+              </Button>
+              <Button variant={u.active ? 'danger' : 'success'} disabled={busy} onClick={() => toggleActive(u)}>
+                {u.active ? (
+                  <>
+                    <UserX size={13} aria-hidden /> Deactivate
+                  </>
+                ) : (
+                  <>
+                    <UserCheck size={13} aria-hidden /> Reactivate
+                  </>
+                )}
+              </Button>
+            </>
+          )}
+        </div>
+      ),
+    },
+  ]
+
   return (
     <div className="flex flex-col gap-4 pt-3.5">
       <p className="text-[11.5px] leading-relaxed text-text-mid">
-        Operator logins for this dashboard. Passwords are set here — a password reset or deactivation
-        clears that user&apos;s session token, signing them out everywhere immediately. The last active
-        super admin can never be demoted or deactivated.
-        {!isSuper && ' As an admin you can create and manage agents in your own tenant.'}
+        Operator logins for this dashboard. Passwords are set here — a password reset or deactivation clears that
+        user&apos;s session token, signing them out everywhere immediately. The last active super admin can never be
+        demoted or deactivated.
+        {!isSuper && ' As an admin you can create and manage agent-level users in your own tenant.'}
       </p>
 
-      {/* what each role (user group) can do — fixed capability matrix */}
+      {/* what each role (user group) can do — the built-in capability matrix */}
       <div className="grid gap-2 sm:grid-cols-3">
         {(
           [
-            { lbl: 'Super admin', chip: ROLE_CHIP.superadmin,
-              items: ['Everything, across all tenants', 'App keys & global settings', 'Creates admins & agents', 'Brands in any tenant'] },
-            { lbl: 'Admin', chip: ROLE_CHIP.admin,
-              items: ['Own tenant only', 'Channel accounts, routing, flows, templates', 'Creates agents + assigns brand access', 'No app keys / global settings'] },
-            { lbl: 'Agent', chip: ROLE_CHIP.agent,
-              items: ['Work queues: chats, calls, contacts', 'Only contacts on their assigned brands', 'No settings management'] },
+            {
+              lbl: 'Super admin', chip: ROLE_CHIP.superadmin,
+              items: ['Everything, across all tenants', 'App keys & global settings', 'Creates admins & agents', 'Brands in any tenant'],
+            },
+            {
+              lbl: 'Admin', chip: ROLE_CHIP.admin,
+              items: ['Own tenant only', 'Channel accounts, routing, flows, templates', 'Creates agent-level users + brand access', 'No app keys / global settings'],
+            },
+            {
+              lbl: 'Agent', chip: ROLE_CHIP.agent,
+              items: ['Work queues: chats, calls, contacts', 'Only contacts on their assigned brands', 'No settings management'],
+            },
           ] as { lbl: string; chip: string; items: string[] }[]
         ).map((c) => (
           <div key={c.lbl} className="rounded-lg border border-line bg-fill p-3">
-            <span className={`rounded-full px-2 py-px text-[10px] font-bold uppercase ${c.chip}`}>
-              {c.lbl}
-            </span>
+            <span className={`rounded-full px-2 py-px text-[10px] font-bold uppercase ${c.chip}`}>{c.lbl}</span>
             <ul className="mt-2 flex flex-col gap-1 text-[11px] leading-relaxed text-text-mid">
               {c.items.map((i) => (
                 <li key={i}>· {i}</li>
@@ -344,176 +542,50 @@ export function UsersSettings() {
           </div>
         ))}
       </div>
+      <p className="-mt-1 text-[10.5px] leading-relaxed text-text-muted">
+        Custom roles (managed under Permissions) are agent-level for assignment and use whatever capabilities the
+        permission matrix grants them.
+      </p>
 
-      {/* user list */}
-      <div className="flex flex-col">
-        {users.map((u) => (
-          <div key={u.id} className="border-b border-line py-3">
-            <div className="flex items-center gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-[13px] font-semibold text-text-high">{u.username}</span>
-                  {u.username === me && (
-                    <span className="text-[10.5px] font-bold text-text-muted">(you)</span>
-                  )}
-                  <span
-                    className={`rounded-full px-2 py-px text-[10px] font-bold uppercase ${ROLE_CHIP[u.role]}`}
-                  >
-                    {ROLE_LABEL[u.role]}
-                  </span>
-                  {u.active ? (
-                    <span className="rounded-full bg-green/15 px-2 py-px text-[10px] font-bold text-green-300">
-                      Active
-                    </span>
-                  ) : (
-                    <span className="rounded-full bg-red/15 px-2 py-px text-[10px] font-bold text-red-300">
-                      Deactivated
-                    </span>
-                  )}
-                </div>
-                <div className="mt-0.5 text-[11px] text-text-muted">
-                  {u.name}
-                  {u.tenant && <> · tenant <span className="font-semibold">{u.tenant}</span></>}
-                  {' · last login '}
-                  {u.last_login ? new Date(u.last_login).toLocaleString() : 'never'}
-                </div>
-                {u.role === 'agent' && (
-                  <div className="mt-1 flex flex-wrap items-center gap-1">
-                    {u.brands.length === 0 ? (
-                      <span className="text-[10.5px] text-amber-300">
-                        No brand access — this agent sees no contacts.
-                      </span>
-                    ) : (
-                      u.brands.map((b) => (
-                        <span
-                          key={b.id}
-                          className="rounded-full bg-fill-hover px-2 py-px text-[10px] font-semibold text-text-mid"
-                        >
-                          {b.name}
-                        </span>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {u.role === 'agent' && (
-                <Button
-                  variant="secondary"
-                  disabled={busy}
-                  onClick={() => {
-                    setBrandsDraft(u.brands.map((b) => b.id))
-                    setBrandsFor(brandsFor === u.id ? null : u.id)
-                  }}
-                >
-                  <Tags size={13} aria-hidden /> Brands
-                </Button>
-              )}
-
-              {isSuper && (
-                <select
-                  value={u.role}
-                  disabled={busy}
-                  onChange={(e) => setRole(u, e.target.value as Role)}
-                  aria-label={`Role for ${u.username}`}
-                  className="cursor-pointer rounded-[7px] border border-line-strong bg-surface px-2.5 py-1.5 text-[12px] font-semibold text-text-high outline-none"
-                >
-                  {ROLES.map((r) => (
-                    <option key={r} value={r}>
-                      {ROLE_LABEL[r]}
-                    </option>
-                  ))}
-                </select>
-              )}
-
-              {canManage(u) && (
-                <>
-                  <Button
-                    variant="secondary"
-                    disabled={busy}
-                    onClick={() => {
-                      setPwDraft('')
-                      setPwFor(pwFor === u.id ? null : u.id)
-                    }}
-                  >
-                    <KeyRound size={13} aria-hidden /> Reset password
-                  </Button>
-
-                  <Button variant={u.active ? 'danger' : 'success'} disabled={busy} onClick={() => toggleActive(u)}>
-                    {u.active ? (
-                      <>
-                        <UserX size={13} aria-hidden /> Deactivate
-                      </>
-                    ) : (
-                      <>
-                        <UserCheck size={13} aria-hidden /> Reactivate
-                      </>
-                    )}
-                  </Button>
-                </>
-              )}
-            </div>
-
-            {brandsFor === u.id && (
-              <div className="mt-2.5 flex flex-col gap-2">
-                <BrandPicker
-                  brands={brandPool.filter((b) => !u.tenant || b.tenant === u.tenant)}
-                  selected={brandsDraft}
-                  onToggle={(id) => setBrandsDraft((d) => toggleIn(d, id))}
-                  showTenant={multiTenant && !u.tenant}
-                />
-                <div className="flex items-center gap-2">
-                  <Button variant="primary" disabled={busy} onClick={() => saveBrands(u)}>
-                    {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null} Save
-                    brand access
-                  </Button>
-                  <Button variant="ghost" onClick={() => setBrandsFor(null)}>
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {pwFor === u.id && (
-              <div className="mt-2.5 flex items-center gap-2">
-                <input
-                  type="password"
-                  value={pwDraft}
-                  onChange={(e) => setPwDraft(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && resetPassword(u)}
-                  placeholder={`New password for ${u.username} (min 8 characters)`}
-                  autoComplete="new-password"
-                  aria-label={`New password for ${u.username}`}
-                  className="h-[34px] min-w-0 flex-1 rounded-lg border border-line-strong bg-card px-3 text-[12px] text-text-primary outline-none placeholder:text-text-faint focus:border-brand-400"
-                />
-                <Button variant="primary" disabled={busy || pwDraft.length < 8} onClick={() => resetPassword(u)}>
-                  {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null} Set password
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setPwFor(null)
-                    setPwDraft('')
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+      {/* user table */}
+      <DataTable
+        columns={columns}
+        rows={users}
+        rowKey={(u) => u.id}
+        searchKeys={['user', 'role']}
+        searchPlaceholder="Search users…"
+        empty="No users yet."
+        toolbarRight={
+          <Button onClick={() => setShowAdd(true)}>
+            <UserPlus size={13} aria-hidden /> Add user
+          </Button>
+        }
+      />
 
       {msg && (
         <div className={`text-[12px] font-semibold ${msg.ok ? 'text-green-300' : 'text-red-300'}`}>{msg.text}</div>
       )}
 
-      {/* add user */}
-      <div>
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-text-muted">
-          Add user
-        </div>
-        <div className="grid grid-cols-2 gap-3">
+      {/* add user modal */}
+      <Modal
+        open={showAdd}
+        onClose={() => setShowAdd(false)}
+        title="Add user"
+        subtitle="Create an operator login for this dashboard."
+        size="lg"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setShowAdd(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={addUser} disabled={busy}>
+              {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <UserPlus size={13} aria-hidden />}{' '}
+              Add user
+            </Button>
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field
             label="Username"
             value={newUsername}
@@ -534,18 +606,17 @@ export function UsersSettings() {
             <span className="mb-1 block text-[11px] font-bold text-text-high">Role</span>
             <select
               value={newRole}
-              onChange={(e) => setNewRole(e.target.value as Role)}
+              onChange={(e) => setNewRole(e.target.value)}
               className="w-full cursor-pointer rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] font-semibold text-text-high outline-none"
             >
-              {(isSuper ? ROLES : (['agent'] as Role[])).map((r) => (
-                <option key={r} value={r}>
-                  {ROLE_LABEL[r]}
+              {assignableRoles().map((r) => (
+                <option key={r.slug} value={r.slug}>
+                  {r.label}
                 </option>
               ))}
             </select>
             <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">
-              Super admin: everything · Admin: own tenant, all brands · Agent: assigned
-              brands only.
+              Super admin: everything · Admin: own tenant, all brands · Agent &amp; custom: assigned brands only.
             </span>
           </label>
         </div>
@@ -559,22 +630,98 @@ export function UsersSettings() {
               showTenant={multiTenant}
             />
             <span className="mt-1.5 block text-[10.5px] leading-relaxed text-text-muted">
-              An agent only sees contacts on their assigned brands (all brands must belong to
-              one tenant). You can change this later with the Brands button on their row.
+              An agent only sees contacts on their assigned brands (all brands must belong to one tenant). You can
+              change this later with the Brands button on their row.
             </span>
           </div>
         )}
-        <div className="mt-3">
-          <Button variant="primary" onClick={addUser} disabled={busy}>
-            {busy ? (
-              <Loader2 size={13} className="animate-spin" aria-hidden />
-            ) : (
-              <UserPlus size={13} aria-hidden />
-            )}{' '}
-            Add user
-          </Button>
-        </div>
-      </div>
+      </Modal>
+
+      {/* reset-password modal */}
+      {(() => {
+        const pwUser = pwFor !== null ? users.find((u) => u.id === pwFor) : undefined
+        return (
+          <Modal
+            open={!!pwUser}
+            onClose={() => {
+              setPwFor(null)
+              setPwDraft('')
+            }}
+            title={pwUser ? `Reset password — ${pwUser.username}` : 'Reset password'}
+            subtitle="Setting a new password signs the user out everywhere immediately."
+            size="sm"
+            footer={
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setPwFor(null)
+                    setPwDraft('')
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={busy || pwDraft.length < 8}
+                  onClick={() => pwUser && resetPassword(pwUser)}
+                >
+                  {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null} Set password
+                </Button>
+              </>
+            }
+          >
+            {pwUser && (
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-bold text-text-high">New password</span>
+                <input
+                  type="password"
+                  value={pwDraft}
+                  onChange={(e) => setPwDraft(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && resetPassword(pwUser)}
+                  placeholder={`New password for ${pwUser.username} (min 8 characters)`}
+                  autoComplete="new-password"
+                  aria-label={`New password for ${pwUser.username}`}
+                  className={inputCls}
+                />
+              </label>
+            )}
+          </Modal>
+        )
+      })()}
+
+      {/* brand-access modal */}
+      {(() => {
+        const brandsUser = brandsFor !== null ? users.find((u) => u.id === brandsFor) : undefined
+        return (
+          <Modal
+            open={!!brandsUser}
+            onClose={() => setBrandsFor(null)}
+            title={brandsUser ? `Brand access — ${brandsUser.username}` : 'Brand access'}
+            subtitle="An agent only sees contacts on their assigned brands."
+            size="md"
+            footer={
+              <>
+                <Button variant="ghost" onClick={() => setBrandsFor(null)}>
+                  Cancel
+                </Button>
+                <Button variant="primary" disabled={busy} onClick={() => brandsUser && saveBrands(brandsUser)}>
+                  {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null} Save brand access
+                </Button>
+              </>
+            }
+          >
+            {brandsUser && (
+              <BrandPicker
+                brands={brandPool.filter((b) => !brandsUser.tenant || b.tenant === brandsUser.tenant)}
+                selected={brandsDraft}
+                onToggle={(id) => setBrandsDraft((d) => toggleIn(d, id))}
+                showTenant={multiTenant && !brandsUser.tenant}
+              />
+            )}
+          </Modal>
+        )
+      })()}
     </div>
   )
 }

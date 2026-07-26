@@ -102,10 +102,16 @@ class TestSandbox:
         assert body["google_client_secret_masked"] == ""
         assert body["webhook_paths"]["shopify"] == "/api/integrations/webhook/shopify"
 
-    def test_oauth_start_without_client_is_a_clear_400(self, client, admin):
+    def test_oauth_start_without_client_signals_needs_setup(self, client, admin):
+        # UPGRADE-SPEC §5: never 500; a clean {configured:false, reason} so the
+        # card shows its one-time "Set up (admin)" state.
         r = client.get("/api/integrations/oauth/gmail/start", **ADMIN)
-        assert r.status_code == 400
-        assert "not configured" in r.json()["detail"].lower()
+        assert r.status_code == 200
+        body = r.json()
+        assert body["configured"] is False
+        assert "not configured" in body["reason"].lower()
+        # no orphan Integration row is created in the sandbox case
+        assert Integration.objects.count() == 0
 
     def test_every_flow_action_skips_without_credentials(self, db, monkeypatch):
         def boom(*a, **kw):
@@ -335,6 +341,12 @@ class TestOAuthFlow:
         row = Integration.objects.get(pk=body["integration_id"])
         assert row.credentials["code_verifier"]
         assert oauth.challenge_for(row.credentials["code_verifier"]) in url
+
+    def test_start_reports_configured_true_on_success(self, client, admin, google_client):
+        r = client.get("/api/integrations/oauth/gmail/start", **ADMIN)
+        assert r.status_code == 200
+        assert r.json()["configured"] is True
+        assert r.json()["authorize_url"].startswith(catalog.GOOGLE_AUTH_URL)
 
     def test_start_scopes_are_per_product(self, client, admin, google_client):
         cal = client.get("/api/integrations/oauth/google_calendar/start",

@@ -1,5 +1,6 @@
-import { SharedTemplatesSettings } from '@/components/settings/SharedTemplatesSettings'
+import { LegacyRedirect } from '@/components/shell/LegacyRedirect'
 
-export default function TemplatesSettingsPage() {
-  return <SharedTemplatesSettings />
+// Moved to a top-level route (upgrade §1). Old link redirects.
+export default function LegacyTemplatesSettingsPage() {
+  return <LegacyRedirect to="/templates" />
 }

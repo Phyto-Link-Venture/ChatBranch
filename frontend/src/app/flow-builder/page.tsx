@@ -15,7 +15,7 @@ import './flow-builder.css'
  */
 export default function FlowBuilderPage() {
   return (
-    <div className="flex h-screen flex-col bg-app">
+    <div className="flex h-full flex-col bg-app">
       <ReactFlowProvider>
         <FlowBuilder />
       </ReactFlowProvider>

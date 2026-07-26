@@ -9,11 +9,19 @@ import {
   Workflow,
   Mic,
   Users,
+  UserCog,
   MessageSquare,
   Activity,
   PhoneCall,
   Settings,
   TrendingUp,
+  Radio,
+  Plug,
+  Building2,
+  ShieldCheck,
+  FileText,
+  ScrollText,
+  Bell,
   LogOut,
   ChevronsLeft,
   ChevronsRight,
@@ -27,6 +35,11 @@ export interface NavDef {
   Icon: LucideIcon
   badge?: string
   alsoActive?: string[]
+  /** Capability that unlocks this item (dynamic RBAC, upgrade §3). Preferred
+   *  gate when the session carries a resolved capability list. */
+  cap?: string
+  /** Role fallback used when the session has no capability list (older cached
+   *  session, or a backend that predates the matrix). */
   roles?: string[]
 }
 
@@ -37,8 +50,12 @@ export interface NavDef {
  * labels + group headers hide via the `.nav-collapsed` class. A chevron toggle
  * in the rail collapses/expands it (the TopBar PanelLeft button does the same);
  * the collapsed/expanded choice is persisted + hydration-safely restored by the
- * Shell (localStorage 'nav-collapsed'). Groups follow the operator workflow:
- * overview -> work -> configure -> review -> settings.
+ * Shell (localStorage 'nav-collapsed').
+ *
+ * Groups follow the operator workflow (upgrade §1): Overview → Work → Automate
+ * → Channels → Admin → Library → Review → Settings. Seven areas were promoted
+ * out of Settings into their own routes here; each item is gated by a capability
+ * (with a role fallback).
  */
 export const NAV_GROUPS: { label?: string; items: NavDef[] }[] = [
   {
@@ -47,27 +64,59 @@ export const NAV_GROUPS: { label?: string; items: NavDef[] }[] = [
   {
     label: 'Work',
     items: [
-      { href: '/contacts', lbl: 'Contacts', Icon: Users, alsoActive: ['/contacts/'] },
-      { href: '/chats', lbl: 'Chats', Icon: MessageSquare },
+      { href: '/contacts', lbl: 'Contacts', Icon: Users, alsoActive: ['/contacts/'], cap: 'contacts.view' },
+      { href: '/chats', lbl: 'Chats', Icon: MessageSquare, cap: 'chats.view' },
     ],
   },
   {
-    label: 'Configure',
+    label: 'Automate',
     items: [
-      { href: '/flow-builder', lbl: 'Flow Builder', Icon: Workflow, roles: ['superadmin', 'admin'] },
-      { href: '/persona', lbl: 'Persona', Icon: Mic, roles: ['superadmin', 'admin'] },
+      { href: '/flow-builder', lbl: 'Flow Builder', Icon: Workflow, cap: 'flows.manage', roles: ['superadmin', 'admin'] },
+      { href: '/persona', lbl: 'Persona', Icon: Mic, cap: 'settings.ai.manage', roles: ['superadmin', 'admin'] },
+    ],
+  },
+  {
+    label: 'Channels',
+    items: [
+      { href: '/channels', lbl: 'Channels', Icon: Radio, cap: 'channels.view', roles: ['superadmin', 'admin'] },
+      { href: '/integrations', lbl: 'Integrations', Icon: Plug, cap: 'integrations.view', roles: ['superadmin', 'admin'] },
+    ],
+  },
+  {
+    label: 'Admin',
+    items: [
+      { href: '/users', lbl: 'Users & Roles', Icon: UserCog, cap: 'users.view', roles: ['superadmin', 'admin'] },
+      { href: '/brands', lbl: 'Brands & Tenants', Icon: Building2, cap: 'brands.view', roles: ['superadmin', 'admin'] },
+      { href: '/permissions', lbl: 'Permissions', Icon: ShieldCheck, cap: 'rbac.manage', roles: ['superadmin'] },
+    ],
+  },
+  {
+    label: 'Library',
+    items: [
+      { href: '/templates', lbl: 'Message Templates', Icon: FileText, cap: 'templates.manage', roles: ['superadmin', 'admin'] },
+      { href: '/script-templates', lbl: 'Script Templates', Icon: ScrollText, cap: 'script_templates.manage', roles: ['superadmin', 'admin'] },
     ],
   },
   {
     label: 'Review',
     items: [
-      { href: '/analytics', lbl: 'Analytics', Icon: TrendingUp },
-      { href: '/call-logs', lbl: 'Call Logs', Icon: PhoneCall, alsoActive: ['/call-logs/'] },
-      { href: '/activity', lbl: 'Activity', Icon: Activity },
+      { href: '/analytics', lbl: 'Analytics', Icon: TrendingUp, cap: 'analytics.view' },
+      { href: '/call-logs', lbl: 'Call Logs', Icon: PhoneCall, alsoActive: ['/call-logs/'], cap: 'call_logs.view' },
+      { href: '/activity', lbl: 'Activity', Icon: Activity, cap: 'activity.view' },
+      { href: '/notifications', lbl: 'Notifications', Icon: Bell, cap: 'notifications.manage', roles: ['superadmin', 'admin'] },
     ],
   },
   {
-    items: [{ href: '/settings', lbl: 'Settings', Icon: Settings, alsoActive: ['/settings/'], roles: ['superadmin', 'admin'] }],
+    items: [
+      {
+        href: '/settings',
+        lbl: 'Settings',
+        Icon: Settings,
+        alsoActive: ['/settings/'],
+        cap: 'settings.ai.manage',
+        roles: ['superadmin', 'admin'],
+      },
+    ],
   },
 ]
 
@@ -91,13 +140,22 @@ export function SideNav({
   useEffect(() => setUser(getAuth()), [])
 
   const role = user?.role ?? 'agent'
+  // Prefer the server-resolved capability list; fall back to role gates when a
+  // (possibly older) session doesn't carry one.
+  const hasExplicitCaps = Array.isArray(user?.capabilities) && user!.capabilities!.length > 0
+
+  const canSee = (n: NavDef) => {
+    if (!n.cap && !n.roles) return true
+    if (hasExplicitCaps && n.cap) return user!.capabilities!.includes(n.cap)
+    return !n.roles || n.roles.includes(role)
+  }
 
   const isActive = (n: NavDef) =>
     pathname === n.href || (n.alsoActive?.some((p) => pathname.startsWith(p)) ?? false)
 
   const visibleGroups = NAV_GROUPS.map((g) => ({
     ...g,
-    items: g.items.filter((n) => !n.roles || n.roles.includes(role)),
+    items: g.items.filter(canSee),
   })).filter((g) => g.items.length > 0)
 
   const signOut = async () => {

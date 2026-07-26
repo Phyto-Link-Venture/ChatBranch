@@ -456,7 +456,7 @@ export default function PersonaPage() {
             {filteredVoices.length} of {voices.length}
           </span>
         </div>
-        <div className="grid grid-cols-4 gap-2.5">
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filteredVoices.map((v) => {
             const sel = selectedVoice === v.id
             const ready = v.status === 'ready'
@@ -671,6 +671,18 @@ export default function PersonaPage() {
             )
           })}
         </div>
+        {filteredVoices.length === 0 && (
+          <div className="rounded-[11px] border border-dashed border-line bg-fill-subtle px-4 py-8 text-center text-[12px] text-text-muted">
+            {voices.length === 0
+              ? 'No voices available yet — add one to get started.'
+              : 'No voices match these filters.'}
+            {hasVoiceFilters && (
+              <button onClick={clearVoiceFilters} className="ml-1.5 font-semibold text-brand-300 underline">
+                Clear filters
+              </button>
+            )}
+          </div>
+        )}
         <div className="mt-4 flex items-center gap-1.5 text-[11px] text-text-muted">
           <RefreshCw size={12} strokeWidth={1.75} color="#64748B" />
           Selected voices are assignable per campaign in Playbook and Live Calling.

@@ -16,6 +16,7 @@ import {
 import { ACTIVITY } from '@/lib/mocks'
 import { authHeaders } from '@/lib/auth'
 import { ReviewTabs } from '@/components/shell/ReviewTabs'
+import { DataTable, type Column } from '@/components/ui/DataTable'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
@@ -71,13 +72,67 @@ export default function ActivityPage() {
     g.items.push(a)
   })
 
+  const auditColumns: Column<AuditEntry>[] = [
+    {
+      key: 'created_at',
+      header: 'Time',
+      sortable: true,
+      width: 150,
+      value: (e) => e.created_at,
+      render: (e) => <span className="text-[10.5px] text-text-faint">{auditTime(e.created_at)}</span>,
+    },
+    {
+      key: 'actor',
+      header: 'Actor',
+      sortable: true,
+      width: 120,
+      value: (e) => e.actor,
+      render: (e) => <span className="text-[11.5px] font-semibold text-text-high">{e.actor}</span>,
+    },
+    {
+      key: 'action',
+      header: 'Action',
+      sortable: true,
+      width: 170,
+      value: (e) => e.action,
+      render: (e) => (
+        <span className="rounded bg-fill px-1.5 py-px font-mono text-[10.5px] text-brand-300">{e.action}</span>
+      ),
+    },
+    {
+      key: 'target',
+      header: 'Target',
+      value: (e) => `${e.target} ${e.detail}`,
+      render: (e) => (
+        <span className="text-[11.5px] text-text-mid">
+          {e.target}
+          {e.detail && <span className="text-text-muted"> — {e.detail}</span>}
+        </span>
+      ),
+    },
+    {
+      key: 'ip',
+      header: 'IP',
+      sortable: true,
+      width: 120,
+      align: 'right',
+      value: (e) => e.ip,
+      render: (e) =>
+        e.ip ? (
+          <span className="font-mono text-[10px] text-text-faint">{e.ip}</span>
+        ) : (
+          <span className="text-text-faint">—</span>
+        ),
+    },
+  ]
+
   return (
     <div className="flex flex-col gap-3.5">
       <ReviewTabs />
       {/* Audit trail — live system + user actions from the database */}
       {audit !== null && (
-        <div className="overflow-hidden rounded-2xl border border-line bg-card">
-          <div className="flex items-center gap-2 border-b border-line px-5 py-3.5">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
             <div className="grid h-7 w-7 place-items-center rounded-lg bg-brand/15">
               <ScrollText size={14} strokeWidth={1.75} className="text-brand-300" />
             </div>
@@ -87,36 +142,17 @@ export default function ActivityPage() {
                 live — sign-ins, sends, calls & settings changes, recorded per user
               </span>
             </div>
-            <span className="rounded-full bg-fill px-2 py-px text-[11px] font-bold text-text-mid">
-              {audit.length}
-            </span>
+            <span className="rounded-full bg-fill px-2 py-px text-[11px] font-bold text-text-mid">{audit.length}</span>
           </div>
-          {audit.length === 0 ? (
-            <div className="px-5 py-6 text-center text-[12px] text-text-muted">
-              No audit entries yet — actions will appear here as they happen.
-            </div>
-          ) : (
-            <div className="max-h-[300px] overflow-y-auto">
-              {audit.map((e) => (
-                <div key={e.id} className="flex items-center gap-3 border-b border-line px-5 py-2">
-                  <span className="w-[110px] shrink-0 text-[10.5px] text-text-faint">
-                    {auditTime(e.created_at)}
-                  </span>
-                  <span className="w-[90px] shrink-0 truncate text-[11.5px] font-semibold text-text-high">
-                    {e.actor}
-                  </span>
-                  <span className="shrink-0 rounded bg-fill px-1.5 py-px font-mono text-[10.5px] text-brand-300">
-                    {e.action}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-[11.5px] text-text-mid">
-                    {e.target}
-                    {e.detail && <span className="text-text-muted"> — {e.detail}</span>}
-                  </span>
-                  {e.ip && <span className="shrink-0 font-mono text-[10px] text-text-faint">{e.ip}</span>}
-                </div>
-              ))}
-            </div>
-          )}
+          <DataTable
+            columns={auditColumns}
+            rows={audit}
+            rowKey={(e) => e.id}
+            searchKeys={['actor', 'action', 'target']}
+            searchPlaceholder="Search audit trail…"
+            empty="No audit entries yet — actions will appear here as they happen."
+            initialSort={{ key: 'created_at', dir: 'desc' }}
+          />
         </div>
       )}
 

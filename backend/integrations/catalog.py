@@ -178,9 +178,10 @@ def redirect_uri(request=None) -> str:
 
 
 def dashboard_url() -> str:
-    """Where the OAuth callback bounces the operator back to."""
+    """Where the OAuth callback bounces the operator back to — the top-level
+    Integrations route (the page owns the ?connected=/?error= toast)."""
     base = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
-    return f"{base}/settings/integrations"
+    return f"{base}/integrations"
 
 
 def provider_meta(provider: str) -> dict | None:

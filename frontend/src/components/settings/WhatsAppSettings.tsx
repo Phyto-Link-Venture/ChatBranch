@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   CheckCircle,
+  ChevronDown,
   Contact,
   Copy,
   FlaskConical,
@@ -14,13 +15,14 @@ import {
   QrCode,
   Trash2,
   User,
-  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
+import { Modal } from '@/components/ui/Modal'
+import { DataTable, type Column } from '@/components/ui/DataTable'
 import { HealthBadge, RoleChip, accountRole, type AccountRole } from '@/components/ui/Badges'
-import { roleHeaders, getRole } from '@/lib/role'
-import { expireSessionOn401 } from '@/lib/auth'
+import { roleHeaders } from '@/lib/role'
+import { expireSessionOn401, hasCap } from '@/lib/auth'
 import { fetchChannelHealth, type HealthAccount } from '@/lib/channelHealth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
@@ -95,8 +97,13 @@ export function CopyRow({ label, value }: { label: string; value: string }) {
 const inputCls =
   'w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400'
 
-/** QR pairing dialog for Baileys accounts — starts the session on open and
- *  polls the gateway until the phone scans the code. */
+/**
+ * QR pairing dialog for Baileys accounts — hosted in the reusable Modal.
+ * Starts the gateway session on open and polls its status every 2s until the
+ * phone scans the code. The poller lives in a useEffect whose cleanup clears
+ * the interval, so closing the modal (this component unmounts when `pairAcct`
+ * clears) stops the polling — no leak.
+ */
 function BaileysPairModal({ account, onClose }: { account: WaAccount; onClose: () => void }) {
   const [state, setState] = useState<BaileysState | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -126,82 +133,62 @@ function BaileysPairModal({ account, onClose }: { account: WaAccount; onClose: (
   }, [account.id])
 
   return (
-    <div
-      onClick={onClose}
-      className="fixed inset-0 z-50 flex animate-fadeIn items-center justify-center p-6 backdrop-blur-sm"
-      style={{ background: 'rgba(4,8,18,0.72)' }}
+    <Modal
+      open
+      onClose={onClose}
+      title={
+        <span className="flex items-center gap-2">
+          <QrCode size={16} className="shrink-0 text-green-300" aria-hidden /> Pair {account.name}
+        </span>
+      }
+      subtitle="On the phone: WhatsApp → Settings → Linked devices → Link a device"
+      size="sm"
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-[400px] overflow-hidden rounded-2xl border border-line-strong bg-surface"
-        style={{ boxShadow: '0 24px 60px rgba(0,0,0,0.5)' }}
-      >
-        <div className="flex items-center gap-2.5 border-b border-line px-5 py-4">
-          <QrCode size={16} className="shrink-0 text-green-300" aria-hidden />
-          <div className="min-w-0 flex-1">
-            <div className="text-[14px] font-extrabold tracking-[-0.3px] text-text-primary">
-              Pair {account.name}
+      <div className="flex flex-col items-center gap-3 py-2 text-center">
+        {error && <div className="text-[12px] font-semibold text-red-300">{error}</div>}
+        {!error && state?.state === 'connected' && (
+          <>
+            <CheckCircle size={40} className="text-green-300" aria-hidden />
+            <div className="text-[13px] font-bold text-text-high">Connected{state.me ? ` as +${state.me}` : ''}</div>
+            <div className="text-[11.5px] text-text-muted">
+              This number now sends and receives through the unified inbox.
             </div>
-            <div className="mt-0.5 text-[11px] text-text-muted">
-              WhatsApp → Settings → Linked devices → Link a device
+            <Button variant="primary" onClick={onClose}>
+              Done
+            </Button>
+          </>
+        )}
+        {!error && state?.qr && state.state === 'qr' && (
+          <>
+            {/* data-URL QR from the gateway — rendered white-boxed for scan contrast */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={state.qr} alt="WhatsApp pairing QR code" className="h-56 w-56 rounded-xl bg-white p-2" />
+            <div className="text-[11.5px] text-text-muted">
+              Scan with the phone that owns this WhatsApp number. The code refreshes automatically.
             </div>
+          </>
+        )}
+        {!error && !state?.qr && state?.state !== 'connected' && (
+          <div className="flex items-center gap-2 py-8 text-[12px] text-text-muted">
+            <Loader2 size={14} className="animate-spin" aria-hidden />
+            {state?.state === 'logged_out'
+              ? 'Session was logged out — generating a fresh QR…'
+              : 'Contacting the WhatsApp gateway…'}
           </div>
-          <button
-            onClick={onClose}
-            title="Close"
-            aria-label="Close pairing dialog"
-            className="grid h-[30px] w-[30px] shrink-0 cursor-pointer place-items-center rounded-lg border border-line bg-fill text-text-muted hover:text-text-high"
-          >
-            <X size={15} aria-hidden />
-          </button>
-        </div>
-
-        <div className="flex flex-col items-center gap-3 px-5 py-6 text-center">
-          {error && <div className="text-[12px] font-semibold text-red-300">{error}</div>}
-          {!error && state?.state === 'connected' && (
-            <>
-              <CheckCircle size={40} className="text-green-300" aria-hidden />
-              <div className="text-[13px] font-bold text-text-high">
-                Connected{state.me ? ` as +${state.me}` : ''}
-              </div>
-              <div className="text-[11.5px] text-text-muted">
-                This number now sends and receives through the unified inbox.
-              </div>
-              <Button variant="primary" onClick={onClose}>
-                Done
-              </Button>
-            </>
-          )}
-          {!error && state?.qr && state.state === 'qr' && (
-            <>
-              {/* data-URL QR from the gateway — rendered white-boxed for scan contrast */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={state.qr} alt="WhatsApp pairing QR code" className="h-56 w-56 rounded-xl bg-white p-2" />
-              <div className="text-[11.5px] text-text-muted">
-                Scan with the phone that owns this WhatsApp number. The code refreshes automatically.
-              </div>
-            </>
-          )}
-          {!error && !state?.qr && state?.state !== 'connected' && (
-            <div className="flex items-center gap-2 py-8 text-[12px] text-text-muted">
-              <Loader2 size={14} className="animate-spin" aria-hidden />
-              {state?.state === 'logged_out'
-                ? 'Session was logged out — generating a fresh QR…'
-                : 'Contacting the WhatsApp gateway…'}
-            </div>
-          )}
-        </div>
+        )}
       </div>
-    </div>
+    </Modal>
   )
 }
 
 /**
  * WhatsApp ACCOUNTS manager — Whatomate's model: every admin can link any
- * number of WhatsApp Business accounts (name + phone number ID + token).
- * Inbound webhook traffic is routed to the right account automatically by
- * the receiving business number. Full linking walkthrough:
- * backend/whatsapp/SETUP.md.
+ * number of WhatsApp Business accounts (name + phone number ID + token) or
+ * QR-pair a personal number (Baileys). The account list is a DataTable; "Add
+ * account" and a row's Edit both open the reusable Modal (Baileys' multi-step
+ * QR pairing runs in a modal too). Inbound webhook traffic is routed to the
+ * right account automatically by the receiving number. Full linking
+ * walkthrough: backend/whatsapp/SETUP.md.
  */
 export function WhatsAppSettings({
   onAccountsChanged,
@@ -226,10 +213,13 @@ export function WhatsAppSettings({
   // account id → health snapshot; empty while the health endpoint is missing
   // or unreachable — the badges just don't render then.
   const [healthMap, setHealthMap] = useState<Record<string, HealthAccount>>({})
-  // role read after mount (localStorage) — account edits are admin+ on the
-  // server, so agents get a read-only view (chips only, no role switcher).
+  // capability read after mount (localStorage) — account management is gated on
+  // channels.manage (admin+ by default), so users without it get a read-only
+  // view (chips only, no add/edit/delete/role switcher).
   const [canManage, setCanManage] = useState(false)
-  useEffect(() => setCanManage(getRole() !== 'agent'), [])
+  useEffect(() => setCanManage(hasCap('channels.manage')), [])
+  // collapsible advanced/webhook section — one-time developer setup, folded away
+  const [showWebhook, setShowWebhook] = useState(false)
   // edit-existing-account form (separate fields so it can't clash with Add)
   const [editAcct, setEditAcct] = useState<WaAccount | null>(null)
   const [eName, setEName] = useState('')
@@ -272,6 +262,17 @@ export function WhatsAppSettings({
     } finally {
       setBusy(false)
     }
+  }
+
+  const openAdd = () => {
+    setName('')
+    setPnid('')
+    setWabaId('')
+    setToken('')
+    setSecret('')
+    setMethod('cloud')
+    setMsg(null)
+    setShowAdd(true)
   }
 
   const addAccount = () =>
@@ -362,18 +363,6 @@ export function WhatsAppSettings({
       )
     })
 
-  if (accounts === null) {
-    return (
-      <div className="py-6 text-[12px] text-text-muted">
-        WhatsApp settings unavailable — is the backend API running on port 8000?
-      </div>
-    )
-  }
-
-  const webhookUrl = `${API.replace(/\/api$/, '')}/api/whatsapp/webhook`
-  const anyConfigured = accounts.some((a) => a.configured)
-  const anyBaileys = accounts.some((a) => a.provider === 'baileys')
-
   const exportContacts = async () => {
     try {
       const res = await fetch(`${API}/messaging/contacts/vcard`, { headers: roleHeaders() })
@@ -391,92 +380,263 @@ export function WhatsAppSettings({
     }
   }
 
+  if (accounts === null) {
+    return (
+      <div className="py-6 text-[12px] text-text-muted">
+        WhatsApp settings unavailable — is the backend API running on port 8000?
+      </div>
+    )
+  }
+
+  const webhookUrl = `${API.replace(/\/api$/, '')}/api/whatsapp/webhook`
+  const anyConfigured = accounts.some((a) => a.configured)
+  const anyBaileys = accounts.some((a) => a.provider === 'baileys')
+  const linkedCount = accounts.filter((a) => a.configured).length
+
+  const columns: Column<WaAccount>[] = [
+    {
+      key: 'account',
+      header: 'Account',
+      sortable: true,
+      value: (a) => `${a.name} ${a.phone_number_id ?? ''} ${a.owner ?? ''}`,
+      render: (a) => {
+        const h = healthMap[a.id]
+        return (
+          <div className="flex items-center gap-2.5">
+            <div
+              className={`grid h-9 w-9 shrink-0 place-items-center rounded-[9px] ${
+                a.configured ? 'bg-green/15 text-green-300' : 'bg-fill text-text-muted'
+              }`}
+            >
+              {a.provider === 'baileys' ? <QrCode size={16} aria-hidden /> : <Link2 size={16} aria-hidden />}
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[13px] font-bold text-text-high">{a.name}</span>
+                {a.provider === 'baileys' && (
+                  <span
+                    className="shrink-0 rounded-full bg-amber/15 px-1.5 py-px text-[9px] font-bold uppercase text-amber-300"
+                    title="Unofficial WhatsApp Web transport (Baileys) — QR paired"
+                  >
+                    Baileys
+                  </span>
+                )}
+                {a.env_managed && (
+                  <span className="shrink-0 rounded-full bg-fill px-1.5 py-px text-[9px] font-bold uppercase text-text-muted">
+                    from .env
+                  </span>
+                )}
+                {h && <HealthBadge health={h.health} detail={h.detail} />}
+              </div>
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-text-muted">
+                {a.provider === 'baileys' ? (
+                  <span>QR-paired session · text only · no 24h window</span>
+                ) : (
+                  <>
+                    <span className="font-mono">ID {a.phone_number_id || '—'}</span>
+                    {a.waba_id && <span className="font-mono">· WABA {a.waba_id}</span>}
+                    <span>· token {a.access_token_masked || 'not set'}</span>
+                  </>
+                )}
+                <span className="flex items-center gap-0.5">
+                  · <User size={10} aria-hidden /> {a.owner}
+                </span>
+              </div>
+            </div>
+          </div>
+        )
+      },
+    },
+    {
+      key: 'role',
+      header: 'Role',
+      width: 200,
+      value: (a) => accountRole(a),
+      render: (a) =>
+        canManage ? (
+          <div
+            className="flex w-fit shrink-0 overflow-hidden rounded-lg border border-line"
+            role="group"
+            aria-label={`Role for ${a.name}`}
+          >
+            {(['reminder', 'conversation'] as const).map((r) => {
+              const active = accountRole(a) === r
+              return (
+                <button
+                  key={r}
+                  onClick={() => setAccountRoleTo(a, r)}
+                  disabled={busy || a.env_managed}
+                  aria-pressed={active}
+                  title={
+                    a.env_managed
+                      ? 'Managed by backend/.env'
+                      : r === 'reminder'
+                        ? 'Reminder (business) — templates auto-send directly, no queue delay (official API)'
+                        : 'Conversation (personal) — AI chat, customer-initiated; sends human-paced to avoid bans'
+                  }
+                  className={`cursor-pointer px-2.5 py-1.5 text-[10.5px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                    active ? 'bg-brand-400/15' : 'text-text-muted hover:bg-fill-hover hover:text-text-high'
+                  }`}
+                  style={active ? { color: 'var(--brand-ink)' } : undefined}
+                >
+                  {r === 'reminder' ? 'Reminder' : 'Conversation'}
+                </button>
+              )
+            })}
+          </div>
+        ) : (
+          <RoleChip role={accountRole(a)} />
+        ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (a) => (
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {canManage && a.provider === 'baileys' && (
+            <Button variant="secondary" onClick={() => setPairAcct(a)} disabled={busy}>
+              <QrCode size={13} aria-hidden /> Pair
+            </Button>
+          )}
+          <Button variant="secondary" onClick={() => testAccount(a)} disabled={busy || !a.configured}>
+            <Plug size={13} aria-hidden /> Test
+          </Button>
+          {canManage && (
+            <>
+              <button
+                onClick={() => startEdit(a)}
+                disabled={busy || a.env_managed}
+                title={a.env_managed ? 'Managed by backend/.env' : 'Edit keys'}
+                aria-label={`Edit ${a.name}`}
+                className="grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:cursor-not-allowed disabled:opacity-35"
+              >
+                <Pencil size={14} aria-hidden />
+              </button>
+              <button
+                onClick={() => removeAccount(a)}
+                disabled={busy || a.env_managed}
+                title={a.env_managed ? 'Managed by backend/.env' : 'Remove account'}
+                aria-label={`Remove ${a.name}`}
+                className="grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/15 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-35"
+              >
+                <Trash2 size={14} aria-hidden />
+              </button>
+            </>
+          )}
+        </div>
+      ),
+    },
+  ]
+
   return (
     <div className="flex flex-col gap-4 pt-3.5">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {anyConfigured ? (
           <span className="flex items-center gap-1.5 rounded-full bg-green/15 px-2.5 py-1 text-[11px] font-bold text-green-300">
-            <Link2 size={12} aria-hidden /> {accounts.filter((a) => a.configured).length} account
-            {accounts.filter((a) => a.configured).length > 1 ? 's' : ''} linked
+            <Link2 size={12} aria-hidden /> {linkedCount} account{linkedCount > 1 ? 's' : ''} linked
           </span>
         ) : (
           <span className="flex items-center gap-1.5 rounded-full bg-amber/15 px-2.5 py-1 text-[11px] font-bold text-amber-300">
             <FlaskConical size={12} aria-hidden /> Sandbox — no account linked
           </span>
         )}
-        <div className="flex-1" />
-        <Button variant="primary" onClick={() => setShowAdd(!showAdd)}>
-          <Plus size={13} aria-hidden /> Add WhatsApp account
-        </Button>
       </div>
 
-      {/* add form */}
-      {showAdd && (
-        <div className="rounded-xl border border-line bg-fill-subtle p-4">
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="mb-1 block text-[11px] font-bold text-text-high">Connection method</span>
-              <Select
-                value={method}
-                onChange={(v) => setMethod(v as 'cloud' | 'baileys')}
-                options={[
-                  { value: 'cloud', label: 'Cloud API', hint: '(official, token)' },
-                  { value: 'baileys', label: 'Baileys', hint: '(QR scan, unofficial)' },
-                ]}
-                size="md"
-                ariaLabel="Connection method"
-              />
-              {method === 'baileys' && (
-                <span className="mt-1 block text-[10.5px] leading-relaxed text-amber-300">
-                  Unofficial WhatsApp Web protocol — no Meta approval needed, but it violates
-                  WhatsApp&apos;s ToS and the number can be banned. Use a dedicated/spare number.
-                </span>
-              )}
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-[11px] font-bold text-text-high">Account name</span>
-              <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Support MY" />
-            </label>
-            {method === 'cloud' && (
-              <>
-                <label className="block">
-                  <span className="mb-1 block text-[11px] font-bold text-text-high">Phone number ID</span>
-                  <input className={inputCls} value={pnid} onChange={(e) => setPnid(e.target.value)} placeholder="123456789012345" />
-                  <span className="mt-1 block text-[10.5px] text-text-muted">
-                    Meta App Dashboard → WhatsApp → API Setup — the numeric ID, not the phone number.
-                  </span>
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-[11px] font-bold text-text-high">WABA ID (for templates)</span>
-                  <input className={inputCls} value={wabaId} onChange={(e) => setWabaId(e.target.value)} placeholder="WhatsApp Business Account ID" />
-                  <span className="mt-1 block text-[10.5px] text-text-muted">
-                    Same API Setup page — needed to list and send message templates. Optional otherwise.
-                  </span>
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-[11px] font-bold text-text-high">Access token</span>
-                  <input className={inputCls} type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder="EAAG…" />
-                  <span className="mt-1 block text-[10.5px] text-text-muted">
-                    Use a System User token for production (dashboard tokens expire in 24h).
-                  </span>
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-[11px] font-bold text-text-high">App secret (optional)</span>
-                  <input className={inputCls} type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="enables webhook signature checks" />
-                </label>
-              </>
-            )}
-            {method === 'baileys' && (
-              <div className="col-span-2 rounded-lg border border-line bg-fill px-3 py-2 text-[11px] leading-relaxed text-text-mid">
-                <QrCode size={12} className="mb-0.5 mr-1 inline text-green-300" aria-hidden />
-                No credentials needed — after creating the account you&apos;ll scan a QR code with the
-                phone, like WhatsApp Web. Requires the gateway process:{' '}
-                <code className="rounded bg-fill-subtle px-1">npm run dev:baileys</code>. Text messages
-                only (templates, media and calls stay on Cloud API accounts); the 24h window does not apply.
-              </div>
-            )}
+      {accounts.length > 0 && (
+        <p className="text-[11px] leading-relaxed text-text-muted">
+          <span className="font-bold text-text-high">Account roles:</span> Reminder (business) numbers send templates
+          and hand contacts to conversation numbers —{' '}
+          <span className="font-semibold text-text-high">auto-sends go out directly, back to back</span> (official
+          API; no queue delay). Conversation (personal) numbers do AI chat, customer-initiated only — their sends are
+          deliberately human-paced (45–180s apart) to protect the number from bans.
+        </p>
+      )}
+
+      {/* account table */}
+      <DataTable
+        columns={columns}
+        rows={accounts}
+        rowKey={(a) => a.id}
+        searchKeys={['account']}
+        searchPlaceholder="Search WhatsApp accounts…"
+        empty="No WhatsApp accounts yet. Every admin can link their own — click “Add WhatsApp account”."
+        toolbarRight={
+          canManage ? (
+            <Button variant="primary" onClick={openAdd}>
+              <Plus size={13} aria-hidden /> Add WhatsApp account
+            </Button>
+          ) : undefined
+        }
+      />
+
+      {msg && (
+        <div className={`text-[12px] font-semibold ${msg.ok ? 'text-green-300' : 'text-red-300'}`}>{msg.text}</div>
+      )}
+
+      {/* Baileys deliverability: contacts in the phone's address book are not
+          "cold contacts", so reminder sends bypass WhatsApp's 463 reach-out lock */}
+      {anyBaileys && (
+        <div className="flex items-start gap-3 rounded-xl border border-line bg-fill-subtle px-4 py-3">
+          <Contact size={16} className="mt-0.5 shrink-0 text-green-300" aria-hidden />
+          <div className="min-w-0 flex-1 text-[11.5px] leading-relaxed text-text-mid">
+            <span className="font-bold text-text-high">Sending reminders to new numbers?</span> WhatsApp restricts
+            first-contact messages from QR-paired accounts (error 463). Export your contacts as contacts and import the
+            file into the paired phone (Contacts app → Import) — numbers in the address book are exempt.
           </div>
-          <div className="mt-3 flex gap-2">
+          <Button variant="secondary" onClick={exportContacts} disabled={busy}>
+            <Contact size={13} aria-hidden /> Export contacts (.vcf)
+          </Button>
+        </div>
+      )}
+
+      {/* Advanced / webhook setup — one-time developer config, collapsed by
+          default so it doesn't crowd the day-to-day accounts view. One webhook
+          serves ALL accounts (routed by the receiving number). */}
+      <div className="rounded-xl border border-line bg-card">
+        <button
+          type="button"
+          onClick={() => setShowWebhook((v) => !v)}
+          aria-expanded={showWebhook}
+          className="flex w-full cursor-pointer items-center gap-2 px-4 py-3 text-left"
+        >
+          <ChevronDown
+            size={15}
+            aria-hidden
+            className="shrink-0 text-text-muted transition-transform"
+            style={{ transform: showWebhook ? 'rotate(0deg)' : 'rotate(-90deg)' }}
+          />
+          <span className="text-[12.5px] font-bold text-text-high">Advanced · Meta webhook setup</span>
+          <span className="text-[11px] text-text-muted">— one-time, shared by all accounts</span>
+        </button>
+        {showWebhook && (
+          <div className="border-t border-line px-4 py-3">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <CopyRow label="Callback URL" value={webhookUrl} />
+              <CopyRow label="Verify token" value={verifyToken} />
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
+              Paste these in Meta App Dashboard → WhatsApp → Configuration → Webhook and subscribe to the{' '}
+              <code className="rounded bg-fill px-1">messages</code> field. Inbound traffic is routed to the right
+              account by the receiving number. Local dev needs a public HTTPS tunnel to port 8000 — see{' '}
+              <code className="rounded bg-fill px-1">backend/whatsapp/SETUP.md</code>.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* add-account modal */}
+      <Modal
+        open={showAdd}
+        onClose={() => setShowAdd(false)}
+        title="Add WhatsApp account"
+        subtitle="Link an official Cloud API number, or QR-pair a personal number (Baileys)."
+        size="lg"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setShowAdd(false)} disabled={busy}>
+              Cancel
+            </Button>
             <Button
               variant="primary"
               onClick={addAccount}
@@ -485,27 +645,95 @@ export function WhatsAppSettings({
               {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Plus size={13} aria-hidden />}{' '}
               {method === 'baileys' ? 'Create & show QR' : 'Link account'}
             </Button>
-            <Button variant="ghost" onClick={() => setShowAdd(false)}>
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-bold text-text-high">Connection method</span>
+            <Select
+              value={method}
+              onChange={(v) => setMethod(v as 'cloud' | 'baileys')}
+              options={[
+                { value: 'cloud', label: 'Cloud API', hint: '(official, token)' },
+                { value: 'baileys', label: 'Baileys', hint: '(QR scan, unofficial)' },
+              ]}
+              size="md"
+              ariaLabel="Connection method"
+            />
+            {method === 'baileys' && (
+              <span className="mt-1 block text-[10.5px] leading-relaxed text-amber-300">
+                Unofficial WhatsApp Web protocol — no Meta approval needed, but it violates WhatsApp&apos;s ToS and the
+                number can be banned. Use a dedicated/spare number.
+              </span>
+            )}
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-bold text-text-high">Account name</span>
+            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Support MY" />
+          </label>
+          {method === 'cloud' && (
+            <>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-bold text-text-high">Phone number ID</span>
+                <input className={inputCls} value={pnid} onChange={(e) => setPnid(e.target.value)} placeholder="123456789012345" />
+                <span className="mt-1 block text-[10.5px] text-text-muted">
+                  Meta App Dashboard → WhatsApp → API Setup — the numeric ID, not the phone number.
+                </span>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-bold text-text-high">WABA ID (for templates)</span>
+                <input className={inputCls} value={wabaId} onChange={(e) => setWabaId(e.target.value)} placeholder="WhatsApp Business Account ID" />
+                <span className="mt-1 block text-[10.5px] text-text-muted">
+                  Same API Setup page — needed to list and send message templates. Optional otherwise.
+                </span>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-bold text-text-high">Access token</span>
+                <input className={inputCls} type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder="EAAG…" />
+                <span className="mt-1 block text-[10.5px] text-text-muted">
+                  Use a System User token for production (dashboard tokens expire in 24h).
+                </span>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-bold text-text-high">App secret (optional)</span>
+                <input className={inputCls} type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="enables webhook signature checks" />
+              </label>
+            </>
+          )}
+          {method === 'baileys' && (
+            <div className="rounded-lg border border-line bg-fill px-3 py-2 text-[11px] leading-relaxed text-text-mid sm:col-span-2">
+              <QrCode size={12} className="mb-0.5 mr-1 inline text-green-300" aria-hidden />
+              No credentials needed — after creating the account you&apos;ll scan a QR code with the phone, like
+              WhatsApp Web. Requires the gateway process:{' '}
+              <code className="rounded bg-fill-subtle px-1">npm run dev:baileys</code>. Text messages only (templates,
+              media and calls stay on Cloud API accounts); the 24h window does not apply.
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* edit-account modal */}
+      <Modal
+        open={!!editAcct}
+        onClose={() => setEditAcct(null)}
+        title={editAcct ? `Edit “${editAcct.name}”` : 'Edit account'}
+        subtitle="Changes are live immediately. Leave a secret blank to keep the stored value."
+        size="lg"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setEditAcct(null)} disabled={busy}>
               Cancel
             </Button>
-          </div>
-        </div>
-      )}
-
-      {/* edit form */}
-      {editAcct && (
-        <div className="rounded-xl border border-line bg-fill-subtle p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-[12.5px] font-bold text-text-high">Edit “{editAcct.name}”</span>
-            <button
-              onClick={() => setEditAcct(null)}
-              aria-label="Close edit form"
-              className="grid h-7 w-7 cursor-pointer place-items-center rounded-md text-text-muted hover:bg-fill-hover"
-            >
-              <X size={14} aria-hidden />
-            </button>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+            <Button variant="primary" onClick={saveEdit} disabled={busy || !eName.trim()}>
+              {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <CheckCircle size={13} aria-hidden />}{' '}
+              Save changes
+            </Button>
+          </>
+        }
+      >
+        {editAcct && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block">
               <span className="mb-1 block text-[11px] font-bold text-text-high">Account name</span>
               <input className={inputCls} value={eName} onChange={(e) => setEName(e.target.value)} />
@@ -522,7 +750,8 @@ export function WhatsAppSettings({
                 </label>
                 <label className="block">
                   <span className="mb-1 block text-[11px] font-bold text-text-high">
-                    Access token <span className="font-normal text-text-muted">(current: {editAcct.access_token_masked || 'not set'})</span>
+                    Access token{' '}
+                    <span className="font-normal text-text-muted">(current: {editAcct.access_token_masked || 'not set'})</span>
                   </span>
                   <input
                     className={inputCls}
@@ -538,7 +767,8 @@ export function WhatsAppSettings({
                 </label>
                 <label className="block">
                   <span className="mb-1 block text-[11px] font-bold text-text-high">
-                    App secret <span className="font-normal text-text-muted">(current: {editAcct.app_secret_masked || 'not set'})</span>
+                    App secret{' '}
+                    <span className="font-normal text-text-muted">(current: {editAcct.app_secret_masked || 'not set'})</span>
                   </span>
                   <input
                     className={inputCls}
@@ -552,180 +782,18 @@ export function WhatsAppSettings({
               </>
             )}
           </div>
-          <div className="mt-3 flex gap-2">
-            <Button variant="primary" onClick={saveEdit} disabled={busy || !eName.trim()}>
-              {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <CheckCircle size={13} aria-hidden />} Save changes
-            </Button>
-            <Button variant="ghost" onClick={() => setEditAcct(null)} disabled={busy}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* account list */}
-      <div className="flex flex-col gap-2">
-        {accounts.length > 0 && (
-          <p className="text-[11px] leading-relaxed text-text-muted">
-            <span className="font-bold text-text-high">Account roles:</span> Reminder (business)
-            numbers send templates and hand contacts to conversation numbers —{' '}
-            <span className="font-semibold text-text-high">auto-sends go out directly, back to
-            back</span> (official API; no queue delay). Conversation (personal) numbers do AI
-            chat, customer-initiated only — their sends are deliberately human-paced (45–180s
-            apart) to protect the number from bans.
-          </p>
         )}
-        {accounts.length === 0 && (
-          <div className="rounded-xl border border-dashed border-line-strong px-4 py-6 text-center text-[12px] text-text-muted">
-            No WhatsApp accounts yet. Every admin can link their own — click “Add WhatsApp account”.
-          </div>
-        )}
-        {accounts.map((a) => (
-          <div key={a.id} className="flex items-center gap-3 rounded-xl border border-line bg-card px-4 py-3">
-            <div
-              className={`grid h-9 w-9 shrink-0 place-items-center rounded-[9px] ${
-                a.configured ? 'bg-green/15 text-green-300' : 'bg-fill text-text-muted'
-              }`}
-            >
-              {a.provider === 'baileys' ? <QrCode size={16} aria-hidden /> : <Link2 size={16} aria-hidden />}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="truncate text-[13px] font-bold text-text-high">{a.name}</span>
-                {a.provider === 'baileys' && (
-                  <span
-                    className="shrink-0 rounded-full bg-amber/15 px-1.5 py-px text-[9px] font-bold uppercase text-amber-300"
-                    title="Unofficial WhatsApp Web transport (Baileys) — QR paired"
-                  >
-                    Baileys
-                  </span>
-                )}
-                {a.env_managed && (
-                  <span className="shrink-0 rounded-full bg-fill px-1.5 py-px text-[9px] font-bold uppercase text-text-muted">
-                    from .env
-                  </span>
-                )}
-                <RoleChip role={accountRole(a)} />
-                {healthMap[a.id] && (
-                  <HealthBadge health={healthMap[a.id].health} detail={healthMap[a.id].detail} />
-                )}
-              </div>
-              <div className="flex items-center gap-2 text-[11px] text-text-muted">
-                {a.provider === 'baileys' ? (
-                  <span>QR-paired session · text only · no 24h window</span>
-                ) : (
-                  <>
-                    <span className="font-mono">ID {a.phone_number_id || '—'}</span>
-                    {a.waba_id && <span className="font-mono">· WABA {a.waba_id}</span>}
-                    <span>· token {a.access_token_masked || 'not set'}</span>
-                  </>
-                )}
-                <span className="flex items-center gap-0.5">
-                  · <User size={10} aria-hidden /> {a.owner}
-                </span>
-              </div>
-            </div>
-            {canManage && (
-              <div
-                className="flex shrink-0 overflow-hidden rounded-lg border border-line"
-                role="group"
-                aria-label={`Role for ${a.name}`}
-              >
-                {(['reminder', 'conversation'] as const).map((r) => {
-                  const active = accountRole(a) === r
-                  return (
-                    <button
-                      key={r}
-                      onClick={() => setAccountRoleTo(a, r)}
-                      disabled={busy || a.env_managed}
-                      aria-pressed={active}
-                      title={
-                        a.env_managed
-                          ? 'Managed by backend/.env'
-                          : r === 'reminder'
-                            ? 'Reminder (business) — templates auto-send directly, no queue delay (official API)'
-                            : 'Conversation (personal) — AI chat, customer-initiated; sends human-paced to avoid bans'
-                      }
-                      className={`cursor-pointer px-2.5 py-1.5 text-[10.5px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                        active ? 'bg-brand-400/15' : 'text-text-muted hover:bg-fill-hover hover:text-text-high'
-                      }`}
-                      style={active ? { color: 'var(--brand-ink)' } : undefined}
-                    >
-                      {r === 'reminder' ? 'Reminder' : 'Conversation'}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-            {a.provider === 'baileys' && (
-              <Button variant="secondary" onClick={() => setPairAcct(a)} disabled={busy}>
-                <QrCode size={13} aria-hidden /> Pair
-              </Button>
-            )}
-            <Button variant="secondary" onClick={() => testAccount(a)} disabled={busy || !a.configured}>
-              <Plug size={13} aria-hidden /> Test
-            </Button>
-            <button
-              onClick={() => startEdit(a)}
-              disabled={busy || a.env_managed}
-              title={a.env_managed ? 'Managed by backend/.env' : 'Edit keys'}
-              aria-label={`Edit ${a.name}`}
-              className="grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:cursor-not-allowed disabled:opacity-35"
-            >
-              <Pencil size={14} aria-hidden />
-            </button>
-            <button
-              onClick={() => removeAccount(a)}
-              disabled={busy || a.env_managed}
-              title={a.env_managed ? 'Managed by backend/.env' : 'Remove account'}
-              aria-label={`Remove ${a.name}`}
-              className="grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/15 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-35"
-            >
-              <Trash2 size={14} aria-hidden />
-            </button>
-          </div>
-        ))}
-      </div>
+      </Modal>
 
-      {msg && (
-        <div className={`text-[12px] font-semibold ${msg.ok ? 'text-green-300' : 'text-red-300'}`}>{msg.text}</div>
+      {pairAcct && (
+        <BaileysPairModal
+          account={pairAcct}
+          onClose={() => {
+            setPairAcct(null)
+            refresh()
+          }}
+        />
       )}
-
-      {pairAcct && <BaileysPairModal account={pairAcct} onClose={() => { setPairAcct(null); refresh() }} />}
-
-      {/* Baileys deliverability: contacts in the phone's address book are not
-          "cold contacts", so reminder sends bypass WhatsApp's 463 reach-out lock */}
-      {anyBaileys && (
-        <div className="flex items-start gap-3 rounded-xl border border-line bg-fill-subtle px-4 py-3">
-          <Contact size={16} className="mt-0.5 shrink-0 text-green-300" aria-hidden />
-          <div className="min-w-0 flex-1 text-[11.5px] leading-relaxed text-text-mid">
-            <span className="font-bold text-text-high">Sending reminders to new numbers?</span>{' '}
-            WhatsApp restricts first-contact messages from QR-paired accounts (error 463). Export your
-            contacts as contacts and import the file into the paired phone (Contacts app → Import) — numbers
-            in the address book are exempt.
-          </div>
-          <Button variant="secondary" onClick={exportContacts} disabled={busy}>
-            <Contact size={13} aria-hidden /> Export contacts (.vcf)
-          </Button>
-        </div>
-      )}
-
-      {/* webhook block — one webhook serves ALL accounts (routed by number) */}
-      <div>
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-text-muted">
-          Meta webhook configuration (shared by all accounts)
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <CopyRow label="Callback URL" value={webhookUrl} />
-          <CopyRow label="Verify token" value={verifyToken} />
-        </div>
-        <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
-          Paste these in Meta App Dashboard → WhatsApp → Configuration → Webhook and subscribe to the{' '}
-          <code className="rounded bg-fill px-1">messages</code> field. Inbound traffic is routed to the right
-          account by the receiving number. Local dev needs a public HTTPS tunnel to port 8000 — see{' '}
-          <code className="rounded bg-fill px-1">backend/whatsapp/SETUP.md</code>.
-        </p>
-      </div>
     </div>
   )
 }

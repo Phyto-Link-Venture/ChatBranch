@@ -1,9 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { useEffect, useState, type ReactNode } from 'react'
-import { ArrowLeft, Check, Loader2 } from 'lucide-react'
+import { Check, Loader2 } from 'lucide-react'
 import { getRole, type Role } from '@/lib/role'
 import { SettingsDirtyProvider, useSettingsDirty } from './SettingsDirtyContext'
 
@@ -12,6 +12,11 @@ import { SettingsDirtyProvider, useSettingsDirty } from './SettingsDirtyContext'
  * refresh or a shared link lands back on the same tab. The old single-page
  * ?tab= form still works — app/settings/page.tsx redirects it here.
  * Add a tab = add the entry below + an app/settings/<id>/page.tsx.
+ *
+ * Settings is now AI/config only (upgrade §1): Channels, Integrations,
+ * Users & Roles, Brands & Tenants, Message Templates, Script Templates and
+ * Notifications moved to top-level sidebar routes. The retired
+ * /settings/<id> routes redirect (see MOVED_AREA_ROUTES).
  */
 export const SETTINGS_TABS: { id: string; lbl: string; superadminOnly?: boolean }[] = [
   { id: 'ai', lbl: 'AI Configuration' },
@@ -19,17 +24,9 @@ export const SETTINGS_TABS: { id: string; lbl: string; superadminOnly?: boolean 
   { id: 'persona', lbl: 'AI Persona' },
   { id: 'knowledge', lbl: 'Knowledge Base' },
   { id: 'skills', lbl: 'AI Skills' },
-  { id: 'channels', lbl: 'Channels' },
-  { id: 'integrations', lbl: 'Integrations' },
   { id: 'assignments', lbl: 'Account Assignment' },
   { id: 'appkeys', lbl: 'App Keys', superadminOnly: true },
-  { id: 'users', lbl: 'Users & Roles' }, // admins manage their tenant's agents
-
-  { id: 'brands', lbl: 'Brands & Tenants' },
   { id: 'pronunciation', lbl: 'Pronunciation' },
-  { id: 'templates', lbl: 'Message Templates' },
-  { id: 'script-templates', lbl: 'Script Templates' },
-  { id: 'notif', lbl: 'Notifications' },
 ]
 
 export function SettingsShell({ children }: { children: ReactNode }) {
@@ -79,7 +76,6 @@ function DirtyControls() {
 
 function SettingsShellInner({ children }: { children: ReactNode }) {
   const pathname = usePathname() || '/settings'
-  const router = useRouter()
   const [role, setRoleState] = useState<Role>('admin')
 
   // role read after mount (localStorage) — super-admin-only tabs hide for admins
@@ -91,16 +87,10 @@ function SettingsShellInner({ children }: { children: ReactNode }) {
        Tabs with stage-then-save controls drive the header's Save/Discard via
        SettingsDirtyContext; live instant-save tabs never mark dirty, so the
        header stays clean and Back just returns to the app. */
-    <div className="flex h-screen flex-col bg-app">
-      {/* Header bar: Back + title/subtitle + dirty controls */}
+    <div className="flex h-full flex-col bg-app">
+      {/* Header bar: title/subtitle + dirty controls (the app sidebar/topbar
+          now provide navigation, so no Back button here). */}
       <header className="flex h-[56px] shrink-0 items-center gap-3 border-b border-line bg-surface px-4">
-        <button
-          onClick={() => router.push('/dashboard')}
-          className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-line bg-fill px-2.5 py-1.5 text-[12px] font-semibold text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
-        >
-          <ArrowLeft size={14} strokeWidth={1.9} />
-          Back
-        </button>
         <div className="min-w-0">
           <div className="text-[15px] font-extrabold tracking-[-0.4px] text-text-heading">Settings</div>
           <div className="truncate text-[11px] text-text-muted">Providers &amp; configuration</div>

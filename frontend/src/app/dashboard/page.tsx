@@ -205,7 +205,7 @@ export default function DashboardPage() {
       <div>
         <h1 className="text-[20px] font-extrabold tracking-[-0.5px] text-text-heading">Overview</h1>
         <div className="mt-0.5 text-[12px] text-text-muted">
-          {openContacts.length} open contacts
+          {openContacts.length} open {openContacts.length === 1 ? 'contact' : 'contacts'}
           {health?.checked_at && <span className="text-text-faint"> · updated {relTime(health.checked_at)}</span>}
         </div>
       </div>

@@ -28,11 +28,18 @@ class Profile(models.Model):
     agent      — only the brands explicitly assigned to them (`brands`)
     """
 
+    # The 3 built-in roles. Kept as a class attribute for callers that still
+    # reference it (seed_demo, user_service, the demo-user list), but the field
+    # itself is NO LONGER choices-constrained: any crm.Role.slug is a valid
+    # value (custom roles). Assignment is validated against Role rows, not this
+    # enum — see crm.user_service / crm.permissions_store.
     ROLE_CHOICES = [("superadmin", "Super admin"), ("admin", "Admin"), ("agent", "Agent")]
 
     user = models.OneToOneField(django_settings.AUTH_USER_MODEL,
                                 on_delete=models.CASCADE, related_name="profile")
-    role = models.CharField(max_length=12, choices=ROLE_CHOICES, default="admin")
+    # Free-form role slug (matches a crm.Role.slug). Width tracks Role.slug so a
+    # custom role's slug always fits.
+    role = models.CharField(max_length=32, default="admin")
     token = models.CharField(max_length=64, blank=True, default="", db_index=True)
     # Phase 2 (PR-2): the tenant this user belongs to. Nullable so existing
     # profiles keep working; a data migration backfills the default tenant, and
@@ -46,6 +53,65 @@ class Profile(models.Model):
 
     def __str__(self):
         return f"{self.user.username} ({self.role})"
+
+
+class Role(models.Model):
+    """A role users can be assigned — the 3 built-ins plus any custom roles a
+    superadmin creates (Permissions page).
+
+    Built-ins (`superadmin`/`admin`/`agent`) are seeded with `is_system=True`
+    and are protected: they can't be renamed or deleted. Custom roles are
+    `is_system=False`; they're created with every capability `allowed=False`
+    (a fresh RolePermission row set) and get NO auto-pass — only `superadmin`
+    auto-passes, in code. `Profile.role` stores the slug; enforcement flows
+    through `permissions_store.has_capability`, which treats any role string
+    uniformly.
+
+    Seeded idempotently by `permissions_store.ensure_default_permissions`
+    (post_migrate + seed_demo), so a bare `migrate` leaves the built-in rows
+    present.
+    """
+
+    slug = models.CharField(max_length=32, unique=True)
+    label = models.CharField(max_length=64)
+    is_system = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # System first, then custom by creation order. The API imposes the
+        # canonical superadmin/admin/agent order within the system group.
+        ordering = ["-is_system", "created_at"]
+
+    def __str__(self):
+        return f"{self.slug}{' (system)' if self.is_system else ''}"
+
+
+class RolePermission(models.Model):
+    """Which capabilities a role has — the data-driven RBAC matrix.
+
+    Seeded with sensible defaults (crm.permissions_store.ensure_default_permissions,
+    run from seed_demo AND post_migrate) and then editable in the UI by a
+    superadmin (the Permissions page). Enforcement reads these rows through
+    `has_capability`; capabilities gate the ACTION, tenancy/ownership scoping
+    still gates the ROWS — both layers remain in force.
+
+    A missing row falls back to the code default matrix (superadmin is always
+    allowed, in code, so it can never be locked out). Operator edits are never
+    clobbered: the seed uses get_or_create. `role` is a free-form slug matching
+    a crm.Role.slug (built-in or custom).
+    """
+
+    role = models.CharField(max_length=32)       # superadmin | admin | agent | custom slug
+    capability = models.CharField(max_length=48)  # e.g. "contacts.manage"
+    allowed = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("role", "capability")]
+        ordering = ["role", "capability"]
+
+    def __str__(self):
+        return f"{self.role}:{self.capability}={'on' if self.allowed else 'off'}"
 
 
 class AuditLog(models.Model):

@@ -135,6 +135,134 @@ def test_admin_creates_brand_in_own_tenant(world):
     assert Brand.objects.filter(tenant=world["t1"], slug="new").exists()
 
 
+# ── brand update / delete via /api/v1/brands/<id> ────────────────────────────
+
+def _patch(path, body, tok):
+    return Client().patch(path, data=json.dumps(body),
+                          content_type="application/json", **auth(tok))
+
+
+def test_admin_patches_brand_in_own_tenant(world):
+    b = world["b1a"]
+    r = _patch(f"/api/v1/brands/{b.id}", {"name": "Renamed A"}, "t-a1")
+    assert r.status_code == 200 and r.json()["name"] == "Renamed A"
+    b.refresh_from_db()
+    assert b.name == "Renamed A"
+
+
+def test_admin_patch_is_active_soft_archive(world):
+    b = world["b1b"]
+    r = _patch(f"/api/v1/brands/{b.id}", {"is_active": False}, "t-a1")
+    assert r.status_code == 200 and r.json()["is_active"] is False
+    b.refresh_from_db()
+    assert b.is_active is False
+
+
+def test_patch_brand_duplicate_slug_409(world):
+    b = world["b1a"]  # slug "a"; b1b is slug "b" in the same tenant
+    r = _patch(f"/api/v1/brands/{b.id}", {"slug": "b"}, "t-a1")
+    assert r.status_code == 409
+
+
+def test_agent_cannot_patch_brand(world):
+    b = world["b1a"]
+    r = _patch(f"/api/v1/brands/{b.id}", {"name": "Nope"}, "t-c1")  # agent
+    assert r.status_code == 403
+
+
+def test_admin_cannot_patch_other_tenant_brand(world):
+    b = world["b2"]  # T2's brand
+    r = _patch(f"/api/v1/brands/{b.id}", {"name": "X"}, "t-a1")  # a1 is T1 admin
+    assert r.status_code == 404
+
+
+def test_delete_brand_blocked_when_in_use_409(world):
+    """b1a has a contact (Cust A) AND an assigned agent (c1) — 409 with counts."""
+    b = world["b1a"]
+    r = Client().delete(f"/api/v1/brands/{b.id}", **auth("t-a1"))
+    assert r.status_code == 409
+    body = r.json()
+    assert body["contacts"] == 1 and body["agents"] == 1
+    assert Brand.objects.filter(pk=b.id).exists()  # not deleted
+
+
+def test_delete_unused_brand_ok(world):
+    fresh = Brand.objects.create(tenant=world["t1"], name="Empty", slug="empty")
+    r = Client().delete(f"/api/v1/brands/{fresh.id}", **auth("t-a1"))
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert not Brand.objects.filter(pk=fresh.id).exists()
+
+
+def test_delete_brand_blocked_when_knowledge_attached_409(world):
+    from crm.models import KnowledgeItem
+    fresh = Brand.objects.create(tenant=world["t1"], name="KB Brand", slug="kbb")
+    KnowledgeItem.objects.create(tenant=world["t1"], brand=fresh,
+                                 title="Hours", content="9-5")
+    r = Client().delete(f"/api/v1/brands/{fresh.id}", **auth("t-a1"))
+    assert r.status_code == 409 and r.json()["knowledge"] == 1
+    assert Brand.objects.filter(pk=fresh.id).exists()
+
+
+def test_agent_cannot_delete_brand(world):
+    fresh = Brand.objects.create(tenant=world["t1"], name="Empty", slug="empty2")
+    r = Client().delete(f"/api/v1/brands/{fresh.id}", **auth("t-c1"))  # agent
+    assert r.status_code == 403
+    assert Brand.objects.filter(pk=fresh.id).exists()
+
+
+def test_admin_cannot_delete_other_tenant_brand(world):
+    """Tenancy: a T1 admin can't delete (or even see) a T2 brand -> 404."""
+    fresh = Brand.objects.create(tenant=world["t2"], name="T2 Empty", slug="t2empty")
+    r = Client().delete(f"/api/v1/brands/{fresh.id}", **auth("t-a1"))
+    assert r.status_code == 404
+    assert Brand.objects.filter(pk=fresh.id).exists()
+
+
+# ── contact create via /api/v1/contacts (POST) ───────────────────────────────
+
+def test_admin_creates_contact(world):
+    r = post("/api/v1/contacts", {"name": "New Person", "phone": "+60999"}, "t-a1")
+    assert r.status_code == 201, r.content
+    assert r.json()["name"] == "New Person"
+    assert Contact.objects.get(phone="+60999").tenant == world["t1"]
+
+
+def test_agent_cannot_create_contact(world):
+    r = post("/api/v1/contacts", {"name": "X", "phone": "+60888"}, "t-c1")
+    assert r.status_code == 403
+    assert not Contact.objects.filter(phone="+60888").exists()
+
+
+# ── contact delete via /api/v1/contacts/<id> ─────────────────────────────────
+
+def test_admin_deletes_contact_in_tenant(world):
+    c = world["cust_a"]
+    r = Client().delete(f"/api/v1/contacts/{c.id}", **auth("t-a1"))
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert not Contact.objects.filter(pk=c.id).exists()
+
+
+def test_superadmin_deletes_any_contact(world):
+    c = world["cust_t2"]
+    r = Client().delete(f"/api/v1/contacts/{c.id}", **auth("t-su"))
+    assert r.status_code == 200
+    assert not Contact.objects.filter(pk=c.id).exists()
+
+
+def test_agent_cannot_delete_contact(world):
+    c = world["cust_a"]  # agent c1 CAN see it, but lacks contacts.manage
+    r = Client().delete(f"/api/v1/contacts/{c.id}", **auth("t-c1"))
+    assert r.status_code == 403
+    assert Contact.objects.filter(pk=c.id).exists()
+
+
+def test_admin_cannot_delete_other_tenant_contact(world):
+    c = world["cust_t2"]  # T2's contact
+    r = Client().delete(f"/api/v1/contacts/{c.id}", **auth("t-a1"))  # T1 admin
+    assert r.status_code == 404
+    assert Contact.objects.filter(pk=c.id).exists()
+
+
 # ── user update / delete via /api/v1/users/<id> ──────────────────────────────
 
 def _post_id(user_id, body, tok):

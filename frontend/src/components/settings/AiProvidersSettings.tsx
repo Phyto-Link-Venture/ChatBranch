@@ -53,7 +53,7 @@ const GROUP_META: Record<string, { title: string; blurb: string; Icon: typeof Ke
   providers: {
     title: 'Provider keys, chat provider & model',
     blurb:
-      'Keys, the chat AI provider pin and the model that power text auto-replies and summaries. A dashboard value wins over backend/.env; clear one to fall back to the env default.',
+      'The keys, provider and model behind text auto-replies and summaries. Provider = which AI service handles replies; Model = optional — the specific model within that provider (leave empty for the provider default). A dashboard value wins over backend/.env; clear one to fall back to the env default.',
     Icon: KeyRound,
   },
   tunables: {

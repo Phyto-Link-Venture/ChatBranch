@@ -1,5 +1,6 @@
-import { BrandsSettings } from '@/components/settings/BrandsSettings'
+import { LegacyRedirect } from '@/components/shell/LegacyRedirect'
 
-export default function BrandsSettingsPage() {
-  return <BrandsSettings />
+// Moved to a top-level route (upgrade §1). Old link redirects.
+export default function LegacyBrandsSettingsPage() {
+  return <LegacyRedirect to="/brands" />
 }

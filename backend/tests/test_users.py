@@ -99,7 +99,9 @@ class TestAdminTier:
         assert Profile.objects.get(user__username="agent1").role == "agent"
         r = _create(client, username="admin2", role="admin", **ADMIN_AUTH)
         assert r.status_code == 403
-        assert "only create agents" in r.json()["detail"]
+        # admins may create agent-level users (agent + custom roles) but never
+        # admin/superadmin
+        assert "agent-level" in r.json()["detail"]
 
     def test_admin_manages_own_agent(self, client, superadmin, admin):
         _create(client, **ADMIN_AUTH)

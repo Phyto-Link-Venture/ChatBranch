@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from django.contrib.auth.models import User
 from drf_spectacular.utils import extend_schema
-from rest_framework import generics
+from rest_framework import generics, status
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -20,7 +20,7 @@ from crm.auth import audit
 from crm.models import Contact
 from ingest.models import Brand, Tenant
 from . import rbac
-from .permissions import IsAdmin, IsAuthenticatedProfile
+from .permissions import HasCapability, IsAdmin, IsAuthenticatedProfile
 from .serializers import BrandSerializer, ContactSerializer
 from .tenancy import current_tenant
 
@@ -45,6 +45,8 @@ class WhoAmIView(APIView):
 
     @extend_schema(summary="Current user")
     def get(self, request):
+        from crm.permissions_store import capabilities_for
+
         user = request.user
         tenant = current_tenant(request)
         return Response({
@@ -53,6 +55,9 @@ class WhoAmIView(APIView):
             "role": rbac.role(user),
             "tenant": tenant.slug if tenant else None,
             "brands": list(rbac.accessible_brands(user).values_list("slug", flat=True)),
+            # Frontend gates on capabilities, not role (falls back to role for
+            # older sessions that predate this field).
+            "capabilities": capabilities_for(rbac.role(user)),
         })
 
 
@@ -87,8 +92,9 @@ class ContactListView(generics.ListAPIView):
         brand in that tenant unless `brand_ids` narrows it. 409 when the phone
         already exists in-tenant (phone is the identity key everywhere)."""
         from crm.models import ContactBrand
+        from crm.permissions_store import has_capability
 
-        if rbac.role(request.user) not in ("superadmin", "admin"):
+        if not has_capability(rbac.role(request.user), "contacts.manage"):
             return Response({"error": {"code": "forbidden",
                                        "message": "Admin role required to create contacts."}},
                             status=403)
@@ -185,6 +191,30 @@ class ContactDetailView(APIView):
                          ", ".join(str(getattr(contact, f)) for f in changed))
         return Response(ContactSerializer(contact).data)
 
+    @extend_schema(summary="Delete a contact (contacts.manage)")
+    def delete(self, request, pk: int):
+        """Hard-delete a contact. Requires `contacts.manage`, scoped exactly
+        like PATCH/GET (a contact outside the caller's tenant/brands is a 404,
+        never a leak). The model's FKs make this clean: owned rows (records,
+        brand links, assignments, queued jobs, summaries) cascade away, while
+        conversation history (threads, call records, flow runs) is SET_NULL —
+        preserved but unlinked — so nothing is left dangling."""
+        from crm.permissions_store import has_capability
+
+        if not has_capability(rbac.role(request.user), "contacts.manage"):
+            return Response({"error": {"code": "forbidden",
+                                       "message": "Admin role required to delete contacts."}},
+                            status=403)
+        contact = self._scoped(request).filter(pk=pk).first()
+        if contact is None:
+            return Response({"error": {"code": "not_found",
+                                       "message": "No such contact (or not visible to you)."}},
+                            status=404)
+        phone = contact.phone
+        contact.delete()
+        audit(request, "contact.delete", target=phone)
+        return Response({"ok": True})
+
 
 @extend_schema(tags=["brands"])
 class BrandsView(APIView):
@@ -197,7 +227,9 @@ class BrandsView(APIView):
         return Response({"brands": BrandSerializer(brands, many=True).data})
 
     def post(self, request):
-        if rbac.role(request.user) not in ("superadmin", "admin"):
+        from crm.permissions_store import has_capability
+
+        if not has_capability(rbac.role(request.user), "brands.manage"):
             return Response({"error": {"code": "forbidden",
                                        "message": "Admin role required."}}, status=403)
         name = (request.data.get("name") or "").strip()
@@ -222,12 +254,124 @@ class BrandsView(APIView):
         return Response(BrandSerializer(brand).data, status=201)
 
 
+@extend_schema(tags=["brands"])
+class BrandDetailView(APIView):
+    """Update (PATCH) or delete (DELETE) a single brand. Requires
+    `brands.manage`; scoped like BrandsView — superadmin any tenant, admin only
+    brands in their own tenant (a brand outside that scope is a 404). agent has
+    no manage capability, so it 403s before scoping."""
+    permission_classes = [IsAuthenticatedProfile]
+
+    def _manageable(self, request):
+        """Brands this caller may edit/delete (NOT the agent read scope)."""
+        r = rbac.role(request.user)
+        if r == "superadmin":
+            return Brand.objects.all()
+        if r == "admin":
+            tenant = rbac.user_tenant(request.user)
+            return Brand.objects.filter(tenant=tenant) if tenant else Brand.objects.none()
+        return Brand.objects.none()
+
+    def _gate(self, request):
+        from crm.permissions_store import has_capability
+
+        if not has_capability(rbac.role(request.user), "brands.manage"):
+            return Response({"error": {"code": "forbidden",
+                                       "message": "Admin role required to manage brands."}},
+                            status=403)
+        return None
+
+    @extend_schema(summary="Update a brand (brands.manage)")
+    def patch(self, request, brand_id: int):
+        denied = self._gate(request)
+        if denied:
+            return denied
+        brand = self._manageable(request).filter(pk=brand_id).first()
+        if brand is None:
+            return Response({"error": {"code": "not_found",
+                                       "message": "No such brand (or not visible to you)."}},
+                            status=404)
+        changed = []
+        if "name" in request.data:
+            name = str(request.data.get("name") or "").strip()
+            if not name:
+                return Response({"error": {"code": "bad_request",
+                                           "message": "name cannot be empty."}}, status=400)
+            brand.name = name
+            changed.append("name")
+        if "slug" in request.data:
+            slug = str(request.data.get("slug") or "").strip().lower()
+            if not slug:
+                return Response({"error": {"code": "bad_request",
+                                           "message": "slug cannot be empty."}}, status=400)
+            if (Brand.objects.filter(tenant=brand.tenant, slug=slug)
+                    .exclude(pk=brand.pk).exists()):
+                return Response({"error": {"code": "conflict",
+                                           "message": "Brand slug already exists in this tenant."}},
+                                status=409)
+            brand.slug = slug
+            changed.append("slug")
+        if "is_active" in request.data:
+            brand.is_active = bool(request.data.get("is_active"))
+            changed.append("is_active")
+        if not changed:
+            return Response({"error": {"code": "bad_request",
+                                       "message": "Nothing to update — send name, slug and/or is_active."}},
+                            status=400)
+        brand.save(update_fields=changed + ["updated_at"])
+        audit(request, "brand.update", target=f"{brand.tenant.slug}/{brand.slug}",
+              detail=f"fields: {', '.join(changed)}")
+        return Response(BrandSerializer(brand).data)
+
+    @extend_schema(summary="Delete a brand (brands.manage)")
+    def delete(self, request, brand_id: int):
+        """Hard-delete a brand, but only when nothing depends on it. A brand
+        with contacts (ContactBrand), assigned agents (Profile.brands) or
+        knowledge items (KnowledgeItem, which CASCADE — real data loss) returns
+        409 with the counts, mirroring the roles delete-when-assigned block —
+        reassign/clear first. To retire a brand without deleting, PATCH
+        is_active=false."""
+        from crm.models import ContactBrand, KnowledgeItem
+
+        denied = self._gate(request)
+        if denied:
+            return denied
+        brand = self._manageable(request).filter(pk=brand_id).first()
+        if brand is None:
+            return Response({"error": {"code": "not_found",
+                                       "message": "No such brand (or not visible to you)."}},
+                            status=404)
+        contacts = ContactBrand.objects.filter(brand=brand).count()
+        agents = brand.agents.count()
+        knowledge = KnowledgeItem.objects.filter(brand=brand).count()
+        if contacts or agents or knowledge:
+            parts = []
+            if contacts:
+                parts.append(f"{contacts} contact(s)")
+            if agents:
+                parts.append(f"{agents} user(s)")
+            if knowledge:
+                parts.append(f"{knowledge} knowledge item(s)")
+            return Response({"error": {"code": "conflict",
+                                       "message": f"This brand still has {', '.join(parts)} — "
+                                                  "reassign or remove them first."},
+                             "contacts": contacts, "agents": agents,
+                             "knowledge": knowledge}, status=409)
+        label = f"{brand.tenant.slug}/{brand.slug}"
+        brand.delete()
+        audit(request, "brand.delete", target=label)
+        return Response({"ok": True})
+
+
 @extend_schema(tags=["users"])
 class UsersView(APIView):
     """Canonical user management (single source of truth: crm.user_service).
     GET list / POST create. superadmin: everyone; admin: only agents in
-    their own tenant (+ brand assignment); agent: 403."""
-    permission_classes = [IsAdmin]  # admin or superadmin
+    their own tenant (+ brand assignment); agent: 403.
+
+    Gated on the `users.manage` capability (data-driven); the admin->agent
+    tenant tiering still lives in crm.user_service and applies on top."""
+    permission_classes = [HasCapability.for_("users.manage")]
 
     def get(self, request):
         tenant = rbac.user_tenant(request.user)
@@ -252,7 +396,7 @@ class UsersView(APIView):
 @extend_schema(tags=["users"])
 class UserDetailView(APIView):
     """Update (POST) / deactivate (DELETE) a user, same rules as create."""
-    permission_classes = [IsAdmin]
+    permission_classes = [HasCapability.for_("users.manage")]
 
     @staticmethod
     def _target(user_id):

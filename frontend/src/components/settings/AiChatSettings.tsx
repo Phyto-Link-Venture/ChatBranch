@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Info, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { roleHeaders } from '@/lib/role'
 import { expireSessionOn401 } from '@/lib/auth'
@@ -9,27 +9,20 @@ import { useRole } from '@/lib/useRole'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
-const CHAT_PROVIDER_OPTIONS = [
-  { value: '', label: 'Auto (OpenRouter → OpenAI → ILMU → Gemini)' },
-  { value: 'ilmu', label: 'YTL ILMU (Malaysia)' },
-  { value: 'openrouter', label: 'OpenRouter' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'google', label: 'Google Gemini' },
-]
-
 interface ChatConfig {
-  chat_provider_pref?: string
-  chat_model: string
   quiet_start?: string
   quiet_end?: string
   ai_available: boolean
 }
 
 /**
- * Chat-AI knobs (provider pin, model, quiet hours) — moved out of App Keys so
- * AI Configuration owns all model behavior. Same backing store + gate as App
+ * Chat-AI delivery knobs (quiet hours + send pacing). The chat AI provider pin
+ * and model live in Settings → AI & Providers (next to the API keys they
+ * depend on) — this tab used to duplicate them, writing the same backing store,
+ * which silently overwrote the other page. Same backing store + gate as App
  * Keys: GET/POST /api/whatsapp/settings (reads any role, writes superadmin);
- * the POST body only carries these keys, so API keys are untouched.
+ * the POST body only carries quiet-hours keys, so provider/model + API keys are
+ * untouched.
  *
  * Send pacing (queue min/max gap) rides along on this page but is backed by
  * GET/PUT /api/whatsapp/routing-rules — the queued AI replies these gaps pace
@@ -37,8 +30,6 @@ interface ChatConfig {
  */
 export function AiChatSettings() {
   const [loaded, setLoaded] = useState<ChatConfig | null>(null)
-  const [providerPref, setProviderPref] = useState('')
-  const [model, setModel] = useState('')
   const [quietStart, setQuietStart] = useState('')
   const [quietEnd, setQuietEnd] = useState('')
   const [pacingLoaded, setPacingLoaded] = useState(false)
@@ -51,8 +42,6 @@ export function AiChatSettings() {
 
   const seed = (s: ChatConfig) => {
     setLoaded(s)
-    setProviderPref(s.chat_provider_pref || '')
-    setModel(s.chat_model)
     setQuietStart(s.quiet_start || '')
     setQuietEnd(s.quiet_end || '')
   }
@@ -95,8 +84,6 @@ export function AiChatSettings() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...roleHeaders() },
         body: JSON.stringify({
-          chat_provider_pref: providerPref,
-          chat_model: model,
           quiet_start: quietStart.trim(),
           quiet_end: quietEnd.trim(),
         }),
@@ -140,40 +127,12 @@ export function AiChatSettings() {
 
   return (
     <>
-      <div className="flex items-center justify-between gap-3 border-b border-line py-3.5">
-        <div>
-          <div className="mb-0.5 text-[13px] font-semibold text-text-high">Chat AI Provider</div>
-          <div className="text-[11px] text-text-muted">
-            Pin one provider for text auto-replies — ignored if that provider has no key (keys live in App Keys)
-          </div>
-        </div>
-        <select
-          value={providerPref}
-          onChange={(e) => setProviderPref(e.target.value)}
-          disabled={!canEdit}
-          className={`cursor-pointer ${inputCls}`}
-        >
-          {CHAT_PROVIDER_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="flex items-center justify-between gap-3 border-b border-line py-3.5">
-        <div>
-          <div className="mb-0.5 text-[13px] font-semibold text-text-high">AI Chat Model</div>
-          <div className="text-[11px] text-text-muted">
-            Model for auto-replies &amp; summaries; empty uses the provider&apos;s default — clear when switching providers
-          </div>
-        </div>
-        <input
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          placeholder="gpt-4o-mini / ilmu-v3.1 / gemini-2.0-flash"
-          disabled={!canEdit}
-          className={`w-[240px] ${inputCls}`}
-        />
+      <div className="flex items-start gap-2 border-b border-line py-3 text-[11px] leading-relaxed text-text-muted">
+        <Info size={13} className="mt-0.5 shrink-0" color="#3B82F6" aria-hidden />
+        <span>
+          Looking for the chat AI provider or model? Those now live in{' '}
+          <span className="font-semibold text-text-mid">AI &amp; Providers</span>, next to the API keys they depend on.
+        </span>
       </div>
       <div className="flex items-center justify-between gap-3 border-b border-line py-3.5">
         <div>

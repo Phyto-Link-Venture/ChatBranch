@@ -4,10 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   CalendarDays,
+  Check,
   CheckCircle,
+  Copy,
   CreditCard,
   FileSpreadsheet,
   FolderOpen,
+  KeyRound,
   Link2,
   Loader2,
   Lock,
@@ -17,9 +20,10 @@ import {
   ShoppingBag,
   Trash2,
   Unplug,
-  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { Modal } from '@/components/ui/Modal'
+import { DataTable, type Column } from '@/components/ui/DataTable'
 import { roleHeaders } from '@/lib/role'
 import { useRole } from '@/lib/useRole'
 import { expireSessionOn401 } from '@/lib/auth'
@@ -102,9 +106,8 @@ const ICONS: Record<string, typeof Plug> = {
   stripe: CreditCard,
 }
 
-/** Status chip colours match the channel-health chips — one visual language
- *  for "is this external thing working". Static hex only: `var(--…)` inside a
- *  lucide `color=` prop renders invisible. */
+/** Per-account health chip (used in the connected-accounts table). Static hex
+ *  only: `var(--…)` inside a lucide `color=` prop renders invisible. */
 function StatusChip({ status, detail }: { status: string; detail?: string }) {
   const map: Record<string, { bg: string; fg: string; lbl: string }> = {
     healthy: { bg: 'rgba(16,185,129,0.12)', fg: 'var(--green-ink)', lbl: 'Healthy' },
@@ -117,11 +120,59 @@ function StatusChip({ status, detail }: { status: string; detail?: string }) {
   return (
     <span
       title={detail || undefined}
-      className="shrink-0 rounded-full px-2 py-px text-[10px] font-bold"
+      className="inline-block shrink-0 rounded-full px-2 py-px text-[10px] font-bold"
       style={{ background: s.bg, color: s.fg }}
     >
       {s.lbl}
     </span>
+  )
+}
+
+/** Connect-first card status: Connected / Needs setup / Not connected. */
+function CardStatus({ status }: { status: 'connected' | 'needs_setup' | 'not_connected' }) {
+  const map = {
+    connected: { cls: 'bg-green/15 text-green-300', lbl: 'Connected' },
+    needs_setup: { cls: 'bg-amber/15 text-amber-300', lbl: 'Needs setup' },
+    not_connected: { cls: 'bg-fill text-text-muted', lbl: 'Not connected' },
+  }[status]
+  return <span className={`shrink-0 rounded-full px-2 py-px text-[10px] font-bold ${map.cls}`}>{map.lbl}</span>
+}
+
+/** Read-only value + copy button — for the values pasted into a provider's
+ *  developer console (Google redirect URI, webhook URLs). */
+function CopyField({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      /* clipboard blocked — the value is selectable */
+    }
+  }
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[10.5px] font-bold text-text-high">{label}</span>
+      <div className="flex items-stretch gap-1.5">
+        <input
+          value={value}
+          readOnly
+          onFocus={(e) => e.currentTarget.select()}
+          className={`${inputCls} cursor-default bg-fill-subtle font-mono !text-[11.5px]`}
+        />
+        <button
+          type="button"
+          onClick={copy}
+          title={`Copy ${label}`}
+          aria-label={`Copy ${label}`}
+          className="grid w-9 shrink-0 place-items-center rounded-lg border border-line-strong bg-fill text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
+        >
+          {copied ? <Check size={13} className="text-green-300" aria-hidden /> : <Copy size={13} aria-hidden />}
+        </button>
+      </div>
+      {hint && <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">{hint}</span>}
+    </label>
   )
 }
 
@@ -133,12 +184,17 @@ interface DraftAccount {
 }
 
 /**
- * Settings → Integrations. Card grid per provider (mirrors ChannelsSettings'
- * layout): connect button, connected account list, status chip, disconnect.
+ * Settings → Integrations (upgrade §B). Two clearly separated zones:
+ *  1. Connect-first cards — icon, name, one-line purpose, status chip and a
+ *     primary Connect button (OAuth full-page redirect via /oauth/<p>/start).
+ *  2. "Provider keys — one-time setup" — the developer OAuth-client + webhook
+ *     secrets, grouped per provider, masked round-trip preserved. The
+ *     #oauth-client-keys anchor is kept for the "Set up" scroll link.
+ * Connected accounts (across every provider) live in a DataTable between them.
  *
  * Everything renders with ZERO credentials configured — that is the template's
- * shipping state. Google cards then say "OAuth client not configured yet" and
- * point at the keys panel instead of offering a Connect button that would 400.
+ * shipping state. Google cards then read "Needs setup" and point at the keys
+ * section instead of offering a Connect button that would 400.
  */
 export function IntegrationsSettings() {
   const { role, ready } = useRole()
@@ -191,15 +247,19 @@ export function IntegrationsSettings() {
   // The OAuth callback bounces back here with ?connected= / ?error=. Read it
   // from window (not useSearchParams — that forces a Suspense boundary in the
   // app router) and clean the URL so a refresh doesn't repeat the banner.
+  // On success we re-load so the freshly-connected account + its status appear.
   useEffect(() => {
     if (typeof window === 'undefined') return
     const q = new URLSearchParams(window.location.search)
     const ok = q.get('connected')
     const bad = q.get('error')
-    if (ok) setNotice(`Connected "${ok}".`)
+    if (ok) {
+      setNotice(`Connected "${ok}".`)
+      void load()
+    }
     if (bad) setError(bad)
     if (ok || bad) window.history.replaceState({}, '', window.location.pathname)
-  }, [])
+  }, [load])
 
   const saveKeys = useCallback(async () => {
     const body: Record<string, string> = {}
@@ -228,12 +288,34 @@ export function IntegrationsSettings() {
     return map
   }, [accounts])
 
+  // Provider backing the open add-account modal (api-key draft).
+  const draftProvider = draft ? providers?.find((p) => p.id === draft.provider) ?? null : null
+
+  /** Scroll the one-time OAuth-client keys panel into view (the "Set up" link). */
+  const scrollToKeys = () => {
+    if (typeof document === 'undefined') return
+    document.getElementById('oauth-client-keys')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   const connect = async (provider: Provider) => {
     setError(null)
     setNotice(null)
     setBusy(`connect-${provider.id}`)
     try {
-      const d = await api<{ authorize_url: string }>(`oauth/${provider.id}/start`)
+      // The start endpoint returns a ready authorize URL, or {configured:false}
+      // when the platform OAuth app hasn't been registered yet (spec §5).
+      const d = await api<{ authorize_url?: string; configured?: boolean; reason?: string }>(
+        `oauth/${provider.id}/start`,
+      )
+      if (d.configured === false || !d.authorize_url) {
+        setError(
+          d.reason ||
+            `${provider.label} isn't set up yet — register a Google OAuth client below, then connect in one click.`,
+        )
+        scrollToKeys()
+        return
+      }
+      // Full-page redirect: the user authorizes with THEIR account and returns.
       window.location.href = d.authorize_url
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -309,6 +391,98 @@ export function IntegrationsSettings() {
     }
   }
 
+  const providerStatus = (p: Provider): 'connected' | 'needs_setup' | 'not_connected' => {
+    const rows = byProvider[p.id] || []
+    if (rows.some((r) => r.connected)) return 'connected'
+    if (p.kind === 'oauth' && !p.oauth_configured) return 'needs_setup'
+    return 'not_connected'
+  }
+
+  const accountColumns: Column<Account>[] = [
+    {
+      key: 'provider',
+      header: 'Integration',
+      sortable: true,
+      width: 200,
+      value: (a) => a.provider_label,
+      render: (a) => {
+        const Icon = ICONS[a.provider] || Plug
+        return (
+          <div className="flex items-center gap-2.5">
+            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-fill">
+              <Icon size={14} color="#3B82F6" aria-hidden />
+            </span>
+            <span className="text-[12.5px] font-semibold text-text-high">{a.provider_label}</span>
+          </div>
+        )
+      },
+    },
+    {
+      key: 'name',
+      header: 'Account',
+      sortable: true,
+      value: (a) => `${a.name} ${a.config?.shop_domain ?? ''}`,
+      render: (a) => (
+        <span className="text-[12.5px] text-text-mid">
+          {a.name}
+          {a.config?.shop_domain && <span className="ml-1 text-text-muted">· {a.config.shop_domain}</span>}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      sortable: true,
+      width: 130,
+      value: (a) => a.status,
+      render: (a) => <StatusChip status={a.status} detail={a.status_detail} />,
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      width: 130,
+      render: (a) =>
+        canManage ? (
+          <div className="flex items-center justify-end gap-1">
+            <button
+              onClick={() => testAccount(a)}
+              disabled={busy === `test-${a.id}`}
+              title="Test this connection"
+              aria-label={`Test ${a.name}`}
+              className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-md text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
+            >
+              {busy === `test-${a.id}` ? (
+                <Loader2 size={13} className="animate-spin" aria-hidden />
+              ) : (
+                <RefreshCw size={13} aria-hidden />
+              )}
+            </button>
+            {a.connected && (
+              <button
+                onClick={() => disconnect(a)}
+                title="Disconnect (forget the tokens)"
+                aria-label={`Disconnect ${a.name}`}
+                className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-md text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
+              >
+                <Unplug size={13} aria-hidden />
+              </button>
+            )}
+            <button
+              onClick={() => remove(a)}
+              title="Delete this integration"
+              aria-label={`Delete ${a.name}`}
+              className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-md text-text-muted transition-colors hover:bg-red/15 hover:text-red-300"
+            >
+              <Trash2 size={13} aria-hidden />
+            </button>
+          </div>
+        ) : (
+          <span className="text-[10.5px] text-text-faint">—</span>
+        ),
+    },
+  ]
+
   if (!ready || (providers === null && !loadError)) {
     return (
       <div className="flex items-center gap-1.5 py-6 text-[12px] text-text-muted">
@@ -334,8 +508,10 @@ export function IntegrationsSettings() {
     )
   }
 
+  const webhookUrlFor = (id: string) => settings?.webhook_paths?.[id] || ''
+
   return (
-    <div className="flex flex-col gap-5 pt-3.5">
+    <div className="flex flex-col gap-6 pt-3.5">
       <p className="max-w-[720px] text-[11.5px] leading-relaxed text-text-mid">
         Connect the outside systems a conversation needs: book a slot, file a document, log a row, email from a real
         mailbox, or let orders and payments flow in on their own. Shopify and Stripe are{' '}
@@ -361,113 +537,54 @@ export function IntegrationsSettings() {
         </div>
       )}
 
-      {/* ---- provider grid ---- */}
-      <div className="grid gap-3 md:grid-cols-2">
-        {providers.map((p) => {
-          const Icon = ICONS[p.id] || Plug
-          const rows = byProvider[p.id] || []
-          const blocked = p.kind === 'oauth' && !p.oauth_configured
-          return (
-            <div key={p.id} className="flex flex-col gap-2.5 rounded-xl border border-line bg-card p-4">
-              <div className="flex items-start gap-2.5">
-                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-fill">
-                  <Icon size={15} color="#3B82F6" aria-hidden />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[12.5px] font-bold text-text-high">{p.label}</span>
-                    {rows.some((r) => r.connected) ? (
-                      <StatusChip status={rows.find((r) => r.connected)?.status || 'unknown'} />
-                    ) : (
-                      <span className="rounded-full bg-fill px-2 py-px text-[10px] font-bold text-text-muted">
-                        Not connected
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">{p.blurb}</p>
-                </div>
-              </div>
+      {/* ============================ ZONE 1: connect ============================ */}
+      <section className="flex flex-col gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <Link2 size={15} className="text-brand-300" aria-hidden />
+            <h2 className="text-[14px] font-extrabold tracking-[-0.3px] text-text-heading">Connect an integration</h2>
+          </div>
+          <p className="mt-0.5 text-[11px] text-text-muted">
+            One click to link your own account. Google products share a single sign-in.
+          </p>
+        </div>
 
-              {p.actions.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {p.actions.map((a) => (
-                    <span
-                      key={a}
-                      className="rounded-full border border-line bg-fill-subtle px-2 py-0.5 text-[10px] text-text-muted"
-                    >
-                      {a}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              {p.webhook_path && (
-                <div className="text-[10.5px] text-text-muted">
-                  Webhook URL: <code className="rounded bg-fill px-1">{p.webhook_path}</code>
-                </div>
-              )}
-
-              {rows.length > 0 && (
-                <div className="flex flex-col gap-1">
-                  {rows.map((a) => (
-                    <div
-                      key={a.id}
-                      className="flex items-center gap-2 rounded-lg border border-line bg-fill-subtle px-2.5 py-1.5"
-                    >
-                      <span className="min-w-0 flex-1 truncate text-[11.5px] font-semibold text-text-high">
-                        {a.name}
-                        {a.config?.shop_domain ? (
-                          <span className="ml-1 font-normal text-text-muted">· {a.config.shop_domain}</span>
-                        ) : null}
-                      </span>
-                      <StatusChip status={a.status} detail={a.status_detail} />
-                      {canManage && (
-                        <>
-                          <button
-                            onClick={() => testAccount(a)}
-                            disabled={busy === `test-${a.id}`}
-                            title="Test this connection"
-                            aria-label={`Test ${a.name}`}
-                            className="grid h-6 w-6 shrink-0 cursor-pointer place-items-center rounded-md text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
-                          >
-                            {busy === `test-${a.id}` ? (
-                              <Loader2 size={12} className="animate-spin" aria-hidden />
-                            ) : (
-                              <RefreshCw size={12} aria-hidden />
-                            )}
-                          </button>
-                          {a.connected && (
-                            <button
-                              onClick={() => disconnect(a)}
-                              title="Disconnect (forget the tokens)"
-                              aria-label={`Disconnect ${a.name}`}
-                              className="grid h-6 w-6 shrink-0 cursor-pointer place-items-center rounded-md text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
-                            >
-                              <Unplug size={12} aria-hidden />
-                            </button>
-                          )}
-                          <button
-                            onClick={() => remove(a)}
-                            title="Delete this integration"
-                            aria-label={`Delete ${a.name}`}
-                            className="grid h-6 w-6 shrink-0 cursor-pointer place-items-center rounded-md text-text-muted transition-colors hover:bg-red/15 hover:text-red-300"
-                          >
-                            <Trash2 size={12} aria-hidden />
-                          </button>
-                        </>
-                      )}
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {providers.map((p) => {
+            const Icon = ICONS[p.id] || Plug
+            const status = providerStatus(p)
+            const blocked = status === 'needs_setup'
+            return (
+              <div
+                key={p.id}
+                className="flex flex-col gap-3 rounded-xl border border-line bg-card p-4"
+              >
+                <div className="flex items-start gap-2.5">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-fill">
+                    <Icon size={16} color="#3B82F6" aria-hidden />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[12.5px] font-bold text-text-high">{p.label}</span>
+                      <CardStatus status={status} />
                     </div>
-                  ))}
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">{p.blurb}</p>
+                  </div>
                 </div>
-              )}
 
-              {canManage && (
-                <div className="flex items-center gap-2">
-                  {p.kind === 'oauth' ? (
+                <div className="mt-auto flex items-center gap-2">
+                  {!canManage ? (
+                    <span className="text-[10.5px] text-text-muted">Managed by an admin.</span>
+                  ) : p.kind === 'oauth' ? (
                     blocked ? (
-                      <span className="text-[11px] text-text-muted">
-                        Add a Google OAuth client below to enable connecting.
-                      </span>
+                      <div className="flex flex-col gap-1">
+                        <Button variant="secondary" onClick={scrollToKeys}>
+                          <Lock size={12} aria-hidden /> Set up (admin, one-time)
+                        </Button>
+                        <span className="text-[10.5px] leading-relaxed text-text-muted">
+                          Register the Google OAuth client once (below); then connect <b>{p.label}</b> in one click.
+                        </span>
+                      </div>
                     ) : (
                       <Button onClick={() => connect(p)} disabled={busy === `connect-${p.id}`}>
                         {busy === `connect-${p.id}` ? (
@@ -475,7 +592,7 @@ export function IntegrationsSettings() {
                         ) : (
                           <Link2 size={13} aria-hidden />
                         )}
-                        Connect
+                        {status === 'connected' ? `Reconnect ${p.label}` : `Connect ${p.label}`}
                       </Button>
                     )
                   ) : (
@@ -490,116 +607,205 @@ export function IntegrationsSettings() {
                         })
                       }
                     >
-                      <Plug size={13} aria-hidden /> Add account
+                      <Plug size={13} aria-hidden /> {status === 'connected' ? 'Add another' : 'Add account'}
                     </Button>
                   )}
                 </div>
-              )}
-
-              {draft?.provider === p.id && (
-                <div className="rounded-lg border border-line bg-fill-subtle p-3">
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="text-[11.5px] font-bold text-text-high">New {p.label} account</span>
-                    <button
-                      onClick={() => setDraft(null)}
-                      aria-label="Close form"
-                      className="grid h-6 w-6 cursor-pointer place-items-center rounded-md text-text-muted hover:bg-fill-hover"
-                    >
-                      <X size={13} aria-hidden />
-                    </button>
-                  </div>
-                  <label className="mb-2 block">
-                    <span className="mb-1 block text-[10.5px] font-bold text-text-high">Name</span>
-                    <input
-                      value={draft.name}
-                      onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                      className={inputCls}
-                    />
-                  </label>
-                  {p.config_fields.map((f) => (
-                    <label key={f.key} className="mb-2 block">
-                      <span className="mb-1 block text-[10.5px] font-bold text-text-high">{f.label}</span>
-                      <input
-                        value={draft.config[f.key] || ''}
-                        placeholder={f.placeholder}
-                        onChange={(e) => setDraft({ ...draft, config: { ...draft.config, [f.key]: e.target.value } })}
-                        className={inputCls}
-                      />
-                    </label>
-                  ))}
-                  {p.secret_fields.map((f) => (
-                    <label key={f.key} className="mb-2 block">
-                      <span className="mb-1 block text-[10.5px] font-bold text-text-high">{f.label}</span>
-                      <input
-                        type="password"
-                        autoComplete="off"
-                        value={draft.secrets[f.key] || ''}
-                        onChange={(e) =>
-                          setDraft({ ...draft, secrets: { ...draft.secrets, [f.key]: e.target.value } })
-                        }
-                        className={inputCls}
-                      />
-                    </label>
-                  ))}
-                  <Button onClick={submitDraft} disabled={busy === 'draft'}>
-                    {busy === 'draft' ? (
-                      <Loader2 size={13} className="animate-spin" aria-hidden />
-                    ) : (
-                      <CheckCircle size={13} aria-hidden />
-                    )}
-                    Save
-                  </Button>
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-
-      {/* ---- global keys ---- */}
-      <div className="rounded-xl border border-line bg-card p-4">
-        <div className="mb-1 flex items-center gap-2">
-          <span className="text-[12.5px] font-bold text-text-high">OAuth client &amp; webhook secrets</span>
-          {!isSuper && (
-            <span className="flex items-center gap-1 text-[10.5px] font-semibold text-text-muted">
-              <Lock size={11} aria-hidden /> superadmin only
-            </span>
-          )}
+              </div>
+            )
+          })}
         </div>
-        <p className="mb-3 max-w-[640px] text-[11px] leading-relaxed text-text-muted">
-          One Google OAuth client covers Calendar, Drive, Gmail and Sheets — each product only requests its own scope
-          when you connect it. Shopify and Stripe sign their webhooks; paste those signing secrets here or the endpoints
-          will decline every delivery. Values already stored show masked — leave them alone to keep them.
-        </p>
-        <div className="grid gap-3 md:grid-cols-2">
-          {(
-            [
-              ['google_client_id', 'Google client id', false],
-              ['google_client_secret', 'Google client secret', true],
-              ['google_redirect_uri', 'Google redirect URI', false],
-              ['shopify_webhook_secret', 'Shopify webhook secret', true],
-              ['stripe_webhook_secret', 'Stripe webhook secret (whsec_…)', true],
-            ] as [string, string, boolean][]
-          ).map(([key, label, secret]) => (
-            <label key={key} className="block">
-              <span className="mb-1 block text-[10.5px] font-bold text-text-high">{label}</span>
+      </section>
+
+      {/* ---- connected accounts (across every provider) ---- */}
+      {accounts.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-[14px] font-extrabold tracking-[-0.3px] text-text-heading">Connected accounts</h2>
+          <DataTable
+            columns={accountColumns}
+            rows={accounts}
+            rowKey={(a) => a.id}
+            searchKeys={['provider', 'name']}
+            searchPlaceholder="Search connected accounts…"
+            empty="No accounts connected yet."
+          />
+        </section>
+      )}
+
+      {/* Add-account modal (api-key providers: Shopify custom app, etc.) */}
+      {draft && draftProvider && (
+        <Modal
+          open
+          onClose={() => setDraft(null)}
+          title={`New ${draftProvider.label} account`}
+          subtitle="Paste this provider's token — the manual fallback for token-only integrations."
+          size="md"
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setDraft(null)} disabled={busy === 'draft'}>
+                Cancel
+              </Button>
+              <Button onClick={submitDraft} disabled={busy === 'draft'}>
+                {busy === 'draft' ? (
+                  <Loader2 size={13} className="animate-spin" aria-hidden />
+                ) : (
+                  <CheckCircle size={13} aria-hidden />
+                )}
+                Save
+              </Button>
+            </>
+          }
+        >
+          <label className="mb-3 block">
+            <span className="mb-1 block text-[10.5px] font-bold text-text-high">Name</span>
+            <input
+              value={draft.name}
+              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+              className={inputCls}
+            />
+          </label>
+          {draftProvider.config_fields.map((f) => (
+            <label key={f.key} className="mb-3 block">
+              <span className="mb-1 block text-[10.5px] font-bold text-text-high">{f.label}</span>
               <input
-                value={keys[key] || ''}
-                readOnly={!isSuper}
-                autoComplete="off"
-                placeholder={key === 'google_redirect_uri' ? settings?.redirect_uri : ''}
-                onChange={(e) => editKey(key, e.target.value)}
-                className={`${inputCls} ${isSuper ? '' : 'cursor-default bg-fill-subtle'}`}
-                type={secret && !(keys[key] || '').includes('••') ? 'password' : 'text'}
+                value={draft.config[f.key] || ''}
+                placeholder={f.placeholder}
+                onChange={(e) => setDraft({ ...draft, config: { ...draft.config, [f.key]: e.target.value } })}
+                className={inputCls}
               />
             </label>
           ))}
+          {draftProvider.secret_fields.map((f) => (
+            <label key={f.key} className="mb-3 block">
+              <span className="mb-1 block text-[10.5px] font-bold text-text-high">{f.label}</span>
+              <input
+                type="password"
+                autoComplete="off"
+                value={draft.secrets[f.key] || ''}
+                onChange={(e) => setDraft({ ...draft, secrets: { ...draft.secrets, [f.key]: e.target.value } })}
+                className={inputCls}
+              />
+            </label>
+          ))}
+        </Modal>
+      )}
+
+      {/* ===================== divider ===================== */}
+      <div className="border-t border-line" />
+
+      {/* ===================== ZONE 2: developer keys ===================== */}
+      <section id="oauth-client-keys" className="scroll-mt-4 flex flex-col gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <KeyRound size={15} className="text-text-mid" aria-hidden />
+            <h2 className="text-[14px] font-extrabold tracking-[-0.3px] text-text-heading">
+              Provider keys — one-time setup
+            </h2>
+            {!isSuper && (
+              <span className="flex items-center gap-1 text-[10.5px] font-semibold text-text-muted">
+                <Lock size={11} aria-hidden /> superadmin only
+              </span>
+            )}
+          </div>
+          <p className="mt-1 max-w-[680px] text-[11px] leading-relaxed text-text-muted">
+            One Google OAuth client covers Calendar, Drive, Gmail &amp; Sheets. Shopify/Stripe webhook secrets are only
+            needed for those. Set once; then anyone connects in one click. Values already stored show masked — leave
+            them alone to keep them.
+          </p>
         </div>
-        <p className="mt-3 text-[10.5px] text-text-muted">
-          Redirect URI to register with Google:{' '}
-          <code className="rounded bg-fill px-1">{settings?.redirect_uri || '—'}</code>
-        </p>
-      </div>
+
+        {/* Google group */}
+        <div className="rounded-xl border border-line bg-card p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <FolderOpen size={14} color="#3B82F6" aria-hidden />
+            <span className="text-[12px] font-bold text-text-high">Google OAuth client</span>
+            <span className="rounded-full bg-fill px-2 py-px text-[9.5px] font-semibold text-text-muted">
+              Calendar · Drive · Gmail · Sheets
+            </span>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 block text-[10.5px] font-bold text-text-high">Google client id</span>
+              <input
+                value={keys.google_client_id || ''}
+                readOnly={!isSuper}
+                autoComplete="off"
+                onChange={(e) => editKey('google_client_id', e.target.value)}
+                className={`${inputCls} ${isSuper ? '' : 'cursor-default bg-fill-subtle'}`}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[10.5px] font-bold text-text-high">Google client secret</span>
+              <input
+                value={keys.google_client_secret || ''}
+                readOnly={!isSuper}
+                autoComplete="off"
+                onChange={(e) => editKey('google_client_secret', e.target.value)}
+                className={`${inputCls} ${isSuper ? '' : 'cursor-default bg-fill-subtle'}`}
+                type={!(keys.google_client_secret || '').includes('••') ? 'password' : 'text'}
+              />
+            </label>
+            <div className="md:col-span-2">
+              <CopyField
+                label="Redirect URI (register this in the Google console)"
+                value={settings?.redirect_uri || keys.google_redirect_uri || '—'}
+                hint="Google Cloud console → Credentials → your OAuth client → Authorized redirect URIs. Paste this exact value."
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Shopify + Stripe webhook groups */}
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="rounded-xl border border-line bg-card p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <ShoppingBag size={14} color="#3B82F6" aria-hidden />
+              <span className="text-[12px] font-bold text-text-high">Shopify webhooks</span>
+            </div>
+            <div className="flex flex-col gap-3">
+              <label className="block">
+                <span className="mb-1 block text-[10.5px] font-bold text-text-high">Shopify webhook secret</span>
+                <input
+                  value={keys.shopify_webhook_secret || ''}
+                  readOnly={!isSuper}
+                  autoComplete="off"
+                  onChange={(e) => editKey('shopify_webhook_secret', e.target.value)}
+                  className={`${inputCls} ${isSuper ? '' : 'cursor-default bg-fill-subtle'}`}
+                  type={!(keys.shopify_webhook_secret || '').includes('••') ? 'password' : 'text'}
+                />
+              </label>
+              {webhookUrlFor('shopify') && (
+                <CopyField label="Webhook URL" value={webhookUrlFor('shopify')} />
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-line bg-card p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <CreditCard size={14} color="#3B82F6" aria-hidden />
+              <span className="text-[12px] font-bold text-text-high">Stripe webhooks</span>
+            </div>
+            <div className="flex flex-col gap-3">
+              <label className="block">
+                <span className="mb-1 block text-[10.5px] font-bold text-text-high">
+                  Stripe webhook secret (whsec_…)
+                </span>
+                <input
+                  value={keys.stripe_webhook_secret || ''}
+                  readOnly={!isSuper}
+                  autoComplete="off"
+                  onChange={(e) => editKey('stripe_webhook_secret', e.target.value)}
+                  className={`${inputCls} ${isSuper ? '' : 'cursor-default bg-fill-subtle'}`}
+                  type={!(keys.stripe_webhook_secret || '').includes('••') ? 'password' : 'text'}
+                />
+              </label>
+              {webhookUrlFor('stripe') && (
+                <CopyField label="Webhook URL" value={webhookUrlFor('stripe')} />
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   )
 }
