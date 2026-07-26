@@ -328,21 +328,35 @@ function EmailAccountsPanel({
       header: 'Actions',
       align: 'right',
       render: (a) => (
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
-          <Button variant="secondary" onClick={() => testAccount(a)} disabled={busy}>
-            <Plug size={13} aria-hidden /> Test
-          </Button>
+        // Compact icon actions (with tooltips) so the row never wraps — matches
+        // the Users/Contacts/Brands tables.
+        <div className="flex items-center justify-end gap-1">
+          <button
+            onClick={() => testAccount(a)}
+            disabled={busy}
+            title="Test connection"
+            aria-label={`Test ${a.name}`}
+            className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:opacity-50"
+          >
+            <Plug size={14} aria-hidden />
+          </button>
           {canManage && (
             <>
-              <Button variant="secondary" onClick={() => openEdit(a)} disabled={busy}>
-                <Pencil size={13} aria-hidden /> Edit
-              </Button>
+              <button
+                onClick={() => openEdit(a)}
+                disabled={busy}
+                title="Edit account"
+                aria-label={`Edit ${a.name}`}
+                className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:opacity-50"
+              >
+                <Pencil size={14} aria-hidden />
+              </button>
               <button
                 onClick={() => removeAccount(a)}
                 disabled={busy}
                 title="Remove account"
                 aria-label={`Remove ${a.name}`}
-                className="grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/15 hover:text-red-300"
+                className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/15 hover:text-red-300 disabled:opacity-50"
               >
                 <Trash2 size={14} aria-hidden />
               </button>
@@ -729,22 +743,36 @@ function SocialPanel({
       header: 'Actions',
       align: 'right',
       render: (a) => (
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
+        // Compact icon actions (with tooltips) so the row never wraps — matches
+        // the Users/Contacts/Brands tables.
+        <div className="flex items-center justify-end gap-1">
           {canManage && channel === 'telegram' && (
-            <Button variant="secondary" onClick={() => setTelegramWebhook(a)} disabled={busy || !a.configured}>
-              <Webhook size={13} aria-hidden /> Set webhook
-            </Button>
+            <button
+              onClick={() => setTelegramWebhook(a)}
+              disabled={busy || !a.configured}
+              title="Set webhook"
+              aria-label={`Set webhook for ${a.name}`}
+              className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Webhook size={14} aria-hidden />
+            </button>
           )}
-          <Button variant="secondary" onClick={() => testAccount(a)} disabled={busy || !a.configured}>
-            <Plug size={13} aria-hidden /> Test
-          </Button>
+          <button
+            onClick={() => testAccount(a)}
+            disabled={busy || !a.configured}
+            title="Test connection"
+            aria-label={`Test ${a.name}`}
+            className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Plug size={14} aria-hidden />
+          </button>
           {canManage && (
             <button
               onClick={() => removeAccount(a)}
               disabled={busy}
               title="Remove account"
               aria-label={`Remove ${a.name}`}
-              className="grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/15 hover:text-red-300"
+              className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/15 hover:text-red-300 disabled:opacity-50"
             >
               <Trash2 size={14} aria-hidden />
             </button>

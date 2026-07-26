@@ -493,15 +493,29 @@ export function WhatsAppSettings({
       header: 'Actions',
       align: 'right',
       render: (a) => (
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
+        // Compact icon actions (with tooltips) so the row never wraps — matches
+        // the Users/Contacts/Brands tables.
+        <div className="flex items-center justify-end gap-1">
           {canManage && a.provider === 'baileys' && (
-            <Button variant="secondary" onClick={() => setPairAcct(a)} disabled={busy}>
-              <QrCode size={13} aria-hidden /> Pair
-            </Button>
+            <button
+              onClick={() => setPairAcct(a)}
+              disabled={busy}
+              title="Pair (scan QR)"
+              aria-label={`Pair ${a.name}`}
+              className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-green-300 disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              <QrCode size={14} aria-hidden />
+            </button>
           )}
-          <Button variant="secondary" onClick={() => testAccount(a)} disabled={busy || !a.configured}>
-            <Plug size={13} aria-hidden /> Test
-          </Button>
+          <button
+            onClick={() => testAccount(a)}
+            disabled={busy || !a.configured}
+            title="Test connection"
+            aria-label={`Test ${a.name}`}
+            className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:cursor-not-allowed disabled:opacity-35"
+          >
+            <Plug size={14} aria-hidden />
+          </button>
           {canManage && (
             <>
               <button
@@ -509,7 +523,7 @@ export function WhatsAppSettings({
                 disabled={busy || a.env_managed}
                 title={a.env_managed ? 'Managed by backend/.env' : 'Edit keys'}
                 aria-label={`Edit ${a.name}`}
-                className="grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:cursor-not-allowed disabled:opacity-35"
+                className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:cursor-not-allowed disabled:opacity-35"
               >
                 <Pencil size={14} aria-hidden />
               </button>
@@ -518,7 +532,7 @@ export function WhatsAppSettings({
                 disabled={busy || a.env_managed}
                 title={a.env_managed ? 'Managed by backend/.env' : 'Remove account'}
                 aria-label={`Remove ${a.name}`}
-                className="grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/15 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-35"
+                className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/15 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-35"
               >
                 <Trash2 size={14} aria-hidden />
               </button>

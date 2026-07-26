@@ -258,3 +258,5 @@ frontend/tsconfig.tsbuildinfo
 backend/data/
 
 presentation
+# Next.js build output anywhere (guards against stray builds run in the wrong dir)
+.next/

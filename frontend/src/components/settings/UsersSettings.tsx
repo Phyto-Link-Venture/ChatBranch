@@ -462,42 +462,48 @@ export function UsersSettings() {
       header: 'Actions',
       align: 'right',
       render: (u) => (
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
+        // Compact icon actions (with tooltips) so the row never wraps — matches
+        // the other tables (Contacts/Brands/Templates).
+        <div className="flex items-center justify-end gap-1">
           {u.role === 'agent' && (
-            <Button
-              variant="secondary"
+            <button
               disabled={busy}
               onClick={() => {
                 setBrandsDraft(u.brands.map((b) => b.id))
                 setBrandsFor(u.id)
               }}
+              title="Brand access"
+              aria-label={`Brand access for ${u.username}`}
+              className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:opacity-50"
             >
-              <Tags size={13} aria-hidden /> Brands
-            </Button>
+              <Tags size={14} aria-hidden />
+            </button>
           )}
           {canManage(u) && (
             <>
-              <Button
-                variant="secondary"
+              <button
                 disabled={busy}
                 onClick={() => {
                   setPwDraft('')
                   setPwFor(u.id)
                 }}
+                title="Reset password"
+                aria-label={`Reset password for ${u.username}`}
+                className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:opacity-50"
               >
-                <KeyRound size={13} aria-hidden /> Reset password
-              </Button>
-              <Button variant={u.active ? 'danger' : 'success'} disabled={busy} onClick={() => toggleActive(u)}>
-                {u.active ? (
-                  <>
-                    <UserX size={13} aria-hidden /> Deactivate
-                  </>
-                ) : (
-                  <>
-                    <UserCheck size={13} aria-hidden /> Reactivate
-                  </>
-                )}
-              </Button>
+                <KeyRound size={14} aria-hidden />
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => toggleActive(u)}
+                title={u.active ? 'Deactivate' : 'Reactivate'}
+                aria-label={`${u.active ? 'Deactivate' : 'Reactivate'} ${u.username}`}
+                className={`grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg transition-colors hover:bg-fill-hover disabled:opacity-50 ${
+                  u.active ? 'text-text-muted hover:text-red-300' : 'text-text-muted hover:text-green-300'
+                }`}
+              >
+                {u.active ? <UserX size={14} aria-hidden /> : <UserCheck size={14} aria-hidden />}
+              </button>
             </>
           )}
         </div>

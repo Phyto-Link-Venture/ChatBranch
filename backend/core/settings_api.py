@@ -17,6 +17,7 @@ core/app_settings for the env boundary.
 from __future__ import annotations
 
 import json
+import re
 
 from django.http import HttpResponseNotAllowed, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -37,8 +38,12 @@ FIELD_META = [
     {"key": "elevenlabs_api_key", "label": "ElevenLabs API key", "group": "providers", "kind": "secret",
      "help": "Voice listing / cloning / preview / TTS. Live voice calls read the key from the agent's .env."},
     {"key": "chat_provider_pref", "label": "Chat AI provider", "group": "providers", "kind": "select"},
-    {"key": "chat_model", "label": "Chat model", "group": "providers", "kind": "text",
-     "help": "Empty = the winning provider's default model."},
+    {"key": "chat_provider_order", "label": "Provider fallback order", "group": "providers", "kind": "order",
+     "help": "Only used in Automatic mode — the priority the chat brain tries providers "
+             "in, picking the first with a key set."},
+    {"key": "chat_model", "label": "Chat model", "group": "providers", "kind": "model",
+     "help": "Applies to whichever provider wins. Empty = that provider's default model; "
+             "pick Custom… to enter any model id."},
     {"key": "email_subject", "label": "Default email subject", "group": "tunables", "kind": "text"},
     {"key": "flows_tick_seconds", "label": "Flow engine tick (seconds)", "group": "tunables", "kind": "int", "min": 1},
     {"key": "whatsapp_health_interval", "label": "Channel health check interval (seconds)",
@@ -52,7 +57,9 @@ FIELD_META = [
 
 _INT_MIN = {f["key"]: f["min"] for f in FIELD_META if f["kind"] == "int"}
 _SECRET_KEYS = tuple(f["key"] for f in FIELD_META if f["kind"] == "secret")
-_STR_KEYS = tuple(f["key"] for f in FIELD_META if f["kind"] in ("text", "select"))
+# Free-text/select/model strings share the masked round-trip handling; the
+# `order` field is a list, validated + parsed separately below.
+_STR_KEYS = tuple(f["key"] for f in FIELD_META if f["kind"] in ("text", "select", "model"))
 
 
 # ---- request helpers (identical pattern to integrations/views.py) ------------
@@ -86,6 +93,29 @@ def _untouched(value) -> bool:
     return isinstance(value, str) and "••" in value
 
 
+def _order_members(raw) -> list[str] | None:
+    """Flatten a chat_provider_order body value (a list OR a JSON/CSV string)
+    to lowercased tokens, or None when the shape is unusable. Validation of the
+    members against the known providers happens in the PUT handler."""
+    if isinstance(raw, list):
+        items: list = raw
+    elif isinstance(raw, str):
+        s = raw.strip()
+        items = []
+        if s.startswith("["):
+            try:
+                parsed = json.loads(s)
+            except ValueError:
+                parsed = None
+            if isinstance(parsed, list):
+                items = parsed
+        if not items:
+            items = [t for t in re.split(r"[,\s]+", s) if t]
+    else:
+        return None
+    return [str(x).strip().lower() for x in items if str(x).strip()]
+
+
 # ---- serialization -----------------------------------------------------------
 
 def _payload() -> dict:
@@ -93,6 +123,7 @@ def _payload() -> dict:
     src = app_settings.sources()
     out: dict = {"fields": FIELD_META,
                  "chat_provider_options": app_settings.chat_provider_options(),
+                 "chat_model_options": app_settings.chat_model_options(),
                  "source": src}
     for f in FIELD_META:
         key = f["key"]
@@ -147,6 +178,26 @@ def ai_providers(request):
                            f"{', '.join(o for o in options if o)} or empty (auto)."},
                 status=400)
         patch["chat_provider_pref"] = pref
+
+    # provider fallback order: a list (or JSON/CSV string) of KNOWN providers.
+    if "chat_provider_order" in body:
+        members = _order_members(body["chat_provider_order"])
+        if members is None:
+            return JsonResponse(
+                {"detail": "chat_provider_order must be a list of provider keys."},
+                status=400)
+        known = {o for o in app_settings.chat_provider_options() if o}
+        invalid = sorted({m for m in members if m not in known})
+        if invalid:
+            return JsonResponse(
+                {"detail": f"chat_provider_order has unknown providers: "
+                           f"{', '.join(invalid)}. Allowed: {', '.join(sorted(known))}."},
+                status=400)
+        deduped: list[str] = []
+        for m in members:
+            if m not in deduped:
+                deduped.append(m)
+        patch["chat_provider_order"] = deduped
 
     # integer tunables: parse + enforce the safe minimum
     for key, minimum in _INT_MIN.items():

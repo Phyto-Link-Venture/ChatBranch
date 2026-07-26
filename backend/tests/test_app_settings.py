@@ -226,3 +226,47 @@ class TestWrite:
                        content_type="application/json", **SUPER)
         assert r.status_code == 200
         assert app_settings.chat_provider_pref() == "ilmu"
+
+
+# ---- provider fallback order + model catalog ---------------------------------
+
+@pytest.mark.django_db
+class TestProviderOrderAndModels:
+    def test_payload_exposes_order_and_model_options(self, client, agent, clean_env):
+        body = client.get(URL, **AGENT).json()
+        assert body["chat_provider_order"] == ["openrouter", "openai", "ilmu", "google"]
+        cat = body["chat_model_options"]
+        assert isinstance(cat, list) and any(g["provider"] == "openai" for g in cat)
+        providers = {g["provider"] for g in cat}
+        assert {"openai", "openrouter", "google", "ilmu"} <= providers
+        assert "gpt-4o" in next(g for g in cat if g["provider"] == "openai")["models"]
+        # order field + model field are in the self-describing schema
+        kinds = {f["key"]: f["kind"] for f in body["fields"]}
+        assert kinds["chat_provider_order"] == "order"
+        assert kinds["chat_model"] == "model"
+
+    def test_order_saved_as_list(self, client, superadmin, clean_env):
+        r = client.put(URL, data=json.dumps({"chat_provider_order": ["openai", "google"]}),
+                       content_type="application/json", **SUPER)
+        assert r.status_code == 200
+        assert r.json()["chat_provider_order"] == ["openai", "google"]
+        assert app_settings.chat_provider_order() == ["openai", "google"]
+
+    def test_order_saved_as_json_string(self, client, superadmin, clean_env):
+        r = client.put(URL, data=json.dumps({"chat_provider_order": '["ilmu","openai"]'}),
+                       content_type="application/json", **SUPER)
+        assert r.status_code == 200
+        assert app_settings.chat_provider_order() == ["ilmu", "openai"]
+
+    def test_order_unknown_member_rejected(self, client, superadmin, clean_env):
+        r = client.put(URL, data=json.dumps({"chat_provider_order": ["openai", "acme"]}),
+                       content_type="application/json", **SUPER)
+        assert r.status_code == 400
+        assert "acme" in r.json()["detail"]
+
+    def test_custom_model_free_form_saved(self, client, superadmin, clean_env):
+        # A model id OUTSIDE the catalog still persists (free-form underneath).
+        r = client.put(URL, data=json.dumps({"chat_model": "some/custom-model-xyz"}),
+                       content_type="application/json", **SUPER)
+        assert r.status_code == 200
+        assert app_settings.chat_model() == "some/custom-model-xyz"

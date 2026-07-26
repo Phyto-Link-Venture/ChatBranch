@@ -14,6 +14,7 @@ BEFORE importing this module.
 """
 import json
 import os
+import re
 import secrets as _secrets
 
 GRAPH_BASE_URL = "https://graph.facebook.com"
@@ -53,6 +54,13 @@ SECRET_GLOBAL_KEYS = ("openai_api_key", "openrouter_api_key", "google_api_key",
 
 ILMU_BASE_URL = os.getenv("ILMU_BASE_URL", "https://api.ilmu.ai/v1")
 CHAT_PROVIDERS = ("ilmu", "openrouter", "openai", "google")
+
+# The built-in auto/priority fallback order chat_provider() walks when no
+# provider is pinned. Configurable via the `chat_provider_order` Setting row
+# (dashboard: AI Configuration → Provider fallback order) or the
+# CHAT_PROVIDER_ORDER env var; both override this default. See chat_provider().
+DEFAULT_CHAT_PROVIDER_ORDER = ("openrouter", "openai", "ilmu", "google")
+CHAT_PROVIDER_ORDER_KEY = "chat_provider_order"
 
 ACCOUNT_KEYS = ("name", "phone_number_id", "waba_id", "access_token", "app_secret",
                 "api_version", "owner", "provider")
@@ -364,27 +372,101 @@ def ilmu_key() -> str:
     return global_settings()["ilmu_api_key"]
 
 
-def _provider_entry(name: str, model: str) -> tuple[str, str, str] | None:
-    """(base_url, key, model) for one named provider — None when its key is unset."""
-    if name == "ilmu" and ilmu_key():
+def _provider_slot(name: str, model: str) -> tuple[str, str, str]:
+    """(base_url, key, model) for one named provider REGARDLESS of whether its
+    key is set — the raw connection details. `_provider_entry` layers the
+    key-present gate on top; the ultimate fallback in `chat_provider` uses the
+    raw slot (key may be empty, the request just fails at call time)."""
+    if name == "ilmu":
         return (ILMU_BASE_URL, ilmu_key(), model or "ilmu-v3.1")
-    if name == "openrouter" and openrouter_key():
+    if name == "openrouter":
         return ("https://openrouter.ai/api/v1", openrouter_key(),
                 model or "openai/gpt-4o-mini")
-    if name == "openai" and openai_key():
+    if name == "openai":
         return ("https://api.openai.com/v1", openai_key(), model or "gpt-4o-mini")
-    if name == "google" and google_key():
-        return ("https://generativelanguage.googleapis.com/v1beta/openai/",
-                google_key(), model or "gemini-2.5-flash")
-    return None
+    # google (and any unknown name) -> Gemini's OpenAI-compatible endpoint
+    return ("https://generativelanguage.googleapis.com/v1beta/openai/",
+            google_key(), model or "gemini-2.5-flash")
+
+
+def _provider_entry(name: str, model: str) -> tuple[str, str, str] | None:
+    """(base_url, key, model) for one named provider — None when its key is unset."""
+    if name not in CHAT_PROVIDERS:
+        return None
+    base, key, mdl = _provider_slot(name, model)
+    return (base, key, mdl) if key else None
+
+
+def _parse_provider_order(raw: str) -> list[str]:
+    """Parse a `chat_provider_order` value (a JSON list OR a comma/space CSV of
+    provider keys) into a de-duplicated list of KNOWN providers. Unknown,
+    blank or malformed members are dropped; a fully unusable value returns []
+    so the caller falls back to the built-in default order."""
+    raw = (raw or "").strip()
+    if not raw:
+        return []
+    items: list = []
+    if raw.startswith("["):
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            data = None
+        if isinstance(data, list):
+            items = data
+    if not items:
+        items = re.split(r"[,\s]+", raw)
+    seen: list[str] = []
+    for it in items:
+        name = str(it or "").strip().lower()
+        if name in CHAT_PROVIDERS and name not in seen:
+            seen.append(name)
+    return seen
+
+
+def chat_provider_order() -> list[str]:
+    """The auto/priority fallback order chat_provider() walks in auto mode.
+    Setting-over-env: the `chat_provider_order` Setting row (dashboard) wins,
+    then the CHAT_PROVIDER_ORDER env var, then DEFAULT_CHAT_PROVIDER_ORDER.
+    Exception-safe — a broken table / bad value degrades to the default so a
+    reply path never breaks."""
+    raw = ""
+    try:
+        from crm.models import Setting
+
+        row = Setting.objects.filter(key=CHAT_PROVIDER_ORDER_KEY).first()
+        if row and row.value.strip():
+            raw = row.value.strip()
+    except Exception:
+        raw = ""
+    if not raw:
+        raw = os.getenv("CHAT_PROVIDER_ORDER", "").strip()
+    order = _parse_provider_order(raw)
+    return order or list(DEFAULT_CHAT_PROVIDER_ORDER)
+
+
+def save_chat_provider_order(order) -> list[str]:
+    """Persist the auto fallback order as a JSON list of KNOWN provider keys.
+    Accepts a list or a JSON/CSV string; unknown members are dropped. An empty
+    result clears the row (back to env / built-in default)."""
+    from crm.models import Setting
+
+    if isinstance(order, str):
+        cleaned = _parse_provider_order(order)
+    else:
+        cleaned = _parse_provider_order(",".join(str(x) for x in (order or [])))
+    Setting.objects.update_or_create(
+        key=CHAT_PROVIDER_ORDER_KEY,
+        defaults={"value": json.dumps(cleaned) if cleaned else ""})
+    return cleaned
 
 
 def chat_provider() -> tuple[str, str, str]:
     """(base_url, api_key, model) for text-AI calls — the ONE place provider
     priority lives. The `chat_provider_pref` setting pins one provider for
     A/B testing (ignored when that provider has no key); otherwise automatic
-    priority OpenRouter > OpenAI > ILMU > Google Gemini (all spoken through
-    their OpenAI-compatible endpoints). `chat_model` overrides the
+    priority walks `chat_provider_order()` (default OpenRouter > OpenAI > ILMU
+    > Google Gemini, all spoken through their OpenAI-compatible endpoints),
+    picking the first provider that has a key. `chat_model` overrides the
     per-provider default model — note it applies to WHICHEVER provider wins,
     so clear it when switching providers unless the model exists on both."""
     model = chat_model()
@@ -393,12 +475,15 @@ def chat_provider() -> tuple[str, str, str]:
         pinned = _provider_entry(pref, model)
         if pinned:
             return pinned
-    for name in ("openrouter", "openai", "ilmu"):
+    order = chat_provider_order()
+    for name in order:
         entry = _provider_entry(name, model)
         if entry:
             return entry
-    return ("https://generativelanguage.googleapis.com/v1beta/openai/",
-            google_key(), model or "gemini-2.5-flash")
+    # Nothing has a key: fall back to the LAST provider in the configured
+    # order (default = Google) so a caller still gets a well-formed target.
+    return _provider_slot(order[-1] if order else DEFAULT_CHAT_PROVIDER_ORDER[-1],
+                          model)
 
 
 def is_configured() -> bool:

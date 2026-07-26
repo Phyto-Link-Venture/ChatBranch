@@ -1,7 +1,17 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertCircle, Info, KeyRound, Loader2, Lock, RefreshCw, SlidersHorizontal } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  AlertCircle,
+  ChevronDown,
+  ChevronUp,
+  Info,
+  KeyRound,
+  Loader2,
+  Lock,
+  RefreshCw,
+  SlidersHorizontal,
+} from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { roleHeaders } from '@/lib/role'
 import { useRole } from '@/lib/useRole'
@@ -12,7 +22,7 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
 /* ---------- types (mirror core/settings_api.py `_payload`) ---------- */
 
-type FieldKind = 'secret' | 'select' | 'text' | 'int'
+type FieldKind = 'secret' | 'select' | 'text' | 'int' | 'model' | 'order'
 
 interface FieldMeta {
   key: string
@@ -23,6 +33,13 @@ interface FieldMeta {
   help?: string
 }
 
+// A provider-grouped model catalog (mirrors app_settings.chat_model_options).
+interface ModelGroup {
+  provider: string
+  label: string
+  models: string[]
+}
+
 // The GET payload is self-describing: `fields` schema + `source` provenance +
 // `chat_provider_options`, plus per-field VALUES carried as `${key}_masked`
 // (secrets) or `${key}` (everything else). We keep the loose index so the value
@@ -30,6 +47,7 @@ interface FieldMeta {
 type Payload = {
   fields: FieldMeta[]
   chat_provider_options: string[]
+  chat_model_options: ModelGroup[]
   source: Record<string, string>
   ai_available: boolean
   env_only_note: string
@@ -93,6 +111,144 @@ function SourceChip({ src }: { src?: string }) {
   )
 }
 
+const CUSTOM = '__custom__'
+
+/**
+ * Chat-model picker: a dropdown grouped by provider from the server catalog,
+ * plus a "Custom…" entry that reveals a free-text input so ANY model id still
+ * works (chat_model stays a free-form string underneath). Empty = the winning
+ * provider's default. The value is stored/emitted as the plain model string.
+ */
+function ModelPicker({
+  value,
+  catalog,
+  disabled,
+  onChange,
+}: {
+  value: string
+  catalog: ModelGroup[]
+  disabled: boolean
+  onChange: (v: string) => void
+}) {
+  const known = useMemo(() => catalog.flatMap((g) => g.models), [catalog])
+  // "Custom" when the user explicitly forced it, or the stored value isn't in
+  // the catalog (a previously-saved custom id) — derived so re-seeds stay right.
+  const [forceCustom, setForceCustom] = useState(false)
+  const isCustom = forceCustom || (value !== '' && !known.includes(value))
+
+  return (
+    <>
+      <select
+        value={isCustom ? CUSTOM : value}
+        disabled={disabled}
+        onChange={(e) => {
+          const v = e.target.value
+          if (v === CUSTOM) setForceCustom(true)
+          else {
+            setForceCustom(false)
+            onChange(v)
+          }
+        }}
+        className={`${inputCls} ${disabled ? 'cursor-default bg-fill-subtle' : ''}`}
+      >
+        <option value="">Provider default</option>
+        {catalog.map((g) => (
+          <optgroup key={g.provider} label={g.label}>
+            {g.models.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+        <option value={CUSTOM}>Custom…</option>
+      </select>
+      {isCustom && (
+        <input
+          value={value}
+          readOnly={disabled}
+          autoComplete="off"
+          placeholder="e.g. openai/gpt-4o-mini"
+          onChange={(e) => onChange(e.target.value)}
+          className={`${inputCls} mt-1.5 ${disabled ? 'cursor-default bg-fill-subtle' : ''}`}
+        />
+      )}
+    </>
+  )
+}
+
+/**
+ * Provider fallback-order editor: a small reorderable list (up/down arrows) of
+ * the providers in `chat_provider_order`. The value is carried as a JSON-array
+ * string so it round-trips through the shared string-keyed dirty/save cluster;
+ * the backend accepts a list OR that JSON string. Only meaningful in Automatic
+ * mode — greyed with a hint when a provider is pinned.
+ */
+function OrderList({
+  value,
+  disabled,
+  active,
+  onChange,
+}: {
+  value: string
+  disabled: boolean
+  active: boolean
+  onChange: (v: string) => void
+}) {
+  let order: string[] = []
+  try {
+    const parsed = JSON.parse(value || '[]')
+    if (Array.isArray(parsed)) order = parsed.filter((x): x is string => typeof x === 'string')
+  } catch {
+    order = []
+  }
+
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir
+    if (j < 0 || j >= order.length) return
+    const next = [...order]
+    ;[next[i], next[j]] = [next[j], next[i]]
+    onChange(JSON.stringify(next))
+  }
+
+  const canEdit = !disabled && active
+  return (
+    <ol className={`flex flex-col gap-1 ${active ? '' : 'opacity-50'}`}>
+      {order.map((p, i) => (
+        <li
+          key={p}
+          className="flex items-center gap-2 rounded-lg border border-line bg-fill px-2.5 py-1.5"
+        >
+          <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-card text-[10px] font-bold text-text-muted">
+            {i + 1}
+          </span>
+          <span className="flex-1 text-[12px] font-semibold text-text-high">{providerLabel(p)}</span>
+          <button
+            type="button"
+            disabled={!canEdit || i === 0}
+            onClick={() => move(i, -1)}
+            title="Move up"
+            aria-label={`Move ${providerLabel(p)} up`}
+            className="grid h-6 w-6 shrink-0 cursor-pointer place-items-center rounded-md text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:cursor-default disabled:opacity-30"
+          >
+            <ChevronUp size={14} aria-hidden />
+          </button>
+          <button
+            type="button"
+            disabled={!canEdit || i === order.length - 1}
+            onClick={() => move(i, 1)}
+            title="Move down"
+            aria-label={`Move ${providerLabel(p)} down`}
+            className="grid h-6 w-6 shrink-0 cursor-pointer place-items-center rounded-md text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:cursor-default disabled:opacity-30"
+          >
+            <ChevronDown size={14} aria-hidden />
+          </button>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
 /**
  * Settings → AI & Providers. Renders ENTIRELY from the endpoint's `fields`
  * schema (`GET /api/settings/ai-providers`): secrets as masked password inputs,
@@ -112,6 +268,7 @@ export function AiProvidersSettings() {
 
   const [meta, setMeta] = useState<FieldMeta[] | null>(null)
   const [options, setOptions] = useState<string[]>([])
+  const [catalog, setCatalog] = useState<ModelGroup[]>([])
   const [source, setSource] = useState<Record<string, string>>({})
   const [note, setNote] = useState('')
   const [aiAvailable, setAiAvailable] = useState(false)
@@ -134,11 +291,17 @@ export function AiProvidersSettings() {
     const rec = p as Record<string, unknown>
     const vals: Record<string, string> = {}
     for (const f of p.fields) {
-      const raw = f.kind === 'secret' ? rec[`${f.key}_masked`] : rec[f.key]
+      let raw: unknown
+      if (f.kind === 'secret') raw = rec[`${f.key}_masked`]
+      // the order value is a list — carry it as a JSON string through the
+      // string-keyed value map so change detection + save stay uniform.
+      else if (f.kind === 'order') raw = JSON.stringify(rec[f.key] ?? [])
+      else raw = rec[f.key]
       vals[f.key] = raw == null ? '' : String(raw)
     }
     setMeta(p.fields)
     setOptions(p.chat_provider_options || [])
+    setCatalog(p.chat_model_options || [])
     setSource(p.source || {})
     setNote(p.env_only_note || '')
     setAiAvailable(!!p.ai_available)
@@ -278,6 +441,33 @@ export function AiProvidersSettings() {
               {fields.map((f) => {
                 const val = values[f.key] ?? ''
                 const masked = f.kind === 'secret' && val.includes('••')
+
+                // Reorderable fallback-order list — spans both columns, only
+                // meaningful when the provider is Automatic (blank pin).
+                if (f.kind === 'order') {
+                  const isAuto = (values['chat_provider_pref'] ?? '') === ''
+                  return (
+                    <div key={f.key} className="md:col-span-2">
+                      <span className="mb-1 flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-bold text-text-high">{f.label}</span>
+                        <SourceChip src={source[f.key]} />
+                      </span>
+                      <OrderList
+                        value={val}
+                        disabled={!isSuper}
+                        active={isAuto}
+                        onChange={(v) => edit(f.key, v)}
+                      />
+                      {f.help && (
+                        <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">
+                          {f.help}
+                          {!isAuto && ' Choose “Automatic (priority order)” above to edit this.'}
+                        </span>
+                      )}
+                    </div>
+                  )
+                }
+
                 return (
                   <label key={f.key} className="block">
                     <span className="mb-1 flex items-center justify-between gap-2">
@@ -298,6 +488,13 @@ export function AiProvidersSettings() {
                           </option>
                         ))}
                       </select>
+                    ) : f.kind === 'model' ? (
+                      <ModelPicker
+                        value={val}
+                        catalog={catalog}
+                        disabled={!isSuper}
+                        onChange={(v) => edit(f.key, v)}
+                      />
                     ) : (
                       <input
                         value={val}

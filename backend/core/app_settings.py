@@ -192,6 +192,37 @@ def chat_provider_options() -> list[str]:
         return ["", "ilmu", "openrouter", "openai", "google"]
 
 
+def chat_provider_order() -> list[str]:
+    """The configured auto/priority fallback order (Setting-over-env). Delegated
+    to whatsapp/wa_config, its owner (chat_provider() walks the same list)."""
+    try:
+        from whatsapp import wa_config
+        return wa_config.chat_provider_order()
+    except Exception:
+        return ["openrouter", "openai", "ilmu", "google"]
+
+
+def chat_model_options() -> list[dict]:
+    """Known chat models grouped by provider, for the Settings model dropdown.
+    `chat_model` stays a FREE-FORM string underneath — the UI also offers a
+    Custom… entry, so any model id outside this catalog still works. Empty =
+    the winning provider's built-in default."""
+    return [
+        {"provider": "openai", "label": "OpenAI",
+         "models": ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"]},
+        {"provider": "openrouter", "label": "OpenRouter",
+         "models": ["openai/gpt-4o-mini", "openai/gpt-4o",
+                    "anthropic/claude-3.5-sonnet",
+                    "google/gemini-2.0-flash-001",
+                    "meta-llama/llama-3.1-70b-instruct"]},
+        {"provider": "google", "label": "Google Gemini",
+         "models": ["gemini-2.5-flash", "gemini-2.0-flash",
+                    "gemini-1.5-pro", "gemini-1.5-flash"]},
+        {"provider": "ilmu", "label": "ILMU",
+         "models": ["ilmu-v3.1"]},
+    ]
+
+
 def effective() -> dict:
     """Every editable value resolved (Setting-over-env). Secrets are the FULL
     values here — the view masks them before they leave the server."""
@@ -200,6 +231,7 @@ def effective() -> dict:
         out[k] = _str_over_env(k, env)
     out["email_subject"] = email_subject()
     out["elevenlabs_api_key"] = elevenlabs_key()
+    out["chat_provider_order"] = chat_provider_order()
     for k in _INT_TUNABLES:
         out[k] = _int_over_env(k)
     return out
@@ -211,6 +243,8 @@ def _source(key: str) -> str:
     .env" vs "saved" hint the Settings UI shows next to each field."""
     if _setting_value(key):
         return "settings"
+    if key == "chat_provider_order":
+        return "env" if os.getenv("CHAT_PROVIDER_ORDER", "").strip() else ""
     if key in _INT_TUNABLES:
         return "env" if os.getenv(_INT_TUNABLES[key][2], "").strip() else ""
     if key in _OWN_STR_ENV:
@@ -230,7 +264,7 @@ def _source(key: str) -> str:
 
 
 def sources() -> dict:
-    return {k: _source(k) for k in ALL_KEYS}
+    return {k: _source(k) for k in (*ALL_KEYS, "chat_provider_order")}
 
 
 # ---- save (routes each field to its owning store) ----------------------------
@@ -251,6 +285,10 @@ def save(patch: dict) -> dict:
     if wa_patch:
         from whatsapp import wa_config
         wa_config.save_global_settings(wa_patch)
+
+    if "chat_provider_order" in patch:
+        from whatsapp import wa_config
+        wa_config.save_chat_provider_order(patch["chat_provider_order"])
 
     if "email_subject" in patch and isinstance(patch["email_subject"], str):
         from messaging import msg_config
