@@ -37,6 +37,7 @@ Tenant ──┬── Brand ──── DataSource ──── SyncBatch ─�
                                                        │  ├── AccountAssignment
                                                        │  ├── CallRecord
                                                        │  ├── ConversationSummary
+                                                       │  ├── PendingToolAction
                                                        │  ├── FlowRun ──── OutboundJob
                                                        │  └── (Workflow, AgentSkill: global)
                                                        └── Setting, CannedResponse,
@@ -297,6 +298,19 @@ call id) · `summary` · `facts` (JSON list) · `sentiment` · `created_at`.
 Generated after calls and after idle chats. Durable facts are written back onto
 the `Contact` (`preferred_contact_time`, `communication_style`,
 `sentiment_trend`, `ai_profile_summary`).
+
+### `crm.PendingToolAction` — AI tool double-confirmation
+`contact` FK · `channel` · `tool` · `fingerprint` (canonical JSON of the args,
+minus the `confirmed` flag) · `session` (the reply-generation round that asked)
+· `asked_at`. Unique on (`contact`, `channel`, `tool`).
+
+The enforcement state behind `aicore/tools.py`'s double-confirm gate for
+state-changing tools (`_MUTATING`, e.g. `book_appointment`): the model's first
+call records a row and is refused with "ask the customer"; only a confirmed
+re-call from a LATER reply round with the same fingerprint executes, and the
+execution CONSUMES the row (atomic delete — a replayed confirm re-asks instead
+of double-firing). Rows expire after 30 minutes (`_CONFIRM_TTL_S`), pruned
+opportunistically on each gate pass. Written only by `aicore/tools.py`.
 
 ### `crm.Setting` — runtime config
 `key` (unique) · `value` (text) · `updated_at`.

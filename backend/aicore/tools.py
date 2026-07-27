@@ -18,9 +18,14 @@ Design rules (all load-bearing):
   adding order-lookup / payment-link tools later is a two-line change.
 
 Guardrails live here too: the operator kill-switch (`Setting ai_tool_use`,
-default on) and the AuditLog + Notification a real booking fans out. Tools are
-only ever reached through `generate_reply`, which the channel layers already
-skip for opted-out / do-not-contact threads — so tools sit INSIDE that gate.
+default on), the AuditLog + Notification a real booking fans out, and the
+DOUBLE-CONFIRMATION gate for state-changing tools (`_MUTATING`): the first
+call never executes — it records a pending action and instructs the model to
+ask the customer; only a later reply round (after the customer could actually
+answer) may execute it by repeating the call with `confirmed=true`. Enforced
+here in dispatch, not just in the prompt. Tools are only ever reached through
+`generate_reply`, which the channel layers already skip for opted-out /
+do-not-contact threads — so tools sit INSIDE that gate.
 """
 from __future__ import annotations
 
@@ -63,9 +68,10 @@ _BOOK_APPOINTMENT = {
         "name": "book_appointment",
         "description": (
             "Book an appointment on the team calendar at a specific start time. "
-            "IMPORTANT: only call this AFTER the customer has explicitly confirmed "
-            "one specific slot in the conversation — never book a time they have "
-            "not agreed to. Returns a confirmation and a calendar link."
+            "This is a TWO-STEP action: your first call never books — it returns "
+            "an instruction to confirm with the customer. After the customer "
+            "explicitly agrees in a later message, call again with confirmed=true "
+            "and identical arguments. Returns a confirmation and a calendar link."
         ),
         "parameters": {
             "type": "object",
@@ -85,6 +91,16 @@ _BOOK_APPOINTMENT = {
                 "title": {
                     "type": "string",
                     "description": "Short title/subject for the appointment.",
+                },
+                "confirmed": {
+                    "type": "boolean",
+                    "description": (
+                        "Double-confirmation flag. Omit (or false) on the first "
+                        "call — nothing is booked and you will be told to ask the "
+                        "customer. Set true ONLY after the customer explicitly "
+                        "agreed in a LATER message, keeping the other arguments "
+                        "identical."
+                    ),
                 },
             },
             "required": ["start_iso"],
@@ -137,6 +153,97 @@ def tool_specs(contact=None, channel: str = "") -> list[dict]:
         specs.append(_CHECK_AVAILABILITY)
         specs.append(_BOOK_APPOINTMENT)
     return specs
+
+
+# ---- double-confirmation gate for state-changing tools ----------------------
+#
+# Tools listed in _MUTATING create/change/cancel something real. The customer's
+# explicit go-ahead is REQUIRED and enforced here, not just requested in the
+# prompt: the first call records a pending `crm.PendingToolAction` row and
+# refuses with an instruction to ask; only a call from a LATER reply round (a
+# different `session`, i.e. the customer actually had a chance to answer) with
+# confirmed=true and identical arguments executes it. DB-backed so it survives
+# restarts and works across processes/workers; the confirmed execution CONSUMES
+# the row (atomic delete), so a replayed confirm can never double-fire.
+
+_MUTATING = frozenset({"book_appointment"})
+_CONFIRM_TTL_S = 30 * 60  # a "yes" older than this re-asks
+
+
+def _fingerprint(args: dict) -> str:
+    """Stable identity of the requested action, ignoring the confirmed flag."""
+    return json.dumps({k: v for k, v in (args or {}).items() if k != "confirmed"},
+                      sort_keys=True, default=str)
+
+
+def _confirmation_gate(name: str, args: dict, *, contact, channel: str,
+                       session=None) -> dict | None:
+    """None = confirmed, proceed. Otherwise the refusal result the model reads.
+
+    State machine per (contact, channel, tool): an unconfirmed call always
+    (re)records the pending ask; confirmed=true executes ONLY against a
+    pending ask with the same arguments recorded in an earlier session —
+    same-session confirms and detail changes are refused, expired asks are
+    re-asked. Callers wrap this in try/except and FAIL CLOSED on error."""
+    if contact is None:
+        return {"ok": False,
+                "error": "cannot make changes for an unidentified customer",
+                "hint": "offer to have the team follow up instead"}
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from crm.models import PendingToolAction
+
+    chan = channel or ""
+    fp = _fingerprint(args)
+    now = timezone.now()
+    ask = {"ok": False, "needs_confirmation": True, "action": name,
+           "details": {k: v for k, v in (args or {}).items() if k != "confirmed"},
+           "instruction": (
+               "NOT DONE YET. Tell the customer exactly what you are about to do "
+               "(include the specific details) and ask them to confirm. After "
+               "they clearly agree in their NEXT message, call this tool again "
+               "with confirmed=true and the same arguments.")}
+    # Opportunistic prune — expired asks anywhere die here, cheap indexed delete.
+    PendingToolAction.objects.filter(
+        asked_at__lt=now - timedelta(seconds=_CONFIRM_TTL_S)).delete()
+
+    def _record():
+        PendingToolAction.objects.update_or_create(
+            contact=contact, channel=chan, tool=name,
+            defaults={"fingerprint": fp, "session": session or "",
+                      "asked_at": now})
+
+    pending = PendingToolAction.objects.filter(
+        contact=contact, channel=chan, tool=name).first()
+    if not args.get("confirmed"):
+        _record()
+        return ask
+    if pending is None:              # confirmed out of nowhere — ask first
+        _record()
+        return ask
+    if pending.fingerprint != fp:    # details changed since the ask — re-confirm
+        _record()
+        ask["instruction"] = (
+            "NOT DONE YET — the details changed since the customer was asked. "
+            "Re-state the new details, get their confirmation again, then call "
+            "this tool again with confirmed=true.")
+        return ask
+    if session is not None and pending.session == session:
+        ask["instruction"] = (
+            "NOT DONE YET. You have not given the customer a chance to reply. "
+            "Ask them to confirm and END this reply; when their next message "
+            "clearly agrees, call this tool again with confirmed=true.")
+        return ask
+    # Claim by atomic delete — if another worker consumed it first, re-ask
+    # instead of double-executing.
+    deleted, _detail = PendingToolAction.objects.filter(
+        pk=pending.pk, fingerprint=fp).delete()
+    if not deleted:
+        _record()
+        return ask
+    return None
 
 
 # ---- dispatch ---------------------------------------------------------------
@@ -196,15 +303,30 @@ _DISPATCH = {
 }
 
 
-def dispatch(name: str, args: dict | None = None, *, contact=None, channel: str = "") -> dict:
+def dispatch(name: str, args: dict | None = None, *, contact=None,
+             channel: str = "", session=None) -> dict:
     """Run a tool by name and return a compact JSON-serializable result dict.
     Never raises — an unknown tool or a handler error becomes an `ok: False`
-    result the model reads back."""
+    result the model reads back. `session` identifies one reply-generation
+    round (see _confirmation_gate); state-changing tools never execute in the
+    same round that asked for confirmation."""
     fn = _DISPATCH.get(name)
     if fn is None:
         return {"ok": False, "error": f"unknown tool {name!r}"}
+    args = args or {}
+    if name in _MUTATING:
+        try:
+            refusal = _confirmation_gate(name, args, contact=contact,
+                                         channel=channel, session=session)
+        except Exception:  # fail CLOSED — never mutate if the gate itself broke
+            logger.exception("aicore.tools: confirmation gate failed for %r", name)
+            refusal = {"ok": False,
+                       "error": "confirmation check failed — do not retry",
+                       "hint": "offer to have the team follow up instead"}
+        if refusal is not None:
+            return refusal
     try:
-        return fn(args or {}, contact=contact, channel=channel)
+        return fn(args, contact=contact, channel=channel)
     except Exception as exc:  # dispatcher itself blew up — degrade to a result
         logger.exception("aicore.tools: dispatch %r failed", name)
         return {"ok": False, "error": f"{name} failed: {type(exc).__name__}"}

@@ -85,6 +85,19 @@ ILMU_TTS_VOICE = os.getenv("ILMU_TTS_VOICE", "voice_1")
 # Realtime calls use OpenAI's own noise reduction instead (REALTIME_NOISE_REDUCTION).
 VOICE_GATE_DB = float(os.getenv("VOICE_GATE_DB") or 0)
 VOICE_GATE_HOLD_MS = int(os.getenv("VOICE_GATE_HOLD_MS") or 700)
+# Per-second inbound level meter in the agent log (peak/median dBFS + how much
+# the gate passed). Works on cascade calls even with the gate OFF (meter-only),
+# so you can watch a real call's levels before choosing a VOICE_GATE_DB.
+# Set VOICE_GATE_DEBUG=0 to silence it.
+VOICE_GATE_DEBUG = (os.getenv("VOICE_GATE_DEBUG") or "1").strip().lower() \
+    not in ("0", "false", "no", "off")
+
+# Barge-in guard (both call modes): how much detected speech it takes to cut
+# the agent off mid-sentence. Raise these if background voices/TV keep
+# interrupting the agent — e.g. 0.8 / 3 makes short blips and backchannels
+# ("mm-hmm", one loud word behind the caller) not count as an interruption.
+INTERRUPT_MIN_DURATION = float(os.getenv("INTERRUPT_MIN_DURATION") or 0.4)
+INTERRUPT_MIN_WORDS = int(os.getenv("INTERRUPT_MIN_WORDS") or 2)
 
 # Silero VAD tuning (pipeline mode only — realtime providers do their own VAD).
 # The defaults (0.5 activation, 50ms min speech) treat phone-line hiss and low

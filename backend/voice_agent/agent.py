@@ -590,8 +590,13 @@ def _build_session_kwargs(md: dict) -> dict:
         "llm": lk_openai.realtime.RealtimeModel(**realtime_kwargs),
         # Barge-in ON (reverted 2026-07-22): the client stops playout when the
         # caller speaks (pairs with interrupt_response=True above). Backchannel
-        # guard keeps a bare "mm-hmm"/"okay" from cutting the agent off.
-        "turn_handling": {"interruption": {"min_duration": 0.4, "min_words": 2}},
+        # guard keeps a bare "mm-hmm"/"okay" from cutting the agent off —
+        # raise INTERRUPT_MIN_DURATION/_WORDS in .env if background voices
+        # still barge in.
+        "turn_handling": {"interruption": {
+            "min_duration": config.INTERRUPT_MIN_DURATION,
+            "min_words": config.INTERRUPT_MIN_WORDS,
+        }},
     }
 
 
@@ -694,14 +699,21 @@ async def _gated_audio(audio):
     implementation (the gateway's BAILEYS_GATE_DB is its transport-local
     ancestor — keep that at 0 when this is on). Frames below VOICE_GATE_DB are
     replaced with silence; the gate holds open VOICE_GATE_HOLD_MS after the
-    last loud frame. Pure-Python RMS over ~10ms frames is cheap (~50k ops/s)."""
+    last loud frame. Pure-Python RMS over ~10ms frames is cheap (~50k ops/s).
+
+    With VOICE_GATE_DB=0 the gate never mutes but (VOICE_GATE_DEBUG) still
+    METERS: a per-second log line with peak/median dBFS and how much a gate at
+    the current threshold would pass — watch a real call to pick a threshold."""
     import array as _array
 
     from livekit import rtc
 
     threshold = config.VOICE_GATE_DB
+    muting = threshold < 0  # 0 = meter-only, never mute
     hold_s = config.VOICE_GATE_HOLD_MS / 1000
     open_until = 0.0
+    meter: list[float] = []          # per-frame dBFS, flushed once a second
+    meter_next = time.time() + 1.0
     async for frame in audio:
         raw = bytes(frame.data)
         samples = _array.array("h")
@@ -715,13 +727,26 @@ async def _gated_audio(audio):
             now = time.time()
             if db >= threshold:
                 open_until = now + hold_s
-            elif now > open_until:
+            elif muting and now > open_until:
                 frame = rtc.AudioFrame(
                     data=b"\x00" * len(raw),
                     sample_rate=frame.sample_rate,
                     num_channels=frame.num_channels,
                     samples_per_channel=frame.samples_per_channel,
                 )
+            if config.VOICE_GATE_DEBUG:
+                meter.append(db)
+                if now >= meter_next:
+                    loud = sum(1 for d in meter if d >= threshold) if muting else 0
+                    ordered = sorted(meter)
+                    logger.info(
+                        "voice-gate: peak %.1f dBFS · median %.1f · %s",
+                        ordered[-1], ordered[len(ordered) // 2],
+                        (f"{100 * loud / len(meter):.0f}% of frames ≥ "
+                         f"{threshold:.0f} dBFS (gate ON)") if muting
+                        else "gate OFF (meter only — set VOICE_GATE_DB to enable)")
+                    meter.clear()
+                    meter_next = now + 1.0
         yield frame
 
 
@@ -781,8 +806,11 @@ class CallAgent(Agent):
 
     async def stt_node(self, audio, model_settings):
         """Default STT node behind the universal noise gate (VOICE_GATE_DB) —
-        one filtering implementation for every call transport."""
-        source = _gated_audio(audio) if config.VOICE_GATE_DB < 0 else audio
+        one filtering implementation for every call transport. The wrap also
+        engages in meter-only mode (VOICE_GATE_DEBUG, gate at 0) so the
+        per-second dB log is available while tuning."""
+        gate_or_meter = config.VOICE_GATE_DB < 0 or config.VOICE_GATE_DEBUG
+        source = _gated_audio(audio) if gate_or_meter else audio
         async for event in Agent.default.stt_node(self, source, model_settings):
             yield event
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -227,10 +228,13 @@ def generate_reply(history: list[dict], *, contact_name: str, phone: str, channe
     if tools:
         messages.append({"role": "system", "content": (
             "You can take real actions using the provided tools when it helps the "
-            "customer. Before booking an appointment, offer the open slots and get "
-            "the customer's explicit confirmation of one specific time in the "
-            "conversation, THEN call book_appointment — never book a slot they have "
-            "not agreed to."
+            "customer. Any tool that creates, changes or cancels something real "
+            "requires the customer's confirmation first: state exactly what you "
+            "are about to do (with the specific details) and ask them to confirm, "
+            "then wait for their reply. Only after they clearly agree, call the "
+            "tool again with confirmed=true. For appointments, offer the open "
+            "slots and get their explicit choice of one specific time — never "
+            "book a slot they have not agreed to."
         )})
 
     for m in history:
@@ -307,7 +311,7 @@ def _assistant_tool_msg(message, tool_calls) -> dict:
     }
 
 
-def _execute_tool(tool_call, *, contact, channel: str) -> dict:
+def _execute_tool(tool_call, *, contact, channel: str, session=None) -> dict:
     """Run one tool call via the registry. Never raises — the registry turns any
     failure into an `ok: False` result the model reads back."""
     from aicore import tools as tools_mod
@@ -319,7 +323,8 @@ def _execute_tool(tool_call, *, contact, channel: str) -> dict:
             args = {}
     except Exception:
         args = {}
-    return tools_mod.dispatch(name, args, contact=contact, channel=channel)
+    return tools_mod.dispatch(name, args, contact=contact, channel=channel,
+                              session=session)
 
 
 def _run_tool_loop(client, base_create: dict, tools: list, *, contact, channel: str) -> str:
@@ -330,6 +335,9 @@ def _run_tool_loop(client, base_create: dict, tools: list, *, contact, channel: 
     reply. Returns the final assistant prose (unstripped — the caller strips)."""
     convo = base_create["messages"]  # live list; tool turns are appended to it
     create = {**base_create, "tools": tools, "tool_choice": "auto"}
+    # One id per reply generation: the confirmation gate uses it to refuse
+    # state-changing tools in the same round that asked the customer to confirm.
+    session = uuid.uuid4().hex
 
     try:
         resp = client.chat.completions.create(**create)
@@ -347,7 +355,8 @@ def _run_tool_loop(client, base_create: dict, tools: list, *, contact, channel: 
             return message.content or ""
         convo.append(_assistant_tool_msg(message, tool_calls))
         for tc in tool_calls:
-            result = _execute_tool(tc, contact=contact, channel=channel)
+            result = _execute_tool(tc, contact=contact, channel=channel,
+                                   session=session)
             convo.append({"role": "tool", "tool_call_id": getattr(tc, "id", ""),
                           "content": json.dumps(result, default=str)})
         resp = client.chat.completions.create(**create)

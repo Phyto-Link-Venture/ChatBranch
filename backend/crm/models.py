@@ -747,6 +747,33 @@ class OutboundJob(models.Model):
         return f"[{self.channel}/{self.kind}] → {self.to_address} ({self.status})"
 
 
+class PendingToolAction(models.Model):
+    """Double-confirmation state for AI tool-calling (aicore/tools.py): a
+    state-changing tool call the model attempted that is waiting for the
+    customer's explicit go-ahead. One row per (contact, channel, tool) — the
+    ask is re-recorded on every unconfirmed attempt, expires after
+    tools._CONFIRM_TTL_S, and is CONSUMED (deleted) by the confirmed
+    execution so a replayed confirm can never double-fire. `session` is the
+    reply-generation round that recorded the ask — a confirm from the SAME
+    round is refused (the customer never got to answer)."""
+
+    contact = models.ForeignKey(Contact, on_delete=models.CASCADE,
+                                related_name="pending_tool_actions")
+    channel = models.CharField(max_length=12, blank=True, default="")
+    tool = models.CharField(max_length=64)
+    fingerprint = models.TextField()  # canonical JSON of the args (sans confirmed)
+    session = models.CharField(max_length=64, blank=True, default="")
+    asked_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [models.UniqueConstraint(
+            fields=["contact", "channel", "tool"],
+            name="uniq_pending_tool_action")]
+
+    def __str__(self):
+        return f"pending {self.tool} for contact {self.contact_id} via {self.channel}"
+
+
 class ConversationSummary(models.Model):
     """AI memory: a concise factual summary generated after each conversation
     (call ended / chat gone idle). The memory manager (aicore/memory.py) feeds

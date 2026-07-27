@@ -165,6 +165,7 @@ export function RecoveryBanner({ className = '' }: { className?: string }) {
 
 interface RoutingRules {
   ai_reply_mode: 'queued' | 'instant'
+  reminder_ai_default: 'off' | 'on'
   business_redirect: boolean
   business_redirect_target: 'conversation' | 'support' | 'template'
   support_contact: string
@@ -176,6 +177,7 @@ interface RoutingRules {
 
 const DEFAULTS: RoutingRules = {
   ai_reply_mode: 'queued',
+  reminder_ai_default: 'off',
   business_redirect: true,
   business_redirect_target: 'conversation',
   support_contact: '',
@@ -347,8 +349,31 @@ export function RoutingRulesSettings() {
       />
 
       <RuleRow
+        label="Business-number chatbot"
+        sub={
+          <>
+            Default Chatbot state for reminder (business) numbers.{' '}
+            <span className="font-semibold text-text-mid">Off</span>: the business number stays a
+            template/notification channel — inbound replies get the redirect below, and the bot
+            only answers chats where you tick Chatbot on.{' '}
+            <span className="font-semibold text-text-mid">On</span>: the bot converses on the
+            business number by default (replies are instant — queued pacing only protects
+            personal numbers). Per-chat Chatbot ticks always win over this default.
+          </>
+        }
+        control={
+          <Toggle
+            on={rules.reminder_ai_default === 'on'}
+            onChange={(v) => set('reminder_ai_default', v ? 'on' : 'off')}
+            disabled={!canManage}
+            ariaLabel="Business-number chatbot default"
+          />
+        }
+      />
+
+      <RuleRow
         label="Business-number redirect"
-        sub="When a contact replies to a reminder (business) number, auto-send one message per 24h pointing them somewhere a conversation can happen."
+        sub="When a contact replies to a reminder (business) number and the chatbot is off for that chat, auto-send one message per 24h pointing them somewhere a conversation can happen."
         control={
           <Toggle
             on={rules.business_redirect}

@@ -23,7 +23,8 @@ from django.utils.dateparse import parse_datetime
 
 from aicore import assistant
 from aicore import tools as tools_mod
-from crm.models import AuditLog, Contact, Notification, Profile, Record, RecordEvent, Setting
+from crm.models import (AuditLog, Contact, Notification, PendingToolAction,
+                        Profile, Record, RecordEvent, Setting)
 from integrations import actions
 from integrations.models import Integration
 
@@ -251,9 +252,18 @@ class TestBookAppointment:
     def test_dispatch_writes_audit_and_notification(self, calendar, contact, admin, monkeypatch):
         spy = _RequestSpy()
         monkeypatch.setattr(actions, "_request", spy)
-        result = tools_mod.dispatch(
+        # First call: the double-confirm gate refuses and asks — nothing booked.
+        first = tools_mod.dispatch(
             "book_appointment",
             {"start_iso": "2026-07-27T14:00:00+00:00", "title": "Consult"},
+            contact=contact, channel="whatsapp")
+        assert first["ok"] is False and first["needs_confirmation"] is True
+        assert AuditLog.objects.filter(action="ai.booking").count() == 0
+        # Confirmed re-call with the same arguments: books + audits + notifies.
+        result = tools_mod.dispatch(
+            "book_appointment",
+            {"start_iso": "2026-07-27T14:00:00+00:00", "title": "Consult",
+             "confirmed": True},
             contact=contact, channel="whatsapp")
         assert result["ok"] is True and result["confirmed"] is True
         assert result["calendar_link"] == "https://calendar.example/evt-1"
@@ -287,6 +297,86 @@ class TestToolSpecs:
         assert out["ok"] is False and "unknown tool" in out["error"]
 
 
+# ---- the double-confirmation gate (state-changing tools) --------------------
+
+@pytest.mark.django_db
+class TestConfirmationGate:
+    ARGS = {"start_iso": "2026-07-27T14:00:00+00:00", "title": "Consult"}
+
+    def _book(self, contact, args=None, session=None):
+        return tools_mod.dispatch("book_appointment", dict(args or self.ARGS),
+                                  contact=contact, channel="whatsapp",
+                                  session=session)
+
+    def test_first_call_asks_and_does_not_book(self, calendar, contact, monkeypatch):
+        monkeypatch.setattr(actions, "_request",
+                            lambda *a, **k: pytest.fail("must not book unconfirmed"))
+        out = self._book(contact)
+        assert out["ok"] is False and out["needs_confirmation"] is True
+        assert out["details"]["start_iso"] == self.ARGS["start_iso"]
+        assert Record.objects.filter(type="booking").count() == 0
+
+    def test_confirmed_out_of_nowhere_is_refused(self, calendar, contact, monkeypatch):
+        # confirmed=true with no prior ask must not execute — it becomes the ask.
+        monkeypatch.setattr(actions, "_request",
+                            lambda *a, **k: pytest.fail("must not book cold-confirmed"))
+        out = self._book(contact, {**self.ARGS, "confirmed": True})
+        assert out["ok"] is False and out["needs_confirmation"] is True
+
+    def test_same_session_confirm_is_refused(self, calendar, contact, monkeypatch):
+        monkeypatch.setattr(actions, "_request",
+                            lambda *a, **k: pytest.fail("must not book in the asking round"))
+        self._book(contact, session="round-1")
+        out = self._book(contact, {**self.ARGS, "confirmed": True}, session="round-1")
+        assert out["ok"] is False and out["needs_confirmation"] is True
+
+    def test_later_session_confirm_executes(self, calendar, contact, monkeypatch):
+        monkeypatch.setattr(actions, "_request", _RequestSpy())
+        self._book(contact, session="round-1")
+        out = self._book(contact, {**self.ARGS, "confirmed": True}, session="round-2")
+        assert out["ok"] is True and out["confirmed"] is True
+        assert Record.objects.filter(type="booking").count() == 1
+        # the pending ask is consumed — a replayed confirm must re-ask, not re-book
+        again = self._book(contact, {**self.ARGS, "confirmed": True}, session="round-3")
+        assert again["ok"] is False and again["needs_confirmation"] is True
+
+    def test_changed_details_must_reconfirm(self, calendar, contact, monkeypatch):
+        monkeypatch.setattr(actions, "_request", _RequestSpy())
+        self._book(contact, session="round-1")                       # asked for 14:00
+        other = {"start_iso": "2026-07-28T10:00:00+00:00", "confirmed": True}
+        out = self._book(contact, other, session="round-2")          # confirms 10:00?!
+        assert out["ok"] is False and "changed" in out["instruction"]
+        assert Record.objects.filter(type="booking").count() == 0
+        # after re-asking, the new details confirm fine in a later round
+        out = self._book(contact, {**other}, session="round-3")
+        assert out["ok"] is True
+
+    def test_expired_ask_reasks(self, calendar, contact, monkeypatch):
+        monkeypatch.setattr(actions, "_request",
+                            lambda *a, **k: pytest.fail("must not book on a stale yes"))
+        self._book(contact, session="round-1")
+        PendingToolAction.objects.filter(contact=contact, tool="book_appointment").update(
+            asked_at=timezone.now() - timedelta(seconds=tools_mod._CONFIRM_TTL_S + 1))
+        out = self._book(contact, {**self.ARGS, "confirmed": True}, session="round-2")
+        assert out["ok"] is False and out["needs_confirmation"] is True
+        # the expired row was pruned and the confirm re-recorded a fresh ask
+        row = PendingToolAction.objects.get(contact=contact, tool="book_appointment")
+        assert row.session == "round-2"
+
+    def test_mutation_without_contact_is_refused(self, calendar, monkeypatch):
+        monkeypatch.setattr(actions, "_request",
+                            lambda *a, **k: pytest.fail("must not book without a contact"))
+        out = tools_mod.dispatch("book_appointment", dict(self.ARGS),
+                                 contact=None, channel="whatsapp")
+        assert out["ok"] is False and "unidentified" in out["error"]
+
+    def test_read_only_tool_needs_no_confirmation(self, calendar, contact, monkeypatch):
+        monkeypatch.setattr(actions, "_request", _RequestSpy())
+        out = tools_mod.dispatch("check_calendar_availability", {},
+                                 contact=contact, channel="whatsapp")
+        assert out["ok"] is True and "slots" in out
+
+
 # ---- the loop in generate_reply ---------------------------------------------
 
 @pytest.mark.django_db
@@ -309,15 +399,44 @@ class TestToolLoop:
     def test_booking_through_the_loop(self, calendar, contact, admin, fake_openai, monkeypatch):
         spy = _RequestSpy()
         monkeypatch.setattr(actions, "_request", spy)
+        # Reply round 1: the model tries to book — the gate refuses and the
+        # model relays the confirmation question. Nothing is booked yet.
         fake_openai.scripts = [
             _with_tools(_tool_call("c1", "book_appointment",
                                    '{"start_iso": "2026-07-27T14:00:00+00:00", "title": "Consult"}')),
+            _prose("Just to confirm — Monday 2pm for a consult, shall I book it?"),
+        ]
+        out = _reply(contact)
+        assert out == "Just to confirm — Monday 2pm for a consult, shall I book it?"
+        assert Record.objects.filter(type="booking").count() == 0
+        assert AuditLog.objects.filter(action="ai.booking").count() == 0
+        # Reply round 2 (customer said yes): confirmed re-call books for real.
+        fake_openai.scripts = [
+            _with_tools(_tool_call("c2", "book_appointment",
+                                   '{"start_iso": "2026-07-27T14:00:00+00:00", "title": "Consult", "confirmed": true}')),
             _prose("Booked! See you Monday at 2pm."),
         ]
         out = _reply(contact)
         assert out == "Booked! See you Monday at 2pm."
         assert Record.objects.filter(type="booking").count() == 1
         assert AuditLog.objects.filter(action="ai.booking").count() == 1
+
+    def test_same_reply_confirm_bypass_is_blocked(self, calendar, contact, fake_openai, monkeypatch):
+        # A runaway model that asks and immediately "confirms" inside ONE reply
+        # round must not book — the gate keys pending asks to the reply session.
+        spy = _RequestSpy()
+        monkeypatch.setattr(actions, "_request", spy)
+        fake_openai.scripts = [
+            _with_tools(_tool_call("c1", "book_appointment",
+                                   '{"start_iso": "2026-07-27T14:00:00+00:00"}')),
+            _with_tools(_tool_call("c2", "book_appointment",
+                                   '{"start_iso": "2026-07-27T14:00:00+00:00", "confirmed": true}')),
+            _prose("Can you confirm Monday 2pm first?"),
+        ]
+        out = _reply(contact)
+        assert out == "Can you confirm Monday 2pm first?"
+        assert Record.objects.filter(type="booking").count() == 0
+        assert AuditLog.objects.filter(action="ai.booking").count() == 0
 
     def test_loop_is_bounded(self, calendar, contact, fake_openai, monkeypatch):
         monkeypatch.setattr(actions, "_request", _RequestSpy())

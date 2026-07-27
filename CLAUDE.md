@@ -351,7 +351,15 @@ out the macOS/Linux equivalents.
   block(default)|warn|allow — free-text into a ZERO-inbound thread on a
   conversation-role number 409s (admin `{"force": true}` overrides) or gets
   an amber system note; queue text jobs fail the same way; templates +
-  reminder numbers unaffected. `crm.Message.account` records which number carried every
+  reminder numbers unaffected; `reminder_ai_default` off(default)|on — the
+  DEFAULT Chatbot tick for reminder-role (business) accounts: "on" lets the
+  business number hold AI conversations without per-chat ticks (replies stay
+  on the INSTANT path — queued pacing is conversation-role-only — and the
+  business redirect stands down, since it only answers AI-off inbound);
+  explicit per-chat overrides always win, incl. the OFF ticks a
+  conversation→reminder role change stamps
+  (`wa_config.reminder_ai_default_on`, `store._effective_ai`, toggle on the
+  Routing Rules card). `crm.Message.account` records which number carried every
   message — both stores stamp it; keep that when adding write paths. The
   chat UI shows "via <account>" on bubbles when >1 account exists and an
   amber divider at sender-account switches AND (in the merged contact view)

@@ -83,7 +83,12 @@ export function AreaPage({
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 rounded-2xl border border-line bg-card px-5 pb-6 pt-2">{children}</div>
+        {/* overflow-y-auto: the card is height-capped (flex-1), so tall content
+            (e.g. an expanded Advanced section) must scroll INSIDE it, not spill
+            out the bottom. This matches the old Settings shell's content card. */}
+        <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-line bg-card px-5 pb-6 pt-2">
+          {children}
+        </div>
       </div>
     </SettingsDirtyProvider>
   )

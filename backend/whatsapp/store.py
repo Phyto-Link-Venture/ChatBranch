@@ -192,9 +192,10 @@ def _serialize(t: Thread, limit: int | None = None, before=None) -> dict:
 def _effective_ai(t: Thread, by_id: dict | None = None) -> bool:
     """The Chatbot tick for the thread's CURRENT sending account. Each account
     keeps its own per-chat override (Thread.ai_overrides[account_pk]); with no
-    override the account's ROLE decides — reminder (business) off, conversation
-    on — so switching the sender shows/uses that number's own setting.
-    Account-less threads (sandbox, env pseudo-account) use the legacy column."""
+    override the account's ROLE decides — reminder (business) off unless the
+    reminder_ai_default routing rule flips it, conversation on — so switching
+    the sender shows/uses that number's own setting. Account-less threads
+    (sandbox, env pseudo-account) use the legacy column."""
     if not t.account_id:
         return t.ai_enabled
     override = (t.ai_overrides or {}).get(str(t.account_id))
@@ -205,7 +206,9 @@ def _effective_ai(t: Thread, by_id: dict | None = None) -> bool:
     account = (by_id or {}).get(str(t.account_id)) or t.account
     if account is None:
         return t.ai_enabled
-    return wa_config.account_role(account) != wa_config.ROLE_REMINDER
+    if wa_config.account_role(account) == wa_config.ROLE_REMINDER:
+        return wa_config.reminder_ai_default_on()
+    return True
 
 
 def _get(wa_id: str) -> Thread | None:

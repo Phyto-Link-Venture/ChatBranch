@@ -2489,6 +2489,7 @@ def _rules_payload() -> dict:
         "recovery_template": rules["recovery_template"],
         "cold_text_guard": rules["cold_text_guard"],
         "cold_call_guard": rules["cold_call_guard"],
+        "reminder_ai_default": rules["reminder_ai_default"],
         # outbound-queue pacing (Baileys sends) — effective values from the
         # Setting > QUEUE_* env > default merge, editable from AI Configuration
         "queue_min_gap_s": pacing["queue_min_gap_s"],

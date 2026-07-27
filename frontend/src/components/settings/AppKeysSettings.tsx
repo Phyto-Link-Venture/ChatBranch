@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { KeyRound, Loader2, ShieldAlert } from 'lucide-react'
+import { Info, KeyRound, Loader2, ShieldAlert } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { roleHeaders } from '@/lib/role'
 import { expireSessionOn401 } from '@/lib/auth'
@@ -68,20 +68,12 @@ function Field({
 export function AppKeysSettings() {
   const { role, ready } = useRole()
   const [loaded, setLoaded] = useState<GlobalSettings | null>(null)
-  const [openaiKey, setOpenaiKey] = useState('')
-  const [openrouterKey, setOpenrouterKey] = useState('')
-  const [googleKey, setGoogleKey] = useState('')
-  const [ilmuKey, setIlmuKey] = useState('')
   const [verifyToken, setVerifyToken] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   const seed = (s: GlobalSettings) => {
     setLoaded(s)
-    setOpenaiKey(s.openai_api_key_masked)
-    setOpenrouterKey(s.openrouter_api_key_masked)
-    setGoogleKey(s.google_api_key_masked)
-    setIlmuKey(s.ilmu_api_key_masked)
     setVerifyToken(s.verify_token)
   }
 
@@ -112,26 +104,15 @@ export function AppKeysSettings() {
     setBusy(true)
     setMsg(null)
     try {
-      // masked placeholders ("••••abcd") are ignored server-side; the body
-      // only carries key fields — chat provider/model/quiet hours live in
-      // Settings → AI Configuration now and are untouched here
+      // Only the webhook verify token is owned here now — the AI provider keys
+      // moved to Settings → AI & Providers, so we never send them (that avoids
+      // clobbering what that tab manages).
       const next = await api<GlobalSettings>('settings', {
         method: 'POST',
-        body: JSON.stringify({
-          openai_api_key: openaiKey,
-          openrouter_api_key: openrouterKey,
-          google_api_key: googleKey,
-          ilmu_api_key: ilmuKey,
-          verify_token: verifyToken,
-        }),
+        body: JSON.stringify({ verify_token: verifyToken }),
       })
       seed(next)
-      setMsg({
-        ok: true,
-        text: next.ai_available
-          ? 'Saved — AI replies are ready. Live immediately, no restart needed.'
-          : 'Saved. AI replies still off — set an OpenAI, OpenRouter, ILMU or Google key.',
-      })
+      setMsg({ ok: true, text: 'Saved. Live immediately, no restart needed.' })
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
     } finally {
@@ -154,39 +135,16 @@ export function AppKeysSettings() {
         </span>
       </div>
 
+      <div className="flex items-start gap-2 rounded-xl border border-line bg-fill px-3 py-2.5 text-[12px] text-text-mid">
+        <Info size={14} className="mt-0.5 shrink-0 text-brand-300" aria-hidden />
+        <span>
+          AI provider keys (OpenAI, OpenRouter, Google Gemini, ILMU, ElevenLabs) now live in{' '}
+          <span className="font-semibold text-text-high">AI &amp; Providers</span>, next to the provider
+          picker and model. This tab only holds the WhatsApp webhook verify token.
+        </span>
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
-        <Field
-          label="OpenAI API key"
-          value={openaiKey}
-          onChange={setOpenaiKey}
-          placeholder="sk-…"
-          hint="Powers WhatsApp AI auto-replies. Clearing falls back to OPENAI_API_KEY in backend/.env."
-          secret
-        />
-        <Field
-          label="OpenRouter API key (optional)"
-          value={openrouterKey}
-          onChange={setOpenrouterKey}
-          placeholder="sk-or-…"
-          hint="When set, auto-replies go through OpenRouter instead of OpenAI."
-          secret
-        />
-        <Field
-          label="Google Gemini API key (optional)"
-          value={googleKey}
-          onChange={setGoogleKey}
-          placeholder="AIza… / AQ.…"
-          hint="Used when no OpenAI/OpenRouter key is set (Gemini OpenAI-compatible API). Falls back to GOOGLE_API_KEY in backend/.env."
-          secret
-        />
-        <Field
-          label="YTL ILMU API key (optional)"
-          value={ilmuKey}
-          onChange={setIlmuKey}
-          placeholder="sk-…"
-          hint="Malaysian sovereign AI (api.ilmu.ai) — data stays in-country. Falls back to ILMU_API_KEY in backend/.env."
-          secret
-        />
         <Field
           label="Webhook verify token"
           value={verifyToken}

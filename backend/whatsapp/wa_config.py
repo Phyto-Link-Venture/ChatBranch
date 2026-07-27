@@ -560,6 +560,15 @@ def ai_available() -> bool:
 #                     an unknown personal number is a stronger abuse signal
 #                     than a text, so an operator may run texts on "warn" while
 #                     calls stay hard-blocked.
+#   reminder_ai_default off (default) | on — the DEFAULT Chatbot tick for
+#                     reminder-role (business) accounts: "on" lets the business
+#                     number hold AI conversations without per-chat ticks (its
+#                     replies stay on the INSTANT path — queued pacing is a
+#                     conversation-role protection). Explicit per-chat overrides
+#                     (Thread.ai_overrides) always win, incl. the OFF ticks a
+#                     conversation→reminder role change stamps. With AI on, the
+#                     business redirect naturally stops firing (it only answers
+#                     AI-off inbound).
 
 RULES_DEFAULTS = {
     "ai_reply_mode": "queued",
@@ -571,6 +580,7 @@ RULES_DEFAULTS = {
     "recovery_template": "",
     "cold_text_guard": "block",
     "cold_call_guard": "block",
+    "reminder_ai_default": "off",
 }
 
 RULE_CHOICES = {
@@ -579,6 +589,7 @@ RULE_CHOICES = {
     "recovery_mode": ("one_click", "auto"),
     "cold_text_guard": ("block", "warn", "allow"),
     "cold_call_guard": ("block", "warn", "allow"),
+    "reminder_ai_default": ("off", "on"),
 }
 
 
@@ -610,6 +621,12 @@ def save_routing_rules(patch: dict) -> dict:
 
 def ai_reply_mode() -> str:
     return routing_rules()["ai_reply_mode"]
+
+
+def reminder_ai_default_on() -> bool:
+    """Routing rule reminder_ai_default — True flips the default Chatbot tick
+    for reminder-role (business) accounts to ON (store._effective_ai)."""
+    return routing_rules()["reminder_ai_default"] == "on"
 
 
 def business_redirect_enabled() -> bool:

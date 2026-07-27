@@ -1325,6 +1325,50 @@ class TestAccountRoles:
         assert wa_views._maybe_business_redirect(wa_store.load_thread(WA_ID)) is False
         assert OutboundJob.objects.count() == 0
 
+    def test_reminder_ai_default_on_flips_the_default(self, no_env_account):
+        # Routing rule reminder_ai_default=on: business numbers get the chatbot
+        # by DEFAULT — no per-chat tick needed. Explicit per-chat overrides
+        # still win in both directions, conversation numbers are unaffected.
+        wa_config.save_routing_rules({"reminder_ai_default": "on"})
+        biz = _cloud("Biz", "111")
+        qr = _baileys("Personal")
+        t = wa_store.get_or_create_thread("60110000011", account_id=str(biz.pk))
+        assert t["ai_enabled"] is True                       # default flipped ON
+        t = wa_store.get_or_create_thread("60110000012", account_id=str(qr.pk))
+        assert t["ai_enabled"] is True                       # conversation unchanged
+        wa_store.update_thread("60110000011", {"ai_enabled": False})  # human takeover
+        assert wa_store.load_thread("60110000011")["ai_enabled"] is False
+        wa_config.save_routing_rules({"reminder_ai_default": "off"})
+        # rule back off: the explicit OFF tick persists, an untouched thread
+        # returns to the reminder default (off)
+        assert wa_store.load_thread("60110000011")["ai_enabled"] is False
+        t = wa_store.get_or_create_thread("60110000013", account_id=str(biz.pk))
+        assert t["ai_enabled"] is False
+
+    def test_reminder_ai_default_on_silences_redirect(self, no_env_account):
+        # with the chatbot on by default, the business number ANSWERS instead
+        # of redirecting — same stand-down as an explicit per-chat tick
+        wa_config.save_routing_rules({"reminder_ai_default": "on"})
+        biz = _cloud("Biz", "111")
+        _contact(phone=f"+{WA_ID}")
+        wa_store.get_or_create_thread(WA_ID, account_id=str(biz.pk))
+        wa_store.append_message(WA_ID, "in", "hello", source="customer")
+        assert wa_views._maybe_business_redirect(wa_store.load_thread(WA_ID)) is False
+        assert OutboundJob.objects.count() == 0
+
+    def test_reminder_ai_default_on_stays_instant(self, no_env_account):
+        # reminder-role replies bypass the queued pacing even in queued mode —
+        # the "one human per account" throttle protects personal numbers only
+        wa_config.save_routing_rules({"reminder_ai_default": "on"})
+        biz = _cloud("Biz", "111")
+        _contact(phone=f"+{WA_ID}")
+        wa_store.get_or_create_thread(WA_ID, account_id=str(biz.pk))
+        wa_store.append_message(WA_ID, "in", "hello", source="customer")
+        thread = wa_store.load_thread(WA_ID)
+        assert thread["ai_enabled"] is True
+        assert wa_views._queue_ai_reply(thread) is False     # instant path
+        assert OutboundJob.objects.filter(kind="ai_reply").count() == 0
+
     def test_role_change_to_reminder_flips_existing_threads(self, client, superadmin,
                                                             no_env_account):
         a = _set_role(_cloud("Biz", "111"), "conversation")
@@ -1921,6 +1965,7 @@ class TestRoutingRulesEndpoint:
                             "recovery_mode": "one_click", "recovery_template": "",
                             "cold_text_guard": "block",
                             "cold_call_guard": "block",
+                            "reminder_ai_default": "off",
                             "queue_min_gap_s": 10, "queue_max_gap_s": 30}
 
     def test_put_gates(self, client, superadmin, agent_user):
@@ -1939,6 +1984,7 @@ class TestRoutingRulesEndpoint:
                                "recovery_template": "order_confirmation",
                                "cold_text_guard": "warn",
                                "cold_call_guard": "allow",
+                               "reminder_ai_default": "on",
                                "queue_min_gap_s": 45, "queue_max_gap_s": 180})
         assert r.status_code == 200
         assert r.json() == {"ai_reply_mode": "instant", "business_redirect": False,
@@ -1949,6 +1995,7 @@ class TestRoutingRulesEndpoint:
                             "recovery_template": "order_confirmation",
                             "cold_text_guard": "warn",
                             "cold_call_guard": "allow",
+                            "reminder_ai_default": "on",
                             "queue_min_gap_s": 45, "queue_max_gap_s": 180}
         # persisted: a fresh GET reads the Setting rows back
         assert client.get(self.URL, **AUTH).json()["cold_text_guard"] == "warn"
@@ -1967,6 +2014,7 @@ class TestRoutingRulesEndpoint:
 
     def test_put_validation(self, client, superadmin):
         assert self._put(client, {"ai_reply_mode": "sometimes"}).status_code == 400
+        assert self._put(client, {"reminder_ai_default": "maybe"}).status_code == 400
         assert self._put(client, {"recovery_mode": "yolo"}).status_code == 400
         assert self._put(client, {"cold_text_guard": "maybe"}).status_code == 400
         assert self._put(client, {"business_redirect": "sort-of"}).status_code == 400
