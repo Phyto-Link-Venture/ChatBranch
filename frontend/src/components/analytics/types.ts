@@ -53,6 +53,14 @@ export interface DailyPoint {
   record_events: number
 }
 
+export interface SessionStats {
+  avg_call_seconds: number
+  calls_counted: number
+  chat_sessions: number
+  avg_chat_messages: number
+  avg_chat_session_seconds: number
+}
+
 export interface AnalyticsSummary {
   days: number
   since: string
@@ -64,4 +72,5 @@ export interface AnalyticsSummary {
   call_outcomes: CallOutcomes
   health_events: HealthEvent[]
   daily: DailyPoint[]
+  sessions?: SessionStats // absent on older backends — tiles show em-dashes
 }

@@ -18,14 +18,19 @@ def _live_path(call_id: str):
 
 
 def save_live(call_id: str, turns: list[dict[str, str]], done: bool = False,
-              ended_by: str | None = None) -> None:
+              ended_by: str | None = None,
+              llm_usage: dict | None = None) -> None:
     """Overwrite the live transcript for an in-progress call. ended_by (set
     on the final done=True write) records WHO ended it: "agent" (end_call
-    tool), "contact" (hung up), "system:silence" / "system:max_duration"."""
+    tool), "contact" (hung up), "system:silence" / "system:max_duration".
+    llm_usage (final write) carries the call's accumulated token counts —
+    the Django side folds it into the crm.LlmUsage billing ledger."""
     LIVE_DIR.mkdir(parents=True, exist_ok=True)
     payload: dict = {"turns": turns, "done": done}
     if ended_by:
         payload["ended_by"] = ended_by
+    if llm_usage:
+        payload["llm_usage"] = llm_usage
     with open(_live_path(call_id), "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False)
 

@@ -12,6 +12,10 @@ livekit-plugins-google==1.5.2
 livekit-plugins-elevenlabs==1.5.2
 livekit-plugins-silero==1.5.2
 livekit-plugins-noise-cancellation==0.3.0
+# WebRTC VAD for the agent's inbound speech gate (VOICE_GATE_MODE=vad).
+# wiseman/py-webrtcvad republished with wheels for modern Pythons —
+# same `import webrtcvad` API.
+webrtcvad-wheels==2.0.14
 livekit-api~=1.0
 openai~=2.0
 aiortc==1.14.0

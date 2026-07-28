@@ -558,6 +558,13 @@ out the macOS/Linux equivalents.
   (message funnel with documented replied-approximation, repayment
   conversion, per-account volumes incl. the null-account bucket, call
   outcomes, `account.health` AuditLog trail, zero-filled daily series).
+  `GET /api/analytics/usage?days=` = LLM metering/billing (crm.LlmUsage rows
+  written by `aicore/usage.py record()` at EVERY LLM call site — chat replies
+  incl. tool rounds, memory/timeline summaries, playground, voice calls via
+  agent metrics → live store llm_usage → `wa_calls.save_call_transcript`;
+  costs estimated at READ time from Setting `llm_prices` (USD per 1M tokens)
+  over `usage.PRICES_DEFAULT`, per-contact breakdown for customer billing;
+  "AI usage" card on /analytics renders it).
 - **`backend/integrations/` = third-party integrations** (`/api/integrations/`;
   Settings → Integrations). `Integration` is `ChannelAccount`'s twin: creds in
   a JSONField that **never leave the server unmasked**, `config` for

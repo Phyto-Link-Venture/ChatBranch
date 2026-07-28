@@ -29,4 +29,5 @@ urlpatterns = [
     path("calls/<str:room>/escalate", views.escalate),
     path("calls/<str:room>", views.summary),
     path("analytics/summary", views.analytics_summary),
+    path("analytics/usage", views.analytics_usage),
 ]

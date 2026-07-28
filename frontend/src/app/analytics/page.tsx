@@ -9,6 +9,7 @@ import { DailyChart } from '@/components/analytics/DailyChart'
 import { AccountsTable } from '@/components/analytics/AccountsTable'
 import { OutcomeBars } from '@/components/analytics/OutcomeBars'
 import { HealthEvents } from '@/components/analytics/HealthEvents'
+import { AiUsageCard } from '@/components/analytics/AiUsageCard'
 import { ReviewTabs } from '@/components/shell/ReviewTabs'
 import type { AnalyticsSummary } from '@/components/analytics/types'
 
@@ -52,6 +53,13 @@ function Card({ title, sub, children }: { title: string; sub?: string; children:
 }
 
 const pct = (rate: number) => `${Math.round(rate * 1000) / 10}%`
+
+/** 95 -> "1m 35s", 3610 -> "1h 0m", 42 -> "42s" */
+const dur = (secs: number) => {
+  if (secs >= 3600) return `${Math.floor(secs / 3600)}h ${Math.round((secs % 3600) / 60)}m`
+  if (secs >= 60) return `${Math.floor(secs / 60)}m ${Math.round(secs % 60)}s`
+  return `${Math.round(secs)}s`
+}
 
 export default function AnalyticsPage() {
   const [days, setDays] = useState(30)
@@ -127,7 +135,7 @@ export default function AnalyticsPage() {
           className={`flex flex-col gap-4 transition-opacity ${refreshing ? 'opacity-60' : 'opacity-100'}`}
         >
           {/* KPI stat row */}
-          <div className="grid grid-cols-2 gap-3.5 md:grid-cols-3 xl:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3.5 md:grid-cols-4 xl:grid-cols-4">
             <StatTile
               label="Messages sent"
               value={f!.sent.toLocaleString('en-US')}
@@ -157,6 +165,24 @@ export default function AnalyticsPage() {
               label="Resolved"
               value={(e?.resolved ?? 0).toLocaleString('en-US')}
               sub="contacts marked resolved"
+            />
+            <StatTile
+              label="Avg call length"
+              value={data.sessions && data.sessions.calls_counted > 0 ? dur(data.sessions.avg_call_seconds) : '—'}
+              sub={
+                data.sessions && data.sessions.calls_counted > 0
+                  ? `${data.sessions.calls_counted.toLocaleString('en-US')} completed call${data.sessions.calls_counted === 1 ? '' : 's'}`
+                  : 'no completed calls yet'
+              }
+            />
+            <StatTile
+              label="Avg chat session"
+              value={data.sessions && data.sessions.chat_sessions > 0 ? dur(data.sessions.avg_chat_session_seconds) : '—'}
+              sub={
+                data.sessions && data.sessions.chat_sessions > 0
+                  ? `~${data.sessions.avg_chat_messages} msgs · ${data.sessions.chat_sessions.toLocaleString('en-US')} sessions`
+                  : 'no chat activity yet'
+              }
             />
           </div>
 
@@ -192,6 +218,9 @@ export default function AnalyticsPage() {
           <Card title="Daily activity" sub="Messages and calls per day, record events in their own panel">
             <DailyChart daily={data.daily} />
           </Card>
+
+          {/* LLM metering — what the AI consumed and what it costs */}
+          <AiUsageCard days={days} />
 
           {/* Accounts · call outcomes · health trail */}
           <div className="grid gap-3.5 lg:grid-cols-2 xl:grid-cols-3">

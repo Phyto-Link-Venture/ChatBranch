@@ -113,8 +113,11 @@ def _parse_metadata(ctx: JobContext) -> dict:
         return {}
 
 
-async def _generate_summary(contact: dict, transcript: str) -> dict:
-    """Call a chat model (OpenRouter / OpenAI / Gemini) to extract the summary."""
+async def _generate_summary(contact: dict, transcript: str,
+                            usage_out: dict | None = None) -> dict:
+    """Call a chat model (OpenRouter / OpenAI / Gemini) to extract the summary.
+    When `usage_out` is given, the completion's token counts are written into
+    it ({model, prompt, completion}) for the billing ledger."""
     kwargs, model = config.summary_config()
     if kwargs is None:
         raise RuntimeError(
@@ -127,6 +130,13 @@ async def _generate_summary(contact: dict, transcript: str) -> dict:
         response_format={"type": "json_object"},
         temperature=0.2,
     )
+    if usage_out is not None:
+        u = getattr(resp, "usage", None)
+        usage_out.update({
+            "model": model,
+            "prompt": int(getattr(u, "prompt_tokens", 0) or 0),
+            "completion": int(getattr(u, "completion_tokens", 0) or 0),
+        })
     return json.loads(resp.choices[0].message.content)
 
 
@@ -693,6 +703,114 @@ async def _hangup(room_name: str):
         await api.aclose()
 
 
+_WEBRTCVAD = None  # cached module | False (unavailable) — resolved on first use
+
+
+def _webrtcvad_available() -> bool:
+    """Import webrtcvad once; unavailable → warn once and let stt_node fall
+    back to the legacy energy gate."""
+    global _WEBRTCVAD
+    if _WEBRTCVAD is None:
+        try:
+            import webrtcvad as _mod
+            _WEBRTCVAD = _mod
+        except ImportError:
+            logger.warning("VOICE_GATE_MODE=vad but webrtcvad is not installed "
+                           "(pip install webrtcvad-wheels) — using the energy gate")
+            _WEBRTCVAD = False
+    return bool(_WEBRTCVAD)
+
+
+async def _vad_gated_audio(audio):
+    """WebRTC-VAD gate on the contact's audio (VOICE_GATE_MODE=vad, the
+    default): 20 ms sub-frames run through WebRTC's GMM speech classifier and
+    only SPEECH opens the gate — loud non-speech (TV, traffic, line noise)
+    stays muted and quiet speech still passes, which an energy threshold
+    can't do. The gate holds open VOICE_GATE_HOLD_MS after the last speech
+    frame so mid-sentence dips aren't chopped. Unsupported audio shapes
+    (rate not 8/16/32/48 kHz, or multi-channel) pass through ungated with one
+    warning; a classifier error fails OPEN — never eat possible speech."""
+    import array as _array
+
+    from livekit import rtc
+
+    vad = _WEBRTCVAD.Vad(max(0, min(3, config.VAD_AGGRESSIVENESS)))
+    hold_s = config.VOICE_GATE_HOLD_MS / 1000
+    open_until = 0.0
+    buf = b""
+    buf_rate = 0
+    warned = False
+    m_frames = m_speech = 0
+    m_peak = -120.0
+    m_next = time.time() + 1.0
+    async for frame in audio:
+        rate = frame.sample_rate
+        if frame.num_channels != 1 or rate not in (8000, 16000, 32000, 48000):
+            if not warned:
+                logger.warning("voice-gate(vad): unsupported audio (%s Hz, %s ch)"
+                               " — passing through ungated", rate, frame.num_channels)
+                warned = True
+            yield frame
+            continue
+        raw = bytes(frame.data)
+        if buf_rate != rate:  # rate change mid-call: restart 20ms slicing
+            buf, buf_rate = b"", rate
+        buf += raw
+        n20 = int(rate * 0.02) * 2  # bytes per 20 ms of mono s16 PCM
+        speech = False
+        while len(buf) >= n20:
+            chunk, buf = buf[:n20], buf[n20:]
+            try:
+                is_sp = vad.is_speech(chunk, rate)
+            except Exception:
+                is_sp = True  # fail open
+            speech = speech or is_sp
+            m_frames += 1
+            m_speech += 1 if is_sp else 0
+        if speech and config.VOICE_GATE_DB < 0:
+            # Belt-and-braces: with an energy floor ALSO configured, "speech"
+            # must clear it too — covers loud broadband noise the classifier
+            # lets through on rare lines.
+            samples = _array.array("h")
+            samples.frombytes(raw)
+            if len(samples):
+                acc = 0
+                for s in samples:
+                    acc += s * s
+                rms = math.sqrt(acc / len(samples))
+                db = 20 * math.log10(rms / 32768) if rms > 0 else -120.0
+                if db < config.VOICE_GATE_DB:
+                    speech = False
+        now = time.time()
+        if speech:
+            open_until = now + hold_s
+        gate_open = now <= open_until
+        if not gate_open:
+            frame = rtc.AudioFrame(
+                data=b"\x00" * len(raw),
+                sample_rate=rate,
+                num_channels=frame.num_channels,
+                samples_per_channel=frame.samples_per_channel,
+            )
+        if config.VOICE_GATE_DEBUG:
+            samples = _array.array("h")
+            samples.frombytes(raw)
+            if len(samples):
+                peak = max(abs(s) for s in samples) / 32768
+                m_peak = max(m_peak, 20 * math.log10(peak) if peak > 0 else -120.0)
+            if now >= m_next and m_frames:
+                logger.info(
+                    "voice-gate(vad): %d%% speech frames · peak %.1f dBFS · gate %s "
+                    "(aggressiveness %d)",
+                    round(100 * m_speech / m_frames), m_peak,
+                    "OPEN" if gate_open else "closed",
+                    max(0, min(3, config.VAD_AGGRESSIVENESS)))
+                m_frames = m_speech = 0
+                m_peak = -120.0
+                m_next = now + 1.0
+        yield frame
+
+
 async def _gated_audio(audio):
     """Universal dBFS noise gate on the contact's audio, transport-agnostic:
     runs inside the agent so SIP, Cloud-bridge and Baileys calls all share ONE
@@ -805,12 +923,20 @@ class CallAgent(Agent):
         super().__init__(instructions=instructions)
 
     async def stt_node(self, audio, model_settings):
-        """Default STT node behind the universal noise gate (VOICE_GATE_DB) —
-        one filtering implementation for every call transport. The wrap also
-        engages in meter-only mode (VOICE_GATE_DEBUG, gate at 0) so the
-        per-second dB log is available while tuning."""
-        gate_or_meter = config.VOICE_GATE_DB < 0 or config.VOICE_GATE_DEBUG
-        source = _gated_audio(audio) if gate_or_meter else audio
+        """Default STT node behind the inbound gate — one implementation for
+        every call transport. VOICE_GATE_MODE=vad (default) runs the WebRTC
+        speech classifier; "db" the legacy energy gate (VOICE_GATE_DB,
+        meter-only at 0); "off" skips gating (the dB meter still logs when
+        VOICE_GATE_DEBUG)."""
+        mode = config.VOICE_GATE_MODE
+        if mode == "vad" and _webrtcvad_available():
+            source = _vad_gated_audio(audio)
+        elif mode in ("vad", "db") and (config.VOICE_GATE_DB < 0 or config.VOICE_GATE_DEBUG):
+            source = _gated_audio(audio)  # legacy energy gate / meter-only
+        elif mode == "off" and config.VOICE_GATE_DEBUG and config.VOICE_GATE_DB >= 0:
+            source = _gated_audio(audio)  # gate off, dB meter still wanted
+        else:
+            source = audio
         async for event in Agent.default.stt_node(self, source, model_settings):
             yield event
 
@@ -910,6 +1036,11 @@ async def entrypoint(ctx: JobContext):
     # side; a nudge fires first, then a forced hangup.
     activity = {"ts": time.time(), "nudges": 0}
     recorder = None  # in-process SIP call recorder, started at pickup, flushed on shutdown
+    # Token accumulator for the billing ledger — filled by metrics_collected,
+    # persisted via the final save_live(llm_usage=…) and folded into
+    # crm.LlmUsage Django-side (wa_calls.save_call_transcript).
+    llm_usage_acc = {"prompt": 0, "completion": 0, "audio_prompt": 0,
+                     "audio_completion": 0, "model": "", "provider": ""}
     logger.info("Call started: %s (contact=%s)", call_id, contact.get("contact_name"))
 
     session = AgentSession(**_build_session_kwargs(md))
@@ -1022,8 +1153,32 @@ async def entrypoint(ctx: JobContext):
             logger.info("LATENCY stt: duration=%.2fs audio_duration=%.2fs", m.duration, m.audio_duration)
         elif isinstance(m, LLMMetrics):
             logger.info("LATENCY llm: ttft=%.2fs duration=%.2fs", m.ttft, m.duration)
+            llm_usage_acc["prompt"] += int(getattr(m, "prompt_tokens", 0) or 0)
+            llm_usage_acc["completion"] += int(getattr(m, "completion_tokens", 0) or 0)
+            if not llm_usage_acc["model"]:
+                is_ilmu = (md.get("llm_provider") or config.PIPELINE_LLM_PROVIDER).lower() == "ilmu"
+                llm_usage_acc["model"] = config.ILMU_LLM_MODEL if is_ilmu else config.PIPELINE_LLM_MODEL
+                llm_usage_acc["provider"] = "ilmu" if is_ilmu else "openai"
         elif isinstance(m, RealtimeModelMetrics):
             logger.info("LATENCY realtime: ttft=%.2fs duration=%.2fs", m.ttft, m.duration)
+            # Realtime models bill text and audio tokens separately — keep them
+            # apart. Details missing (older plugin) → fall back to the totals.
+            in_det = getattr(m, "input_token_details", None)
+            out_det = getattr(m, "output_token_details", None)
+            if in_det is not None:
+                llm_usage_acc["prompt"] += int(getattr(in_det, "text_tokens", 0) or 0)
+                llm_usage_acc["audio_prompt"] += int(getattr(in_det, "audio_tokens", 0) or 0)
+            else:
+                llm_usage_acc["prompt"] += int(getattr(m, "input_tokens", 0) or 0)
+            if out_det is not None:
+                llm_usage_acc["completion"] += int(getattr(out_det, "text_tokens", 0) or 0)
+                llm_usage_acc["audio_completion"] += int(getattr(out_det, "audio_tokens", 0) or 0)
+            else:
+                llm_usage_acc["completion"] += int(getattr(m, "output_tokens", 0) or 0)
+            if not llm_usage_acc["model"]:
+                is_gemini = config.REALTIME_PROVIDER == "gemini" and not md.get("voice_provider")
+                llm_usage_acc["model"] = config.GEMINI_MODEL if is_gemini else config.REALTIME_MODEL
+                llm_usage_acc["provider"] = "gemini" if is_gemini else "openai"
         elif isinstance(m, TTSMetrics):
             logger.info("LATENCY tts: ttfb=%.2fs duration=%.2fs", m.ttfb, m.duration)
 
@@ -1122,7 +1277,12 @@ async def entrypoint(ctx: JobContext):
             )
         else:
             try:
-                summary_data = {**summary_data, **await _generate_summary(contact, transcript)}
+                summary_usage: dict = {}
+                summary_data = {**summary_data,
+                                **await _generate_summary(contact, transcript,
+                                                          usage_out=summary_usage)}
+                if summary_usage.get("prompt") or summary_usage.get("completion"):
+                    llm_usage_acc["summary"] = summary_usage
             except Exception as e:  # keep the record even if summarization fails
                 logger.error("Summary generation failed: %s", e)
                 summary_data["summary"] = f"(summary failed: {e})"
@@ -1157,9 +1317,14 @@ async def entrypoint(ctx: JobContext):
         save_call(record)
         try:
             # done=True stops the website's live polling; ended_by tells the
-            # persisted transcript who hung up
+            # persisted transcript who hung up; llm_usage carries the call's
+            # token counts into the Django-side billing ledger
+            has_usage = any(llm_usage_acc.get(k) for k in
+                            ("prompt", "completion", "audio_prompt",
+                             "audio_completion", "summary"))
             save_live(call_id, live_turns, done=True,
-                      ended_by=_END_CAUSE.pop(call_id, None))
+                      ended_by=_END_CAUSE.pop(call_id, None),
+                      llm_usage=llm_usage_acc if has_usage else None)
         except Exception as e:
             logger.warning("save_live(done) failed: %s", e)
 

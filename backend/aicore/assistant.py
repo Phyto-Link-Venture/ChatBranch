@@ -250,16 +250,28 @@ def generate_reply(history: list[dict], *, contact_name: str, phone: str, channe
         kwargs["reasoning_effort"] = "low"
     base_create = {"model": model, "messages": messages,
                    "max_tokens": 300, "temperature": 0.4, **kwargs}
+    usage_acc: list = []  # every completion's resp.usage — summed into the ledger
     if tools and _tools_supported(base_url):
         # Additive tool-calling loop. Falls back to a plain completion if the
         # provider rejects `tools=`, so this never breaks a reply.
         text = _run_tool_loop(client, base_create, tools, contact=contact,
-                              channel=channel).strip()
+                              channel=channel, usage_acc=usage_acc).strip()
     else:
         # No tools (sandbox / disabled / unsupported provider): the EXACT single
         # completion — identical kwargs — that generate_reply has always made.
         resp = client.chat.completions.create(**base_create)
+        usage_acc.append(getattr(resp, "usage", None))
         text = (resp.choices[0].message.content or "").strip()
+    # Usage ledger (billing) — exception-safe, records nothing when the
+    # provider returned no usage payload.
+    from aicore import usage as usage_ledger  # lazy, same rule as memory
+
+    _pt, _ct = usage_ledger.sum_usages(usage_acc)
+    usage_ledger.record(
+        "chat_reply", provider=usage_ledger.provider_from_base_url(base_url),
+        model=model, prompt_tokens=_pt, completion_tokens=_ct,
+        contact=contact, channel=channel, ref=phone or "",
+        detail={"rounds": sum(1 for u in usage_acc if u is not None)})
     # Belt and braces for reasoning models: strip any leaked think-block —
     # a whole <think>…</think> section, or everything before a stray closing
     # tag (observed on a live call: reasoning streamed with NO opening tag).
@@ -327,25 +339,30 @@ def _execute_tool(tool_call, *, contact, channel: str, session=None) -> dict:
                               session=session)
 
 
-def _run_tool_loop(client, base_create: dict, tools: list, *, contact, channel: str) -> str:
+def _run_tool_loop(client, base_create: dict, tools: list, *, contact, channel: str,
+                   usage_acc: list | None = None) -> str:
     """Bounded function-calling loop. Passes tools + tool_choice="auto"; while
     the model returns tool_calls we execute them, feed each result back and
     re-call, up to MAX_TOOL_ROUNDS. The first call is retried ONCE without tools
     if the provider rejects the `tools=` param, so tool support never breaks a
-    reply. Returns the final assistant prose (unstripped — the caller strips)."""
+    reply. Returns the final assistant prose (unstripped — the caller strips).
+    Every completion's resp.usage is appended to `usage_acc` (billing ledger)."""
     convo = base_create["messages"]  # live list; tool turns are appended to it
     create = {**base_create, "tools": tools, "tool_choice": "auto"}
+    acc = usage_acc if usage_acc is not None else []
     # One id per reply generation: the confirmation gate uses it to refuse
     # state-changing tools in the same round that asked the customer to confirm.
     session = uuid.uuid4().hex
 
     try:
         resp = client.chat.completions.create(**create)
+        acc.append(getattr(resp, "usage", None))
     except Exception as exc:
         # Provider that 400s on an unknown `tools` param — one plain retry.
         logger.warning("aicore: provider rejected tools= (%s); replying without tools",
                        type(exc).__name__)
         resp = client.chat.completions.create(**base_create)
+        acc.append(getattr(resp, "usage", None))
         return resp.choices[0].message.content or ""
 
     for _round in range(MAX_TOOL_ROUNDS):
@@ -360,11 +377,13 @@ def _run_tool_loop(client, base_create: dict, tools: list, *, contact, channel: 
             convo.append({"role": "tool", "tool_call_id": getattr(tc, "id", ""),
                           "content": json.dumps(result, default=str)})
         resp = client.chat.completions.create(**create)
+        acc.append(getattr(resp, "usage", None))
 
     # Cap hit while the model still wants tools: force a final tool-free reply.
     message = resp.choices[0].message
     if getattr(message, "tool_calls", None):
         logger.warning("aicore: tool loop hit MAX_TOOL_ROUNDS; forcing a plain reply")
         resp = client.chat.completions.create(**base_create)
+        acc.append(getattr(resp, "usage", None))
         return resp.choices[0].message.content or ""
     return message.content or ""

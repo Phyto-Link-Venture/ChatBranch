@@ -386,6 +386,12 @@ def generate_thread_summary(channel: str, key: str) -> dict | None:
             )
             text = (resp.choices[0].message.content or "").strip()
             heuristic = False
+            from aicore import usage as usage_ledger  # lazy + exception-safe
+
+            usage_ledger.record("timeline",
+                                provider=usage_ledger.provider_from_base_url(base),
+                                model=model, usage=getattr(resp, "usage", None),
+                                contact_id=contact_id, channel=channel, ref=key)
         except Exception as e:
             # A quota/network hiccup must not destroy the last GOOD summary —
             # keep serving it and surface a short, transient error instead.
@@ -470,6 +476,12 @@ def generate_summary(name: str, phone: str = "", email: str = "", context: dict 
             )
             summary_text = (resp.choices[0].message.content or "").strip()
             heuristic = False
+            from aicore import usage as usage_ledger  # lazy + exception-safe
+
+            usage_ledger.record("timeline",
+                                provider=usage_ledger.provider_from_base_url(base),
+                                model=model, usage=getattr(resp, "usage", None),
+                                ref=phone or email or name)
         except Exception as e:
             # keep serving the last GOOD summary through a quota/network hiccup
             err = str(e).split("\n")[0][:140]

@@ -108,9 +108,11 @@ def _provider() -> tuple[str, str, str]:
     return wa_config.chat_provider()
 
 
-def _chat_text(base_url: str, api_key: str, model: str, prompt: str) -> str:
+def _chat_text(base_url: str, api_key: str, model: str, prompt: str, *,
+               contact=None, channel: str = "", ref: str = "") -> str:
     """One chat completion, raw text back. Lazy openai import — same rule as
-    assistant.generate_reply / calls.lk: keep cheap request paths fast."""
+    assistant.generate_reply / calls.lk: keep cheap request paths fast.
+    Records the tokens into the usage ledger (feature "summary")."""
     from openai import OpenAI
 
     client = OpenAI(base_url=base_url, api_key=api_key)
@@ -120,6 +122,12 @@ def _chat_text(base_url: str, api_key: str, model: str, prompt: str) -> str:
         max_tokens=500,
         temperature=0.2,
     )
+    from aicore import usage as usage_ledger  # lazy + exception-safe
+
+    usage_ledger.record("summary",
+                        provider=usage_ledger.provider_from_base_url(base_url),
+                        model=model, usage=getattr(resp, "usage", None),
+                        contact=contact, channel=channel, ref=ref)
     return (resp.choices[0].message.content or "").strip()
 
 
@@ -197,7 +205,8 @@ def summarize_conversation(contact, source: str, channel: str, ref: str,
         if not api_key:
             return None  # sandbox: no AI provider configured
         text = _chat_text(base_url, api_key, model,
-                          _summary_prompt(contact, source, channel, transcript_text))
+                          _summary_prompt(contact, source, channel, transcript_text),
+                          contact=contact, channel=channel, ref=source)
         data = _parse_json_object(text)
         if not data:
             return None

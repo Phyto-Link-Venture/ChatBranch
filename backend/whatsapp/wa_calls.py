@@ -536,13 +536,44 @@ def save_call_transcript(recording_name: str, room: str | None,
             "ended_by": ended_by}
     if rec_started_at:
         meta["rec_started_at"] = int(rec_started_at)
+    contact_id = None
     try:
         thread = store.load_thread(wa_id, limit=1) or {}
+        contact_id = thread.get("contact_id")
         account = wa_config.get_account(thread.get("account_id"))
         if account:
             meta["account"] = account.get("name") or ""
     except Exception:
         pass
+    # Billing ledger: the agent ships the call's token counts in the live
+    # store's llm_usage (voice model + the end-of-call summary separately).
+    lu = live.get("llm_usage") or {}
+    if isinstance(lu, dict) and any(lu.get(k) for k in
+                                    ("prompt", "completion", "audio_prompt",
+                                     "audio_completion", "summary")):
+        meta["llm_usage"] = lu
+        try:
+            from aicore import usage as usage_ledger
+
+            usage_ledger.record(
+                "voice_call", provider=str(lu.get("provider") or ""),
+                model=str(lu.get("model") or ""),
+                prompt_tokens=int(lu.get("prompt") or 0),
+                completion_tokens=int(lu.get("completion") or 0),
+                audio_prompt_tokens=int(lu.get("audio_prompt") or 0),
+                audio_completion_tokens=int(lu.get("audio_completion") or 0),
+                contact_id=contact_id, channel="whatsapp",
+                ref=str(room or wa_id))
+            s = lu.get("summary") or {}
+            if s.get("prompt") or s.get("completion"):
+                usage_ledger.record(
+                    "summary", model=str(s.get("model") or ""),
+                    prompt_tokens=int(s.get("prompt") or 0),
+                    completion_tokens=int(s.get("completion") or 0),
+                    contact_id=contact_id, channel="whatsapp",
+                    ref=str(room or wa_id))
+        except Exception:
+            logger.exception("llm-usage persist failed for %s", wa_id)
     try:
         RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
         (RECORDINGS_DIR / f"{base}.json").write_text(

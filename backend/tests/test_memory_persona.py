@@ -155,7 +155,7 @@ class TestSummarizeConversation:
         prompts = []
         monkeypatch.setattr(
             memory, "_chat_text",
-            lambda base, key, model, prompt: prompts.append(prompt) or FENCED_REPLY)
+            lambda base, key, model, prompt, **kw: prompts.append(prompt) or FENCED_REPLY)
         row = memory.summarize_conversation(
             contact, "call", "whatsapp", "room-1",
             "Agent: hello\nCustomer: I get paid on the 25th")
@@ -176,7 +176,7 @@ class TestSummarizeConversation:
             "summary": "Chat happened.", "facts": [], "sentiment": "neutral",
             "profile_updates": {"preferred_contact_time": "", "ai_profile_summary": "  "},
         })
-        monkeypatch.setattr(memory, "_chat_text", lambda *a: reply)
+        monkeypatch.setattr(memory, "_chat_text", lambda *a, **kw: reply)
         row = memory.summarize_conversation(contact, "chat", "whatsapp",
                                             f"whatsapp:{WA_ID}", "Contact: hi")
         assert row is not None
@@ -189,19 +189,19 @@ class TestSummarizeConversation:
         monkeypatch.setattr(memory, "_provider", lambda: ("http://llm", "", "model-x"))
         monkeypatch.setattr(
             memory, "_chat_text",
-            lambda *a: (_ for _ in ()).throw(AssertionError("must not call the LLM")))
+            lambda *a, **kw: (_ for _ in ()).throw(AssertionError("must not call the LLM")))
         assert memory.summarize_conversation(contact, "chat", "whatsapp",
                                              "r", "Contact: hi") is None
         assert ConversationSummary.objects.count() == 0
 
     def test_bad_json_returns_none(self, contact, provider_ok, monkeypatch):
-        monkeypatch.setattr(memory, "_chat_text", lambda *a: "sorry, no JSON here { broken")
+        monkeypatch.setattr(memory, "_chat_text", lambda *a, **kw: "sorry, no JSON here { broken")
         assert memory.summarize_conversation(contact, "chat", "whatsapp",
                                              "r", "Contact: hi") is None
         assert ConversationSummary.objects.count() == 0
 
     def test_llm_exception_swallowed(self, contact, provider_ok, monkeypatch):
-        def boom(*a):
+        def boom(*a, **kw):
             raise RuntimeError("provider down")
         monkeypatch.setattr(memory, "_chat_text", boom)
         assert memory.summarize_conversation(contact, "chat", "whatsapp",
@@ -210,13 +210,13 @@ class TestSummarizeConversation:
     def test_empty_transcript_skipped(self, contact, provider_ok, monkeypatch):
         monkeypatch.setattr(
             memory, "_chat_text",
-            lambda *a: (_ for _ in ()).throw(AssertionError("must not call the LLM")))
+            lambda *a, **kw: (_ for _ in ()).throw(AssertionError("must not call the LLM")))
         assert memory.summarize_conversation(contact, "chat", "whatsapp", "r", "   ") is None
 
     def test_invalid_sentiment_blanked(self, contact, provider_ok, monkeypatch):
         reply = json.dumps({"summary": "ok", "facts": [], "sentiment": "ANGRY!!",
                             "profile_updates": {}})
-        monkeypatch.setattr(memory, "_chat_text", lambda *a: reply)
+        monkeypatch.setattr(memory, "_chat_text", lambda *a, **kw: reply)
         row = memory.summarize_conversation(contact, "chat", "whatsapp", "r", "Contact: hi")
         assert row is not None and row.sentiment == ""
         contact.refresh_from_db()

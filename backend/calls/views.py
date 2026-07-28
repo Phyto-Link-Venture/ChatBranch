@@ -1253,6 +1253,12 @@ def analytics_summary(request):
                      (detail format: "old → new — reason")
       daily: [{date "YYYY-MM-DD", outbound, inbound, calls, record_events}]
              one entry per day, zero-filled, oldest first (UTC days)
+      sessions: {avg_call_seconds, calls_counted, chat_sessions,
+                 avg_chat_messages, avg_chat_session_seconds}
+        avg_call_seconds = mean CallRecord duration (both timestamps parse);
+        a chat session = consecutive messages in one thread with gaps
+        <= 30 min (private notes excluded); duration averages multi-message
+        sessions only, messages-per-session counts every session
 
     CallRecord windowing note: started_at/ended_at are ISO-8601 STRINGS (the
     Django-free agent writes them), so the window filter is a lexicographic
@@ -1414,6 +1420,60 @@ def analytics_summary(request):
         })
         day += timedelta(days=1)
 
+    # ---- session averages -----------------------------------------------------------
+    # Avg call length: in-window CallRecords whose started/ended ISO strings
+    # both parse (empty ended_at = call never completed — excluded).
+    from django.utils.dateparse import parse_datetime
+
+    call_secs = []
+    for s_iso, e_iso in CallRecord.objects.filter(
+            started_at__gte=since_key).values_list("started_at", "ended_at"):
+        try:
+            s, e = parse_datetime(s_iso or ""), parse_datetime(e_iso or "")
+            if s and e and e > s:
+                call_secs.append((e - s).total_seconds())
+        except (TypeError, ValueError):
+            continue
+
+    # Chat sessions: consecutive messages in one thread with gaps <= 30 min
+    # count as ONE session (any direction; private notes excluded — same rule
+    # as the funnel). Duration averages over multi-message sessions only — a
+    # single-message session has no length to speak of but still counts
+    # toward messages-per-session.
+    session_gap = timedelta(minutes=30)
+    chat_sessions = 0
+    session_msgs = 0
+    multi_secs: list[float] = []
+    cur_thread = cur_start = cur_last = None
+    cur_n = 0
+
+    def _close_session():
+        nonlocal chat_sessions, session_msgs
+        if cur_n:
+            chat_sessions += 1
+            session_msgs += cur_n
+            if cur_n > 1:
+                multi_secs.append((cur_last - cur_start).total_seconds())
+
+    for tid, ts in (Message.objects.filter(created_at__gte=since, private=False)
+                    .order_by("thread_id", "created_at")
+                    .values_list("thread_id", "created_at")):
+        if tid != cur_thread or (cur_last is not None and ts - cur_last > session_gap):
+            _close_session()
+            cur_thread, cur_start, cur_n = tid, ts, 0
+        cur_last = ts
+        cur_n += 1
+    _close_session()
+
+    sessions = {
+        "avg_call_seconds": round(sum(call_secs) / len(call_secs)) if call_secs else 0,
+        "calls_counted": len(call_secs),
+        "chat_sessions": chat_sessions,
+        "avg_chat_messages": round(session_msgs / chat_sessions, 1) if chat_sessions else 0,
+        "avg_chat_session_seconds": (round(sum(multi_secs) / len(multi_secs))
+                                     if multi_secs else 0),
+    }
+
     return JsonResponse({
         "days": days,
         "since": since.isoformat(),
@@ -1440,4 +1500,124 @@ def analytics_summary(request):
         },
         "health_events": health_events,
         "daily": daily,
+        "sessions": sessions,
+    })
+
+
+def analytics_usage(request):
+    """GET /api/analytics/usage?days=30 — the LLM usage / billing report.
+
+    Bearer-auth (any role, same gate as analytics_summary — operators AND
+    admins can see consumption). Token totals come from crm.LlmUsage (written
+    by aicore/usage.py at every LLM call site); dollar figures are ESTIMATES
+    from the price table (Setting `llm_prices` over usage.PRICES_DEFAULT, USD
+    per 1M tokens) — verify against provider billing before invoicing.
+
+    Shape: days/since/generated_at; totals {prompt_tokens, completion_tokens,
+    audio_prompt_tokens, audio_completion_tokens, requests, est_cost_usd};
+    by_feature / by_model (incl. `priced` — false = model missing from the
+    price table, costed at 0) / by_contact (top 20 by cost — the billing
+    view) / daily (zero-filled series).
+    """
+    if request.method != "GET":
+        return HttpResponseNotAllowed(["GET"])
+    if not role_from_request(request):
+        return JsonResponse({"detail": "Authentication required."}, status=401)
+
+    from datetime import timedelta
+
+    from django.db.models import Count, Sum
+    from django.db.models.functions import TruncDate
+    from django.utils import timezone
+
+    from aicore import usage as usage_ledger
+    from crm.models import LlmUsage
+
+    try:
+        days = int(request.GET.get("days", 30))
+    except (TypeError, ValueError):
+        days = 30
+    days = max(1, min(days, 365))
+    now = timezone.now()
+    since = now - timedelta(days=days)
+    qs = LlmUsage.objects.filter(created_at__gte=since)
+    prices = usage_ledger.price_table()
+
+    sums = dict(pt=Sum("prompt_tokens"), ct=Sum("completion_tokens"),
+                apt=Sum("audio_prompt_tokens"),
+                act=Sum("audio_completion_tokens"), requests=Count("id"))
+
+    def _cost(row) -> float:
+        return usage_ledger.estimate_cost(
+            row.get("model") or "", row.get("pt") or 0, row.get("ct") or 0,
+            row.get("apt") or 0, row.get("act") or 0, prices=prices)
+
+    def _tokens(row) -> dict:
+        return {"prompt_tokens": row.get("pt") or 0,
+                "completion_tokens": row.get("ct") or 0,
+                "audio_prompt_tokens": row.get("apt") or 0,
+                "audio_completion_tokens": row.get("act") or 0,
+                "requests": row.get("requests") or 0}
+
+    def _collapse(rows, key_fields: tuple):
+        """Model-grouped rows -> one entry per key with tokens + cost summed
+        (cost must be priced per model BEFORE collapsing)."""
+        merged: dict = {}
+        for row in rows:
+            key = tuple(row.get(f) for f in key_fields)
+            slot = merged.setdefault(key, {
+                **{f: row.get(f) for f in key_fields},
+                "prompt_tokens": 0, "completion_tokens": 0,
+                "audio_prompt_tokens": 0, "audio_completion_tokens": 0,
+                "requests": 0, "est_cost_usd": 0.0})
+            t = _tokens(row)
+            for k, v in t.items():
+                slot[k] += v
+            slot["est_cost_usd"] = round(slot["est_cost_usd"] + _cost(row), 6)
+        return list(merged.values())
+
+    by_model = []
+    for row in qs.values("model", "provider").annotate(**sums).order_by():
+        by_model.append({"model": row["model"], "provider": row["provider"],
+                         **_tokens(row), "est_cost_usd": _cost(row),
+                         "priced": bool(prices.get(row["model"]))})
+    by_model.sort(key=lambda r: -r["est_cost_usd"])
+
+    by_feature = _collapse(qs.values("feature", "model").annotate(**sums).order_by(),
+                           ("feature",))
+    by_feature.sort(key=lambda r: -r["est_cost_usd"])
+
+    contact_rows = (qs.values("contact_id", "contact__name", "model")
+                    .annotate(**sums).order_by())
+    by_contact = _collapse(contact_rows, ("contact_id", "contact__name"))
+    for r in by_contact:
+        r["name"] = r.pop("contact__name") or ("(no contact)" if r["contact_id"] is None else "")
+    by_contact.sort(key=lambda r: -r["est_cost_usd"])
+    by_contact = by_contact[:20]
+
+    day_rows = (qs.annotate(date=TruncDate("created_at"))
+                .values("date", "model").annotate(**sums).order_by())
+    by_day = {r["date"]: r for r in _collapse(day_rows, ("date",))}
+    daily = []
+    for i in range(days):
+        d = (since + timedelta(days=i + 1)).date()
+        row = by_day.get(d)
+        daily.append({"date": d.isoformat(),
+                      "tokens": ((row or {}).get("prompt_tokens", 0)
+                                 + (row or {}).get("completion_tokens", 0)
+                                 + (row or {}).get("audio_prompt_tokens", 0)
+                                 + (row or {}).get("audio_completion_tokens", 0)),
+                      "est_cost_usd": (row or {}).get("est_cost_usd", 0.0)})
+
+    total_agg = qs.aggregate(**sums)
+    return JsonResponse({
+        "days": days, "since": since.isoformat(), "generated_at": now.isoformat(),
+        "totals": {**_tokens(total_agg),
+                   "est_cost_usd": round(sum(r["est_cost_usd"] for r in by_model), 4)},
+        "by_feature": by_feature,
+        "by_model": by_model,
+        "by_contact": by_contact,
+        "daily": daily,
+        "pricing_note": ("Estimates from the llm_prices table (USD per 1M "
+                         "tokens). Unpriced models are costed at 0."),
     })

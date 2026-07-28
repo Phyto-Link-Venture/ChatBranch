@@ -341,3 +341,49 @@ class TestEmpty:
         assert len(data["daily"]) == 31
         assert all(d["outbound"] == 0 and d["record_events"] == 0
                    for d in data["daily"])
+        assert data["sessions"] == {
+            "avg_call_seconds": 0, "calls_counted": 0, "chat_sessions": 0,
+            "avg_chat_messages": 0, "avg_chat_session_seconds": 0,
+        }
+
+
+# ---- session averages -------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestSessions:
+    def test_avg_call_length(self, client, agent_user):
+        start = timezone.now() - timedelta(hours=3)
+        CallRecord.objects.create(
+            call_id="c-done", started_at=_call_iso(start),
+            ended_at=_call_iso(start + timedelta(seconds=120)))
+        # never completed — no ended_at, must be excluded not averaged as zero
+        CallRecord.objects.create(call_id="c-half", started_at=_call_iso(start))
+        s = _get(client).json()["sessions"]
+        assert s["avg_call_seconds"] == 120
+        assert s["calls_counted"] == 1
+
+    def test_chat_sessionization_30min_gap(self, client, agent_user, contact):
+        t = _thread(contact)
+        t0 = timezone.now() - timedelta(hours=6)
+        # session 1: three messages inside 10 minutes (duration 600s)
+        _msg(t, "out", ts=t0)
+        _msg(t, "in", ts=t0 + timedelta(minutes=5))
+        _msg(t, "out", ts=t0 + timedelta(minutes=10))
+        # >30 min silence -> session 2: a single message (counts, no duration)
+        _msg(t, "in", ts=t0 + timedelta(hours=2))
+        # a private note in the gap must NOT merge the sessions
+        _msg(t, "out", ts=t0 + timedelta(hours=1), private=True)
+        s = _get(client).json()["sessions"]
+        assert s["chat_sessions"] == 2
+        assert s["avg_chat_messages"] == 2.0          # (3 + 1) / 2
+        assert s["avg_chat_session_seconds"] == 600   # only the 3-msg session
+
+    def test_sessions_are_per_thread(self, client, agent_user, contact):
+        t0 = timezone.now() - timedelta(hours=1)
+        a, b = _thread(contact), _thread(None, key="60199998888")
+        # interleaved in time but different threads -> two sessions
+        _msg(a, "in", ts=t0)
+        _msg(b, "in", ts=t0 + timedelta(minutes=1))
+        _msg(a, "out", ts=t0 + timedelta(minutes=2))
+        s = _get(client).json()["sessions"]
+        assert s["chat_sessions"] == 2

@@ -299,6 +299,22 @@ Generated after calls and after idle chats. Durable facts are written back onto
 the `Contact` (`preferred_contact_time`, `communication_style`,
 `sentiment_trend`, `ai_profile_summary`).
 
+### `crm.LlmUsage` — LLM usage ledger (billing)
+`feature` (`chat_reply` \| `summary` \| `timeline` \| `playground` \|
+`voice_call`) · `provider` · `model` · `channel` · `contact` FK ·
+`ref` (thread key / room / phone) · `prompt_tokens` · `completion_tokens` ·
+`audio_prompt_tokens` / `audio_completion_tokens` (realtime voice bills audio
+separately) · `detail` (JSON) · `created_at` (indexed).
+
+Written ONLY by `aicore/usage.py record()` (exception-safe — never breaks a
+reply/call path), from every LLM call site: chat replies incl. tool-loop
+rounds, memory/timeline summaries, the playground, and voice calls (the
+Django-free agent accumulates tokens from LiveKit metrics and ships them via
+the live store; `wa_calls.save_call_transcript` folds them in). Costs are NOT
+stored — they are estimated at read time from Setting `llm_prices` (JSON,
+USD per 1M tokens) over `usage.PRICES_DEFAULT`, surfaced at
+`GET /api/analytics/usage` and the Analytics page's "AI usage" card.
+
 ### `crm.PendingToolAction` — AI tool double-confirmation
 `contact` FK · `channel` · `tool` · `fingerprint` (canonical JSON of the args,
 minus the `confirmed` flag) · `session` (the reply-generation round that asked)

@@ -747,6 +747,43 @@ class OutboundJob(models.Model):
         return f"[{self.channel}/{self.kind}] → {self.to_address} ({self.status})"
 
 
+class LlmUsage(models.Model):
+    """One row per LLM invocation — the usage ledger behind Analytics → AI
+    usage and customer billing. Written ONLY through aicore/usage.py record()
+    (exception-safe: a ledger failure never breaks the reply/summary/call
+    path). Token counts are stored raw and split text vs audio (realtime
+    voice models price them differently); costs are ESTIMATED at read time
+    from the price table (Setting `llm_prices` over usage.PRICES_DEFAULT) so
+    price edits apply retroactively."""
+
+    FEATURES = [("chat_reply", "Chat reply"), ("summary", "AI memory summary"),
+                ("timeline", "Timeline summary"), ("playground", "Playground"),
+                ("voice_call", "Voice call")]
+
+    feature = models.CharField(max_length=24, choices=FEATURES)
+    provider = models.CharField(max_length=24, blank=True, default="")
+    model = models.CharField(max_length=64, blank=True, default="")
+    channel = models.CharField(max_length=12, blank=True, default="")
+    contact = models.ForeignKey(Contact, null=True, blank=True,
+                                on_delete=models.SET_NULL,
+                                related_name="llm_usage")
+    ref = models.CharField(max_length=190, blank=True, default="")  # thread key / room / phone
+    prompt_tokens = models.IntegerField(default=0)
+    completion_tokens = models.IntegerField(default=0)
+    audio_prompt_tokens = models.IntegerField(default=0)      # realtime voice
+    audio_completion_tokens = models.IntegerField(default=0)  # realtime voice
+    detail = models.JSONField(default=dict, blank=True)  # rounds, raw metrics…
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name_plural = "LLM usage"
+
+    def __str__(self):
+        return (f"[{self.feature}] {self.model} "
+                f"{self.prompt_tokens}+{self.completion_tokens}tok")
+
+
 class PendingToolAction(models.Model):
     """Double-confirmation state for AI tool-calling (aicore/tools.py): a
     state-changing tool call the model attempted that is waiting for the

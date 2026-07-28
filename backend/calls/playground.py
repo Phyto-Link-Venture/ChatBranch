@@ -66,6 +66,11 @@ def generate_reply(contact: dict, history: list[dict], text: str | None,
     resp = client.chat.completions.create(
         model=model, messages=messages, tools=[END_CALL_TOOL], temperature=0.4, max_tokens=300,
     )
+    from aicore import usage as usage_ledger  # lazy + exception-safe
+
+    usage_ledger.record("playground", model=model,
+                        usage=getattr(resp, "usage", None),
+                        ref=str(contact.get("id") or contact.get("name") or ""))
     msg = resp.choices[0].message
     return (msg.content or "").strip(), bool(msg.tool_calls)
 
@@ -103,6 +108,11 @@ def generate_outcome(contact: dict, transcript: str) -> dict:
         response_format={"type": "json_object"},
         temperature=0.2,
     )
+    from aicore import usage as usage_ledger  # lazy + exception-safe
+
+    usage_ledger.record("playground", model=model,
+                        usage=getattr(resp, "usage", None),
+                        ref=str(contact.get("id") or contact.get("name") or ""))
     return json.loads(resp.choices[0].message.content)
 
 

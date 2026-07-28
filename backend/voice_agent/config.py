@@ -76,13 +76,26 @@ ILMU_LLM_MODEL = os.getenv("ILMU_LLM_MODEL", "ilmu-v3.1")
 ILMU_TTS_MODEL = os.getenv("ILMU_TTS_MODEL", "ilmu-tts-v2")
 ILMU_TTS_VOICE = os.getenv("ILMU_TTS_VOICE", "voice_1")
 
-# Universal inbound-audio noise gate — applies to CASCADE calls on EVERY transport
+# Universal inbound-audio gate — applies to CASCADE calls on EVERY transport
 # (SIP, Cloud bridge, Baileys) because it runs in the agent's stt_node, not in
-# any one gateway. Frames quieter than VOICE_GATE_DB (dBFS, negative; 0 = off)
-# are muted before STT; the gate stays open VOICE_GATE_HOLD_MS after the last
-# loud frame so mid-sentence dips aren't chopped. Successor to the
-# Baileys-only BAILEYS_GATE_DB (leave that at 0 so audio isn't gated twice).
-# Realtime calls use OpenAI's own noise reduction instead (REALTIME_NOISE_REDUCTION).
+# any one gateway. Realtime calls use OpenAI's own noise reduction instead
+# (REALTIME_NOISE_REDUCTION). Modes:
+#   vad (default) — WebRTC VAD (a GMM speech classifier): only frames that
+#     CLASSIFY as speech open the gate, so loud non-speech (TV, traffic,
+#     line noise) stays muted while quiet speech still passes — smarter and
+#     cheaper than tuning an energy threshold per line. Needs the
+#     webrtcvad-wheels package; missing → falls back to "db" behaviour.
+#   db  — the legacy energy gate: frames quieter than VOICE_GATE_DB (dBFS,
+#     negative; 0 = never mute / meter-only) are muted before STT.
+#   off — no gating at all (the meter still logs when VOICE_GATE_DEBUG).
+# Both gating modes hold open VOICE_GATE_HOLD_MS after the last speech/loud
+# frame so mid-sentence dips aren't chopped. Successor to the Baileys-only
+# BAILEYS_GATE_DB (leave that at 0 so audio isn't gated twice).
+VOICE_GATE_MODE = (os.getenv("VOICE_GATE_MODE") or "vad").strip().lower()
+# WebRTC VAD aggressiveness 0-3: higher = stricter about calling audio
+# "speech" (3 mutes the most noise but can clip soft speakers). 2 is the
+# phone-line sweet spot.
+VAD_AGGRESSIVENESS = int(os.getenv("VAD_AGGRESSIVENESS") or 2)
 VOICE_GATE_DB = float(os.getenv("VOICE_GATE_DB") or 0)
 VOICE_GATE_HOLD_MS = int(os.getenv("VOICE_GATE_HOLD_MS") or 700)
 # Per-second inbound level meter in the agent log (peak/median dBFS + how much
