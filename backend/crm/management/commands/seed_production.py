@@ -1,4 +1,4 @@
-"""Seed a PRODUCTION deployment: the real tenant + brand, the default role
+"""Seed a PRODUCTION deployment: the real tenant + entity, the default role
 set (superadmin/admin/agent) with known default passwords (change them
 after first login!), safe runtime Settings, the starter canned-response
 catalog and (optionally) a real contact book — WITHOUT any of seed_demo's
@@ -9,7 +9,7 @@ Idempotent — safe to re-run. Existing rows are never overwritten (operator
 edits and dashboard Setting changes survive); only missing pieces are filled.
 
     venv\\Scripts\\python manage.py seed_production \\
-        --tenant-name "Acme" --brand-name "Acme" \\
+        --tenant-name "Acme" --entity-name "Acme" \\
         --contacts path\\to\\contacts.json --purge-demo
 
 Password for the superadmin: --admin-password, else env SEED_ADMIN_PASSWORD,
@@ -27,7 +27,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from crm.models import (
-    CannedResponse, ChannelAccount, Contact, ContactBrand, Notification,
+    CannedResponse, ChannelAccount, Contact, ContactEntity, Notification,
     Profile, Record, Setting,
 )
 from crm.management.commands.seed_demo import (
@@ -94,7 +94,7 @@ VALID_LANGUAGE = {"en", "ms", "zh"}
 
 
 class Command(BaseCommand):
-    help = ("Seed baseline production data: tenant/brand, superadmin, runtime "
+    help = ("Seed baseline production data: tenant/entity, superadmin, runtime "
             "settings, canned responses; optionally import a contact book "
             "and purge seed_demo fixtures.")
 
@@ -103,10 +103,10 @@ class Command(BaseCommand):
                             help="Organization name (default: ChatBranch)")
         parser.add_argument("--tenant-slug", default="chatbranch",
                             help="Tenant slug (default: chatbranch)")
-        parser.add_argument("--brand-name", default=None,
-                            help="Brand name (default: same as tenant name)")
-        parser.add_argument("--brand-slug", default=None,
-                            help="Brand slug (default: same as tenant slug)")
+        parser.add_argument("--entity-name", default=None,
+                            help="Entity name (default: same as tenant name)")
+        parser.add_argument("--entity-slug", default=None,
+                            help="Entity slug (default: same as tenant slug)")
         parser.add_argument("--admin-username", default="superadmin",
                             help="Superadmin username (default: superadmin)")
         parser.add_argument("--admin-password", default=None,
@@ -137,10 +137,10 @@ class Command(BaseCommand):
                                  "health state is skipped/reset.")
 
     def handle(self, *args, **options):
-        from ingest.models import Tenant, Brand
+        from ingest.models import Tenant, Entity
 
-        brand_name = options["brand_name"] or options["tenant_name"]
-        brand_slug = options["brand_slug"] or options["tenant_slug"]
+        entity_name = options["entity_name"] or options["tenant_name"]
+        entity_slug = options["entity_slug"] or options["tenant_slug"]
 
         if options["purge_files"]:
             self._purge_files()
@@ -149,16 +149,16 @@ class Command(BaseCommand):
             if options["purge_demo"]:
                 self._purge_demo()
 
-            # ---- tenant + brand -------------------------------------------
+            # ---- tenant + entity -------------------------------------------
             tenant, t_new = Tenant.objects.get_or_create(
                 slug=options["tenant_slug"],
                 defaults={"name": options["tenant_name"], "status": "active"})
-            brand, b_new = Brand.objects.get_or_create(
-                tenant=tenant, slug=brand_slug, defaults={"name": brand_name})
+            entity, b_new = Entity.objects.get_or_create(
+                tenant=tenant, slug=entity_slug, defaults={"name": entity_name})
             self.stdout.write(
                 f"tenant: {tenant.name} ({tenant.slug}) "
                 f"{'created' if t_new else 'exists'}; "
-                f"brand: {brand.name} {'created' if b_new else 'exists'}")
+                f"entity: {entity.name} {'created' if b_new else 'exists'}")
             other = Tenant.objects.exclude(pk=tenant.pk)
             if other.exists():
                 self.stdout.write(self.style.WARNING(
@@ -168,7 +168,7 @@ class Command(BaseCommand):
                       "acme test tenant; the 'default' tenant is never touched)"))
 
             # ---- users (superadmin / admin / agent) ----------------------
-            self._ensure_users(tenant, brand, options)
+            self._ensure_users(tenant, entity, options)
 
             # ---- settings from a previous DB backup (before the defaults
             # below, which are get_or_create and therefore never override
@@ -209,13 +209,13 @@ class Command(BaseCommand):
 
             # ---- optional contact book -----------------------------------
             if options["contacts"]:
-                self._import_contacts(options["contacts"], tenant, brand)
+                self._import_contacts(options["contacts"], tenant, entity)
 
         self._readiness_report(tenant)
         self.stdout.write(self.style.SUCCESS("seed_production complete"))
 
     # ------------------------------------------------------------------ users
-    def _ensure_users(self, tenant, brand, options):
+    def _ensure_users(self, tenant, entity, options):
         """The full default role set, like seed_demo but with the production
         DEFAULT_PASSWORDS (superadmin's is overridable via --admin-password /
         SEED_ADMIN_PASSWORD). Existing users are left untouched — but a user
@@ -264,7 +264,7 @@ class Command(BaseCommand):
             Profile.objects.update_or_create(
                 user=user, defaults={"role": role, "tenant": tenant})
             if role == "agent":
-                user.profile.brands.add(brand)
+                user.profile.entities.add(entity)
 
     # ------------------------------------------------------------ file stores
     def _purge_files(self):
@@ -400,7 +400,7 @@ class Command(BaseCommand):
                 self.stdout.write("purged demo tenant 'acme'")
 
     # -------------------------------------------------------------- contacts
-    def _import_contacts(self, path, tenant, brand):
+    def _import_contacts(self, path, tenant, entity):
         p = Path(path)
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
@@ -437,7 +437,7 @@ class Command(BaseCommand):
                 "language": c.get("language") if c.get("language") in VALID_LANGUAGE else "en",
                 "status": c.get("status") if c.get("status") in VALID_STATUS else "pending",
                 "method": c.get("method") if c.get("method") in VALID_METHOD else "ai-call",
-                "company_name": str(c.get("company") or brand.name),
+                "company_name": str(c.get("company") or entity.name),
                 "external_id": str(c.get("external_id") or "")[:64],
                 "tags": list(tags) if isinstance(tags, list) else [],
                 "attributes": dict(attributes) if isinstance(attributes, dict) else {},
@@ -445,7 +445,7 @@ class Command(BaseCommand):
             }
             cust, was_created = Contact.objects.update_or_create(
                 tenant=tenant, phone=phone, defaults=defaults)
-            ContactBrand.objects.get_or_create(contact=cust, brand=brand)
+            ContactEntity.objects.get_or_create(contact=cust, entity=entity)
             created += was_created
             updated += not was_created
 

@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { LayoutGrid, List, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useApp } from '@/lib/AppContext'
-import { useBrand } from '@/lib/BrandContext'
+import { useEntity } from '@/lib/EntityContext'
 import { authHeaders, hasCap } from '@/lib/auth'
 import { initials, methodLabel, primaryRecord, type ContactStatus } from '@/lib/mocks'
 import { StatusBadge } from '@/components/ui/Badges'
@@ -103,7 +103,7 @@ function ContactModal({
   onClose: () => void
 }) {
   const { reloadContacts } = useApp()
-  const { activeBrand } = useBrand()
+  const { activeEntity } = useEntity()
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [language, setLanguage] = useState('en')
@@ -111,7 +111,7 @@ function ContactModal({
   const [company, setCompany] = useState('')
   const [tags, setTags] = useState('')
   const [notes, setNotes] = useState('')
-  const [allBrands, setAllBrands] = useState(false)
+  const [allEntities, setAllEntities] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -125,7 +125,7 @@ function ContactModal({
       setCompany(editing?.company ?? '')
       setTags((editing?.tags ?? []).join(', '))
       setNotes(editing && typeof editing.attributes.notes === 'string' ? editing.attributes.notes : '')
-      setAllBrands(false)
+      setAllEntities(false)
       setError(null)
       setBusy(false)
     }
@@ -143,15 +143,15 @@ function ContactModal({
         company_name: company.trim(),
         tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
         notes: notes.trim(),
-        // Brand membership on create: the current brand by default, or every
-        // brand in the tenant when the operator toggles "all brands". (Ignored
-        // on edit — PATCH doesn't touch brand links.)
+        // Entity membership on create: the current entity by default, or every
+        // entity in the tenant when the operator toggles "all entities". (Ignored
+        // on edit — PATCH doesn't touch entity links.)
         ...(editing
           ? {}
-          : allBrands
-            ? { all_brands: true }
-            : activeBrand
-              ? { brand: activeBrand.slug }
+          : allEntities
+            ? { all_entities: true }
+            : activeEntity
+              ? { entity: activeEntity.slug }
               : {}),
       })
       // PATCH /api/v1/contacts/<id> for edits (backend accepting the extra
@@ -182,7 +182,7 @@ function ContactModal({
       open={open}
       onClose={onClose}
       title={editing ? 'Edit contact' : 'New contact'}
-      subtitle={editing ? 'Update this contact’s details.' : "Add a person to this brand's contact list."}
+      subtitle={editing ? 'Update this contact’s details.' : "Add a person to this entity's contact list."}
       size="lg"
       footer={
         <>
@@ -224,18 +224,18 @@ function ContactModal({
         <AddField label="Notes (optional)" value={notes} onChange={setNotes} />
       </div>
 
-      {!editing && activeBrand && (
+      {!editing && activeEntity && (
         <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-lg border border-line bg-fill-subtle px-3 py-2.5">
           <input
             type="checkbox"
-            checked={allBrands}
-            onChange={(e) => setAllBrands(e.target.checked)}
+            checked={allEntities}
+            onChange={(e) => setAllEntities(e.target.checked)}
             className="mt-0.5 accent-brand-500"
           />
           <span className="text-[11.5px] leading-[1.5] text-text-muted">
-            <span className="font-semibold text-text-high">Add to all brands</span> in this tenant.
+            <span className="font-semibold text-text-high">Add to all entities</span> in this tenant.
             {' '}By default this contact is added to{' '}
-            <span className="font-semibold text-text-high">{activeBrand.name}</span> only.
+            <span className="font-semibold text-text-high">{activeEntity.name}</span> only.
           </span>
         </label>
       )}
@@ -304,7 +304,7 @@ function KanbanCard({ d, onOpen }: { d: Contact; onOpen: () => void }) {
 export default function ContactsPage() {
   const router = useRouter()
   const { contacts, reloadContacts } = useApp()
-  const { activeBrand } = useBrand()
+  const { activeEntity } = useEntity()
 
   const [view, setView] = useState<'board' | 'list'>('board')
   const [status, setStatus] = useState('')
@@ -484,7 +484,7 @@ export default function ContactsPage() {
           <h1 className="text-[20px] font-extrabold tracking-[-0.5px] text-text-heading">Contacts</h1>
           <div className="mt-0.5 text-[12px] text-text-muted">
             {contacts.length} {contacts.length === 1 ? 'contact' : 'contacts'}
-            {activeBrand && <span className="text-text-faint"> · {activeBrand.name}</span>}
+            {activeEntity && <span className="text-text-faint"> · {activeEntity.name}</span>}
           </div>
         </div>
 

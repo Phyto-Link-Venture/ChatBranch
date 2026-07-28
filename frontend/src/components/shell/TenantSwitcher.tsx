@@ -2,17 +2,17 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
-import { useBrand } from '@/lib/BrandContext'
+import { useEntity } from '@/lib/EntityContext'
 
 /**
- * Topbar brand/tenant switcher chip (design.md): logo square + current brand
- * name + chevron. Opens a menu of the brands the signed-in user may see (from
- * BrandContext -> /api/v1/brands ∩ /api/v1/whoami). Picking one sets the
- * active brand that brand-scoped screens filter by. A user with a single
- * brand gets a static chip (no menu).
+ * Topbar brand/tenant switcher chip (design.md): logo square + current entity
+ * name + chevron. Opens a menu of the entities the signed-in user may see (from
+ * EntityContext -> /api/v1/entities ∩ /api/v1/whoami). Picking one sets the
+ * active entity that brand-scoped screens filter by. A user with a single
+ * entity gets a static chip (no menu).
  */
 export function TenantSwitcher() {
-  const { tenant, brands, activeBrand, setActiveBrand, loading } = useBrand()
+  const { tenant, entities, activeEntity, setActiveEntity, loading } = useEntity()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -25,16 +25,16 @@ export function TenantSwitcher() {
     return () => document.removeEventListener('mousedown', onDoc)
   }, [open])
 
-  const label = activeBrand?.name ?? tenant ?? (loading ? 'Loading…' : 'All brands')
-  const initials = (activeBrand?.name ?? tenant ?? 'CB').slice(0, 2).toUpperCase()
-  const canSwitch = brands.length > 1
+  const label = activeEntity?.name ?? tenant ?? (loading ? 'Loading…' : 'All entities')
+  const initials = (activeEntity?.name ?? tenant ?? 'CB').slice(0, 2).toUpperCase()
+  const canSwitch = entities.length > 1
 
   return (
     <div ref={ref} className="relative">
       <button
         onClick={() => canSwitch && setOpen((v) => !v)}
         disabled={!canSwitch}
-        title={canSwitch ? 'Switch brand' : label}
+        title={canSwitch ? 'Switch entity' : label}
         className="flex h-[34px] items-center gap-2 rounded-xl border border-line bg-fill px-2.5 text-text-high transition-colors hover:bg-fill-hover disabled:cursor-default disabled:hover:bg-fill"
       >
         <span
@@ -57,15 +57,15 @@ export function TenantSwitcher() {
               {tenant}
             </div>
           )}
-          {brands.map((b) => {
-            const active = b.slug === activeBrand?.slug
+          {entities.map((b) => {
+            const active = b.slug === activeEntity?.slug
             return (
               <button
                 key={b.slug}
                 role="menuitemradio"
                 aria-checked={active}
                 onClick={() => {
-                  setActiveBrand(b.slug)
+                  setActiveEntity(b.slug)
                   setOpen(false)
                 }}
                 className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12.5px] text-text-high transition-colors hover:bg-fill-hover"

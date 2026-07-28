@@ -7,7 +7,7 @@ export const MOVED_AREA_ROUTES: Record<string, string> = {
   channels: '/channels',
   integrations: '/integrations',
   users: '/users',
-  brands: '/brands',
+  entities: '/entities',
   templates: '/templates',
   'script-templates': '/script-templates',
   notif: '/notifications',

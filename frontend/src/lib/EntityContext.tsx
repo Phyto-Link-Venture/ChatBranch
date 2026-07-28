@@ -1,15 +1,15 @@
 'use client'
 
 /**
- * Tenant + brand context for the topbar switcher (design.md: brand/tenant
+ * Tenant + entity context for the topbar switcher (design.md: brand/tenant
  * switcher chip). Loads the REAL data the signed-in user may see:
- *   /api/v1/whoami  -> { tenant, brands: string[] }  (their tenant + brand slugs)
- *   /api/v1/brands  -> { brands: [{ slug, name, tenant }] } (names for the slugs)
+ *   /api/v1/whoami  -> { tenant, entities: string[] }  (their tenant + entity slugs)
+ *   /api/v1/entities  -> { entities: [{ slug, name, tenant }] } (names for the slugs)
  *
- * `activeBrand` is the operator's current working brand (persisted to
- * localStorage). superadmin/admin can switch between the brands in their
- * tenant; an agent is pinned to their single assigned brand. Screens that
- * are brand-scoped read `activeBrand` to filter what they show — server-side
+ * `activeEntity` is the operator's current working entity (persisted to
+ * localStorage). superadmin/admin can switch between the entities in their
+ * tenant; an agent is pinned to their single assigned entity. Screens that
+ * are brand-scoped read `activeEntity` to filter what they show — server-side
  * RBAC still bounds the set, this narrows within it.
  */
 
@@ -19,21 +19,21 @@ import { authHeaders, getAuth } from './auth'
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 const ACTIVE_KEY = 'chatbranch-active-brand'
 
-export interface Brand {
+export interface Entity {
   slug: string
   name: string
   tenant: string
 }
 
-interface BrandState {
+interface EntityState {
   tenant: string | null
-  brands: Brand[]
-  activeBrand: Brand | null
-  setActiveBrand: (slug: string | null) => void
+  entities: Entity[]
+  activeEntity: Entity | null
+  setActiveEntity: (slug: string | null) => void
   loading: boolean
 }
 
-const Ctx = createContext<BrandState | null>(null)
+const Ctx = createContext<EntityState | null>(null)
 
 async function v1<T>(path: string): Promise<T> {
   const res = await fetch(`${API}/v1/${path}`, {
@@ -43,9 +43,9 @@ async function v1<T>(path: string): Promise<T> {
   return res.json() as Promise<T>
 }
 
-export function BrandProvider({ children }: { children: ReactNode }) {
+export function EntityProvider({ children }: { children: ReactNode }) {
   const [tenant, setTenant] = useState<string | null>(null)
-  const [brands, setBrands] = useState<Brand[]>([])
+  const [entities, setEntities] = useState<Entity[]>([])
   const [activeSlug, setActiveSlug] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -58,16 +58,16 @@ export function BrandProvider({ children }: { children: ReactNode }) {
     ;(async () => {
       try {
         const [who, list] = await Promise.all([
-          v1<{ tenant: string | null; brands: string[] }>('whoami'),
-          v1<{ brands: Brand[] }>('brands'),
+          v1<{ tenant: string | null; entities: string[] }>('whoami'),
+          v1<{ entities: Entity[] }>('entities'),
         ])
         if (!alive) return
-        // only brands the user may see (whoami.brands), keep the ordering stable
-        const visible = who.brands.length
-          ? list.brands.filter((b) => who.brands.includes(b.slug))
-          : list.brands
+        // only entities the user may see (whoami.entities), keep the ordering stable
+        const visible = who.entities.length
+          ? list.entities.filter((b) => who.entities.includes(b.slug))
+          : list.entities
         setTenant(who.tenant)
-        setBrands(visible)
+        setEntities(visible)
         const stored = (() => {
           try {
             return localStorage.getItem(ACTIVE_KEY)
@@ -88,7 +88,7 @@ export function BrandProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const setActiveBrand = useCallback((slug: string | null) => {
+  const setActiveEntity = useCallback((slug: string | null) => {
     setActiveSlug(slug)
     try {
       if (slug) localStorage.setItem(ACTIVE_KEY, slug)
@@ -98,21 +98,21 @@ export function BrandProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const activeBrand = useMemo(
-    () => brands.find((b) => b.slug === activeSlug) ?? null,
-    [brands, activeSlug]
+  const activeEntity = useMemo(
+    () => entities.find((b) => b.slug === activeSlug) ?? null,
+    [entities, activeSlug]
   )
 
-  const value = useMemo<BrandState>(
-    () => ({ tenant, brands, activeBrand, setActiveBrand, loading }),
-    [tenant, brands, activeBrand, setActiveBrand, loading]
+  const value = useMemo<EntityState>(
+    () => ({ tenant, entities, activeEntity, setActiveEntity, loading }),
+    [tenant, entities, activeEntity, setActiveEntity, loading]
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 
-export function useBrand(): BrandState {
+export function useEntity(): EntityState {
   const v = useContext(Ctx)
-  if (!v) throw new Error('useBrand must be used within BrandProvider')
+  if (!v) throw new Error('useEntity must be used within EntityProvider')
   return v
 }

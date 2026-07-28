@@ -30,7 +30,7 @@ interface Item {
   channels: string[]
   priority: number
   active: boolean
-  brand_id: number | null
+  entity_id: number | null
   starts_at: string | null
   ends_at: string | null
   live: boolean

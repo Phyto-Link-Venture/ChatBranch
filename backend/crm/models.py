@@ -24,8 +24,8 @@ class Profile(models.Model):
     """RBAC: attaches a role + API token to a Django auth user.
 
     superadmin — everything, all tenants
-    admin      — everything within their own tenant (all brands)
-    agent      — only the brands explicitly assigned to them (`brands`)
+    admin      — everything within their own tenant (all entities)
+    agent      — only the entities explicitly assigned to them (`entities`)
     """
 
     # The 3 built-in roles. Kept as a class attribute for callers that still
@@ -46,10 +46,10 @@ class Profile(models.Model):
     # tenant-scoped reads resolve the current tenant from here.
     tenant = models.ForeignKey("ingest.Tenant", null=True, blank=True,
                                on_delete=models.SET_NULL, related_name="members")
-    # Agent brand access. Empty for superadmin/admin (their access is
-    # derived: superadmin=all, admin=all brands in their tenant). Only agents
-    # use this explicit allow-list. Brands must belong to the user's tenant.
-    brands = models.ManyToManyField("ingest.Brand", blank=True, related_name="agents")
+    # Agent entity access. Empty for superadmin/admin (their access is
+    # derived: superadmin=all, admin=all entities in their tenant). Only agents
+    # use this explicit allow-list. Entities must belong to the user's tenant.
+    entities = models.ManyToManyField("ingest.Entity", blank=True, related_name="agents")
 
     def __str__(self):
         return f"{self.user.username} ({self.role})"
@@ -178,7 +178,7 @@ class Contact(models.Model):
 
     name = models.CharField(max_length=120)
     # Phone is unique per TENANT (not globally): the same person can exist under
-    # different tenants, and within a tenant one profile is shared across brands.
+    # different tenants, and within a tenant one profile is shared across entities.
     phone = models.CharField(max_length=32)  # E.164 (+60…)
     email = models.EmailField(blank=True, default="")
     language = models.CharField(max_length=8, default="en")  # SUPPORTED_LANGUAGES code
@@ -229,7 +229,7 @@ class Contact(models.Model):
                 name="uniq_contact_tenant_external_id",
             ),
             # One contact profile per phone per tenant (shared across the
-            # tenant's brands). Scoped to rows that have a tenant.
+            # tenant's entities). Scoped to rows that have a tenant.
             models.UniqueConstraint(
                 fields=["tenant", "phone"],
                 condition=models.Q(tenant__isnull=False),
@@ -241,22 +241,22 @@ class Contact(models.Model):
         return f"{self.name} ({self.phone})"
 
 
-class ContactBrand(models.Model):
-    """Which of a tenant's brands a contact is active on. The contact profile
-    is shared tenant-wide; this records per-brand association (+ the source
-    system's per-brand reference). A contact established under one brand can be
-    linked to a sibling brand without re-creating the profile."""
+class ContactEntity(models.Model):
+    """Which of a tenant's entities a contact is active on. The contact profile
+    is shared tenant-wide; this records per-entity association (+ the source
+    system's per-entity reference). A contact established under one entity can be
+    linked to a sibling entity without re-creating the profile."""
 
-    contact = models.ForeignKey(Contact, on_delete=models.CASCADE, related_name="brand_links")
-    brand = models.ForeignKey("ingest.Brand", on_delete=models.CASCADE, related_name="contact_links")
-    external_ref = models.CharField(max_length=64, blank=True, default="")  # source id on this brand
+    contact = models.ForeignKey(Contact, on_delete=models.CASCADE, related_name="entity_links")
+    entity = models.ForeignKey("ingest.Entity", on_delete=models.CASCADE, related_name="contact_links")
+    external_ref = models.CharField(max_length=64, blank=True, default="")  # source id on this entity
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = [("contact", "brand")]
+        unique_together = [("contact", "entity")]
 
     def __str__(self):
-        return f"{self.contact.name} @ {self.brand.slug}"
+        return f"{self.contact.name} @ {self.entity.slug}"
 
 
 class Record(models.Model):
@@ -593,8 +593,8 @@ class KnowledgeItem(models.Model):
 
     tenant = models.ForeignKey("ingest.Tenant", null=True, blank=True,
                                on_delete=models.CASCADE, related_name="knowledge_items")
-    # null = every brand in the tenant
-    brand = models.ForeignKey("ingest.Brand", null=True, blank=True,
+    # null = every entity in the tenant
+    entity = models.ForeignKey("ingest.Entity", null=True, blank=True,
                               on_delete=models.CASCADE, related_name="knowledge_items")
     kind = models.CharField(max_length=8, choices=KIND_CHOICES, default="fact")
     title = models.CharField(max_length=200)

@@ -45,7 +45,7 @@ interface EngagementStats {
   followups_set: number
 }
 
-/* Channel-Health "fan" tab metadata: brand color + short code + icon. */
+/* Channel-Health "fan" tab metadata: entity color + short code + icon. */
 const CH_TAB: Record<string, { lbl: string; code: string; color: string; Icon: LucideIcon }> = {
   whatsapp: { lbl: 'WhatsApp', code: 'WA', color: '#10B981', Icon: MessageCircle },
   telegram: { lbl: 'Telegram', code: 'TG', color: '#229ED9', Icon: Send },

@@ -1,13 +1,13 @@
 from rest_framework import serializers
 
 from crm.models import Contact, Record
-from ingest.models import Brand
+from ingest.models import Entity
 
 
 class ContactSerializer(serializers.ModelSerializer):
-    # The brands this (tenant-shared) contact is active on — for the detail
-    # page's per-brand membership editor. Managed via /contacts/<id>/brands.
-    brands = serializers.SerializerMethodField()
+    # The entities this (tenant-shared) contact is active on — for the detail
+    # page's per-entity membership editor. Managed via /contacts/<id>/entities.
+    entities = serializers.SerializerMethodField()
 
     class Meta:
         model = Contact
@@ -15,7 +15,7 @@ class ContactSerializer(serializers.ModelSerializer):
             "id", "name", "phone", "email", "language",
             "company_name", "status", "method",
             "external_id", "tags", "attributes",
-            "last_synced_at", "created_at", "updated_at", "brands",
+            "last_synced_at", "created_at", "updated_at", "entities",
         ]
         read_only_fields = [
             "id", "name", "phone", "email", "language",
@@ -24,9 +24,9 @@ class ContactSerializer(serializers.ModelSerializer):
             "last_synced_at", "created_at", "updated_at",
         ]
 
-    def get_brands(self, obj):
-        return [{"slug": bl.brand.slug, "name": bl.brand.name}
-                for bl in obj.brand_links.all()]
+    def get_entities(self, obj):
+        return [{"slug": bl.entity.slug, "name": bl.entity.name}
+                for bl in obj.entity_links.all()]
 
 
 class RecordSerializer(serializers.ModelSerializer):
@@ -40,10 +40,10 @@ class RecordSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class BrandSerializer(serializers.ModelSerializer):
+class EntitySerializer(serializers.ModelSerializer):
     tenant = serializers.SlugRelatedField(slug_field="slug", read_only=True)
 
     class Meta:
-        model = Brand
+        model = Entity
         fields = ["id", "name", "slug", "tenant", "is_active", "created_at"]
         read_only_fields = fields

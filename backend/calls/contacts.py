@@ -70,35 +70,35 @@ def _from_model(c) -> dict:
         "external_id": c.external_id,
         "tags": list(c.tags or []),
         "attributes": dict(c.attributes or {}),
-        # Brand slugs this contact is linked to (a tenant's contacts are shared
-        # across its brands) — powers the topbar brand switcher's scoping.
-        "brands": [bl.brand.slug for bl in c.brand_links.all()],
+        # Entity slugs this contact is linked to (a tenant's contacts are shared
+        # across its entities) — powers the topbar entity switcher's scoping.
+        "entities": [bl.entity.slug for bl in c.entity_links.all()],
         "history": _history_for(c),
         # The business objects a conversation with this contact may be about.
         "records": [_record_dict(r) for r in c.records.all()[:_HISTORY_LIMIT]],
     }
 
 
-def load_contacts(tenant=None, brand=None) -> list[dict]:
+def load_contacts(tenant=None, entity=None) -> list[dict]:
     """Contact list. When `tenant` is given, only that tenant's contacts are
-    returned; None means unscoped (legacy). When `brand` (a Brand slug) is
-    given, narrows to contacts linked to that brand — a tenant's contacts are
-    shared across its brands, so this scopes the view to one brand for the
+    returned; None means unscoped (legacy). When `entity` (a Entity slug) is
+    given, narrows to contacts linked to that entity — a tenant's contacts are
+    shared across its entities, so this scopes the view to one entity for the
     topbar switcher."""
     from crm.models import Contact
 
-    qs = Contact.objects.prefetch_related("calls", "records__events", "brand_links__brand")
+    qs = Contact.objects.prefetch_related("calls", "records__events", "entity_links__entity")
     if tenant is not None:
         qs = qs.filter(tenant=tenant)
-    if brand:
-        qs = qs.filter(brand_links__brand__slug=brand).distinct()
+    if entity:
+        qs = qs.filter(entity_links__entity__slug=entity).distinct()
     if qs.exists():
         return [_from_model(c) for c in qs]
 
     # legacy fallback: pre-database JSON file (only when the DB has no rows at
-    # all; a tenant/brand with zero contacts returns an empty list, not the
+    # all; a tenant/entity with zero contacts returns an empty list, not the
     # fallback).
-    if tenant is not None or brand or Contact.objects.exists():
+    if tenant is not None or entity or Contact.objects.exists():
         return []
     if not CONTACTS_FILE.exists():
         return []
@@ -150,7 +150,7 @@ def to_contact(c: dict) -> dict:
         "language": c.get("language", "en"),
         "tags": c.get("tags", []),
         "attributes": c.get("attributes", {}),
-        "brands": c.get("brands", []),
+        "entities": c.get("entities", []),
         "records": c.get("records", []),
         "history": c.get("history", []),
     }

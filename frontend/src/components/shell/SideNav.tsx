@@ -86,7 +86,7 @@ export const NAV_GROUPS: { label?: string; items: NavDef[] }[] = [
     label: 'Admin',
     items: [
       { href: '/users', lbl: 'Users & Roles', Icon: UserCog, cap: 'users.view', roles: ['superadmin', 'admin'] },
-      { href: '/brands', lbl: 'Brands & Tenants', Icon: Building2, cap: 'brands.view', roles: ['superadmin', 'admin'] },
+      { href: '/entities', lbl: 'Entities & Tenants', Icon: Building2, cap: 'entities.view', roles: ['superadmin', 'admin'] },
       { href: '/permissions', lbl: 'Permissions', Icon: ShieldCheck, cap: 'rbac.manage', roles: ['superadmin'] },
     ],
   },

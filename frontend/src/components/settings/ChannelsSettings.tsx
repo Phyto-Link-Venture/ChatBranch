@@ -329,7 +329,7 @@ function EmailAccountsPanel({
       align: 'right',
       render: (a) => (
         // Compact icon actions (with tooltips) so the row never wraps — matches
-        // the Users/Contacts/Brands tables.
+        // the Users/Contacts/Entities tables.
         <div className="flex items-center justify-end gap-1">
           <button
             onClick={() => testAccount(a)}
@@ -744,7 +744,7 @@ function SocialPanel({
       align: 'right',
       render: (a) => (
         // Compact icon actions (with tooltips) so the row never wraps — matches
-        // the Users/Contacts/Brands tables.
+        // the Users/Contacts/Entities tables.
         <div className="flex items-center justify-end gap-1">
           {canManage && channel === 'telegram' && (
             <button

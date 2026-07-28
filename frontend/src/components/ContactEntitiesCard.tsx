@@ -4,27 +4,27 @@ import { useCallback, useEffect, useState } from 'react'
 import { Loader2, Plus, X } from 'lucide-react'
 import { authHeaders } from '@/lib/auth'
 import { getRole } from '@/lib/role'
-import { useBrand } from '@/lib/BrandContext'
+import { useEntity } from '@/lib/EntityContext'
 import { useApp } from '@/lib/AppContext'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
-interface BrandRef {
+interface EntityRef {
   slug: string
   name: string
 }
 
 /**
  * Per-brand membership editor on the contact detail page. A contact profile is
- * shared tenant-wide; this shows which brands it is active on and lets an admin
- * link/unlink ONE brand at a time — WITHOUT deleting the shared profile (plain
- * contact delete removes it from every brand). Backed by
- * GET /v1/contacts/<id> (brands) + POST/DELETE /v1/contacts/<id>/brands.
+ * shared tenant-wide; this shows which entities it is active on and lets an admin
+ * link/unlink ONE entity at a time — WITHOUT deleting the shared profile (plain
+ * contact delete removes it from every entity). Backed by
+ * GET /v1/contacts/<id> (entities) + POST/DELETE /v1/contacts/<id>/entities.
  */
-export default function ContactBrandsCard({ contactId }: { contactId: number }) {
-  const { brands: allBrands } = useBrand()
+export default function ContactEntitiesCard({ contactId }: { contactId: number }) {
+  const { entities: allEntities } = useEntity()
   const { reloadContacts } = useApp()
-  const [linked, setLinked] = useState<BrandRef[]>([])
+  const [linked, setLinked] = useState<EntityRef[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -40,7 +40,7 @@ export default function ContactBrandsCard({ contactId }: { contactId: number }) 
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
       })
       const data = await res.json().catch(() => ({}))
-      if (res.ok && Array.isArray(data.brands)) setLinked(data.brands as BrandRef[])
+      if (res.ok && Array.isArray(data.entities)) setLinked(data.entities as EntityRef[])
     } finally {
       setLoading(false)
     }
@@ -54,10 +54,10 @@ export default function ContactBrandsCard({ contactId }: { contactId: number }) 
     setBusy(slug)
     setError(null)
     try {
-      const res = await fetch(`${API}/v1/contacts/${contactId}/brands`, {
+      const res = await fetch(`${API}/v1/contacts/${contactId}/entities`, {
         method,
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ brand: slug }),
+        body: JSON.stringify({ entity: slug }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -74,11 +74,11 @@ export default function ContactBrandsCard({ contactId }: { contactId: number }) 
   }
 
   const linkedSlugs = new Set(linked.map((b) => b.slug))
-  const available = allBrands.filter((b) => !linkedSlugs.has(b.slug))
+  const available = allEntities.filter((b) => !linkedSlugs.has(b.slug))
 
   return (
     <div className="rounded-2xl border border-line bg-card p-4">
-      <div className="mb-3 text-[12px] font-bold uppercase tracking-[0.06em] text-text-mid">Brands</div>
+      <div className="mb-3 text-[12px] font-bold uppercase tracking-[0.06em] text-text-mid">Entities</div>
 
       {loading ? (
         <div className="flex items-center gap-2 text-[12px] text-text-muted">
@@ -88,7 +88,7 @@ export default function ContactBrandsCard({ contactId }: { contactId: number }) 
         <>
           <div className="flex flex-wrap items-center gap-1.5">
             {linked.length === 0 && (
-              <span className="text-[11.5px] text-text-muted">Not linked to any brand.</span>
+              <span className="text-[11.5px] text-text-muted">Not linked to any entity.</span>
             )}
             {linked.map((b) => (
               <span
@@ -115,7 +115,7 @@ export default function ContactBrandsCard({ contactId }: { contactId: number }) 
                 onClick={() => setAdding(true)}
                 className="flex items-center gap-1 rounded-full border border-dashed border-line-strong px-2.5 py-1 text-[11px] font-semibold text-text-muted transition-colors hover:bg-fill-hover"
               >
-                <Plus size={12} /> Add brand
+                <Plus size={12} /> Add entity
               </button>
             )}
           </div>
@@ -129,7 +129,7 @@ export default function ContactBrandsCard({ contactId }: { contactId: number }) 
                 className="rounded-lg border border-line-strong bg-card px-2 py-1.5 text-[11.5px] text-text-high outline-none focus:border-brand-400"
               >
                 <option value="" disabled>
-                  Select a brand…
+                  Select an entity…
                 </option>
                 {available.map((b) => (
                   <option key={b.slug} value={b.slug}>
@@ -149,8 +149,8 @@ export default function ContactBrandsCard({ contactId }: { contactId: number }) 
           {error && <div className="mt-2 text-[11px] font-semibold text-red-300">{error}</div>}
           {canEdit && (
             <p className="mt-2.5 text-[10.5px] leading-[1.5] text-text-faint">
-              Removing a brand unlinks this contact from it only — the shared profile and its
-              other brands stay. Deleting the contact removes it from every brand.
+              Removing an entity unlinks this contact from it only — the shared profile and its
+              other entities stay. Deleting the contact removes it from every entity.
             </p>
           )}
         </>

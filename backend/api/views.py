@@ -1,9 +1,9 @@
-"""v1 API views: identity, RBAC-scoped resources, and user/brand management.
+"""v1 API views: identity, RBAC-scoped resources, and user/entity management.
 
 Access rules (see api/rbac.py):
 - superadmin : everything, all tenants.
-- admin      : all brands within their own tenant; creates agents.
-- agent      : only their assigned brands; read-only work queues.
+- admin      : all entities within their own tenant; creates agents.
+- agent      : only their assigned entities; read-only work queues.
 """
 from __future__ import annotations
 
@@ -18,10 +18,10 @@ from rest_framework.views import APIView
 from crm import user_service as usvc
 from crm.auth import audit
 from crm.models import Contact
-from ingest.models import Brand, Tenant
+from ingest.models import Entity, Tenant
 from . import rbac
 from .permissions import HasCapability, IsAdmin, IsAuthenticatedProfile
-from .serializers import BrandSerializer, ContactSerializer
+from .serializers import EntitySerializer, ContactSerializer
 from .tenancy import current_tenant
 
 
@@ -40,7 +40,7 @@ class PingView(APIView):
 
 
 class WhoAmIView(APIView):
-    """Authenticated user: role, tenant, and accessible brand slugs."""
+    """Authenticated user: role, tenant, and accessible entity slugs."""
     permission_classes = [IsAuthenticatedProfile]
 
     @extend_schema(summary="Current user")
@@ -54,17 +54,17 @@ class WhoAmIView(APIView):
             "name": user.first_name or user.username,
             "role": rbac.role(user),
             "tenant": tenant.slug if tenant else None,
-            "brands": list(rbac.accessible_brands(user).values_list("slug", flat=True)),
+            "entities": list(rbac.accessible_entities(user).values_list("slug", flat=True)),
             # Frontend gates on capabilities, not role (falls back to role for
             # older sessions that predate this field).
             "capabilities": capabilities_for(rbac.role(user)),
         })
 
 
-@extend_schema(tags=["contacts"], summary="List contacts (brand-scoped)")
+@extend_schema(tags=["contacts"], summary="List contacts (entity-scoped)")
 class ContactListView(generics.ListAPIView):
     """Contacts the caller may see. superadmin/admin -> their tenant; agent ->
-    only contacts active on their assigned brands (via ContactBrand)."""
+    only contacts active on their assigned entities (via ContactEntity)."""
     serializer_class = ContactSerializer
     filter_backends = [SearchFilter, OrderingFilter]
     search_fields = ["name", "phone", "email", "external_id"]
@@ -80,7 +80,7 @@ class ContactListView(generics.ListAPIView):
             qs = Contact.objects.filter(tenant=tenant) if tenant else Contact.objects.none()
         elif r == "agent":
             qs = Contact.objects.filter(
-                brand_links__brand__in=rbac.accessible_brands(user)).distinct()
+                entity_links__entity__in=rbac.accessible_entities(user)).distinct()
         else:
             qs = Contact.objects.none()
         return qs.order_by("-updated_at")
@@ -88,11 +88,11 @@ class ContactListView(generics.ListAPIView):
     @extend_schema(summary="Create a contact (admin+)")
     def post(self, request):
         """Create a contact by hand (the dashboard's Add-contact form). Tenant =
-        the caller's (superadmin may pass a "tenant" slug). Brand membership:
-        the CURRENT brand (`brand` slug) by default, all tenant brands when
-        `all_brands` is set, or an explicit `brand_ids` list. 409 when the phone
+        the caller's (superadmin may pass a "tenant" slug). Entity membership:
+        the CURRENT entity (`entity` slug) by default, all tenant entities when
+        `all_entities` is set, or an explicit `entity_ids` list. 409 when the phone
         already exists in-tenant (phone is the identity key everywhere)."""
-        from crm.models import ContactBrand
+        from crm.models import ContactEntity
         from crm.permissions_store import has_capability
 
         if not has_capability(rbac.role(request.user), "contacts.manage"):
@@ -137,23 +137,23 @@ class ContactListView(generics.ListAPIView):
             attributes=dict(attributes) if isinstance(attributes, dict) else {},
             notes=str(request.data.get("notes") or "").strip(),
         )
-        # Brand membership on create. Precedence: explicit `brand_ids` →
-        # `all_brands` toggle (cross-brand) → the caller's CURRENT brand
-        # (default; the create form passes the topbar-selected brand slug) →
-        # legacy fallback of every tenant brand when no brand context is sent.
-        brand_ids = request.data.get("brand_ids") or []
-        all_brands = str(request.data.get("all_brands") or "").strip().lower() \
+        # Entity membership on create. Precedence: explicit `entity_ids` →
+        # `all_entities` toggle (cross-entity) → the caller's CURRENT entity
+        # (default; the create form passes the topbar-selected entity slug) →
+        # legacy fallback of every tenant entity when no entity context is sent.
+        entity_ids = request.data.get("entity_ids") or []
+        all_entities = str(request.data.get("all_entities") or "").strip().lower() \
             in ("1", "true", "yes", "on")
-        current = str(request.data.get("brand") or "").strip()
-        brands = Brand.objects.filter(tenant=tenant)
-        if isinstance(brand_ids, list) and brand_ids:
-            brands = brands.filter(id__in=brand_ids)
-        elif all_brands:
-            pass  # link to every brand in the tenant
+        current = str(request.data.get("entity") or "").strip()
+        entities = Entity.objects.filter(tenant=tenant)
+        if isinstance(entity_ids, list) and entity_ids:
+            entities = entities.filter(id__in=entity_ids)
+        elif all_entities:
+            pass  # link to every entity in the tenant
         elif current:
-            brands = brands.filter(slug=current)  # default: current brand only
-        for b in brands:
-            ContactBrand.objects.get_or_create(contact=contact, brand=b)
+            entities = entities.filter(slug=current)  # default: current entity only
+        for b in entities:
+            ContactEntity.objects.get_or_create(contact=contact, entity=b)
         audit(request, "contact.create", target=phone,
               detail=f"name={name} tenant={tenant.slug}")
         return Response(ContactSerializer(contact).data, status=status.HTTP_201_CREATED)
@@ -165,7 +165,7 @@ class ContactDetailView(APIView):
     contact-details page's inline editor) — the AI conducts calls and hints
     STT in this language, so it's operator-tunable per contact. Scoping
     mirrors ContactListView: superadmin all, admin their tenant, agent
-    their assigned brands."""
+    their assigned entities."""
 
     def _scoped(self, request):
         r = rbac.role(request.user)
@@ -176,7 +176,7 @@ class ContactDetailView(APIView):
             return Contact.objects.filter(tenant=tenant) if tenant else Contact.objects.none()
         if r == "agent":
             return Contact.objects.filter(
-                brand_links__brand__in=rbac.accessible_brands(request.user)).distinct()
+                entity_links__entity__in=rbac.accessible_entities(request.user)).distinct()
         return Contact.objects.none()
 
     @extend_schema(summary="Update a contact (language)")
@@ -206,9 +206,9 @@ class ContactDetailView(APIView):
     @extend_schema(summary="Delete a contact (contacts.manage)")
     def delete(self, request, pk: int):
         """Hard-delete a contact. Requires `contacts.manage`, scoped exactly
-        like PATCH/GET (a contact outside the caller's tenant/brands is a 404,
+        like PATCH/GET (a contact outside the caller's tenant/entities is a 404,
         never a leak). The model's FKs make this clean: owned rows (records,
-        brand links, assignments, queued jobs, summaries) cascade away, while
+        entity links, assignments, queued jobs, summaries) cascade away, while
         conversation history (threads, call records, flow runs) is SET_NULL —
         preserved but unlinked — so nothing is left dangling."""
         from crm.permissions_store import has_capability
@@ -229,23 +229,23 @@ class ContactDetailView(APIView):
 
 
 @extend_schema(tags=["contacts"])
-class ContactBrandsView(APIView):
-    """Manage a contact's brand memberships WITHOUT deleting the shared profile.
-    POST {brand} links the contact to a brand; DELETE {brand} unlinks it from
-    ONE brand (the profile and every other brand link stay). This is the
-    'remove from this brand only' seam — plain contact DELETE removes the whole
-    tenant-shared profile from every brand. Scoped + admin+ like the rest."""
+class ContactEntitiesView(APIView):
+    """Manage a contact's entity memberships WITHOUT deleting the shared profile.
+    POST {entity} links the contact to a entity; DELETE {entity} unlinks it from
+    ONE entity (the profile and every other entity link stay). This is the
+    'remove from this entity only' seam — plain contact DELETE removes the whole
+    tenant-shared profile from every entity. Scoped + admin+ like the rest."""
     permission_classes = [IsAuthenticatedProfile]
 
     def _resolve(self, request, pk):
-        """(contact, brand, error_response). Contact scoped to the caller; brand
+        """(contact, entity, error_response). Contact scoped to the caller; entity
         must be in the contact's tenant AND accessible to the caller."""
         from crm.permissions_store import has_capability
 
         if not has_capability(rbac.role(request.user), "contacts.manage"):
             return None, None, Response(
                 {"error": {"code": "forbidden",
-                           "message": "Admin role required to manage brand links."}},
+                           "message": "Admin role required to manage entity links."}},
                 status=403)
         contact = ContactDetailView()._scoped(request).filter(pk=pk).first()
         if contact is None:
@@ -253,62 +253,62 @@ class ContactBrandsView(APIView):
                 {"error": {"code": "not_found",
                            "message": "No such contact (or not visible to you)."}},
                 status=404)
-        slug = str(request.data.get("brand") or "").strip()
-        brand = Brand.objects.filter(tenant=contact.tenant, slug=slug).first()
-        if brand is None:
+        slug = str(request.data.get("entity") or "").strip()
+        entity = Entity.objects.filter(tenant=contact.tenant, slug=slug).first()
+        if entity is None:
             return None, None, Response(
                 {"error": {"code": "bad_request",
-                           "message": "Unknown brand for this contact's tenant."}},
+                           "message": "Unknown entity for this contact's tenant."}},
                 status=400)
         if rbac.role(request.user) == "agent" \
-                and brand not in rbac.accessible_brands(request.user):
+                and entity not in rbac.accessible_entities(request.user):
             return None, None, Response(
                 {"error": {"code": "forbidden",
-                           "message": "That brand is not assigned to you."}},
+                           "message": "That entity is not assigned to you."}},
                 status=403)
-        return contact, brand, None
+        return contact, entity, None
 
-    @extend_schema(summary="Link a contact to a brand (contacts.manage)")
+    @extend_schema(summary="Link a contact to a entity (contacts.manage)")
     def post(self, request, pk: int):
-        from crm.models import ContactBrand
+        from crm.models import ContactEntity
 
-        contact, brand, err = self._resolve(request, pk)
+        contact, entity, err = self._resolve(request, pk)
         if err is not None:
             return err
-        _link, created = ContactBrand.objects.get_or_create(contact=contact, brand=brand)
-        audit(request, "contact.brand_link", target=contact.phone,
-              detail=f"+brand {brand.slug}")
+        _link, created = ContactEntity.objects.get_or_create(contact=contact, entity=entity)
+        audit(request, "contact.entity_link", target=contact.phone,
+              detail=f"+entity {entity.slug}")
         return Response({"ok": True, "created": created,
-                         "brands": [bl.brand.slug for bl in contact.brand_links.all()]})
+                         "entities": [bl.entity.slug for bl in contact.entity_links.all()]})
 
-    @extend_schema(summary="Unlink a contact from one brand (contacts.manage)")
+    @extend_schema(summary="Unlink a contact from one entity (contacts.manage)")
     def delete(self, request, pk: int):
-        from crm.models import ContactBrand
+        from crm.models import ContactEntity
 
-        contact, brand, err = self._resolve(request, pk)
+        contact, entity, err = self._resolve(request, pk)
         if err is not None:
             return err
-        ContactBrand.objects.filter(contact=contact, brand=brand).delete()
-        audit(request, "contact.brand_unlink", target=contact.phone,
-              detail=f"-brand {brand.slug}")
+        ContactEntity.objects.filter(contact=contact, entity=entity).delete()
+        audit(request, "contact.entity_unlink", target=contact.phone,
+              detail=f"-entity {entity.slug}")
         return Response({"ok": True,
-                         "brands": [bl.brand.slug for bl in contact.brand_links.all()]})
+                         "entities": [bl.entity.slug for bl in contact.entity_links.all()]})
 
 
-@extend_schema(tags=["brands"])
-class BrandsView(APIView):
-    """List brands the caller can access; create a brand (superadmin any tenant,
+@extend_schema(tags=["entities"])
+class EntitiesView(APIView):
+    """List entities the caller can access; create a entity (superadmin any tenant,
     admin in their own tenant)."""
     permission_classes = [IsAuthenticatedProfile]
 
     def get(self, request):
-        brands = rbac.accessible_brands(request.user).order_by("tenant__slug", "slug")
-        return Response({"brands": BrandSerializer(brands, many=True).data})
+        entities = rbac.accessible_entities(request.user).order_by("tenant__slug", "slug")
+        return Response({"entities": EntitySerializer(entities, many=True).data})
 
     def post(self, request):
         from crm.permissions_store import has_capability
 
-        if not has_capability(rbac.role(request.user), "brands.manage"):
+        if not has_capability(rbac.role(request.user), "entities.manage"):
             return Response({"error": {"code": "forbidden",
                                        "message": "Admin role required."}}, status=403)
         name = (request.data.get("name") or "").strip()
@@ -325,50 +325,50 @@ class BrandsView(APIView):
                                            "message": "tenant slug required."}}, status=400)
         else:
             tenant = rbac.user_tenant(request.user)
-        if Brand.objects.filter(tenant=tenant, slug=slug).exists():
+        if Entity.objects.filter(tenant=tenant, slug=slug).exists():
             return Response({"error": {"code": "conflict",
-                                       "message": "Brand slug already exists in this tenant."}}, status=409)
-        brand = Brand.objects.create(tenant=tenant, name=name, slug=slug)
-        audit(request, "brand.create", target=f"{tenant.slug}/{slug}")
-        return Response(BrandSerializer(brand).data, status=201)
+                                       "message": "Entity slug already exists in this tenant."}}, status=409)
+        entity = Entity.objects.create(tenant=tenant, name=name, slug=slug)
+        audit(request, "entity.create", target=f"{tenant.slug}/{slug}")
+        return Response(EntitySerializer(entity).data, status=201)
 
 
-@extend_schema(tags=["brands"])
-class BrandDetailView(APIView):
-    """Update (PATCH) or delete (DELETE) a single brand. Requires
-    `brands.manage`; scoped like BrandsView — superadmin any tenant, admin only
-    brands in their own tenant (a brand outside that scope is a 404). agent has
+@extend_schema(tags=["entities"])
+class EntityDetailView(APIView):
+    """Update (PATCH) or delete (DELETE) a single entity. Requires
+    `entities.manage`; scoped like EntitiesView — superadmin any tenant, admin only
+    entities in their own tenant (a entity outside that scope is a 404). agent has
     no manage capability, so it 403s before scoping."""
     permission_classes = [IsAuthenticatedProfile]
 
     def _manageable(self, request):
-        """Brands this caller may edit/delete (NOT the agent read scope)."""
+        """Entities this caller may edit/delete (NOT the agent read scope)."""
         r = rbac.role(request.user)
         if r == "superadmin":
-            return Brand.objects.all()
+            return Entity.objects.all()
         if r == "admin":
             tenant = rbac.user_tenant(request.user)
-            return Brand.objects.filter(tenant=tenant) if tenant else Brand.objects.none()
-        return Brand.objects.none()
+            return Entity.objects.filter(tenant=tenant) if tenant else Entity.objects.none()
+        return Entity.objects.none()
 
     def _gate(self, request):
         from crm.permissions_store import has_capability
 
-        if not has_capability(rbac.role(request.user), "brands.manage"):
+        if not has_capability(rbac.role(request.user), "entities.manage"):
             return Response({"error": {"code": "forbidden",
-                                       "message": "Admin role required to manage brands."}},
+                                       "message": "Admin role required to manage entities."}},
                             status=403)
         return None
 
-    @extend_schema(summary="Update a brand (brands.manage)")
-    def patch(self, request, brand_id: int):
+    @extend_schema(summary="Update a entity (entities.manage)")
+    def patch(self, request, entity_id: int):
         denied = self._gate(request)
         if denied:
             return denied
-        brand = self._manageable(request).filter(pk=brand_id).first()
-        if brand is None:
+        entity = self._manageable(request).filter(pk=entity_id).first()
+        if entity is None:
             return Response({"error": {"code": "not_found",
-                                       "message": "No such brand (or not visible to you)."}},
+                                       "message": "No such entity (or not visible to you)."}},
                             status=404)
         changed = []
         if "name" in request.data:
@@ -376,53 +376,53 @@ class BrandDetailView(APIView):
             if not name:
                 return Response({"error": {"code": "bad_request",
                                            "message": "name cannot be empty."}}, status=400)
-            brand.name = name
+            entity.name = name
             changed.append("name")
         if "slug" in request.data:
             slug = str(request.data.get("slug") or "").strip().lower()
             if not slug:
                 return Response({"error": {"code": "bad_request",
                                            "message": "slug cannot be empty."}}, status=400)
-            if (Brand.objects.filter(tenant=brand.tenant, slug=slug)
-                    .exclude(pk=brand.pk).exists()):
+            if (Entity.objects.filter(tenant=entity.tenant, slug=slug)
+                    .exclude(pk=entity.pk).exists()):
                 return Response({"error": {"code": "conflict",
-                                           "message": "Brand slug already exists in this tenant."}},
+                                           "message": "Entity slug already exists in this tenant."}},
                                 status=409)
-            brand.slug = slug
+            entity.slug = slug
             changed.append("slug")
         if "is_active" in request.data:
-            brand.is_active = bool(request.data.get("is_active"))
+            entity.is_active = bool(request.data.get("is_active"))
             changed.append("is_active")
         if not changed:
             return Response({"error": {"code": "bad_request",
                                        "message": "Nothing to update — send name, slug and/or is_active."}},
                             status=400)
-        brand.save(update_fields=changed + ["updated_at"])
-        audit(request, "brand.update", target=f"{brand.tenant.slug}/{brand.slug}",
+        entity.save(update_fields=changed + ["updated_at"])
+        audit(request, "entity.update", target=f"{entity.tenant.slug}/{entity.slug}",
               detail=f"fields: {', '.join(changed)}")
-        return Response(BrandSerializer(brand).data)
+        return Response(EntitySerializer(entity).data)
 
-    @extend_schema(summary="Delete a brand (brands.manage)")
-    def delete(self, request, brand_id: int):
-        """Hard-delete a brand, but only when nothing depends on it. A brand
-        with contacts (ContactBrand), assigned agents (Profile.brands) or
+    @extend_schema(summary="Delete a entity (entities.manage)")
+    def delete(self, request, entity_id: int):
+        """Hard-delete a entity, but only when nothing depends on it. A entity
+        with contacts (ContactEntity), assigned agents (Profile.entities) or
         knowledge items (KnowledgeItem, which CASCADE — real data loss) returns
         409 with the counts, mirroring the roles delete-when-assigned block —
-        reassign/clear first. To retire a brand without deleting, PATCH
+        reassign/clear first. To retire a entity without deleting, PATCH
         is_active=false."""
-        from crm.models import ContactBrand, KnowledgeItem
+        from crm.models import ContactEntity, KnowledgeItem
 
         denied = self._gate(request)
         if denied:
             return denied
-        brand = self._manageable(request).filter(pk=brand_id).first()
-        if brand is None:
+        entity = self._manageable(request).filter(pk=entity_id).first()
+        if entity is None:
             return Response({"error": {"code": "not_found",
-                                       "message": "No such brand (or not visible to you)."}},
+                                       "message": "No such entity (or not visible to you)."}},
                             status=404)
-        contacts = ContactBrand.objects.filter(brand=brand).count()
-        agents = brand.agents.count()
-        knowledge = KnowledgeItem.objects.filter(brand=brand).count()
+        contacts = ContactEntity.objects.filter(entity=entity).count()
+        agents = entity.agents.count()
+        knowledge = KnowledgeItem.objects.filter(entity=entity).count()
         if contacts or agents or knowledge:
             parts = []
             if contacts:
@@ -432,13 +432,13 @@ class BrandDetailView(APIView):
             if knowledge:
                 parts.append(f"{knowledge} knowledge item(s)")
             return Response({"error": {"code": "conflict",
-                                       "message": f"This brand still has {', '.join(parts)} — "
+                                       "message": f"This entity still has {', '.join(parts)} — "
                                                   "reassign or remove them first."},
                              "contacts": contacts, "agents": agents,
                              "knowledge": knowledge}, status=409)
-        label = f"{brand.tenant.slug}/{brand.slug}"
-        brand.delete()
-        audit(request, "brand.delete", target=label)
+        label = f"{entity.tenant.slug}/{entity.slug}"
+        entity.delete()
+        audit(request, "entity.delete", target=label)
         return Response({"ok": True})
 
 
@@ -446,7 +446,7 @@ class BrandDetailView(APIView):
 class UsersView(APIView):
     """Canonical user management (single source of truth: crm.user_service).
     GET list / POST create. superadmin: everyone; admin: only agents in
-    their own tenant (+ brand assignment); agent: 403.
+    their own tenant (+ entity assignment); agent: 403.
 
     Gated on the `users.manage` capability (data-driven); the admin->agent
     tenant tiering still lives in crm.user_service and applies on top."""
@@ -464,7 +464,7 @@ class UsersView(APIView):
                 rbac.role(request.user), getattr(request.user, "profile", None),
                 username=d.get("username"), name=d.get("name"),
                 password=d.get("password"), role=d.get("role"),
-                brand_ids=d.get("brand_ids"), tenant=d.get("tenant"),
+                entity_ids=d.get("entity_ids"), tenant=d.get("tenant"),
             )
         except usvc.UserMgmtError as e:
             return _svc_err(e)
@@ -491,7 +491,7 @@ class UserDetailView(APIView):
                 rbac.role(request.user), getattr(request.user, "profile", None), target,
                 name=d.get("name", usvc._UNSET), role=d.get("role", usvc._UNSET),
                 active=d.get("active", usvc._UNSET), password=d.get("password", usvc._UNSET),
-                brand_ids=d.get("brand_ids", usvc._UNSET),
+                entity_ids=d.get("entity_ids", usvc._UNSET),
             )
         except usvc.UserMgmtError as e:
             return _svc_err(e)

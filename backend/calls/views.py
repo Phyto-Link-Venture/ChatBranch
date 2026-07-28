@@ -73,10 +73,10 @@ def contacts(request):
     if request.method != "GET":
         return HttpResponseNotAllowed(["GET"])
     tenant = tenant_from_request(request)
-    brand = (request.GET.get("brand") or "").strip() or None
+    entity = (request.GET.get("entity") or "").strip() or None
     contacts = [
         contacts_mod.to_contact(c)
-        for c in contacts_mod.load_contacts(tenant=tenant, brand=brand)
+        for c in contacts_mod.load_contacts(tenant=tenant, entity=entity)
     ]
     return JsonResponse({"contacts": contacts})
 

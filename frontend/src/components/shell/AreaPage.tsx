@@ -9,7 +9,7 @@ import {
 
 /**
  * Chrome for the areas promoted out of Settings into their own top-level routes
- * (upgrade §1): Channels, Integrations, Users & Roles, Brands & Tenants, Message
+ * (upgrade §1): Channels, Integrations, Users & Roles, Entities & Tenants, Message
  * Templates, Script Templates, Notifications. Gives each a page header (icon
  * chip + title + subtitle) matching the app's other pages, and — because a few
  * of the reused settings components (Integrations' OAuth keys) drive the shared

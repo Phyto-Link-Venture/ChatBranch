@@ -100,7 +100,7 @@ def _item_payload(item) -> dict:
         "channels": item.channels or [],
         "priority": item.priority,
         "active": item.active,
-        "brand_id": item.brand_id,
+        "entity_id": item.entity_id,
         "starts_at": item.starts_at.isoformat() if item.starts_at else None,
         "ends_at": item.ends_at.isoformat() if item.ends_at else None,
         # what the retrieval layer will actually do with it, precomputed for
@@ -155,9 +155,9 @@ def _apply(item, body: dict) -> None:
             raise ValueError("priority must be an integer")
     if "active" in body:
         item.active = bool(body.get("active"))
-    if "brand_id" in body:
-        raw = body.get("brand_id")
-        item.brand_id = int(raw) if str(raw or "").strip().isdigit() else None
+    if "entity_id" in body:
+        raw = body.get("entity_id")
+        item.entity_id = int(raw) if str(raw or "").strip().isdigit() else None
     for field in ("starts_at", "ends_at"):
         if field in body:
             setattr(item, field, _parse_dt(body.get(field)))

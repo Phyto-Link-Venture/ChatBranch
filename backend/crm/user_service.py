@@ -1,11 +1,11 @@
-"""Single source of truth for user management (RBAC + brands).
+"""Single source of truth for user management (RBAC + entities).
 
 Both the canonical DRF endpoint (`/api/v1/users`, `api/views.py`) and the
 backward-compat function views (`/api/auth/users`, `crm/views.py`) call this
 service, so the tiered rules live in exactly one place:
 
 - superadmin : manage everyone, any role, any tenant.
-- admin      : manage only agents in their own tenant; may assign brands
+- admin      : manage only agents in their own tenant; may assign entities
                within that tenant; may never change roles or touch admins.
 - agent      : no access.
 
@@ -84,28 +84,28 @@ def managed_user_payload(user) -> dict:
         "created": user.date_joined.isoformat() if user.date_joined else None,
         "last_login": user.last_login.isoformat() if user.last_login else None,
         "tenant": tenant.slug if tenant else None,
-        "brands": ([{"id": b.pk, "name": b.name, "slug": b.slug}
-                    for b in profile.brands.all()] if profile else []),
+        "entities": ([{"id": b.pk, "name": b.name, "slug": b.slug}
+                    for b in profile.entities.all()] if profile else []),
     }
 
 
-def _resolve_brands(brand_ids):
-    """Validate a brand_ids list. All ids must exist and share ONE tenant
-    (a user works for a single tenant). Returns a list of Brand."""
-    from ingest.models import Brand
+def _resolve_entities(entity_ids):
+    """Validate a entity_ids list. All ids must exist and share ONE tenant
+    (a user works for a single tenant). Returns a list of Entity."""
+    from ingest.models import Entity
 
     ids = []
-    for raw in brand_ids or []:
+    for raw in entity_ids or []:
         try:
             ids.append(int(raw))
         except (TypeError, ValueError):
-            raise UserMgmtError("bad_request", "brand_ids must be a list of brand ids.")
-    brands = list(Brand.objects.filter(pk__in=ids).select_related("tenant"))
-    if len(brands) != len(set(ids)):
-        raise UserMgmtError("bad_request", "One or more brands do not exist.")
-    if len({b.tenant_id for b in brands}) > 1:
-        raise UserMgmtError("bad_request", "All brands must belong to the same tenant.")
-    return brands
+            raise UserMgmtError("bad_request", "entity_ids must be a list of entity ids.")
+    entities = list(Entity.objects.filter(pk__in=ids).select_related("tenant"))
+    if len(entities) != len(set(ids)):
+        raise UserMgmtError("bad_request", "One or more entities do not exist.")
+    if len({b.tenant_id for b in entities}) > 1:
+        raise UserMgmtError("bad_request", "All entities must belong to the same tenant.")
+    return entities
 
 
 def would_remove_last_superadmin(target, new_role=None, new_active=None) -> bool:
@@ -141,7 +141,7 @@ def list_users(actor_role, actor_tenant_id):
 
 
 def create_user(actor_role, actor_profile, *, username, name, password, role,
-                brand_ids=None, tenant=None) -> User:
+                entity_ids=None, tenant=None) -> User:
     username = (username or "").strip()
     name = (name or "").strip()
     password = password or ""
@@ -159,19 +159,19 @@ def create_user(actor_role, actor_profile, *, username, name, password, role,
     if actor_role == "admin" and _is_privileged(role):
         raise UserMgmtError("forbidden", "Admins can only create agent-level users.", 403)
 
-    brand_ids = brand_ids or []
-    if brand_ids and role != "agent":
-        raise UserMgmtError("bad_request", "Brand access applies to agent users only.")
-    brands = _resolve_brands(brand_ids)
+    entity_ids = entity_ids or []
+    if entity_ids and role != "agent":
+        raise UserMgmtError("bad_request", "Entity access applies to agent users only.")
+    entities = _resolve_entities(entity_ids)
     actor_tenant_id = actor_profile.tenant_id if actor_profile else None
-    if (actor_role == "admin" and brands and actor_tenant_id is not None
-            and brands[0].tenant_id != actor_tenant_id):
-        raise UserMgmtError("forbidden", "Those brands are outside your tenant.", 403)
+    if (actor_role == "admin" and entities and actor_tenant_id is not None
+            and entities[0].tenant_id != actor_tenant_id):
+        raise UserMgmtError("forbidden", "Those entities are outside your tenant.", 403)
 
-    # Resolve the new user's tenant: brands pin it; else an admin creates within
+    # Resolve the new user's tenant: entities pin it; else an admin creates within
     # their own tenant; else a superadmin may name one explicitly (slug).
-    if brands:
-        target_tenant = brands[0].tenant
+    if entities:
+        target_tenant = entities[0].tenant
     elif actor_role == "admin" and actor_profile:
         target_tenant = actor_profile.tenant
     elif actor_role == "superadmin" and tenant:
@@ -186,13 +186,13 @@ def create_user(actor_role, actor_profile, *, username, name, password, role,
     _apply_role_flags(user, role)
     user.save(update_fields=["is_superuser", "is_staff"])
     profile = Profile.objects.create(user=user, role=role, tenant=target_tenant)
-    if brands:
-        profile.brands.set(brands)
+    if entities:
+        profile.entities.set(entities)
     return user
 
 
 def update_user(actor_role, actor_profile, target, *, name=_UNSET, role=_UNSET,
-                active=_UNSET, password=_UNSET, brand_ids=_UNSET):
+                active=_UNSET, password=_UNSET, entity_ids=_UNSET):
     """Apply a partial update. Returns (user, changed_fields)."""
     profile, _ = Profile.objects.get_or_create(
         user=target, defaults={"role": role_of(target)})
@@ -217,18 +217,18 @@ def update_user(actor_role, actor_profile, target, *, name=_UNSET, role=_UNSET,
                             "Cannot demote or deactivate the last active super admin — "
                             "promote another super admin first.")
 
-    new_brands = None
-    if brand_ids is not _UNSET:
-        if not isinstance(brand_ids, list):
-            raise UserMgmtError("bad_request", "brand_ids must be a list of brand ids.")
+    new_entities = None
+    if entity_ids is not _UNSET:
+        if not isinstance(entity_ids, list):
+            raise UserMgmtError("bad_request", "entity_ids must be a list of entity ids.")
         effective_role = new_role if new_role is not None else profile.role
-        if brand_ids and effective_role != "agent":
-            raise UserMgmtError("bad_request", "Brand access applies to agent users only.")
-        new_brands = _resolve_brands(brand_ids)
-        if (new_brands and profile.tenant_id is not None
-                and profile.tenant_id != new_brands[0].tenant_id):
+        if entity_ids and effective_role != "agent":
+            raise UserMgmtError("bad_request", "Entity access applies to agent users only.")
+        new_entities = _resolve_entities(entity_ids)
+        if (new_entities and profile.tenant_id is not None
+                and profile.tenant_id != new_entities[0].tenant_id):
             raise UserMgmtError("bad_request",
-                                "Those brands belong to a different tenant than this user.")
+                                "Those entities belong to a different tenant than this user.")
 
     changed = []
     if name is not _UNSET and str(name).strip() != target.first_name:
@@ -238,13 +238,13 @@ def update_user(actor_role, actor_profile, target, *, name=_UNSET, role=_UNSET,
         profile.role = new_role
         _apply_role_flags(target, new_role)
         if new_role != "agent":
-            profile.brands.clear()
+            profile.entities.clear()
         changed.append("role")
-    if brand_ids is not _UNSET:
-        profile.brands.set(new_brands)
-        if new_brands and profile.tenant_id is None:
-            profile.tenant = new_brands[0].tenant
-        changed.append("brands")
+    if entity_ids is not _UNSET:
+        profile.entities.set(new_entities)
+        if new_entities and profile.tenant_id is None:
+            profile.tenant = new_entities[0].tenant
+        changed.append("entities")
     if new_active is not None and new_active != target.is_active:
         target.is_active = new_active
         if not new_active:

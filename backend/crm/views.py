@@ -357,7 +357,7 @@ def users(request):
             actor_role, actor_profile,
             username=body.get("username"), name=body.get("name"),
             password=body.get("password"), role=body.get("role"),
-            brand_ids=body.get("brand_ids"), tenant=body.get("tenant"),
+            entity_ids=body.get("entity_ids"), tenant=body.get("tenant"),
         )
     except usvc.UserMgmtError as e:
         return JsonResponse({"detail": e.message}, status=e.status)
@@ -394,7 +394,7 @@ def user_detail(request, user_id: int):
             role=body.get("role", _UNSET),
             active=body.get("active", _UNSET),
             password=body.get("password", _UNSET),
-            brand_ids=body.get("brand_ids", _UNSET),
+            entity_ids=body.get("entity_ids", _UNSET),
         )
     except usvc.UserMgmtError as e:
         return JsonResponse({"detail": e.message}, status=e.status)

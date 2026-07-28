@@ -1254,7 +1254,7 @@ def threads(request):
         account = wa_config.get_account(body.get("account_id"))
         account_id = account.get("id") if account else None
         if not body.get("account_id") and store.load_thread(phone) is None:
-            # brand-new thread with no explicit account: route by the
+            # entity-new thread with no explicit account: route by the
             # contact's sticky assignment (health-aware, least-loaded on
             # first contact). Falls back to the single-configured-account
             # rule above when the phone matches no CRM contact.
@@ -1945,7 +1945,7 @@ def switch_account(request, wa_id: str):
         note = (f"[Sender account switched to {row.name} — the contact knows "
                 "this number but hasn't replied to it in 24h; open with an "
                 "approved template.]" if prior_contact else
-                f"[Sender account switched to {row.name} — brand-new number for "
+                f"[Sender account switched to {row.name} — entity-new number for "
                 "this contact (their side shows a new chat); open with an "
                 "approved template.]")
     contact = store.contact_for_thread(wa_id)

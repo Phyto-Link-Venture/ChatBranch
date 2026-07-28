@@ -114,22 +114,22 @@ class Command(BaseCommand):
     help = "Seed demo contacts + records and import legacy file-based data into the DB."
 
     def handle(self, *args, **options):
-        from ingest.models import Tenant, Brand
-        from crm.models import ContactBrand
+        from ingest.models import Tenant, Entity
+        from crm.models import ContactEntity
 
-        # ---- tenants + brands (multi-tenancy) -------------------------------
+        # ---- tenants + entities (multi-tenancy) -------------------------------
         default_tenant, _ = Tenant.objects.get_or_create(
             slug="default", defaults={"name": "Northwind Trading", "status": "active"})
         # A second tenant proves isolation: its data must never leak into the
         # default tenant's endpoints.
         acme_tenant, _ = Tenant.objects.get_or_create(
             slug="acme", defaults={"name": "Acme Services", "status": "active"})
-        # Each tenant owns brands; contacts are shared across a tenant's brands.
-        default_brand, _ = Brand.objects.get_or_create(
+        # Each tenant owns entities; contacts are shared across a tenant's entities.
+        default_entity, _ = Entity.objects.get_or_create(
             tenant=default_tenant, slug="northwind", defaults={"name": "Northwind"})
-        default_brand2, _ = Brand.objects.get_or_create(
+        default_entity2, _ = Entity.objects.get_or_create(
             tenant=default_tenant, slug="northwind-pro", defaults={"name": "Northwind Pro"})
-        acme_brand, _ = Brand.objects.get_or_create(
+        acme_entity, _ = Entity.objects.get_or_create(
             tenant=acme_tenant, slug="acme", defaults={"name": "Acme"})
 
         # ---- RBAC capability matrix -----------------------------------------
@@ -158,11 +158,11 @@ class Command(BaseCommand):
                 )
         self.stdout.write(f"users: {[u[0] for u in DEMO_USERS]} ready")
 
-        # The agent gets access to one brand only (demonstrates brand scoping);
-        # admin/superadmin need no explicit brands (all-in-tenant / all).
+        # The agent gets access to one entity only (demonstrates entity scoping);
+        # admin/superadmin need no explicit entities (all-in-tenant / all).
         agent_user = User.objects.filter(username="agent").first()
         if agent_user:
-            agent_user.profile.brands.set([default_brand])
+            agent_user.profile.entities.set([default_entity])
 
         # ---- contacts + the records their conversations are about ----------
         created = 0
@@ -175,9 +175,9 @@ class Command(BaseCommand):
                           "external_id": row["record"]["external_id"].split("-")[-1]},
             )
             created += was_created
-            # Share every demo contact across both Northwind brands.
-            for b in (default_brand, default_brand2):
-                ContactBrand.objects.get_or_create(contact=cust, brand=b)
+            # Share every demo contact across both Northwind entities.
+            for b in (default_entity, default_entity2):
+                ContactEntity.objects.get_or_create(contact=cust, entity=b)
             r = row["record"]
             record, _ = Record.objects.update_or_create(
                 tenant=default_tenant, type=r["type"], external_id=r["external_id"],
@@ -201,7 +201,7 @@ class Command(BaseCommand):
             defaults={"name": "Acme Test Contact", "status": "pending",
                       "company_name": "Acme Services"},
         )
-        ContactBrand.objects.get_or_create(contact=acme_cust, brand=acme_brand)
+        ContactEntity.objects.get_or_create(contact=acme_cust, entity=acme_entity)
         acme_user, acme_new = User.objects.get_or_create(
             username="acmeadmin",
             defaults={"first_name": "Acme Admin", "is_staff": True},

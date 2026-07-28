@@ -6,10 +6,10 @@
    :root is the dark theme (default). the `.light` class on <html> overrides the same
    vars for light. Every semantic Tailwind color (app/surface/card/text-*) and
    the neutral line/fill tokens resolve to these — so the whole UI flips by
-   swapping one attribute on <html>. Brand accents stay identical in both. */
+   swapping one attribute on <html>. Entity accents stay identical in both. */
 /* Palette: "Navy + Ocean Blue" console (design_handoff_full_app/design.md).
    Dark = navy ground (#080D18) with layered panels; OCEAN BLUE is the single
-   brand accent (was emerald). Surface layers, lightest→deepest:
+   entity accent (was emerald). Surface layers, lightest→deepest:
      --app   page ground            (#080D18)
      --surface topbar / sidebar / outer shell panels (#101A2E)
      --panel main content panel + wells inside cards  (#0D1526)
@@ -202,7 +202,7 @@
   }
 }
 
-/* Thin brand scrollbar (matches prototype) */
+/* Thin entity scrollbar (matches prototype) */
 ::-webkit-scrollbar {
   width: 4px;
   height: 4px;

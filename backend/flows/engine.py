@@ -155,7 +155,7 @@ def amount_to_words(value, currency: str = "ringgit") -> str:
 
 
 # Business-level {{variables}}: operator-editable crm.Setting rows so a
-# deployment brands its own messages without touching code. Missing rows fall
+# deployment entities its own messages without touching code. Missing rows fall
 # back to a neutral value rather than leaving the placeholder visible.
 BUSINESS_VARS = {
     "business_name": "our team",

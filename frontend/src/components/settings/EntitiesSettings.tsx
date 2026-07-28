@@ -11,14 +11,14 @@ import { useRole } from '@/lib/useRole'
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
 /**
- * Brands & tenants (RBAC brands model, /api/v1/brands + /api/v1/whoami).
- * A Tenant is the parent organization; a Brand is a business unit or client
- * it serves. Access is brand-level: admins see every brand in their tenant,
- * agents only their assigned brands (managed in Users & Roles).
- * Superadmins create brands in any tenant; admins in their own.
+ * Entities & tenants (RBAC entities model, /api/v1/entities + /api/v1/whoami).
+ * A Tenant is the parent organization; an Entity is a business unit or client
+ * it serves. Access is brand-level: admins see every entity in their tenant,
+ * agents only their assigned entities (managed in Users & Roles).
+ * Superadmins create entities in any tenant; admins in their own.
  */
 
-interface BrandRow {
+interface EntityRow {
   id: number
   name: string
   slug: string
@@ -31,7 +31,7 @@ interface WhoAmI {
   username: string
   role: string
   tenant: string | null
-  brands: string[]
+  entities: string[]
 }
 
 const slugify = (s: string) =>
@@ -54,35 +54,35 @@ async function v1<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T
 }
 
-export function BrandsSettings() {
+export function EntitiesSettings() {
   const { role, ready } = useRole()
-  const [brands, setBrands] = useState<BrandRow[] | null>(null)
+  const [entities, setEntities] = useState<EntityRow[] | null>(null)
   const [me, setMe] = useState<WhoAmI | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   // create/edit modal — `editing` null = create, a row = edit
   const [open, setOpen] = useState(false)
-  const [editing, setEditing] = useState<BrandRow | null>(null)
+  const [editing, setEditing] = useState<EntityRow | null>(null)
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const [slugTouched, setSlugTouched] = useState(false)
   const [tenant, setTenant] = useState('')
   const [active, setActive] = useState(true)
-  // brands.manage gates create/edit/delete (read after mount — localStorage)
+  // entities.manage gates create/edit/delete (read after mount — localStorage)
   const [canManage, setCanManage] = useState(false)
-  useEffect(() => setCanManage(hasCap('brands.manage')), [])
+  useEffect(() => setCanManage(hasCap('entities.manage')), [])
 
   const refresh = useCallback(async () => {
     try {
       const [b, w] = await Promise.all([
-        v1<{ brands: BrandRow[] }>('brands'),
+        v1<{ entities: EntityRow[] }>('entities'),
         v1<WhoAmI>('whoami'),
       ])
-      setBrands(b.brands)
+      setEntities(b.entities)
       setMe(w)
-      setTenant((t) => t || w.tenant || b.brands[0]?.tenant || '')
+      setTenant((t) => t || w.tenant || b.entities[0]?.tenant || '')
     } catch {
-      setBrands(null)
+      setEntities(null)
     }
   }, [])
 
@@ -96,34 +96,34 @@ export function BrandsSettings() {
     return (
       <div className="flex items-center gap-2 py-6 text-[12.5px] text-text-muted">
         <ShieldAlert size={15} className="text-amber-300" aria-hidden />
-        Brands are managed by admins.
+        Entities are managed by admins.
       </div>
     )
   }
 
-  if (brands === null) {
+  if (entities === null) {
     return (
       <div className="py-6 text-[12px] text-text-muted">
-        Brand management unavailable — is the backend API running on port 8000?
+        Entity management unavailable — is the backend API running on port 8000?
       </div>
     )
   }
 
   const isSuperadmin = me?.role === 'superadmin'
-  const tenants = [...new Set(brands.map((b) => b.tenant))].sort()
+  const tenants = [...new Set(entities.map((b) => b.tenant))].sort()
 
   const openCreate = () => {
     setEditing(null)
     setName('')
     setSlug('')
     setSlugTouched(false)
-    setTenant(me?.tenant || brands[0]?.tenant || '')
+    setTenant(me?.tenant || entities[0]?.tenant || '')
     setActive(true)
     setMsg(null)
     setOpen(true)
   }
 
-  const openEdit = (b: BrandRow) => {
+  const openEdit = (b: EntityRow) => {
     setEditing(b)
     setName(b.name)
     setSlug(b.slug)
@@ -134,14 +134,14 @@ export function BrandsSettings() {
     setOpen(true)
   }
 
-  const saveBrand = async () => {
+  const saveEntity = async () => {
     setBusy(true)
     setMsg(null)
     try {
       if (editing) {
-        // PATCH /api/v1/brands/<id> — name / slug / is_active (backend landing
+        // PATCH /api/v1/entities/<id> — name / slug / is_active (backend landing
         // in parallel; a 404/405 surfaces as a clear message).
-        await v1(`brands/${editing.id}`, {
+        await v1(`entities/${editing.id}`, {
           method: 'PATCH',
           body: JSON.stringify({
             name: name.trim(),
@@ -149,9 +149,9 @@ export function BrandsSettings() {
             is_active: active,
           }),
         })
-        setMsg({ ok: true, text: `Brand ${name.trim()} updated.` })
+        setMsg({ ok: true, text: `Entity ${name.trim()} updated.` })
       } else {
-        await v1('brands', {
+        await v1('entities', {
           method: 'POST',
           body: JSON.stringify({
             name: name.trim(),
@@ -161,7 +161,7 @@ export function BrandsSettings() {
             tenant: tenant.trim(),
           }),
         })
-        setMsg({ ok: true, text: `Brand ${name.trim()} created.` })
+        setMsg({ ok: true, text: `Entity ${name.trim()} created.` })
       }
       setName('')
       setSlug('')
@@ -176,15 +176,15 @@ export function BrandsSettings() {
     }
   }
 
-  const deleteBrand = async (b: BrandRow) => {
-    if (!window.confirm(`Delete brand "${b.name}"? Contacts and assignments tied to it may be affected.`)) return
+  const deleteEntity = async (b: EntityRow) => {
+    if (!window.confirm(`Delete entity "${b.name}"? Contacts and assignments tied to it may be affected.`)) return
     setBusy(true)
     setMsg(null)
     try {
-      // DELETE /api/v1/brands/<id> — a 409 (brand still in use) carries the
+      // DELETE /api/v1/entities/<id> — a 409 (entity still in use) carries the
       // reason in the v1 error envelope, surfaced verbatim below.
-      await v1(`brands/${b.id}`, { method: 'DELETE' })
-      setMsg({ ok: true, text: `Brand ${b.name} deleted.` })
+      await v1(`entities/${b.id}`, { method: 'DELETE' })
+      setMsg({ ok: true, text: `Entity ${b.name} deleted.` })
       await refresh()
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
@@ -193,10 +193,10 @@ export function BrandsSettings() {
     }
   }
 
-  const columns: Column<BrandRow>[] = [
+  const columns: Column<EntityRow>[] = [
     {
       key: 'name',
-      header: 'Brand',
+      header: 'Entity',
       sortable: true,
       value: (b) => `${b.name} ${b.slug}`,
       render: (b) => (
@@ -238,22 +238,22 @@ export function BrandsSettings() {
             header: 'Actions',
             align: 'right' as const,
             width: 100,
-            render: (b: BrandRow) => (
+            render: (b: EntityRow) => (
               <div className="flex items-center justify-end gap-1">
                 <button
                   onClick={() => openEdit(b)}
                   disabled={busy}
                   title={`Edit ${b.name}`}
-                  aria-label={`Edit brand ${b.name}`}
+                  aria-label={`Edit entity ${b.name}`}
                   className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Pencil size={13} aria-hidden />
                 </button>
                 <button
-                  onClick={() => deleteBrand(b)}
+                  onClick={() => deleteEntity(b)}
                   disabled={busy}
                   title={`Delete ${b.name}`}
-                  aria-label={`Delete brand ${b.name}`}
+                  aria-label={`Delete entity ${b.name}`}
                   className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/15 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Trash2 size={13} aria-hidden />
@@ -268,8 +268,8 @@ export function BrandsSettings() {
   return (
     <div className="flex flex-col gap-4 pt-3.5">
       <p className="text-[11.5px] leading-relaxed text-text-mid">
-        A <b>tenant</b> is the parent organization; a <b>brand</b> is a business unit or client it serves. Contacts are
-        shared across a tenant&apos;s brands. Admins see every brand in their tenant; agents only the brands assigned to
+        A <b>tenant</b> is the parent organization; a <b>entity</b> is a business unit or client it serves. Contacts are
+        shared across a tenant&apos;s entities. Admins see every entity in their tenant; agents only the entities assigned to
         them (set per user under Users &amp; Roles).
         {me?.tenant && (
           <>
@@ -285,16 +285,16 @@ export function BrandsSettings() {
 
       <DataTable
         columns={columns}
-        rows={brands}
+        rows={entities}
         rowKey={(b) => b.id}
         searchKeys={['name', 'tenant']}
-        searchPlaceholder="Search brands…"
-        empty="No brands yet — add the first one."
+        searchPlaceholder="Search entities…"
+        empty="No entities yet — add the first one."
         initialSort={{ key: 'tenant', dir: 'asc' }}
         toolbarRight={
           canManage ? (
             <Button onClick={openCreate}>
-              <Plus size={13} aria-hidden /> Add brand
+              <Plus size={13} aria-hidden /> Add entity
             </Button>
           ) : undefined
         }
@@ -303,8 +303,8 @@ export function BrandsSettings() {
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title={editing ? `Edit ${editing.name}` : 'Add brand'}
-        subtitle="A brand is a business unit or client served by a tenant."
+        title={editing ? `Edit ${editing.name}` : 'Add entity'}
+        subtitle="A entity is a business unit or client served by a tenant."
         size="md"
         footer={
           <>
@@ -313,7 +313,7 @@ export function BrandsSettings() {
             </Button>
             <Button
               variant="primary"
-              onClick={saveBrand}
+              onClick={saveEntity}
               disabled={busy || !name.trim() || (!editing && isSuperadmin && !tenant.trim())}
             >
               {busy ? (
@@ -323,14 +323,14 @@ export function BrandsSettings() {
               ) : (
                 <Plus size={13} aria-hidden />
               )}{' '}
-              {editing ? 'Save changes' : 'Add brand'}
+              {editing ? 'Save changes' : 'Add entity'}
             </Button>
           </>
         }
       >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block">
-            <span className="mb-1 block text-[11px] font-bold text-text-high">Brand name</span>
+            <span className="mb-1 block text-[11px] font-bold text-text-high">Entity name</span>
             <input
               type="text"
               value={name}
@@ -365,11 +365,11 @@ export function BrandsSettings() {
                 type="text"
                 value={tenant}
                 onChange={(e) => setTenant(e.target.value)}
-                list="brands-tenant-slugs"
+                list="entities-tenant-slugs"
                 placeholder="tenant slug, e.g. northwind"
                 className="w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400"
               />
-              <datalist id="brands-tenant-slugs">
+              <datalist id="entities-tenant-slugs">
                 {tenants.map((t) => (
                   <option key={t} value={t} />
                 ))}
@@ -390,7 +390,7 @@ export function BrandsSettings() {
               <span className="text-[12px] text-text-primary">
                 Active
                 <span className="ml-1 text-[10.5px] text-text-muted">
-                  — inactive brands stay on record but drop out of routing.
+                  — inactive entities stay on record but drop out of routing.
                 </span>
               </span>
             </label>

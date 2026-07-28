@@ -23,7 +23,7 @@ import {
   type Voice,
   type TranscriptLine,
 } from './mocks'
-import { useBrand } from './BrandContext'
+import { useEntity } from './EntityContext'
 
 // Native Django API base. Override with NEXT_PUBLIC_API_URL.
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
@@ -156,12 +156,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [contacts, setContacts] = useState<Contact[]>(CONTACTS)
   const [activities] = useState<FeedItem[]>(FEED)
 
-  // Active brand from the topbar switcher scopes the contact list server-side
-  // (?brand=<slug>). null/undefined = whole tenant (no narrowing).
-  const { activeBrand } = useBrand()
-  const brandSlug = activeBrand?.slug ?? null
-  const contactsUrl = brandSlug
-    ? `${API}/contacts?brand=${encodeURIComponent(brandSlug)}`
+  // Active entity from the topbar switcher scopes the contact list server-side
+  // (?entity=<slug>). null/undefined = whole tenant (no narrowing).
+  const { activeEntity } = useEntity()
+  const entitySlug = activeEntity?.slug ?? null
+  const contactsUrl = entitySlug
+    ? `${API}/contacts?entity=${encodeURIComponent(entitySlug)}`
     : `${API}/contacts`
 
   useEffect(() => {

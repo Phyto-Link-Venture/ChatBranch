@@ -1724,7 +1724,7 @@ export default function ChatsPage() {
               : seenBefore
                 ? `Switched sender number — now via ${acctLabel(m)}. The customer knows this number; if they ` +
                   `haven't replied to it within 24h, open with an approved template.`
-                : `Switched sender number — now via ${acctLabel(m)}. Brand-new number for this customer ` +
+                : `Switched sender number — now via ${acctLabel(m)}. Entity-new number for this customer ` +
                   `(their side shows a new chat) — open with an approved template or have them reply first.`,
           )
         }
