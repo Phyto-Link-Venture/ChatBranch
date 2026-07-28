@@ -384,9 +384,11 @@ def _provider_slot(name: str, model: str) -> tuple[str, str, str]:
                 model or "openai/gpt-4o-mini")
     if name == "openai":
         return ("https://api.openai.com/v1", openai_key(), model or "gpt-4o-mini")
-    # google (and any unknown name) -> Gemini's OpenAI-compatible endpoint
+    # google (and any unknown name) -> Gemini's OpenAI-compatible endpoint.
+    # `gemini-flash-latest` is a rolling alias — the pinned `gemini-2.5-flash`
+    # is now gated for new API keys (404 "no longer available to new users").
     return ("https://generativelanguage.googleapis.com/v1beta/openai/",
-            google_key(), model or "gemini-2.5-flash")
+            google_key(), model or "gemini-flash-latest")
 
 
 def _provider_entry(name: str, model: str) -> tuple[str, str, str] | None:

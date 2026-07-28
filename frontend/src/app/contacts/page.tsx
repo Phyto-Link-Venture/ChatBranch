@@ -103,6 +103,7 @@ function ContactModal({
   onClose: () => void
 }) {
   const { reloadContacts } = useApp()
+  const { activeBrand } = useBrand()
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [language, setLanguage] = useState('en')
@@ -110,6 +111,7 @@ function ContactModal({
   const [company, setCompany] = useState('')
   const [tags, setTags] = useState('')
   const [notes, setNotes] = useState('')
+  const [allBrands, setAllBrands] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -123,6 +125,7 @@ function ContactModal({
       setCompany(editing?.company ?? '')
       setTags((editing?.tags ?? []).join(', '))
       setNotes(editing && typeof editing.attributes.notes === 'string' ? editing.attributes.notes : '')
+      setAllBrands(false)
       setError(null)
       setBusy(false)
     }
@@ -140,6 +143,16 @@ function ContactModal({
         company_name: company.trim(),
         tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
         notes: notes.trim(),
+        // Brand membership on create: the current brand by default, or every
+        // brand in the tenant when the operator toggles "all brands". (Ignored
+        // on edit — PATCH doesn't touch brand links.)
+        ...(editing
+          ? {}
+          : allBrands
+            ? { all_brands: true }
+            : activeBrand
+              ? { brand: activeBrand.slug }
+              : {}),
       })
       // PATCH /api/v1/contacts/<id> for edits (backend accepting the extra
       // fields lands in parallel; language already persists today), POST to
@@ -210,6 +223,22 @@ function ContactModal({
         <AddField label="Tags (comma-separated)" value={tags} onChange={setTags} placeholder="vip, wholesale" />
         <AddField label="Notes (optional)" value={notes} onChange={setNotes} />
       </div>
+
+      {!editing && activeBrand && (
+        <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-lg border border-line bg-fill-subtle px-3 py-2.5">
+          <input
+            type="checkbox"
+            checked={allBrands}
+            onChange={(e) => setAllBrands(e.target.checked)}
+            className="mt-0.5 accent-brand-500"
+          />
+          <span className="text-[11.5px] leading-[1.5] text-text-muted">
+            <span className="font-semibold text-text-high">Add to all brands</span> in this tenant.
+            {' '}By default this contact is added to{' '}
+            <span className="font-semibold text-text-high">{activeBrand.name}</span> only.
+          </span>
+        </label>
+      )}
     </Modal>
   )
 }

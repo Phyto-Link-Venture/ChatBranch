@@ -27,6 +27,7 @@ export const SETTINGS_TABS: { id: string; lbl: string; superadminOnly?: boolean 
   { id: 'assignments', lbl: 'Account Assignment' },
   { id: 'appkeys', lbl: 'App Keys', superadminOnly: true },
   { id: 'pronunciation', lbl: 'Pronunciation' },
+  { id: 'booking-hours', lbl: 'Booking Hours' },
 ]
 
 export function SettingsShell({ children }: { children: ReactNode }) {

@@ -329,3 +329,58 @@ def skills_view(request):
     rbac.audit(request, "aicore.skills.update", target="agent-skills",
                detail=f"{len(kept)} skill(s)")
     return JsonResponse({"skills": [_skill_payload(s) for s in AgentSkill.objects.all()]})
+
+
+# ---- booking hours (per-day appointment schedule) ---------------------------
+
+_BOOKING_DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+
+@csrf_exempt
+def booking_hours_view(request):
+    """GET/PUT the per-day appointment booking schedule (Setting `booking_hours`).
+
+    GET  -> {"hours": {"mon":[9,21], ... , "sun":null}}  (any authed role)
+    PUT  -> {"hours": {...}} ; admin+. A day is [open, close] whole hours (0–24,
+    open<close) or null/[] for CLOSED. This drives BOTH the slots the AI offers
+    and the booking guard, so what's offered and what's bookable stay in step."""
+    from integrations import actions
+
+    denied = _auth_required(request)
+    if denied:
+        return denied
+    if request.method == "GET":
+        return JsonResponse({"hours": actions.booking_hours_raw(),
+                             "default": dict(actions._DEFAULT_HOURS)})
+    if request.method != "PUT":
+        return HttpResponseNotAllowed(["GET", "PUT"])
+    if not _can_manage(request):
+        return JsonResponse({"detail": "Admin role required to edit booking hours."},
+                            status=403)
+    hours = _json_body(request).get("hours")
+    if not isinstance(hours, dict):
+        return JsonResponse({"detail": "hours must be an object keyed by day."}, status=400)
+    clean: dict = {}
+    for day in _BOOKING_DAYS:
+        val = hours.get(day)
+        if val in (None, [], ""):
+            clean[day] = None  # closed
+            continue
+        if not isinstance(val, (list, tuple)) or len(val) < 2:
+            return JsonResponse({"detail": f"{day} must be [open, close] or null."},
+                                status=400)
+        try:
+            o, c = int(val[0]), int(val[1])
+        except (TypeError, ValueError):
+            return JsonResponse({"detail": f"{day} hours must be whole numbers."}, status=400)
+        if not (0 <= o < c <= 24):
+            return JsonResponse({"detail": f"{day} needs 0 ≤ open < close ≤ 24."},
+                                status=400)
+        clean[day] = [o, c]
+    from crm.models import Setting
+
+    Setting.objects.update_or_create(key="booking_hours",
+                                     defaults={"value": json.dumps(clean)})
+    rbac.audit(request, "aicore.booking_hours.update", target="booking_hours",
+               detail=json.dumps(clean)[:200])
+    return JsonResponse({"hours": clean, "default": dict(actions._DEFAULT_HOURS)})

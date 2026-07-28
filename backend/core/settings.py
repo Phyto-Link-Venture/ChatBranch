@@ -102,7 +102,10 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
+# Server-local time drives business-hours slot math, quiet hours and the
+# human-readable times the AI shows customers. The app's deployment assumption
+# is Malaysia (see whatsapp/wa_config quiet-hours note); override with TZ env.
+TIME_ZONE = os.getenv('TIME_ZONE', 'Asia/Kuala_Lumpur')
 USE_I18N = True
 USE_TZ = True
 

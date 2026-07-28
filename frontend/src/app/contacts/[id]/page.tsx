@@ -28,6 +28,7 @@ import { LANGUAGES } from '@/lib/languages'
 import { initials, methodLabel, primaryRecord } from '@/lib/mocks'
 import { StatusBadge, Pill } from '@/components/ui/Badges'
 import ChannelHub from '@/components/ChannelHub'
+import ContactBrandsCard from '@/components/ContactBrandsCard'
 import { DEFAULT_WORKFLOWS } from '@/lib/flow/defaultWorkflows'
 import type { FlowNode } from '@/lib/flow/types'
 
@@ -433,6 +434,9 @@ export default function ContactDetailPage() {
             </div>
             <ChannelHub contactId={d.id} allowAdd />
           </div>
+
+          {/* Per-brand membership — link/unlink without deleting the profile */}
+          <ContactBrandsCard contactId={d.id} />
         </div>
 
         {/* Live communications — recent few by default, full log on demand */}

@@ -16,8 +16,10 @@ steps log a clear skip.
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
+import re
 from datetime import datetime, time as dt_time, timedelta
 
 from . import catalog, health, oauth
@@ -156,7 +158,25 @@ def book_appointment(contact=None, config=None, text="") -> dict:
     The CRM write is best-effort — a booking that succeeded on the calendar is
     never failed by a bookkeeping error, and with no contact linked it degrades
     to just the calendar event (the same skip/fail envelope as everything else).
+
+    GUARD: the requested time is validated against the operator's booking
+    schedule BEFORE any calendar write. Enforced here (not just in the prompt),
+    so no caller — however the model behaves — can book outside opening hours.
     """
+    cfg = config or {}
+    start = _parse_when(cfg.get("eventStart")) if cfg.get("eventStart") else None
+    if start is None:
+        return _fail("no appointment time given")
+    minutes = _int(cfg.get("eventMinutes"), 30, lo=5, hi=480)
+    schedule = _parse_schedule(cfg["businessHours"]) if cfg.get("businessHours") \
+        else booking_schedule()
+    if not within_schedule(start, minutes, schedule):
+        return {"ok": False, "outside_hours": True,
+                "detail": "requested time is outside the bookable opening hours",
+                "hours": booking_hours_raw(),
+                "hint": ("tell the customer that time is outside opening hours, "
+                         "then call check_calendar_availability and offer a valid "
+                         "slot instead")}
     result = create_calendar_event(contact=contact, config=config, text=text)
     if not result.get("ok"):
         return result  # not-connected skip or a calendar failure — pass through
@@ -189,6 +209,159 @@ def _record_booking(contact, cfg: dict, text: str, data: dict) -> None:
     book_event(record, "note", at=start,
                data={"kind": "booking", "start": start.isoformat(),
                      "source": "ai", "event_id": data.get("event_id")})
+
+
+# ---- cancel / reschedule an existing appointment ----------------------------
+
+def _upcoming_bookings(contact) -> list:
+    """(Record, event_id, start_dt) for the contact's not-cancelled future
+    bookings that carry a calendar event id, soonest first. Best-effort — a
+    lookup error degrades to 'no bookings' rather than breaking the reply."""
+    if contact is None:
+        return []
+    from django.utils import timezone as dj_tz
+
+    try:
+        from crm.models import Record
+
+        rows = Record.objects.filter(contact=contact, type="booking").exclude(
+            status__in=("cancelled", "completed"))
+    except Exception:
+        logger.exception("integrations: booking lookup failed")
+        return []
+    cutoff = dj_tz.now() - timedelta(hours=2)  # keep a just-started one addressable
+    out = []
+    for r in rows:
+        data = r.data or {}
+        eid = data.get("event_id")
+        start = _parse_when(data.get("start")) if data.get("start") else None
+        if eid and start and start >= cutoff:
+            out.append((r, eid, start))
+    out.sort(key=lambda x: x[2])
+    return out
+
+
+def _select_booking(bookings: list, cfg: dict):
+    """Pick which upcoming booking to act on: match cfg['eventId'] or a
+    cfg['currentStart'] (the existing time the customer named); else the only
+    one; else None (ambiguous — the caller asks which)."""
+    cfg = cfg or {}
+    want_id = str(cfg.get("eventId") or "").strip()
+    if want_id:
+        return next((b for b in bookings if b[1] == want_id), None)
+    if cfg.get("currentStart"):
+        target = _parse_when(cfg["currentStart"])
+        near = next((b for b in bookings
+                     if abs((b[2] - target).total_seconds()) <= 3600), None)
+        if near:
+            return near
+    return bookings[0] if len(bookings) == 1 else None
+
+
+def _ambiguous(bookings: list, verb: str) -> dict:
+    return {"ok": False, "ambiguous": True,
+            "appointments": [{"start": s.isoformat(), "title": r.title}
+                             for r, _, s in bookings],
+            "detail": f"more than one upcoming appointment — ask which one to {verb}",
+            "hint": f"list the upcoming appointments and ask which to {verb}"}
+
+
+def list_appointments(contact=None, config=None, text="") -> dict:
+    """Read-only: the contact's upcoming appointments so the assistant can tell
+    the customer what is on file before cancelling or moving one."""
+    bookings = _upcoming_bookings(contact)
+    return _done(f"{len(bookings)} upcoming appointment(s)", {
+        "appointments": [{"start": s.isoformat(), "human": _slot_human(s),
+                          "title": r.title} for r, _, s in bookings]})
+
+
+def cancel_appointment(contact=None, config=None, text="") -> dict:
+    """Cancel the contact's upcoming appointment: delete the calendar event and
+    mark the booking Record cancelled. >1 upcoming → returns the list to ask."""
+    cfg = config or {}
+    row, token = _google_ready("google_calendar")
+    if row is None or not token:
+        return _skip("Google Calendar is not connected — step skipped.")
+    bookings = _upcoming_bookings(contact)
+    if not bookings:
+        return {"ok": False, "detail": "no upcoming appointment on file for this contact",
+                "hint": "tell the customer we have no upcoming booking recorded for them"}
+    target = _select_booking(bookings, cfg)
+    if target is None:
+        return _ambiguous(bookings, "cancel")
+    record, event_id, start = target
+    calendar_id = str(cfg.get("calendarId") or (row.config or {}).get("calendar_id")
+                      or "primary")
+    ok, payload = _request(
+        "DELETE",
+        f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events/{event_id}",
+        token=token)
+    _record_result(row, ok, "" if ok else str(payload))
+    # 404/410 = already gone on the calendar; still mark the CRM cancelled so the
+    # two never drift out of sync.
+    if not ok and "404" not in str(payload) and "410" not in str(payload):
+        return _fail(f"Google Calendar: {payload}")
+    try:
+        record.status = "cancelled"
+        record.save()
+    except Exception:
+        logger.exception("integrations: cancel Record update failed")
+    return {"ok": True, "cancelled": True, "start": start.isoformat(),
+            "note": "appointment cancelled — confirm the cancellation to the customer"}
+
+
+def reschedule_appointment(contact=None, config=None, text="") -> dict:
+    """Move the contact's upcoming appointment to a new time: validate the new
+    time against the booking schedule (GUARD), PATCH the calendar event and
+    update the Record. >1 upcoming → returns the list to ask which."""
+    cfg = config or {}
+    row, token = _google_ready("google_calendar")
+    if row is None or not token:
+        return _skip("Google Calendar is not connected — step skipped.")
+    new_start = _parse_when(cfg.get("eventStart")) if cfg.get("eventStart") else None
+    if new_start is None:
+        return _fail("no new time given — eventStart is required")
+    minutes = _int(cfg.get("eventMinutes"), 30, lo=5, hi=480)
+    schedule = _parse_schedule(cfg["businessHours"]) if cfg.get("businessHours") \
+        else booking_schedule()
+    if not within_schedule(new_start, minutes, schedule):
+        return {"ok": False, "outside_hours": True,
+                "detail": "the new time is outside the bookable opening hours",
+                "hours": booking_hours_raw(),
+                "hint": ("tell the customer that time is outside opening hours, then "
+                         "call check_calendar_availability and offer a valid slot")}
+    bookings = _upcoming_bookings(contact)
+    if not bookings:
+        return {"ok": False, "detail": "no upcoming appointment on file to reschedule",
+                "hint": "tell the customer we have no upcoming booking; offer to make one"}
+    target = _select_booking(bookings, cfg)
+    if target is None:
+        return _ambiguous(bookings, "move")
+    record, event_id, old_start = target
+    calendar_id = str(cfg.get("calendarId") or (row.config or {}).get("calendar_id")
+                      or "primary")
+    body = {"start": {"dateTime": new_start.isoformat()},
+            "end": {"dateTime": (new_start + timedelta(minutes=minutes)).isoformat()}}
+    ok, payload = _request(
+        "PATCH",
+        f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events/{event_id}",
+        token=token, json_body=body)
+    _record_result(row, ok, "" if ok else str(payload))
+    if not ok:
+        return _fail(f"Google Calendar: {payload}")
+    try:
+        data = dict(record.data or {})
+        data["start"] = new_start.isoformat()
+        if payload.get("htmlLink"):
+            data["html_link"] = payload["htmlLink"]
+        record.data = data
+        record.due_date = new_start.date()
+        record.save()
+    except Exception:
+        logger.exception("integrations: reschedule Record update failed")
+    return {"ok": True, "rescheduled": True, "from": old_start.isoformat(),
+            "to": new_start.isoformat(), "calendar_link": payload.get("htmlLink", ""),
+            "note": "appointment moved — confirm the new time to the customer"}
 
 
 def find_free_slot(contact=None, config=None, text="") -> dict:
@@ -281,9 +454,8 @@ def find_free_slots(contact=None, config=None, text="", *, count: int = 3) -> di
     start = _parse_when(raw_start) if raw_start else dj_tz.localtime()
     horizon = _int(cfg.get("searchDays"), 7, lo=1, hi=60)
     minutes = _int(cfg.get("eventMinutes"), 30, lo=5, hi=480)
-    open_h = _int(cfg.get("businessOpen"), 9, lo=0, hi=23)
-    close_h = _int(cfg.get("businessClose"), 18, lo=1, hi=23)
     want = _int(cfg.get("slotCount"), count, lo=1, hi=10)
+    schedule = _schedule_from_cfg(cfg)
     end = start + timedelta(days=horizon)
     ok, payload = _request(
         "POST", "https://www.googleapis.com/calendar/v3/freeBusy", token=token,
@@ -293,12 +465,144 @@ def find_free_slots(contact=None, config=None, text="", *, count: int = 3) -> di
     if not ok:
         return _fail(f"Google Calendar: {payload}")
     busy = (((payload.get("calendars") or {}).get(calendar_id) or {}).get("busy") or [])
-    slots = _walk_business_slots(start, end, busy, minutes, open_h, close_h, want)
+    slots = _walk_business_slots(start, end, busy, minutes, want, schedule)
     data = {"slots": [{"start": s.isoformat(), "human": _slot_human(s),
                        "duration_minutes": minutes} for s in slots]}
     if not slots:
         return _done("no free business-hours slot in the search window", data)
     return _done(f"{len(slots)} free slot(s) found", data)
+
+
+_DAY_NAMES = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+
+
+def _parse_days(value) -> set:
+    """Allowed weekday ints (0=Mon … 6=Sun) from a config value. Accepts
+    None/'' (→ Mon–Fri), 'weekdays', 'all'/'everyday'/'daily', a list of ints,
+    or a CSV of day names/numbers ('mon,tue' or '0,1,5'). Unknown → Mon–Fri."""
+    if value is None or value == "":
+        return {0, 1, 2, 3, 4}
+    if isinstance(value, (list, tuple, set)):
+        out = {int(v) for v in value if str(v).strip().isdigit() and 0 <= int(v) <= 6}
+        return out or {0, 1, 2, 3, 4}
+    s = str(value).strip().lower()
+    if s in ("weekday", "weekdays", "mon-fri", "monfri"):
+        return {0, 1, 2, 3, 4}
+    if s in ("all", "everyday", "every day", "daily", "mon-sun", "week", "7"):
+        return {0, 1, 2, 3, 4, 5, 6}
+    out = set()
+    for tok in re.split(r"[,\s]+", s):
+        if not tok:
+            continue
+        if tok.isdigit() and 0 <= int(tok) <= 6:
+            out.add(int(tok))
+        elif tok[:3] in _DAY_NAMES:
+            out.add(_DAY_NAMES[tok[:3]])
+    return out or {0, 1, 2, 3, 4}
+
+
+# ---- per-day booking schedule (operator-configurable) -----------------------
+#
+# The bookable window can differ per weekday (e.g. Mon–Fri 09:00–21:00, Sat
+# 10:00–14:00, Sun closed). It lives in Setting `booking_hours` as a name-keyed
+# map {"mon":[9,21], ... , "sat":null}; a missing/null/empty day is CLOSED.
+# Both the availability suggester (find_free_slots) and the booking guard
+# (within_schedule → book_appointment) read the SAME schedule, so what the bot
+# offers and what it will actually book can never drift apart.
+
+_DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+# Widened default: weekday evenings open, weekends closed. Override in Settings.
+_DEFAULT_HOURS = {"mon": [9, 21], "tue": [9, 21], "wed": [9, 21],
+                  "thu": [9, 21], "fri": [9, 21]}
+
+
+def _combine_aware(date, hour: int):
+    """An aware datetime at `hour`:00 local on `date`; hour==24 → next midnight."""
+    from django.utils import timezone as dj_tz
+
+    if hour >= 24:
+        return dj_tz.make_aware(datetime.combine(date, dt_time(0))) + timedelta(days=1)
+    return dj_tz.make_aware(datetime.combine(date, dt_time(hour)))
+
+
+def _parse_schedule(value) -> dict:
+    """{weekday_int:(open_h,close_h)} from a per-day map like
+    {"mon":[9,18],"tue":[9,21],"sat":null}. Missing/null/empty/invalid day =
+    CLOSED. Whole-hour opens 0–24. Accepts a dict or a JSON string."""
+    data = value
+    if isinstance(value, str):
+        try:
+            data = json.loads(value)
+        except (ValueError, TypeError):
+            return {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict = {}
+    for i, key in enumerate(_DAY_KEYS):
+        hrs = data.get(key)
+        if not isinstance(hrs, (list, tuple)) or len(hrs) < 2:
+            continue  # closed
+        try:
+            o, c = int(hrs[0]), int(hrs[1])
+        except (TypeError, ValueError):
+            continue
+        o, c = max(0, min(24, o)), max(0, min(24, c))
+        if o < c:
+            out[i] = (o, c)
+    return out
+
+
+def booking_hours_raw() -> dict:
+    """The operator's per-day booking hours (name-keyed) from Setting
+    `booking_hours`, else the widened default. Exception-safe."""
+    try:
+        from crm.models import Setting
+
+        row = Setting.objects.filter(key="booking_hours").first()
+        if row and str(row.value).strip():
+            data = json.loads(row.value) if isinstance(row.value, str) else row.value
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        logger.exception("integrations: booking_hours read failed")
+    return dict(_DEFAULT_HOURS)
+
+
+def booking_schedule() -> dict:
+    """Parsed {weekday_int:(open,close)} of the operator's booking hours."""
+    return _parse_schedule(booking_hours_raw())
+
+
+def _schedule_from_cfg(cfg: dict) -> dict:
+    """The schedule find_free_slots should use. Precedence: an explicit
+    `businessHours` map in cfg (the AI tool passes the operator's schedule) →
+    the legacy uniform `businessOpen`/`businessClose`/`businessDays` (flow
+    builder + existing callers, default 09:00–18:00 Mon–Fri)."""
+    if cfg.get("businessHours"):
+        parsed = _parse_schedule(cfg["businessHours"])
+        if parsed:
+            return parsed
+    open_h = _int(cfg.get("businessOpen"), 9, lo=0, hi=24)
+    close_h = _int(cfg.get("businessClose"), 18, lo=1, hi=24)
+    days = _parse_days(cfg.get("businessDays"))
+    return {d: (open_h, close_h) for d in days}
+
+
+def within_schedule(start_dt, minutes: int, schedule=None) -> bool:
+    """The booking GUARD: True only when a `minutes`-long appointment starting
+    at `start_dt` falls entirely inside that day's open window. Closed day →
+    False. `schedule` defaults to the operator's configured booking hours."""
+    from django.utils import timezone as dj_tz
+
+    if schedule is None:
+        schedule = booking_schedule()
+    local = dj_tz.localtime(start_dt)
+    hours = schedule.get(local.weekday())
+    if not hours:
+        return False
+    day_open = _combine_aware(local.date(), hours[0])
+    day_close = _combine_aware(local.date(), hours[1])
+    return day_open <= start_dt and start_dt + timedelta(minutes=minutes) <= day_close
 
 
 def _int(value, default: int, *, lo: int | None = None, hi: int | None = None) -> int:
@@ -333,10 +637,11 @@ def _slot_busy(slot_start: datetime, slot_end: datetime, spans: list) -> bool:
 
 
 def _walk_business_slots(start: datetime, end: datetime, busy: list, minutes: int,
-                         open_h: int, close_h: int, count: int) -> list:
-    """The first `count` `minutes`-long slots inside [open_h:00, close_h:00) on
-    weekdays that clear every busy block. Deterministic: candidates step by the
-    slot length from each day's opening time (aligned to the grid on day one)."""
+                         count: int, schedule: dict) -> list:
+    """The first `count` `minutes`-long slots that fall inside each day's open
+    window (per `schedule`: {weekday_int: (open_h, close_h)}, closed days absent)
+    and clear every busy block. Deterministic: candidates step by the slot length
+    from each day's opening time (aligned to the grid on day one)."""
     from django.utils import timezone as dj_tz
 
     spans = _busy_spans(busy)
@@ -345,9 +650,10 @@ def _walk_business_slots(start: datetime, end: datetime, busy: list, minutes: in
     cur_date = dj_tz.localtime(start).date()
     last_date = dj_tz.localtime(end).date()
     while cur_date <= last_date and len(results) < count:
-        if cur_date.weekday() < 5:  # Mon–Fri
-            day_open = dj_tz.make_aware(datetime.combine(cur_date, dt_time(open_h)))
-            day_close = dj_tz.make_aware(datetime.combine(cur_date, dt_time(close_h)))
+        hours = schedule.get(cur_date.weekday())
+        if hours:
+            day_open = _combine_aware(cur_date, hours[0])
+            day_close = _combine_aware(cur_date, hours[1])
             cand = day_open
             if cand < start:  # first day may begin mid-session — align to the grid
                 steps = math.ceil((start - day_open) / need)

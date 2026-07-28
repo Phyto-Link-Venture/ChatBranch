@@ -108,6 +108,86 @@ _BOOK_APPOINTMENT = {
     },
 }
 
+_LIST_APPOINTMENTS = {
+    "type": "function",
+    "function": {
+        "name": "list_appointments",
+        "description": (
+            "List the customer's own upcoming appointments (read-only). Call this "
+            "before cancelling or rescheduling so you can tell the customer what "
+            "is on file and, if there is more than one, ask which."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
+_CANCEL_APPOINTMENT = {
+    "type": "function",
+    "function": {
+        "name": "cancel_appointment",
+        "description": (
+            "Cancel the customer's existing upcoming appointment. TWO-STEP like "
+            "book_appointment: the first call never cancels — it returns an "
+            "instruction to confirm; after the customer explicitly agrees in a "
+            "LATER message, call again with confirmed=true. If they have more than "
+            "one upcoming appointment, pass current_start to say which."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "current_start": {
+                    "type": "string",
+                    "description": ("ISO 8601 start time of the appointment to "
+                                    "cancel — only needed if more than one is upcoming."),
+                },
+                "confirmed": {
+                    "type": "boolean",
+                    "description": ("Omit/false on the first call. true ONLY after "
+                                    "the customer agreed in a later message."),
+                },
+            },
+        },
+    },
+}
+
+_RESCHEDULE_APPOINTMENT = {
+    "type": "function",
+    "function": {
+        "name": "reschedule_appointment",
+        "description": (
+            "Move the customer's existing upcoming appointment to a new date/time. "
+            "TWO-STEP like book_appointment: the first call never moves it — "
+            "confirm the new time with the customer first, then call again with "
+            "confirmed=true. The new time is validated against opening hours. If "
+            "they have more than one upcoming appointment, pass current_start."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "new_start_iso": {
+                    "type": "string",
+                    "description": "The NEW start time in ISO 8601 with timezone.",
+                },
+                "current_start": {
+                    "type": "string",
+                    "description": ("ISO 8601 start of the existing appointment to "
+                                    "move — only if more than one is upcoming."),
+                },
+                "duration_minutes": {
+                    "type": "integer",
+                    "description": "Length of the appointment in minutes (default 30).",
+                },
+                "confirmed": {
+                    "type": "boolean",
+                    "description": ("Omit/false on the first call. true ONLY after "
+                                    "the customer agreed in a later message."),
+                },
+            },
+            "required": ["new_start_iso"],
+        },
+    },
+}
+
 
 # ---- connectivity gates (DB-only, no network) -------------------------------
 
@@ -152,6 +232,9 @@ def tool_specs(contact=None, channel: str = "") -> list[dict]:
     if _calendar_connected():
         specs.append(_CHECK_AVAILABILITY)
         specs.append(_BOOK_APPOINTMENT)
+        specs.append(_LIST_APPOINTMENTS)
+        specs.append(_RESCHEDULE_APPOINTMENT)
+        specs.append(_CANCEL_APPOINTMENT)
     return specs
 
 
@@ -166,7 +249,8 @@ def tool_specs(contact=None, channel: str = "") -> list[dict]:
 # restarts and works across processes/workers; the confirmed execution CONSUMES
 # the row (atomic delete), so a replayed confirm can never double-fire.
 
-_MUTATING = frozenset({"book_appointment"})
+_MUTATING = frozenset({"book_appointment", "cancel_appointment",
+                       "reschedule_appointment"})
 _CONFIRM_TTL_S = 30 * 60  # a "yes" older than this re-asks
 
 
@@ -251,7 +335,9 @@ def _confirmation_gate(name: str, args: dict, *, contact, channel: str,
 def _do_check_availability(args: dict, *, contact, channel: str) -> dict:
     from integrations import actions
 
-    cfg: dict = {}
+    # The operator's per-day booking schedule (Setting `booking_hours`) drives
+    # which slots are offered — the SAME schedule the booking guard enforces.
+    cfg: dict = {"businessHours": actions.booking_hours_raw()}
     if args.get("duration_minutes"):
         cfg["eventMinutes"] = args["duration_minutes"]
     if args.get("within_days"):
@@ -284,7 +370,8 @@ def _do_book_appointment(args: dict, *, contact, channel: str) -> dict:
                                    text=str(args.get("title") or ""))
     if not res.get("ok"):
         return {"ok": False, "error": res.get("detail") or "booking failed",
-                "hint": "apologise and offer to have the team confirm the appointment"}
+                "hint": res.get("hint")
+                or "apologise and offer to have the team confirm the appointment"}
     data = res.get("data") or {}
     _audit_booking(contact, channel, start_iso, data)
     return {"ok": True, "confirmed": True, "start": start_iso,
@@ -292,14 +379,73 @@ def _do_book_appointment(args: dict, *, contact, channel: str) -> dict:
             "note": "appointment booked — confirm the time and details back to the customer"}
 
 
+def _do_list_appointments(args: dict, *, contact, channel: str) -> dict:
+    from integrations import actions
+
+    res = actions.list_appointments(contact=contact)
+    appts = (res.get("data") or {}).get("appointments") or []
+    if not appts:
+        return {"ok": True, "appointments": [],
+                "note": "no upcoming appointments on file for this customer"}
+    return {"ok": True, "appointments": appts}
+
+
+def _do_cancel_appointment(args: dict, *, contact, channel: str) -> dict:
+    from integrations import actions
+
+    cfg: dict = {}
+    if args.get("current_start"):
+        cfg["currentStart"] = args["current_start"]
+    res = actions.cancel_appointment(contact=contact, config=cfg)
+    if not res.get("ok"):
+        out = {"ok": False, "error": res.get("detail") or "cancellation failed",
+               "hint": res.get("hint") or "apologise and offer to have the team help"}
+        if res.get("ambiguous"):
+            out["appointments"] = res.get("appointments")
+        return out
+    _audit_appointment_change(contact, channel, "cancelled", res.get("start"))
+    return {"ok": True, "cancelled": True, "start": res.get("start"),
+            "note": res.get("note")}
+
+
+def _do_reschedule_appointment(args: dict, *, contact, channel: str) -> dict:
+    from integrations import actions
+
+    new_iso = str(args.get("new_start_iso") or "").strip()
+    if not new_iso:
+        return {"ok": False, "error": "new_start_iso is required — the new ISO 8601 time"}
+    cfg: dict = {"eventStart": new_iso}
+    if args.get("duration_minutes"):
+        cfg["eventMinutes"] = args["duration_minutes"]
+    if args.get("current_start"):
+        cfg["currentStart"] = args["current_start"]
+    res = actions.reschedule_appointment(contact=contact, config=cfg)
+    if not res.get("ok"):
+        out = {"ok": False, "error": res.get("detail") or "reschedule failed",
+               "hint": res.get("hint") or "apologise and offer to have the team help"}
+        if res.get("ambiguous"):
+            out["appointments"] = res.get("appointments")
+        return out
+    _audit_appointment_change(contact, channel, "rescheduled", res.get("to"))
+    return {"ok": True, "rescheduled": True, "from": res.get("from"),
+            "to": res.get("to"), "calendar_link": res.get("calendar_link", ""),
+            "note": res.get("note")}
+
+
 _SCHEMAS = {
     "check_calendar_availability": _CHECK_AVAILABILITY,
     "book_appointment": _BOOK_APPOINTMENT,
+    "list_appointments": _LIST_APPOINTMENTS,
+    "cancel_appointment": _CANCEL_APPOINTMENT,
+    "reschedule_appointment": _RESCHEDULE_APPOINTMENT,
 }
 
 _DISPATCH = {
     "check_calendar_availability": _do_check_availability,
     "book_appointment": _do_book_appointment,
+    "list_appointments": _do_list_appointments,
+    "cancel_appointment": _do_cancel_appointment,
+    "reschedule_appointment": _do_reschedule_appointment,
 }
 
 
@@ -351,3 +497,23 @@ def _audit_booking(contact, channel: str, start_iso: str, data: dict) -> None:
                     "/chats", category="admin")
     except Exception:
         logger.exception("aicore.tools: booking audit/notify failed")
+
+
+def _audit_appointment_change(contact, channel: str, action: str, when) -> None:
+    """A cancellation / reschedule is a real side effect too — audit + notify.
+    Best-effort: never breaks the reply."""
+    try:
+        from crm import auth as rbac
+
+        who = getattr(contact, "name", "") or "a customer"
+        target = f"contact:{contact.pk}" if contact is not None else "contact:?"
+        rbac.audit(None, f"ai.booking_{action}", target=target,
+                   detail=f"AI {action} an appointment for {who}"
+                          f"{f' → {when}' if when else ''} via {channel or 'chat'}"[:1000])
+        rbac.notify(("superadmin", "admin"), "system",
+                    f"AI {action} an appointment",
+                    f"The assistant {action} {who}'s appointment"
+                    f"{f' ({when})' if when else ''}."[:500],
+                    "/chats", category="admin")
+    except Exception:
+        logger.exception("aicore.tools: appointment-change audit/notify failed")

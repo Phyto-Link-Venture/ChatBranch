@@ -255,7 +255,8 @@ def generate_reply(history: list[dict], *, contact_name: str, phone: str, channe
         # Additive tool-calling loop. Falls back to a plain completion if the
         # provider rejects `tools=`, so this never breaks a reply.
         text = _run_tool_loop(client, base_create, tools, contact=contact,
-                              channel=channel, usage_acc=usage_acc).strip()
+                              channel=channel, provider=_provider_name(base_url),
+                              usage_acc=usage_acc).strip()
     else:
         # No tools (sandbox / disabled / unsupported provider): the EXACT single
         # completion — identical kwargs — that generate_reply has always made.
@@ -302,6 +303,14 @@ def _tool_specs(contact, channel: str) -> list:
         return []
 
 
+def _provider_name(base_url: str) -> str:
+    """Canonical provider key ('openai'/'openrouter'/'gemini'/'ilmu') for the
+    tool loop's per-provider branches. Reuses the usage ledger's detector so
+    provider naming stays in ONE place."""
+    from aicore import usage
+    return usage.provider_from_base_url(base_url)
+
+
 def _tools_supported(base_url: str) -> bool:
     """Offer tools only to OpenAI-compatible chat providers that support them.
     ilmu runs the reasoning_effort=low path and is NOT verified for tools, so it
@@ -310,16 +319,33 @@ def _tools_supported(base_url: str) -> bool:
     return "ilmu" not in (base_url or "")
 
 
-def _assistant_tool_msg(message, tool_calls) -> dict:
+def _tool_call_payload(tc, provider: str) -> dict:
+    """One tool call rebuilt as a plain dict for the NEXT request. Some providers
+    require provider-specific fields echoed back on the tool-call turn — this is
+    the single place that quirk lives, so a new model = one more branch here."""
+    payload = {
+        "id": getattr(tc, "id", ""),
+        "type": "function",
+        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+    }
+    if provider == "gemini":
+        # Gemini's OpenAI-compat endpoint returns a `thought_signature` on each
+        # tool call and REQUIRES it echoed back verbatim, or the follow-up call
+        # 400s ("Function call is missing a thought_signature"). The OpenAI SDK
+        # parks unknown response fields in `model_extra["extra_content"]`.
+        extra = (getattr(tc, "model_extra", None) or {}).get("extra_content")
+        if extra:
+            payload["extra_content"] = extra
+    # elif provider == "<next model>":  # add the model's own tool-turn quirk here
+    return payload
+
+
+def _assistant_tool_msg(message, tool_calls, provider: str = "openai") -> dict:
     """Rebuild the model's tool-call turn as a plain dict to feed back."""
     return {
         "role": "assistant",
         "content": getattr(message, "content", None) or "",
-        "tool_calls": [
-            {"id": getattr(tc, "id", ""), "type": "function",
-             "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
-            for tc in tool_calls
-        ],
+        "tool_calls": [_tool_call_payload(tc, provider) for tc in tool_calls],
     }
 
 
@@ -340,7 +366,7 @@ def _execute_tool(tool_call, *, contact, channel: str, session=None) -> dict:
 
 
 def _run_tool_loop(client, base_create: dict, tools: list, *, contact, channel: str,
-                   usage_acc: list | None = None) -> str:
+                   provider: str = "openai", usage_acc: list | None = None) -> str:
     """Bounded function-calling loop. Passes tools + tool_choice="auto"; while
     the model returns tool_calls we execute them, feed each result back and
     re-call, up to MAX_TOOL_ROUNDS. The first call is retried ONCE without tools
@@ -370,7 +396,7 @@ def _run_tool_loop(client, base_create: dict, tools: list, *, contact, channel: 
         tool_calls = getattr(message, "tool_calls", None) or []
         if not tool_calls:
             return message.content or ""
-        convo.append(_assistant_tool_msg(message, tool_calls))
+        convo.append(_assistant_tool_msg(message, tool_calls, provider))
         for tc in tool_calls:
             result = _execute_tool(tc, contact=contact, channel=channel,
                                    session=session)

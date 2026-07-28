@@ -8,4 +8,5 @@ urlpatterns = [
     path("knowledge/preview", views.knowledge_preview),
     path("knowledge/<int:item_id>", views.knowledge_detail),
     path("skills", views.skills_view),
+    path("booking-hours", views.booking_hours_view),
 ]

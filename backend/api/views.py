@@ -88,8 +88,9 @@ class ContactListView(generics.ListAPIView):
     @extend_schema(summary="Create a contact (admin+)")
     def post(self, request):
         """Create a contact by hand (the dashboard's Add-contact form). Tenant =
-        the caller's (superadmin may pass a "tenant" slug); linked to every
-        brand in that tenant unless `brand_ids` narrows it. 409 when the phone
+        the caller's (superadmin may pass a "tenant" slug). Brand membership:
+        the CURRENT brand (`brand` slug) by default, all tenant brands when
+        `all_brands` is set, or an explicit `brand_ids` list. 409 when the phone
         already exists in-tenant (phone is the identity key everywhere)."""
         from crm.models import ContactBrand
         from crm.permissions_store import has_capability
@@ -136,10 +137,21 @@ class ContactListView(generics.ListAPIView):
             attributes=dict(attributes) if isinstance(attributes, dict) else {},
             notes=str(request.data.get("notes") or "").strip(),
         )
+        # Brand membership on create. Precedence: explicit `brand_ids` →
+        # `all_brands` toggle (cross-brand) → the caller's CURRENT brand
+        # (default; the create form passes the topbar-selected brand slug) →
+        # legacy fallback of every tenant brand when no brand context is sent.
         brand_ids = request.data.get("brand_ids") or []
+        all_brands = str(request.data.get("all_brands") or "").strip().lower() \
+            in ("1", "true", "yes", "on")
+        current = str(request.data.get("brand") or "").strip()
         brands = Brand.objects.filter(tenant=tenant)
         if isinstance(brand_ids, list) and brand_ids:
             brands = brands.filter(id__in=brand_ids)
+        elif all_brands:
+            pass  # link to every brand in the tenant
+        elif current:
+            brands = brands.filter(slug=current)  # default: current brand only
         for b in brands:
             ContactBrand.objects.get_or_create(contact=contact, brand=b)
         audit(request, "contact.create", target=phone,
@@ -214,6 +226,73 @@ class ContactDetailView(APIView):
         contact.delete()
         audit(request, "contact.delete", target=phone)
         return Response({"ok": True})
+
+
+@extend_schema(tags=["contacts"])
+class ContactBrandsView(APIView):
+    """Manage a contact's brand memberships WITHOUT deleting the shared profile.
+    POST {brand} links the contact to a brand; DELETE {brand} unlinks it from
+    ONE brand (the profile and every other brand link stay). This is the
+    'remove from this brand only' seam — plain contact DELETE removes the whole
+    tenant-shared profile from every brand. Scoped + admin+ like the rest."""
+    permission_classes = [IsAuthenticatedProfile]
+
+    def _resolve(self, request, pk):
+        """(contact, brand, error_response). Contact scoped to the caller; brand
+        must be in the contact's tenant AND accessible to the caller."""
+        from crm.permissions_store import has_capability
+
+        if not has_capability(rbac.role(request.user), "contacts.manage"):
+            return None, None, Response(
+                {"error": {"code": "forbidden",
+                           "message": "Admin role required to manage brand links."}},
+                status=403)
+        contact = ContactDetailView()._scoped(request).filter(pk=pk).first()
+        if contact is None:
+            return None, None, Response(
+                {"error": {"code": "not_found",
+                           "message": "No such contact (or not visible to you)."}},
+                status=404)
+        slug = str(request.data.get("brand") or "").strip()
+        brand = Brand.objects.filter(tenant=contact.tenant, slug=slug).first()
+        if brand is None:
+            return None, None, Response(
+                {"error": {"code": "bad_request",
+                           "message": "Unknown brand for this contact's tenant."}},
+                status=400)
+        if rbac.role(request.user) == "agent" \
+                and brand not in rbac.accessible_brands(request.user):
+            return None, None, Response(
+                {"error": {"code": "forbidden",
+                           "message": "That brand is not assigned to you."}},
+                status=403)
+        return contact, brand, None
+
+    @extend_schema(summary="Link a contact to a brand (contacts.manage)")
+    def post(self, request, pk: int):
+        from crm.models import ContactBrand
+
+        contact, brand, err = self._resolve(request, pk)
+        if err is not None:
+            return err
+        _link, created = ContactBrand.objects.get_or_create(contact=contact, brand=brand)
+        audit(request, "contact.brand_link", target=contact.phone,
+              detail=f"+brand {brand.slug}")
+        return Response({"ok": True, "created": created,
+                         "brands": [bl.brand.slug for bl in contact.brand_links.all()]})
+
+    @extend_schema(summary="Unlink a contact from one brand (contacts.manage)")
+    def delete(self, request, pk: int):
+        from crm.models import ContactBrand
+
+        contact, brand, err = self._resolve(request, pk)
+        if err is not None:
+            return err
+        ContactBrand.objects.filter(contact=contact, brand=brand).delete()
+        audit(request, "contact.brand_unlink", target=contact.phone,
+              detail=f"-brand {brand.slug}")
+        return Response({"ok": True,
+                         "brands": [bl.brand.slug for bl in contact.brand_links.all()]})
 
 
 @extend_schema(tags=["brands"])
