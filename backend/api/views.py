@@ -142,12 +142,15 @@ class ContactListView(generics.ListAPIView):
         # (default; the create form passes the topbar-selected entity slug) →
         # legacy fallback of every tenant entity when no entity context is sent.
         entity_ids = request.data.get("entity_ids") or []
+        entity_slugs = request.data.get("entity_slugs") or []
         all_entities = str(request.data.get("all_entities") or "").strip().lower() \
             in ("1", "true", "yes", "on")
         current = str(request.data.get("entity") or "").strip()
         entities = Entity.objects.filter(tenant=tenant)
         if isinstance(entity_ids, list) and entity_ids:
             entities = entities.filter(id__in=entity_ids)
+        elif isinstance(entity_slugs, list) and entity_slugs:
+            entities = entities.filter(slug__in=[str(s) for s in entity_slugs])  # multi-select
         elif all_entities:
             pass  # link to every entity in the tenant
         elif current:

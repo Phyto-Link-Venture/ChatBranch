@@ -12,7 +12,7 @@ import { useEntity } from '@/lib/EntityContext'
  * entity gets a static chip (no menu).
  */
 export function TenantSwitcher() {
-  const { tenant, entities, activeEntity, setActiveEntity, loading } = useEntity()
+  const { tenant, entities, activeEntity, allEntities, setActiveEntity, loading } = useEntity()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -25,7 +25,11 @@ export function TenantSwitcher() {
     return () => document.removeEventListener('mousedown', onDoc)
   }, [open])
 
-  const label = activeEntity?.name ?? tenant ?? (loading ? 'Loading…' : 'All entities')
+  const label = loading
+    ? 'Loading…'
+    : allEntities
+      ? 'All entities'
+      : (activeEntity?.name ?? tenant ?? 'All entities')
   const initials = (activeEntity?.name ?? tenant ?? 'CB').slice(0, 2).toUpperCase()
   const canSwitch = entities.length > 1
 
@@ -57,6 +61,19 @@ export function TenantSwitcher() {
               {tenant}
             </div>
           )}
+          <button
+            role="menuitemradio"
+            aria-checked={allEntities}
+            onClick={() => {
+              setActiveEntity(null)
+              setOpen(false)
+            }}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12.5px] text-text-high transition-colors hover:bg-fill-hover"
+          >
+            <span className="min-w-0 flex-1 truncate font-semibold">All entities</span>
+            {allEntities && <Check size={14} strokeWidth={2.25} className="shrink-0 text-brand-400" />}
+          </button>
+          <div className="my-1 h-px bg-line" />
           {entities.map((b) => {
             const active = b.slug === activeEntity?.slug
             return (

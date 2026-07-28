@@ -7,6 +7,7 @@ import { Modal } from '@/components/ui/Modal'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { authHeaders, hasCap } from '@/lib/auth'
 import { useRole } from '@/lib/useRole'
+import { useEntity } from '@/lib/EntityContext'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
@@ -56,6 +57,7 @@ async function v1<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function EntitiesSettings() {
   const { role, ready } = useRole()
+  const { reload: reloadGlobalEntities } = useEntity()
   const [entities, setEntities] = useState<EntityRow[] | null>(null)
   const [me, setMe] = useState<WhoAmI | null>(null)
   const [busy, setBusy] = useState(false)
@@ -81,10 +83,13 @@ export function EntitiesSettings() {
       setEntities(b.entities)
       setMe(w)
       setTenant((t) => t || w.tenant || b.entities[0]?.tenant || '')
+      // keep the global topbar switcher in step — a newly created/deleted
+      // entity shows up there without a page refresh (#4).
+      reloadGlobalEntities()
     } catch {
       setEntities(null)
     }
-  }, [])
+  }, [reloadGlobalEntities])
 
   useEffect(() => {
     refresh()

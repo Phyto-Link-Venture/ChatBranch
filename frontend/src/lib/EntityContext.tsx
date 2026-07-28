@@ -17,7 +17,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { authHeaders, getAuth } from './auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
-const ACTIVE_KEY = 'chatbranch-active-brand'
+const ACTIVE_KEY = 'chatbranch-active-entity'
+const ALL = '__all__' // sentinel: view across every entity
 
 export interface Entity {
   slug: string
@@ -28,8 +29,13 @@ export interface Entity {
 interface EntityState {
   tenant: string | null
   entities: Entity[]
+  /** The working entity, or null when "All entities" is selected. */
   activeEntity: Entity | null
+  /** True when viewing across all entities (activeEntity is null by choice). */
+  allEntities: boolean
   setActiveEntity: (slug: string | null) => void
+  /** Re-fetch the entity list (call after creating/deleting an entity). */
+  reload: () => void
   loading: boolean
 }
 
@@ -46,28 +52,30 @@ async function v1<T>(path: string): Promise<T> {
 export function EntityProvider({ children }: { children: ReactNode }) {
   const [tenant, setTenant] = useState<string | null>(null)
   const [entities, setEntities] = useState<Entity[]>([])
-  const [activeSlug, setActiveSlug] = useState<string | null>(null)
+  // activeSlug: a slug, or ALL sentinel for "all entities". Starts as ALL.
+  const [activeSlug, setActiveSlug] = useState<string>(ALL)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!getAuth()) {
       setLoading(false)
       return
     }
-    let alive = true
-    ;(async () => {
-      try {
-        const [who, list] = await Promise.all([
-          v1<{ tenant: string | null; entities: string[] }>('whoami'),
-          v1<{ entities: Entity[] }>('entities'),
-        ])
-        if (!alive) return
-        // only entities the user may see (whoami.entities), keep the ordering stable
-        const visible = who.entities.length
-          ? list.entities.filter((b) => who.entities.includes(b.slug))
-          : list.entities
-        setTenant(who.tenant)
-        setEntities(visible)
+    try {
+      const [who, list] = await Promise.all([
+        v1<{ tenant: string | null; entities: string[] }>('whoami'),
+        v1<{ entities: Entity[] }>('entities'),
+      ])
+      // only entities the user may see (whoami.entities), keep the ordering stable
+      const visible = who.entities.length
+        ? list.entities.filter((b) => who.entities.includes(b.slug))
+        : list.entities
+      setTenant(who.tenant)
+      setEntities(visible)
+      setActiveSlug((cur) => {
+        // keep the current pick if still valid; else restore stored; else:
+        // agents (single entity) pin to it, multi-entity users default to All.
+        if (cur !== ALL && visible.some((b) => b.slug === cur)) return cur
         const stored = (() => {
           try {
             return localStorage.getItem(ACTIVE_KEY)
@@ -75,37 +83,47 @@ export function EntityProvider({ children }: { children: ReactNode }) {
             return null
           }
         })()
-        const initial = visible.find((b) => b.slug === stored) ?? visible[0] ?? null
-        setActiveSlug(initial?.slug ?? null)
-      } catch {
-        /* API down / not authed — switcher renders in a neutral state */
-      } finally {
-        if (alive) setLoading(false)
-      }
-    })()
-    return () => {
-      alive = false
+        if (stored === ALL) return ALL
+        if (stored && visible.some((b) => b.slug === stored)) return stored
+        return visible.length === 1 ? visible[0].slug : ALL
+      })
+    } catch {
+      /* API down / not authed — switcher renders in a neutral state */
+    } finally {
+      setLoading(false)
     }
   }, [])
 
+  useEffect(() => {
+    void load()
+  }, [load])
+
   const setActiveEntity = useCallback((slug: string | null) => {
-    setActiveSlug(slug)
+    const next = slug ?? ALL
+    setActiveSlug(next)
     try {
-      if (slug) localStorage.setItem(ACTIVE_KEY, slug)
-      else localStorage.removeItem(ACTIVE_KEY)
+      localStorage.setItem(ACTIVE_KEY, next)
     } catch {
       /* ignore private-mode storage errors */
     }
   }, [])
 
   const activeEntity = useMemo(
-    () => entities.find((b) => b.slug === activeSlug) ?? null,
+    () => (activeSlug === ALL ? null : entities.find((b) => b.slug === activeSlug) ?? null),
     [entities, activeSlug]
   )
 
   const value = useMemo<EntityState>(
-    () => ({ tenant, entities, activeEntity, setActiveEntity, loading }),
-    [tenant, entities, activeEntity, setActiveEntity, loading]
+    () => ({
+      tenant,
+      entities,
+      activeEntity,
+      allEntities: activeSlug === ALL,
+      setActiveEntity,
+      reload: () => void load(),
+      loading,
+    }),
+    [tenant, entities, activeEntity, activeSlug, setActiveEntity, load, loading]
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
