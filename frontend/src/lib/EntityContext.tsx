@@ -134,3 +134,29 @@ export function useEntity(): EntityState {
   if (!v) throw new Error('useEntity must be used within EntityProvider')
   return v
 }
+
+/**
+ * The `?entity=<slug>` suffix for the active scope — "" when viewing All
+ * entities (no narrowing). Every entity-aware page builds its URLs with this
+ * so the parameter name and the all-entities rule live in ONE place.
+ *
+ * Use it INSIDE the dependency array of the fetching effect: the string
+ * changes when the operator switches outlets, which is what makes the page
+ * re-fetch. Reading `activeEntity` without depending on this is the bug that
+ * leaves a page showing the previous outlet's data after a switch.
+ *
+ *   const q = useEntityQuery()
+ *   useEffect(() => { fetch(`${API}/analytics/summary?days=30${q && `&${q}`}`) }, [q])
+ */
+export function useEntityQuery(): string {
+  const { activeEntity } = useEntity()
+  return activeEntity ? `entity=${encodeURIComponent(activeEntity.slug)}` : ''
+}
+
+/** Same scope as `useEntityQuery`, ready to append to a URL that may or may
+ * not already carry a query string. Returns "" for All entities. */
+export function useEntityParam(url: string): string {
+  const q = useEntityQuery()
+  if (!q) return url
+  return url.includes('?') ? `${url}&${q}` : `${url}?${q}`
+}

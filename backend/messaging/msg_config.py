@@ -38,7 +38,7 @@ def email_settings() -> dict:
     from crm.models import Setting
 
     merged = dict(_EMAIL_ENV)
-    for row in Setting.objects.filter(key__in=EMAIL_KEYS):
+    for row in Setting.objects.filter(entity__isnull=True, key__in=EMAIL_KEYS):
         if row.value.strip():
             merged[row.key] = row.value.strip()
     return merged
@@ -49,7 +49,7 @@ def save_email_settings(patch: dict) -> dict:
 
     for k in EMAIL_KEYS:
         if k in patch and isinstance(patch[k], str):
-            Setting.objects.update_or_create(key=k, defaults={"value": patch[k].strip()})
+            Setting.objects.update_or_create(entity=None, key=k, defaults={"value": patch[k].strip()})
     return email_settings()
 
 
@@ -66,10 +66,19 @@ def imap_configured() -> bool:
 
 # ---- social account registry -----------------------------------------------------------
 
+# Sentinel for "argument not supplied" where None is a meaningful value
+# (unbind an account from its entity).
+_UNSET = object()
+
+
 def _serialize(a) -> dict:
     return {
         "id": str(a.pk),
         "channel": a.channel,
+        # Entity binding — see crm/models ChannelAccount.entity. null = a
+        # global mailbox/bot the whole organization shares.
+        "entity": a.entity.slug if a.entity_id else None,
+        "entity_name": a.entity.name if a.entity_id else "",
         "name": a.name,
         "external_id": a.external_id,
         "access_token": a.access_token,
@@ -82,7 +91,8 @@ def _serialize(a) -> dict:
 def list_accounts() -> list[dict]:
     from crm.models import ChannelAccount
 
-    return [_serialize(a) for a in ChannelAccount.objects.filter(channel__in=MANAGED_CHANNELS)]
+    return [_serialize(a) for a in ChannelAccount.objects
+            .filter(channel__in=MANAGED_CHANNELS).select_related("entity")]
 
 
 def get_account(account_id: str | None = None) -> dict | None:
@@ -131,15 +141,29 @@ def create_account(data: dict) -> dict:
         access_token=str(data.get("access_token") or "").strip(),
         owner=str(data.get("owner") or "admin").strip(),
         config=dict(data.get("config") or {}),
+        entity=_entity_from(data.get("entity")),
     )
     return _serialize(a)
 
 
+def _entity_from(slug):
+    """Resolve an entity slug for account binding; blank/unknown -> None
+    (organization-wide), never a guessed outlet."""
+    from crm import scoping
+
+    return scoping.as_entity(slug)
+
+
 def update_account(account_id: str, name: str | None = None,
                    external_id: str | None = None,
-                   config_patch: dict | None = None) -> dict | None:
+                   config_patch: dict | None = None,
+                   entity=_UNSET) -> dict | None:
     """Partial update on a managed account row. `config_patch` merges into the
-    stored config (the caller validates values and handles masked secrets)."""
+    stored config (the caller validates values and handles masked secrets).
+
+    `entity` uses a sentinel default because None is MEANINGFUL here — passing
+    None unbinds the account back to organization-wide, while omitting the
+    argument leaves the current binding alone."""
     from crm.models import ChannelAccount
 
     if not str(account_id or "").isdigit():
@@ -159,8 +183,22 @@ def update_account(account_id: str, name: str | None = None,
         merged.update(config_patch)
         a.config = merged
         fields.append("config")
+    rebind = False
+    if entity is not _UNSET:
+        new_entity = _entity_from(entity)
+        rebind = (a.entity_id or None) != (new_entity.pk if new_entity else None)
+        a.entity = new_entity
+        fields.append("entity")
     if fields:
         a.save(update_fields=fields)
+    if rebind:
+        # Move this account's existing conversations to the new outlet, so
+        # binding a mailbox doesn't strand its history in the old scope.
+        from crm import scoping
+        from crm.models import Thread
+
+        for t in Thread.objects.filter(account_id=a.pk).select_related("contact", "account"):
+            scoping.sync_thread_entity(t)
     return _serialize(a)
 
 

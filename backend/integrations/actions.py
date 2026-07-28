@@ -53,26 +53,41 @@ def _done(detail: str, data: dict | None = None) -> dict:
     return {"ok": True, "skipped": False, "detail": detail, "data": data or {}}
 
 
-def active_integration(provider: str):
+def active_integration(provider: str, entity=None):
     """The connected row for a provider, or None. Prefers a healthy one so a
-    revoked duplicate never shadows a working connection."""
+    revoked duplicate never shadows a working connection.
+
+    ENTITY BINDING: when `entity` is given, that outlet's OWN connection wins;
+    an outlet that never connected one falls back to the organization-wide
+    (unbound) connection. So each studio's bookings land in its own Google
+    Calendar, and branches without one keep using the company account."""
     from .models import Integration
 
-    rows = [r for r in Integration.objects.filter(provider=provider) if r.connected]
-    if not rows:
-        return None
-    return (next((r for r in rows if r.status not in health.INELIGIBLE), None)
-            or rows[0])
+    def _pick(rows):
+        rows = [r for r in rows if r.connected]
+        if not rows:
+            return None
+        return (next((r for r in rows if r.status not in health.INELIGIBLE), None)
+                or rows[0])
+
+    qs = Integration.objects.filter(provider=provider)
+    if entity is not None:
+        own = _pick(qs.filter(entity=entity))
+        if own is not None:
+            return own
+        return _pick(qs.filter(entity__isnull=True))
+    return _pick(qs)
 
 
 def _label(provider: str) -> str:
     return (catalog.provider_meta(provider) or {}).get("label", provider)
 
 
-def _google_ready(provider: str):
+def _google_ready(provider: str, entity=None):
     """(integration, token) or (None, "") — with the not-connected reason
-    already turned into a skip by the caller."""
-    row = active_integration(provider)
+    already turned into a skip by the caller. `entity` picks that outlet's own
+    connection when it has one (see active_integration)."""
+    row = active_integration(provider, entity)
     if row is None:
         return None, ""
     return row, oauth.access_token(row)
@@ -119,7 +134,7 @@ def _record_result(row, ok: bool, detail: str) -> None:
 
 def create_calendar_event(contact=None, config=None, text="") -> dict:
     cfg = config or {}
-    row, token = _google_ready("google_calendar")
+    row, token = _google_ready("google_calendar", contact_entity(contact))
     if row is None or not token:
         return _skip("Google Calendar is not connected — step skipped.")
     calendar_id = str(cfg.get("calendarId") or (row.config or {}).get("calendar_id")
@@ -169,11 +184,11 @@ def book_appointment(contact=None, config=None, text="") -> dict:
         return _fail("no appointment time given")
     minutes = _int(cfg.get("eventMinutes"), 30, lo=5, hi=480)
     schedule = _parse_schedule(cfg["businessHours"]) if cfg.get("businessHours") \
-        else booking_schedule()
+        else booking_schedule(contact_entity(contact))
     if not within_schedule(start, minutes, schedule):
         return {"ok": False, "outside_hours": True,
                 "detail": "requested time is outside the bookable opening hours",
-                "hours": booking_hours_raw(),
+                "hours": booking_hours_raw(contact_entity(contact)),
                 "hint": ("tell the customer that time is outside opening hours, "
                          "then call check_calendar_availability and offer a valid "
                          "slot instead")}
@@ -279,7 +294,7 @@ def cancel_appointment(contact=None, config=None, text="") -> dict:
     """Cancel the contact's upcoming appointment: delete the calendar event and
     mark the booking Record cancelled. >1 upcoming → returns the list to ask."""
     cfg = config or {}
-    row, token = _google_ready("google_calendar")
+    row, token = _google_ready("google_calendar", contact_entity(contact))
     if row is None or not token:
         return _skip("Google Calendar is not connected — step skipped.")
     bookings = _upcoming_bookings(contact)
@@ -315,7 +330,7 @@ def reschedule_appointment(contact=None, config=None, text="") -> dict:
     time against the booking schedule (GUARD), PATCH the calendar event and
     update the Record. >1 upcoming → returns the list to ask which."""
     cfg = config or {}
-    row, token = _google_ready("google_calendar")
+    row, token = _google_ready("google_calendar", contact_entity(contact))
     if row is None or not token:
         return _skip("Google Calendar is not connected — step skipped.")
     new_start = _parse_when(cfg.get("eventStart")) if cfg.get("eventStart") else None
@@ -323,11 +338,11 @@ def reschedule_appointment(contact=None, config=None, text="") -> dict:
         return _fail("no new time given — eventStart is required")
     minutes = _int(cfg.get("eventMinutes"), 30, lo=5, hi=480)
     schedule = _parse_schedule(cfg["businessHours"]) if cfg.get("businessHours") \
-        else booking_schedule()
+        else booking_schedule(contact_entity(contact))
     if not within_schedule(new_start, minutes, schedule):
         return {"ok": False, "outside_hours": True,
                 "detail": "the new time is outside the bookable opening hours",
-                "hours": booking_hours_raw(),
+                "hours": booking_hours_raw(contact_entity(contact)),
                 "hint": ("tell the customer that time is outside opening hours, then "
                          "call check_calendar_availability and offer a valid slot")}
     bookings = _upcoming_bookings(contact)
@@ -366,7 +381,7 @@ def reschedule_appointment(contact=None, config=None, text="") -> dict:
 
 def find_free_slot(contact=None, config=None, text="") -> dict:
     cfg = config or {}
-    row, token = _google_ready("google_calendar")
+    row, token = _google_ready("google_calendar", contact_entity(contact))
     if row is None or not token:
         return _skip("Google Calendar is not connected — step skipped.")
     calendar_id = str(cfg.get("calendarId") or (row.config or {}).get("calendar_id")
@@ -444,7 +459,7 @@ def find_free_slots(contact=None, config=None, text="", *, count: int = 3) -> di
     from django.utils import timezone as dj_tz
 
     cfg = config or {}
-    row, token = _google_ready("google_calendar")
+    row, token = _google_ready("google_calendar", contact_entity(contact))
     if row is None or not token:
         return _skip("Google Calendar is not connected — step skipped.")
     calendar_id = str(cfg.get("calendarId") or (row.config or {}).get("calendar_id")
@@ -552,15 +567,20 @@ def _parse_schedule(value) -> dict:
     return out
 
 
-def booking_hours_raw() -> dict:
-    """The operator's per-day booking hours (name-keyed) from Setting
-    `booking_hours`, else the widened default. Exception-safe."""
-    try:
-        from crm.models import Setting
+def booking_hours_raw(entity=None) -> dict:
+    """The per-day booking hours (name-keyed) governing `entity`: that outlet's
+    own schedule if it set one, else the organization default, else the widened
+    built-in. Exception-safe.
 
-        row = Setting.objects.filter(key="booking_hours").first()
-        if row and str(row.value).strip():
-            data = json.loads(row.value) if isinstance(row.value, str) else row.value
+    This is the per-outlet case in its purest form — two branches of the same
+    business genuinely open at different times, and a booking offered against
+    the wrong branch's hours is a real customer-facing error."""
+    try:
+        from crm import scoping
+
+        raw = scoping.setting_value("booking_hours", entity)
+        if raw:
+            data = json.loads(raw) if isinstance(raw, str) else raw
             if isinstance(data, dict):
                 return data
     except Exception:
@@ -568,9 +588,23 @@ def booking_hours_raw() -> dict:
     return dict(_DEFAULT_HOURS)
 
 
-def booking_schedule() -> dict:
-    """Parsed {weekday_int:(open,close)} of the operator's booking hours."""
-    return _parse_schedule(booking_hours_raw())
+def booking_schedule(entity=None) -> dict:
+    """Parsed {weekday_int:(open,close)} of the booking hours for `entity`."""
+    return _parse_schedule(booking_hours_raw(entity))
+
+
+def contact_entity(contact):
+    """The outlet a contact's booking belongs to — the seam that gets each
+    branch's own opening hours in front of the AI. Ambiguous (multi-entity)
+    contacts resolve to None, i.e. the organization default: better to quote
+    the company-wide hours than to confidently quote the wrong branch's."""
+    try:
+        from crm import scoping
+
+        return scoping.thread_entity(contact=contact)
+    except Exception:
+        logger.exception("integrations: contact_entity failed")
+        return None
 
 
 def _schedule_from_cfg(cfg: dict) -> dict:
@@ -676,7 +710,7 @@ def _slot_human(dt: datetime) -> str:
 
 def upload_drive_file(contact=None, config=None, text="") -> dict:
     cfg = config or {}
-    row, token = _google_ready("google_drive")
+    row, token = _google_ready("google_drive", contact_entity(contact))
     if row is None or not token:
         return _skip("Google Drive is not connected — step skipped.")
     filename = str(cfg.get("fileName") or "chatbranch-note.txt")[:120]
@@ -706,7 +740,7 @@ def upload_drive_file(contact=None, config=None, text="") -> dict:
 
 def append_sheet_row(contact=None, config=None, text="") -> dict:
     cfg = config or {}
-    row, token = _google_ready("google_sheets")
+    row, token = _google_ready("google_sheets", contact_entity(contact))
     if row is None or not token:
         return _skip("Google Sheets is not connected — step skipped.")
     sheet_id = str(cfg.get("spreadsheetId") or (row.config or {}).get("spreadsheet_id") or "")
@@ -740,7 +774,7 @@ def send_gmail(contact=None, config=None, text="") -> dict:
     import base64
 
     cfg = config or {}
-    row, token = _google_ready("gmail")
+    row, token = _google_ready("gmail", contact_entity(contact))
     if row is None or not token:
         return _skip("Gmail is not connected — step skipped.")
     to = str(cfg.get("to") or (contact.email if contact is not None else "")).strip()
@@ -781,7 +815,7 @@ def update_order_status(contact=None, config=None, text="") -> dict:
         record.save(update_fields=["status", "updated_at"])
         book_event(record, "status", data={"from": old, "to": record.status,
                                            "source": "flow"})
-    row = active_integration("shopify")
+    row = active_integration("shopify", contact_entity(contact))
     if row is None:
         return _done(f"record status {old} → {record.status} (Shopify not connected)",
                      {"record_id": record.pk, "remote": False})
@@ -815,7 +849,7 @@ def create_stripe_payment_link(contact=None, config=None, text="") -> dict:
     from flows.engine import primary_record
 
     cfg = config or {}
-    row = active_integration("stripe")
+    row = active_integration("stripe", contact_entity(contact))
     if row is None:
         return _skip("Stripe is not connected — step skipped.")
     api_key = str((row.credentials or {}).get("api_key") or "")

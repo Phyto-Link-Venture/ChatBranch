@@ -87,7 +87,7 @@ def _setting_value(key: str) -> str:
     """The stored Setting value for `key`, or "" (blank/missing/DB error)."""
     try:
         from crm.models import Setting
-        row = Setting.objects.filter(key=key).first()
+        row = Setting.objects.filter(entity__isnull=True, key=key).first()
         if row and row.value.strip():
             return row.value.strip()
     except Exception:
@@ -296,12 +296,12 @@ def save(patch: dict) -> dict:
 
     for key, env in _OWN_STR_ENV.items():
         if key in patch and isinstance(patch[key], str):
-            Setting.objects.update_or_create(
+            Setting.objects.update_or_create(entity=None,
                 key=key, defaults={"value": patch[key].strip()})
 
     for key in _INT_TUNABLES:
         if key in patch:
-            Setting.objects.update_or_create(
+            Setting.objects.update_or_create(entity=None,
                 key=key, defaults={"value": str(patch[key]).strip()})
 
     return effective()

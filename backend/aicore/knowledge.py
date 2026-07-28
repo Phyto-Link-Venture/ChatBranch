@@ -207,15 +207,23 @@ SKILLS_LIMIT = 24
 SKILLS_BUDGET = 6000
 
 
-def skills_block() -> str:
+def skills_block(entity=None) -> str:
     """The operator's editable playbook as a `SKILLS` prompt section —
     `use_when` is the selector, `instructions` the body. Owned by
     Settings → AI Skills (`GET/PUT /api/aicore/skills`), which since Phase 8
     is the SOLE writer of crm.AgentSkill; the flow-builder library sync only
-    reads them. Never raises: a non-Django/early-boot caller just gets ""."""
+    reads them. Never raises: a non-Django/early-boot caller just gets "".
+
+    `entity` applies the inheritance rule: the organization's skills PLUS that
+    outlet's own, with the outlet's version of a same-id skill shadowing the
+    global one."""
     try:
+        from crm import scoping
         from crm.models import AgentSkill
-        rows = list(AgentSkill.objects.all()[:SKILLS_LIMIT])
+
+        rows = scoping.override_by(
+            scoping.scope_inherited(AgentSkill.objects.all(), entity),
+            entity, "skill_id")[:SKILLS_LIMIT]
     except Exception:
         return ""
     if not rows:

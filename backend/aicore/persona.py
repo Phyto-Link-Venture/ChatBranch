@@ -74,36 +74,34 @@ forward."""
 
 # ---- runtime accessors (Setting row overrides the default) --------------------
 
-def persona_text() -> str:
-    """The active persona: the "aicore_persona" Setting override when set,
-    else DEFAULT_PERSONA. Read per call on purpose — dashboard edits apply
-    immediately, same rule as wa_config."""
-    from crm.models import Setting
+def persona_text(entity=None) -> str:
+    """The active persona for `entity`: that outlet's own "aicore_persona"
+    override, else the organization's, else DEFAULT_PERSONA. Read per call on
+    purpose — dashboard edits apply immediately, same rule as wa_config."""
+    from crm import scoping
 
-    row = Setting.objects.filter(key=PERSONA_SETTING_KEY).first()
-    if row and row.value.strip():
-        return row.value.strip()
-    return DEFAULT_PERSONA
+    return scoping.setting_value(PERSONA_SETTING_KEY, entity) or DEFAULT_PERSONA
 
 
-def is_default() -> bool:
-    from crm.models import Setting
+def is_default(entity=None) -> bool:
+    from crm import scoping
 
-    row = Setting.objects.filter(key=PERSONA_SETTING_KEY).first()
-    return not (row and row.value.strip())
+    return not scoping.setting_value(PERSONA_SETTING_KEY, entity)
 
 
-def save_persona(value: str) -> str:
+def save_persona(value: str, entity=None) -> str:
     """Persist a persona override; an empty/blank value resets to the default
-    (the blank Setting row falls through in persona_text)."""
-    from crm.models import Setting
+    (the blank Setting row falls through in persona_text). With `entity` this
+    writes that outlet's override — clear it with scoping.clear_setting to
+    inherit the organization persona again."""
+    from crm import scoping
 
-    Setting.objects.update_or_create(
-        key=PERSONA_SETTING_KEY, defaults={"value": (value or "").strip()})
-    return persona_text()
+    scoping.set_setting(PERSONA_SETTING_KEY, value or "", entity)
+    return persona_text(entity)
 
 
-def system_prompt() -> str:
-    """The assistant's composed system prompt: hard safety rules (fixed)
-    + the active persona (default or Setting override)."""
-    return HARD_RULES + "\n\n" + persona_text()
+def system_prompt(entity=None) -> str:
+    """The assistant's composed system prompt: hard safety rules (fixed —
+    never overridable, per outlet or otherwise) + the persona governing
+    `entity`."""
+    return HARD_RULES + "\n\n" + persona_text(entity)

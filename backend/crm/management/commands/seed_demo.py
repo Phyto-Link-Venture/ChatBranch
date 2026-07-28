@@ -291,7 +291,7 @@ class Command(BaseCommand):
         for cfg_file in (DATA_DIR / "whatsapp" / "config.json", DATA_DIR / "messaging" / "config.json"):
             for k, v in (_read_json(cfg_file, {}) or {}).items():
                 if isinstance(v, str) and v.strip():
-                    Setting.objects.update_or_create(key=k, defaults={"value": v.strip()})
+                    Setting.objects.update_or_create(entity=None, key=k, defaults={"value": v.strip()})
 
         # ---- voice-call records (agent writes the file; mirror to DB) -------
         calls = 0

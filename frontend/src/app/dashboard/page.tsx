@@ -30,6 +30,7 @@ import {
   type HealthStatus,
 } from '@/lib/channelHealth'
 import { useRole } from '@/lib/useRole'
+import { useEntity, useEntityQuery } from '@/lib/EntityContext'
 import { initials, primaryRecord } from '@/lib/mocks'
 import { StatusBadge } from '@/components/ui/Badges'
 import { RecoveryBanner } from '@/components/settings/RoutingRulesSettings'
@@ -74,6 +75,11 @@ export default function DashboardPage() {
   const router = useRouter()
   const { contacts } = useApp()
   const { role } = useRole()
+  // Entity scope from the topbar switcher. The contact list already narrows
+  // via AppContext; the health card and engagement stats follow the same
+  // scope so the dashboard never mixes one outlet's numbers with another's.
+  const entityQ = useEntityQuery()
+  const { activeEntity } = useEntity()
 
   const [engagement, setEngagement] = useState<EngagementStats | null>(null)
   const [health, setHealth] = useState<ChannelHealthPayload | null>(null)
@@ -84,7 +90,7 @@ export default function DashboardPage() {
   const runHealthCheck = async () => {
     setHealthChecking(true)
     try {
-      setHealth(await checkChannelHealth())
+      setHealth(await checkChannelHealth(entityQ))
       setHealthFailed(false)
     } catch {
       setHealthFailed(true)
@@ -97,7 +103,7 @@ export default function DashboardPage() {
     let cancelled = false
     const poll = async () => {
       try {
-        const data = await fetchChannelHealth()
+        const data = await fetchChannelHealth(entityQ)
         if (!cancelled) {
           setHealth(data)
           setHealthFailed(false)
@@ -112,14 +118,14 @@ export default function DashboardPage() {
       cancelled = true
       clearInterval(t)
     }
-  }, [])
+  }, [entityQ])
 
   useEffect(() => {
-    fetch(`${API}/messaging/engagement`, { headers: authHeaders() })
+    fetch(`${API}/messaging/engagement${entityQ && `?${entityQ}`}`, { headers: authHeaders() })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => setEngagement(data?.stats ?? null))
       .catch(() => {})
-  }, [])
+  }, [entityQ])
 
   const activeN = contacts.filter((d) => d.status === 'active').length
   const openContacts = useMemo(() => contacts.filter((d) => d.status !== 'resolved'), [contacts])

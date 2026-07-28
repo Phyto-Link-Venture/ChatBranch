@@ -180,7 +180,7 @@ class Command(BaseCommand):
             # ---- runtime settings (get_or_create — operator edits win) ----
             seeded = 0
             for key, value in PRODUCTION_SETTINGS.items():
-                _, created = Setting.objects.get_or_create(
+                _, created = Setting.objects.get_or_create(entity=None,
                     key=key, defaults={"value": value})
                 seeded += created
             self.stdout.write(
@@ -317,7 +317,7 @@ class Command(BaseCommand):
             if key in SKIP_IMPORT_KEYS or not str(value or "").strip():
                 skipped += 1
                 continue
-            Setting.objects.update_or_create(key=key, defaults={"value": value})
+            Setting.objects.update_or_create(entity=None, key=key, defaults={"value": value})
             imported.append(key)
         self.stdout.write(
             f"settings restored from {p.name}: {', '.join(sorted(imported)) or 'none'} "

@@ -131,8 +131,10 @@ def collect_events(phone: str = "", email: str = "") -> list[dict]:
 
 # Playbook baseline recovery rates per stage (demo defaults — client-tunable
 # in spirit of skill 00; used for the "potential returns" estimate).
-def engagement_stats() -> dict:
-    """Live communication stats across EVERY thread and call in the system."""
+def engagement_stats(entity=None) -> dict:
+    """Live communication stats across every thread and call. `entity` narrows
+    to one outlet (call counters stay organization-wide — the file-based call
+    store carries no entity)."""
     awaiting_reply = 0   # last message is ours, contact hasn't answered
     replied = 0          # contact has answered at least once
     threads_total = 0
@@ -150,9 +152,9 @@ def engagement_stats() -> dict:
         if msgs[-1].get("dir") == "out":
             awaiting_reply += 1
 
-    for t in wa_store.list_threads():
+    for t in wa_store.list_threads(entity=entity):
         scan(wa_store.load_thread(t["wa_id"]))
-    for t in msg_store.list_threads():
+    for t in msg_store.list_threads(entity=entity):
         scan(msg_store.load_thread(t["channel"], t["key"]))
 
     try:

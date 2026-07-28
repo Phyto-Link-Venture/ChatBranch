@@ -445,7 +445,7 @@ def _smtp_ping(host: str | None = None, port: int | None = None,
 def _store_email_health(health: str, detail: str) -> None:
     from crm.models import Setting
 
-    Setting.objects.update_or_create(key=EMAIL_HEALTH_KEY, defaults={"value": json.dumps({
+    Setting.objects.update_or_create(entity=None, key=EMAIL_HEALTH_KEY, defaults={"value": json.dumps({
         "health": health, "detail": detail, "checked_at": timezone.now().isoformat(),
     })})
 
@@ -463,7 +463,7 @@ def email_health() -> dict:
     except Exception:
         logger.exception("whatsapp health: email config read failed")
     stored = {}
-    row = Setting.objects.filter(key=EMAIL_HEALTH_KEY).first()
+    row = Setting.objects.filter(entity__isnull=True, key=EMAIL_HEALTH_KEY).first()
     if row and row.value.strip():
         try:
             stored = json.loads(row.value)
@@ -509,7 +509,7 @@ def _stored_voice_settings() -> dict:
     bake .env in."""
     from crm.models import Setting
 
-    row = Setting.objects.filter(key=VOICE_SETTINGS_KEY).first()
+    row = Setting.objects.filter(entity__isnull=True, key=VOICE_SETTINGS_KEY).first()
     if row and row.value.strip():
         try:
             return json.loads(row.value)
@@ -544,7 +544,7 @@ def save_voice_settings(patch: dict) -> dict:
     for key in ("sip_username", "sip_password", "termination_uri"):
         if key in patch:
             stored[key] = str(patch.get(key) or "").strip()
-    Setting.objects.update_or_create(key=VOICE_SETTINGS_KEY,
+    Setting.objects.update_or_create(entity=None, key=VOICE_SETTINGS_KEY,
                                      defaults={"value": json.dumps(stored)})
     return voice_settings()
 
@@ -581,7 +581,7 @@ def voice_health() -> dict:
 def last_checked_at() -> str | None:
     from crm.models import Setting
 
-    row = Setting.objects.filter(key=CHECKED_AT_KEY).first()
+    row = Setting.objects.filter(entity__isnull=True, key=CHECKED_AT_KEY).first()
     return row.value.strip() or None if row else None
 
 
@@ -698,7 +698,7 @@ def run_checks() -> dict:
         logger.exception("whatsapp health: email check failed")
 
     try:
-        Setting.objects.update_or_create(
+        Setting.objects.update_or_create(entity=None,
             key=CHECKED_AT_KEY, defaults={"value": timezone.now().isoformat()})
     except Exception:
         logger.exception("whatsapp health: could not stamp checked_at")

@@ -136,7 +136,7 @@ def notification_prefs(request):
                 return JsonResponse({"detail": f"{cat} must be true or false."}, status=400)
             patch[cat] = body[cat]
     for cat, enabled in patch.items():
-        Setting.objects.update_or_create(key=f"notif_{cat}",
+        Setting.objects.update_or_create(entity=None, key=f"notif_{cat}",
                                          defaults={"value": "true" if enabled else "false"})
     if patch:
         rbac.audit(request, "settings.update", target="notifications",

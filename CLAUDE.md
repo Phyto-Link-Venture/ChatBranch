@@ -64,6 +64,44 @@ out the macOS/Linux equivalents.
   (superadmin/super123 — POC creds, rotate before deploy). Non-Django
   processes that import the stores (whatsapp/bridge.py) must
   `django.setup()` first.
+- **Entity scoping = global default -> entity override.** `crm/scoping.py` is
+  the ONE place the rule lives: *an entity-specific binding wins; the global
+  one is the fallback*. Three verbs, and picking the wrong one is the bug the
+  module exists to prevent:
+  `setting_value(key, entity)` (config: entity row -> global row -> ""),
+  `scope_inherited(qs, entity)` (libraries an outlet INHERITS — knowledge,
+  canned/script templates, skills, workflows, channel accounts, integrations:
+  its own PLUS the global ones) and `scope_owned(qs, entity)` (records that
+  belong to exactly ONE outlet — contacts, threads, call records, analytics).
+  `entity=None` means "All entities" for the scope_* helpers and "the global
+  value" for the setting helpers.
+  **`crm.Setting` is no longer key-unique**: it carries a nullable `entity`
+  FK with a partial unique constraint per scope, so every global read MUST say
+  `filter(entity__isnull=True, …)` or another outlet's override leaks into the
+  org-wide value — that sweep is already applied across wa_config / msg_config
+  / health / queue / engine / catalog / persona / app_settings. Only the keys
+  in `scoping.ENTITY_SCOPED_SETTINGS` may be overridden (hours, persona, quiet
+  hours, pacing, routing rules, tool use…); credentials and webhook secrets are
+  organization-wide BY DESIGN and `set_setting` raises if you try.
+  **`ChannelAccount.entity` is the linchpin**: the number that receives a
+  message decides which outlet the conversation belongs to, so attribution
+  needs no manual tagging. `scoping.thread_entity` is that chain — receiving
+  account's entity -> linked contact's entity -> None ("unassigned", shown in
+  every view rather than guessed at). It is denormalized onto `Thread.entity`
+  and re-synced by `sync_thread_entity` at EVERY seam that moves a thread
+  (creation, account switch, contact link/unlink, account re-binding); a new
+  write path that sets `thread.account` or `thread.contact` must call it too.
+  `accounts_for_entity` / `integration_for_entity` are a PREFERENCE, not a
+  union: an outlet with its own WhatsApp number or Google Calendar never falls
+  back to the shared one. Endpoints take `?entity=<slug>` via
+  `scoping.entity_from_request`, which BOUNDS the slug by RBAC — and falls
+  through to the caller's own scope rather than returning None for a rejected
+  slug, because None means "all entities" and would widen the response.
+  Backfill after binding numbers: `manage.py backfill_entity_scope`.
+  Frontend: `useEntityQuery()` (lib/EntityContext) is the only way pages build
+  the parameter, and it belongs in the fetching effect's dependency array —
+  omitting it is what leaves a page showing the previous outlet's data.
+  Tests: `tests/test_entity_scoping.py`.
 - **Cross-process IPC with the voice agent stays file-based ON PURPOSE** —
   the agent process is Django-free. `storage.py` writes/reads: live
   transcripts (`data/live/{room}.json`), the operator instruction inbox

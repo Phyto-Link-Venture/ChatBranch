@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
+import { useEntity, useEntityQuery } from '@/lib/EntityContext'
 import { fmt } from '@/lib/mocks'
 import { StatTile } from '@/components/analytics/StatTile'
 import { HBarList } from '@/components/analytics/HBarList'
@@ -10,6 +11,7 @@ import { AccountsTable } from '@/components/analytics/AccountsTable'
 import { OutcomeBars } from '@/components/analytics/OutcomeBars'
 import { HealthEvents } from '@/components/analytics/HealthEvents'
 import { AiUsageCard } from '@/components/analytics/AiUsageCard'
+import { EntityBreakdownTable } from '@/components/analytics/EntityBreakdownTable'
 import { ReviewTabs } from '@/components/shell/ReviewTabs'
 import type { AnalyticsSummary } from '@/components/analytics/types'
 
@@ -62,6 +64,10 @@ const dur = (secs: number) => {
 }
 
 export default function AnalyticsPage() {
+  // Entity scope from the topbar switcher. In the dependency array below, so
+  // switching outlets re-fetches instead of leaving stale figures on screen.
+  const entityQ = useEntityQuery()
+  const { activeEntity } = useEntity()
   const [days, setDays] = useState(30)
   const [data, setData] = useState<AnalyticsSummary | null>(null)
   const [refreshing, setRefreshing] = useState(false)
@@ -70,7 +76,8 @@ export default function AnalyticsPage() {
   useEffect(() => {
     let cancelled = false
     setRefreshing(true)
-    fetch(`${API}/analytics/summary?days=${days}`, { headers: authHeaders() })
+    fetch(`${API}/analytics/summary?days=${days}${entityQ && `&${entityQ}`}`,
+          { headers: authHeaders() })
       .then((r) => {
         if (expireSessionOn401(r)) return null
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -86,7 +93,7 @@ export default function AnalyticsPage() {
     return () => {
       cancelled = true
     }
-  }, [days])
+  }, [days, entityQ])
 
   const f = data?.funnel
   const e = data?.engagement
@@ -112,6 +119,11 @@ export default function AnalyticsPage() {
             </button>
           ))}
         </div>
+        {/* Scope label — a filtered figure must never be mistaken for a
+            company-wide one. */}
+        <span className="rounded-lg border border-line bg-fill-subtle px-2.5 py-1.5 text-[11.5px] font-semibold text-text-muted">
+          {activeEntity ? activeEntity.name : 'All entities'}
+        </span>
         {error && data && (
           <span className="text-[11px] text-red-300">Refresh failed — showing previous data.</span>
         )}
@@ -185,6 +197,16 @@ export default function AnalyticsPage() {
               }
             />
           </div>
+
+          {/* Franchise view — per-outlet comparison, All-entities only. */}
+          {!!data.by_entity?.length && (
+            <Card
+              title="By entity"
+              sub="Every outlet side by side — switch to one in the top bar to drill in"
+            >
+              <EntityBreakdownTable rows={data.by_entity} />
+            </Card>
+          )}
 
           {/* Funnel + records-by-status strips */}
           <div className="grid gap-3.5 lg:grid-cols-2">

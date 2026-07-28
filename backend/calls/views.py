@@ -163,7 +163,10 @@ def _add_channel_identity(request, contact):
     thread = Thread.objects.get(channel=channel, key=key)
     if thread.contact_id != contact.pk:
         thread.contact = contact
-        thread.save(update_fields=["contact", "updated_at"])
+        from crm import scoping
+
+        scoping.sync_thread_entity(thread, save=False)
+        thread.save(update_fields=["contact", "entity", "updated_at"])
     rbac.audit(request, "thread.link", target=f"{channel}:{key}",
                detail=f"added from contact page → {contact.name}")
     return JsonResponse({"ok": True, "channel": channel, "key": key,
@@ -1038,7 +1041,10 @@ def dial(request):
             # SQLite a dangling FK only explodes at COMMIT, outside this except
             if th and not th.contact_id and Contact.objects.filter(pk=contact_id).exists():
                 th.contact_id = contact_id
-                th.save(update_fields=["contact", "updated_at"])
+                from crm import scoping
+
+                scoping.sync_thread_entity(th, save=False)
+                th.save(update_fields=["contact", "entity", "updated_at"])
             wa_store.append_message(wa_id, "out", "📞 AI voice call placed", "system")
         except Exception:
             pass
@@ -1288,9 +1294,36 @@ def analytics_summary(request):
     since = now - timedelta(days=days)
     since_key = since.strftime("%Y-%m-%dT%H:%M:%S")  # CallRecord string compare
 
+    # ---- 0. entity scope -----------------------------------------------------------
+    # `?entity=<slug>` narrows the WHOLE payload to one outlet; omitted (or
+    # "__all__") keeps the organization-wide view an owner sees. Every section
+    # below is built off these bases, so a new section cannot forget to scope.
+    #
+    # Joining through ContactEntity is safe for aggregates: it is unique on
+    # (contact, entity), so filtering by ONE entity adds at most one join row
+    # per contact and cannot inflate a Count.
+    from crm import scoping
+
+    entity = scoping.entity_from_request(request)
+    msg_base = Message.objects.all()
+    call_base = CallRecord.objects.all()
+    record_base = Record.objects.all()
+    contact_base = Contact.objects.all()
+    event_base = RecordEvent.objects.all()
+    acct_base = ChannelAccount.objects.all()
+    if entity is not None:
+        msg_base = msg_base.filter(thread__entity=entity)
+        call_base = call_base.filter(contact__entity_links__entity=entity)
+        record_base = record_base.filter(contact__entity_links__entity=entity)
+        contact_base = contact_base.filter(entity_links__entity=entity)
+        event_base = event_base.filter(record__contact__entity_links__entity=entity)
+        # Accounts follow the binding rule: the outlet's own, else the shared
+        # organization ones it actually sends through.
+        acct_base = scoping.accounts_for_entity(acct_base, entity)
+
     # ---- 1. message funnel ---------------------------------------------------------
     out_q = Q(direction="out", private=False, created_at__gte=since)
-    msg_agg = Message.objects.aggregate(
+    msg_agg = msg_base.aggregate(
         sent=Count("id", filter=out_q),
         delivered=Count("id", filter=out_q & Q(status__in=("delivered", "read"))),
         read=Count("id", filter=out_q & Q(status="read")),
@@ -1299,7 +1332,7 @@ def analytics_summary(request):
 
     # replied — one aggregate row per thread (see docstring for the approximation)
     per_thread = (
-        Message.objects.filter(created_at__gte=since)
+        msg_base.filter(created_at__gte=since)
         .values("thread_id")
         .annotate(
             first_out=Min("created_at", filter=Q(direction="out", private=False)),
@@ -1324,31 +1357,31 @@ def analytics_summary(request):
 
     # ---- 2. engagement + records ----------------------------------------------------
     call_window = Q(ended_at__gte=since_key) | (Q(ended_at="") & Q(started_at__gte=since_key))
-    calls_qs = CallRecord.objects.filter(call_window)
+    calls_qs = call_base.filter(call_window)
 
     contacted_ids = set(
-        Message.objects.filter(out_q, thread__contact__isnull=False)
+        msg_base.filter(out_q, thread__contact__isnull=False)
         .values_list("thread__contact_id", flat=True).distinct()
     ) | set(
         calls_qs.filter(contact__isnull=False)
         .values_list("contact_id", flat=True).distinct()
     )
-    events_qs = RecordEvent.objects.filter(at__gte=since)
+    events_qs = event_base.filter(at__gte=since)
     records_by_status = [
         {"status": row["status"], "count": row["n"],
          "amount": float(row["amount"] or 0)}
-        for row in Record.objects.filter(updated_at__gte=since)
+        for row in record_base.filter(updated_at__gte=since)
         .values("status").annotate(n=Count("id"), amount=Sum("amount"))
         .order_by("-n", "status")
     ]
-    resolved = (Contact.objects.filter(pk__in=contacted_ids, status="resolved").count()
+    resolved = (contact_base.filter(pk__in=contacted_ids, status="resolved").count()
                 if contacted_ids else 0)
 
     # ---- 3. per-account volumes ----------------------------------------------------
-    acct_meta = {a.pk: a for a in ChannelAccount.objects.all()}
+    acct_meta = {a.pk: a for a in acct_base}
     accounts = []
     for row in (
-        Message.objects.filter(created_at__gte=since)
+        msg_base.filter(created_at__gte=since)
         .values("account_id")
         .annotate(
             outbound=Count("id", filter=Q(direction="out", private=False)),
@@ -1376,17 +1409,24 @@ def analytics_summary(request):
         calls_qs.values("outcome").annotate(count=Count("id")).order_by("-count", "outcome"))
 
     # ---- 5. account health history -------------------------------------------------
+    # AuditLog has no entity column — health rows identify the account by NAME,
+    # so an entity view keeps only the accounts that entity actually uses.
+    # Without this, switching to Rimbayu would still list Bandar Botanic's
+    # outages.
+    health_q = AuditLog.objects.filter(action="account.health", created_at__gte=since)
+    if entity is not None:
+        health_q = health_q.filter(target__in=[a.name for a in acct_base])
     health_events = [
         {"actor": e["actor"], "target": e["target"], "detail": e["detail"],
          "created_at": e["created_at"].isoformat()}
-        for e in AuditLog.objects.filter(action="account.health", created_at__gte=since)
-        .order_by("-created_at").values("actor", "target", "detail", "created_at")[:50]
+        for e in health_q.order_by("-created_at")
+        .values("actor", "target", "detail", "created_at")[:50]
     ]
 
     # ---- 6. daily series (zero-filled, UTC days) -----------------------------------
     day_msgs = {
         row["day"]: row
-        for row in Message.objects.filter(created_at__gte=since)
+        for row in msg_base.filter(created_at__gte=since)
         .annotate(day=TruncDate("created_at")).values("day")
         .annotate(
             outbound=Count("id", filter=Q(direction="out", private=False)),
@@ -1426,7 +1466,7 @@ def analytics_summary(request):
     from django.utils.dateparse import parse_datetime
 
     call_secs = []
-    for s_iso, e_iso in CallRecord.objects.filter(
+    for s_iso, e_iso in call_base.filter(
             started_at__gte=since_key).values_list("started_at", "ended_at"):
         try:
             s, e = parse_datetime(s_iso or ""), parse_datetime(e_iso or "")
@@ -1455,7 +1495,7 @@ def analytics_summary(request):
             if cur_n > 1:
                 multi_secs.append((cur_last - cur_start).total_seconds())
 
-    for tid, ts in (Message.objects.filter(created_at__gte=since, private=False)
+    for tid, ts in (msg_base.filter(created_at__gte=since, private=False)
                     .order_by("thread_id", "created_at")
                     .values_list("thread_id", "created_at")):
         if tid != cur_thread or (cur_last is not None and ts - cur_last > session_gap):
@@ -1478,6 +1518,10 @@ def analytics_summary(request):
         "days": days,
         "since": since.isoformat(),
         "generated_at": now.isoformat(),
+        # Which scope produced these numbers — the UI labels the page with it
+        # so a filtered figure is never mistaken for a company-wide one.
+        "entity": entity.slug if entity else None,
+        "entity_name": entity.name if entity else "All entities",
         "funnel": {
             "sent": sent,
             "delivered": msg_agg["delivered"],
@@ -1501,7 +1545,59 @@ def analytics_summary(request):
         "health_events": health_events,
         "daily": daily,
         "sessions": sessions,
+        # FRANCHISE VIEW: in the All-entities scope, the same headline numbers
+        # broken out per outlet so an owner can compare branches at a glance.
+        # Empty when a single entity is already selected (the page IS that row).
+        "by_entity": _analytics_by_entity(request, since, since_key)
+                     if entity is None else [],
     })
+
+
+def _analytics_by_entity(request, since, since_key) -> list[dict]:
+    """Per-outlet headline figures for the All-entities view — one row per
+    entity the caller may see, plus an "Unassigned" row when conversations
+    landed on a shared number before anyone tagged them (hiding those would
+    make the rows silently fail to add up to the total).
+
+    Deliberately a small fixed set of columns, not the whole payload: this runs
+    one aggregate per entity, and the page only charts these."""
+    from django.db.models import Count, Q
+
+    from crm import scoping
+    from crm.models import CallRecord, Contact, Message
+
+    out: list[dict] = []
+    entities = scoping.visible_entities(request)
+    out_q = Q(direction="out", private=False, created_at__gte=since)
+    in_q = Q(direction="in", created_at__gte=since)
+
+    def row(label: str, slug, msg_qs, contact_qs, call_qs) -> dict:
+        agg = msg_qs.aggregate(outbound=Count("id", filter=out_q),
+                               inbound=Count("id", filter=in_q))
+        return {
+            "entity": slug,
+            "name": label,
+            "outbound": agg["outbound"],
+            "inbound": agg["inbound"],
+            "contacts": contact_qs.count(),
+            "calls": call_qs.count(),
+        }
+
+    call_window = Q(ended_at__gte=since_key) | (Q(ended_at="") & Q(started_at__gte=since_key))
+    for ent in entities:
+        out.append(row(
+            ent.name, ent.slug,
+            Message.objects.filter(thread__entity=ent),
+            Contact.objects.filter(entity_links__entity=ent),
+            CallRecord.objects.filter(call_window).filter(
+                contact__entity_links__entity=ent)))
+    unassigned = Message.objects.filter(thread__entity__isnull=True)
+    if unassigned.filter(out_q | in_q).exists():
+        out.append(row(
+            "Unassigned", None, unassigned,
+            Contact.objects.none(),
+            CallRecord.objects.none()))
+    return out
 
 
 def analytics_usage(request):

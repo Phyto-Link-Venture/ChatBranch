@@ -40,6 +40,14 @@ class Integration(models.Model):
 
     tenant = models.ForeignKey("ingest.Tenant", null=True, blank=True,
                                on_delete=models.CASCADE, related_name="integrations")
+    # Which entity (outlet/branch) owns this connection. null = a GLOBAL
+    # connection the whole organization shares. Resolution is the same binding
+    # rule as channel accounts: an entity's own connection wins, the global one
+    # is the fallback — so each studio can point bookings at its own Google
+    # Calendar while everything else falls back to the company account.
+    # See crm/scoping.py `integration_for_entity`.
+    entity = models.ForeignKey("ingest.Entity", null=True, blank=True,
+                               on_delete=models.SET_NULL, related_name="integrations")
     provider = models.CharField(max_length=24, choices=PROVIDER_CHOICES)
     name = models.CharField(max_length=120)               # operator label
     external_id = models.CharField(max_length=190, blank=True, default="")

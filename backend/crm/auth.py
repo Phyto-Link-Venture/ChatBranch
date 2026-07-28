@@ -68,7 +68,7 @@ def notification_prefs() -> dict[str, bool]:
     prefs = {c: True for c in NOTIF_CATEGORIES}
     try:
         keys = [f"notif_{c}" for c in NOTIF_CATEGORIES]
-        for row in Setting.objects.filter(key__in=keys):
+        for row in Setting.objects.filter(entity__isnull=True, key__in=keys):
             prefs[row.key[len("notif_"):]] = row.value.strip().lower() != "false"
     except Exception:
         pass

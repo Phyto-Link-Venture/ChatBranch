@@ -857,6 +857,10 @@ def _account_payload(a: dict) -> dict:
         # operating role (reminder cannon vs conversation layer) — always
         # resolved, so unset config defaults by provider
         "role": wa_config.account_role(a),
+        # Entity binding: which outlet this number belongs to (null =
+        # organization-wide). Decides inbound attribution + send routing.
+        "entity": a.get("entity"),
+        "entity_name": a.get("entity_name") or "",
         "name": a.get("name"),
         "phone_number_id": a.get("phone_number_id"),
         "waba_id": a.get("waba_id", ""),  # not a secret; needed for templates
@@ -924,6 +928,10 @@ def account_detail(request, account_id: str):
                  if k in wa_config.ACCOUNT_KEYS and isinstance(v, str) and "••" not in v}
         if isinstance(body.get("role"), str):
             patch["role"] = body["role"]  # stored in config; no health reset
+        if "entity" in body:
+            # Entity binding (null/"" = organization-wide). Not in ACCOUNT_KEYS
+            # because it is an FK, not a string column.
+            patch["entity"] = body["entity"]
         old_role = wa_config.account_role(wa_config.get_account(account_id))
         updated = wa_config.update_account(account_id, patch)
         if updated is None:
@@ -1238,7 +1246,10 @@ def threads(request):
         raw = (request.GET.get("limit") or "").strip()
         if raw.isdigit() and int(raw) > 0:
             limit = int(raw)
-        return JsonResponse({"threads": store.list_threads(limit=limit)})
+        from crm import scoping
+
+        return JsonResponse({"threads": store.list_threads(
+            limit=limit, entity=scoping.entity_from_request(request))})
     if request.method == "POST":
         body = _json_body(request)
         phone = (body.get("phone") or "").strip()
@@ -2163,8 +2174,17 @@ def channels_health(request):
         return HttpResponseNotAllowed(["GET", "POST"])
     assigned = {row["account_id"]: row["n"]
                 for row in AccountAssignment.objects.values("account_id").annotate(n=Count("id"))}
+    # Entity scope: an outlet's health card shows the numbers it actually
+    # sends through — its own if it has any, else the shared organization
+    # ones (accounts_for_entity is the same preference used at send time, so
+    # the card can't disagree with routing).
+    from crm import scoping
+
+    entity = scoping.entity_from_request(request)
+    acct_qs = scoping.accounts_for_entity(
+        ChannelAccount.objects.select_related("entity"), entity)
     accounts = []
-    for a in ChannelAccount.objects.all().order_by("pk"):
+    for a in acct_qs.order_by("pk"):
         # routing._configured knows every channel's rule (whatsapp via
         # wa_config, email via config host/login, social via access_token).
         configured = routing._configured(a)
@@ -2173,6 +2193,8 @@ def channels_health(request):
             "name": a.name,
             "channel": a.channel,
             "provider": a.provider or "cloud",
+            "entity": a.entity.slug if a.entity_id else None,
+            "entity_name": a.entity.name if a.entity_id else "",
             "configured": configured,
             "health": a.health_status,
             "detail": a.health_detail,

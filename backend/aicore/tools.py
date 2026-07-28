@@ -199,7 +199,7 @@ def _tool_use_enabled() -> bool:
     try:
         from crm.models import Setting
 
-        row = Setting.objects.filter(key="ai_tool_use").first()
+        row = Setting.objects.filter(entity__isnull=True, key="ai_tool_use").first()
         raw = row.value if row is not None else os.getenv("AI_TOOL_USE", "true")
     except Exception:
         logger.exception("aicore.tools: ai_tool_use read failed")
@@ -337,7 +337,10 @@ def _do_check_availability(args: dict, *, contact, channel: str) -> dict:
 
     # The operator's per-day booking schedule (Setting `booking_hours`) drives
     # which slots are offered — the SAME schedule the booking guard enforces.
-    cfg: dict = {"businessHours": actions.booking_hours_raw()}
+    # Resolved for the CONTACT'S OUTLET, so a Rimbayu customer is offered
+    # Rimbayu's hours, not the organization default.
+    cfg: dict = {"businessHours": actions.booking_hours_raw(
+        actions.contact_entity(contact))}
     if args.get("duration_minutes"):
         cfg["eventMinutes"] = args["duration_minutes"]
     if args.get("within_days"):

@@ -5,6 +5,7 @@ import { AlertCircle, CheckCircle, Loader2, Lock, RefreshCw, RotateCcw, Save } f
 import { Button } from '@/components/ui/Button'
 import { roleHeaders, getRole } from '@/lib/role'
 import { expireSessionOn401 } from '@/lib/auth'
+import { useEntity, useEntityQuery } from '@/lib/EntityContext'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
@@ -12,10 +13,14 @@ interface PersonaPayload {
   persona: string
   is_default: boolean
   default: string
+  /** Scope this persona came from: "entity" = this outlet overrides the
+   *  organization's, "global" = it inherits, "" = the built-in default. */
+  scope?: 'entity' | 'global' | ''
+  entity?: string | null
 }
 
-async function personaApi<T>(init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API}/aicore/persona`, {
+async function personaApi<T>(init?: RequestInit, entityQ = ''): Promise<T> {
+  const res = await fetch(`${API}/aicore/persona${entityQ && `?${entityQ}`}`, {
     headers: { 'Content-Type': 'application/json', ...roleHeaders() },
     ...init,
   })
@@ -36,6 +41,12 @@ async function personaApi<T>(init?: RequestInit): Promise<T> {
  *  string resets to the built-in default. Everyone else gets a read-only view.
  *  Compliance hard rules are enforced server-side and cannot be overridden. */
 export function PersonaSettings() {
+  // Entity scope: with an outlet selected this edits THAT outlet's persona;
+  // with "All entities" it edits the organization persona every outlet
+  // inherits. Clearing an outlet's text reverts it to inherited.
+  const entityQ = useEntityQuery()
+  const { activeEntity } = useEntity()
+  const [scope, setScope] = useState<'entity' | 'global' | ''>('')
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [serverPersona, setServerPersona] = useState('')
@@ -53,17 +64,18 @@ export function PersonaSettings() {
     setLoading(true)
     setLoadError(null)
     try {
-      const data = await personaApi<PersonaPayload>()
+      const data = await personaApi<PersonaPayload>(undefined, entityQ)
       const persona = typeof data.persona === 'string' ? data.persona : ''
       setServerPersona(persona)
       setText(persona)
       setIsDefault(!!data.is_default)
+      setScope(data.scope ?? '')
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e))
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [entityQ])
 
   useEffect(() => {
     load()
@@ -76,7 +88,7 @@ export function PersonaSettings() {
     setError(null)
     setNotice(null)
     try {
-      await personaApi({ method: 'PUT', body: JSON.stringify({ persona: value }) })
+      await personaApi({ method: 'PUT', body: JSON.stringify({ persona: value }) }, entityQ)
       setNotice(successMsg)
       await load()
     } catch (e) {
@@ -120,6 +132,25 @@ export function PersonaSettings() {
         conversation style, and escalation rules — applied to every call and chat.
         Compliance hard rules are enforced server-side and cannot be overridden here.
       </p>
+
+      {/* Scope banner — editing one outlet's persona vs the organization's. */}
+      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-line bg-fill-subtle px-3 py-2.5">
+        <span className="text-[12px] font-semibold text-text-high">
+          {activeEntity ? `Editing: ${activeEntity.name}` : 'Editing: organization default'}
+        </span>
+        {activeEntity ? (
+          <span className="text-[11px] text-text-muted">
+            {scope === 'entity'
+              ? 'This outlet has its own persona. Clear the text and save to go back to the organization persona.'
+              : 'Following the organization persona. Saving here creates an override for this outlet only.'}
+          </span>
+        ) : (
+          <span className="text-[11px] text-text-muted">
+            Every entity without its own persona uses this. Pick an entity in the top bar
+            to give one outlet a different voice.
+          </span>
+        )}
+      </div>
 
       {error && (
         <div

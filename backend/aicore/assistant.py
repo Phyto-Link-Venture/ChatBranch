@@ -72,14 +72,31 @@ def _digits(value: str) -> str:
     return re.sub(r"\D", "", str(value or ""))
 
 
-def _skills_block() -> str:
+def _skills_block(entity=None) -> str:
     """The operator's editable playbook (crm.AgentSkill) as a SKILLS prompt
     section. Included in every reply so a skill edit actually changes bot
     behavior — not just flow-node runs. Owned by Settings → AI Skills; see
-    aicore/knowledge.py `skills_block`."""
+    aicore/knowledge.py `skills_block`. `entity` adds that outlet's own skills
+    on top of the organization-wide ones (its version of a same-named skill
+    wins)."""
     from . import knowledge
 
-    return knowledge.skills_block()
+    return knowledge.skills_block(entity)
+
+
+def _entity_of(contact):
+    """Which outlet a contact belongs to — drives persona/skills/knowledge
+    selection. Exception-safe: an unresolvable entity degrades to the
+    organization-wide configuration, never to another outlet's."""
+    if contact is None:
+        return None
+    try:
+        from crm import scoping
+
+        return scoping.thread_entity(contact=contact)
+    except Exception:
+        logger.exception("aicore: entity resolution failed — using global config")
+        return None
 
 
 def _find_contact(phone: str):
@@ -167,10 +184,22 @@ def generate_reply(history: list[dict], *, contact_name: str, phone: str, channe
     if not api_key:
         raise RuntimeError("No OPENAI_API_KEY / OPENROUTER_API_KEY configured.")
 
-    # Composed per reply: hard compliance rules (fixed) + the active persona
-    # (crm.Setting "aicore_persona" override, else the built-in default).
-    messages: list[dict] = [{"role": "system", "content": persona.system_prompt()}]
-    skills = _skills_block()
+    # Resolve the contact FIRST: which outlet (entity) this person belongs to
+    # decides the persona, skills and knowledge below, so a Rimbayu customer
+    # gets Rimbayu's assistant rather than the organization default.
+    contact = None
+    if contact_id:
+        from crm.models import Contact
+        contact = Contact.objects.filter(pk=contact_id).first()
+    if contact is None:
+        contact = _find_contact(phone)
+    entity = _entity_of(contact)
+
+    # Composed per reply: hard compliance rules (fixed) + the persona governing
+    # this outlet (its own "aicore_persona" override, else the organization's,
+    # else the built-in default).
+    messages: list[dict] = [{"role": "system", "content": persona.system_prompt(entity)}]
+    skills = _skills_block(entity)
     if skills:
         messages.append({"role": "system", "content": skills})
     context = (
@@ -181,12 +210,6 @@ def generate_reply(history: list[dict], *, contact_name: str, phone: str, channe
     )
     messages.append({"role": "system", "content": context})
 
-    contact = None
-    if contact_id:
-        from crm.models import Contact
-        contact = Contact.objects.filter(pk=contact_id).first()
-    if contact is None:
-        contact = _find_contact(phone)
     if contact is not None:
         # CONTACT MEMORY: the CRM facts plus everything the memory manager
         # carries across conversations (learned prefs, the last few

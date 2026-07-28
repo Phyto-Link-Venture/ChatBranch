@@ -38,6 +38,7 @@ from django.db.models import Count, Max, OuterRef, Q, Subquery
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
+from crm import scoping
 from crm.models import ChannelAccount, Message, Thread
 
 # Inbound/outbound attachments live here (gitignored PII, same as the rest of
@@ -316,11 +317,16 @@ def get_or_create_thread(phone_or_wa_id: str, name: str = "", account_id: str | 
         from . import wa_config  # lazy: avoids import-order surprises in bridge.py
 
         ai_default = wa_config.account_role(account_row) != wa_config.ROLE_REMINDER
+    matched_contact = _match_contact(wa_id)
     t, created = Thread.objects.get_or_create(
         channel="whatsapp", key=wa_id,
         defaults={"address": phone, "name": name or phone, "ai_enabled": ai_default,
                   "account": account_row,
-                  "contact": _match_contact(wa_id)},
+                  "contact": matched_contact,
+                  # Attribute the conversation to an outlet at birth: the
+                  # receiving number decides, else the contact's entity.
+                  "entity": scoping.thread_entity(account=account_row,
+                                                  contact=matched_contact)},
     )
     changed = False
     if name and (not t.name or t.name.startswith("+")):
@@ -340,18 +346,29 @@ def get_or_create_thread(phone_or_wa_id: str, name: str = "", account_id: str | 
             t.contact = contact
             changed = True
     if changed:
+        # Account or contact moved — re-derive the owning entity from the same
+        # rule, so the denormalized column can never drift (an inbound
+        # re-attribution to another outlet's number moves the chat with it).
+        scoping.sync_thread_entity(t, save=False)
         t.save()
     return _serialize(_get(wa_id) or t)
 
 
-def list_threads(limit: int | None = None) -> list[dict]:
+def list_threads(limit: int | None = None, entity=None) -> list[dict]:
     """Thread summaries, most recently updated first. Aggregates (last
     message, counts, newest-inbound time) come from the DB — the per-thread
-    message lists are NOT materialized here."""
+    message lists are NOT materialized here.
+
+    `entity` narrows the inbox to one outlet. Unassigned chats (a shared
+    number, contact not yet linked) are INCLUDED in an entity view on purpose:
+    an operator working that outlet still has to answer them, and hiding a
+    conversation nobody can see from any filter is how messages go unanswered."""
     last_msg = (Message.objects.filter(thread=OuterRef("pk"))
                 .order_by("-created_at", "-pk"))
+    base = scoping.scope_owned(Thread.objects.filter(channel="whatsapp"), entity,
+                               include_unassigned=True)
     qs = (
-        Thread.objects.filter(channel="whatsapp")
+        base
         .select_related("contact", "account")
         .annotate(
             msg_count=Count("messages"),
@@ -564,5 +581,9 @@ def update_thread(wa_id: str, patch: dict) -> dict | None:
             t.name = v
         elif k == "account_id":
             t.account = _resolve_account(v)
+    # A manual account switch (or a contact re-link) can move the chat to
+    # another outlet's number — re-derive the owning entity from the same rule
+    # so the inbox filter follows the switch.
+    scoping.sync_thread_entity(t, save=False)
     t.save()
     return _serialize(_get(wa_id) or t)
