@@ -20,20 +20,22 @@ how it gets configured for a business.
 | 3 | Next.js dashboard | `frontend/` | 3000 |
 | 4 | Baileys WhatsApp gateway (Node, optional) | `backend/baileys_service/` | 3020 |
 
-```powershell
-npm run dev:all          # all four (Windows only — see README for mac/Linux)
+```bash
+npm run dev:all          # all four — cross-platform (Windows/macOS/Linux)
 npm run dev:api | dev:agent | dev:web | dev:baileys
 ```
 
-Environment is **Windows / PowerShell**; venv is at `backend/venv`.
+venv is at `backend/venv`. `scripts/setup-api.js` / `scripts/run-py.js`
+resolve the right Python + venv path per OS — don't hardcode a
+platform-specific path back into `package.json`.
 
 ## Verify before you claim done
 
-```powershell
-cd backend;  venv\Scripts\python manage.py check
-cd backend;  venv\Scripts\python manage.py makemigrations --check --dry-run
-cd backend;  venv\Scripts\python -m pytest tests/ calls/tests -q    # 863, keep green
-cd frontend; npx tsc --noEmit
+```bash
+cd backend  && venv/bin/python manage.py check              # Windows: venv\Scripts\python
+cd backend  && venv/bin/python manage.py makemigrations --check --dry-run
+cd backend  && venv/bin/python -m pytest tests/ calls/tests -q    # 863, keep green
+cd frontend && npx tsc --noEmit
 ```
 
 `manage.py check` emits one benign `staticfiles.W004`. There are no other known

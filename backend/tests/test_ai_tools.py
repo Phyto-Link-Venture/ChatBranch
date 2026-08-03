@@ -27,8 +27,14 @@ from crm.models import (AuditLog, Contact, Notification, PendingToolAction,
                         Profile, Record, RecordEvent, Setting)
 from integrations import actions
 from integrations.models import Integration
+from whatsapp import wa_config
 
-MON_9 = "2026-07-27T09:00:00+00:00"   # 2026-07-27 is a Monday (2026-07-24 = Fri)
+MON_9 = "2026-07-27T09:00:00+08:00"   # 2026-07-27 is a Monday (2026-07-24 = Fri)
+# +08:00 = Asia/Kuala_Lumpur, this app's real TIME_ZONE (backend/settings.py) —
+# a bare +00:00/UTC timestamp here is 8 hours off from local business hours
+# and was the exact bug behind an AI booking silently failing (see
+# aicore/assistant.py _temporal_context and the aicore/tools.py start_iso
+# schema fix).
 
 
 # ---- fixtures ---------------------------------------------------------------
@@ -75,6 +81,17 @@ class _RequestSpy:
 
 # ---- scripted OpenAI client -------------------------------------------------
 
+class _FakeBadRequest(Exception):
+    """Stands in for openai.BadRequestError's shape (a `status_code` attribute)
+    without needing the real SDK exception class — a provider genuinely
+    rejecting the `tools=` param is a 400, distinct from a quota/5xx/timeout
+    failure that should propagate to the per-candidate failover instead."""
+
+    def __init__(self, msg):
+        super().__init__(msg)
+        self.status_code = 400
+
+
 def _prose(content):
     return types.SimpleNamespace(content=content, tool_calls=None)
 
@@ -97,13 +114,20 @@ class ScriptedOpenAI:
     calls: list = []
     raise_on_tools = False
     always_tool_calls = False
+    fail_for_models: set = set()
 
     def __init__(self, base_url=None, api_key=None):
         class _Completions:
             def create(self, **kwargs):
                 ScriptedOpenAI.calls.append(kwargs)
+                if kwargs.get("model") in ScriptedOpenAI.fail_for_models:
+                    # A genuine outage (quota/5xx/timeout) — no status_code,
+                    # same shape as openai's connection/rate-limit errors —
+                    # must NOT be treated as "retry without tools" and must
+                    # propagate so the per-candidate failover moves on.
+                    raise RuntimeError("simulated provider failure")
                 if ScriptedOpenAI.raise_on_tools and "tools" in kwargs:
-                    raise RuntimeError("this provider does not support tools")
+                    raise _FakeBadRequest("this provider does not support tools")
                 if ScriptedOpenAI.always_tool_calls:
                     msg = _with_tools(_tool_call("c", "check_calendar_availability", "{}"))
                 elif ScriptedOpenAI.scripts:
@@ -123,6 +147,7 @@ def fake_openai(monkeypatch):
     ScriptedOpenAI.calls = []
     ScriptedOpenAI.raise_on_tools = False
     ScriptedOpenAI.always_tool_calls = False
+    ScriptedOpenAI.fail_for_models = set()
     monkeypatch.setattr(openai, "OpenAI", ScriptedOpenAI)
     monkeypatch.setattr(assistant, "_provider",
                         lambda: ("http://llm", "key-1", "model-x"))
@@ -159,17 +184,17 @@ class TestFindFreeSlots:
         slots = res["data"]["slots"]
         assert res["ok"] is True and len(slots) == 3
         assert [s["start"] for s in slots] == [
-            "2026-07-27T09:00:00+00:00",
-            "2026-07-27T09:30:00+00:00",
-            "2026-07-27T10:00:00+00:00",
+            "2026-07-27T09:00:00+08:00",
+            "2026-07-27T09:30:00+08:00",
+            "2026-07-27T10:00:00+08:00",
         ]
         assert slots[0]["human"] and slots[0]["duration_minutes"] == 30
 
     def test_respects_busy_blocks(self, calendar, monkeypatch):
-        busy = [{"start": "2026-07-27T09:00:00+00:00", "end": "2026-07-27T10:00:00+00:00"}]
+        busy = [{"start": "2026-07-27T09:00:00+08:00", "end": "2026-07-27T10:00:00+08:00"}]
         res, _ = self._find(monkeypatch, busy=busy)
         # 09:00 and 09:30 overlap the busy hour — first free slot is 10:00.
-        assert res["data"]["slots"][0]["start"] == "2026-07-27T10:00:00+00:00"
+        assert res["data"]["slots"][0]["start"] == "2026-07-27T10:00:00+08:00"
 
     def test_deterministic(self, calendar, monkeypatch):
         a, _ = self._find(monkeypatch)
@@ -187,7 +212,7 @@ class TestFindFreeSlots:
     def test_skips_weekends(self, calendar, monkeypatch):
         # Start late Friday: after one Friday slot the search must jump to Monday,
         # never Saturday/Sunday.
-        res, _ = self._find(monkeypatch, eventStart="2026-07-24T17:30:00+00:00",
+        res, _ = self._find(monkeypatch, eventStart="2026-07-24T17:30:00+08:00",
                             slotCount=3)
         days = [parse_datetime(s["start"]).weekday() for s in res["data"]["slots"]]
         assert all(d < 5 for d in days)           # no Sat(5)/Sun(6)
@@ -195,7 +220,7 @@ class TestFindFreeSlots:
         assert parse_datetime(res["data"]["slots"][1]["start"]).date() == date(2026, 7, 27)
 
     def test_no_slot_when_fully_busy(self, calendar, monkeypatch):
-        busy = [{"start": "2026-07-27T00:00:00+00:00", "end": "2026-07-28T00:00:00+00:00"}]
+        busy = [{"start": "2026-07-27T00:00:00+08:00", "end": "2026-07-28T00:00:00+08:00"}]
         res, _ = self._find(monkeypatch, busy=busy, searchDays=1)
         assert res["ok"] is True and res["data"]["slots"] == []
 
@@ -217,7 +242,7 @@ class TestBookAppointment:
         monkeypatch.setattr(actions, "_request", spy)
         res = actions.book_appointment(
             contact=contact,
-            config={"eventStart": "2026-07-27T14:00:00+00:00", "eventTitle": "Consult"},
+            config={"eventStart": "2026-07-27T14:00:00+08:00", "eventTitle": "Consult"},
             text="Consult")
         assert res["ok"] is True
         assert res["data"]["event_id"] == "evt-1"
@@ -237,7 +262,7 @@ class TestBookAppointment:
     def test_book_without_contact_still_makes_the_event(self, calendar, monkeypatch):
         spy = _RequestSpy()
         monkeypatch.setattr(actions, "_request", spy)
-        res = actions.book_appointment(config={"eventStart": "2026-07-27T14:00:00+00:00"})
+        res = actions.book_appointment(config={"eventStart": "2026-07-27T14:00:00+08:00"})
         assert res["ok"] is True
         assert Record.objects.filter(type="booking").count() == 0
 
@@ -255,14 +280,14 @@ class TestBookAppointment:
         # First call: the double-confirm gate refuses and asks — nothing booked.
         first = tools_mod.dispatch(
             "book_appointment",
-            {"start_iso": "2026-07-27T14:00:00+00:00", "title": "Consult"},
+            {"start_iso": "2026-07-27T14:00:00+08:00", "title": "Consult"},
             contact=contact, channel="whatsapp")
         assert first["ok"] is False and first["needs_confirmation"] is True
         assert AuditLog.objects.filter(action="ai.booking").count() == 0
         # Confirmed re-call with the same arguments: books + audits + notifies.
         result = tools_mod.dispatch(
             "book_appointment",
-            {"start_iso": "2026-07-27T14:00:00+00:00", "title": "Consult",
+            {"start_iso": "2026-07-27T14:00:00+08:00", "title": "Consult",
              "confirmed": True},
             contact=contact, channel="whatsapp")
         assert result["ok"] is True and result["confirmed"] is True
@@ -279,9 +304,11 @@ class TestToolSpecs:
     def test_empty_without_calendar(self, db):
         assert tools_mod.tool_specs() == []
 
-    def test_calendar_connected_offers_two_tools(self, calendar):
+    def test_calendar_connected_offers_all_appointment_tools(self, calendar):
         names = {t["function"]["name"] for t in tools_mod.tool_specs()}
-        assert names == {"check_calendar_availability", "book_appointment"}
+        assert names == {"check_calendar_availability", "book_appointment",
+                         "list_appointments", "reschedule_appointment",
+                         "cancel_appointment"}
 
     def test_kill_switch_off_returns_empty(self, calendar):
         Setting.objects.create(key="ai_tool_use", value="off")
@@ -301,7 +328,7 @@ class TestToolSpecs:
 
 @pytest.mark.django_db
 class TestConfirmationGate:
-    ARGS = {"start_iso": "2026-07-27T14:00:00+00:00", "title": "Consult"}
+    ARGS = {"start_iso": "2026-07-27T14:00:00+08:00", "title": "Consult"}
 
     def _book(self, contact, args=None, session=None):
         return tools_mod.dispatch("book_appointment", dict(args or self.ARGS),
@@ -343,7 +370,7 @@ class TestConfirmationGate:
     def test_changed_details_must_reconfirm(self, calendar, contact, monkeypatch):
         monkeypatch.setattr(actions, "_request", _RequestSpy())
         self._book(contact, session="round-1")                       # asked for 14:00
-        other = {"start_iso": "2026-07-28T10:00:00+00:00", "confirmed": True}
+        other = {"start_iso": "2026-07-28T10:00:00+08:00", "confirmed": True}
         out = self._book(contact, other, session="round-2")          # confirms 10:00?!
         assert out["ok"] is False and "changed" in out["instruction"]
         assert Record.objects.filter(type="booking").count() == 0
@@ -403,7 +430,7 @@ class TestToolLoop:
         # model relays the confirmation question. Nothing is booked yet.
         fake_openai.scripts = [
             _with_tools(_tool_call("c1", "book_appointment",
-                                   '{"start_iso": "2026-07-27T14:00:00+00:00", "title": "Consult"}')),
+                                   '{"start_iso": "2026-07-27T14:00:00+08:00", "title": "Consult"}')),
             _prose("Just to confirm — Monday 2pm for a consult, shall I book it?"),
         ]
         out = _reply(contact)
@@ -413,7 +440,7 @@ class TestToolLoop:
         # Reply round 2 (customer said yes): confirmed re-call books for real.
         fake_openai.scripts = [
             _with_tools(_tool_call("c2", "book_appointment",
-                                   '{"start_iso": "2026-07-27T14:00:00+00:00", "title": "Consult", "confirmed": true}')),
+                                   '{"start_iso": "2026-07-27T14:00:00+08:00", "title": "Consult", "confirmed": true}')),
             _prose("Booked! See you Monday at 2pm."),
         ]
         out = _reply(contact)
@@ -428,9 +455,9 @@ class TestToolLoop:
         monkeypatch.setattr(actions, "_request", spy)
         fake_openai.scripts = [
             _with_tools(_tool_call("c1", "book_appointment",
-                                   '{"start_iso": "2026-07-27T14:00:00+00:00"}')),
+                                   '{"start_iso": "2026-07-27T14:00:00+08:00"}')),
             _with_tools(_tool_call("c2", "book_appointment",
-                                   '{"start_iso": "2026-07-27T14:00:00+00:00", "confirmed": true}')),
+                                   '{"start_iso": "2026-07-27T14:00:00+08:00", "confirmed": true}')),
             _prose("Can you confirm Monday 2pm first?"),
         ]
         out = _reply(contact)
@@ -498,3 +525,114 @@ class TestSandboxBaseline:
         kwargs = fake_openai.calls[0]
         assert "tools" not in kwargs
         assert kwargs["reasoning_effort"] == "low"
+        # The model must NOT be told it "can take real actions using tools"
+        # when no tools= is actually attached to this call — that mismatch is
+        # exactly what made a Gemini→ilmu failover hallucinate a fake booking
+        # confirmation with no calendar event and no crm.Record ever created.
+        assert not any("can take real actions" in m["content"]
+                       for m in kwargs["messages"] if m["role"] == "system")
+
+    def test_failover_skips_ilmu_in_favor_of_a_later_tool_capable_provider(
+            self, calendar, contact, fake_openai, monkeypatch):
+        # The exact live fix: ilmu sits between two tool-capable providers in
+        # priority order (google, ilmu, openai, openrouter). When the top pick
+        # fails and tools matter for this conversation, ilmu must be tried
+        # LAST, not second — the other tool-capable provider is healthy and
+        # should be reached first, avoiding the hallucination risk entirely
+        # rather than just mitigating it with a prompt instruction.
+        ScriptedOpenAI.fail_for_models = {"model-x"}
+        monkeypatch.setattr(
+            wa_config, "chat_provider_candidates",
+            lambda: [("http://llm", "key-1", "model-x"),
+                     ("https://api.ilmu.example/v1", "key-2", "ilmu-v3.1"),
+                     ("http://llm-3", "key-3", "model-z")])
+        fake_openai.scripts = [_prose("Sure, I can help with that.")]
+        out = _reply(contact)
+        assert out == "Sure, I can help with that."
+        assert len(fake_openai.calls) == 2  # model-x failed, model-z succeeded — ilmu untouched
+        assert fake_openai.calls[1]["model"] == "model-z"
+        assert "tools" in fake_openai.calls[1]
+
+    def test_failover_to_tool_incapable_provider_does_not_claim_tool_access(
+            self, calendar, contact, fake_openai, monkeypatch):
+        # Reproduces the exact live incident: EVERY tool-capable provider is
+        # down, forcing a fall-through to ilmu (no tool support) — the reply
+        # must not claim tool access it doesn't have for THIS attempt.
+        ScriptedOpenAI.fail_for_models = {"model-x"}
+        monkeypatch.setattr(
+            wa_config, "chat_provider_candidates",
+            lambda: [("http://llm", "key-1", "model-x"),
+                     ("https://api.ilmu.example/v1", "key-2", "ilmu-v3.1")])
+        fake_openai.scripts = [_prose("Sure, I can help with that.")]
+        out = _reply(contact)
+        assert out == "Sure, I can help with that."
+        assert len(fake_openai.calls) == 2
+        fallback_kwargs = fake_openai.calls[1]
+        assert "tools" not in fallback_kwargs
+        assert not any("can take real actions" in m["content"]
+                       for m in fallback_kwargs["messages"] if m["role"] == "system")
+        # The explicit backstop instruction must be present telling the model
+        # it has no tool access THIS turn and must not claim otherwise.
+        assert any("have NO access to the calendar" in m["content"]
+                  for m in fallback_kwargs["messages"] if m["role"] == "system")
+
+    def test_gemini_provider_takes_the_reasoning_effort_path(self, calendar, contact,
+                                                             fake_openai, monkeypatch):
+        # Gemini's default "thinking" draws from the SAME max_tokens budget as
+        # the visible reply — on a live booking reply this ate the whole
+        # budget and cut the customer-facing text off mid-sentence.
+        # reasoning_effort="low" is the verified-working knob (an
+        # extra_body={"google": {"thinking_config": ...}} shape 400s on the
+        # real endpoint — "Request contains an invalid argument" — do not
+        # reintroduce it here).
+        monkeypatch.setattr(
+            assistant, "_provider",
+            lambda: ("https://generativelanguage.googleapis.com/v1beta/openai/",
+                     "k", "gemini-flash-latest"))
+        fake_openai.scripts = [_prose("Sure, let me check.")]
+        out = _reply(contact)
+        assert out == "Sure, let me check."
+        kwargs = fake_openai.calls[0]
+        assert kwargs["reasoning_effort"] == "low"
+
+    def test_temporal_context_is_injected(self, contact, fake_openai):
+        # The model has no other way to know today's date or this business's
+        # UTC offset — without this it defaults to +00:00, which silently
+        # books/rejects appointments hours off from what the customer meant.
+        fake_openai.scripts = [_prose("Sure.")]
+        _reply(contact)
+        messages = fake_openai.calls[0]["messages"]
+        assert any("Current date/time where this business operates" in m["content"]
+                  for m in messages if m["role"] == "system")
+
+    def test_failing_provider_falls_through_to_the_next_one(self, contact, fake_openai,
+                                                            monkeypatch):
+        # "priority order" used to only decide which provider got PICKED, never
+        # retried a different one once picked — a provider with a valid key
+        # that started erroring (quota/5xx/timeout) kept failing forever
+        # (observed live: Gemini hit a 429 and every retry hit Gemini again).
+        # The top pick (patched via _provider) must fall through to the next
+        # provider in chat_provider_candidates() when its call raises.
+        ScriptedOpenAI.fail_for_models = {"model-x"}
+        monkeypatch.setattr(
+            wa_config, "chat_provider_candidates",
+            lambda: [("http://llm", "key-1", "model-x"),
+                     ("http://llm-2", "key-2", "model-y")])
+        fake_openai.scripts = [_prose("Handled by the backup provider.")]
+        out = _reply(contact)
+        assert out == "Handled by the backup provider."
+        # first call was the failing provider, second succeeded on the fallback
+        assert len(fake_openai.calls) == 2
+        assert fake_openai.calls[0]["model"] == "model-x"
+        assert fake_openai.calls[1]["model"] == "model-y"
+
+    def test_all_providers_failing_raises_the_last_error(self, contact, fake_openai,
+                                                         monkeypatch):
+        ScriptedOpenAI.fail_for_models = {"model-x", "model-y"}
+        monkeypatch.setattr(
+            wa_config, "chat_provider_candidates",
+            lambda: [("http://llm", "key-1", "model-x"),
+                     ("http://llm-2", "key-2", "model-y")])
+        with pytest.raises(RuntimeError, match="simulated provider failure"):
+            _reply(contact)
+        assert len(fake_openai.calls) == 2

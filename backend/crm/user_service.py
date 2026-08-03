@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from django.contrib.auth.models import User
 
-from .models import Profile
+from .models import AuthToken, Profile
 
 # The 3 built-in roles. Assignment is validated against `_valid_roles()` (the
 # crm.Role table) so custom roles are accepted too; these stay as the always-
@@ -249,10 +249,12 @@ def update_user(actor_role, actor_profile, target, *, name=_UNSET, role=_UNSET,
         target.is_active = new_active
         if not new_active:
             profile.token = ""
+            profile.auth_tokens.all().delete()  # every session dies
         changed.append("active")
     if password is not _UNSET and password is not None:
         target.set_password(str(password))
-        profile.token = ""  # rotate: old bearer tokens die with the password
+        profile.token = ""  # every bearer token — all sessions — dies with the password
+        profile.auth_tokens.all().delete()
         changed.append("password")
     if changed:
         target.save()
@@ -273,4 +275,5 @@ def deactivate_user(actor_role, actor_profile, target) -> User:
     target.save(update_fields=["is_active"])
     profile.token = ""
     profile.save(update_fields=["token"])
+    profile.auth_tokens.all().delete()  # every session dies
     return target

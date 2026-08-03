@@ -520,6 +520,27 @@ def chat_provider() -> tuple[str, str, str]:
                           model)
 
 
+def chat_provider_candidates() -> list[tuple[str, str, str]]:
+    """Every USABLE (base_url, api_key, model), in fallback order — for a
+    caller that wants to retry a failed call on the next configured provider,
+    not just pick one. The pinned provider alone when `chat_provider_pref` is
+    set (A/B pin means ONLY that provider, never fall back to another); else
+    every provider in `chat_provider_order()` that actually has a key, in
+    priority order. `chat_provider()` picks the FIRST of these — this is the
+    same list, kept in step on purpose."""
+    model = chat_model()
+    pref = global_settings()["chat_provider_pref"].strip().lower()
+    if pref in CHAT_PROVIDERS:
+        pinned = _provider_entry(pref, model)
+        return [pinned] if pinned else []
+    out = []
+    for name in chat_provider_order():
+        entry = _provider_entry(name, model)
+        if entry:
+            out.append(entry)
+    return out
+
+
 def is_configured() -> bool:
     """At least one usable WhatsApp account? Otherwise sandbox mode."""
     return any(account_configured(a) for a in list_accounts())

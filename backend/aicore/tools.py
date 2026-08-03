@@ -79,9 +79,12 @@ _BOOK_APPOINTMENT = {
                 "start_iso": {
                     "type": "string",
                     "description": (
-                        "The appointment start time in ISO 8601 with timezone "
-                        "(e.g. 2026-07-28T14:00:00+00:00). Must be a slot the "
-                        "customer confirmed."
+                        "The appointment start time in ISO 8601, in THIS "
+                        "business's own UTC offset (see the current-date "
+                        "system message) — do NOT convert to +00:00/UTC. If "
+                        "this is a slot check_calendar_availability offered, "
+                        "copy that slot's start value exactly. Must be a time "
+                        "the customer confirmed."
                     ),
                 },
                 "duration_minutes": {
@@ -166,7 +169,11 @@ _RESCHEDULE_APPOINTMENT = {
             "properties": {
                 "new_start_iso": {
                     "type": "string",
-                    "description": "The NEW start time in ISO 8601 with timezone.",
+                    "description": (
+                        "The NEW start time in ISO 8601, in THIS business's "
+                        "own UTC offset (see the current-date system message) "
+                        "— do NOT convert to +00:00/UTC."
+                    ),
                 },
                 "current_start": {
                     "type": "string",

@@ -347,9 +347,6 @@ def generate_thread_summary(channel: str, key: str) -> dict | None:
 
     incremental = False
     if wa_config.ai_available() and msgs:
-        from openai import OpenAI  # lazy
-
-        base, api_key, model = wa_config.chat_provider()
         cached = cached_thread_summary(channel, key)
         prev, fresh = _delta(cached, msgs, count_key="message_count")
         incremental = fresh is not None
@@ -375,24 +372,21 @@ def generate_thread_summary(channel: str, key: str) -> dict | None:
                 "and ONE next action. Factual — no speculation presented as fact."
             )
         try:
-            client = OpenAI(base_url=base, api_key=api_key)
-            resp = client.chat.completions.create(
-                model=model,
+            from aicore.assistant import complete_with_failover  # lazy
+
+            text, base, model, resp_usage = complete_with_failover(
                 messages=[
                     {"role": "system",
                      "content": "You are a contact-conversation analyst. Be concise and factual."},
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=250,
-                temperature=0.2,
-            )
-            text = (resp.choices[0].message.content or "").strip()
+                max_tokens=250)
             heuristic = False
             from aicore import usage as usage_ledger  # lazy + exception-safe
 
             usage_ledger.record("timeline",
                                 provider=usage_ledger.provider_from_base_url(base),
-                                model=model, usage=getattr(resp, "usage", None),
+                                model=model, usage=resp_usage,
                                 contact_id=contact_id, channel=channel, ref=key)
         except Exception as e:
             # A quota/network hiccup must not destroy the last GOOD summary —
@@ -433,9 +427,6 @@ def generate_summary(name: str, phone: str = "", email: str = "", context: dict 
 
     incremental = False
     if wa_config.ai_available() and events:
-        from openai import OpenAI  # lazy
-
-        base, key, model = wa_config.chat_provider()
         cached = cached_summary(phone, email)
         prev, fresh = _delta(cached, events, count_key="event_count")
         incremental = fresh is not None
@@ -465,24 +456,21 @@ def generate_summary(name: str, phone: str = "", email: str = "", context: dict 
                 "action. Factual — no speculation presented as fact."
             )
         try:
-            client = OpenAI(base_url=base, api_key=key)
-            resp = client.chat.completions.create(
-                model=model,
+            from aicore.assistant import complete_with_failover  # lazy
+
+            summary_text, base, model, resp_usage = complete_with_failover(
                 messages=[
                     {"role": "system",
                      "content": "You are a contact-conversation analyst. Be concise and factual."},
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=350,
-                temperature=0.2,
-            )
-            summary_text = (resp.choices[0].message.content or "").strip()
+                max_tokens=350)
             heuristic = False
             from aicore import usage as usage_ledger  # lazy + exception-safe
 
             usage_ledger.record("timeline",
                                 provider=usage_ledger.provider_from_base_url(base),
-                                model=model, usage=getattr(resp, "usage", None),
+                                model=model, usage=resp_usage,
                                 ref=phone or email or name)
         except Exception as e:
             # keep serving the last GOOD summary through a quota/network hiccup

@@ -270,6 +270,41 @@ class TestDeactivateReactivate:
 
 
 @pytest.mark.django_db
+class TestConcurrentSessions:
+    """A fresh login must not invalidate a previously issued session token —
+    the bug behind the intermittent 'Not signed in' UI report."""
+
+    def _login(self, client):
+        r = _post(client, "/api/auth/login", {"username": "admin", "password": "admin123"})
+        assert r.status_code == 200
+        return r.json()["token"]
+
+    def test_second_login_keeps_first_session_alive(self, client, admin):
+        token1 = self._login(client)
+        token2 = self._login(client)
+        assert token1 != token2
+        assert client.get("/api/auth/me", HTTP_AUTHORIZATION=f"Bearer {token1}").status_code == 200
+        assert client.get("/api/auth/me", HTTP_AUTHORIZATION=f"Bearer {token2}").status_code == 200
+
+    def test_logout_revokes_only_that_session(self, client, admin):
+        token1 = self._login(client)
+        token2 = self._login(client)
+        r = client.post("/api/auth/logout", HTTP_AUTHORIZATION=f"Bearer {token1}")
+        assert r.status_code == 200
+        assert client.get("/api/auth/me", HTTP_AUTHORIZATION=f"Bearer {token1}").status_code == 401
+        assert client.get("/api/auth/me", HTTP_AUTHORIZATION=f"Bearer {token2}").status_code == 200
+
+    def test_password_change_revokes_every_session(self, client, superadmin, admin):
+        token1 = self._login(client)
+        token2 = self._login(client)
+        r = _post(client, f"/api/auth/users/{admin.pk}",
+                  {"password": "new-password-9"}, **SUPER_AUTH)
+        assert r.status_code == 200
+        assert client.get("/api/auth/me", HTTP_AUTHORIZATION=f"Bearer {token1}").status_code == 401
+        assert client.get("/api/auth/me", HTTP_AUTHORIZATION=f"Bearer {token2}").status_code == 401
+
+
+@pytest.mark.django_db
 class TestEntityAccess:
     """RBAC entities on the legacy user-management API: payload exposure,
     entity_ids on create/update, tenant coherence, role-change clearing."""

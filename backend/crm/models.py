@@ -55,6 +55,18 @@ class Profile(models.Model):
         return f"{self.user.username} ({self.role})"
 
 
+class AuthToken(models.Model):
+    """One bearer token per logged-in session. A profile can hold several at
+    once — logging in again (another tab/device) issues a new row instead of
+    invalidating the others, which is what makes concurrent sessions work.
+    `logout` deletes only the row for that session; password change /
+    deactivation deletes every row for the profile (all sessions die)."""
+
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="auth_tokens")
+    token = models.CharField(max_length=64, unique=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
 class Role(models.Model):
     """A role users can be assigned — the 3 built-ins plus any custom roles a
     superadmin creates (Permissions page).

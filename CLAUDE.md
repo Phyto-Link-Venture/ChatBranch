@@ -19,34 +19,35 @@ ChatBranch — an industry-agnostic multi-channel conversation platform
 
 ## Run
 
-```powershell
+```bash
 npm run dev:all  # repo root — all four processes via concurrently (api/agent/web/wa); `npm run dev` = alias
 ```
 
 Or individually (what the root `package.json` scripts do):
 
-```powershell
-# API
-cd backend; venv\Scripts\python manage.py runserver
-# Agent (separate terminal)
-cd backend/voice_agent; ..\venv\Scripts\python agent.py dev
-# Frontend (separate terminal)
-cd frontend; npm run dev
-# Baileys gateway (separate terminal)
-cd backend/baileys_service; npm start
+```bash
+npm run dev:api      # Django, :8000
+npm run dev:agent    # voice agent worker (separate terminal)
+npm run dev:web      # Next.js, :3000 (separate terminal)
+npm run dev:baileys  # Baileys gateway, :3020 (separate terminal)
 ```
 
 First-time bootstrap: `npm install` then `npm run setup` at the repo root
-(creates `backend/venv` with `py -3.13`, pip-installs, copies
-`backend/.env.example` → `.env`, runs `manage.py migrate` + `seed_demo`, then
-`npm install`s the frontend and the Baileys gateway). Keys are filled in by
-hand afterwards — **nothing in `.env` is required to boot**; with it empty the
-whole app runs in sandbox mode.
+(creates `backend/venv`, pip-installs, copies `backend/.env.example` → `.env`,
+runs `manage.py migrate` + `seed_demo`, then `npm install`s the frontend and
+the Baileys gateway). Keys are filled in by hand afterwards — **nothing in
+`.env` is required to boot**; with it empty the whole app runs in sandbox
+mode.
 
-Environment is **Windows / PowerShell**. venv is at `backend/venv`. ⚠ The root
-`package.json` scripts hardcode `venv\Scripts\python`, `py -3.13` and cmd.exe
-syntax, so `npm run setup` / `dev:*` are **Windows-only** — the README spells
-out the macOS/Linux equivalents.
+venv is at `backend/venv`. **The root `package.json` scripts are
+cross-platform** (Windows/macOS/Linux): `scripts/setup-api.js` and
+`scripts/run-py.js` resolve the right base Python (`py -3.13` on Windows,
+`python3.13`/`python3`/`python` elsewhere) and the right venv interpreter path
+(`venv\Scripts\python.exe` vs `venv/bin/python`) for whichever OS runs them —
+don't hardcode a platform-specific path back into `package.json`; add it to
+those scripts instead. `npm --prefix <dir> run <script>` replaces `cd <dir> &&
+npm run <script>` for the same reason (no shell-specific `cd`/`&&`). The
+README's "run by hand" section is the manual fallback, not the primary path.
 
 ## Architecture that isn't obvious from the tree
 
@@ -232,7 +233,7 @@ out the macOS/Linux equivalents.
   terminates Meta's WebRTC leg, joins a LiveKit room as `whatsapp_borrower`,
   and the normal voice agent is dispatched there). Webhook↔bridge IPC =
   `data/whatsapp/calls/{call_id}.json` signal files (SDP answer, hangup).
-  Offline check: `venv\Scripts\python -m whatsapp.bridge --selftest`.
+  Offline check: `venv/bin/python -m whatsapp.bridge --selftest` (Windows: `venv\Scripts\python`).
   Calls are PID-tracked (`data/whatsapp/calls/pending-{wa_id}.json`, pid
   merged into the call signal): stale call state self-recovers when the
   bridge pid is dead, each call writes its own log under
@@ -816,13 +817,13 @@ out the macOS/Linux equivalents.
 
 ## Verifying changes
 
-- Frontend types: `cd frontend; npx tsc --noEmit` — clean, no known exceptions.
+- Frontend types: `cd frontend && npx tsc --noEmit` — clean, no known exceptions.
   (There is **no** `frontend/__tests__/` directory; jest is configured in
   package.json but there are no test files, so `npm test` has nothing to run.)
-- Django: `cd backend; venv\Scripts\python manage.py check` (a `staticfiles.W004`
-  missing-`static/` warning is benign) and
-  `venv\Scripts\python manage.py makemigrations --check --dry-run`.
-- Backend tests: `cd backend; venv\Scripts\python -m pytest tests/ calls/tests -q`
+- Django: `cd backend && venv/bin/python manage.py check` (Windows:
+  `venv\Scripts\python`; a `staticfiles.W004` missing-`static/` warning is
+  benign) and `venv/bin/python manage.py makemigrations --check --dry-run`.
+- Backend tests: `cd backend && venv/bin/python -m pytest tests/ calls/tests -q`
   — 863 tests covering whatsapp hardening/features, baileys (messaging + calls +
   live monitor + transcript/recording persistence), wa_calls, messaging
   channels, ingest/partner sync, api v1, the flows engine, channel

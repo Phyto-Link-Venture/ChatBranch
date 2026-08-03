@@ -1,7 +1,11 @@
 """RBAC helpers: token resolution, role checks, and notification fan-out.
 
-Auth model: POST /api/auth/login returns a bearer token (rotated per login,
-stored on crm.Profile). API callers send `Authorization: Bearer <token>`.
+Auth model: POST /api/auth/login returns a bearer token, one row in
+crm.AuthToken per session — a fresh login does NOT invalidate previously
+issued tokens, so the same account can hold several concurrent sessions
+(other tabs, other devices). `Profile.token` still works as a single
+directly-settable token (kept for scripts/tests/manual pinning); real logins
+no longer read or write it. API callers send `Authorization: Bearer <token>`.
 
 Bootstrap fallback: while NO Profile rows exist yet (fresh DB before
 seed_demo), the old X-Role header is honoured so the app isn't bricked.
@@ -9,17 +13,32 @@ Once users exist, only real tokens carry a role.
 """
 from __future__ import annotations
 
-from .models import AuditLog, Notification, Profile, Setting
+from .models import AuditLog, AuthToken, Notification, Profile, Setting
+
+
+def token_from_request(request) -> str:
+    header = request.headers.get("Authorization", "")
+    if not header.startswith("Bearer "):
+        return ""
+    return header[len("Bearer "):].strip()
+
+
+def profile_for_token(token: str):
+    """Resolve a bearer token to its Profile: an AuthToken session row first,
+    falling back to a directly-set Profile.token (scripts/tests)."""
+    if not token:
+        return None
+    auth_token = AuthToken.objects.filter(token=token).select_related("profile__user").first()
+    if auth_token:
+        return auth_token.profile
+    return Profile.objects.filter(token=token).select_related("user").first()
 
 
 def user_from_request(request):
-    header = request.headers.get("Authorization", "")
-    if not header.startswith("Bearer "):
-        return None
-    token = header[len("Bearer "):].strip()
+    token = token_from_request(request)
     if not token:
         return None
-    profile = Profile.objects.filter(token=token).select_related("user").first()
+    profile = profile_for_token(token)
     return profile.user if profile and profile.user.is_active else None
 
 
