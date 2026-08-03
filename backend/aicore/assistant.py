@@ -362,6 +362,15 @@ def generate_reply(history: list[dict], *, contact_name: str, phone: str, channe
     # the model, credulously following its own system prompt, invented an
     # action it had no way to actually take.
     tools = _tool_specs(contact, channel)
+    # tool_choice="auto" never OBLIGATES a fresh check — a model asked the
+    # same question repeatedly in one conversation was observed to just
+    # pattern-match its own earlier (wrong) reply from history and never
+    # call a tool at all, confidently repeating a false "not available"
+    # claim with zero tool calls behind it. When the customer's latest
+    # message plainly signals booking/availability intent, force the FIRST
+    # round to actually call a tool instead of leaving it optional.
+    from aicore.tools import looks_like_booking_intent
+    force_tools = bool(tools) and looks_like_booking_intent(last_user)
     TOOLS_INSTRUCTION = {"role": "system", "content": (
         "You can take real actions using the provided tools when it helps the "
         "customer. Any tool that creates, changes or cancels something real "
@@ -370,7 +379,11 @@ def generate_reply(history: list[dict], *, contact_name: str, phone: str, channe
         "then wait for their reply. Only after they clearly agree, call the "
         "tool again with confirmed=true. For appointments, offer the open "
         "slots and get their explicit choice of one specific time — never "
-        "book a slot they have not agreed to."
+        "book a slot they have not agreed to. If the customer names a SPECIFIC "
+        "time themselves (e.g. \"can I get 1pm?\"), pass it as "
+        "requested_start_iso to check_calendar_availability so you get a "
+        "definitive yes/no for that exact time — do not infer it is "
+        "unavailable just because it is missing from the general slots list."
     )}
     # The counter-case: tools exist for this conversation in general, but THIS
     # attempt's provider doesn't support them (ilmu, or any provider a call
@@ -440,7 +453,7 @@ def generate_reply(history: list[dict], *, contact_name: str, phone: str, channe
                 # provider rejects `tools=`, so this never breaks a reply.
                 text = _run_tool_loop(client, base_create, tools, contact=contact,
                                       channel=channel, provider=_provider_name(cand_base_url),
-                                      usage_acc=cand_usage).strip()
+                                      usage_acc=cand_usage, force_tools=force_tools).strip()
             else:
                 # No tools (sandbox / disabled / unsupported provider): the EXACT single
                 # completion — identical kwargs — that generate_reply has always made.
@@ -562,15 +575,25 @@ def _execute_tool(tool_call, *, contact, channel: str, session=None) -> dict:
 
 
 def _run_tool_loop(client, base_create: dict, tools: list, *, contact, channel: str,
-                   provider: str = "openai", usage_acc: list | None = None) -> str:
+                   provider: str = "openai", usage_acc: list | None = None,
+                   force_tools: bool = False) -> str:
     """Bounded function-calling loop. Passes tools + tool_choice="auto"; while
     the model returns tool_calls we execute them, feed each result back and
     re-call, up to MAX_TOOL_ROUNDS. The first call is retried ONCE without tools
     if the provider rejects the `tools=` param, so tool support never breaks a
     reply. Returns the final assistant prose (unstripped — the caller strips).
-    Every completion's resp.usage is appended to `usage_acc` (billing ledger)."""
+    Every completion's resp.usage is appended to `usage_acc` (billing ledger).
+
+    `force_tools`: the FIRST call only uses tool_choice="required" instead of
+    "auto" — "auto" never OBLIGATES a tool call, and a model asked the same
+    question repeatedly in one conversation was observed to just pattern-match
+    its own earlier (wrong) reply from history instead of ever calling a tool
+    again. Only the first round is forced; every round after reverts to
+    "auto" so the model can still conclude with plain prose once it has what
+    it needs, instead of being forced to keep calling tools forever."""
     convo = base_create["messages"]  # live list; tool turns are appended to it
-    create = {**base_create, "tools": tools, "tool_choice": "auto"}
+    create = {**base_create, "tools": tools,
+             "tool_choice": "required" if force_tools else "auto"}
     acc = usage_acc if usage_acc is not None else []
     # One id per reply generation: the confirmation gate uses it to refuse
     # state-changing tools in the same round that asked the customer to confirm.
@@ -593,6 +616,7 @@ def _run_tool_loop(client, base_create: dict, tools: list, *, contact, channel: 
         resp = client.chat.completions.create(**base_create)
         acc.append(getattr(resp, "usage", None))
         return resp.choices[0].message.content or ""
+    create["tool_choice"] = "auto"  # only the first round is ever forced
 
     for _round in range(MAX_TOOL_ROUNDS):
         message = resp.choices[0].message

@@ -154,9 +154,9 @@ def fake_openai(monkeypatch):
     return ScriptedOpenAI
 
 
-def _reply(contact=None):
+def _reply(contact=None, text="can I book an appointment?"):
     return assistant.generate_reply(
-        [{"role": "user", "content": "can I book an appointment?"}],
+        [{"role": "user", "content": text}],
         contact_name="Aminah",
         phone="+60123456789", channel="whatsapp",
         contact_id=contact.pk if contact is not None else None)
@@ -224,6 +224,53 @@ class TestFindFreeSlots:
         res, _ = self._find(monkeypatch, busy=busy, searchDays=1)
         assert res["ok"] is True and res["data"]["slots"] == []
 
+    def test_requested_time_available_when_free(self, calendar, monkeypatch):
+        # The exact live bug: a customer asking for an afternoon time got told
+        # "not available" just because it wasn't among the 3 earliest morning
+        # slots — the calendar was actually completely free. requestedStart
+        # must give a definitive per-slot answer, not force an inference from
+        # the general slots list.
+        res, _ = self._find(monkeypatch, requestedStart="2026-07-27T13:00:00+08:00")
+        assert res["data"]["requested_available"] is True
+        assert res["data"]["requested_reason"] is None
+        assert res["data"]["requested_start"] == "2026-07-27T13:00:00+08:00"
+        # the general slots list is still returned too, as alternatives
+        assert len(res["data"]["slots"]) == 3
+
+    def test_requested_time_busy(self, calendar, monkeypatch):
+        busy = [{"start": "2026-07-27T13:00:00+08:00", "end": "2026-07-27T13:30:00+08:00"}]
+        res, _ = self._find(monkeypatch, busy=busy,
+                            requestedStart="2026-07-27T13:00:00+08:00")
+        assert res["data"]["requested_available"] is False
+        assert res["data"]["requested_reason"] == "busy"
+
+    def test_requested_time_outside_hours(self, calendar, monkeypatch):
+        res, _ = self._find(monkeypatch, requestedStart="2026-07-27T22:00:00+08:00")
+        assert res["data"]["requested_available"] is False
+        assert res["data"]["requested_reason"] == "outside_hours"
+
+    def test_alternatives_anchor_to_the_requested_day_not_now(self, calendar, monkeypatch):
+        # A customer asking about a future day must get THAT day's
+        # alternatives — with no eventStart pinning the search, it used to
+        # default to "right now," which can be a completely different,
+        # unrelated day (observed live: a customer asked about tomorrow,
+        # after midnight, and was offered slots that were actually for a
+        # different day entirely).
+        from django.utils import timezone as dj_tz
+
+        requested = (dj_tz.localtime() + timedelta(days=10)).replace(
+            hour=13, minute=0, second=0, microsecond=0)
+        while requested.weekday() >= 5:  # keep it a weekday regardless of run date
+            requested += timedelta(days=1)
+        spy = _RequestSpy()
+        monkeypatch.setattr(actions, "_request", spy)
+        res = actions.find_free_slots(config={
+            "eventMinutes": 30, "requestedStart": requested.isoformat()})
+        slots = res["data"]["slots"]
+        assert slots
+        for s in slots:
+            assert parse_datetime(s["start"]).date() == requested.date()
+
     def test_single_slot_finder_left_intact(self, calendar, monkeypatch):
         # find_free_slot (singular, used by the flow builder) still returns a
         # single slot dict — unchanged behaviour.
@@ -265,6 +312,40 @@ class TestBookAppointment:
         res = actions.book_appointment(config={"eventStart": "2026-07-27T14:00:00+08:00"})
         assert res["ok"] is True
         assert Record.objects.filter(type="booking").count() == 0
+
+    def test_refuses_a_real_conflict(self, calendar, contact, monkeypatch):
+        # book_appointment used to only validate business HOURS, never
+        # checking whether the calendar was actually busy — meaning it could
+        # silently double-book over a real event. A pre-flight freeBusy check
+        # must catch that before create_calendar_event is ever called.
+        busy = [{"start": "2026-07-27T14:00:00+08:00", "end": "2026-07-27T14:30:00+08:00"}]
+        spy = _RequestSpy(busy=busy)
+        monkeypatch.setattr(actions, "_request", spy)
+        res = actions.book_appointment(
+            contact=contact, config={"eventStart": "2026-07-27T14:00:00+08:00"})
+        assert res["ok"] is False and res["conflict"] is True
+        assert Record.objects.filter(type="booking").count() == 0
+        assert not any("/events" in url for _, url in spy.calls)  # never even tried to create it
+
+    def test_conflict_check_failure_does_not_block_booking(self, calendar, contact, monkeypatch):
+        # The conflict check is a SAFETY NET, not a new way to fail a booking
+        # that would otherwise succeed — a freeBusy lookup error must not
+        # block the booking itself.
+        calls = {"n": 0}
+
+        def flaky(method, url, **kw):
+            if "freeBusy" in url:
+                calls["n"] += 1
+                return False, "network error"
+            if "/events" in url:
+                return True, {"id": "evt-1", "htmlLink": "https://calendar.example/evt-1"}
+            raise AssertionError(f"unexpected calendar URL {url}")
+
+        monkeypatch.setattr(actions, "_request", flaky)
+        res = actions.book_appointment(
+            contact=contact, config={"eventStart": "2026-07-27T14:00:00+08:00"})
+        assert res["ok"] is True
+        assert calls["n"] == 1
 
     def test_book_skips_when_not_connected(self, db, contact, monkeypatch):
         monkeypatch.setattr(actions, "_request",
@@ -336,26 +417,58 @@ class TestConfirmationGate:
                                   session=session)
 
     def test_first_call_asks_and_does_not_book(self, calendar, contact, monkeypatch):
-        monkeypatch.setattr(actions, "_request",
-                            lambda *a, **k: pytest.fail("must not book unconfirmed"))
+        # A read-only freeBusy check is now allowed pre-confirmation — the
+        # precheck validates the requested time for real (see
+        # _precheck_book_appointment) — but a WRITE (creating the event) must
+        # still never happen until the customer explicitly confirms.
+        spy = _RequestSpy()
+        monkeypatch.setattr(actions, "_request", spy)
         out = self._book(contact)
         assert out["ok"] is False and out["needs_confirmation"] is True
         assert out["details"]["start_iso"] == self.ARGS["start_iso"]
         assert Record.objects.filter(type="booking").count() == 0
+        assert not any("/events" in url for _, url in spy.calls)
+
+    def test_precheck_refuses_a_real_conflict_before_asking_to_confirm(
+            self, calendar, contact, monkeypatch):
+        # The exact live incident: the model must not be able to ask "shall I
+        # book that?" for a time that can never succeed — a REAL conflict is
+        # reported immediately, on the very first (unconfirmed) call, instead
+        # of only being discovered after the customer already agreed.
+        busy = [{"start": "2026-07-27T14:00:00+08:00", "end": "2026-07-27T14:30:00+08:00"}]
+        spy = _RequestSpy(busy=busy)
+        monkeypatch.setattr(actions, "_request", spy)
+        out = self._book(contact)
+        assert out["ok"] is False
+        assert "needs_confirmation" not in out  # never even reaches the ask
+        assert out["error"] == "that time is already booked on the calendar"
+        assert not any("/events" in url for _, url in spy.calls)
+
+    def test_precheck_refuses_outside_hours_before_asking_to_confirm(
+            self, calendar, contact, monkeypatch):
+        spy = _RequestSpy()
+        monkeypatch.setattr(actions, "_request", spy)
+        out = self._book(contact, {"start_iso": "2026-07-27T22:00:00+08:00"})
+        assert out["ok"] is False
+        assert "needs_confirmation" not in out
+        assert "outside the bookable opening hours" in out["error"]
+        assert not any("/events" in url for _, url in spy.calls)
 
     def test_confirmed_out_of_nowhere_is_refused(self, calendar, contact, monkeypatch):
         # confirmed=true with no prior ask must not execute — it becomes the ask.
-        monkeypatch.setattr(actions, "_request",
-                            lambda *a, **k: pytest.fail("must not book cold-confirmed"))
+        spy = _RequestSpy()
+        monkeypatch.setattr(actions, "_request", spy)
         out = self._book(contact, {**self.ARGS, "confirmed": True})
         assert out["ok"] is False and out["needs_confirmation"] is True
+        assert not any("/events" in url for _, url in spy.calls)
 
     def test_same_session_confirm_is_refused(self, calendar, contact, monkeypatch):
-        monkeypatch.setattr(actions, "_request",
-                            lambda *a, **k: pytest.fail("must not book in the asking round"))
+        spy = _RequestSpy()
+        monkeypatch.setattr(actions, "_request", spy)
         self._book(contact, session="round-1")
         out = self._book(contact, {**self.ARGS, "confirmed": True}, session="round-1")
         assert out["ok"] is False and out["needs_confirmation"] is True
+        assert not any("/events" in url for _, url in spy.calls)
 
     def test_later_session_confirm_executes(self, calendar, contact, monkeypatch):
         monkeypatch.setattr(actions, "_request", _RequestSpy())
@@ -379,13 +492,14 @@ class TestConfirmationGate:
         assert out["ok"] is True
 
     def test_expired_ask_reasks(self, calendar, contact, monkeypatch):
-        monkeypatch.setattr(actions, "_request",
-                            lambda *a, **k: pytest.fail("must not book on a stale yes"))
+        spy = _RequestSpy()
+        monkeypatch.setattr(actions, "_request", spy)
         self._book(contact, session="round-1")
         PendingToolAction.objects.filter(contact=contact, tool="book_appointment").update(
             asked_at=timezone.now() - timedelta(seconds=tools_mod._CONFIRM_TTL_S + 1))
         out = self._book(contact, {**self.ARGS, "confirmed": True}, session="round-2")
         assert out["ok"] is False and out["needs_confirmation"] is True
+        assert not any("/events" in url for _, url in spy.calls)
         # the expired row was pruned and the confirm re-recorded a fresh ask
         row = PendingToolAction.objects.get(contact=contact, tool="book_appointment")
         assert row.session == "round-2"
@@ -402,6 +516,38 @@ class TestConfirmationGate:
         out = tools_mod.dispatch("check_calendar_availability", {},
                                  contact=contact, channel="whatsapp")
         assert out["ok"] is True and "slots" in out
+
+    def test_requested_start_iso_surfaces_a_definitive_answer(self, calendar, contact,
+                                                              monkeypatch):
+        # The exact live incident, at the dispatch layer: the model asks about
+        # a specific time and must get a definitive requested_available
+        # answer, not just a generic slots list it has to guess from.
+        monkeypatch.setattr(actions, "_request", _RequestSpy())
+        out = tools_mod.dispatch(
+            "check_calendar_availability",
+            {"requested_start_iso": "2026-07-27T13:00:00+08:00"},
+            contact=contact, channel="whatsapp")
+        assert out["ok"] is True
+        assert out["requested_available"] is True
+        assert "requested_reason" not in out  # only present when unavailable
+        # The generic "earliest slots" list must NOT be shown alongside a
+        # definitive "yes, available" answer — a live test (gpt-4o-mini, a
+        # competent model) showed the model reading the requested time's
+        # absence from that list as "not available" and contradicting its
+        # own requested_available=true, even with zero conversation history.
+        assert "slots" not in out
+        assert "AVAILABLE" in out["note"].upper()
+
+    def test_requested_start_iso_busy_includes_a_note(self, calendar, contact, monkeypatch):
+        busy = [{"start": "2026-07-27T13:00:00+08:00", "end": "2026-07-27T13:30:00+08:00"}]
+        monkeypatch.setattr(actions, "_request", _RequestSpy(busy=busy))
+        out = tools_mod.dispatch(
+            "check_calendar_availability",
+            {"requested_start_iso": "2026-07-27T13:00:00+08:00"},
+            contact=contact, channel="whatsapp")
+        assert out["requested_available"] is False
+        assert out["requested_reason"] == "busy"
+        assert "already booked" in out["note"]
 
 
 # ---- the loop in generate_reply ---------------------------------------------
@@ -422,6 +568,31 @@ class TestToolLoop:
         assert any("freeBusy" in url for _m, url in spy.calls)
         assert len(fake_openai.calls) == 2
         assert "tools" in fake_openai.calls[0]
+
+    def test_booking_intent_forces_a_tool_call_on_the_first_round(
+            self, calendar, contact, fake_openai, monkeypatch):
+        # The exact live incident: asked the SAME booking question repeatedly
+        # in one conversation, the model just pattern-matched its own earlier
+        # (wrong) reply from history and never called a tool at all —
+        # tool_choice="auto" never obligates a fresh check. A message that
+        # plainly signals booking intent must force the first round.
+        monkeypatch.setattr(actions, "_request", _RequestSpy())
+        fake_openai.scripts = [
+            _with_tools(_tool_call("c1", "check_calendar_availability", "{}")),
+            _prose("Here's what's open tomorrow."),
+        ]
+        _reply(contact, text="Can you help me book a timeslot for tomorrow 11am?")
+        assert fake_openai.calls[0]["tool_choice"] == "required"
+        # the SECOND round must not stay forced — the model needs to be able
+        # to conclude with plain prose once it has what it needs.
+        assert fake_openai.calls[1]["tool_choice"] == "auto"
+
+    def test_plain_chat_does_not_force_tool_choice(self, calendar, contact, fake_openai):
+        # A message with no booking-ish language must not force a pointless
+        # tool call — "auto" stays the default for ordinary conversation.
+        fake_openai.scripts = [_prose("We're open Mon-Fri, 9am to 6pm!")]
+        _reply(contact, text="What are your business hours?")
+        assert fake_openai.calls[0]["tool_choice"] == "auto"
 
     def test_booking_through_the_loop(self, calendar, contact, admin, fake_openai, monkeypatch):
         spy = _RequestSpy()

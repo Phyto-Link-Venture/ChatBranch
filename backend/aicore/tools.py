@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,12 @@ _CHECK_AVAILABILITY = {
         "description": (
             "Check the team calendar and return a list of REAL open appointment "
             "slots you can offer the customer. Call this before proposing a time "
-            "so you only ever offer slots that are actually free."
+            "so you only ever offer slots that are actually free. If the customer "
+            "named a SPECIFIC time (e.g. \"1pm tomorrow\"), pass it as "
+            "requested_start_iso — the result tells you definitively whether that "
+            "exact time is free. Do NOT assume a specific time is unavailable just "
+            "because it is missing from the general slots list — that list is only "
+            "the earliest few open times, not every open time in the day."
         ),
         "parameters": {
             "type": "object",
@@ -56,6 +62,15 @@ _CHECK_AVAILABILITY = {
                 "within_days": {
                     "type": "integer",
                     "description": "How many days ahead to search (default 7).",
+                },
+                "requested_start_iso": {
+                    "type": "string",
+                    "description": (
+                        "ISO 8601 time the customer specifically asked about, in "
+                        "THIS business's own UTC offset (see the current-date "
+                        "system message). Set this whenever the customer named a "
+                        "specific time so you can confirm or deny it directly."
+                    ),
                 },
             },
         },
@@ -245,6 +260,24 @@ def tool_specs(contact=None, channel: str = "") -> list[dict]:
     return specs
 
 
+# Keyword heuristic (EN + a few common BM terms) for "this message is
+# probably about booking/availability" — used to FORCE a tool call rather
+# than leave it to the model's discretion (tool_choice="auto"). Needed
+# because a model asked the SAME question repeatedly in one conversation was
+# observed to just pattern-match its own earlier (wrong) answer from history
+# and never call a tool again — "auto" never obligates a fresh check, even
+# when the customer is plainly asking about a specific time again. A false
+# positive here only costs one extra tool call; a false negative repeats the
+# exact live incident this exists to prevent.
+_BOOKING_INTENT_RE = re.compile(
+    r"\b(book(?:ing)?|appointment|timeslot|time slot|reschedul\w*|cancel\w*|"
+    r"available|availability|slot|tempah|jadual|batal)\b", re.I)
+
+
+def looks_like_booking_intent(text: str) -> bool:
+    return bool(_BOOKING_INTENT_RE.search(text or ""))
+
+
 # ---- double-confirmation gate for state-changing tools ----------------------
 #
 # Tools listed in _MUTATING create/change/cancel something real. The customer's
@@ -352,16 +385,45 @@ def _do_check_availability(args: dict, *, contact, channel: str) -> dict:
         cfg["eventMinutes"] = args["duration_minutes"]
     if args.get("within_days"):
         cfg["searchDays"] = args["within_days"]
+    if args.get("requested_start_iso"):
+        cfg["requestedStart"] = args["requested_start_iso"]
     res = actions.find_free_slots(contact=contact, config=cfg)
     if not res.get("ok"):
         return {"ok": False, "error": res.get("detail") or "calendar lookup failed",
                 "hint": "apologise briefly and offer to have the team confirm a time"}
-    slots = (res.get("data") or {}).get("slots") or []
+    data = res.get("data") or {}
+    slots = data.get("slots") or []
+    if "requested_available" in data:
+        # A specific time was checked — answer THAT question alone. The
+        # generic "earliest slots" list is a DIFFERENT question ("what's
+        # open in general") and showing both together was observed live to
+        # make the model ignore a plain requested_available=true and answer
+        # from the slots list instead, since the requested time is (by
+        # definition, if it's available) usually not among the few earliest
+        # slots — the model reads that absence as "not available" and
+        # answers the wrong question. Keep the two answers from ever
+        # colliding in the same response.
+        if data["requested_available"]:
+            return {"ok": True, "requested_start": data.get("requested_start"),
+                    "requested_available": True,
+                    "note": (f"YES — {data.get('requested_start')} is available right now, "
+                             "confirmed by a live calendar check just now. Tell the customer "
+                             "this exact time works and proceed to confirm booking it. Do NOT "
+                             "say it is unavailable and do NOT offer different times instead.")}
+        reason = data.get("requested_reason")
+        return {"ok": True, "requested_start": data.get("requested_start"),
+                "requested_available": False, "requested_reason": reason,
+                "slots": slots,
+                "note": (
+                    "the requested time is NOT available ("
+                    + ("outside opening hours" if reason == "outside_hours" else "already booked")
+                    + ") — tell the customer plainly and offer one of the alternative "
+                    "slots instead")}
+    out: dict = {"ok": True, "slots": slots}
     if not slots:
-        return {"ok": True, "slots": [],
-                "note": "no open slots in the search window — offer to have the "
-                        "team confirm a time instead of inventing one"}
-    return {"ok": True, "slots": slots}
+        out["note"] = ("no open slots in the search window — offer to have the "
+                       "team confirm a time instead of inventing one")
+    return out
 
 
 def _do_book_appointment(args: dict, *, contact, channel: str) -> dict:
@@ -442,6 +504,37 @@ def _do_reschedule_appointment(args: dict, *, contact, channel: str) -> dict:
             "note": res.get("note")}
 
 
+def _precheck_book_appointment(args: dict, *, contact) -> dict | None:
+    """Validate the requested time for REAL — opening hours and an actual
+    calendar conflict — before the customer is ever asked to confirm it.
+    Returns the failure dict to short-circuit, or None when the time is
+    genuinely bookable (the normal confirm-then-book flow proceeds).
+
+    Without this, the ONLY way the model learns whether a specific time is
+    actually free is by separately calling check_calendar_availability with
+    its optional requested_start_iso — and prompting alone does not reliably
+    make it do that (observed live: the model flatly asserted a genuinely
+    free time was unavailable, with no tool call backing the claim at all).
+    Running the same check book_appointment already enforces BEFORE the
+    confirmation gate closes that gap regardless of what the model chooses
+    to call, since start_iso is required on every book_appointment attempt."""
+    from integrations import actions
+
+    if contact is None:
+        return None  # let the normal confirmation gate reject "unidentified customer"
+    start_iso = str(args.get("start_iso") or "").strip()
+    if not start_iso:
+        return None  # let the normal dispatch surface the "start_iso required" error
+    cfg: dict = {"eventStart": start_iso}
+    if args.get("duration_minutes"):
+        cfg["eventMinutes"] = args["duration_minutes"]
+    validity = actions.validate_booking_time(contact=contact, config=cfg)
+    if validity.get("ok"):
+        return None
+    return {"ok": False, "error": validity.get("detail") or "that time is not available",
+            "hint": validity.get("hint")}
+
+
 _SCHEMAS = {
     "check_calendar_availability": _CHECK_AVAILABILITY,
     "book_appointment": _BOOK_APPOINTMENT,
@@ -458,6 +551,12 @@ _DISPATCH = {
     "reschedule_appointment": _do_reschedule_appointment,
 }
 
+# Tools whose requested time is worth validating for REAL before the
+# confirmation gate ever asks — see _precheck_book_appointment.
+_PRECHECK = {
+    "book_appointment": _precheck_book_appointment,
+}
+
 
 def dispatch(name: str, args: dict | None = None, *, contact=None,
              channel: str = "", session=None) -> dict:
@@ -471,6 +570,17 @@ def dispatch(name: str, args: dict | None = None, *, contact=None,
         return {"ok": False, "error": f"unknown tool {name!r}"}
     args = args or {}
     if name in _MUTATING:
+        precheck = _PRECHECK.get(name)
+        if precheck is not None:
+            try:
+                failure = precheck(args, contact=contact)
+            except Exception:
+                # fail OPEN on a precheck error — the real execution path
+                # below still validates for real before anything is created.
+                logger.exception("aicore.tools: precheck failed for %r", name)
+                failure = None
+            if failure is not None:
+                return failure
         try:
             refusal = _confirmation_gate(name, args, contact=contact,
                                          channel=channel, session=session)
