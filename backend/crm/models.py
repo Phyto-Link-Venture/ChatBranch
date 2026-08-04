@@ -259,6 +259,67 @@ class ContactBrand(models.Model):
         return f"{self.contact.name} @ {self.brand.slug}"
 
 
+class Resource(models.Model):
+    """A service provider whose time customers book. The vertical labels it a
+    Teacher / Coach / Doctor / Stylist (the display label is a per-deployment
+    Setting, `resource_label`; the model stays generic). Distinct from a Contact
+    (the customer we message) and a Profile (an operator who logs in): a Resource
+    is the DELIVERY side — bound to customers via ResourceLink and carrying an
+    availability reference (a Google Sheet / calendar id in `config`) the
+    reschedule flow reads."""
+
+    tenant = models.ForeignKey("ingest.Tenant", null=True, blank=True,
+                               on_delete=models.CASCADE, related_name="resources")
+    name = models.CharField(max_length=120)
+    external_id = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    email = models.EmailField(blank=True, default="")
+    phone = models.CharField(max_length=32, blank=True, default="")
+    active = models.BooleanField(default=True)
+    # Availability + scheduling references, e.g.
+    #   {"availability_sheet_id": "…", "availability_range": "Sheet1!A1:D50",
+    #    "calendar_id": "…"} — mirrors Integration.config / ChannelAccount.config.
+    config = models.JSONField(default=dict, blank=True)
+    attributes = models.JSONField(default=dict, blank=True)  # vertical custom fields
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "external_id"],
+                condition=~models.Q(external_id=""),
+                name="uniq_resource_tenant_external_id",
+            ),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class ResourceLink(models.Model):
+    """Binds a Resource (teacher) to a Contact (student) — the many-to-many-with-
+    attributes relationship the reschedule flow resolves: student Contact →
+    ResourceLink → Resource → availability. Modelled on ContactBrand /
+    AccountAssignment (two FKs + unique_together + a lifecycle flag)."""
+
+    resource = models.ForeignKey(Resource, on_delete=models.CASCADE, related_name="links")
+    contact = models.ForeignKey(Contact, on_delete=models.CASCADE, related_name="resource_links")
+    relationship = models.CharField(max_length=32, blank=True, default="")  # e.g. "primary"
+    active = models.BooleanField(default=True)
+    since = models.DateField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("resource", "contact")]
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.resource.name} - {self.contact.name}"
+
+
 class Record(models.Model):
     """The business object a conversation is about: an order, a shipment, an
     invoice, a booking, a support ticket. Verticals put their own shape in
@@ -282,6 +343,13 @@ class Record(models.Model):
     # for this record type. Flow triggers match offsets against it.
     due_date = models.DateField(null=True, blank=True)
     data = models.JSONField(default=dict, blank=True)  # line items, addresses, anything
+
+    # Optional service provider ("Resource" — teacher/coach/…) this record is
+    # assigned to, so a booking knows whose slot/availability it belongs to
+    # (a reschedule/cancel keeps the same provider). SET_NULL: deleting a
+    # provider never deletes its history.
+    resource = models.ForeignKey("Resource", null=True, blank=True,
+                                 on_delete=models.SET_NULL, related_name="records")
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

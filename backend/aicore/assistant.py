@@ -152,6 +152,39 @@ def _crm_context(contact) -> str:
     )
 
 
+def _resources_block(contact) -> str:
+    """The service provider(s) (teacher/coach/…) bound to this contact plus their
+    availability references, so the bot knows WHOSE calendar/sheet to check for a
+    booking or reschedule. Empty when nothing is bound. Exception-safe — a
+    failure degrades to a reply without the binding."""
+    try:
+        from crm import resources as res_mod
+
+        providers = res_mod.resources_for_contact(contact)
+        if not providers:
+            return ""
+        label = res_mod.resource_label()
+        lines = []
+        for r in providers:
+            cfg = r.config or {}
+            bits = [r.name]
+            sheet = str(cfg.get("availability_sheet_id") or "").strip()
+            rng = str(cfg.get("availability_range") or "").strip()
+            cal = str(cfg.get("calendar_id") or "").strip()
+            if sheet:
+                bits.append("availability sheet id " + sheet + (f" (range {rng})" if rng else ""))
+            if cal:
+                bits.append("calendar id " + cal)
+            lines.append("- " + " — ".join(bits))
+        return (f"ASSIGNED {label.upper()}(S) for this contact. When they ask to book, "
+                f"reschedule or cancel, this is their {label}; check the availability "
+                f"reference below (use the sheet/calendar tools) before proposing "
+                f"times:\n" + "\n".join(lines))
+    except Exception:
+        logger.exception("aicore: resources block failed")
+        return ""
+
+
 # ---- the reply --------------------------------------------------------------
 
 def generate_reply(history: list[dict], *, contact_name: str, phone: str, channel: str,
@@ -204,6 +237,13 @@ def generate_reply(history: list[dict], *, contact_name: str, phone: str, channe
             )})
         else:  # memory manager unavailable — fall back to the plain CRM line
             messages.append({"role": "system", "content": _crm_context(contact)})
+
+        # ASSIGNED PROVIDER(S): the teacher/coach bound to this student and their
+        # availability reference — so the bot checks the right sheet/calendar on a
+        # reschedule. Same seam as the memory/CRM blocks (needs a linked contact).
+        rblock = _resources_block(contact)
+        if rblock:
+            messages.append({"role": "system", "content": rblock})
 
     # COMPANY KNOWLEDGE: what the business itself published (hours, policies,
     # FAQs, live promotions, sudden notices). Injected right after the memory
