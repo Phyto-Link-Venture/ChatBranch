@@ -20,7 +20,7 @@ import { SettingsDirtyProvider, useSettingsDirty } from './SettingsDirtyContext'
  */
 export const SETTINGS_TABS: { id: string; lbl: string; superadminOnly?: boolean }[] = [
   { id: 'ai', lbl: 'AI Configuration' },
-  { id: 'ai-providers', lbl: 'AI & Providers' }, // GET any role (read-only); PUT superadmin
+  { id: 'ai-providers', lbl: 'AI Keys & Models' }, // GET any role (read-only); PUT superadmin — renamed to avoid clashing with "Service Providers"
   { id: 'mcp', lbl: 'MCP Servers' },
   { id: 'persona', lbl: 'AI Persona' },
   { id: 'knowledge', lbl: 'Knowledge Base' },
