@@ -152,7 +152,20 @@ def tool_specs(contact=None, channel: str = "") -> list[dict]:
     if _calendar_connected():
         specs.append(_CHECK_AVAILABILITY)
         specs.append(_BOOK_APPOINTMENT)
+    specs.extend(_mcp_specs())
     return specs
+
+
+def _mcp_specs() -> list[dict]:
+    """Tools advertised by enabled MCP servers, or [] — exception-safe so a
+    misbehaving server can never break the reply path."""
+    try:
+        from aicore import mcp_tools
+
+        return mcp_tools.tool_specs()
+    except Exception:
+        logger.exception("aicore.tools: mcp tool_specs failed")
+        return []
 
 
 # ---- double-confirmation gate for state-changing tools ----------------------
@@ -310,19 +323,16 @@ def dispatch(name: str, args: dict | None = None, *, contact=None,
     result the model reads back. `session` identifies one reply-generation
     round (see _confirmation_gate); state-changing tools never execute in the
     same round that asked for confirmation."""
+    args = args or {}
+    if _is_mcp(name):
+        return _dispatch_mcp(name, args, contact=contact, channel=channel,
+                             session=session)
     fn = _DISPATCH.get(name)
     if fn is None:
         return {"ok": False, "error": f"unknown tool {name!r}"}
-    args = args or {}
     if name in _MUTATING:
-        try:
-            refusal = _confirmation_gate(name, args, contact=contact,
-                                         channel=channel, session=session)
-        except Exception:  # fail CLOSED — never mutate if the gate itself broke
-            logger.exception("aicore.tools: confirmation gate failed for %r", name)
-            refusal = {"ok": False,
-                       "error": "confirmation check failed — do not retry",
-                       "hint": "offer to have the team follow up instead"}
+        refusal = _gate_or_refusal(name, args, contact=contact, channel=channel,
+                                   session=session)
         if refusal is not None:
             return refusal
     try:
@@ -330,6 +340,52 @@ def dispatch(name: str, args: dict | None = None, *, contact=None,
     except Exception as exc:  # dispatcher itself blew up — degrade to a result
         logger.exception("aicore.tools: dispatch %r failed", name)
         return {"ok": False, "error": f"{name} failed: {type(exc).__name__}"}
+
+
+def _gate_or_refusal(name: str, args: dict, *, contact, channel: str, session):
+    """Run the single-confirmation gate, failing CLOSED on any internal error.
+    Returns the refusal result to send back, or None to proceed."""
+    try:
+        return _confirmation_gate(name, args, contact=contact, channel=channel,
+                                  session=session)
+    except Exception:  # never mutate if the gate itself broke
+        logger.exception("aicore.tools: confirmation gate failed for %r", name)
+        return {"ok": False, "error": "confirmation check failed — do not retry",
+                "hint": "offer to have the team follow up instead"}
+
+
+def _is_mcp(name: str) -> bool:
+    try:
+        from aicore import mcp_tools
+
+        return mcp_tools.is_mcp_tool(name)
+    except Exception:
+        return False
+
+
+def _dispatch_mcp(name: str, args: dict, *, contact, channel: str, session) -> dict:
+    """Route a namespaced MCP tool call. Mutating MCP tools (anything not
+    annotated read-only) go through the SAME single-confirmation gate as the
+    built-ins; the synthetic `confirmed` flag is stripped before the arguments
+    reach the server."""
+    from aicore import mcp_tools
+
+    try:
+        mutating = mcp_tools.is_mutating(name)
+    except Exception:  # unknown → treat as mutating (safe)
+        mutating = True
+    if mutating:
+        refusal = _gate_or_refusal(name, args, contact=contact, channel=channel,
+                                   session=session)
+        if refusal is not None:
+            return refusal
+    call_args = {k: v for k, v in (args or {}).items() if k != "confirmed"}
+    try:
+        return mcp_tools.dispatch(name, call_args)
+    except Exception:
+        logger.exception("aicore.tools: mcp dispatch %r failed", name)
+        return {"ok": False, "error": f"{name} failed",
+                "hint": "offer to have the team follow up instead"}
 
 
 # ---- audit / notify on a real booking ---------------------------------------

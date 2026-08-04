@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Integration
+from .models import Integration, McpServer
 
 
 @admin.register(Integration)
@@ -18,3 +18,14 @@ class IntegrationAdmin(admin.ModelAdmin):
     @admin.display(boolean=True)
     def connected(self, obj):
         return obj.connected
+
+
+@admin.register(McpServer)
+class McpServerAdmin(admin.ModelAdmin):
+    list_display = ("name", "url", "transport", "enabled", "status", "last_ok_at")
+    list_filter = ("transport", "enabled", "status")
+    search_fields = ("name", "url")
+    # Auth token lives in `credentials` — same secrets-never-leave rule as Integration.
+    exclude = ("credentials",)
+    readonly_fields = ("status", "status_detail", "status_changed_at", "last_ok_at",
+                       "created_at", "updated_at")

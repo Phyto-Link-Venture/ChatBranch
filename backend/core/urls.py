@@ -9,6 +9,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/settings/ai-providers', settings_api.ai_providers),
     path('api/', include('calls.urls')),
+    path('api/', include('crm.resource_urls')),
     path('api/v1/sync/', include('ingest.urls')),
     path('api/v1/', include('api.urls')),
     path('api/whatsapp/', include('whatsapp.urls')),

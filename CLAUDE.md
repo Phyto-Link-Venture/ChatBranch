@@ -605,8 +605,10 @@ out the macOS/Linux equivalents.
 - **Docs:** `docs/vertical-guide.md` = how to configure the template for an
   industry (the five layers: hard rules → persona → skills → knowledge →
   memory). `docs/DATABASE_SCHEMA.md` = the real schema.
+  `docs/DOMAIN_MODEL.md` = the four core concepts (Entity/Tenant+Brand ·
+  Resource/provider · Customer/Contact · Admin/Profile) + how they bind.
   `docs/API_CONVENTIONS.md` = both REST surfaces + which endpoints are open.
-  `docs/RBAC_AND_BRANDS.md` = roles/tenants/brands.
+  `docs/RBAC_AND_BRANDS.md` = roles/tenants/brands + dynamic capabilities.
   `docs/record-sync.md` = the bulk `/api/v1/sync/records` pipeline.
   `docs/channel-adapter.md` = per-channel capabilities + how to add one
   (**Messenger/IG webhook has NO signature check — real, open gap**).

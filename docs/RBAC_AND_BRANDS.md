@@ -1,7 +1,9 @@
 # Roles, tenants and brands
 
 The access model. Everything here is enforced server-side; the frontend gates
-are cosmetic and must never be treated as the control.
+are cosmetic and must never be treated as the control. For the entities
+themselves (Entity / Resource / Customer / Admin) and how they bind together,
+see `docs/DOMAIN_MODEL.md`; this doc is the access layer on top.
 
 ## Hierarchy
 
@@ -10,9 +12,11 @@ Tenant                (the organization using ChatBranch)
  └── Brand            (a brand it operates — users get access at THIS level)
       └── DataSource  (an external system feeding that brand's records)
 
-Contact               (belongs to the TENANT, shared across its brands
-                       via crm.ContactBrand)
- └── Record           (the order / shipment / invoice the conversation is about)
+Contact               (the CUSTOMER — belongs to the TENANT, shared across its
+                       brands via crm.ContactBrand)
+ ├── Record           (the order / booking / invoice the conversation is about)
+ └── ResourceLink ──▶ Resource   (the service PROVIDER — teacher/coach/supplier;
+                       belongs to the tenant, bound to customers)
 ```
 
 - **A tenant owns many brands.**
@@ -24,6 +28,10 @@ Contact               (belongs to the TENANT, shared across its brands
   a phone number. Code that looks a contact up by phone must scope by tenant.
 
 ## Roles (`crm.Profile.role`)
+
+The **three built-in roles** below are seeds, not a closed set — `Profile.role`
+holds any `crm.Role.slug` (see "Dynamic roles & capabilities"). The tiers still
+define the entity-scoping baseline:
 
 | Role | Sees | Can create |
 |---|---|---|
@@ -41,12 +49,42 @@ Resolution lives in `backend/api/rbac.py`:
 **`Message.source = 'agent'` is a message origin, not a role.** So is the
 transcript speaker label `"customer"`. Neither is affected by role naming.
 
+## Dynamic roles & capabilities
+
+RBAC is **data-driven** — no longer hard-coded to the three roles above.
+
+- **`crm.Role`** (slug / label / `is_system`) — the built-ins are seeded
+  `is_system=True`; operators create additive **custom roles**. CRUD:
+  `GET/POST /api/auth/roles`, `PATCH/DELETE /api/auth/roles/<slug>` (a role in
+  use cannot be deleted).
+- **`crm.RolePermission`** (role / capability / allowed, `unique_together`) — the
+  per-role capability matrix, edited via `GET/PUT /api/auth/permissions`.
+- **`crm/permissions_store.py`** is the engine: a ~26-entry capability catalog
+  (`CAPABILITIES`, e.g. `contacts.view`, `contacts.manage`, `integrations.manage`,
+  `rbac.manage`), a `DEFAULT_MATRIX`, and the single gate
+  **`has_capability(role, cap)`**. Properties that matter:
+  - **superadmin is always allowed in code** (anti-lockout), regardless of the
+    matrix;
+  - a missing matrix row falls back to the code default;
+  - `rbac.manage` for superadmin is **locked** (cannot be disabled);
+  - no caching — a matrix edit takes effect on the next request.
+- **Server enforcement** uses `has_capability` directly (function views) or the
+  `HasCapability.for_(cap)` DRF permission factory (`backend/api/permissions.py`).
+  The frontend mirrors the catalog in `src/lib/auth.ts` (`capabilities[]` +
+  `hasCap()`) for **cosmetic** gating only.
+- UI: `/permissions` (role list + capability matrix), Settings → Users & Roles.
+
+Custom roles are treated as **agent-level** for the admin management tier (an
+admin may assign them but not privileged roles); assignment is validated against
+`crm.Role` rows, not the built-in enum.
+
 ## Server-side gates, by surface
 
 | Surface | Minimum role |
 |---|---|
 | Global app keys / settings (`POST /api/whatsapp/settings`, `PUT /api/aicore/persona`, `PUT /api/integrations/settings`, `PUT /api/whatsapp/voice-settings`) | superadmin |
-| Channel + integration account management, routing rules, assignments, rebalance, recovery, knowledge, skills, flow library PUT, notification prefs | admin+ |
+| Channel + integration account management (incl. MCP servers), routing rules, assignments, rebalance, recovery, knowledge, skills, flow library PUT, notification prefs | admin+ |
+| Service Provider (`crm.Resource`) + binding management (`/api/resources`) | `contacts.manage` (admin+); read = `contacts.view` |
 | Audit log | admin+ (superadmin sees all actors) |
 | Everything else (inbox, sending, dialling, reading analytics) | any authenticated role |
 

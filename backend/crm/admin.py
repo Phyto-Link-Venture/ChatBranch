@@ -13,6 +13,8 @@ from .models import (
     Profile,
     Record,
     RecordEvent,
+    Resource,
+    ResourceLink,
     Setting,
     Thread,
     Workflow,
@@ -66,6 +68,27 @@ class RecordAdmin(admin.ModelAdmin):
     list_filter = ("type", "status")
     search_fields = ("external_id", "title", "contact__name", "contact__phone")
     inlines = [RecordEventInline]
+
+
+class ResourceLinkInline(admin.TabularInline):
+    model = ResourceLink
+    extra = 1
+    autocomplete_fields = ("contact",)
+
+
+@admin.register(Resource)
+class ResourceAdmin(admin.ModelAdmin):
+    list_display = ("name", "email", "phone", "active", "tenant", "created_at")
+    list_filter = ("active",)
+    search_fields = ("name", "email", "external_id")
+    inlines = (ResourceLinkInline,)
+
+
+@admin.register(ResourceLink)
+class ResourceLinkAdmin(admin.ModelAdmin):
+    list_display = ("resource", "contact", "relationship", "active", "since", "created_at")
+    list_filter = ("active",)
+    search_fields = ("resource__name", "contact__name")
 
 
 @admin.register(RecordEvent)
