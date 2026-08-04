@@ -1,0 +1,491 @@
+'use client'
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  AlertCircle,
+  CheckCircle,
+  ChevronDown,
+  ChevronRight,
+  Link2,
+  Loader2,
+  Lock,
+  Plus,
+  RefreshCw,
+  Trash2,
+  X,
+} from 'lucide-react'
+import { Button } from '@/components/ui/Button'
+import { roleHeaders } from '@/lib/role'
+import { useRole } from '@/lib/useRole'
+import { expireSessionOn401 } from '@/lib/auth'
+
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+
+interface Link {
+  id: number
+  contact_id: number
+  contact_name: string
+  relationship: string
+  active: boolean
+  since: string | null
+}
+
+interface Resource {
+  id: number
+  name: string
+  email: string
+  phone: string
+  active: boolean
+  config: Record<string, unknown>
+  links_count: number
+}
+
+interface ContactLite {
+  id: number | string
+  name: string
+  phone?: string
+}
+
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API}/${path}`, {
+    headers: { 'Content-Type': 'application/json', ...roleHeaders() },
+    ...init,
+  })
+  if (expireSessionOn401(res)) throw new Error('Session expired — redirecting to login…')
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error((data as { detail?: string }).detail || `HTTP ${res.status}`)
+  return data as T
+}
+
+const inputCls =
+  'w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400'
+
+const cfg = (r: Pick<Resource, 'config'>, key: string) => String(r.config?.[key] ?? '')
+
+type Draft = {
+  id?: number
+  name?: string
+  email?: string
+  phone?: string
+  active?: boolean
+  availability_sheet_id?: string
+  availability_range?: string
+  calendar_id?: string
+}
+
+/**
+ * Settings → Service Providers. The delivery side of the business — the
+ * teachers / coaches / practitioners customers book — and the binding that
+ * says which customers belong to each. The AI reads a provider's availability
+ * reference (a Google Sheet id / calendar id) when a bound customer asks to
+ * book or reschedule. The per-vertical word ("teacher") is set by the
+ * `resource_label` app setting; the model is generic.
+ */
+export function ProvidersSettings() {
+  const { role, ready } = useRole()
+  const canManage = role === 'admin' || role === 'superadmin'
+
+  const [resources, setResources] = useState<Resource[] | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [draft, setDraft] = useState<Draft | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const [expanded, setExpanded] = useState<number | null>(null)
+  const [links, setLinks] = useState<Record<number, Link[]>>({})
+  const [contacts, setContacts] = useState<ContactLite[] | null>(null)
+  const [query, setQuery] = useState('')
+
+  const load = useCallback(async () => {
+    try {
+      const d = await api<{ resources: Resource[] }>('resources')
+      setResources(d.resources)
+      setLoadError(null)
+    } catch (e) {
+      setResources(null)
+      setLoadError(e instanceof Error ? e.message : String(e))
+    }
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  const submit = async () => {
+    if (!draft) return
+    setBusy(true)
+    setError(null)
+    try {
+      const body = {
+        name: draft.name || '',
+        email: draft.email || '',
+        phone: draft.phone || '',
+        active: draft.active ?? true,
+        config: {
+          availability_sheet_id: draft.availability_sheet_id || '',
+          availability_range: draft.availability_range || '',
+          calendar_id: draft.calendar_id || '',
+        },
+      }
+      if (draft.id) {
+        await api(`resources/${draft.id}`, { method: 'PATCH', body: JSON.stringify(body) })
+        setNotice('Provider updated.')
+      } else {
+        await api('resources', { method: 'POST', body: JSON.stringify(body) })
+        setNotice('Provider added.')
+      }
+      setDraft(null)
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const startEdit = (r: Resource) =>
+    setDraft({
+      id: r.id,
+      name: r.name,
+      email: r.email,
+      phone: r.phone,
+      active: r.active,
+      availability_sheet_id: cfg(r, 'availability_sheet_id'),
+      availability_range: cfg(r, 'availability_range'),
+      calendar_id: cfg(r, 'calendar_id'),
+    })
+
+  const remove = async (r: Resource) => {
+    if (!window.confirm(`Remove "${r.name}"? Their bindings are removed too.`)) return
+    try {
+      await api(`resources/${r.id}`, { method: 'DELETE' })
+      setNotice(`"${r.name}" removed.`)
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const loadLinks = useCallback(async (id: number) => {
+    try {
+      const d = await api<{ links: Link[] }>(`resources/${id}/links`)
+      setLinks((prev) => ({ ...prev, [id]: d.links }))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }, [])
+
+  const toggleExpand = async (r: Resource) => {
+    if (expanded === r.id) {
+      setExpanded(null)
+      return
+    }
+    setExpanded(r.id)
+    setQuery('')
+    await loadLinks(r.id)
+    if (contacts === null) {
+      try {
+        const d = await api<{ contacts: ContactLite[] }>('contacts')
+        setContacts(Array.isArray(d.contacts) ? d.contacts : [])
+      } catch {
+        setContacts([])
+      }
+    }
+  }
+
+  const addLink = async (r: Resource, contactId: number | string) => {
+    try {
+      await api(`resources/${r.id}/links`, {
+        method: 'POST',
+        body: JSON.stringify({ contact_id: contactId }),
+      })
+      setQuery('')
+      await loadLinks(r.id)
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const removeLink = async (r: Resource, link: Link) => {
+    try {
+      await api(`resources/${r.id}/links/${link.id}`, { method: 'DELETE' })
+      await loadLinks(r.id)
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q || contacts === null) return []
+    return contacts
+      .filter((c) => c.name?.toLowerCase().includes(q) || (c.phone || '').includes(q))
+      .slice(0, 8)
+  }, [query, contacts])
+
+  if (!ready || (resources === null && !loadError)) {
+    return (
+      <div className="flex items-center gap-1.5 py-6 text-[12px] text-text-muted">
+        <Loader2 size={13} className="animate-spin" aria-hidden /> Loading providers…
+      </div>
+    )
+  }
+
+  if (resources === null) {
+    return (
+      <div className="py-6 text-[12px]">
+        <div
+          className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2"
+          style={{ color: 'var(--red-ink)' }}
+        >
+          <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden />
+          <span>Couldn&apos;t load providers — {loadError}</span>
+        </div>
+        <Button variant="ghost" onClick={load} style={{ marginTop: 10 }}>
+          <RefreshCw size={13} aria-hidden /> Retry
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-4 pt-3.5">
+      <div className="flex items-start gap-2">
+        <p className="min-w-0 max-w-[720px] flex-1 text-[11.5px] leading-relaxed text-text-mid">
+          The people customers book — <span className="font-bold text-text-high">teachers, coaches,
+          practitioners</span> — and which customers belong to each. Give a provider an{' '}
+          <span className="font-bold text-text-high">availability sheet id</span> or{' '}
+          <span className="font-bold text-text-high">calendar id</span>, and the AI checks it when a
+          bound customer asks to book or reschedule.
+        </p>
+        {canManage && (
+          <div className="shrink-0">
+            <Button onClick={() => setDraft({ active: true })}>
+              <Plus size={13} aria-hidden /> Add provider
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {!canManage && (
+        <div className="flex items-center gap-1.5 text-[11px] font-semibold text-text-muted">
+          <Lock size={11} aria-hidden /> Read-only — only an admin can manage providers.
+        </div>
+      )}
+      {error && (
+        <div
+          className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-[12px]"
+          style={{ color: 'var(--red-ink)' }}
+        >
+          <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden /> {error}
+        </div>
+      )}
+      {notice && (
+        <div
+          className="flex items-start gap-2 rounded-lg border border-brand-400/20 bg-brand-400/10 px-3 py-2 text-[12px]"
+          style={{ color: 'var(--green-ink)' }}
+        >
+          <CheckCircle size={13} className="mt-0.5 shrink-0" aria-hidden /> {notice}
+        </div>
+      )}
+
+      {draft && (
+        <div className="rounded-xl border border-line bg-fill-subtle p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-[12.5px] font-bold text-text-high">
+              {draft.id ? `Edit "${draft.name}"` : 'Add provider'}
+            </span>
+            <button
+              onClick={() => setDraft(null)}
+              aria-label="Close form"
+              className="grid h-7 w-7 cursor-pointer place-items-center rounded-md text-text-muted hover:bg-fill-hover"
+            >
+              <X size={14} aria-hidden />
+            </button>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <label className="block md:col-span-1">
+              <span className="mb-1 block text-[10.5px] font-bold text-text-high">Name</span>
+              <input
+                value={draft.name || ''}
+                placeholder="Ms Lee"
+                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                className={inputCls}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[10.5px] font-bold text-text-high">Email (optional)</span>
+              <input
+                value={draft.email || ''}
+                placeholder="lee@studio.com"
+                onChange={(e) => setDraft({ ...draft, email: e.target.value })}
+                className={inputCls}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[10.5px] font-bold text-text-high">Phone (optional)</span>
+              <input
+                value={draft.phone || ''}
+                placeholder="+60…"
+                onChange={(e) => setDraft({ ...draft, phone: e.target.value })}
+                className={inputCls}
+              />
+            </label>
+          </div>
+
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <label className="block">
+              <span className="mb-1 block text-[10.5px] font-bold text-text-high">Availability sheet id</span>
+              <input
+                value={draft.availability_sheet_id || ''}
+                placeholder="1AbC…"
+                onChange={(e) => setDraft({ ...draft, availability_sheet_id: e.target.value })}
+                className={inputCls}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[10.5px] font-bold text-text-high">Sheet range</span>
+              <input
+                value={draft.availability_range || ''}
+                placeholder="Availability!A1:D50"
+                onChange={(e) => setDraft({ ...draft, availability_range: e.target.value })}
+                className={inputCls}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[10.5px] font-bold text-text-high">Calendar id (optional)</span>
+              <input
+                value={draft.calendar_id || ''}
+                placeholder="lee@group.calendar.google.com"
+                onChange={(e) => setDraft({ ...draft, calendar_id: e.target.value })}
+                className={inputCls}
+              />
+            </label>
+          </div>
+
+          <label className="mt-3 flex items-center gap-2 text-[11.5px] text-text-mid">
+            <input
+              type="checkbox"
+              checked={draft.active ?? true}
+              onChange={(e) => setDraft({ ...draft, active: e.target.checked })}
+            />
+            Active
+          </label>
+
+          <div className="mt-3 flex items-center gap-2">
+            <Button onClick={submit} disabled={busy || !(draft.name || '').trim()}>
+              {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <CheckCircle size={13} aria-hidden />}
+              {draft.id ? 'Save changes' : 'Add provider'}
+            </Button>
+            <Button variant="ghost" onClick={() => setDraft(null)} disabled={busy}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-1.5">
+        {resources.length === 0 && (
+          <div className="rounded-xl border border-dashed border-line-strong px-4 py-6 text-center text-[12px] text-text-muted">
+            No providers yet — add a teacher/coach, then bind the customers they serve.
+          </div>
+        )}
+        {resources.map((r) => (
+          <div key={r.id} className="rounded-xl border border-line bg-card px-4 py-2.5">
+            <div className="flex items-center gap-2.5">
+              <button
+                onClick={() => toggleExpand(r)}
+                aria-label="Toggle bindings"
+                className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted hover:bg-fill-hover"
+              >
+                {expanded === r.id ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
+              </button>
+              <button onClick={() => canManage && startEdit(r)} className="min-w-0 flex-1 cursor-pointer text-left">
+                <span className="flex items-center gap-2">
+                  <span className="truncate text-[12px] font-bold text-text-high">{r.name}</span>
+                  {!r.active && <span className="shrink-0 text-[10px] font-bold text-text-muted">Off</span>}
+                </span>
+                <span className="block truncate text-[11px] text-text-muted">
+                  {r.links_count} bound {r.links_count === 1 ? 'customer' : 'customers'}
+                  {cfg(r, 'availability_sheet_id') && ' · sheet ✓'}
+                  {cfg(r, 'calendar_id') && ' · calendar ✓'}
+                </span>
+              </button>
+              {canManage && (
+                <button
+                  onClick={() => remove(r)}
+                  title={`Remove ${r.name}`}
+                  aria-label={`Remove ${r.name}`}
+                  className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/15 hover:text-red-300"
+                >
+                  <Trash2 size={13} aria-hidden />
+                </button>
+              )}
+            </div>
+
+            {expanded === r.id && (
+              <div className="mt-2 border-t border-line pt-2.5">
+                <div className="mb-1.5 text-[10.5px] font-bold uppercase tracking-[0.04em] text-text-muted">
+                  Bound customers
+                </div>
+                <div className="flex flex-col gap-1">
+                  {(links[r.id] || []).length === 0 && (
+                    <span className="text-[11px] text-text-muted">No customers bound yet.</span>
+                  )}
+                  {(links[r.id] || []).map((ln) => (
+                    <div key={ln.id} className="flex items-center gap-2 text-[11.5px]">
+                      <Link2 size={12} className="shrink-0 text-text-muted" aria-hidden />
+                      <span className="min-w-0 flex-1 truncate text-text-mid">{ln.contact_name}</span>
+                      {ln.relationship && (
+                        <span className="shrink-0 text-[10px] text-text-muted">{ln.relationship}</span>
+                      )}
+                      {canManage && (
+                        <button
+                          onClick={() => removeLink(r, ln)}
+                          aria-label={`Unbind ${ln.contact_name}`}
+                          className="grid h-6 w-6 shrink-0 cursor-pointer place-items-center rounded text-text-muted hover:bg-red/15 hover:text-red-300"
+                        >
+                          <X size={12} aria-hidden />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {canManage && (
+                  <div className="relative mt-2">
+                    <input
+                      value={query}
+                      placeholder="Bind a customer — type a name or phone…"
+                      onChange={(e) => setQuery(e.target.value)}
+                      className={inputCls}
+                    />
+                    {matches.length > 0 && (
+                      <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border border-line bg-card shadow-lg">
+                        {matches.map((c) => (
+                          <button
+                            key={c.id}
+                            onClick={() => addLink(r, c.id)}
+                            className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-[11.5px] text-text-mid hover:bg-fill-hover"
+                          >
+                            <Plus size={12} className="shrink-0 text-text-muted" aria-hidden />
+                            <span className="truncate">{c.name}</span>
+                            {c.phone && <span className="shrink-0 text-[10px] text-text-muted">{c.phone}</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
