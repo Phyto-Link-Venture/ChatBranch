@@ -62,6 +62,20 @@ _CHECK_AVAILABILITY = {
     },
 }
 
+_LIST_MY_MEETINGS = {
+    "type": "function",
+    "function": {
+        "name": "list_my_meetings",
+        "description": (
+            "List this customer's upcoming booked appointments on file (from the "
+            "CRM). Call this when they ask about, want to change, or want to cancel "
+            "an existing booking, so you know exactly what they have and with whom "
+            "before proposing a change. Read-only."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
 _BOOK_APPOINTMENT = {
     "type": "function",
     "function": {
@@ -152,8 +166,23 @@ def tool_specs(contact=None, channel: str = "") -> list[dict]:
     if _calendar_connected():
         specs.append(_CHECK_AVAILABILITY)
         specs.append(_BOOK_APPOINTMENT)
+    # Reading the customer's own bookings needs no calendar connection — offer it
+    # whenever they actually have bookings on file (keeps the sandbox empty).
+    if _has_bookings(contact):
+        specs.append(_LIST_MY_MEETINGS)
     specs.extend(_mcp_specs())
     return specs
+
+
+def _has_bookings(contact) -> bool:
+    if contact is None:
+        return False
+    try:
+        from crm.models import Record
+
+        return Record.objects.filter(contact=contact, type="booking").exists()
+    except Exception:
+        return False
 
 
 def _mcp_specs() -> list[dict]:
@@ -281,6 +310,32 @@ def _do_check_availability(args: dict, *, contact, channel: str) -> dict:
     return {"ok": True, "slots": slots}
 
 
+def _do_list_my_meetings(args: dict, *, contact, channel: str) -> dict:
+    """The customer's upcoming bookings from the CRM (read-only)."""
+    if contact is None:
+        return {"ok": True, "meetings": [],
+                "note": "no identified customer — offer to have the team check"}
+    from django.utils import timezone
+
+    from crm.models import Record
+
+    today = timezone.localdate()
+    out = []
+    for r in Record.objects.filter(contact=contact, type="booking").order_by("due_date")[:20]:
+        if r.due_date and r.due_date < today:
+            continue  # past bookings are not "upcoming"
+        teacher = (getattr(r.resource, "name", "") if r.resource_id
+                   else str((r.data or {}).get("resource_name") or ""))
+        out.append({"title": r.title or "Appointment",
+                    "date": r.due_date.isoformat() if r.due_date else "",
+                    "start": str((r.data or {}).get("start") or ""),
+                    "status": r.status,
+                    "provider": teacher})
+    return {"ok": True, "meetings": out,
+            "note": ("the customer's upcoming bookings on file" if out
+                     else "no upcoming bookings on file for this customer")}
+
+
 def _do_book_appointment(args: dict, *, contact, channel: str) -> dict:
     from integrations import actions
 
@@ -308,11 +363,13 @@ def _do_book_appointment(args: dict, *, contact, channel: str) -> dict:
 _SCHEMAS = {
     "check_calendar_availability": _CHECK_AVAILABILITY,
     "book_appointment": _BOOK_APPOINTMENT,
+    "list_my_meetings": _LIST_MY_MEETINGS,
 }
 
 _DISPATCH = {
     "check_calendar_availability": _do_check_availability,
     "book_appointment": _do_book_appointment,
+    "list_my_meetings": _do_list_my_meetings,
 }
 
 

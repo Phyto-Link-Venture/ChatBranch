@@ -176,6 +176,16 @@ def _record_booking(contact, cfg: dict, text: str, data: dict) -> None:
 
     start = _parse_when(cfg.get("eventStart"))
     title = str(cfg.get("eventTitle") or text or "Appointment")[:190]
+    # Stamp the service provider (teacher/coach) this customer is bound to, so a
+    # reschedule/cancel keeps the same provider. Best-effort: no binding → None.
+    resource = None
+    try:
+        from crm import resources as res_mod
+
+        providers = res_mod.resources_for_contact(contact)
+        resource = providers[0] if providers else None
+    except Exception:
+        resource = None
     record = Record.objects.create(
         contact=contact,
         tenant=getattr(contact, "tenant", None),
@@ -183,8 +193,11 @@ def _record_booking(contact, cfg: dict, text: str, data: dict) -> None:
         title=title,
         status="scheduled",
         due_date=start.date(),
+        resource=resource,
         data={"source": "ai", "start": start.isoformat(),
-              "event_id": data.get("event_id"), "html_link": data.get("html_link")},
+              "event_id": data.get("event_id"), "html_link": data.get("html_link"),
+              "resource_id": resource.pk if resource else None,
+              "resource_name": resource.name if resource else ""},
     )
     book_event(record, "note", at=start,
                data={"kind": "booking", "start": start.isoformat(),
