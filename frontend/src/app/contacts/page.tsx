@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { LayoutGrid, List, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
+import { LayoutGrid, List, Loader2, Pencil, Plus, Trash2, Upload } from 'lucide-react'
 import { useApp } from '@/lib/AppContext'
 import { useBrand } from '@/lib/BrandContext'
 import { authHeaders, hasCap } from '@/lib/auth'
@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { LANGUAGES } from '@/lib/languages'
+import { ContactImportModal } from '@/components/contacts/ContactImportModal'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
@@ -283,6 +284,7 @@ export default function ContactsPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Contact | null>(null)
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
   // contacts.manage gates add/edit/delete (read after mount — localStorage)
   const [canManage, setCanManage] = useState(false)
   useEffect(() => setCanManage(hasCap('contacts.manage')), [])
@@ -497,12 +499,19 @@ export default function ContactsPage() {
             </button>
           )}
           {canManage && (
+            <Button variant="secondary" onClick={() => setImportOpen(true)} style={{ padding: '6px 12px', fontSize: 12 }}>
+              <Upload size={13} strokeWidth={2} aria-hidden /> Import
+            </Button>
+          )}
+          {canManage && (
             <Button variant="primary" onClick={openCreate} style={{ padding: '6px 12px', fontSize: 12 }}>
               <Plus size={13} strokeWidth={2} aria-hidden /> Add contact
             </Button>
           )}
         </div>
       </div>
+
+      <ContactImportModal open={importOpen} onClose={() => setImportOpen(false)} onDone={reloadContacts} />
 
       {notice && (
         <div className={`text-[12px] font-semibold ${notice.ok ? 'text-green-300' : 'text-red-300'}`}>
