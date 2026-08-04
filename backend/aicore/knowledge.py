@@ -73,18 +73,18 @@ def tokenize(text: str) -> set[str]:
 
 # ---- filtering ----------------------------------------------------------------
 
-def _brand_ids(contact) -> set[int]:
+def _entity_ids(contact) -> set[int]:
     if contact is None:
         return set()
     try:
-        return set(contact.brand_links.values_list("brand_id", flat=True))
+        return set(contact.entity_links.values_list("entity_id", flat=True))
     except Exception:
         return set()
 
 
 def live_items(kinds=None, channel: str = "", contact=None, now=None):
     """Every KnowledgeItem that is active, inside its date window, in scope for
-    the channel, and in scope for the contact's brand. Returns a list, newest
+    the channel, and in scope for the contact's entity. Returns a list, newest
     high-priority first (the model's own ordering)."""
     from django.db.models import Q
     from django.utils import timezone as dj_tz
@@ -97,13 +97,13 @@ def live_items(kinds=None, channel: str = "", contact=None, now=None):
         qs = qs.filter(kind__in=list(kinds))
     qs = qs.filter(Q(starts_at__isnull=True) | Q(starts_at__lte=now))
     qs = qs.filter(Q(ends_at__isnull=True) | Q(ends_at__gt=now))
-    brands = _brand_ids(contact)
-    if brands:
-        qs = qs.filter(Q(brand__isnull=True) | Q(brand_id__in=brands))
+    entities = _entity_ids(contact)
+    if entities:
+        qs = qs.filter(Q(entity__isnull=True) | Q(entity_id__in=entities))
     else:
-        # A contact with no brand link (or no contact at all) only sees
-        # brand-agnostic knowledge — a brand's private notice must not leak.
-        qs = qs.filter(brand__isnull=True)
+        # A contact with no entity link (or no contact at all) only sees
+        # entity-agnostic knowledge — a entity's private notice must not leak.
+        qs = qs.filter(entity__isnull=True)
     rows = list(qs)
     if channel:
         rows = [r for r in rows
@@ -207,15 +207,23 @@ SKILLS_LIMIT = 24
 SKILLS_BUDGET = 6000
 
 
-def skills_block() -> str:
+def skills_block(entity=None) -> str:
     """The operator's editable playbook as a `SKILLS` prompt section —
     `use_when` is the selector, `instructions` the body. Owned by
     Settings → AI Skills (`GET/PUT /api/aicore/skills`), which since Phase 8
     is the SOLE writer of crm.AgentSkill; the flow-builder library sync only
-    reads them. Never raises: a non-Django/early-boot caller just gets ""."""
+    reads them. Never raises: a non-Django/early-boot caller just gets "".
+
+    `entity` applies the inheritance rule: the organization's skills PLUS that
+    outlet's own, with the outlet's version of a same-id skill shadowing the
+    global one."""
     try:
+        from crm import scoping
         from crm.models import AgentSkill
-        rows = list(AgentSkill.objects.all()[:SKILLS_LIMIT])
+
+        rows = scoping.override_by(
+            scoping.scope_inherited(AgentSkill.objects.all(), entity),
+            entity, "skill_id")[:SKILLS_LIMIT]
     except Exception:
         return ""
     if not rows:

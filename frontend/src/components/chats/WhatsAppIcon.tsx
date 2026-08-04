@@ -1,4 +1,4 @@
-/** WhatsApp glyph (lucide ships no brand marks). Inherits currentColor. */
+/** WhatsApp glyph (lucide ships no entity marks). Inherits currentColor. */
 export default function WhatsAppIcon({ size = 15, className }: { size?: number; className?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>

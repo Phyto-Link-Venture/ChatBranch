@@ -53,11 +53,19 @@ def _can_manage(request) -> bool:
 
 # ---- persona ---------------------------------------------------------------------
 
-def _persona_payload() -> dict:
+def _persona_payload(entity=None) -> dict:
+    from crm import scoping
+
     return {
-        "persona": persona.persona_text(),
-        "is_default": persona.is_default(),
+        "persona": persona.persona_text(entity),
+        "is_default": persona.is_default(entity),
         "default": persona.DEFAULT_PERSONA,
+        # Scope context so the UI can say whether this outlet has its own
+        # persona or is inheriting the organization's.
+        "entity": entity.slug if entity else None,
+        "entity_name": entity.name if entity else "",
+        "scope": scoping.setting_scope(persona.PERSONA_SETTING_KEY, entity),
+        "global_persona": persona.persona_text(None),
     }
 
 
@@ -68,18 +76,29 @@ def persona_view(request):
     denied = _auth_required(request)
     if denied:
         return denied
+    from crm import scoping
+
+    entity = scoping.entity_from_request(request)
     if request.method == "GET":
-        return JsonResponse(_persona_payload())
+        return JsonResponse(_persona_payload(entity))
 
     if rbac.role_from_request(request) != "superadmin":
         return JsonResponse({"detail": "Super admin role required."}, status=403)
     value = _json_body(request).get("persona")
     if not isinstance(value, str):
         return JsonResponse({"detail": "persona must be a string."}, status=400)
-    persona.save_persona(value)
+    # A blank value with an entity selected REMOVES that outlet's override so
+    # it inherits the organization persona again; blank with no entity resets
+    # the organization persona to the built-in default (existing behaviour).
+    if entity is not None and not value.strip():
+        scoping.clear_setting(persona.PERSONA_SETTING_KEY, entity)
+    else:
+        persona.save_persona(value, entity)
     rbac.audit(request, "aicore.persona.update", target=persona.PERSONA_SETTING_KEY,
-               detail="reset to default" if not value.strip() else value.strip()[:200])
-    return JsonResponse(_persona_payload())
+               detail=f"{'entity=' + entity.slug if entity else 'organization'} "
+                      + ("reset to inherited/default" if not value.strip()
+                         else value.strip()[:180]))
+    return JsonResponse(_persona_payload(entity))
 
 
 # ---- knowledge base ----------------------------------------------------------------
@@ -100,7 +119,12 @@ def _item_payload(item) -> dict:
         "channels": item.channels or [],
         "priority": item.priority,
         "active": item.active,
-        "brand_id": item.brand_id,
+        "entity_id": item.entity_id,
+        "entity": item.entity.slug if item.entity_id else None,
+        "entity_name": item.entity.name if item.entity_id else "",
+        # "global" = authored organization-wide and inherited by every outlet;
+        # "entity" = this outlet's own. Drives the inherited/local badge.
+        "scope": "entity" if item.entity_id else "global",
         "starts_at": item.starts_at.isoformat() if item.starts_at else None,
         "ends_at": item.ends_at.isoformat() if item.ends_at else None,
         # what the retrieval layer will actually do with it, precomputed for
@@ -155,9 +179,15 @@ def _apply(item, body: dict) -> None:
             raise ValueError("priority must be an integer")
     if "active" in body:
         item.active = bool(body.get("active"))
-    if "brand_id" in body:
-        raw = body.get("brand_id")
-        item.brand_id = int(raw) if str(raw or "").strip().isdigit() else None
+    if "entity_id" in body:
+        raw = body.get("entity_id")
+        item.entity_id = int(raw) if str(raw or "").strip().isdigit() else None
+    elif "entity" in body:
+        # Slug form (what the UI's scope picker sends). null/"" = make this a
+        # GLOBAL item every outlet inherits.
+        from crm import scoping
+
+        item.entity = scoping.as_entity(body.get("entity"))
     for field in ("starts_at", "ends_at"):
         if field in body:
             setattr(item, field, _parse_dt(body.get(field)))
@@ -173,7 +203,15 @@ def knowledge_list(request):
     if denied:
         return denied
     if request.method == "GET":
-        qs = KnowledgeItem.objects.all()
+        # INHERITANCE: an outlet sees the organization's knowledge PLUS its
+        # own. Each row is labelled `scope` ("global"/"entity") so the UI can
+        # show what is inherited vs locally authored. Without ?entity= the
+        # owner sees every row across the company.
+        from crm import scoping
+
+        entity = scoping.entity_from_request(request)
+        qs = scoping.scope_inherited(
+            KnowledgeItem.objects.select_related("entity"), entity)
         kind = str(request.GET.get("kind") or "").strip()
         if kind:
             qs = qs.filter(kind=kind)
@@ -187,14 +225,20 @@ def knowledge_list(request):
             from django.db.models import Q
             qs = qs.filter(Q(title__icontains=q) | Q(question__icontains=q)
                            | Q(content__icontains=q))
+        # Counts follow the SAME scope as the list — a tab badge that counted
+        # the whole company while the list showed one outlet would just look
+        # like a bug.
         counts = {k: 0 for k, _ in KnowledgeItem.KIND_CHOICES}
-        for row in KnowledgeItem.objects.values_list("kind", flat=True):
+        for row in scoping.scope_inherited(
+                KnowledgeItem.objects.all(), entity).values_list("kind", flat=True):
             counts[row] = counts.get(row, 0) + 1
         return JsonResponse({
             "items": [_item_payload(i) for i in qs],
             "counts": counts,
             "kinds": [{"id": k, "label": lbl} for k, lbl in KnowledgeItem.KIND_CHOICES],
             "budget": knowledge_mod.BUDGET,
+            "entity": entity.slug if entity else None,
+            "entity_name": entity.name if entity else "",
         })
     if request.method != "POST":
         return HttpResponseNotAllowed(["GET", "POST"])
@@ -207,6 +251,13 @@ def knowledge_list(request):
         _apply(item, body)
     except ValueError as e:
         return JsonResponse({"detail": str(e)}, status=400)
+    if item.entity_id is None and "entity" not in body and "entity_id" not in body:
+        # No explicit scope: author it for the outlet currently being viewed.
+        # Creating a Rimbayu-scoped notice while looking at Rimbayu is the
+        # expected default; the picker is how you promote it to global.
+        from crm import scoping
+
+        item.entity = scoping.entity_from_request(request)
     if not item.title.strip():
         return JsonResponse({"detail": "title is required."}, status=400)
     if not item.content.strip():
@@ -329,3 +380,87 @@ def skills_view(request):
     rbac.audit(request, "aicore.skills.update", target="agent-skills",
                detail=f"{len(kept)} skill(s)")
     return JsonResponse({"skills": [_skill_payload(s) for s in AgentSkill.objects.all()]})
+
+
+# ---- booking hours (per-day appointment schedule) ---------------------------
+
+_BOOKING_DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+
+@csrf_exempt
+def booking_hours_view(request):
+    """GET/PUT the per-day appointment booking schedule (Setting `booking_hours`).
+
+    GET  -> {"hours": {"mon":[9,21], ... , "sun":null}}  (any authed role)
+    PUT  -> {"hours": {...}} ; admin+. A day is [open, close] whole hours (0–24,
+    open<close) or null/[] for CLOSED. This drives BOTH the slots the AI offers
+    and the booking guard, so what's offered and what's bookable stay in step.
+
+    ENTITY SCOPING: `?entity=<slug>` reads/writes that outlet's own schedule;
+    without it you are editing the organization default every outlet inherits.
+    GET also reports `scope` ("entity" = this outlet overrides, "global" = it
+    inherits) and the inherited `global_hours`, so the UI can show what would
+    apply if the override were removed. DELETE drops the override."""
+    from integrations import actions
+    from crm import scoping
+
+    denied = _auth_required(request)
+    if denied:
+        return denied
+    entity = scoping.entity_from_request(request)
+    if request.method == "GET":
+        return JsonResponse({"hours": actions.booking_hours_raw(entity),
+                             "scope": scoping.setting_scope("booking_hours", entity),
+                             "entity": entity.slug if entity else None,
+                             "global_hours": actions.booking_hours_raw(None),
+                             "default": dict(actions._DEFAULT_HOURS)})
+    if request.method == "DELETE":
+        if not _can_manage(request):
+            return JsonResponse({"detail": "Admin role required to edit booking hours."},
+                                status=403)
+        if entity is None:
+            return JsonResponse(
+                {"detail": "Select an entity to remove its override. The "
+                           "organization default is edited, not deleted."}, status=400)
+        scoping.clear_setting("booking_hours", entity)
+        rbac.audit(request, "aicore.booking_hours.clear", target="booking_hours",
+                   detail=f"entity={entity.slug} reverted to organization default")
+        return JsonResponse({"hours": actions.booking_hours_raw(entity),
+                             "scope": scoping.setting_scope("booking_hours", entity),
+                             "entity": entity.slug,
+                             "global_hours": actions.booking_hours_raw(None),
+                             "default": dict(actions._DEFAULT_HOURS)})
+    if request.method != "PUT":
+        return HttpResponseNotAllowed(["GET", "PUT", "DELETE"])
+    if not _can_manage(request):
+        return JsonResponse({"detail": "Admin role required to edit booking hours."},
+                            status=403)
+    hours = _json_body(request).get("hours")
+    if not isinstance(hours, dict):
+        return JsonResponse({"detail": "hours must be an object keyed by day."}, status=400)
+    clean: dict = {}
+    for day in _BOOKING_DAYS:
+        val = hours.get(day)
+        if val in (None, [], ""):
+            clean[day] = None  # closed
+            continue
+        if not isinstance(val, (list, tuple)) or len(val) < 2:
+            return JsonResponse({"detail": f"{day} must be [open, close] or null."},
+                                status=400)
+        try:
+            o, c = int(val[0]), int(val[1])
+        except (TypeError, ValueError):
+            return JsonResponse({"detail": f"{day} hours must be whole numbers."}, status=400)
+        if not (0 <= o < c <= 24):
+            return JsonResponse({"detail": f"{day} needs 0 ≤ open < close ≤ 24."},
+                                status=400)
+        clean[day] = [o, c]
+    scoping.set_setting("booking_hours", json.dumps(clean), entity)
+    rbac.audit(request, "aicore.booking_hours.update", target="booking_hours",
+               detail=f"{'entity=' + entity.slug if entity else 'organization'} "
+                      f"{json.dumps(clean)[:180]}")
+    return JsonResponse({"hours": clean,
+                         "scope": scoping.setting_scope("booking_hours", entity),
+                         "entity": entity.slug if entity else None,
+                         "global_hours": actions.booking_hours_raw(None),
+                         "default": dict(actions._DEFAULT_HOURS)})

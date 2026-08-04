@@ -3,7 +3,7 @@
 import { Lock } from 'lucide-react'
 
 /**
- * Small on/off switch (brand blue when on). `locked` renders it forced-on and
+ * Small on/off switch (entity blue when on). `locked` renders it forced-on and
  * un-clickable with a padlock — used for superadmin's rbac.manage cap.
  */
 export function Toggle({

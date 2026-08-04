@@ -3,8 +3,8 @@
  * localStorage, attached to every role-checked API call. Roles:
  *   superadmin — everything incl. app keys
  *   admin      — queues + channel account management (own tenant)
- *   agent      — queues only, scoped to their assigned brands
- * ("agent" was renamed to "collector" in an earlier brands RBAC pass, then
+ *   agent      — queues only, scoped to their assigned entities
+ * ("agent" was renamed to "collector" in an earlier entities RBAC pass, then
  * reverted back to "agent" — cached sessions holding the old "collector"
  * name are normalized on read.)
  *
@@ -46,8 +46,8 @@ export const CAPABILITY_CATALOG: { capability: string; area: string; label: stri
   { capability: 'integrations.manage', area: 'Integrations', label: 'Manage integrations' },
   { capability: 'users.view', area: 'Users', label: 'View users' },
   { capability: 'users.manage', area: 'Users', label: 'Create & manage users' },
-  { capability: 'brands.view', area: 'Brands', label: 'View brands & tenants' },
-  { capability: 'brands.manage', area: 'Brands', label: 'Manage brands & tenants' },
+  { capability: 'entities.view', area: 'Entities', label: 'View entities & tenants' },
+  { capability: 'entities.manage', area: 'Entities', label: 'Manage entities & tenants' },
   { capability: 'templates.manage', area: 'Library', label: 'Manage message templates' },
   { capability: 'script_templates.manage', area: 'Library', label: 'Manage script templates' },
   { capability: 'notifications.manage', area: 'Review', label: 'Manage notification prefs' },

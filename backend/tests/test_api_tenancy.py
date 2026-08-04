@@ -69,28 +69,28 @@ def test_paginated_envelope_shape(two_tenants):
     assert set(body) >= {"count", "page", "num_pages", "page_size", "results"}
 
 
-def test_legacy_contacts_brand_filter(db):
-    """?brand=<slug> narrows the contact list to that brand (topbar switcher),
-    and the payload exposes each contact's brand slugs."""
-    from crm.models import ContactBrand
-    from ingest.models import Brand
+def test_legacy_contacts_entity_filter(db):
+    """?entity=<slug> narrows the contact list to that entity (topbar switcher),
+    and the payload exposes each contact's entity slugs."""
+    from crm.models import ContactEntity
+    from ingest.models import Entity
 
-    t = Tenant.objects.create(name="T Brand", slug="tb")
+    t = Tenant.objects.create(name="T Entity", slug="tb")
     u = User.objects.create_user(username="ab", password="x")
     Profile.objects.create(user=u, role="admin", token="tokb", tenant=t)
-    ba = Brand.objects.create(tenant=t, name="Brand A", slug="brand-a")
-    bb = Brand.objects.create(tenant=t, name="Brand B", slug="brand-b")
+    ba = Entity.objects.create(tenant=t, name="Entity A", slug="entity-a")
+    bb = Entity.objects.create(tenant=t, name="Entity B", slug="entity-b")
     ca = Contact.objects.create(name="Cust A", phone="+60130000001", tenant=t)
     cb = Contact.objects.create(name="Cust B", phone="+60130000002", tenant=t)
-    ContactBrand.objects.create(contact=ca, brand=ba)
-    ContactBrand.objects.create(contact=cb, brand=bb)
+    ContactEntity.objects.create(contact=ca, entity=ba)
+    ContactEntity.objects.create(contact=cb, entity=bb)
 
-    r = Client().get("/api/contacts?brand=brand-a", **_auth("tokb"))
+    r = Client().get("/api/contacts?entity=entity-a", **_auth("tokb"))
     assert r.status_code == 200
     rows = r.json()["contacts"]
     assert [c["name"] for c in rows] == ["Cust A"]
-    assert rows[0]["brands"] == ["brand-a"]
+    assert rows[0]["entities"] == ["entity-a"]
 
-    # no brand param -> both contacts in the tenant
+    # no entity param -> both contacts in the tenant
     r_all = Client().get("/api/contacts", **_auth("tokb"))
     assert {c["name"] for c in r_all.json()["contacts"]} == {"Cust A", "Cust B"}

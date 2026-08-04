@@ -128,7 +128,7 @@ def _stored() -> dict:
     what the operator typed, never bake .env into the DB."""
     from crm.models import Setting
 
-    row = Setting.objects.filter(key=SETTINGS_KEY).first()
+    row = Setting.objects.filter(entity__isnull=True, key=SETTINGS_KEY).first()
     if row and row.value.strip():
         try:
             data = json.loads(row.value)
@@ -156,7 +156,7 @@ def save_settings(patch: dict) -> dict:
     for key in GLOBAL_KEYS:
         if key in patch:
             stored[key] = str(patch.get(key) or "").strip()
-    Setting.objects.update_or_create(key=SETTINGS_KEY,
+    Setting.objects.update_or_create(entity=None, key=SETTINGS_KEY,
                                      defaults={"value": json.dumps(stored)})
     return settings()
 

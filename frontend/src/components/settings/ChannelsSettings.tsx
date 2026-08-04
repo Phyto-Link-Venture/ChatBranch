@@ -26,6 +26,7 @@ import { TemplatesSettings } from '@/components/settings/TemplatesSettings'
 import { roleHeaders } from '@/lib/role'
 import { authHeaders, expireSessionOn401, hasCap } from '@/lib/auth'
 import { useRole } from '@/lib/useRole'
+import { EntityScopeSelect } from './EntityScopeSelect'
 import {
   fetchChannelHealth,
   HEALTH_META,
@@ -62,6 +63,9 @@ interface SocialAccount {
   owner: string
   access_token_masked: string
   configured: boolean
+  /** Owning outlet slug; null = organization-wide (the shared fallback). */
+  entity?: string | null
+  entity_name?: string
 }
 
 /** SMTP sender account row from GET /api/messaging/accounts (channel "email").
@@ -81,6 +85,9 @@ interface EmailAccount {
   id: string
   channel: 'email'
   name: string
+  /** Owning outlet slug; null = organization-wide (the shared fallback). */
+  entity?: string | null
+  entity_name?: string
   from_email?: string
   external_id?: string
   owner?: string
@@ -261,6 +268,14 @@ function EmailAccountsPanel({
       setEditing(null)
     }, editing ? 'Email account updated.' : 'Email account added.')
 
+  /** Bind (or unbind) this mailbox to an outlet — the server re-files its
+   *  existing conversations under the new scope. */
+  const bindEntity = (a: EmailAccount, slug: string | null) =>
+    run(
+      () => api(`accounts/${a.id}`, { method: 'PATCH', body: JSON.stringify({ entity: slug }) }),
+      slug ? 'Mailbox bound to entity.' : 'Mailbox is now organization-wide.',
+    )
+
   const removeAccount = (a: EmailAccount) => {
     if (!window.confirm(`Remove email account "${a.name}"?`)) return
     run(() => api(`accounts/${a.id}`, { method: 'DELETE' }), 'Email account removed.')
@@ -324,12 +339,25 @@ function EmailAccountsPanel({
       },
     },
     {
+      key: 'entity',
+      header: 'Entity',
+      render: (a) => (
+        <EntityScopeSelect
+          value={a.entity ?? null}
+          disabled={!canManage || busy}
+          onChange={(slug) => bindEntity(a, slug)}
+          globalLabel="Organization-wide"
+          className="max-w-[190px]"
+        />
+      ),
+    },
+    {
       key: 'actions',
       header: 'Actions',
       align: 'right',
       render: (a) => (
         // Compact icon actions (with tooltips) so the row never wraps — matches
-        // the Users/Contacts/Brands tables.
+        // the Users/Contacts/Entities tables.
         <div className="flex items-center justify-end gap-1">
           <button
             onClick={() => testAccount(a)}
@@ -694,6 +722,14 @@ function SocialPanel({
       setMsg({ ok: true, text: `${a.name}: connected as ${r.name || r.id}` })
     })
 
+  /** Bind (or unbind) this account to an outlet. The server re-files the
+   *  account's existing conversations under the new scope. */
+  const bindEntity = (a: SocialAccount, slug: string | null) =>
+    run(
+      () => api(`accounts/${a.id}`, { method: 'PATCH', body: JSON.stringify({ entity: slug }) }),
+      slug ? 'Account bound to entity.' : 'Account is now organization-wide.',
+    )
+
   const setTelegramWebhook = (a: SocialAccount) => {
     const base = window.prompt(
       'Public https:// origin Telegram should deliver updates to (e.g. your ngrok/tunnel URL):',
@@ -739,12 +775,25 @@ function SocialPanel({
       ),
     },
     {
+      key: 'entity',
+      header: 'Entity',
+      render: (a) => (
+        <EntityScopeSelect
+          value={a.entity ?? null}
+          disabled={!canManage || busy}
+          onChange={(slug) => bindEntity(a, slug)}
+          globalLabel="Organization-wide"
+          className="max-w-[190px]"
+        />
+      ),
+    },
+    {
       key: 'actions',
       header: 'Actions',
       align: 'right',
       render: (a) => (
         // Compact icon actions (with tooltips) so the row never wraps — matches
-        // the Users/Contacts/Brands tables.
+        // the Users/Contacts/Entities tables.
         <div className="flex items-center justify-end gap-1">
           {canManage && channel === 'telegram' && (
             <button

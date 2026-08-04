@@ -291,6 +291,16 @@ def _pipeline_llm(md: dict):
             # whole internal monologue (Chinese deliberation + </think>) into
             # the TTS — the contact heard the model thinking. Also faster.
             extra["reasoning_effort"] = "low"
+        elif provider == "gemini":
+            # Gemini 2.5 thinks by default and its invisible reasoning tokens
+            # share the SAME output budget as the visible reply — on a call
+            # this can starve or badly delay the spoken response.
+            # `reasoning_effort` (verified against the live endpoint) is the
+            # way to cut that down — an `extra_body={"google": {
+            # "thinking_config": {"thinking_budget": 0}}}` shape 400s on this
+            # endpoint ("Request contains an invalid argument"), so don't
+            # reintroduce it. Same fix as aicore/assistant.py's chat path.
+            extra["reasoning_effort"] = "low"
         return lk_openai.LLM(model=model, api_key=api_key, base_url=base_url, **extra)
     if entry:
         logger.warning("Pipeline LLM %s has no API key — falling back to OpenAI", provider)

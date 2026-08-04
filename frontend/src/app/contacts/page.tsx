@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { LayoutGrid, List, Loader2, Pencil, Plus, Trash2, Upload } from 'lucide-react'
 import { useApp } from '@/lib/AppContext'
-import { useBrand } from '@/lib/BrandContext'
+import { useEntity } from '@/lib/EntityContext'
 import { authHeaders, hasCap } from '@/lib/auth'
 import { initials, methodLabel, primaryRecord, type ContactStatus } from '@/lib/mocks'
 import { StatusBadge } from '@/components/ui/Badges'
@@ -104,6 +104,7 @@ function ContactModal({
   onClose: () => void
 }) {
   const { reloadContacts } = useApp()
+  const { activeEntity, entities } = useEntity()
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [language, setLanguage] = useState('en')
@@ -111,6 +112,9 @@ function ContactModal({
   const [company, setCompany] = useState('')
   const [tags, setTags] = useState('')
   const [notes, setNotes] = useState('')
+  // Which entities the new contact joins (slugs). Defaults to the current
+  // entity; the operator can tick any subset (e.g. 2 of 3).
+  const [selectedEntities, setSelectedEntities] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -124,10 +128,11 @@ function ContactModal({
       setCompany(editing?.company ?? '')
       setTags((editing?.tags ?? []).join(', '))
       setNotes(editing && typeof editing.attributes.notes === 'string' ? editing.attributes.notes : '')
+      setSelectedEntities(activeEntity ? [activeEntity.slug] : [])
       setError(null)
       setBusy(false)
     }
-  }, [open, editing])
+  }, [open, editing, activeEntity])
 
   const save = async () => {
     setBusy(true)
@@ -141,6 +146,11 @@ function ContactModal({
         company_name: company.trim(),
         tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
         notes: notes.trim(),
+        // Entity membership on create: the ticked entities (multi-select).
+        // Ignored on edit — PATCH doesn't touch entity links.
+        ...(editing || selectedEntities.length === 0
+          ? {}
+          : { entity_slugs: selectedEntities }),
       })
       // PATCH /api/v1/contacts/<id> for edits (backend accepting the extra
       // fields lands in parallel; language already persists today), POST to
@@ -170,7 +180,7 @@ function ContactModal({
       open={open}
       onClose={onClose}
       title={editing ? 'Edit contact' : 'New contact'}
-      subtitle={editing ? 'Update this contact’s details.' : "Add a person to this brand's contact list."}
+      subtitle={editing ? 'Update this contact’s details.' : "Add a person to this entity's contact list."}
       size="lg"
       footer={
         <>
@@ -211,6 +221,57 @@ function ContactModal({
         <AddField label="Tags (comma-separated)" value={tags} onChange={setTags} placeholder="vip, wholesale" />
         <AddField label="Notes (optional)" value={notes} onChange={setNotes} />
       </div>
+
+      {!editing && entities.length > 0 && (
+        <div className="mt-3 rounded-lg border border-line bg-fill-subtle px-3 py-2.5">
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-[11px] font-bold text-text-high">Entities</span>
+            <div className="flex gap-2 text-[10.5px] font-semibold">
+              <button
+                type="button"
+                onClick={() => setSelectedEntities(entities.map((e) => e.slug))}
+                className="text-brand-300 hover:underline"
+              >
+                All
+              </button>
+              <span className="text-line-strong">·</span>
+              <button
+                type="button"
+                onClick={() => setSelectedEntities(activeEntity ? [activeEntity.slug] : [])}
+                className="text-text-muted hover:underline"
+              >
+                Reset
+              </button>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {entities.map((e) => {
+              const on = selectedEntities.includes(e.slug)
+              return (
+                <button
+                  key={e.slug}
+                  type="button"
+                  onClick={() =>
+                    setSelectedEntities((cur) =>
+                      cur.includes(e.slug) ? cur.filter((s) => s !== e.slug) : [...cur, e.slug],
+                    )
+                  }
+                  className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                    on
+                      ? 'border-brand-400/40 bg-brand-400/15 text-brand-200'
+                      : 'border-line-strong bg-card text-text-muted hover:bg-fill-hover'
+                  }`}
+                >
+                  {e.name}
+                </button>
+              )
+            })}
+          </div>
+          <p className="mt-1.5 text-[10.5px] text-text-faint">
+            Tick which entities this contact belongs to — the shared profile is linked to each.
+          </p>
+        </div>
+      )}
     </Modal>
   )
 }
@@ -276,7 +337,7 @@ function KanbanCard({ d, onOpen }: { d: Contact; onOpen: () => void }) {
 export default function ContactsPage() {
   const router = useRouter()
   const { contacts, reloadContacts } = useApp()
-  const { activeBrand } = useBrand()
+  const { activeEntity } = useEntity()
 
   const [view, setView] = useState<'board' | 'list'>('board')
   const [status, setStatus] = useState('')
@@ -457,7 +518,7 @@ export default function ContactsPage() {
           <h1 className="text-[20px] font-extrabold tracking-[-0.5px] text-text-heading">Contacts</h1>
           <div className="mt-0.5 text-[12px] text-text-muted">
             {contacts.length} {contacts.length === 1 ? 'contact' : 'contacts'}
-            {activeBrand && <span className="text-text-faint"> · {activeBrand.name}</span>}
+            {activeEntity && <span className="text-text-faint"> · {activeEntity.name}</span>}
           </div>
         </div>
 

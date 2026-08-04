@@ -2,7 +2,7 @@
 
   POST login {username,password}   -> {token, user:{username,name,role}}
   GET  me                          -> current user (valid token check)
-  POST logout                      -> invalidates the token
+  POST logout                      -> invalidates this session's token only
   GET  notifications               -> caller's latest notifications + unread count
   POST notifications/read {id|all} -> mark read
   GET  notification-prefs          -> global bell category toggles (any role)
@@ -13,7 +13,8 @@
   POST users/<id> {name?,role?,active?,password?}   -> update (SUPER ADMIN only)
   DELETE users/<id>                -> soft-deactivate (SUPER ADMIN only)
 
-Tokens rotate on every login and live on crm.Profile.
+Each login issues a new crm.AuthToken row — concurrent sessions per account
+are supported by design; see crm/auth.py.
 """
 import json
 import secrets
@@ -24,7 +25,7 @@ from django.http import HttpResponseNotAllowed, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 from . import auth as rbac
-from .models import AuditLog, Notification, Profile, Setting
+from .models import AuditLog, AuthToken, Notification, Profile, Setting
 
 ROLES = tuple(r for r, _ in Profile.ROLE_CHOICES)  # superadmin / admin / agent
 
@@ -61,10 +62,10 @@ def login_view(request):
     profile, _ = Profile.objects.get_or_create(
         user=user, defaults={"role": "superadmin" if user.is_superuser else "admin"}
     )
-    profile.token = secrets.token_hex(24)  # rotate per login
-    profile.save(update_fields=["token"])
+    token = secrets.token_hex(24)
+    AuthToken.objects.create(profile=profile, token=token)  # a new session; others stay valid
     rbac.audit(request, "auth.login", target=user.username)
-    return JsonResponse({"token": profile.token, "user": _user_payload(user)})
+    return JsonResponse({"token": token, "user": _user_payload(user)})
 
 
 def me(request):
@@ -80,9 +81,13 @@ def me(request):
 def logout_view(request):
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
+    token = rbac.token_from_request(request)
     user = rbac.user_from_request(request)
-    if user:
-        Profile.objects.filter(user=user).update(token="")
+    if user and token:
+        # Only THIS session dies — other concurrent logins for the same
+        # account are untouched.
+        AuthToken.objects.filter(token=token).delete()
+        Profile.objects.filter(user=user, token=token).update(token="")
         rbac.audit(request, "auth.logout", target=user.username)
     return JsonResponse({"ok": True})
 
@@ -136,7 +141,7 @@ def notification_prefs(request):
                 return JsonResponse({"detail": f"{cat} must be true or false."}, status=400)
             patch[cat] = body[cat]
     for cat, enabled in patch.items():
-        Setting.objects.update_or_create(key=f"notif_{cat}",
+        Setting.objects.update_or_create(entity=None, key=f"notif_{cat}",
                                          defaults={"value": "true" if enabled else "false"})
     if patch:
         rbac.audit(request, "settings.update", target="notifications",
@@ -357,7 +362,7 @@ def users(request):
             actor_role, actor_profile,
             username=body.get("username"), name=body.get("name"),
             password=body.get("password"), role=body.get("role"),
-            brand_ids=body.get("brand_ids"), tenant=body.get("tenant"),
+            entity_ids=body.get("entity_ids"), tenant=body.get("tenant"),
         )
     except usvc.UserMgmtError as e:
         return JsonResponse({"detail": e.message}, status=e.status)
@@ -394,7 +399,7 @@ def user_detail(request, user_id: int):
             role=body.get("role", _UNSET),
             active=body.get("active", _UNSET),
             password=body.get("password", _UNSET),
-            brand_ids=body.get("brand_ids", _UNSET),
+            entity_ids=body.get("entity_ids", _UNSET),
         )
     except usvc.UserMgmtError as e:
         return JsonResponse({"detail": e.message}, status=e.status)

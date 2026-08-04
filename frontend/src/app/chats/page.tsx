@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { useEntityQuery } from '@/lib/EntityContext'
 import {
   AlertCircle,
   Ban,
@@ -949,11 +950,16 @@ export default function ChatsPage() {
   const fileRef = useRef<HTMLInputElement>(null)
   const prevCallStatus = useRef<string | undefined>(undefined)
 
+  // Entity scope from the topbar switcher — the inbox shows the selected
+  // outlet's conversations (plus untagged ones on shared numbers, which
+  // somebody still has to answer).
+  const entityQ = useEntityQuery()
+
   const refreshThreads = useCallback(async () => {
     try {
       const [wa, msg] = await Promise.all([
-        api<{ threads: { wa_id: string; phone: string; name: string; ai_enabled: boolean; assignee?: string; call: WaCall; account_id?: string | null; window_open?: boolean; window_expires_at?: string | null; opted_out?: boolean; contact_id?: number | null; contact_name?: string; labels?: string[]; last_message: string; last_ts: string }[] }>('whatsapp/threads'),
-        api<{ threads: { key: string; channel: Channel; address: string; name: string; ai_enabled: boolean; status: ThreadStatus; assignee: string; labels: string[]; contact_id?: number | null; contact_name?: string; last_message: string; last_ts: string }[] }>('messaging/threads'),
+        api<{ threads: { wa_id: string; phone: string; name: string; ai_enabled: boolean; assignee?: string; call: WaCall; account_id?: string | null; window_open?: boolean; window_expires_at?: string | null; opted_out?: boolean; contact_id?: number | null; contact_name?: string; labels?: string[]; last_message: string; last_ts: string }[] }>(`whatsapp/threads${entityQ && `?${entityQ}`}`),
+        api<{ threads: { key: string; channel: Channel; address: string; name: string; ai_enabled: boolean; status: ThreadStatus; assignee: string; labels: string[]; contact_id?: number | null; contact_name?: string; last_message: string; last_ts: string }[] }>(`messaging/threads${entityQ && `?${entityQ}`}`),
       ])
       const merged: UiThreadSummary[] = [
         ...wa.threads.map((t) => ({
@@ -998,7 +1004,8 @@ export default function ChatsPage() {
     } catch {
       /* API down — page shows the empty state */
     }
-  }, [])
+    // entityQ is a dependency so switching outlets re-fetches the inbox
+  }, [entityQ])
 
   const refreshActive = useCallback(async () => {
     if (!activeId) return
@@ -1724,7 +1731,7 @@ export default function ChatsPage() {
               : seenBefore
                 ? `Switched sender number — now via ${acctLabel(m)}. The customer knows this number; if they ` +
                   `haven't replied to it within 24h, open with an approved template.`
-                : `Switched sender number — now via ${acctLabel(m)}. Brand-new number for this customer ` +
+                : `Switched sender number — now via ${acctLabel(m)}. Entity-new number for this customer ` +
                   `(their side shows a new chat) — open with an approved template or have them reply first.`,
           )
         }

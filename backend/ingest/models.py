@@ -30,13 +30,13 @@ class Tenant(models.Model):
         return self.name
 
 
-class Brand(models.Model):
-    """A client brand a tenant operates. A tenant owns many brands; contacts
-    are shared across a tenant's brands (see crm.ContactBrand). Access control
-    is brand-level: admins see all brands in their tenant, agents only the
-    brands assigned to them (crm.Profile.brands)."""
+class Entity(models.Model):
+    """A client entity a tenant operates. A tenant owns many entities; contacts
+    are shared across a tenant's entities (see crm.ContactEntity). Access control
+    is entity-level: admins see all entities in their tenant, agents only the
+    entities assigned to them (crm.Profile.entities)."""
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="brands")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="entities")
     name = models.CharField(max_length=160)
     slug = models.SlugField(max_length=80)
     is_active = models.BooleanField(default=True)
@@ -52,14 +52,14 @@ class Brand(models.Model):
 
 class DataSource(models.Model):
     """An external system whose records a tenant works from — a shop, an ERP, a
-    ticketing system, a partner API. It is the sync origin and feeds one Brand.
+    ticketing system, a partner API. It is the sync origin and feeds one Entity.
 
     The source authenticates its sync with an x-api-key; we store only a hash of
     it (`api_key_hash`) and compare in constant time.
     """
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="data_sources")
-    brand = models.ForeignKey(Brand, null=True, blank=True, on_delete=models.SET_NULL,
+    entity = models.ForeignKey(Entity, null=True, blank=True, on_delete=models.SET_NULL,
                               related_name="data_sources")
     name = models.CharField(max_length=160)
     api_key_hash = models.CharField(max_length=64, blank=True, default="", db_index=True)

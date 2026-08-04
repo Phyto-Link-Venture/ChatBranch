@@ -16,6 +16,8 @@ import {
 import { Button } from '@/components/ui/Button'
 import { roleHeaders } from '@/lib/role'
 import { useRole } from '@/lib/useRole'
+import { useEntity, useEntityQuery } from '@/lib/EntityContext'
+import { EntityScopeSelect, ScopeBadge } from './EntityScopeSelect'
 import { expireSessionOn401 } from '@/lib/auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
@@ -30,7 +32,12 @@ interface Item {
   channels: string[]
   priority: number
   active: boolean
-  brand_id: number | null
+  entity_id: number | null
+  /** Owning outlet slug; null = organization-wide (inherited by every entity). */
+  entity: string | null
+  entity_name: string
+  /** "global" = inherited from the organization, "entity" = this outlet's own. */
+  scope: 'global' | 'entity'
   starts_at: string | null
   ends_at: string | null
   live: boolean
@@ -45,6 +52,8 @@ interface ListPayload {
   counts: Record<string, number>
   kinds: { id: string; label: string }[]
   budget: number
+  entity?: string | null
+  entity_name?: string
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -127,6 +136,11 @@ const fromLocalInput = (v: string) => (v ? new Date(v).toISOString() : '')
  * keyword + recency + priority — no embeddings, on purpose.
  */
 export function KnowledgeSettings() {
+  // Entity scope. With an outlet selected the list shows the organization's
+  // knowledge PLUS that outlet's own, each labelled — and new items default to
+  // that outlet unless the scope picker says otherwise.
+  const entityQ = useEntityQuery()
+  const { activeEntity } = useEntity()
   const { role, ready } = useRole()
   const canManage = role === 'admin' || role === 'superadmin'
 
@@ -143,14 +157,14 @@ export function KnowledgeSettings() {
 
   const load = useCallback(async () => {
     try {
-      const d = await api<ListPayload>('knowledge')
+      const d = await api<ListPayload>(`knowledge${entityQ && `?${entityQ}`}`)
       setData(d)
       setLoadError(null)
     } catch (e) {
       setData(null)
       setLoadError(e instanceof Error ? e.message : String(e))
     }
-  }, [])
+  }, [entityQ])
 
   useEffect(() => {
     load()
@@ -180,6 +194,8 @@ export function KnowledgeSettings() {
         active: draft.active ?? true,
         starts_at: draft.starts_at || '',
         ends_at: draft.ends_at || '',
+        // Explicit scope: null = organization-wide (every outlet inherits it).
+        entity: draft.entity ?? null,
       }
       if (draft.id) {
         await api(`knowledge/${draft.id}`, { method: 'PATCH', body: JSON.stringify(body) })
@@ -269,7 +285,7 @@ export function KnowledgeSettings() {
         </p>
         {canManage && (
           <div className="shrink-0">
-            <Button onClick={() => setDraft({ kind: kind || 'fact', active: true, priority: 0 })}>
+            <Button onClick={() => setDraft({ kind: kind || 'fact', active: true, priority: 0, entity: activeEntity?.slug ?? null })}>
               <Plus size={13} aria-hidden /> New entry
             </Button>
           </div>
@@ -366,6 +382,24 @@ export function KnowledgeSettings() {
               />
             </label>
           </div>
+
+          {/* Scope: organization-wide knowledge every outlet inherits, or one
+              outlet's own. A branch-specific notice ("Studio 2 closed") must
+              never reach another branch's customers. */}
+          <label className="mt-3 block">
+            <span className="mb-1 block text-[10.5px] font-bold text-text-high">Applies to</span>
+            <EntityScopeSelect
+              value={draft.entity ?? null}
+              onChange={(slug) => setDraft({ ...draft, entity: slug })}
+              globalLabel="All entities (organization-wide)"
+              className="w-full"
+            />
+            <span className="mt-1 block text-[10.5px] text-text-muted">
+              {draft.entity
+                ? 'Only customers of this entity will hear it.'
+                : 'Every entity inherits this.'}
+            </span>
+          </label>
 
           <label className="mt-3 block">
             <span className="mb-1 block text-[10.5px] font-bold text-text-high">Title</span>
@@ -520,6 +554,11 @@ export function KnowledgeSettings() {
                 {item.question || item.content}
               </span>
             </button>
+            {/* Only meaningful while viewing one outlet: says whether this row
+                is inherited from the organization or belongs to this outlet. */}
+            {activeEntity && (
+              <ScopeBadge scope={item.scope} entityName={item.entity_name || activeEntity.name} />
+            )}
             <StateChip item={item} />
             {canManage && (
               <>

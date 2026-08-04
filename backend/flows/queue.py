@@ -127,7 +127,7 @@ def queue_settings() -> dict:
 
     merged = {k: _to_int(os.getenv(k.upper()) or v, v)
               for k, v in SETTING_DEFAULTS.items()}
-    for row in Setting.objects.filter(key__in=SETTING_DEFAULTS):
+    for row in Setting.objects.filter(entity__isnull=True, key__in=SETTING_DEFAULTS):
         if row.value.strip():
             merged[row.key] = _to_int(row.value, merged[row.key])
     return merged
@@ -141,7 +141,7 @@ def save_queue_settings(patch: dict) -> dict:
 
     for key in SETTING_DEFAULTS:
         if key in patch:
-            Setting.objects.update_or_create(key=key,
+            Setting.objects.update_or_create(entity=None, key=key,
                                              defaults={"value": str(patch[key])})
     return queue_settings()
 

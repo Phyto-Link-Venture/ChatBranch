@@ -66,20 +66,121 @@ def _provider() -> tuple[str, str, str]:
     return wa_config.chat_provider()
 
 
+def reasoning_kwargs_for(base_url: str) -> dict:
+    """Extra chat.completions kwargs a reasoning model needs so its default
+    "thinking" doesn't silently break the reply. Both ilmu-v3.1 and Gemini 2.5
+    (incl. "gemini-flash-latest") think by default, and their invisible
+    reasoning tokens are drawn from the SAME max_tokens budget as the visible
+    completion — on a harder turn this can consume most of the budget and cut
+    the reply off mid-sentence (observed live: a calendar tool-call reply
+    truncated after ~10 words; a conversation summary saved as literally
+    "opt-out:* There are no commitments"). `reasoning_effort="low"` is the
+    verified-working fix for both — an `extra_body={"google": {
+    "thinking_config": {"thinking_budget": 0}}}` shape 400s on Gemini's real
+    endpoint ("Request contains an invalid argument"), so don't reintroduce
+    it. Shared by every completion call site in the app — see generate_reply
+    and messaging/timeline.py."""
+    if "ilmu" in base_url or "generativelanguage.googleapis.com" in base_url:
+        return {"reasoning_effort": "low"}
+    return {}
+
+
+def _provider_candidates() -> list[tuple[str, str, str]]:
+    """Ordered (base_url, api_key, model) attempts for one reply: the normal
+    top pick first (whatever `_provider()` returns — tests patch this
+    directly to control the outcome), then every OTHER configured provider in
+    chat_provider_order() priority order as a fallback.
+
+    Without this, "priority order" only decided which provider was picked —
+    never retried a DIFFERENT one once picked. A provider with a valid key
+    that is currently erroring (quota exceeded, 5xx, timeout) kept failing
+    forever instead of falling through (observed live: Gemini hit a 429 and
+    every subsequent retry hit Gemini again, since chat_provider() has no
+    memory of a call having just failed). `chat_provider_candidates()`
+    already returns just the pinned provider alone when `chat_provider_pref`
+    is set (A/B pin means ONLY that provider), so this naturally adds nothing
+    extra in that case."""
+    primary = _provider()
+    candidates = [primary]
+    try:
+        seen = {primary[0]}
+        for base_url, api_key, model in wa_config.chat_provider_candidates():
+            if api_key and base_url not in seen:
+                candidates.append((base_url, api_key, model))
+                seen.add(base_url)
+    except Exception:
+        logger.exception("aicore: provider fallback list failed — using top pick only")
+    return candidates
+
+
+def complete_with_failover(messages: list[dict], *, max_tokens: int,
+                           temperature: float = 0.2) -> tuple[str, str, str, object]:
+    """One simple (no tool-calling) chat completion, trying every configured
+    provider in priority order until one succeeds. Reused by callers outside
+    generate_reply's own loop (messaging/timeline.py's summaries) that need
+    the SAME resilience — a Gemini daily-quota exhaustion (its free tier caps
+    at 20 requests/day, easily hit) must not leave every summary stuck
+    serving a stale/broken cached value forever.
+
+    Returns (text, base_url, model, usage) from whichever candidate
+    succeeded. Raises the LAST candidate's exception if every one fails."""
+    from openai import OpenAI  # lazy — keep cheap endpoints fast
+
+    candidates = _provider_candidates()
+    if not any(key for _, key, _ in candidates):
+        raise RuntimeError("No OPENAI_API_KEY / OPENROUTER_API_KEY configured.")
+    last_exc: Exception | None = None
+    for base_url, api_key, model in candidates:
+        if not api_key:
+            continue
+        try:
+            client = OpenAI(base_url=base_url, api_key=api_key)
+            resp = client.chat.completions.create(
+                model=model, messages=messages, max_tokens=max_tokens,
+                temperature=temperature, **reasoning_kwargs_for(base_url))
+            text = (resp.choices[0].message.content or "").strip()
+            return text, base_url, model, getattr(resp, "usage", None)
+        except Exception as exc:
+            logger.warning(
+                "aicore: provider %s failed (%s) — trying the next configured provider",
+                _provider_name(base_url), type(exc).__name__)
+            last_exc = exc
+            continue
+    raise last_exc if last_exc is not None else RuntimeError(
+        "No usable AI provider configured.")
+
+
 # ---- CRM enrichment ---------------------------------------------------------
 
 def _digits(value: str) -> str:
     return re.sub(r"\D", "", str(value or ""))
 
 
-def _skills_block() -> str:
+def _skills_block(entity=None) -> str:
     """The operator's editable playbook (crm.AgentSkill) as a SKILLS prompt
     section. Included in every reply so a skill edit actually changes bot
     behavior — not just flow-node runs. Owned by Settings → AI Skills; see
-    aicore/knowledge.py `skills_block`."""
+    aicore/knowledge.py `skills_block`. `entity` adds that outlet's own skills
+    on top of the organization-wide ones (its version of a same-named skill
+    wins)."""
     from . import knowledge
 
-    return knowledge.skills_block()
+    return knowledge.skills_block(entity)
+
+
+def _entity_of(contact):
+    """Which outlet a contact belongs to — drives persona/skills/knowledge
+    selection. Exception-safe: an unresolvable entity degrades to the
+    organization-wide configuration, never to another outlet's."""
+    if contact is None:
+        return None
+    try:
+        from crm import scoping
+
+        return scoping.thread_entity(contact=contact)
+    except Exception:
+        logger.exception("aicore: entity resolution failed — using global config")
+        return None
 
 
 def _find_contact(phone: str):
@@ -185,6 +286,31 @@ def _resources_block(contact) -> str:
         return ""
 
 
+def _temporal_context() -> str:
+    """Ground truth for relative-date reasoning ("tomorrow", "next Monday")
+    and for which UTC offset to use in any ISO 8601 timestamp the model
+    writes itself — without this the model has only its training-cutoff date
+    and no notion of this business's timezone. The voice agent has carried an
+    equivalent `_today()` line since day one (voice_agent/prompts.py); this
+    was missing on the chat side, and a model defaulting to a bare
+    "+00:00"/UTC offset when the business runs hours ahead silently books (or
+    rejects) at the wrong wall-clock time."""
+    from django.utils import timezone as dj_tz
+
+    now = dj_tz.localtime()
+    offset = now.strftime("%z") or "+0000"
+    offset = f"{offset[:3]}:{offset[3:]}"
+    return (
+        f"Current date/time where this business operates: "
+        f"{now.strftime('%A, %d %B %Y, %I:%M %p')} (UTC{offset}). Use this for "
+        "relative-date reasoning (\"tomorrow\", \"next Monday\", etc.) and, when "
+        "writing an ISO 8601 timestamp yourself, use this SAME UTC offset — "
+        "never assume +00:00 unless this business actually runs on UTC. If a "
+        "time came from a check_calendar_availability slot, copy that slot's "
+        "start value exactly rather than re-typing it."
+    )
+
+
 # ---- the reply --------------------------------------------------------------
 
 def generate_reply(history: list[dict], *, contact_name: str, phone: str, channel: str,
@@ -196,14 +322,26 @@ def generate_reply(history: list[dict], *, contact_name: str, phone: str, channe
     Raises on provider errors — callers decide how to surface them."""
     from openai import OpenAI  # lazy — keep cheap endpoints fast
 
-    base_url, api_key, model = _provider()
-    if not api_key:
+    candidates = _provider_candidates()
+    if not any(key for _, key, _ in candidates):
         raise RuntimeError("No OPENAI_API_KEY / OPENROUTER_API_KEY configured.")
 
-    # Composed per reply: hard compliance rules (fixed) + the active persona
-    # (crm.Setting "aicore_persona" override, else the built-in default).
-    messages: list[dict] = [{"role": "system", "content": persona.system_prompt()}]
-    skills = _skills_block()
+    # Resolve the contact FIRST: which outlet (entity) this person belongs to
+    # decides the persona, skills and knowledge below, so a Rimbayu customer
+    # gets Rimbayu's assistant rather than the organization default.
+    contact = None
+    if contact_id:
+        from crm.models import Contact
+        contact = Contact.objects.filter(pk=contact_id).first()
+    if contact is None:
+        contact = _find_contact(phone)
+    entity = _entity_of(contact)
+
+    # Composed per reply: hard compliance rules (fixed) + the persona governing
+    # this outlet (its own "aicore_persona" override, else the organization's,
+    # else the built-in default).
+    messages: list[dict] = [{"role": "system", "content": persona.system_prompt(entity)}]
+    skills = _skills_block(entity)
     if skills:
         messages.append({"role": "system", "content": skills})
     context = (
@@ -213,13 +351,8 @@ def generate_reply(history: list[dict], *, contact_name: str, phone: str, channe
         "if asked for anything you cannot see, say the team will confirm it."
     )
     messages.append({"role": "system", "content": context})
+    messages.append({"role": "system", "content": _temporal_context()})
 
-    contact = None
-    if contact_id:
-        from crm.models import Contact
-        contact = Contact.objects.filter(pk=contact_id).first()
-    if contact is None:
-        contact = _find_contact(phone)
     if contact is not None:
         # CONTACT MEMORY: the CRM facts plus everything the memory manager
         # carries across conversations (learned prefs, the last few
@@ -259,49 +392,126 @@ def generate_reply(history: list[dict], *, contact_name: str, phone: str, channe
         messages.append({"role": "system", "content": block})
 
     # TOOLS: only the tools whose integration is actually connected (empty in
-    # the zero-credential sandbox). Computed here so the guidance line joins the
-    # other system messages; when empty, NOTHING below changes and this reply is
-    # byte-for-byte the single completion it has always been. Tools are only
-    # reached via generate_reply, which the channel layers already skip for
-    # opted-out / do-not-contact threads — so they sit inside that gate.
+    # the zero-credential sandbox). The instruction line is added PER CANDIDATE
+    # below — never unconditionally — because whether a tool is actually
+    # attached to the request depends on that specific attempt's provider
+    # (_tools_supported excludes ilmu). Telling the model it "can take real
+    # actions" when this attempt's call carries no tools= at all is how a
+    # Gemini→ilmu failover once produced a fully hallucinated "Booked!"
+    # confirmation with no calendar event and no crm.Record ever created —
+    # the model, credulously following its own system prompt, invented an
+    # action it had no way to actually take.
     tools = _tool_specs(contact, channel)
-    if tools:
-        messages.append({"role": "system", "content": (
-            "You can take real actions using the provided tools when it helps the "
-            "customer. Any tool that creates, changes or cancels something real "
-            "requires the customer's confirmation first: state exactly what you "
-            "are about to do (with the specific details) and ask them to confirm, "
-            "then wait for their reply. Only after they clearly agree, call the "
-            "tool again with confirmed=true. For appointments, offer the open "
-            "slots and get their explicit choice of one specific time — never "
-            "book a slot they have not agreed to."
-        )})
+    # tool_choice="auto" never OBLIGATES a fresh check — a model asked the
+    # same question repeatedly in one conversation was observed to just
+    # pattern-match its own earlier (wrong) reply from history and never
+    # call a tool at all, confidently repeating a false "not available"
+    # claim with zero tool calls behind it. When the customer's latest
+    # message plainly signals booking/availability intent, force the FIRST
+    # round to actually call a tool instead of leaving it optional.
+    from aicore.tools import looks_like_booking_intent
+    force_tools = bool(tools) and looks_like_booking_intent(last_user)
+    TOOLS_INSTRUCTION = {"role": "system", "content": (
+        "You can take real actions using the provided tools when it helps the "
+        "customer. Any tool that creates, changes or cancels something real "
+        "requires the customer's confirmation first: state exactly what you "
+        "are about to do (with the specific details) and ask them to confirm, "
+        "then wait for their reply. Only after they clearly agree, call the "
+        "tool again with confirmed=true. For appointments, offer the open "
+        "slots and get their explicit choice of one specific time — never "
+        "book a slot they have not agreed to. If the customer names a SPECIFIC "
+        "time themselves (e.g. \"can I get 1pm?\"), pass it as "
+        "requested_start_iso to check_calendar_availability so you get a "
+        "definitive yes/no for that exact time — do not infer it is "
+        "unavailable just because it is missing from the general slots list."
+    )}
+    # The counter-case: tools exist for this conversation in general, but THIS
+    # attempt's provider doesn't support them (ilmu, or any provider a call
+    # failed over to that lacks tool-calling). Removing TOOLS_INSTRUCTION
+    # alone was NOT enough — a model asked "want me to book that?" with the
+    # customer's "yes" right there in history will happily continue the
+    # pattern and claim success anyway, tools or not (observed live: ilmu
+    # said "Great! I've booked your meeting... for 1:00 PM" with no tools=
+    # on the request and no crm.Record ever created). Say so explicitly.
+    NO_TOOLS_THIS_TURN = {"role": "system", "content": (
+        "IMPORTANT: for THIS reply you have NO access to the calendar/booking "
+        "tools, even though they are normally available — you cannot check, "
+        "book, reschedule, or cancel anything right now, no matter what the "
+        "customer just agreed to. Do not say or imply you checked, booked, "
+        "rescheduled, or cancelled anything, and do not say things like "
+        "\"I'll book that\" or \"I'll go ahead and book it\" — that is a "
+        "commitment you cannot keep this turn. Say ONLY that the team will "
+        "confirm and follow up shortly, and stop there."
+    )}
 
+    history_messages = []
     for m in history:
         role = "assistant" if m.get("role") == "assistant" else "user"
-        messages.append({"role": role, "content": str(m.get("content", ""))})
+        history_messages.append({"role": role, "content": str(m.get("content", ""))})
 
-    client = OpenAI(base_url=base_url, api_key=api_key)
-    kwargs = {}
-    if "ilmu" in base_url:
-        # ilmu-v3.1 is a reasoning model; "low" turns extended thinking OFF
-        # (ILMU docs) so internal deliberation can never leak into a contact
-        # message. The voice agent applies the same setting (_pipeline_llm).
-        kwargs["reasoning_effort"] = "low"
-    base_create = {"model": model, "messages": messages,
-                   "max_tokens": 300, "temperature": 0.4, **kwargs}
+    if tools:
+        # When tools matter for this conversation, try every tool-CAPABLE
+        # provider (in their existing relative priority) before ever falling
+        # back to one that cannot call tools at all (ilmu) — landing on a
+        # tool-incapable fallback mid-booking is what produced a live
+        # hallucinated "I've booked it" with no calendar event and no
+        # crm.Record (NO_TOOLS_THIS_TURN above is the backstop for when
+        # EVERY tool-capable provider is down, not the first line of
+        # defense). `sorted` is stable, so within each group the original
+        # chat_provider_order priority is unchanged.
+        candidates = sorted(candidates, key=lambda c: not _tools_supported(c[0]))
+
+    # Try each candidate provider in order; a call that fails at REQUEST TIME
+    # (quota exceeded, 5xx, timeout, or a request the provider rejects) falls
+    # through to the next configured one instead of just failing — that is
+    # what makes this a real fallback rather than a one-time pick. Each
+    # attempt gets its OWN copy of the message list (never the same list
+    # object) so a partial tool-loop mutation from a failed attempt can never
+    # leak into the next candidate's messages.
+    last_exc: Exception | None = None
+    text = None
+    base_url = model = ""
     usage_acc: list = []  # every completion's resp.usage — summed into the ledger
-    if tools and _tools_supported(base_url):
-        # Additive tool-calling loop. Falls back to a plain completion if the
-        # provider rejects `tools=`, so this never breaks a reply.
-        text = _run_tool_loop(client, base_create, tools, contact=contact,
-                              channel=channel, usage_acc=usage_acc).strip()
-    else:
-        # No tools (sandbox / disabled / unsupported provider): the EXACT single
-        # completion — identical kwargs — that generate_reply has always made.
-        resp = client.chat.completions.create(**base_create)
-        usage_acc.append(getattr(resp, "usage", None))
-        text = (resp.choices[0].message.content or "").strip()
+    for cand_base_url, cand_api_key, cand_model in candidates:
+        if not cand_api_key:
+            continue
+        client = OpenAI(base_url=cand_base_url, api_key=cand_api_key)
+        kwargs = reasoning_kwargs_for(cand_base_url)
+        use_tools = bool(tools) and _tools_supported(cand_base_url)
+        attempt_messages = list(messages)
+        if use_tools:
+            attempt_messages.append(TOOLS_INSTRUCTION)
+        elif tools:
+            attempt_messages.append(NO_TOOLS_THIS_TURN)
+        attempt_messages.extend(history_messages)
+        base_create = {"model": cand_model, "messages": attempt_messages,
+                       "max_tokens": 300, "temperature": 0.4, **kwargs}
+        cand_usage: list = []
+        try:
+            if use_tools:
+                # Additive tool-calling loop. Falls back to a plain completion if the
+                # provider rejects `tools=`, so this never breaks a reply.
+                text = _run_tool_loop(client, base_create, tools, contact=contact,
+                                      channel=channel, provider=_provider_name(cand_base_url),
+                                      usage_acc=cand_usage, force_tools=force_tools).strip()
+            else:
+                # No tools (sandbox / disabled / unsupported provider): the EXACT single
+                # completion — identical kwargs — that generate_reply has always made.
+                resp = client.chat.completions.create(**base_create)
+                cand_usage.append(getattr(resp, "usage", None))
+                text = (resp.choices[0].message.content or "").strip()
+        except Exception as exc:
+            logger.warning(
+                "aicore: provider %s failed (%s) — trying the next configured provider",
+                _provider_name(cand_base_url), type(exc).__name__)
+            last_exc = exc
+            text = None
+            continue
+        base_url, model, usage_acc = cand_base_url, cand_model, cand_usage
+        break
+    if text is None:
+        raise last_exc if last_exc is not None else RuntimeError(
+            "No usable AI provider configured.")
     # Usage ledger (billing) — exception-safe, records nothing when the
     # provider returned no usage payload.
     from aicore import usage as usage_ledger  # lazy, same rule as memory
@@ -342,6 +552,14 @@ def _tool_specs(contact, channel: str) -> list:
         return []
 
 
+def _provider_name(base_url: str) -> str:
+    """Canonical provider key ('openai'/'openrouter'/'gemini'/'ilmu') for the
+    tool loop's per-provider branches. Reuses the usage ledger's detector so
+    provider naming stays in ONE place."""
+    from aicore import usage
+    return usage.provider_from_base_url(base_url)
+
+
 def _tools_supported(base_url: str) -> bool:
     """Offer tools only to OpenAI-compatible chat providers that support them.
     ilmu runs the reasoning_effort=low path and is NOT verified for tools, so it
@@ -350,16 +568,33 @@ def _tools_supported(base_url: str) -> bool:
     return "ilmu" not in (base_url or "")
 
 
-def _assistant_tool_msg(message, tool_calls) -> dict:
+def _tool_call_payload(tc, provider: str) -> dict:
+    """One tool call rebuilt as a plain dict for the NEXT request. Some providers
+    require provider-specific fields echoed back on the tool-call turn — this is
+    the single place that quirk lives, so a new model = one more branch here."""
+    payload = {
+        "id": getattr(tc, "id", ""),
+        "type": "function",
+        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+    }
+    if provider == "gemini":
+        # Gemini's OpenAI-compat endpoint returns a `thought_signature` on each
+        # tool call and REQUIRES it echoed back verbatim, or the follow-up call
+        # 400s ("Function call is missing a thought_signature"). The OpenAI SDK
+        # parks unknown response fields in `model_extra["extra_content"]`.
+        extra = (getattr(tc, "model_extra", None) or {}).get("extra_content")
+        if extra:
+            payload["extra_content"] = extra
+    # elif provider == "<next model>":  # add the model's own tool-turn quirk here
+    return payload
+
+
+def _assistant_tool_msg(message, tool_calls, provider: str = "openai") -> dict:
     """Rebuild the model's tool-call turn as a plain dict to feed back."""
     return {
         "role": "assistant",
         "content": getattr(message, "content", None) or "",
-        "tool_calls": [
-            {"id": getattr(tc, "id", ""), "type": "function",
-             "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
-            for tc in tool_calls
-        ],
+        "tool_calls": [_tool_call_payload(tc, provider) for tc in tool_calls],
     }
 
 
@@ -380,15 +615,25 @@ def _execute_tool(tool_call, *, contact, channel: str, session=None) -> dict:
 
 
 def _run_tool_loop(client, base_create: dict, tools: list, *, contact, channel: str,
-                   usage_acc: list | None = None) -> str:
+                   provider: str = "openai", usage_acc: list | None = None,
+                   force_tools: bool = False) -> str:
     """Bounded function-calling loop. Passes tools + tool_choice="auto"; while
     the model returns tool_calls we execute them, feed each result back and
     re-call, up to MAX_TOOL_ROUNDS. The first call is retried ONCE without tools
     if the provider rejects the `tools=` param, so tool support never breaks a
     reply. Returns the final assistant prose (unstripped — the caller strips).
-    Every completion's resp.usage is appended to `usage_acc` (billing ledger)."""
+    Every completion's resp.usage is appended to `usage_acc` (billing ledger).
+
+    `force_tools`: the FIRST call only uses tool_choice="required" instead of
+    "auto" — "auto" never OBLIGATES a tool call, and a model asked the same
+    question repeatedly in one conversation was observed to just pattern-match
+    its own earlier (wrong) reply from history instead of ever calling a tool
+    again. Only the first round is forced; every round after reverts to
+    "auto" so the model can still conclude with plain prose once it has what
+    it needs, instead of being forced to keep calling tools forever."""
     convo = base_create["messages"]  # live list; tool turns are appended to it
-    create = {**base_create, "tools": tools, "tool_choice": "auto"}
+    create = {**base_create, "tools": tools,
+             "tool_choice": "required" if force_tools else "auto"}
     acc = usage_acc if usage_acc is not None else []
     # One id per reply generation: the confirmation gate uses it to refuse
     # state-changing tools in the same round that asked the customer to confirm.
@@ -398,19 +643,27 @@ def _run_tool_loop(client, base_create: dict, tools: list, *, contact, channel: 
         resp = client.chat.completions.create(**create)
         acc.append(getattr(resp, "usage", None))
     except Exception as exc:
-        # Provider that 400s on an unknown `tools` param — one plain retry.
+        # Only a genuine "provider doesn't understand this request shape"
+        # (400-class) is worth one same-provider retry without tools. Anything
+        # else (quota/5xx/timeout) must propagate immediately so
+        # generate_reply's per-candidate failover can move to the NEXT
+        # provider instead of burning a second call against one that is
+        # simply down or rate-limited right now.
+        if getattr(exc, "status_code", None) != 400:
+            raise
         logger.warning("aicore: provider rejected tools= (%s); replying without tools",
                        type(exc).__name__)
         resp = client.chat.completions.create(**base_create)
         acc.append(getattr(resp, "usage", None))
         return resp.choices[0].message.content or ""
+    create["tool_choice"] = "auto"  # only the first round is ever forced
 
     for _round in range(MAX_TOOL_ROUNDS):
         message = resp.choices[0].message
         tool_calls = getattr(message, "tool_calls", None) or []
         if not tool_calls:
             return message.content or ""
-        convo.append(_assistant_tool_msg(message, tool_calls))
+        convo.append(_assistant_tool_msg(message, tool_calls, provider))
         for tc in tool_calls:
             result = _execute_tool(tc, contact=contact, channel=channel,
                                    session=session)

@@ -19,8 +19,9 @@ urlpatterns = [
     path("whoami", views.WhoAmIView.as_view(), name="whoami"),
     path("contacts", views.ContactListView.as_view(), name="contact_list"),
     path("contacts/<int:pk>", views.ContactDetailView.as_view(), name="contact_detail"),
-    path("brands", views.BrandsView.as_view(), name="brands"),
-    path("brands/<int:brand_id>", views.BrandDetailView.as_view(), name="brand_detail"),
+    path("contacts/<int:pk>/entities", views.ContactEntitiesView.as_view(), name="contact_entities"),
+    path("entities", views.EntitiesView.as_view(), name="entities"),
+    path("entities/<int:entity_id>", views.EntityDetailView.as_view(), name="entity_detail"),
     path("users", views.UsersView.as_view(), name="users"),
     path("users/<int:user_id>", views.UserDetailView.as_view(), name="user_detail"),
     # OpenAPI 3 schema + interactive docs.

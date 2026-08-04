@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import { login } from '@/lib/auth'
 
-// Faint comms glyphs scattered behind the card — brand texture over the glass
+// Faint comms glyphs scattered behind the card — entity texture over the glass
 // backdrop (the fixed blue gradient painted globally by body::before).
 const GLYPHS = [
   { Icon: MessageSquare, top: '13%', left: '9%', size: 34, rot: -12 },
@@ -74,7 +74,7 @@ export default function LoginPage() {
 
       {/* Glass card */}
       <div className="relative w-full max-w-[420px] rounded-[26px] border border-line-strong bg-card px-8 py-9 shadow-[0_24px_70px_rgba(0,0,0,0.4)]">
-        {/* Brand mark + heading, centered */}
+        {/* Entity mark + heading, centered */}
         <div className="flex flex-col items-center text-center">
           <div
             className="grid h-14 w-14 place-items-center rounded-[18px]"

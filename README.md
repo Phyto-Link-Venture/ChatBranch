@@ -96,7 +96,7 @@ Nothing above is required to explore the product.
 
 ## Quick start
 
-```powershell
+```bash
 git clone <your-fork-url> chatbranch
 cd chatbranch
 npm install         # root dev tooling (concurrently)
@@ -118,37 +118,40 @@ created by `seed_demo`:
 deployment.** The Django admin at http://localhost:8000/admin uses the same
 `superadmin` login.
 
-### ⚠ The npm scripts are Windows-only
+### Cross-platform: Windows, macOS, Linux
 
-`npm run setup` and `npm run dev:*` in the root `package.json` use
-`venv\Scripts\python`, `py -3.13` and cmd.exe syntax. They work on Windows and
-nowhere else. On macOS/Linux, run the four processes by hand — same thing,
-spelled out:
+`npm run setup` and `npm run dev:*` work the same on Windows, macOS and
+Linux — `scripts/setup-api.js` and `scripts/run-py.js` resolve the right
+Python launcher (`py -3.13` on Windows, `python3.13`/`python3`/`python`
+elsewhere) and the right venv interpreter path (`venv\Scripts\python.exe` vs
+`venv/bin/python`) for whichever OS runs them, instead of hardcoding one.
+
+Ports 8000, 3000 and 3020 must be free.
+
+Individual processes: `npm run dev:api`, `npm run dev:agent`, `npm run
+dev:web`, `npm run dev:baileys`. `npm run dev` is an alias for
+`npm run dev:all`. Ctrl+C stops all of them.
+
+If you'd rather run the four processes by hand instead of through npm:
 
 ```bash
 # 1. API  (first time: create the venv, install, migrate, seed)
 cd backend
-python3 -m venv venv && source venv/bin/activate
+python3 -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env
+cp .env.example .env                                # Windows: copy .env.example .env
 python manage.py migrate && python manage.py seed_demo
-python manage.py runserver                       # :8000
+python manage.py runserver                          # :8000
 
 # 2. Voice agent worker (separate terminal; only needed for calls)
-cd backend/voice_agent && ../venv/bin/python agent.py dev
+cd backend/voice_agent && ../venv/bin/python agent.py dev   # Windows: ..\venv\Scripts\python agent.py dev
 
 # 3. Dashboard (separate terminal)
-cd frontend && npm install && npm run dev        # :3000
+cd frontend && npm install && npm run dev           # :3000
 
 # 4. Baileys gateway (separate terminal; only for QR-paired WhatsApp)
-cd backend/baileys_service && npm install && npm start   # :3020
+cd backend/baileys_service && npm install && npm start      # :3020
 ```
-
-Ports 8000, 3000 and 3020 must be free.
-
-Individual processes on Windows: `npm run dev:api`, `npm run dev:agent`,
-`npm run dev:web`, `npm run dev:baileys`. `npm run dev` is an alias for
-`npm run dev:all`. Ctrl+C stops all of them.
 
 ---
 
@@ -274,12 +277,12 @@ ChatBranch/
 
 ## Verify a change
 
-```powershell
-cd backend;  venv\Scripts\python manage.py check
-cd backend;  venv\Scripts\python manage.py makemigrations --check --dry-run
-cd backend;  venv\Scripts\python -m pytest tests/ calls/tests -q     # 863 tests
-cd frontend; npx tsc --noEmit
-cd frontend; npx next build
+```bash
+cd backend  && venv/bin/python manage.py check              # Windows: venv\Scripts\python
+cd backend  && venv/bin/python manage.py makemigrations --check --dry-run
+cd backend  && venv/bin/python -m pytest tests/ calls/tests -q     # 863 tests
+cd frontend && npx tsc --noEmit
+cd frontend && npx next build
 ```
 
 `manage.py check` reports one benign `staticfiles.W004` warning (there is no

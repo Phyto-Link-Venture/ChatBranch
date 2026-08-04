@@ -11,7 +11,7 @@ import { useRole } from '@/lib/useRole'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
-interface UserBrand {
+interface UserEntity {
   id: number
   name: string
   slug: string
@@ -28,7 +28,7 @@ interface ManagedUser {
   created: string | null
   last_login: string | null
   tenant: string | null
-  brands: UserBrand[]
+  entities: UserEntity[]
 }
 
 /** /api/auth/roles row — the pool the role selectors choose from. */
@@ -39,8 +39,8 @@ interface RoleRow {
   user_count: number
 }
 
-/** /api/v1/brands row — the pool the brand-access picker chooses from. */
-interface BrandRow {
+/** /api/v1/entities row — the pool the brand-access picker chooses from. */
+interface EntityRow {
   id: number
   name: string
   slug: string
@@ -75,7 +75,7 @@ const FALLBACK_ROLE_LABEL: Record<string, string> = {
   agent: 'Agent',
 }
 
-// superadmin = blue brand, admin = neutral zinc, agent = amber, custom = purple
+// superadmin = blue entity, admin = neutral zinc, agent = amber, custom = purple
 const ROLE_CHIP: Record<string, string> = {
   superadmin: 'bg-brand-400/15 text-brand-200',
   admin: 'bg-fill-hover text-text-mid',
@@ -87,29 +87,29 @@ const humanize = (slug: string) =>
   FALLBACK_ROLE_LABEL[slug] ||
   slug.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 
-/** Toggleable brand chips — used by both the add-user form and the per-user
+/** Toggleable entity chips — used by both the add-user form and the per-user
  * brand-access editor. */
-function BrandPicker({
-  brands,
+function EntityPicker({
+  entities,
   selected,
   onToggle,
   showTenant,
 }: {
-  brands: BrandRow[]
+  entities: EntityRow[]
   selected: number[]
   onToggle: (id: number) => void
   showTenant: boolean
 }) {
-  if (brands.length === 0) {
+  if (entities.length === 0) {
     return (
       <span className="text-[10.5px] text-text-muted">
-        No brands yet — create one under Brands &amp; Tenants.
+        No entities yet — create one under Entities &amp; Tenants.
       </span>
     )
   }
   return (
     <div className="flex flex-wrap gap-1.5">
-      {brands.map((b) => {
+      {entities.map((b) => {
         const on = selected.includes(b.id)
         return (
           <button
@@ -194,8 +194,8 @@ export function UsersSettings() {
   const [pwFor, setPwFor] = useState<number | null>(null)
   const [pwDraft, setPwDraft] = useState('')
   // brand-access modal (agents)
-  const [brandsFor, setBrandsFor] = useState<number | null>(null)
-  const [brandsDraft, setBrandsDraft] = useState<number[]>([])
+  const [entitiesFor, setEntitiesFor] = useState<number | null>(null)
+  const [entitiesDraft, setEntitiesDraft] = useState<number[]>([])
   // add-user modal
   const [showAdd, setShowAdd] = useState(false)
   // add-user form
@@ -203,9 +203,9 @@ export function UsersSettings() {
   const [newName, setNewName] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [newRole, setNewRole] = useState<string>('agent')
-  const [newBrandIds, setNewBrandIds] = useState<number[]>([])
-  // brand pool for the pickers (RBAC brands, /api/v1)
-  const [brandPool, setBrandPool] = useState<BrandRow[]>([])
+  const [newEntityIds, setNewEntityIds] = useState<number[]>([])
+  // entity pool for the pickers (RBAC entities, /api/v1)
+  const [entityPool, setEntityPool] = useState<EntityRow[]>([])
 
   const refresh = useCallback(async () => {
     try {
@@ -218,10 +218,10 @@ export function UsersSettings() {
 
   useEffect(() => {
     refresh()
-    fetch(`${API}/v1/brands`, { headers: authHeaders() })
-      .then((r) => (r.ok ? r.json() : { brands: [] }))
-      .then((d) => setBrandPool(Array.isArray(d.brands) ? d.brands : []))
-      .catch(() => setBrandPool([]))
+    fetch(`${API}/v1/entities`, { headers: authHeaders() })
+      .then((r) => (r.ok ? r.json() : { entities: [] }))
+      .then((d) => setEntityPool(Array.isArray(d.entities) ? d.entities : []))
+      .catch(() => setEntityPool([]))
     // Dynamic role pool — built-ins + custom roles. Falls back to the 3
     // built-ins if the roles endpoint predates the custom-roles pass.
     fetch(`${API}/auth/roles`, { headers: authHeaders() })
@@ -239,7 +239,7 @@ export function UsersSettings() {
       )
   }, [refresh])
 
-  const multiTenant = new Set(brandPool.map((b) => b.tenant)).size > 1
+  const multiTenant = new Set(entityPool.map((b) => b.tenant)).size > 1
   const toggleIn = (list: number[], id: number) =>
     list.includes(id) ? list.filter((x) => x !== id) : [...list, id]
 
@@ -321,26 +321,26 @@ export function UsersSettings() {
           name: newName.trim(),
           password: newPassword,
           role: newRole,
-          brand_ids: newRole === 'agent' ? newBrandIds : [],
+          entity_ids: newRole === 'agent' ? newEntityIds : [],
         }),
       })
       setNewUsername('')
       setNewName('')
       setNewPassword('')
       setNewRole('agent')
-      setNewBrandIds([])
+      setNewEntityIds([])
       setShowAdd(false)
     }, `User ${username} created.`)
   }
 
-  const saveBrands = (u: ManagedUser) =>
+  const saveEntities = (u: ManagedUser) =>
     run(async () => {
       await api(`users/${u.id}`, {
         method: 'POST',
-        body: JSON.stringify({ brand_ids: brandsDraft }),
+        body: JSON.stringify({ entity_ids: entitiesDraft }),
       })
-      setBrandsFor(null)
-    }, `Brand access updated for ${u.username}.`)
+      setEntitiesFor(null)
+    }, `Entity access updated for ${u.username}.`)
 
   if (!ready) return null // role resolves after mount — don't flash the denial
 
@@ -426,22 +426,22 @@ export function UsersSettings() {
         ),
     },
     {
-      key: 'brands',
-      header: 'Brands',
+      key: 'entities',
+      header: 'Entities',
       width: 190,
       render: (u) =>
         u.role !== 'agent' ? (
           <span className="text-[10.5px] text-text-faint">—</span>
-        ) : u.brands.length === 0 ? (
+        ) : u.entities.length === 0 ? (
           <span className="text-[10.5px] text-amber-300">No access</span>
         ) : (
           <div className="flex flex-wrap items-center gap-1">
-            {u.brands.slice(0, 3).map((b) => (
+            {u.entities.slice(0, 3).map((b) => (
               <span key={b.id} className="rounded-full bg-fill-hover px-2 py-px text-[10px] font-semibold text-text-mid">
                 {b.name}
               </span>
             ))}
-            {u.brands.length > 3 && <span className="text-[10px] text-text-faint">+{u.brands.length - 3}</span>}
+            {u.entities.length > 3 && <span className="text-[10px] text-text-faint">+{u.entities.length - 3}</span>}
           </div>
         ),
     },
@@ -463,17 +463,17 @@ export function UsersSettings() {
       align: 'right',
       render: (u) => (
         // Compact icon actions (with tooltips) so the row never wraps — matches
-        // the other tables (Contacts/Brands/Templates).
+        // the other tables (Contacts/Entities/Templates).
         <div className="flex items-center justify-end gap-1">
           {u.role === 'agent' && (
             <button
               disabled={busy}
               onClick={() => {
-                setBrandsDraft(u.brands.map((b) => b.id))
-                setBrandsFor(u.id)
+                setEntitiesDraft(u.entities.map((b) => b.id))
+                setEntitiesFor(u.id)
               }}
-              title="Brand access"
-              aria-label={`Brand access for ${u.username}`}
+              title="Entity access"
+              aria-label={`Entity access for ${u.username}`}
               className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:opacity-50"
             >
               <Tags size={14} aria-hidden />
@@ -526,15 +526,15 @@ export function UsersSettings() {
           [
             {
               lbl: 'Super admin', chip: ROLE_CHIP.superadmin,
-              items: ['Everything, across all tenants', 'App keys & global settings', 'Creates admins & agents', 'Brands in any tenant'],
+              items: ['Everything, across all tenants', 'App keys & global settings', 'Creates admins & agents', 'Entities in any tenant'],
             },
             {
               lbl: 'Admin', chip: ROLE_CHIP.admin,
-              items: ['Own tenant only', 'Channel accounts, routing, flows, templates', 'Creates agent-level users + brand access', 'No app keys / global settings'],
+              items: ['Own tenant only', 'Channel accounts, routing, flows, templates', 'Creates agent-level users + entity access', 'No app keys / global settings'],
             },
             {
               lbl: 'Agent', chip: ROLE_CHIP.agent,
-              items: ['Work queues: chats, calls, contacts', 'Only contacts on their assigned brands', 'No settings management'],
+              items: ['Work queues: chats, calls, contacts', 'Only contacts on their assigned entities', 'No settings management'],
             },
           ] as { lbl: string; chip: string; items: string[] }[]
         ).map((c) => (
@@ -622,22 +622,22 @@ export function UsersSettings() {
               ))}
             </select>
             <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">
-              Super admin: everything · Admin: own tenant, all brands · Agent &amp; custom: assigned brands only.
+              Super admin: everything · Admin: own tenant, all entities · Agent &amp; custom: assigned entities only.
             </span>
           </label>
         </div>
         {newRole === 'agent' && (
           <div className="mt-3">
-            <span className="mb-1.5 block text-[11px] font-bold text-text-high">Brand access</span>
-            <BrandPicker
-              brands={brandPool}
-              selected={newBrandIds}
-              onToggle={(id) => setNewBrandIds((d) => toggleIn(d, id))}
+            <span className="mb-1.5 block text-[11px] font-bold text-text-high">Entity access</span>
+            <EntityPicker
+              entities={entityPool}
+              selected={newEntityIds}
+              onToggle={(id) => setNewEntityIds((d) => toggleIn(d, id))}
               showTenant={multiTenant}
             />
             <span className="mt-1.5 block text-[10.5px] leading-relaxed text-text-muted">
-              An agent only sees contacts on their assigned brands (all brands must belong to one tenant). You can
-              change this later with the Brands button on their row.
+              An agent only sees contacts on their assigned entities (all entities must belong to one tenant). You can
+              change this later with the Entities button on their row.
             </span>
           </div>
         )}
@@ -698,31 +698,31 @@ export function UsersSettings() {
 
       {/* brand-access modal */}
       {(() => {
-        const brandsUser = brandsFor !== null ? users.find((u) => u.id === brandsFor) : undefined
+        const entitiesUser = entitiesFor !== null ? users.find((u) => u.id === entitiesFor) : undefined
         return (
           <Modal
-            open={!!brandsUser}
-            onClose={() => setBrandsFor(null)}
-            title={brandsUser ? `Brand access — ${brandsUser.username}` : 'Brand access'}
-            subtitle="An agent only sees contacts on their assigned brands."
+            open={!!entitiesUser}
+            onClose={() => setEntitiesFor(null)}
+            title={entitiesUser ? `Entity access — ${entitiesUser.username}` : 'Entity access'}
+            subtitle="An agent only sees contacts on their assigned entities."
             size="md"
             footer={
               <>
-                <Button variant="ghost" onClick={() => setBrandsFor(null)}>
+                <Button variant="ghost" onClick={() => setEntitiesFor(null)}>
                   Cancel
                 </Button>
-                <Button variant="primary" disabled={busy} onClick={() => brandsUser && saveBrands(brandsUser)}>
-                  {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null} Save brand access
+                <Button variant="primary" disabled={busy} onClick={() => entitiesUser && saveEntities(entitiesUser)}>
+                  {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null} Save entity access
                 </Button>
               </>
             }
           >
-            {brandsUser && (
-              <BrandPicker
-                brands={brandPool.filter((b) => !brandsUser.tenant || b.tenant === brandsUser.tenant)}
-                selected={brandsDraft}
-                onToggle={(id) => setBrandsDraft((d) => toggleIn(d, id))}
-                showTenant={multiTenant && !brandsUser.tenant}
+            {entitiesUser && (
+              <EntityPicker
+                entities={entityPool.filter((b) => !entitiesUser.tenant || b.tenant === entitiesUser.tenant)}
+                selected={entitiesDraft}
+                onToggle={(id) => setEntitiesDraft((d) => toggleIn(d, id))}
+                showTenant={multiTenant && !entitiesUser.tenant}
               />
             )}
           </Modal>

@@ -24,6 +24,7 @@ import { HealthBadge, RoleChip, accountRole, type AccountRole } from '@/componen
 import { roleHeaders } from '@/lib/role'
 import { expireSessionOn401, hasCap } from '@/lib/auth'
 import { fetchChannelHealth, type HealthAccount } from '@/lib/channelHealth'
+import { EntityScopeSelect } from './EntityScopeSelect'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
@@ -45,6 +46,10 @@ interface WaAccount {
   role?: AccountRole
   /** E.164-ish number when the backend knows it (e.g. paired Baileys row). */
   number?: string
+  /** Owning outlet slug; null = organization-wide (the shared fallback).
+   *  This is what attributes inbound chats to a branch without any tagging. */
+  entity?: string | null
+  entity_name?: string
 }
 
 interface BaileysState {
@@ -337,6 +342,21 @@ export function WhatsAppSettings({
     }
   }
 
+  /** Bind (or unbind) this number to an outlet. Optimistic like the role
+   *  toggle above; the server re-files the number's existing chats. */
+  const bindEntity = async (a: WaAccount, slug: string | null) => {
+    if (accounts === null) return
+    const prev = accounts
+    setMsg(null)
+    setAccounts(accounts.map((x) => (x.id === a.id ? { ...x, entity: slug } : x)))
+    try {
+      await api(`accounts/${a.id}`, { method: 'POST', body: JSON.stringify({ entity: slug }) })
+    } catch (e) {
+      setAccounts(prev)
+      setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
+    }
+  }
+
   const removeAccount = (a: WaAccount) => {
     if (!window.confirm(`Remove WhatsApp account "${a.name}"? Its chats stay but go back to sandbox.`)) return
     run(async () => {
@@ -489,12 +509,27 @@ export function WhatsAppSettings({
         ),
     },
     {
+      key: 'entity',
+      header: 'Entity',
+      width: 200,
+      value: (a) => a.entity ?? '',
+      render: (a) => (
+        <EntityScopeSelect
+          value={a.entity ?? null}
+          disabled={!canManage || busy || a.env_managed}
+          onChange={(slug) => bindEntity(a, slug)}
+          globalLabel="Organization-wide"
+          className="max-w-[185px]"
+        />
+      ),
+    },
+    {
       key: 'actions',
       header: 'Actions',
       align: 'right',
       render: (a) => (
         // Compact icon actions (with tooltips) so the row never wraps — matches
-        // the Users/Contacts/Brands tables.
+        // the Users/Contacts/Entities tables.
         <div className="flex items-center justify-end gap-1">
           {canManage && a.provider === 'baileys' && (
             <button

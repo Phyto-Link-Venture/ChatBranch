@@ -9,6 +9,7 @@ from pathlib import Path
 
 from django.utils import timezone
 
+from crm import scoping
 from crm.models import Message, Thread
 
 # Inbound attachments for the NON-whatsapp channels (telegram/messenger/IG/
@@ -90,11 +91,15 @@ def _match_contact(channel: str, key: str):
 
 def get_or_create_thread(channel: str, key: str, name: str = "") -> dict:
     key = _norm(key)
+    matched = _match_contact(channel, key)
     t, created = Thread.objects.get_or_create(
         channel=channel, key=key,
         defaults={"address": key, "name": name or key,
                   "ai_enabled": channel != "email",  # email has no auto-reply
-                  "contact": _match_contact(channel, key)},
+                  "contact": matched,
+                  # These channels carry no account at creation, so the entity
+                  # comes from the linked contact (else unassigned).
+                  "entity": scoping.thread_entity(contact=matched)},
     )
     fields = []
     if name and t.name == t.address:
@@ -106,13 +111,20 @@ def get_or_create_thread(channel: str, key: str, name: str = "") -> dict:
             t.contact = contact
             fields.append("contact")
     if fields:
+        if "contact" in fields:
+            scoping.sync_thread_entity(t, save=False)  # link decided the outlet
+            fields.append("entity")
         t.save(update_fields=fields + ["updated_at"])
     return _serialize(_get(channel, key) or t)
 
 
-def list_threads() -> list[dict]:
+def list_threads(entity=None) -> list[dict]:
+    """Non-WhatsApp thread summaries. `entity` narrows to one outlet, keeping
+    unassigned chats visible (same rule as the WhatsApp inbox)."""
     out = []
-    for t in Thread.objects.exclude(channel="whatsapp").select_related("contact").prefetch_related("messages"):
+    base = scoping.scope_owned(Thread.objects.exclude(channel="whatsapp"), entity,
+                               include_unassigned=True)
+    for t in base.select_related("contact").prefetch_related("messages"):
         msgs = list(t.messages.all())
         last = msgs[-1] if msgs else None
         out.append({

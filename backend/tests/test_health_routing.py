@@ -154,7 +154,7 @@ class TestSwitchAccount:
         # the operator-visible system note landed in the thread, with the
         # cold-number guidance (contact never talked to B)
         note = next(m for m in t["messages"] if "Sender account switched to B" in m["text"])
-        assert "brand-new number" in note["text"]
+        assert "entity-new number" in note["text"]
         # per-message attribution: new outbound rows carry account B
         assert t["messages"][-1].get("account_id") == str(b.pk)
 
@@ -234,7 +234,7 @@ class TestReconnectReset:
         called = []
         monkeypatch.setattr(health, "reset_on_reconfigure",
                             lambda pk: called.append(pk))
-        wa_config.update_account(str(a.pk), {"access_token": "brand-new-token"})
+        wa_config.update_account(str(a.pk), {"access_token": "entity-new-token"})
         assert called == [str(a.pk)]
         # a no-credential edit (name) must NOT reset
         called.clear()

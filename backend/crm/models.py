@@ -24,8 +24,8 @@ class Profile(models.Model):
     """RBAC: attaches a role + API token to a Django auth user.
 
     superadmin — everything, all tenants
-    admin      — everything within their own tenant (all brands)
-    agent      — only the brands explicitly assigned to them (`brands`)
+    admin      — everything within their own tenant (all entities)
+    agent      — only the entities explicitly assigned to them (`entities`)
     """
 
     # The 3 built-in roles. Kept as a class attribute for callers that still
@@ -46,13 +46,25 @@ class Profile(models.Model):
     # tenant-scoped reads resolve the current tenant from here.
     tenant = models.ForeignKey("ingest.Tenant", null=True, blank=True,
                                on_delete=models.SET_NULL, related_name="members")
-    # Agent brand access. Empty for superadmin/admin (their access is
-    # derived: superadmin=all, admin=all brands in their tenant). Only agents
-    # use this explicit allow-list. Brands must belong to the user's tenant.
-    brands = models.ManyToManyField("ingest.Brand", blank=True, related_name="agents")
+    # Agent entity access. Empty for superadmin/admin (their access is
+    # derived: superadmin=all, admin=all entities in their tenant). Only agents
+    # use this explicit allow-list. Entities must belong to the user's tenant.
+    entities = models.ManyToManyField("ingest.Entity", blank=True, related_name="agents")
 
     def __str__(self):
         return f"{self.user.username} ({self.role})"
+
+
+class AuthToken(models.Model):
+    """One bearer token per logged-in session. A profile can hold several at
+    once — logging in again (another tab/device) issues a new row instead of
+    invalidating the others, which is what makes concurrent sessions work.
+    `logout` deletes only the row for that session; password change /
+    deactivation deletes every row for the profile (all sessions die)."""
+
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="auth_tokens")
+    token = models.CharField(max_length=64, unique=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class Role(models.Model):
@@ -178,7 +190,7 @@ class Contact(models.Model):
 
     name = models.CharField(max_length=120)
     # Phone is unique per TENANT (not globally): the same person can exist under
-    # different tenants, and within a tenant one profile is shared across brands.
+    # different tenants, and within a tenant one profile is shared across entities.
     phone = models.CharField(max_length=32)  # E.164 (+60…)
     email = models.EmailField(blank=True, default="")
     language = models.CharField(max_length=8, default="en")  # SUPPORTED_LANGUAGES code
@@ -229,7 +241,7 @@ class Contact(models.Model):
                 name="uniq_contact_tenant_external_id",
             ),
             # One contact profile per phone per tenant (shared across the
-            # tenant's brands). Scoped to rows that have a tenant.
+            # tenant's entities). Scoped to rows that have a tenant.
             models.UniqueConstraint(
                 fields=["tenant", "phone"],
                 condition=models.Q(tenant__isnull=False),
@@ -241,22 +253,22 @@ class Contact(models.Model):
         return f"{self.name} ({self.phone})"
 
 
-class ContactBrand(models.Model):
-    """Which of a tenant's brands a contact is active on. The contact profile
-    is shared tenant-wide; this records per-brand association (+ the source
-    system's per-brand reference). A contact established under one brand can be
-    linked to a sibling brand without re-creating the profile."""
+class ContactEntity(models.Model):
+    """Which of a tenant's entities a contact is active on. The contact profile
+    is shared tenant-wide; this records per-entity association (+ the source
+    system's per-entity reference). A contact established under one entity can be
+    linked to a sibling entity without re-creating the profile."""
 
-    contact = models.ForeignKey(Contact, on_delete=models.CASCADE, related_name="brand_links")
-    brand = models.ForeignKey("ingest.Brand", on_delete=models.CASCADE, related_name="contact_links")
-    external_ref = models.CharField(max_length=64, blank=True, default="")  # source id on this brand
+    contact = models.ForeignKey(Contact, on_delete=models.CASCADE, related_name="entity_links")
+    entity = models.ForeignKey("ingest.Entity", on_delete=models.CASCADE, related_name="contact_links")
+    external_ref = models.CharField(max_length=64, blank=True, default="")  # source id on this entity
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = [("contact", "brand")]
+        unique_together = [("contact", "entity")]
 
     def __str__(self):
-        return f"{self.contact.name} @ {self.brand.slug}"
+        return f"{self.contact.name} @ {self.entity.slug}"
 
 
 class Resource(models.Model):
@@ -417,6 +429,14 @@ class ChannelAccount(models.Model):
         ("disconnected", "Disconnected"), ("banned", "Banned"),
     ]
 
+    # Which entity (outlet/branch) this account belongs to. null = a GLOBAL
+    # account shared by the whole organization — the binding rule the operator
+    # asked for: an entity-bound account wins for that entity, a global one is
+    # the fallback for every entity that has none of its own. This is also how
+    # an inbound message gets attributed to an outlet without anyone tagging
+    # anything: the number that received it decides (see scoping.thread_entity).
+    entity = models.ForeignKey("ingest.Entity", null=True, blank=True,
+                               on_delete=models.SET_NULL, related_name="channel_accounts")
     channel = models.CharField(max_length=12, choices=CHANNEL_CHOICES)
     provider = models.CharField(max_length=12, choices=PROVIDER_CHOICES, default="cloud")
     name = models.CharField(max_length=120)
@@ -452,14 +472,49 @@ class ChannelAccount(models.Model):
 class Setting(models.Model):
     """Runtime config overrides saved from the dashboard (masked-secret flow).
     A row overrides the matching backend/.env default; deleting/blanking a row
-    falls back to env."""
+    falls back to env.
 
-    key = models.CharField(max_length=64, unique=True)
+    SCOPING: `entity` null = the ORGANIZATION-wide (global) value — the shape
+    every row had before entity scoping existed. A row WITH an entity is that
+    entity's override and wins for that entity only; deleting it reverts the
+    entity to inheriting the global row. That is the whole resolution rule:
+
+        entity row -> global row -> backend/.env -> built-in default
+
+    Read through crm/scoping.py `setting_value()`, never with a bare
+    `filter(key=…)` — that would non-deterministically pick up another
+    entity's override. Only a subset of keys is entity-overridable
+    (scoping.ENTITY_SCOPED_SETTINGS); everything else stays global-only.
+    """
+
+    # null = global (organization-wide default)
+    entity = models.ForeignKey("ingest.Entity", null=True, blank=True,
+                               on_delete=models.CASCADE, related_name="settings")
+    key = models.CharField(max_length=64)
     value = models.TextField(blank=True, default="")
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        constraints = [
+            # One override per (key, entity).
+            models.UniqueConstraint(
+                fields=["key", "entity"],
+                condition=models.Q(entity__isnull=False),
+                name="uniq_setting_key_entity",
+            ),
+            # …and exactly one GLOBAL row per key. A partial constraint is
+            # required because SQL treats NULLs as distinct, so a plain
+            # unique_together on (key, entity) would happily allow two
+            # global rows for the same key.
+            models.UniqueConstraint(
+                fields=["key"],
+                condition=models.Q(entity__isnull=True),
+                name="uniq_setting_key_global",
+            ),
+        ]
+
     def __str__(self):
-        return self.key
+        return f"{self.key}@{self.entity.slug}" if self.entity_id else self.key
 
 
 class Thread(models.Model):
@@ -488,6 +543,13 @@ class Thread(models.Model):
                                  on_delete=models.SET_NULL, related_name="threads")
     account = models.ForeignKey(ChannelAccount, null=True, blank=True,
                                 on_delete=models.SET_NULL, related_name="threads")
+    # DENORMALIZED entity, resolved by scoping.thread_entity() when the thread
+    # is created or re-attributed: the receiving account's entity if it has
+    # one, else the linked contact's entity, else null ("unassigned" — visible
+    # in the All-entities view and taggable from the chat). Stored rather than
+    # joined because the inbox filters and counts on it on every page load.
+    entity = models.ForeignKey("ingest.Entity", null=True, blank=True,
+                               on_delete=models.SET_NULL, related_name="threads")
     ai_enabled = models.BooleanField(default=True)
     # Per-sending-account Chatbot ticks for this chat: {account_pk(str): bool}.
     # One WhatsApp chat can be carried by several of our numbers over time
@@ -562,13 +624,25 @@ class CannedResponse(models.Model):
     via its `/short_code` picker, with optional {{variable}} placeholders
     rendered from the CRM at send time."""
 
-    short_code = models.CharField(max_length=48, unique=True)
+    # null = a global template every entity inherits; a row with an entity is
+    # that entity's own (or its override of the same short_code).
+    entity = models.ForeignKey("ingest.Entity", null=True, blank=True,
+                               on_delete=models.CASCADE, related_name="canned_responses")
+    short_code = models.CharField(max_length=48)
     content = models.TextField()
     created_by = models.CharField(max_length=64, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["short_code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["short_code", "entity"], condition=models.Q(entity__isnull=False),
+                name="uniq_canned_short_code_entity"),
+            models.UniqueConstraint(
+                fields=["short_code"], condition=models.Q(entity__isnull=True),
+                name="uniq_canned_short_code_global"),
+        ]
 
     def __str__(self):
         return f"/{self.short_code}"
@@ -580,7 +654,10 @@ class ScriptTemplate(models.Model):
     both pick one by id. Same {{variable}} placeholders as CannedResponse,
     rendered at dial time from the contact's CRM data."""
 
-    name = models.CharField(max_length=120, unique=True)
+    # null = global (inherited by every entity); set = that entity's own script.
+    entity = models.ForeignKey("ingest.Entity", null=True, blank=True,
+                               on_delete=models.CASCADE, related_name="script_templates")
+    name = models.CharField(max_length=120)
     content = models.TextField()
     created_by = models.CharField(max_length=64, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -588,6 +665,14 @@ class ScriptTemplate(models.Model):
 
     class Meta:
         ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["name", "entity"], condition=models.Q(entity__isnull=False),
+                name="uniq_script_name_entity"),
+            models.UniqueConstraint(
+                fields=["name"], condition=models.Q(entity__isnull=True),
+                name="uniq_script_name_global"),
+        ]
 
     def __str__(self):
         return self.name
@@ -600,7 +685,12 @@ class Workflow(models.Model):
     the only writer, the flows engine (backend/flows/engine.py) is the only
     interpreter. Only `active` workflows are executed automatically."""
 
-    flow_id = models.CharField(max_length=64, unique=True)  # builder id (wf-…)
+    # null = a global flow that runs for every entity; set = that entity's own.
+    # The builder's library PUT prunes within ONE scope only, so an entity's
+    # tab can never delete another entity's (or the global) flows.
+    entity = models.ForeignKey("ingest.Entity", null=True, blank=True,
+                               on_delete=models.CASCADE, related_name="workflows")
+    flow_id = models.CharField(max_length=64)  # builder id (wf-…)
     name = models.CharField(max_length=120)
     hint = models.CharField(max_length=200, blank=True, default="")
     nodes = models.JSONField(default=list, blank=True)
@@ -613,6 +703,14 @@ class Workflow(models.Model):
 
     class Meta:
         ordering = ["position", "created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["flow_id", "entity"], condition=models.Q(entity__isnull=False),
+                name="uniq_workflow_flow_id_entity"),
+            models.UniqueConstraint(
+                fields=["flow_id"], condition=models.Q(entity__isnull=True),
+                name="uniq_workflow_flow_id_global"),
+        ]
 
     def __str__(self):
         return f"{self.name}{' [live]' if self.active else ''}"
@@ -623,7 +721,10 @@ class AgentSkill(models.Model):
     nodes reference one by name; the engine passes its instructions to the AI
     when running that step."""
 
-    skill_id = models.CharField(max_length=64, unique=True)  # builder id (as-…)
+    # null = a global skill every entity inherits; set = that entity's own.
+    entity = models.ForeignKey("ingest.Entity", null=True, blank=True,
+                               on_delete=models.CASCADE, related_name="agent_skills")
+    skill_id = models.CharField(max_length=64)  # builder id (as-…)
     name = models.CharField(max_length=120)
     use_when = models.TextField(blank=True, default="")
     instructions = models.TextField(blank=True, default="")
@@ -631,6 +732,14 @@ class AgentSkill(models.Model):
 
     class Meta:
         ordering = ["position", "skill_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["skill_id", "entity"], condition=models.Q(entity__isnull=False),
+                name="uniq_skill_skill_id_entity"),
+            models.UniqueConstraint(
+                fields=["skill_id"], condition=models.Q(entity__isnull=True),
+                name="uniq_skill_skill_id_global"),
+        ]
 
     def __str__(self):
         return self.name
@@ -661,8 +770,8 @@ class KnowledgeItem(models.Model):
 
     tenant = models.ForeignKey("ingest.Tenant", null=True, blank=True,
                                on_delete=models.CASCADE, related_name="knowledge_items")
-    # null = every brand in the tenant
-    brand = models.ForeignKey("ingest.Brand", null=True, blank=True,
+    # null = every entity in the tenant
+    entity = models.ForeignKey("ingest.Entity", null=True, blank=True,
                               on_delete=models.CASCADE, related_name="knowledge_items")
     kind = models.CharField(max_length=8, choices=KIND_CHOICES, default="fact")
     title = models.CharField(max_length=200)

@@ -6,7 +6,7 @@ import { TenantSwitcher } from './TenantSwitcher'
 import { NotificationsBell } from './NotificationsBell'
 
 /**
- * Full-width topbar (design.md): collapse toggle · brand mark + wordmark ·
+ * Full-width topbar (design.md): collapse toggle · entity mark + wordmark ·
  * search · quick-action icon buttons · notifications + Live · brand/tenant
  * switcher · tenant avatar. Rounded 18px surface panel.
  */

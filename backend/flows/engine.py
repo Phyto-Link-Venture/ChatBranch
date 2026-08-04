@@ -155,7 +155,7 @@ def amount_to_words(value, currency: str = "ringgit") -> str:
 
 
 # Business-level {{variables}}: operator-editable crm.Setting rows so a
-# deployment brands its own messages without touching code. Missing rows fall
+# deployment entities its own messages without touching code. Missing rows fall
 # back to a neutral value rather than leaving the placeholder visible.
 BUSINESS_VARS = {
     "business_name": "our team",
@@ -174,7 +174,7 @@ def _business_vars() -> dict:
     from crm.models import Setting
 
     out = dict(BUSINESS_VARS)
-    rows = Setting.objects.filter(key__in=list(BUSINESS_VARS)).values_list("key", "value")
+    rows = Setting.objects.filter(entity__isnull=True, key__in=list(BUSINESS_VARS)).values_list("key", "value")
     for key, value in rows:
         if (value or "").strip():
             out[key] = value.strip()
@@ -603,7 +603,7 @@ def _flow_call_voice(cfg: dict, contact: Contact | None = None) -> tuple[str, st
         if (mem.get("preferred_voice_provider") or "") == "elevenlabs":
             voice_id = (mem.get("preferred_voice") or "").strip()
     if not voice_id:
-        row = Setting.objects.filter(key="flow_call_voice").first()
+        row = Setting.objects.filter(entity__isnull=True, key="flow_call_voice").first()
         voice_id = (row.value or "").strip() if row else ""
     return ("elevenlabs", voice_id) if voice_id else ("", "")
 

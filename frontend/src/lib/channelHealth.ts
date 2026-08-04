@@ -17,6 +17,9 @@ export interface HealthAccount {
   name: string
   channel: string // whatsapp | facebook | instagram | telegram | email | …
   provider: string // 'cloud' | 'baileys' for whatsapp; other channels use their own (e.g. 'smtp')
+  /** Owning outlet slug; null = a global account the organization shares. */
+  entity?: string | null
+  entity_name?: string
   configured: boolean
   health: HealthStatus
   detail: string
@@ -73,16 +76,20 @@ export function relTime(iso: string | null): string {
   return `${Math.floor(h / 24)}d ago`
 }
 
-export async function fetchChannelHealth(): Promise<ChannelHealthPayload> {
-  const res = await fetch(`${API}/whatsapp/channels/health`, { headers: authHeaders() })
+/** `entityQ` is the `entity=<slug>` string from useEntityQuery() — "" (the
+ *  default) reports every account across the organization. Scoping the card
+ *  matters: an outlet must not be shown a sibling branch's outage as its own. */
+export async function fetchChannelHealth(entityQ = ''): Promise<ChannelHealthPayload> {
+  const res = await fetch(`${API}/whatsapp/channels/health${entityQ && `?${entityQ}`}`,
+                          { headers: authHeaders() })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return (await res.json()) as ChannelHealthPayload
 }
 
 /** Probe every account NOW (admin+) and return the refreshed payload — the
  *  periodic checker otherwise only runs every ~5 minutes. */
-export async function checkChannelHealth(): Promise<ChannelHealthPayload> {
-  const res = await fetch(`${API}/whatsapp/channels/health`, {
+export async function checkChannelHealth(entityQ = ''): Promise<ChannelHealthPayload> {
+  const res = await fetch(`${API}/whatsapp/channels/health${entityQ && `?${entityQ}`}`, {
     method: 'POST',
     headers: authHeaders(),
   })

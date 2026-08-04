@@ -7,7 +7,7 @@ Covers the three things the spec says matter most:
    writer. The regression this prevents (a stale flow-builder tab silently
    deleting skills an operator just typed into Settings) has its own test.
 2. **Retrieval is keyword + recency + priority, not embeddings** — tier order,
-   keyword scoring, date-window expiry, channel + brand scoping.
+   keyword scoring, date-window expiry, channel + entity scoping.
 3. **Bounded and exception-safe** — the hard character budget, per-item
    labelled truncation, and the rule that a failure degrades to "answer
    without knowledge" instead of breaking a send.
@@ -37,7 +37,7 @@ from crm.models import (
     Setting,
     Workflow,
 )
-from ingest.models import Brand, Tenant
+from ingest.models import Entity, Tenant
 
 TOKEN_SUPER = "kb-super-token"
 TOKEN_ADMIN = "kb-admin-token"
@@ -179,22 +179,22 @@ class TestFilters:
         assert "WhatsApp only" not in email and "Everywhere" in email
         assert "WhatsApp only" in both  # no channel asked = no channel filter
 
-    def test_brand_scope(self, db):
+    def test_entity_scope(self, db):
         tenant = Tenant.objects.create(name="T", slug="t")
-        brand_a = Brand.objects.create(tenant=tenant, name="A", slug="a")
-        brand_b = Brand.objects.create(tenant=tenant, name="B", slug="b")
+        entity_a = Entity.objects.create(tenant=tenant, name="A", slug="a")
+        entity_b = Entity.objects.create(tenant=tenant, name="B", slug="b")
         _item(kind="fact", title="Shared", content="x")
-        _item(kind="fact", title="Brand A only", content="y", brand=brand_a)
-        _item(kind="fact", title="Brand B only", content="z", brand=brand_b)
+        _item(kind="fact", title="Entity A only", content="y", entity=entity_a)
+        _item(kind="fact", title="Entity B only", content="z", entity=entity_b)
         contact = Contact.objects.create(name="C", phone="+60100000009", tenant=tenant)
-        from crm.models import ContactBrand
-        ContactBrand.objects.create(contact=contact, brand=brand_a)
+        from crm.models import ContactEntity
+        ContactEntity.objects.create(contact=contact, entity=entity_a)
         block = knowledge.build_knowledge_context(contact)
-        assert "Shared" in block and "Brand A only" in block
-        assert "Brand B only" not in block
-        # no contact at all -> only brand-agnostic rows, never another brand's
+        assert "Shared" in block and "Entity A only" in block
+        assert "Entity B only" not in block
+        # no contact at all -> only entity-agnostic rows, never another entity's
         anon = knowledge.build_knowledge_context()
-        assert "Shared" in anon and "Brand A only" not in anon
+        assert "Shared" in anon and "Entity A only" not in anon
 
 
 # ---- bounded + exception-safe --------------------------------------------------------

@@ -89,7 +89,7 @@ def global_settings() -> dict:
     from crm.models import Setting
 
     merged = dict(_GLOBAL_ENV)
-    for row in Setting.objects.filter(key__in=GLOBAL_KEYS):
+    for row in Setting.objects.filter(entity__isnull=True, key__in=GLOBAL_KEYS):
         if row.value.strip():
             merged[row.key] = row.value.strip()
     return merged
@@ -100,7 +100,7 @@ def save_global_settings(patch: dict) -> dict:
 
     for k in GLOBAL_KEYS:
         if k in patch and isinstance(patch[k], str):
-            Setting.objects.update_or_create(key=k, defaults={"value": patch[k].strip()})
+            Setting.objects.update_or_create(entity=None, key=k, defaults={"value": patch[k].strip()})
     return global_settings()
 
 
@@ -115,7 +115,7 @@ CUSTOM_TEMPLATES_KEY = "whatsapp_custom_templates"
 def custom_templates() -> list[dict]:
     from crm.models import Setting
 
-    row = Setting.objects.filter(key=CUSTOM_TEMPLATES_KEY).first()
+    row = Setting.objects.filter(entity__isnull=True, key=CUSTOM_TEMPLATES_KEY).first()
     if not row or not row.value.strip():
         return []
     try:
@@ -128,7 +128,7 @@ def custom_templates() -> list[dict]:
 def save_custom_templates(templates: list[dict]) -> None:
     from crm.models import Setting
 
-    Setting.objects.update_or_create(
+    Setting.objects.update_or_create(entity=None,
         key=CUSTOM_TEMPLATES_KEY, defaults={"value": json.dumps(templates)})
 
 
@@ -144,7 +144,7 @@ TEMPLATE_BINDINGS_KEY = "whatsapp_template_bindings"
 def _all_template_bindings() -> dict:
     from crm.models import Setting
 
-    row = Setting.objects.filter(key=TEMPLATE_BINDINGS_KEY).first()
+    row = Setting.objects.filter(entity__isnull=True, key=TEMPLATE_BINDINGS_KEY).first()
     if not row or not row.value.strip():
         return {}
     try:
@@ -165,7 +165,7 @@ def save_template_bindings(scope: str, mapping: dict) -> None:
 
     data = _all_template_bindings()
     data[str(scope or "sandbox")] = mapping
-    Setting.objects.update_or_create(
+    Setting.objects.update_or_create(entity=None,
         key=TEMPLATE_BINDINGS_KEY, defaults={"value": json.dumps(data)})
 
 
@@ -213,6 +213,11 @@ def _serialize(a) -> dict:
         "id": str(a.pk),
         "provider": a.provider or "cloud",
         "role": account_role(a),
+        # Entity binding: which outlet owns this number. null = a GLOBAL number
+        # the whole organization shares (and the fallback for outlets with none
+        # of their own). It also decides which outlet inbound chats land under.
+        "entity": a.entity.slug if a.entity_id else None,
+        "entity_name": a.entity.name if a.entity_id else "",
         "name": a.name,
         "phone_number_id": a.external_id,
         "waba_id": a.waba_id,
@@ -227,7 +232,8 @@ def _serialize(a) -> dict:
 def list_accounts() -> list[dict]:
     from crm.models import ChannelAccount
 
-    accounts = [_serialize(a) for a in ChannelAccount.objects.filter(channel="whatsapp")]
+    accounts = [_serialize(a) for a in
+                ChannelAccount.objects.filter(channel="whatsapp").select_related("entity")]
     env_acct = _env_account()
     if env_acct:
         accounts.append(env_acct)
@@ -272,8 +278,19 @@ def create_account(data: dict) -> dict:
         api_version=str(data.get("api_version") or "v23.0").strip(),
         owner=str(data.get("owner") or "admin").strip(),
         config={"role": role} if role in ACCOUNT_ROLES else {},
+        # Unknown/blank slug -> None = a global number. Never guess an outlet:
+        # a wrongly-bound number files every one of its chats under the wrong
+        # branch, and the operator has no obvious clue why.
+        entity=_entity_from(data.get("entity")),
     )
     return _serialize(a)
+
+
+def _entity_from(slug):
+    """Resolve an entity slug for account binding; blank/unknown -> None."""
+    from crm import scoping
+
+    return scoping.as_entity(slug)
 
 
 def update_account(account_id: str, patch: dict) -> dict | None:
@@ -298,7 +315,22 @@ def update_account(account_id: str, patch: dict) -> dict | None:
     if role in ACCOUNT_ROLES:
         # role lives in the config JSON; changing it never needs a health reset
         a.config = {**(a.config or {}), "role": role}
+    entity_changed = False
+    if "entity" in patch:
+        # "" / null explicitly UNBINDS the number back to organization-wide.
+        new_entity = _entity_from(patch.get("entity"))
+        entity_changed = (a.entity_id or None) != (new_entity.pk if new_entity else None)
+        a.entity = new_entity
     a.save()
+    if entity_changed:
+        # Re-file this number's existing conversations under the new outlet —
+        # otherwise binding a number leaves its whole history in the old scope
+        # and the inbox looks like it lost chats.
+        from crm import scoping
+        from crm.models import Thread
+
+        for t in Thread.objects.filter(account_id=a.pk).select_related("contact", "account"):
+            scoping.sync_thread_entity(t)
     if creds_changed:
         # A reconnected account must become routable NOW — otherwise a stale
         # "disconnected" verdict keeps failing sends over to other accounts.
@@ -343,7 +375,7 @@ def _ensure_generated_verify_token() -> str:
     """Create (or reuse) the auto-generated verify-token Setting row."""
     from crm.models import Setting
 
-    row, _ = Setting.objects.get_or_create(
+    row, _ = Setting.objects.get_or_create(entity=None,
         key="verify_token", defaults={"value": _secrets.token_urlsafe(24)}
     )
     if not row.value.strip():  # blank row would fall back to the default — fill it
@@ -384,9 +416,11 @@ def _provider_slot(name: str, model: str) -> tuple[str, str, str]:
                 model or "openai/gpt-4o-mini")
     if name == "openai":
         return ("https://api.openai.com/v1", openai_key(), model or "gpt-4o-mini")
-    # google (and any unknown name) -> Gemini's OpenAI-compatible endpoint
+    # google (and any unknown name) -> Gemini's OpenAI-compatible endpoint.
+    # `gemini-flash-latest` is a rolling alias — the pinned `gemini-2.5-flash`
+    # is now gated for new API keys (404 "no longer available to new users").
     return ("https://generativelanguage.googleapis.com/v1beta/openai/",
-            google_key(), model or "gemini-2.5-flash")
+            google_key(), model or "gemini-flash-latest")
 
 
 def _provider_entry(name: str, model: str) -> tuple[str, str, str] | None:
@@ -433,7 +467,7 @@ def chat_provider_order() -> list[str]:
     try:
         from crm.models import Setting
 
-        row = Setting.objects.filter(key=CHAT_PROVIDER_ORDER_KEY).first()
+        row = Setting.objects.filter(entity__isnull=True, key=CHAT_PROVIDER_ORDER_KEY).first()
         if row and row.value.strip():
             raw = row.value.strip()
     except Exception:
@@ -454,7 +488,7 @@ def save_chat_provider_order(order) -> list[str]:
         cleaned = _parse_provider_order(order)
     else:
         cleaned = _parse_provider_order(",".join(str(x) for x in (order or [])))
-    Setting.objects.update_or_create(
+    Setting.objects.update_or_create(entity=None,
         key=CHAT_PROVIDER_ORDER_KEY,
         defaults={"value": json.dumps(cleaned) if cleaned else ""})
     return cleaned
@@ -484,6 +518,27 @@ def chat_provider() -> tuple[str, str, str]:
     # order (default = Google) so a caller still gets a well-formed target.
     return _provider_slot(order[-1] if order else DEFAULT_CHAT_PROVIDER_ORDER[-1],
                           model)
+
+
+def chat_provider_candidates() -> list[tuple[str, str, str]]:
+    """Every USABLE (base_url, api_key, model), in fallback order — for a
+    caller that wants to retry a failed call on the next configured provider,
+    not just pick one. The pinned provider alone when `chat_provider_pref` is
+    set (A/B pin means ONLY that provider, never fall back to another); else
+    every provider in `chat_provider_order()` that actually has a key, in
+    priority order. `chat_provider()` picks the FIRST of these — this is the
+    same list, kept in step on purpose."""
+    model = chat_model()
+    pref = global_settings()["chat_provider_pref"].strip().lower()
+    if pref in CHAT_PROVIDERS:
+        pinned = _provider_entry(pref, model)
+        return [pinned] if pinned else []
+    out = []
+    for name in chat_provider_order():
+        entry = _provider_entry(name, model)
+        if entry:
+            out.append(entry)
+    return out
 
 
 def is_configured() -> bool:
@@ -599,7 +654,7 @@ def routing_rules() -> dict:
     from crm.models import Setting
 
     merged = dict(RULES_DEFAULTS)
-    for row in Setting.objects.filter(key__in=RULES_DEFAULTS):
+    for row in Setting.objects.filter(entity__isnull=True, key__in=RULES_DEFAULTS):
         if row.value.strip():
             merged[row.key] = row.value.strip()
     for key, choices in RULE_CHOICES.items():
@@ -615,7 +670,7 @@ def save_routing_rules(patch: dict) -> dict:
 
     for k in RULES_DEFAULTS:
         if k in patch and isinstance(patch[k], str):
-            Setting.objects.update_or_create(key=k, defaults={"value": patch[k].strip()})
+            Setting.objects.update_or_create(entity=None, key=k, defaults={"value": patch[k].strip()})
     return routing_rules()
 
 

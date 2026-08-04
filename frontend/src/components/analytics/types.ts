@@ -61,10 +61,23 @@ export interface SessionStats {
   avg_chat_session_seconds: number
 }
 
+/** One outlet's headline figures in the All-entities (franchise) view. */
+export interface EntityBreakdown {
+  entity: string | null // slug; null = the "Unassigned" bucket
+  name: string
+  outbound: number
+  inbound: number
+  contacts: number
+  calls: number
+}
+
 export interface AnalyticsSummary {
   days: number
   since: string
   generated_at: string
+  /** Slug these figures are scoped to; null = every entity. */
+  entity?: string | null
+  entity_name?: string
   funnel: FunnelStats
   engagement: EngagementStats
   records_by_status: RecordStatusBucket[]
@@ -73,4 +86,6 @@ export interface AnalyticsSummary {
   health_events: HealthEvent[]
   daily: DailyPoint[]
   sessions?: SessionStats // absent on older backends — tiles show em-dashes
+  /** Per-outlet rows — only sent in the All-entities view. */
+  by_entity?: EntityBreakdown[]
 }

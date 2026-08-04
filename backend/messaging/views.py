@@ -581,6 +581,8 @@ def _account_payload(a: dict) -> dict:
         "external_id": a.get("external_id"),
         "owner": a.get("owner"),
         "created": a.get("created"),
+        "entity": a.get("entity"),
+        "entity_name": a.get("entity_name") or "",
     }
     if a.get("channel") == "email":
         # SMTP config surfaced for the settings form — password masked like
@@ -694,11 +696,22 @@ def account_detail(request, account_id: str):
     account = msg_config.get_account(account_id)
     if not account:
         return JsonResponse({"detail": "Account not found."}, status=404)
+    body = _json_body(request)
+    # Entity binding is editable on EVERY managed channel — a Telegram bot or
+    # Facebook page belongs to an outlet just as much as a mailbox does. The
+    # email-only restriction below applies to the SMTP credential fields.
+    if "entity" in body:
+        updated = msg_config.update_account(account_id, entity=body.get("entity"))
+        rbac.audit(request, "account.entity",
+                   target=f"{updated['channel']}:{updated['name']}",
+                   detail=f"bound to {updated['entity'] or 'organization-wide'}")
+        if len(body) == 1:
+            return JsonResponse(_account_payload(updated))
+        account = updated
     if account["channel"] != "email":
         return JsonResponse(
             {"detail": "PATCH is supported for email accounts only — "
                        "delete and re-link other channels."}, status=400)
-    body = _json_body(request)
     patch: dict = {}
     for key in ("host", "username"):
         if key in body:
@@ -865,7 +878,10 @@ def engagement_stats(request):
         return denied
     if request.method != "GET":
         return HttpResponseNotAllowed(["GET"])
-    return JsonResponse({"stats": timeline.engagement_stats()})
+    from crm import scoping
+
+    return JsonResponse({"stats": timeline.engagement_stats(
+        scoping.entity_from_request(request))})
 
 
 # ---- threads -------------------------------------------------------------------------
@@ -876,7 +892,10 @@ def threads(request):
     if denied:
         return denied
     if request.method == "GET":
-        return JsonResponse({"threads": store.list_threads()})
+        from crm import scoping
+
+        return JsonResponse({"threads": store.list_threads(
+            entity=scoping.entity_from_request(request))})
     if request.method != "POST":
         return HttpResponseNotAllowed(["GET", "POST"])
     body = _json_body(request)
@@ -1149,7 +1168,12 @@ def link_contact(request, channel: str, key: str):
         if contact is None:
             return JsonResponse({"detail": "Contact not found."}, status=404)
         thread.contact = contact
-    thread.save(update_fields=["contact", "updated_at"])
+    # On these channels the contact link is the ONLY entity signal, so linking
+    # (or unlinking) is what assigns the chat to an outlet.
+    from crm import scoping
+
+    scoping.sync_thread_entity(thread, save=False)
+    thread.save(update_fields=["contact", "entity", "updated_at"])
     rbac.audit(request, "thread.link", target=f"{channel}:{key}",
                detail=f"contact={contact_id or 'none'}")
     return JsonResponse({"contact_id": thread.contact_id,

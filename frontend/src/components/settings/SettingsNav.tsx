@@ -14,7 +14,7 @@ import { SettingsDirtyProvider, useSettingsDirty } from './SettingsDirtyContext'
  * Add a tab = add the entry below + an app/settings/<id>/page.tsx.
  *
  * Settings is now AI/config only (upgrade §1): Channels, Integrations,
- * Users & Roles, Brands & Tenants, Message Templates, Script Templates and
+ * Users & Roles, Entities & Tenants, Message Templates, Script Templates and
  * Notifications moved to top-level sidebar routes. The retired
  * /settings/<id> routes redirect (see MOVED_AREA_ROUTES).
  */
@@ -29,6 +29,7 @@ export const SETTINGS_TABS: { id: string; lbl: string; superadminOnly?: boolean 
   { id: 'assignments', lbl: 'Account Assignment' },
   { id: 'appkeys', lbl: 'App Keys', superadminOnly: true },
   { id: 'pronunciation', lbl: 'Pronunciation' },
+  { id: 'booking-hours', lbl: 'Booking Hours' },
 ]
 
 export function SettingsShell({ children }: { children: ReactNode }) {

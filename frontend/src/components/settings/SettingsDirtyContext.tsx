@@ -7,7 +7,7 @@ import { createContext, useCallback, useContext, useMemo, useRef, useState, type
  * A tab that has stage-then-save controls calls `setDirty(true)` on edit and
  * `register({ save, discard })` so the shared header's Save/Discard buttons act
  * on it. Live instant-save controls (STT/LLM selects) and self-saving tabs
- * (Users/Brands) simply never mark dirty, so the header stays hidden for them.
+ * (Users/Entities) simply never mark dirty, so the header stays hidden for them.
  */
 interface Handlers {
   save: () => Promise<void> | void

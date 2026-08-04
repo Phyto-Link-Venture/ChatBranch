@@ -102,7 +102,7 @@ def price_table() -> dict[str, tuple[float, float]]:
     try:
         from crm.models import Setting
 
-        row = Setting.objects.filter(key="llm_prices").first()
+        row = Setting.objects.filter(entity__isnull=True, key="llm_prices").first()
         if row and row.value.strip():
             for name, pair in (json.loads(row.value) or {}).items():
                 try:

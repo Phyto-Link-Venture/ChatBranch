@@ -107,7 +107,7 @@ class TestAdminTier:
         _create(client, **ADMIN_AUTH)
         uid = User.objects.get(username="agent1").pk
         assert _post(client, f"/api/auth/users/{uid}",
-                     {"password": "brand-new-pw-1"}, **ADMIN_AUTH).status_code == 200
+                     {"password": "entity-new-pw-1"}, **ADMIN_AUTH).status_code == 200
         assert client.delete(f"/api/auth/users/{uid}", **ADMIN_AUTH).status_code == 200
 
     def test_admin_cannot_change_roles(self, client, superadmin, admin):
@@ -138,7 +138,7 @@ class TestListUsers:
         assert me["role"] == "superadmin"
         assert me["active"] is True
         assert set(me) == {"id", "username", "name", "role", "active", "created",
-                           "last_login", "tenant", "brands"}
+                           "last_login", "tenant", "entities"}
 
 
 @pytest.mark.django_db
@@ -270,78 +270,113 @@ class TestDeactivateReactivate:
 
 
 @pytest.mark.django_db
-class TestBrandAccess:
-    """RBAC brands on the legacy user-management API: payload exposure,
-    brand_ids on create/update, tenant coherence, role-change clearing."""
+class TestConcurrentSessions:
+    """A fresh login must not invalidate a previously issued session token —
+    the bug behind the intermittent 'Not signed in' UI report."""
+
+    def _login(self, client):
+        r = _post(client, "/api/auth/login", {"username": "admin", "password": "admin123"})
+        assert r.status_code == 200
+        return r.json()["token"]
+
+    def test_second_login_keeps_first_session_alive(self, client, admin):
+        token1 = self._login(client)
+        token2 = self._login(client)
+        assert token1 != token2
+        assert client.get("/api/auth/me", HTTP_AUTHORIZATION=f"Bearer {token1}").status_code == 200
+        assert client.get("/api/auth/me", HTTP_AUTHORIZATION=f"Bearer {token2}").status_code == 200
+
+    def test_logout_revokes_only_that_session(self, client, admin):
+        token1 = self._login(client)
+        token2 = self._login(client)
+        r = client.post("/api/auth/logout", HTTP_AUTHORIZATION=f"Bearer {token1}")
+        assert r.status_code == 200
+        assert client.get("/api/auth/me", HTTP_AUTHORIZATION=f"Bearer {token1}").status_code == 401
+        assert client.get("/api/auth/me", HTTP_AUTHORIZATION=f"Bearer {token2}").status_code == 200
+
+    def test_password_change_revokes_every_session(self, client, superadmin, admin):
+        token1 = self._login(client)
+        token2 = self._login(client)
+        r = _post(client, f"/api/auth/users/{admin.pk}",
+                  {"password": "new-password-9"}, **SUPER_AUTH)
+        assert r.status_code == 200
+        assert client.get("/api/auth/me", HTTP_AUTHORIZATION=f"Bearer {token1}").status_code == 401
+        assert client.get("/api/auth/me", HTTP_AUTHORIZATION=f"Bearer {token2}").status_code == 401
+
+
+@pytest.mark.django_db
+class TestEntityAccess:
+    """RBAC entities on the legacy user-management API: payload exposure,
+    entity_ids on create/update, tenant coherence, role-change clearing."""
 
     @pytest.fixture
-    def brands(self, db):
-        from ingest.models import Brand, Tenant
+    def entities(self, db):
+        from ingest.models import Entity, Tenant
         t1 = Tenant.objects.create(name="Northwind", slug="northwind")
         t2 = Tenant.objects.create(name="Acme", slug="acme")
         return {
-            "a": Brand.objects.create(tenant=t1, name="Northwind Retail", slug="nw-retail"),
-            "b": Brand.objects.create(tenant=t1, name="Northwind Biz", slug="nw-biz"),
-            "other": Brand.objects.create(tenant=t2, name="Acme Services", slug="acme-services"),
+            "a": Entity.objects.create(tenant=t1, name="Northwind Retail", slug="nw-retail"),
+            "b": Entity.objects.create(tenant=t1, name="Northwind Biz", slug="nw-biz"),
+            "other": Entity.objects.create(tenant=t2, name="Acme Services", slug="acme-services"),
         }
 
-    def _create_with_brands(self, client, brand_ids, role="agent", username="c1"):
+    def _create_with_entities(self, client, entity_ids, role="agent", username="c1"):
         return _post(client, "/api/auth/users",
                      {"username": username, "name": "C", "password": "collect-pass-1",
-                      "role": role, "brand_ids": brand_ids}, **SUPER_AUTH)
+                      "role": role, "entity_ids": entity_ids}, **SUPER_AUTH)
 
-    def test_create_agent_with_brands(self, client, superadmin, brands):
-        r = self._create_with_brands(client, [brands["a"].pk, brands["b"].pk])
+    def test_create_agent_with_entities(self, client, superadmin, entities):
+        r = self._create_with_entities(client, [entities["a"].pk, entities["b"].pk])
         assert r.status_code == 200
         data = r.json()
         assert data["tenant"] == "northwind"
-        assert {b["slug"] for b in data["brands"]} == {"nw-retail", "nw-biz"}
+        assert {b["slug"] for b in data["entities"]} == {"nw-retail", "nw-biz"}
         p = Profile.objects.get(user__username="c1")
         assert p.tenant.slug == "northwind"
-        assert p.brands.count() == 2
+        assert p.entities.count() == 2
 
-    def test_create_rejects_mixed_tenant_brands(self, client, superadmin, brands):
-        r = self._create_with_brands(client, [brands["a"].pk, brands["other"].pk])
+    def test_create_rejects_mixed_tenant_entities(self, client, superadmin, entities):
+        r = self._create_with_entities(client, [entities["a"].pk, entities["other"].pk])
         assert r.status_code == 400
         assert "same tenant" in r.json()["detail"]
         assert not User.objects.filter(username="c1").exists()  # nothing half-created
 
-    def test_create_rejects_brands_on_admin(self, client, superadmin, brands):
-        r = self._create_with_brands(client, [brands["a"].pk], role="admin")
+    def test_create_rejects_entities_on_admin(self, client, superadmin, entities):
+        r = self._create_with_entities(client, [entities["a"].pk], role="admin")
         assert r.status_code == 400
         assert "agent" in r.json()["detail"]
 
-    def test_create_rejects_unknown_brand(self, client, superadmin, brands):
-        r = self._create_with_brands(client, [999999])
+    def test_create_rejects_unknown_entity(self, client, superadmin, entities):
+        r = self._create_with_entities(client, [999999])
         assert r.status_code == 400
 
-    def test_update_brand_access(self, client, superadmin, brands):
-        self._create_with_brands(client, [brands["a"].pk])
+    def test_update_entity_access(self, client, superadmin, entities):
+        self._create_with_entities(client, [entities["a"].pk])
         uid = User.objects.get(username="c1").pk
         r = _post(client, f"/api/auth/users/{uid}",
-                  {"brand_ids": [brands["b"].pk]}, **SUPER_AUTH)
+                  {"entity_ids": [entities["b"].pk]}, **SUPER_AUTH)
         assert r.status_code == 200
-        assert [b["slug"] for b in r.json()["brands"]] == ["nw-biz"]
+        assert [b["slug"] for b in r.json()["entities"]] == ["nw-biz"]
 
-    def test_update_rejects_other_tenant_brand(self, client, superadmin, brands):
-        self._create_with_brands(client, [brands["a"].pk])
+    def test_update_rejects_other_tenant_entity(self, client, superadmin, entities):
+        self._create_with_entities(client, [entities["a"].pk])
         uid = User.objects.get(username="c1").pk
         r = _post(client, f"/api/auth/users/{uid}",
-                  {"brand_ids": [brands["other"].pk]}, **SUPER_AUTH)
+                  {"entity_ids": [entities["other"].pk]}, **SUPER_AUTH)
         assert r.status_code == 400
         assert "different tenant" in r.json()["detail"]
 
-    def test_promotion_clears_brand_access(self, client, superadmin, brands):
-        self._create_with_brands(client, [brands["a"].pk])
+    def test_promotion_clears_entity_access(self, client, superadmin, entities):
+        self._create_with_entities(client, [entities["a"].pk])
         uid = User.objects.get(username="c1").pk
         r = _post(client, f"/api/auth/users/{uid}", {"role": "admin"}, **SUPER_AUTH)
         assert r.status_code == 200
-        assert r.json()["brands"] == []
-        assert Profile.objects.get(user_id=uid).brands.count() == 0
+        assert r.json()["entities"] == []
+        assert Profile.objects.get(user_id=uid).entities.count() == 0
 
-    def test_list_payload_carries_brands(self, client, superadmin, brands):
-        self._create_with_brands(client, [brands["a"].pk])
+    def test_list_payload_carries_entities(self, client, superadmin, entities):
+        self._create_with_entities(client, [entities["a"].pk])
         rows = client.get("/api/auth/users", **SUPER_AUTH).json()["users"]
         me = next(u for u in rows if u["username"] == "c1")
         assert me["tenant"] == "northwind"
-        assert me["brands"][0]["slug"] == "nw-retail"
+        assert me["entities"][0]["slug"] == "nw-retail"
