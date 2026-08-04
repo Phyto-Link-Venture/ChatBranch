@@ -96,6 +96,7 @@ export function ProvidersSettings() {
   const [links, setLinks] = useState<Record<number, Link[]>>({})
   const [contacts, setContacts] = useState<ContactLite[] | null>(null)
   const [query, setQuery] = useState('')
+  const [binding, setBinding] = useState<number | string | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -195,6 +196,7 @@ export function ProvidersSettings() {
   }
 
   const addLink = async (r: Resource, contactId: number | string) => {
+    setBinding(contactId)
     try {
       await api(`resources/${r.id}/links`, {
         method: 'POST',
@@ -205,6 +207,8 @@ export function ProvidersSettings() {
       await load()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBinding(null)
     }
   }
 
@@ -399,7 +403,7 @@ export function ProvidersSettings() {
             <div className="flex items-center gap-2.5">
               <button
                 onClick={() => toggleExpand(r)}
-                aria-label="Toggle bindings"
+                aria-label={`Toggle bound customers for ${r.name}`}
                 className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted hover:bg-fill-hover"
               >
                 {expanded === r.id ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
@@ -470,9 +474,14 @@ export function ProvidersSettings() {
                           <button
                             key={c.id}
                             onClick={() => addLink(r, c.id)}
-                            className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-[11.5px] text-text-mid hover:bg-fill-hover"
+                            disabled={binding !== null}
+                            className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-[11.5px] text-text-mid hover:bg-fill-hover disabled:opacity-50"
                           >
-                            <Plus size={12} className="shrink-0 text-text-muted" aria-hidden />
+                            {binding === c.id ? (
+                              <Loader2 size={12} className="shrink-0 animate-spin text-text-muted" aria-hidden />
+                            ) : (
+                              <Plus size={12} className="shrink-0 text-text-muted" aria-hidden />
+                            )}
                             <span className="truncate">{c.name}</span>
                             {c.phone && <span className="shrink-0 text-[10px] text-text-muted">{c.phone}</span>}
                           </button>

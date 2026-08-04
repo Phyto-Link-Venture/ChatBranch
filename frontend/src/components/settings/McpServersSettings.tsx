@@ -59,9 +59,16 @@ const STATUS_COLOR: Record<string, string> = {
 
 type Draft = Partial<Server> & { auth_token?: string }
 
+const STATUS_LABEL: Record<string, string> = {
+  healthy: 'Connected',
+  disconnected: 'Disconnected',
+  degraded: 'Degraded',
+  unknown: 'Not tested',
+}
+
 function StatusChip({ s }: { s: Server }) {
   const color = STATUS_COLOR[s.status] || 'var(--text-muted)'
-  const label = !s.enabled ? 'Disabled' : s.status === 'healthy' ? 'Connected' : s.status
+  const label = !s.enabled ? 'Disabled' : STATUS_LABEL[s.status] || s.status
   return (
     <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.04em]" style={{ color }}>
       {label}

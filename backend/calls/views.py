@@ -1276,7 +1276,7 @@ def analytics_summary(request):
     if not role_from_request(request):  # same gate as contact_channels
         return JsonResponse({"detail": "Authentication required."}, status=401)
 
-    from datetime import timedelta
+    from datetime import timedelta, timezone as dt_timezone
 
     from django.db.models import Count, Max, Min, Q, Sum
     from django.db.models.functions import Substr, TruncDate
@@ -1427,7 +1427,7 @@ def analytics_summary(request):
     day_msgs = {
         row["day"]: row
         for row in msg_base.filter(created_at__gte=since)
-        .annotate(day=TruncDate("created_at")).values("day")
+        .annotate(day=TruncDate("created_at", tzinfo=dt_timezone.utc)).values("day")
         .annotate(
             outbound=Count("id", filter=Q(direction="out", private=False)),
             inbound=Count("id", filter=Q(direction="in")),
@@ -1435,7 +1435,7 @@ def analytics_summary(request):
     }
     day_events = {
         row["day"]: row["n"]
-        for row in events_qs.annotate(day=TruncDate("at"))
+        for row in events_qs.annotate(day=TruncDate("at", tzinfo=dt_timezone.utc))
         .values("day").annotate(n=Count("id"))
     }
     day_calls: dict = {}
@@ -1620,7 +1620,7 @@ def analytics_usage(request):
     if not role_from_request(request):
         return JsonResponse({"detail": "Authentication required."}, status=401)
 
-    from datetime import timedelta
+    from datetime import timedelta, timezone as dt_timezone
 
     from django.db.models import Count, Sum
     from django.db.models.functions import TruncDate
@@ -1691,7 +1691,10 @@ def analytics_usage(request):
     by_contact.sort(key=lambda r: -r["est_cost_usd"])
     by_contact = by_contact[:20]
 
-    day_rows = (qs.annotate(date=TruncDate("created_at"))
+    # UTC truncation so the day keys match the UTC `since.date()` buckets below —
+    # without tzinfo, TruncDate uses the active tz (Asia/Kuala_Lumpur), which
+    # mis-buckets every row relative to the UTC loop (empty daily series).
+    day_rows = (qs.annotate(date=TruncDate("created_at", tzinfo=dt_timezone.utc))
                 .values("date", "model").annotate(**sums).order_by())
     by_day = {r["date"]: r for r in _collapse(day_rows, ("date",))}
     daily = []

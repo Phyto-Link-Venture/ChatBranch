@@ -872,6 +872,32 @@ def append_sheet_row(contact=None, config=None, text="") -> dict:
                  {"updated_range": (payload.get("updates") or {}).get("updatedRange")})
 
 
+def read_sheet(contact=None, config=None, text="") -> dict:
+    """READ values from a Google Sheet range (read-only). Used by the AI to look
+    something up — e.g. a teacher's availability sheet named on the contact's
+    Resource. `spreadsheetId` + `range` come from config; falls back to the
+    account's configured sheet. Same skip/fail envelope + entity binding as the
+    write actions."""
+    cfg = config or {}
+    row, token = _google_ready("google_sheets", contact_entity(contact))
+    if row is None or not token:
+        return _skip("Google Sheets is not connected — step skipped.")
+    sheet_id = str(cfg.get("spreadsheetId") or (row.config or {}).get("spreadsheet_id") or "")
+    if not sheet_id:
+        return _skip("No spreadsheet id provided.")
+    rng = str(cfg.get("range") or cfg.get("sheetRange")
+              or (row.config or {}).get("sheet_range") or "Sheet1!A:Z")
+    ok, payload = _request(
+        "GET",
+        f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values/{rng}",
+        token=token)
+    _record_result(row, ok, "" if ok else str(payload))
+    if not ok:
+        return _fail(f"Google Sheets: {payload}")
+    return _done("sheet read", {"range": payload.get("range"),
+                                "values": payload.get("values") or []})
+
+
 # ---- Gmail -------------------------------------------------------------------------
 
 def send_gmail(contact=None, config=None, text="") -> dict:

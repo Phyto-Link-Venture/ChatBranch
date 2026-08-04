@@ -243,6 +243,31 @@ def _tool_use_enabled() -> bool:
     return str(raw or "").strip().lower() not in ("false", "0", "no", "off", "")
 
 
+_READ_SHEET = {
+    "type": "function",
+    "function": {
+        "name": "read_sheet",
+        "description": (
+            "Read rows from a Google Sheet (READ-ONLY) — e.g. a teacher's "
+            "availability sheet. Pass the spreadsheet_id (it's in the ASSIGNED "
+            "PROVIDER details for this contact) and optionally an A1 range. Call "
+            "this to check REAL availability before proposing any times — never "
+            "invent slots."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "spreadsheet_id": {"type": "string",
+                                   "description": "The Google Sheet id to read."},
+                "range": {"type": "string",
+                          "description": "Optional A1 range, e.g. 'Availability!A1:D50'."},
+            },
+            "required": ["spreadsheet_id"],
+        },
+    },
+}
+
+
 def _calendar_connected() -> bool:
     """True when a usable Google Calendar integration exists. Pure DB read —
     `active_integration` never opens a socket, and we do NOT fetch an access
@@ -253,6 +278,17 @@ def _calendar_connected() -> bool:
         return active_integration("google_calendar") is not None
     except Exception:
         logger.exception("aicore.tools: calendar connectivity check failed")
+        return False
+
+
+def _sheets_connected() -> bool:
+    """True when a usable Google Sheets integration exists (pure DB read)."""
+    try:
+        from integrations.actions import active_integration
+
+        return active_integration("google_sheets") is not None
+    except Exception:
+        logger.exception("aicore.tools: sheets connectivity check failed")
         return False
 
 
@@ -280,6 +316,11 @@ def tool_specs(contact=None, channel: str = "") -> list[dict]:
     # real Google Calendar event_id. Both are kept — different scenarios.
     if _has_bookings(contact):
         specs.append(_LIST_MY_MEETINGS)
+    # Reading a Google Sheet (e.g. a teacher's availability) needs the Sheets
+    # integration connected — read-only, so no confirmation gate. Makes the
+    # availability_sheet_id in the ASSIGNED PROVIDER block actually usable.
+    if _sheets_connected():
+        specs.append(_READ_SHEET)
     specs.extend(_mcp_specs())
     return specs
 
@@ -418,6 +459,29 @@ def _confirmation_gate(name: str, args: dict, *, contact, channel: str,
 
 
 # ---- dispatch ---------------------------------------------------------------
+
+def _do_read_sheet(args: dict, *, contact, channel: str) -> dict:
+    """Read a Google Sheet range (read-only). Bounds the rows fed back so a big
+    sheet can't blow the prompt."""
+    from integrations import actions
+
+    sid = str(args.get("spreadsheet_id") or "").strip()
+    if not sid:
+        return {"ok": False, "error": "spreadsheet_id is required"}
+    cfg = {"spreadsheetId": sid}
+    if args.get("range"):
+        cfg["range"] = str(args["range"])
+    res = actions.read_sheet(contact=contact, config=cfg)
+    if not res.get("ok"):
+        return {"ok": False, "error": res.get("detail") or "sheet read failed",
+                "hint": "tell the customer you could not check availability and "
+                        "offer to have the team confirm a time"}
+    data = res.get("data") or {}
+    values = data.get("values") or []
+    return {"ok": True, "range": data.get("range", ""), "rows": values[:60],
+            "note": "these are the REAL sheet rows — base any availability on them, "
+                    "do not invent times"}
+
 
 def _do_check_availability(args: dict, *, contact, channel: str) -> dict:
     from integrations import actions
@@ -615,6 +679,7 @@ _SCHEMAS = {
     "list_appointments": _LIST_APPOINTMENTS,
     "cancel_appointment": _CANCEL_APPOINTMENT,
     "reschedule_appointment": _RESCHEDULE_APPOINTMENT,
+    "read_sheet": _READ_SHEET,
 }
 
 _DISPATCH = {
@@ -624,6 +689,7 @@ _DISPATCH = {
     "list_appointments": _do_list_appointments,
     "cancel_appointment": _do_cancel_appointment,
     "reschedule_appointment": _do_reschedule_appointment,
+    "read_sheet": _do_read_sheet,
 }
 
 # Tools whose requested time is worth validating for REAL before the

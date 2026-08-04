@@ -127,16 +127,23 @@ export function ContactImportModal({
               style={{ padding: '8px 14px', fontSize: 12.5 }}
             >
               {busy && <Loader2 size={13} className="animate-spin" aria-hidden />}
-              Import {preview.total} {preview.total === 1 ? 'row' : 'rows'}
+              Import {preview.created + preview.updated}{' '}
+              {preview.created + preview.updated === 1 ? 'contact' : 'contacts'}
             </Button>
           )}
         </>
       }
     >
-      {/* file picker */}
+      {/* file picker — click or drag-and-drop */}
       {!done && (
         <button
           onClick={() => inputRef.current?.click()}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault()
+            const f = e.dataTransfer.files?.[0]
+            if (f) void pick(f)
+          }}
           className="flex w-full cursor-pointer flex-col items-center gap-2 rounded-xl border border-dashed border-line-strong bg-fill-subtle px-4 py-6 text-center transition-colors hover:bg-fill-hover"
         >
           <Upload size={20} className="text-text-muted" aria-hidden />
@@ -188,6 +195,7 @@ export function ContactImportModal({
                   </span>
                   <select
                     value={mapping[f] || ''}
+                    aria-label={`Column for ${FIELD_LABELS[f] || f}`}
                     onChange={(e) => setMapping({ ...mapping, [f]: e.target.value })}
                     className="flex-1 cursor-pointer rounded-lg border border-line-strong bg-well px-2.5 py-1.5 text-[12px] text-text-primary outline-none"
                   >
