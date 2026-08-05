@@ -42,7 +42,7 @@ import os
 
 # Secret keys — never returned unmasked over the API.
 SECRET_KEYS = ("openai_api_key", "openrouter_api_key", "google_api_key",
-               "ilmu_api_key", "elevenlabs_api_key")
+               "ilmu_api_key", "local_api_key", "elevenlabs_api_key")
 
 # Chat AI keys + model + provider pin — Setting rows OWNED by whatsapp/wa_config
 # (Settings -> App Keys / AI Configuration write the SAME rows; save() routes
@@ -56,6 +56,10 @@ _WA_STR_ENV = {
     "openrouter_api_key": "OPENROUTER_API_KEY",
     "google_api_key": "GOOGLE_API_KEY",
     "ilmu_api_key": "ILMU_API_KEY",
+    # Local / self-hosted OpenAI-compatible endpoint (Ollama, LM Studio, vLLM).
+    # base_url is the "configured" signal; the key is optional (Ollama ignores it).
+    "local_base_url": "LOCAL_BASE_URL",
+    "local_api_key": "LOCAL_API_KEY",
     "chat_model": "WHATSAPP_CHAT_MODEL",
     "chat_provider_pref": "CHAT_PROVIDER",
 }
@@ -220,6 +224,8 @@ def chat_model_options() -> list[dict]:
                     "gemini-1.5-pro", "gemini-1.5-flash"]},
         {"provider": "ilmu", "label": "ILMU",
          "models": ["ilmu-v3.1"]},
+        {"provider": "local", "label": "Local (Ollama / LM Studio)",
+         "models": ["llama3.1", "llama3.2", "qwen2.5", "mistral", "gemma2"]},
     ]
 
 
@@ -251,16 +257,9 @@ def _source(key: str) -> str:
         return "env" if os.getenv(_OWN_STR_ENV[key], "").strip() else ""
     if key in _MSG_KEYS:
         return "env" if os.getenv("EMAIL_DEFAULT_SUBJECT", "").strip() else ""
-    # wa_config-owned keys fall back to their own env vars
-    env_for = {
-        "openai_api_key": "OPENAI_API_KEY",
-        "openrouter_api_key": "OPENROUTER_API_KEY",
-        "google_api_key": "GOOGLE_API_KEY",
-        "ilmu_api_key": "ILMU_API_KEY",
-        "chat_model": "WHATSAPP_CHAT_MODEL",
-        "chat_provider_pref": "CHAT_PROVIDER",
-    }
-    return "env" if os.getenv(env_for.get(key, ""), "").strip() else ""
+    # wa_config-owned keys fall back to their own env vars (the canonical map is
+    # _WA_STR_ENV — reuse it so new keys like local_base_url are covered too).
+    return "env" if os.getenv(_WA_STR_ENV.get(key, ""), "").strip() else ""
 
 
 def sources() -> dict:

@@ -37,6 +37,13 @@ _GLOBAL_ENV = {
     # YTL ILMU (Malaysian sovereign AI, api.ilmu.ai — OpenAI-compatible).
     # Shares the .env key with the voice agent's ilmu pipeline branch.
     "ilmu_api_key": os.getenv("ILMU_API_KEY", ""),
+    # LOCAL / self-hosted OpenAI-compatible model (Ollama, LM Studio, vLLM…).
+    # base_url is the "configured" signal (Ollama needs no key); empty = the
+    # `local` provider is not offered. e.g. http://localhost:11434/v1 (Ollama)
+    # or http://localhost:1234/v1 (LM Studio); set `chat_model` to the model
+    # name (e.g. llama3.1). The api key is optional — Ollama ignores it.
+    "local_base_url": os.getenv("LOCAL_BASE_URL", ""),
+    "local_api_key": os.getenv("LOCAL_API_KEY", ""),
     # Explicit chat-provider pick for A/B testing ("ilmu"/"openrouter"/
     # "openai"/"google"); empty = automatic priority (see chat_provider()).
     "chat_provider_pref": os.getenv("CHAT_PROVIDER", ""),
@@ -50,10 +57,13 @@ _GLOBAL_ENV = {
 
 GLOBAL_KEYS = tuple(_GLOBAL_ENV)
 SECRET_GLOBAL_KEYS = ("openai_api_key", "openrouter_api_key", "google_api_key",
-                      "ilmu_api_key")
+                      "ilmu_api_key", "local_api_key")
 
 ILMU_BASE_URL = os.getenv("ILMU_BASE_URL", "https://api.ilmu.ai/v1")
-CHAT_PROVIDERS = ("ilmu", "openrouter", "openai", "google")
+# `local` = a self-hosted OpenAI-compatible endpoint (Ollama / LM Studio / vLLM).
+# It is opt-in: NOT in DEFAULT_CHAT_PROVIDER_ORDER, so it is only used when the
+# operator pins it (chat_provider_pref="local") or lists it in chat_provider_order.
+CHAT_PROVIDERS = ("ilmu", "openrouter", "openai", "google", "local")
 
 # The built-in auto/priority fallback order chat_provider() walks when no
 # provider is pinned. Configurable via the `chat_provider_order` Setting row
@@ -404,6 +414,14 @@ def ilmu_key() -> str:
     return global_settings()["ilmu_api_key"]
 
 
+def local_base_url() -> str:
+    return global_settings()["local_base_url"]
+
+
+def local_key() -> str:
+    return global_settings()["local_api_key"]
+
+
 def _provider_slot(name: str, model: str) -> tuple[str, str, str]:
     """(base_url, key, model) for one named provider REGARDLESS of whether its
     key is set — the raw connection details. `_provider_entry` layers the
@@ -416,6 +434,9 @@ def _provider_slot(name: str, model: str) -> tuple[str, str, str]:
                 model or "openai/gpt-4o-mini")
     if name == "openai":
         return ("https://api.openai.com/v1", openai_key(), model or "gpt-4o-mini")
+    if name == "local":
+        # Ollama accepts any key; pass a dummy so the OpenAI client is happy.
+        return (local_base_url(), local_key() or "ollama", model or "llama3.1")
     # google (and any unknown name) -> Gemini's OpenAI-compatible endpoint.
     # `gemini-flash-latest` is a rolling alias — the pinned `gemini-2.5-flash`
     # is now gated for new API keys (404 "no longer available to new users").
@@ -424,10 +445,14 @@ def _provider_slot(name: str, model: str) -> tuple[str, str, str]:
 
 
 def _provider_entry(name: str, model: str) -> tuple[str, str, str] | None:
-    """(base_url, key, model) for one named provider — None when its key is unset."""
+    """(base_url, key, model) for one named provider — None when it is not
+    configured. For hosted providers "configured" = an API key is set; for
+    `local` it = a base_url is set (Ollama/LM Studio need no key)."""
     if name not in CHAT_PROVIDERS:
         return None
     base, key, mdl = _provider_slot(name, model)
+    if name == "local":
+        return (base, key, mdl) if base else None
     return (base, key, mdl) if key else None
 
 

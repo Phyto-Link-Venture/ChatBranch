@@ -44,6 +44,12 @@ FIELD_META = [
     {"key": "chat_model", "label": "Chat model", "group": "providers", "kind": "model",
      "help": "Applies to whichever provider wins. Empty = that provider's default model; "
              "pick Custom… to enter any model id."},
+    {"key": "local_base_url", "label": "Local model base URL", "group": "providers", "kind": "text",
+     "help": "For the Local (Ollama / LM Studio) provider — e.g. http://localhost:11434/v1 "
+             "(Ollama) or http://localhost:1234/v1 (LM Studio). Then pin 'local' above and set "
+             "the chat model to the model name (e.g. llama3.1). The server must reach this URL."},
+    {"key": "local_api_key", "label": "Local model API key (optional)", "group": "providers", "kind": "secret",
+     "help": "Optional — Ollama ignores it; some gateways require one."},
     {"key": "email_subject", "label": "Default email subject", "group": "tunables", "kind": "text"},
     {"key": "flows_tick_seconds", "label": "Flow engine tick (seconds)", "group": "tunables", "kind": "int", "min": 1},
     {"key": "whatsapp_health_interval", "label": "Channel health check interval (seconds)",
