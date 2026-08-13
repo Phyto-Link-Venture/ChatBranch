@@ -58,6 +58,8 @@ public class AppDbContext : DbContext
     public DbSet<LlmUsage> LlmUsage => Set<LlmUsage>();
     public DbSet<PendingToolAction> PendingToolActions => Set<PendingToolAction>();
     public DbSet<ConversationSummary> ConversationSummaries => Set<ConversationSummary>();
+    // integrations
+    public DbSet<Integration> Integrations => Set<Integration>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -93,6 +95,7 @@ public class AppDbContext : DbContext
         b.Entity<LlmUsage>().ToTable("crm_llmusage");
         b.Entity<PendingToolAction>().ToTable("crm_pendingtoolaction");
         b.Entity<ConversationSummary>().ToTable("crm_conversationsummary");
+        b.Entity<Integration>().ToTable("integrations_integration");
 
         // ---- Profile <-> Entity many-to-many (Django crm_profile_entities) -----
         b.Entity<Profile>()
@@ -160,6 +163,8 @@ public class AppDbContext : DbContext
         Json<OutboundJob, Dictionary<string, object?>>(b, x => x.Payload);
         Json<LlmUsage, Dictionary<string, object?>>(b, x => x.Detail);
         Json<ConversationSummary, List<object?>>(b, x => x.Facts);
+        Json<Integration, Dictionary<string, object?>>(b, x => x.Credentials);
+        Json<Integration, Dictionary<string, object?>>(b, x => x.Config);
 
         // ---- snake_case columns to match Django (<field>_id for FKs) -----------
         // Django names every column snake_case; matching it is what lets this

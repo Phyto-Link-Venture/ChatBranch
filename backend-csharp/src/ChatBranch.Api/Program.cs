@@ -65,6 +65,8 @@ app.MapAiEndpoints();
 app.MapFlowsEndpoints();
 app.MapContactsEndpoints();
 app.MapAnalyticsEndpoints();
+app.MapIntegrationsEndpoints();
+app.MapApiV1Endpoints();
 
 app.Run();
 
