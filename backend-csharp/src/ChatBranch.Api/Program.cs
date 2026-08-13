@@ -11,6 +11,7 @@ var conn = builder.Configuration.GetConnectionString("Default")
            ?? "Data Source=chatbranch.sqlite3";
 builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlite(conn));
 builder.Services.AddScoped<ScopingService>();
+builder.Services.AddScoped<ChatBranch.Data.Stores.ThreadStore>();
 
 // ---- auth: bearer token handler + RBAC policies -----------------------------
 builder.Services.AddAuthentication(TokenAuthenticationHandler.SchemeName)
@@ -48,6 +49,7 @@ app.MapGet("/api/whatsapp/status", () => Results.Ok(new
 
 app.MapAuthEndpoints();
 app.MapSettingsEndpoints();
+app.MapInboxEndpoints();
 
 app.Run();
 
