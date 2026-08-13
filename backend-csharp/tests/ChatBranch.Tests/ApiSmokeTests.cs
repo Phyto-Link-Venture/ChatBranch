@@ -101,6 +101,9 @@ public class ApiFactory : WebApplicationFactory<Program>
 
     protected override IHost CreateHost(IHostBuilder builder)
     {
+        // Disable the background queue worker so drains are driven explicitly by
+        // POST /api/flows/tick in tests (deterministic, no timing races).
+        Environment.SetEnvironmentVariable("QUEUE_WORKER", "0");
         builder.ConfigureHostConfiguration(cfg => cfg.AddInMemoryCollection(
             new Dictionary<string, string?> { ["ConnectionStrings:Default"] = $"Data Source={_dbPath}" }));
         return base.CreateHost(builder);

@@ -16,6 +16,8 @@ builder.Services.AddScoped<ChatBranch.Data.Ai.PersonaService>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.KnowledgeService>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.AssistantService>();
 builder.Services.AddSingleton<ChatBranch.Data.Ai.ILlmClient, ChatBranch.Data.Ai.SandboxLlmClient>();
+builder.Services.AddScoped<ChatBranch.Data.Flows.QueueService>();
+builder.Services.AddHostedService<ChatBranch.Api.Workers.OutboundQueueWorker>();
 
 // ---- auth: bearer token handler + RBAC policies -----------------------------
 builder.Services.AddAuthentication(TokenAuthenticationHandler.SchemeName)
@@ -55,6 +57,7 @@ app.MapAuthEndpoints();
 app.MapSettingsEndpoints();
 app.MapInboxEndpoints();
 app.MapAiEndpoints();
+app.MapFlowsEndpoints();
 
 app.Run();
 
