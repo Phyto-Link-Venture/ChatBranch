@@ -12,6 +12,10 @@ var conn = builder.Configuration.GetConnectionString("Default")
 builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlite(conn));
 builder.Services.AddScoped<ScopingService>();
 builder.Services.AddScoped<ChatBranch.Data.Stores.ThreadStore>();
+builder.Services.AddScoped<ChatBranch.Data.Ai.PersonaService>();
+builder.Services.AddScoped<ChatBranch.Data.Ai.KnowledgeService>();
+builder.Services.AddScoped<ChatBranch.Data.Ai.AssistantService>();
+builder.Services.AddSingleton<ChatBranch.Data.Ai.ILlmClient, ChatBranch.Data.Ai.SandboxLlmClient>();
 
 // ---- auth: bearer token handler + RBAC policies -----------------------------
 builder.Services.AddAuthentication(TokenAuthenticationHandler.SchemeName)
@@ -50,6 +54,7 @@ app.MapGet("/api/whatsapp/status", () => Results.Ok(new
 app.MapAuthEndpoints();
 app.MapSettingsEndpoints();
 app.MapInboxEndpoints();
+app.MapAiEndpoints();
 
 app.Run();
 
