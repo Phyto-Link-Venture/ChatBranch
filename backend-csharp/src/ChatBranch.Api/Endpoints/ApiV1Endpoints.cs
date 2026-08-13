@@ -66,7 +66,7 @@ public static class ApiV1Endpoints
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- bulk record sync (ingest) ----------------------------------------
-        app.MapPost("/api/v1/sync/records", async (SyncRequest body, ClaimsPrincipal me, AppDbContext db) =>
+        app.MapPost("/api/v1/sync/records", (SyncRequest body, ClaimsPrincipal me, AppDbContext db) =>
         {
             var tenantId = TenantId(me);
             int created = 0, updated = 0;

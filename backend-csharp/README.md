@@ -5,7 +5,18 @@ contract, so the existing Next.js dashboard (`../frontend/`) and the voice /
 Baileys sidecars stay unchanged. See `../docs/CSHARP_MIGRATION_PLAN.md` for the
 full plan and phasing.
 
-## Status: Phase 0 + Phase 1 complete
+## Status: Phases 0–6 complete (52 endpoints, 38 tests green)
+
+Built so far: the foundation (below) plus the **unified inbox** (threads /
+messages / send / simulate / SSE / canned), the **AI brain** (persona /
+knowledge / skills / reply via a pluggable `ILlmClient`), the **outbound queue**
+(pacing + atomic claim, as a `BackgroundService`), **contacts / channel hub /
+analytics / script templates**, **sidecar bridges** (voice-agent file IPC +
+Baileys HTTP contract), and **integrations** (sandbox + webhook HMAC) with the
+**`/api/v1`** DRF-twin surface + bulk record sync. Full coverage matrix and the
+deferred long tail: `../docs/CSHARP_PARITY.md`.
+
+### Foundation (Phase 0 + 1)
 
 **Phase 0 — Skeleton**
 - Solution with four projects (`Domain`, `Data`, `Api`, `Tests`).
@@ -76,8 +87,10 @@ src/ChatBranch.Api      Program, auth handler, RBAC policies, endpoints
 tests/ChatBranch.Tests  xUnit — scoping parity, hasher, HTTP smoke
 ```
 
-## Next (Phase 2)
+## Next
 
-Inbox core: `messaging` + `whatsapp` stores, threads/messages, webhooks, the
-SSE `/stream`, 24h-window + sandbox mode — enough to light up the dashboard's
-`/chats` page against this backend.
+The deferred long tail (live per-provider webhooks, media serving, a real
+send/LLM client, the flow node interpreter, voice dialling, integrations OAuth,
+full RBAC admin) is tracked in `../docs/CSHARP_PARITY.md`. Each item is isolated
+and additive — plug a real `IWhatsAppClient`/`ILlmClient` behind the store the
+same way `SandboxLlmClient` slots in today.
