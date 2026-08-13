@@ -74,4 +74,34 @@ public static class Dtos
 
     // The Meta 24h-window truth: open when the last inbound is < 24h old.
     private static bool WindowOpen(Thread t) => true; // refined in Phase 2 message pass
+
+    // snake_case Contact model → the frontend's camelCase Contact (to_contact).
+    public static object ContactDto(Contact c) => new
+    {
+        id = c.Id,
+        name = c.Name,
+        phone = c.Phone,
+        email = c.Email,
+        language = c.Language,
+        status = c.Status,
+        method = c.Method,
+        companyName = c.CompanyName,
+        doNotCall = c.DoNotCall,
+        notes = c.Notes,
+        externalId = c.ExternalId,
+        tags = c.Tags,
+        attributes = c.Attributes,
+        preferredContactTime = c.PreferredContactTime,
+        communicationStyle = c.CommunicationStyle,
+        sentimentTrend = c.SentimentTrend,
+        aiProfileSummary = c.AiProfileSummary,
+        tenantId = c.TenantId,
+        createdAt = c.CreatedAt,
+        updatedAt = c.UpdatedAt,
+    };
+
+    public static object ScriptTemplateDto(ScriptTemplate s) => new
+    {
+        id = s.Id, name = s.Name, content = s.Content, entityId = s.EntityId,
+    };
 }

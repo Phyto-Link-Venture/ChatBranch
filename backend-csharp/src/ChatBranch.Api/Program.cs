@@ -18,6 +18,11 @@ builder.Services.AddScoped<ChatBranch.Data.Ai.AssistantService>();
 builder.Services.AddSingleton<ChatBranch.Data.Ai.ILlmClient, ChatBranch.Data.Ai.SandboxLlmClient>();
 builder.Services.AddScoped<ChatBranch.Data.Flows.QueueService>();
 builder.Services.AddHostedService<ChatBranch.Api.Workers.OutboundQueueWorker>();
+builder.Services.AddScoped<ChatBranch.Data.Analytics.AnalyticsService>();
+builder.Services.AddSingleton<ChatBranch.Data.Sidecars.IBaileysGateway, ChatBranch.Data.Sidecars.SandboxBaileysGateway>();
+var dataDir = builder.Configuration["DataDir"]
+              ?? Path.Combine(AppContext.BaseDirectory, "data");
+builder.Services.AddSingleton(new ChatBranch.Data.Sidecars.VoiceAgentBridge(dataDir));
 
 // ---- auth: bearer token handler + RBAC policies -----------------------------
 builder.Services.AddAuthentication(TokenAuthenticationHandler.SchemeName)
@@ -58,6 +63,8 @@ app.MapSettingsEndpoints();
 app.MapInboxEndpoints();
 app.MapAiEndpoints();
 app.MapFlowsEndpoints();
+app.MapContactsEndpoints();
+app.MapAnalyticsEndpoints();
 
 app.Run();
 
