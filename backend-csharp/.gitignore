@@ -1,0 +1,14 @@
+# .NET build output
+bin/
+obj/
+*.user
+
+# Local SQLite databases (may hold PII — same rule as backend/data/)
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+*.db
+
+# Rider / VS
+.idea/
+.vs/

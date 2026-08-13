@@ -1,0 +1,220 @@
+using ChatBranch.Domain;
+using Microsoft.EntityFrameworkCore;
+using Thread = ChatBranch.Domain.Thread;
+
+namespace ChatBranch.Data;
+
+/// <summary>
+/// The single EF Core context behind the whole platform — the C# equivalent of
+/// Django's one-app migration chain. Table names match Django's
+/// (<c>&lt;app&gt;_&lt;model&gt;</c>) so this context can attach to the EXISTING
+/// SQLite database produced by <c>manage.py migrate</c>, not just a fresh one.
+///
+/// The partial unique indexes below replicate Django's filtered
+/// UniqueConstraints — most importantly the Setting rules: at most one global
+/// row per key, and one override per (key, entity). Losing either is the
+/// "another outlet's override leaks into the org-wide value" bug.
+/// </summary>
+public class AppDbContext : DbContext
+{
+    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+
+    // ingest
+    public DbSet<Tenant> Tenants => Set<Tenant>();
+    public DbSet<Entity> Entities => Set<Entity>();
+    // crm — rbac
+    public DbSet<AppUser> Users => Set<AppUser>();
+    public DbSet<Profile> Profiles => Set<Profile>();
+    public DbSet<AuthToken> AuthTokens => Set<AuthToken>();
+    public DbSet<Role> Roles => Set<Role>();
+    public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
+    // crm — audit
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<Notification> Notifications => Set<Notification>();
+    // crm — contacts
+    public DbSet<Contact> Contacts => Set<Contact>();
+    public DbSet<ContactEntity> ContactEntities => Set<ContactEntity>();
+    public DbSet<Resource> Resources => Set<Resource>();
+    public DbSet<ResourceLink> ResourceLinks => Set<ResourceLink>();
+    public DbSet<Record> Records => Set<Record>();
+    public DbSet<RecordEvent> RecordEvents => Set<RecordEvent>();
+    // crm — channels
+    public DbSet<ChannelAccount> ChannelAccounts => Set<ChannelAccount>();
+    public DbSet<Setting> Settings => Set<Setting>();
+    public DbSet<Thread> Threads => Set<Thread>();
+    public DbSet<Message> Messages => Set<Message>();
+    public DbSet<AccountAssignment> AccountAssignments => Set<AccountAssignment>();
+    // crm — content libraries
+    public DbSet<CannedResponse> CannedResponses => Set<CannedResponse>();
+    public DbSet<ScriptTemplate> ScriptTemplates => Set<ScriptTemplate>();
+    public DbSet<Workflow> Workflows => Set<Workflow>();
+    public DbSet<AgentSkill> AgentSkills => Set<AgentSkill>();
+    public DbSet<KnowledgeItem> KnowledgeItems => Set<KnowledgeItem>();
+    // crm — flows
+    public DbSet<FlowRun> FlowRuns => Set<FlowRun>();
+    public DbSet<OutboundJob> OutboundJobs => Set<OutboundJob>();
+    // crm — ai
+    public DbSet<CallRecord> CallRecords => Set<CallRecord>();
+    public DbSet<LlmUsage> LlmUsage => Set<LlmUsage>();
+    public DbSet<PendingToolAction> PendingToolActions => Set<PendingToolAction>();
+    public DbSet<ConversationSummary> ConversationSummaries => Set<ConversationSummary>();
+
+    protected override void OnModelCreating(ModelBuilder b)
+    {
+        // ---- table names (Django <app>_<model>) --------------------------------
+        b.Entity<Tenant>().ToTable("ingest_tenant");
+        b.Entity<Entity>().ToTable("ingest_entity");
+        b.Entity<AppUser>().ToTable("auth_user");
+        b.Entity<Profile>().ToTable("crm_profile");
+        b.Entity<AuthToken>().ToTable("crm_authtoken");
+        b.Entity<Role>().ToTable("crm_role");
+        b.Entity<RolePermission>().ToTable("crm_rolepermission");
+        b.Entity<AuditLog>().ToTable("crm_auditlog");
+        b.Entity<Notification>().ToTable("crm_notification");
+        b.Entity<Contact>().ToTable("crm_contact");
+        b.Entity<ContactEntity>().ToTable("crm_contactentity");
+        b.Entity<Resource>().ToTable("crm_resource");
+        b.Entity<ResourceLink>().ToTable("crm_resourcelink");
+        b.Entity<Record>().ToTable("crm_record");
+        b.Entity<RecordEvent>().ToTable("crm_recordevent");
+        b.Entity<ChannelAccount>().ToTable("crm_channelaccount");
+        b.Entity<Setting>().ToTable("crm_setting");
+        b.Entity<Thread>().ToTable("crm_thread");
+        b.Entity<Message>().ToTable("crm_message");
+        b.Entity<AccountAssignment>().ToTable("crm_accountassignment");
+        b.Entity<CannedResponse>().ToTable("crm_cannedresponse");
+        b.Entity<ScriptTemplate>().ToTable("crm_scripttemplate");
+        b.Entity<Workflow>().ToTable("crm_workflow");
+        b.Entity<AgentSkill>().ToTable("crm_agentskill");
+        b.Entity<KnowledgeItem>().ToTable("crm_knowledgeitem");
+        b.Entity<FlowRun>().ToTable("crm_flowrun");
+        b.Entity<OutboundJob>().ToTable("crm_outboundjob");
+        b.Entity<CallRecord>().ToTable("crm_callrecord");
+        b.Entity<LlmUsage>().ToTable("crm_llmusage");
+        b.Entity<PendingToolAction>().ToTable("crm_pendingtoolaction");
+        b.Entity<ConversationSummary>().ToTable("crm_conversationsummary");
+
+        // ---- Profile <-> Entity many-to-many (Django crm_profile_entities) -----
+        b.Entity<Profile>()
+            .HasMany(p => p.Entities)
+            .WithMany()
+            .UsingEntity(j => j.ToTable("crm_profile_entities"));
+        b.Entity<AppUser>().HasOne(u => u.Profile).WithOne(p => p!.User!)
+            .HasForeignKey<Profile>(p => p.UserId);
+
+        // ---- Setting: the entity-scoping partial unique constraints ------------
+        // One override per (key, entity)…
+        b.Entity<Setting>()
+            .HasIndex(s => new { s.Key, s.EntityId })
+            .IsUnique()
+            .HasFilter("[entity_id] IS NOT NULL")
+            .HasDatabaseName("uniq_setting_key_entity");
+        // …and exactly one GLOBAL row per key (NULLs are distinct in SQL, so a
+        // plain unique index would allow two global rows — hence the filter).
+        b.Entity<Setting>()
+            .HasIndex(s => s.Key)
+            .IsUnique()
+            .HasFilter("[entity_id] IS NULL")
+            .HasDatabaseName("uniq_setting_key_global");
+
+        // ---- the other partial unique constraints (global vs entity libraries) -
+        PartialScoped<CannedResponse>(b, x => x.ShortCode, "canned_short_code");
+        PartialScoped<ScriptTemplate>(b, x => x.Name, "script_name");
+        PartialScoped<Workflow>(b, x => x.FlowId, "workflow_flow_id");
+        PartialScoped<AgentSkill>(b, x => x.SkillId, "skill_skill_id");
+
+        // ---- webhook idempotency + dedup indexes -------------------------------
+        b.Entity<Message>()
+            .HasIndex(m => new { m.ThreadId, m.ExternalId })
+            .IsUnique()
+            .HasFilter("[external_id] <> ''")
+            .HasDatabaseName("uniq_message_thread_external_id");
+        b.Entity<Thread>()
+            .HasIndex(t => new { t.Channel, t.Key })
+            .IsUnique()
+            .HasDatabaseName("uniq_thread_channel_key");
+        b.Entity<AuthToken>().HasIndex(t => t.Token).IsUnique();
+        b.Entity<CallRecord>().HasIndex(c => c.CallId).IsUnique();
+        b.Entity<AccountAssignment>()
+            .HasIndex(a => new { a.ContactId, a.Channel }).IsUnique();
+        b.Entity<PendingToolAction>()
+            .HasIndex(p => new { p.ContactId, p.Channel, p.Tool })
+            .IsUnique().HasDatabaseName("uniq_pending_tool_action");
+
+        // ---- JSON columns ------------------------------------------------------
+        Json<Contact, List<string>>(b, x => x.Tags);
+        Json<Contact, Dictionary<string, object?>>(b, x => x.Attributes);
+        Json<Resource, Dictionary<string, object?>>(b, x => x.Config);
+        Json<Resource, Dictionary<string, object?>>(b, x => x.Attributes);
+        Json<Record, Dictionary<string, object?>>(b, x => x.Data);
+        Json<RecordEvent, Dictionary<string, object?>>(b, x => x.Data);
+        Json<ChannelAccount, Dictionary<string, object?>>(b, x => x.Config);
+        Json<Thread, List<string>>(b, x => x.Labels);
+        Json<Thread, Dictionary<string, object?>>(b, x => x.AiOverrides);
+        Json<Workflow, List<object?>>(b, x => x.Nodes);
+        Json<Workflow, List<object?>>(b, x => x.Edges);
+        Json<KnowledgeItem, List<string>>(b, x => x.Tags);
+        Json<KnowledgeItem, List<string>>(b, x => x.Channels);
+        Json<FlowRun, Dictionary<string, object?>>(b, x => x.Context);
+        Json<FlowRun, List<object?>>(b, x => x.Log);
+        Json<OutboundJob, Dictionary<string, object?>>(b, x => x.Payload);
+        Json<LlmUsage, Dictionary<string, object?>>(b, x => x.Detail);
+        Json<ConversationSummary, List<object?>>(b, x => x.Facts);
+
+        // ---- snake_case columns to match Django (<field>_id for FKs) -----------
+        // Django names every column snake_case; matching it is what lets this
+        // context attach to the existing SQLite DB, and it makes the raw-SQL
+        // index filters above ([entity_id], [external_id]) resolve.
+        foreach (var entityType in b.Model.GetEntityTypes())
+            foreach (var prop in entityType.GetProperties())
+                prop.SetColumnName(ToSnakeCase(prop.Name));
+
+        base.OnModelCreating(b);
+    }
+
+    private static string ToSnakeCase(string name)
+    {
+        var sb = new System.Text.StringBuilder(name.Length + 8);
+        for (var i = 0; i < name.Length; i++)
+        {
+            var c = name[i];
+            if (char.IsUpper(c))
+            {
+                if (i > 0 && (!char.IsUpper(name[i - 1]) ||
+                              (i + 1 < name.Length && !char.IsUpper(name[i + 1]))))
+                    sb.Append('_');
+                sb.Append(char.ToLowerInvariant(c));
+            }
+            else sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
+    private static void PartialScoped<T>(ModelBuilder b,
+        System.Linq.Expressions.Expression<Func<T, object?>> keySelector,
+        string name) where T : class
+    {
+        // Extract the property name from the selector for the global filter.
+        var member = (keySelector.Body as System.Linq.Expressions.MemberExpression)
+            ?? (System.Linq.Expressions.MemberExpression)
+               ((System.Linq.Expressions.UnaryExpression)keySelector.Body).Operand;
+        var col = member.Member.Name;
+
+        b.Entity<T>().HasIndex(BuildKeyEntity<T>(col)).IsUnique()
+            .HasFilter("[entity_id] IS NOT NULL")
+            .HasDatabaseName($"uniq_{name}_entity");
+        b.Entity<T>().HasIndex(col).IsUnique()
+            .HasFilter("[entity_id] IS NULL")
+            .HasDatabaseName($"uniq_{name}_global");
+    }
+
+    private static string[] BuildKeyEntity<T>(string col) => new[] { col, "EntityId" };
+
+    private static void Json<TEntity, TProp>(ModelBuilder b,
+        System.Linq.Expressions.Expression<Func<TEntity, TProp>> selector)
+        where TEntity : class
+    {
+        var prop = b.Entity<TEntity>().Property(selector);
+        prop.HasConversion(JsonColumn.Converter<TProp>(), JsonColumn.Comparer<TProp>());
+    }
+}
