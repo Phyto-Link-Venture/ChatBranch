@@ -3,12 +3,22 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using ChatBranch.Data;
 using ChatBranch.Data.Ai;
+using ChatBranch.Data.Channels;
 using ChatBranch.Data.Flows;
 using ChatBranch.Data.Stores;
 using ChatBranch.Domain;
 using Xunit;
+using Thread = ChatBranch.Domain.Thread;
 
 namespace ChatBranch.Tests;
+
+/// <summary>No-op WhatsApp client for unit tests — always "not configured" (sandbox path).</summary>
+internal class StubWhatsApp : IWhatsAppCloudClient
+{
+    public bool IsConfigured(ChannelAccount account) => false;
+    public Task<SendOutcome> SendTextAsync(ChannelAccount account, string toWaId, string text,
+        CancellationToken ct = default) => Task.FromResult(new SendOutcome(false, "", "stub"));
+}
 
 /// <summary>Phase 4: outbound queue (atomic claim + pacing) and workflow library.</summary>
 public class FlowsTests : IClassFixture<ApiFactory>
@@ -58,14 +68,17 @@ public class FlowsTests : IClassFixture<ApiFactory>
         var assistant = new AssistantService(t.Db, scoping,
             new PersonaService(scoping), new KnowledgeService(t.Db, scoping), new SandboxLlmClient());
 
-        var q1 = new QueueService(t.Db, scoping, threads, assistant);
+        var sender1 = new OutboundSender(t.Db, threads, new StubWhatsApp());
+        var q1 = new QueueService(t.Db, scoping, threads, assistant, sender1);
         q1.Enqueue("whatsapp", "text", "60100000000", new() { ["text"] = "once" });
 
         // Second context/service sharing the same connection.
         var db2 = t.Fresh();
         var sc2 = new ScopingService(db2);
-        var q2 = new QueueService(db2, sc2, new ThreadStore(db2, sc2),
-            new AssistantService(db2, sc2, new PersonaService(sc2), new KnowledgeService(db2, sc2), new SandboxLlmClient()));
+        var threads2 = new ThreadStore(db2, sc2);
+        var q2 = new QueueService(db2, sc2, threads2,
+            new AssistantService(db2, sc2, new PersonaService(sc2), new KnowledgeService(db2, sc2), new SandboxLlmClient()),
+            new OutboundSender(db2, threads2, new StubWhatsApp()));
 
         var a = q1.Drain(10);
         var b = q2.Drain(10);

@@ -51,13 +51,14 @@ public static class InboxEndpoints
 
         // ---- sandbox send ------------------------------------------------------
         app.MapPost("/api/whatsapp/threads/{channel}/{key}/send",
-            (string channel, string key, SendRequest body, ThreadStore store) =>
+            (string channel, string key, SendRequest body, ThreadStore store,
+             ChatBranch.Data.Channels.OutboundSender sender) =>
         {
             var thread = store.GetOrCreateThread(channel, key);
             if (thread.OptedOut && !body.Force)
                 return Results.Json(new { detail = "contact opted out; use force" }, statusCode: 409);
-            var msg = store.AppendMessage(thread, MessageDirection.Out, MessageSource.Agent,
-                body.Text, status: "sandbox", accountId: body.AccountId ?? thread.AccountId);
+            // Real send when the account is configured, sandbox otherwise.
+            var msg = sender.Send(thread, body.Text, MessageSource.Agent, body.AccountId ?? thread.AccountId);
             return Results.Ok(Dtos.MessageDto(msg));
         }).RequireAuthorization(AuthPolicies.Authenticated);
 

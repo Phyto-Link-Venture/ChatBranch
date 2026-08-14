@@ -1,4 +1,5 @@
 using ChatBranch.Data.Ai;
+using ChatBranch.Data.Channels;
 using ChatBranch.Data.Stores;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -19,14 +20,16 @@ public class QueueService
     private readonly ScopingService _scoping;
     private readonly ThreadStore _threads;
     private readonly AssistantService _assistant;
+    private readonly OutboundSender _sender;
 
     public QueueService(AppDbContext db, ScopingService scoping, ThreadStore threads,
-        AssistantService assistant)
+        AssistantService assistant, OutboundSender sender)
     {
         _db = db;
         _scoping = scoping;
         _threads = threads;
         _assistant = assistant;
+        _sender = sender;
     }
 
     public OutboundJob Enqueue(string channel, string kind, string toAddress,
@@ -133,8 +136,8 @@ public class QueueService
                 ? MessageSource.System
                 : (job.Kind == JobKind.AiReply ? MessageSource.Ai : MessageSource.Agent);
 
-            var msg = _threads.AppendMessage(thread, MessageDirection.Out, source, text,
-                status: "sandbox", accountId: job.AccountId);
+            // Real send when the account is configured, sandbox otherwise.
+            var msg = _sender.Send(thread, text, source, job.AccountId);
 
             job.Status = JobStatus.Sent;
             job.SentAt = DateTime.UtcNow;
