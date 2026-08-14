@@ -63,11 +63,14 @@ public static class InboxEndpoints
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- simulate inbound (sandbox) ---------------------------------------
-        app.MapPost("/api/whatsapp/simulate", (SimulateRequest body, ThreadStore store) =>
+        app.MapPost("/api/whatsapp/simulate", (SimulateRequest body, ThreadStore store,
+            ChatBranch.Data.Flows.FlowEngine engine) =>
         {
             var thread = store.GetOrCreateThread(body.Channel, body.Key, body.Name);
             var msg = store.AppendMessage(thread, MessageDirection.In, MessageSource.Customer,
                 body.Text, status: "received");
+            // event axis: resume any flow runs parked on a reply from this contact
+            engine.OnInboundMessage(body.Channel, body.Key, body.Text);
             return Results.Ok(new { thread = Dtos.ThreadDto(thread), message = Dtos.MessageDto(msg) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 

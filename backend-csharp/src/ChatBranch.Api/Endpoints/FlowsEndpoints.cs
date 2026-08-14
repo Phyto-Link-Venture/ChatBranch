@@ -87,12 +87,9 @@ public static class FlowsEndpoints
             return Results.Ok(new { id = job.Id, status = job.Status });
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
-        // ---- manual drain seam (mirrors POST /api/flows/tick) ------------------
-        app.MapPost("/api/flows/tick", (QueueService queue) =>
-        {
-            var sent = queue.Drain(maxThisPass: 50);
-            return Results.Ok(new { drained = sent });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        // ---- manual engine tick (resume + triggers + drain) --------------------
+        app.MapPost("/api/flows/tick", (ChatBranch.Data.Flows.FlowEngine engine) =>
+            Results.Ok(engine.Tick())).RequireAuthorization(AuthPolicies.AdminPlus);
     }
 
     private static object WorkflowOut(Workflow w) => new

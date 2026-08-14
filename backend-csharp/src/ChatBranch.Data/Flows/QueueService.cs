@@ -34,13 +34,14 @@ public class QueueService
 
     public OutboundJob Enqueue(string channel, string kind, string toAddress,
         Dictionary<string, object?> payload, int? contactId = null, int? accountId = null,
-        DateTime? notBefore = null)
+        DateTime? notBefore = null, int? flowRunId = null, string flowNode = "")
     {
         var job = new OutboundJob
         {
             Channel = channel, Kind = kind, ToAddress = toAddress, Payload = payload,
             ContactId = contactId, AccountId = accountId, Status = JobStatus.Queued,
-            NotBefore = notBefore, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+            NotBefore = notBefore, FlowRunId = flowRunId, FlowNode = flowNode,
+            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
         };
         _db.OutboundJobs.Add(job);
         _db.SaveChanges();

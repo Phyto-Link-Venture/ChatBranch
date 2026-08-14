@@ -20,7 +20,9 @@ builder.Services.AddScoped<ChatBranch.Data.Ai.ILlmClient, ChatBranch.Data.Ai.Ope
 builder.Services.AddSingleton<ChatBranch.Data.Channels.IWhatsAppCloudClient, ChatBranch.Data.Channels.WhatsAppCloudClient>();
 builder.Services.AddScoped<ChatBranch.Data.Channels.OutboundSender>();
 builder.Services.AddScoped<ChatBranch.Data.Flows.QueueService>();
+builder.Services.AddScoped<ChatBranch.Data.Flows.FlowEngine>();
 builder.Services.AddHostedService<ChatBranch.Api.Workers.OutboundQueueWorker>();
+builder.Services.AddHostedService<ChatBranch.Api.Workers.FlowEngineWorker>();
 builder.Services.AddScoped<ChatBranch.Data.Analytics.AnalyticsService>();
 builder.Services.AddSingleton<ChatBranch.Data.Sidecars.IBaileysGateway, ChatBranch.Data.Sidecars.SandboxBaileysGateway>();
 var dataDir = builder.Configuration["DataDir"]
