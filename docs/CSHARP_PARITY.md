@@ -3,10 +3,26 @@
 Companion to `CSHARP_MIGRATION_PLAN.md`. Tracks what the C# backend
 (`backend-csharp/`) covers versus the Django API, and how to verify + cut over.
 
-Status as of this branch: **Phases 0–6 built and green** — 52 endpoints,
-~4.5k lines of C#, **38 tests passing**. The port covers the core of every
-subsystem; the long tail (per-provider live webhooks, media serving, voice-call
-signaling, OAuth flows, the health checker) is deferred and listed below.
+Status as of this branch: **Phases 0–6 + real clients + flow interpreter + live
+webhooks** — 56 endpoints, ~4.7k lines of C#, **46 tests passing**. The port
+covers the core of every subsystem plus the AI/automation moat; the remaining
+long tail (media serving, voice-call signaling, OAuth flows, the health checker)
+is deferred and listed below.
+
+### Since the Phase 0–6 baseline
+
+- **Real LLM client** (`OpenAiLlmClient`) — OpenRouter → OpenAI → local
+  (Ollama/LM Studio), keys from Setting rows + env, sandbox fallback.
+- **Real WhatsApp Cloud sender** (`WhatsAppCloudClient` + `OutboundSender`) —
+  configured accounts really send via graph.facebook.com; unconfigured ones
+  sandbox-store. Wired into the queue and the manual send path.
+- **Flow node interpreter** (`FlowEngine`) — the full engine.py walk: triggers,
+  enrollment dedupe, action nodes (enqueue), decisions (EN+BM classifier), edge
+  timings, wait/reply-parking, resume + on-inbound. `FlowEngineWorker` ticks it.
+- **Live webhooks** — Meta Cloud (GET verify + signed POST, wamid dedup, 24h
+  provider timestamps), Telegram, and the email-sync nudge. Inbound routes
+  through `InboundProcessor` (store + contact-link + flow resume + coverage-gated
+  AI reply).
 
 ## Endpoint parity matrix
 
@@ -21,7 +37,8 @@ signaling, OAuth flows, the health checker) is deferred and listed below.
 | calls (`/api/calls`, contacts, analytics) | 25 | 15 | contacts/channels/analytics/script-templates + sidecar bridges; live dialling deferred |
 | integrations (`/api/integrations`) | 13 | 5 | list/connect/action/webhooks(HMAC); **OAuth2/PKCE flow + real action execution deferred** |
 | api v1 (`/api/v1`) + ingest | 14 | 5 | whoami/brands/contacts/sync-records; full user-tier management deferred |
-| **Total** | **~159** | **52** | core of every subsystem; see "Deferred" |
+| webhooks (live intake) | — | 4 | Meta verify + signed POST, Telegram, email-sync nudge |
+| **Total** | **~159** | **56** | core of every subsystem + AI/automation; see "Deferred" |
 
 ## What's fully ported (behaviour parity, tested)
 
@@ -44,25 +61,23 @@ signaling, OAuth flows, the health checker) is deferred and listed below.
 
 These are known-not-yet-ported; each is isolated and additive:
 
-- **Live channel webhooks**: Meta Cloud (signature, 24h-window 131047 handling),
-  Baileys gateway intake, Telegram/Messenger/IG, email IMAP/SMTP.
-- **Media**: upload/download + auth-gated serving (`/api/*/media/<pk>`).
-- **Templates from Meta** (WABA listing), and the real send path (currently
-  sandbox-stores; a real `IWhatsAppClient`/`IEmailClient` plugs in behind the
-  store like `ILlmClient` does).
+- **Remaining inbound channels**: Baileys gateway intake, Messenger/IG webhooks,
+  real email IMAP fetch (the sync endpoint is a throttled stub; a MailKit-based
+  `IEmailInbox` plugs in behind it). Meta Cloud + Telegram are DONE.
+- **Media**: upload/download + auth-gated serving (`/api/*/media/<pk>`); the
+  webhooks currently take text messages only.
+- **Templates from Meta** (WABA listing), and the real Email/Telegram send path
+  (WhatsApp Cloud send is DONE; Email/Telegram still sandbox-store — a real
+  `IEmailClient`/`ITelegramClient` plugs in behind `OutboundSender`).
 - **Voice**: WhatsApp call signaling (`wa_calls`), Baileys calls, SIP dial,
   recordings/transcripts — the `VoiceAgentBridge` file IPC contract is in place;
-  the dial/signal endpoints are not.
-- **Flow node interpreter** (`engine.py`): time-trigger matching, reply-parking,
-  action-node execution. The queue + library are done; the interpreter is the
-  biggest single remaining piece.
+  the dial/signal endpoints are not. Call jobs enqueue but are not yet placed.
 - **Channel health checker** + routing/failover, account roles, routing rules,
   business redirect, recovery.
 - **Integrations OAuth2/PKCE** flow and real action execution (calendar, Drive,
-  Sheets, Gmail, Stripe links).
+  Sheets, Gmail, Stripe links). Webhook HMAC + sandbox skips are DONE.
 - **RBAC admin**: full user/role/permission management, notifications, audit-log
   endpoints.
-- **A real LLM client** (OpenRouter/OpenAI) behind `ILlmClient`.
 
 ## Verify against a real Django database
 

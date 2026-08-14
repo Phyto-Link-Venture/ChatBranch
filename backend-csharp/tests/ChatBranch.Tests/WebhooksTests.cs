@@ -1,0 +1,130 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
+using Xunit;
+
+namespace ChatBranch.Tests;
+
+/// <summary>Live webhook intake: Meta verify + signed inbound, Telegram inbound.</summary>
+public class WebhooksTests : IClassFixture<ApiFactory>
+{
+    private readonly ApiFactory _factory;
+    public WebhooksTests(ApiFactory factory) => _factory = factory;
+
+    private async Task<HttpClient> Authed(string user, string pass)
+    {
+        var c = _factory.CreateClient();
+        var res = await c.PostAsJsonAsync("/api/auth/login", new { username = user, password = pass });
+        res.EnsureSuccessStatusCode();
+        var token = (await res.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("token").GetString();
+        c.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return c;
+    }
+
+    [Fact]
+    public async Task Meta_verify_echoes_challenge_with_the_right_token()
+    {
+        var su = await Authed("superadmin", "super123");
+        await su.PutAsJsonAsync("/api/settings", new { key = "whatsapp_verify_token", value = "verify-me" });
+
+        var c = _factory.CreateClient();
+        var ok = await c.GetAsync("/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=verify-me&hub.challenge=42");
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        Assert.Equal("42", await ok.Content.ReadAsStringAsync());
+
+        var bad = await c.GetAsync("/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=42");
+        Assert.Equal(HttpStatusCode.Forbidden, bad.StatusCode);
+    }
+
+    [Fact]
+    public async Task Meta_inbound_stores_message_links_contact_and_ai_replies()
+    {
+        var admin = await Authed("admin", "admin123");
+        // a contact whose phone matches the inbound sender → coverage gate passes
+        await admin.PostAsJsonAsync("/api/contacts", new { name = "Nadia", phone = "60129998887" });
+
+        var payload = new
+        {
+            entry = new[]
+            {
+                new
+                {
+                    changes = new[]
+                    {
+                        new
+                        {
+                            value = new
+                            {
+                                metadata = new { phone_number_id = "PN-1" },
+                                contacts = new[] { new { profile = new { name = "Nadia" }, wa_id = "60129998887" } },
+                                messages = new[]
+                                {
+                                    new { from = "60129998887", id = "wamid.ABC", timestamp = "1700000000",
+                                          type = "text", text = new { body = "hello?" } },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        };
+
+        var c = _factory.CreateClient();
+        var res = await c.PostAsync("/api/whatsapp/webhook",
+            new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"));
+        res.EnsureSuccessStatusCode();
+
+        // thread now has the inbound + a sandbox AI reply
+        var msgs = await admin.GetFromJsonAsync<JsonElement>(
+            "/api/whatsapp/threads/whatsapp/60129998887/messages");
+        var list = msgs.GetProperty("messages").EnumerateArray().ToList();
+        Assert.Contains(list, m => m.GetProperty("direction").GetString() == "in"
+                                   && m.GetProperty("text").GetString() == "hello?");
+        Assert.Contains(list, m => m.GetProperty("source").GetString() == "ai"); // AI auto-reply fired
+    }
+
+    [Fact]
+    public async Task Meta_inbound_dedupes_on_wamid()
+    {
+        var admin = await Authed("admin", "admin123");
+        var c = _factory.CreateClient();
+        string Body() => JsonSerializer.Serialize(new
+        {
+            entry = new[] { new { changes = new[] { new { value = new
+            {
+                metadata = new { phone_number_id = "PN-2" },
+                messages = new[] { new { from = "60111000222", id = "wamid.DUP", timestamp = "1700000000",
+                    type = "text", text = new { body = "dup" } } },
+            } } } } },
+        });
+        await c.PostAsync("/api/whatsapp/webhook", new StringContent(Body(), Encoding.UTF8, "application/json"));
+        await c.PostAsync("/api/whatsapp/webhook", new StringContent(Body(), Encoding.UTF8, "application/json"));
+
+        var msgs = await admin.GetFromJsonAsync<JsonElement>(
+            "/api/whatsapp/threads/whatsapp/60111000222/messages");
+        var dupCount = msgs.GetProperty("messages").EnumerateArray()
+            .Count(m => m.GetProperty("text").GetString() == "dup");
+        Assert.Equal(1, dupCount); // wamid dedup collapsed the redelivery
+    }
+
+    [Fact]
+    public async Task Telegram_inbound_stores_message()
+    {
+        var admin = await Authed("admin", "admin123");
+        var c = _factory.CreateClient();
+        var update = JsonSerializer.Serialize(new
+        {
+            message = new { chat = new { id = 55501 }, from = new { first_name = "Tele" }, text = "hi from tg" },
+        });
+        var res = await c.PostAsync("/api/messaging/webhook/telegram/sometoken",
+            new StringContent(update, Encoding.UTF8, "application/json"));
+        res.EnsureSuccessStatusCode();
+
+        var msgs = await admin.GetFromJsonAsync<JsonElement>(
+            "/api/whatsapp/threads/telegram/55501/messages");
+        Assert.Contains(msgs.GetProperty("messages").EnumerateArray(),
+            m => m.GetProperty("text").GetString() == "hi from tg");
+    }
+}

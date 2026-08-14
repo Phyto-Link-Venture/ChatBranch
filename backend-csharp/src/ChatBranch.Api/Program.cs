@@ -19,6 +19,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddScoped<ChatBranch.Data.Ai.ILlmClient, ChatBranch.Data.Ai.OpenAiLlmClient>();
 builder.Services.AddSingleton<ChatBranch.Data.Channels.IWhatsAppCloudClient, ChatBranch.Data.Channels.WhatsAppCloudClient>();
 builder.Services.AddScoped<ChatBranch.Data.Channels.OutboundSender>();
+builder.Services.AddScoped<ChatBranch.Data.Channels.InboundProcessor>();
 builder.Services.AddScoped<ChatBranch.Data.Flows.QueueService>();
 builder.Services.AddScoped<ChatBranch.Data.Flows.FlowEngine>();
 builder.Services.AddHostedService<ChatBranch.Api.Workers.OutboundQueueWorker>();
@@ -72,6 +73,7 @@ app.MapContactsEndpoints();
 app.MapAnalyticsEndpoints();
 app.MapIntegrationsEndpoints();
 app.MapApiV1Endpoints();
+app.MapWebhookEndpoints();
 
 app.Run();
 

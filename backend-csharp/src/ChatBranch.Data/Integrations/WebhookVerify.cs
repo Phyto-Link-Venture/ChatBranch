@@ -11,6 +11,19 @@ namespace ChatBranch.Data.Integrations;
 /// </summary>
 public static class WebhookVerify
 {
+    /// <summary>
+    /// Meta/WhatsApp webhook: X-Hub-Signature-256 is <c>sha256=&lt;hex&gt;</c> of the
+    /// raw body keyed by the app_secret. Constant-time compared.
+    /// </summary>
+    public static bool Meta(string appSecret, byte[] rawBody, string header)
+    {
+        if (string.IsNullOrEmpty(appSecret) || string.IsNullOrEmpty(header)) return false;
+        var sig = header.StartsWith("sha256=") ? header["sha256=".Length..] : header;
+        using var h = new HMACSHA256(Encoding.UTF8.GetBytes(appSecret));
+        var computed = Convert.ToHexString(h.ComputeHash(rawBody)).ToLowerInvariant();
+        return FixedTimeEquals(computed, sig.ToLowerInvariant());
+    }
+
     public static bool Shopify(string secret, byte[] rawBody, string headerHmac)
     {
         if (string.IsNullOrEmpty(secret) || string.IsNullOrEmpty(headerHmac)) return false;
