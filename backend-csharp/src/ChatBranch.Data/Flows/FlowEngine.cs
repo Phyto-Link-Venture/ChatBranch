@@ -552,14 +552,12 @@ public class FlowEngine
 
     // ---- helpers ------------------------------------------------------------
 
-    private bool InQuietHours()
-    {
-        var start = _scoping.SettingValue("quiet_start");
-        var end = _scoping.SettingValue("quiet_end");
-        if (!TimeOnly.TryParse(start, out var qs) || !TimeOnly.TryParse(end, out var qe)) return false;
-        var now = TimeOnly.FromDateTime(DateTime.Now);
-        return qs <= qe ? now >= qs && now < qe : now >= qs || now < qe;
-    }
+    /// <summary>
+    /// Organization-wide quiet hours only — the flow has no sending account yet
+    /// (it is resolved at send time), so per-account quiet hours are enforced
+    /// by the queue drain instead (AccountDelivery.InQuietHours).
+    /// </summary>
+    private bool InQuietHours() => Channels.AccountDelivery.InQuietHours(null, _scoping);
 
     private void Notify(string[] roles, string title, string body)
     {

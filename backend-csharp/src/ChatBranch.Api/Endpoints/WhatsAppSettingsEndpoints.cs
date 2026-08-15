@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
+using ChatBranch.Data.Channels;
 using ChatBranch.Data.Flows;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -577,6 +578,7 @@ public static class WhatsAppSettingsEndpoints
                 EntityId = await InboxEndpoints.EntityId(db, AsString(body, "entity")),
                 CreatedAt = DateTime.UtcNow,
             };
+            if (ApplyDelivery(row, body) is IResult deliveryErr) return deliveryErr;
             db.ChannelAccounts.Add(row);
             await db.SaveChangesAsync();
 
@@ -628,6 +630,10 @@ public static class WhatsAppSettingsEndpoints
             if (Has(body, "role") && AccountRoles.Contains(role))
                 // role lives in the config JSON; changing it never needs a health reset
                 row.Config = new Dictionary<string, object?>(row.Config) { ["role"] = role };
+
+            // per-account delivery + AI knobs (quiet hours, send pacing, voice-call
+            // brain/STT) — same config JSON, no health reset either
+            if (ApplyDelivery(row, body) is IResult deliveryErr) return deliveryErr;
 
             var entityChanged = false;
             if (Has(body, "entity"))
@@ -1489,7 +1495,81 @@ public static class WhatsAppSettingsEndpoints
         entity = a.Entity?.Slug,
         entity_name = a.Entity?.Name ?? "",
         health_status = a.HealthStatus,
+        // Per-account overrides ("" = inherit the organization-wide value).
+        // Edited from Settings → Channels → edit account → Delivery & AI.
+        delivery = DeliveryPayload(a),
     };
+
+    internal static Dictionary<string, string> DeliveryPayload(ChannelAccount a) =>
+        AccountDelivery.Keys.ToDictionary(k => k, k => AccountDelivery.Own(a, k));
+
+    /// <summary>
+    /// Validate + store the per-account delivery keys carried at the top level
+    /// of an account write body. Blank/null clears the override (inherit). Keys
+    /// absent from the body are untouched. Returns a 400 result on bad input.
+    /// </summary>
+    internal static IResult? ApplyDelivery(ChannelAccount row, JsonElement body)
+    {
+        if (!AccountDelivery.Keys.Any(k => Has(body, k))) return null;
+        var cfg = new Dictionary<string, object?>(row.Config);
+        string Next(string key) => Has(body, key)
+            ? (AsString(body, key) ?? "").Trim()
+            : AccountDelivery.Own(row, key);
+
+        foreach (var key in new[] { AccountDelivery.QuietStart, AccountDelivery.QuietEnd })
+        {
+            var v = Next(key);
+            if (v.Length > 0 && !AccountDelivery.TryParseHhMm(v, out _))
+                return Results.Json(new { detail = $"{key} must be HH:MM (24h) or blank." },
+                                    statusCode: 400);
+        }
+        var minRaw = Next(AccountDelivery.MinGap);
+        var maxRaw = Next(AccountDelivery.MaxGap);
+        int? min = null, max = null;
+        if (minRaw.Length > 0)
+        {
+            if (!int.TryParse(minRaw, out var lo) || lo < 0)
+                return Results.Json(new { detail = "queue_min_gap_s must be a whole number of seconds (0 or more)." },
+                                    statusCode: 400);
+            min = lo;
+        }
+        if (maxRaw.Length > 0)
+        {
+            if (!int.TryParse(maxRaw, out var hi) || hi < 0)
+                return Results.Json(new { detail = "queue_max_gap_s must be a whole number of seconds (0 or more)." },
+                                    statusCode: 400);
+            max = hi;
+        }
+        if (min is int a && max is int b && a > b)
+            return Results.Json(new { detail = "queue_min_gap_s cannot exceed queue_max_gap_s." },
+                                statusCode: 400);
+        var llm = Next(AccountDelivery.LlmProvider).ToLowerInvariant();
+        if (llm.Length > 0 && !VoiceMessagingEndpoints.LlmProviders.Contains(llm))
+            return Results.Json(new
+            {
+                detail = $"llm_provider must be one of {string.Join(", ", VoiceMessagingEndpoints.LlmProviders)} or blank.",
+            }, statusCode: 400);
+        var stt = Next(AccountDelivery.SttProvider).ToLowerInvariant();
+        if (stt.Length > 0 && !VoiceMessagingEndpoints.SttProviders.Contains(stt))
+            return Results.Json(new
+            {
+                detail = $"stt_provider must be one of {string.Join(", ", VoiceMessagingEndpoints.SttProviders)} or blank.",
+            }, statusCode: 400);
+
+        void Put(string key, string value)
+        {
+            if (!Has(body, key)) return;
+            if (value.Length == 0) cfg.Remove(key); else cfg[key] = value;
+        }
+        Put(AccountDelivery.QuietStart, Next(AccountDelivery.QuietStart));
+        Put(AccountDelivery.QuietEnd, Next(AccountDelivery.QuietEnd));
+        Put(AccountDelivery.MinGap, min?.ToString() ?? "");
+        Put(AccountDelivery.MaxGap, max?.ToString() ?? "");
+        Put(AccountDelivery.LlmProvider, llm);
+        Put(AccountDelivery.SttProvider, stt);
+        row.Config = cfg;
+        return null;
+    }
 
     /// <summary>
     /// wa_config._env_account rendered through the same payload — the

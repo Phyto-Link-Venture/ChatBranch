@@ -60,8 +60,6 @@ public class QueueService
     /// </summary>
     public int Drain(int maxThisPass = 5)
     {
-        var minGap = IntSetting("queue_min_gap_s", 10);
-        var maxGap = IntSetting("queue_max_gap_s", 30);
         var dailyCap = IntSetting("queue_daily_cap", 200);
         var now = DateTime.UtcNow;
         var sent = 0;
@@ -72,14 +70,35 @@ public class QueueService
             .Take(50)
             .ToList();
 
+        // Per-account delivery settings resolved once per pass (pacing window +
+        // quiet hours live on the ChannelAccount, falling back to the global
+        // Setting rows) — see AccountDelivery.
+        var accountCache = new Dictionary<int, ChannelAccount?>();
+        ChannelAccount? AccountFor(OutboundJob job)
+        {
+            var id = job.AccountId ?? _db.Threads.AsNoTracking()
+                .Where(t => t.Channel == job.Channel && t.Key == job.ToAddress)
+                .Select(t => t.AccountId).FirstOrDefault();
+            if (id is not int aid) return null;
+            if (!accountCache.TryGetValue(aid, out var acct))
+                accountCache[aid] = acct = _db.ChannelAccounts.AsNoTracking().FirstOrDefault(a => a.Id == aid);
+            return acct;
+        }
+
         foreach (var job in due)
         {
             if (sent >= maxThisPass) break;
             if (job.Kind == JobKind.Call) continue; // calls serialise elsewhere (Phase 5)
 
             var accountId = job.AccountId;
+            var account = AccountFor(job);
+
+            // quiet hours are checked at SEND time against the account that
+            // will carry the message — the job simply waits until they end
+            if (AccountDelivery.InQuietHours(account, _scoping)) continue;
 
             // per-account gap: derived from the last sent job's sent_at
+            var (minGap, maxGap) = AccountDelivery.PacingGap(account, _scoping);
             var gap = minGap + Random.Shared.Next(0, Math.Max(1, maxGap - minGap + 1));
             var lastSent = _db.OutboundJobs
                 .Where(j => j.Status == JobStatus.Sent && j.AccountId == accountId && j.SentAt != null)

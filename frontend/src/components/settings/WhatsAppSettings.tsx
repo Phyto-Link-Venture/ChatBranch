@@ -25,6 +25,7 @@ import { roleHeaders } from '@/lib/role'
 import { expireSessionOn401, hasCap } from '@/lib/auth'
 import { fetchChannelHealth, type HealthAccount } from '@/lib/channelHealth'
 import { EntityScopeSelect } from './EntityScopeSelect'
+import { LLM_PROVIDER_LABELS, STT_PROVIDER_LABELS } from '@/lib/voiceProviders'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
@@ -50,6 +51,38 @@ interface WaAccount {
    *  This is what attributes inbound chats to a branch without any tagging. */
   entity?: string | null
   entity_name?: string
+  /** Per-account delivery + AI overrides ("" = inherit the organization-wide
+   *  value). Edited from the account's Delivery & AI section. */
+  delivery?: AccountDelivery
+}
+
+/** Keys mirror ChannelAccount.config on the backend (AccountDelivery.Keys). */
+interface AccountDelivery {
+  quiet_start: string
+  quiet_end: string
+  queue_min_gap_s: string
+  queue_max_gap_s: string
+  llm_provider: string
+  stt_provider: string
+}
+
+const EMPTY_DELIVERY: AccountDelivery = {
+  quiet_start: '',
+  quiet_end: '',
+  queue_min_gap_s: '',
+  queue_max_gap_s: '',
+  llm_provider: '',
+  stt_provider: '',
+}
+
+/** Organization-wide fallbacks, shown as "inherit" placeholders in the editor. */
+interface DeliveryDefaults {
+  quiet_start: string
+  quiet_end: string
+  queue_min_gap_s: string
+  queue_max_gap_s: string
+  llm_provider: string
+  stt_provider: string
 }
 
 interface BaileysState {
@@ -263,6 +296,8 @@ export function WhatsAppSettings({
   const [eWaba, setEWaba] = useState('')
   const [eToken, setEToken] = useState('')
   const [eSecret, setESecret] = useState('')
+  const [eDelivery, setEDelivery] = useState<AccountDelivery>(EMPTY_DELIVERY)
+  const [deliveryDefaults, setDeliveryDefaults] = useState<DeliveryDefaults | null>(null)
 
   const refresh = useCallback(async () => {
     // non-blocking — the account list must load even if health checks fail
@@ -337,7 +372,25 @@ export function WhatsAppSettings({
     setEWaba(a.waba_id || '')
     setEToken('')
     setESecret('')
+    setEDelivery({ ...EMPTY_DELIVERY, ...(a.delivery ?? {}) })
     setMsg(null)
+    // The inherited (organization-wide) values, so blank fields can say what
+    // they currently resolve to. Best-effort — the editor works without them.
+    Promise.allSettled([
+      api<{ quiet_start?: string; quiet_end?: string }>('settings'),
+      api<{ queue_min_gap_s?: number; queue_max_gap_s?: number }>('routing-rules'),
+      fetch(`${API}/voice/llm-settings`, { headers: roleHeaders() }).then((r) => r.json()),
+      fetch(`${API}/voice/stt-settings`, { headers: roleHeaders() }).then((r) => r.json()),
+    ]).then(([q, r, l, t]) =>
+      setDeliveryDefaults({
+        quiet_start: (q.status === 'fulfilled' && q.value.quiet_start) || '',
+        quiet_end: (q.status === 'fulfilled' && q.value.quiet_end) || '',
+        queue_min_gap_s: r.status === 'fulfilled' && r.value.queue_min_gap_s != null ? String(r.value.queue_min_gap_s) : '10',
+        queue_max_gap_s: r.status === 'fulfilled' && r.value.queue_max_gap_s != null ? String(r.value.queue_max_gap_s) : '30',
+        llm_provider: (l.status === 'fulfilled' && l.value?.llm_provider) || 'openai',
+        stt_provider: (t.status === 'fulfilled' && t.value?.stt_provider) || 'elevenlabs',
+      }),
+    )
   }
 
   const saveEdit = () => {
@@ -352,6 +405,13 @@ export function WhatsAppSettings({
         if (eToken.trim()) patch.access_token = eToken.trim()
         if (eSecret.trim()) patch.app_secret = eSecret.trim()
       }
+      // Delivery & AI overrides — always sent (blank = clear back to inherit).
+      const lo = eDelivery.queue_min_gap_s.trim()
+      const hi = eDelivery.queue_max_gap_s.trim()
+      if ((lo && !/^\d+$/.test(lo)) || (hi && !/^\d+$/.test(hi)))
+        throw new Error('Send pacing gaps must be whole seconds (0 or more).')
+      if (lo && hi && Number(lo) > Number(hi)) throw new Error('Min gap cannot exceed max gap.')
+      for (const [k, v] of Object.entries(eDelivery)) patch[k] = v.trim()
       await api(`accounts/${editAcct.id}`, { method: 'POST', body: JSON.stringify(patch) })
       setEditAcct(null)
     }, 'Account updated — changes are live immediately.')
@@ -587,7 +647,7 @@ export function WhatsAppSettings({
               <button
                 onClick={() => startEdit(a)}
                 disabled={busy || a.env_managed}
-                title={a.env_managed ? 'Managed by backend/.env' : 'Edit keys'}
+                title={a.env_managed ? 'Managed by backend/.env' : 'Edit account (keys, delivery & AI)'}
                 aria-label={`Edit ${a.name}`}
                 className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:cursor-not-allowed disabled:opacity-35"
               >
@@ -814,6 +874,14 @@ export function WhatsAppSettings({
       >
         {editAcct && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {msg && !msg.ok && (
+              <div
+                role="alert"
+                className="sm:col-span-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] font-semibold text-red-300"
+              >
+                {msg.text}
+              </div>
+            )}
             <label className="block">
               <span className="mb-1 block text-[11px] font-bold text-text-high">Account name</span>
               <input className={inputCls} value={eName} onChange={(e) => setEName(e.target.value)} />
@@ -861,6 +929,104 @@ export function WhatsAppSettings({
                 </label>
               </>
             )}
+
+            {/* Delivery & AI — per-account knobs (quiet hours, send pacing, the
+                voice-call brain + STT). Blank = inherit the organization-wide
+                value, shown as the placeholder. Backed by ChannelAccount.config. */}
+            <div className="sm:col-span-2 mt-1 border-t border-line pt-3">
+              <div className="text-[12px] font-bold text-text-high">Delivery &amp; AI for this account</div>
+              <div className="mt-0.5 text-[10.5px] text-text-muted">
+                Leave a field blank to inherit the organization-wide default (shown greyed). Applies to messages and
+                calls sent through <span className="font-semibold text-text-mid">{editAcct.name}</span> only.
+              </div>
+            </div>
+            <div className="block">
+              <span className="mb-1 block text-[11px] font-bold text-text-high">Quiet hours</span>
+              <div className="flex items-center gap-1.5">
+                <input
+                  className={`${inputCls} text-center`}
+                  value={eDelivery.quiet_start}
+                  onChange={(e) => setEDelivery({ ...eDelivery, quiet_start: e.target.value })}
+                  placeholder={deliveryDefaults?.quiet_start || '21:00'}
+                  aria-label="Quiet hours start"
+                />
+                <span className="text-[11px] text-text-muted">to</span>
+                <input
+                  className={`${inputCls} text-center`}
+                  value={eDelivery.quiet_end}
+                  onChange={(e) => setEDelivery({ ...eDelivery, quiet_end: e.target.value })}
+                  placeholder={deliveryDefaults?.quiet_end || '09:00'}
+                  aria-label="Quiet hours end"
+                />
+              </div>
+              <span className="mt-1 block text-[10.5px] text-text-muted">
+                Outbound sends from this number are held between these times (HH:MM 24h, server time).
+                {deliveryDefaults && !deliveryDefaults.quiet_start && !deliveryDefaults.quiet_end && ' Default: none.'}
+              </span>
+            </div>
+            <div className="block">
+              <span className="mb-1 block text-[11px] font-bold text-text-high">Send pacing (seconds)</span>
+              <div className="flex items-center gap-1.5">
+                <input
+                  className={`${inputCls} text-center`}
+                  inputMode="numeric"
+                  value={eDelivery.queue_min_gap_s}
+                  onChange={(e) => setEDelivery({ ...eDelivery, queue_min_gap_s: e.target.value })}
+                  placeholder={deliveryDefaults?.queue_min_gap_s || '10'}
+                  aria-label="Send pacing minimum gap"
+                />
+                <span className="text-[11px] text-text-muted">to</span>
+                <input
+                  className={`${inputCls} text-center`}
+                  inputMode="numeric"
+                  value={eDelivery.queue_max_gap_s}
+                  onChange={(e) => setEDelivery({ ...eDelivery, queue_max_gap_s: e.target.value })}
+                  placeholder={deliveryDefaults?.queue_max_gap_s || '30'}
+                  aria-label="Send pacing maximum gap"
+                />
+              </div>
+              <span className="mt-1 block text-[10.5px] text-text-muted">
+                Jittered gap between this number&apos;s queued sends — paces personal (Baileys) numbers for ban safety.
+              </span>
+            </div>
+            <div className="block">
+              <span className="mb-1 block text-[11px] font-bold text-text-high">Voice call brain (LLM)</span>
+              <Select
+                value={eDelivery.llm_provider}
+                onChange={(v) => setEDelivery({ ...eDelivery, llm_provider: v })}
+                size="md"
+                ariaLabel="Voice call LLM provider"
+                options={[
+                  {
+                    value: '',
+                    label: `Inherit default${deliveryDefaults ? ` (${LLM_PROVIDER_LABELS[deliveryDefaults.llm_provider] ?? deliveryDefaults.llm_provider})` : ''}`,
+                  },
+                  ...Object.entries(LLM_PROVIDER_LABELS).map(([value, label]) => ({ value, label })),
+                ]}
+              />
+              <span className="mt-1 block text-[10.5px] text-text-muted">
+                LLM behind ElevenLabs-voice calls from this number — takes effect on the next call.
+              </span>
+            </div>
+            <div className="block">
+              <span className="mb-1 block text-[11px] font-bold text-text-high">Call STT engine</span>
+              <Select
+                value={eDelivery.stt_provider}
+                onChange={(v) => setEDelivery({ ...eDelivery, stt_provider: v })}
+                size="md"
+                ariaLabel="Voice call STT provider"
+                options={[
+                  {
+                    value: '',
+                    label: `Inherit default${deliveryDefaults ? ` (${STT_PROVIDER_LABELS[deliveryDefaults.stt_provider] ?? deliveryDefaults.stt_provider})` : ''}`,
+                  },
+                  ...Object.entries(STT_PROVIDER_LABELS).map(([value, label]) => ({ value, label })),
+                ]}
+              />
+              <span className="mt-1 block text-[10.5px] text-text-muted">
+                Speech-to-text for the ElevenLabs voice pipeline on this number.
+              </span>
+            </div>
           </div>
         )}
       </Modal>

@@ -203,8 +203,8 @@ public static class VoiceMessagingEndpoints
     // =========================================================================
 
     // calls/voice_settings.STT_PROVIDERS / LLM_PROVIDERS, verbatim.
-    private static readonly string[] SttProviders = { "openai", "elevenlabs", "ilmu" };
-    private static readonly string[] LlmProviders = { "openai", "ilmu", "openrouter", "gemini" };
+    internal static readonly string[] SttProviders = { "openai", "elevenlabs", "ilmu" };
+    internal static readonly string[] LlmProviders = { "openai", "ilmu", "openrouter", "gemini" };
     private const string DefaultSttProvider = "elevenlabs";
 
     private static string DefaultLlmProvider()

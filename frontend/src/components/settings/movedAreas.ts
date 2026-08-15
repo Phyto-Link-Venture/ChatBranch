@@ -12,4 +12,6 @@ export const MOVED_AREA_ROUTES: Record<string, string> = {
   'script-templates': '/script-templates',
   notif: '/notifications',
   whatsapp: '/channels', // pre-consolidation WhatsApp Accounts tab
+  ai: '/channels', // AI Configuration retired — its knobs live on each channel account now
+  voice: '/channels', // pre-consolidation Voice Persona tab (→ ai → channels)
 }

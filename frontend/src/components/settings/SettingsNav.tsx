@@ -19,7 +19,9 @@ import { SettingsDirtyProvider, useSettingsDirty } from './SettingsDirtyContext'
  * /settings/<id> routes redirect (see MOVED_AREA_ROUTES).
  */
 export const SETTINGS_TABS: { id: string; lbl: string; superadminOnly?: boolean }[] = [
-  { id: 'ai', lbl: 'AI Configuration' },
+  // 'ai' (AI Configuration) retired 2026-08-15: quiet hours, send pacing and the
+  // voice-call brain/STT are configured PER CHANNEL ACCOUNT now (Channels →
+  // edit account → Delivery & AI). /settings/ai redirects to /channels.
   { id: 'ai-providers', lbl: 'AI Keys & Models' }, // GET any role (read-only); PUT superadmin — renamed to avoid clashing with "Service Providers"
   { id: 'mcp', lbl: 'MCP Servers' },
   // The chat AI's personality (system prompt) — distinct from the sidebar

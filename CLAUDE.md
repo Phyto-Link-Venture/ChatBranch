@@ -137,15 +137,21 @@ README's "run by hand" section is the manual fallback, not the primary path.
   `client.py` function takes the account dict, threads carry `account_id`,
   and the webhook routes by `metadata.phone_number_id`. Global app settings
   (AI keys, verify token) live in `crm.Setting` rows, editable from
-  Settings → App Keys — except the chat provider pin / chat model / quiet
-  hours, which live on Settings → AI Configuration (`AiChatSettings.tsx`)
-  since 2026-07-22; same superadmin-gated `POST /api/whatsapp/settings`
-  underneath (partial-patch, so either page saves only its own keys). The
-  page's Send Pacing row (queue min/max gap) is the exception: it reads and
-  writes `queue_min_gap_s`/`queue_max_gap_s` through `GET/PUT
-  /api/whatsapp/routing-rules` (Setting rows via
-  `flows.queue.save_queue_settings`; PUT validates min ≤ max against the
-  effective other bound). **RBAC is real**: `/api/auth/login` issues bearer
+  Settings → App Keys. **Quiet hours, send pacing (queue min/max gap) and
+  the voice-call LLM brain / STT engine are PER CHANNEL ACCOUNT** since
+  2026-08-15 (the AI Configuration tab was retired; `/settings/ai` redirects
+  to `/channels`): they live in `ChannelAccount.config` next to `role`, edited
+  from Channels → edit account → "Delivery & AI", accepted as top-level keys
+  on `POST /api/whatsapp/accounts/<id>` (`quiet_start`, `quiet_end`,
+  `queue_min_gap_s`, `queue_max_gap_s`, `llm_provider`, `stt_provider`; blank
+  = inherit) and returned as `delivery{}` in the account payload. Resolution
+  is account → Setting row → env → default, in ONE place (C#
+  `ChatBranch.Data/Channels/AccountDelivery.cs`); the queue drain applies the
+  pacing window AND quiet hours per job account at send time, and the
+  template-send gate checks the sending account. The old global
+  `POST /api/whatsapp/settings` quiet keys and `PUT /api/whatsapp/routing-rules`
+  gaps still exist as the inherited defaults (no UI edits them now).
+  **RBAC is real**: `/api/auth/login` issues bearer
   tokens (rotated per login, stored on `crm.Profile`); roles = superadmin /
   admin / **agent** (`lib/auth.ts getAuth()` normalizes a cached `'collector'`
   session from the pre-template naming, and still reads the legacy
@@ -702,9 +708,14 @@ README's "run by hand" section is the manual fallback, not the primary path.
   **AI Skills** (`SkillsSettings.tsx`, the sole writer of `crm.AgentSkill`).
   The Escalation Rules tab was removed
   2026-07-22 (it was mock-only; escalation is modelled in the flow builder
-  instead — don't re-add it). Settings → Notifications and the chat-AI rows
-  of AI Configuration are real (server-backed); the remaining AI
-  Configuration voice rows are still `MockRows` demo state.
+  instead — don't re-add it). The **AI Configuration** tab was removed
+  2026-08-15: its real rows (quiet hours, send pacing, voice-call LLM/STT)
+  became PER-ACCOUNT settings in Channels → edit account → "Delivery & AI",
+  and its remaining `MockRows` demo rows went with it —
+  `AiChatSettings.tsx` / `AiConfigDemoRows.tsx` / `LlmProviderSelect.tsx` /
+  `SttProviderSelect.tsx` are deleted, `/settings/ai` redirects to
+  `/channels`. Don't re-add the tab. Settings → Notifications is real
+  (server-backed).
 - **Never call `getRole()` / `getAuth()` during render.** They read
   localStorage, which doesn't exist during SSR — the server paints the
   `'agent'` fallback, the client paints the real role, and React aborts

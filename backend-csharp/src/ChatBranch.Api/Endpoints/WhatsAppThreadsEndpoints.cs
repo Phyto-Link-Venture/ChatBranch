@@ -246,16 +246,17 @@ public static class WhatsAppThreadsEndpoints
                 {
                     detail = "Contact opted out of WhatsApp contact — template sends are blocked.",
                 }, statusCode: 409);
-            if (InQuietHours(sc))
-                return Results.Json(new
-                {
-                    detail = "Quiet hours are in effect (Settings → App Keys) — "
-                             + "template sends resume when they end.",
-                }, statusCode: 409);
-
             // Templates never fail over to Baileys (no template API on WhatsApp
             // Web); a Baileys account sends the rendered body as free text.
             var account = await EffectiveAccount(db, wa, thread);
+            // quiet hours are a per-account setting (Settings → Channels → edit
+            // account), falling back to the organization-wide value
+            if (AccountDelivery.InQuietHours(account, sc))
+                return Results.Json(new
+                {
+                    detail = "Quiet hours are in effect for this account (Settings → Channels → "
+                             + "edit account) — template sends resume when they end.",
+                }, statusCode: 409);
             var bodyText = DemoTemplateBodies.TryGetValue(name, out var demo) ? demo : "";
             if (bodyText.Length == 0)
             {
@@ -580,7 +581,7 @@ public static class WhatsAppThreadsEndpoints
         // End button) is demoable without a WhatsApp number. A CONFIGURED
         // account would need the bridge process → 501, never a 500.
         app.MapPost("/api/whatsapp/threads/{key}/call/start", async (string key,
-            CallStartRequest? body, AppDbContext db, ThreadStore store,
+            CallStartRequest? body, AppDbContext db, ThreadStore store, ScopingService sc,
             IWhatsAppCloudClient wa, ClaimsPrincipal me, HttpContext ctx) =>
         {
             var thread = await FindThread(db, key);
@@ -624,6 +625,11 @@ public static class WhatsAppThreadsEndpoints
                 room = thread.CallRoom,
                 voice_provider = body?.VoiceProvider ?? "",
                 voice_id = body?.VoiceId ?? "",
+                // The conversation brain + STT engine are PER ACCOUNT (Settings →
+                // Channels → edit account → Delivery & AI), falling back to the
+                // organization-wide value — a real transport dispatches with these.
+                llm_provider = AccountDelivery.Resolve(account, AccountDelivery.LlmProvider, sc),
+                stt_provider = AccountDelivery.Resolve(account, AccountDelivery.SttProvider, sc),
                 sandbox = true,
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
@@ -937,27 +943,6 @@ public static class WhatsAppThreadsEndpoints
     {
         var v = (sc.SettingValue(key) ?? "").Trim();
         return v.Length > 0 ? v : fallback;
-    }
-
-    /// <summary>wa_config.in_quiet_hours — server-local HH:MM window, wrapping midnight.</summary>
-    private static bool InQuietHours(ScopingService sc)
-    {
-        var start = ParseHhMm(sc.SettingValue("quiet_start"));
-        var end = ParseHhMm(sc.SettingValue("quiet_end"));
-        if (start == null || end == null || start == end) return false;
-        var now = DateTime.Now.TimeOfDay;
-        return start < end
-            ? now >= start && now < end
-            : now >= start || now < end;   // window crosses midnight
-    }
-
-    private static TimeSpan? ParseHhMm(string? raw)
-    {
-        var parts = (raw ?? "").Trim().Split(':');
-        if (parts.Length != 2) return null;
-        if (!int.TryParse(parts[0], out var h) || !int.TryParse(parts[1], out var m)) return null;
-        if (h is < 0 or > 23 || m is < 0 or > 59) return null;
-        return new TimeSpan(h, m, 0);
     }
 
     /// <summary>
