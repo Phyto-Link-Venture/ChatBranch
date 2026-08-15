@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
 using ChatBranch.Data.Ai;
@@ -149,6 +150,36 @@ public static class AiEndpoints
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         // ---- manual reply (playground / operator "AI draft") -------------------
+        // ---- booking hours (per-day appointment schedule; Setting booking_hours,
+        //      entity-scoped) — drives the slots the AI offers + the booking guard,
+        //      and belongs with the Google Calendar integration in the UI. --------
+        app.MapGet("/api/aicore/booking-hours", async (string? entity, AppDbContext db, ScopingService sc) =>
+        {
+            var entityId = await InboxEndpoints.EntityId(db, entity);
+            return Results.Ok(BookingHoursPayload(sc, entityId, entity));
+        }).RequireAuthorization(AuthPolicies.Authenticated);
+
+        app.MapPut("/api/aicore/booking-hours", async (string? entity, HttpContext ctx, AppDbContext db, ScopingService sc) =>
+        {
+            var entityId = await InboxEndpoints.EntityId(db, entity);
+            JsonElement body;
+            try { body = await ctx.Request.ReadFromJsonAsync<JsonElement>(); }
+            catch { return Results.Json(new { detail = "invalid body" }, statusCode: 400); }
+            // Accept {hours:{...}} or a bare {...} map of day -> [open,close]|null.
+            var hours = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("hours", out var h) ? h : body;
+            sc.SetSetting("booking_hours", hours.GetRawText(), entityId);
+            return Results.Ok(BookingHoursPayload(sc, entityId, entity));
+        }).RequireAuthorization(AuthPolicies.AdminPlus);
+
+        app.MapDelete("/api/aicore/booking-hours", async (string? entity, AppDbContext db, ScopingService sc) =>
+        {
+            var entityId = await InboxEndpoints.EntityId(db, entity);
+            if (entityId == null)
+                return Results.Json(new { detail = "Select an entity to remove its override. The organization default is edited, not deleted." }, statusCode: 400);
+            sc.ClearSetting("booking_hours", entityId);
+            return Results.Ok(BookingHoursPayload(sc, entityId, entity));
+        }).RequireAuthorization(AuthPolicies.AdminPlus);
+
         app.MapPost("/api/aicore/reply", async (ReplyRequest body, ThreadStore store,
             AssistantService assistant) =>
         {
@@ -160,6 +191,37 @@ public static class AiEndpoints
     }
 
     private static AgentSkill Add(AppDbContext db, AgentSkill s) { db.AgentSkills.Add(s); return s; }
+
+    private static Dictionary<string, int[]> DefaultBookingHours() => new()
+    {
+        ["mon"] = new[] { 9, 21 }, ["tue"] = new[] { 9, 21 }, ["wed"] = new[] { 9, 21 },
+        ["thu"] = new[] { 9, 21 }, ["fri"] = new[] { 9, 21 },
+    };
+
+    private static object BookingHoursRaw(ScopingService sc, int? entityId)
+    {
+        var raw = sc.SettingValue("booking_hours", entityId);
+        if (!string.IsNullOrWhiteSpace(raw))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(raw);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                    return doc.RootElement.Clone();
+            }
+            catch { /* fall through to default */ }
+        }
+        return DefaultBookingHours();
+    }
+
+    private static object BookingHoursPayload(ScopingService sc, int? entityId, string? entitySlug) => new
+    {
+        hours = BookingHoursRaw(sc, entityId),
+        scope = sc.SettingScope("booking_hours", entityId),
+        entity = entitySlug,
+        global_hours = BookingHoursRaw(sc, null),
+        @default = DefaultBookingHours(),
+    };
 
     private static object KnowledgeDto(KnowledgeItem k) => new
     {

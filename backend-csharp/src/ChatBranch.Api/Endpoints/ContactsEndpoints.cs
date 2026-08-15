@@ -108,7 +108,9 @@ public static class ContactsEndpoints
             var entityId = await InboxEndpoints.EntityId(db, entity);
             var rows = sc.ScopeInherited(db.ScriptTemplates.AsNoTracking(), entityId)
                 .OrderBy(s => s.Name).ToList();
-            return Results.Ok(new { scripts = rows.Select(Dtos.ScriptTemplateDto) });
+            // Frontend (ScriptTemplatesSettings) reads `templates` — a `scripts`
+            // key left it undefined and crashed on `sorted.length`.
+            return Results.Ok(new { templates = rows.Select(Dtos.ScriptTemplateDto) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         app.MapPost("/api/calls/script-templates", async (ScriptWrite b, AppDbContext db) =>
