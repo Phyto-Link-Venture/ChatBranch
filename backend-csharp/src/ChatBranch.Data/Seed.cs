@@ -81,6 +81,25 @@ public static class Seed
             }
         }
 
+        // Default Custom Fields schema — seeded ONLY when none exists yet, so it
+        // never overwrites a deployment's own labels. Service Providers are a
+        // generic concept (teachers, suppliers, coaches…), so the out-of-the-box
+        // provider field is a "Type" dropdown that tells them apart. Admins edit
+        // or extend this from Settings → Custom Fields.
+        if (!db.Settings.Any(s => s.Key == "custom_fields" && s.EntityId == null))
+        {
+            const string defaultSchema =
+                "{\"provider\":[{\"key\":\"type\",\"label\":\"Type\",\"kind\":\"select\"," +
+                "\"options\":[\"Teacher\",\"Supplier\"],\"required\":true,\"position\":0}]," +
+                "\"customer\":[]}";
+            db.Settings.Add(new Setting
+            {
+                Key = "custom_fields", Value = defaultSchema, EntityId = null,
+                UpdatedAt = DateTime.UtcNow,
+            });
+            db.SaveChanges();
+        }
+
         // ONE test customer only (the operator's own number) — enough to exercise
         // the contact page, chats and AI replies end-to-end without a pile of
         // fake customers to wade through. Idempotent on phone.
