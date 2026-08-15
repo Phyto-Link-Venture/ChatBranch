@@ -103,9 +103,9 @@ function SettingsShellInner({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1 gap-4 p-4">
-        {/* Tab rail */}
-        <div className="flex w-[200px] shrink-0 flex-col gap-0.5 overflow-y-auto no-scrollbar">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 md:flex-row md:gap-4 md:p-4">
+        {/* Tab rail — horizontal scroll strip on mobile, vertical rail on md+ */}
+        <div className="flex w-full shrink-0 flex-row gap-1 overflow-x-auto no-scrollbar md:w-[200px] md:flex-col md:gap-0.5 md:overflow-x-visible md:overflow-y-auto">
           {visibleTabs.map((t) => {
             const href = `/settings/${t.id}`
             const active = pathname === href
@@ -114,7 +114,7 @@ function SettingsShellInner({ children }: { children: ReactNode }) {
                 key={t.id}
                 href={href}
                 aria-current={active ? 'page' : undefined}
-                className="cursor-pointer rounded-xl px-3 py-[9px] text-[13px] transition-colors"
+                className="shrink-0 cursor-pointer whitespace-nowrap rounded-xl px-3 py-[9px] text-[13px] transition-colors"
                 style={{
                   fontWeight: active ? 600 : 500,
                   background: active ? 'var(--nav-active-bg)' : 'transparent',
@@ -128,7 +128,7 @@ function SettingsShellInner({ children }: { children: ReactNode }) {
         </div>
 
         {/* Content */}
-        <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-line bg-card px-6 pb-6 pt-4">
+        <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-line bg-card px-4 pb-4 pt-4 md:px-6 md:pb-6">
           {children}
         </div>
       </div>

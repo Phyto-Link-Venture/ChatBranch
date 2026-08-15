@@ -76,6 +76,10 @@ app.MapFlowsEndpoints();
 app.MapContactsEndpoints();
 app.MapAnalyticsEndpoints();
 app.MapIntegrationsEndpoints();
+app.MapNotificationEndpoints();
+app.MapAdminEndpoints();
+app.MapWhatsAppSettingsEndpoints();
+app.MapVoiceMessagingEndpoints();
 app.MapApiV1Endpoints();
 app.MapWebhookEndpoints();
 
