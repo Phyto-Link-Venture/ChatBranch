@@ -201,7 +201,9 @@ export function WhatsAppSettings({
   /** Fires with the account count after each refresh — lets the Channels
    *  picker keep its "N accounts" label in sync. Must be referentially
    *  stable (useCallback) or the panel refetches every render. */
-  onAccountsChanged?: (count: number) => void
+  /** Called with (total, cloud) account counts — templates are a Cloud API
+   *  feature, so the parent gates the template manager on `cloud`. */
+  onAccountsChanged?: (count: number, cloud: number) => void
 } = {}) {
   const [accounts, setAccounts] = useState<WaAccount[] | null>(null)
   const [verifyToken, setVerifyToken] = useState('chatbranch-verify')
@@ -245,7 +247,7 @@ export function WhatsAppSettings({
       ])
       setAccounts(a.accounts)
       setVerifyToken(s.verify_token)
-      onAccountsChanged?.(a.accounts.length)
+      onAccountsChanged?.(a.accounts.length, a.accounts.filter((x) => x.provider !== 'baileys').length)
     } catch {
       setAccounts(null)
     }

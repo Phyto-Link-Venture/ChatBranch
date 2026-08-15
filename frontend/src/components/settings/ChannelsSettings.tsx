@@ -1131,6 +1131,8 @@ export function ChannelsSettings() {
   const [canManage, setCanManage] = useState(false)
   useEffect(() => setCanManage(hasCap('channels.manage')), [])
   const [waCount, setWaCount] = useState<number | null>(null)
+  // Cloud API accounts only — Meta templates don't exist for Baileys numbers.
+  const [waCloudCount, setWaCloudCount] = useState<number>(0)
   const [email, setEmail] = useState<EmailSettings | null>(null)
   const [accounts, setAccounts] = useState<MessagingAccount[]>([])
   const [messagingUp, setMessagingUp] = useState(true)
@@ -1196,8 +1198,9 @@ export function ChannelsSettings() {
       .catch(() => setWaCount(null))
   }, [refreshMessaging, refreshHealth])
 
-  const onWaAccountsChanged = useCallback((count: number) => {
+  const onWaAccountsChanged = useCallback((count: number, cloud: number) => {
     setWaCount(count)
+    setWaCloudCount(cloud)
     refreshHealth().catch(() => {})
   }, [refreshHealth])
 
@@ -1269,7 +1272,11 @@ export function ChannelsSettings() {
       {active === 'whatsapp' ? (
         <div className="flex flex-col gap-5">
           <WhatsAppSettings onAccountsChanged={onWaAccountsChanged} />
-          {/* Cloud API template manager lives with the channel it belongs to */}
+          {/* Cloud API template manager lives with the channel it belongs to —
+              and only appears once a Cloud API (WhatsApp Business) account is
+              connected: Meta templates mean nothing without one, and showing
+              them on an empty channel just confuses. */}
+          {waCloudCount > 0 && (
           <div className="border-t border-line pt-4">
             <div className="mb-1 flex items-center gap-2">
               <LayoutTemplate size={14} className="text-brand-300" aria-hidden />
@@ -1281,6 +1288,7 @@ export function ChannelsSettings() {
             </p>
             <TemplatesSettings />
           </div>
+          )}
         </div>
       ) : active === 'voice' ? (
         // voice talks to /api/whatsapp (health module), not /api/messaging —
