@@ -265,7 +265,7 @@ export default function PersonaPage() {
           <Mic size={16} strokeWidth={1.75} color="#93C5FD" />
         </div>
         <div>
-          <div className="mb-0.5 text-[13px] font-bold text-text-high">AI Voice &amp; Persona</div>
+          <div className="mb-0.5 text-[13px] font-bold text-text-high">Voice &amp; Calls</div>
           <div className="text-[12px] leading-[1.5] text-text-mid">
             Browse, clone, import, and manage the voices available for AI Responsive Calls.
           </div>

@@ -22,7 +22,9 @@ export const SETTINGS_TABS: { id: string; lbl: string; superadminOnly?: boolean 
   { id: 'ai', lbl: 'AI Configuration' },
   { id: 'ai-providers', lbl: 'AI Keys & Models' }, // GET any role (read-only); PUT superadmin — renamed to avoid clashing with "Service Providers"
   { id: 'mcp', lbl: 'MCP Servers' },
-  { id: 'persona', lbl: 'AI Persona' },
+  // The chat AI's personality (system prompt) — distinct from the sidebar
+  // "Voice & Calls" page, which is the voice/call persona.
+  { id: 'persona', lbl: 'Chat Persona' },
   { id: 'knowledge', lbl: 'Knowledge Base' },
   { id: 'skills', lbl: 'AI Skills' },
   { id: 'providers', lbl: 'Service Providers' },

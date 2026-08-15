@@ -72,7 +72,9 @@ export const NAV_GROUPS: { label?: string; items: NavDef[] }[] = [
     label: 'Automate',
     items: [
       { href: '/flow-builder', lbl: 'Flow Builder', Icon: Workflow, cap: 'flows.manage', roles: ['superadmin', 'admin'] },
-      { href: '/persona', lbl: 'Persona', Icon: Mic, cap: 'settings.ai.manage', roles: ['superadmin', 'admin'] },
+      // Voice/call persona (voice picker, previews, opening line) — distinct from
+      // Settings → Chat Persona, which is the text-AI system prompt.
+      { href: '/persona', lbl: 'Voice & Calls', Icon: Mic, cap: 'settings.ai.manage', roles: ['superadmin', 'admin'] },
     ],
   },
   {

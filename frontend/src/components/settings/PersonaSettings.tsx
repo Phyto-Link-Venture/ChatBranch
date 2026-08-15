@@ -35,7 +35,7 @@ async function personaApi<T>(init?: RequestInit, entityQ = ''): Promise<T> {
   return data as T
 }
 
-/** Settings → AI Persona: the AI agent's permanent operating
+/** Settings → Chat Persona: the AI agent's permanent operating
  *  instructions (personality, tone, conversation style,
  *  escalation rules). Superadmin edits via PUT /api/aicore/persona; an empty
  *  string resets to the built-in default. Everyone else gets a read-only view.
@@ -113,7 +113,7 @@ export function PersonaSettings() {
   return (
     <div className="pt-3">
       <div className="mb-1.5 flex items-center gap-2">
-        <span className="text-[13px] font-bold text-text-high">AI Persona</span>
+        <span className="text-[13px] font-bold text-text-high">Chat Persona</span>
         {!loading && !loadError && (
           <span
             className="rounded-full px-2 py-px text-[10px] font-bold"
