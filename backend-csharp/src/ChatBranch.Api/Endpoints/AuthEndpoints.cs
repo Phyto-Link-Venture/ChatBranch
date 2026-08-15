@@ -46,7 +46,25 @@ public static class AuthEndpoints
             });
             await db.SaveChangesAsync();
 
-            return Results.Ok(new { token, role = profile.Role, username = user.Username });
+            // Django contract: {token, user:{username, name, role, ...}}. The
+            // dashboard reads `data.user` (name for the profile chip, role for
+            // gates) — a flat body left it showing "Not signed in". Top-level
+            // token/role/username kept for back-compat with existing callers.
+            // (auth_user has no first_name column, so name falls back to the
+            // username, matching Django's `first_name or username`.)
+            var userPayload = new
+            {
+                username = user.Username,
+                name = user.Username,
+                role = profile.Role,
+            };
+            return Results.Ok(new
+            {
+                token,
+                role = profile.Role,
+                username = user.Username,
+                user = userPayload,
+            });
         }).AllowAnonymous();
 
         app.MapPost("/api/auth/logout", async (HttpContext ctx, AppDbContext db) =>
