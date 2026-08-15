@@ -53,7 +53,27 @@ public static class AiEndpoints
             var entityId = await InboxEndpoints.EntityId(db, entity);
             var rows = sc.ScopeInherited(db.KnowledgeItems.AsNoTracking(), entityId)
                 .OrderByDescending(k => k.Priority).ThenByDescending(k => k.UpdatedAt).ToList();
-            return Results.Ok(new { knowledge = rows.Select(KnowledgeDto) });
+            // Django-contract shape: the KnowledgeSettings page reads items/counts/
+            // kinds — returning a bare list left `data.kinds.map` undefined and
+            // crashed the page. KIND_CHOICES mirror crm.KnowledgeItem.
+            var kinds = new[]
+            {
+                new { id = "fact", label = "Business fact" },
+                new { id = "policy", label = "Policy / T&C" },
+                new { id = "faq", label = "FAQ" },
+                new { id = "event", label = "Event / promotion" },
+                new { id = "notice", label = "Sudden notice" },
+            };
+            var counts = kinds.ToDictionary(k => k.id, k => rows.Count(r => r.Kind == k.id));
+            return Results.Ok(new
+            {
+                items = rows.Select(KnowledgeDto),
+                counts,
+                kinds,
+                budget = 1800,
+                entity = (string?)null,
+                entity_name = "",
+            });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         app.MapPost("/api/aicore/knowledge", async (KnowledgeWrite b, AppDbContext db) =>

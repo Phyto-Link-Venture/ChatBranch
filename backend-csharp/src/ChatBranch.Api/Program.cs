@@ -80,6 +80,7 @@ app.MapNotificationEndpoints();
 app.MapAdminEndpoints();
 app.MapWhatsAppSettingsEndpoints();
 app.MapVoiceMessagingEndpoints();
+app.MapMcpEndpoints();
 app.MapApiV1Endpoints();
 app.MapWebhookEndpoints();
 
