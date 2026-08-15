@@ -15,6 +15,8 @@ import {
   X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { CustomFieldsInputs } from '@/components/CustomFieldsInputs'
+import { fetchCustomFields, formatFieldValue, type FieldDef } from '@/lib/customFields'
 import { roleHeaders } from '@/lib/role'
 import { useRole } from '@/lib/useRole'
 import { expireSessionOn401 } from '@/lib/auth'
@@ -37,6 +39,8 @@ interface Resource {
   phone: string
   active: boolean
   config: Record<string, unknown>
+  /** Custom Fields values — the per-vertical labels from Settings → Custom Fields. */
+  attributes?: Record<string, unknown>
   links_count: number
 }
 
@@ -62,6 +66,30 @@ const inputCls =
 
 const cfg = (r: Pick<Resource, 'config'>, key: string) => String(r.config?.[key] ?? '')
 
+/**
+ * The provider's filled-in Custom Fields as one line of chips ("Language:
+ * Malay"), so an admin reads a vertical's own labels off the list without
+ * opening the form. Empty values are skipped; all-empty renders nothing.
+ */
+function FieldChips({ fields, values }: { fields: FieldDef[]; values?: Record<string, unknown> }) {
+  const filled = fields
+    .map((f) => ({ key: f.key, label: f.label, text: formatFieldValue(f, values?.[f.key]) }))
+    .filter((c) => c.text !== '')
+  if (filled.length === 0) return null
+  return (
+    <span className="mt-1 flex flex-wrap gap-1">
+      {filled.map((c) => (
+        <span
+          key={c.key}
+          className="rounded-full border border-line bg-fill px-2 py-0.5 text-[10px] text-text-muted"
+        >
+          <span className="font-bold text-text-mid">{c.label}:</span> {c.text}
+        </span>
+      ))}
+    </span>
+  )
+}
+
 type Draft = {
   id?: number
   name?: string
@@ -71,6 +99,7 @@ type Draft = {
   availability_sheet_id?: string
   availability_range?: string
   calendar_id?: string
+  attributes?: Record<string, unknown>
 }
 
 /**
@@ -91,6 +120,7 @@ export function ProvidersSettings() {
   const [notice, setNotice] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [busy, setBusy] = useState(false)
+  const [providerFields, setProviderFields] = useState<FieldDef[]>([])
 
   const [expanded, setExpanded] = useState<number | null>(null)
   const [links, setLinks] = useState<Record<number, Link[]>>({})
@@ -113,6 +143,22 @@ export function ProvidersSettings() {
     load()
   }, [load])
 
+  // Custom Fields are optional decoration — a missing/failing endpoint must
+  // never take the providers page down with it.
+  useEffect(() => {
+    let alive = true
+    fetchCustomFields()
+      .then((s) => {
+        if (alive) setProviderFields(s.provider)
+      })
+      .catch(() => {
+        if (alive) setProviderFields([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
   const submit = async () => {
     if (!draft) return
     setBusy(true)
@@ -128,6 +174,7 @@ export function ProvidersSettings() {
           availability_range: draft.availability_range || '',
           calendar_id: draft.calendar_id || '',
         },
+        attributes: draft.attributes ?? {},
       }
       if (draft.id) {
         await api(`resources/${draft.id}`, { method: 'PATCH', body: JSON.stringify(body) })
@@ -155,6 +202,7 @@ export function ProvidersSettings() {
       availability_sheet_id: cfg(r, 'availability_sheet_id'),
       availability_range: cfg(r, 'availability_range'),
       calendar_id: cfg(r, 'calendar_id'),
+      attributes: r.attributes ?? {},
     })
 
   const remove = async (r: Resource) => {
@@ -371,6 +419,19 @@ export function ProvidersSettings() {
             </label>
           </div>
 
+          {providerFields.length > 0 && (
+            <div className="mt-3 border-t border-line pt-3">
+              <div className="mb-2 text-[10.5px] font-bold uppercase tracking-[0.04em] text-text-muted">
+                Custom fields
+              </div>
+              <CustomFieldsInputs
+                fields={providerFields}
+                values={draft.attributes ?? {}}
+                onChange={(attrs) => setDraft({ ...draft, attributes: attrs })}
+              />
+            </div>
+          )}
+
           <label className="mt-3 flex items-center gap-2 text-[11.5px] text-text-mid">
             <input
               type="checkbox"
@@ -418,6 +479,7 @@ export function ProvidersSettings() {
                   {cfg(r, 'availability_sheet_id') && ' · sheet ✓'}
                   {cfg(r, 'calendar_id') && ' · calendar ✓'}
                 </span>
+                <FieldChips fields={providerFields} values={r.attributes} />
               </button>
               {canManage && (
                 <button

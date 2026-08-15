@@ -25,8 +25,11 @@ namespace ChatBranch.Api.Endpoints;
 /// </summary>
 public static class ContactsEndpoints
 {
+    // `attributes` = the Custom Fields values (Settings → Custom Fields defines
+    // the schema); merged onto the row's free-form JSON, which the AI reads.
     public record ContactWrite(string Name, string Phone, string? Email, string? Language,
-        string? CompanyName, List<string>? Tags);
+        string? CompanyName, List<string>? Tags,
+        Dictionary<string, object?>? Attributes = null);
     public record IdentityWrite(string Channel, string Address);
 
     /// <summary>contacts.py _HISTORY_LIMIT — recent touchpoints, not a full feed.</summary>
@@ -89,6 +92,11 @@ public static class ContactsEndpoints
             if (b.Language != null) c.Language = b.Language;
             if (b.CompanyName != null) c.CompanyName = b.CompanyName;
             if (b.Tags != null) c.Tags = b.Tags;
+            if (b.Attributes != null)
+            {
+                // Merge (not replace) so fields this form doesn't know about survive.
+                foreach (var kv in b.Attributes) c.Attributes[kv.Key] = kv.Value;
+            }
             c.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
             return Results.Ok((await ContactItemsAsync(db, new List<Contact> { c })).First());

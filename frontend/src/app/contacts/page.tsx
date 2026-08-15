@@ -13,6 +13,8 @@ import { Modal } from '@/components/ui/Modal'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { LANGUAGES } from '@/lib/languages'
 import { ContactImportModal } from '@/components/contacts/ContactImportModal'
+import { CustomFieldsInputs } from '@/components/CustomFieldsInputs'
+import { fetchCustomFields, type FieldDef } from '@/lib/customFields'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
@@ -117,6 +119,17 @@ function ContactModal({
   const [selectedEntities, setSelectedEntities] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Custom Fields (Settings → Custom Fields): the per-vertical labels defined
+  // for Customers. Definitions come from the server; the VALUES live in this
+  // contact's free-form `attributes` JSON, which the AI already reads.
+  const [customerFields, setCustomerFields] = useState<FieldDef[]>([])
+  const [attributes, setAttributes] = useState<Record<string, unknown>>({})
+
+  useEffect(() => {
+    fetchCustomFields()
+      .then((s) => setCustomerFields(s.customer))
+      .catch(() => setCustomerFields([]))
+  }, [])
 
   // Reset / prefill the form each time the modal (re)opens.
   useEffect(() => {
@@ -128,6 +141,9 @@ function ContactModal({
       setCompany(editing?.company ?? '')
       setTags((editing?.tags ?? []).join(', '))
       setNotes(editing && typeof editing.attributes.notes === 'string' ? editing.attributes.notes : '')
+      // Keep the whole attributes object — the custom-field inputs edit their
+      // own keys inside it, so unrelated keys survive a save untouched.
+      setAttributes({ ...(editing?.attributes ?? {}) })
       setSelectedEntities(activeEntity ? [activeEntity.slug] : [])
       setError(null)
       setBusy(false)
@@ -146,6 +162,8 @@ function ContactModal({
         company_name: company.trim(),
         tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
         notes: notes.trim(),
+        // Custom Field values — merged onto the contact's `attributes` JSON.
+        attributes,
         // Entity membership on create: the ticked entities (multi-select).
         // Ignored on edit — PATCH doesn't touch entity links.
         ...(editing || selectedEntities.length === 0
@@ -221,6 +239,21 @@ function ContactModal({
         <AddField label="Tags (comma-separated)" value={tags} onChange={setTags} placeholder="vip, wholesale" />
         <AddField label="Notes (optional)" value={notes} onChange={setNotes} />
       </div>
+
+      {customerFields.length > 0 && (
+        <div className="mt-3 rounded-lg border border-line bg-fill-subtle px-3 py-2.5">
+          <div className="mb-2 text-[11px] font-bold text-text-high">Custom fields</div>
+          <CustomFieldsInputs
+            fields={customerFields}
+            values={attributes}
+            onChange={setAttributes}
+            disabled={busy}
+          />
+          <p className="mt-1.5 text-[10.5px] text-text-faint">
+            Defined in Settings → Custom Fields. The AI reads these when it talks to this contact.
+          </p>
+        </div>
+      )}
 
       {!editing && entities.length > 0 && (
         <div className="mt-3 rounded-lg border border-line bg-fill-subtle px-3 py-2.5">

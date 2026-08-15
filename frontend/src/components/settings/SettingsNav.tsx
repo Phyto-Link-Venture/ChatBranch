@@ -27,10 +27,13 @@ export const SETTINGS_TABS: { id: string; lbl: string; superadminOnly?: boolean 
   { id: 'persona', lbl: 'Chat Persona' },
   { id: 'knowledge', lbl: 'Knowledge Base' },
   { id: 'skills', lbl: 'AI Skills' },
-  { id: 'providers', lbl: 'Service Providers' },
+  // Service Providers moved to the sidebar (/providers) — operational data,
+  // not configuration. Settings keeps only their Custom Fields (below).
+  { id: 'custom-fields', lbl: 'Custom Fields' },
   { id: 'assignments', lbl: 'Account Assignment' },
   { id: 'appkeys', lbl: 'App Keys', superadminOnly: true },
-  { id: 'pronunciation', lbl: 'Pronunciation' },
+  // Pronunciation moved to the Voice & Calls page (/persona) — it is a
+  // voice/TTS concern (ElevenLabs respellings), not an app setting.
   // Booking Hours moved INTO the Google Calendar integration (Settings →
   // Integrations → Google Calendar → Booking hours) — it configures that
   // integration, not the app globally. /settings/booking-hours redirects there.

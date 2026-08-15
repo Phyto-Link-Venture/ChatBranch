@@ -22,6 +22,7 @@ import {
   FileText,
   ScrollText,
   Bell,
+  Briefcase,
   LogOut,
   ChevronsLeft,
   ChevronsRight,
@@ -65,6 +66,9 @@ export const NAV_GROUPS: { label?: string; items: NavDef[] }[] = [
     label: 'Work',
     items: [
       { href: '/contacts', lbl: 'Contacts', Icon: Users, alsoActive: ['/contacts/'], cap: 'contacts.view' },
+      // Service Providers = operational data (the delivery side), managed
+      // day-to-day like Contacts — a Work area, not a Settings tab.
+      { href: '/providers', lbl: 'Service Providers', Icon: Briefcase, cap: 'contacts.view' },
       { href: '/chats', lbl: 'Chats', Icon: MessageSquare, cap: 'chats.view' },
     ],
   },

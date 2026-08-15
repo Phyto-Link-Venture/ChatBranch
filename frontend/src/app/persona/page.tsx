@@ -18,6 +18,7 @@ import { SectionLabel } from '@/components/ui/Card'
 import { buildOpeningLine } from '@/lib/personaLine'
 import { stopPreview, subscribePlaying } from '@/lib/voice'
 import { PERSONAS, PERSONA_LABELS } from '@/lib/personas'
+import { PronunciationSettings } from '@/components/settings/PronunciationSettings'
 import type { Voice } from '@/lib/mocks'
 
 function errMessage(err: unknown): string {
@@ -687,6 +688,13 @@ export default function PersonaPage() {
           <RefreshCw size={12} strokeWidth={1.75} color="#64748B" />
           Selected voices are assignable per campaign in Playbook and Live Calling.
         </div>
+      </div>
+
+      {/* Pronunciation lives with the voices it shapes (ElevenLabs respellings
+          applied to every TTS call) — moved here from Settings. */}
+      <div id="pronunciation" className="rounded-[14px] border border-line bg-card p-4">
+        <SectionLabel>Pronunciation</SectionLabel>
+        <PronunciationSettings />
       </div>
     </div>
   )

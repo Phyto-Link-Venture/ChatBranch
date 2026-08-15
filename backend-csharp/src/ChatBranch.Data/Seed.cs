@@ -80,5 +80,25 @@ public static class Seed
                 db.SaveChanges();
             }
         }
+
+        // ONE test customer only (the operator's own number) — enough to exercise
+        // the contact page, chats and AI replies end-to-end without a pile of
+        // fake customers to wade through. Idempotent on phone.
+        const string testPhone = "+601133199692";
+        if (!db.Contacts.Any(c => c.Phone == testPhone))
+        {
+            db.Contacts.Add(new Contact
+            {
+                Name = "liewxen",
+                Phone = testPhone,
+                Email = "liewxen@gmail.com",
+                Language = "en",
+                Status = "active",
+                TenantId = tenant.Id,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+            });
+            db.SaveChanges();
+        }
     }
 }

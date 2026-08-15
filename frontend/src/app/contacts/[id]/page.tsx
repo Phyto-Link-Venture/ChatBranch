@@ -29,6 +29,7 @@ import { initials, methodLabel, primaryRecord } from '@/lib/mocks'
 import { StatusBadge, Pill } from '@/components/ui/Badges'
 import ChannelHub from '@/components/ChannelHub'
 import ContactEntitiesCard from '@/components/ContactEntitiesCard'
+import { fetchCustomFields, formatFieldValue, type FieldDef } from '@/lib/customFields'
 import { DEFAULT_WORKFLOWS } from '@/lib/flow/defaultWorkflows'
 import type { FlowNode } from '@/lib/flow/types'
 
@@ -147,6 +148,16 @@ export default function ContactDetailPage() {
   const [summary, setSummary] = useState<AiSummary | null>(null)
   const [genBusy, setGenBusy] = useState(false)
   const [flow, setFlow] = useState<{ stageLabel: string; steps: string[] }>({ stageLabel: '', steps: [] })
+  // Custom Fields (Settings → Custom Fields) defined for Customers — values
+  // live in this contact's `attributes` JSON and are edited from the contact
+  // list's edit modal; here they are read-only chips.
+  const [customerFields, setCustomerFields] = useState<FieldDef[]>([])
+
+  useEffect(() => {
+    fetchCustomFields()
+      .then((s) => setCustomerFields(s.customer))
+      .catch(() => setCustomerFields([]))
+  }, [])
 
   const phone = d?.phone ?? ''
   const record = d ? primaryRecord(d) : null
@@ -426,6 +437,32 @@ export default function ContactDetailPage() {
               </select>
             </div>
           </div>
+
+          {/* Custom fields — the per-vertical labels an admin defined for
+              Customers, shown read-only (edit them from the contact list). */}
+          {(() => {
+            const filled = customerFields
+              .map((f) => ({ f, v: formatFieldValue(f, d.attributes?.[f.key]) }))
+              .filter((x) => x.v !== '')
+            if (filled.length === 0) return null
+            return (
+              <div className="rounded-2xl border border-line bg-card p-4">
+                <div className="mb-3 text-[12px] font-bold uppercase tracking-[0.06em] text-text-mid">
+                  Custom Fields
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {filled.map(({ f, v }) => (
+                    <span
+                      key={f.key}
+                      className="rounded-full bg-fill px-2 py-0.5 text-[10.5px] font-semibold text-text-mid"
+                    >
+                      <span className="text-text-faint">{f.label}:</span> {v}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Communication hub — reachable channels, accounts, activity */}
           <div className="rounded-2xl border border-line bg-card p-4">
