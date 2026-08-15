@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json.Serialization;
 using ChatBranch.Api.Auth;
@@ -78,11 +79,18 @@ public static class InboxEndpoints
         // One row per conversation for the inbox list: identity, the 24h-window
         // truth, the per-account chatbot tick and the last-message preview.
         app.MapGet("/api/whatsapp/threads", async (string? channel, string? entity, string? status,
-            int? limit, AppDbContext db, ThreadStore store, ScopingService sc) =>
+            int? limit, AppDbContext db, ThreadStore store, ScopingService sc, ClaimsPrincipal me) =>
         {
             var entityId = await EntityId(db, entity);
             var rows = store.ListThreads(channel, entityId, status,
                                          limit is int n && n > 0 ? n : 100);
+            // Provider login: only conversations with THEIR bound customers.
+            if (ProviderScope.ResourceId(me) is int rid)
+            {
+                var bound = db.ResourceLinks.AsNoTracking()
+                    .Where(l => l.ResourceId == rid && l.Active).Select(l => l.ContactId).ToHashSet();
+                rows = rows.Where(t => t.ContactId is int cid && bound.Contains(cid)).ToList();
+            }
             return Results.Ok(new { threads = await ThreadSummaries(db, sc, rows, entityId) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
@@ -110,9 +118,14 @@ public static class InboxEndpoints
 
         // ---- simulate inbound (sandbox) ---------------------------------------
         app.MapPost("/api/whatsapp/simulate", (SimulateRequest body, ThreadStore store,
-            ChatBranch.Data.Flows.FlowEngine engine) =>
+            ChatBranch.Data.Flows.FlowEngine engine, ChatBranch.Data.Channels.InboundProcessor inbound) =>
         {
-            var thread = store.GetOrCreateThread(body.Channel, body.Key, body.Name);
+            // Link the thread to its contact the same way a real webhook does
+            // (phone/email match) — otherwise simulated chats stay unlinked and
+            // never appear in a provider's scoped inbox.
+            var matched = inbound.MatchContact(body.Channel, body.Key);
+            var thread = store.GetOrCreateThread(body.Channel, body.Key, body.Name, contactId: matched?.Id);
+            if (thread.ContactId == null && matched != null) { thread.ContactId = matched.Id; }
             var msg = store.AppendMessage(thread, MessageDirection.In, MessageSource.Customer,
                 body.Text, status: "received");
             // event axis: resume any flow runs parked on a reply from this contact

@@ -25,6 +25,9 @@ export interface AuthUser {
   /** Fine-grained permissions for the current role (dynamic RBAC). Optional so
    *  older cached sessions still parse — absence triggers the role fallback. */
   capabilities?: string[]
+  /** Provider login: this user IS a Service Provider (teacher / supplier) and
+   *  sees only their own customers/chats. Null/undefined = operator login. */
+  resource_id?: number | null
 }
 
 /**
@@ -175,21 +178,29 @@ export function expireSessionOn401(res: Response): boolean {
  * Never throws — a backend that predates the matrix just leaves capabilities
  * undefined and the role fallback takes over.
  */
-async function fetchCapabilities(token: string): Promise<string[] | undefined> {
+async function fetchIdentity(
+  token: string,
+): Promise<{ capabilities?: string[]; resource_id?: number | null }> {
   for (const path of ['auth/whoami', 'v1/whoami']) {
     try {
       const res = await fetch(`${API}/${path}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok) continue
-      const data = await res.json().catch(() => ({}))
-      const caps = (data as { capabilities?: unknown }).capabilities
-      if (Array.isArray(caps)) return caps.filter((c): c is string => typeof c === 'string')
+      const data = (await res.json().catch(() => ({}))) as {
+        capabilities?: unknown
+        resource_id?: unknown
+      }
+      const caps = Array.isArray(data.capabilities)
+        ? data.capabilities.filter((c): c is string => typeof c === 'string')
+        : undefined
+      const rid = typeof data.resource_id === 'number' ? data.resource_id : null
+      if (caps) return { capabilities: caps, resource_id: rid }
     } catch {
       /* try the next endpoint */
     }
   }
-  return undefined
+  return {}
 }
 
 export async function login(username: string, password: string): Promise<AuthUser> {
@@ -207,7 +218,9 @@ export async function login(username: string, password: string): Promise<AuthUse
     (Array.isArray(data.user?.capabilities) && data.user.capabilities) ||
     (Array.isArray(data.capabilities) && data.capabilities) ||
     undefined
-  user.capabilities = inline || (await fetchCapabilities(user.token))
+  const ident = await fetchIdentity(user.token)
+  user.capabilities = inline || ident.capabilities
+  user.resource_id = ident.resource_id ?? null
   setAuth(user)
   return user
 }

@@ -111,6 +111,12 @@ public static class ResourcesEndpoints
         {
             var row = await Scope(db.Resources, me).FirstOrDefaultAsync(r => r.Id == id);
             if (row == null) return NotFound("Provider not found.");
+            // Who may bind/unbind: operators with contacts.manage (admin+), or a
+            // PROVIDER login acting on THEIR OWN record (Scope already narrows a
+            // provider to themselves, so any other id was a 404 above). Agents: no.
+            if (!ProviderScope.IsProvider(me) &&
+                (me.FindFirstValue(ClaimTypes.Role) ?? "") is not (Roles.SuperAdmin or Roles.Admin))
+                return Results.Json(new { detail = "Admin role required to manage bindings." }, statusCode: 403);
 
             var contactId = AsInt(body, "contact_id");
             var contact = contactId is int cid
@@ -142,13 +148,19 @@ public static class ResourcesEndpoints
 
             Audit(db, me, ctx, "resource.link", $"{row.Name} - {contact.Name}", "");
             return Results.Ok(LinkPayload(link, contact.Name));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         app.MapDelete("/api/resources/{id:int}/links/{linkId:int}", async (int id, int linkId,
             AppDbContext db, ClaimsPrincipal me, HttpContext ctx) =>
         {
             var row = await Scope(db.Resources.AsNoTracking(), me).FirstOrDefaultAsync(r => r.Id == id);
             if (row == null) return NotFound("Provider not found.");
+            // Who may bind/unbind: operators with contacts.manage (admin+), or a
+            // PROVIDER login acting on THEIR OWN record (Scope already narrows a
+            // provider to themselves, so any other id was a 404 above). Agents: no.
+            if (!ProviderScope.IsProvider(me) &&
+                (me.FindFirstValue(ClaimTypes.Role) ?? "") is not (Roles.SuperAdmin or Roles.Admin))
+                return Results.Json(new { detail = "Admin role required to manage bindings." }, statusCode: 403);
             var link = await db.ResourceLinks.Include(l => l.Contact)
                 .FirstOrDefaultAsync(l => l.Id == linkId && l.ResourceId == id);
             if (link == null) return NotFound("Binding not found.");
@@ -157,7 +169,7 @@ public static class ResourcesEndpoints
             await db.SaveChangesAsync();
             Audit(db, me, ctx, "resource.unlink", $"{row.Name} - {contactName}", "");
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- reverse lookup: the providers a CONTACT is bound to ----------------
         // The binding is symmetric (student ↔ teacher, client ↔ supplier) but the
@@ -276,6 +288,10 @@ public static class ResourcesEndpoints
     /// </summary>
     private static IQueryable<Resource> Scope(IQueryable<Resource> qs, ClaimsPrincipal me)
     {
+        // Provider login sees only themselves — and because every links
+        // POST/DELETE resolves the resource through this Scope, a provider can
+        // only bind/unbind THEIR OWN customers (any other id → 404).
+        qs = ProviderScope.Resources(qs, me);
         if ((me.FindFirstValue(ClaimTypes.Role) ?? "") == Roles.SuperAdmin) return qs;
         if (TenantId(me) is not int tid) return qs;
         return qs.Where(r => r.TenantId == tid || r.TenantId == null);

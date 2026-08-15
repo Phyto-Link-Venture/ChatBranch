@@ -69,7 +69,12 @@ public class InboundProcessor
         catch { /* AI failure never breaks the webhook path */ }
     }
 
-    private Contact? MatchContact(string channel, string key)
+    /// <summary>
+    /// The one contact-matching rule for inbound identities: email → exact
+    /// address; everything else → last-8-digit phone match. Public so the
+    /// sandbox <c>/simulate</c> links threads exactly like a real webhook does.
+    /// </summary>
+    public Contact? MatchContact(string channel, string key)
     {
         if (channel == "email")
             return _db.Contacts.FirstOrDefault(c => c.Email.ToLower() == key.ToLower());

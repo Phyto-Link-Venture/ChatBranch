@@ -29,6 +29,18 @@ interface ManagedUser {
   last_login: string | null
   tenant: string | null
   entities: UserEntity[]
+  /** Service Provider this login IS (crm.Resource). Bound = the user sees only
+   *  that provider's own customers and chats. null/absent = unbound. */
+  resource_id?: number | null
+  resource_name?: string | null
+}
+
+/** /api/resources row — the pool the Service Provider binding chooses from. */
+interface ProviderRow {
+  id: number
+  name: string
+  active: boolean
+  attributes?: Record<string, unknown>
 }
 
 /** /api/auth/roles row — the pool the role selectors choose from. */
@@ -206,6 +218,8 @@ export function UsersSettings() {
   const [newEntityIds, setNewEntityIds] = useState<number[]>([])
   // entity pool for the pickers (RBAC entities, /api/v1)
   const [entityPool, setEntityPool] = useState<EntityRow[]>([])
+  // Service Provider pool for the binding picker (/api/resources, not /api/v1)
+  const [providers, setProviders] = useState<ProviderRow[]>([])
 
   const refresh = useCallback(async () => {
     try {
@@ -222,6 +236,12 @@ export function UsersSettings() {
       .then((r) => (r.ok ? r.json() : { entities: [] }))
       .then((d) => setEntityPool(Array.isArray(d.entities) ? d.entities : []))
       .catch(() => setEntityPool([]))
+    // Service Providers live on the legacy surface (/api/resources), which
+    // answers either {resources:[…]} or a bare array — accept both.
+    fetch(`${API}/resources`, { headers: authHeaders() })
+      .then((r) => (r.ok ? r.json() : { resources: [] }))
+      .then((d) => setProviders(Array.isArray(d?.resources) ? d.resources : Array.isArray(d) ? d : []))
+      .catch(() => setProviders([]))
     // Dynamic role pool — built-ins + custom roles. Falls back to the 3
     // built-ins if the roles endpoint predates the custom-roles pass.
     fetch(`${API}/auth/roles`, { headers: authHeaders() })
@@ -247,6 +267,14 @@ export function UsersSettings() {
   const roleChip = (slug: string) => ROLE_CHIP[slug] || CUSTOM_ROLE_CHIP
   /** Roles the CURRENT operator may assign. Superadmin: all. Admin: agent-level
    *  only (agent + any custom) — never admin/superadmin. */
+  /** "Ms Lee (Teacher) — inactive" — the provider's own Type custom field when
+   *  it has one, plus an inactive marker so a dead provider is never picked by
+   *  accident. */
+  const providerLabel = (p: ProviderRow) => {
+    const t = p.attributes?.type
+    const type = typeof t === 'string' && t ? ` (${t})` : ''
+    return `${p.name}${type}${p.active ? '' : ' — inactive'}`
+  }
   const assignableRoles = (): RoleRow[] =>
     (myRole === 'superadmin' ? roleOptions : roleOptions.filter((r) => r.slug !== 'admin' && r.slug !== 'superadmin'))
 
@@ -274,6 +302,19 @@ export function UsersSettings() {
       () => api(`users/${u.id}`, { method: 'POST', body: JSON.stringify({ role }) }),
       `Role updated — ${u.username} is now ${roleLabel(role).toLowerCase()}.`,
     )
+
+  /** Bind (or unbind, with '') this login to a Service Provider. Same
+   *  POST /users/<id> seam as the role change — errors surface in `msg`. */
+  const setProvider = (u: ManagedUser, raw: string) => {
+    const resourceId = raw ? Number(raw) : null
+    const target = providers.find((p) => p.id === resourceId)
+    run(
+      () => api(`users/${u.id}`, { method: 'POST', body: JSON.stringify({ resource_id: resourceId }) }),
+      resourceId === null
+        ? `Unbound — ${u.username} is no longer scoped to a Service Provider.`
+        : `Bound to ${target?.name ?? `provider #${resourceId}`} — ${u.username} now sees only that provider's customers and chats.`,
+    )
+  }
 
   const resetPassword = (u: ManagedUser) => {
     if (pwDraft.length < 8) {
@@ -446,6 +487,43 @@ export function UsersSettings() {
         ),
     },
     {
+      key: 'provider',
+      header: 'Service provider',
+      width: 210,
+      value: (u) => u.resource_name ?? '',
+      render: (u) =>
+        !canManage(u) ? (
+          u.resource_id ? (
+            <span className={`rounded-full px-2 py-px text-[10px] font-bold ${CUSTOM_ROLE_CHIP}`}>
+              Provider: {u.resource_name || `#${u.resource_id}`}
+            </span>
+          ) : (
+            <span className="text-[10.5px] text-text-faint">—</span>
+          )
+        ) : (
+          <select
+            // The bound provider may be missing from the pool (inactive filter,
+            // another tenant) — the fallback <option> below keeps its name
+            // visible instead of showing a blank select.
+            value={u.resource_id ?? ''}
+            disabled={busy}
+            onChange={(e) => setProvider(u, e.target.value)}
+            aria-label={`Service provider for ${u.username}`}
+            className="w-full cursor-pointer rounded-[7px] border border-line-strong bg-surface px-2.5 py-1.5 text-[12px] font-semibold text-text-high outline-none"
+          >
+            <option value="">— none —</option>
+            {u.resource_id != null && !providers.some((p) => p.id === u.resource_id) && (
+              <option value={u.resource_id}>{u.resource_name || `#${u.resource_id}`}</option>
+            )}
+            {providers.map((p) => (
+              <option key={p.id} value={p.id}>
+                {providerLabel(p)}
+              </option>
+            ))}
+          </select>
+        ),
+    },
+    {
       key: 'last_login',
       header: 'Last login',
       sortable: true,
@@ -553,12 +631,17 @@ export function UsersSettings() {
         permission matrix grants them.
       </p>
 
+      <p className="-mt-1 text-[10.5px] leading-relaxed text-text-muted">
+        Binding a login to a Service Provider scopes that user to their own customers and chats. Pair with the Provider
+        role.
+      </p>
+
       {/* user table */}
       <DataTable
         columns={columns}
         rows={users}
         rowKey={(u) => u.id}
-        searchKeys={['user', 'role']}
+        searchKeys={['user', 'role', 'provider']}
         searchPlaceholder="Search users…"
         empty="No users yet."
         toolbarRight={

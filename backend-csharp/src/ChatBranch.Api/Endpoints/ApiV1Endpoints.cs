@@ -64,6 +64,7 @@ public static class ApiV1Endpoints
                 tenant,
                 entities,
                 capabilities,
+                resource_id = ProviderScope.ResourceId(me),
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
@@ -582,7 +583,34 @@ public static class ApiV1Endpoints
                 newEntities = resolved;
             }
 
+            // Bind / unbind this login to a Service Provider. `resource_id`:
+            // an int binds (the user becomes that provider's login — scoped to
+            // their own customers/chats); null/0 unbinds. Must exist + be in
+            // the same tenant.
+            bool setResource = false; int? newResourceId = null;
+            if (Has(body, "resource_id"))
+            {
+                setResource = true;
+                var rp = body.GetProperty("resource_id");
+                if (rp.ValueKind == JsonValueKind.Number && rp.GetInt32() > 0)
+                {
+                    var rid = rp.GetInt32();
+                    var res = await db.Resources.AsNoTracking().FirstOrDefaultAsync(r => r.Id == rid);
+                    if (res == null) return V1Error("bad_request", "resource_id must reference an existing service provider.", 400);
+                    if (res.TenantId != null && profile.TenantId != null && res.TenantId != profile.TenantId)
+                        return V1Error("bad_request", "That service provider belongs to a different tenant than this user.", 400);
+                    newResourceId = rid;
+                }
+                else if (rp.ValueKind is not (JsonValueKind.Null or JsonValueKind.Number))
+                    return V1Error("bad_request", "resource_id must be a provider id or null.", 400);
+            }
+
             var changed = new List<string>();
+            if (setResource && profile.ResourceId != newResourceId)
+            {
+                profile.ResourceId = newResourceId;
+                changed.Add("resource_id");
+            }
             // `name` is accepted and ignored: auth_user has no first_name column
             // in this port, so managed_user_payload already reports the username.
             if (newRole != null && newRole != profile.Role)
@@ -897,6 +925,7 @@ public static class ApiV1Endpoints
 
     private static Task<AppUser?> TargetUserAsync(AppDbContext db, int id) =>
         db.Users.Include(u => u.Profile!).ThenInclude(p => p.Entities)
+                .Include(u => u.Profile!).ThenInclude(p => p.Resource)
             .FirstOrDefaultAsync(u => u.Id == id);
 
     /// Django's get_or_create(profile): a user with no Profile row still has an
@@ -966,6 +995,7 @@ public static class ApiV1Endpoints
         var row = await db.Users.AsNoTracking()
             .Include(u => u.Profile!).ThenInclude(p => p.Tenant)
             .Include(u => u.Profile!).ThenInclude(p => p.Entities)
+                .Include(u => u.Profile!).ThenInclude(p => p.Resource)
             .FirstAsync(u => u.Id == id);
         return AdminEndpoints.ManagedUserPayload(row);
     }

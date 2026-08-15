@@ -28,6 +28,13 @@ public class Profile
     public int? TenantId { get; set; }
     public Tenant? Tenant { get; set; }
 
+    // Provider login: when set, this user IS that Service Provider (teacher /
+    // supplier) — every data query is scoped to the provider's own world (the
+    // customers bound to them via ResourceLink, their conversations, their
+    // bookings). Null = a normal operator login. Nullable FK to crm.Resource.
+    public int? ResourceId { get; set; }
+    public Resource? Resource { get; set; }
+
     // Agent entity allow-list (empty for superadmin/admin, whose access is derived).
     public ICollection<Entity> Entities { get; set; } = new List<Entity>();
     public ICollection<AuthToken> AuthTokens { get; set; } = new List<AuthToken>();

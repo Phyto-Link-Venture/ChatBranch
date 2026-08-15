@@ -20,9 +20,46 @@ public static class Seed
         new("agent", "agent123", Roles.Agent),
     };
 
+    /// <summary>
+    /// Additive schema upgrades for databases created before a column existed.
+    /// EnsureCreated() only builds a schema from scratch — it never alters an
+    /// existing one — so each new nullable column is added here, idempotently
+    /// (SQLite ALTER TABLE ADD COLUMN; skipped when already present). Keep this
+    /// list append-only.
+    /// </summary>
+    private static void UpgradeSchema(AppDbContext db)
+    {
+        AddColumnIfMissing(db, "crm_profile", "resource_id", "INTEGER NULL");
+    }
+
+    private static void AddColumnIfMissing(AppDbContext db, string table, string column, string ddlType)
+    {
+        var conn = db.Database.GetDbConnection();
+        var wasClosed = conn.State != System.Data.ConnectionState.Open;
+        if (wasClosed) conn.Open();
+        try
+        {
+            using (var check = conn.CreateCommand())
+            {
+                check.CommandText = $"PRAGMA table_info(\"{table}\")";
+                using var r = check.ExecuteReader();
+                while (r.Read())
+                    if (string.Equals(r.GetString(1), column, StringComparison.OrdinalIgnoreCase)) return;
+            }
+            using var alter = conn.CreateCommand();
+            alter.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"{column}\" {ddlType}";
+            alter.ExecuteNonQuery();
+        }
+        finally
+        {
+            if (wasClosed) conn.Close();
+        }
+    }
+
     public static void Run(AppDbContext db)
     {
         db.Database.EnsureCreated();
+        UpgradeSchema(db);
 
         var tenant = db.Tenants.FirstOrDefault(t => t.Slug == "demo");
         if (tenant == null)
@@ -79,6 +116,40 @@ public static class Seed
                 });
                 db.SaveChanges();
             }
+        }
+
+        // A starter "Provider" role for Service Provider logins (teachers,
+        // suppliers…) — a CUSTOM role (not system) so admins can rename it, tune
+        // its permissions in the matrix, or clone it into Teacher / Supplier
+        // roles. Read-mostly by default: their own contacts + chats + calendar.
+        // Row-level "own world" scoping is enforced by Profile.ResourceId, not by
+        // this role — the role only decides which ACTIONS are allowed.
+        if (!db.Roles.Any(r => r.Slug == "provider"))
+        {
+            db.Roles.Add(new Role { Slug = "provider", Label = "Provider", IsSystem = false,
+                CreatedAt = DateTime.UtcNow });
+            var allow = new HashSet<string>
+            {
+                "contacts.view", "chats.view", "chats.send", "integrations.view",
+                "integrations.manage", "call_logs.view",
+            };
+            foreach (var cap in new[]
+                     {
+                         "contacts.view", "contacts.manage", "chats.view", "chats.send", "chats.manage",
+                         "flows.view", "flows.manage", "channels.view", "channels.manage",
+                         "integrations.view", "integrations.manage", "users.view", "users.manage",
+                         "entities.view", "entities.manage", "templates.manage",
+                         "script_templates.manage", "notifications.manage", "analytics.view",
+                         "call_logs.view", "activity.view", "settings.ai.manage",
+                         "account_assignment.manage", "app_keys.manage", "pronunciation.manage",
+                         "rbac.manage",
+                     })
+                db.RolePermissions.Add(new RolePermission
+                {
+                    Role = "provider", Capability = cap, Allowed = allow.Contains(cap),
+                    UpdatedAt = DateTime.UtcNow,
+                });
+            db.SaveChanges();
         }
 
         // Default Custom Fields schema — seeded ONLY when none exists yet, so it

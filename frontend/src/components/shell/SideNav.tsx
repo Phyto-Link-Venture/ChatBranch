@@ -169,7 +169,15 @@ export function SideNav({
   // (possibly older) session doesn't carry one.
   const hasExplicitCaps = Array.isArray(user?.capabilities) && user!.capabilities!.length > 0
 
+  // Provider login ("their own world"): a user bound to a Service Provider gets
+  // a trimmed nav — their customers, their chats, their calendar/integrations.
+  // Row-level scoping is enforced server-side (ProviderScope); this just hides
+  // the admin surface that would only ever come back empty or 403.
+  const isProvider = typeof user?.resource_id === 'number'
+  const PROVIDER_NAV = new Set(['/dashboard', '/contacts', '/chats', '/integrations', '/call-logs'])
+
   const canSee = (n: NavDef) => {
+    if (isProvider && !PROVIDER_NAV.has(n.href)) return false
     if (!n.cap && !n.roles) return true
     if (hasExplicitCaps && n.cap) return user!.capabilities!.includes(n.cap)
     return !n.roles || n.roles.includes(role)
@@ -282,7 +290,10 @@ export function SideNav({
             <div className="truncate text-[12px] font-semibold text-text-high">
               {user?.name || 'Not signed in'}
             </div>
-            <div className="truncate text-[10.5px] text-text-muted">{ROLE_LABEL[role] ?? role}</div>
+            <div className="truncate text-[10.5px] text-text-muted">
+              {ROLE_LABEL[role] ?? role}
+              {isProvider && <span className="ml-1 rounded bg-brand-400/15 px-1 text-[9px] font-bold uppercase text-brand-300">Provider</span>}
+            </div>
           </div>
         )}
         <button

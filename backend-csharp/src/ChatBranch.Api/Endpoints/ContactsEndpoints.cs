@@ -48,7 +48,7 @@ public static class ContactsEndpoints
         app.MapGet("/api/contacts", async (string? q, int? limit, string? entity,
             AppDbContext db, ClaimsPrincipal me) =>
         {
-            var query = ScopeContacts(db.Contacts.AsNoTracking(), me);
+            var query = ScopeContacts(db.Contacts.AsNoTracking(), me, db);
             if (!string.IsNullOrWhiteSpace(entity) && entity is not ("all" or "__all__"))
                 // A tenant's contacts are shared across its entities; this narrows
                 // the list to one outlet for the topbar switcher.
@@ -76,7 +76,7 @@ public static class ContactsEndpoints
 
         app.MapGet("/api/contacts/{id:int}", async (int id, AppDbContext db, ClaimsPrincipal me) =>
         {
-            var c = await ScopeContacts(db.Contacts.AsNoTracking(), me)
+            var c = await ScopeContacts(db.Contacts.AsNoTracking(), me, db)
                 .FirstOrDefaultAsync(x => x.Id == id);
             if (c == null) return NotFound("Contact not found.");
             return Results.Ok((await ContactItemsAsync(db, new List<Contact> { c })).First());
@@ -85,7 +85,7 @@ public static class ContactsEndpoints
         app.MapMethods("/api/contacts/{id:int}", new[] { "PATCH" },
             async (int id, ContactWrite b, AppDbContext db, ClaimsPrincipal me) =>
         {
-            var c = await ScopeContacts(db.Contacts, me).FirstOrDefaultAsync(x => x.Id == id);
+            var c = await ScopeContacts(db.Contacts, me, db).FirstOrDefaultAsync(x => x.Id == id);
             if (c == null) return NotFound("Contact not found.");
             c.Name = b.Name; c.Phone = b.Phone;
             if (b.Email != null) c.Email = b.Email;
@@ -110,7 +110,7 @@ public static class ContactsEndpoints
         // counts, with a voice section built from CallRecord.
         app.MapGet("/api/contacts/{id:int}/channels", async (int id, AppDbContext db, ClaimsPrincipal me) =>
         {
-            var contact = await ScopeContacts(db.Contacts.AsNoTracking(), me)
+            var contact = await ScopeContacts(db.Contacts.AsNoTracking(), me, db)
                 .FirstOrDefaultAsync(c => c.Id == id);
             if (contact == null) return NotFound("Contact not found.");
 
@@ -294,7 +294,7 @@ public static class ContactsEndpoints
         // it stays pollable (no LiveKit/agent plumbing on this path).
         app.MapGet("/api/contacts/{id:int}/calls", async (int id, AppDbContext db, ClaimsPrincipal me) =>
         {
-            var contact = await ScopeContacts(db.Contacts.AsNoTracking(), me)
+            var contact = await ScopeContacts(db.Contacts.AsNoTracking(), me, db)
                 .FirstOrDefaultAsync(c => c.Id == id);
             if (contact == null) return NotFound("Contact not found.");
 
@@ -883,8 +883,12 @@ public static class ContactsEndpoints
     /// Tenant-scope a Contact queryset the way <c>tenant_from_request</c> does:
     /// superadmin is unscoped, everyone else sees only their own tenant's rows.
     /// </summary>
-    private static IQueryable<Contact> ScopeContacts(IQueryable<Contact> qs, ClaimsPrincipal me)
+    private static IQueryable<Contact> ScopeContacts(IQueryable<Contact> qs, ClaimsPrincipal me, AppDbContext db)
     {
+        // Provider login ("their own world"): only the customers bound to them.
+        // Applied FIRST and unconditionally — a provider who is also superadmin
+        // is still a provider here.
+        qs = ProviderScope.Contacts(qs, me, db);
         if ((me.FindFirstValue(ClaimTypes.Role) ?? "") == Roles.SuperAdmin) return qs;
         if (TenantId(me) is not int tid) return qs;
         return qs.Where(c => c.TenantId == tid);

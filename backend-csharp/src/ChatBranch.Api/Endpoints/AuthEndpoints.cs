@@ -92,6 +92,9 @@ public static class AuthEndpoints
                 role,
                 tenant_id = me.FindFirstValue("tenant_id"),
                 capabilities = await AdminEndpoints.CapabilitiesForAsync(db, role),
+                // Provider login (this user IS a Service Provider) — the UI trims
+                // to "their own world" when set.
+                resource_id = ProviderScope.ResourceId(me),
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
     }

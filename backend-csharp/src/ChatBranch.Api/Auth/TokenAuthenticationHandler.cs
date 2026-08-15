@@ -33,7 +33,7 @@ public class TokenAuthenticationHandler : AuthenticationHandler<AuthenticationSc
         var profile = await ResolveProfileAsync();
         if (profile != null && profile.User is { IsActive: true })
             return AuthenticateResult.Success(Ticket(profile.User.Username, profile.Role,
-                profile.Id, profile.TenantId));
+                profile.Id, profile.TenantId, profile.ResourceId));
 
         // Pre-seed bootstrap: no Profile rows yet → honour X-Role.
         if (!await _db.Profiles.AnyAsync())
@@ -63,7 +63,8 @@ public class TokenAuthenticationHandler : AuthenticationHandler<AuthenticationSc
             .FirstOrDefaultAsync(p => p.Token == token);
     }
 
-    private AuthenticationTicket Ticket(string username, string role, int? profileId, int? tenantId)
+    private AuthenticationTicket Ticket(string username, string role, int? profileId, int? tenantId,
+        int? resourceId = null)
     {
         var claims = new List<Claim>
         {
@@ -72,6 +73,9 @@ public class TokenAuthenticationHandler : AuthenticationHandler<AuthenticationSc
         };
         if (profileId is int pid) claims.Add(new Claim("profile_id", pid.ToString()));
         if (tenantId is int tid) claims.Add(new Claim("tenant_id", tid.ToString()));
+        // Provider login: the caller IS this Service Provider — data queries scope
+        // to their own world (see ProviderScope).
+        if (resourceId is int rid) claims.Add(new Claim("resource_id", rid.ToString()));
         var identity = new ClaimsIdentity(claims, SchemeName);
         return new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName);
     }
