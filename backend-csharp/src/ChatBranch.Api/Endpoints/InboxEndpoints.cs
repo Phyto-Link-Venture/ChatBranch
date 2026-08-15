@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json.Serialization;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
 using ChatBranch.Data.Flows;
@@ -19,7 +20,12 @@ public static class InboxEndpoints
 {
     public record SendRequest(string Text, bool Force = false, int? AccountId = null);
     public record SimulateRequest(string Channel, string Key, string Text, string? Name = null);
-    public record CannedWrite(string ShortCode, string Content, string? Entity = null);
+    // Wire is snake_case: the dashboard posts {short_code, content} — bind that
+    // name explicitly (the default camelCase binder left ShortCode null → 500).
+    public record CannedWrite(
+        [property: JsonPropertyName("short_code")] string ShortCode,
+        string Content,
+        string? Entity = null);
 
     public static void MapInboxEndpoints(this IEndpointRouteBuilder app)
     {
@@ -35,6 +41,10 @@ public static class InboxEndpoints
             var configured = accounts.Any(WhatsAppSettingsEndpoints.IsConfigured) || envAccount;
             return Results.Ok(new
             {
+                // liveness fields (kept — the open probe + smoke test read them)
+                ok = true,
+                service = "chatbranch-csharp",
+                stack = "asp.net-core",
                 configured,
                 // no linked account -> everything stores locally and /simulate
                 // fakes inbound; the composer shows the sandbox banner

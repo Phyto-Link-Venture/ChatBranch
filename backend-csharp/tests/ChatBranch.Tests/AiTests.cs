@@ -35,7 +35,8 @@ public class AiTests : IClassFixture<ApiFactory>
 
         var read = await su.GetFromJsonAsync<JsonElement>("/api/aicore/persona");
         Assert.Equal("Be extra friendly.", read.GetProperty("persona").GetString());
-        Assert.False(string.IsNullOrEmpty(read.GetProperty("hardRules").GetString()));
+        Assert.False(string.IsNullOrEmpty(read.GetProperty("hard_rules").GetString()));
+        Assert.False(read.GetProperty("is_default").GetBoolean()); // an override is stored
     }
 
     [Fact]
@@ -73,8 +74,8 @@ public class AiTests : IClassFixture<ApiFactory>
         {
             skills = new[]
             {
-                new { skillId = "s1", name = "Greet", useWhen = "always", instructions = "Say hi", position = 0 },
-                new { skillId = "s2", name = "Close", useWhen = "end", instructions = "Say bye", position = 1 },
+                new { id = "s1", name = "Greet", useWhen = "always", instructions = "Say hi", position = 0 },
+                new { id = "s2", name = "Close", useWhen = "end", instructions = "Say bye", position = 1 },
             },
         });
         var one = await admin.GetFromJsonAsync<JsonElement>("/api/aicore/skills");
@@ -85,7 +86,7 @@ public class AiTests : IClassFixture<ApiFactory>
         {
             skills = new[]
             {
-                new { skillId = "s1", name = "Greet", useWhen = "always", instructions = "Say hi", position = 0 },
+                new { id = "s1", name = "Greet", useWhen = "always", instructions = "Say hi", position = 0 },
             },
         });
         var two = await admin.GetFromJsonAsync<JsonElement>("/api/aicore/skills");

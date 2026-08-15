@@ -50,12 +50,16 @@ public class ContactsTests : IClassFixture<ApiFactory>
     {
         var admin = await Authed("admin", "admin123");
         var summary = await admin.GetFromJsonAsync<JsonElement>("/api/analytics/summary?days=7");
+        // Django-contract shape (frontend/src/components/analytics/types.ts)
         Assert.True(summary.TryGetProperty("funnel", out _));
-        Assert.True(summary.TryGetProperty("series", out var series));
-        Assert.Equal(7, series.GetArrayLength()); // zero-filled daily series
+        Assert.True(summary.TryGetProperty("daily", out var daily));
+        // Django walks since.date()..today INCLUSIVE, so days=7 → 8 buckets
+        Assert.Equal(8, daily.GetArrayLength()); // zero-filled daily series
+        Assert.True(summary.GetProperty("call_outcomes").TryGetProperty("total", out _));
 
         var usage = await admin.GetFromJsonAsync<JsonElement>("/api/analytics/usage?days=7");
-        Assert.True(usage.TryGetProperty("totalCost", out _));
+        Assert.True(usage.GetProperty("totals").TryGetProperty("est_cost_usd", out _));
+        Assert.True(usage.TryGetProperty("by_model", out _));
     }
 
     [Fact]
@@ -66,7 +70,8 @@ public class ContactsTests : IClassFixture<ApiFactory>
             new { name = "Reminder call", content = "Hello {{name}}, this is a reminder." });
         create.EnsureSuccessStatusCode();
         var list = await admin.GetFromJsonAsync<JsonElement>("/api/calls/script-templates");
-        Assert.Contains(list.GetProperty("scripts").EnumerateArray(),
+        // key is `templates` (what ScriptTemplatesSettings reads)
+        Assert.Contains(list.GetProperty("templates").EnumerateArray(),
             s => s.GetProperty("name").GetString() == "Reminder call");
     }
 

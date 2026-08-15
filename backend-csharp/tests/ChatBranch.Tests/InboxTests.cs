@@ -35,7 +35,8 @@ public class InboxTests : IClassFixture<ApiFactory>
         // thread appears in the list
         var list = await c.GetFromJsonAsync<JsonElement>("/api/whatsapp/threads?channel=whatsapp");
         var threads = list.GetProperty("threads").EnumerateArray().ToList();
-        Assert.Contains(threads, t => t.GetProperty("key").GetString() == key);
+        // wire is snake_case (Django contract): the thread key is `wa_id`
+        Assert.Contains(threads, t => t.GetProperty("wa_id").GetString() == key);
 
         // messages contain the inbound
         var msgs = await c.GetFromJsonAsync<JsonElement>($"/api/whatsapp/threads/whatsapp/{key}/messages");
@@ -74,17 +75,18 @@ public class InboxTests : IClassFixture<ApiFactory>
     public async Task Canned_response_crud_is_admin_gated()
     {
         var c = await AuthedClient();
+        // wire is snake_case (Django contract) on both the write and the read
         var create = await c.PostAsJsonAsync("/api/messaging/canned",
-            new { shortCode = "greet", content = "Hello {{name}}" });
+            new { short_code = "greet", content = "Hello {{name}}" });
         create.EnsureSuccessStatusCode();
 
         var list = await c.GetFromJsonAsync<JsonElement>("/api/messaging/canned");
         Assert.Contains(list.GetProperty("canned").EnumerateArray(),
-            x => x.GetProperty("shortCode").GetString() == "greet");
+            x => x.GetProperty("short_code").GetString() == "greet");
 
         // duplicate short_code → 409
         var dup = await c.PostAsJsonAsync("/api/messaging/canned",
-            new { shortCode = "greet", content = "again" });
+            new { short_code = "greet", content = "again" });
         Assert.Equal(System.Net.HttpStatusCode.Conflict, dup.StatusCode);
     }
 }
