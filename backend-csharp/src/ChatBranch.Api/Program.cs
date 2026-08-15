@@ -25,7 +25,10 @@ builder.Services.AddScoped<ChatBranch.Data.Flows.FlowEngine>();
 builder.Services.AddHostedService<ChatBranch.Api.Workers.OutboundQueueWorker>();
 builder.Services.AddHostedService<ChatBranch.Api.Workers.FlowEngineWorker>();
 builder.Services.AddScoped<ChatBranch.Data.Analytics.AnalyticsService>();
-builder.Services.AddSingleton<ChatBranch.Data.Sidecars.IBaileysGateway, ChatBranch.Data.Sidecars.SandboxBaileysGateway>();
+// Baileys (unofficial WhatsApp Web) is a supported channel: drive the Node
+// sidecar over HTTP (Setting baileys_url/baileys_secret → env → default).
+// Unreachable gateway = clean per-call error, never a crash.
+builder.Services.AddSingleton<ChatBranch.Data.Sidecars.IBaileysGateway, ChatBranch.Data.Sidecars.HttpBaileysGateway>();
 var dataDir = builder.Configuration["DataDir"]
               ?? Path.Combine(AppContext.BaseDirectory, "data");
 builder.Services.AddSingleton(new ChatBranch.Data.Sidecars.VoiceAgentBridge(dataDir));

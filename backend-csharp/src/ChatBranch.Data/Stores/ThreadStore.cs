@@ -67,6 +67,22 @@ public class ThreadStore
             _db.Entry(thread).Reference(t => t.Account).Load();
             _db.Entry(thread).Reference(t => t.Contact).Load();
         }
+        else
+        {
+            // An existing thread adopts the receiving account / matched contact
+            // when it has none yet — "the number that receives a message decides
+            // attribution" (crm/scoping). Never overrides an existing binding.
+            var dirty = false;
+            if (thread.AccountId == null && accountId != null) { thread.AccountId = accountId; dirty = true; }
+            if (thread.ContactId == null && contactId != null) { thread.ContactId = contactId; dirty = true; }
+            if (dirty)
+            {
+                thread.UpdatedAt = DateTime.UtcNow;
+                _db.SaveChanges();
+                _db.Entry(thread).Reference(t => t.Account).Load();
+                _db.Entry(thread).Reference(t => t.Contact).Load();
+            }
+        }
         _scoping.SyncThreadEntity(thread);
         return thread;
     }

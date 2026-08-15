@@ -1,26 +1,49 @@
+using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
+
 namespace ChatBranch.Data.Sidecars;
 
-public record BaileysResult(bool Ok, string Detail);
+public record BaileysResult(bool Ok, string Detail, string ExternalId = "");
+
+/// <summary>Pairing state as the gateway reports it: {state, qr?, me?, error?}.</summary>
+public record BaileysStatus(string State, string? Qr, string? Me, string? Error);
 
 /// <summary>
-/// The Node Baileys gateway (unofficial WhatsApp Web) stays a sidecar — no C#
-/// port exists. This is the HTTP contract the backend uses to drive it
-/// (X-Baileys-Secret auth, like /inbound). The sandbox default keeps the app
+/// The Node Baileys gateway (unofficial WhatsApp Web, <c>backend/baileys_service</c>)
+/// stays a sidecar — no C# port exists. This is the HTTP contract the backend
+/// uses to drive it, mirroring Django's <c>whatsapp/client.py baileys_request</c>:
+/// every request carries <c>X-Baileys-Secret</c>; the gateway pushes inbound
+/// traffic back to <c>/api/whatsapp/baileys/*</c> with the same secret.
+///
+/// Config resolves Setting → env → default (Django's <c>BAILEYS_URL</c> /
+/// <c>BAILEYS_SECRET</c>): <c>baileys_url</c> (http://127.0.0.1:3020) and
+/// <c>baileys_secret</c> (baileys-local-dev). The sandbox default keeps the app
 /// runnable with no gateway attached, exactly like the Django app.
 /// </summary>
 public interface IBaileysGateway
 {
     bool IsConfigured { get; }
+    /// <summary>Base URL actually in use (for operator-facing "unreachable at …" messages).</summary>
+    string BaseUrl { get; }
     Task<BaileysResult> SendTextAsync(string accountExternalId, string toWaId, string text,
         CancellationToken ct = default);
     Task<BaileysResult> StartCallAsync(string accountExternalId, string toWaId,
         Dictionary<string, object?> dispatch, CancellationToken ct = default);
+    // ---- pairing (Settings → Channels → WhatsApp → Pair) ----
+    Task<BaileysStatus> StatusAsync(string accountExternalId, CancellationToken ct = default);
+    Task<BaileysStatus> StartAsync(string accountExternalId, CancellationToken ct = default);
+    Task<BaileysStatus> LogoutAsync(string accountExternalId, CancellationToken ct = default);
 }
 
 /// <summary>Zero-config fallback: every call is a logged skip, run continues.</summary>
 public class SandboxBaileysGateway : IBaileysGateway
 {
     public bool IsConfigured => false;
+    public string BaseUrl => "";
+
+    private static readonly BaileysStatus NotAttached = new("stopped", null, null,
+        "Baileys gateway not attached — pairing runs in the Node sidecar (backend/baileys_service).");
 
     public Task<BaileysResult> SendTextAsync(string accountExternalId, string toWaId, string text,
         CancellationToken ct = default) =>
@@ -29,4 +52,122 @@ public class SandboxBaileysGateway : IBaileysGateway
     public Task<BaileysResult> StartCallAsync(string accountExternalId, string toWaId,
         Dictionary<string, object?> dispatch, CancellationToken ct = default) =>
         Task.FromResult(new BaileysResult(false, "baileys gateway not configured (sandbox)"));
+
+    public Task<BaileysStatus> StatusAsync(string a, CancellationToken ct = default) => Task.FromResult(NotAttached);
+    public Task<BaileysStatus> StartAsync(string a, CancellationToken ct = default) => Task.FromResult(NotAttached);
+    public Task<BaileysStatus> LogoutAsync(string a, CancellationToken ct = default) => Task.FromResult(NotAttached);
+}
+
+/// <summary>
+/// The real client. "Configured" = a URL is set (default is set) — reachability
+/// is discovered per call and reported as a clean error, never an exception
+/// into a send/webhook path. Config is read PER CALL so a Setting change
+/// (baileys_url / baileys_secret via the dashboard) applies without a restart.
+/// </summary>
+public class HttpBaileysGateway : IBaileysGateway
+{
+    private readonly IHttpClientFactory _http;
+    private readonly IServiceScopeFactory _scopes;
+
+    public HttpBaileysGateway(IHttpClientFactory http, IServiceScopeFactory scopes)
+    {
+        _http = http;
+        _scopes = scopes;
+    }
+
+    // Setting → env → Django default. Read through a fresh scope because this
+    // is a singleton and ScopingService/AppDbContext are scoped.
+    private (string Url, string Secret) Config()
+    {
+        using var scope = _scopes.CreateScope();
+        var sc = scope.ServiceProvider.GetRequiredService<ScopingService>();
+        string S(string key, string env, string dflt)
+        {
+            var v = sc.SettingValue(key);
+            if (!string.IsNullOrWhiteSpace(v)) return v.Trim();
+            var e = Environment.GetEnvironmentVariable(env);
+            return string.IsNullOrWhiteSpace(e) ? dflt : e.Trim();
+        }
+        return (S("baileys_url", "BAILEYS_URL", "http://127.0.0.1:3020").TrimEnd('/'),
+                S("baileys_secret", "BAILEYS_SECRET", "baileys-local-dev"));
+    }
+
+    public bool IsConfigured => !string.IsNullOrEmpty(Config().Url);
+    public string BaseUrl => Config().Url;
+
+    private async Task<(bool Ok, JsonElement Body, string Error)> CallAsync(HttpMethod method, string path,
+        object? payload, CancellationToken ct)
+    {
+        var (url, secret) = Config();
+        try
+        {
+            var client = _http.CreateClient("baileys");
+            client.Timeout = TimeSpan.FromSeconds(30);
+            using var req = new HttpRequestMessage(method, url + path);
+            req.Headers.TryAddWithoutValidation("X-Baileys-Secret", secret);
+            if (payload != null) req.Content = JsonContent.Create(payload);
+            using var resp = await client.SendAsync(req, ct);
+            var text = await resp.Content.ReadAsStringAsync(ct);
+            JsonElement body;
+            try { body = string.IsNullOrWhiteSpace(text) ? default : JsonDocument.Parse(text).RootElement.Clone(); }
+            catch { body = default; }
+            if (!resp.IsSuccessStatusCode)
+            {
+                var detail = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("error", out var e)
+                    ? e.GetString() ?? "" : text;
+                return (false, body, $"gateway {(int)resp.StatusCode}: {detail}".Trim());
+            }
+            return (true, body, "");
+        }
+        catch (HttpRequestException)
+        {
+            return (false, default, $"Baileys gateway unreachable at {url} — start it with `npm start` in backend/baileys_service.");
+        }
+        catch (TaskCanceledException)
+        {
+            return (false, default, $"Baileys gateway timed out at {url}.");
+        }
+    }
+
+    private static BaileysStatus ToStatus(JsonElement body, string error)
+    {
+        if (body.ValueKind != JsonValueKind.Object) return new BaileysStatus("error", null, null, error);
+        string? Get(string k) => body.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        return new BaileysStatus(Get("state") ?? "stopped", Get("qr"), Get("me"), Get("error") ?? (error.Length > 0 ? error : null));
+    }
+
+    public async Task<BaileysStatus> StatusAsync(string a, CancellationToken ct = default)
+    {
+        var (ok, body, err) = await CallAsync(HttpMethod.Get, $"/accounts/{Uri.EscapeDataString(a)}/status", null, ct);
+        return ok ? ToStatus(body, "") : new BaileysStatus("error", null, null, err);
+    }
+
+    public async Task<BaileysStatus> StartAsync(string a, CancellationToken ct = default)
+    {
+        var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/start", new { }, ct);
+        return ok ? ToStatus(body, "") : new BaileysStatus("error", null, null, err);
+    }
+
+    public async Task<BaileysStatus> LogoutAsync(string a, CancellationToken ct = default)
+    {
+        var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/logout", new { }, ct);
+        return ok ? ToStatus(body, "") with { State = "logged_out" } : new BaileysStatus("error", null, null, err);
+    }
+
+    public async Task<BaileysResult> SendTextAsync(string a, string toWaId, string text, CancellationToken ct = default)
+    {
+        var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/send",
+            new { to = toWaId, text }, ct);
+        if (!ok) return new BaileysResult(false, err);
+        var id = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("id", out var i) ? i.ToString() : "";
+        return new BaileysResult(true, "sent", id);
+    }
+
+    public async Task<BaileysResult> StartCallAsync(string a, string toWaId, Dictionary<string, object?> dispatch,
+        CancellationToken ct = default)
+    {
+        var payload = new Dictionary<string, object?>(dispatch) { ["to"] = toWaId };
+        var (ok, _, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/call", payload, ct);
+        return ok ? new BaileysResult(true, "dialled") : new BaileysResult(false, err);
+    }
 }

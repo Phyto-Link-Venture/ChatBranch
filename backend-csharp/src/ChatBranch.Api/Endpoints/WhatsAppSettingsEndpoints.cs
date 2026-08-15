@@ -738,35 +738,42 @@ public static class WhatsAppSettingsEndpoints
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
-        // ---- Baileys pairing control (sandbox stub) ------------------------
-        // The Node gateway is a sidecar with no C# port, so these answer with a
-        // placeholder pairing state instead of proxying. No socket, no secret,
-        // no 500 — the QR dialog opens and explains itself.
+        // ---- Baileys pairing control (proxied to the Node gateway) ---------
+        // Baileys is a supported channel: start/status/logout drive the sidecar
+        // (backend/baileys_service) through IBaileysGateway. The gateway keys
+        // sessions by account id — we use the row's ExternalId when set, else
+        // the DB id (stable + unique), and persist that so inbound pushes
+        // (/api/whatsapp/baileys/inbound {account_id}) route back to this row.
+        // An unreachable gateway is a clean {state:"error", error} — never a 500.
         app.MapPost("/api/whatsapp/accounts/{id:int}/baileys/start", async (int id, HttpContext ctx,
-            AppDbContext db, ClaimsPrincipal me) =>
+            AppDbContext db, ClaimsPrincipal me, ChatBranch.Data.Sidecars.IBaileysGateway gw) =>
         {
-            if (await BaileysAccount(db, id) == null) return BaileysNotFound();
-            await Audit(db, ctx, me, "account.baileys_start", $"whatsapp:{id}", "sandbox stub");
-            return Results.Ok(BaileysState());
+            var acct = await BaileysAccount(db, id);
+            if (acct == null) return BaileysNotFound();
+            var key = await EnsureBaileysKey(db, acct);
+            var st = await gw.StartAsync(key);
+            await Audit(db, ctx, me, "account.baileys_start", $"whatsapp:{id}", st.State);
+            return Results.Ok(BaileysStatePayload(st));
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
-        app.MapGet("/api/whatsapp/accounts/{id:int}/baileys/status", async (int id, AppDbContext db) =>
-            await BaileysAccount(db, id) == null ? BaileysNotFound() : Results.Ok(BaileysState()))
-            .RequireAuthorization(AuthPolicies.Authenticated);
+        app.MapGet("/api/whatsapp/accounts/{id:int}/baileys/status", async (int id, AppDbContext db,
+            ChatBranch.Data.Sidecars.IBaileysGateway gw) =>
+        {
+            var acct = await BaileysAccount(db, id);
+            if (acct == null) return BaileysNotFound();
+            var key = await EnsureBaileysKey(db, acct);
+            return Results.Ok(BaileysStatePayload(await gw.StatusAsync(key)));
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         app.MapPost("/api/whatsapp/accounts/{id:int}/baileys/logout", async (int id, HttpContext ctx,
-            AppDbContext db, ClaimsPrincipal me) =>
+            AppDbContext db, ClaimsPrincipal me, ChatBranch.Data.Sidecars.IBaileysGateway gw) =>
         {
-            if (await BaileysAccount(db, id) == null) return BaileysNotFound();
-            await Audit(db, ctx, me, "account.baileys_logout", $"whatsapp:{id}", "sandbox stub");
-            return Results.Ok(new
-            {
-                ok = true,
-                state = "logged_out",
-                qr = (string?)null,
-                me = (string?)null,
-                error = (string?)null,
-            });
+            var acct = await BaileysAccount(db, id);
+            if (acct == null) return BaileysNotFound();
+            var key = await EnsureBaileysKey(db, acct);
+            var st = await gw.LogoutAsync(key);
+            await Audit(db, ctx, me, "account.baileys_logout", $"whatsapp:{id}", st.State);
+            return Results.Ok(BaileysStatePayload(st));
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         // ---- template authoring --------------------------------------------
@@ -1605,14 +1612,28 @@ public static class WhatsAppSettingsEndpoints
     /// proxy to in this port, so it stays "stopped" with the reason in `error`
     /// rather than inventing a QR code nobody can scan.
     /// </summary>
-    private static object BaileysState() => new
+    private static object BaileysStatePayload(ChatBranch.Data.Sidecars.BaileysStatus st) => new
     {
-        state = "stopped",
-        qr = (string?)null,
-        me = (string?)null,
-        error = "Baileys gateway not attached — pairing runs in the Node sidecar " +
-                "(backend/baileys_service), which this build does not proxy to.",
+        ok = st.State is not "error",
+        state = st.State,
+        qr = st.Qr,
+        me = st.Me,
+        error = st.Error,
     };
+
+    /// <summary>
+    /// The gateway-side account id for a Baileys row: ExternalId when set, else
+    /// the DB id — persisted so the mapping is stable across restarts and the
+    /// gateway's inbound pushes ({account_id}) resolve to this row.
+    /// </summary>
+    private static async Task<string> EnsureBaileysKey(AppDbContext db, ChannelAccount acct)
+    {
+        if (!string.IsNullOrWhiteSpace(acct.ExternalId)) return acct.ExternalId;
+        var tracked = await db.ChannelAccounts.FirstAsync(a => a.Id == acct.Id);
+        tracked.ExternalId = acct.Id.ToString();
+        await db.SaveChangesAsync();
+        return tracked.ExternalId;
+    }
 
     internal static bool EnvAccountConfigured() =>
         Env("WHATSAPP_ACCESS_TOKEN") != "" && Env("WHATSAPP_PHONE_NUMBER_ID") != "";

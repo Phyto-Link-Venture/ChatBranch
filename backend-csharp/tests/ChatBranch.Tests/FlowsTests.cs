@@ -68,7 +68,7 @@ public class FlowsTests : IClassFixture<ApiFactory>
         var assistant = new AssistantService(t.Db, scoping,
             new PersonaService(scoping), new KnowledgeService(t.Db, scoping), new SandboxLlmClient());
 
-        var sender1 = new OutboundSender(t.Db, threads, new StubWhatsApp());
+        var sender1 = new OutboundSender(t.Db, threads, new StubWhatsApp(), new ChatBranch.Data.Sidecars.SandboxBaileysGateway());
         var q1 = new QueueService(t.Db, scoping, threads, assistant, sender1);
         q1.Enqueue("whatsapp", "text", "60100000000", new() { ["text"] = "once" });
 
@@ -78,7 +78,7 @@ public class FlowsTests : IClassFixture<ApiFactory>
         var threads2 = new ThreadStore(db2, sc2);
         var q2 = new QueueService(db2, sc2, threads2,
             new AssistantService(db2, sc2, new PersonaService(sc2), new KnowledgeService(db2, sc2), new SandboxLlmClient()),
-            new OutboundSender(db2, threads2, new StubWhatsApp()));
+            new OutboundSender(db2, threads2, new StubWhatsApp(), new ChatBranch.Data.Sidecars.SandboxBaileysGateway()));
 
         var a = q1.Drain(10);
         var b = q2.Drain(10);

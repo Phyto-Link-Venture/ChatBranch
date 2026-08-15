@@ -29,7 +29,7 @@ public class ClientsTests
         using var t = new TestDb();
         var scoping = new ScopingService(t.Db);
         var threads = new ThreadStore(t.Db, scoping);
-        var sender = new OutboundSender(t.Db, threads, new StubWhatsApp());
+        var sender = new OutboundSender(t.Db, threads, new StubWhatsApp(), new ChatBranch.Data.Sidecars.SandboxBaileysGateway());
 
         var thread = threads.GetOrCreateThread("whatsapp", "60123000000");
         var msg = sender.Send(thread, "hi", MessageSource.Agent);

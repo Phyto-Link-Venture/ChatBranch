@@ -22,7 +22,7 @@ public class FlowEngineTests
         var threads = new ThreadStore(t.Db, scoping);
         var assistant = new AssistantService(t.Db, scoping, new PersonaService(scoping),
             new KnowledgeService(t.Db, scoping), new SandboxLlmClient());
-        var sender = new OutboundSender(t.Db, threads, new StubWhatsApp());
+        var sender = new OutboundSender(t.Db, threads, new StubWhatsApp(), new ChatBranch.Data.Sidecars.SandboxBaileysGateway());
         queue = new QueueService(t.Db, scoping, threads, assistant, sender);
         return new FlowEngine(t.Db, scoping, queue);
     }
