@@ -85,6 +85,49 @@ public class WebhooksTests : IClassFixture<ApiFactory>
         Assert.Contains(list, m => m.GetProperty("source").GetString() == "ai"); // AI auto-reply fired
     }
 
+    /// <summary>
+    /// With a CONFIGURED account and ai_reply_mode=queued (the default), the
+    /// reply must be enqueued rather than sent inline — that queue job is what
+    /// the account's Send Pacing gap and quiet hours act on. Before this the
+    /// rule was stored and never read, so pacing paced nothing.
+    /// </summary>
+    [Fact]
+    public async Task Configured_account_queues_the_ai_reply_instead_of_sending_inline()
+    {
+        var admin = await Authed("admin", "admin123");
+        await admin.PostAsJsonAsync("/api/contacts", new { name = "Paced", phone = "60129990111" });
+        // a real (configured) Cloud account carries this number
+        await admin.PostAsJsonAsync("/api/whatsapp/accounts", new
+        {
+            name = "Paced Number", phone_number_id = "PN-PACED", access_token = "tok-live",
+        });
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            entry = new[] { new { changes = new[] { new { value = new
+            {
+                metadata = new { phone_number_id = "PN-PACED" },
+                messages = new[] { new { from = "60129990111", id = "wamid.PACED", timestamp = "1700000000",
+                    type = "text", text = new { body = "are you open?" } } },
+            } } } } },
+        });
+        var c = _factory.CreateClient();
+        (await c.PostAsync("/api/whatsapp/webhook",
+            new StringContent(payload, Encoding.UTF8, "application/json"))).EnsureSuccessStatusCode();
+
+        // nothing sent inline …
+        var msgs = await admin.GetFromJsonAsync<JsonElement>(
+            "/api/whatsapp/threads/whatsapp/60129990111/messages");
+        Assert.DoesNotContain(msgs.GetProperty("messages").EnumerateArray(),
+            m => m.GetProperty("source").GetString() == "ai");
+
+        // … an ai_reply job is waiting for the pacing gap instead
+        var queue = await admin.GetFromJsonAsync<JsonElement>("/api/flows/queue");
+        Assert.Contains(queue.GetProperty("jobs").EnumerateArray(),
+            j => j.GetProperty("kind").GetString() == "ai_reply"
+                 && j.GetProperty("toAddress").GetString() == "60129990111");
+    }
+
     [Fact]
     public async Task Meta_inbound_dedupes_on_wamid()
     {

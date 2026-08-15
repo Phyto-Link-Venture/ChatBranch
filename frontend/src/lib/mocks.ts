@@ -37,6 +37,12 @@ export type Contact = {
   language?: string
   tags: string[]
   attributes: Record<string, unknown>
+  /**
+   * Entities this contact belongs to (0..many). Two shapes on the wire:
+   * /api/contacts sends slugs, /api/v1/contacts/<id> sends {slug,name} —
+   * normalize with contactEntityRefs() rather than assuming either.
+   */
+  entities?: (string | { slug: string; name: string })[]
   records: RecordDto[]
   history: HistoryEntry[]
 }

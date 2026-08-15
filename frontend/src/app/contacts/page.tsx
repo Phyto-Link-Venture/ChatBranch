@@ -144,10 +144,21 @@ function ContactModal({
       // Keep the whole attributes object — the custom-field inputs edit their
       // own keys inside it, so unrelated keys survive a save untouched.
       setAttributes({ ...(editing?.attributes ?? {}) })
-      setSelectedEntities(activeEntity ? [activeEntity.slug] : [])
+      // Editing: start from the contact's CURRENT memberships so a save can't
+      // silently drop them. Creating: default to the entity you're viewing.
+      setSelectedEntities(
+        editing
+          ? contactEntityRefs(editing, entities).map((e) => e.slug)
+          : activeEntity
+            ? [activeEntity.slug]
+            : [],
+      )
       setError(null)
       setBusy(false)
     }
+    // `entities` only supplies display names for slug→ref resolution; it must
+    // not re-run (and reset) the form while the modal is open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editing, activeEntity])
 
   const save = async () => {
@@ -166,9 +177,9 @@ function ContactModal({
         attributes,
         // Entity membership on create: the ticked entities (multi-select).
         // Ignored on edit — PATCH doesn't touch entity links.
-        ...(editing || selectedEntities.length === 0
-          ? {}
-          : { entity_slugs: selectedEntities }),
+        // Entity membership: sent on create AND edit — the backend syncs the
+        // links to exactly this list (empty = belongs to no entity).
+        entity_slugs: selectedEntities,
       })
       // PATCH /api/v1/contacts/<id> for edits (backend accepting the extra
       // fields lands in parallel; language already persists today), POST to
@@ -255,7 +266,7 @@ function ContactModal({
         </div>
       )}
 
-      {!editing && entities.length > 0 && (
+      {entities.length > 0 && (
         <div className="mt-3 rounded-lg border border-line bg-fill-subtle px-3 py-2.5">
           <div className="mb-1.5 flex items-center justify-between">
             <span className="text-[11px] font-bold text-text-high">Entities</span>
@@ -270,7 +281,15 @@ function ContactModal({
               <span className="text-line-strong">·</span>
               <button
                 type="button"
-                onClick={() => setSelectedEntities(activeEntity ? [activeEntity.slug] : [])}
+                onClick={() =>
+                  setSelectedEntities(
+                    editing
+                      ? contactEntityRefs(editing, entities).map((e) => e.slug)
+                      : activeEntity
+                        ? [activeEntity.slug]
+                        : [],
+                  )
+                }
                 className="text-text-muted hover:underline"
               >
                 Reset
@@ -324,6 +343,20 @@ function RecordChip({ d }: { d: Contact }) {
   )
 }
 
+/**
+ * Contact.entities arrives either as slugs (/api/contacts) or as {slug,name}
+ * objects (/api/v1/contacts/<id>). Normalize to {slug,name}, resolving display
+ * names from the entity list when only a slug is known.
+ */
+function contactEntityRefs(
+  contact: Pick<Contact, 'entities'>,
+  known: { slug: string; name: string }[],
+): { slug: string; name: string }[] {
+  return (contact.entities ?? []).map((e) =>
+    typeof e === 'string' ? { slug: e, name: known.find((k) => k.slug === e)?.name ?? e } : e,
+  )
+}
+
 function TagChips({ tags }: { tags: string[] }) {
   if (!tags.length) return <span className="text-[10.5px] text-text-faint">—</span>
   return (
@@ -370,7 +403,7 @@ function KanbanCard({ d, onOpen }: { d: Contact; onOpen: () => void }) {
 export default function ContactsPage() {
   const router = useRouter()
   const { contacts, reloadContacts } = useApp()
-  const { activeEntity } = useEntity()
+  const { activeEntity, entities: entityList } = useEntity()
 
   const [view, setView] = useState<'board' | 'list'>('board')
   const [status, setStatus] = useState('')
@@ -494,6 +527,34 @@ export default function ContactsPage() {
       width: 150,
       value: (d) => d.tags.join(' '),
       render: (d) => <TagChips tags={d.tags} />,
+    },
+    {
+      // Entity membership at a glance — otherwise the only way to see it was to
+      // open the contact and scroll to the bottom of the detail page.
+      key: 'entities',
+      header: 'Entities',
+      width: 170,
+      value: (d) => contactEntityRefs(d, entityList).map((e) => e.name).join(' '),
+      render: (d) => {
+        const list = contactEntityRefs(d, entityList)
+        if (list.length === 0)
+          return <span className="text-[10.5px] text-text-faint">None</span>
+        return (
+          <div className="flex flex-wrap gap-1">
+            {list.slice(0, 2).map((e) => (
+              <span
+                key={e.slug}
+                className="rounded-full bg-fill px-2 py-0.5 text-[10px] font-semibold text-text-mid"
+              >
+                {e.name}
+              </span>
+            ))}
+            {list.length > 2 && (
+              <span className="text-[10px] text-text-faint">+{list.length - 2}</span>
+            )}
+          </div>
+        )
+      },
     },
     {
       key: 'actions',

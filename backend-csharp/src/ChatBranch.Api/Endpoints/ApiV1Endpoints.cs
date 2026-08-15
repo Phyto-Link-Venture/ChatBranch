@@ -230,6 +230,26 @@ public static class ApiV1Endpoints
             if (Has(body, "notes")) { contact.Notes = (Str(body, "notes") ?? "").Trim(); changed.Add("notes"); }
             if (Has(body, "status")) { contact.Status = (Str(body, "status") ?? "").Trim(); changed.Add("status"); }
             if (StrList(body, "tags") is List<string> tags) { contact.Tags = tags; changed.Add("tags"); }
+            // 0..many entity memberships, edited from the same form that creates
+            // them (they used to be settable ONLY at create time, which is why
+            // "how do I bind a contact to an entity?" had no answer in the UI).
+            if (StrList(body, "entity_slugs") is List<string> slugs)
+            {
+                var wanted = await db.Entities
+                    .Where(e => slugs.Contains(e.Slug))
+                    .Where(e => TenantId(me) == null || e.TenantId == TenantId(me))
+                    .Select(e => e.Id).ToListAsync();
+                var current = await db.ContactEntities
+                    .Where(l => l.ContactId == contact.Id).ToListAsync();
+                foreach (var link in current.Where(l => !wanted.Contains(l.EntityId)))
+                    db.ContactEntities.Remove(link);
+                foreach (var entityId in wanted.Where(id => current.All(l => l.EntityId != id)))
+                    db.ContactEntities.Add(new ContactEntity
+                    {
+                        ContactId = contact.Id, EntityId = entityId, CreatedAt = DateTime.UtcNow,
+                    });
+                changed.Add("entities");
+            }
             if (JsonObject(body, "attributes") is Dictionary<string, object?> attrs)
             {
                 // merge, like the /api/contacts PATCH — custom fields this form
@@ -250,7 +270,10 @@ public static class ApiV1Endpoints
                 });
                 await db.SaveChangesAsync();
             }
-            return Results.Ok(ContactPayload(contact));
+            var fresh = await db.Contacts.AsNoTracking()
+                .Include(c => c.EntityLinks).ThenInclude(l => l.Entity)
+                .FirstAsync(c => c.Id == contact.Id);
+            return Results.Ok(ContactPayload(fresh));
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- DELETE /api/v1/contacts/{id} -------------------------------------
