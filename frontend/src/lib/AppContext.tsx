@@ -24,6 +24,7 @@ import {
   type TranscriptLine,
 } from './mocks'
 import { useEntity } from './EntityContext'
+import { authHeaders, expireSessionOn401 } from './auth'
 
 // Native Django API base. Override with NEXT_PUBLIC_API_URL.
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
@@ -166,8 +167,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false
-    fetch(contactsUrl)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    // /api/contacts is bearer-gated: WITHOUT the header it 401s and the catch
+    // below silently keeps the demo mocks, so the page showed ten invented
+    // people over a live database. Only a transport failure may fall back now.
+    fetch(contactsUrl, { headers: authHeaders() })
+      .then((r) => {
+        if (expireSessionOn401(r)) throw new Error('Session expired — redirecting to login…')
+        return r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))
+      })
       .then((d) => {
         // An EMPTY list is a real answer (fresh production DB) — show it.
         // The bundled mocks only survive when the API itself is unreachable.
@@ -183,8 +190,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const reloadContacts = useCallback(async () => {
     try {
-      const r = await fetch(contactsUrl)
-      if (!r.ok) return
+      const r = await fetch(contactsUrl, { headers: authHeaders() })
+      if (expireSessionOn401(r) || !r.ok) return
       const d = await r.json()
       if (Array.isArray(d.contacts)) setContacts(d.contacts)
     } catch {

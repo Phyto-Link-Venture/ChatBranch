@@ -20,15 +20,19 @@ public class InboundProcessor
     private readonly AssistantService _assistant;
     private readonly OutboundSender _sender;
     private readonly FlowEngine _engine;
+    private readonly QueueService _queue;
+    private readonly ScopingService _scoping;
 
     public InboundProcessor(AppDbContext db, ThreadStore threads, AssistantService assistant,
-        OutboundSender sender, FlowEngine engine)
+        OutboundSender sender, FlowEngine engine, QueueService queue, ScopingService scoping)
     {
         _db = db;
         _threads = threads;
         _assistant = assistant;
         _sender = sender;
         _engine = engine;
+        _queue = queue;
+        _scoping = scoping;
     }
 
     public Message ProcessInbound(string channel, string key, string text, string? name = null,
@@ -58,10 +62,36 @@ public class InboundProcessor
         return msg;
     }
 
+    /// <summary>
+    /// Auto-reply, honouring the `ai_reply_mode` routing rule:
+    ///
+    /// * <b>queued</b> (the default) — enqueue an ai_reply job instead of
+    ///   answering inline, so the account's Send Pacing gap and quiet hours
+    ///   actually apply and several messages in a burst collapse into ONE
+    ///   answer (the queue generates the reply at send time). Without this the
+    ///   rule was stored but never read, and the pacing setting paced nothing.
+    /// * <b>instant</b> — reply immediately, as before.
+    ///
+    /// A thread never stacks queued replies: one pending job at a time.
+    /// </summary>
     private void TryAiReply(Thread thread)
     {
         try
         {
+            var mode = _scoping.SettingValue("ai_reply_mode", thread.EntityId);
+            // Sandbox stays instant (flows/queue.py's rule): with no configured
+            // account there is nothing to pace, and a demo that answers 30s later
+            // just looks broken.
+            if (mode != "instant" && _sender.WouldSendLive(thread))
+            {
+                var pending = _db.OutboundJobs.Any(j => j.Kind == JobKind.AiReply
+                    && j.Status == JobStatus.Queued
+                    && j.Channel == thread.Channel && j.ToAddress == thread.Key);
+                if (!pending)
+                    _queue.Enqueue(thread.Channel, JobKind.AiReply, thread.Key,
+                        new Dictionary<string, object?>(), thread.ContactId, thread.AccountId);
+                return;
+            }
             var reply = _assistant.GenerateReplyAsync(thread).GetAwaiter().GetResult();
             if (!string.IsNullOrWhiteSpace(reply))
                 _sender.Send(thread, reply, MessageSource.Ai, thread.AccountId);

@@ -27,6 +27,24 @@ public class OutboundSender
         _baileys = baileys;
     }
 
+    /// <summary>
+    /// True when this thread would send for REAL (a configured Cloud or Baileys
+    /// account carries it) rather than storing a sandbox message. Pacing and the
+    /// queue only make sense for real sends — a sandbox demo must stay instant.
+    /// </summary>
+    public bool WouldSendLive(Thread thread, int? accountId = null)
+    {
+        var acctId = accountId ?? thread.AccountId;
+        var account = acctId is int id ? _db.ChannelAccounts.Find(id) : null;
+        if (account == null) return false;
+        if (thread.Channel == ChatBranch.Domain.Channels.WhatsApp
+            && account.Provider == "baileys")
+            return _baileys.IsConfigured && !string.IsNullOrEmpty(account.ExternalId);
+        if (thread.Channel == ChatBranch.Domain.Channels.WhatsApp)
+            return _whatsapp.IsConfigured(account);
+        return false;
+    }
+
     public Message Send(Thread thread, string text, string source, int? accountId = null)
     {
         var acctId = accountId ?? thread.AccountId;

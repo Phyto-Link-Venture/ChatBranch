@@ -15,6 +15,7 @@ builder.Services.AddScoped<ChatBranch.Data.Stores.ThreadStore>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.PersonaService>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.KnowledgeService>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.AssistantService>();
+builder.Services.AddScoped<ChatBranch.Data.Ai.SummaryService>();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<ChatBranch.Data.Ai.ILlmClient, ChatBranch.Data.Ai.OpenAiLlmClient>();
 builder.Services.AddSingleton<ChatBranch.Data.Channels.IWhatsAppCloudClient, ChatBranch.Data.Channels.WhatsAppCloudClient>();

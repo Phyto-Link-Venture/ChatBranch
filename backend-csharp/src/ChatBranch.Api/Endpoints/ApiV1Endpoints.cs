@@ -105,6 +105,77 @@ public static class ApiV1Endpoints
             return Results.Ok(new { contacts = rows.Select(Dtos.ContactDto) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
+        // ---- POST /api/v1/contacts --------------------------------------------
+        // The Contacts page's "Add contact" (api/views.py ContactsView.post). This
+        // was never ported, so the dashboard's create button 405'd against a
+        // GET-only route and silently did nothing. `entity_slugs` binds the new
+        // contact to zero or more entities in the same call.
+        app.MapPost("/api/v1/contacts", async (JsonElement body, ClaimsPrincipal me,
+            AppDbContext db) =>
+        {
+            var name = (Str(body, "name") ?? "").Trim();
+            var phone = (Str(body, "phone") ?? "").Trim();
+            if (name.Length == 0 || phone.Length == 0)
+                return V1Error("bad_request", "name and phone are required.", 400);
+
+            var language = (Str(body, "language") ?? "en").Trim().ToLowerInvariant();
+            if (language.Length == 0) language = "en";
+            if (!SupportedLanguages.Contains(language))
+                return V1Error("bad_request",
+                    $"language must be one of {string.Join(", ", SupportedLanguages)}.", 400);
+
+            // Same-phone contacts are a support nightmare (two histories for one
+            // person), so reject rather than silently create a twin.
+            var digits = DigitsOf(phone);
+            if (digits.Length >= 8)
+            {
+                var clash = await db.Contacts.AsNoTracking()
+                    .FirstOrDefaultAsync(c => c.Phone.EndsWith(digits.Substring(digits.Length - 8)));
+                if (clash != null)
+                    return V1Error("conflict",
+                        $"{clash.Name} already uses that number.", 409);
+            }
+
+            var row = new Contact
+            {
+                Name = name,
+                Phone = phone,
+                Email = (Str(body, "email") ?? "").Trim(),
+                Language = language,
+                CompanyName = (Str(body, "company_name") ?? "").Trim(),
+                Notes = (Str(body, "notes") ?? "").Trim(),
+                Tags = StrList(body, "tags") ?? new(),
+                Attributes = JsonObject(body, "attributes") ?? new(),
+                TenantId = TenantId(me),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+            };
+            db.Contacts.Add(row);
+            await db.SaveChangesAsync();
+
+            // 0..many entity memberships, bounded by what the caller can manage.
+            foreach (var slug in StrList(body, "entity_slugs") ?? new())
+            {
+                var entity = await db.Entities.FirstOrDefaultAsync(e => e.Slug == slug);
+                if (entity == null) continue;
+                if (TenantId(me) is int tid && entity.TenantId != tid) continue;
+                db.ContactEntities.Add(new ContactEntity
+                {
+                    ContactId = row.Id, EntityId = entity.Id, CreatedAt = DateTime.UtcNow,
+                });
+            }
+            db.AuditLogs.Add(new AuditLog
+            {
+                Actor = me.Identity?.Name ?? "system", Action = "contact.create",
+                Target = row.Phone, Detail = row.Name, CreatedAt = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync();
+
+            var saved = await db.Contacts.Include(c => c.EntityLinks).ThenInclude(l => l.Entity)
+                .FirstAsync(c => c.Id == row.Id);
+            return Results.Json(ContactPayload(saved), statusCode: 201);
+        }).RequireAuthorization(AuthPolicies.AdminPlus);
+
         // ---- GET /api/v1/contacts/{id} ----------------------------------------
         // The contact-detail read (api/views.py ContactDetailView). Scoped like
         // the list: superadmin all, admin their tenant, agent only contacts
@@ -117,9 +188,9 @@ public static class ApiV1Endpoints
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- PATCH /api/v1/contacts/{id} --------------------------------------
-        // `language` only, for now (the detail page's inline editor). The AI
-        // conducts calls and hints STT in this language, so it's operator-tunable
-        // per contact — everything else on the contact is sync-owned.
+        // A real partial update: every field the Contacts page's edit form can
+        // change. It used to accept `language` ALONE and silently drop the rest,
+        // so editing a name or a tag appeared to save and changed nothing.
         app.MapMethods("/api/v1/contacts/{id:int}", new[] { "PATCH" },
             async (int id, JsonElement body, ClaimsPrincipal me, AppDbContext db) =>
         {
@@ -136,13 +207,45 @@ public static class ApiV1Endpoints
                 contact.Language = language;
                 changed.Add("language");
             }
+            if (Has(body, "name"))
+            {
+                var name = (Str(body, "name") ?? "").Trim();
+                if (name.Length == 0) return V1Error("bad_request", "name cannot be empty.", 400);
+                contact.Name = name;
+                changed.Add("name");
+            }
+            if (Has(body, "phone"))
+            {
+                var phone = (Str(body, "phone") ?? "").Trim();
+                if (phone.Length == 0) return V1Error("bad_request", "phone cannot be empty.", 400);
+                contact.Phone = phone;
+                changed.Add("phone");
+            }
+            if (Has(body, "email")) { contact.Email = (Str(body, "email") ?? "").Trim(); changed.Add("email"); }
+            if (Has(body, "company_name"))
+            {
+                contact.CompanyName = (Str(body, "company_name") ?? "").Trim();
+                changed.Add("company_name");
+            }
+            if (Has(body, "notes")) { contact.Notes = (Str(body, "notes") ?? "").Trim(); changed.Add("notes"); }
+            if (Has(body, "status")) { contact.Status = (Str(body, "status") ?? "").Trim(); changed.Add("status"); }
+            if (StrList(body, "tags") is List<string> tags) { contact.Tags = tags; changed.Add("tags"); }
+            if (JsonObject(body, "attributes") is Dictionary<string, object?> attrs)
+            {
+                // merge, like the /api/contacts PATCH — custom fields this form
+                // doesn't render must survive an edit
+                var merged = new Dictionary<string, object?>(contact.Attributes);
+                foreach (var kv in attrs) merged[kv.Key] = kv.Value;
+                contact.Attributes = merged;
+                changed.Add("attributes");
+            }
             if (changed.Count > 0)
             {
                 contact.UpdatedAt = DateTime.UtcNow;
                 db.AuditLogs.Add(new AuditLog
                 {
                     Actor = me.Identity?.Name ?? "system", Action = "contact.update",
-                    Target = contact.Phone, Detail = $"{string.Join(", ", changed)} -> {contact.Language}",
+                    Target = contact.Phone, Detail = $"fields: {string.Join(", ", changed)}",
                     CreatedAt = DateTime.UtcNow,
                 });
                 await db.SaveChangesAsync();
@@ -866,6 +969,42 @@ public static class ApiV1Endpoints
 
     /// crm.Contact.SUPPORTED_LANGUAGES — the codes the AI may conduct a call in.
     private static readonly string[] SupportedLanguages = { "auto", "en", "ms", "zh" };
+
+    /// <summary>A JSON string array as a trimmed list; null when the key is absent
+    /// (so a PATCH can tell "leave the tags alone" from "clear the tags").</summary>
+    private static List<string>? StrList(JsonElement body, string key)
+    {
+        if (body.ValueKind != JsonValueKind.Object || !body.TryGetProperty(key, out var v)) return null;
+        if (v.ValueKind != JsonValueKind.Array) return null;
+        return v.EnumerateArray()
+            .Select(x => (x.ValueKind == JsonValueKind.String ? x.GetString() ?? "" : x.ToString()).Trim())
+            .Where(x => x.Length > 0).ToList();
+    }
+
+    /// <summary>A JSON object as a plain dictionary (custom-field values); null
+    /// when the key is absent.</summary>
+    private static Dictionary<string, object?>? JsonObject(JsonElement body, string key)
+    {
+        if (body.ValueKind != JsonValueKind.Object || !body.TryGetProperty(key, out var v)) return null;
+        if (v.ValueKind != JsonValueKind.Object) return null;
+        var into = new Dictionary<string, object?>();
+        foreach (var prop in v.EnumerateObject())
+            into[prop.Name] = prop.Value.ValueKind switch
+            {
+                JsonValueKind.String => prop.Value.GetString(),
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.Number => prop.Value.TryGetInt64(out var n) ? n : prop.Value.GetDouble(),
+                JsonValueKind.Null or JsonValueKind.Undefined => null,
+                JsonValueKind.Array => prop.Value.EnumerateArray()
+                    .Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() ?? "" : x.ToString())
+                    .ToList(),
+                _ => prop.Value.ToString(),
+            };
+        return into;
+    }
+
+    private static string DigitsOf(string raw) => new(raw.Where(char.IsDigit).ToArray());
 
     /// api/views.py ContactDetailView._scoped, narrowed to one row. superadmin
     /// sees all, admin their tenant, everyone else only contacts active on an

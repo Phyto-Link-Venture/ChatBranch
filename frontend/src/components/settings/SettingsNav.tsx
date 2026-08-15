@@ -33,7 +33,7 @@ export const SETTINGS_TABS: { id: string; lbl: string; superadminOnly?: boolean 
   // not configuration. Settings keeps only their Custom Fields (below).
   { id: 'custom-fields', lbl: 'Custom Fields' },
   { id: 'assignments', lbl: 'Account Assignment' },
-  { id: 'appkeys', lbl: 'App Keys', superadminOnly: true },
+  { id: 'appkeys', lbl: 'App & Provider Keys', superadminOnly: true },
   // Pronunciation moved to the Voice & Calls page (/persona) — it is a
   // voice/TTS concern (ElevenLabs respellings), not an app setting.
   // Booking Hours moved INTO the Google Calendar integration (Settings →

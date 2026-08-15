@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json.Serialization;
@@ -19,6 +20,16 @@ namespace ChatBranch.Api.Endpoints;
 /// </summary>
 public static class InboxEndpoints
 {
+    /// <summary>Wire shape the chat panel's ThreadSummary type expects.</summary>
+    private static object SummaryPayload(ChatBranch.Data.Ai.SummaryService.Brief b) => new
+    {
+        summary = b.Summary,
+        heuristic = b.Heuristic,
+        message_count = b.MessageCount,
+        as_of = b.AsOf,
+        generated_at = b.GeneratedAt,
+    };
+
     public record SendRequest(string Text, bool Force = false, int? AccountId = null);
     public record SimulateRequest(string Channel, string Key, string Text, string? Name = null);
     // Wire is snake_case: the dashboard posts {short_code, content} — bind that
@@ -166,6 +177,46 @@ public static class InboxEndpoints
         // ---- canned responses (cross-channel shared templates) -----------------
         // ?contact_id=<pk> personalizes each reply's `rendered` text with that
         // contact's CRM variables; unlinked chats get the raw content back.
+        // ---- AI case summary --------------------------------------------------
+        // The chat info panel reads this per thread and the contact page posts
+        // the timeline variant. Neither was ported, so the panel 404'd on every
+        // conversation and "Generate summary" silently did nothing.
+        app.MapGet("/api/messaging/threads/{channel}/{key}/summary",
+            (string channel, string key, ThreadStore store, ChatBranch.Data.Ai.SummaryService svc) =>
+        {
+            var thread = store.GetThread(channel, key);
+            if (thread == null) return Results.NotFound(new { detail = "thread not found" });
+            var brief = svc.Stored(thread);
+            var (count, _) = svc.Extent(thread);
+            return Results.Ok(new
+            {
+                summary = brief == null ? null : SummaryPayload(brief),
+                stale = svc.IsStale(thread, brief),
+                message_count = count,
+            });
+        }).RequireAuthorization(AuthPolicies.Authenticated);
+
+        app.MapPost("/api/messaging/threads/{channel}/{key}/summary",
+            async (string channel, string key, ThreadStore store,
+                   ChatBranch.Data.Ai.SummaryService svc) =>
+        {
+            var thread = store.GetThread(channel, key);
+            if (thread == null) return Results.NotFound(new { detail = "thread not found" });
+            var brief = await svc.GenerateAsync(thread);
+            var (count, _) = svc.Extent(thread);
+            return Results.Ok(new
+            {
+                summary = brief == null ? null : SummaryPayload(brief),
+                stale = false,
+                message_count = count,
+            });
+        }).RequireAuthorization(AuthPolicies.Authenticated);
+
+        // NOTE: POST /api/messaging/timeline/summary (the contact page's
+        // "Generate summary") already lives in MessagingEndpoints — it handles
+        // the {context:{record}} blob and the heuristic fallback. Registering a
+        // second one here made every call an AmbiguousMatchException 500.
+
         app.MapGet("/api/messaging/canned", async (string? entity, int? contact_id,
             AppDbContext db, ScopingService sc, FlowEngine flows) =>
         {

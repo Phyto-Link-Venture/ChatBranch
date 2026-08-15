@@ -1,5 +1,6 @@
 'use client'
 
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
@@ -139,44 +140,6 @@ function CardStatus({ status }: { status: 'connected' | 'needs_setup' | 'not_con
   return <span className={`shrink-0 rounded-full px-2 py-px text-[10px] font-bold ${map.cls}`}>{map.lbl}</span>
 }
 
-/** Read-only value + copy button — for the values pasted into a provider's
- *  developer console (Google redirect URI, webhook URLs). */
-function CopyField({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  const [copied, setCopied] = useState(false)
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(value)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch {
-      /* clipboard blocked — the value is selectable */
-    }
-  }
-  return (
-    <label className="block">
-      <span className="mb-1 block text-[10.5px] font-bold text-text-high">{label}</span>
-      <div className="flex items-stretch gap-1.5">
-        <input
-          value={value}
-          readOnly
-          onFocus={(e) => e.currentTarget.select()}
-          className={`${inputCls} cursor-default bg-fill-subtle font-mono !text-[11.5px]`}
-        />
-        <button
-          type="button"
-          onClick={copy}
-          title={`Copy ${label}`}
-          aria-label={`Copy ${label}`}
-          className="grid w-9 shrink-0 place-items-center rounded-lg border border-line-strong bg-fill text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
-        >
-          {copied ? <Check size={13} className="text-green-300" aria-hidden /> : <Copy size={13} aria-hidden />}
-        </button>
-      </div>
-      {hint && <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">{hint}</span>}
-    </label>
-  )
-}
-
 interface DraftAccount {
   provider: string
   name: string
@@ -188,9 +151,9 @@ interface DraftAccount {
  * Settings → Integrations (upgrade §B). Two clearly separated zones:
  *  1. Connect-first cards — icon, name, one-line purpose, status chip and a
  *     primary Connect button (OAuth full-page redirect via /oauth/<p>/start).
- *  2. "Provider keys — one-time setup" — the developer OAuth-client + webhook
- *     secrets, grouped per provider, masked round-trip preserved. The
- *     #oauth-client-keys anchor is kept for the "Set up" scroll link.
+ *  2. A pointer to Settings → App & Provider Keys, where the one-time system
+ *     credentials (Google OAuth client, Shopify/Stripe webhook secrets) live.
+ *     The #oauth-client-keys anchor is kept for the "Set up" scroll link.
  * Connected accounts (across every provider) live in a DataTable between them.
  *
  * Everything renders with ZERO credentials configured — that is the template's
@@ -211,15 +174,10 @@ export function IntegrationsSettings() {
   const [busy, setBusy] = useState<string>('')
   const [draft, setDraft] = useState<DraftAccount | null>(null)
 
-  // staged global keys (superadmin) — driven through the shared header cluster
-  const [keys, setKeys] = useState<Record<string, string>>({})
   // Booking hours belong to the Google Calendar integration (they drive the
   // slots the AI offers + the booking guard), not the global settings — so the
   // editor lives here, revealed from the Google Calendar card.
   const [showBookingHours, setShowBookingHours] = useState(false)
-  const { setDirty, register } = useSettingsDirty()
-  const keysRef = useRef(keys)
-  keysRef.current = keys
 
   const load = useCallback(async () => {
     try {
@@ -231,13 +189,6 @@ export function IntegrationsSettings() {
       setProviders(p.providers)
       setAccounts(a.accounts)
       setSettings(s)
-      setKeys({
-        google_client_id: s.google_client_id || '',
-        google_client_secret: s.google_client_secret_masked || '',
-        google_redirect_uri: s.google_redirect_uri || '',
-        shopify_webhook_secret: s.shopify_webhook_secret_masked || '',
-        stripe_webhook_secret: s.stripe_webhook_secret_masked || '',
-      })
       setLoadError(null)
     } catch (e) {
       setProviders(null)
@@ -275,27 +226,6 @@ export function IntegrationsSettings() {
     if (bad) setError(bad)
     if (ok || bad) window.history.replaceState({}, '', window.location.pathname)
   }, [load])
-
-  const saveKeys = useCallback(async () => {
-    const body: Record<string, string> = {}
-    for (const [k, v] of Object.entries(keysRef.current)) {
-      if (!v.includes('••')) body[k] = v // untouched masked values stay untouched
-    }
-    if (Object.keys(body).length === 0) return
-    await api('settings', { method: 'PUT', body: JSON.stringify(body) })
-    setNotice('Integration keys saved.')
-    await load()
-  }, [load])
-
-  useEffect(() => {
-    register({ save: saveKeys, discard: () => void load() })
-    return () => register(null)
-  }, [register, saveKeys, load])
-
-  const editKey = (key: string, value: string) => {
-    setKeys((prev) => ({ ...prev, [key]: value }))
-    setDirty(true)
-  }
 
   const byProvider = useMemo(() => {
     const map: Record<string, Account[]> = {}
@@ -523,8 +453,6 @@ export function IntegrationsSettings() {
     )
   }
 
-  const webhookUrlFor = (id: string) => settings?.webhook_paths?.[id] || ''
-
   return (
     <div className="flex flex-col gap-6 pt-3.5">
       <p className="max-w-[720px] text-[11.5px] leading-relaxed text-text-mid">
@@ -732,121 +660,10 @@ export function IntegrationsSettings() {
         </Modal>
       )}
 
-      {/* ===================== divider ===================== */}
-      <div className="border-t border-line" />
-
-      {/* ===================== ZONE 2: developer keys ===================== */}
-      <section id="oauth-client-keys" className="scroll-mt-4 flex flex-col gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <KeyRound size={15} className="text-text-mid" aria-hidden />
-            <h2 className="text-[14px] font-extrabold tracking-[-0.3px] text-text-heading">
-              Provider keys — one-time setup
-            </h2>
-            {!isSuper && (
-              <span className="flex items-center gap-1 text-[10.5px] font-semibold text-text-muted">
-                <Lock size={11} aria-hidden /> superadmin only
-              </span>
-            )}
-          </div>
-          <p className="mt-1 max-w-[680px] text-[11px] leading-relaxed text-text-muted">
-            One Google OAuth client covers Calendar, Drive, Gmail &amp; Sheets. Shopify/Stripe webhook secrets are only
-            needed for those. Set once; then anyone connects in one click. Values already stored show masked — leave
-            them alone to keep them.
-          </p>
-        </div>
-
-        {/* Google group */}
-        <div className="rounded-xl border border-line bg-card p-4">
-          <div className="mb-3 flex items-center gap-2">
-            <FolderOpen size={14} color="#3B82F6" aria-hidden />
-            <span className="text-[12px] font-bold text-text-high">Google OAuth client</span>
-            <span className="rounded-full bg-fill px-2 py-px text-[9.5px] font-semibold text-text-muted">
-              Calendar · Drive · Gmail · Sheets
-            </span>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="block">
-              <span className="mb-1 block text-[10.5px] font-bold text-text-high">Google client id</span>
-              <input
-                value={keys.google_client_id || ''}
-                readOnly={!isSuper}
-                autoComplete="off"
-                onChange={(e) => editKey('google_client_id', e.target.value)}
-                className={`${inputCls} ${isSuper ? '' : 'cursor-default bg-fill-subtle'}`}
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-[10.5px] font-bold text-text-high">Google client secret</span>
-              <input
-                value={keys.google_client_secret || ''}
-                readOnly={!isSuper}
-                autoComplete="off"
-                onChange={(e) => editKey('google_client_secret', e.target.value)}
-                className={`${inputCls} ${isSuper ? '' : 'cursor-default bg-fill-subtle'}`}
-                type={!(keys.google_client_secret || '').includes('••') ? 'password' : 'text'}
-              />
-            </label>
-            <div className="md:col-span-2">
-              <CopyField
-                label="Redirect URI (register this in the Google console)"
-                value={settings?.redirect_uri || keys.google_redirect_uri || '—'}
-                hint="Google Cloud console → Credentials → your OAuth client → Authorized redirect URIs. Paste this exact value."
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Shopify + Stripe webhook groups */}
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="rounded-xl border border-line bg-card p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <ShoppingBag size={14} color="#3B82F6" aria-hidden />
-              <span className="text-[12px] font-bold text-text-high">Shopify webhooks</span>
-            </div>
-            <div className="flex flex-col gap-3">
-              <label className="block">
-                <span className="mb-1 block text-[10.5px] font-bold text-text-high">Shopify webhook secret</span>
-                <input
-                  value={keys.shopify_webhook_secret || ''}
-                  readOnly={!isSuper}
-                  autoComplete="off"
-                  onChange={(e) => editKey('shopify_webhook_secret', e.target.value)}
-                  className={`${inputCls} ${isSuper ? '' : 'cursor-default bg-fill-subtle'}`}
-                  type={!(keys.shopify_webhook_secret || '').includes('••') ? 'password' : 'text'}
-                />
-              </label>
-              {webhookUrlFor('shopify') && (
-                <CopyField label="Webhook URL" value={webhookUrlFor('shopify')} />
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-line bg-card p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <CreditCard size={14} color="#3B82F6" aria-hidden />
-              <span className="text-[12px] font-bold text-text-high">Stripe webhooks</span>
-            </div>
-            <div className="flex flex-col gap-3">
-              <label className="block">
-                <span className="mb-1 block text-[10.5px] font-bold text-text-high">
-                  Stripe webhook secret (whsec_…)
-                </span>
-                <input
-                  value={keys.stripe_webhook_secret || ''}
-                  readOnly={!isSuper}
-                  autoComplete="off"
-                  onChange={(e) => editKey('stripe_webhook_secret', e.target.value)}
-                  className={`${inputCls} ${isSuper ? '' : 'cursor-default bg-fill-subtle'}`}
-                  type={!(keys.stripe_webhook_secret || '').includes('••') ? 'password' : 'text'}
-                />
-              </label>
-              {webhookUrlFor('stripe') && (
-                <CopyField label="Webhook URL" value={webhookUrlFor('stripe')} />
-              )}
-            </div>
-          </div>
-        </div>
+      {/* Provider keys (Google OAuth client, Shopify/Stripe webhook secrets) are a
+          one-time SYSTEM setup and live in Settings → App & Provider Keys. Nothing
+          is rendered for them here; the anchor stays so old links still resolve. */}
+      <section id="oauth-client-keys" className="sr-only" aria-hidden="true">
       </section>
     </div>
   )

@@ -16,10 +16,19 @@ namespace ChatBranch.Api.Endpoints;
 public static class AiEndpoints
 {
     public record PersonaWrite(string Persona, string? Entity);
-    public record KnowledgeWrite(string Kind, string Title, string? Question, string Content,
-        List<string>? Tags, List<string>? Channels, int Priority, bool Active,
+    /// <remarks>
+    /// EVERY field is optional so PATCH is a real partial update: the list's
+    /// on/off button sends `{"active": false}` alone, and non-nullable Kind /
+    /// Title / Content used to bind as null and 500 on the NOT NULL columns
+    /// (the toggle simply did nothing). Create supplies its own defaults.
+    /// </remarks>
+    public record KnowledgeWrite(string? Kind, string? Title, string? Question, string? Content,
+        List<string>? Tags, List<string>? Channels, int? Priority, bool? Active,
         DateTime? StartsAt, DateTime? EndsAt, string? Entity);
-    public record PreviewRequest(string? Query, string? Channel, string? Entity);
+    /// <summary>`text` is what the dashboard's preview box posts; `query` is the
+    /// Django name. Accept both — binding only `query` made the preview silently
+    /// ignore the message you typed and always return the whole block.</summary>
+    public record PreviewRequest(string? Query, string? Text, string? Channel, string? Entity);
     /// <summary>Wire shape of a skill: `id` is the string skill_id, and `useWhen`
     /// stays camelCase on purpose — Django's _skill_payload does the same.</summary>
     public record SkillDto(string? Id, string? Name, string? UseWhen, string? Instructions, int Position);
@@ -99,9 +108,11 @@ public static class AiEndpoints
             var entityId = await InboxEndpoints.EntityId(db, b.Entity);
             var row = new KnowledgeItem
             {
-                EntityId = entityId, Kind = b.Kind, Title = b.Title, Question = b.Question ?? "",
-                Content = b.Content, Tags = b.Tags ?? new(), Channels = b.Channels ?? new(),
-                Priority = b.Priority, Active = b.Active, StartsAt = b.StartsAt, EndsAt = b.EndsAt,
+                EntityId = entityId, Kind = b.Kind ?? "fact", Title = b.Title ?? "",
+                Question = b.Question ?? "", Content = b.Content ?? "",
+                Tags = b.Tags ?? new(), Channels = b.Channels ?? new(),
+                Priority = b.Priority ?? 0, Active = b.Active ?? true,
+                StartsAt = b.StartsAt, EndsAt = b.EndsAt,
                 CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
             };
             db.KnowledgeItems.Add(row);
@@ -109,15 +120,25 @@ public static class AiEndpoints
             return Results.Ok(KnowledgeDto(row, DateTime.UtcNow, await EntityRow(db, row.EntityId)));
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
+        // Bound as raw JSON, not a DTO: a PATCH must tell "field absent" (leave
+        // it) from "field null/empty" (clear it) — the date window is cleared by
+        // sending "", and the list's on/off button sends `{"active": …}` alone.
         app.MapMethods("/api/aicore/knowledge/{id:int}", new[] { "PATCH" },
-            async (int id, KnowledgeWrite b, AppDbContext db) =>
+            async (int id, JsonElement b, AppDbContext db) =>
         {
             var row = await db.KnowledgeItems.FindAsync(id);
             if (row == null) return Results.NotFound();
-            row.Kind = b.Kind; row.Title = b.Title; row.Question = b.Question ?? "";
-            row.Content = b.Content; row.Tags = b.Tags ?? new(); row.Channels = b.Channels ?? new();
-            row.Priority = b.Priority; row.Active = b.Active;
-            row.StartsAt = b.StartsAt; row.EndsAt = b.EndsAt; row.UpdatedAt = DateTime.UtcNow;
+            if (KStr(b, "kind") is string kind && kind.Length > 0) row.Kind = kind;
+            if (KStr(b, "title") is string title) row.Title = title;
+            if (KStr(b, "question") is string question) row.Question = question;
+            if (KStr(b, "content") is string content) row.Content = content;
+            if (KList(b, "tags") is List<string> tags) row.Tags = tags;
+            if (KList(b, "channels") is List<string> channels) row.Channels = channels;
+            if (KInt(b, "priority") is int prio) row.Priority = prio;
+            if (KBool(b, "active") is bool active) row.Active = active;
+            if (KHas(b, "starts_at")) row.StartsAt = KDate(b, "starts_at");
+            if (KHas(b, "ends_at")) row.EndsAt = KDate(b, "ends_at");
+            row.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
             return Results.Ok(KnowledgeDto(row, DateTime.UtcNow, await EntityRow(db, row.EntityId)));
         }).RequireAuthorization(AuthPolicies.AdminPlus);
@@ -133,7 +154,8 @@ public static class AiEndpoints
             KnowledgeService knowledge) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, b.Entity);
-            var block = knowledge.BuildContext(b.Query, entityId, b.Channel);
+            var query = !string.IsNullOrWhiteSpace(b.Query) ? b.Query : b.Text;
+            var block = knowledge.BuildContext(query, entityId, b.Channel);
             // Django-contract shape (aicore/views.py knowledge_preview): the page
             // renders `chars` / `budget` — omitting budget crashed it on
             // `preview.budget.toLocaleString`.
@@ -309,4 +331,56 @@ public static class AiEndpoints
         id = s.SkillId, name = s.Name, useWhen = s.UseWhen,
         instructions = s.Instructions, position = s.Position,
     };
+
+    // ---- knowledge PATCH readers (presence-aware) ---------------------------
+    private static bool KHas(JsonElement b, string key) =>
+        b.ValueKind == JsonValueKind.Object && b.TryGetProperty(key, out _);
+
+    private static JsonElement? KGet(JsonElement b, string key) =>
+        b.ValueKind == JsonValueKind.Object && b.TryGetProperty(key, out var v) ? v : null;
+
+    private static string? KStr(JsonElement b, string key) => KGet(b, key) is JsonElement v
+        ? v.ValueKind switch
+        {
+            JsonValueKind.String => v.GetString() ?? "",
+            JsonValueKind.Null => "",
+            JsonValueKind.Undefined => null,
+            _ => v.ToString(),
+        }
+        : null;
+
+    private static int? KInt(JsonElement b, string key) => KGet(b, key) is JsonElement v
+        ? v.ValueKind switch
+        {
+            JsonValueKind.Number => v.TryGetInt32(out var n) ? n : null,
+            JsonValueKind.String => int.TryParse(v.GetString(), out var n) ? n : null,
+            _ => null,
+        }
+        : null;
+
+    private static bool? KBool(JsonElement b, string key) => KGet(b, key) is JsonElement v
+        ? v.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null,
+        }
+        : null;
+
+    private static List<string>? KList(JsonElement b, string key) =>
+        KGet(b, key) is JsonElement v && v.ValueKind == JsonValueKind.Array
+            ? v.EnumerateArray()
+                .Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() ?? "" : x.ToString())
+                .Where(x => x.Length > 0).ToList()
+            : null;
+
+    /// <summary>"" / null clears the date; anything unparsable is treated as cleared
+    /// rather than 400-ing a save the operator can't diagnose.</summary>
+    private static DateTime? KDate(JsonElement b, string key)
+    {
+        var raw = KStr(b, key);
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        return DateTime.TryParse(raw, null, System.Globalization.DateTimeStyles.AdjustToUniversal
+            | System.Globalization.DateTimeStyles.AssumeUniversal, out var dt) ? dt : null;
+    }
 }
