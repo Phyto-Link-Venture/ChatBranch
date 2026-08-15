@@ -14,6 +14,7 @@ import { MOVED_AREA_ROUTES } from '@/components/settings/movedAreas'
  */
 const LEGACY_TABS: Record<string, string> = {
   voice: 'ai', // pre-consolidation Voice Persona tab
+  'booking-hours': 'integrations', // moved into the Google Calendar integration
 }
 
 function Redirector() {

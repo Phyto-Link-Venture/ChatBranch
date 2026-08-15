@@ -29,7 +29,9 @@ export const SETTINGS_TABS: { id: string; lbl: string; superadminOnly?: boolean 
   { id: 'assignments', lbl: 'Account Assignment' },
   { id: 'appkeys', lbl: 'App Keys', superadminOnly: true },
   { id: 'pronunciation', lbl: 'Pronunciation' },
-  { id: 'booking-hours', lbl: 'Booking Hours' },
+  // Booking Hours moved INTO the Google Calendar integration (Settings →
+  // Integrations → Google Calendar → Booking hours) — it configures that
+  // integration, not the app globally. /settings/booking-hours redirects there.
 ]
 
 export function SettingsShell({ children }: { children: ReactNode }) {

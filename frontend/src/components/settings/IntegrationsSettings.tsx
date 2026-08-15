@@ -28,6 +28,7 @@ import { roleHeaders } from '@/lib/role'
 import { useRole } from '@/lib/useRole'
 import { expireSessionOn401 } from '@/lib/auth'
 import { useSettingsDirty } from './SettingsDirtyContext'
+import { BookingHoursSettings } from './BookingHoursSettings'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
@@ -212,6 +213,10 @@ export function IntegrationsSettings() {
 
   // staged global keys (superadmin) — driven through the shared header cluster
   const [keys, setKeys] = useState<Record<string, string>>({})
+  // Booking hours belong to the Google Calendar integration (they drive the
+  // slots the AI offers + the booking guard), not the global settings — so the
+  // editor lives here, revealed from the Google Calendar card.
+  const [showBookingHours, setShowBookingHours] = useState(false)
   const { setDirty, register } = useSettingsDirty()
   const keysRef = useRef(keys)
   keysRef.current = keys
@@ -243,6 +248,16 @@ export function IntegrationsSettings() {
   useEffect(() => {
     load()
   }, [load])
+
+  // Deep link from the old /settings/booking-hours route (and legacy ?tab=)
+  // opens the Google Calendar booking-hours panel straight away. Same
+  // window-based read as the OAuth params below (no useSearchParams Suspense).
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (new URLSearchParams(window.location.search).get('booking-hours') === '1') {
+      setShowBookingHours(true)
+    }
+  }, [])
 
   // The OAuth callback bounces back here with ?connected= / ?error=. Read it
   // from window (not useSearchParams — that forces a Suspense boundary in the
@@ -572,7 +587,17 @@ export function IntegrationsSettings() {
                   </div>
                 </div>
 
-                <div className="mt-auto flex items-center gap-2">
+                <div className="mt-auto flex flex-wrap items-center gap-2">
+                  {p.id === 'google_calendar' && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => setShowBookingHours((v) => !v)}
+                      aria-expanded={showBookingHours}
+                    >
+                      <CalendarDays size={13} aria-hidden />
+                      {showBookingHours ? 'Hide booking hours' : 'Booking hours'}
+                    </Button>
+                  )}
                   {!canManage ? (
                     <span className="text-[10.5px] text-text-muted">Managed by an admin.</span>
                   ) : p.kind === 'oauth' ? (
@@ -615,6 +640,23 @@ export function IntegrationsSettings() {
             )
           })}
         </div>
+
+        {/* ---- Google Calendar → booking hours (the per-day appointment
+             schedule the AI books against). Lives with the calendar integration
+             rather than as a standalone global tab. ---- */}
+        {showBookingHours && (
+          <div className="mt-1 rounded-xl border border-line bg-card p-4">
+            <div className="mb-1 flex items-center gap-2">
+              <CalendarDays size={15} color="#3B82F6" aria-hidden />
+              <h3 className="text-[13px] font-bold text-text-high">Google Calendar · Booking hours</h3>
+            </div>
+            <p className="mb-2 text-[11px] leading-relaxed text-text-muted">
+              The per-day windows the AI offers appointments in and the booking guard enforces —
+              what&apos;s offered and what&apos;s bookable stay in step.
+            </p>
+            <BookingHoursSettings />
+          </div>
+        )}
       </section>
 
       {/* ---- connected accounts (across every provider) ---- */}
