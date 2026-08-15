@@ -20,8 +20,10 @@ public static class AiEndpoints
         List<string>? Tags, List<string>? Channels, int Priority, bool Active,
         DateTime? StartsAt, DateTime? EndsAt, string? Entity);
     public record PreviewRequest(string? Query, string? Channel, string? Entity);
-    public record SkillDto(string SkillId, string Name, string? UseWhen, string? Instructions, int Position);
-    public record SkillsWrite(string? Entity, List<SkillDto> Skills);
+    /// <summary>Wire shape of a skill: `id` is the string skill_id, and `useWhen`
+    /// stays camelCase on purpose — Django's _skill_payload does the same.</summary>
+    public record SkillDto(string? Id, string? Name, string? UseWhen, string? Instructions, int Position);
+    public record SkillsWrite(string? Entity, List<SkillDto>? Skills);
     public record ReplyRequest(string Channel, string Key);
 
     public static void MapAiEndpoints(this IEndpointRouteBuilder app)
@@ -31,12 +33,22 @@ public static class AiEndpoints
             PersonaService persona, ScopingService sc) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
+            var ent = await EntityRow(db, entityId);
+            // Wire shape = aicore/views.py _persona_payload (snake_case). `is_default`
+            // is what the UI reads to label the box "built-in default" — it must be
+            // the STORED value being empty, not the resolved text matching
+            // DEFAULT_PERSONA (an operator who typed the default back in is still
+            // overriding it).
             return Results.Ok(new
             {
-                hardRules = PersonaService.HardRules,
                 persona = persona.PersonaBody(entityId),
+                is_default = string.IsNullOrWhiteSpace(sc.SettingValue("aicore_persona", entityId)),
                 @default = PersonaService.DefaultPersona,
+                hard_rules = PersonaService.HardRules,
+                entity = ent?.Slug,
+                entity_name = ent?.Name ?? "",
                 scope = sc.SettingScope("aicore_persona", entityId),
+                global_persona = persona.PersonaBody(null),
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
@@ -52,7 +64,11 @@ public static class AiEndpoints
         app.MapGet("/api/aicore/knowledge", async (string? entity, AppDbContext db, ScopingService sc) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
+            var ent = await EntityRow(db, entityId);
+            // Include(Entity) so each item can report its OWNING outlet (which is
+            // not the outlet being viewed — inherited global rows carry null).
             var rows = sc.ScopeInherited(db.KnowledgeItems.AsNoTracking(), entityId)
+                .Include(k => k.Entity)
                 .OrderByDescending(k => k.Priority).ThenByDescending(k => k.UpdatedAt).ToList();
             // Django-contract shape: the KnowledgeSettings page reads items/counts/
             // kinds — returning a bare list left `data.kinds.map` undefined and
@@ -66,14 +82,15 @@ public static class AiEndpoints
                 new { id = "notice", label = "Sudden notice" },
             };
             var counts = kinds.ToDictionary(k => k.id, k => rows.Count(r => r.Kind == k.id));
+            var now = DateTime.UtcNow;
             return Results.Ok(new
             {
-                items = rows.Select(KnowledgeDto),
+                items = rows.Select(k => KnowledgeDto(k, now)),
                 counts,
                 kinds,
                 budget = 1800,
-                entity = (string?)null,
-                entity_name = "",
+                entity = ent?.Slug,
+                entity_name = ent?.Name ?? "",
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
@@ -89,7 +106,7 @@ public static class AiEndpoints
             };
             db.KnowledgeItems.Add(row);
             await db.SaveChangesAsync();
-            return Results.Ok(KnowledgeDto(row));
+            return Results.Ok(KnowledgeDto(row, DateTime.UtcNow, await EntityRow(db, row.EntityId)));
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         app.MapMethods("/api/aicore/knowledge/{id:int}", new[] { "PATCH" },
@@ -102,7 +119,7 @@ public static class AiEndpoints
             row.Priority = b.Priority; row.Active = b.Active;
             row.StartsAt = b.StartsAt; row.EndsAt = b.EndsAt; row.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
-            return Results.Ok(KnowledgeDto(row));
+            return Results.Ok(KnowledgeDto(row, DateTime.UtcNow, await EntityRow(db, row.EntityId)));
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         app.MapDelete("/api/aicore/knowledge/{id:int}", async (int id, AppDbContext db) =>
@@ -129,24 +146,40 @@ public static class AiEndpoints
             return Results.Ok(new { skills = rows.Select(SkillDtoOut) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
-        app.MapPut("/api/aicore/skills", async (SkillsWrite body, AppDbContext db) =>
+        app.MapPut("/api/aicore/skills", async (SkillsWrite body, AppDbContext db, ScopingService sc) =>
         {
+            if (body.Skills == null) return Results.Json(new { detail = "Body must carry skills[]." }, statusCode: 400);
             var entityId = await InboxEndpoints.EntityId(db, body.Entity);
             // Upsert within THIS scope, prune scope rows not in the payload
             // (the "sole writer" contract — only touches its own scope).
             var existing = await db.AgentSkills.Where(s => s.EntityId == entityId).ToListAsync();
             var keep = new HashSet<string>();
+            var pos = 0;
             foreach (var s in body.Skills)
             {
-                keep.Add(s.SkillId);
-                var row = existing.FirstOrDefault(e => e.SkillId == s.SkillId)
-                          ?? Add(db, new AgentSkill { SkillId = s.SkillId, EntityId = entityId });
-                row.Name = s.Name; row.UseWhen = s.UseWhen ?? ""; row.Instructions = s.Instructions ?? "";
-                row.Position = s.Position;
+                // `id` on the wire is the STRING skill_id the browser mints
+                // ("as-xxxxx"), never the numeric pk. Blank ones are dropped
+                // rather than creating an unaddressable row (mirrors Django).
+                var skillId = (s.Id ?? "").Trim();
+                if (skillId.Length == 0) continue;
+                if (skillId.Length > 64) skillId = skillId[..64];
+                keep.Add(skillId);
+                var row = existing.FirstOrDefault(e => e.SkillId == skillId)
+                          ?? Add(db, new AgentSkill { SkillId = skillId, EntityId = entityId });
+                row.Name = string.IsNullOrWhiteSpace(s.Name) ? "Agent skill" : s.Name;
+                row.UseWhen = s.UseWhen ?? "";
+                row.Instructions = s.Instructions ?? "";
+                // Position comes from LIST ORDER, not the payload field — the
+                // settings page reorders by dragging rows and never sends one.
+                row.Position = pos++;
             }
             db.AgentSkills.RemoveRange(existing.Where(e => !keep.Contains(e.SkillId)));
             await db.SaveChangesAsync();
-            return Results.Ok(new { count = body.Skills.Count });
+            // Echo the saved library in the GET shape — the page swaps its draft
+            // for this response, so a `{count}` reply blanked the editor.
+            var rows = sc.ScopeInherited(db.AgentSkills.AsNoTracking(), entityId)
+                .OrderBy(s => s.Position).ToList();
+            return Results.Ok(new { skills = rows.Select(SkillDtoOut) });
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         // ---- manual reply (playground / operator "AI draft") -------------------
@@ -223,16 +256,47 @@ public static class AiEndpoints
         @default = DefaultBookingHours(),
     };
 
-    private static object KnowledgeDto(KnowledgeItem k) => new
-    {
-        id = k.Id, kind = k.Kind, title = k.Title, question = k.Question, content = k.Content,
-        tags = k.Tags, channels = k.Channels, priority = k.Priority, active = k.Active,
-        startsAt = k.StartsAt, endsAt = k.EndsAt, entityId = k.EntityId,
-    };
+    /// <summary>Resolve an entity row for its slug/name, or null for "All entities".</summary>
+    private static async Task<Entity?> EntityRow(AppDbContext db, int? entityId) =>
+        entityId is int eid
+            ? await db.Entities.AsNoTracking().FirstOrDefaultAsync(e => e.Id == eid)
+            : null;
 
+    /// <summary>
+    /// Port of aicore/views.py <c>_item_payload</c> — snake_case, which is what the
+    /// Knowledge Base page parses. live/expired/scheduled are precomputed here so
+    /// the UI's chip agrees with what retrieval will actually do with the row.
+    /// </summary>
+    private static object KnowledgeDto(KnowledgeItem k, DateTime now, Entity? ent = null)
+    {
+        var owner = ent ?? k.Entity;
+        var started = k.StartsAt == null || k.StartsAt <= now;
+        var ended = k.EndsAt != null && k.EndsAt <= now;
+        return new
+        {
+            id = k.Id, kind = k.Kind, title = k.Title, question = k.Question, content = k.Content,
+            tags = k.Tags, channels = k.Channels, priority = k.Priority, active = k.Active,
+            starts_at = k.StartsAt, ends_at = k.EndsAt,
+            entity_id = k.EntityId,
+            entity = k.EntityId == null ? null : owner?.Slug,
+            entity_name = k.EntityId == null ? "" : owner?.Name ?? "",
+            // "global" = authored organization-wide and inherited by every outlet;
+            // "entity" = this outlet's own. Drives the inherited/local badge.
+            scope = k.EntityId != null ? "entity" : "global",
+            live = k.Active && started && !ended,
+            expired = ended,
+            scheduled = !started,
+            created_by = k.CreatedBy,
+            updated_at = k.UpdatedAt,
+        };
+    }
+
+    /// <summary>Port of aicore/views.py <c>_skill_payload</c>: `id` is the STRING
+    /// skill_id (the flow builder and the settings page both key on it), and
+    /// `useWhen` is deliberately camelCase.</summary>
     private static object SkillDtoOut(AgentSkill s) => new
     {
-        id = s.Id, skillId = s.SkillId, name = s.Name, useWhen = s.UseWhen,
-        instructions = s.Instructions, position = s.Position, entityId = s.EntityId,
+        id = s.SkillId, name = s.Name, useWhen = s.UseWhen,
+        instructions = s.Instructions, position = s.Position,
     };
 }

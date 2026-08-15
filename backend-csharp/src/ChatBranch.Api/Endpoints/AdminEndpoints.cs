@@ -26,6 +26,10 @@ namespace ChatBranch.Api.Endpoints;
 /// </summary>
 public static class AdminEndpoints
 {
+    /// Role create/rename body (`{label}`); the slug is always derived, never
+    /// operator-supplied — it's the identity Profile.role/RolePermission point at.
+    public record RoleWrite(string? Label);
+
     // ---- capability catalog (crm/permissions_store.py CAPABILITIES) --------
     // The frontend renders the permission matrix from exactly this list; keep
     // it in step with `CAPABILITY_CATALOG` in frontend/src/lib/auth.ts.
@@ -112,6 +116,167 @@ public static class AdminEndpoints
                 };
             });
             return Results.Ok(new { roles = payload });
+        }).RequireAuthorization(AuthPolicies.AdminPlus);
+
+        // ---- POST /api/auth/roles -----------------------------------------
+        // {label} → a new CUSTOM role. The label is slugified into the role's
+        // permanent identity, and a full set of all-false RolePermission rows is
+        // seeded so a fresh role grants NOTHING until an operator saves the
+        // matrix (crm/permissions_store.py create_role: "no auto-pass").
+        //
+        // Gate is `rbac.manage`, not a role literal — same as PUT
+        // /api/auth/permissions. Under the default matrix that's superadmin
+        // only, but a custom role granted rbac.manage passes too.
+        app.MapPost("/api/auth/roles", async (RoleWrite? body,
+            ClaimsPrincipal me, AppDbContext db) =>
+        {
+            var actor = me.FindFirstValue(ClaimTypes.Role) ?? "";
+            if (!await HasCapabilityAsync(db, actor, RbacManage))
+                return RbacDenied();
+
+            var label = (body?.Label ?? "").Trim();
+            if (label.Length == 0) return Bad("A role name is required.");
+            var slug = Slugify(label);
+            if (slug.Length == 0) return Bad("Could not derive a role slug from that name.");
+            if (BuiltinRoles.Contains(slug))
+                return Conflict($"'{slug}' collides with a built-in role.");
+            var known = await LoadRolesAsync(db);
+            if (known.Any(r => r.Slug == slug))
+                return Conflict($"A role '{slug}' already exists.");
+
+            var row = new Role
+            {
+                Slug = slug, Label = label, IsSystem = false, CreatedAt = DateTime.UtcNow,
+            };
+            try
+            {
+                db.Roles.Add(row);
+                foreach (var cap in CapabilityIds)
+                    db.RolePermissions.Add(new RolePermission
+                    {
+                        Role = slug, Capability = cap, Allowed = false,
+                        UpdatedAt = DateTime.UtcNow,
+                    });
+                db.AuditLogs.Add(new AuditLog
+                {
+                    Actor = me.Identity?.Name ?? "system", Action = "role.create",
+                    Target = slug, Detail = $"label: {label}", CreatedAt = DateTime.UtcNow,
+                });
+                await db.SaveChangesAsync();
+            }
+            catch (Exception)
+            {
+                // Unseeded/unmigrated sandbox DB — report the refusal rather
+                // than 500-ing the Permissions page.
+                return Bad("Could not create the role — the role store is unavailable.");
+            }
+            // Django answers {role:{…}}; the slug is echoed at the top level too
+            // so the Permissions page can jump straight into the new role's card
+            // grid (app/permissions/page.tsx reads body.slug).
+            var payload = new
+            {
+                slug, label, is_system = false, user_count = 0,
+            };
+            return Results.Json(new { role = payload, payload.slug }, statusCode: 201);
+        }).RequireAuthorization(AuthPolicies.AdminPlus);
+
+        // ---- PATCH /api/auth/roles/{slug} ---------------------------------
+        // {label} renames a CUSTOM role's display label. The slug is IMMUTABLE
+        // (Profile.role and RolePermission.role reference it), so only the
+        // human-facing label moves. Built-ins are protected.
+        app.MapMethods("/api/auth/roles/{slug}", new[] { "PATCH" }, async (string slug,
+            RoleWrite? body, ClaimsPrincipal me, AppDbContext db) =>
+        {
+            var actor = me.FindFirstValue(ClaimTypes.Role) ?? "";
+            if (!await HasCapabilityAsync(db, actor, RbacManage))
+                return RbacDenied();
+
+            var known = await LoadRolesAsync(db);
+            var role = known.FirstOrDefault(r => r.Slug == slug);
+            if (role == null) return NotFound("No such role.");
+            if (role.IsSystem || BuiltinRoles.Contains(role.Slug))
+                return Bad("Built-in roles cannot be renamed.");
+
+            var label = (body?.Label ?? "").Trim();
+            if (label.Length == 0) return Bad("A role name is required.");
+            if (known.Any(r => r.Id != role.Id &&
+                    string.Equals(r.Label, label, StringComparison.OrdinalIgnoreCase)))
+                return Conflict($"A role named '{label}' already exists.");
+            var newSlug = Slugify(label);
+            if (newSlug.Length > 0 && newSlug != role.Slug &&
+                known.Any(r => r.Id != role.Id && r.Slug == newSlug))
+                return Conflict($"A role '{newSlug}' already exists.");
+
+            try
+            {
+                var tracked = await db.Roles.FirstAsync(r => r.Id == role.Id);
+                tracked.Label = label;
+                db.AuditLogs.Add(new AuditLog
+                {
+                    Actor = me.Identity?.Name ?? "system", Action = "role.update",
+                    Target = role.Slug, Detail = $"label: {label}", CreatedAt = DateTime.UtcNow,
+                });
+                await db.SaveChangesAsync();
+            }
+            catch (Exception)
+            {
+                return Bad("Could not rename the role — the role store is unavailable.");
+            }
+
+            var counts = await RoleUserCountsAsync(db);
+            return Results.Ok(new
+            {
+                role = new
+                {
+                    slug = role.Slug, label, is_system = false,
+                    user_count = counts.GetValueOrDefault(role.Slug, 0),
+                },
+            });
+        }).RequireAuthorization(AuthPolicies.AdminPlus);
+
+        // ---- DELETE /api/auth/roles/{slug} --------------------------------
+        // Deletes a CUSTOM role and its matrix rows. Built-ins are protected,
+        // and a role any user still holds is a 409 (+ user_count, which the
+        // Permissions page turns into "reassign them first") — never a silent
+        // orphaning of Profile.role.
+        app.MapDelete("/api/auth/roles/{slug}", async (string slug,
+            ClaimsPrincipal me, AppDbContext db) =>
+        {
+            var actor = me.FindFirstValue(ClaimTypes.Role) ?? "";
+            if (!await HasCapabilityAsync(db, actor, RbacManage))
+                return RbacDenied();
+
+            var known = await LoadRolesAsync(db);
+            var role = known.FirstOrDefault(r => r.Slug == slug);
+            if (role == null) return NotFound("No such role.");
+            if (role.IsSystem || BuiltinRoles.Contains(role.Slug))
+                return Bad("Built-in roles cannot be deleted.");
+
+            var counts = await RoleUserCountsAsync(db);
+            var inUse = counts.GetValueOrDefault(role.Slug, 0);
+            if (inUse > 0)
+                return Results.Json(new
+                {
+                    detail = $"{inUse} user(s) still hold this role — reassign them first.",
+                    user_count = inUse,
+                }, statusCode: 409);
+
+            try
+            {
+                await db.RolePermissions.Where(r => r.Role == slug).ExecuteDeleteAsync();
+                await db.Roles.Where(r => r.Id == role.Id).ExecuteDeleteAsync();
+                db.AuditLogs.Add(new AuditLog
+                {
+                    Actor = me.Identity?.Name ?? "system", Action = "role.delete",
+                    Target = slug, CreatedAt = DateTime.UtcNow,
+                });
+                await db.SaveChangesAsync();
+            }
+            catch (Exception)
+            {
+                return Bad("Could not delete the role — the role store is unavailable.");
+            }
+            return Results.Ok(new { ok = true });
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         // ---- GET /api/auth/permissions ------------------------------------
@@ -261,7 +426,7 @@ public static class AdminEndpoints
     /// crm/user_service.py managed_user_payload. `name` falls back to the
     /// username (auth_user's first_name isn't mapped in this port) and
     /// `created` is null for the same reason — the Users table shows neither.
-    private static object ManagedUserPayload(AppUser u) => new
+    internal static object ManagedUserPayload(AppUser u) => new
     {
         id = u.Id,
         username = u.Username,
@@ -276,7 +441,7 @@ public static class AdminEndpoints
     };
 
     /// A Django superuser with no Profile row still counts as superadmin.
-    private static string RoleOf(AppUser u) =>
+    internal static string RoleOf(AppUser u) =>
         u.Profile?.Role is { Length: > 0 } r ? r
             : u.IsSuperuser ? Roles.SuperAdmin : Roles.Admin;
 
@@ -325,9 +490,39 @@ public static class AdminEndpoints
         return matrix;
     }
 
+    /// crm/permissions_store.py capabilities_for — every capability this role
+    /// holds, in catalog order. whoami ships it so the frontend gates the UI on
+    /// capabilities rather than on the role literal (lib/auth.ts hasCap);
+    /// superadmin holds all of them, in code.
+    internal static async Task<List<string>> CapabilitiesForAsync(AppDbContext db, string? role)
+    {
+        if (string.IsNullOrWhiteSpace(role)) return new List<string>();
+        if (role == Roles.SuperAdmin) return CapabilityIds.ToList();
+        var stored = new Dictionary<string, bool>();
+        foreach (var row in await StoredPermissionsAsync(db))
+            if (row.Role == role) stored[row.Capability] = row.Allowed;
+        return CapabilityIds
+            .Where(cap => stored.TryGetValue(cap, out var v) ? v : DefaultAllows(role, cap))
+            .ToList();
+    }
+
+    /// Every assignable role slug: the Role table PLUS the built-ins (valid even
+    /// before the Role rows are seeded). crm/user_service.py _valid_roles.
+    internal static async Task<HashSet<string>> ValidRoleSlugsAsync(AppDbContext db)
+    {
+        var slugs = new HashSet<string>(BuiltinRoles);
+        foreach (var row in await LoadRolesAsync(db)) slugs.Add(row.Slug);
+        return slugs;
+    }
+
+    /// admin/superadmin only. agent AND every custom role are agent-level for
+    /// the admin→agent tiering (crm/user_service.py PRIVILEGED_ROLES).
+    internal static bool IsPrivilegedRole(string? role) =>
+        role is Roles.Admin or Roles.SuperAdmin;
+
     /// The one gate the server-side checks consult. superadmin → always true;
     /// unknown capability → false; a stored row wins, else the code default.
-    private static async Task<bool> HasCapabilityAsync(AppDbContext db, string role, string capability)
+    internal static async Task<bool> HasCapabilityAsync(AppDbContext db, string role, string capability)
     {
         if (string.IsNullOrWhiteSpace(role)) return false;
         if (role == Roles.SuperAdmin) return true;
@@ -398,7 +593,7 @@ public static class AdminEndpoints
 
     // ---- entity scope (api/rbac.py) ---------------------------------------
 
-    private static async Task<List<Entity>> AccessibleEntitiesAsync(AppDbContext db, ClaimsPrincipal me)
+    internal static async Task<List<Entity>> AccessibleEntitiesAsync(AppDbContext db, ClaimsPrincipal me)
     {
         var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
         var tenantId = TenantId(me);
@@ -441,6 +636,34 @@ public static class AdminEndpoints
 
     private static IResult Bad(string detail) =>
         Results.Json(new { detail }, statusCode: 400);
+
+    private static IResult Conflict(string detail) =>
+        Results.Json(new { detail }, statusCode: 409);
+
+    private static IResult NotFound(string detail) =>
+        Results.Json(new { detail }, statusCode: 404);
+
+    private static IResult RbacDenied() => Results.Json(new
+    {
+        detail = "The rbac.manage capability is required to manage roles.",
+    }, statusCode: 403);
+
+    /// Django's slugify, near enough for role identities: lowercase, keep
+    /// alphanumerics + underscore, collapse whitespace/dashes into one dash,
+    /// trim dashes, cap at 32 chars (crm/permissions_store.py create_role).
+    private static string Slugify(string value)
+    {
+        var sb = new System.Text.StringBuilder(value.Length);
+        foreach (var ch in value.Trim().ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(ch) || ch == '_') sb.Append(ch);
+            else if ((char.IsWhiteSpace(ch) || ch == '-') && sb.Length > 0 && sb[^1] != '-')
+                sb.Append('-');
+        }
+        var slug = sb.ToString();
+        if (slug.Length > 32) slug = slug[..32];
+        return slug.Trim('-');
+    }
 
     private static int? TenantId(ClaimsPrincipal me) =>
         int.TryParse(me.FindFirstValue("tenant_id"), out var t) ? t : null;

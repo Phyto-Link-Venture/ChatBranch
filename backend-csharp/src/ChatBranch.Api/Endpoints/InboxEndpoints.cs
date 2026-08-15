@@ -1,6 +1,7 @@
 using System.Text;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
+using ChatBranch.Data.Flows;
 using ChatBranch.Data.Stores;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -22,22 +23,57 @@ public static class InboxEndpoints
 
     public static void MapInboxEndpoints(this IEndpointRouteBuilder app)
     {
+        // ---- status ------------------------------------------------------------
+        // Open like Django's (the /chats page reads it before anything else) and
+        // deliberately re-mapped over the boot-time liveness stub in Program.cs —
+        // a lower Order wins the route match, so this shape is what ships.
+        app.MapGet("/api/whatsapp/status", async (AppDbContext db, ScopingService sc) =>
+        {
+            var accounts = await db.ChannelAccounts.AsNoTracking()
+                .Where(a => a.Channel == Channels.WhatsApp).ToListAsync();
+            var envAccount = WhatsAppSettingsEndpoints.EnvAccountConfigured();
+            var configured = accounts.Any(WhatsAppSettingsEndpoints.IsConfigured) || envAccount;
+            return Results.Ok(new
+            {
+                configured,
+                // no linked account -> everything stores locally and /simulate
+                // fakes inbound; the composer shows the sandbox banner
+                sandbox = !configured,
+                ai_available = WhatsAppSettingsEndpoints.AiAvailable(sc),
+                accounts = accounts.Count + (envAccount ? 1 : 0),
+            });
+        }).AllowAnonymous().Add(b => ((RouteEndpointBuilder)b).Order = -1);
+
         // ---- accounts ----------------------------------------------------------
+        // WhatsApp accounts by default (the Settings → Channels → WhatsApp panel
+        // and the chats sender picker both read this); ?channel=<c> switches
+        // channel, ?channel=all reports every provider account.
         app.MapGet("/api/whatsapp/accounts", async (string? channel, AppDbContext db) =>
         {
-            var q = db.ChannelAccounts.AsNoTracking().AsQueryable();
-            if (!string.IsNullOrEmpty(channel)) q = q.Where(a => a.Channel == channel);
-            var rows = await q.OrderBy(a => a.CreatedAt).ToListAsync();
-            return Results.Ok(rows.Select(Dtos.AccountDto));
+            var ch = string.IsNullOrWhiteSpace(channel) ? Channels.WhatsApp : channel.Trim();
+            var q = db.ChannelAccounts.AsNoTracking().Include(a => a.Entity).AsQueryable();
+            if (ch is not ("all" or "__all__")) q = q.Where(a => a.Channel == ch);
+            var rows = await q.OrderBy(a => a.Id).ToListAsync();
+
+            var accounts = rows.Select(WhatsAppSettingsEndpoints.AccountPayload).ToList();
+            // The read-only row backend/.env contributes — WhatsApp only, and
+            // only when .env actually configures a usable transport.
+            if (ch is Channels.WhatsApp or "all" or "__all__"
+                && WhatsAppSettingsEndpoints.EnvAccountPayload() is object env)
+                accounts.Add(env);
+            return Results.Ok(new { accounts });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- threads -----------------------------------------------------------
+        // One row per conversation for the inbox list: identity, the 24h-window
+        // truth, the per-account chatbot tick and the last-message preview.
         app.MapGet("/api/whatsapp/threads", async (string? channel, string? entity, string? status,
-            AppDbContext db, ThreadStore store) =>
+            int? limit, AppDbContext db, ThreadStore store, ScopingService sc) =>
         {
             var entityId = await EntityId(db, entity);
-            var rows = store.ListThreads(channel, entityId, status);
-            return Results.Ok(new { threads = rows.Select(Dtos.ThreadDto) });
+            var rows = store.ListThreads(channel, entityId, status,
+                                         limit is int n && n > 0 ? n : 100);
+            return Results.Ok(new { threads = await ThreadSummaries(db, sc, rows, entityId) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         app.MapGet("/api/whatsapp/threads/{channel}/{key}/messages",
@@ -105,12 +141,24 @@ public static class InboxEndpoints
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- canned responses (cross-channel shared templates) -----------------
-        app.MapGet("/api/messaging/canned", async (string? entity, AppDbContext db, ScopingService sc) =>
+        // ?contact_id=<pk> personalizes each reply's `rendered` text with that
+        // contact's CRM variables; unlinked chats get the raw content back.
+        app.MapGet("/api/messaging/canned", async (string? entity, int? contact_id,
+            AppDbContext db, ScopingService sc, FlowEngine flows) =>
         {
             var entityId = await EntityId(db, entity);
             var rows = sc.ScopeInherited(db.CannedResponses.AsNoTracking(), entityId)
                 .OrderBy(c => c.ShortCode).ToList();
-            return Results.Ok(new { canned = rows.Select(Dtos.CannedDto) });
+
+            Dictionary<string, string>? variables = null;
+            if (contact_id is int cid)
+            {
+                var contact = await db.Contacts.AsNoTracking().FirstOrDefaultAsync(c => c.Id == cid);
+                // A rendering hiccup must never cost the operator their replies.
+                if (contact != null)
+                    try { variables = flows.VariablesFor(contact); } catch { }
+            }
+            return Results.Ok(new { canned = rows.Select(c => CannedPayload(c, variables)) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         app.MapPost("/api/messaging/canned", async (CannedWrite body, AppDbContext db) =>
@@ -125,7 +173,7 @@ public static class InboxEndpoints
             };
             db.CannedResponses.Add(row);
             await db.SaveChangesAsync();
-            return Results.Ok(Dtos.CannedDto(row));
+            return Results.Ok(CannedPayload(row, null));
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         app.MapMethods("/api/messaging/canned/{id:int}", new[] { "PATCH" },
@@ -136,7 +184,7 @@ public static class InboxEndpoints
             row.Content = body.Content;
             if (!string.IsNullOrEmpty(body.ShortCode)) row.ShortCode = body.ShortCode;
             await db.SaveChangesAsync();
-            return Results.Ok(Dtos.CannedDto(row));
+            return Results.Ok(CannedPayload(row, null));
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         app.MapDelete("/api/messaging/canned/{id:int}", async (int id, AppDbContext db) =>
@@ -144,6 +192,127 @@ public static class InboxEndpoints
             await db.CannedResponses.Where(c => c.Id == id).ExecuteDeleteAsync();
             return Results.Ok(new { ok = true });
         }).RequireAuthorization(AuthPolicies.AdminPlus);
+    }
+
+    // ======================= payload builders ================================
+
+    /// <summary>messaging/views._canned_payload — snake_case, `rendered` last.</summary>
+    private static object CannedPayload(CannedResponse c, Dictionary<string, string>? variables) => new
+    {
+        id = c.Id,
+        short_code = c.ShortCode,
+        content = c.Content,
+        created_by = c.CreatedBy,
+        entity_id = c.EntityId,
+        // Contact-bound quick reply: {{name}}/{{amount}}/… filled from the CRM
+        // (same variable catalog as the flow builder). Raw content when unlinked.
+        rendered = variables != null ? FlowEngine.Render(c.Content, variables) : c.Content,
+    };
+
+    /// <summary>
+    /// whatsapp/store.list_threads — the inbox row shape. The aggregates (last
+    /// message, newest inbound, message count) are correlated subqueries rather
+    /// than a per-thread round trip, and every one of them is needed: the
+    /// newest INBOUND time is what the 24h window is measured from.
+    /// </summary>
+    private static async Task<List<object>> ThreadSummaries(AppDbContext db, ScopingService sc,
+        List<Thread> threads, int? entityId)
+    {
+        var ids = threads.Select(t => t.Id).ToList();
+        var stats = (await db.Threads.AsNoTracking().Where(t => ids.Contains(t.Id))
+            .Select(t => new
+            {
+                t.Id,
+                Count = t.Messages.Count(),
+                LastTs = t.Messages.Max(m => (DateTime?)m.CreatedAt),
+                LastInTs = t.Messages.Where(m => m.Direction == MessageDirection.In)
+                    .Max(m => (DateTime?)m.CreatedAt),
+                Last = t.Messages.OrderByDescending(m => m.CreatedAt).ThenByDescending(m => m.Id)
+                    .Select(m => new { m.Text, m.Direction, m.Status }).FirstOrDefault(),
+            }).ToListAsync()).ToDictionary(x => x.Id);
+
+        // The account lookup mirrors wa_config.get_account(): an unknown/missing
+        // account id falls back to the SOLE configured account, and never guesses
+        // between several — a wrong pick would report another number's window.
+        var waAccounts = await db.ChannelAccounts.AsNoTracking()
+            .Where(a => a.Channel == Channels.WhatsApp).ToListAsync();
+        var byId = waAccounts.ToDictionary(a => a.Id);
+        var configured = waAccounts.Where(WhatsAppSettingsEndpoints.IsConfigured).ToList();
+        var envConfigured = WhatsAppSettingsEndpoints.EnvAccountConfigured();
+        // .env contributes one more configured account to that count, but has no
+        // row to fall back TO — so it can only make the fallback ambiguous.
+        var fallback = configured.Count == 1 && !envConfigured ? configured[0] : null;
+        var envIsSoleFallback = configured.Count == 0 && envConfigured;
+
+        // Entity-scoped default for the chatbot tick on reminder-role numbers.
+        var reminderDefaultOn = sc.SettingValue("reminder_ai_default", entityId) == "on";
+
+        var outv = new List<object>();
+        foreach (var t in threads)
+        {
+            var stat = stats.GetValueOrDefault(t.Id);
+            var account = t.AccountId is int aid && byId.TryGetValue(aid, out var own)
+                ? own : fallback;
+            // Baileys is a normal WhatsApp account over WhatsApp Web — Meta's
+            // 24h contact-service window does not apply to it. A sandbox thread
+            // is always open too: nothing real is sent, and the demo flow must
+            // never dead-end on a closed window.
+            var live = account != null
+                ? WhatsAppSettingsEndpoints.IsConfigured(account) : envIsSoleFallback;
+            var baileys = account?.Provider == Providers.Baileys;
+
+            var windowOpen = true;
+            string? windowExpiresAt = null;
+            if (live && !baileys)
+            {
+                if (stat?.LastInTs is DateTime lastIn)
+                {
+                    var expires = DateTime.SpecifyKind(lastIn, DateTimeKind.Utc).AddHours(24);
+                    windowOpen = DateTime.UtcNow < expires;
+                    windowExpiresAt = expires.ToString("o");
+                }
+                else
+                {
+                    windowOpen = false; // contact never wrote in -> template territory
+                }
+            }
+
+            outv.Add(new
+            {
+                wa_id = t.Key,
+                phone = t.Address != "" ? t.Address : $"+{t.Key}",
+                name = t.Name != "" ? t.Name : $"+{t.Key}",
+                channel = t.Channel,
+                status = t.Status,
+                account_id = t.AccountId?.ToString(),
+                account_name = t.Account?.Name ?? "",
+                provider = baileys ? Providers.Baileys : Providers.Cloud,
+                ai_enabled = WhatsAppSettingsEndpoints.EffectiveAi(t, account, reminderDefaultOn),
+                assignee = t.Assignee,
+                opted_out = t.OptedOut,
+                window_open = windowOpen,
+                window_expires_at = windowExpiresAt,
+                contact_id = t.ContactId,
+                contact_name = t.Contact?.Name ?? "",
+                labels = t.Labels,
+                call = new
+                {
+                    permission = t.CallPermission,
+                    call_id = t.CallId,
+                    status = t.CallStatus,
+                    room = t.CallRoom,
+                },
+                last_message = stat?.Last?.Text ?? "",
+                // direction + delivery status of the newest message — the chat
+                // list shows WhatsApp-style ticks on each row's last outbound
+                last_dir = stat?.Last?.Direction ?? "",
+                last_status = stat?.Last?.Status ?? "",
+                last_ts = DateTime.SpecifyKind(stat?.LastTs ?? t.UpdatedAt, DateTimeKind.Utc)
+                    .ToString("o"),
+                message_count = stat?.Count ?? 0,
+            });
+        }
+        return outv;
     }
 
     internal static async Task<int?> EntityId(AppDbContext db, string? slug)

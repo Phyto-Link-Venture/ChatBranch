@@ -81,6 +81,11 @@ app.MapAdminEndpoints();
 app.MapWhatsAppSettingsEndpoints();
 app.MapVoiceMessagingEndpoints();
 app.MapMcpEndpoints();
+app.MapResourcesEndpoints();
+app.MapPronunciationEndpoints();
+app.MapWhatsAppThreadsEndpoints();
+app.MapMessagingEndpoints();
+app.MapCallsVoiceEndpoints();
 app.MapApiV1Endpoints();
 app.MapWebhookEndpoints();
 

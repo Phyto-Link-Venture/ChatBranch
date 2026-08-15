@@ -78,13 +78,22 @@ public static class AuthEndpoints
             return Results.Ok(new { ok = true });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
-        app.MapGet("/api/auth/whoami", (ClaimsPrincipal me) =>
-            Results.Ok(new
+        // whoami also carries the caller's `capabilities` — the capability-gated
+        // UI reads them here (lib/auth.ts fetchCapabilities falls back to this
+        // endpoint when the login response omits them, then hasCap() gates every
+        // admin control off the list). Derived from the SAME matrix
+        // /api/auth/permissions renders, so a matrix edit moves both together.
+        app.MapGet("/api/auth/whoami", async (ClaimsPrincipal me, AppDbContext db) =>
+        {
+            var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
+            return Results.Ok(new
             {
                 username = me.Identity?.Name ?? "",
-                role = me.FindFirstValue(ClaimTypes.Role) ?? "",
+                role,
                 tenant_id = me.FindFirstValue("tenant_id"),
-            })).RequireAuthorization(AuthPolicies.Authenticated);
+                capabilities = await AdminEndpoints.CapabilitiesForAsync(db, role),
+            });
+        }).RequireAuthorization(AuthPolicies.Authenticated);
     }
 
     private static string NewToken() =>

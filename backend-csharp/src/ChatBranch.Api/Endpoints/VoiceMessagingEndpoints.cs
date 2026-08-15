@@ -641,7 +641,11 @@ public static class VoiceMessagingEndpoints
             ["name"] = a.Name,
             ["external_id"] = a.ExternalId,
             ["owner"] = a.Owner,
-            ["created"] = a.CreatedAt == default ? "" : a.CreatedAt.ToString("o"),
+            // Explicit Z: the column is written as UtcNow but SQLite hands it
+            // back with Kind=Unspecified, and a stamp without a zone reads as
+            // LOCAL time in the browser.
+            ["created"] = a.CreatedAt == default ? ""
+                : DateTime.SpecifyKind(a.CreatedAt, DateTimeKind.Utc).ToString("o"),
             ["entity"] = a.Entity?.Slug,
             ["entity_name"] = a.Entity?.Name ?? "",
         };
@@ -656,6 +660,10 @@ public static class VoiceMessagingEndpoints
                 ["use_tls"] = CfgBool(cfg, "use_tls", true),
                 ["from_email"] = CfgStr(cfg, "from_email") is { Length: > 0 } f ? f : a.ExternalId,
                 ["password_masked"] = Mask(CfgStr(cfg, "password")),
+                // The edit form pre-fills `config.password` and PATCHes it back
+                // verbatim (ChannelsSettings.tsx), so the mask has to live under
+                // that key too — Untouched() then keeps the stored secret.
+                ["password"] = Mask(CfgStr(cfg, "password")),
             };
             outv["configured"] = EmailAccountConfigured(cfg);
         }
