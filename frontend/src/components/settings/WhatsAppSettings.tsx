@@ -118,22 +118,40 @@ function BaileysPairModal({ account, onClose }: { account: WaAccount; onClose: (
     api(`accounts/${account.id}/baileys/start`, { method: 'POST' }).catch((e) =>
       setError(e instanceof Error ? e.message : String(e)),
     )
+    // Poll while pairing is in progress; STOP on a terminal state — connected,
+    // or a gateway error / "not attached" (state=stopped|error with an error
+    // message). Without this the modal spun on "Contacting the gateway…"
+    // forever when no Baileys sidecar is wired up.
+    let t: ReturnType<typeof setInterval> | null = null
+    const stop = () => {
+      if (t) clearInterval(t)
+      t = null
+    }
     const tick = async () => {
       try {
         const s = await api<BaileysState>(`accounts/${account.id}/baileys/status`)
-        if (!cancelled) {
-          setState(s)
-          setError(null)
+        if (cancelled) return
+        setState(s)
+        const gatewayError = s.error || (s.state === 'error' ? 'The WhatsApp gateway reported an error.' : null)
+        if (gatewayError && s.state !== 'qr' && s.state !== 'connected') {
+          setError(gatewayError)
+          stop()
+          return
         }
+        setError(null)
+        if (s.state === 'connected') stop()
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e))
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : String(e))
+          stop()
+        }
       }
     }
     tick()
-    const t = setInterval(tick, 2000)
+    t = setInterval(tick, 2000)
     return () => {
       cancelled = true
-      clearInterval(t)
+      stop()
     }
   }, [account.id])
 
@@ -150,7 +168,18 @@ function BaileysPairModal({ account, onClose }: { account: WaAccount; onClose: (
       size="sm"
     >
       <div className="flex flex-col items-center gap-3 py-2 text-center">
-        {error && <div className="text-[12px] font-semibold text-red-300">{error}</div>}
+        {error && (
+          <div className="flex flex-col items-center gap-3">
+            <div className="text-[12px] font-semibold text-red-300">{error}</div>
+            <div className="max-w-[320px] text-[11px] leading-relaxed text-text-muted">
+              QR pairing runs in the Baileys gateway sidecar (backend/baileys_service). Start it and
+              retry — or use a WhatsApp Business (Cloud API) account, which needs no gateway.
+            </div>
+            <Button variant="secondary" onClick={onClose}>
+              Close
+            </Button>
+          </div>
+        )}
         {!error && state?.state === 'connected' && (
           <>
             <CheckCircle size={40} className="text-green-300" aria-hidden />
