@@ -134,7 +134,17 @@ public static class AiEndpoints
         {
             var entityId = await InboxEndpoints.EntityId(db, b.Entity);
             var block = knowledge.BuildContext(b.Query, entityId, b.Channel);
-            return Results.Ok(new { block, chars = block.Length });
+            // Django-contract shape (aicore/views.py knowledge_preview): the page
+            // renders `chars` / `budget` — omitting budget crashed it on
+            // `preview.budget.toLocaleString`.
+            return Results.Ok(new
+            {
+                block,
+                full_prompt_block = block,
+                chars = block.Length,
+                budget = 1800,
+                items = block.Split('\n').Count(ln => !string.IsNullOrWhiteSpace(ln)),
+            });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- skills (sole writer of crm.AgentSkill) ----------------------------
