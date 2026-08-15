@@ -298,24 +298,50 @@ public static class ApiV1Endpoints
             if (name.Length == 0 || slug.Length == 0)
                 return V1Error("bad_request", "name and slug are required.", 400);
 
-            // superadmin may target any tenant; admin is pinned to their own.
+            // Hierarchy first: a parent entity decides the tenant, so operators
+            // pick "which entity does this sit under" instead of typing a tenant
+            // slug. `tenant` is still honoured (API back-compat) but is only
+            // consulted for a TOP-LEVEL entity.
+            Entity? parent = null;
+            if (Has(body, "parent_id") || Has(body, "parent"))
+            {
+                parent = await ResolveParentAsync(db, me, body);
+                if (parent == null && !ParentIsBlank(body))
+                    return V1Error("bad_request",
+                        "parent must be an entity you can manage (or blank for a top-level entity).", 400);
+            }
+
             Tenant? tenant;
-            if (role == Roles.SuperAdmin)
+            if (parent != null)
+            {
+                // a child ALWAYS lives in its parent's tenant
+                tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Id == parent.TenantId);
+            }
+            else if (role == Roles.SuperAdmin)
             {
                 var tslug = (Str(body, "tenant") ?? "").Trim();
-                tenant = tslug.Length == 0 ? null
-                    : await db.Tenants.FirstOrDefaultAsync(t => t.Slug == tslug);
+                tenant = tslug.Length > 0
+                    ? await db.Tenants.FirstOrDefaultAsync(t => t.Slug == tslug)
+                    // No tenant named and no parent: fall back to the caller's own
+                    // tenant, then to the only tenant there is. Guessing between
+                    // several would file the entity under the wrong organization.
+                    : TenantId(me) is int stid
+                        ? await db.Tenants.FirstOrDefaultAsync(t => t.Id == stid)
+                        : await db.Tenants.CountAsync() == 1
+                            ? await db.Tenants.FirstAsync()
+                            : null;
                 if (tenant == null)
-                    return V1Error("bad_request", "tenant slug required.", 400);
+                    return V1Error("bad_request",
+                        "Pick a parent entity for this one (or name a tenant).", 400);
             }
             else
             {
                 if (TenantId(me) is not int tid)
                     return V1Error("bad_request", "No tenant to create the entity under.", 400);
                 tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Id == tid);
-                if (tenant == null)
-                    return V1Error("bad_request", "No tenant to create the entity under.", 400);
             }
+            if (tenant == null)
+                return V1Error("bad_request", "No tenant to create the entity under.", 400);
             var tenantPk = tenant.Id;
             if (await db.Entities.AnyAsync(e => e.TenantId == tenantPk && e.Slug == slug))
                 return V1Error("conflict", "Entity slug already exists in this tenant.", 409);
@@ -323,6 +349,7 @@ public static class ApiV1Endpoints
             var row = new Entity
             {
                 TenantId = tenantPk, Tenant = tenant, Name = name, Slug = slug,
+                ParentId = parent?.Id, Parent = parent,
                 CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
             };
             db.Entities.Add(row);
@@ -368,10 +395,34 @@ public static class ApiV1Endpoints
             // no ingest_entity.is_active column in this port yet — GET reports
             // every entity as live. Accepting-and-ignoring keeps the modal from
             // 400-ing on an is_active-only save; wire it up when the column lands.
+            if (Has(body, "parent_id") || Has(body, "parent"))
+            {
+                if (ParentIsBlank(body))
+                {
+                    entity.ParentId = null;   // promote to top level
+                }
+                else
+                {
+                    var parent = await ResolveParentAsync(db, me, body);
+                    if (parent == null)
+                        return V1Error("bad_request",
+                            "parent must be an entity you can manage (or blank for a top-level entity).", 400);
+                    if (parent.Id == entity.Id)
+                        return V1Error("bad_request", "An entity cannot be its own parent.", 400);
+                    if (await IsDescendantAsync(db, parent.Id, entity.Id))
+                        return V1Error("bad_request",
+                            "That parent sits under this entity — the hierarchy would loop.", 400);
+                    if (parent.TenantId != entity.TenantId)
+                        return V1Error("bad_request",
+                            "Parent and child must belong to the same tenant.", 400);
+                    entity.ParentId = parent.Id;
+                }
+                changed.Add("parent");
+            }
             if (Has(body, "is_active")) changed.Add("is_active");
             if (changed.Count == 0)
                 return V1Error("bad_request",
-                    "Nothing to update — send name, slug and/or is_active.", 400);
+                    "Nothing to update — send name, slug, parent and/or is_active.", 400);
 
             entity.UpdatedAt = DateTime.UtcNow;
             db.AuditLogs.Add(new AuditLog
@@ -399,12 +450,15 @@ public static class ApiV1Endpoints
             var contacts = await db.ContactEntities.CountAsync(l => l.EntityId == id);
             var agents = await db.Profiles.CountAsync(p => p.Entities.Any(e => e.Id == id));
             var knowledge = await db.KnowledgeItems.CountAsync(k => k.EntityId == id);
-            if (contacts > 0 || agents > 0 || knowledge > 0)
+            // Children too — deleting a parent would orphan its sub-entities.
+            var children = await db.Entities.CountAsync(e => e.ParentId == id);
+            if (contacts > 0 || agents > 0 || knowledge > 0 || children > 0)
             {
                 var parts = new List<string>();
                 if (contacts > 0) parts.Add($"{contacts} contact(s)");
                 if (agents > 0) parts.Add($"{agents} user(s)");
                 if (knowledge > 0) parts.Add($"{knowledge} knowledge item(s)");
+                if (children > 0) parts.Add($"{children} child entity(ies)");
                 return Results.Json(new
                 {
                     error = new
@@ -413,7 +467,7 @@ public static class ApiV1Endpoints
                         message = $"This entity still has {string.Join(", ", parts)} — " +
                                   "reassign or remove them first.",
                     },
-                    contacts, agents, knowledge,
+                    contacts, agents, knowledge, children,
                 }, statusCode: 409);
             }
 
@@ -901,9 +955,80 @@ public static class ApiV1Endpoints
         name = e.Name,
         slug = e.Slug,
         tenant = e.Tenant?.Slug ?? "",
+        parent_id = e.ParentId,
+        parent = e.Parent?.Slug,
+        parent_name = e.Parent?.Name ?? "",
         is_active = true,
         created_at = e.CreatedAt,
     };
+
+    /// <summary>
+    /// `parent_id` as an int, accepting a JSON number OR a numeric string
+    /// (Str() alone returns null for a number, which would read as "clear the
+    /// parent" and silently promote a child to top level).
+    /// </summary>
+    private static int? ParentPk(JsonElement body)
+    {
+        if (body.ValueKind != JsonValueKind.Object || !body.TryGetProperty("parent_id", out var v))
+            return null;
+        return v.ValueKind switch
+        {
+            JsonValueKind.Number => v.TryGetInt32(out var n) ? n : null,
+            JsonValueKind.String => int.TryParse((v.GetString() ?? "").Trim(), out var n) ? n : null,
+            _ => null,
+        };
+    }
+
+    /// <summary>True when the body explicitly clears the parent ("" / null / 0).</summary>
+    private static bool ParentIsBlank(JsonElement body)
+    {
+        if (Has(body, "parent_id"))
+        {
+            var pk = ParentPk(body);
+            // present but not a usable id (null / "" / 0) = clear
+            if (pk is null or 0) return true;
+            return false;
+        }
+        if (Has(body, "parent"))
+            return (Str(body, "parent") ?? "").Trim().Length == 0;
+        return false;
+    }
+
+    /// <summary>
+    /// The parent named by `parent_id` (pk) or `parent` (slug), bounded by what
+    /// the caller may manage — you cannot hang an entity under one you can't see.
+    /// </summary>
+    private static async Task<Entity?> ResolveParentAsync(AppDbContext db,
+        ClaimsPrincipal me, JsonElement body)
+    {
+        if (ParentIsBlank(body)) return null;
+        if (ParentPk(body) is int pid) return await ManageableEntityAsync(db, me, pid);
+        var slug = (Str(body, "parent") ?? "").Trim().ToLowerInvariant();
+        if (slug.Length == 0) return null;
+        var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
+        var q = db.Entities.Include(e => e.Tenant).Where(e => e.Slug == slug);
+        if (role != Roles.SuperAdmin)
+        {
+            if (TenantId(me) is not int tid) return null;
+            q = q.Where(e => e.TenantId == tid);
+        }
+        return await q.FirstOrDefaultAsync();
+    }
+
+    /// <summary>Walks up from `startId`; true when `ancestorId` is on the path
+    /// (so re-parenting there would create a cycle). Depth-capped as a backstop
+    /// against a pre-existing loop in the data.</summary>
+    private static async Task<bool> IsDescendantAsync(AppDbContext db, int startId, int ancestorId)
+    {
+        var cursor = (int?)startId;
+        for (var hops = 0; cursor != null && hops < 64; hops++)
+        {
+            if (cursor == ancestorId) return true;
+            cursor = await db.Entities.Where(e => e.Id == cursor)
+                .Select(e => e.ParentId).FirstOrDefaultAsync();
+        }
+        return false;
+    }
 
     /// Entities this caller may EDIT — deliberately narrower than the read scope
     /// (api/views.py EntityDetailView._manageable): superadmin any tenant, admin
@@ -912,7 +1037,7 @@ public static class ApiV1Endpoints
         ClaimsPrincipal me, int id)
     {
         var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
-        var q = db.Entities.Include(e => e.Tenant).Where(e => e.Id == id);
+        var q = db.Entities.Include(e => e.Tenant).Include(e => e.Parent).Where(e => e.Id == id);
         if (role == Roles.SuperAdmin) return await q.FirstOrDefaultAsync();
         if (role == Roles.Admin)
             return TenantId(me) is int tid

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { AlertCircle, CheckCircle, Loader2, MessageSquare, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
+import { TemplateVariablePicker } from './TemplateVariablePicker'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { roleHeaders } from '@/lib/role'
 import { expireSessionOn401, hasCap } from '@/lib/auth'
@@ -40,21 +41,6 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 const inputCls =
   'w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400'
-
-/** CRM fields {{variables}} can pull from — the flows-engine catalog the
- *  backend renders canned responses with (same list the WhatsApp template
- *  bindings use). */
-const VARIABLES = [
-  'name',
-  'record_title',
-  'record_status',
-  'due_date',
-  'days_overdue',
-  'link',
-  'company',
-  'record_id',
-  'best_contact_time',
-]
 
 interface FormState {
   editing: CannedResponse | null // null = create
@@ -240,7 +226,9 @@ export function SharedTemplatesSettings() {
         CRM record. WhatsApp&apos;s Meta-approved templates live with the channel: Settings → Channels → WhatsApp.
       </p>
 
-      {error && (
+      {/* The editor renders its own copy — a failure while it is open would
+          otherwise sit behind the modal scrim, invisible. */}
+      {error && !form && (
         <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-[12px]" style={{ color: 'var(--red-ink)' }}>
           <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden /> {error}
         </div>
@@ -270,6 +258,14 @@ export function SharedTemplatesSettings() {
             </>
           }
         >
+          {error && (
+            <div
+              role="alert"
+              className="mb-3 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] font-semibold text-red-300"
+            >
+              <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden /> {error}
+            </div>
+          )}
           <label className="mb-3 block">
             <span className="mb-1 block text-[11px] font-bold text-text-high">Short code</span>
             <input
@@ -301,23 +297,7 @@ export function SharedTemplatesSettings() {
               className={`${inputCls} resize-y leading-[1.6]`}
             />
           </label>
-          <div>
-            <span className="mb-1 block text-[10.5px] text-text-muted">
-              Click to insert a variable — filled from the contact&apos;s CRM record when sent:
-            </span>
-            <div className="flex flex-wrap gap-1.5">
-              {VARIABLES.map((v) => (
-                <button
-                  key={v}
-                  onClick={() => insertVariable(v)}
-                  title={`Insert {{${v}}}`}
-                  className="cursor-pointer rounded-full border border-line bg-fill px-2 py-0.5 font-mono text-[10.5px] text-text-mid transition-colors hover:border-brand-400/40 hover:text-text-high"
-                >
-                  {`{{${v}}}`}
-                </button>
-              ))}
-            </div>
-          </div>
+          <TemplateVariablePicker onInsert={insertVariable} />
         </Modal>
       )}
 

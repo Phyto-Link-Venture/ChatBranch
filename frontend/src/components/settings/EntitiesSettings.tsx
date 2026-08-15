@@ -1,9 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Building2, Loader2, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react'
+import { Building2, CornerDownRight, Loader2, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
+import { Select } from '@/components/ui/Select'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { authHeaders, hasCap } from '@/lib/auth'
 import { useRole } from '@/lib/useRole'
@@ -12,11 +13,12 @@ import { useEntity } from '@/lib/EntityContext'
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
 /**
- * Entities & tenants (RBAC entities model, /api/v1/entities + /api/v1/whoami).
- * A Tenant is the parent organization; an Entity is a business unit or client
- * it serves. Access is brand-level: admins see every entity in their tenant,
- * agents only their assigned entities (managed in Users & Roles).
- * Superadmins create entities in any tenant; admins in their own.
+ * Entities (RBAC entities model, /api/v1/entities + /api/v1/whoami).
+ * Entities form a TREE: a top-level entity (e.g. "Main") with child entities
+ * under it. Creating one asks only for its parent — the tenant is inherited
+ * from the parent (or the caller's own), never typed in by hand.
+ * Access: admins see every entity in their tenant, agents only their assigned
+ * entities (managed in Users & Roles).
  */
 
 interface EntityRow {
@@ -24,6 +26,10 @@ interface EntityRow {
   name: string
   slug: string
   tenant: string
+  /** null = a top-level entity; otherwise the entity it sits under. */
+  parent_id: number | null
+  parent?: string | null
+  parent_name?: string
   is_active: boolean
   created_at: string
 }
@@ -41,6 +47,49 @@ const slugify = (s: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 80)
+
+/**
+ * Depth-first tree order (parents immediately followed by their children) with
+ * a depth per row. Rows whose parent is missing from the visible set — an agent
+ * or admin may only see part of the tree — are treated as roots so they never
+ * vanish from the table.
+ */
+function orderTree(rows: EntityRow[]): { row: EntityRow; depth: number }[] {
+  const visible = new Set(rows.map((r) => r.id))
+  const byParent = new Map<number | null, EntityRow[]>()
+  for (const r of rows) {
+    const key = r.parent_id !== null && visible.has(r.parent_id) ? r.parent_id : null
+    byParent.set(key, [...(byParent.get(key) ?? []), r])
+  }
+  for (const list of byParent.values()) list.sort((a, b) => a.name.localeCompare(b.name))
+  const out: { row: EntityRow; depth: number }[] = []
+  const walk = (parent: number | null, depth: number) => {
+    for (const row of byParent.get(parent) ?? []) {
+      if (out.some((o) => o.row.id === row.id)) continue // cyclic data guard
+      out.push({ row, depth })
+      walk(row.id, depth + 1)
+    }
+  }
+  walk(null, 0)
+  // anything unreachable (a cycle) still gets listed
+  for (const r of rows) if (!out.some((o) => o.row.id === r.id)) out.push({ row: r, depth: 0 })
+  return out
+}
+
+/** The id itself plus every entity beneath it — invalid parents when re-parenting. */
+function descendantIds(rows: EntityRow[], id: number): Set<number> {
+  const out = new Set([id])
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const r of rows)
+      if (r.parent_id !== null && out.has(r.parent_id) && !out.has(r.id)) {
+        out.add(r.id)
+        grew = true
+      }
+  }
+  return out
+}
 
 async function v1<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}/v1/${path}`, {
@@ -68,7 +117,7 @@ export function EntitiesSettings() {
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const [slugTouched, setSlugTouched] = useState(false)
-  const [tenant, setTenant] = useState('')
+  const [parentId, setParentId] = useState<number | null>(null)
   const [active, setActive] = useState(true)
   // entities.manage gates create/edit/delete (read after mount — localStorage)
   const [canManage, setCanManage] = useState(false)
@@ -82,7 +131,6 @@ export function EntitiesSettings() {
       ])
       setEntities(b.entities)
       setMe(w)
-      setTenant((t) => t || w.tenant || b.entities[0]?.tenant || '')
       // keep the global topbar switcher in step — a newly created/deleted
       // entity shows up there without a page refresh (#4).
       reloadGlobalEntities()
@@ -114,15 +162,18 @@ export function EntitiesSettings() {
     )
   }
 
-  const isSuperadmin = me?.role === 'superadmin'
-  const tenants = [...new Set(entities.map((b) => b.tenant))].sort()
+  // Depth-first order with a depth per row, so the table reads as a tree.
+  const ordered = orderTree(entities)
+  const depthOf = new Map(ordered.map((r) => [r.row.id, r.depth]))
 
   const openCreate = () => {
     setEditing(null)
     setName('')
     setSlug('')
     setSlugTouched(false)
-    setTenant(me?.tenant || entities[0]?.tenant || '')
+    // default under the first top-level entity (usually "Main") — the common
+    // case is adding a branch under the organization's root
+    setParentId(entities.find((e) => e.parent_id === null)?.id ?? null)
     setActive(true)
     setMsg(null)
     setOpen(true)
@@ -133,7 +184,7 @@ export function EntitiesSettings() {
     setName(b.name)
     setSlug(b.slug)
     setSlugTouched(true)
-    setTenant(b.tenant)
+    setParentId(b.parent_id)
     setActive(b.is_active)
     setMsg(null)
     setOpen(true)
@@ -151,6 +202,7 @@ export function EntitiesSettings() {
           body: JSON.stringify({
             name: name.trim(),
             slug: slug.trim() || slugify(name),
+            parent_id: parentId ?? 0, // 0 = promote to top level
             is_active: active,
           }),
         })
@@ -161,9 +213,9 @@ export function EntitiesSettings() {
           body: JSON.stringify({
             name: name.trim(),
             slug: slug.trim() || slugify(name),
-            // admins are pinned to their tenant server-side; only superadmin's
-            // choice is honoured
-            tenant: tenant.trim(),
+            // The tenant comes from the parent server-side (or the caller's own
+            // for a top-level entity) — it is never chosen here.
+            parent_id: parentId ?? 0,
           }),
         })
         setMsg({ ok: true, text: `Entity ${name.trim()} created.` })
@@ -205,7 +257,10 @@ export function EntitiesSettings() {
       sortable: true,
       value: (b) => `${b.name} ${b.slug}`,
       render: (b) => (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" style={{ paddingLeft: (depthOf.get(b.id) ?? 0) * 18 }}>
+          {(depthOf.get(b.id) ?? 0) > 0 && (
+            <CornerDownRight size={12} className="shrink-0 text-text-faint" aria-hidden />
+          )}
           <span className="text-[13px] font-semibold text-text-high">{b.name}</span>
           <code className="rounded bg-fill-hover px-1.5 py-px text-[10.5px] text-text-muted">{b.slug}</code>
           {!b.is_active && (
@@ -215,16 +270,22 @@ export function EntitiesSettings() {
       ),
     },
     {
-      key: 'tenant',
-      header: 'Tenant',
+      key: 'parent',
+      header: 'Parent',
       sortable: true,
       width: 220,
-      value: (b) => b.tenant,
-      render: (b) => (
-        <span className="flex items-center gap-1.5 text-[12px] text-text-mid">
-          <Building2 size={12} className="text-text-muted" aria-hidden /> {b.tenant}
-        </span>
-      ),
+      value: (b) => b.parent_name || b.parent || '',
+      render: (b) =>
+        b.parent_id === null ? (
+          <span className="flex items-center gap-1.5 text-[12px] text-text-muted">
+            <Building2 size={12} aria-hidden /> Top level
+          </span>
+        ) : (
+          <span className="flex items-center gap-1.5 text-[12px] text-text-mid">
+            <CornerDownRight size={12} className="text-text-muted" aria-hidden />
+            {b.parent_name || b.parent}
+          </span>
+        ),
     },
     {
       key: 'created_at',
@@ -273,29 +334,25 @@ export function EntitiesSettings() {
   return (
     <div className="flex flex-col gap-4 pt-3.5">
       <p className="text-[11.5px] leading-relaxed text-text-mid">
-        A <b>tenant</b> is the parent organization; a <b>entity</b> is a business unit or client it serves. Contacts are
-        shared across a tenant&apos;s entities. Admins see every entity in their tenant; agents only the entities assigned to
-        them (set per user under Users &amp; Roles).
-        {me?.tenant && (
-          <>
-            {' '}
-            You are in tenant <b>{me.tenant}</b>.
-          </>
-        )}
+        Entities form a tree: a <b>top-level</b> entity (your organization) with branches, outlets or client units
+        underneath it. A child inherits everything from its parent — contacts are shared across the tree, and a new
+        entity only needs a name and a parent. Admins see every entity in their organization; agents only the entities
+        assigned to them (set per user under Users &amp; Roles).
       </p>
 
-      {msg && (
+      {/* Success (and any failure raised outside the modal, e.g. delete) — the
+          modal renders its own copy of failures so they aren't lost behind it. */}
+      {msg && (!open || msg.ok) && (
         <div className={`text-[12px] font-semibold ${msg.ok ? 'text-green-300' : 'text-red-300'}`}>{msg.text}</div>
       )}
 
       <DataTable
         columns={columns}
-        rows={entities}
+        rows={ordered.map((o) => o.row)}
         rowKey={(b) => b.id}
-        searchKeys={['name', 'tenant']}
+        searchKeys={['name', 'slug']}
         searchPlaceholder="Search entities…"
         empty="No entities yet — add the first one."
-        initialSort={{ key: 'tenant', dir: 'asc' }}
         toolbarRight={
           canManage ? (
             <Button onClick={openCreate}>
@@ -309,7 +366,7 @@ export function EntitiesSettings() {
         open={open}
         onClose={() => setOpen(false)}
         title={editing ? `Edit ${editing.name}` : 'Add entity'}
-        subtitle="A entity is a business unit or client served by a tenant."
+        subtitle="An entity is a branch, outlet or client unit. Pick where it sits in the tree."
         size="md"
         footer={
           <>
@@ -319,7 +376,7 @@ export function EntitiesSettings() {
             <Button
               variant="primary"
               onClick={saveEntity}
-              disabled={busy || !name.trim() || (!editing && isSuperadmin && !tenant.trim())}
+              disabled={busy || !name.trim()}
             >
               {busy ? (
                 <Loader2 size={13} className="animate-spin" aria-hidden />
@@ -334,6 +391,14 @@ export function EntitiesSettings() {
         }
       >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {msg && !msg.ok && (
+            <div
+              role="alert"
+              className="sm:col-span-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] font-semibold text-red-300"
+            >
+              {msg.text}
+            </div>
+          )}
           <label className="block">
             <span className="mb-1 block text-[11px] font-bold text-text-high">Entity name</span>
             <input
@@ -360,30 +425,33 @@ export function EntitiesSettings() {
               className="w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400"
             />
             <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">
-              Short unique id, used in APIs and reports. Unique per tenant.
+              Short unique id, used in APIs and reports. Unique across the organization.
             </span>
           </label>
-          {isSuperadmin && !editing && (
-            <label className="block sm:col-span-2">
-              <span className="mb-1 block text-[11px] font-bold text-text-high">Tenant</span>
-              <input
-                type="text"
-                value={tenant}
-                onChange={(e) => setTenant(e.target.value)}
-                list="entities-tenant-slugs"
-                placeholder="tenant slug, e.g. northwind"
-                className="w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400"
-              />
-              <datalist id="entities-tenant-slugs">
-                {tenants.map((t) => (
-                  <option key={t} value={t} />
-                ))}
-              </datalist>
-              <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">
-                Super admin only — admins always create in their own tenant.
-              </span>
-            </label>
-          )}
+          <label className="block sm:col-span-2">
+            <span className="mb-1 block text-[11px] font-bold text-text-high">Parent entity</span>
+            <Select
+              value={parentId === null ? '' : String(parentId)}
+              onChange={(v) => setParentId(v === '' ? null : Number(v))}
+              size="md"
+              ariaLabel="Parent entity"
+              options={[
+                { value: '', label: 'Top level (no parent)' },
+                ...ordered
+                  // an entity can't sit under itself or its own descendants
+                  .filter((o) => !editing || !descendantIds(entities, editing.id).has(o.row.id))
+                  .map((o) => ({
+                    value: String(o.row.id),
+                    label: `${'\u2007'.repeat(o.depth * 2)}${o.depth > 0 ? '\u21b3 ' : ''}${o.row.name}`,
+                    hint: o.row.slug,
+                  })),
+              ]}
+            />
+            <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">
+              Everything is inherited from the parent, including which organization it belongs to. Leave this at
+              &ldquo;Top level&rdquo; for the root of your tree.
+            </span>
+          </label>
           {editing && (
             <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
               <input

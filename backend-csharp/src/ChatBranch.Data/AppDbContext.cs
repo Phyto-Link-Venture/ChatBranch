@@ -66,6 +66,13 @@ public class AppDbContext : DbContext
         // ---- table names (Django <app>_<model>) --------------------------------
         b.Entity<Tenant>().ToTable("ingest_tenant");
         b.Entity<Entity>().ToTable("ingest_entity");
+        // self-FK hierarchy — deleting a parent is refused by the API while it
+        // still has children, so no cascade here
+        b.Entity<Entity>()
+            .HasOne(e => e.Parent)
+            .WithMany(e => e.Children)
+            .HasForeignKey(e => e.ParentId)
+            .OnDelete(DeleteBehavior.Restrict);
         b.Entity<AppUser>().ToTable("auth_user");
         b.Entity<Profile>().ToTable("crm_profile");
         b.Entity<AuthToken>().ToTable("crm_authtoken");

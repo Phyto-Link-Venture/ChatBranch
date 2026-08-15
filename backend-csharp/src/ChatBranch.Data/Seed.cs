@@ -30,6 +30,7 @@ public static class Seed
     private static void UpgradeSchema(AppDbContext db)
     {
         AddColumnIfMissing(db, "crm_profile", "resource_id", "INTEGER NULL");
+        AddColumnIfMissing(db, "ingest_entity", "parent_id", "INTEGER NULL");
     }
 
     private static void AddColumnIfMissing(AppDbContext db, string table, string column, string ddlType)

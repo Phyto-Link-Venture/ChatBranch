@@ -65,6 +65,18 @@ README's "run by hand" section is the manual fallback, not the primary path.
   (superadmin/super123 — POC creds, rotate before deploy). Non-Django
   processes that import the stores (whatsapp/bridge.py) must
   `django.setup()` first.
+- **Entities are a TREE (`ingest_entity.parent_id`, added 2026-08-15).** A
+  top-level entity (parent null) with branches/outlets under it; a child ALWAYS
+  inherits its parent's tenant, so the dashboard's Add-entity form asks for a
+  **parent**, never a tenant slug (the Tenant field is gone; `/entities` is
+  titled just "Entities"). `POST/PATCH /api/v1/entities` take `parent_id` (pk,
+  number or numeric string — `Str()` returns null for JSON numbers, hence
+  `ParentPk()`) or `parent` (slug); 0/""/null = top level. Guards: no
+  self-parent, no cycles (`IsDescendantAsync`), parent and child share a
+  tenant, and DELETE refuses while children exist. The GET payloads carry
+  `parent_id`/`parent`/`parent_name`, and the page renders the tree
+  depth-first with indentation (`orderTree`). Tenant still exists underneath —
+  RBAC/scoping are unchanged — it is simply never typed in by hand.
 - **Entity scoping = global default -> entity override.** `crm/scoping.py` is
   the ONE place the rule lives: *an entity-specific binding wins; the global
   one is the fallback*. Three verbs, and picking the wrong one is the bug the
@@ -589,6 +601,20 @@ README's "run by hand" section is the manual fallback, not the primary path.
   Deliveries land in `FlowRun.context["deliveries"]`; inspect jobs via
   `GET /api/flows/queue`. Default library workflow `wf-repayment-reminder`
   ships inactive in `lib/flow/defaultWorkflows.ts`.
+- **Custom fields reach templates as variables** (2026-08-15). The operator's
+  Custom Fields (Settings → Custom Fields, `custom_fields` Setting row) are
+  merged into `FlowEngine.VariablesFor` as `{{cf_<key>}}` (customer fields, off
+  `Contact.Attributes`) and `{{provider_<key>}}` (the service provider bound via
+  an active `ResourceLink`, off `Resource.Attributes`). The prefixes are
+  deliberate — a field labelled "Company"/"Email" would otherwise shadow a
+  built-in. Values format like the dashboard does (boolean → Yes/No,
+  multiselect → comma list); a missing value renders empty, never the literal
+  placeholder. Both template editors share
+  `components/settings/TemplateVariablePicker.tsx` (built-in chips + a live
+  custom-fields group) instead of their old hardcoded arrays. Also filled the
+  gaps the pickers were already advertising: `{{link}}`/`{{tracking_url}}` (off
+  `Record.Data`), `{{account_number}}`, `{{best_contact_time}}`,
+  `{{preferred_channel}}`, `{{last_contact_date}}`.
 - **Communication hub + analytics** (`calls/views.py`):
   `GET /api/contacts/<id>/channels` = the per-contact unified channel profile
   (identities across whatsapp/email/social + voice, carrying account + its
@@ -716,6 +742,12 @@ README's "run by hand" section is the manual fallback, not the primary path.
   `SttProviderSelect.tsx` are deleted, `/settings/ai` redirects to
   `/channels`. Don't re-add the tab. Settings → Notifications is real
   (server-backed).
+- **A modal's errors render INSIDE the modal.** `Modal` portals over a
+  `backdrop-blur-sm` scrim, so a page-level `{msg && …}` under an open dialog is
+  invisible — the "password too short" report. The pattern (WhatsApp account
+  editor, Users, Entities, both template editors): a `role="alert"` div as the
+  first child of the modal body for `!msg.ok`, the page-level copy gated on the
+  modal being closed, and `setMsg(null)` when opening one.
 - **Never call `getRole()` / `getAuth()` during render.** They read
   localStorage, which doesn't exist during SSR — the server paints the
   `'agent'` fallback, the client paints the real role, and React aborts

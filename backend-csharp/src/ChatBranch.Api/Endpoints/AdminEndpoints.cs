@@ -382,6 +382,12 @@ public static class AdminEndpoints
                     name = e.Name,
                     slug = e.Slug,
                     tenant = e.Tenant?.Slug ?? "",
+                    // Hierarchy: null parent = a top-level entity. Children
+                    // inherit their parent's tenant, so the UI only asks for a
+                    // parent (the tenant is never typed in by hand).
+                    parent_id = e.ParentId,
+                    parent = e.Parent?.Slug,
+                    parent_name = e.Parent?.Name ?? "",
                     // ingest_entity has no is_active column in this port yet —
                     // every entity reads as live (the page renders a "paused"
                     // pill off this flag).
@@ -602,7 +608,7 @@ public static class AdminEndpoints
     {
         var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
         var tenantId = TenantId(me);
-        var q = db.Entities.AsNoTracking().Include(e => e.Tenant).AsQueryable();
+        var q = db.Entities.AsNoTracking().Include(e => e.Tenant).Include(e => e.Parent).AsQueryable();
 
         if (role == Roles.SuperAdmin)
         {

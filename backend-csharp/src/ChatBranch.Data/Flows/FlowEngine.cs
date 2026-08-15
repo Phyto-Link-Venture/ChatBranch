@@ -111,7 +111,116 @@ public class FlowEngine
         vars["days_until_due"] = delta is int du && du >= 0 ? du.ToString() : "";
         vars["days_overdue"] = delta is int od && od < 0 ? (-od).ToString() : "0";
         vars["situation"] = contact.Notes;
+        // record links + AI-memory vars (parity with flows/engine.py — the
+        // template pickers offer {{link}} and {{best_contact_time}}, so they
+        // must resolve rather than render literally)
+        var data = record?.Data ?? new Dictionary<string, object?>();
+        vars["tracking_url"] = DataString(data, "tracking_url");
+        var link = DataString(data, "link");
+        vars["link"] = link.Length > 0 ? link : DataString(data, "url");
+        vars["account_number"] = record?.ExternalId ?? "";
+        vars["best_contact_time"] = contact.PreferredContactTime;
+        vars["preferred_channel"] = FormatAttribute(contact.Attributes, "preferred_channel", "text");
+        var lastContact = _db.Messages.AsNoTracking()
+            .Where(m => m.Thread != null && m.Thread.ContactId == contact.Id)
+            .Max(m => (DateTime?)m.CreatedAt);
+        vars["last_contact_date"] = lastContact is DateTime lc ? lc.ToString("dd MMM yyyy") : "";
+        MergeCustomFields(vars, contact);
         return vars;
+    }
+
+    /// <summary>
+    /// Operator-defined Custom Fields (Settings → Custom Fields) as template
+    /// variables. Customer fields become <c>{{cf_&lt;key&gt;}}</c>, and the fields of
+    /// the service provider bound to this contact become
+    /// <c>{{provider_&lt;key&gt;}}</c>. The prefixes are deliberate: a field labelled
+    /// "Company" or "Email" would otherwise silently shadow a built-in.
+    /// A field with no value renders as an empty string (never the literal
+    /// placeholder), so a template never leaks "{{cf_grade}}" to a customer.
+    /// </summary>
+    private void MergeCustomFields(Dictionary<string, string> vars, Contact contact)
+    {
+        try
+        {
+            var schema = CustomFieldSchema();
+            foreach (var (key, kind) in schema.customer)
+                vars[$"cf_{key}"] = FormatAttribute(contact.Attributes, key, kind);
+
+            if (schema.provider.Count == 0) return;
+            // the provider this contact is bound to (contact ↔ service provider)
+            var resource = _db.ResourceLinks.AsNoTracking()
+                .Where(l => l.ContactId == contact.Id && l.Active)
+                .OrderBy(l => l.Id)
+                .Select(l => l.Resource)
+                .FirstOrDefault();
+            foreach (var (key, kind) in schema.provider)
+                vars[$"provider_{key}"] = resource == null
+                    ? "" : FormatAttribute(resource.Attributes, key, kind);
+        }
+        catch
+        {
+            // custom fields are a nicety — a malformed schema must never break a send
+        }
+    }
+
+    /// <summary>A string out of a Record.Data JSON bag ("" when absent).</summary>
+    private static string DataString(Dictionary<string, object?> data, string key) =>
+        FormatAttribute(data, key, "text");
+
+    /// <summary>The custom-field schema as (key, kind) pairs per target, read
+    /// straight from the `custom_fields` Setting row (the API layer owns the
+    /// write side; this only needs the shape).</summary>
+    private (List<(string key, string kind)> customer, List<(string key, string kind)> provider) CustomFieldSchema()
+    {
+        var customer = new List<(string, string)>();
+        var provider = new List<(string, string)>();
+        var raw = _scoping.SettingValue("custom_fields");
+        if (string.IsNullOrWhiteSpace(raw)) return (customer, provider);
+        using var doc = JsonDocument.Parse(raw);
+        void Read(string target, List<(string, string)> into)
+        {
+            if (!doc.RootElement.TryGetProperty(target, out var arr)
+                || arr.ValueKind != JsonValueKind.Array) return;
+            foreach (var f in arr.EnumerateArray())
+            {
+                var key = f.TryGetProperty("key", out var k) ? k.GetString() ?? "" : "";
+                if (key.Length == 0) continue;
+                var kind = f.TryGetProperty("kind", out var kd) ? kd.GetString() ?? "text" : "text";
+                into.Add((key, kind));
+            }
+        }
+        Read("customer", customer);
+        Read("provider", provider);
+        return (customer, provider);
+    }
+
+    /// <summary>Render one stored attribute the way the dashboard shows it
+    /// (frontend lib/customFields.ts formatFieldValue): booleans as Yes/No,
+    /// multi-select as a comma list.</summary>
+    private static string FormatAttribute(Dictionary<string, object?> attributes, string key, string kind)
+    {
+        if (!attributes.TryGetValue(key, out var raw) || raw == null) return "";
+        if (raw is JsonElement el)
+        {
+            switch (el.ValueKind)
+            {
+                case JsonValueKind.Null or JsonValueKind.Undefined: return "";
+                case JsonValueKind.True: return "Yes";
+                case JsonValueKind.False: return "No";
+                case JsonValueKind.Array:
+                    return string.Join(", ", el.EnumerateArray()
+                        .Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() ?? "" : x.ToString())
+                        .Where(x => x.Length > 0));
+                case JsonValueKind.String: return el.GetString() ?? "";
+                default: return el.ToString();
+            }
+        }
+        if (raw is bool b) return b ? "Yes" : "No";
+        if (raw is System.Collections.IEnumerable seq and not string)
+            return string.Join(", ", seq.Cast<object?>().Select(x => x?.ToString() ?? "").Where(x => x.Length > 0));
+        if (kind == "boolean")
+            return string.Equals(raw.ToString(), "true", StringComparison.OrdinalIgnoreCase) ? "Yes" : "No";
+        return raw.ToString() ?? "";
     }
 
     // ---- trigger matching ---------------------------------------------------

@@ -27,7 +27,13 @@ public static class ContactsEndpoints
 {
     // `attributes` = the Custom Fields values (Settings → Custom Fields defines
     // the schema); merged onto the row's free-form JSON, which the AI reads.
-    public record ContactWrite(string Name, string Phone, string? Email, string? Language,
+    /// <remarks>
+    /// PATCH is a PARTIAL update: every field is optional and an omitted one is
+    /// left alone. Name/Phone were non-nullable, so a body carrying only
+    /// `attributes` (e.g. a custom-fields-only save) assigned null over the
+    /// contact's name and 500'd on the NOT NULL column.
+    /// </remarks>
+    public record ContactWrite(string? Name, string? Phone, string? Email, string? Language,
         string? CompanyName, List<string>? Tags,
         Dictionary<string, object?>? Attributes = null);
     public record IdentityWrite(string Channel, string Address);
@@ -62,10 +68,16 @@ public static class ContactsEndpoints
 
         app.MapPost("/api/contacts", async (ContactWrite b, AppDbContext db, ClaimsPrincipal me) =>
         {
+            // create (unlike PATCH) genuinely needs an identity
+            var name = (b.Name ?? "").Trim();
+            var phone = (b.Phone ?? "").Trim();
+            if (name.Length == 0 || phone.Length == 0)
+                return Results.Json(new { detail = "name and phone are required." }, statusCode: 400);
             var row = new Contact
             {
-                Name = b.Name, Phone = b.Phone, Email = b.Email ?? "", Language = b.Language ?? "en",
+                Name = name, Phone = phone, Email = b.Email ?? "", Language = b.Language ?? "en",
                 CompanyName = b.CompanyName ?? "", Tags = b.Tags ?? new(),
+                Attributes = b.Attributes ?? new(),
                 TenantId = TenantId(me),
                 CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
             };
@@ -87,7 +99,8 @@ public static class ContactsEndpoints
         {
             var c = await ScopeContacts(db.Contacts, me, db).FirstOrDefaultAsync(x => x.Id == id);
             if (c == null) return NotFound("Contact not found.");
-            c.Name = b.Name; c.Phone = b.Phone;
+            if (b.Name != null) c.Name = b.Name;
+            if (b.Phone != null) c.Phone = b.Phone;
             if (b.Email != null) c.Email = b.Email;
             if (b.Language != null) c.Language = b.Language;
             if (b.CompanyName != null) c.CompanyName = b.CompanyName;

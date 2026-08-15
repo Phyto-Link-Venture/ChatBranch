@@ -115,7 +115,7 @@ function EntityPicker({
   if (entities.length === 0) {
     return (
       <span className="text-[10.5px] text-text-muted">
-        No entities yet — create one under Entities &amp; Tenants.
+        No entities yet — create one under Entities.
       </span>
     )
   }
@@ -547,6 +547,7 @@ export function UsersSettings() {
             <button
               disabled={busy}
               onClick={() => {
+                setMsg(null)
                 setEntitiesDraft(u.entities.map((b) => b.id))
                 setEntitiesFor(u.id)
               }}
@@ -562,6 +563,7 @@ export function UsersSettings() {
               <button
                 disabled={busy}
                 onClick={() => {
+                  setMsg(null)
                   setPwDraft('')
                   setPwFor(u.id)
                 }}
@@ -645,13 +647,20 @@ export function UsersSettings() {
         searchPlaceholder="Search users…"
         empty="No users yet."
         toolbarRight={
-          <Button onClick={() => setShowAdd(true)}>
+          <Button
+            onClick={() => {
+              setMsg(null)
+              setShowAdd(true)
+            }}
+          >
             <UserPlus size={13} aria-hidden /> Add user
           </Button>
         }
       />
 
-      {msg && (
+      {/* Failures raised while a modal is open render inside that modal (below);
+          the scrim would otherwise hide them. Successes always show here. */}
+      {msg && (msg.ok || !(showAdd || pwFor !== null || entitiesFor !== null)) && (
         <div className={`text-[12px] font-semibold ${msg.ok ? 'text-green-300' : 'text-red-300'}`}>{msg.text}</div>
       )}
 
@@ -675,6 +684,14 @@ export function UsersSettings() {
         }
       >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {msg && !msg.ok && (
+            <div
+              role="alert"
+              className="sm:col-span-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] font-semibold text-red-300"
+            >
+              {msg.text}
+            </div>
+          )}
           <Field
             label="Username"
             value={newUsername}
@@ -760,6 +777,14 @@ export function UsersSettings() {
               </>
             }
           >
+            {msg && !msg.ok && (
+              <div
+                role="alert"
+                className="mb-3 block rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] font-semibold text-red-300"
+              >
+                {msg.text}
+              </div>
+            )}
             {pwUser && (
               <label className="block">
                 <span className="mb-1 block text-[11px] font-bold text-text-high">New password</span>
@@ -800,6 +825,14 @@ export function UsersSettings() {
               </>
             }
           >
+            {msg && !msg.ok && (
+              <div
+                role="alert"
+                className="mb-3 block rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] font-semibold text-red-300"
+              >
+                {msg.text}
+              </div>
+            )}
             {entitiesUser && (
               <EntityPicker
                 entities={entityPool.filter((b) => !entitiesUser.tenant || b.tenant === entitiesUser.tenant)}
