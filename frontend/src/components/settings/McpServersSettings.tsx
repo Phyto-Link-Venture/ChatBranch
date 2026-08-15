@@ -13,6 +13,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { TagListInput } from '@/components/ui/TagListInput'
 import { roleHeaders } from '@/lib/role'
 import { useRole } from '@/lib/useRole'
 import { expireSessionOn401 } from '@/lib/auth'
@@ -317,21 +318,14 @@ export function McpServersSettings() {
 
           <label className="mt-3 block">
             <span className="mb-1 block text-[10.5px] font-bold text-text-high">
-              Tool allowlist (comma separated — blank = all tools)
+              Tool allowlist{' '}
+              <span className="font-normal text-text-muted">(blank = all tools — type one, press Enter to add)</span>
             </span>
-            <input
-              value={(draft.tool_allowlist || []).join(', ')}
-              placeholder="read_sheet, create_event"
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  tool_allowlist: e.target.value
-                    .split(',')
-                    .map((t) => t.trim())
-                    .filter(Boolean),
-                })
-              }
-              className={inputCls}
+            <TagListInput
+              value={draft.tool_allowlist || []}
+              placeholder="e.g. read_sheet"
+              addLabel="Add tool"
+              onChange={(tool_allowlist) => setDraft({ ...draft, tool_allowlist })}
             />
           </label>
 

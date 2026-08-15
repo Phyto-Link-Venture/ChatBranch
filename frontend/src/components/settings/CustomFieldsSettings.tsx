@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, Loader2, Plus, Tags, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
+import { TagListInput } from '@/components/ui/TagListInput'
 import { CustomFieldsInputs } from '@/components/CustomFieldsInputs'
 import { useRole } from '@/lib/useRole'
 import {
@@ -267,18 +268,15 @@ export function CustomFieldsSettings() {
                     {NEEDS_OPTIONS.includes(f.kind) && (
                       <label className="mt-2 block">
                         <span className="mb-1 block text-[10.5px] font-bold text-text-high">
-                          Options <span className="font-normal text-text-muted">(comma-separated)</span>
+                          Options{' '}
+                          <span className="font-normal text-text-muted">(type one, press Enter to add)</span>
                         </span>
-                        <input
-                          value={f.options.join(', ')}
+                        <TagListInput
+                          value={f.options}
                           disabled={!canEdit}
-                          placeholder="English, Malay, Chinese"
-                          onChange={(e) =>
-                            patchField(t, i, {
-                              options: e.target.value.split(',').map((s) => s.trim()).filter(Boolean),
-                            })
-                          }
-                          className={inputCls}
+                          placeholder="e.g. English"
+                          addLabel="Add option"
+                          onChange={(options) => patchField(t, i, { options })}
                         />
                       </label>
                     )}

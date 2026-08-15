@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { TagListInput } from '@/components/ui/TagListInput'
 import { roleHeaders } from '@/lib/role'
 import { useRole } from '@/lib/useRole'
 import { useEntity, useEntityQuery } from '@/lib/EntityContext'
@@ -438,21 +439,14 @@ export function KnowledgeSettings() {
 
           <label className="mt-3 block">
             <span className="mb-1 block text-[10.5px] font-bold text-text-high">
-              Tags (comma separated — matching hints)
+              Tags{' '}
+              <span className="font-normal text-text-muted">(matching hints — type one, press Enter to add)</span>
             </span>
-            <input
-              value={(draft.tags || []).join(', ')}
-              placeholder="refund, return, money back"
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  tags: e.target.value
-                    .split(',')
-                    .map((t) => t.trim())
-                    .filter(Boolean),
-                })
-              }
-              className={inputCls}
+            <TagListInput
+              value={draft.tags || []}
+              placeholder="e.g. refund"
+              addLabel="Add tag"
+              onChange={(tags) => setDraft({ ...draft, tags })}
             />
           </label>
 
