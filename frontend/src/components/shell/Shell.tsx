@@ -30,6 +30,8 @@ export function Shell({ children }: { children: ReactNode }) {
 
   const [user, setUser] = useState<AuthUser | null>(null)
   const [collapsed, setCollapsed] = useState(false)
+  // Mobile-only off-canvas drawer (separate from the desktop icon-rail collapse).
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   useEffect(() => {
     setUser(getAuth())
@@ -39,6 +41,11 @@ export function Shell({ children }: { children: ReactNode }) {
       /* ignore */
     }
   }, [])
+
+  // Close the mobile drawer whenever the route changes.
+  useEffect(() => {
+    setMobileNavOpen(false)
+  }, [pathname])
 
   // Auth guard — client-side redirect (POC; server APIs enforce roles too).
   useEffect(() => {
@@ -60,18 +67,35 @@ export function Shell({ children }: { children: ReactNode }) {
   if (isLogin) return <>{children}</>
 
   return (
-    <div className="flex h-screen flex-col gap-2.5 overflow-hidden bg-app p-2.5">
-      <TopBar user={user} onToggleNav={toggleNav} />
+    <div className="flex h-[100dvh] flex-col gap-2.5 overflow-hidden bg-app p-2.5">
+      <TopBar
+        user={user}
+        onToggleNav={toggleNav}
+        onOpenMobileNav={() => setMobileNavOpen(true)}
+      />
 
       <div className="flex min-h-0 flex-1 gap-2.5">
-        <SideNav collapsed={collapsed} onToggle={toggleNav} />
+        {/* Backdrop for the mobile drawer (below lg only). */}
+        {mobileNavOpen && (
+          <div
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden"
+            onClick={() => setMobileNavOpen(false)}
+            aria-hidden="true"
+          />
+        )}
+        <SideNav
+          collapsed={collapsed}
+          onToggle={toggleNav}
+          mobileOpen={mobileNavOpen}
+          onCloseMobile={() => setMobileNavOpen(false)}
+        />
 
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[20px] border border-line bg-panel">
           {isFullBleed ? (
             // Chats / Flow Builder / Settings fill the whole panel height.
             <div className="min-h-0 flex-1">{children}</div>
           ) : (
-            <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-6 py-[22px]">
+            <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 py-4 sm:px-6 sm:py-[22px]">
               {children}
             </div>
           )}

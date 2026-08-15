@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Plus_Jakarta_Sans } from 'next/font/google'
 import './globals.css'
 import { AppProvider } from '@/lib/AppContext'
@@ -15,6 +15,15 @@ const jakarta = Plus_Jakarta_Sans({
 export const metadata: Metadata = {
   title: 'ChatBranch',
   description: 'ChatBranch — multi-channel conversation platform',
+}
+
+// Mobile-first: render at device width (no more desktop-width zoom-out on
+// phones/tablets). `viewport-fit=cover` lets full-bleed panels reach the edges
+// on notched devices.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({

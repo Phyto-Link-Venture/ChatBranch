@@ -1,6 +1,6 @@
 'use client'
 
-import { PanelLeft, Search } from 'lucide-react'
+import { Menu, PanelLeft, Search } from 'lucide-react'
 import type { AuthUser } from '@/lib/auth'
 import { TenantSwitcher } from './TenantSwitcher'
 import { NotificationsBell } from './NotificationsBell'
@@ -13,17 +13,29 @@ import { NotificationsBell } from './NotificationsBell'
 export function TopBar({
   user,
   onToggleNav,
+  onOpenMobileNav,
 }: {
   user: AuthUser | null
   onToggleNav: () => void
+  onOpenMobileNav?: () => void
 }) {
   return (
-    <header className="flex h-[56px] shrink-0 items-center gap-3 rounded-[18px] border border-line bg-surface px-3">
+    <header className="flex h-[56px] shrink-0 items-center gap-2 rounded-[18px] border border-line bg-surface px-2.5 sm:gap-3 sm:px-3">
+      {/* Mobile: open the off-canvas drawer. */}
+      <button
+        onClick={onOpenMobileNav}
+        aria-label="Open menu"
+        title="Open menu"
+        className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-xl text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high lg:hidden"
+      >
+        <Menu size={18} strokeWidth={1.9} />
+      </button>
+      {/* Desktop: collapse/expand the icon rail. */}
       <button
         onClick={onToggleNav}
         aria-label="Toggle sidebar"
         title="Toggle sidebar"
-        className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-xl text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
+        className="hidden h-[34px] w-[34px] shrink-0 place-items-center rounded-xl text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high lg:grid"
       >
         <PanelLeft size={17} strokeWidth={1.9} />
       </button>

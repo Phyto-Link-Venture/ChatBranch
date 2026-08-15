@@ -1778,9 +1778,14 @@ export default function ChatsPage() {
 
       {/* 3-column row: scrolls horizontally rather than crushing the middle
           pane below its min-width */}
-      <Card className="flex min-h-0 flex-1 overflow-x-auto">
-        {/* ── pane 1: unified conversation list (~240px) ── */}
-        <div className="flex min-h-0 w-[260px] shrink-0 flex-col border-r border-line">
+      <Card className="flex min-h-0 flex-1 overflow-hidden lg:overflow-x-auto">
+        {/* ── pane 1: unified conversation list (~240px) ──
+            Mobile: full-width, hidden once a conversation is open. */}
+        <div
+          className={`min-h-0 w-full shrink-0 flex-col border-r border-line lg:w-[260px] ${
+            active ? 'hidden lg:flex' : 'flex'
+          }`}
+        >
           <div className="border-b border-line p-2">
             <div className="flex items-center gap-1.5">
               <div className="relative min-w-0 flex-1">
@@ -1987,8 +1992,13 @@ export default function ChatsPage() {
           </div>
         </div>
 
-        {/* ── pane 2: conversation (flex, min 360px) ── */}
-        <div className="wa-chat-bg flex min-w-[360px] flex-1 flex-col">
+        {/* ── pane 2: conversation (flex, min 360px on desktop) ──
+            Mobile: full-width, shown only when a conversation is open. */}
+        <div
+          className={`wa-chat-bg min-w-0 flex-1 flex-col lg:min-w-[360px] ${
+            active ? 'flex' : 'hidden lg:flex'
+          }`}
+        >
           {!active ? (
             <div className="grid flex-1 place-content-center text-center">
               <div
@@ -2007,6 +2017,18 @@ export default function ChatsPage() {
             <>
               {/* header */}
               <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-line bg-surface px-4">
+                {/* Mobile: back to the conversation list. */}
+                <button
+                  onClick={() => {
+                    setActiveId(null)
+                    setActive(null)
+                  }}
+                  aria-label="Back to conversations"
+                  title="Back"
+                  className="-ml-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high lg:hidden"
+                >
+                  <ChevronLeft size={18} aria-hidden />
+                </button>
                 <Avatar name={active.name} channel={active.channel} size={32} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
@@ -2645,7 +2667,7 @@ export default function ChatsPage() {
 
         {/* ── pane 3: contact info ── */}
         {active && infoOpen && (
-          <div className="flex w-[256px] shrink-0 flex-col overflow-y-auto border-l border-line bg-surface">
+          <div className="hidden w-[256px] shrink-0 flex-col overflow-y-auto border-l border-line bg-surface xl:flex">
             <div className="flex flex-col items-center border-b border-line px-4 py-5 text-center">
               <Avatar name={active.name} channel={active.channel} size={64} />
               <div className="mt-2.5 text-[14px] font-bold text-text-heading">{active.name}</div>

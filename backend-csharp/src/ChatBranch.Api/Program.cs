@@ -36,11 +36,15 @@ builder.Services.AddAuthentication(TokenAuthenticationHandler.SchemeName)
         TokenAuthenticationHandler.SchemeName, _ => { });
 builder.Services.AddAuthorization(o => o.AddChatBranchPolicies());
 
-// ---- CORS: let the existing Next.js dashboard (localhost:3000) call in ------
+// ---- CORS: allowed origins come from config (Cors:Origins in appsettings /
+// env), NOT hardcoded — the dashboard localhost pair is the built-in default.
 const string CorsPolicy = "frontend";
+var corsOrigins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>();
+if (corsOrigins is null || corsOrigins.Length == 0)
+    corsOrigins = new[] { "http://localhost:3000", "http://127.0.0.1:3000" };
 builder.Services.AddCors(o => o.AddPolicy(CorsPolicy, p => p
-    .WithOrigins("http://localhost:3000", "http://127.0.0.1:3000")
-    .AllowAnyHeader().AllowAnyMethod()));
+    .WithOrigins(corsOrigins)
+    .AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
 
 var app = builder.Build();
 

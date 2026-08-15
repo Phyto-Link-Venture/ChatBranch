@@ -127,15 +127,34 @@ const ROLE_LABEL: Record<string, string> = {
 }
 
 export function SideNav({
-  collapsed = false,
+  collapsed: collapsedProp = false,
   onToggle,
+  mobileOpen = false,
+  onCloseMobile,
 }: {
   collapsed?: boolean
   onToggle?: () => void
+  /** Off-canvas drawer open state (mobile/tablet, below lg). */
+  mobileOpen?: boolean
+  onCloseMobile?: () => void
 }) {
   const pathname = usePathname() || '/dashboard'
   const router = useRouter()
   const [user, setUser] = useState<AuthUser | null>(null)
+
+  // The icon-rail collapse is a DESKTOP affordance only. On mobile the nav is a
+  // full-width drawer, so we ignore `collapsed` there (labels always shown).
+  // Resolved after mount → server + first client render both see expanded, so
+  // no hydration mismatch.
+  const [isDesktop, setIsDesktop] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)')
+    const sync = () => setIsDesktop(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
+  const collapsed = isDesktop && collapsedProp
 
   useEffect(() => setUser(getAuth()), [])
 
@@ -165,12 +184,15 @@ export function SideNav({
 
   return (
     <aside
-      className={`flex h-full shrink-0 flex-col rounded-[20px] border border-line bg-surface py-2 transition-[width] duration-200 ${
-        collapsed ? 'nav-collapsed w-[64px] px-1.5' : 'w-[240px] px-2'
-      }`}
+      className={`flex shrink-0 flex-col rounded-[20px] border border-line bg-surface py-2 duration-200
+        fixed inset-y-2.5 left-2.5 z-50 shadow-2xl transition-transform
+        ${mobileOpen ? 'translate-x-0' : '-translate-x-[calc(100%+1rem)]'}
+        lg:static lg:inset-auto lg:z-auto lg:h-full lg:translate-x-0 lg:shadow-none lg:transition-[width]
+        ${collapsed ? 'nav-collapsed w-[64px] px-1.5' : 'w-[240px] px-2'}`}
+      aria-hidden={!mobileOpen && !isDesktop}
     >
       {onToggle && (
-        <div className={`mb-1 flex ${collapsed ? 'justify-center' : 'justify-end pr-0.5'}`}>
+        <div className={`mb-1 hidden lg:flex ${collapsed ? 'justify-center' : 'justify-end pr-0.5'}`}>
           <button
             onClick={onToggle}
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
@@ -201,6 +223,7 @@ export function SideNav({
                 <Link
                   key={n.href}
                   href={n.href}
+                  onClick={onCloseMobile}
                   aria-current={active ? 'page' : undefined}
                   title={collapsed ? n.lbl : undefined}
                   className={`mb-0.5 flex items-center gap-2.5 rounded-xl py-[8px] transition-colors ${
