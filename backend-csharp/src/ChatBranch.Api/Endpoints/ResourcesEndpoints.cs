@@ -158,6 +158,38 @@ public static class ResourcesEndpoints
             Audit(db, me, ctx, "resource.unlink", $"{row.Name} - {contactName}", "");
             return Results.Ok(new { ok = true });
         }).RequireAuthorization(AuthPolicies.AdminPlus);
+
+        // ---- reverse lookup: the providers a CONTACT is bound to ----------------
+        // The binding is symmetric (student ↔ teacher, client ↔ supplier) but the
+        // API above only walks provider → contacts; the contact page needs the
+        // other direction. Same crm.ResourceLink rows, seen from the contact.
+        // Each entry carries the provider's name + its custom `attributes`
+        // (e.g. Type: Teacher / Supplier) so the card can label it.
+        app.MapGet("/api/contacts/{id:int}/resources", async (int id, AppDbContext db, ClaimsPrincipal me) =>
+        {
+            var contact = await db.Contacts.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id);
+            if (contact == null) return NotFound("Contact not found.");
+            var links = await db.ResourceLinks.AsNoTracking().Include(l => l.Resource)
+                .Where(l => l.ContactId == id).OrderBy(l => l.Id).ToListAsync();
+            var visible = Scope(db.Resources.AsNoTracking(), me).Select(r => r.Id).ToHashSet();
+            return Results.Ok(new
+            {
+                contact_id = id,
+                resources = links.Where(l => l.Resource != null && visible.Contains(l.ResourceId)).Select(l => new
+                {
+                    link_id = l.Id,
+                    resource_id = l.ResourceId,
+                    name = l.Resource!.Name,
+                    email = l.Resource.Email,
+                    phone = l.Resource.Phone,
+                    active = l.Active,
+                    resource_active = l.Resource.Active,
+                    relationship = l.Relationship,
+                    since = l.Since?.ToString("yyyy-MM-dd"),
+                    attributes = l.Resource.Attributes,
+                }),
+            });
+        }).RequireAuthorization(AuthPolicies.Authenticated);
     }
 
     // ======================= payloads (snake_case) ===========================
