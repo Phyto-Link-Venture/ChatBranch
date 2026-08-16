@@ -899,6 +899,10 @@ export default function ChatsPage() {
   const [threads, setThreads] = useState<UiThreadSummary[]>([])
   const [active, setActive] = useState<UiThread | null>(null)
   const [activeId, setActiveId] = useState<{ channel: Channel; key: string } | null>(null)
+  // Which entity scope the loaded inbox belongs to. Without it, the
+  // out-of-scope check below would fire against the PREVIOUS outlet's list
+  // while the new one is still in flight and close a perfectly valid chat.
+  const [loadedScope, setLoadedScope] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | Channel>('all')
   const [statusFilter, setStatusFilter] = useState<'all' | ThreadStatus>('all')
   const [assigneeFilter, setAssigneeFilter] = useState('all') // 'all' | 'none' | username
@@ -1010,6 +1014,7 @@ export default function ChatsPage() {
         })),
       ].sort((a, b) => (b.last_ts || '').localeCompare(a.last_ts || ''))
       setThreads(merged)
+      setLoadedScope(entityQ)
     } catch {
       /* API down — page shows the empty state */
     }
@@ -1017,7 +1022,13 @@ export default function ChatsPage() {
   }, [entityQ])
 
   const refreshActive = useCallback(async () => {
-    if (!activeId) return
+    // Deselecting must also drop the loaded conversation. `active` is what the
+    // right-hand pane renders from, so leaving it behind keeps a thread on
+    // screen that the current entity filter no longer contains.
+    if (!activeId) {
+      setActive(null)
+      return
+    }
     try {
       if (activeId.channel === 'whatsapp') {
         const t = await api<{ wa_id: string; phone: string; name: string; ai_enabled: boolean; assignee?: string; call: WaCall; account_id?: string | null; window_open?: boolean; window_expires_at?: string | null; opted_out?: boolean; contact_id?: number | null; contact_name?: string; labels?: string[]; messages: UiMessage[] }>(
@@ -1607,6 +1618,18 @@ export default function ChatsPage() {
     return rows.sort((a, b) => a.name.localeCompare(b.name))
   })()
   const allRows = [...threads, ...pendingRows]
+
+  // Switching outlets closes a conversation that is no longer in scope. The
+  // list refetches correctly on its own, but the CONVERSATION PANE kept showing
+  // the previous outlet's chat — so filtering to a branch with no contacts
+  // still displayed someone else's conversation, header, contact card and all.
+  // A stable key for "what is currently in the inbox", so the effect below
+  // depends on the CONTENT rather than the array identity (rebuilt each render).
+  const rowKeys = allRows.map((r) => `${r.channel}:${r.key}`).join('|')
+  useEffect(() => {
+    if (!activeId || loadedScope !== entityQ) return
+    if (!rowKeys.split('|').includes(`${activeId.channel}:${activeId.key}`)) setActiveId(null)
+  }, [activeId, rowKeys, loadedScope, entityQ])
 
   // Same linked contact across several channels is ONE inbox entry, not one
   // per channel — collapse by contact_id (only when not already filtered to
