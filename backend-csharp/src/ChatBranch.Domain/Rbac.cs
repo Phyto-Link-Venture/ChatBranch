@@ -35,6 +35,13 @@ public class Profile
     public int? ResourceId { get; set; }
     public Resource? Resource { get; set; }
 
+    // Customer login: when set, this user IS that Contact — a registered
+    // customer who signs in to use the integrations bound to their own record
+    // (their calendar, their documents), rather than an operator seat.
+    // Null = not a customer login. Nullable FK to crm.Contact.
+    public int? ContactId { get; set; }
+    public Contact? Contact { get; set; }
+
     // Agent entity allow-list (empty for superadmin/admin, whose access is derived).
     public ICollection<Entity> Entities { get; set; } = new List<Entity>();
     public ICollection<AuthToken> AuthTokens { get; set; } = new List<AuthToken>();

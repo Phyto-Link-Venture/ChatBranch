@@ -785,7 +785,42 @@ public static class ApiV1Endpoints
                     return V1Error("bad_request", "resource_id must be a provider id or null.", 400);
             }
 
+            // Bind / unbind this login to a CONTACT — a registered customer who
+            // signs in to use the integrations connected against their own
+            // record. Same shape as resource_id: an int binds, null/0 unbinds.
+            bool setContact = false; int? newContactId = null;
+            if (Has(body, "contact_id"))
+            {
+                setContact = true;
+                var cp = body.GetProperty("contact_id");
+                if (cp.ValueKind == JsonValueKind.Number && cp.GetInt32() > 0)
+                {
+                    var cid = cp.GetInt32();
+                    var contact = await db.Contacts.AsNoTracking().FirstOrDefaultAsync(c => c.Id == cid);
+                    if (contact == null)
+                        return V1Error("bad_request", "contact_id must reference an existing contact.", 400);
+                    if (contact.TenantId != null && profile.TenantId != null
+                        && contact.TenantId != profile.TenantId)
+                        return V1Error("bad_request",
+                            "That contact belongs to a different tenant than this user.", 400);
+                    // one login per customer — two logins sharing a contact would
+                    // make "whose integration is this?" unanswerable
+                    var taken = await db.Profiles.AsNoTracking()
+                        .FirstOrDefaultAsync(pr => pr.ContactId == cid && pr.UserId != profile.UserId);
+                    if (taken != null)
+                        return V1Error("conflict", "That contact is already bound to another login.", 409);
+                    newContactId = cid;
+                }
+                else if (cp.ValueKind is not (JsonValueKind.Null or JsonValueKind.Number))
+                    return V1Error("bad_request", "contact_id must be a contact id or null.", 400);
+            }
+
             var changed = new List<string>();
+            if (setContact && profile.ContactId != newContactId)
+            {
+                profile.ContactId = newContactId;
+                changed.Add("contact_id");
+            }
             if (setResource && profile.ResourceId != newResourceId)
             {
                 profile.ResourceId = newResourceId;
@@ -1213,6 +1248,7 @@ public static class ApiV1Endpoints
     private static Task<AppUser?> TargetUserAsync(AppDbContext db, int id) =>
         db.Users.Include(u => u.Profile!).ThenInclude(p => p.Entities)
                 .Include(u => u.Profile!).ThenInclude(p => p.Resource)
+                .Include(u => u.Profile!).ThenInclude(p => p.Contact)
             .FirstOrDefaultAsync(u => u.Id == id);
 
     /// Django's get_or_create(profile): a user with no Profile row still has an
@@ -1283,6 +1319,7 @@ public static class ApiV1Endpoints
             .Include(u => u.Profile!).ThenInclude(p => p.Tenant)
             .Include(u => u.Profile!).ThenInclude(p => p.Entities)
                 .Include(u => u.Profile!).ThenInclude(p => p.Resource)
+                .Include(u => u.Profile!).ThenInclude(p => p.Contact)
             .FirstAsync(u => u.Id == id);
         return AdminEndpoints.ManagedUserPayload(row);
     }

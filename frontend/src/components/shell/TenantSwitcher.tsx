@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown } from 'lucide-react'
-import { useEntity } from '@/lib/EntityContext'
+import { Check, ChevronDown, CornerDownRight } from 'lucide-react'
+import { useEntity, type Entity } from '@/lib/EntityContext'
 
 /**
  * Topbar brand/tenant switcher chip (design.md): logo square + current entity
@@ -11,6 +11,32 @@ import { useEntity } from '@/lib/EntityContext'
  * active entity that brand-scoped screens filter by. A user with a single
  * entity gets a static chip (no menu).
  */
+/**
+ * Parents first, each followed by its children (depth-first), so the menu shows
+ * the tree rather than a flat alphabetical list. An entity whose parent is not
+ * visible to this user is treated as a root — it must never disappear.
+ */
+function orderByHierarchy(entities: Entity[]): { entity: Entity; depth: number }[] {
+  const visible = new Set(entities.map((e) => e.slug))
+  const childrenOf = new Map<string | null, Entity[]>()
+  for (const e of entities) {
+    const parent = e.parent && visible.has(e.parent) ? e.parent : null
+    childrenOf.set(parent, [...(childrenOf.get(parent) ?? []), e])
+  }
+  for (const list of childrenOf.values()) list.sort((a, b) => a.name.localeCompare(b.name))
+  const out: { entity: Entity; depth: number }[] = []
+  const walk = (parent: string | null, depth: number) => {
+    for (const entity of childrenOf.get(parent) ?? []) {
+      if (out.some((o) => o.entity.slug === entity.slug)) continue // cyclic data guard
+      out.push({ entity, depth })
+      walk(entity.slug, depth + 1)
+    }
+  }
+  walk(null, 0)
+  for (const e of entities) if (!out.some((o) => o.entity.slug === e.slug)) out.push({ entity: e, depth: 0 })
+  return out
+}
+
 export function TenantSwitcher() {
   const { tenant, entities, activeEntity, allEntities, setActiveEntity, loading } = useEntity()
   const [open, setOpen] = useState(false)
@@ -32,6 +58,7 @@ export function TenantSwitcher() {
       : (activeEntity?.name ?? tenant ?? 'All entities')
   const initials = (activeEntity?.name ?? tenant ?? 'CB').slice(0, 2).toUpperCase()
   const canSwitch = entities.length > 1
+  const ordered = orderByHierarchy(entities)
 
   return (
     <div ref={ref} className="relative">
@@ -74,7 +101,7 @@ export function TenantSwitcher() {
             {allEntities && <Check size={14} strokeWidth={2.25} className="shrink-0 text-brand-400" />}
           </button>
           <div className="my-1 h-px bg-line" />
-          {entities.map((b) => {
+          {ordered.map(({ entity: b, depth }) => {
             const active = b.slug === activeEntity?.slug
             return (
               <button
@@ -85,9 +112,21 @@ export function TenantSwitcher() {
                   setActiveEntity(b.slug)
                   setOpen(false)
                 }}
-                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12.5px] text-text-high transition-colors hover:bg-fill-hover"
+                className="flex w-full items-center gap-1.5 rounded-lg py-2 pr-2.5 text-left text-[12.5px] text-text-high transition-colors hover:bg-fill-hover"
+                style={{ paddingLeft: 10 + depth * 14 }}
               >
-                <span className="min-w-0 flex-1 truncate font-medium">{b.name}</span>
+                {/* A child reads as a child: indented, with a branch mark and
+                    lighter weight than the top-level entity it hangs under. */}
+                {depth > 0 && (
+                  <CornerDownRight size={11} strokeWidth={2} className="shrink-0 text-text-faint" aria-hidden />
+                )}
+                <span
+                  className={`min-w-0 flex-1 truncate ${
+                    depth > 0 ? 'font-normal text-text-mid' : 'font-bold'
+                  }`}
+                >
+                  {b.name}
+                </span>
                 {active && <Check size={14} strokeWidth={2.25} className="shrink-0 text-brand-400" />}
               </button>
             )

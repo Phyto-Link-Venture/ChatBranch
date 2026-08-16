@@ -60,15 +60,63 @@ interface WaAccount {
 interface AccountDelivery {
   quiet_start: string
   quiet_end: string
+  /** JSON per-weekday schedule; "" = use the single quiet_start/end window. */
+  quiet_schedule: string
   queue_min_gap_s: string
   queue_max_gap_s: string
   llm_provider: string
   stt_provider: string
 }
 
+/** Weekdays, Monday first — mirrors AccountDelivery.Days on the server. */
+const DAYS = [
+  { key: 'mon', label: 'Monday' },
+  { key: 'tue', label: 'Tuesday' },
+  { key: 'wed', label: 'Wednesday' },
+  { key: 'thu', label: 'Thursday' },
+  { key: 'fri', label: 'Friday' },
+  { key: 'sat', label: 'Saturday' },
+  { key: 'sun', label: 'Sunday' },
+] as const
+
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
+
+interface QuietDay {
+  on: boolean
+  start: string
+  end: string
+}
+
+const emptyQuietDays = (): Record<string, QuietDay> =>
+  Object.fromEntries(DAYS.map((d) => [d.key, { on: false, start: '21:00', end: '09:00' }]))
+
+/** Stored schedule → working copy; null when nothing usable is stored. */
+function parseQuietSchedule(raw: string): Record<string, QuietDay> | null {
+  if (!raw.trim()) return null
+  try {
+    const parsed = JSON.parse(raw) as Record<string, Partial<QuietDay>>
+    const days = emptyQuietDays()
+    let any = false
+    for (const d of DAYS) {
+      const r = parsed?.[d.key]
+      if (!r) continue
+      days[d.key] = {
+        on: r.on !== false,
+        start: typeof r.start === 'string' ? r.start : days[d.key].start,
+        end: typeof r.end === 'string' ? r.end : days[d.key].end,
+      }
+      any = true
+    }
+    return any ? days : null
+  } catch {
+    return null // malformed = fall back to the single window
+  }
+}
+
 const EMPTY_DELIVERY: AccountDelivery = {
   quiet_start: '',
   quiet_end: '',
+  quiet_schedule: '',
   queue_min_gap_s: '',
   queue_max_gap_s: '',
   llm_provider: '',
@@ -297,6 +345,13 @@ export function WhatsAppSettings({
   const [eToken, setEToken] = useState('')
   const [eSecret, setESecret] = useState('')
   const [eDelivery, setEDelivery] = useState<AccountDelivery>(EMPTY_DELIVERY)
+  // Quiet hours have two modes: one window for every day, or a per-weekday
+  // schedule. `quietDays` is the working copy; it is serialised into
+  // delivery.quiet_schedule on save (and cleared when the toggle is off).
+  const [perDayQuiet, setPerDayQuiet] = useState(false)
+  const [quietDays, setQuietDays] = useState<Record<string, QuietDay>>(emptyQuietDays)
+  const setQuietDay = (key: string, patch: Partial<QuietDay>) =>
+    setQuietDays((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }))
   const [deliveryDefaults, setDeliveryDefaults] = useState<DeliveryDefaults | null>(null)
 
   const refresh = useCallback(async () => {
@@ -372,7 +427,11 @@ export function WhatsAppSettings({
     setEWaba(a.waba_id || '')
     setEToken('')
     setESecret('')
-    setEDelivery({ ...EMPTY_DELIVERY, ...(a.delivery ?? {}) })
+    const delivery = { ...EMPTY_DELIVERY, ...(a.delivery ?? {}) }
+    setEDelivery(delivery)
+    const parsed = parseQuietSchedule(delivery.quiet_schedule)
+    setPerDayQuiet(parsed !== null)
+    setQuietDays(parsed ?? emptyQuietDays())
     setMsg(null)
     // The inherited (organization-wide) values, so blank fields can say what
     // they currently resolve to. Best-effort — the editor works without them.
@@ -412,6 +471,20 @@ export function WhatsAppSettings({
         throw new Error('Send pacing gaps must be whole seconds (0 or more).')
       if (lo && hi && Number(lo) > Number(hi)) throw new Error('Min gap cannot exceed max gap.')
       for (const [k, v] of Object.entries(eDelivery)) patch[k] = v.trim()
+      // Per-day schedule wins when the toggle is on; turning it off clears the
+      // key so the single window takes over again.
+      if (perDayQuiet) {
+        for (const d of DAYS) {
+          const r = quietDays[d.key]
+          if (r.on && (!HHMM.test(r.start) || !HHMM.test(r.end)))
+            throw new Error(`${d.label} quiet hours must be HH:MM (24h).`)
+        }
+        patch.quiet_schedule = JSON.stringify(
+          Object.fromEntries(DAYS.map((d) => [d.key, quietDays[d.key]])),
+        )
+      } else {
+        patch.quiet_schedule = ''
+      }
       await api(`accounts/${editAcct.id}`, { method: 'POST', body: JSON.stringify(patch) })
       setEditAcct(null)
     }, 'Account updated — changes are live immediately.')
@@ -940,29 +1013,92 @@ export function WhatsAppSettings({
                 calls sent through <span className="font-semibold text-text-mid">{editAcct.name}</span> only.
               </div>
             </div>
-            <div className="block">
-              <span className="mb-1 block text-[11px] font-bold text-text-high">Quiet hours</span>
-              <div className="flex items-center gap-1.5">
-                <input
-                  className={`${inputCls} text-center`}
-                  value={eDelivery.quiet_start}
-                  onChange={(e) => setEDelivery({ ...eDelivery, quiet_start: e.target.value })}
-                  placeholder={deliveryDefaults?.quiet_start || '21:00'}
-                  aria-label="Quiet hours start"
-                />
-                <span className="text-[11px] text-text-muted">to</span>
-                <input
-                  className={`${inputCls} text-center`}
-                  value={eDelivery.quiet_end}
-                  onChange={(e) => setEDelivery({ ...eDelivery, quiet_end: e.target.value })}
-                  placeholder={deliveryDefaults?.quiet_end || '09:00'}
-                  aria-label="Quiet hours end"
-                />
+            <div className="block sm:col-span-2">
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-bold text-text-high">Quiet hours</span>
+                <label className="flex cursor-pointer items-center gap-1.5 text-[10.5px] text-text-muted">
+                  <input
+                    type="checkbox"
+                    checked={perDayQuiet}
+                    onChange={(e) => setPerDayQuiet(e.target.checked)}
+                    className="h-3.5 w-3.5 accent-emerald-500"
+                  />
+                  Different hours per day
+                </label>
               </div>
-              <span className="mt-1 block text-[10.5px] text-text-muted">
-                Outbound sends from this number are held between these times (HH:MM 24h, server time).
-                {deliveryDefaults && !deliveryDefaults.quiet_start && !deliveryDefaults.quiet_end && ' Default: none.'}
-              </span>
+              {!perDayQuiet ? (
+                <>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      className={`${inputCls} max-w-[110px] text-center`}
+                      value={eDelivery.quiet_start}
+                      onChange={(e) => setEDelivery({ ...eDelivery, quiet_start: e.target.value })}
+                      placeholder={deliveryDefaults?.quiet_start || '21:00'}
+                      aria-label="Quiet hours start"
+                    />
+                    <span className="text-[11px] text-text-muted">to</span>
+                    <input
+                      className={`${inputCls} max-w-[110px] text-center`}
+                      value={eDelivery.quiet_end}
+                      onChange={(e) => setEDelivery({ ...eDelivery, quiet_end: e.target.value })}
+                      placeholder={deliveryDefaults?.quiet_end || '09:00'}
+                      aria-label="Quiet hours end"
+                    />
+                  </div>
+                  <span className="mt-1 block text-[10.5px] text-text-muted">
+                    Outbound sends from this number are held between these times (HH:MM 24h, server time). A window
+                    ending before it starts runs past midnight.
+                    {deliveryDefaults && !deliveryDefaults.quiet_start && !deliveryDefaults.quiet_end &&
+                      ' Default: none.'}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <div className="flex flex-col gap-1.5">
+                    {DAYS.map((d) => {
+                      const rule = quietDays[d.key]
+                      return (
+                        <div key={d.key} className="flex items-center gap-2">
+                          <label className="flex w-[104px] shrink-0 cursor-pointer items-center gap-1.5">
+                            <input
+                              type="checkbox"
+                              checked={rule.on}
+                              onChange={(e) => setQuietDay(d.key, { on: e.target.checked })}
+                              className="h-3.5 w-3.5 accent-emerald-500"
+                              aria-label={`Quiet hours on ${d.label}`}
+                            />
+                            <span className="text-[11.5px] font-semibold text-text-high">{d.label}</span>
+                          </label>
+                          <input
+                            className={`${inputCls} max-w-[92px] text-center`}
+                            value={rule.start}
+                            disabled={!rule.on}
+                            onChange={(e) => setQuietDay(d.key, { start: e.target.value })}
+                            placeholder="21:00"
+                            aria-label={`${d.label} quiet start`}
+                          />
+                          <span className="text-[11px] text-text-muted">to</span>
+                          <input
+                            className={`${inputCls} max-w-[92px] text-center`}
+                            value={rule.end}
+                            disabled={!rule.on}
+                            onChange={(e) => setQuietDay(d.key, { end: e.target.value })}
+                            placeholder="09:00"
+                            aria-label={`${d.label} quiet end`}
+                          />
+                          {rule.on && rule.start === rule.end && rule.start !== '' && (
+                            <span className="text-[10px] font-semibold text-amber-300">quiet all day</span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <span className="mt-1.5 block text-[10.5px] text-text-muted">
+                    Unticked days never go quiet. A window ending before it starts runs past midnight into the next
+                    day; setting both to the same time means the whole day is quiet.
+                  </span>
+                </>
+              )}
             </div>
             <div className="block">
               <span className="mb-1 block text-[11px] font-bold text-text-high">Send pacing (seconds)</span>

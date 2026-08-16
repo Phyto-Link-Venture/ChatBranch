@@ -1523,6 +1523,15 @@ public static class WhatsAppSettingsEndpoints
                 return Results.Json(new { detail = $"{key} must be HH:MM (24h) or blank." },
                                     statusCode: 400);
         }
+        // Per-weekday schedule: valid JSON with at least one parsable day, or
+        // blank. Refusing malformed JSON here beats silently ignoring it later.
+        var scheduleRaw = Next(AccountDelivery.QuietSchedule);
+        if (scheduleRaw.Length > 0 && AccountDelivery.ParseSchedule(scheduleRaw).Count == 0)
+            return Results.Json(new
+            {
+                detail = "quiet_schedule must be JSON like "
+                         + "{\"mon\":{\"on\":true,\"start\":\"21:00\",\"end\":\"09:00\"}} or blank.",
+            }, statusCode: 400);
         var minRaw = Next(AccountDelivery.MinGap);
         var maxRaw = Next(AccountDelivery.MaxGap);
         int? min = null, max = null;
@@ -1563,6 +1572,7 @@ public static class WhatsAppSettingsEndpoints
         }
         Put(AccountDelivery.QuietStart, Next(AccountDelivery.QuietStart));
         Put(AccountDelivery.QuietEnd, Next(AccountDelivery.QuietEnd));
+        Put(AccountDelivery.QuietSchedule, scheduleRaw);
         Put(AccountDelivery.MinGap, min?.ToString() ?? "");
         Put(AccountDelivery.MaxGap, max?.ToString() ?? "");
         Put(AccountDelivery.LlmProvider, llm);

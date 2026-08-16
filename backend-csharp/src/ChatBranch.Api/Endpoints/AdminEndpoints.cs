@@ -418,6 +418,7 @@ public static class AdminEndpoints
                 .Include(u => u.Profile!).ThenInclude(p => p.Tenant)
                 .Include(u => u.Profile!).ThenInclude(p => p.Entities)
                 .Include(u => u.Profile!).ThenInclude(p => p.Resource)
+                .Include(u => u.Profile!).ThenInclude(p => p.Contact)
                 .AsQueryable();
             if (role == Roles.Admin)
                 q = q.Where(u => u.Profile != null && u.Profile.TenantId == tenantId);
@@ -448,6 +449,10 @@ public static class AdminEndpoints
         // Provider login: this user IS this Service Provider (scoped to their
         // own customers/chats). Null for operator logins.
         resource_id = u.Profile?.ResourceId,
+        // Customer login: the Contact this user signs in as (integrations are
+        // connected per registered user, against their own contact record).
+        contact_id = u.Profile?.ContactId,
+        contact_name = u.Profile?.Contact?.Name,
         resource_name = u.Profile?.Resource?.Name,
     };
 

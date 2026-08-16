@@ -75,6 +75,12 @@ public class AppDbContext : DbContext
             .OnDelete(DeleteBehavior.Restrict);
         b.Entity<AppUser>().ToTable("auth_user");
         b.Entity<Profile>().ToTable("crm_profile");
+        // Customer login binding: deleting a contact must not delete the login
+        b.Entity<Profile>()
+            .HasOne(p => p.Contact)
+            .WithMany()
+            .HasForeignKey(p => p.ContactId)
+            .OnDelete(DeleteBehavior.SetNull);
         b.Entity<AuthToken>().ToTable("crm_authtoken");
         b.Entity<Role>().ToTable("crm_role");
         b.Entity<RolePermission>().ToTable("crm_rolepermission");

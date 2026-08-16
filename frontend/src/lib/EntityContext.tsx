@@ -24,6 +24,9 @@ export interface Entity {
   slug: string
   name: string
   tenant: string
+  /** Hierarchy (GET /api/v1/entities): null/absent = a top-level entity. */
+  parent?: string | null
+  parent_name?: string
 }
 
 interface EntityState {

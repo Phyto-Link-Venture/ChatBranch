@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { PhoneInput } from '@/components/ui/PhoneInput'
 import { CustomFieldsInputs } from '@/components/CustomFieldsInputs'
 import { fetchCustomFields, formatFieldValue, type FieldDef } from '@/lib/customFields'
 import { roleHeaders } from '@/lib/role'
@@ -64,7 +65,6 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 const inputCls =
   'w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400'
 
-const cfg = (r: Pick<Resource, 'config'>, key: string) => String(r.config?.[key] ?? '')
 
 /**
  * The provider's filled-in Custom Fields as one line of chips ("Language:
@@ -96,19 +96,19 @@ type Draft = {
   email?: string
   phone?: string
   active?: boolean
-  availability_sheet_id?: string
-  availability_range?: string
-  calendar_id?: string
   attributes?: Record<string, unknown>
 }
 
 /**
  * Settings → Service Providers. The delivery side of the business — the
  * teachers / coaches / practitioners customers book — and the binding that
- * says which customers belong to each. The AI reads a provider's availability
- * reference (a Google Sheet id / calendar id) when a bound customer asks to
- * book or reschedule. The per-vertical word ("teacher") is set by the
- * `resource_label` app setting; the model is generic.
+ * says which customers belong to each. The per-vertical word ("teacher") is
+ * set by the `resource_label` app setting; the model is generic.
+ *
+ * Calendar/Sheet references are NOT edited here: they belong to a signed-in
+ * user's own integration connection (Integrations), not to the provider
+ * record. Existing stored values are left untouched — this form simply omits
+ * the `config` key.
  */
 export function ProvidersSettings() {
   const { role, ready } = useRole()
@@ -169,11 +169,10 @@ export function ProvidersSettings() {
         email: draft.email || '',
         phone: draft.phone || '',
         active: draft.active ?? true,
-        config: {
-          availability_sheet_id: draft.availability_sheet_id || '',
-          availability_range: draft.availability_range || '',
-          calendar_id: draft.calendar_id || '',
-        },
+        // No `config` key: the Google Sheet / calendar references are an
+        // INTEGRATION concern owned by a signed-in user, not a property of the
+        // provider record, so this form no longer edits them. Omitting the key
+        // leaves anything already stored untouched.
         attributes: draft.attributes ?? {},
       }
       if (draft.id) {
@@ -199,9 +198,6 @@ export function ProvidersSettings() {
       email: r.email,
       phone: r.phone,
       active: r.active,
-      availability_sheet_id: cfg(r, 'availability_sheet_id'),
-      availability_range: cfg(r, 'availability_range'),
-      calendar_id: cfg(r, 'calendar_id'),
       attributes: r.attributes ?? {},
     })
 
@@ -308,10 +304,9 @@ export function ProvidersSettings() {
       <div className="flex items-start gap-2">
         <p className="min-w-0 max-w-[720px] flex-1 text-[11.5px] leading-relaxed text-text-mid">
           The people customers book — <span className="font-bold text-text-high">teachers, coaches,
-          practitioners</span> — and which customers belong to each. Give a provider an{' '}
-          <span className="font-bold text-text-high">availability sheet id</span> or{' '}
-          <span className="font-bold text-text-high">calendar id</span>, and the AI checks it when a
-          bound customer asks to book or reschedule.
+          practitioners</span> — and which customers belong to each. Calendars and availability
+          sheets come from the signed-in user&apos;s own connection under{' '}
+          <span className="font-bold text-text-high">Integrations</span>, not from this record.
         </p>
         {canManage && (
           <div className="shrink-0">
@@ -380,41 +375,11 @@ export function ProvidersSettings() {
             </label>
             <label className="block">
               <span className="mb-1 block text-[10.5px] font-bold text-text-high">Phone (optional)</span>
-              <input
+              {/* Country picker + national number — stored as E.164. */}
+              <PhoneInput
                 value={draft.phone || ''}
-                placeholder="+60…"
-                onChange={(e) => setDraft({ ...draft, phone: e.target.value })}
-                className={inputCls}
-              />
-            </label>
-          </div>
-
-          <div className="mt-3 grid gap-3 md:grid-cols-3">
-            <label className="block">
-              <span className="mb-1 block text-[10.5px] font-bold text-text-high">Availability sheet id</span>
-              <input
-                value={draft.availability_sheet_id || ''}
-                placeholder="1AbC…"
-                onChange={(e) => setDraft({ ...draft, availability_sheet_id: e.target.value })}
-                className={inputCls}
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-[10.5px] font-bold text-text-high">Sheet range</span>
-              <input
-                value={draft.availability_range || ''}
-                placeholder="Availability!A1:D50"
-                onChange={(e) => setDraft({ ...draft, availability_range: e.target.value })}
-                className={inputCls}
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-[10.5px] font-bold text-text-high">Calendar id (optional)</span>
-              <input
-                value={draft.calendar_id || ''}
-                placeholder="lee@group.calendar.google.com"
-                onChange={(e) => setDraft({ ...draft, calendar_id: e.target.value })}
-                className={inputCls}
+                onChange={(phone) => setDraft({ ...draft, phone })}
+                ariaLabel="Provider phone number"
               />
             </label>
           </div>
@@ -476,8 +441,6 @@ export function ProvidersSettings() {
                 </span>
                 <span className="block truncate text-[11px] text-text-muted">
                   {r.links_count} bound {r.links_count === 1 ? 'customer' : 'customers'}
-                  {cfg(r, 'availability_sheet_id') && ' · sheet ✓'}
-                  {cfg(r, 'calendar_id') && ' · calendar ✓'}
                 </span>
                 <FieldChips fields={providerFields} values={r.attributes} />
               </button>

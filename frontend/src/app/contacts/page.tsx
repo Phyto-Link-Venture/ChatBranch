@@ -10,6 +10,7 @@ import { initials, methodLabel, primaryRecord, type ContactStatus } from '@/lib/
 import { StatusBadge } from '@/components/ui/Badges'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
+import { PhoneInput } from '@/components/ui/PhoneInput'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { LANGUAGES } from '@/lib/languages'
 import { ContactImportModal } from '@/components/contacts/ContactImportModal'
@@ -230,7 +231,13 @@ function ContactModal({
     >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <AddField label="Name" value={name} onChange={setName} placeholder="Ahmad Fauzi" required />
-        <AddField label="Phone (E.164)" value={phone} onChange={setPhone} placeholder="+60 12-345 6789" required />
+        <label className="block">
+          <span className="mb-1 block text-[11px] font-bold text-text-high">
+            Phone<span className="text-red-300"> *</span>
+          </span>
+          {/* Country picker + national number — the stored value stays E.164. */}
+          <PhoneInput value={phone} onChange={setPhone} ariaLabel="Contact phone number" />
+        </label>
         <label className="block">
           <span className="mb-1 block text-[11px] font-bold text-text-high">Language</span>
           <select
