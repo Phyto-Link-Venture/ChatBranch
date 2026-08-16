@@ -44,18 +44,24 @@ ChatBranch is four cooperating processes. They are separate on purpose.
 
 | # | Process | Path | Port | What it does |
 |---|---|---|---|---|
-| 1 | **Django API** | `backend/` | 8000 | The whole REST surface, the database, the channel transports, the flow engine, the outbound queue. |
-| 2 | **Voice agent worker** | `backend/voice_agent/` | — | A long-lived [LiveKit Agents](https://docs.livekit.io/agents/) process. Dials over SIP, runs a realtime speech model, streams a live transcript. **Django-free** — it never imports the ORM. |
+| 1 | **C# API** | `backend-csharp/` | 8090 | The whole REST surface, the database, the channel transports, the flow engine, the outbound queue. |
+| 2 | **Voice agent worker** | `backend/voice_agent/` | — | A long-lived [LiveKit Agents](https://docs.livekit.io/agents/) process. Dials over SIP, runs a realtime speech model, streams a live transcript. Framework-free — it shares state through files, not the database. |
 | 3 | **Next.js dashboard** | `frontend/` | 3000 | The operator UI. |
-| 4 | **Baileys gateway** | `backend/baileys_service/` | 3020 | Node sidecar for QR-paired personal WhatsApp numbers. Optional; Django is its only client. |
+| 4 | **Baileys gateway** | `backend/baileys_service/` | 3020 | Node sidecar for QR-paired personal WhatsApp numbers. Optional; the C# API is its only client. |
 
 How they talk to each other:
 
+```bash
+cd backend-csharp && dotnet build src/ChatBranch.Api -c Release
+cd backend-csharp && QUEUE_WORKER=0 dotnet test tests/ChatBranch.Tests   # 47 tests
+cd frontend && npx tsc --noEmit
+cd frontend && npx eslint src
+cd frontend && npx next build
 ```
                     ┌──────────────── Next.js dashboard :3000
                     │                        │ HTTP + SSE
                     ▼                        ▼
-   providers ──▶ Django API :8000 ──▶ SQLite (crm)
+   providers ──▶  C# API :8090  ──▶ SQLite (crm)
    (Meta, SMTP,      │   ▲
     Telegram…)       │   │  files in backend/data/  (live transcripts,
                      │   │  operator inbox, call records — deliberate IPC)
@@ -66,9 +72,9 @@ How they talk to each other:
               Baileys gateway :3020 ──▶ WhatsApp Web
 ```
 
-The voice agent shares state with Django through **JSON files under
+The voice agent shares state with the API through **JSON files under
 `backend/data/`**, not the database. That is a deliberate choice: the agent
-process stays free of Django so it can be deployed, restarted and scaled on
+process stays free of the API so it can be deployed, restarted and scaled on
 its own. If you move to multi-host, that file layer is the seam to replace.
 
 ---
@@ -115,18 +121,16 @@ created by `seed_demo`:
 | `agent` | `agent123` | only the brands assigned to them |
 
 **These are POC credentials in a public template. Change them before any
-deployment.** The Django admin at http://localhost:8000/admin uses the same
-`superadmin` login.
+deployment.**
 
 ### Cross-platform: Windows, macOS, Linux
 
 `npm run setup` and `npm run dev:*` work the same on Windows, macOS and
-Linux — `scripts/setup-api.js` and `scripts/run-py.js` resolve the right
-Python launcher (`py -3.13` on Windows, `python3.13`/`python3`/`python`
-elsewhere) and the right venv interpreter path (`venv\Scripts\python.exe` vs
-`venv/bin/python`) for whichever OS runs them, instead of hardcoding one.
+Linux. The API needs the .NET 8 SDK; `scripts/run-py.js` resolves the right
+Python launcher for the voice agent (`py -3.13` on Windows,
+`python3.13`/`python3`/`python` elsewhere) instead of hardcoding one.
 
-Ports 8000, 3000 and 3020 must be free.
+Ports 8090, 3000 and 3020 must be free.
 
 Individual processes: `npm run dev:api`, `npm run dev:agent`, `npm run
 dev:web`, `npm run dev:baileys`. `npm run dev` is an alias for
@@ -135,16 +139,12 @@ dev:web`, `npm run dev:baileys`. `npm run dev` is an alias for
 If you'd rather run the four processes by hand instead of through npm:
 
 ```bash
-# 1. API  (first time: create the venv, install, migrate, seed)
-cd backend
-python3 -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env                                # Windows: copy .env.example .env
-python manage.py migrate && python manage.py seed_demo
-python manage.py runserver                          # :8000
+# 1. API — SQLite is created and seeded on first boot, no bootstrap needed
+cd backend-csharp
+dotnet run --project src/ChatBranch.Api --urls http://0.0.0.0:8090   # :8090
 
 # 2. Voice agent worker (separate terminal; only needed for calls)
-cd backend/voice_agent && ../venv/bin/python agent.py dev   # Windows: ..\venv\Scripts\python agent.py dev
+cd backend/voice_agent && python3 agent.py dev
 
 # 3. Dashboard (separate terminal)
 cd frontend && npm install && npm run dev           # :3000
@@ -202,7 +202,7 @@ requires a restart. `.env` keys act as a read-only fallback account.
 | **Voice (SIP)** | LiveKit + a SIP trunk. Run `backend/voice_agent/setup_trunk.py` once, then fill Settings → Channels → Voice. |
 
 Inbound webhooks need a public HTTPS URL. For local development, tunnel port
-8000 (`ngrok http 8000` or `cloudflared tunnel --url http://localhost:8000`)
+8090 (`ngrok http 8090` or `cloudflared tunnel --url http://localhost:8090`)
 and add the tunnel host to `ALLOWED_HOSTS` in `backend/.env`.
 
 ## Connecting integrations
@@ -235,42 +235,28 @@ The seven integration actions available to flow-builder Action nodes:
 
 ```
 ChatBranch/
-├── backend/
-│   ├── core/              Django project: settings, root urls
-│   ├── crm/               THE DATABASE — Contact, Record, RecordEvent, Thread,
-│   │                      Message, ChannelAccount, KnowledgeItem, Workflow,
-│   │                      FlowRun, OutboundJob, Setting, Profile, AuditLog…
-│   │                      (+ /admin, `manage.py seed_demo`)
-│   ├── calls/             REST: contacts, dial, live transcript, analytics,
-│   │                      voices; `lk.py` bridges Django → voice_agent
-│   ├── whatsapp/          WhatsApp Cloud API + Baileys transport, webhook,
-│   │                      account health, routing, voice-call bridge
-│   ├── messaging/         Email (SMTP/IMAP), Telegram, Messenger, Instagram
-│   ├── aicore/            The AI brain: assistant.py, persona.py, memory.py,
-│   │                      knowledge.py
-│   ├── flows/             Flow execution engine + the outbound pacing queue
-│   ├── integrations/      Google / Shopify / Stripe: OAuth, webhooks, actions
-│   ├── ingest/            Tenants, brands, external data-source sync intake
-│   ├── api/               DRF /api/v1 (whoami, contacts, brands, users, schema)
+├── backend-csharp/        THE BACKEND (ASP.NET Core 8, EF Core + SQLite)
+│   ├── src/ChatBranch.Api/        minimal-API endpoints, one file per area
+│   │   ├── Endpoints/             contacts, inbox, whatsapp, messaging, flows,
+│   │   │                          ai, analytics, integrations, admin, v1…
+│   │   ├── Auth/                  bearer tokens, policies, provider scope
+│   │   └── Workers/               outbound queue drain + flow ticker
+│   ├── src/ChatBranch.Data/       stores, services, the seams that do the work
+│   │   ├── Ai/                    assistant, persona, knowledge, summaries
+│   │   ├── Channels/              send/receive, per-account delivery settings
+│   │   ├── Flows/                 flow engine + the outbound pacing queue
+│   │   ├── Integrations/          Google OAuth, actions, key resolution
+│   │   └── Stores/                thread/message store
+│   ├── src/ChatBranch.Domain/     entities (Contact, Thread, Message, Entity…)
+│   └── tests/ChatBranch.Tests/    47 API-level tests
+├── backend/               the two framework-free sidecars + their state
+│   ├── baileys_service/   Node gateway for QR-paired WhatsApp numbers (:3020)
 │   ├── voice_agent/       LiveKit worker — run as its own process
-│   │   ├── agent.py       worker entrypoint (`python agent.py dev`)
-│   │   ├── caller.py      SIP dial / hangup
-│   │   ├── prompts.py     call persona + summary schema
-│   │   ├── storage.py     the file-based IPC layer
-│   │   └── setup_trunk.py one-time SIP trunk creation
-│   ├── baileys_service/   Node WhatsApp Web sidecar (see its README)
-│   ├── data/              runtime state + media (gitignored — contains PII)
-│   └── tests/             863 backend tests
-├── frontend/src/
-│   ├── app/               routes: dashboard, contacts, chats, flow-builder,
-│   │                      analytics, call-logs, activity, persona, settings/*
-│   ├── components/        shell, flow builder, settings tabs, chat widgets
-│   └── lib/               AppContext (call state), auth, flow model, mocks
-├── docs/                  vertical guide, schema, API + RBAC conventions,
-│                          channel notes, bulk record sync
-├── package.json           root launcher (setup / dev:all)
-├── CLAUDE.md              deep architecture notes for coding agents
-└── AGENTS.md              short version of the same
+│   └── data/              LIVE state: WhatsApp session, media, call records
+│                          (gitignored — never delete)
+├── frontend/              Next.js dashboard (App Router, :3000)
+├── docs/                  domain model, RBAC, schema, channel adapters
+└── scripts/               cross-platform launchers
 ```
 
 ---
@@ -278,17 +264,16 @@ ChatBranch/
 ## Verify a change
 
 ```bash
-cd backend  && venv/bin/python manage.py check              # Windows: venv\Scripts\python
-cd backend  && venv/bin/python manage.py makemigrations --check --dry-run
-cd backend  && venv/bin/python -m pytest tests/ calls/tests -q     # 863 tests
+cd backend-csharp && dotnet build src/ChatBranch.Api -c Release
+cd backend-csharp && QUEUE_WORKER=0 dotnet test tests/ChatBranch.Tests   # 47 tests
 cd frontend && npx tsc --noEmit
+cd frontend && npx eslint src
 cd frontend && npx next build
 ```
 
-`manage.py check` reports one benign `staticfiles.W004` warning (there is no
-`backend/static/` directory) — that is expected.
+`QUEUE_WORKER=0` stops the outbound-queue drain thread racing the assertions.
 
-There is **no CI workflow in this repo**. If you publish a fork, wiring the four
+There is **no CI workflow in this repo**. If you publish a fork, wiring the
 commands above into GitHub Actions is a five-minute job and worth doing.
 
 ---
@@ -327,17 +312,16 @@ A template that oversells wastes your time. These are the real edges:
   row-level security. A missing filter is a data leak; the tests cover the
   current query paths, not future ones.
 - **Demo credentials and a dev secret key ship in the repo.** Before any
-  deployment: rotate the three demo passwords, set a real `SECRET_KEY`, set
-  `DEBUG=False`, set `ALLOWED_HOSTS` / `CORS_ALLOWED_ORIGINS`, and change
+  deployment: rotate the three demo passwords, set the CORS origins in
+  `backend-csharp/src/ChatBranch.Api/appsettings.json`, and change
   `BAILEYS_SECRET`. The WhatsApp verify token auto-generates on first use — the
   shipped default is never accepted.
 - **SMS has no provider.** Flow SMS actions log and skip.
-- **`docker-compose.yml` is unverified.** It exists (backend + frontend +
-  Postgres) and the two Dockerfiles are real, but the compose stack was not
-  built or run during this release. Treat it as a starting point, not a
-  supported deployment. `backend/start.sh` is the production entrypoint
-  (gunicorn; `RUN_VOICE_AGENT=1` also starts the agent worker in the same
-  container so the file-based IPC stays on one filesystem).
+- **There is no container deployment yet.** `docker-compose.yml` was removed
+  with the Django backend on 2026-08-16 — it built a Python image that no
+  longer exists and pointed at Postgres, while the C# API uses SQLite. The four
+  processes run directly (`npm run dev:all`, or a process manager per service);
+  a compose/Dockerfile pass for `backend-csharp` is still to do.
 - **The AI insights panel's sentiment/highlights are static mock data.** The
   transcript and knowledge-base references next to them are real.
 
@@ -362,7 +346,7 @@ A template that oversells wastes your time. These are the real edges:
 - **Dev slowness is Next.js**, not your machine: each route compiles on first
   visit. Use `next dev --turbo` or a production build for a faster loop.
 - API base for the frontend is `NEXT_PUBLIC_API_URL` (default
-  `http://localhost:8000/api`). If the API is unreachable the dashboard falls
+  `http://localhost:8090/api`). If the API is unreachable the dashboard falls
   back to the bundled mock data in `src/lib/mocks.ts`.
 - `NEXT_PUBLIC_MAX_CONCURRENT` (default `3`) caps simultaneous live calls —
   match it to your SIP trunk's concurrent-channel limit.
