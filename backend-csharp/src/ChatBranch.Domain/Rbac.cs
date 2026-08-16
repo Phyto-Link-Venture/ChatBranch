@@ -113,3 +113,35 @@ public class TeamMember
     public AppUser? User { get; set; }
     public DateTime CreatedAt { get; set; }
 }
+
+/// <summary>
+/// An event-driven automation: when something happens to a conversation, check
+/// conditions and apply actions. Chatwoot's "automation rules".
+///
+/// Distinct from the flow builder, which is CONTACT-centric and time-triggered
+/// (a reminder sequence over days). A rule is CONVERSATION-centric and fires on
+/// an event that just happened — label an angry message, route billing to the
+/// billing team, reopen a resolved thread when the customer replies.
+/// </summary>
+public class AutomationRule : IEntityScoped
+{
+    public int Id { get; set; }
+    public int? EntityId { get; set; }
+    public Entity? Entity { get; set; }
+    public string Name { get; set; } = "";
+    public string Description { get; set; } = "";
+    /// <summary>conversation_created | message_created | status_changed | assigned</summary>
+    public string Event { get; set; } = "message_created";
+    public bool Active { get; set; } = true;
+    /// <summary>Lower runs first; rules are applied in order, all matching ones.</summary>
+    public int Position { get; set; }
+    /// <summary>[{field, op, value}] — ALL must match (AND).</summary>
+    public List<object?> Conditions { get; set; } = new();
+    /// <summary>[{type, value}] — applied in order.</summary>
+    public List<object?> Actions { get; set; } = new();
+    /// <summary>Bookkeeping so an operator can see a rule is actually firing.</summary>
+    public int TimesFired { get; set; }
+    public DateTime? LastFiredAt { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}

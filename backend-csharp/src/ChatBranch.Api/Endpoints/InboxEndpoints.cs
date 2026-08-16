@@ -143,7 +143,8 @@ public static class InboxEndpoints
 
         // ---- simulate inbound (sandbox) ---------------------------------------
         app.MapPost("/api/whatsapp/simulate", async (SimulateRequest body, ThreadStore store, AppDbContext db,
-            ChatBranch.Data.Flows.FlowEngine engine, ChatBranch.Data.Channels.InboundProcessor inbound) =>
+            ChatBranch.Data.Flows.FlowEngine engine, ChatBranch.Data.Channels.InboundProcessor inbound,
+            ChatBranch.Data.Flows.AutomationService automation) =>
         {
             // Link the thread to its contact the same way a real webhook does
             // (phone/email match) — otherwise simulated chats stay unlinked and
@@ -159,6 +160,11 @@ public static class InboxEndpoints
             // same way the live webhook does, or the sandbox behaves differently
             // from production in a way that hides bugs.
             await TeamsEndpoints.AutoAssignAsync(db, thread);
+            // …and through the automation rules, for the same reason.
+            var firstInbound = db.Messages.Count(m => m.ThreadId == thread.Id
+                                                      && m.Direction == MessageDirection.In) <= 1;
+            if (firstInbound) automation.Run("conversation_created", thread, body.Text, true);
+            automation.Run("message_created", thread, body.Text, firstInbound);
             return Results.Ok(new { thread = Dtos.ThreadDto(thread), message = Dtos.MessageDto(msg) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 

@@ -26,6 +26,7 @@ builder.Services.AddScoped<ChatBranch.Data.Channels.OutboundSender>();
 builder.Services.AddScoped<ChatBranch.Data.Channels.InboundProcessor>();
 builder.Services.AddScoped<ChatBranch.Data.Flows.QueueService>();
 builder.Services.AddScoped<ChatBranch.Data.Flows.FlowEngine>();
+builder.Services.AddScoped<ChatBranch.Data.Flows.AutomationService>();
 builder.Services.AddHostedService<ChatBranch.Api.Workers.OutboundQueueWorker>();
 builder.Services.AddHostedService<ChatBranch.Api.Workers.FlowEngineWorker>();
 builder.Services.AddScoped<ChatBranch.Data.Analytics.AnalyticsService>();
@@ -95,6 +96,7 @@ app.MapMessagingEndpoints();
 app.MapCallsVoiceEndpoints();
 app.MapCustomFieldsEndpoints();
 app.MapTeamsEndpoints();
+app.MapAutomationsEndpoints();
 
 // Inbound conversations route themselves to a team. The hook lives here so the
 // data layer never has to reference the API assembly.

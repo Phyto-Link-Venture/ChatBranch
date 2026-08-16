@@ -22,9 +22,11 @@ public class InboundProcessor
     private readonly FlowEngine _engine;
     private readonly QueueService _queue;
     private readonly ScopingService _scoping;
+    private readonly AutomationService _automation;
 
     public InboundProcessor(AppDbContext db, ThreadStore threads, AssistantService assistant,
-        OutboundSender sender, FlowEngine engine, QueueService queue, ScopingService scoping)
+        OutboundSender sender, FlowEngine engine, QueueService queue, ScopingService scoping,
+        AutomationService automation)
     {
         _db = db;
         _threads = threads;
@@ -33,6 +35,7 @@ public class InboundProcessor
         _engine = engine;
         _queue = queue;
         _scoping = scoping;
+        _automation = automation;
     }
 
     public Message ProcessInbound(string channel, string key, string text, string? name = null,
@@ -57,6 +60,17 @@ public class InboundProcessor
 
         // route a brand-new conversation to a team (round-robin within it)
         try { AutoAssignTeam(thread); } catch { }
+
+        // automation rules — conversation_created fires once, on the first
+        // customer message; message_created fires on every one
+        try
+        {
+            var isFirst = _db.Messages.Count(m => m.ThreadId == thread.Id
+                                                  && m.Direction == MessageDirection.In) <= 1;
+            if (isFirst) _automation.Run("conversation_created", thread, text, isFirstMessage: true);
+            _automation.Run("message_created", thread, text, isFirst);
+        }
+        catch { }
 
         // coverage gate: AI auto-reply only for threads linked to a contact + AI on
         if (thread.ContactId != null && thread.AiEnabled && !thread.OptedOut)

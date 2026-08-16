@@ -40,6 +40,13 @@ public static class Seed
             + "\"entity_id\" INTEGER NULL, \"name\" TEXT NOT NULL, \"description\" TEXT NOT NULL, "
             + "\"auto_assign\" INTEGER NOT NULL, \"last_assignee\" TEXT NOT NULL, "
             + "\"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
+        AddTableIfMissing(db, "crm_automationrule",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_automationrule\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"entity_id\" INTEGER NULL, \"name\" TEXT NOT NULL, \"description\" TEXT NOT NULL, "
+            + "\"event\" TEXT NOT NULL, \"active\" INTEGER NOT NULL, \"position\" INTEGER NOT NULL, "
+            + "\"conditions\" TEXT NOT NULL, \"actions\" TEXT NOT NULL, "
+            + "\"times_fired\" INTEGER NOT NULL, \"last_fired_at\" TEXT NULL, "
+            + "\"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
         AddTableIfMissing(db, "crm_teammember",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_teammember\" PRIMARY KEY AUTOINCREMENT, "
             + "\"team_id\" INTEGER NOT NULL, \"user_id\" INTEGER NOT NULL, \"created_at\" TEXT NOT NULL");

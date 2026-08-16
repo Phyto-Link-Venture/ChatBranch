@@ -26,6 +26,7 @@ public class AppDbContext : DbContext
     public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<Profile> Profiles => Set<Profile>();
     public DbSet<Team> Teams => Set<Team>();
+    public DbSet<AutomationRule> AutomationRules => Set<AutomationRule>();
     public DbSet<TeamMember> TeamMembers => Set<TeamMember>();
     public DbSet<AuthToken> AuthTokens => Set<AuthToken>();
     public DbSet<Role> Roles => Set<Role>();
@@ -78,6 +79,7 @@ public class AppDbContext : DbContext
         b.Entity<AppUser>().ToTable("auth_user");
         b.Entity<Profile>().ToTable("crm_profile");
         b.Entity<Team>().ToTable("crm_team");
+        b.Entity<AutomationRule>().ToTable("crm_automationrule");
         b.Entity<TeamMember>().ToTable("crm_teammember");
         // Deleting a team must not delete the conversations it owned — they
         // fall back to unassigned and stay in the inbox.
@@ -189,6 +191,8 @@ public class AppDbContext : DbContext
         Json<Workflow, List<object?>>(b, x => x.Edges);
         Json<KnowledgeItem, List<string>>(b, x => x.Tags);
         Json<Integration, List<string>>(b, x => x.Scopes);
+        Json<AutomationRule, List<object?>>(b, x => x.Conditions);
+        Json<AutomationRule, List<object?>>(b, x => x.Actions);
         Json<KnowledgeItem, List<string>>(b, x => x.Channels);
         Json<FlowRun, Dictionary<string, object?>>(b, x => x.Context);
         Json<FlowRun, List<object?>>(b, x => x.Log);
