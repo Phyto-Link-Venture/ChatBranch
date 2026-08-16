@@ -47,12 +47,23 @@ builder.Services.AddAuthorization(o => o.AddChatBranchPolicies());
 // ---- CORS: allowed origins come from config (Cors:Origins in appsettings /
 // env), NOT hardcoded — the dashboard localhost pair is the built-in default.
 const string CorsPolicy = "frontend";
+const string WidgetCorsPolicy = "widget";
 var corsOrigins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>();
 if (corsOrigins is null || corsOrigins.Length == 0)
     corsOrigins = new[] { "http://localhost:3000", "http://127.0.0.1:3000" };
-builder.Services.AddCors(o => o.AddPolicy(CorsPolicy, p => p
-    .WithOrigins(corsOrigins)
-    .AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
+builder.Services.AddCors(o =>
+{
+    o.AddPolicy(CorsPolicy, p => p
+        .WithOrigins(corsOrigins)
+        .AllowAnyHeader().AllowAnyMethod().AllowCredentials());
+    // The website widget runs on OTHER PEOPLE'S sites, so its public endpoints
+    // must answer any origin — an allow-list would mean re-configuring the API
+    // for every customer domain. Safe because these endpoints carry no
+    // credentials (no cookies, no bearer) and expose nothing but one visitor's
+    // own conversation, keyed by a server-minted 128-bit session id.
+    o.AddPolicy(WidgetCorsPolicy, p => p
+        .AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod());
+});
 
 var app = builder.Build();
 
@@ -97,6 +108,8 @@ app.MapCallsVoiceEndpoints();
 app.MapCustomFieldsEndpoints();
 app.MapTeamsEndpoints();
 app.MapAutomationsEndpoints();
+app.MapWidgetEndpoints();
+app.MapWidgetAdminEndpoints();
 
 // Inbound conversations route themselves to a team. The hook lives here so the
 // data layer never has to reference the API assembly.

@@ -19,6 +19,8 @@ public static class Channels
     public const string Instagram = "instagram";
     public const string Telegram = "telegram";
     public const string Email = "email";
+    /// <summary>Embeddable site widget — the visitor's browser is the transport.</summary>
+    public const string Website = "website";
 }
 
 public static class Providers

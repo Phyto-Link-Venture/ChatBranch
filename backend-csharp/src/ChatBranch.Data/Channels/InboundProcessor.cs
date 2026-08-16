@@ -91,6 +91,18 @@ public class InboundProcessor
     ///
     /// A thread never stacks queued replies: one pending job at a time.
     /// </summary>
+    /// <summary>
+    /// Run the auto-reply for a thread whose message was stored by another path
+    /// (the website widget). Same coverage gate as the webhook: a linked contact
+    /// is not required for a widget visitor, but AI must be on and the contact
+    /// not opted out.
+    /// </summary>
+    public void MaybeAutoReply(Thread thread)
+    {
+        if (!thread.AiEnabled || thread.OptedOut) return;
+        TryAiReply(thread);
+    }
+
     private void TryAiReply(Thread thread)
     {
         try

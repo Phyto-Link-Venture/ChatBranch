@@ -22,6 +22,7 @@ import {
   Loader2,
   Lock,
   Mail,
+  Globe,
   MessageCircle,
   Music,
   Paperclip,
@@ -58,7 +59,7 @@ import './chats.css'
 // Native Django API base. Override with NEXT_PUBLIC_API_URL (same as AppContext).
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
-type Channel = 'whatsapp' | 'facebook' | 'instagram' | 'telegram' | 'email'
+type Channel = 'whatsapp' | 'facebook' | 'instagram' | 'telegram' | 'email' | 'website'
 type ThreadStatus = 'open' | 'pending' | 'snoozed' | 'resolved'
 
 const CHANNEL_META: Record<Channel, { lbl: string; color: string; Icon: LucideIcon; placeholder: string; beta?: boolean }> = {
@@ -67,6 +68,9 @@ const CHANNEL_META: Record<Channel, { lbl: string; color: string; Icon: LucideIc
   instagram: { lbl: 'Instagram', color: '#E1306C', Icon: Instagram, placeholder: 'Instagram IGSID', beta: true },
   telegram: { lbl: 'Telegram', color: '#229ED9', Icon: Send, placeholder: 'Telegram chat ID' },
   email: { lbl: 'Email', color: '#F59E0B', Icon: Mail, placeholder: 'customer@email.com' },
+  // The site widget: the visitor's browser is the transport, so there is no
+  // address to start a conversation FROM our side — they always begin it.
+  website: { lbl: 'Website', color: '#8B5CF6', Icon: Globe, placeholder: 'started by the visitor' },
 }
 
 const THREAD_STATUSES: ThreadStatus[] = ['open', 'pending', 'snoozed', 'resolved']
@@ -85,7 +89,7 @@ function BetaChip() {
     </span>
   )
 }
-const CHANNELS: Channel[] = ['whatsapp', 'facebook', 'instagram', 'telegram', 'email']
+const CHANNELS: Channel[] = ['whatsapp', 'facebook', 'instagram', 'telegram', 'email', 'website']
 
 interface UiMedia {
   type: 'image' | 'document' | 'audio' | 'video'

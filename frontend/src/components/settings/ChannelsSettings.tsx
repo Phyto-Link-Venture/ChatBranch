@@ -9,6 +9,7 @@ import {
   Mail,
   MessageCircle,
   Pencil,
+  Globe,
   Phone,
   Plug,
   Plus,
@@ -22,6 +23,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { WhatsAppSettings } from '@/components/settings/WhatsAppSettings'
+import { WidgetsSettings } from '@/components/settings/WidgetsSettings'
 import { TemplatesSettings } from '@/components/settings/TemplatesSettings'
 import { roleHeaders } from '@/lib/role'
 import { authHeaders, expireSessionOn401, hasCap } from '@/lib/auth'
@@ -39,7 +41,7 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
-type ChannelId = 'whatsapp' | 'telegram' | 'facebook' | 'instagram' | 'email' | 'voice'
+type ChannelId = 'whatsapp' | 'telegram' | 'facebook' | 'instagram' | 'email' | 'website' | 'voice'
 type SocialChannel = 'facebook' | 'instagram' | 'telegram'
 
 interface EmailSettings {
@@ -113,6 +115,7 @@ const CHANNEL_TYPES: {
   { id: 'facebook', lbl: 'Messenger', provider: 'Meta Send API', color: '#3B82F6', Icon: Facebook, beta: true },
   { id: 'instagram', lbl: 'Instagram', provider: 'Meta Send API', color: '#E1306C', Icon: Instagram, beta: true },
   { id: 'email', lbl: 'Email', provider: 'SMTP', color: '#F59E0B', Icon: Mail },
+  { id: 'website', lbl: 'Website', provider: 'Embeddable widget', color: '#8B5CF6', Icon: Globe },
   { id: 'voice', lbl: 'Voice', provider: 'Twilio SIP trunk', color: '#F22F46', Icon: Phone },
 ]
 
@@ -1290,6 +1293,10 @@ export function ChannelsSettings() {
           </div>
           )}
         </div>
+      ) : active === 'website' ? (
+        // The widget is served by the API itself, so it has no messaging-app
+        // dependency — keep it reachable even when /api/messaging is down.
+        <WidgetsSettings />
       ) : active === 'voice' ? (
         // voice talks to /api/whatsapp (health module), not /api/messaging —
         // it must stay reachable even when the messaging endpoints are down
