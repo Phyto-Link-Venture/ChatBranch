@@ -21,6 +21,8 @@ import {
   ShieldCheck,
   FileText,
   ScrollText,
+  BookOpen,
+  Sparkles,
   Bell,
   Briefcase,
   LogOut,
@@ -99,6 +101,8 @@ export const NAV_GROUPS: { label?: string; items: NavDef[] }[] = [
   {
     label: 'Library',
     items: [
+      { href: '/knowledge', lbl: 'Knowledge Base', Icon: BookOpen, cap: 'settings.ai.manage', roles: ['superadmin', 'admin'] },
+      { href: '/skills', lbl: 'AI Skills', Icon: Sparkles, cap: 'settings.ai.manage', roles: ['superadmin', 'admin'] },
       { href: '/templates', lbl: 'Message Templates', Icon: FileText, cap: 'templates.manage', roles: ['superadmin', 'admin'] },
       { href: '/script-templates', lbl: 'Script Templates', Icon: ScrollText, cap: 'script_templates.manage', roles: ['superadmin', 'admin'] },
     ],

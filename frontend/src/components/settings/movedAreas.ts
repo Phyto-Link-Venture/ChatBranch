@@ -14,4 +14,6 @@ export const MOVED_AREA_ROUTES: Record<string, string> = {
   whatsapp: '/channels', // pre-consolidation WhatsApp Accounts tab
   ai: '/channels', // AI Configuration retired — its knobs live on each channel account now
   voice: '/channels', // pre-consolidation Voice Persona tab (→ ai → channels)
+  knowledge: '/knowledge', // content library, not configuration
+  skills: '/skills', // content library, not configuration
 }

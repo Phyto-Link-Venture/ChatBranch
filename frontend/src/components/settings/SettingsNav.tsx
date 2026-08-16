@@ -24,11 +24,10 @@ export const SETTINGS_TABS: { id: string; lbl: string; superadminOnly?: boolean 
   // edit account → Delivery & AI). /settings/ai redirects to /channels.
   { id: 'ai-providers', lbl: 'AI Keys & Models' }, // GET any role (read-only); PUT superadmin — renamed to avoid clashing with "Service Providers"
   { id: 'mcp', lbl: 'MCP Servers' },
-  // The chat AI's personality (system prompt) — distinct from the sidebar
-  // "Voice & Calls" page, which is the voice/call persona.
-  { id: 'persona', lbl: 'Chat Persona' },
-  { id: 'knowledge', lbl: 'Knowledge Base' },
-  { id: 'skills', lbl: 'AI Skills' },
+  // Chat Persona removed 2026-08-16 (the assistant ships a safe default; shape
+  // it with AI Skills + Knowledge instead). Knowledge Base and AI Skills moved
+  // to their own sidebar routes — they are CONTENT the operator authors, and
+  // Settings is system configuration only. All three redirect.
   // Service Providers moved to the sidebar (/providers) — operational data,
   // not configuration. Settings keeps only their Custom Fields (below).
   { id: 'custom-fields', lbl: 'Custom Fields' },

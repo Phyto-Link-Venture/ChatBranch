@@ -93,6 +93,20 @@ public static class InboxEndpoints
             int? limit, AppDbContext db, ThreadStore store, ScopingService sc, ClaimsPrincipal me) =>
         {
             var entityId = await EntityId(db, entity);
+            // Agents (and custom roles) see only the entities assigned to them —
+            // and everything beneath those entities. Asking for an outlet outside
+            // that scope narrows to their own rather than widening the inbox.
+            var role = me.FindFirstValue(System.Security.Claims.ClaimTypes.Role) ?? "";
+            if (role is not (Roles.SuperAdmin or Roles.Admin))
+            {
+                var assigned = ContactsEndpoints.AssignedEntityIds(db, me.Identity?.Name);
+                if (assigned.Count > 0)
+                {
+                    var allowed = sc.EntitySubtreeIds(assigned);
+                    if (entityId is not int picked || !allowed.Contains(picked))
+                        entityId = assigned[0];   // their own scope, never the tenant's
+                }
+            }
             var rows = store.ListThreads(channel, entityId, status,
                                          limit is int n && n > 0 ? n : 100);
             // Provider login: only conversations with THEIR bound customers.

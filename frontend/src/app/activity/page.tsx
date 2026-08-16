@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { ScrollText } from 'lucide-react'
 import { authHeaders } from '@/lib/auth'
-import { ReviewTabs } from '@/components/shell/ReviewTabs'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
@@ -105,7 +104,6 @@ export default function ActivityPage() {
 
   return (
     <div className="flex flex-col gap-3.5">
-      <ReviewTabs />
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">

@@ -166,14 +166,48 @@ public class ScopingService
     /// Records that belong to exactly one entity. entityId == null does not
     /// narrow. <paramref name="includeUnassigned"/> also returns global/no-entity
     /// rows (the inbox "unassigned" bucket).
+    ///
+    /// Scope flows UP the entity tree: an entity sees its own rows AND those of
+    /// every entity beneath it, never its parent's. Head office reads a branch's
+    /// conversations; the branch does not read head office's.
     /// </summary>
     public IQueryable<T> ScopeOwned<T>(IQueryable<T> qs, int? entityId, bool includeUnassigned = false)
         where T : class, IEntityScoped
     {
         if (entityId is not int eid) return qs;
+        var ids = EntitySubtreeIds(eid);
         if (includeUnassigned)
-            return qs.Where(r => r.EntityId == null || r.EntityId == eid);
-        return qs.Where(r => r.EntityId == eid);
+            return qs.Where(r => r.EntityId == null || (r.EntityId != null && ids.Contains(r.EntityId.Value)));
+        return qs.Where(r => r.EntityId != null && ids.Contains(r.EntityId.Value));
+    }
+
+    /// <summary>
+    /// An entity plus every entity beneath it. Breadth-first with a depth cap so
+    /// a cycle in the data (which the API refuses to create, but a hand-edited
+    /// row could still hold) can never spin here.
+    /// </summary>
+    public List<int> EntitySubtreeIds(int entityId)
+    {
+        var ids = new List<int> { entityId };
+        var frontier = new List<int> { entityId };
+        for (var depth = 0; depth < 32 && frontier.Count > 0; depth++)
+        {
+            var next = _db.Entities.AsNoTracking()
+                .Where(e => e.ParentId != null && frontier.Contains(e.ParentId.Value) && !ids.Contains(e.Id))
+                .Select(e => e.Id).ToList();
+            if (next.Count == 0) break;
+            ids.AddRange(next);
+            frontier = next;
+        }
+        return ids;
+    }
+
+    /// <summary>The subtrees of several entities, deduped (a user's whole scope).</summary>
+    public List<int> EntitySubtreeIds(IEnumerable<int> entityIds)
+    {
+        var all = new HashSet<int>();
+        foreach (var id in entityIds) all.UnionWith(EntitySubtreeIds(id));
+        return all.ToList();
     }
 
     // ---- thread attribution -------------------------------------------------

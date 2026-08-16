@@ -12,7 +12,6 @@ import { OutcomeBars } from '@/components/analytics/OutcomeBars'
 import { HealthEvents } from '@/components/analytics/HealthEvents'
 import { AiUsageCard } from '@/components/analytics/AiUsageCard'
 import { EntityBreakdownTable } from '@/components/analytics/EntityBreakdownTable'
-import { ReviewTabs } from '@/components/shell/ReviewTabs'
 import type { AnalyticsSummary } from '@/components/analytics/types'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
@@ -101,7 +100,6 @@ export default function AnalyticsPage() {
 
   return (
     <div className="viz-analytics flex flex-col gap-4">
-      <ReviewTabs />
       <style>{VIZ_VARS}</style>
 
       {/* Filter row — date range scopes everything below it */}

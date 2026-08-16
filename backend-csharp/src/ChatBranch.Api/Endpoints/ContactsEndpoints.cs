@@ -52,13 +52,18 @@ public static class ContactsEndpoints
     {
         // ---- contact list / detail --------------------------------------------
         app.MapGet("/api/contacts", async (string? q, int? limit, string? entity,
-            AppDbContext db, ClaimsPrincipal me) =>
+            AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
-            var query = ScopeContacts(db.Contacts.AsNoTracking(), me, db);
+            var query = ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc);
             if (!string.IsNullOrWhiteSpace(entity) && entity is not ("all" or "__all__"))
-                // A tenant's contacts are shared across its entities; this narrows
-                // the list to one outlet for the topbar switcher.
-                query = query.Where(c => c.EntityLinks.Any(l => l.Entity!.Slug == entity));
+            {
+                // Narrow to the picked outlet AND everything under it: a contact
+                // on a child branch is visible to its parent, never the reverse.
+                var picked = await db.Entities.AsNoTracking()
+                    .FirstOrDefaultAsync(e => e.Slug == entity);
+                var ids = picked == null ? new List<int>() : sc.EntitySubtreeIds(picked.Id);
+                query = query.Where(c => c.EntityLinks.Any(l => ids.Contains(l.EntityId)));
+            }
             if (!string.IsNullOrWhiteSpace(q))
                 query = query.Where(c => c.Name.Contains(q) || c.Phone.Contains(q) || c.Email.Contains(q));
 
@@ -896,15 +901,35 @@ public static class ContactsEndpoints
     /// Tenant-scope a Contact queryset the way <c>tenant_from_request</c> does:
     /// superadmin is unscoped, everyone else sees only their own tenant's rows.
     /// </summary>
-    private static IQueryable<Contact> ScopeContacts(IQueryable<Contact> qs, ClaimsPrincipal me, AppDbContext db)
+    private static IQueryable<Contact> ScopeContacts(IQueryable<Contact> qs, ClaimsPrincipal me,
+        AppDbContext db, ScopingService? sc = null)
     {
         // Provider login ("their own world"): only the customers bound to them.
         // Applied FIRST and unconditionally — a provider who is also superadmin
         // is still a provider here.
         qs = ProviderScope.Contacts(qs, me, db);
-        if ((me.FindFirstValue(ClaimTypes.Role) ?? "") == Roles.SuperAdmin) return qs;
+        var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
+        if (role == Roles.SuperAdmin) return qs;
         if (TenantId(me) is not int tid) return qs;
-        return qs.Where(c => c.TenantId == tid);
+        qs = qs.Where(c => c.TenantId == tid);
+        // An admin manages the whole tenant. Everyone else (agents, custom roles)
+        // sees ONLY the entities assigned to them — plus everything beneath those
+        // entities, since scope flows up the tree, not down.
+        if (role == Roles.Admin || sc == null) return qs;
+        var assigned = AssignedEntityIds(db, me.Identity?.Name);
+        if (assigned.Count == 0) return qs;   // unassigned agent keeps the tenant view
+        var ids = sc.EntitySubtreeIds(assigned);
+        return qs.Where(c => c.EntityLinks.Any(l => ids.Contains(l.EntityId)));
+    }
+
+    /// <summary>The entity ids explicitly assigned to this login (crm_profile ↔ entity).</summary>
+    internal static List<int> AssignedEntityIds(AppDbContext db, string? username)
+    {
+        if (string.IsNullOrWhiteSpace(username)) return new List<int>();
+        return db.Profiles.AsNoTracking()
+            .Where(p => p.User != null && p.User.Username == username)
+            .SelectMany(p => p.Entities.Select(e => e.Id))
+            .ToList();
     }
 
     private static int? TenantId(ClaimsPrincipal me) =>
