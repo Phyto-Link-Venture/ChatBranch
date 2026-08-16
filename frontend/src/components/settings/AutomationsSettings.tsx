@@ -254,7 +254,7 @@ export function AutomationsSettings() {
         value={a.value}
         onChange={(e) => set(e.target.value)}
         placeholder={a.type === 'add_note' ? 'Note text' : 'Value'}
-        className={`${inputCls} flex-1`}
+        className={`${inputCls} flex-1 min-w-[140px]`}
         aria-label="Action value"
       />
     )
@@ -455,7 +455,7 @@ export function AutomationsSettings() {
             )}
             <div className="flex flex-col gap-2">
               {conditions.map((c, i) => (
-                <div key={i} className="flex items-center gap-1.5">
+                <div key={i} className="flex flex-wrap items-center gap-1.5">
                   <Select
                     value={c.field}
                     onChange={(field) =>
@@ -484,7 +484,7 @@ export function AutomationsSettings() {
                       }
                       placeholder="Value"
                       aria-label="Condition value"
-                      className={`${inputCls} flex-1`}
+                      className={`${inputCls} flex-1 min-w-[140px]`}
                     />
                   )}
                   <button
@@ -519,7 +519,7 @@ export function AutomationsSettings() {
             )}
             <div className="flex flex-col gap-2">
               {actions.map((a, i) => (
-                <div key={i} className="flex items-center gap-1.5">
+                <div key={i} className="flex flex-wrap items-center gap-1.5">
                   <Select
                     value={a.type}
                     onChange={(type) =>

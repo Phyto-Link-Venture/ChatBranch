@@ -106,6 +106,14 @@ public static class Seed
         db.Database.EnsureCreated();
         UpgradeSchema(db);
 
+        // Production is clean by default: only the essential bootstrap (tenant,
+        // entity, roles, one superadmin login, custom-field schema) is seeded.
+        // The demo clutter — the extra admin/agent POC logins and the sample
+        // "liewxen" test contact — is seeded ONLY when SEED_DEMO is truthy, so a
+        // real deployment never shows fake contacts. Set SEED_DEMO=1 for a demo.
+        var seedDemoRaw = Environment.GetEnvironmentVariable("SEED_DEMO");
+        var seedDemo = seedDemoRaw is "1" or "true" or "TRUE" or "yes";
+
         var tenant = db.Tenants.FirstOrDefault(t => t.Slug == "demo");
         if (tenant == null)
         {
@@ -135,8 +143,20 @@ public static class Seed
         }
         db.SaveChanges();
 
+        // The superadmin login is essential (without it nobody can get in); the
+        // admin/agent logins are demo-only. Allow the superadmin password to be
+        // set from the environment so a real deployment isn't stuck on the POC
+        // default — falls back to the POC password when unset.
+        var superadminPassword =
+            Environment.GetEnvironmentVariable("SUPERADMIN_PASSWORD") is { Length: > 0 } p
+                ? p
+                : DemoUsers.First(d => d.Role == Roles.SuperAdmin).Password;
+
         foreach (var demo in DemoUsers)
         {
+            if (!seedDemo && demo.Role != Roles.SuperAdmin) continue;
+
+            var password = demo.Role == Roles.SuperAdmin ? superadminPassword : demo.Password;
             var user = db.Users.Include(u => u.Profile)
                 .FirstOrDefault(u => u.Username == demo.Username);
             if (user == null)
@@ -144,7 +164,7 @@ public static class Seed
                 user = new AppUser
                 {
                     Username = demo.Username,
-                    Password = DjangoPasswordHasher.Hash(demo.Password),
+                    Password = DjangoPasswordHasher.Hash(password),
                     IsActive = true,
                     IsSuperuser = demo.Role == Roles.SuperAdmin,
                 };
@@ -218,9 +238,10 @@ public static class Seed
 
         // ONE test customer only (the operator's own number) — enough to exercise
         // the contact page, chats and AI replies end-to-end without a pile of
-        // fake customers to wade through. Idempotent on phone.
+        // fake customers to wade through. Idempotent on phone. Demo-only: a real
+        // deployment starts with an empty contact list (SEED_DEMO gates it).
         const string testPhone = "+601133199692";
-        if (!db.Contacts.Any(c => c.Phone == testPhone))
+        if (seedDemo && !db.Contacts.Any(c => c.Phone == testPhone))
         {
             db.Contacts.Add(new Contact
             {

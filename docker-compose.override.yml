@@ -1,0 +1,24 @@
+# Production deploy overrides for chatbranch.phytolink-venture.com
+# Single origin behind nginx + Certbot: / -> web (3010), /api -> api (8091).
+# Host ports bind to 127.0.0.1 only — the internet reaches them via nginx.
+services:
+  api:
+    # !override replaces the base list instead of appending to it, so the base
+    # "8090:8090" mapping is dropped (it would clash with the bare-metal API).
+    ports: !override
+      - "127.0.0.1:8091:8090"
+    environment:
+      # CORS: same-origin in prod, so the public domain is the only allowed origin.
+      - Cors__Origins__0=https://chatbranch.phytolink-venture.com
+      # OAuth callbacks bounce the operator back to the public dashboard.
+      - FRONTEND_URL=https://chatbranch.phytolink-venture.com
+
+  web:
+    build:
+      args:
+        # Baked into the client bundle at build time. Same-origin /api path so
+        # the browser talks to nginx, which proxies /api -> the C# API.
+        - NEXT_PUBLIC_API_URL=https://chatbranch.phytolink-venture.com/api
+    # !override: base maps 3000:3000, which clashes with phytolink-website.
+    ports: !override
+      - "127.0.0.1:3010:3000"

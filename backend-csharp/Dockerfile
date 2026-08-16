@@ -26,6 +26,13 @@ WORKDIR /app
 ENV ASPNETCORE_URLS=http://0.0.0.0:8090 \
     ConnectionStrings__Default="Data Source=/data/chatbranch.sqlite3" \
     DataDir=/data
+# curl is the healthcheck client — the base aspnet:8.0 image ships neither
+# curl nor wget, so the old wget-based HEALTHCHECK always failed and the
+# container reported "unhealthy" despite serving fine. Install it while root.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # The aspnet:8.0 image already ships a non-root `app` user — reuse it rather
 # than creating a second one (useradd fails on the existing name).
 RUN mkdir -p /data && chown -R app /data /app
@@ -36,6 +43,6 @@ EXPOSE 8090
 
 # The status endpoint is anonymous by design, so it doubles as the healthcheck.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD ["/bin/sh", "-c", "wget -qO- http://127.0.0.1:8090/api/whatsapp/status >/dev/null || exit 1"]
+  CMD ["/bin/sh", "-c", "curl -fsS http://127.0.0.1:8090/api/whatsapp/status >/dev/null || exit 1"]
 
 ENTRYPOINT ["dotnet", "ChatBranch.Api.dll"]

@@ -51,7 +51,7 @@ export const VARIABLE_GROUPS: VariableGroup[] = [
     group: 'Business',
     items: [
       { key: 'business_name', label: 'Business name', example: 'ChatBranch' },
-      { key: 'agent_name', label: 'AI agent display name', example: 'Aisyah from ChatBranch' },
+      { key: 'agent_name', label: 'AI agent display name', example: 'your AI agent' },
       { key: 'support_number', label: 'Support phone number', example: '03-1234 5678' },
       { key: 'support_email', label: 'Support email', example: 'support@example.com' },
       { key: 'website', label: 'Website', example: 'https://example.com' },
