@@ -428,6 +428,41 @@ sandbox mode.
   chat UI shows "via <account>" on bubbles when >1 account exists and an
   amber divider at sender-account switches AND (in the merged contact view)
   at contact-identity switches.
+- **Website widget** (`/widget.js` + `/api/widget/<token>/*`, 2026-08-16) — the
+  one channel a customer can start with no phone number. A widget IS a
+  `ChannelAccount` with channel="website" (its ExternalId is the PUBLIC token
+  that ships in the script tag), so the inbox, teams, automations, AI replies
+  and entity scoping work on widget conversations with no special-casing. The
+  script renders into a SHADOW ROOT (host CSS can't leak in or out). Public
+  endpoints are anonymous by necessity and carry their own permissive CORS
+  policy ("widget") — a widget runs on other people's domains, so an origin
+  allow-list is impossible; safe because they carry no credentials and expose
+  one visitor's own conversation, keyed by a server-minted 128-bit session id.
+  Admin CRUD at `/api/widgets` (paste-ready snippet, token rotation; deleting a
+  widget KEEPS its conversations).
+- **Teams + automations** (2026-08-16). Assignment is TWO-LEVEL: a thread
+  belongs to a `Team` (who owns it) and optionally one agent inside it
+  (`Thread.Assignee`), so an unclaimed conversation still has an owner.
+  Round-robin uses a stored cursor (`Team.LastAssignee`) and runs on inbound
+  (`TeamsEndpoints.AutoAssignAsync`, hooked into `InboundProcessor` AND
+  `/simulate` — a sandbox that behaves differently hides bugs).
+  `AutomationRule` + `AutomationService` are the CONVERSATION-centric,
+  event-driven counterpart to the contact-centric flow builder: on
+  conversation_created / message_created / status_changed / assigned, ALL
+  matching rules run in Position order (not first-match). The engine never
+  throws into a webhook, and an unknown operator matches NOTHING rather than
+  everything. `/api/automations/catalog` is the single vocabulary source the
+  editor reads.
+- **Help Center** (`/help`, `/api/help/articles`, 2026-08-16) — published
+  `KnowledgeItem`s, readable by anyone. `Published` is PUBLIC readability and is
+  NOT `Active` (whether the AI may use it): an internal note is active and
+  unpublished, a public FAQ is both. Slugs derive from the title when unset.
+  `Shell.PUBLIC_ROUTES` renders `/help` outside the operator shell with no auth
+  guard — don't let a customer reading the refund policy hit a login screen.
+- **Reports** (`/api/analytics/reports[.csv]`) — by agent / team / label /
+  channel, counting conversations TOUCHED in the window (not created), with
+  "(unassigned)" reported rather than dropped. CSV fields are quoted so a label
+  containing a comma cannot corrupt the export.
 - **`backend/messaging/` = email + social channels** in the same unified
   `/chats` inbox (endpoints under `/api/messaging/`) — the PERMANENT in-house
   home for these channels (Chatwoot was fully removed 2026-07-17 on the
@@ -901,6 +936,11 @@ sandbox mode.
 - Frontend types: `cd frontend && npx tsc --noEmit` — clean, no known
   exceptions. Lint with `npx eslint src`. (There is **no**
   `frontend/__tests__/`; jest is configured but has no test files.)
+- CI runs all of this on push/PR (`.github/workflows/ci.yml`): API build+tests,
+  dashboard types/lint/build, and the gateway's offline call-engine self-test.
+  Containers: `docker compose up` builds `backend-csharp/Dockerfile` +
+  `frontend/Dockerfile` (the gateway sits behind the `whatsapp` profile). SQLite
+  is a FILE — the API's /data volume is not optional.
 - Backend: `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `QUEUE_WORKER=0 dotnet test tests/ChatBranch.Tests` — 47 tests covering
   auth/RBAC, the inbox, webhooks (incl. wamid dedup and the QUEUED ai_reply
