@@ -77,6 +77,14 @@ README's "run by hand" section is the manual fallback, not the primary path.
   `parent_id`/`parent`/`parent_name`, and the page renders the tree
   depth-first with indentation (`orderTree`). Tenant still exists underneath —
   RBAC/scoping are unchanged — it is simply never typed in by hand.
+- **Entity scope flows UP the tree (2026-08-16).** `ScopeOwned` narrows to an
+  entity's SUBTREE (`ScopingService.EntitySubtreeIds`, breadth-first, depth
+  capped): head office reads a branch's contacts/threads, a branch never reads
+  head office's. `/api/contacts?entity=<slug>` filters by that subtree too.
+  Agents/custom roles are additionally bounded by their ASSIGNED entities
+  (`ContactsEndpoints.AssignedEntityIds`) — an out-of-scope `?entity=` narrows
+  to their own scope instead of widening; an agent with NO assignment keeps the
+  tenant-wide view (unchanged behaviour, not a lockout).
 - **Entity scoping = global default -> entity override.** `crm/scoping.py` is
   the ONE place the rule lives: *an entity-specific binding wins; the global
   one is the fallback*. Three verbs, and picking the wrong one is the bug the
@@ -742,6 +750,14 @@ README's "run by hand" section is the manual fallback, not the primary path.
   `SttProviderSelect.tsx` are deleted, `/settings/ai` redirects to
   `/channels`. Don't re-add the tab. Settings → Notifications is real
   (server-backed).
+- **Settings is system configuration ONLY.** Content the operator authors lives
+  in the sidebar: Knowledge Base (`/knowledge`) and AI Skills (`/skills`) moved
+  out of Settings 2026-08-16 (old routes + `?tab=` redirect), joining Message
+  and Script Templates under Library. The **Chat Persona** tab was removed
+  entirely — the assistant ships `DEFAULT_PERSONA` and is shaped through Skills
+  and Knowledge; `/settings/persona` redirects. Analytics / Call Logs /
+  Activity are three sidebar destinations, NOT a tabbed section — the shared
+  `ReviewTabs` strip is deleted, don't re-add it.
 - **A modal's errors render INSIDE the modal.** `Modal` portals over a
   `backdrop-blur-sm` scrim, so a page-level `{msg && …}` under an open dialog is
   invisible — the "password too short" report. The pattern (WhatsApp account
