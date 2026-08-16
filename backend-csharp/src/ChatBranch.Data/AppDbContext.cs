@@ -25,6 +25,8 @@ public class AppDbContext : DbContext
     // crm — rbac
     public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<Profile> Profiles => Set<Profile>();
+    public DbSet<Team> Teams => Set<Team>();
+    public DbSet<TeamMember> TeamMembers => Set<TeamMember>();
     public DbSet<AuthToken> AuthTokens => Set<AuthToken>();
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
@@ -75,6 +77,15 @@ public class AppDbContext : DbContext
             .OnDelete(DeleteBehavior.Restrict);
         b.Entity<AppUser>().ToTable("auth_user");
         b.Entity<Profile>().ToTable("crm_profile");
+        b.Entity<Team>().ToTable("crm_team");
+        b.Entity<TeamMember>().ToTable("crm_teammember");
+        // Deleting a team must not delete the conversations it owned — they
+        // fall back to unassigned and stay in the inbox.
+        b.Entity<Thread>()
+            .HasOne(t => t.Team)
+            .WithMany()
+            .HasForeignKey(t => t.TeamId)
+            .OnDelete(DeleteBehavior.SetNull);
         // Customer login binding: deleting a contact must not delete the login
         b.Entity<Profile>()
             .HasOne(p => p.Contact)

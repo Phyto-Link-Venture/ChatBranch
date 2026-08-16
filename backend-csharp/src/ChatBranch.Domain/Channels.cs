@@ -55,6 +55,9 @@ public class Thread : IEntityScoped
     public string Name { get; set; } = "";
     public string Status { get; set; } = "open";
     public string Assignee { get; set; } = "";
+    /// <summary>Owning team (Chatwoot-style two-level assignment). null = unassigned.</summary>
+    public int? TeamId { get; set; }
+    public Team? Team { get; set; }
     public List<string> Labels { get; set; } = new();
     public int? ContactId { get; set; }
     public Contact? Contact { get; set; }

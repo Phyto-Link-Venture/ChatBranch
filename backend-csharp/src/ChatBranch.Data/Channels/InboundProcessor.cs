@@ -55,6 +55,9 @@ public class InboundProcessor
         // event axis: resume flow runs parked on a reply
         try { _engine.OnInboundMessage(channel, key, text); } catch { }
 
+        // route a brand-new conversation to a team (round-robin within it)
+        try { AutoAssignTeam(thread); } catch { }
+
         // coverage gate: AI auto-reply only for threads linked to a contact + AI on
         if (thread.ContactId != null && thread.AiEnabled && !thread.OptedOut)
             TryAiReply(thread);
@@ -97,6 +100,19 @@ public class InboundProcessor
                 _sender.Send(thread, reply, MessageSource.Ai, thread.AccountId);
         }
         catch { /* AI failure never breaks the webhook path */ }
+    }
+
+    /// <summary>
+    /// Hand a conversation with no team to the entity's auto-assign team. Lives
+    /// behind a hook so ChatBranch.Data does not depend on the Api assembly:
+    /// Program.cs sets it at startup.
+    /// </summary>
+    public static Action<AppDbContext, Thread>? TeamRouter { get; set; }
+
+    private void AutoAssignTeam(Thread thread)
+    {
+        if (thread.TeamId != null) return;
+        TeamRouter?.Invoke(_db, thread);
     }
 
     /// <summary>

@@ -754,6 +754,7 @@ public static class WhatsAppThreadsEndpoints
             ai_enabled = EffectiveAi(sc, thread, account),
             status = thread.Status,
             assignee = thread.Assignee,
+            team_id = thread.TeamId,
             opted_out = thread.OptedOut,
             window_open = windowOpen,
             window_expires_at = windowExpires,

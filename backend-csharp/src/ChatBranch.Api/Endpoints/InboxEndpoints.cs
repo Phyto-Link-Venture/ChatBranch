@@ -142,7 +142,7 @@ public static class InboxEndpoints
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- simulate inbound (sandbox) ---------------------------------------
-        app.MapPost("/api/whatsapp/simulate", (SimulateRequest body, ThreadStore store,
+        app.MapPost("/api/whatsapp/simulate", async (SimulateRequest body, ThreadStore store, AppDbContext db,
             ChatBranch.Data.Flows.FlowEngine engine, ChatBranch.Data.Channels.InboundProcessor inbound) =>
         {
             // Link the thread to its contact the same way a real webhook does
@@ -155,6 +155,10 @@ public static class InboxEndpoints
                 body.Text, status: "received");
             // event axis: resume any flow runs parked on a reply from this contact
             engine.OnInboundMessage(body.Channel, body.Key, body.Text);
+            // A simulated inbound is still an INBOUND: route it to a team the
+            // same way the live webhook does, or the sandbox behaves differently
+            // from production in a way that hides bugs.
+            await TeamsEndpoints.AutoAssignAsync(db, thread);
             return Results.Ok(new { thread = Dtos.ThreadDto(thread), message = Dtos.MessageDto(msg) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
@@ -377,6 +381,7 @@ public static class InboxEndpoints
                 provider = baileys ? Providers.Baileys : Providers.Cloud,
                 ai_enabled = WhatsAppSettingsEndpoints.EffectiveAi(t, account, reminderDefaultOn),
                 assignee = t.Assignee,
+                team_id = t.TeamId,
                 opted_out = t.OptedOut,
                 window_open = windowOpen,
                 window_expires_at = windowExpiresAt,

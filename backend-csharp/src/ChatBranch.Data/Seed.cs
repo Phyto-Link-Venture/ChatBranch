@@ -34,6 +34,37 @@ public static class Seed
         AddColumnIfMissing(db, "crm_profile", "contact_id", "INTEGER NULL");
         AddColumnIfMissing(db, "integrations_integration", "owner_user_id", "INTEGER NULL");
         AddColumnIfMissing(db, "integrations_integration", "scopes", "TEXT NULL");
+        AddColumnIfMissing(db, "crm_thread", "team_id", "INTEGER NULL");
+        AddTableIfMissing(db, "crm_team",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_team\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"entity_id\" INTEGER NULL, \"name\" TEXT NOT NULL, \"description\" TEXT NOT NULL, "
+            + "\"auto_assign\" INTEGER NOT NULL, \"last_assignee\" TEXT NOT NULL, "
+            + "\"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
+        AddTableIfMissing(db, "crm_teammember",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_teammember\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"team_id\" INTEGER NOT NULL, \"user_id\" INTEGER NOT NULL, \"created_at\" TEXT NOT NULL");
+    }
+
+    /// <summary>
+    /// Create a table EnsureCreated() will never add to an existing database.
+    /// The DDL must match what EF expects (snake_case columns, TEXT dates) or
+    /// the first query against it throws.
+    /// </summary>
+    private static void AddTableIfMissing(AppDbContext db, string table, string ddl)
+    {
+        var conn = db.Database.GetDbConnection();
+        var wasClosed = conn.State != System.Data.ConnectionState.Open;
+        if (wasClosed) conn.Open();
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = $"CREATE TABLE IF NOT EXISTS \"{table}\" ({ddl})";
+            cmd.ExecuteNonQuery();
+        }
+        finally
+        {
+            if (wasClosed) conn.Close();
+        }
     }
 
     private static void AddColumnIfMissing(AppDbContext db, string table, string column, string ddlType)

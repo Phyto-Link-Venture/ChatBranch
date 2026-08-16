@@ -94,6 +94,12 @@ app.MapWhatsAppThreadsEndpoints();
 app.MapMessagingEndpoints();
 app.MapCallsVoiceEndpoints();
 app.MapCustomFieldsEndpoints();
+app.MapTeamsEndpoints();
+
+// Inbound conversations route themselves to a team. The hook lives here so the
+// data layer never has to reference the API assembly.
+ChatBranch.Data.Channels.InboundProcessor.TeamRouter = (db, thread) =>
+    ChatBranch.Api.Endpoints.TeamsEndpoints.AutoAssignAsync(db, thread).GetAwaiter().GetResult();
 app.MapApiV1Endpoints();
 app.MapWebhookEndpoints();
 

@@ -35,6 +35,7 @@ import {
   StickyNote,
   Tag,
   UserRound,
+  Users,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -176,6 +177,7 @@ interface UiThreadSummary {
   /** Chatwoot-style conversation management (messaging channels only). */
   status?: ThreadStatus
   assignee?: string
+  team_id?: number | null
   labels?: string[]
   /** CRM identity link — same contact across channels (all channels). */
   contact_id?: number | null
@@ -896,6 +898,9 @@ export default function ChatsPage() {
   const [filter, setFilter] = useState<'all' | Channel>('all')
   const [statusFilter, setStatusFilter] = useState<'all' | ThreadStatus>('all')
   const [assigneeFilter, setAssigneeFilter] = useState('all') // 'all' | 'none' | username
+  // Teams own a conversation before any one agent does — the picker below the
+  // assignee routes it, optionally rotating to the next member.
+  const [teams, setTeams] = useState<{ id: number; name: string; auto_assign: boolean }[]>([])
   const [aiFilter, setAiFilter] = useState<'all' | 'on' | 'off'>('all')
   const [labelFilter, setLabelFilter] = useState('all')
   const [search, setSearch] = useState('')
@@ -1435,6 +1440,29 @@ export default function ChatsPage() {
         ? api(`${threadPath(active)}/status`, { method: 'POST', body: JSON.stringify({ status: s }) })
         : Promise.resolve(),
     )
+
+  useEffect(() => {
+    api<{ teams: { id: number; name: string; auto_assign: boolean }[] }>(`teams${entityQ && `?${entityQ}`}`)
+      .then((d) => setTeams(d.teams ?? []))
+      .catch(() => setTeams([])) // the picker just hides when teams are unavailable
+  }, [entityQ])
+
+  /** Route this conversation to a team; "" clears it. */
+  const assignTeam = (raw: string) =>
+    run(async () => {
+      if (!active) return
+      await api('teams/assign', {
+        method: 'POST',
+        body: JSON.stringify({
+          channel: active.channel,
+          key: active.key,
+          team_id: raw ? Number(raw) : 0,
+          // rotate to the next member only when nobody is on it yet
+          assign: !!raw && !active.assignee,
+        }),
+      })
+      await refreshThreads()
+    })
 
   const assignTo = (username: string) =>
     run(() =>
@@ -2780,6 +2808,29 @@ export default function ChatsPage() {
                   {status?.imap_configured
                     ? 'Two-way email — sends go via SMTP and replies are pulled from the IMAP inbox about once a minute.'
                     : 'Outbound-only — replies arrive in your mailbox, not here. Set the IMAP host in Settings → Channels to pull them in.'}
+                </div>
+              )}
+
+              {teams.length > 0 && (
+                <div>
+                  <div className="mb-1.5 flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.08em] text-text-muted">
+                    <Users size={11} aria-hidden /> Team
+                  </div>
+                  <Select
+                    value={active.team_id ? String(active.team_id) : ''}
+                    onChange={assignTeam}
+                    options={[
+                      { value: '', label: 'Unassigned' },
+                      ...teams.map((t) => ({ value: String(t.id), label: t.name })),
+                    ]}
+                    disabled={busy}
+                    size="md"
+                    ariaLabel="Owning team"
+                  />
+                  <p className="mt-1.5 text-[10.5px] leading-relaxed text-text-muted">
+                    Who owns this conversation. Picking a team with nobody on it also hands it to the next
+                    member in rotation.
+                  </p>
                 </div>
               )}
 

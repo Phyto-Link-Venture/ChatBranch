@@ -73,3 +73,43 @@ public class RolePermission
     public bool Allowed { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
+
+/// <summary>
+/// A group of agents conversations can be routed to — Chatwoot's "team".
+/// Assignment is two-level: a thread belongs to a TEAM (who owns it) and
+/// optionally to one agent within it (who is working it right now).
+/// </summary>
+public class Team : IEntityScoped
+{
+    public int Id { get; set; }
+    /// <summary>Which outlet owns this team. null = organization-wide.</summary>
+    public int? EntityId { get; set; }
+    public Entity? Entity { get; set; }
+    public string Name { get; set; } = "";
+    public string Description { get; set; } = "";
+    /// <summary>
+    /// Round-robin new conversations across this team's members. Off = the team
+    /// owns the thread but a human picks up.
+    /// </summary>
+    public bool AutoAssign { get; set; } = true;
+    /// <summary>
+    /// The member who received the LAST auto-assignment. Round-robin resumes
+    /// after them, so restarts do not always hand work to the same person.
+    /// </summary>
+    public string LastAssignee { get; set; } = "";
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+
+    public ICollection<TeamMember> Members { get; set; } = new List<TeamMember>();
+}
+
+/// <summary>One agent's membership of a team.</summary>
+public class TeamMember
+{
+    public int Id { get; set; }
+    public int TeamId { get; set; }
+    public Team? Team { get; set; }
+    public int UserId { get; set; }
+    public AppUser? User { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
