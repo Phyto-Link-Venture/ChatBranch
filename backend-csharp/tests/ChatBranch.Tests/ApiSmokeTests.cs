@@ -105,6 +105,11 @@ public class ApiFactory : WebApplicationFactory<Program>
         // POST /api/flows/tick in tests (deterministic, no timing races).
         Environment.SetEnvironmentVariable("QUEUE_WORKER", "0");
         Environment.SetEnvironmentVariable("FLOWS_WORKER", "0");
+        // Production seeds clean (no admin/agent logins) since the deploy pass,
+        // but the suite signs in as those users on nearly every test. A test
+        // host IS a demo environment, so it asks for the demo seed itself
+        // rather than depending on CI to export the variable.
+        Environment.SetEnvironmentVariable("SEED_DEMO", "1");
         builder.ConfigureHostConfiguration(cfg => cfg.AddInMemoryCollection(
             new Dictionary<string, string?> { ["ConnectionStrings:Default"] = $"Data Source={_dbPath}" }));
         return base.CreateHost(builder);
