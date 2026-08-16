@@ -102,12 +102,10 @@ function EntityPicker({
   entities,
   selected,
   onToggle,
-  showTenant,
 }: {
   entities: EntityRow[]
   selected: number[]
   onToggle: (id: number) => void
-  showTenant: boolean
 }) {
   if (entities.length === 0) {
     return (
@@ -134,7 +132,6 @@ function EntityPicker({
           >
             {on ? '✓ ' : ''}
             {b.name}
-            {showTenant && <span className="ml-1 opacity-60">({b.tenant})</span>}
           </button>
         )
       })}
@@ -255,7 +252,6 @@ export function UsersSettings() {
       )
   }, [refresh])
 
-  const multiTenant = new Set(entityPool.map((b) => b.tenant)).size > 1
   const toggleIn = (list: number[], id: number) =>
     list.includes(id) ? list.filter((x) => x !== id) : [...list, id]
 
@@ -405,12 +401,6 @@ export function UsersSettings() {
           </div>
           <div className="mt-0.5 text-[11px] text-text-muted">
             {u.name || '—'}
-            {u.tenant && (
-              <>
-                {' · tenant '}
-                <span className="font-semibold">{u.tenant}</span>
-              </>
-            )}
           </div>
         </div>
       ),
@@ -587,7 +577,7 @@ export function UsersSettings() {
         Operator logins for this dashboard. Passwords are set here — a password reset or deactivation clears that
         user&apos;s session token, signing them out everywhere immediately. The last active super admin can never be
         demoted or deactivated.
-        {!isSuper && ' As an admin you can create and manage agent-level users in your own tenant.'}
+        {!isSuper && ' As an admin you can create and manage agent-level users in your own organization.'}
       </p>
 
       {/* what each role (user group) can do — the built-in capability matrix */}
@@ -596,11 +586,11 @@ export function UsersSettings() {
           [
             {
               lbl: 'Super admin', chip: ROLE_CHIP.superadmin,
-              items: ['Everything, across all tenants', 'App keys & global settings', 'Creates admins & agents', 'Entities in any tenant'],
+              items: ['Everything, across every organization', 'App keys & global settings', 'Creates admins & agents', 'Any entity'],
             },
             {
               lbl: 'Admin', chip: ROLE_CHIP.admin,
-              items: ['Own tenant only', 'Channel accounts, routing, flows, templates', 'Creates agent-level users + entity access', 'No app keys / global settings'],
+              items: ['Own organization only', 'Channel accounts, routing, flows, templates', 'Creates agent-level users + entity access', 'No app keys / global settings'],
             },
             {
               lbl: 'Agent', chip: ROLE_CHIP.agent,
@@ -723,7 +713,6 @@ export function UsersSettings() {
               entities={entityPool}
               selected={newEntityIds}
               onToggle={(id) => setNewEntityIds((d) => toggleIn(d, id))}
-              showTenant={multiTenant}
             />
             <span className="mt-1.5 block text-[10.5px] leading-relaxed text-text-muted">
               An agent only sees contacts on their assigned entities (all entities must belong to one tenant). You can
@@ -828,7 +817,6 @@ export function UsersSettings() {
                 entities={entityPool.filter((b) => !entitiesUser.tenant || b.tenant === entitiesUser.tenant)}
                 selected={entitiesDraft}
                 onToggle={(id) => setEntitiesDraft((d) => toggleIn(d, id))}
-                showTenant={multiTenant && !entitiesUser.tenant}
               />
             )}
           </Modal>

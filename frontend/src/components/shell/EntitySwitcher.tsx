@@ -5,11 +5,15 @@ import { Check, ChevronDown, CornerDownRight } from 'lucide-react'
 import { useEntity, type Entity } from '@/lib/EntityContext'
 
 /**
- * Topbar brand/tenant switcher chip (design.md): logo square + current entity
- * name + chevron. Opens a menu of the entities the signed-in user may see (from
- * EntityContext -> /api/v1/entities ∩ /api/v1/whoami). Picking one sets the
- * active entity that brand-scoped screens filter by. A user with a single
- * entity gets a static chip (no menu).
+ * Topbar ENTITY switcher chip: logo square + current entity name + chevron.
+ * Opens the tree of entities the signed-in user may see (from EntityContext ->
+ * /api/v1/entities ∩ /api/v1/whoami), parents with their children indented
+ * beneath. Picking one sets the active entity that entity-scoped screens filter
+ * by. A user with a single entity gets a static chip (no menu).
+ *
+ * The TENANT is deliberately not shown anywhere here. Operators think in
+ * entities — the tenant is an internal grouping they never pick, so surfacing
+ * it ("DEMO") was noise. It still exists server-side.
  */
 /**
  * Parents first, each followed by its children (depth-first), so the menu shows
@@ -37,8 +41,8 @@ function orderByHierarchy(entities: Entity[]): { entity: Entity; depth: number }
   return out
 }
 
-export function TenantSwitcher() {
-  const { tenant, entities, activeEntity, allEntities, setActiveEntity, loading } = useEntity()
+export function EntitySwitcher() {
+  const { entities, activeEntity, allEntities, setActiveEntity, loading } = useEntity()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -55,8 +59,8 @@ export function TenantSwitcher() {
     ? 'Loading…'
     : allEntities
       ? 'All entities'
-      : (activeEntity?.name ?? tenant ?? 'All entities')
-  const initials = (activeEntity?.name ?? tenant ?? 'CB').slice(0, 2).toUpperCase()
+      : (activeEntity?.name ?? 'All entities')
+  const initials = (activeEntity?.name ?? 'CB').slice(0, 2).toUpperCase()
   const canSwitch = entities.length > 1
   const ordered = orderByHierarchy(entities)
 
@@ -83,11 +87,6 @@ export function TenantSwitcher() {
           className="absolute right-0 z-50 mt-1.5 w-[220px] animate-slideDown overflow-hidden rounded-xl border border-line bg-card p-1 shadow-2xl"
           role="menu"
         >
-          {tenant && (
-            <div className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-text-faint">
-              {tenant}
-            </div>
-          )}
           <button
             role="menuitemradio"
             aria-checked={allEntities}

@@ -315,8 +315,8 @@ export default function PermissionsPage() {
       ) : null}
 
       <p className="text-[11px] leading-relaxed text-text-muted">
-        Access gates the <strong>action</strong>; tenant and ownership scoping still apply on top
-        (an admin manages only their own tenant&apos;s users, etc.). Super admin keeps{' '}
+        Access gates the <strong>action</strong>; entity and ownership scoping still apply on top
+        (an admin manages only their own organization&apos;s users, etc.). Super admin keeps{' '}
         <code className="rounded bg-fill px-1">rbac.manage</code> locked on so access can never be
         fully removed. Custom roles start with no access — grant capabilities, then{' '}
         <strong>Save changes</strong>.

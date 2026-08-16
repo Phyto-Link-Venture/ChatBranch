@@ -2,7 +2,7 @@
 
 import { Menu, PanelLeft, Search } from 'lucide-react'
 import type { AuthUser } from '@/lib/auth'
-import { TenantSwitcher } from './TenantSwitcher'
+import { EntitySwitcher } from './EntitySwitcher'
 import { NotificationsBell } from './NotificationsBell'
 
 /**
@@ -74,7 +74,7 @@ export function TopBar({
           <span className="text-[9px] font-bold uppercase tracking-[0.06em] text-brand-300">Live</span>
         </div>
         <NotificationsBell />
-        <TenantSwitcher />
+        <EntitySwitcher />
         <div
           className="grid h-[32px] w-[32px] shrink-0 place-items-center rounded-xl text-[11px] font-extrabold tracking-[-0.5px] text-white"
           style={{ background: 'linear-gradient(135deg,#4F46E5,#7C3AED)' }}
