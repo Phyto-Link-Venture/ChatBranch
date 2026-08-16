@@ -1,0 +1,53 @@
+# ChatBranch — the three long-lived processes.
+#
+# The voice agent worker is deliberately NOT here: it needs LiveKit + SIP
+# credentials and shares file state with the API, so it runs alongside (see
+# README). Everything below boots with zero credentials in sandbox mode.
+services:
+  api:
+    build:
+      context: ./backend-csharp
+    ports:
+      - "8090:8090"
+    environment:
+      # CORS: the dashboard's public origin(s). Comma-separated.
+      - Cors__Origins__0=http://localhost:3000
+      # Where the OAuth callback bounces the operator back to.
+      - FRONTEND_URL=http://localhost:3000
+    volumes:
+      # SQLite is a FILE — without this volume every redeploy starts from an
+      # empty database and re-seeds the demo users.
+      - chatbranch-data:/data
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        # NEXT_PUBLIC_* are baked into the client bundle at BUILD time, so this
+        # must be the browser-reachable API URL, not the compose service name.
+        - NEXT_PUBLIC_API_URL=http://localhost:8090/api
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # Optional: unofficial WhatsApp Web transport. Its paired session lives in the
+  # volume — losing it means re-scanning the QR.
+  baileys:
+    build:
+      context: ./backend/baileys_service
+    environment:
+      - API_URL=http://api:8090
+      - BAILEYS_SECRET=${BAILEYS_SECRET:-baileys-local-dev}
+    volumes:
+      - baileys-auth:/srv/data/whatsapp/baileys
+    depends_on:
+      - api
+    restart: unless-stopped
+    profiles: ["whatsapp"]
+
+volumes:
+  chatbranch-data:
+  baileys-auth:
