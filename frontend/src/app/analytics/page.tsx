@@ -11,6 +11,7 @@ import { AccountsTable } from '@/components/analytics/AccountsTable'
 import { OutcomeBars } from '@/components/analytics/OutcomeBars'
 import { HealthEvents } from '@/components/analytics/HealthEvents'
 import { AiUsageCard } from '@/components/analytics/AiUsageCard'
+import { BreakdownReports } from '@/components/analytics/BreakdownReports'
 import { EntityBreakdownTable } from '@/components/analytics/EntityBreakdownTable'
 import type { AnalyticsSummary } from '@/components/analytics/types'
 
@@ -238,6 +239,9 @@ export default function AnalyticsPage() {
           <Card title="Daily activity" sub="Messages and calls per day, record events in their own panel">
             <DailyChart daily={data.daily} />
           </Card>
+
+          {/* Who handled what — the supervisor's view, with CSV export */}
+          <BreakdownReports days={days} entityQ={entityQ} />
 
           {/* LLM metering — what the AI consumed and what it costs */}
           <AiUsageCard days={days} />
