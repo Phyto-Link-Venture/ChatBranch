@@ -5,7 +5,7 @@ import { Row, SectionLabel } from '@/components/settings/MockRows'
 import { authHeaders } from '@/lib/auth'
 import { useRole } from '@/lib/useRole'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /** Mute groups for the in-app bell — server-side gate in crm.auth.notify
  * (Setting rows notif_<key>). Global: they apply to every user's bell. */

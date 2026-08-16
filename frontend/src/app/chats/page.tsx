@@ -55,7 +55,7 @@ import { subscribeChatStream } from '@/lib/chatStream'
 import './chats.css'
 
 // Native Django API base. Override with NEXT_PUBLIC_API_URL (same as AppContext).
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 type Channel = 'whatsapp' | 'facebook' | 'instagram' | 'telegram' | 'email'
 type ThreadStatus = 'open' | 'pending' | 'snoozed' | 'resolved'

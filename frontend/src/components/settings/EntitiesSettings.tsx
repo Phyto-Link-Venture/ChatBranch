@@ -10,7 +10,7 @@ import { authHeaders, hasCap } from '@/lib/auth'
 import { useRole } from '@/lib/useRole'
 import { useEntity } from '@/lib/EntityContext'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /**
  * Entities (RBAC entities model, /api/v1/entities + /api/v1/whoami).
@@ -157,7 +157,7 @@ export function EntitiesSettings() {
   if (entities === null) {
     return (
       <div className="py-6 text-[12px] text-text-muted">
-        Entity management unavailable — is the backend API running on port 8000?
+        Entity management unavailable — is the backend API running?
       </div>
     )
   }

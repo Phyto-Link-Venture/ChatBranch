@@ -27,7 +27,7 @@ import { fetchChannelHealth, type HealthAccount } from '@/lib/channelHealth'
 import { EntityScopeSelect } from './EntityScopeSelect'
 import { LLM_PROVIDER_LABELS, STT_PROVIDER_LABELS } from '@/lib/voiceProviders'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface WaAccount {
   id: string
@@ -567,7 +567,7 @@ export function WhatsAppSettings({
   if (accounts === null) {
     return (
       <div className="py-6 text-[12px] text-text-muted">
-        WhatsApp settings unavailable — is the backend API running on port 8000?
+        WhatsApp settings unavailable — is the backend API running?
       </div>
     )
   }
@@ -831,7 +831,7 @@ export function WhatsAppSettings({
             <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
               Paste these in Meta App Dashboard → WhatsApp → Configuration → Webhook and subscribe to the{' '}
               <code className="rounded bg-fill px-1">messages</code> field. Inbound traffic is routed to the right
-              account by the receiving number. Local dev needs a public HTTPS tunnel to port 8000 — see{' '}
+              account by the receiving number. Local dev needs a public HTTPS tunnel to the API — see{' '}
               <code className="rounded bg-fill px-1">backend/whatsapp/SETUP.md</code>.
             </p>
           </div>

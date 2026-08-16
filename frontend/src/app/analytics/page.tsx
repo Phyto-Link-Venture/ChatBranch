@@ -14,7 +14,7 @@ import { AiUsageCard } from '@/components/analytics/AiUsageCard'
 import { EntityBreakdownTable } from '@/components/analytics/EntityBreakdownTable'
 import type { AnalyticsSummary } from '@/components/analytics/types'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 const DAY_OPTIONS = [7, 30, 90]
 
 /*

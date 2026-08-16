@@ -27,7 +27,7 @@ import { useEntity } from './EntityContext'
 import { authHeaders, expireSessionOn401 } from './auth'
 
 // Native Django API base. Override with NEXT_PUBLIC_API_URL.
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 // Max simultaneous live calls. The rest of a batch queues and starts as slots
 // free up. Cap it to your SIP trunk's concurrent-channel limit.

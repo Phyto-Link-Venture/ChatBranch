@@ -9,7 +9,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable'
 import { roleHeaders } from '@/lib/role'
 import { expireSessionOn401, hasCap } from '@/lib/auth'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface CannedResponse {
   id: number
@@ -153,7 +153,7 @@ export function SharedTemplatesSettings() {
   if (list === null) {
     return (
       <div className="py-6 text-[12px] text-text-muted">
-        Message templates unavailable — is the backend API running on port 8000?
+        Message templates unavailable — is the backend API running?
       </div>
     )
   }

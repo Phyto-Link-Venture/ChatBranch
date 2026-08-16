@@ -20,7 +20,7 @@ import { accountRole } from '@/components/ui/Badges'
 import { roleHeaders, getRole } from '@/lib/role'
 import { expireSessionOn401 } from '@/lib/auth'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface WaButton {
   type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER'

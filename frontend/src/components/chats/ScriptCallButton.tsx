@@ -5,7 +5,7 @@ import { Megaphone, X } from 'lucide-react'
 import { useApp } from '@/lib/AppContext'
 import { authHeaders } from '@/lib/auth'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 const DEFAULT_SCRIPT =
   'Hello {{name}}, this is an automated courtesy call from {{company}} regarding your ' +

@@ -6,7 +6,7 @@ import { CALL_LOGS } from '@/lib/mocks'
 import { authHeaders } from '@/lib/auth'
 import WhatsAppIcon from '@/components/chats/WhatsAppIcon'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /** One unified call-history row: SIP/AI phone calls from data/calls.json plus
  *  WhatsApp voice calls (both transports) from the recordings store. */

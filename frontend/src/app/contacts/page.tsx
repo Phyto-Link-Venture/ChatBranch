@@ -17,7 +17,7 @@ import { ContactImportModal } from '@/components/contacts/ContactImportModal'
 import { CustomFieldsInputs } from '@/components/CustomFieldsInputs'
 import { fetchCustomFields, type FieldDef } from '@/lib/customFields'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /* Kanban columns — one per contact status, in workflow order. */
 const KANBAN: { key: ContactStatus; lbl: string; color: string }[] = [

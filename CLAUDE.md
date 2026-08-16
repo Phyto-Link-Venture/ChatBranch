@@ -7,47 +7,48 @@ Guidance for Claude Code working in this repo. Read before making changes.
 ChatBranch — an industry-agnostic multi-channel conversation platform
 (template). Four cooperating processes:
 
-1. **Django API** (`backend/`, port 8000) — serves the contact list and brokers
-   call actions. App lives in `backend/calls/`.
+1. **C# API** (`backend-csharp/`, port 8090) — ASP.NET Core minimal APIs over
+   SQLite (EF Core). THE backend: contacts, the unified inbox, flows, the
+   outbound queue, AI, integrations, RBAC. Root `/` 404s — it is API-only.
 2. **Voice agent worker** (`backend/voice_agent/`) — a **separate** long-lived
-   LiveKit Agents process. Dials over SIP, runs a realtime speech model, writes
-   results to `backend/data/`. NOT started by the web server.
+   LiveKit Agents process (Python, framework-free). Dials over SIP, runs a
+   realtime speech model, writes results to `backend/data/`. NOT started by the
+   API.
 3. **Next.js dashboard** (`frontend/`, port 3000) — operator UI.
 4. **Baileys gateway** (`backend/baileys_service/`, port 3020) — Node sidecar
-   for `provider="baileys"` WhatsApp accounts (unofficial WhatsApp Web: QR-paired
-   personal numbers, text + voice calls). Django is its only client.
+   for `provider="baileys"` WhatsApp accounts (unofficial WhatsApp Web:
+   QR-paired personal numbers, text + voice calls). The C# API is its only
+   client; its env var is `API_URL` (`DJANGO_URL` still accepted).
+
+> **The Django backend was removed on 2026-08-16.** Everything it did lives in
+> `backend-csharp/` now, including OAuth and the integration actions that were
+> the last stubs. `backend/` retains only the two Django-free sidecars above
+> plus `backend/data/` — which holds the LIVE Baileys WhatsApp session
+> (`data/whatsapp/baileys/<account>/creds.json`) and inbound media. Never
+> delete it. Historical references below to `crm/*.py`, `whatsapp/store.py`,
+> `flows/engine.py` etc. describe the behaviour the C# port reproduces; read
+> them as the SPEC, and find the code under `backend-csharp/src/`.
 
 ## Run
 
 ```bash
-npm run dev:all  # repo root — all four processes via concurrently (api/agent/web/wa); `npm run dev` = alias
+npm run dev:all  # repo root — all four processes via concurrently (api/agent/web/wa)
 ```
 
 Or individually (what the root `package.json` scripts do):
 
 ```bash
-npm run dev:api      # Django, :8000
+npm run dev:api      # C# API, :8090
 npm run dev:agent    # voice agent worker (separate terminal)
 npm run dev:web      # Next.js, :3000 (separate terminal)
 npm run dev:baileys  # Baileys gateway, :3020 (separate terminal)
 ```
 
-First-time bootstrap: `npm install` then `npm run setup` at the repo root
-(creates `backend/venv`, pip-installs, copies `backend/.env.example` → `.env`,
-runs `manage.py migrate` + `seed_demo`, then `npm install`s the frontend and
-the Baileys gateway). Keys are filled in by hand afterwards — **nothing in
-`.env` is required to boot**; with it empty the whole app runs in sandbox
-mode.
-
-venv is at `backend/venv`. **The root `package.json` scripts are
-cross-platform** (Windows/macOS/Linux): `scripts/setup-api.js` and
-`scripts/run-py.js` resolve the right base Python (`py -3.13` on Windows,
-`python3.13`/`python3`/`python` elsewhere) and the right venv interpreter path
-(`venv\Scripts\python.exe` vs `venv/bin/python`) for whichever OS runs them —
-don't hardcode a platform-specific path back into `package.json`; add it to
-those scripts instead. `npm --prefix <dir> run <script>` replaces `cd <dir> &&
-npm run <script>` for the same reason (no shell-specific `cd`/`&&`). The
-README's "run by hand" section is the manual fallback, not the primary path.
+First-time bootstrap: `npm install` then `npm run setup` (installs the frontend
+and the Baileys gateway). The API needs no bootstrap — SQLite is created and
+seeded on first boot (`Seed.Run`, additive `UpgradeSchema` for new columns).
+**Nothing in `.env` is required to boot**; with it empty the whole app runs in
+sandbox mode.
 
 ## Architecture that isn't obvious from the tree
 
@@ -60,11 +61,9 @@ README's "run by hand" section is the manual fallback, not the primary path.
   `store.py` and `*_config.py` modules are ORM-backed but kept their old
   function signatures + dict shapes — views/AI/bridge code never touch models
   directly, so **change the store layer, not the callers**. Bootstrap:
-  `manage.py migrate` then `manage.py seed_demo` (demo contacts + records +
-  users; imports any legacy JSON data). Django admin at `/admin`
-  (superadmin/super123 — POC creds, rotate before deploy). Non-Django
-  processes that import the stores (whatsapp/bridge.py) must
-  `django.setup()` first.
+  the C# API seeds itself on first boot (`Seed.Run`: demo users, the Main
+  entity, roles/capabilities). Demo creds superadmin/super123, admin/admin123,
+  agent/agent123 — POC only, rotate before deploy.
 - **Entities are a TREE (`ingest_entity.parent_id`, added 2026-08-15).** A
   top-level entity (parent null) with branches/outlets under it; a child ALWAYS
   inherits its parent's tenant, so the dashboard's Add-entity form asks for a
@@ -118,7 +117,6 @@ README's "run by hand" section is the manual fallback, not the primary path.
   `scoping.entity_from_request`, which BOUNDS the slug by RBAC — and falls
   through to the caller's own scope rather than returning None for a rejected
   slug, because None means "all entities" and would widen the response.
-  Backfill after binding numbers: `manage.py backfill_entity_scope`.
   Frontend: `useEntityQuery()` (lib/EntityContext) is the only way pages build
   the parameter, and it belongs in the fetching effect's dependency array —
   omitting it is what leaves a page showing the previous outlet's data.
@@ -139,7 +137,7 @@ README's "run by hand" section is the manual fallback, not the primary path.
   lazy imports up to the top.
 - **`calls/contacts.py` is DATABASE-FIRST** (`crm.Contact`), falling back to a
   legacy `backend/data/contacts.json` file only when the table is empty (fresh
-  clone before `manage.py seed_demo`). It maps snake_case contact dicts →
+  clone before the API seeds itself). It maps snake_case contact dicts →
   the frontend's camelCase `Contact` (`to_contact`) and builds the voice-agent
   dispatch metadata (`dial_meta`, everything vertical-specific riding on the
   contact's primary `Record`). `backend/data/` is gitignored — it holds PII.
@@ -259,7 +257,8 @@ README's "run by hand" section is the manual fallback, not the primary path.
   terminates Meta's WebRTC leg, joins a LiveKit room as `whatsapp_borrower`,
   and the normal voice agent is dispatched there). Webhook↔bridge IPC =
   `data/whatsapp/calls/{call_id}.json` signal files (SDP answer, hangup).
-  Offline check: `venv/bin/python -m whatsapp.bridge --selftest` (Windows: `venv\Scripts\python`).
+  (The Cloud-API WebRTC bridge was Python and went with the Django removal —
+  WhatsApp calling now runs over the Baileys transport only.)
   Calls are PID-tracked (`data/whatsapp/calls/pending-{wa_id}.json`, pid
   merged into the call signal): stale call state self-recovers when the
   bridge pid is dead, each call writes its own log under
@@ -512,7 +511,7 @@ README's "run by hand" section is the manual fallback, not the primary path.
   (`active`) are executed automatically by `flows/engine.py` — the ONLY
   interpreter of that JSON: time triggers match `Contact.overdue_days` each
   tick (in-process ticker thread started by `flows/apps.py` under runserver;
-  `manage.py flows_tick` / `POST /api/flows/tick` are the manual seams), and
+  `POST /api/flows/tick` is the manual seam), and
   inbound customer messages resume runs parked on a reply (hooked into the
   whatsapp + messaging webhooks via `flows_engine.on_inbound_async`, off the
   ack path). Per-contact execution state lives in `crm.FlowRun`
@@ -681,6 +680,27 @@ README's "run by hand" section is the manual fallback, not the primary path.
   the step logs a clear skip and the run continues. The seven action labels are
   a contract shared with `frontend/src/lib/flow/nodeConfig.ts
   INTEGRATION_ACTIONS` — change both sides together.
+- **Integrations are per USER, per entity, or global (2026-08-16).**
+  `Integration.OwnerUserId` (nullable) is what makes "different people,
+  different Google Calendars" possible: a connect flow writes to the CALLER's
+  own row (`IntegrationResolver.OwnRowAsync`), never an ownerless one, so a
+  second user can no longer overwrite the first's tokens. Resolution at call
+  time is **the acting user's grant → the entity's shared grant (then its
+  subtree) → the organization-wide one** (`IntegrationResolver.Active`); only
+  rows that actually carry credentials count.
+  `ChatBranch.Data/Integrations/`: `GoogleOAuth.cs` (PKCE S256, HMAC-signed
+  600s state, lazy refresh that marks a row disconnected and returns "" rather
+  than throwing), `IntegrationActions.cs` (the seven flow actions, executed for
+  real; a missing connection SKIPS so the run continues), `IntegrationSettings.cs`
+  (the org-wide keys live in ONE JSON Setting row `integrations_settings` — a
+  plain `SettingValue("google_client_id")` finds nothing, which is exactly how
+  the OAuth service first shipped believing no client was registered; both the
+  API and the OAuth service now read this helper). The callback
+  `/api/integrations/oauth/google/callback` is deliberately ANONYMOUS — the
+  browser arrives from accounts.google.com with no bearer token, so the signed
+  state IS the CSRF control. Set `GOOGLE_REDIRECT_URI` (must match the Google
+  console exactly) and `FRONTEND_URL` (where the callback bounces back to) in
+  production; both fall back to localhost.
 - **Docs:** `docs/vertical-guide.md` = how to configure the template for an
   industry (the five layers: hard rules → persona → skills → knowledge →
   memory). `docs/DATABASE_SCHEMA.md` = the real schema.
@@ -878,23 +898,21 @@ README's "run by hand" section is the manual fallback, not the primary path.
 
 ## Verifying changes
 
-- Frontend types: `cd frontend && npx tsc --noEmit` — clean, no known exceptions.
-  (There is **no** `frontend/__tests__/` directory; jest is configured in
-  package.json but there are no test files, so `npm test` has nothing to run.)
-- Django: `cd backend && venv/bin/python manage.py check` (Windows:
-  `venv\Scripts\python`; a `staticfiles.W004` missing-`static/` warning is
-  benign) and `venv/bin/python manage.py makemigrations --check --dry-run`.
-- Backend tests: `cd backend && venv/bin/python -m pytest tests/ calls/tests -q`
-  — 863 tests covering whatsapp hardening/features, baileys (messaging + calls +
-  live monitor + transcript/recording persistence), wa_calls, messaging
-  channels, ingest/partner sync, api v1, the flows engine, channel
-  health/routing/failover (all channels incl. telegram/voice), the outbound
-  queue (incl. queued AI replies + cold-text guard), account roles /
-  routing rules / redirect / recovery, the contact channels hub, analytics,
-  account switching, AI memory/persona, the integrations app (OAuth/PKCE,
-  webhook HMAC, sandbox, Shopify/Stripe → Record mapping) and the knowledge
-  base + AgentSkill write-ownership; keep them green.
-- Python: `python -m py_compile` on changed agent/Django files.
+- Frontend types: `cd frontend && npx tsc --noEmit` — clean, no known
+  exceptions. Lint with `npx eslint src`. (There is **no**
+  `frontend/__tests__/`; jest is configured but has no test files.)
+- Backend: `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
+  then `QUEUE_WORKER=0 dotnet test tests/ChatBranch.Tests` — 47 tests covering
+  auth/RBAC, the inbox, webhooks (incl. wamid dedup and the QUEUED ai_reply
+  that Send Pacing acts on), contacts, flows + the outbound queue, analytics,
+  settings and custom fields. `QUEUE_WORKER=0` stops the drain thread racing
+  the assertions. Keep them green.
+- The API rebuilds and reseeds against `src/ChatBranch.Api/chatbranch.sqlite3`;
+  new columns go in `Seed.UpgradeSchema` (append-only, idempotent
+  `ALTER TABLE ADD COLUMN`) because `EnsureCreated()` never alters a live
+  schema.
+- Voice agent: `python -m py_compile` on changed files under
+  `backend/voice_agent/`.
 
 ## Notes
 

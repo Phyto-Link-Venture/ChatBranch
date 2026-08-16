@@ -7,7 +7,7 @@ import { getRole } from '@/lib/role'
 import { useEntity } from '@/lib/EntityContext'
 import { useApp } from '@/lib/AppContext'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface EntityRef {
   slug: string

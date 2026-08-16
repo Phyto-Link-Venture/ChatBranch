@@ -30,7 +30,7 @@ import { authHeaders } from '@/lib/auth'
 import { HEALTH_META, relTime, type HealthStatus } from '@/lib/channelHealth'
 import { Select, type SelectOption } from '@/components/ui/Select'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export interface ChannelIdentity {
   key: string

@@ -23,12 +23,15 @@ public class FlowEngine
     private readonly AppDbContext _db;
     private readonly ScopingService _scoping;
     private readonly QueueService _queue;
+    private readonly Integrations.IntegrationActions? _actions;
 
-    public FlowEngine(AppDbContext db, ScopingService scoping, QueueService queue)
+    public FlowEngine(AppDbContext db, ScopingService scoping, QueueService queue,
+        Integrations.IntegrationActions? actions = null)
     {
         _db = db;
         _scoping = scoping;
         _queue = queue;
+        _actions = actions;
     }
 
     private static readonly string[] ClosedStatuses =
@@ -317,7 +320,9 @@ public class FlowEngine
     {
         var cfg = Cfg(node);
         var basis = CfgStr(cfg, "basedOn"); if (basis == "") basis = "Contact's answer";
-        var contact = run.ContactId is int cid ? _db.Contacts.Find(cid) : null;
+        var contact = run.ContactId is int cid
+            ? _db.Contacts.Include(c => c.EntityLinks).FirstOrDefault(c => c.Id == cid)
+            : null;
         var nodeId = Str(node, "id");
 
         if (basis == "Record status")
@@ -389,6 +394,14 @@ public class FlowEngine
                         Log(run, nodeId, "in-app push sent");
                         break;
                     default:
+                        // Integration actions (Create calendar event, Append row
+                        // to Sheet, …) run for real against the resolved
+                        // connection; anything else is still just logged.
+                        if (Integrations.IntegrationActions.Providers.ContainsKey(ch))
+                        {
+                            DoIntegration(run, nodeId, contact, ch, cfg, script);
+                            break;
+                        }
                         Log(run, nodeId, $"{ch}: logged (no provider) — {Trim(script, 80)}");
                         break;
                 }
@@ -667,6 +680,30 @@ public class FlowEngine
     /// by the queue drain instead (AccountDelivery.InQuietHours).
     /// </summary>
     private bool InQuietHours() => Channels.AccountDelivery.InQuietHours(null, _scoping);
+
+    /// <summary>
+    /// Run an integration action step. The connection is resolved per entity
+    /// (the flow has no signed-in user, so a shared/entity grant answers), and a
+    /// missing one SKIPS so the run continues.
+    /// </summary>
+    private void DoIntegration(FlowRun run, string nodeId, Contact? contact, string action,
+        JsonElement cfg, string script)
+    {
+        if (_actions == null)
+        {
+            Log(run, nodeId, $"{action}: skipped (integrations unavailable)");
+            return;
+        }
+        var args = new Dictionary<string, string>();
+        if (cfg.ValueKind == JsonValueKind.Object)
+            foreach (var p in cfg.EnumerateObject())
+                args[p.Name] = p.Value.ValueKind == JsonValueKind.String
+                    ? p.Value.GetString() ?? "" : p.Value.ToString();
+        var entityId = contact?.EntityLinks.FirstOrDefault()?.EntityId;
+        var result = _actions.RunAsync(action, contact, args, script, entityId, null)
+            .GetAwaiter().GetResult();
+        Log(run, nodeId, $"{action}: {result.Detail}");
+    }
 
     private void Notify(string[] roles, string title, string body)
     {

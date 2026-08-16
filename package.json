@@ -3,16 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "setup": "npm run setup:api && npm run setup:web && npm run setup:baileys",
-    "setup:api": "node scripts/setup-api.js",
+    "setup": "npm run setup:web && npm run setup:baileys",
     "setup:web": "npm --prefix frontend install",
     "setup:baileys": "npm --prefix backend/baileys_service install",
     "dev:all": "concurrently -n api,agent,web,wa -c blue,magenta,green,yellow \"npm run dev:api\" \"npm run dev:agent\" \"npm run dev:web\" \"npm run dev:baileys\"",
     "dev": "npm run dev:all",
-    "dev:api": "node scripts/run-py.js backend manage.py runserver 0.0.0.0:8000",
+    "dev:api": "dotnet run --project backend-csharp/src/ChatBranch.Api --urls http://0.0.0.0:8090",
     "dev:agent": "node scripts/run-py.js backend/voice_agent agent.py dev",
     "dev:web": "npm --prefix frontend run dev",
-    "dev:baileys": "npm --prefix backend/baileys_service start"
+    "dev:baileys": "npm --prefix backend/baileys_service start",
+    "test:api": "dotnet test backend-csharp/tests/ChatBranch.Tests",
+    "typecheck:web": "npm --prefix frontend exec tsc -- --noEmit"
   },
   "devDependencies": {
     "concurrently": "^9.2.0"

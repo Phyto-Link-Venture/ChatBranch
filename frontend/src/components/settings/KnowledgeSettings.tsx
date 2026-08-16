@@ -21,7 +21,7 @@ import { useEntity, useEntityQuery } from '@/lib/EntityContext'
 import { EntityScopeSelect, ScopeBadge } from './EntityScopeSelect'
 import { expireSessionOn401 } from '@/lib/auth'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface Item {
   id: number

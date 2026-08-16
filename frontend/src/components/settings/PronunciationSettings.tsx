@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Loader2, Plus, Trash2, AlertCircle, Volume2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 type Term = { term: string; alias: string }
 

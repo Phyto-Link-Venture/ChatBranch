@@ -21,7 +21,7 @@ import { authHeaders } from '@/lib/auth'
  *                  it; a rename shows the stale label until re-picked.
  */
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 const PAGE_SIZE = 50
 
 interface Row {

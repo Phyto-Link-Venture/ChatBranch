@@ -16,7 +16,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { authHeaders, getAuth } from './auth'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 const ACTIVE_KEY = 'chatbranch-active-entity'
 const ALL = '__all__' // sentinel: view across every entity
 

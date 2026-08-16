@@ -9,7 +9,7 @@ import { expireSessionOn401 } from '@/lib/auth'
 import { DEFAULT_AGENT_SKILLS } from '@/lib/flow/defaultAgentSkills'
 import { useSettingsDirty } from './SettingsDirtyContext'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface Skill {
   id: string

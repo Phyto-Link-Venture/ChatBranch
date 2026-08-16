@@ -5,7 +5,7 @@ import { ScrollText } from 'lucide-react'
 import { authHeaders } from '@/lib/auth'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /**
  * Activity = the real audit trail (crm.AuditLog): sign-ins, sends, calls,

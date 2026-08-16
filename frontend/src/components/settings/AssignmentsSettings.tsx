@@ -9,7 +9,7 @@ import { roleHeaders, getRole } from '@/lib/role'
 import { expireSessionOn401 } from '@/lib/auth'
 import { relTime } from '@/lib/channelHealth'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface AsgAccount {
   id: string
@@ -115,7 +115,7 @@ export function AssignmentsSettings() {
   if (accounts === null) {
     return (
       <div className="py-6 text-[12px] text-text-muted">
-        Account assignment unavailable — is the backend API running on port 8000?
+        Account assignment unavailable — is the backend API running?
       </div>
     )
   }

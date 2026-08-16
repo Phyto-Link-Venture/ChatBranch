@@ -190,7 +190,7 @@ public static class IntegrationsEndpoints
             AppDbContext db, ScopingService sc) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
-            var rows = await sc.ScopeInherited(db.Integrations.AsNoTracking(), entityId).ToListAsync();
+            var rows = await sc.ScopeInherited(db.Integrations.AsNoTracking().Include(i => i.Owner), entityId).ToListAsync();
             var googleReady = GoogleOauthConfigured(sc);
 
             var providers = Catalog.Select(meta =>
@@ -227,7 +227,7 @@ public static class IntegrationsEndpoints
             AppDbContext db, ScopingService sc) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
-            var qs = sc.ScopeInherited(db.Integrations.AsNoTracking(), entityId);
+            var qs = sc.ScopeInherited(db.Integrations.AsNoTracking().Include(i => i.Owner), entityId);
             var wanted = (provider ?? "").Trim();
             if (wanted.Length > 0) qs = qs.Where(i => i.Provider == wanted);
             var rows = await qs.OrderBy(i => i.Provider).ThenBy(i => i.Id).ToListAsync();
@@ -374,7 +374,13 @@ public static class IntegrationsEndpoints
         // round-trip itself is not ported yet, so this answers with the honest
         // "needs one-time setup" shape (HTTP 200, {configured:false, reason})
         // that the card already renders — never a 404 and never a socket opened.
-        app.MapGet("/api/integrations/oauth/{provider}/start", (string provider, ScopingService sc) =>
+        // ---- OAuth: start ------------------------------------------------
+        // Returns a ready Google consent URL for THIS caller's own connection
+        // (PKCE + signed state). Each user gets their own row, so two people in
+        // one entity connect two different calendars instead of overwriting one.
+        app.MapGet("/api/integrations/oauth/{provider}/start", async (string provider, string? entity,
+            HttpContext ctx, AppDbContext db, ScopingService sc, ClaimsPrincipal me,
+            IntegrationResolver resolver, GoogleOAuth oauth) =>
         {
             var meta = Meta(provider);
             if (meta == null)
@@ -386,26 +392,86 @@ public static class IntegrationsEndpoints
                     reason = $"{meta.Label} uses an API key, not OAuth — add an account instead.",
                     detail = $"{meta.Label} does not use OAuth.",
                 }, statusCode: 400);
-            var reason = GoogleOauthConfigured(sc)
-                ? "The Google OAuth redirect is not available in this backend yet — connect " +
-                  "this provider from the Django API, or add the grant by hand."
-                : "Google OAuth is not configured yet. An admin must register a Google OAuth " +
-                  "app once (Settings → Integrations, or GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET " +
-                  "in backend/.env); after that anyone connects in one click.";
-            return Results.Ok(new { configured = false, reason });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+            if (!GoogleOauthConfigured(sc))
+                return Results.Ok(new
+                {
+                    configured = false,
+                    reason = "Google OAuth is not configured yet. A super admin registers the "
+                             + "Google client once (Settings → App & Provider Keys); after that "
+                             + "anyone connects their own account in one click.",
+                });
 
-        // Flow-builder action dispatch — sandbox returns a clean skip.
-        app.MapPost("/api/integrations/action", async (ActionRequest body, AppDbContext db) =>
+            var entityId = await InboxEndpoints.EntityId(db, entity);
+            var userId = await UserIdAsync(db, me);
+            var row = await resolver.OwnRowAsync(provider, entityId, userId);
+            try
+            {
+                var url = oauth.AuthorizeUrl(row, meta.Scopes, RedirectUri(ctx, sc));
+                return Results.Ok(new { configured = true, authorize_url = url });
+            }
+            catch (GoogleOAuth.OAuthException e)
+            {
+                return Results.Ok(new { configured = false, reason = e.Message });
+            }
+        }).RequireAuthorization(AuthPolicies.Authenticated);
+
+        // ---- OAuth: callback ---------------------------------------------
+        // OPEN by design: the browser arrives from accounts.google.com with no
+        // Authorization header, so the signed state IS the CSRF control. Always
+        // bounces back to the dashboard with ?connected= or ?error=.
+        app.MapGet(GoogleCallbackPath, async (string? code, string? state, string? error,
+            HttpContext ctx, AppDbContext db, ScopingService sc, GoogleOAuth oauth) =>
         {
-            var row = await db.Integrations.AsNoTracking()
-                .FirstOrDefaultAsync(i => i.Provider == body.Provider);
-            if (row == null || row.Credentials.Count == 0)
-                return Results.Ok(new { ok = false, skipped = true,
-                    detail = $"{body.Provider} not connected — action '{body.Action}' skipped (sandbox)." });
-            // A real dispatch would run here; connected-but-unimplemented also skips cleanly.
-            return Results.Ok(new { ok = false, skipped = true,
-                detail = $"action '{body.Action}' not yet implemented in the C# port" });
+            var dashboard = DashboardUrl();
+            if (!string.IsNullOrEmpty(error))
+                return Results.Redirect($"{dashboard}?error={Uri.EscapeDataString(error!)}");
+            try
+            {
+                var data = oauth.VerifyState(state);
+                var row = await db.Integrations.FirstOrDefaultAsync(
+                    i => i.Id == data.IntegrationId && i.Provider == data.Provider);
+                if (row == null)
+                    return Results.Redirect($"{dashboard}?error={Uri.EscapeDataString("That connection no longer exists.")}");
+                if (string.IsNullOrEmpty(code))
+                    return Results.Redirect($"{dashboard}?error={Uri.EscapeDataString("Google returned no authorization code.")}");
+                await oauth.ExchangeCodeAsync(row, code!, RedirectUri(ctx, sc));
+                var label = Meta(row.Provider)?.Label ?? row.Provider;
+                return Results.Redirect($"{dashboard}?connected={Uri.EscapeDataString(label)}");
+            }
+            catch (GoogleOAuth.OAuthException e)
+            {
+                return Results.Redirect($"{dashboard}?error={Uri.EscapeDataString(e.Message)}");
+            }
+            catch
+            {
+                return Results.Redirect($"{dashboard}?error={Uri.EscapeDataString("The connection could not be completed.")}");
+            }
+        }).AllowAnonymous();
+
+        // ---- flow-builder action dispatch --------------------------------
+        // Runs the action for real against the resolved connection (this user's
+        // own → the entity's → the organization's). A missing connection SKIPS
+        // so the flow run continues; a provider error is reported honestly.
+        app.MapPost("/api/integrations/action", async (ActionRequest body, AppDbContext db,
+            IntegrationActions actions, ClaimsPrincipal me, string? entity) =>
+        {
+            var args = new Dictionary<string, string>();
+            foreach (var (k, v) in body.Args ?? new()) args[k] = v?.ToString() ?? "";
+            var contactId = int.TryParse(args.GetValueOrDefault("contact_id"), out var cid) ? cid : (int?)null;
+            var contact = contactId is int id
+                ? await db.Contacts.FirstOrDefaultAsync(c => c.Id == id)
+                : null;
+            var entityId = await InboxEndpoints.EntityId(db, entity);
+            var userId = await UserIdAsync(db, me);
+            var result = await actions.RunAsync(body.Action, contact, args,
+                args.GetValueOrDefault("text") ?? "", entityId, userId);
+            return Results.Ok(new
+            {
+                ok = result.Ok,
+                skipped = result.Skipped,
+                detail = result.Detail,
+                data = result.Data,
+            });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- webhooks: verify HMAC; no secret ⇒ 503 (never accept unsigned) ----
@@ -479,9 +545,14 @@ public static class IntegrationsEndpoints
             name = Name(row),
             external_id = Conf(row, "external_id"),
             config = PublicConfig(row),
-            // The C# Integration entity has no granted-scope column: report the
-            // provider's catalog scopes once a grant exists, nothing before.
-            scopes = connected ? meta?.Scopes ?? Array.Empty<string>() : Array.Empty<string>(),
+            // Scopes actually granted (what came back on the token); before a
+            // grant exists there is nothing to report.
+            scopes = row.Scopes.Count > 0
+                ? row.Scopes.ToArray()
+                : connected ? meta?.Scopes ?? Array.Empty<string>() : Array.Empty<string>(),
+            // Whose connection this is. null = shared by the whole entity.
+            owner_user_id = row.OwnerUserId,
+            owner = row.Owner?.Username,
             connected,
             api_key_masked = MaskSecret(Cred(row, "api_key")),
             webhook_secret_masked = MaskSecret(Cred(row, "webhook_secret")),
@@ -551,19 +622,13 @@ public static class IntegrationsEndpoints
     /// plain Setting row of the same name (what the webhook handlers read before
     /// this surface existed), then .env — "" means "not configured anywhere".
     /// </summary>
-    private static string GlobalSettingValue(ScopingService sc, string key)
-    {
-        var stored = (StoredGlobals(sc).GetValueOrDefault(key) ?? "").Trim();
-        if (stored != "") return stored;
-        var row = sc.SettingValue(key);
-        if (row != "") return row;
-        var envName = GlobalKeys.FirstOrDefault(g => g.Key == key).Env;
-        return envName == null ? "" : (Environment.GetEnvironmentVariable(envName) ?? "").Trim();
-    }
+    // One source for the org-wide keys — the OAuth service reads the same
+    // helper, so "is Google configured?" can never disagree between them.
+    private static string GlobalSettingValue(ScopingService sc, string key) =>
+        IntegrationSettings.Value(sc, key);
 
     private static bool GoogleOauthConfigured(ScopingService sc) =>
-        GlobalSettingValue(sc, "google_client_id") != "" &&
-        GlobalSettingValue(sc, "google_client_secret") != "";
+        IntegrationSettings.GoogleConfigured(sc);
 
     /// <summary>
     /// Where Google sends the browser back: the configured value wins, otherwise
@@ -575,6 +640,23 @@ public static class IntegrationsEndpoints
         var configured = GlobalSettingValue(sc, "google_redirect_uri");
         if (configured != "") return configured;
         return $"{Origin(ctx)}{GoogleCallbackPath}";
+    }
+
+    /// <summary>Where the OAuth callback bounces the operator back to.</summary>
+    private static string DashboardUrl()
+    {
+        var basis = (Environment.GetEnvironmentVariable("FRONTEND_URL") ?? "http://localhost:3000")
+            .TrimEnd('/');
+        return $"{basis}/integrations";
+    }
+
+    /// <summary>The signed-in user's pk — the owner of any grant they create.</summary>
+    private static async Task<int?> UserIdAsync(AppDbContext db, ClaimsPrincipal me)
+    {
+        var username = me.Identity?.Name;
+        if (string.IsNullOrWhiteSpace(username)) return null;
+        var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Username == username);
+        return user?.Id;
     }
 
     private static string Origin(HttpContext ctx)

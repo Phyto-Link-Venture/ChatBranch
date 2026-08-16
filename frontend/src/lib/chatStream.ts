@@ -14,7 +14,7 @@
  */
 import { authHeaders, expireSessionOn401 } from './auth'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 const RETRY_MS = 4000
 
 type Listener = () => void

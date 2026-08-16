@@ -7,7 +7,7 @@ import { roleHeaders } from '@/lib/role'
 import { expireSessionOn401 } from '@/lib/auth'
 import { useRole } from '@/lib/useRole'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /**
  * Provider keys — the developer OAuth client + webhook signing secrets that

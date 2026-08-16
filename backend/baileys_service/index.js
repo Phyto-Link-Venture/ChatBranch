@@ -73,7 +73,11 @@ for (const [event, label] of [['unhandledRejection', 'UNHANDLED REJECTION'],
 
 const PORT = Number(process.env.BAILEYS_PORT || 3020)
 const SECRET = process.env.BAILEYS_SECRET || 'baileys-local-dev'
-const DJANGO_URL = (process.env.DJANGO_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')
+// The API this gateway pushes inbound events to. Named DJANGO_URL when the
+// backend was Django; that name is still accepted so existing runbooks and
+// process managers keep working after the port to the C# API.
+const API_URL = (process.env.API_URL || process.env.DJANGO_URL || 'http://127.0.0.1:8090')
+  .replace(/\/$/, '')
 const AUTH_ROOT = path.join(HERE, '..', 'data', 'whatsapp', 'baileys')
 
 const logger = pino({ level: process.env.BAILEYS_LOG_LEVEL || 'silent' })
@@ -198,7 +202,7 @@ async function pushInboundMedia(id, m, waId, media) {
     form.append('media_type', media.type)
     form.append('file', new Blob([buffer], { type: mime || 'application/octet-stream' }), filename)
     // no explicit Content-Type header — fetch sets the multipart boundary
-    await fetch(`${DJANGO_URL}/api/whatsapp/baileys/media`, {
+    await fetch(`${API_URL}/api/whatsapp/baileys/media`, {
       method: 'POST', headers: { 'X-Baileys-Secret': SECRET }, body: form,
     })
     logEvent('mediaPush', { acct: id, id: m.key?.id, kind: media.key, bytes: buffer.length })
@@ -235,7 +239,7 @@ async function pushInbound(id, m) {
     msg_id: m.key?.id || '',
   }
   try {
-    await fetch(`${DJANGO_URL}/api/whatsapp/baileys/inbound`, {
+    await fetch(`${API_URL}/api/whatsapp/baileys/inbound`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
       body: JSON.stringify(body),
@@ -263,7 +267,7 @@ function disconnectReasonName(code) {
 async function pushStatusEvent(id, event, reason = '') {
   logEvent('status', { acct: id, event, reason })
   try {
-    await fetch(`${DJANGO_URL}/api/whatsapp/baileys/status-event`, {
+    await fetch(`${API_URL}/api/whatsapp/baileys/status-event`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
       // `number` = this account's OWN paired MSISDN (captured as a.me on
@@ -365,7 +369,7 @@ async function startAccount(id) {
     else if (jid.endsWith('@lid')) waId = phoneForLid(jid) || ''
     if (!key?.fromMe || !key?.id || !waId) return
     try {
-      await fetch(`${DJANGO_URL}/api/whatsapp/baileys/message-status`, {
+      await fetch(`${API_URL}/api/whatsapp/baileys/message-status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
         body: JSON.stringify({ wa_id: waId, msg_id: key.id, status: statusLabel }),
@@ -478,7 +482,7 @@ async function callsModule() {
 async function pushCallEvent(id, event, detail) {
   logEvent('call', { acct: id, event, ...detail })
   try {
-    await fetch(`${DJANGO_URL}/api/whatsapp/baileys/call-event`, {
+    await fetch(`${API_URL}/api/whatsapp/baileys/call-event`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Baileys-Secret': SECRET },
       body: JSON.stringify({ account_id: id, event, ...detail }),

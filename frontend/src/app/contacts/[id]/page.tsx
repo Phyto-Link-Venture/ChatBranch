@@ -34,7 +34,7 @@ import { fetchCustomFields, formatFieldValue, type FieldDef } from '@/lib/custom
 import { DEFAULT_WORKFLOWS } from '@/lib/flow/defaultWorkflows'
 import type { FlowNode } from '@/lib/flow/types'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /** How many recent contacts load with the page — the rest on "Load full log". */
 const RECENT_EVENTS = 5

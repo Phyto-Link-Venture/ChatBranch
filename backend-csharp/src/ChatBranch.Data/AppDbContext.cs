@@ -109,6 +109,13 @@ public class AppDbContext : DbContext
         b.Entity<PendingToolAction>().ToTable("crm_pendingtoolaction");
         b.Entity<ConversationSummary>().ToTable("crm_conversationsummary");
         b.Entity<Integration>().ToTable("integrations_integration");
+        // Per-user grants: deleting a login must not delete the connection row
+        // (an admin can re-own it) — null the owner instead.
+        b.Entity<Integration>()
+            .HasOne(i => i.Owner)
+            .WithMany()
+            .HasForeignKey(i => i.OwnerUserId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         // ---- Profile <-> Entity many-to-many (Django crm_profile_entities) -----
         b.Entity<Profile>()
@@ -170,6 +177,7 @@ public class AppDbContext : DbContext
         Json<Workflow, List<object?>>(b, x => x.Nodes);
         Json<Workflow, List<object?>>(b, x => x.Edges);
         Json<KnowledgeItem, List<string>>(b, x => x.Tags);
+        Json<Integration, List<string>>(b, x => x.Scopes);
         Json<KnowledgeItem, List<string>>(b, x => x.Channels);
         Json<FlowRun, Dictionary<string, object?>>(b, x => x.Context);
         Json<FlowRun, List<object?>>(b, x => x.Log);

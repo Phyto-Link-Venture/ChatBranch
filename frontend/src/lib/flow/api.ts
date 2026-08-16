@@ -10,7 +10,7 @@ import type { AgentSkill, WorkflowDef } from './types'
  * + inbound-message events). localStorage stays as the offline fallback, so
  * the builder still works with the API down; edits push up on reconnect.
  */
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export interface FlowLibrary {
   workflows: WorkflowDef[]

@@ -91,7 +91,7 @@ const KEY = 'chatbranch-auth'
 // instead of logging everyone out ('chatwood-auth' = pre-ChatBranch,
 // 'ai-collector-auth' = pre-ChatWood).
 const LEGACY_KEYS = ['chatwood-auth', 'ai-collector-auth']
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export function getAuth(): AuthUser | null {
   if (typeof window === 'undefined') return null

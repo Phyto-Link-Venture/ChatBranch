@@ -35,7 +35,7 @@ import {
   type VoiceHealth,
 } from '@/lib/channelHealth'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -1020,7 +1020,7 @@ function VoicePanel({ refreshHealth }: { refreshHealth: () => void }) {
   if (failed) {
     return (
       <div className="py-6 text-[12px] text-text-muted">
-        Voice settings unavailable — is the backend API running on port 8000?
+        Voice settings unavailable — is the backend API running?
       </div>
     )
   }
@@ -1296,7 +1296,7 @@ export function ChannelsSettings() {
         <VoicePanel refreshHealth={() => { refreshHealth().catch(() => {}) }} />
       ) : !messagingUp ? (
         <div className="py-6 text-[12px] text-text-muted">
-          Channel settings unavailable — is the backend API running on port 8000?
+          Channel settings unavailable — is the backend API running?
         </div>
       ) : active === 'email' ? (
         email && (

@@ -35,7 +35,7 @@ import { initials, primaryRecord } from '@/lib/mocks'
 import { StatusBadge } from '@/components/ui/Badges'
 import { RecoveryBanner } from '@/components/settings/RoutingRulesSettings'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface EngagementStats {
   threads_total: number

@@ -7,7 +7,7 @@ import { roleHeaders } from '@/lib/role'
 import { expireSessionOn401 } from '@/lib/auth'
 import { useRole } from '@/lib/useRole'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface GlobalSettings {
   verify_token: string
@@ -95,7 +95,7 @@ export function AppKeysSettings() {
   if (loaded === null) {
     return (
       <div className="py-6 text-[12px] text-text-muted">
-        App settings unavailable — is the backend API running on port 8000?
+        App settings unavailable — is the backend API running?
       </div>
     )
   }

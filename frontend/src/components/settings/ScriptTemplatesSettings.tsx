@@ -9,7 +9,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable'
 import { roleHeaders } from '@/lib/role'
 import { expireSessionOn401, hasCap } from '@/lib/auth'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface ScriptTemplate {
   id: number
@@ -171,10 +171,8 @@ export function ScriptTemplatesSettings() {
           <span>Couldn&apos;t load script templates — {loadError}</span>
         </div>
         <p className="mt-2 text-text-muted">
-          An <span className="font-bold">HTTP 500</span> here usually means the backend is missing this
-          feature&apos;s migration: run <code className="rounded bg-fill px-1">venv\Scripts\python manage.py
-          migrate</code> in <code className="rounded bg-fill px-1">backend/</code>. A network/failed-to-fetch error
-          means the API isn&apos;t running on port 8000.
+          A network / failed-to-fetch error means the API isn&apos;t running — start it with{' '}
+          <code className="rounded bg-fill px-1">npm run dev:api</code>.
         </p>
       </div>
     )

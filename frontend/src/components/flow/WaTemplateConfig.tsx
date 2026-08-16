@@ -21,7 +21,7 @@ import type { FlowConfig } from '@/lib/flow/types'
  * with those too.
  */
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface WaTemplateButton {
   type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER' | string
