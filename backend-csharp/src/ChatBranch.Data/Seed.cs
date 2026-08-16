@@ -35,6 +35,9 @@ public static class Seed
         AddColumnIfMissing(db, "integrations_integration", "owner_user_id", "INTEGER NULL");
         AddColumnIfMissing(db, "integrations_integration", "scopes", "TEXT NULL");
         AddColumnIfMissing(db, "crm_thread", "team_id", "INTEGER NULL");
+        AddColumnIfMissing(db, "crm_knowledgeitem", "published", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(db, "crm_knowledgeitem", "slug", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_knowledgeitem", "category", "TEXT NOT NULL DEFAULT ''");
         AddTableIfMissing(db, "crm_team",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_team\" PRIMARY KEY AUTOINCREMENT, "
             + "\"entity_id\" INTEGER NULL, \"name\" TEXT NOT NULL, \"description\" TEXT NOT NULL, "

@@ -33,6 +33,10 @@ interface Item {
   channels: string[]
   priority: number
   active: boolean
+  /** Help Center: readable by the public at /help (distinct from `active`). */
+  published: boolean
+  slug: string
+  category: string
   entity_id: number | null
   /** Owning outlet slug; null = organization-wide (inherited by every entity). */
   entity: string | null
@@ -193,6 +197,8 @@ export function KnowledgeSettings() {
         channels: draft.channels || [],
         priority: draft.priority ?? 0,
         active: draft.active ?? true,
+        published: draft.published ?? false,
+        category: draft.category || '',
         starts_at: draft.starts_at || '',
         ends_at: draft.ends_at || '',
         // Explicit scope: null = organization-wide (every outlet inherits it).
@@ -450,6 +456,41 @@ export function KnowledgeSettings() {
             />
           </label>
 
+          {/* Help Center: publishing is SEPARATE from active — an internal note
+              stays active and unpublished; a public FAQ is both. */}
+          <div className="mt-3 rounded-lg border border-line bg-fill-subtle p-3">
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                checked={draft.published ?? false}
+                onChange={(e) => setDraft({ ...draft, published: e.target.checked })}
+                className="h-3.5 w-3.5 accent-emerald-500"
+              />
+              <span className="text-[12px] text-text-primary">
+                Publish to the Help Center
+                <span className="ml-1 text-[10.5px] text-text-muted">
+                  — customers can read it at /help; the AI uses it either way
+                </span>
+              </span>
+            </label>
+            {draft.published && (
+              <label className="mt-2 block">
+                <span className="mb-1 block text-[10.5px] font-bold text-text-high">Category</span>
+                <input
+                  value={draft.category || ''}
+                  placeholder="Billing"
+                  onChange={(e) => setDraft({ ...draft, category: e.target.value })}
+                  className={inputCls}
+                />
+                {draft.slug && (
+                  <span className="mt-1 block text-[10.5px] text-text-muted">
+                    Public link: <code className="rounded bg-fill px-1">/help/{draft.slug}</code>
+                  </span>
+                )}
+              </label>
+            )}
+          </div>
+
           <div className="mt-3">
             <span className="mb-1 block text-[10.5px] font-bold text-text-high">
               Channels (none selected = every channel)
@@ -552,6 +593,14 @@ export function KnowledgeSettings() {
                 is inherited from the organization or belongs to this outlet. */}
             {activeEntity && (
               <ScopeBadge scope={item.scope} entityName={item.entity_name || activeEntity.name} />
+            )}
+            {item.published && (
+              <span
+                className="shrink-0 rounded-full bg-brand-400/15 px-2 py-px text-[9.5px] font-bold text-brand-300"
+                title="Readable by customers at /help"
+              >
+                Published
+              </span>
             )}
             <StateChip item={item} />
             {canManage && (

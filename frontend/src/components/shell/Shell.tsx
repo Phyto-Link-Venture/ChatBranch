@@ -22,10 +22,16 @@ import { CampaignModal } from '@/components/CampaignModal'
 // standard padded content well.
 const FULL_BLEED: string[] = ['/chats', '/flow-builder', '/settings']
 
+/** Routes anyone may read, signed in or not. */
+const PUBLIC_ROUTES = ['/help']
+
 export function Shell({ children }: { children: ReactNode }) {
   const pathname = usePathname() || '/dashboard'
   const router = useRouter()
   const isLogin = pathname === '/login'
+  // Public routes render without the operator shell and without the auth
+  // guard — the Help Center is read by customers, not staff.
+  const isPublic = PUBLIC_ROUTES.some((p) => pathname === p || pathname.startsWith(p + '/'))
   const isFullBleed = FULL_BLEED.some((p) => pathname === p || pathname.startsWith(p + '/'))
 
   const [user, setUser] = useState<AuthUser | null>(null)
@@ -49,8 +55,8 @@ export function Shell({ children }: { children: ReactNode }) {
 
   // Auth guard — client-side redirect (POC; server APIs enforce roles too).
   useEffect(() => {
-    if (!isLogin && !getAuth()) router.replace('/login')
-  }, [isLogin, pathname, router])
+    if (!isLogin && !isPublic && !getAuth()) router.replace('/login')
+  }, [isLogin, isPublic, pathname, router])
 
   const toggleNav = () => {
     setCollapsed((c) => {
@@ -64,7 +70,8 @@ export function Shell({ children }: { children: ReactNode }) {
     })
   }
 
-  if (isLogin) return <>{children}</>
+  // Login and public pages render bare — no sidebar, no topbar.
+  if (isLogin || isPublic) return <>{children}</>
 
   return (
     <div className="flex h-[100dvh] flex-col gap-2.5 overflow-hidden bg-app p-2.5">

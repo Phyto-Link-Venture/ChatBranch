@@ -24,7 +24,7 @@ import {
   type TranscriptLine,
 } from './mocks'
 import { useEntity } from './EntityContext'
-import { authHeaders, expireSessionOn401 } from './auth'
+import { authHeaders, expireSessionOn401, getAuth } from './auth'
 
 // Native Django API base. Override with NEXT_PUBLIC_API_URL.
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
@@ -167,6 +167,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false
+    // Public pages (the Help Center) mount this provider with no session —
+    // calling a bearer-gated endpoint there is a guaranteed 401 in the console.
+    if (!getAuth()) return
     // /api/contacts is bearer-gated: WITHOUT the header it 401s and the catch
     // below silently keeps the demo mocks, so the page showed ten invented
     // people over a live database. Only a transport failure may fall back now.

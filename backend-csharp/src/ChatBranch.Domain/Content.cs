@@ -72,6 +72,17 @@ public class KnowledgeItem : IEntityScoped
     public List<string> Tags { get; set; } = new();
     public List<string> Channels { get; set; } = new();
     public int Priority { get; set; }
+    // ---- Help Center (public portal) ----------------------------------------
+    /// <summary>
+    /// Published = readable by anyone at /help. SEPARATE from Active, which
+    /// controls whether the AI may use it: an internal pricing note stays
+    /// Active and unpublished, a public FAQ is both.
+    /// </summary>
+    public bool Published { get; set; }
+    /// <summary>URL slug for the public article ("" = derived from the title).</summary>
+    public string Slug { get; set; } = "";
+    /// <summary>Free-text grouping on the portal ("Billing", "Getting started").</summary>
+    public string Category { get; set; } = "";
     public bool Active { get; set; } = true;
     public DateTime? StartsAt { get; set; }
     public DateTime? EndsAt { get; set; }

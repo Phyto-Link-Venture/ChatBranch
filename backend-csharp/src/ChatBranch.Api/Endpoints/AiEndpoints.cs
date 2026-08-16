@@ -24,7 +24,10 @@ public static class AiEndpoints
     /// </remarks>
     public record KnowledgeWrite(string? Kind, string? Title, string? Question, string? Content,
         List<string>? Tags, List<string>? Channels, int? Priority, bool? Active,
-        DateTime? StartsAt, DateTime? EndsAt, string? Entity);
+        DateTime? StartsAt, DateTime? EndsAt, string? Entity,
+        // Help Center: Published is PUBLIC readability, distinct from Active
+        // (whether the AI may use it).
+        bool? Published = null, string? Slug = null, string? Category = null);
     /// <summary>`text` is what the dashboard's preview box posts; `query` is the
     /// Django name. Accept both — binding only `query` made the preview silently
     /// ignore the message you typed and always return the whole block.</summary>
@@ -112,6 +115,9 @@ public static class AiEndpoints
                 Question = b.Question ?? "", Content = b.Content ?? "",
                 Tags = b.Tags ?? new(), Channels = b.Channels ?? new(),
                 Priority = b.Priority ?? 0, Active = b.Active ?? true,
+                Published = b.Published ?? false,
+                Slug = (b.Slug ?? "").Trim().ToLowerInvariant(),
+                Category = (b.Category ?? "").Trim(),
                 StartsAt = b.StartsAt, EndsAt = b.EndsAt,
                 CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
             };
@@ -136,6 +142,9 @@ public static class AiEndpoints
             if (KList(b, "channels") is List<string> channels) row.Channels = channels;
             if (KInt(b, "priority") is int prio) row.Priority = prio;
             if (KBool(b, "active") is bool active) row.Active = active;
+            if (KBool(b, "published") is bool pub) row.Published = pub;
+            if (KStr(b, "slug") is string slug) row.Slug = slug.Trim().ToLowerInvariant();
+            if (KStr(b, "category") is string cat) row.Category = cat;
             if (KHas(b, "starts_at")) row.StartsAt = KDate(b, "starts_at");
             if (KHas(b, "ends_at")) row.EndsAt = KDate(b, "ends_at");
             row.UpdatedAt = DateTime.UtcNow;
@@ -308,6 +317,11 @@ public static class AiEndpoints
         {
             id = k.Id, kind = k.Kind, title = k.Title, question = k.Question, content = k.Content,
             tags = k.Tags, channels = k.Channels, priority = k.Priority, active = k.Active,
+            // Help Center: published is PUBLIC readability, active is whether
+            // the AI may use it — an item can be either, both or neither.
+            published = k.Published,
+            slug = HelpCenterEndpoints.SlugFor(k),
+            category = k.Category,
             starts_at = k.StartsAt, ends_at = k.EndsAt,
             entity_id = k.EntityId,
             entity = k.EntityId == null ? null : owner?.Slug,
