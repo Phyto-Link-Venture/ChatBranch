@@ -32,12 +32,6 @@ public static class InboxEndpoints
 
     public record SendRequest(string Text, bool Force = false, int? AccountId = null);
     public record SimulateRequest(string Channel, string Key, string Text, string? Name = null);
-    // Wire is snake_case: the dashboard posts {short_code, content} — bind that
-    // name explicitly (the default camelCase binder left ShortCode null → 500).
-    public record CannedWrite(
-        [property: JsonPropertyName("short_code")] string ShortCode,
-        string Content,
-        string? Entity = null);
 
     public static void MapInboxEndpoints(this IEndpointRouteBuilder app)
     {
@@ -235,12 +229,18 @@ public static class InboxEndpoints
         // the {context:{record}} blob and the heuristic fallback. Registering a
         // second one here made every call an AmbiguousMatchException 500.
 
-        app.MapGet("/api/messaging/canned", async (string? entity, int? contact_id,
+        app.MapGet("/api/messaging/canned", async (string? entity, int? contact_id, string? channel,
             AppDbContext db, ScopingService sc, FlowEngine flows) =>
         {
             var entityId = await EntityId(db, entity);
-            var rows = sc.ScopeInherited(db.CannedResponses.AsNoTracking(), entityId)
+            var rows = sc.ScopeInherited(db.CannedResponses.AsNoTracking().Include(c => c.Entity), entityId)
                 .OrderBy(c => c.ShortCode).ToList();
+            // ?channel=<thread channel> — only the replies offered there. An
+            // empty channel list means "every channel"; a channel this build does
+            // not know still gets those shared replies, never an error.
+            if (!string.IsNullOrWhiteSpace(channel))
+                rows = rows.Where(c => ChatBranch.Data.Channels.TemplateChannels.Offers(c.Channels, channel))
+                    .ToList();
 
             Dictionary<string, string>? variables = null;
             if (contact_id is int cid)
@@ -253,37 +253,145 @@ public static class InboxEndpoints
             return Results.Ok(new { canned = rows.Select(c => CannedPayload(c, variables)) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
-        app.MapPost("/api/messaging/canned", async (CannedWrite body, AppDbContext db) =>
+        // Writes are gated on the templates.manage CAPABILITY (admin by default,
+        // grantable to custom roles from the permission matrix), checked here
+        // rather than by a role policy so the matrix stays the single source.
+        app.MapPost("/api/messaging/canned", async (JsonElement body, AppDbContext db,
+            ClaimsPrincipal me, HttpContext ctx) =>
         {
-            var entityId = await EntityId(db, body.Entity);
-            if (db.CannedResponses.Any(c => c.ShortCode == body.ShortCode && c.EntityId == entityId))
+            if (!await CanManageTemplates(db, me)) return CannedForbidden();
+            var shortCode = CannedCode(CStr(body, "short_code"));
+            var content = (CStr(body, "content") ?? "").Trim();
+            if (shortCode.Length == 0) return CannedBad("short_code is required.");
+            if (content.Length == 0) return CannedBad("content is required.");
+            var (channels, chErr) = ChatBranch.Data.Channels.TemplateChannels.Parse(CList(body, "channels"));
+            if (chErr != null) return CannedBad(chErr);
+            var entityId = await EntityId(db, CStr(body, "entity"));
+            if (await db.CannedResponses.AnyAsync(c => c.ShortCode == shortCode && c.EntityId == entityId))
                 return Results.Json(new { detail = "duplicate short_code" }, statusCode: 409);
             var row = new CannedResponse
             {
-                ShortCode = body.ShortCode, Content = body.Content, EntityId = entityId,
-                CreatedAt = DateTime.UtcNow,
+                ShortCode = shortCode, Content = content, EntityId = entityId, Channels = channels,
+                CreatedBy = me.Identity?.Name ?? "",
+                CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
             };
             db.CannedResponses.Add(row);
             await db.SaveChangesAsync();
+            await db.Entry(row).Reference(c => c.Entity).LoadAsync();
+            await CannedAudit(db, me, ctx, "canned.create", row);
             return Results.Ok(CannedPayload(row, null));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
+        // Partial update: only the keys the body carries change.
         app.MapMethods("/api/messaging/canned/{id:int}", new[] { "PATCH" },
-            async (int id, CannedWrite body, AppDbContext db) =>
+            async (int id, JsonElement body, AppDbContext db, ClaimsPrincipal me, HttpContext ctx) =>
         {
-            var row = await db.CannedResponses.FindAsync(id);
-            if (row == null) return Results.NotFound();
-            row.Content = body.Content;
-            if (!string.IsNullOrEmpty(body.ShortCode)) row.ShortCode = body.ShortCode;
-            await db.SaveChangesAsync();
-            return Results.Ok(CannedPayload(row, null));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+            if (!await CanManageTemplates(db, me)) return CannedForbidden();
+            var row = await db.CannedResponses.FirstOrDefaultAsync(c => c.Id == id);
+            if (row == null) return Results.NotFound(new { detail = "Template not found." });
 
-        app.MapDelete("/api/messaging/canned/{id:int}", async (int id, AppDbContext db) =>
+            if (CStr(body, "short_code") is string rawCode)
+            {
+                var code = CannedCode(rawCode);
+                if (code.Length == 0) return CannedBad("short_code cannot be empty.");
+                row.ShortCode = code;
+            }
+            if (CStr(body, "content") is string rawContent)
+            {
+                var content = rawContent.Trim();
+                if (content.Length == 0) return CannedBad("content cannot be empty.");
+                row.Content = content;
+            }
+            if (CHas(body, "channels"))
+            {
+                var (channels, chErr) = ChatBranch.Data.Channels.TemplateChannels.Parse(CList(body, "channels"));
+                if (chErr != null) return CannedBad(chErr);
+                row.Channels = channels;
+            }
+            if (CHas(body, "entity"))
+                // "" / null moves it back to organization-wide. Only the FK moves.
+                row.EntityId = await EntityId(db, CStr(body, "entity"));
+
+            if (await db.CannedResponses.AnyAsync(c => c.Id != row.Id && c.ShortCode == row.ShortCode
+                                                       && c.EntityId == row.EntityId))
+                return Results.Json(new { detail = "duplicate short_code" }, statusCode: 409);
+
+            row.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            await db.Entry(row).Reference(c => c.Entity).LoadAsync();
+            await CannedAudit(db, me, ctx, "canned.update", row);
+            return Results.Ok(CannedPayload(row, null));
+        }).RequireAuthorization(AuthPolicies.Authenticated);
+
+        app.MapDelete("/api/messaging/canned/{id:int}", async (int id, AppDbContext db,
+            ClaimsPrincipal me, HttpContext ctx) =>
         {
+            if (!await CanManageTemplates(db, me)) return CannedForbidden();
+            var row = await db.CannedResponses.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id);
             await db.CannedResponses.Where(c => c.Id == id).ExecuteDeleteAsync();
+            if (row != null) await CannedAudit(db, me, ctx, "canned.delete", row);
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
+    }
+
+    // ---- canned-response helpers ----------------------------------------------
+
+    private static async Task<bool> CanManageTemplates(AppDbContext db, ClaimsPrincipal me) =>
+        await AdminEndpoints.HasCapabilityAsync(db, me.FindFirstValue(ClaimTypes.Role) ?? "",
+            "templates.manage");
+
+    private static IResult CannedForbidden() =>
+        Results.Json(new { detail = "You need the \"Manage message templates\" permission." }, statusCode: 403);
+
+    private static IResult CannedBad(string detail) => Results.Json(new { detail }, statusCode: 400);
+
+    /// <summary>What agents type after "/": trimmed, without a leading slash.</summary>
+    private static string CannedCode(string? raw) => (raw ?? "").Trim().TrimStart('/').Trim();
+
+    private static bool CHas(JsonElement b, string key) =>
+        b.ValueKind == JsonValueKind.Object && b.TryGetProperty(key, out _);
+
+    /// <summary>String value of a key; null when absent, "" when JSON null.</summary>
+    private static string? CStr(JsonElement b, string key) =>
+        b.ValueKind == JsonValueKind.Object && b.TryGetProperty(key, out var v)
+            ? v.ValueKind switch
+            {
+                JsonValueKind.String => v.GetString(),
+                JsonValueKind.Null or JsonValueKind.Undefined => "",
+                _ => v.ToString(),
+            }
+            : null;
+
+    /// <summary>A string array (or one comma-separated string) as a list.</summary>
+    private static List<string?> CList(JsonElement b, string key)
+    {
+        if (b.ValueKind != JsonValueKind.Object || !b.TryGetProperty(key, out var v)) return new();
+        if (v.ValueKind == JsonValueKind.Array)
+            return v.EnumerateArray()
+                .Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() : x.ToString())
+                .ToList();
+        if (v.ValueKind == JsonValueKind.String)
+            return (v.GetString() ?? "").Split(',').Select(x => (string?)x).ToList();
+        return new();
+    }
+
+    private static async Task CannedAudit(AppDbContext db, ClaimsPrincipal me, HttpContext ctx,
+        string action, CannedResponse row)
+    {
+        try
+        {
+            db.AuditLogs.Add(new AuditLog
+            {
+                Actor = me.Identity?.Name ?? "system",
+                Action = action,
+                Target = $"/{row.ShortCode}",
+                Detail = row.Channels.Count == 0 ? "all channels" : string.Join(", ", row.Channels),
+                Ip = ctx.Connection.RemoteIpAddress?.ToString() ?? "",
+                CreatedAt = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        }
+        catch { /* the trail never fails the write it records */ }
     }
 
     // ======================= payload builders ================================
@@ -294,8 +402,14 @@ public static class InboxEndpoints
         id = c.Id,
         short_code = c.ShortCode,
         content = c.Content,
+        // [] = offered on every channel; else the thread channels it is limited to
+        channels = c.Channels,
         created_by = c.CreatedBy,
         entity_id = c.EntityId,
+        entity = c.Entity?.Slug,
+        entity_name = c.Entity?.Name ?? "",
+        created_at = DateTime.SpecifyKind(c.CreatedAt, DateTimeKind.Utc),
+        updated_at = DateTime.SpecifyKind(c.UpdatedAt ?? c.CreatedAt, DateTimeKind.Utc),
         // Contact-bound quick reply: {{name}}/{{amount}}/… filled from the CRM
         // (same variable catalog as the flow builder). Raw content when unlinked.
         rendered = variables != null ? FlowEngine.Render(c.Content, variables) : c.Content,

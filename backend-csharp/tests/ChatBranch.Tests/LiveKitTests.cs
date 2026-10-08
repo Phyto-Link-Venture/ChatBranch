@@ -191,7 +191,17 @@ public class LiveKitTests : IClassFixture<ApiFactory>
     [Fact]
     public async Task Dial_and_hangup_answer_503_with_a_reason_when_livekit_is_unconfigured()
     {
+        // Placing a real (billed) call needs a signed-in operator.
+        var anon = _factory.CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await anon.PostAsJsonAsync("/api/calls/dial", new { phone = "+60123456789" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anon.PostAsync("/api/calls/call-abc/hangup", null)).StatusCode);
+
         var client = _factory.CreateClient();
+        var login = await client.PostAsJsonAsync("/api/auth/login", new { username = "agent", password = "agent123" });
+        login.EnsureSuccessStatusCode();
+        var token = (await login.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("token").GetString();
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
         var dial = await client.PostAsJsonAsync("/api/calls/dial", new { phone = "+60123456789", name = "Sam" });
         Assert.Equal(HttpStatusCode.ServiceUnavailable, dial.StatusCode);
         var body = await dial.Content.ReadFromJsonAsync<JsonElement>();

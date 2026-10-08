@@ -325,10 +325,14 @@ default `backend/data` of the checkout (`VoiceAgentBridge.ResolveDataDir`).
   looks the CRM `Contact` up by phone (`store._match_contact`) and passes the
   real name/amount/overdue/language into the dispatch metadata — NOT the
   WhatsApp push-name.
-  The `/chats` UI follows Whatomate's ChatView design (three-pane inbox →
-  chat → info panel; WhatsApp bubble palette lives in
-  `src/app/chats/chats.css` — don't replace the raw WhatsApp greens with
-  brand tokens, they're intentional).
+  The `/chats` UI is a three-pane inbox → chat → info panel in the Paper &
+  Ink design: bubbles are theme tokens in `src/app/chats/chats.css`
+  (ours = primary ink, theirs = a hairline card); the old WhatsApp-green
+  palette is retired — don't reintroduce raw hex. The list is SERVER-filtered
+  via `GET /api/inbox/threads` (every channel, entity-scoped like the old
+  lists; `count_only=1` powers the filter pop-up's live "Show N chats") and
+  the filter tabs are per-user `SavedView` rows (`/api/views?scope=chats`).
+  Deep links: `/chats?thread=<channel>:<key>`, `/chats?q=<text>`.
 - **Channel health + contact→account routing.** `whatsapp/health.py` is the
   ONLY writer of `ChannelAccount.health_status` (unknown/healthy/degraded/
   disconnected/banned): send paths, the Cloud webhook, Baileys gateway
@@ -483,6 +487,21 @@ default `backend/data` of the checkout (`VoiceAgentBridge.ResolveDataDir`).
   channel, counting conversations TOUCHED in the window (not created), with
   "(unassigned)" reported rather than dropped. CSV fields are quoted so a label
   containing a comma cannot corrupt the export.
+- **Activity log, API keys, MCP, assistant** (platform). `AuditLog` carries
+  `source` (user|api|mcp|assistant|automation|flow|webhook|system), entity,
+  method/path/status/user-agent/request-id. Rows are stamped from the ambient
+  `AuditContext` by an EF interceptor (`Data/Audit`), so old per-file helpers
+  need no edits; new code uses `AuditTrail.Add/Write` and passes `source` only
+  when it is not the request's actor. `RequestAuditMiddleware` writes ONE
+  generic row per mutating `/api` request that wrote no domain row (opt out a
+  read-POST with `[SkipRequestAudit]` metadata). Read API `/api/audit[.csv|/facets]`.
+  API keys `cbk_<prefix>_<secret>` (Bearer or X-Api-Key) act as their owner
+  (+ optional scope subset; a scoped key without write caps is read-only).
+  `POST /mcp` = ChatBranch as an MCP server over `Tools/ToolRegistry`; the
+  operator assistant (`/api/assistant/*`) uses the same registry. Tool writes
+  call the dashboard's OWN endpoints in-process (`Tools/InternalApi`) so every
+  guard applies — a renamed route breaks the tool (tests catch it). Assistant
+  writes are confirm-first `AssistantAction` rows (15 min).
 - **`backend/messaging/` = email + social channels** in the same unified
   `/chats` inbox (endpoints under `/api/messaging/`) — the PERMANENT in-house
   home for these channels (Chatwoot was fully removed 2026-07-17 on the
@@ -559,6 +578,21 @@ default `backend/data` of the checkout (`VoiceAgentBridge.ResolveDataDir`).
   and the builder's skill sidebar/editor are READ-ONLY. Skills render as a
   `SKILLS` prompt section (`use_when` selects, `instructions` is the body) on
   every channel and every call. Don't re-add a second writer.
+- **Code skills (2026-10).** `AgentSkill.Kind` = prompt (the SKILLS block) |
+  tool (JS `run(args, ctx)` the model CALLS) | check (JS `check(reply, ctx)`
+  run on EVERY draft). JS runs in `Ai/Skills/SkillRuntime` (Jint: no CLR, no
+  eval, 250 ms / 8 MB / statement + recursion caps; faults come back as data).
+  Built-in C# tools (current_time, current_week, date_add, days_between,
+  convert_timezone; zone = Setting `org_timezone` → TZ → UTC) are always
+  offered. `AssistantService` is a PURE GENERATOR returning `AiReplyResult`
+  (text, draft, tools, checks, retries, tokens) — callers send. A failing
+  check → rewrite with the reason (max 2), then OnFail: retry→handover,
+  handover (immediate), block; handover = private note + status pending +
+  notify. Flow Action `skill` (SkillId, or legacy name) / "AI message" →
+  `ComposeActionTextAsync`; jobs carry `source:"ai"` + `ai_meta`. PUT refuses
+  an ENABLED code skill whose code/tests changed unless its tests pass.
+  Authoring: `POST /api/aicore/skills/draft` (describe → questions | draft;
+  sandbox = template library), `/skills/test`, `GET /skills/builtins`.
 - **`backend/flows/` = the flow-builder execution engine.** The `/flow-builder`
   page syncs its whole library to the DB (`crm.Workflow` / `crm.AgentSkill`,
   React Flow JSON stored verbatim) via `GET/PUT /api/flows/library` (PUT is
@@ -984,6 +1018,17 @@ default `backend/data` of the checkout (`VoiceAgentBridge.ResolveDataDir`).
   `flows/engine.py variables_for()`. Styles are token-based in
   `src/app/flow-builder/flow-builder.css`, scoped under `.flow-studio` — same
   theming rules as the rest of the frontend.
+- **Two views, one graph (2026-10).** Steps (default) reads nodes/edges as a
+  tree (`lib/flow/steps.ts buildStepTree`, mirroring the engine's PickEdge)
+  and edits it with insert/delete/move + `autoLayout`; the Advanced canvas is
+  React Flow over the same JSON. Plain-language summaries come from ONE place
+  (`lib/flow/describe.ts`). Step kinds: trigger · action (send / "AI message"
+  marker channel + `skill` id / call / app) · wait · followup (yes=replied,
+  no=no reply) · decision · handover · update · end; `stage` is legacy
+  pass-through. Every run transition writes a `FlowStepEvent` (org-local
+  `day`); `/api/flows/{flowId}/stats`, paged `/api/flows/runs[/{id}]` and
+  `/api/analytics/flows` read them (flows.view, contact-scoped). Flow queue
+  payloads carry `source` ai|flow and optional `humanize`.
 
 > There is no `handbook/` directory. The domain SOP that used to live there was
 > removed in the template conversion; `docs/vertical-guide.md` is what replaces

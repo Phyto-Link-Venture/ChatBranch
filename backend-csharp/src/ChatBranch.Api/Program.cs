@@ -15,6 +15,8 @@ builder.Services.AddScoped<ChatBranch.Data.Stores.ThreadStore>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.PersonaService>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.KnowledgeService>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.AssistantService>();
+builder.Services.AddScoped<ChatBranch.Data.Ai.Skills.SkillService>();
+builder.Services.AddScoped<ChatBranch.Data.Ai.Skills.SkillDrafter>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.SummaryService>();
 builder.Services.AddScoped<ChatBranch.Data.Integrations.GoogleOAuth>();
 builder.Services.AddScoped<ChatBranch.Data.Integrations.IntegrationResolver>();
@@ -80,6 +82,7 @@ using (var scope = app.Services.CreateScope())
 
 app.UseCors(CorsPolicy);
 app.UseAuthentication();
+app.UseMiddleware<ChatBranch.Api.Audit.RequestAuditMiddleware>(); // activity log (sees authz refusals too)
 app.UseAuthorization();
 
 // ---- Phase 1 endpoints ------------------------------------------------------
@@ -95,6 +98,8 @@ app.MapAuthEndpoints();
 app.MapSettingsEndpoints();
 app.MapAssignmentsEndpoints();
 app.MapInboxEndpoints();
+app.MapInboxThreadsEndpoints();
+app.MapSavedViewsEndpoints();
 app.MapAiEndpoints();
 app.MapFlowsEndpoints();
 app.MapContactsEndpoints();
@@ -118,6 +123,10 @@ app.MapWidgetAdminEndpoints();
 app.MapHelpCenterEndpoints();
 app.MapReportsEndpoints();
 app.MapBindingsEndpoints();
+app.MapAuditEndpoints();
+app.MapDevelopersEndpoints();
+app.MapMcpServerEndpoints();
+app.MapAssistantEndpoints();
 app.MapSearchEndpoints();
 app.MapLiveEndpoints();
 

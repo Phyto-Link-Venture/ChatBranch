@@ -24,7 +24,14 @@ public static class AuthEndpoints
                 .FirstOrDefaultAsync(u => u.Username == body.Username);
             if (user is not { IsActive: true } ||
                 !DjangoPasswordHasher.Verify(body.Password, user.Password))
+            {
+                // Failed sign-ins belong in the activity log (never the password).
+                ChatBranch.Data.Audit.AuditTrail.Write(db, "login.failed",
+                    ChatBranch.Data.Audit.AuditTrail.Cap(body.Username, 150),
+                    user == null ? "unknown username" : user.IsActive ? "wrong password" : "inactive account",
+                    actor: ChatBranch.Data.Audit.AuditTrail.Cap(body.Username, 150), userId: user?.Id);
                 return Results.Json(new { detail = "Invalid credentials" }, statusCode: 401);
+            }
 
             var profile = user.Profile ??
                 new Profile { UserId = user.Id, Role = Roles.Admin };
@@ -75,6 +82,7 @@ public static class AuthEndpoints
                 var token = header["Bearer ".Length..].Trim();
                 await db.AuthTokens.Where(t => t.Token == token).ExecuteDeleteAsync();
             }
+            ChatBranch.Data.Audit.AuditTrail.Write(db, "logout");
             return Results.Ok(new { ok = true });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
@@ -91,7 +99,10 @@ public static class AuthEndpoints
                 username = me.Identity?.Name ?? "",
                 role,
                 tenant_id = me.FindFirstValue("tenant_id"),
-                capabilities = await AdminEndpoints.CapabilitiesForAsync(db, role),
+                // (an API key with scopes reports only what its scopes leave)
+                capabilities = (await AdminEndpoints.CapabilitiesForAsync(db, role))
+                    .Where(c => ApiKeyAuth.Scopes(me) is not { } s || s.Contains(c)).ToList(),
+                auth_source = ApiKeyAuth.IsApiKey(me) ? "api" : "session",
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
     }

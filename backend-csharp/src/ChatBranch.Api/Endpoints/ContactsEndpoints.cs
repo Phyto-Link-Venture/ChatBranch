@@ -363,7 +363,7 @@ public static class ContactsEndpoints
             AppDbContext db, ScopingService sc, FlowEngine flows) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
-            var rows = await sc.ScopeInherited(db.ScriptTemplates.AsNoTracking(), entityId)
+            var rows = await sc.ScopeInherited(db.ScriptTemplates.AsNoTracking().Include(s => s.Entity), entityId)
                 .OrderBy(s => s.Name).ToListAsync();
 
             // ?contact_id=<pk> personalizes `rendered` with that contact's CRM
@@ -384,6 +384,7 @@ public static class ContactsEndpoints
         app.MapPost("/api/calls/script-templates", async (JsonElement body, AppDbContext db,
             ClaimsPrincipal me, HttpContext ctx) =>
         {
+            if (!await CanManageScripts(db, me)) return ScriptsForbidden();
             var name = (AsString(body, "name") ?? "").Trim();
             var content = (AsString(body, "content") ?? "").Trim();
             if (name.Length == 0) return Bad("name is required.");
@@ -400,13 +401,15 @@ public static class ContactsEndpoints
             };
             db.ScriptTemplates.Add(row);
             await db.SaveChangesAsync();
+            await db.Entry(row).Reference(s => s.Entity).LoadAsync();
             Audit(db, me, ctx, "script_template.create", name, "");
             return Results.Ok(ScriptItem(row, null));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         app.MapMethods("/api/calls/script-templates/{id:int}", new[] { "PATCH" },
             async (int id, JsonElement body, AppDbContext db, ClaimsPrincipal me, HttpContext ctx) =>
         {
+            if (!await CanManageScripts(db, me)) return ScriptsForbidden();
             var row = await db.ScriptTemplates.FirstOrDefaultAsync(s => s.Id == id);
             if (row == null) return NotFound("Script template not found.");
 
@@ -424,15 +427,20 @@ public static class ContactsEndpoints
                 if (content.Length == 0) return Bad("content is required.");
                 row.Content = content;
             }
+            if (Has(body, "entity"))
+                // "" / null moves the script back to organization-wide.
+                row.EntityId = await InboxEndpoints.EntityId(db, AsString(body, "entity"));
             row.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
+            await db.Entry(row).Reference(s => s.Entity).LoadAsync();
             Audit(db, me, ctx, "script_template.update", row.Name, "");
             return Results.Ok(ScriptItem(row, null));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         app.MapDelete("/api/calls/script-templates/{id:int}", async (int id, AppDbContext db,
             ClaimsPrincipal me, HttpContext ctx) =>
         {
+            if (!await CanManageScripts(db, me)) return ScriptsForbidden();
             var row = await db.ScriptTemplates.FirstOrDefaultAsync(s => s.Id == id);
             if (row == null) return NotFound("Script template not found.");
             var name = row.Name;
@@ -440,7 +448,7 @@ public static class ContactsEndpoints
             await db.SaveChangesAsync();
             Audit(db, me, ctx, "script_template.delete", name, "");
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
     }
 
     // ======================= contact payload (to_contact) ====================
@@ -906,9 +914,21 @@ public static class ContactsEndpoints
         content = t.Content,
         created_by = t.CreatedBy,
         entity_id = t.EntityId,
+        entity = t.Entity?.Slug,
+        entity_name = t.Entity?.Name ?? "",
+        updated_at = DateTime.SpecifyKind(t.UpdatedAt == default ? t.CreatedAt : t.UpdatedAt,
+            DateTimeKind.Utc),
         // Contact-bound preview: {{name}}/{{record_title}}/… filled from the CRM.
         rendered = variables != null ? FlowEngine.Render(t.Content, variables) : t.Content,
     };
+
+    /// <summary>Script writes follow the permission matrix (script_templates.manage).</summary>
+    private static async Task<bool> CanManageScripts(AppDbContext db, ClaimsPrincipal me) =>
+        await AdminEndpoints.HasCapabilityAsync(db, me.FindFirstValue(ClaimTypes.Role) ?? "",
+            "script_templates.manage");
+
+    private static IResult ScriptsForbidden() =>
+        Results.Json(new { detail = "You need the \"Manage script templates\" permission." }, statusCode: 403);
 
     // ======================= helpers =========================================
 

@@ -56,6 +56,69 @@ public static class Seed
         AddColumnIfMissing(db, "crm_notification", "category", "TEXT NOT NULL DEFAULT ''");
         AddColumnIfMissing(db, "crm_notification", "ref_key", "TEXT NOT NULL DEFAULT ''");
         AddColumnIfMissing(db, "crm_profile", "preferences", "TEXT NULL");
+        AddTableIfMissing(db, "crm_savedview",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_savedview\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"user_id\" INTEGER NOT NULL, \"scope\" TEXT NOT NULL, \"name\" TEXT NOT NULL, "
+            + "\"filters\" TEXT NOT NULL, \"position\" INTEGER NOT NULL, \"created_at\" TEXT NOT NULL");
+        AddColumnIfMissing(db, "crm_cannedresponse", "channels", "TEXT NOT NULL DEFAULT '[]'");
+        AddColumnIfMissing(db, "crm_cannedresponse", "updated_at", "TEXT NULL");
+        // code skills (tool / reply-check kinds) on crm_agentskill
+        AddColumnIfMissing(db, "crm_agentskill", "kind", "TEXT NOT NULL DEFAULT 'prompt'");
+        AddColumnIfMissing(db, "crm_agentskill", "description", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_agentskill", "code", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_agentskill", "parameters", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_agentskill", "tests", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_agentskill", "enabled", "INTEGER NOT NULL DEFAULT 1");
+        AddColumnIfMissing(db, "crm_agentskill", "channels", "TEXT NOT NULL DEFAULT '[]'");
+        AddColumnIfMissing(db, "crm_agentskill", "on_fail", "TEXT NOT NULL DEFAULT 'retry'");
+        AddColumnIfMissing(db, "crm_agentskill", "updated_at", "TEXT NULL");
+        AddColumnIfMissing(db, "crm_flowrun", "detail", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_workflow", "live_since", "TEXT NULL");
+        AddTableIfMissing(db, "crm_flowstepevent",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_flowstepevent\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"workflow_id\" TEXT NOT NULL, \"run_id\" INTEGER NOT NULL, \"contact_id\" INTEGER NULL, "
+            + "\"node_id\" TEXT NOT NULL, \"kind\" TEXT NOT NULL, \"detail\" TEXT NOT NULL, "
+            + "\"at\" TEXT NOT NULL, \"day\" TEXT NOT NULL");
+        AddIndexIfMissing(db, "ix_flowstepevent_workflow_day", "crm_flowstepevent", "\"workflow_id\", \"day\"");
+        AddIndexIfMissing(db, "ix_flowstepevent_run", "crm_flowstepevent", "\"run_id\"");
+        // activity log provenance (platform)
+        AddColumnIfMissing(db, "crm_auditlog", "source", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_auditlog", "entity_id", "INTEGER NULL");
+        AddColumnIfMissing(db, "crm_auditlog", "method", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_auditlog", "path", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_auditlog", "status", "INTEGER NULL");
+        AddColumnIfMissing(db, "crm_auditlog", "user_agent", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_auditlog", "request_id", "TEXT NOT NULL DEFAULT ''");
+        AddTableIfMissing(db, "crm_apikey",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_apikey\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"user_id\" INTEGER NOT NULL, \"name\" TEXT NOT NULL, \"prefix\" TEXT NOT NULL, "
+            + "\"hash\" TEXT NOT NULL, \"scopes\" TEXT NOT NULL, \"last_used_at\" TEXT NULL, "
+            + "\"expires_at\" TEXT NULL, \"revoked_at\" TEXT NULL, \"created_at\" TEXT NOT NULL");
+        AddTableIfMissing(db, "crm_assistantaction",
+            "\"id\" TEXT NOT NULL CONSTRAINT \"PK_crm_assistantaction\" PRIMARY KEY, "
+            + "\"user_id\" INTEGER NOT NULL, \"tool\" TEXT NOT NULL, \"args\" TEXT NOT NULL, "
+            + "\"summary\" TEXT NOT NULL, \"status\" TEXT NOT NULL, \"result\" TEXT NOT NULL, "
+            + "\"created_at\" TEXT NOT NULL, \"expires_at\" TEXT NOT NULL, \"decided_at\" TEXT NULL");
+        ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
+    }
+
+    /// <summary>Create a (non-unique) index EnsureCreated() will never add to an
+    /// existing database. Idempotent via IF NOT EXISTS.</summary>
+    private static void AddIndexIfMissing(AppDbContext db, string name, string table, string columns)
+    {
+        var conn = db.Database.GetDbConnection();
+        var wasClosed = conn.State != System.Data.ConnectionState.Open;
+        if (wasClosed) conn.Open();
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = $"CREATE INDEX IF NOT EXISTS \"{name}\" ON \"{table}\" ({columns})";
+            cmd.ExecuteNonQuery();
+        }
+        finally
+        {
+            if (wasClosed) conn.Close();
+        }
         AddTableIfMissing(db, "crm_tag",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_tag\" PRIMARY KEY AUTOINCREMENT, "
             + "\"entity_id\" INTEGER NULL, \"name\" TEXT NOT NULL, \"slug\" TEXT NOT NULL, "

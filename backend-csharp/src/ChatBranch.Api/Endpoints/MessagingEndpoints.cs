@@ -182,6 +182,7 @@ public static class MessagingEndpoints
             ["ai_enabled"] = t.AiEnabled,
             ["status"] = t.Status,
             ["assignee"] = t.Assignee,
+            ["team_id"] = t.TeamId,
             ["labels"] = t.Labels ?? new List<string>(),
             ["contact_id"] = t.ContactId,
             ["contact_name"] = t.ContactId != null ? t.Contact?.Name ?? "" : "",

@@ -57,6 +57,7 @@ public class AppDbContext : DbContext
     // crm — flows
     public DbSet<FlowRun> FlowRuns => Set<FlowRun>();
     public DbSet<OutboundJob> OutboundJobs => Set<OutboundJob>();
+    public DbSet<FlowStepEvent> FlowStepEvents => Set<FlowStepEvent>();
     // crm — ai
     public DbSet<CallRecord> CallRecords => Set<CallRecord>();
     public DbSet<LlmUsage> LlmUsage => Set<LlmUsage>();
@@ -64,6 +65,17 @@ public class AppDbContext : DbContext
     public DbSet<ConversationSummary> ConversationSummaries => Set<ConversationSummary>();
     // integrations
     public DbSet<Integration> Integrations => Set<Integration>();
+    // crm — per-user saved list views (the inbox's saved filter tabs)
+    public DbSet<SavedView> SavedViews => Set<SavedView>();
+    // developer platform: API keys + the operator assistant's pending writes
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+    public DbSet<AssistantAction> AssistantActions => Set<AssistantAction>();
+
+    /// <summary>Every AuditLog row is stamped with its request/source provenance
+    /// on save (Audit/AuditStampInterceptor), so the per-file audit helpers carry
+    /// source, method, path and user without each being edited.</summary>
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) =>
+        optionsBuilder.AddInterceptors(ChatBranch.Data.Audit.AuditStampInterceptor.Instance);
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -121,11 +133,17 @@ public class AppDbContext : DbContext
         b.Entity<KnowledgeItem>().ToTable("crm_knowledgeitem");
         b.Entity<FlowRun>().ToTable("crm_flowrun");
         b.Entity<OutboundJob>().ToTable("crm_outboundjob");
+        b.Entity<FlowStepEvent>().ToTable("crm_flowstepevent");
+        b.Entity<FlowStepEvent>().HasIndex(e => new { e.WorkflowId, e.Day })
+            .HasDatabaseName("ix_flowstepevent_workflow_day");
+        b.Entity<FlowStepEvent>().HasIndex(e => e.RunId)
+            .HasDatabaseName("ix_flowstepevent_run");
         b.Entity<CallRecord>().ToTable("crm_callrecord");
         b.Entity<LlmUsage>().ToTable("crm_llmusage");
         b.Entity<PendingToolAction>().ToTable("crm_pendingtoolaction");
         b.Entity<ConversationSummary>().ToTable("crm_conversationsummary");
         b.Entity<Integration>().ToTable("integrations_integration");
+        b.Entity<SavedView>().ToTable("crm_savedview");
         // Per-user grants: deleting a login must not delete the connection row
         // (an admin can re-own it) — null the owner instead.
         b.Entity<Integration>()
@@ -133,6 +151,9 @@ public class AppDbContext : DbContext
             .WithMany()
             .HasForeignKey(i => i.OwnerUserId)
             .OnDelete(DeleteBehavior.SetNull);
+        b.Entity<ApiKey>().ToTable("crm_apikey");
+        b.Entity<ApiKey>().HasIndex(k => k.Prefix).IsUnique().HasDatabaseName("uniq_apikey_prefix");
+        b.Entity<AssistantAction>().ToTable("crm_assistantaction");
 
         // ---- Profile <-> Entity many-to-many (Django crm_profile_entities) -----
         b.Entity<Profile>()
@@ -196,6 +217,7 @@ public class AppDbContext : DbContext
         Json<AutomationRule, List<object?>>(b, x => x.Conditions);
         Json<AutomationRule, List<object?>>(b, x => x.Actions);
         Json<KnowledgeItem, List<string>>(b, x => x.Channels);
+        Json<CannedResponse, List<string>>(b, x => x.Channels);
         Json<FlowRun, Dictionary<string, object?>>(b, x => x.Context);
         Json<FlowRun, List<object?>>(b, x => x.Log);
         Json<OutboundJob, Dictionary<string, object?>>(b, x => x.Payload);
@@ -203,6 +225,8 @@ public class AppDbContext : DbContext
         Json<ConversationSummary, List<object?>>(b, x => x.Facts);
         Json<Integration, Dictionary<string, object?>>(b, x => x.Credentials);
         Json<Integration, Dictionary<string, object?>>(b, x => x.Config);
+        Json<AgentSkill, List<string>>(b, x => x.Channels);
+        Json<ApiKey, List<string>>(b, x => x.Scopes);
         Json<Tag, List<TagAttribute>>(b, x => x.Attributes);
         Json<TagAssignment, Dictionary<string, object?>>(b, x => x.Values);
 

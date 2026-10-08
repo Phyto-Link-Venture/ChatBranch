@@ -245,7 +245,7 @@ public static class CallsVoiceEndpoints
                 return Results.Json(new { ok = false, room = (string?)null, status = "failed", detail = placed.Detail },
                     statusCode: placed.Status == 503 ? 503 : 502);
             return Results.Ok(new { ok = true, room, status = "dialing" });
-        }).AllowAnonymous();
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- GET /api/calls/{room} — the finished call's summary ------------
         // The agent appends the record to calls.json; VoiceCallSync folds it
@@ -286,7 +286,7 @@ public static class CallsVoiceEndpoints
                 ["sentiment_score"] = FromFile("sentiment_score"),
                 ["transcript"] = ParseTranscript(r.Transcript),
             });
-        }).AllowAnonymous();
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- GET /api/calls/{room}/live — the live transcript ---------------
         // The file half of the agent protocol. Mirrors calls/lk.live_transcript,
@@ -326,7 +326,7 @@ public static class CallsVoiceEndpoints
                 outp["status"] = record != null ? "ended" : (hasTurns ? "live" : "idle");
 
             return Results.Ok(outp);
-        }).AllowAnonymous();
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- POST /api/calls/{room}/say — guide / take over -----------------
         // calls/views.say: push the instruction into the agent's consume-once
@@ -343,7 +343,7 @@ public static class CallsVoiceEndpoints
 
             bridge.PushInstruction(room, mode, text);
             return Results.Ok(new { ok = true, room, mode, queued = true });
-        }).AllowAnonymous();
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- POST /api/calls/{room}/hangup ----------------------------------
         // Deleting the room drops the phone leg and ends the agent's job (which
@@ -369,7 +369,7 @@ public static class CallsVoiceEndpoints
             if (!dropped.Ok && dropped.Status != 404)
                 return Results.Json(new { ok = false, room, detail = dropped.Detail }, statusCode: 502);
             return Results.Ok(new { ok = true, room });
-        }).AllowAnonymous();
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- POST /api/calls/{room}/escalate --------------------------------
         // REAL and complete: calls/views.escalate is itself just a guide
@@ -381,7 +381,7 @@ public static class CallsVoiceEndpoints
             bridge.Guide(room,
                 "Politely tell the caller that a human agent will follow up with them shortly, then wrap up.");
             return Results.Ok(new { ok = true, room, queued = true });
-        }).AllowAnonymous();
+        }).RequireAuthorization(AuthPolicies.Authenticated);
     }
 
     // =========================================================================
@@ -469,7 +469,7 @@ public static class CallsVoiceEndpoints
             return Unavailable(
                 "Voice preview is not available in this build: no TTS provider client is wired up "
                 + "(OpenAI / ElevenLabs speech synthesis lives in the Python service).");
-        }).AllowAnonymous();
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- POST /api/voice/clone ------------------------------------------
         // multipart/form-data (name, language, persona, gender, audio). Cloning
@@ -498,7 +498,7 @@ public static class CallsVoiceEndpoints
             return Unavailable(Env("ELEVENLABS_API_KEY").Length == 0
                 ? "Voice cloning not configured (ELEVENLABS_API_KEY unset)."
                 : "Voice cloning is not available in this build (no ElevenLabs client in the C# API).");
-        }).AllowAnonymous();
+        }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         // ---- POST /api/voice/import -----------------------------------------
         // Import copies an existing ElevenLabs voice into the local registry.
@@ -522,7 +522,7 @@ public static class CallsVoiceEndpoints
             return Unavailable(Env("ELEVENLABS_API_KEY").Length == 0
                 ? "Voice import not configured (ELEVENLABS_API_KEY unset)."
                 : "Voice import is not available in this build (no ElevenLabs client in the C# API).");
-        }).AllowAnonymous();
+        }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         // ---- PATCH /api/voice/{voiceId} --------------------------------------
         // REAL for locally-stored custom voices: renaming, re-labelling and
@@ -577,7 +577,7 @@ public static class CallsVoiceEndpoints
             catch (Exception e) { return Unavailable($"Could not write the voice registry: {e.Message}", 503); }
 
             return Results.Ok(new { voice = ClientView(voice) });
-        }).AllowAnonymous();
+        }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         // ---- DELETE /api/voice/{voiceId} -------------------------------------
         // Deleting an ElevenLabs-backed voice has to delete it UPSTREAM too, or
@@ -605,7 +605,7 @@ public static class CallsVoiceEndpoints
             catch (Exception e) { return Unavailable($"Could not write the voice registry: {e.Message}", 503); }
 
             return Results.Ok(new { deleted = voiceId });
-        }).AllowAnonymous();
+        }).RequireAuthorization(AuthPolicies.AdminPlus);
     }
 
     /// <summary>Loose string read off a raw JSON body (numbers/bools included).</summary>

@@ -20,6 +20,7 @@ import { HealthEvents } from '@/components/analytics/HealthEvents'
 import { AiUsageCard } from '@/components/analytics/AiUsageCard'
 import { BreakdownReports } from '@/components/analytics/BreakdownReports'
 import { EntityBreakdownTable } from '@/components/analytics/EntityBreakdownTable'
+import { FlowsCard } from '@/components/analytics/FlowsCard'
 import type { AnalyticsSummary } from '@/components/analytics/types'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
@@ -50,11 +51,7 @@ const pct = (rate: number) => `${Math.round(rate * 1000) / 10}%`
  * It renders beside "Waiting for a reply"; while this returns null the waiting
  * card spans the full row.
  */
-const FLOWS_SLOT = (days: number, entityQ: string): ReactNode => {
-  void days
-  void entityQ
-  return null
-}
+const FLOWS_SLOT = (days: number, entityQ: string): ReactNode => <FlowsCard days={days} entityQ={entityQ} />
 
 function Panel({ title, sub, children, right }: { title: string; sub?: string; children: ReactNode; right?: ReactNode }) {
   return (
