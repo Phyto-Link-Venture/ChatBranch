@@ -15,10 +15,6 @@ namespace ChatBranch.Api.Endpoints;
 public static class ApiV1Endpoints
 {
     public record BrandWrite(string Name, string Slug);
-    public record SyncContact(string? Phone, string? Name, string? Email);
-    public record SyncRecord(string ExternalId, string? Type, string? Title, string? Status,
-        decimal? Amount, DateOnly? DueDate, SyncContact? Contact);
-    public record SyncRequest(List<SyncRecord> Records);
 
     public static void MapApiV1Endpoints(this IEndpointRouteBuilder app)
     {
@@ -125,11 +121,13 @@ public static class ApiV1Endpoints
 
             // Same-phone contacts are a support nightmare (two histories for one
             // person), so reject rather than silently create a twin.
-            var digits = DigitsOf(phone);
-            if (digits.Length >= 8)
+            // (the ONE phone rule: last 8 digits, punctuation ignored — PhoneMatch)
+            if (ChatBranch.Data.Stores.PhoneMatch.Tail(phone) is string tail)
             {
-                var clash = await db.Contacts.AsNoTracking()
-                    .FirstOrDefaultAsync(c => c.Phone.EndsWith(digits.Substring(digits.Length - 8)));
+                var phones = await db.Contacts.AsNoTracking().Where(c => c.Phone != "")
+                    .Select(c => new { c.Id, c.Name, c.Phone }).ToListAsync();
+                var clash = phones.OrderBy(c => c.Id)
+                    .FirstOrDefault(c => ChatBranch.Data.Stores.PhoneMatch.Tail(c.Phone) == tail);
                 if (clash != null)
                     return V1Error("conflict",
                         $"{clash.Name} already uses that number.", 409);
@@ -652,24 +650,29 @@ public static class ApiV1Endpoints
             if (!validRoles.Contains(role))
                 return V1Error("bad_request",
                     $"role must be one of: {string.Join(", ", validRoles.OrderBy(r => r))}.", 400);
-            if (actorRole == Roles.Admin && AdminEndpoints.IsPrivilegedRole(role))
+            // only a superadmin mints admins/superadmins — an admin, or a custom
+            // role holding users.manage, creates agent-level users only
+            if (actorRole != Roles.SuperAdmin && AdminEndpoints.IsPrivilegedRole(role))
                 return V1Error("forbidden", "Admins can only create agent-level users.", 403);
 
+            // Entity access binds AGENT-LEVEL users: agent and every custom role
+            // (both are bounded by their assigned entities). Admins see their
+            // whole tenant, so an entity list on one would mean nothing.
             var entityIds = IntList(body, "entity_ids") ?? new List<int>();
-            if (entityIds.Count > 0 && role != Roles.Agent)
-                return V1Error("bad_request", "Entity access applies to agent users only.", 400);
+            if (entityIds.Count > 0 && AdminEndpoints.IsPrivilegedRole(role))
+                return V1Error("bad_request",
+                    "Entity access applies to agent-level users (agent and custom roles) only.", 400);
             var (entities, entityErr) = await ResolveEntitiesAsync(db, entityIds);
             if (entityErr != null) return entityErr;
             var actorTenantId = TenantId(me);
-            if (actorRole == Roles.Admin && entities.Count > 0 && actorTenantId is int atid
-                && entities[0].TenantId != atid)
-                return V1Error("forbidden", "Those entities are outside your tenant.", 403);
+            if (CreatorScopeError(db, me, actorRole, entities) is { } scopeErr) return scopeErr;
 
             // Tenant resolution, in precedence order: the entities pin it; else an
-            // admin creates inside their own; else a superadmin may name one.
+            // admin (or custom-role manager) creates inside their own; else a
+            // superadmin may name one.
             int? tenantId;
             if (entities.Count > 0) tenantId = entities[0].TenantId;
-            else if (actorRole == Roles.Admin) tenantId = actorTenantId;
+            else if (actorRole != Roles.SuperAdmin) tenantId = actorTenantId;
             else if (actorRole == Roles.SuperAdmin && (Str(body, "tenant") ?? "").Trim() is { Length: > 0 } tslug)
             {
                 var t = await db.Tenants.FirstOrDefaultAsync(x => x.Slug == tslug);
@@ -742,7 +745,7 @@ public static class ApiV1Endpoints
                 if (!validRoles.Contains(newRole))
                     return V1Error("bad_request",
                         $"role must be one of: {string.Join(", ", validRoles.OrderBy(r => r))}.", 400);
-                if (actorRole == Roles.Admin && AdminEndpoints.IsPrivilegedRole(newRole))
+                if (actorRole != Roles.SuperAdmin && AdminEndpoints.IsPrivilegedRole(newRole))
                     return V1Error("forbidden", "Admins can only assign agent-level roles.", 403);
             }
             if (Has(body, "active") && newActive == null)
@@ -767,10 +770,12 @@ public static class ApiV1Endpoints
                 if (ids == null)
                     return V1Error("bad_request", "entity_ids must be a list of entity ids.", 400);
                 var effectiveRole = newRole ?? profile.Role;
-                if (ids.Count > 0 && effectiveRole != Roles.Agent)
-                    return V1Error("bad_request", "Entity access applies to agent users only.", 400);
+                if (ids.Count > 0 && AdminEndpoints.IsPrivilegedRole(effectiveRole))
+                    return V1Error("bad_request",
+                        "Entity access applies to agent-level users (agent and custom roles) only.", 400);
                 var (resolved, err) = await ResolveEntitiesAsync(db, ids);
                 if (err != null) return err;
+                if (CreatorScopeError(db, me, actorRole, resolved) is { } scopeErr) return scopeErr;
                 if (resolved.Count > 0 && profile.TenantId is int ptid
                     && ptid != resolved[0].TenantId)
                     return V1Error("bad_request",
@@ -820,7 +825,8 @@ public static class ApiV1Endpoints
             {
                 profile.Role = newRole;
                 target.IsSuperuser = newRole == Roles.SuperAdmin;
-                if (newRole != Roles.Agent) profile.Entities.Clear();
+                // agent ↔ custom role keeps the entity binding; promotion to admin drops it
+                if (AdminEndpoints.IsPrivilegedRole(newRole)) profile.Entities.Clear();
                 changed.Add("role");
             }
             if (newEntities != null)
@@ -889,56 +895,153 @@ public static class ApiV1Endpoints
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- bulk record sync (ingest) ----------------------------------------
-        app.MapPost("/api/v1/sync/records", (SyncRequest body, ClaimsPrincipal me, AppDbContext db) =>
+        // Body keys are accepted in camelCase OR snake_case (externalId /
+        // external_id, dueDate / due_date…). Contacts match on the ONE phone rule
+        // (PhoneMatch: last 8 digits, punctuation ignored) within the caller's
+        // tenant, else an exact email; a row with no usable identity or no
+        // external id is SKIPPED and reported (created + updated + skipped = total).
+        app.MapPost("/api/v1/sync/records", (JsonElement body, ClaimsPrincipal me, AppDbContext db) =>
         {
-            var tenantId = TenantId(me);
-            int created = 0, updated = 0;
-            foreach (var r in body.Records)
-            {
-                // phone-first contact match/create
-                Contact? contact = null;
-                if (!string.IsNullOrWhiteSpace(r.Contact?.Phone))
-                {
-                    contact = db.Contacts.FirstOrDefault(c => c.Phone == r.Contact!.Phone
-                        && (tenantId == null || c.TenantId == tenantId));
-                    if (contact == null)
-                    {
-                        contact = new Contact
-                        {
-                            Name = r.Contact!.Name ?? r.Contact.Phone!, Phone = r.Contact.Phone!,
-                            Email = r.Contact.Email ?? "", TenantId = tenantId,
-                            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
-                        };
-                        db.Contacts.Add(contact);
-                        db.SaveChanges();
-                    }
-                }
-                if (contact == null) continue; // records need an identity
+            if (body.ValueKind != JsonValueKind.Object
+                || !body.TryGetProperty("records", out var recordsEl) || recordsEl.ValueKind != JsonValueKind.Array)
+                return V1Error("bad_request", "Body must be {\"records\": [...]}.", 400);
 
-                var type = r.Type ?? "custom";
-                var rec = db.Records.FirstOrDefault(x => x.ExternalId == r.ExternalId
+            var tenantId = TenantId(me);
+            // one pass over the tenant's phones instead of a scan per row
+            var byTail = new Dictionary<string, int>();
+            foreach (var c in db.Contacts.AsNoTracking()
+                         .Where(c => c.Phone != "" && (tenantId == null || c.TenantId == tenantId))
+                         .OrderBy(c => c.Id).Select(c => new { c.Id, c.Phone }).ToList())
+                if (ChatBranch.Data.Stores.PhoneMatch.Tail(c.Phone) is string tail) byTail.TryAdd(tail, c.Id);
+
+            int created = 0, updated = 0, contactsCreated = 0, skipped = 0, index = -1;
+            var skippedRows = new List<object>();   // the first 100, with the reason
+            void Skip(string? externalId, string reason)
+            {
+                skipped++;
+                if (skippedRows.Count < 100) skippedRows.Add(new { index, external_id = externalId, reason });
+            }
+
+            foreach (var r in recordsEl.EnumerateArray())
+            {
+                index++;
+                if (r.ValueKind != JsonValueKind.Object) { Skip(null, "not an object"); continue; }
+                var externalId = (SyncStr(r, "externalId", "external_id") ?? "").Trim();
+                if (externalId.Length == 0) { Skip(null, "missing externalId"); continue; }
+
+                var c = SyncObj(r, "contact");
+                var phone = (c is JsonElement ce ? SyncStr(ce, "phone") : null)?.Trim() ?? "";
+                var email = (c is JsonElement ce2 ? SyncStr(ce2, "email") : null)?.Trim() ?? "";
+                var name = (c is JsonElement ce3 ? SyncStr(ce3, "name") : null)?.Trim() ?? "";
+
+                Contact? contact = null;
+                var tail = ChatBranch.Data.Stores.PhoneMatch.Tail(phone);
+                if (tail != null && byTail.TryGetValue(tail, out var cid))
+                    contact = db.Contacts.FirstOrDefault(x => x.Id == cid);
+                if (contact == null && email.Length > 0)
+                {
+                    var lowered = email.ToLowerInvariant();
+                    contact = db.Contacts.FirstOrDefault(x => x.Email.ToLower() == lowered
+                        && (tenantId == null || x.TenantId == tenantId));
+                }
+                if (contact == null)
+                {
+                    if (tail == null)
+                    {
+                        Skip(externalId, phone.Length == 0 ? "no contact phone" : "contact phone has fewer than 8 digits");
+                        continue;
+                    }
+                    contact = new Contact
+                    {
+                        Name = name.Length > 0 ? name : phone, Phone = phone, Email = email,
+                        TenantId = tenantId, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+                    };
+                    db.Contacts.Add(contact);
+                    db.SaveChanges();
+                    byTail[tail] = contact.Id;
+                    contactsCreated++;
+                }
+
+                var type = (SyncStr(r, "type") ?? "").Trim();
+                if (type.Length == 0) type = "custom";
+                var rec = db.Records.FirstOrDefault(x => x.ExternalId == externalId
                     && x.Type == type && (tenantId == null || x.TenantId == tenantId));
                 if (rec == null)
                 {
-                    rec = new Record { ExternalId = r.ExternalId, Type = type, ContactId = contact.Id,
+                    rec = new Record { ExternalId = externalId, Type = type, ContactId = contact.Id,
                         TenantId = tenantId, CreatedAt = DateTime.UtcNow };
                     db.Records.Add(rec);
                     created++;
                 }
                 else updated++;
-                rec.Title = r.Title ?? rec.Title;
-                rec.Status = r.Status ?? rec.Status;
-                rec.Amount = r.Amount ?? rec.Amount;
-                rec.DueDate = r.DueDate ?? rec.DueDate;
+                rec.Title = SyncStr(r, "title") ?? rec.Title;
+                rec.Status = SyncStr(r, "status") ?? rec.Status;
+                rec.Amount = SyncDecimal(r, "amount") ?? rec.Amount;
+                rec.DueDate = SyncDate(r, "dueDate", "due_date") ?? rec.DueDate;
                 rec.UpdatedAt = DateTime.UtcNow;
                 db.SaveChanges();
             }
-            return Results.Ok(new { created, updated, total = body.Records.Count });
+            return Results.Ok(new
+            {
+                created, updated, skipped, total = index + 1,
+                contacts_created = contactsCreated,
+                skipped_rows = skippedRows,
+            });
         }).RequireAuthorization(AuthPolicies.AdminPlus);
     }
 
     private static int? TenantId(ClaimsPrincipal me) =>
         int.TryParse(me.FindFirstValue("tenant_id"), out var t) ? t : null;
+
+    // ---- record-sync readers: camelCase OR snake_case keys -----------------
+
+    private static JsonElement? SyncProp(JsonElement obj, params string[] names)
+    {
+        if (obj.ValueKind != JsonValueKind.Object) return null;
+        foreach (var n in names)
+            if (obj.TryGetProperty(n, out var v) && v.ValueKind != JsonValueKind.Null) return v;
+        // tolerate any casing of the same key (ExternalId, EXTERNAL_ID…)
+        foreach (var p in obj.EnumerateObject())
+            foreach (var n in names)
+                if (string.Equals(p.Name.Replace("_", ""), n.Replace("_", ""), StringComparison.OrdinalIgnoreCase)
+                    && p.Value.ValueKind != JsonValueKind.Null)
+                    return p.Value;
+        return null;
+    }
+
+    private static string? SyncStr(JsonElement obj, params string[] names) =>
+        SyncProp(obj, names) is JsonElement v
+            ? v.ValueKind switch
+            {
+                JsonValueKind.String => v.GetString(),
+                JsonValueKind.Number => v.GetRawText(),
+                _ => null,
+            }
+            : null;
+
+    private static JsonElement? SyncObj(JsonElement obj, string name) =>
+        SyncProp(obj, name) is JsonElement { ValueKind: JsonValueKind.Object } v ? v : null;
+
+    private static decimal? SyncDecimal(JsonElement obj, string name) =>
+        SyncProp(obj, name) switch
+        {
+            JsonElement { ValueKind: JsonValueKind.Number } n when n.TryGetDecimal(out var d) => d,
+            JsonElement { ValueKind: JsonValueKind.String } s when decimal.TryParse(s.GetString(),
+                System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture,
+                out var d) => d,
+            _ => null,
+        };
+
+    private static DateOnly? SyncDate(JsonElement obj, params string[] names)
+    {
+        var raw = SyncStr(obj, names)?.Trim();
+        if (string.IsNullOrEmpty(raw)) return null;
+        if (DateOnly.TryParseExact(raw, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out var d)) return d;
+        return DateTimeOffset.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeUniversal, out var dt)
+            ? DateOnly.FromDateTime(dt.UtcDateTime) : null;
+    }
 
     // ---- v1 error envelope ------------------------------------------------
     // Every v1 failure is {error:{code,message}} — the dashboard's v1 fetch
@@ -1049,8 +1152,6 @@ public static class ApiV1Endpoints
             };
         return into;
     }
-
-    private static string DigitsOf(string raw) => new(raw.Where(char.IsDigit).ToArray());
 
     /// api/views.py ContactDetailView._scoped, narrowed to one row. superadmin
     /// sees all, admin their tenant, everyone else only contacts active on an
@@ -1255,12 +1356,34 @@ public static class ApiV1Endpoints
     /// admin or a superadmin. superadmin skips the check entirely.
     private static IResult? AdminMayManage(string actorRole, int? actorTenantId, Profile target)
     {
-        if (actorRole != Roles.Admin) return null;
+        // an admin — or a custom role granted users.manage — is tiered the same way
+        if (actorRole == Roles.SuperAdmin) return null;
         if (AdminEndpoints.IsPrivilegedRole(target.Role))
             return V1Error("forbidden", "Admins can only manage agent-level users.", 403);
         if (target.TenantId != actorTenantId)
             return V1Error("forbidden", "That user is outside your tenant.", 403);
         return null;
+    }
+
+    /// <summary>
+    /// The creator's own scope bounds the entities they may grant: never outside
+    /// their tenant, and a manager who is themselves bound to entities (a custom
+    /// role holding users.manage) only within those entities' subtrees.
+    /// Superadmin is unbounded.
+    /// </summary>
+    private static IResult? CreatorScopeError(AppDbContext db, ClaimsPrincipal me,
+        string actorRole, List<Entity> entities)
+    {
+        if (entities.Count == 0 || actorRole == Roles.SuperAdmin) return null;
+        if (TenantId(me) is int tid && entities.Any(e => e.TenantId != tid))
+            return V1Error("forbidden", "Those entities are outside your tenant.", 403);
+        if (actorRole == Roles.Admin) return null;   // admins manage their whole tenant
+        var assigned = ContactsEndpoints.AssignedEntityIds(db, me.Identity?.Name);
+        if (assigned.Count == 0) return null;          // an unbound manager keeps the tenant view
+        var scope = new ScopingService(db).EntitySubtreeIds(assigned).ToHashSet();
+        return entities.All(e => scope.Contains(e.Id))
+            ? null
+            : V1Error("forbidden", "Those entities are outside your own entity scope.", 403);
     }
 
     /// _resolve_entities: every id must exist AND share ONE tenant (a user works
