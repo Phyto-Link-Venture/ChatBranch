@@ -58,4 +58,9 @@ public class Notification
     public string Link { get; set; } = "";
     public bool Read { get; set; }
     public DateTime CreatedAt { get; set; }
+    // Inbox grouping + mute group: messages | account_health | flows | admin |
+    // system ("" on rows written before the column existed → derived from Kind).
+    public string Category { get; set; } = "";
+    // Throttle key ("thread:<id>"): at most one UNREAD row per key per user.
+    public string RefKey { get; set; } = "";
 }

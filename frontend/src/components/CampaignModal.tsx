@@ -5,6 +5,7 @@ import { Mic, Phone, MessageSquare, X, Check, Zap } from 'lucide-react'
 import { useApp } from '@/lib/AppContext'
 import { primaryRecord } from '@/lib/mocks'
 import { Button } from '@/components/ui/Button'
+import { Select } from '@/components/ui/Select'
 import { tint } from '@/lib/color'
 
 const METHODS = [
@@ -170,19 +171,17 @@ export function CampaignModal() {
             {launchMethod === 'ai-call' && (
               <div>
                 {label('Voice')}
-                <select
+                <Select
                   value={selectedVoice}
-                  onChange={(e) => setSelectedVoice(e.target.value)}
-                  className="w-full cursor-pointer rounded-lg border border-line-strong bg-card px-3 py-[9px] text-[12px] font-semibold text-text-high outline-none"
-                >
-                  {voices
+                  onChange={setSelectedVoice}
+                  options={voices
                     .filter((v) => v.status === 'ready')
-                    .map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.name} — {v.gender}
-                      </option>
-                    ))}
-                </select>
+                    .map((v) => ({ value: v.id, label: v.name, hint: v.gender }))}
+                  size="md"
+                  ariaLabel="Voice"
+                  placeholder="Pick a voice…"
+                  className="w-full"
+                />
               </div>
             )}
 

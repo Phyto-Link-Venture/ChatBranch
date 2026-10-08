@@ -182,8 +182,15 @@ public sealed class RequestAuditMiddleware
         return AuditSources.Webhook;
     }
 
-    private static string AnonymousActor(string path) =>
-        path.StartsWith("/api/auth/", StringComparison.OrdinalIgnoreCase) ? "anonymous" : "webhook";
+    /// <summary>Provider callbacks and gateways read as "webhook"; any other
+    /// unauthenticated caller (a sign-in attempt, an open legacy endpoint such
+    /// as the call controls) as "anonymous".</summary>
+    private static string AnonymousActor(string path)
+    {
+        var p = path.ToLowerInvariant();
+        return p.Contains("/webhook") || p.Contains("/baileys/") || p.StartsWith("/api/widget/")
+            ? "webhook" : "anonymous";
+    }
 
     private static async Task<int?> UserIdAsync(HttpContext ctx, ClaimsPrincipal user)
     {

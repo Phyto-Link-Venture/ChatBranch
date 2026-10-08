@@ -14,6 +14,10 @@ import { MOVED_AREA_ROUTES } from '@/components/settings/movedAreas'
  */
 const LEGACY_TABS: Record<string, string> = {
   'booking-hours': 'integrations', // moved into the Google Calendar integration
+  'notification-defaults': 'notifications',
+  theme: 'appearance',
+  'ai-keys': 'ai-providers',
+  'app-keys': 'appkeys',
 }
 
 function Redirector() {

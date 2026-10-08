@@ -34,7 +34,7 @@ export function Toggle({
       style={{ opacity: disabled && !locked ? 0.5 : 1 }}
     >
       <span
-        className={`absolute top-[2px] grid h-4 w-4 place-items-center rounded-full transition-all ${on ? 'bg-accent' : 'bg-card'}`}
+        className={`absolute top-[2px] grid h-4 w-4 place-items-center rounded-full transition-all ${on ? 'bg-on-primary' : 'bg-card'}`}
         style={{ left: on ? 18 : 2, boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }}
       >
         {locked && <Lock size={9} strokeWidth={2.5} className="text-text-heading" aria-hidden />}

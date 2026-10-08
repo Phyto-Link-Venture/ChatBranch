@@ -148,6 +148,21 @@ public class AuditTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Anonymous_call_controls_are_recorded_too()
+    {
+        var anon = _f.CreateClient();
+        var res = await anon.PostAsync("/api/calls/audit-room-1/hangup", null);
+        var requestId = res.Headers.GetValues("X-Request-Id").Single();
+
+        var sa = await Platform.As(_f, "superadmin", "super123");
+        var row = Assert.Single(await Platform.Audit(sa, $"q={Uri.EscapeDataString(requestId)}"));
+        Assert.Equal("POST /api/calls/{room}/hangup", row.GetProperty("action").GetString());
+        Assert.Equal("anonymous", row.GetProperty("actor").GetString());
+        Assert.Equal("room=audit-room-1", row.GetProperty("target").GetString());
+        Assert.Equal((int)res.StatusCode, row.GetProperty("status").GetInt32());
+    }
+
+    [Fact]
     public async Task Failed_logins_and_logouts_are_logged()
     {
         var anon = _f.CreateClient();

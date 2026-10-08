@@ -2,6 +2,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
+using ChatBranch.Data.Ai;
+using ChatBranch.Data.Channels;
 using ChatBranch.Data.Sidecars;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -18,16 +20,17 @@ namespace ChatBranch.Api.Endpoints;
 /// lib/voice.ts). Responses are built inline rather than through DTOs so the
 /// shape is readable next to the view it mirrors.
 ///
-/// WHAT IS REAL AND WHAT IS A STUB
-/// -------------------------------
-/// The voice agent is a separate, Django-free process that talks over FILES
-/// (data/live/{room}.json in, data/inbox/{room}.json out). <see cref="VoiceAgentBridge"/>
-/// already speaks that protocol, so everything file-backed is implemented for
-/// real here: the live transcript, guide/take-over instructions and escalation.
-/// Everything that needs the LiveKit CONTROL PLANE (placing a call, dropping a
-/// call) has no C# implementation — those return an honest, JSON, non-throwing
-/// "not available in this build" instead of pretending a call was placed. Same
-/// for the ElevenLabs/OpenAI TTS paths: no provider client exists here, so
+/// HOW A CALL IS PLACED
+/// ---------------------
+/// The voice agent is a separate process (backend/voice_agent, Node) that talks
+/// to this API over FILES (data/live/{room}.json in, data/inbox/{room}.json out,
+/// data/calls.json at the end — see <see cref="VoiceAgentBridge"/>). Placing and
+/// dropping a call is the LiveKit control plane, driven through
+/// <see cref="LiveKitClient"/>: dispatch the agent with its metadata
+/// (<see cref="VoiceDispatch"/>), add the SIP participant, delete the room to
+/// hang up. With no LIVEKIT_* / SIP_OUTBOUND_TRUNK_ID configured those answer a
+/// 503 whose `detail` tells the operator what to set — never a fake call. The
+/// ElevenLabs/OpenAI TTS paths have no provider client here, so
 /// preview/clone/import answer 501 with a `detail` the UI shows to the operator.
 ///
 /// Two rules hold everywhere: never a 500 (every failure is a shaped JSON body),
@@ -115,13 +118,14 @@ public static class CallsVoiceEndpoints
     {
         // Port of calls/views.call_logs. Django merges two file stores (the SIP
         // agent's data/calls.json and the WhatsApp recordings dir); the C# build
-        // keeps finished calls in the CallRecords table instead, so that is the
-        // source here. The WhatsApp-call half is best-effort in Django too (it
-        // sits inside a bare try/except) and has no C# store yet, so this returns
-        // the ai-call rows only — the page's "WhatsApp" tab simply counts 0.
+        // folds the agent's calls.json into the CallRecords table
+        // (VoiceCallSync) and serves that. The WhatsApp-call half is best-effort
+        // in Django too and has no C# store yet, so this returns the ai-call
+        // rows only — the page's "WhatsApp" tab simply counts 0.
         // Auth-gated like Django (the page sends authHeaders()).
-        app.MapGet("/api/call-logs", async (AppDbContext db) =>
+        app.MapGet("/api/call-logs", async (AppDbContext db, VoiceAgentBridge bridge) =>
         {
+            await VoiceCallSync.SyncAsync(db, bridge); // fold in calls the agent finished since
             var rows = await db.CallRecords.AsNoTracking()
                 .Include(r => r.Contact)
                 .OrderByDescending(r => r.Id)
@@ -139,9 +143,9 @@ public static class CallsVoiceEndpoints
                     ["ts"] = CallTs(r),
                     ["outcome"] = r.Outcome ?? "",
                     ["summary"] = r.Summary ?? "",
-                    // Recordings are written by the Python recorder into
-                    // data/recordings/; nothing in this build produces or serves
-                    // them, so the row reports "no audio" rather than a dead link.
+                    // The agent records to data/recordings/, but nothing in this
+                    // build serves those files yet, so the row reports "no audio"
+                    // rather than a dead link.
                     ["recording"] = null,
                     ["transcript"] = ParseTranscript(r.Transcript),
                     ["contact_id"] = r.ContactId,
@@ -170,26 +174,33 @@ public static class CallsVoiceEndpoints
         // have to be: AppContext.tsx fetches every one of them with a bare
         // fetch(), no auth headers, so gating them would 401 the live-call UI.
         // They expose no stored data beyond the call the operator is watching.
+        // NOTE: with LiveKit + a trunk configured, /dial places real (billed)
+        // phone calls for any caller that can reach the API — gate it once the
+        // dashboard sends its bearer token on these requests.
 
         // ---- POST /api/calls/dial ------------------------------------------
-        // Django validates the request, then hands off to LiveKit (calls/lk.dial
-        // → voice_agent/caller.place_call) for the SIP INVITE. There is no
-        // LiveKit client in this build, so every validation Django does still
-        // runs here — contact lookup, E.164 check, voice pre-flight — and only
-        // the hand-off is stubbed. AppContext.tsx:322 does
-        // `data = await res.json()` BEFORE checking res.ok and shows
-        // `data.detail` on the call tile, so the body is always JSON.
-        app.MapPost("/api/calls/dial", async (DialWrite? body, AppDbContext db) =>
+        // Validate (contact lookup, do-not-call, E.164, voice pre-flight), then
+        // dispatch the agent with the call's metadata and dial over the SIP
+        // trunk. AppContext.tsx:322 does `data = await res.json()` BEFORE
+        // checking res.ok and shows `data.detail` on the call tile, so every
+        // answer is JSON; `room` is null on failure because the tile re-keys to
+        // data.room only on a 2xx.
+        app.MapPost("/api/calls/dial", async (DialWrite? body, AppDbContext db, ScopingService sc,
+            KnowledgeService knowledge, AssistantService assistant, LiveKitClient livekit,
+            VoiceAgentBridge bridge, CancellationToken ct) =>
         {
             body ??= new DialWrite(null, null, null, null, null, null, null);
 
+            Contact? contact = null;
             string? phone;
             if (body.contact_id is int contactId)
             {
-                var contact = await db.Contacts.AsNoTracking()
-                    .FirstOrDefaultAsync(c => c.Id == contactId);
+                contact = await db.Contacts.AsNoTracking()
+                    .FirstOrDefaultAsync(c => c.Id == contactId, ct);
                 if (contact == null)
                     return Results.Json(new { detail = "Contact not found." }, statusCode: 404);
+                if (contact.DoNotCall)
+                    return Results.Json(new { detail = "Contact is marked do-not-call." }, statusCode: 409);
                 phone = contact.Phone;
             }
             else
@@ -216,34 +227,46 @@ public static class CallsVoiceEndpoints
                     return Bad("Unknown ILMU voice (voice_1/2/3).");
             }
 
-            // The stub. `room` is explicitly null: the frontend re-keys its call
-            // tile to data.room only on a 2xx, so a fabricated room id would
-            // leave a tile polling a call that will never exist.
-            return Results.Json(new
-            {
-                ok = false,
-                room = (string?)null,
-                status = "unavailable",
-                detail = "Calling is not available in this build: placing a call needs the LiveKit "
-                       + "control plane and a SIP trunk (LIVEKIT_URL / LIVEKIT_API_KEY), which the "
-                       + "C# API does not embed.",
-            }, statusCode: 501);
+            if (livekit.Settings.MissingForSip() is string reason)
+                return Results.Json(new { ok = false, room = (string?)null, status = "unavailable", detail = reason },
+                    statusCode: 503);
+
+            // The call brain and STT engine are the organization-wide settings
+            // here (no channel account carries a SIP call).
+            var metadata = await VoiceDispatch.BuildAsync(db, knowledge, assistant, sc, bridge.DataDir, contact,
+                new VoiceCallOptions(phone, body.name, body.language, provider, voiceId,
+                    AccountDelivery.Resolve(null, AccountDelivery.LlmProvider, sc),
+                    AccountDelivery.Resolve(null, AccountDelivery.SttProvider, sc), body.script), ct);
+            var room = LiveKitClient.NewRoomName();
+            var placed = await livekit.PlaceSipCallAsync(room, phone,
+                metadata.GetValueOrDefault("contact_name") as string ?? "contact",
+                JsonSerializer.Serialize(metadata), ct);
+            if (!placed.Ok)
+                return Results.Json(new { ok = false, room = (string?)null, status = "failed", detail = placed.Detail },
+                    statusCode: placed.Status == 503 ? 503 : 502);
+            return Results.Ok(new { ok = true, room, status = "dialing" });
         }).AllowAnonymous();
 
         // ---- GET /api/calls/{room} — the finished call's summary ------------
-        // Django reads the agent's file store (calls/lk.call_record); the C#
-        // build keeps the same record in CallRecords, keyed by call id = room.
-        // Keys match AppContext.tsx's CallSummary type; the three the C# entity
-        // does not carry are returned as null rather than omitted, so the UI
-        // renders "—" instead of `undefined`.
-        app.MapGet("/api/calls/{room}", async (string room, AppDbContext db) =>
+        // The agent appends the record to calls.json; VoiceCallSync folds it
+        // into CallRecords. The file record also fills the fields the entity
+        // does not carry (followup_action, objection, sentiment_score); keys
+        // match AppContext.tsx's CallSummary type.
+        app.MapGet("/api/calls/{room}", async (string room, AppDbContext db, VoiceAgentBridge bridge) =>
         {
             if (!RoomOk(room)) return Bad("Invalid room id.");
+            await VoiceCallSync.SyncAsync(db, bridge);
             var r = await db.CallRecords.AsNoTracking()
                 .Include(x => x.Contact)
                 .FirstOrDefaultAsync(x => x.CallId == room);
             if (r == null)
                 return Results.Json(new { detail = "Summary not ready." }, statusCode: 404);
+            var file = bridge.CallRecords().LastOrDefault(c =>
+                c.TryGetProperty("call_id", out var id) && id.ValueKind == JsonValueKind.String
+                && id.GetString() == room);
+            string? FromFile(string key) =>
+                file.ValueKind == JsonValueKind.Object && file.TryGetProperty(key, out var v)
+                && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 
             return Results.Ok(new Dictionary<string, object?>
             {
@@ -258,18 +281,15 @@ public static class CallsVoiceEndpoints
                 ["outcome"] = string.IsNullOrWhiteSpace(r.Outcome) ? "unclear" : r.Outcome,
                 ["followup_date"] = r.FollowupDate,
                 ["needs_human"] = r.NeedsHuman,
-                // Not modelled on CallRecord — null keeps the CallSummary shape
-                // whole instead of leaving the field undefined in the UI.
-                ["followup_action"] = null,
-                ["objection"] = null,
-                ["sentiment_score"] = null,
+                ["followup_action"] = FromFile("followup_action"),
+                ["objection"] = FromFile("objection"),
+                ["sentiment_score"] = FromFile("sentiment_score"),
                 ["transcript"] = ParseTranscript(r.Transcript),
             });
         }).AllowAnonymous();
 
         // ---- GET /api/calls/{room}/live — the live transcript ---------------
-        // REAL, not a stub: this is the file half of the agent protocol, which
-        // VoiceAgentBridge already speaks. Mirrors calls/lk.live_transcript,
+        // The file half of the agent protocol. Mirrors calls/lk.live_transcript,
         // including its belt-and-suspenders rule — a persisted call record means
         // the call ENDED even if the agent never wrote its final done-flag, so
         // AppContext's 1.5s poll can't stick on "Ringing…" forever.
@@ -289,6 +309,7 @@ public static class CallsVoiceEndpoints
                            && t is JsonElement te && te.ValueKind == JsonValueKind.Array
                            && te.GetArrayLength() > 0;
 
+            if (doneInFile) await VoiceCallSync.SyncAsync(db, bridge);
             var record = await db.CallRecords.AsNoTracking()
                 .FirstOrDefaultAsync(x => x.CallId == room);
 
@@ -308,9 +329,8 @@ public static class CallsVoiceEndpoints
         }).AllowAnonymous();
 
         // ---- POST /api/calls/{room}/say — guide / take over -----------------
-        // REAL: calls/views.say pushes the instruction into the agent's
-        // consume-once inbox (storage.push_instruction), which is exactly what
-        // VoiceAgentBridge.PushInstruction writes. Nothing consumes it when no
+        // calls/views.say: push the instruction into the agent's consume-once
+        // inbox (VoiceAgentBridge.PushInstruction). Nothing consumes it when no
         // agent is running, but the write genuinely happens, so ok:true is
         // honest — `queued` says what was actually done.
         app.MapPost("/api/calls/{room}/say", (string room, SayWrite? body, VoiceAgentBridge bridge) =>
@@ -326,29 +346,29 @@ public static class CallsVoiceEndpoints
         }).AllowAnonymous();
 
         // ---- POST /api/calls/{room}/hangup ----------------------------------
-        // Dropping a call is a LiveKit control-plane operation (calls/lk.hangup
-        // → caller.hangup_room); the file bridge has no equivalent. Best effort:
-        // queue a wrap-up hint, which a running agent WILL act on, and report
-        // ok:false so nobody reads this as a confirmed disconnect. 200 on
-        // purpose — AppContext.tsx fires this and ignores the response, and the
-        // tile has already moved to "Hanging up…".
-        app.MapPost("/api/calls/{room}/hangup", (string room, VoiceAgentBridge bridge) =>
+        // Deleting the room drops the phone leg and ends the agent's job (which
+        // then writes its summary). Without the LiveKit control plane the best
+        // this can do is queue a wrap-up instruction a running agent acts on —
+        // answered as a 503 so nobody reads it as a confirmed disconnect.
+        app.MapPost("/api/calls/{room}/hangup", async (string room, VoiceAgentBridge bridge,
+            LiveKitClient livekit, CancellationToken ct) =>
         {
             if (!RoomOk(room)) return Bad("Invalid room id.");
-            try
+            if (livekit.Settings.MissingForServer() is string reason)
             {
-                bridge.Guide(room, "Politely wrap up and end the call now.");
+                try
+                {
+                    bridge.Guide(room, "Politely wrap up and end the call now.");
+                }
+                catch { /* unwritable data dir — still answer, never 500 */ }
+                return Results.Json(new { ok = false, room, queued = "guide", detail = reason }, statusCode: 503);
             }
-            catch { /* no agent / unwritable data dir — still answer, never 500 */ }
 
-            return Results.Ok(new
-            {
-                ok = false,
-                room,
-                queued = "guide",
-                detail = "Dropping the SIP leg needs the LiveKit control plane, which this build does "
-                       + "not include — a wrap-up instruction was queued for the agent instead.",
-            });
+            var dropped = await livekit.DeleteRoomAsync(room, ct);
+            // 404: the room is already gone — the call has ended either way.
+            if (!dropped.Ok && dropped.Status != 404)
+                return Results.Json(new { ok = false, room, detail = dropped.Detail }, statusCode: 502);
+            return Results.Ok(new { ok = true, room });
         }).AllowAnonymous();
 
         // ---- POST /api/calls/{room}/escalate --------------------------------
