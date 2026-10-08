@@ -99,26 +99,6 @@ public static class Seed
             + "\"user_id\" INTEGER NOT NULL, \"tool\" TEXT NOT NULL, \"args\" TEXT NOT NULL, "
             + "\"summary\" TEXT NOT NULL, \"status\" TEXT NOT NULL, \"result\" TEXT NOT NULL, "
             + "\"created_at\" TEXT NOT NULL, \"expires_at\" TEXT NOT NULL, \"decided_at\" TEXT NULL");
-        ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
-    }
-
-    /// <summary>Create a (non-unique) index EnsureCreated() will never add to an
-    /// existing database. Idempotent via IF NOT EXISTS.</summary>
-    private static void AddIndexIfMissing(AppDbContext db, string name, string table, string columns)
-    {
-        var conn = db.Database.GetDbConnection();
-        var wasClosed = conn.State != System.Data.ConnectionState.Open;
-        if (wasClosed) conn.Open();
-        try
-        {
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = $"CREATE INDEX IF NOT EXISTS \"{name}\" ON \"{table}\" ({columns})";
-            cmd.ExecuteNonQuery();
-        }
-        finally
-        {
-            if (wasClosed) conn.Close();
-        }
         AddTableIfMissing(db, "crm_aidraft",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_aidraft\" PRIMARY KEY AUTOINCREMENT, "
             + "\"thread_id\" INTEGER NULL, \"thread_key\" TEXT NOT NULL, \"channel\" TEXT NOT NULL, "
@@ -144,6 +124,26 @@ public static class Seed
             + "\"tag_id\" INTEGER NOT NULL, \"target_type\" TEXT NOT NULL, \"target_id\" INTEGER NOT NULL, "
             + "\"values\" TEXT NOT NULL, \"created_by\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL, "
             + "CONSTRAINT \"uniq_tag_assignment\" UNIQUE (\"tag_id\", \"target_type\", \"target_id\")");
+        ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
+    }
+
+    /// <summary>Create a (non-unique) index EnsureCreated() will never add to an
+    /// existing database. Idempotent via IF NOT EXISTS.</summary>
+    private static void AddIndexIfMissing(AppDbContext db, string name, string table, string columns)
+    {
+        var conn = db.Database.GetDbConnection();
+        var wasClosed = conn.State != System.Data.ConnectionState.Open;
+        if (wasClosed) conn.Open();
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = $"CREATE INDEX IF NOT EXISTS \"{name}\" ON \"{table}\" ({columns})";
+            cmd.ExecuteNonQuery();
+        }
+        finally
+        {
+            if (wasClosed) conn.Close();
+        }
     }
 
     /// <summary>

@@ -121,7 +121,7 @@ public static class AiEndpoints
             db.KnowledgeItems.Add(row);
             await db.SaveChangesAsync();
             return Results.Ok(KnowledgeDto(row, DateTime.UtcNow, await EntityRow(db, row.EntityId)));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
         // Bound as raw JSON, not a DTO: a PATCH must tell "field absent" (leave
         // it) from "field null/empty" (clear it) — the date window is cleared by
@@ -147,13 +147,13 @@ public static class AiEndpoints
             row.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
             return Results.Ok(KnowledgeDto(row, DateTime.UtcNow, await EntityRow(db, row.EntityId)));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
         app.MapDelete("/api/aicore/knowledge/{id:int}", async (int id, AppDbContext db) =>
         {
             await db.KnowledgeItems.Where(k => k.Id == id).ExecuteDeleteAsync();
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
         // The exact block the AI receives — "why did the bot say that?" as a button.
         app.MapPost("/api/aicore/knowledge/preview", async (PreviewRequest b, AppDbContext db,

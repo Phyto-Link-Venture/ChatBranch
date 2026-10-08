@@ -36,7 +36,12 @@ public static partial class SettingsEndpoints
             return Results.Ok(new
             {
                 entity,
-                values = wanted.ToDictionary(k => k, k => values.GetValueOrDefault(k, "")),
+                // Secrets never leave through this generic read — any signed-in
+                // user (or read-only API key) can call it. Their own settings
+                // pages round-trip them masked.
+                values = wanted.ToDictionary(k => k, k => IsSecretKey(k)
+                    ? MaskSecret(values.GetValueOrDefault(k, ""))
+                    : values.GetValueOrDefault(k, "")),
                 scopes,
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
@@ -62,6 +67,21 @@ public static partial class SettingsEndpoints
             });
         }).RequireAuthorization(AuthPolicies.SuperAdmin);
     }
+
+    /// <summary>Setting keys that hold credentials (or JSON blobs carrying them).</summary>
+    internal static bool IsSecretKey(string key)
+    {
+        var k = key.ToLowerInvariant();
+        string[] blobs = { "integrations_settings", "voice_twilio_settings", "mcp_servers",
+            "whatsapp_custom_templates_secret", "oauth_state_secret", "baileys_secret" };
+        return blobs.Contains(k)
+               || k.Contains("secret") || k.Contains("password") || k.Contains("token")
+               || k.EndsWith("_key") || k.Contains("api_key") || k.StartsWith("smtp_pass");
+    }
+
+    /// <summary>"" stays ""; anything else becomes "••••" + its last 4 characters.</summary>
+    internal static string MaskSecret(string value) =>
+        string.IsNullOrEmpty(value) ? "" : "••••" + (value.Length > 8 ? value[^4..] : "");
 
     /// <summary>
     /// The capability gate every Settings sub-page's write endpoint uses:

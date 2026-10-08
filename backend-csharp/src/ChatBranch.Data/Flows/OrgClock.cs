@@ -5,18 +5,23 @@ namespace ChatBranch.Data.Flows;
 /// <summary>
 /// The organization's wall clock. Flow statistics are bucketed per calendar
 /// day, and "today" must be the operator's today — not UTC's, which flips at
-/// 08:00 in Kuala Lumpur. The zone comes from the <c>timezone</c> Setting row
-/// (an IANA id such as "Asia/Kuala_Lumpur"), then env <c>ORG_TIMEZONE</c>,
-/// then the server's local zone — the same clock quiet hours already use.
+/// 08:00 in Kuala Lumpur. The zone comes from the <c>org_timezone</c> Setting
+/// row (an IANA id such as "Asia/Kuala_Lumpur" — the one the AI skills' date
+/// tools use, set from AI skills → Built-in tools), then the legacy
+/// <c>timezone</c> row, then env <c>ORG_TIMEZONE</c> / <c>TZ</c>, then the
+/// server's local zone — the same clock quiet hours already use.
 /// </summary>
 public static class OrgClock
 {
-    public const string SettingKey = "timezone";
+    public const string SettingKey = "org_timezone";
+    public const string LegacySettingKey = "timezone";
 
     public static TimeZoneInfo Zone(ScopingService scoping)
     {
         var id = scoping.SettingValue(SettingKey);
+        if (id.Length == 0) id = scoping.SettingValue(LegacySettingKey);
         if (id.Length == 0) id = Environment.GetEnvironmentVariable("ORG_TIMEZONE") ?? "";
+        if (id.Length == 0) id = Environment.GetEnvironmentVariable("TZ") ?? "";
         if (id.Length > 0)
         {
             try { return TimeZoneInfo.FindSystemTimeZoneById(id); }

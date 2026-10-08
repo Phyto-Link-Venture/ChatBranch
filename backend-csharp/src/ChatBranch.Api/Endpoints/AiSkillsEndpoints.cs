@@ -143,7 +143,7 @@ public static class AiSkillsEndpoints
             // Echo the saved library in the GET shape — the page swaps its draft
             // for this response, so a `{count}` reply blanked the editor.
             return Results.Ok(new { skills = List(db, sc, entityId) });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
         // ---- describe → clarify → code ----------------------------------------
         app.MapPost("/api/aicore/skills/draft", async (DraftRequest body, SkillDrafter drafter,
@@ -176,7 +176,7 @@ public static class AiSkillsEndpoints
                     on_fail = r.Skill.OnFail,
                 },
             });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
         // ---- run a skill's tests in the sandbox ---------------------------------
         app.MapPost("/api/aicore/skills/test", (TestRequest body, SkillService skills) =>
@@ -202,7 +202,7 @@ public static class AiSkillsEndpoints
                     name = r.Name, pass = r.Pass, got = r.Got, expected = r.Expected, error = r.Error, ms = r.Ms,
                 }),
             });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
         // ---- built-ins (read-only; always offered to the model as tools) --------
         app.MapGet("/api/aicore/skills/builtins", (SkillService skills) =>

@@ -698,7 +698,7 @@ public static class WhatsAppThreadsEndpoints
         // call state resets (wa_calls.end_call) and the panel closes cleanly.
         app.MapPost("/api/whatsapp/threads/{key}/call/end", async (string key, AppDbContext db,
             ThreadStore store, IWhatsAppCloudClient wa, IBaileysGateway baileys, LiveKitClient livekit,
-            ClaimsPrincipal me, HttpContext ctx, CancellationToken ct) =>
+            VoiceAgentBridge voice, ClaimsPrincipal me, HttpContext ctx, CancellationToken ct) =>
         {
             var thread = await FindThread(db, key);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
@@ -707,6 +707,8 @@ public static class WhatsAppThreadsEndpoints
             var real = !string.IsNullOrEmpty(thread.CallRoom);
             if (real)
             {
+                // the agent records who ended the call (ended_by=operator)
+                try { voice.MarkOperatorEnd(thread.CallRoom!); } catch { /* provenance only */ }
                 var account = await EffectiveAccount(db, wa, thread);
                 if (account is { Provider: Providers.Baileys, ExternalId.Length: > 0 } && baileys.IsConfigured)
                     await baileys.EndCallAsync(account.ExternalId, ct);

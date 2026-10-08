@@ -215,11 +215,14 @@ public static class BuiltinSkills
         }
     }
 
-    /// <summary>The business timezone: Setting <c>org_timezone</c> → TZ env → UTC.</summary>
+    /// <summary>The business timezone — the same chain the flow clock uses
+    /// (<see cref="Flows.OrgClock"/>): Setting <c>org_timezone</c> → legacy
+    /// <c>timezone</c> → ORG_TIMEZONE / TZ env → UTC.</summary>
     public static TimeZoneInfo OrgTimeZone(ScopingService? scoping)
     {
-        var configured = scoping?.SettingValue("org_timezone");
-        return ResolveTimeZone(configured)
+        return ResolveTimeZone(scoping?.SettingValue(Flows.OrgClock.SettingKey))
+               ?? ResolveTimeZone(scoping?.SettingValue(Flows.OrgClock.LegacySettingKey))
+               ?? ResolveTimeZone(Environment.GetEnvironmentVariable("ORG_TIMEZONE"))
                ?? ResolveTimeZone(Environment.GetEnvironmentVariable("TZ"))
                ?? TimeZoneInfo.Utc;
     }

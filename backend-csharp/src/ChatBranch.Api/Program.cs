@@ -95,13 +95,8 @@ app.UseMiddleware<ChatBranch.Api.Audit.RequestAuditMiddleware>(); // activity lo
 app.UseAuthorization();
 
 // ---- Phase 1 endpoints ------------------------------------------------------
-// A cheap liveness probe the frontend already hits (kept open, like Django).
-app.MapGet("/api/whatsapp/status", () => Results.Ok(new
-{
-    ok = true,
-    service = "chatbranch-csharp",
-    stack = "asp.net-core",
-})).AllowAnonymous();
+// (The open liveness probe GET /api/whatsapp/status lives in InboxEndpoints —
+// mapping it here as well made every request an AmbiguousMatchException.)
 
 app.MapAuthEndpoints();
 app.MapSettingsEndpoints();
