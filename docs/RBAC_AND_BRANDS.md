@@ -117,8 +117,9 @@ capability check in the handler (`AdminEndpoints.HasCapabilityAsync`,
 | Custom fields schema (`PUT /api/settings/custom-fields`) | `settings.custom_fields.manage` |
 | Org notification defaults (`PUT /api/auth/notification-prefs`) | `notifications.manage` |
 | Org appearance default (`PUT /api/settings/appearance`) | `settings.appearance.org` |
-| Account assignment rebalance | `account_assignment.manage` |
-| Channel/integration accounts, widgets, teams, automations, knowledge, skills, MCP servers, routing rules, recovery, record sync, analytics usage | admin+ |
+| Account assignments, rebalance, routing rules (`/api/whatsapp/assignments*`, `PUT /api/whatsapp/routing-rules`) | `account_assignment.manage` |
+| Channel/integration accounts, widgets, teams, automations, knowledge, skills, external MCP servers, recovery, record sync, analytics usage | admin+ |
+| WhatsApp global settings incl. the verify token (`POST/PUT /api/whatsapp/settings`) | `app_keys.manage` |
 | Flow library | GET `flows.view`, PUT `flows.manage` |
 | Tags | read `tags.view`, write `tags.manage` |
 | Bindings (`POST /api/bindings/{kind}`) | admin+ AND the kind's own capability (`users.manage`, `contacts.manage`, `tags.manage`, `channels.manage`) |

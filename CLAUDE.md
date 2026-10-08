@@ -250,8 +250,8 @@ When you fix one of these, update this table, `README.md` and
   the inbox's `ai_default` → role, with reminder numbers off unless the
   `reminder_ai_default` rule is on); the AI toggle also mirrors into
   `Thread.AiEnabled`, which is what the inbound coverage gate reads.
-  Routing-rule knobs live behind `GET/PUT /api/whatsapp/routing-rules`
-  (`ai_reply_mode` queued|instant, `cold_text_guard` block|warn|allow,
+  Routing-rule knobs live behind `GET/PUT /api/whatsapp/routing-rules` (PUT
+  `account_assignment.manage`; `ai_reply_mode` queued|instant, `cold_text_guard` block|warn|allow,
   `cold_call_guard`, `reminder_ai_default`, `business_redirect*`,
   `recovery_mode`/`recovery_template`). `Message.AccountId` records which
   number carried each message; the UI shows "via <account>" and a divider at
