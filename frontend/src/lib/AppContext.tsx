@@ -228,7 +228,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     fd.append('persona', persona)
     if (gender) fd.append('gender', gender)
     fd.append('audio', audio, audio instanceof File ? audio.name : 'sample.webm')
-    const resp = await fetch(`${API}/voice/clone`, { method: 'POST', body: fd })
+    const resp = await fetch(`${API}/voice/clone`, { method: 'POST', body: fd, headers: authHeaders() })
     if (!resp.ok) throw new Error(`clone failed (${resp.status})`)
     const { voice } = await resp.json()
     setVoices((prev) => [...prev, voice])
@@ -237,7 +237,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const importVoice = useCallback(async (elevenVoiceId: string, name?: string) => {
     const resp = await fetch(`${API}/voice/import`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ voiceId: elevenVoiceId, name }),
     })
     if (!resp.ok) throw new Error(`import failed (${resp.status})`)
@@ -249,7 +249,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (voiceId: string, patch: { name?: string; gender?: string; accent?: string; language?: string; persona?: string }) => {
       const resp = await fetch(`${API}/voice/${voiceId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify(patch),
       })
       if (!resp.ok) throw new Error(`update failed (${resp.status})`)
@@ -261,7 +261,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const deleteVoice = useCallback(
     async (voiceId: string) => {
-      const resp = await fetch(`${API}/voice/${voiceId}`, { method: 'DELETE' })
+      const resp = await fetch(`${API}/voice/${voiceId}`, { method: 'DELETE', headers: authHeaders() })
       if (!resp.ok) throw new Error(`delete failed (${resp.status})`)
       setVoices((prev) => prev.filter((v) => v.id !== voiceId))
       setSelectedVoice((prev) => (prev === voiceId ? VOICES[0]?.id ?? 'marin' : prev))
@@ -326,7 +326,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // the one call site that legitimately wants the global picker applied).
       fetch(`${API}/calls/dial`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify(req),
       })
         .then(async (res) => {
@@ -425,7 +425,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await Promise.all(
         active.map(async (c) => {
           try {
-            const r = await fetch(`${API}/calls/${encodeURIComponent(c.room)}/live`)
+            const r = await fetch(`${API}/calls/${encodeURIComponent(c.room)}/live`, { headers: authHeaders() })
             if (!r.ok) return
             const live = await r.json()
             const turns: TranscriptLine[] = Array.isArray(live.turns)
@@ -439,7 +439,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               : []
             let summary: CallSummary | null = null
             if (live.done) {
-              const s = await fetch(`${API}/calls/${encodeURIComponent(c.room)}`)
+              const s = await fetch(`${API}/calls/${encodeURIComponent(c.room)}`, { headers: authHeaders() })
               if (s.ok) summary = await s.json()
             }
             setCalls((prev) => {
@@ -475,7 +475,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await fetch(`${API}/calls/${encodeURIComponent(room)}/say`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ text, mode }),
       })
     } catch {
@@ -488,7 +488,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       prev[room] ? { ...prev, [room]: { ...prev[room], statusText: '☎ Hanging up…' } } : prev,
     )
     try {
-      await fetch(`${API}/calls/${encodeURIComponent(room)}/hangup`, { method: 'POST' })
+      await fetch(`${API}/calls/${encodeURIComponent(room)}/hangup`, { method: 'POST', headers: authHeaders() })
     } catch {
       /* ignore */
     }
@@ -499,7 +499,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       prev[room] ? { ...prev, [room]: { ...prev[room], humanControl: true } } : prev,
     )
     try {
-      await fetch(`${API}/calls/${encodeURIComponent(room)}/escalate`, { method: 'POST' })
+      await fetch(`${API}/calls/${encodeURIComponent(room)}/escalate`, { method: 'POST', headers: authHeaders() })
     } catch {
       /* ignore */
     }
