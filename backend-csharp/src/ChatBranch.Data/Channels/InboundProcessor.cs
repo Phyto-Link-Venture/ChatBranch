@@ -75,6 +75,9 @@ public class InboundProcessor
         }
         catch { }
 
+        // page the people who own this conversation (assignee → team → admins)
+        NotificationService.NotifyInboundMessage(_db, thread, text);
+
         // a reply still waiting in the AI monitor is stale now — expire it so the
         // next reply covers everything the customer said
         _responder.OnCustomerMessage(thread);

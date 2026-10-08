@@ -2,7 +2,11 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using ChatBranch.Data.Sidecars;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Xunit;
@@ -93,11 +97,24 @@ public class ApiSmokeTests : IClassFixture<ApiFactory>
     }
 }
 
-/// <summary>Boots Program with a throwaway SQLite file per test run.</summary>
+/// <summary>
+/// Boots Program with a throwaway SQLite file and data directory per test run,
+/// and a LiveKit client that is never configured — a developer's backend/.env
+/// must not let the suite place real calls.
+/// </summary>
 public class ApiFactory : WebApplicationFactory<Program>
 {
     private readonly string _dbPath =
         Path.Combine(Path.GetTempPath(), $"chatbranch-test-{Guid.NewGuid():N}.sqlite3");
+
+    /// <summary>Shared by every host in the run (the env var is process-wide).</summary>
+    public static readonly string DataDir =
+        Path.Combine(Path.GetTempPath(), $"chatbranch-test-data-{Environment.ProcessId}");
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder) =>
+        builder.ConfigureTestServices(services => services.AddSingleton(sp => new LiveKitClient(
+            sp.GetRequiredService<IHttpClientFactory>(),
+            () => new LiveKitSettings("", "", "", LiveKitSettings.DefaultAgentName, ""))));
 
     protected override IHost CreateHost(IHostBuilder builder)
     {
@@ -115,6 +132,9 @@ public class ApiFactory : WebApplicationFactory<Program>
         // host IS a demo environment, so it asks for the demo seed itself
         // rather than depending on CI to export the variable.
         Environment.SetEnvironmentVariable("SEED_DEMO", "1");
+        // Media, voices.json and the voice-agent files go to a throwaway dir,
+        // never into a checkout's live backend/data.
+        Environment.SetEnvironmentVariable("CHATBRANCH_DATA_DIR", DataDir);
         builder.ConfigureHostConfiguration(cfg => cfg.AddInMemoryCollection(
             new Dictionary<string, string?> { ["ConnectionStrings:Default"] = $"Data Source={_dbPath}" }));
         return base.CreateHost(builder);

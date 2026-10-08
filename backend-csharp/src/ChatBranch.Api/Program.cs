@@ -42,9 +42,13 @@ builder.Services.AddScoped<ChatBranch.Data.Analytics.AnalyticsService>();
 // sidecar over HTTP (Setting baileys_url/baileys_secret → env → default).
 // Unreachable gateway = clean per-call error, never a crash.
 builder.Services.AddSingleton<ChatBranch.Data.Sidecars.IBaileysGateway, ChatBranch.Data.Sidecars.HttpBaileysGateway>();
-var dataDir = builder.Configuration["DataDir"]
-              ?? Path.Combine(AppContext.BaseDirectory, "data");
+// ONE data directory, shared with the voice agent worker (CHATBRANCH_DATA_DIR,
+// default backend/data in a checkout). Written back so every config["DataDir"]
+// reader (media, voices.json) agrees with the agent's files.
+var dataDir = builder.Configuration["DataDir"] =
+    ChatBranch.Data.Sidecars.VoiceAgentBridge.ResolveDataDir(builder.Configuration["DataDir"]);
 builder.Services.AddSingleton(new ChatBranch.Data.Sidecars.VoiceAgentBridge(dataDir));
+builder.Services.AddSingleton<ChatBranch.Data.Sidecars.LiveKitClient>();
 
 // ---- auth: bearer token handler + RBAC policies -----------------------------
 builder.Services.AddAuthentication(TokenAuthenticationHandler.SchemeName)
@@ -97,6 +101,7 @@ app.MapGet("/api/whatsapp/status", () => Results.Ok(new
 
 app.MapAuthEndpoints();
 app.MapSettingsEndpoints();
+app.MapAssignmentsEndpoints();
 app.MapInboxEndpoints();
 app.MapAiEndpoints();
 app.MapFlowsEndpoints();

@@ -52,14 +52,18 @@ public static class AdminEndpoints
         ("entities.manage", "Entities & Tenants", "Manage entities & tenants"),
         ("templates.manage", "Library", "Manage message templates"),
         ("script_templates.manage", "Library", "Manage script templates"),
-        ("notifications.manage", "Notifications", "Manage notification settings"),
+        ("notifications.manage", "Settings", "Manage organization notification defaults"),
         ("analytics.view", "Review", "View analytics"),
         ("call_logs.view", "Review", "View call logs"),
         ("activity.view", "Review", "View activity log"),
         ("settings.ai.manage", "Settings", "Manage AI configuration"),
         ("account_assignment.manage", "Settings", "Manage account assignment"),
-        ("app_keys.manage", "Settings", "Manage app keys"),
+        ("app_keys.manage", "Settings", "Manage app & provider keys"),
         ("pronunciation.manage", "Settings", "Manage pronunciation"),
+        // Settings sub-pages — one capability each (Personal pages need none).
+        ("settings.appearance.org", "Settings", "Set the organization default appearance"),
+        ("settings.custom_fields.manage", "Settings", "Manage custom fields"),
+        ("settings.ai_keys.manage", "Settings", "Manage AI keys & models"),
         ("rbac.manage", "Admin", "Edit the permission matrix"),
         ("tags.view", "Library", "View tags"),
         ("tags.manage", "Library", "Create & edit tags"),
@@ -87,7 +91,7 @@ public static class AdminEndpoints
 
     /// admin gets everything EXCEPT these (kept superadmin-only).
     private static readonly HashSet<string> AdminExclude = new()
-        { "rbac.manage", "app_keys.manage" };
+        { "rbac.manage", "app_keys.manage", "settings.ai_keys.manage" };
 
     /// agent's read-mostly work surface.
     private static readonly HashSet<string> AgentAllow = new()
