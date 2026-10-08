@@ -52,8 +52,8 @@ is a settings exercise, not a fork — see
 - **Paper & Ink** design system — three themes × light/dark, per-user accent,
   text size and corners; installable PWA with a phone tab bar.
 
-Not every transport is live yet in the C# backend (email, Telegram sends and
-Messenger/Instagram are sandbox-only today) — read
+Not every transport is live yet in the C# backend (email and Telegram sends
+are sandbox-only today) — read
 [Honest limitations](#honest-limitations) before you plan a launch.
 
 ## Screenshots
@@ -172,7 +172,8 @@ the `chatbranch-data` volume — don't drop it. `docker-compose.override.yml` +
   contact linking, flows, team routing, automations, notifications, and (with
   `?ai=1`) the AI reply.
 - **WhatsApp templates.** Three demo templates plus your own are rendered
-  locally.
+  locally (a Cloud number with a WABA id uses Meta's registry and sends real
+  template messages).
 - **Flows** execute for real against your contacts; sends land in the outbound
   queue and are stored as sandbox messages.
 - **AI skills** — the describe-a-skill wizard uses a built-in template library
@@ -191,12 +192,12 @@ requires a restart.
 
 | Channel | What you need | Status in the C# API |
 |---|---|---|
-| **WhatsApp (Cloud API)** | A Meta app, phone number ID, access token, app secret, WABA id, and a public webhook (`/api/whatsapp/webhook`) | inbound + text send live; templates go out as rendered text; media send stored locally |
-| **WhatsApp (Baileys)** | A spare phone. Add a "QR" WhatsApp inbox and scan. ⚠ Read the ToS warning below | inbound text, send, calls live; inbound media dropped |
+| **WhatsApp (Cloud API)** | A Meta app, phone number ID, access token, app secret, WABA id, and a public webhook (`/api/whatsapp/webhook`) | live: inbound (incl. media), delivery statuses, text, real template messages, media send, the WABA's template registry |
+| **WhatsApp (Baileys)** | A spare phone. Add a "QR" WhatsApp inbox and scan. ⚠ Read the ToS warning below | inbound text + media, send, calls + recordings live; outbound media stored locally |
 | **Website widget** | Nothing — paste the snippet the inbox gives you | live |
 | **Telegram** | A BotFather token; register `https://<host>/api/messaging/webhook/telegram/<token>` with Telegram yourself | inbound live; replies are sandbox-only |
 | **Email** | Per-mailbox SMTP/IMAP credentials | sandbox-only (no SMTP send, IMAP sync is a stub) |
-| **Messenger / Instagram** | A page token | sandbox-only (no inbound webhook route yet) |
+| **Messenger / Instagram** | A page token, the page / IG account id, the Meta app secret, and a public webhook (`/api/messaging/webhook`) | live: signed inbound (incl. attachments), Send API text, receipts |
 | **Voice (SIP)** | LiveKit + a SIP trunk: `npm --prefix backend/voice_agent run setup-trunk`, then Channels → Voice | live |
 
 Inbound webhooks need a public HTTPS URL; for local development tunnel port 8090
@@ -270,10 +271,9 @@ every pull request.
 ## Honest limitations
 
 - **Several transports are not ported to the C# backend yet.** Email (SMTP and
-  IMAP), Telegram replies and Messenger/Instagram store messages in sandbox
-  mode; WhatsApp Cloud sends templates as rendered text (outside the 24-hour
-  window Meta will reject them) and doesn't send media; inbound media isn't
-  stored; there is no periodic channel-health prober and no automatic account
+  IMAP) and Telegram replies store messages in sandbox mode; Baileys numbers
+  can't send media (the gateway has no media route); Telegram and email inbound
+  media isn't stored; there is no periodic channel-health prober and no automatic account
   failover; STOP/UNSUBSCRIBE opt-out detection isn't ported. The full table is
   in [CLAUDE.md](CLAUDE.md#port-status--what-is-real-what-is-sandbox).
 - **WhatsApp via Baileys violates WhatsApp's Terms of Service.** It speaks the
