@@ -71,6 +71,21 @@ export interface EntityBreakdown {
   calls: number
 }
 
+/** Median wait from a customer's message to the first reply after it. */
+export interface FirstResponse {
+  median_seconds: number | null
+  samples: number
+}
+
+/** The window of equal length just before this one (KPI deltas). */
+export interface PriorWindow {
+  since: string
+  sent: number
+  read_rate: number
+  reply_rate: number
+  first_response_median_seconds: number | null
+}
+
 export interface AnalyticsSummary {
   days: number
   since: string
@@ -88,4 +103,6 @@ export interface AnalyticsSummary {
   sessions?: SessionStats // absent on older backends — tiles show em-dashes
   /** Per-outlet rows — only sent in the All-entities view. */
   by_entity?: EntityBreakdown[]
+  first_response?: FirstResponse // absent on older backends
+  prior?: PriorWindow
 }

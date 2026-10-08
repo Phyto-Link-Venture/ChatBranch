@@ -1,0 +1,165 @@
+import {
+  Activity,
+  BookOpen,
+  Bell,
+  Building2,
+  Code2,
+  FileText,
+  Link2,
+  ListChecks,
+  MessageSquare,
+  Mic,
+  PhoneCall,
+  Plug,
+  Radio,
+  ScanEye,
+  Settings,
+  ShieldCheck,
+  Sparkles,
+  Tag,
+  TrendingUp,
+  UserCog,
+  Users,
+  UsersRound,
+  Workflow,
+  Zap,
+  type LucideIcon,
+} from 'lucide-react'
+import { DEFAULT_ROLE_CAPS, type AuthUser } from '@/lib/auth'
+
+export interface NavDef {
+  href: string
+  lbl: string
+  Icon: LucideIcon
+  /** Extra path prefixes that also mark this item active (detail routes). */
+  alsoActive?: string[]
+  /** Capability that unlocks this item — the preferred gate. */
+  cap?: string
+  /** Role fallback when the session carries no capability list (an older
+   *  cached session, or a backend that predates the matrix). */
+  roles?: string[]
+  /** Live counter shown beside the label (wired up by SideNav). */
+  counter?: 'notifications' | 'waiting'
+  /** Extra words the command palette matches on. */
+  keywords?: string
+}
+
+export interface NavGroup {
+  /** Undefined = the ungrouped head of the list (Analytics, Notifications). */
+  label?: string
+  items: NavDef[]
+}
+
+const ADMINS = ['superadmin', 'admin']
+
+/**
+ * The information architecture. Every module the operator works in is one
+ * entry here; pages built by other parts of the app (Tags, Developers, AI
+ * monitor…) are listed even before they exist so the sidebar is the single
+ * source of truth for navigation — the command palette searches the same list.
+ */
+export const NAV_GROUPS: NavGroup[] = [
+  {
+    items: [
+      { href: '/analytics', lbl: 'Analytics', Icon: TrendingUp, cap: 'analytics.view', keywords: 'home dashboard overview reports' },
+      { href: '/notifications', lbl: 'Notifications', Icon: Bell, counter: 'notifications', keywords: 'alerts bell inbox' },
+    ],
+  },
+  {
+    label: 'Work',
+    items: [
+      { href: '/chats', lbl: 'Chats', Icon: MessageSquare, cap: 'chats.view', counter: 'waiting', keywords: 'inbox conversations messages whatsapp email' },
+      { href: '/contacts', lbl: 'Contacts', Icon: Users, alsoActive: ['/contacts/'], cap: 'contacts.view', keywords: 'customers people crm' },
+      { href: '/assignments', lbl: 'Account assignment', Icon: ListChecks, cap: 'account_assignment.manage', roles: ADMINS, keywords: 'routing sticky numbers' },
+    ],
+  },
+  {
+    label: 'Automate',
+    items: [
+      { href: '/flow-builder', lbl: 'Flow builder', Icon: Workflow, cap: 'flows.manage', roles: ADMINS, keywords: 'workflows campaigns' },
+      { href: '/ai-monitor', lbl: 'AI monitor', Icon: ScanEye, cap: 'ai.monitor', roles: ADMINS, keywords: 'drafts approve review bot' },
+      { href: '/automations', lbl: 'Automations', Icon: Zap, cap: 'flows.manage', roles: ADMINS, keywords: 'rules triggers' },
+      { href: '/persona', lbl: 'Voice & calls', Icon: Mic, cap: 'settings.ai.manage', roles: ADMINS, keywords: 'voice persona calling' },
+    ],
+  },
+  {
+    label: 'Library',
+    items: [
+      { href: '/templates', lbl: 'Templates', Icon: FileText, alsoActive: ['/script-templates'], cap: 'templates.manage', roles: ADMINS, keywords: 'canned replies scripts messages' },
+      { href: '/knowledge', lbl: 'Knowledge base', Icon: BookOpen, cap: 'settings.ai.manage', roles: ADMINS, keywords: 'faq policies facts' },
+      { href: '/skills', lbl: 'AI skills', Icon: Sparkles, cap: 'settings.ai.manage', roles: ADMINS, keywords: 'instructions' },
+      { href: '/tags', lbl: 'Tags', Icon: Tag, cap: 'tags.view', keywords: 'labels fields' },
+    ],
+  },
+  {
+    label: 'Channels',
+    items: [
+      { href: '/channels', lbl: 'Channels', Icon: Radio, cap: 'channels.view', roles: ADMINS, keywords: 'whatsapp telegram email accounts numbers widget' },
+      { href: '/integrations', lbl: 'Integrations', Icon: Plug, cap: 'integrations.view', roles: ADMINS, keywords: 'google calendar stripe shopify' },
+    ],
+  },
+  {
+    label: 'Admin',
+    items: [
+      { href: '/users', lbl: 'Users & roles', Icon: UserCog, cap: 'users.view', roles: ADMINS, keywords: 'people accounts staff' },
+      { href: '/teams', lbl: 'Teams', Icon: UsersRound, cap: 'users.view', roles: ADMINS },
+      { href: '/entities', lbl: 'Entities', Icon: Building2, cap: 'entities.view', roles: ADMINS, keywords: 'branches outlets' },
+      { href: '/bindings', lbl: 'Bindings', Icon: Link2, cap: 'users.view', roles: ADMINS, keywords: 'access' },
+      { href: '/permissions', lbl: 'Permissions', Icon: ShieldCheck, cap: 'rbac.manage', roles: ['superadmin'], keywords: 'rbac capabilities matrix' },
+      { href: '/developers', lbl: 'API keys & MCP', Icon: Code2, cap: 'api_keys.manage', roles: ADMINS, keywords: 'developers tokens mcp' },
+    ],
+  },
+  {
+    label: 'Review',
+    items: [
+      { href: '/activity', lbl: 'Activity', Icon: Activity, cap: 'activity.view', keywords: 'audit log' },
+      { href: '/call-logs', lbl: 'Call logs', Icon: PhoneCall, alsoActive: ['/call-logs/'], cap: 'call_logs.view', keywords: 'calls recordings' },
+    ],
+  },
+]
+
+/** Footer link. Visible to everyone: per-user tabs (appearance…) live there,
+ *  and the settings shell gates its own admin tabs. */
+export const SETTINGS_NAV: NavDef = {
+  href: '/settings',
+  lbl: 'Settings',
+  Icon: Settings,
+  alsoActive: ['/settings/'],
+  keywords: 'preferences appearance theme configuration',
+}
+
+/** Where "home" is: the post-login landing page and the phone tab bar's Home. */
+export const HOME = '/analytics'
+
+/**
+ * Capability gate: `cap` when the session carries a resolved capability list;
+ * otherwise the `roles` fallback, and failing that the role's default
+ * capability set (so an item with only a `cap` still gates sensibly).
+ */
+export function canSee(user: AuthUser | null, n: NavDef): boolean {
+  if (!n.cap && !n.roles) return true
+  const role = user?.role ?? 'agent'
+  const caps = user?.capabilities
+  if (Array.isArray(caps) && caps.length > 0 && n.cap) return caps.includes(n.cap)
+  if (n.roles) return n.roles.includes(role)
+  return n.cap ? (DEFAULT_ROLE_CAPS[role] ?? []).includes(n.cap) : true
+}
+
+export function isActive(pathname: string, n: NavDef): boolean {
+  return pathname === n.href || (n.alsoActive?.some((p) => pathname.startsWith(p)) ?? false)
+}
+
+/** The groups this user can see, empty groups dropped. */
+export function visibleGroups(user: AuthUser | null): NavGroup[] {
+  return NAV_GROUPS.map((g) => ({ ...g, items: g.items.filter((n) => canSee(user, n)) })).filter(
+    (g) => g.items.length > 0,
+  )
+}
+
+/** Flat list for the command palette's "Pages" group. */
+export function visiblePages(user: AuthUser | null): (NavDef & { group?: string })[] {
+  return [
+    ...visibleGroups(user).flatMap((g) => g.items.map((n) => ({ ...n, group: g.label }))),
+    SETTINGS_NAV,
+  ]
+}
