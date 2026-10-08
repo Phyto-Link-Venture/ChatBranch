@@ -708,11 +708,14 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   `SILENCE_HANGUP_SECONDS`=120 → forced hangup; only USER speech resets it).
   A `ParticipantDisconnected` handler ends the call when the callee hangs up.
 - **Call provenance:** every hangup site records who ended the call
-  (`END_CAUSE` → live store `ended_by`: agent / contact / system:silence /
-  system:max_duration / system:no_answer / system:script_complete /
-  system:tts_unavailable), written with the final live write after the LLM
-  summary. An operator hang-up through the API deletes the room, which the
-  agent records as `contact`.
+  (`END_CAUSE`, first cause wins → live store `ended_by`: agent / contact /
+  operator / system:silence / system:max_duration / system:no_answer /
+  system:script_complete / system:tts_unavailable), written with the final live
+  write after the LLM summary. An operator's End on `/api/calls/{room}/hangup`
+  first drops a `live/{room}.operator-end` marker
+  (`VoiceAgentBridge.MarkOperatorEnd`) and then deletes the room, so the
+  disconnect that follows is recorded as `operator`, not `contact`. (The
+  WhatsApp `call/end` path does not drop the marker yet.)
 - **Script calls** (flow "Script call" step) read the `script` metadata key
   verbatim with audio input disabled, then hang up — they need a literal TTS
   voice (a cascade voice), because native realtime models have been observed to

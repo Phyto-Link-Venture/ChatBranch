@@ -82,6 +82,7 @@ list lives in `backend/.env.example`; the essentials:
 |---|---|---|
 | `live/{room}.json` | agent → API (polled) | `{turns:[{role,text,ts}], done, ended_by?, llm_usage?}` |
 | `inbox/{room}.json` | API → agent (consume-once) | `[{mode:"guide"\|"takeover", text, ts}]` |
+| `live/{room}.operator-end` | API → agent | marker written just before an operator's hang-up deletes the room, so `ended_by` reads `operator` |
 | `calls.json` | agent → API | array of call records |
 | `memory/{contact_id}.md` | both | frontmatter + `## Notes` bullets |
 | `pronunciation.json` | API → agent | `{terms:[{term,alias}], dictionary_id?, version_id?}` |
