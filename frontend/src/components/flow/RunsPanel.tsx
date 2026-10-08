@@ -32,13 +32,28 @@ const STATUS_COPY: Record<string, { label: string; cls: string }> = {
   cancelled: { label: 'Cancelled', cls: 'text-text-muted border-line-strong' },
 }
 
-const KIND_COPY: Record<string, string> = {
-  entered: 'Reached',
-  completed: 'Done',
-  waiting: 'Waiting',
-  failed: 'Failed',
-  skipped: 'Skipped',
-  followup: 'Follow-up',
+type StepStatus = 'reached' | 'done' | 'waiting' | 'failed'
+const STATUS_WORD: Record<StepStatus, string> = { reached: 'Reached', done: 'Done', waiting: 'Waiting', failed: 'Failed' }
+
+/** One row per arrival at a step: its events folded together (reached →
+ * waiting → follow-ups → done), with every detail worth reading. */
+function groupPath(path: FlowRunPathStep[]) {
+  const groups: { first: FlowRunPathStep; status: StepStatus; details: string[] }[] = []
+  for (const p of path) {
+    let g = groups[groups.length - 1]
+    if (!g || p.kind === 'entered' || g.first.nodeId !== p.nodeId) {
+      g = { first: p, status: 'reached', details: [] }
+      groups.push(g)
+    }
+    if (p.kind === 'failed') g.status = 'failed'
+    else if (p.kind === 'completed' && g.status !== 'failed') g.status = 'done'
+    else if (p.kind === 'waiting' && g.status === 'reached') g.status = 'waiting'
+    const d = p.kind === 'completed' && (p.detail === 'yes' || p.detail === 'no') ? `answer: ${p.detail}` : p.detail
+    if (d && !g.details.includes(d)) g.details.push(d)
+  }
+  // a step finished later drops its stale "waiting …" note
+  for (const g of groups) if (g.status === 'done') g.details = g.details.filter((d) => !d.startsWith('waiting'))
+  return groups
 }
 
 const when = (iso: string | null) =>
@@ -181,12 +196,18 @@ function Overview({
       <section>
         <div className="eyebrow mb-2">Each step</div>
         <div className="overflow-x-auto rounded-lg border border-line">
-          <table className="w-full min-w-[340px] text-[12px]">
+          <table className="w-full min-w-[320px] table-fixed text-[12px]">
+            <colgroup>
+              <col />
+              <col className="w-[62px]" />
+              <col className="w-[66px]" />
+              <col className="w-[84px]" />
+            </colgroup>
             <thead>
               <tr className="border-b border-line bg-well text-left text-[10.5px] uppercase tracking-[0.05em] text-text-muted">
                 <th className="px-2.5 py-1.5 font-bold">Step</th>
                 <th className="px-2 py-1.5 text-right font-bold">Reached</th>
-                <th className="px-2 py-1.5 text-right font-bold">Drop-off</th>
+                <th className="px-2 py-1.5 text-right font-bold">Drop</th>
                 <th className="px-2.5 py-1.5 text-right font-bold">Now</th>
               </tr>
             </thead>
@@ -225,7 +246,7 @@ function Overview({
             </tbody>
           </table>
         </div>
-        <div className="mt-1.5 text-[11px] text-text-muted">Drop-off = people who reached the step before but not this one. On a branch it is the share that went the other way.</div>
+        <div className="mt-1.5 text-[11px] text-text-muted">Drop = of the people who finished the step before, the share that never arrived here (on a branch: the share that went the other way). People still waiting are not counted as dropped.</div>
       </section>
 
       {hasFollowUps && (
@@ -427,25 +448,30 @@ function RunDetail({ id, nodes, onBack }: { id: number; nodes: FlowNode[]; onBac
               <span className="eyebrow mr-1">Last reply</span> {data.run.lastReply}
             </div>
           )}
-          <ol className="relative ml-1.5 border-l border-line-strong">
-            {data.path.map((p: FlowRunPathStep, i) => (
-              <li key={i} className="mb-3 ml-4 last:mb-0">
+          <ol className="flex flex-col">
+            {groupPath(data.path).map((g, i, all) => (
+              <li key={i} className="relative flex gap-3 pb-3 last:pb-0">
+                {i < all.length - 1 && <span className="absolute left-[4.5px] top-3 h-full w-px bg-line-strong" aria-hidden />}
                 <span
-                  className={`absolute -left-[5px] mt-1.5 h-2.5 w-2.5 rounded-full border-2 border-card ${
-                    p.kind === 'failed' ? 'bg-red' : p.kind === 'waiting' ? 'bg-amber' : p.kind === 'skipped' ? 'bg-text-faint' : p.kind === 'followup' ? 'bg-blue' : 'bg-text-primary'
+                  className={`relative mt-[5px] h-2.5 w-2.5 shrink-0 rounded-full ${
+                    g.status === 'failed' ? 'bg-red' : g.status === 'waiting' ? 'bg-amber' : g.status === 'done' ? 'bg-text-primary' : 'border border-text-muted bg-card'
                   }`}
                   aria-hidden
                 />
-                <div className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="text-[12.5px] font-semibold text-text-high">{stepTitle(p)}</span>
-                  <span className="text-[11px] text-text-muted">
-                    {KIND_COPY[p.kind] ?? p.kind} · {when(p.at)}
-                  </span>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="text-[12.5px] font-semibold text-text-high">{stepTitle(g.first)}</span>
+                    <span className="text-[11px] text-text-muted">
+                      {STATUS_WORD[g.status]} · {when(g.first.at)}
+                    </span>
+                  </div>
+                  {g.details.length > 0 && (
+                    <div className={`text-[11.5px] ${g.status === 'failed' ? 'text-[color:var(--red-ink)]' : 'text-text-muted'}`}>{g.details.join(' · ')}</div>
+                  )}
                 </div>
-                {p.detail && <div className="text-[11.5px] text-text-muted">{p.detail}</div>}
               </li>
             ))}
-            {data.path.length === 0 && <li className="ml-4 text-[12px] text-text-muted">No step events recorded for this run (it predates tracking).</li>}
+            {data.path.length === 0 && <li className="text-[12px] text-text-muted">No step events recorded for this run (it predates tracking).</li>}
           </ol>
           <button type="button" onClick={() => setShowLog(!showLog)} className="w-fit text-[12px] font-semibold text-text-muted hover:text-text-high">
             {showLog ? 'Hide' : 'Show'} the engine log ({data.log.length})

@@ -302,7 +302,7 @@ export function canMove(g: Graph, id: string, dir: 'up' | 'down'): boolean {
 
 const NODE_W = 260
 const H_GAP = 48
-const ROW_H = 170
+const ROW_H = 220
 
 /**
  * Lay the graph out top-to-bottom as the Steps view reads it: each trigger's

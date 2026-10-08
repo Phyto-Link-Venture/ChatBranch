@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, type DragEvent } from 'react'
+import { useCallback, useMemo, useRef, type DragEvent } from 'react'
 import {
   Background,
   Controls,
@@ -47,7 +47,18 @@ export default function CanvasView({
   onDropChoice: (choice: StepChoice, position: { x: number; y: number }) => void
   onAutoLayout: () => void
 }) {
-  const { screenToFlowPosition, fitView } = useReactFlow()
+  const { screenToFlowPosition, fitView, setViewport } = useReactFlow()
+  const box = useRef<HTMLDivElement>(null)
+
+  /** Open at a readable zoom with the starting point at the top — fitting a
+   * long flow into view shrinks every card past legibility. */
+  const frameStart = useCallback(() => {
+    const trigger = nodes.find((n) => n.type === 'trigger')
+    const width = box.current?.clientWidth ?? 800
+    if (!trigger) return fitView({ padding: 0.2, maxZoom: 1 })
+    const zoom = 0.85
+    setViewport({ x: width / 2 - (trigger.position.x + 130) * zoom, y: 32 - trigger.position.y * zoom, zoom })
+  }, [nodes, fitView, setViewport])
   const shownEdges = useMemo(() => edges.map((e) => ({ ...e, type: 'plus' })), [edges])
 
   const onDragOver = useCallback((event: DragEvent) => {
@@ -67,7 +78,7 @@ export default function CanvasView({
   )
 
   return (
-    <div className="fb-canvas h-full w-full">
+    <div ref={box} className="fb-canvas h-full w-full">
       <ReactFlow
         nodes={nodes}
         edges={shownEdges}
@@ -84,12 +95,11 @@ export default function CanvasView({
         deleteKeyCode={['Delete', 'Backspace']}
         connectionRadius={36}
         minZoom={0.2}
-        fitView
-        fitViewOptions={{ padding: 0.2 }}
+        onInit={() => frameStart()}
       >
         <Background gap={20} size={1.2} />
         <Controls showInteractive={false} />
-        <MiniMap pannable zoomable nodeStrokeWidth={2} />
+        <MiniMap pannable zoomable nodeStrokeWidth={2} style={{ width: 150, height: 100 }} />
         <Panel position="top-left">
           <div className="fb-palette">
             <div className="eyebrow px-1 pb-1">Drag in a step</div>

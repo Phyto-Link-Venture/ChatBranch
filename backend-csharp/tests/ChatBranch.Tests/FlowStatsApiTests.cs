@@ -115,10 +115,15 @@ public class FlowStatsApiTests : IClassFixture<ApiFactory>
         Assert.Equal(1, today.GetProperty("failed").GetInt32());
         Assert.Equal(2, today.GetProperty("nodes").GetProperty("a").GetInt32());
 
-        // "Say hi" → "Done": 4 in, 2 across = 50% drop
+        // "Say hi" → "Done": 4 reached it, 1 still waiting, 1 failed, 2 finished
+        // it and both arrived at "Done" — nobody DROPPED between the two
         var drop = stats.GetProperty("dropoff").EnumerateArray()
             .Single(d => d.GetProperty("from").GetString() == "a");
-        Assert.Equal(50, drop.GetProperty("dropPct").GetDouble());
+        Assert.Equal(2, drop.GetProperty("fromCount").GetInt32());
+        Assert.Equal(0, drop.GetProperty("dropPct").GetDouble());
+        // "Tagged" → "Say hi": all 4 finished the trigger and all arrived
+        var first = stats.GetProperty("order").EnumerateArray().Single(o => o.GetProperty("nodeId").GetString() == "a");
+        Assert.Equal(0, first.GetProperty("dropPct").GetDouble());
         var order = stats.GetProperty("order").EnumerateArray().Select(o => o.GetProperty("nodeId").GetString()).ToList();
         Assert.Equal(new[] { "t", "a", "z" }, order);
 

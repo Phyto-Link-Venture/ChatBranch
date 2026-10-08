@@ -314,7 +314,7 @@ export default function FlowBuilder() {
             n.id === node.id
               ? { ...n, position: { ...target.position } }
               : !n.parentId && n.position.y >= y0
-                ? { ...n, position: { x: n.position.x, y: n.position.y + 170 } }
+                ? { ...n, position: { x: n.position.x, y: n.position.y + 220 } }
                 : n,
           ),
         }
@@ -418,7 +418,7 @@ export default function FlowBuilder() {
             <ArrowLeft size={15} aria-hidden /> Back
           </button>
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            <span className="eyebrow hidden sm:inline">Flow</span>
+            {workflows.length > 0 && <span className="eyebrow hidden sm:inline">Flow</span>}
             {workflows.length > 0 && (
               <div className="w-[220px] min-w-0 max-w-full sm:w-[260px]">
                 <Select
@@ -569,15 +569,14 @@ export default function FlowBuilder() {
             ) : !active ? (
               <EmptyState onPick={createFromTemplate} />
             ) : view === 'steps' ? (
-              <div className="h-full overflow-auto">
-                <StepsView
-                  graph={graph}
-                  onSelect={(id) => setPanel({ kind: 'node', id })}
-                  onInsert={(at) => setInsert({ ...at, mode: 'steps' })}
-                  onDelete={requestDelete}
-                  onMove={move}
-                />
-              </div>
+              <StepsView
+                graph={graph}
+                centerKey={`${active.id}:${panelOpen}`}
+                onSelect={(id) => setPanel({ kind: 'node', id })}
+                onInsert={(at) => setInsert({ ...at, mode: 'steps' })}
+                onDelete={requestDelete}
+                onMove={move}
+              />
             ) : (
               <CanvasView
                 key={active.id}

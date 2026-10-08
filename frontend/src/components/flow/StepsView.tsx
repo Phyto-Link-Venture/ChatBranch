@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useLayoutEffect, useMemo, useRef } from 'react'
 import { AlertCircle, ArrowDown, ArrowUp, CornerDownRight, Plus, Trash2 } from 'lucide-react'
 import { describeStep } from '@/lib/flow/describe'
 import { buildStepTree, canMove, timingText, type BranchTree, type Graph, type StepTree } from '@/lib/flow/steps'
@@ -26,12 +26,15 @@ export interface InsertAt {
 
 export default function StepsView({
   graph,
+  centerKey,
   onSelect,
   onInsert,
   onDelete,
   onMove,
 }: {
   graph: Graph
+  /** re-centre the main path on the first step when this changes */
+  centerKey: string
   onSelect: (id: string) => void
   onInsert: (at: InsertAt) => void
   onDelete: (id: string) => void
@@ -43,33 +46,53 @@ export default function StepsView({
 
   const ctx = { graph, onSelect, onInsert, onDelete, onMove, titleOf }
 
+  // a wide branch tree scrolls sideways inside this box — open it with the
+  // starting point in the middle rather than the far-left column
+  const scroller = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const box = scroller.current
+    const first = box?.querySelector<HTMLElement>('[data-step-root]')
+    if (!box || !first) return
+    const boxRect = box.getBoundingClientRect()
+    const r = first.getBoundingClientRect()
+    box.scrollLeft += r.left + r.width / 2 - (boxRect.left + boxRect.width / 2)
+  }, [centerKey])
+
   return (
-    <div className="mx-auto flex w-max min-w-full max-w-none flex-col items-center px-4 pb-24 pt-6 sm:px-8">
-      {forest.roots.length === 0 && (
-        <div className="w-full max-w-[560px] rounded-xl border border-dashed border-line-strong bg-card px-5 py-6 text-center">
-          <div className="display text-[18px] text-text-heading">No starting point</div>
-          <p className="mt-1 text-[13px] text-text-muted">
-            Every flow begins with a “When…” step. This one has none, so it never runs.
-          </p>
-        </div>
-      )}
-      {forest.roots.map((root, i) => (
-        <div key={root.node.id} className="flex w-full flex-col items-center">
-          {i > 0 && <div className="eyebrow my-6">Another starting point</div>}
-          <Chain tree={root} ctx={ctx} />
-        </div>
-      ))}
-      {forest.orphans.length > 0 && (
-        <div className="mt-10 w-full max-w-[560px]">
-          <div className="eyebrow mb-1">Not connected</div>
-          <p className="mb-3 text-[12.5px] text-text-muted">No path reaches these steps, so they never run. Delete them, or connect them in the Advanced canvas.</p>
-          <div className="flex flex-col gap-2">
-            {forest.orphans.map((n) => (
-              <StepCard key={n.id} node={n} ctx={ctx} canUp={false} canDown={false} />
-            ))}
+    <div ref={scroller} className="h-full overflow-auto">
+      <div className="mx-auto flex w-max min-w-full max-w-none flex-col items-center px-4 pb-24 pt-6 sm:px-8">
+        {forest.roots.length === 0 && (
+          <div className="w-full max-w-[min(560px,calc(100vw-2rem))] rounded-xl border border-dashed border-line-strong bg-card px-5 py-6 text-center">
+            <div className="display text-[18px] text-text-heading">No starting point</div>
+            <p className="mt-1 text-[13px] text-text-muted">
+              Every flow begins with a “When…” step. This one has none, so it never runs.
+            </p>
           </div>
-        </div>
-      )}
+        )}
+        {forest.roots.map((root, i) => (
+          <div
+            key={root.node.id}
+            className="flex w-full flex-col items-center"
+            data-step-root={i === 0 ? '' : undefined}
+          >
+            {i > 0 && <div className="eyebrow my-6">Another starting point</div>}
+            <Chain tree={root} ctx={ctx} />
+          </div>
+        ))}
+        {forest.orphans.length > 0 && (
+          <div className="mt-10 w-full max-w-[min(560px,calc(100vw-2rem))]">
+            <div className="eyebrow mb-1">Not connected</div>
+            <p className="mb-3 text-[12.5px] text-text-muted">
+              No path reaches these steps, so they never run. Delete them, or connect them in the Advanced canvas.
+            </p>
+            <div className="flex flex-col gap-2">
+              {forest.orphans.map((n) => (
+                <StepCard key={n.id} node={n} ctx={ctx} canUp={false} canDown={false} />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -89,7 +112,7 @@ function Chain({ tree, ctx }: { tree: StepTree; ctx: Ctx }) {
       <button
         type="button"
         onClick={() => ctx.onSelect(tree.node.id)}
-        className="flex w-full max-w-[560px] items-center gap-2 rounded-xl border border-dashed border-line-strong bg-fill-subtle px-4 py-2.5 text-left text-[12.5px] text-text-mid hover:border-text-primary"
+        className="flex w-full max-w-[min(560px,calc(100vw-2rem))] items-center gap-2 rounded-xl border border-dashed border-line-strong bg-fill-subtle px-4 py-2.5 text-left text-[12.5px] text-text-mid hover:border-text-primary"
       >
         <CornerDownRight size={14} className="shrink-0 text-text-muted" aria-hidden />
         <span className="min-w-0 truncate">
@@ -114,7 +137,11 @@ function Chain({ tree, ctx }: { tree: StepTree; ctx: Ctx }) {
           <Connector
             edge={tree.nextEdge}
             onAdd={() =>
-              ctx.onInsert({ source: tree.node.id, edgeId: tree.nextEdge?.id ?? null, hasContinuation: !!tree.nextEdge })
+              ctx.onInsert({
+                source: tree.node.id,
+                edgeId: tree.nextEdge?.id ?? null,
+                hasContinuation: !!tree.nextEdge,
+              })
             }
           />
           {tree.next ? <Chain tree={tree.next} ctx={ctx} /> : <PathEnd />}
@@ -128,18 +155,33 @@ function Branches({ branches, ctx }: { branches: BranchTree[]; ctx: Ctx }) {
   return (
     <div className="flex w-full flex-col items-center">
       <div className="h-4 w-px bg-line-strong" aria-hidden />
-      <div className="relative flex items-start justify-center gap-4 sm:gap-6">
-        {branches.length > 1 && (
-          <div className="absolute left-[140px] right-[140px] top-0 h-px bg-line-strong sm:left-[150px] sm:right-[150px]" aria-hidden />
-        )}
-        {branches.map((b) => (
-          <div key={b.key} className="flex w-[280px] shrink-0 flex-col items-center sm:w-[300px]">
+      <div className="flex items-start justify-center">
+        {branches.map((b, i) => (
+          <div
+            key={b.key}
+            className="relative flex min-w-[284px] shrink-0 flex-col items-center px-2 sm:min-w-[316px] sm:px-2.5"
+          >
+            {branches.length > 1 && (
+              <div
+                className="absolute top-0 h-px bg-line-strong"
+                style={{
+                  left: i === 0 ? '50%' : 0,
+                  right: i === branches.length - 1 ? '50%' : 0,
+                }}
+                aria-hidden
+              />
+            )}
             <div className="h-4 w-px bg-line-strong" aria-hidden />
             <BranchPill branch={b} />
             <Connector
               edge={b.edge}
               onAdd={() =>
-                ctx.onInsert({ source: b.source, handle: b.handle, edgeId: b.edge?.id ?? null, hasContinuation: !!b.edge })
+                ctx.onInsert({
+                  source: b.source,
+                  handle: b.handle,
+                  edgeId: b.edge?.id ?? null,
+                  hasContinuation: !!b.edge,
+                })
               }
             />
             {b.child ? <Chain tree={b.child} ctx={ctx} /> : <PathEnd />}
@@ -160,7 +202,9 @@ function BranchPill({ branch }: { branch: BranchTree }) {
           ? 'border-amber/40 text-[color:var(--amber-ink)]'
           : 'border-line-strong text-text-mid'
   return (
-    <span className={`rounded-full border bg-card px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-[0.06em] ${tone}`}>
+    <span
+      className={`rounded-full border bg-card px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-[0.06em] ${tone}`}
+    >
       {branch.label}
     </span>
   )
@@ -214,7 +258,7 @@ function StepCard({ node, ctx, canUp, canDown }: { node: FlowNode; ctx: Ctx; can
           ctx.onSelect(node.id)
         }
       }}
-      className={`group relative w-full max-w-[560px] cursor-pointer rounded-xl border bg-card px-4 py-3 text-left outline-none transition-[border-color,box-shadow] focus-visible:border-text-primary ${
+      className={`group relative w-full max-w-[min(560px,calc(100vw-2rem))] cursor-pointer rounded-xl border bg-card px-4 py-3 text-left outline-none transition-[border-color,box-shadow] focus-visible:border-text-primary ${
         selected
           ? 'border-text-primary shadow-[0_0_0_1px_var(--text-primary)]'
           : isTrigger
@@ -236,14 +280,19 @@ function StepCard({ node, ctx, canUp, canDown }: { node: FlowNode; ctx: Ctx; can
               {text.eyebrow}
             </span>
             {warn.length > 0 && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[color:var(--amber-ink)]" title={warn.join('\n')}>
+              <span
+                className="inline-flex items-center gap-1 text-[11px] font-semibold text-[color:var(--amber-ink)]"
+                title={warn.join('\n')}
+              >
                 <AlertCircle size={12} aria-hidden /> {warn[0]}
               </span>
             )}
           </div>
           <div className="mt-0.5 text-[14px] font-semibold leading-snug text-text-heading">{text.title}</div>
           {node.data.label && <div className="mt-0.5 text-[12px] text-text-mid">{node.data.label}</div>}
-          {text.detail && <div className="mt-1 line-clamp-2 text-[12.5px] leading-snug text-text-muted">{text.detail}</div>}
+          {text.detail && (
+            <div className="mt-1 line-clamp-2 text-[12.5px] leading-snug text-text-muted">{text.detail}</div>
+          )}
           <div className="mt-2">
             <StepCount id={node.id} />
           </div>
@@ -270,7 +319,17 @@ function StepCard({ node, ctx, canUp, canDown }: { node: FlowNode; ctx: Ctx; can
   )
 }
 
-function IconBtn({ label, onClick, children, danger }: { label: string; onClick: () => void; children: React.ReactNode; danger?: boolean }) {
+function IconBtn({
+  label,
+  onClick,
+  children,
+  danger,
+}: {
+  label: string
+  onClick: () => void
+  children: React.ReactNode
+  danger?: boolean
+}) {
   return (
     <button
       type="button"

@@ -318,14 +318,16 @@ public static class FlowsEndpoints
             .GroupBy(r => r.CurrentNode).ToDictionary(g => g.Key, g => g.Count());
         var nodeStats = new Dictionary<string, object>();
         var entered = new Dictionary<string, int>();
+        var completed = new Dictionary<string, int>();
         foreach (var id in nodes.Select(n => n.Id).Concat(byNode.Keys).Distinct())
         {
             var rows = byNode.GetValueOrDefault(id) ?? new List<EventRow>();
             entered[id] = Distinct(rows, FlowStepKind.Entered);
+            completed[id] = Distinct(rows, FlowStepKind.Completed);
             nodeStats[id] = new
             {
                 entered = entered[id],
-                completed = Distinct(rows, FlowStepKind.Completed),
+                completed = completed[id],
                 waiting = Distinct(rows, FlowStepKind.Waiting),
                 waitingNow = waitingNow.GetValueOrDefault(id),
                 failed = Distinct(rows, FlowStepKind.Failed),
@@ -335,7 +337,9 @@ public static class FlowsEndpoints
         }
 
         // BFS order from the triggers, each step measured against the step
-        // that leads into it (drop-off = how many did NOT make it across).
+        // that leads into it: drop-off = of the people who FINISHED the step
+        // before, the share that did not arrive here (people still waiting
+        // there have not dropped off; on a branch it is the other side's share).
         var order = new List<object>();
         var dropoff = new List<object>();
         var edges = ParseEdges(wf);
@@ -347,20 +351,21 @@ public static class FlowsEndpoints
         {
             var (id, parent) = queue.Dequeue();
             if (!seen.Add(id) || !nodeById.TryGetValue(id, out var meta)) continue;
-            var from = parent != null ? entered.GetValueOrDefault(parent) : (int?)null;
+            var from = parent != null ? completed.GetValueOrDefault(parent) : (int?)null;
             var here = entered.GetValueOrDefault(id);
             order.Add(new
             {
                 nodeId = id, label = meta.Label, type = meta.Type, parent, entered = here,
                 dropPct = from is int f && f > 0 ? Math.Round(100.0 * Math.Max(0, f - here) / f, 1) : (double?)null,
             });
+            var done = completed.GetValueOrDefault(id);
             foreach (var e in edges.Where(e => e.Source == id))
             {
                 var to = entered.GetValueOrDefault(e.Target);
                 dropoff.Add(new
                 {
-                    from = id, to = e.Target, branch = e.Branch, fromCount = here, toCount = to,
-                    dropPct = here > 0 ? Math.Round(100.0 * Math.Max(0, here - to) / here, 1) : (double?)null,
+                    from = id, to = e.Target, branch = e.Branch, fromCount = done, toCount = to,
+                    dropPct = done > 0 ? Math.Round(100.0 * Math.Max(0, done - to) / done, 1) : (double?)null,
                 });
                 queue.Enqueue((e.Target, id));
             }
