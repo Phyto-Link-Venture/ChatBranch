@@ -1,125 +1,103 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Row, SectionLabel } from '@/components/settings/MockRows'
-import { authHeaders } from '@/lib/auth'
-import { useRole } from '@/lib/useRole'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
-
-/** Mute groups for the in-app bell — server-side gate in crm.auth.notify
- * (Setting rows notif_<key>). Global: they apply to every user's bell. */
-const CATEGORIES = [
-  {
-    key: 'messages',
-    label: 'Inbound Message Alerts',
-    sub: 'New customer messages and WhatsApp opt-outs, on every chat channel',
-  },
-  {
-    key: 'account_health',
-    label: 'Channel Health Alerts',
-    sub: 'Account down/degraded, routing failover and recovery prompts',
-  },
-  {
-    key: 'flows',
-    label: 'Flow Alerts',
-    sub: 'Flow-builder in-app pushes and human handovers',
-  },
-  {
-    key: 'admin',
-    label: 'Admin & Settings Alerts',
-    sub: 'User management, app-key and account configuration changes',
-  },
-] as const
+import Link from 'next/link'
+import { AlertCircle } from 'lucide-react'
+import { Card } from '@/components/ui/Card'
+import { Toggle } from '@/components/ui/Toggle'
+import { tint } from '@/lib/color'
+import { NOTIF_CATEGORIES, notifApi } from '@/lib/notifications'
+import { useAccess } from '@/lib/useAccess'
 
 type Prefs = Record<string, boolean>
 
-function Toggle({ on, disabled, onChange }: { on: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <div
-      role="switch"
-      aria-checked={on}
-      onClick={() => !disabled && onChange(!on)}
-      className={`relative h-[22px] w-[38px] rounded-full transition-colors ${
-        disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
-      }`}
-      style={{ background: on ? 'rgb(var(--c-brand))' : 'var(--fill-hover)' }}
-    >
-      <div
-        className="absolute top-[3px] h-4 w-4 rounded-full bg-white transition-all"
-        style={{ left: on ? 18 : 3 }}
-      />
-    </div>
-  )
-}
-
 /**
- * Notifications preferences — global mute switches for the in-app bell.
- * Promoted to its own top-level route (upgrade §1) but the logic is unchanged
- * from the old Settings → Notifications tab.
+ * Settings → Organization → Notification defaults: the organization-wide mute
+ * switch per category (Setting rows notif_<category>). The central notifier
+ * reads them before anything else — a muted category reaches NOBODY, whatever
+ * their personal choice. Writes need the notifications.manage capability.
  */
 export function NotificationsSettings() {
+  const { ready, can } = useAccess()
+  const canEdit = ready && can('notifications.manage')
   const [prefs, setPrefs] = useState<Prefs | null>(null)
   const [error, setError] = useState('')
-  const { role } = useRole()
-  const canEdit = ['admin', 'superadmin'].includes(role)
+  const [busy, setBusy] = useState<string | null>(null)
 
   useEffect(() => {
-    fetch(`${API}/auth/notification-prefs`, { headers: authHeaders() })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    notifApi<Prefs>('auth/notification-prefs')
       .then(setPrefs)
-      .catch(() => setError('Notification settings unavailable — is the backend API running?'))
+      .catch(() => setError('Notification defaults are unavailable — is the API running?'))
   }, [])
 
   const save = async (key: string, value: boolean) => {
     if (!prefs) return
     const prev = prefs
-    setPrefs({ ...prefs, [key]: value }) // optimistic; revert on failure
+    setPrefs({ ...prefs, [key]: value }) // optimistic; rolled back on failure
     setError('')
+    setBusy(key)
     try {
-      const res = await fetch(`${API}/auth/notification-prefs`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ [key]: value }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error((data as { detail?: string }).detail || `HTTP ${res.status}`)
-      setPrefs(data as Prefs)
+      setPrefs(await notifApi<Prefs>('auth/notification-prefs', { method: 'PUT', body: JSON.stringify({ [key]: value }) }))
     } catch (e) {
       setPrefs(prev)
       setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
     }
   }
 
-  if (error && prefs === null) {
-    return <div className="py-6 text-[12px] text-text-muted">{error}</div>
-  }
+  if (error && prefs === null) return <p className="py-6 text-[12.5px] text-text-muted">{error}</p>
+
+  const muted = prefs ? NOTIF_CATEGORIES.filter((c) => prefs[c.key] === false).length : 0
 
   return (
-    <div>
-      <SectionLabel t="In-app Bell" cls="my-4" />
-      {CATEGORIES.map((c) => (
-        <Row
-          key={c.key}
-          label={c.label}
-          sub={c.sub}
-          control={
-            <Toggle
-              on={prefs?.[c.key] ?? true}
-              disabled={prefs === null || !canEdit}
-              onChange={(v) => save(c.key, v)}
-            />
-          }
-        />
-      ))}
-      <p className="mt-3 text-[11px] leading-relaxed text-text-muted">
-        These switches mute whole alert categories for <strong>every user&apos;s</strong> notification
-        bell{canEdit ? '' : ' — admin role required to change them'}. Changes apply to new events
-        immediately; alerts already in the bell stay.
-      </p>
+    <div className="flex flex-col gap-4">
+      <Card className="divide-y divide-line">
+        {NOTIF_CATEGORIES.map((c) => {
+          const on = prefs?.[c.key] ?? true
+          return (
+            <div key={c.key} className="flex items-center gap-3 px-4 py-3.5">
+              <span
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-lg"
+                style={{ background: tint(c.ink, 0.12), color: c.ink }}
+              >
+                <c.Icon size={15} aria-hidden />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-[13.5px] font-semibold text-text-high">{c.label}</div>
+                <div className="text-[12px] leading-snug text-text-muted">{c.description}</div>
+              </div>
+              <span className={`hidden text-[11.5px] font-semibold sm:inline ${on ? 'text-text-muted' : 'text-[color:var(--amber-ink)]'}`}>
+                {on ? 'On for everyone' : 'Muted for everyone'}
+              </span>
+              <Toggle
+                on={on}
+                disabled={prefs === null || !canEdit || busy === c.key}
+                onChange={(v) => void save(c.key, v)}
+                label={`${c.label} for the whole organization`}
+              />
+            </div>
+          )
+        })}
+      </Card>
+
       {error && prefs !== null && (
-        <p className="mt-2 text-[12px] font-semibold text-red-300">{error}</p>
+        <div role="alert" className="flex items-start gap-2 rounded-lg border border-red/25 bg-red/10 px-3 py-2 text-[12.5px] text-[color:var(--red-ink)]">
+          <AlertCircle size={14} className="mt-0.5 shrink-0" aria-hidden /> {error}
+        </div>
       )}
+
+      <p className="text-[12px] leading-relaxed text-text-muted">
+        {muted > 0
+          ? `${muted} categor${muted === 1 ? 'y is' : 'ies are'} muted for the whole organization. `
+          : 'Every category is on. '}
+        Each person can still turn categories off for themselves under{' '}
+        <Link href="/settings/my-notifications" className="font-semibold text-text-high underline underline-offset-2">
+          My notifications
+        </Link>
+        ; a muted category stays silent for everyone. Changes apply to new alerts immediately — alerts already delivered stay
+        in each inbox.
+      </p>
     </div>
   )
 }
