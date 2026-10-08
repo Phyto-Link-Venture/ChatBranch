@@ -453,6 +453,21 @@ sandbox mode.
   throws into a webhook, and an unknown operator matches NOTHING rather than
   everything. `/api/automations/catalog` is the single vocabulary source the
   editor reads.
+- **AI monitor + human-like behaviour** (`/ai-monitor`, `/api/ai/monitor`,
+  `/api/ai/behaviour`, 2026-10-08). EVERY AI-written outbound (instant reply,
+  queued ai_reply, follow-up, queue job with payload `source:"ai"`) goes
+  through `Ai/AiGate.Submit`, which records an `AiDraft` row EVEN when it sends
+  (`auto_sent`) — the monitor is the full trail. Policy `ai_review_mode` =
+  auto | review_flagged | review_all | shadow (+ autosend minutes, first-N,
+  risky keywords; entity-overridable, account `Config` wins). Approve/edit
+  re-runs the send-time guards (opt-out, coverage, 24h window; quiet hours
+  wait). Generation sits behind ONE seam, `Ai/AiComposer` — adapt it there when
+  AssistantService's return type changes. `Ai/AiResponder` = one debounced
+  ai_reply job per thread on every channel + acknowledgement skip;
+  `AiGate.StartHumanSend` = 1–3 bubbles chained through the queue with typing
+  pauses (never sleeps on a request); `Ai/AiFollowUpService` + `AiOpsWorker`
+  (`AI_FOLLOWUP_WORKER=0` off) = follow-ups + auto-send deadlines. Test host
+  sets `AI_HUMANIZE=0` (human-like DEFAULTS off so the sandbox answers inline).
 - **Help Center** (`/help`, `/api/help/articles`, 2026-08-16) — published
   `KnowledgeItem`s, readable by anyone. `Published` is PUBLIC readability and is
   NOT `Active` (whether the AI may use it): an internal note is active and
