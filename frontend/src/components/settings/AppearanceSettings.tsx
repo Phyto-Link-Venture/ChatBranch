@@ -77,8 +77,10 @@ export function AppearanceSettings() {
         if (!d) return
         setOrgDefault(d.org_default ? normalize(d.org_default) : null)
         setCanOrg(!!d.can_set_org_default)
-        // Signed in on a new device: adopt the profile's look once.
-        if (d.appearance && !storedAppearance()) applyAppearance(normalize(d.appearance))
+        // Signed in on a new device: adopt the profile's look (else the
+        // organization default) once.
+        const chosen = d.appearance ?? d.org_default
+        if (chosen && !storedAppearance()) applyAppearance(normalize(chosen))
       })
       .catch(() => {
         /* offline: local choice still works */

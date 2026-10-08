@@ -213,7 +213,9 @@ function SettingsShellInner({ children }: { children: ReactNode }) {
   const allowed = !current?.page.cap || can(current.page.cap)
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-panel">
+    // Phone: the whole page scrolls as one. md+: the section rail and the page
+    // scroll independently under a fixed masthead.
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-panel md:overflow-hidden">
       {/* Masthead */}
       <div className="shrink-0 px-4 pt-4 sm:px-6 sm:pt-5">
         <div className="flex flex-wrap items-end gap-x-4 gap-y-2 border-b border-text-primary/80 pb-3">
@@ -273,7 +275,7 @@ function SettingsShellInner({ children }: { children: ReactNode }) {
         )}
       </nav>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex md:min-h-0 md:flex-1">
         {/* Desktop navigation: collapsible sections. */}
         <nav
           className="hidden w-[244px] shrink-0 overflow-y-auto border-r border-line px-3 py-5 md:block"
@@ -338,7 +340,7 @@ function SettingsShellInner({ children }: { children: ReactNode }) {
         </nav>
 
         {/* Page */}
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-8 pt-2 sm:px-6 md:px-8 md:pt-6">
+        <div className="min-w-0 flex-1 px-4 pb-8 pt-2 sm:px-6 md:min-h-0 md:overflow-y-auto md:px-8 md:pt-6">
           <div className="mx-auto w-full max-w-[920px]">
             {current && (
               <header className="mb-5 border-b border-line pb-4">
