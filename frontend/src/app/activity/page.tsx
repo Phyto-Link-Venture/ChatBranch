@@ -12,6 +12,7 @@ import {
   Loader2,
   RefreshCw,
   Search,
+  SlidersHorizontal,
   X,
 } from 'lucide-react'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
@@ -22,7 +23,7 @@ import {
   type AuditEntry,
   type AuditFacets,
   type AuditPage,
-} from '@/lib/audit'
+} from '@/components/activity/audit'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Select } from '@/components/ui/Select'
@@ -170,6 +171,7 @@ export default function ActivityPage() {
   const [selected, setSelected] = useState<AuditEntry | null>(null)
   const [exporting, setExporting] = useState(false)
   const [reloadTick, setReloadTick] = useState(0)
+  const [moreFilters, setMoreFilters] = useState(false) // phones: actor/action/entity/source fold away
   const seq = useRef(0)
 
   // Filters come from the URL so a filtered view survives refresh and can be shared.
@@ -287,6 +289,9 @@ export default function ActivityPage() {
   const active =
     filters.actor || filters.sources.length || filters.action || filters.entity || filters.q || filters.preset !== '7d'
 
+  const advancedCount =
+    (filters.actor ? 1 : 0) + (filters.action ? 1 : 0) + (filters.entity ? 1 : 0) + filters.sources.length
+
   const toggleSource = (s: string) =>
     update({ sources: filters.sources.includes(s) ? filters.sources.filter((x) => x !== s) : [...filters.sources, s] })
 
@@ -366,7 +371,20 @@ export default function ActivityPage() {
           </label>
         </div>
 
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <button
+          type="button"
+          onClick={() => setMoreFilters((v) => !v)}
+          aria-expanded={moreFilters}
+          className="inline-flex items-center gap-1.5 self-start text-[12.5px] font-semibold text-text-mid sm:hidden"
+        >
+          <SlidersHorizontal size={13} aria-hidden />
+          {moreFilters ? 'Fewer filters' : 'More filters'}
+          {advancedCount > 0 && (
+            <span className="rounded-full bg-primary px-1.5 text-[10.5px] leading-[16px] text-on-primary">{advancedCount}</span>
+          )}
+        </button>
+
+        <div className={`${moreFilters ? 'grid' : 'hidden'} grid-cols-1 gap-2 sm:grid sm:grid-cols-3`}>
           <Select value={filters.actor} onChange={(v) => update({ actor: v })} options={actorOptions} ariaLabel="Actor" searchable />
           <Select value={filters.action} onChange={(v) => update({ action: v })} options={actionOptions} ariaLabel="Action" searchable />
           <EntityPicker
@@ -378,7 +396,7 @@ export default function ActivityPage() {
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Source">
+        <div className={`${moreFilters ? 'flex' : 'hidden'} flex-wrap items-center gap-1.5 sm:flex`} role="group" aria-label="Source">
           <span className="eyebrow mr-1">Source</span>
           {SOURCES.map((s) => {
             const m = sourceMeta(s)

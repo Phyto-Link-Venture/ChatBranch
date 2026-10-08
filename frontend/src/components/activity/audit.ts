@@ -1,6 +1,8 @@
 /**
  * Activity log (GET /api/audit) — types and the source vocabulary shared by the
- * Activity page and anything else that shows audit rows.
+ * Activity page and anything else that shows audit rows. Lives under
+ * components/ (not lib/) because it carries Tailwind classes, and only
+ * components/ and app/ are in Tailwind's content scan.
  */
 
 export type AuditSource = 'user' | 'api' | 'mcp' | 'assistant' | 'automation' | 'flow' | 'webhook' | 'system'

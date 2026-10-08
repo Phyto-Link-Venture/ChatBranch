@@ -667,6 +667,7 @@ public static class BuiltinTools
           "source":{"type":"string","enum":["user","api","mcp","assistant","automation","flow","webhook","system"]},
           "action":{"type":"string","description":"Exact action, or a prefix ending in * (e.g. thread.*)."},
           "q":{"type":"string","description":"Free text across actor, action, target, detail and path."},
+          "entity":{"type":"string","description":"Entity slug (includes its branches)."},
           "limit":{"type":"integer","minimum":1,"maximum":100,"default":20}}}
         """;
         public override string Summarize(JsonElement a) => "Read the activity log";
@@ -678,7 +679,7 @@ public static class BuiltinTools
             var sc = ctx.Services.GetRequiredService<ScopingService>();
             var filtered = await AuditEndpoints.ApplyAsync(visible, new AuditEndpoints.Filters(
                 Str(a, "from"), Str(a, "to"), Str(a, "actor"), Str(a, "source"), Str(a, "action"),
-                ctx.EntitySlug, Str(a, "q")), ctx.Db, sc);
+                Str(a, "entity"), Str(a, "q")), ctx.Db, sc);
             var rows = await filtered.OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id)
                 .Take(Limit(a, 20, 100)).ToListAsync(ct);
             ctx.Links.Add(new ToolLink("Open the activity log", "/activity"));

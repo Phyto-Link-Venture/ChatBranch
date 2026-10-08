@@ -32,15 +32,17 @@ type Client = 'claude-code' | 'claude-desktop' | 'cursor' | 'http'
 
 const KEY_PLACEHOLDER = '<your-api-key>'
 
-function snippet(client: Client, url: string, key: string): { code: string; hint: string } {
+function snippet(client: Client, url: string, key: string): { code: string; hint: string; caption: string } {
   switch (client) {
     case 'claude-code':
       return {
+        caption: 'Terminal',
         hint: 'Run in a terminal. Add --scope user to make it available in every project.',
         code: `claude mcp add --transport http chatbranch ${url} --header "Authorization: Bearer ${key}"`,
       }
     case 'claude-desktop':
       return {
+        caption: 'claude_desktop_config.json',
         hint: 'Settings → Developer → Edit Config (claude_desktop_config.json), then restart Claude. Needs Node.js for mcp-remote.',
         code: JSON.stringify(
           {
@@ -58,6 +60,7 @@ function snippet(client: Client, url: string, key: string): { code: string; hint
       }
     case 'cursor':
       return {
+        caption: '~/.cursor/mcp.json',
         hint: 'Add to ~/.cursor/mcp.json (or .cursor/mcp.json in a project), then enable it under Settings → MCP.',
         code: JSON.stringify(
           { mcpServers: { chatbranch: { url, headers: { Authorization: `Bearer ${key}` } } } },
@@ -67,6 +70,7 @@ function snippet(client: Client, url: string, key: string): { code: string; hint
       }
     default:
       return {
+        caption: 'HTTP',
         hint: 'Any MCP client that speaks Streamable HTTP. JSON-RPC 2.0 over POST; answers are application/json.',
         code: `curl -s ${url} \\
   -H "Authorization: Bearer ${key}" \\
@@ -175,7 +179,7 @@ export function ConnectAiCard({ freshToken }: { freshToken: string | null }) {
               ]}
             />
             <p className="text-[12px] text-text-muted">{s.hint}</p>
-            <CodeBlock code={s.code} label="Copy" />
+            <CodeBlock code={s.code} label="Copy" caption={s.caption} />
             {!freshToken && (
               <p className="text-[11.5px] text-text-muted">
                 Replace <span className="font-mono">{KEY_PLACEHOLDER}</span> with a key — create one above and it’s filled in for you.

@@ -47,7 +47,8 @@ public sealed class ToolContext
     /// <summary>mcp | assistant — the audit source of everything this call does.</summary>
     public required string Source { get; init; }
     public required HashSet<string> Capabilities { get; init; }
-    /// <summary>The entity the caller is looking at (assistant page context), if any.</summary>
+    /// <summary>The entity the caller is looking at (assistant page context), if any —
+    /// told to the model; tools narrow only on an explicit `entity` argument.</summary>
     public string? EntitySlug { get; init; }
     /// <summary>Navigation suggestions the tools produced (assistant chips).</summary>
     public List<ToolLink> Links { get; } = new();

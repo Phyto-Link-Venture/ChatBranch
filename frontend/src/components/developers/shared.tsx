@@ -76,15 +76,16 @@ export function CopyField({ value, ariaLabel }: { value: string; ariaLabel: stri
   )
 }
 
-export function CodeBlock({ code, label }: { code: string; label: string }) {
+export function CodeBlock({ code, label, caption }: { code: string; label: string; caption?: string }) {
   return (
-    <div className="relative min-w-0 rounded-lg border border-line bg-well">
-      <pre className="max-h-[260px] overflow-auto px-3.5 py-3 pr-24 font-mono text-[11.5px] leading-relaxed text-text-primary">
+    <div className="min-w-0 overflow-hidden rounded-lg border border-line bg-well">
+      <div className="flex items-center gap-2 border-b border-line px-3 py-1.5">
+        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-muted">{caption}</span>
+        <CopyButton value={code} label={label} className="h-7" />
+      </div>
+      <pre className="max-h-[260px] overflow-auto whitespace-pre-wrap break-all px-3.5 py-3 font-mono text-[11.5px] leading-relaxed text-text-primary">
         <code>{code}</code>
       </pre>
-      <div className="absolute right-2 top-2">
-        <CopyButton value={code} label={label} />
-      </div>
     </div>
   )
 }
@@ -151,7 +152,7 @@ export function Section({
   return (
     <section className="rounded-xl border border-line bg-card">
       <header className="flex flex-wrap items-start gap-3 border-b border-line px-4 py-3.5 sm:px-5">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[min(100%,260px)] flex-1">
           <h2 className="display text-[19px] leading-tight text-text-heading">{title}</h2>
           {description && <p className="mt-1 max-w-[720px] text-[12.5px] leading-relaxed text-text-muted">{description}</p>}
         </div>

@@ -62,11 +62,12 @@ public static class ToolScope
     /// <summary>
     /// Resolve an entity slug the caller asked for, refusing one outside what they
     /// may see (an agent cannot widen their view by naming another outlet).
-    /// Falls back to the assistant's page context when no slug is given.
+    /// Only an explicit argument narrows: the page the person happens to be on
+    /// is context for the model, never a silent filter on what tools find.
     /// </summary>
     public static async Task<Entity?> EntityAsync(ToolContext ctx, string? slug)
     {
-        slug = string.IsNullOrWhiteSpace(slug) ? ctx.EntitySlug : slug.Trim();
+        slug = slug?.Trim();
         if (string.IsNullOrEmpty(slug) || slug is "all" or "__all__") return null;
         var visible = await AdminEndpoints.AccessibleEntitiesAsync(ctx.Db, ctx.User);
         var ent = visible.FirstOrDefault(e => e.Slug == slug);
