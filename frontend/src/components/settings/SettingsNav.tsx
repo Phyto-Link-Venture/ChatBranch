@@ -117,7 +117,7 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
         lbl: 'MCP servers',
         blurb: 'External tool servers the assistant may call.',
         Icon: Server,
-        cap: 'settings.ai.manage',
+        cap: 'api_keys.manage', // "Manage API keys & MCP" (platform's capability)
       },
     ],
   },
@@ -217,9 +217,11 @@ function SettingsShellInner({ children }: { children: ReactNode }) {
     // scroll independently under a fixed masthead.
     <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-panel md:overflow-hidden">
       {/* Masthead */}
-      <div className="shrink-0 px-4 pt-4 sm:px-6 sm:pt-5">
-        <div className="flex flex-wrap items-end gap-x-4 gap-y-2 border-b border-text-primary/80 pb-3">
-          <div className="min-w-0">
+      {/* Phones: the shell's top bar already titles the page, so only the
+          Save/Discard cluster remains here. */}
+      <div className="shrink-0 px-4 pt-3 sm:px-6 md:pt-5">
+        <div className="flex flex-wrap items-end gap-x-4 gap-y-2 md:border-b md:border-text-primary/80 md:pb-3">
+          <div className="hidden min-w-0 md:block">
             <div className="eyebrow">Workspace</div>
             <h1 className="display mt-0.5 text-[30px] leading-[1.05] text-text-heading sm:text-[36px]">Settings</h1>
             <div className="mt-1 text-[13px] text-text-muted">Your own preferences, and how the organization is configured.</div>
