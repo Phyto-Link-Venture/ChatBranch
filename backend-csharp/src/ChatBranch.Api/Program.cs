@@ -95,6 +95,8 @@ app.MapAuthEndpoints();
 app.MapSettingsEndpoints();
 app.MapAssignmentsEndpoints();
 app.MapInboxEndpoints();
+app.MapInboxThreadsEndpoints();
+app.MapSavedViewsEndpoints();
 app.MapAiEndpoints();
 app.MapFlowsEndpoints();
 app.MapContactsEndpoints();
