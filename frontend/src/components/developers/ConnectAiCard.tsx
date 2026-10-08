@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Eye, EyeOff, Loader2, Lock, PlugZap } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { BranchMark } from '@/components/shell/Logo'
 import { CodeBlock, CopyField, Notice, Section, Segmented, api, mcpEndpoint } from './shared'
 
 /**
@@ -146,6 +147,17 @@ export function ConnectAiCard({ freshToken }: { freshToken: string | null }) {
     >
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
         <div className="flex min-w-0 flex-col gap-3">
+          <div className="flex items-center gap-2.5">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-line bg-well text-text-heading">
+              <BranchMark size={24} />
+            </span>
+            <div className="min-w-0">
+              <div className="display text-[16px] leading-tight text-text-heading">ChatBranch</div>
+              <div className="text-[11.5px] text-text-muted">
+                MCP server{info ? ` ${info.server.version}` : ''} · Streamable HTTP · authenticated with an API key
+              </div>
+            </div>
+          </div>
           <div>
             <div className="eyebrow mb-1.5">MCP endpoint</div>
             <CopyField value={url} ariaLabel="MCP endpoint URL" />
