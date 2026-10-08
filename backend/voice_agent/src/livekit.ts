@@ -5,15 +5,20 @@
  * requests.
  */
 import { randomBytes } from 'node:crypto';
-import { AgentDispatchClient, RoomServiceClient, SipClient } from 'livekit-server-sdk';
+import { AgentDispatchClient, RoomServiceClient, ServerError, SipClient } from 'livekit-server-sdk';
 import * as config from './config.js';
 import type { DispatchMetadata } from './metadata.js';
 
 const creds = (): [string, string, string] => [config.LIVEKIT_URL, config.LIVEKIT_API_KEY, config.LIVEKIT_API_SECRET];
 
-/** Delete the room, which disconnects the phone participant (hangs up). */
+/** Delete the room, which disconnects the phone participant (hangs up). A room already gone counts as hung up. */
 export async function hangup(roomName: string): Promise<void> {
-  await new RoomServiceClient(...creds()).deleteRoom(roomName);
+  try {
+    await new RoomServiceClient(...creds()).deleteRoom(roomName);
+  } catch (err) {
+    if (err instanceof ServerError && err.status === 404) return;
+    throw err;
+  }
 }
 
 /** A full-entropy, unguessable room id: it doubles as the live-transcript lookup key. */

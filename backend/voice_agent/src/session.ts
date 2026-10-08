@@ -141,7 +141,7 @@ function pipelineShared(md: DispatchMetadata, vad: VAD): Pick<SessionModels, 'va
       // Barge-in ON: interruptions OFF made the agent monologue over the caller.
       // Backchannel guard: a real utterance (>=0.4s AND >=2 words) interrupts; a
       // bare "mm-hmm" does not cut the agent mid-sentence.
-      interruption: { minDuration: 400, minWords: 2 },
+      interruption: { mode: 'vad', minDuration: 400, minWords: 2 },
       // Preemptive generation: LLM starts on the PRELIMINARY transcript while
       // end-of-turn is still being confirmed — claws back most of the
       // endpointing wait (median contact-stop → agent-speak was 2.2s without it).
@@ -254,7 +254,7 @@ function geminiRealtime(): SessionModels {
     // Barge-in ON: real caller speech interrupts the agent so it listens.
     turnHandling: {
       turnDetection: 'realtime_llm',
-      interruption: { minDuration: 400, minWords: 2 },
+      interruption: { mode: 'vad', minDuration: 400, minWords: 2 },
       preemptiveGeneration: { enabled: false },
     },
   };
@@ -297,7 +297,11 @@ function openaiRealtime(md: DispatchMetadata): SessionModels {
       turnDetection: 'realtime_llm',
       // Backchannel guard pairs with interrupt_response above — raise
       // INTERRUPT_MIN_DURATION/_WORDS if background voices still barge in.
-      interruption: { minDuration: config.INTERRUPT_MIN_DURATION_S * 1000, minWords: config.INTERRUPT_MIN_WORDS },
+      interruption: {
+        mode: 'vad',
+        minDuration: config.INTERRUPT_MIN_DURATION_S * 1000,
+        minWords: config.INTERRUPT_MIN_WORDS,
+      },
       preemptiveGeneration: { enabled: false },
     },
   };

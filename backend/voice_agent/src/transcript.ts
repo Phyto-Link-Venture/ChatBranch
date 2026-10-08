@@ -1,6 +1,6 @@
 /**
  * Pure text helpers for the conversation stream: call-ending cues, carrier
- * announcements, reasoning-leak scrubbing and the pronunciation lexicon. No
+ * announcements, reasoning-leak scrubbing and what the TTS may speak. No
  * LiveKit imports, so the offline selftest exercises them directly.
  */
 import type { PronunciationTerm } from './storage.js';
@@ -137,16 +137,20 @@ export function applyPronunciation(text: string, terms: readonly PronunciationTe
   return text.replace(re, (match) => byTerm.get(match.toLowerCase()) ?? match);
 }
 
-// A lexicon substitution must see whole clauses: a term split across two
-// stream chunks would otherwise slip through. Text is released at clause ends.
+/** What the TTS may say: never the end_call marker, and lexicon respellings applied. */
+export const speakable = (text: string, terms: readonly PronunciationTerm[]): string =>
+  applyPronunciation(text.replace(END_CALL_SCRUB, ''), terms);
+
+// The marker and lexicon terms must be seen whole: either could be split across
+// two stream chunks. Text is therefore released at clause ends.
 const CLAUSE_END = /[.,!?;:。，！？；：\n]/gu;
 
 /**
- * Rewrite a streamed TTS input through the lexicon, releasing text at clause
+ * Rewrite a streamed TTS input through speakable(), releasing text at clause
  * boundaries (TTS engines synthesize per clause/sentence anyway, so this adds
  * no audible latency) and flushing the remainder when the stream ends.
  */
-export async function* pronounceStream(
+export async function* speakableStream(
   text: AsyncIterable<string>,
   terms: readonly PronunciationTerm[],
 ): AsyncGenerator<string> {
@@ -156,9 +160,11 @@ export async function* pronounceStream(
     let cut = -1;
     for (const m of pending.matchAll(CLAUSE_END)) cut = m.index + m[0].length;
     if (cut > 0) {
-      yield applyPronunciation(pending.slice(0, cut), terms);
+      const out = speakable(pending.slice(0, cut), terms);
+      if (out.trim()) yield out;
       pending = pending.slice(cut);
     }
   }
-  if (pending) yield applyPronunciation(pending, terms);
+  const rest = speakable(pending, terms);
+  if (rest.trim()) yield rest;
 }

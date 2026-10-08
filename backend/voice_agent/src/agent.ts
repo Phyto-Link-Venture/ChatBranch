@@ -43,8 +43,8 @@ import {
   hasEndCallMarker,
   makeThinkFilter,
   nowIso,
-  pronounceStream,
   scrubEndCallMarker,
+  speakableStream,
 } from './transcript.js';
 
 /**
@@ -144,8 +144,9 @@ async function warmLlm(model: SessionModels['llm']): Promise<void> {
 
 /**
  * The call agent: default nodes behind three guards — the inbound speech gate
- * (sttNode), the reasoning-leak scrubber (llmNode) and the pronunciation
- * lexicon (ttsNode). Every transport shares them because they run here.
+ * (sttNode), the reasoning-leak scrubber (llmNode) and the spoken-text filter
+ * (ttsNode: end_call marker + pronunciation lexicon). Every transport shares
+ * them because they run here.
  */
 class CallAgent extends voice.Agent {
   constructor(
@@ -187,8 +188,8 @@ class CallAgent extends voice.Agent {
   }
 
   override async ttsNode(text: ReadableStream<string> | AsyncIterable<string>, modelSettings: voice.ModelSettings) {
-    const input = this.lexicon.length ? pronounceStream(text, this.lexicon) : text;
-    return voice.Agent.default.ttsNode(this, input, modelSettings);
+    // A spoken "{end_call}" is scrubbed here too, not only from the transcript.
+    return voice.Agent.default.ttsNode(this, speakableStream(text, this.lexicon), modelSettings);
   }
 }
 
@@ -316,7 +317,8 @@ async function runCall(ctx: JobContext): Promise<void> {
         usage.prompt += m.promptTokens;
         usage.completion += m.completionTokens;
         if (!usage.model) {
-          const provider = llmProvider(md);
+          // The ILMU voice runs ILMU's own brain whatever llm_provider says.
+          const provider = voiceProvider(md) === 'ilmu' ? 'ilmu' : llmProvider(md);
           usage.provider = provider;
           usage.model = m.metadata?.modelName || (provider === 'ilmu' ? config.ILMU_LLM_MODEL : config.PIPELINE_LLM_MODEL);
         }

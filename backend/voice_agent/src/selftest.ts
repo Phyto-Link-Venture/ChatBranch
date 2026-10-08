@@ -209,13 +209,14 @@ await check('pronunciation: whole-word, case-insensitive, longest term first', (
   assert.equal(transcript.applyPronunciation('untouched', []), 'untouched');
 });
 
-await check('pronunciation: streamed text is substituted across chunk boundaries', async () => {
+await check('spoken text: lexicon + end_call scrub hold across chunk boundaries', async () => {
   async function* chunks(): AsyncGenerator<string> {
-    yield* ['Hello, this is Du', 'it Gi', 'ni calling. Your bal', 'ance with Duit Gini'];
+    yield* ['Hello, this is Du', 'it Gi', 'ni calling. Your bal', 'ance with Duit Gini. Goodbye! {end', '_call}'];
   }
-  let out = '';
-  for await (const piece of transcript.pronounceStream(chunks(), terms)) out += piece;
-  assert.equal(out, 'Hello, this is Doo-it Ghee-nee calling. Your balance with Doo-it Ghee-nee');
+  const pieces: string[] = [];
+  for await (const piece of transcript.speakableStream(chunks(), terms)) pieces.push(piece);
+  assert.equal(pieces.join(''), 'Hello, this is Doo-it Ghee-nee calling. Your balance with Doo-it Ghee-nee. Goodbye!');
+  assert.ok(pieces.every((p) => !p.includes('end')));
 });
 
 await check('pronunciation: pronunciation.json lexicon + optional ElevenLabs dictionary', () => {
