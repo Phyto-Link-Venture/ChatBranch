@@ -90,6 +90,8 @@ app.MapGet("/api/whatsapp/status", () => Results.Ok(new
 app.MapAuthEndpoints();
 app.MapSettingsEndpoints();
 app.MapInboxEndpoints();
+app.MapInboxThreadsEndpoints();
+app.MapSavedViewsEndpoints();
 app.MapAiEndpoints();
 app.MapFlowsEndpoints();
 app.MapContactsEndpoints();
