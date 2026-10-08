@@ -23,12 +23,26 @@ const listeners = new Set<Listener>()
 let ctrl: AbortController | null = null
 let running = false
 
+/** Connection state for the top bar's Live dot: connected (green),
+ *  reconnecting (amber — retrying after a drop or still dialling), offline
+ *  (grey — no subscriber, browser offline, or several failures in a row). */
+export type StreamStatus = 'connected' | 'reconnecting' | 'offline'
+let status: StreamStatus = 'offline'
+let failures = 0
+const statusListeners = new Set<(s: StreamStatus) => void>()
+function setStatus(s: StreamStatus) {
+  if (s === status) return
+  status = s
+  statusListeners.forEach((fn) => fn(s))
+}
+
 function notify() {
   listeners.forEach((fn) => fn())
 }
 
 async function run() {
   running = true
+  setStatus('reconnecting') // dialling
   while (listeners.size) {
     ctrl = new AbortController()
     try {
@@ -42,6 +56,8 @@ async function run() {
         return // stale token — bouncing to /login, don't retry
       }
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+      failures = 0
+      setStatus('connected')
       // The server sends an initial `change` frame on connect, so listeners
       // refresh once per (re)connect without an extra nudge here.
       const reader = res.body.getReader()
@@ -60,10 +76,16 @@ async function run() {
       }
     } catch {
       /* aborted or API down — retry below keeps working as the fallback */
+      failures++
     }
-    if (listeners.size) await new Promise((r) => setTimeout(r, RETRY_MS))
+    if (listeners.size) {
+      const offline = typeof navigator !== 'undefined' && navigator.onLine === false
+      setStatus(offline || failures >= 3 ? 'offline' : 'reconnecting')
+      await new Promise((r) => setTimeout(r, RETRY_MS))
+    }
   }
   running = false
+  setStatus('offline')
   // a subscriber may have arrived between the loop's last check and here
   // (StrictMode's unmount/remount does this) — restart for them
   if (listeners.size) void run()
@@ -76,5 +98,20 @@ export function subscribeChatStream(listener: Listener): () => void {
   return () => {
     listeners.delete(listener)
     if (!listeners.size) ctrl?.abort()
+  }
+}
+
+/** Current connection state (see StreamStatus). */
+export function getStreamStatus(): StreamStatus {
+  return status
+}
+
+/** Watch the connection state. Does NOT open the stream by itself — pair it
+ *  with subscribeChatStream. Returns the unsubscribe function. */
+export function subscribeStreamStatus(fn: (s: StreamStatus) => void): () => void {
+  statusListeners.add(fn)
+  fn(status)
+  return () => {
+    statusListeners.delete(fn)
   }
 }
