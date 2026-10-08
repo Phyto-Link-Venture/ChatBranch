@@ -64,6 +64,8 @@ public class AppDbContext : DbContext
     public DbSet<ConversationSummary> ConversationSummaries => Set<ConversationSummary>();
     // integrations
     public DbSet<Integration> Integrations => Set<Integration>();
+    // crm — per-user saved list views (the inbox's saved filter tabs)
+    public DbSet<SavedView> SavedViews => Set<SavedView>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -128,6 +130,7 @@ public class AppDbContext : DbContext
         b.Entity<PendingToolAction>().ToTable("crm_pendingtoolaction");
         b.Entity<ConversationSummary>().ToTable("crm_conversationsummary");
         b.Entity<Integration>().ToTable("integrations_integration");
+        b.Entity<SavedView>().ToTable("crm_savedview");
         // Per-user grants: deleting a login must not delete the connection row
         // (an admin can re-own it) — null the owner instead.
         b.Entity<Integration>()

@@ -10,7 +10,11 @@ export const MOVED_AREA_ROUTES: Record<string, string> = {
   entities: '/entities',
   templates: '/templates',
   'script-templates': '/script-templates',
-  notif: '/notifications',
+  // The old Settings → Notifications tab held the organization mute switches,
+  // which live in Settings → Organization → Notification defaults again;
+  // /notifications is now everyone's notification inbox.
+  notif: '/settings/notifications',
+  assignments: '/assignments', // Account assignment is a Work module now
   whatsapp: '/channels', // pre-consolidation WhatsApp Accounts tab
   ai: '/channels', // AI Configuration retired — its knobs live on each channel account now
   voice: '/channels', // pre-consolidation Voice Persona tab (→ ai → channels)

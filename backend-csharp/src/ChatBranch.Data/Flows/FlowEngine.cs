@@ -46,7 +46,7 @@ public class FlowEngine
         _actions = actions;
     }
 
-    private static readonly string[] ClosedStatuses =
+    internal static readonly string[] ClosedStatuses =
         { "closed", "done", "resolved", "cancelled", "completed" };
 
     // ---- graph helpers ------------------------------------------------------
@@ -1545,16 +1545,13 @@ public class FlowEngine
 
     private void Notify(string[] roles, string title, string body)
     {
-        var users = _db.Profiles.Where(p => roles.Contains(p.Role)).Select(p => p.UserId).ToList();
-        NotifyUsers(users, title, body, "");
+        NotificationService.Notify(_db, NotificationCategories.Flows, "system", title, body, "", NotificationAudience.ForRoles(roles));
     }
 
     private void NotifyUsers(IEnumerable<int> userIds, string title, string body, string link)
     {
-        foreach (var uid in userIds)
-            _db.Notifications.Add(new Notification { UserId = uid, Kind = "system",
-                Title = Trim(title, 160), Body = Trim(body, 400), Link = link, CreatedAt = DateTime.UtcNow });
-        _db.SaveChanges();
+        NotificationService.Notify(_db, NotificationCategories.Flows, "system", title, body, link,
+            NotificationAudience.ForUsers(userIds));
     }
 
     private static List<string> ChannelList(JsonElement cfg)

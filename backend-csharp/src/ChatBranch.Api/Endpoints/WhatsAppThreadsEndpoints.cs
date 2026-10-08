@@ -525,12 +525,14 @@ public static class WhatsAppThreadsEndpoints
         // =====================================================================
         // Call controls.
         //
-        // There is NO LiveKit SDK and NO call bridge in this build, so a call
-        // never leaves the machine. What IS real is the FILE contract with the
-        // Django-free voice agent (VoiceAgentBridge): if a Python agent process
-        // is writing data/live/{room}.json, the operator sees the live transcript
-        // and Guide/Takeover reach it. Everything else answers with a clean
-        // sandbox payload — the /chats panel must degrade, never 500.
+        // A WhatsApp voice call runs over the Baileys transport: the API
+        // dispatches the voice agent into a fresh LiveKit room (LiveKitClient)
+        // and hands the gateway a room-join token; the gateway dials the
+        // contact, joins as `whatsapp_borrower` and pushes ringing / connected /
+        // ended back to /api/whatsapp/baileys/call-event. The transcript and
+        // Guide/Takeover then go through the agent's FILE contract
+        // (VoiceAgentBridge). With no linked account the whole call UI still
+        // works in sandbox mode — the /chats panel must degrade, never 500.
         // =====================================================================
 
         // Live transcript — polled every ~1.5s by the info panel while a call is
@@ -575,14 +577,17 @@ public static class WhatsAppThreadsEndpoints
             return Results.Ok(new { recordings = Array.Empty<object>() });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
-        // Start — STUB (sandbox call). Mirrors Django's sandbox branch: the
-        // thread's call state flips to in_call with the "wacid.sandbox" id and a
-        // system note lands in the stream, so the whole call UI (pill, panel,
-        // End button) is demoable without a WhatsApp number. A CONFIGURED
-        // account would need the bridge process → 501, never a 500.
+        // Start. A linked Baileys account places a real call. With no linked
+        // account Django's sandbox branch stays: the thread's call state flips
+        // to in_call with the "wacid.sandbox" id and a system note lands in the
+        // stream, so the call UI (pill, panel, End button) is demoable without a
+        // WhatsApp number. A Cloud API account answers 501: its WebRTC call
+        // bridge went with the Django backend.
         app.MapPost("/api/whatsapp/threads/{key}/call/start", async (string key,
             CallStartRequest? body, AppDbContext db, ThreadStore store, ScopingService sc,
-            IWhatsAppCloudClient wa, ClaimsPrincipal me, HttpContext ctx) =>
+            IWhatsAppCloudClient wa, IBaileysGateway baileys, LiveKitClient livekit, VoiceAgentBridge voice,
+            ChatBranch.Data.Ai.KnowledgeService knowledge, ChatBranch.Data.Ai.AssistantService assistant,
+            ClaimsPrincipal me, HttpContext ctx, CancellationToken ct) =>
         {
             var thread = await FindThread(db, key);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
@@ -601,23 +606,80 @@ public static class WhatsAppThreadsEndpoints
                 }, statusCode: 409);
 
             var account = await EffectiveAccount(db, wa, thread);
+            // The conversation brain + STT engine are PER ACCOUNT (Settings →
+            // Channels → edit account → Delivery & AI), falling back to the
+            // organization-wide value.
+            var llmProvider = AccountDelivery.Resolve(account, AccountDelivery.LlmProvider, sc);
+            var sttProvider = AccountDelivery.Resolve(account, AccountDelivery.SttProvider, sc);
             if (account != null && wa.IsConfigured(account))
                 return Results.Json(new
                 {
                     ok = false,
-                    detail = "WhatsApp calling is not available in this build "
-                             + "(no call bridge / LiveKit worker).",
+                    detail = "WhatsApp Cloud API calling is not available in this build (its call bridge "
+                             + "was removed); calls run over a linked Baileys (WhatsApp Web) number.",
                 }, statusCode: 501);
+
+            if (account is { Provider: Providers.Baileys, ExternalId.Length: > 0 } && baileys.IsConfigured)
+            {
+                if (livekit.Settings.MissingForServer() is string reason)
+                    return Results.Json(new { ok = false, detail = reason }, statusCode: 503);
+                var contact = thread.ContactId is int cid
+                    ? await db.Contacts.AsNoTracking().FirstOrDefaultAsync(c => c.Id == cid, ct)
+                    : null;
+                if (contact?.DoNotCall == true)
+                    return Results.Json(new { detail = "Contact is marked do-not-call." }, statusCode: 409);
+
+                var room = LiveKitClient.NewRoomName();
+                // The CRM contact's identity (not the WhatsApp push-name) rides in
+                // the metadata; the agent greets only once wa.callStatus=active.
+                var metadata = await VoiceDispatch.BuildAsync(db, knowledge, assistant, sc, voice.DataDir, contact,
+                    new VoiceCallOptions("+" + thread.Key, VoiceProvider: body?.VoiceProvider, Voice: body?.VoiceId,
+                        LlmProvider: llmProvider, SttProvider: sttProvider, EntityId: thread.EntityId), ct);
+                var dispatched = await livekit.CreateDispatchAsync(room, JsonSerializer.Serialize(metadata), ct);
+                if (!dispatched.Ok)
+                    return Results.Json(new { ok = false, detail = dispatched.Detail }, statusCode: 502);
+                var started = await baileys.StartCallAsync(account.ExternalId, thread.Key, new()
+                {
+                    ["room"] = room,
+                    ["livekit_url"] = livekit.Settings.Url,
+                    ["token"] = livekit.ParticipantToken(room, LiveKitClient.WhatsAppIdentity,
+                        contact?.Name ?? thread.Key, TimeSpan.FromHours(2)),
+                    ["max_seconds"] = MaxCallSeconds(),
+                }, ct);
+                if (!started.Ok)
+                {
+                    await livekit.DeleteRoomAsync(room, ct); // don't leave the agent waiting in an empty room
+                    return Results.Json(new { ok = false, detail = started.Detail }, statusCode: 502);
+                }
+
+                thread.CallId = started.ExternalId.Length > 0 ? started.ExternalId : room;
+                thread.CallStatus = "connecting";
+                thread.CallRoom = room;
+                thread.UpdatedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync(ct);
+                store.AppendMessage(thread, MessageDirection.Out, MessageSource.System,
+                    "WhatsApp call started — voice agent dispatched.", status: "sent", accountId: account.Id);
+                return Results.Ok(new
+                {
+                    call_id = thread.CallId,
+                    status = thread.CallStatus,
+                    room,
+                    voice_provider = body?.VoiceProvider ?? "",
+                    voice_id = body?.VoiceId ?? "",
+                    llm_provider = llmProvider,
+                    stt_provider = sttProvider,
+                    sandbox = false,
+                });
+            }
 
             thread.CallId = "wacid.sandbox";
             thread.CallStatus = "in_call";
             thread.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
             store.AppendMessage(thread, MessageDirection.Out, MessageSource.System,
                 "[sandbox] WhatsApp call started — voice agent connected.", status: "sandbox",
                 accountId: thread.AccountId);
-            // The agent-voice picker's choice is echoed back rather than dropped:
-            // it is accepted and inert until a real call transport exists.
+            // The agent-voice picker's choice is echoed back rather than dropped.
             return Results.Ok(new
             {
                 call_id = "wacid.sandbox",
@@ -625,37 +687,45 @@ public static class WhatsAppThreadsEndpoints
                 room = thread.CallRoom,
                 voice_provider = body?.VoiceProvider ?? "",
                 voice_id = body?.VoiceId ?? "",
-                // The conversation brain + STT engine are PER ACCOUNT (Settings →
-                // Channels → edit account → Delivery & AI), falling back to the
-                // organization-wide value — a real transport dispatches with these.
-                llm_provider = AccountDelivery.Resolve(account, AccountDelivery.LlmProvider, sc),
-                stt_provider = AccountDelivery.Resolve(account, AccountDelivery.SttProvider, sc),
+                llm_provider = llmProvider,
+                stt_provider = sttProvider,
                 sandbox = true,
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
-        // End — STUB. No bridge to signal, so the state is reset directly
-        // (wa_calls.end_call's sandbox tail) and the panel closes cleanly.
+        // End. A live Baileys call is hung up at the gateway and its room
+        // deleted (best-effort: either may already be gone); then the thread's
+        // call state resets (wa_calls.end_call) and the panel closes cleanly.
         app.MapPost("/api/whatsapp/threads/{key}/call/end", async (string key, AppDbContext db,
-            ThreadStore store, ClaimsPrincipal me, HttpContext ctx) =>
+            ThreadStore store, IWhatsAppCloudClient wa, IBaileysGateway baileys, LiveKitClient livekit,
+            ClaimsPrincipal me, HttpContext ctx, CancellationToken ct) =>
         {
             var thread = await FindThread(db, key);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
             await Audit(db, ctx, me, "call.end", $"whatsapp:{thread.Key}");
             var wasLive = thread.CallStatus is "connecting" or "ringing" or "in_call";
+            var real = !string.IsNullOrEmpty(thread.CallRoom);
+            if (real)
+            {
+                var account = await EffectiveAccount(db, wa, thread);
+                if (account is { Provider: Providers.Baileys, ExternalId.Length: > 0 } && baileys.IsConfigured)
+                    await baileys.EndCallAsync(account.ExternalId, ct);
+                if (livekit.Settings.MissingForServer() == null)
+                    await livekit.DeleteRoomAsync(thread.CallRoom!, ct);
+            }
             thread.CallId = null;
             thread.CallStatus = "ended";
             thread.CallRoom = null;
             thread.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
             if (wasLive)
                 store.AppendMessage(thread, MessageDirection.Out, MessageSource.System,
-                    "WhatsApp call ended.", status: "sandbox", accountId: thread.AccountId);
+                    "WhatsApp call ended.", status: real ? "sent" : "sandbox", accountId: thread.AccountId);
             return Results.Ok(new { status = "ended" });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
-        // Say (guide | takeover) — REAL against the voice agent's file inbox when
-        // a room is attached; a clean 409 otherwise (wa_calls.push_say).
+        // Say (guide | takeover) — into the voice agent's file inbox when a room
+        // is attached; a clean 409 otherwise (wa_calls.push_say).
         app.MapPost("/api/whatsapp/threads/{key}/call/say", async (string key, CallSayRequest body,
             AppDbContext db, VoiceAgentBridge voice, ClaimsPrincipal me, HttpContext ctx) =>
         {
@@ -788,7 +858,9 @@ public static class WhatsAppThreadsEndpoints
             ["pk"] = m.Id,                       // stable pagination cursor + media key
             ["dir"] = m.Direction,
             ["text"] = m.Text,
-            ["ts"] = m.CreatedAt.ToString("o"),
+            // SQLite hands DateTimes back Kind=Unspecified — without the Z the
+            // browser reads UTC as local time and every bubble shifts.
+            ["ts"] = DateTime.SpecifyKind(m.CreatedAt, DateTimeKind.Utc).ToString("o"),
             ["status"] = m.Status,
             ["source"] = m.Source,
         };
@@ -1007,6 +1079,10 @@ public static class WhatsAppThreadsEndpoints
         me.IsInRole(Roles.Admin) || me.IsInRole(Roles.SuperAdmin);
 
     private static string Cap(string s, int n) => s.Length <= n ? s : s[..n];
+
+    /// <summary>The gateway's own call-length cap, matching the agent's MAX_CALL_SECONDS failsafe.</summary>
+    private static int MaxCallSeconds() =>
+        int.TryParse(Environment.GetEnvironmentVariable("MAX_CALL_SECONDS"), out var s) && s > 0 ? s : 300;
 
     /// <summary>One audit row; the trail must never break the write it records.</summary>
     private static async Task Audit(AppDbContext db, HttpContext ctx, ClaimsPrincipal me,

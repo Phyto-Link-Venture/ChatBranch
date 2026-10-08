@@ -187,6 +187,8 @@ public static class WhatsAppSettingsEndpoints
         Func<HttpContext, AppDbContext, ScopingService, ClaimsPrincipal, Task<IResult>> saveSettings =
             async (ctx, db, sc, me) =>
         {
+            // Settings → App & provider keys: capability-gated (superadmin always).
+            if (await SettingsEndpoints.RequireCapability(db, me, "app_keys.manage") is { } denied) return denied;
             var body = await ReadBody(ctx);
             var patch = new Dictionary<string, string>();
             foreach (var key in GlobalKeys)
@@ -225,8 +227,8 @@ public static class WhatsAppSettingsEndpoints
                         $"keys: {string.Join(", ", patch.Keys.OrderBy(k => k))}");
             return Results.Ok(await GlobalPayload(db, sc));
         };
-        app.MapPost("/api/whatsapp/settings", saveSettings).RequireAuthorization(AuthPolicies.SuperAdmin);
-        app.MapPut("/api/whatsapp/settings", saveSettings).RequireAuthorization(AuthPolicies.SuperAdmin);
+        app.MapPost("/api/whatsapp/settings", saveSettings).RequireAuthorization(AuthPolicies.Authenticated);
+        app.MapPut("/api/whatsapp/settings", saveSettings).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- routing rules (client operating model) ------------------------
         app.MapGet("/api/whatsapp/routing-rules", async (string? entity, AppDbContext db,
@@ -236,10 +238,12 @@ public static class WhatsAppSettingsEndpoints
             return Results.Ok(RulesPayload(sc, entityId));
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
-        // PUT = admin+ (matches the assignments gating).
+        // PUT = the account_assignment.manage capability (matches the assignments gating).
         app.MapPut("/api/whatsapp/routing-rules", async (string? entity, HttpContext ctx,
             AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
+            if (await SettingsEndpoints.RequireCapability(db, me, AssignmentsEndpoints.Capability) is { } denied)
+                return denied;
             var entityId = await InboxEndpoints.EntityId(db, entity);
             var body = await ReadBody(ctx);
             var patch = new Dictionary<string, string>();
@@ -330,7 +334,7 @@ public static class WhatsAppSettingsEndpoints
             await Audit(db, ctx, me, "settings.update", "routing-rules",
                         $"keys: {string.Join(", ", touched)}");
             return Results.Ok(RulesPayload(sc, entityId));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- voice (Twilio SIP trunk) settings -----------------------------
         // Read = any authenticated role, password masked. The trunk id itself
@@ -927,6 +931,8 @@ public static class WhatsAppSettingsEndpoints
         app.MapPut("/api/whatsapp/assignments", async (HttpContext ctx, AppDbContext db,
             ClaimsPrincipal me) =>
         {
+            if (await SettingsEndpoints.RequireCapability(db, me, AssignmentsEndpoints.Capability) is { } denied)
+                return denied;
             var body = await ReadBody(ctx);
             var channel = (AsString(body, "channel") ?? "").Trim();
             if (channel == "") channel = Channels.WhatsApp;
@@ -989,7 +995,7 @@ public static class WhatsAppSettingsEndpoints
                 pinned,
                 updated_at = Iso(asg.UpdatedAt),
             });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- voice (Twilio SIP trunk) writes -------------------------------
         // PUT = SUPER ADMIN, same rule as the other credential surfaces.
@@ -1945,24 +1951,8 @@ public static class WhatsAppSettingsEndpoints
     /// <summary>rbac.notify(("superadmin","admin"), …) — never breaks the write.</summary>
     private static async Task NotifyManagers(AppDbContext db, string title, string body)
     {
-        try
-        {
-            var uids = await db.Profiles.AsNoTracking()
-                .Where(p => p.Role == Roles.Admin || p.Role == Roles.SuperAdmin)
-                .Select(p => p.UserId).ToListAsync();
-            foreach (var uid in uids)
-                db.Notifications.Add(new Notification
-                {
-                    UserId = uid,
-                    Kind = "system",
-                    Title = Cap(title, 160),
-                    Body = Cap(body, 400),
-                    Link = "/settings/channels",
-                    CreatedAt = DateTime.UtcNow,
-                });
-            if (uids.Count > 0) await db.SaveChangesAsync();
-        }
-        catch { }
+        await NotificationService.NotifyAsync(db, NotificationCategories.Admin, "system",
+            title, body, "/channels", NotificationAudience.Admins());
     }
 
     private static string Cap(string s, int n) => s.Length <= n ? s : s[..n];

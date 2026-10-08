@@ -86,7 +86,6 @@ type AppContextValue = {
   // Data
   contacts: Contact[]
   activities: FeedItem[]
-  markResolved: (id: number) => void
   /** Re-fetch the contact list from the API (after creating/importing one). */
   reloadContacts: () => Promise<void>
 
@@ -201,10 +200,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       /* API down — keep the current list */
     }
   }, [contactsUrl])
-
-  const markResolved = useCallback((id: number) => {
-    setContacts((prev) => prev.map((d) => (d.id === id ? { ...d, status: 'resolved' } : d)))
-  }, [])
 
   // Voice / persona
   const [voices, setVoices] = useState<Voice[]>(VOICES)
@@ -581,7 +576,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AppContextValue>(
     () => ({
-      contacts, activities, markResolved, reloadContacts,
+      contacts, activities, reloadContacts,
       voices, selectedVoice, setSelectedVoice, previewVoice, cloneVoice, importVoice, updateVoice, deleteVoice,
       launchTone, launchPersona, launchGender, launchMethod, launchVoiceProvider,
       setLaunchTone, setLaunchPersona, setLaunchGender, setLaunchMethod,
@@ -592,7 +587,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       dialContact, dialManual, dialScriptCall, launchBatch, sendSay, hangupCall, escalateCall, setHumanControl, resetCall,
     }),
     [
-      contacts, activities, markResolved, reloadContacts,
+      contacts, activities, reloadContacts,
       voices, selectedVoice, previewVoice, cloneVoice, importVoice, updateVoice, deleteVoice,
       launchTone, launchPersona, launchGender, launchMethod, launchVoiceProvider,
       campaignModal, campaignStep, campaignSel, openCampaign, closeCampaign, toggleCampaign, launchCampaign,
