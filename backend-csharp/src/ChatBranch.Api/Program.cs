@@ -52,6 +52,30 @@ var dataDir = builder.Configuration["DataDir"] =
     ChatBranch.Data.Sidecars.VoiceAgentBridge.ResolveDataDir(builder.Configuration["DataDir"]);
 builder.Services.AddSingleton(new ChatBranch.Data.Sidecars.VoiceAgentBridge(dataDir));
 builder.Services.AddSingleton<ChatBranch.Data.Sidecars.LiveKitClient>();
+// Email (SMTP out via MailKit, IMAP pull), Telegram Bot API, and the channel-health
+// prober (periodic HealthProbeWorker + "Check now" + the post-save re-check).
+// Each external client is an interface so tests swap in fakes.
+builder.Services.AddSingleton<ChatBranch.Data.Channels.IEmailTransport>(_ => new ChatBranch.Data.Channels.MailKitEmailTransport());
+builder.Services.AddSingleton<ChatBranch.Data.Channels.IMailboxReader>(_ => new ChatBranch.Data.Channels.MailKitMailboxReader());
+builder.Services.AddSingleton<ChatBranch.Data.Channels.ITelegramClient>(sp =>
+    new ChatBranch.Data.Channels.TelegramClient(sp.GetRequiredService<IHttpClientFactory>()));
+// The Bot API puts the token IN THE URL (…/bot<token>/method) — the factory's
+// default request logging would write it to the console, so this client logs nothing.
+builder.Services.AddHttpClient("telegram").RemoveAllLoggers();
+builder.Services.AddSingleton<ChatBranch.Data.Channels.IGraphHealthProbe, ChatBranch.Data.Channels.GraphHealthProbe>();
+builder.Services.AddScoped(sp => new ChatBranch.Data.Channels.EmailChannel(
+    sp.GetRequiredService<AppDbContext>(), sp.GetRequiredService<ScopingService>(),
+    sp.GetRequiredService<ChatBranch.Data.Stores.ThreadStore>(),
+    sp.GetRequiredService<ChatBranch.Data.Channels.IEmailTransport>(),
+    sp.GetRequiredService<ChatBranch.Data.Sidecars.VoiceAgentBridge>()));
+builder.Services.AddScoped<ChatBranch.Data.Channels.TelegramChannel>();
+builder.Services.AddScoped<ChatBranch.Data.Channels.EmailSyncService>();
+builder.Services.AddScoped<ChatBranch.Data.Channels.ChannelHealthProber>();
+builder.Services.AddSingleton(sp => new ChatBranch.Api.Workers.HealthRecheck(
+    sp.GetRequiredService<IServiceScopeFactory>(),
+    sp.GetRequiredService<ILogger<ChatBranch.Api.Workers.HealthRecheck>>(),
+    enabled: ChatBranch.Api.Workers.HealthProbeWorker.Enabled));
+builder.Services.AddHostedService<ChatBranch.Api.Workers.HealthProbeWorker>();
 
 // ---- auth: bearer token handler + RBAC policies -----------------------------
 builder.Services.AddAuthentication(TokenAuthenticationHandler.SchemeName)
@@ -141,6 +165,8 @@ ChatBranch.Data.Channels.InboundProcessor.TeamRouter = (db, thread) =>
     ChatBranch.Api.Endpoints.TeamsEndpoints.AutoAssignAsync(db, thread).GetAwaiter().GetResult();
 app.MapApiV1Endpoints();
 app.MapWebhookEndpoints();
+app.MapTelegramWebhookEndpoints();
+app.MapMessagingTransportEndpoints();
 
 app.Run();
 

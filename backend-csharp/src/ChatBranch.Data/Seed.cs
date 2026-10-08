@@ -124,6 +124,14 @@ public static class Seed
             + "\"tag_id\" INTEGER NOT NULL, \"target_type\" TEXT NOT NULL, \"target_id\" INTEGER NOT NULL, "
             + "\"values\" TEXT NOT NULL, \"created_by\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL, "
             + "CONSTRAINT \"uniq_tag_assignment\" UNIQUE (\"tag_id\", \"target_type\", \"target_id\")");
+        // email threading headers (Message-ID / subject / In-Reply-To per email message)
+        AddTableIfMissing(db, "crm_emailheader",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_emailheader\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"message_id\" INTEGER NOT NULL, \"thread_id\" INTEGER NOT NULL, "
+            + "\"header_message_id\" TEXT NOT NULL, \"subject\" TEXT NOT NULL, "
+            + "\"in_reply_to\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL");
+        AddIndexIfMissing(db, "ix_emailheader_thread", "crm_emailheader", "\"thread_id\"");
+        AddIndexIfMissing(db, "ix_emailheader_message", "crm_emailheader", "\"message_id\"");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 

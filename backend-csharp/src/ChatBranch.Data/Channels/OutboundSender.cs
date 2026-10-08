@@ -10,6 +10,9 @@ namespace ChatBranch.Data.Channels;
 /// the stored message carries the real wamid + status; otherwise it stores
 /// locally with status "sandbox" (the zero-credential default). The queue and
 /// the manual send endpoint both go through here so behaviour is identical.
+/// Email (SMTP, <see cref="EmailChannel"/>) and Telegram (Bot API,
+/// <see cref="TelegramChannel"/>) resolve their own mailbox / bot and follow the
+/// same live-or-sandbox rule.
 /// </summary>
 public class OutboundSender
 {
@@ -17,14 +20,19 @@ public class OutboundSender
     private readonly ThreadStore _threads;
     private readonly IWhatsAppCloudClient _whatsapp;
     private readonly ChatBranch.Data.Sidecars.IBaileysGateway _baileys;
+    private readonly EmailChannel? _email;
+    private readonly TelegramChannel? _telegram;
 
     public OutboundSender(AppDbContext db, ThreadStore threads, IWhatsAppCloudClient whatsapp,
-        ChatBranch.Data.Sidecars.IBaileysGateway baileys)
+        ChatBranch.Data.Sidecars.IBaileysGateway baileys, EmailChannel? email = null,
+        TelegramChannel? telegram = null)
     {
         _db = db;
         _threads = threads;
         _whatsapp = whatsapp;
         _baileys = baileys;
+        _email = email;
+        _telegram = telegram;
     }
 
     /// <summary>
@@ -34,6 +42,11 @@ public class OutboundSender
     /// </summary>
     public bool WouldSendLive(Thread thread, int? accountId = null)
     {
+        // email + telegram resolve their own mailbox / bot (EmailChannel, TelegramChannel)
+        if (thread.Channel == ChatBranch.Domain.Channels.Email)
+            return _email?.WouldSendLive(thread, accountId ?? thread.AccountId) ?? false;
+        if (thread.Channel == ChatBranch.Domain.Channels.Telegram)
+            return _telegram?.WouldSendLive(thread, accountId ?? thread.AccountId) ?? false;
         var acctId = accountId ?? thread.AccountId;
         var account = acctId is int id ? _db.ChannelAccounts.Find(id) : null;
         if (account == null) return false;
@@ -45,8 +58,16 @@ public class OutboundSender
         return false;
     }
 
-    public Message Send(Thread thread, string text, string source, int? accountId = null)
+    /// <param name="subject">Email only: an explicit subject (else "Re: &lt;last subject&gt;" / the default).</param>
+    /// <param name="media">Email / Telegram: a stored file to attach (messaging media root).</param>
+    public Message Send(Thread thread, string text, string source, int? accountId = null,
+        string? subject = null, OutboundMedia? media = null)
     {
+        if (thread.Channel == ChatBranch.Domain.Channels.Email && _email != null)
+            return _email.Send(thread, text, source, accountId ?? thread.AccountId, subject, media);
+        if (thread.Channel == ChatBranch.Domain.Channels.Telegram && _telegram != null)
+            return _telegram.Send(thread, text, source, accountId ?? thread.AccountId, media);
+
         var acctId = accountId ?? thread.AccountId;
         var account = acctId is int id ? _db.ChannelAccounts.Find(id) : null;
 

@@ -84,13 +84,13 @@ the message is stored with `status="sandbox"` and never leaves the machine.
 |---|---|---|
 | WhatsApp Cloud | inbound webhook (verify token, signature when the account has an `app_secret`, wamid dedup, provider timestamps); **text send** via Graph (`OutboundSender`); typing/read indicator | templates are sent as RENDERED TEXT (no Meta template API; outside 24h Meta rejects it); Meta template listing (3 demo + operator custom templates only); media send is stored locally as sandbox; delivery `statuses` ignored; no Cloud voice calls (`call/start` on a Cloud account → 501) |
 | WhatsApp Baileys | inbound text, message-status ticks, lifecycle → health, **text send**, presence, **voice calls** (call/start, call-event) | inbound media (`/baileys/media` is acked and dropped); call recordings list is an empty stub |
-| Telegram | inbound webhook `/api/messaging/webhook/telegram/{token}` (text) | send (sandbox); `set-webhook` answers 501 — register the URL with Telegram by hand |
-| Email | account CRUD, masked SMTP creds | SMTP send (sandbox); IMAP — `POST /api/messaging/email/sync` is a stub |
+| Telegram | inbound webhook `/api/messaging/webhook/telegram/{token}` (token compared in constant time, unknown → 404; `X-Telegram-Bot-Api-Secret-Token` required once registered from the dashboard; text + media via getFile, off the ack; inbound heals health); **send** text/photo/document (`Channels/TelegramClient.cs` `TelegramChannel`); Register webhook (setWebhook + secret_token) and Test (getMe) | no typing indicator |
+| Email | account CRUD (masked SMTP + optional IMAP creds); **SMTP send** via MailKit (`Channels/EmailChannel.cs`: thread mailbox → sticky assignment → first healthy mailbox → default SMTP settings; Message-ID / In-Reply-To / References + "Re: <subject>" from `crm_emailheader`; attachments); **IMAP pull** `POST /api/messaging/email/sync` (`Channels/ImapSync.cs`: 30 s throttle, known-sender filter, \Seen, Message-ID dedup, attachments, normal inbound pipeline); Test = SMTP login (+ test mail) | plain-text bodies only (no HTML compose); no least-loaded auto-assign |
 | Messenger / Instagram | account CRUD | **no inbound webhook route** (`/api/messaging/webhook` does not exist in C#) and no send (sandbox) |
 | Website widget | full (internal transport) | — |
 | SIP voice | dial / live / say / hangup / escalate through LiveKit | — |
 | Media serving | — | `/api/whatsapp/media/{id}` (advertised in message payloads) and `/api/whatsapp/calls/recording/{name}` have no route |
-| Channel health | event-driven writer (`AccountHealth.SetStatus`) | no periodic prober; "Check now" only stamps a time |
+| Channel health | writer `AccountHealth.SetStatus` (one audit row + an admin `account_health` bell per problem/recovery transition); periodic prober `Workers/HealthProbeWorker` (`WHATSAPP_HEALTH_INTERVAL` s, default 300; `HEALTH_WORKER=0` off) via `Channels/HealthProber.cs`: Cloud Graph ping, Telegram getMe + getWebhookInfo, SMTP login, Messenger/IG `GET /me`, default SMTP → `email_health`; "Check now" runs it for the caller's scope; saving credentials resets to unknown + re-probes in the background | SIP voice stays config-presence only (by design) |
 | Routing | sticky `AccountAssignment` rows, rebalance, manual per-chat switch, recovery (manual, queues templates) | no least-loaded auto-assign/failover at send time (job → `job.AccountId ?? thread.AccountId`); `business_redirect` and auto-recovery are stored but not enforced |
 | Compliance | `OptedOut` honoured everywhere it is read; cold-text guard (manual WhatsApp send), cold-call guard (queued calls), do-not-call | **nothing sets `Thread.OptedOut`** — STOP/UNSUBSCRIBE/BERHENTI detection is not ported |
 
@@ -285,12 +285,15 @@ When you fix one of these, update this table, `README.md` and
   `ChannelAccount.HealthStatus` (unknown/healthy/degraded/disconnected/banned):
   one `account.health` AuditLog row per real transition (detail
   `"prev → next — reason"`, which the Analytics health card parses). Writers
-  today: Baileys lifecycle pushes (`/api/whatsapp/baileys/status-event`) and
-  inbound traffic (heals). Saving new credentials resets an account to
-  `unknown` silently. `GET /api/whatsapp/channels/health` feeds the Analytics
-  channel-health card; SIP voice health is config-presence only
-  (`/api/whatsapp/voice-settings`, PUT superadmin, masked round-trip, Setting
-  `voice_twilio_settings` with `TWILIO_*` env fallback).
+  today: Baileys lifecycle pushes (`/api/whatsapp/baileys/status-event`),
+  inbound traffic (heals), email/Telegram send outcomes and the periodic
+  prober (`Channels/HealthProber.cs`, `HealthRecorder` decides the verdict —
+  per-recipient failures never touch an account). Saving new credentials
+  resets an account to `unknown` silently and re-probes it (`HealthRecheck`).
+  `GET /api/whatsapp/channels/health` feeds the Analytics channel-health card;
+  SIP voice health is config-presence only (`/api/whatsapp/voice-settings`, PUT
+  superadmin, masked round-trip, Setting `voice_twilio_settings` with
+  `TWILIO_*` env fallback).
 - **Website widget** (`/widget.js` + `/api/widget/{token}/*`) — the one channel
   a customer can start with no phone number. A widget IS a `ChannelAccount` with
   channel `website` (its ExternalId is the PUBLIC token in the script tag), so
@@ -789,7 +792,9 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   `AI_HUMANIZE=0` (sandbox answers inline), `SEED_DEMO=1` (the suite signs in as
   admin/agent), a throwaway `CHATBRANCH_DATA_DIR` and SQLite file, and a LiveKit
   client that is never configured (a developer's `backend/.env` can't place real
-  calls).
+  calls). `HEALTH_WORKER=0` keeps the channel-health prober (and post-save
+  re-checks) off; `TransportFactory` (`TransportFakes.cs`) swaps in fake
+  SMTP/IMAP/Telegram/Graph clients for the transport tests.
 - **Schema changes** go in `Seed.UpgradeSchema` as well as the entity +
   `AppDbContext` mapping (append-only, idempotent) because `EnsureCreated()`
   never alters a live database.

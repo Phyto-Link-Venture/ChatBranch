@@ -237,7 +237,10 @@ public static class MessagingEndpoints
                 return Results.Ok(new Dictionary<string, object?>
                 {
                     ["email_configured"] = (smtpHost.Length > 0 && smtpFrom.Length > 0) || anyMailbox,
-                    ["imap_configured"] = imapHost.Length > 0 && smtpUser.Length > 0 && smtpPass.Length > 0,
+                    // the default mailbox, or any account mailbox with IMAP (its own or the default host)
+                    ["imap_configured"] = (imapHost.Length > 0 && smtpUser.Length > 0 && smtpPass.Length > 0)
+                        || emailAccounts.Any(a => EmailAccountConfigured(a.Config)
+                            && ChatBranch.Data.Channels.EmailConfig.ForAccount(a, sc).ImapConfigured),
                     ["facebook_configured"] = socialTokens.Contains(Channels.Facebook),
                     ["instagram_configured"] = socialTokens.Contains(Channels.Instagram),
                     ["telegram_configured"] = socialTokens.Contains(Channels.Telegram),
@@ -514,14 +517,15 @@ public static class MessagingEndpoints
 
     private static void MapThreadActions(IEndpointRouteBuilder app)
     {
-        // POST …/send {text} — SANDBOX: no SMTP/Meta/Telegram transport is
-        // ported yet, so the message is stored locally with status "sandbox"
-        // (what Django does for an unconfigured channel). It shows in the
-        // thread, in the timeline and in analytics — it is simply not claimed
-        // to have left the building.
+        // POST …/send {text, subject?} — through OutboundSender: a configured
+        // mailbox / bot sends for real; anything without a transport (or an
+        // unconfigured channel) is stored locally with status "sandbox" (what
+        // Django does) — it shows in the thread, the timeline and analytics, it
+        // is simply not claimed to have left the building.
         app.MapPost("/api/messaging/threads/{channel}/{key}/send",
             (string channel, string key, Dictionary<string, JsonElement>? body,
-             AppDbContext db, ThreadStore store, ClaimsPrincipal me, HttpContext ctx) =>
+             AppDbContext db, ChatBranch.Data.Channels.OutboundSender sender, ClaimsPrincipal me,
+             HttpContext ctx) =>
         {
             var text = (Str(body, "text") ?? "").Trim();
             if (text.Length == 0)
@@ -530,8 +534,11 @@ public static class MessagingEndpoints
             if (thread == null)
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
 
-            var msg = store.AppendMessage(thread, MessageDirection.Out, MessageSource.Agent, text,
-                status: "sandbox", accountId: thread.AccountId);
+            // the one live-or-sandbox seam: email (SMTP) and Telegram send for real
+            // when configured; a provider refusal comes back as a "failed" row
+            var subject = (Str(body, "subject") ?? "").Trim();
+            var msg = sender.Send(thread, text, MessageSource.Agent, null,
+                subject: subject.Length > 0 ? subject : null);
             Audit(db, me, ctx, "message.send", $"{channel}:{key}", text);
             return Results.Ok(new { message = MessagePayload(msg, thread.Channel, thread.Account?.Name) });
         }).RequireAuthorization(AuthPolicies.Authenticated);

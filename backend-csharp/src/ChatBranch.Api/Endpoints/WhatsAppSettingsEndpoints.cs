@@ -427,17 +427,17 @@ public static class WhatsAppSettingsEndpoints
             Results.Ok(await ChannelsHealthPayload(db, sc, await InboxEndpoints.EntityId(db, entity))))
             .RequireAuthorization(AuthPolicies.Authenticated);
 
-        // POST = the dashboard card's "Check now" (admin+). There is no live
-        // prober in this port — the Cloud/SMTP/Telegram probes live in the
-        // Django checker thread — so this stamps the check time and re-reads
-        // the monitor state instead of opening sockets. Same payload as the
-        // GET, which is what lib/channelHealth.ts expects back.
+        // POST = the dashboard card's "Check now" (admin+): probe the accounts
+        // this caller's card shows RIGHT NOW (ChannelHealthProber — Graph ping,
+        // getMe/getWebhookInfo, SMTP login; the periodic HealthProbeWorker runs
+        // the same pass every WHATSAPP_HEALTH_INTERVAL s), then answer with the
+        // GET payload, which is what lib/channelHealth.ts expects back.
         app.MapPost("/api/whatsapp/channels/health", async (string? entity, HttpContext ctx,
-            AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
+            AppDbContext db, ScopingService sc, ClaimsPrincipal me, ChannelHealthProber prober) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
-            try { sc.SetSetting(CheckedAtKey, Iso(DateTime.UtcNow)); }
-            catch { /* read-only DB: still answer with the current state */ }
+            try { await prober.RunAsync(await HealthScopeIds(db, entityId), includeGlobalEmail: true, ctx.RequestAborted); }
+            catch { /* a failed probe pass still answers with the current state */ }
             await Audit(db, ctx, me, "account.health_check", "channels",
                         "manual run from dashboard");
             return Results.Ok(await ChannelsHealthPayload(db, sc, entityId));
@@ -590,6 +590,8 @@ public static class WhatsAppSettingsEndpoints
                 return Results.Json(new { detail = inboxErr }, statusCode: 400);
             db.ChannelAccounts.Add(row);
             await db.SaveChangesAsync();
+            // a first real verdict within seconds (Cloud: Graph token ping; Baileys: no-op)
+            _ = ctx.RequestServices.GetRequiredService<ChatBranch.Api.Workers.HealthRecheck>().Schedule(row.Id);
 
             await Audit(db, ctx, me, "account.create", $"whatsapp:{row.Name}");
             await NotifyManagers(db, $"WhatsApp account linked: {row.Name}",
@@ -670,6 +672,8 @@ public static class WhatsAppSettingsEndpoints
                 row.HealthChangedAt = DateTime.UtcNow;
             }
             await db.SaveChangesAsync();
+            // …and re-probe it now, off the request, instead of at the next checker pass
+            if (credsChanged) _ = ctx.RequestServices.GetRequiredService<ChatBranch.Api.Workers.HealthRecheck>().Schedule(row.Id);
 
             if (entityChanged)
                 // Re-file this number's existing conversations under the new
@@ -1045,6 +1049,19 @@ public static class WhatsAppSettingsEndpoints
                 }, statusCode: 400);
             return Results.Ok(new { ok = true, health, detail = "SIP trunk creds are set." });
         }).RequireAuthorization(AuthPolicies.Authenticated);
+    }
+
+    /// <summary>
+    /// The account ids the health card shows for this scope (the same
+    /// own-else-shared preference as <see cref="ChannelsHealthPayload"/>), so
+    /// "Check now" probes exactly what the caller sees.
+    /// </summary>
+    private static async Task<List<int>> HealthScopeIds(AppDbContext db, int? entityId)
+    {
+        var all = await db.ChannelAccounts.AsNoTracking().Select(a => new { a.Id, a.EntityId }).ToListAsync();
+        if (entityId is not int eid) return all.Select(a => a.Id).ToList();
+        var own = all.Where(a => a.EntityId == eid).Select(a => a.Id).ToList();
+        return own.Count > 0 ? own : all.Where(a => a.EntityId == null).Select(a => a.Id).ToList();
     }
 
     /// <summary>GET/POST /channels/health — views.channels_health().</summary>

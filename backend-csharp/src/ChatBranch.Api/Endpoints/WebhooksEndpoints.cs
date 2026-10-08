@@ -62,33 +62,8 @@ public static class WebhooksEndpoints
             return Results.Ok(new { ok = true });
         }).AllowAnonymous();
 
-        // ---- Telegram: POST inbound -------------------------------------------
-        app.MapPost("/api/messaging/webhook/telegram/{token}", async (string token, HttpContext ctx,
-            AppDbContext db, InboundProcessor processor) =>
-        {
-            var account = await db.ChannelAccounts.FirstOrDefaultAsync(
-                a => a.Channel == "telegram" && a.AccessToken == token);
-            var raw = await ReadBody(ctx);
-            JsonElement root;
-            try { root = JsonSerializer.Deserialize<JsonElement>(raw); }
-            catch { return Results.Ok(new { ok = true }); }
-
-            if (root.TryGetProperty("message", out var m) && m.TryGetProperty("chat", out var chat))
-            {
-                var chatId = chat.GetProperty("id").ToString();
-                var text = m.TryGetProperty("text", out var t) ? t.GetString() ?? "" : "";
-                var name = m.TryGetProperty("from", out var f) && f.TryGetProperty("first_name", out var fn)
-                    ? fn.GetString() : null;
-                if (text != "") processor.ProcessInbound("telegram", chatId, text, name, account?.Id);
-            }
-            return Results.Ok(new { ok = true });
-        }).AllowAnonymous();
-
-        // ---- Email IMAP sync nudge (throttled; real IMAP client deferred) ------
-        app.MapPost("/api/messaging/email/sync", () =>
-            Results.Ok(new { ok = true, fetched = 0,
-                detail = "IMAP client not configured (sandbox) — see CSHARP_PARITY.md" }))
-            .RequireAuthorization(AuthPolicies.Authenticated);
+        // Telegram (/api/messaging/webhook/telegram/{token}) lives in
+        // TelegramWebhookEndpoints; the email IMAP sync in MessagingTransportEndpoints.
 
         // ---- Baileys gateway pushes (X-Baileys-Secret IS the auth) -----------
         // The Node sidecar (backend/baileys_service) pushes here for a paired

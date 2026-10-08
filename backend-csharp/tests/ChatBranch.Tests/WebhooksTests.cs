@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace ChatBranch.Tests;
@@ -156,6 +157,19 @@ public class WebhooksTests : IClassFixture<ApiFactory>
     public async Task Telegram_inbound_stores_message()
     {
         var admin = await Authed("admin", "admin123");
+        // the token in the path must belong to a linked bot (an unknown one is a 404)
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ChatBranch.Data.AppDbContext>();
+            if (!db.ChannelAccounts.Any(a => a.Channel == "telegram" && a.AccessToken == "sometoken"))
+            {
+                db.ChannelAccounts.Add(new ChatBranch.Domain.ChannelAccount
+                {
+                    Channel = "telegram", Name = "Webhook bot", AccessToken = "sometoken", CreatedAt = DateTime.UtcNow,
+                });
+                db.SaveChanges();
+            }
+        }
         var c = _factory.CreateClient();
         var update = JsonSerializer.Serialize(new
         {

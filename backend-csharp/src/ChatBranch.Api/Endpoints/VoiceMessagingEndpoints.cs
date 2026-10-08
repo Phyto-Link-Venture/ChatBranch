@@ -671,6 +671,11 @@ public static class VoiceMessagingEndpoints
                 // verbatim (ChannelsSettings.tsx), so the mask has to live under
                 // that key too — Untouched() then keeps the stored secret.
                 ["password"] = Mask(CfgStr(cfg, "password")),
+                // inbound (IMAP) — blank = the default IMAP host + this mailbox's SMTP login
+                ["imap_host"] = CfgStr(cfg, "imap_host"),
+                ["imap_port"] = CfgStr(cfg, "imap_port"),
+                ["imap_username"] = CfgStr(cfg, "imap_username"),
+                ["imap_password_masked"] = Mask(CfgStr(cfg, "imap_password")),
             };
             outv["configured"] = EmailAccountConfigured(cfg);
         }
@@ -764,12 +769,14 @@ public static class VoiceMessagingEndpoints
                         ["from_email"] = fromEmail,
                     },
                 };
+                if (MessagingAccountTransport.ApplyImap(account.Config, body) is IResult imapErr) return imapErr;
                 account.EntityId = await InboxEndpoints.EntityId(db, body.Str("entity"));
                 if (ApplyInbox(db, account, body) is IResult inboxErr) return inboxErr;
                 db.ChannelAccounts.Add(account);
                 await db.SaveChangesAsync();
                 await db.Entry(account).Reference(a => a.Entity).LoadAsync();
                 Audit(db, me, ctx, "account.create", $"email:{account.Name}", "");
+                MessagingAccountTransport.Created(account, ctx);
                 return Results.Ok(AccountPayload(account));
             }
 
@@ -801,6 +808,7 @@ public static class VoiceMessagingEndpoints
             await db.SaveChangesAsync();
             await db.Entry(social).Reference(a => a.Entity).LoadAsync();
             Audit(db, me, ctx, "account.create", $"{social.Channel}:{social.Name}", "");
+            MessagingAccountTransport.Created(social, ctx);
             return Results.Ok(AccountPayload(social));
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
@@ -863,6 +871,8 @@ public static class VoiceMessagingEndpoints
                 if (socialTouched.Count == 0 && !inboxTouched)
                     return Results.Json(new { detail = "Nothing to update." }, statusCode: 400);
                 await db.SaveChangesAsync();
+                if (socialTouched.Contains("access_token"))
+                    await MessagingAccountTransport.CredentialsChangedAsync(account, ctx);
                 if (inboxTouched) socialTouched.Add("inbox");
                 Audit(db, me, ctx, "account.update", $"{account.Channel}:{account.Name}",
                     $"keys: {string.Join(", ", socialTouched.OrderBy(k => k))}");
@@ -903,6 +913,7 @@ public static class VoiceMessagingEndpoints
                 account.ExternalId = value; // the from-address doubles as the external id
                 touched.Add("from_email");
             }
+            if (MessagingAccountTransport.ApplyImap(cfg, body, touched) is IResult imapErr) return imapErr;
             var name = (body.Str("name") ?? "").Trim();
             if (touched.Count == 0 && name.Length == 0 && !inboxTouched)
                 return Results.Json(new { detail = "Nothing to update." }, statusCode: 400);
@@ -912,8 +923,13 @@ public static class VoiceMessagingEndpoints
                 touched.Add("name");
             }
             if (inboxTouched) touched.Add("inbox");
+            // the edit form re-sends every field — only a real change is a reconnect
+            var credsChanged = MessagingAccountTransport.EmailCredentialKeys.Any(k =>
+                ChatBranch.Data.Channels.EmailConfig.Cfg(account.Config ?? new(), k, trim: false)
+                != ChatBranch.Data.Channels.EmailConfig.Cfg(cfg, k, trim: false));
             account.Config = cfg;
             await db.SaveChangesAsync();
+            if (credsChanged) await MessagingAccountTransport.CredentialsChangedAsync(account, ctx);
             Audit(db, me, ctx, "account.update", $"email:{account.Name}",
                 $"keys: {string.Join(", ", touched.OrderBy(k => k))}");
             return Results.Ok(AccountPayload(account));
@@ -936,15 +952,16 @@ public static class VoiceMessagingEndpoints
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         // ---- POST /api/messaging/accounts/{id}/test ----
-        // The live SMTP/Meta/Telegram probes live in the Python clients that are
-        // not ported yet. Rather than claim a connection we never opened, report
-        // honestly (501) while still telling the operator whether the stored
-        // configuration LOOKS complete.
-        app.MapPost("/api/messaging/accounts/{id}/test", async (string id, AppDbContext db) =>
+        // Email (SMTP connect + login, optional test mail) and Telegram (getMe)
+        // are live (MessagingAccountTransport). A channel without a live probe
+        // here reports honestly (501) while still telling the operator whether
+        // the stored configuration LOOKS complete.
+        app.MapPost("/api/messaging/accounts/{id}/test", async (string id, AppDbContext db, HttpContext ctx) =>
         {
             var account = await ManagedAccount(db, id);
             if (account == null)
                 return Results.Json(new { detail = "Account not found." }, statusCode: 404);
+            if (await MessagingAccountTransport.TestAsync(account, ctx) is IResult live) return live;
             var configured = account.Channel == "email"
                 ? EmailAccountConfigured(account.Config ?? new())
                 : !string.IsNullOrEmpty(account.AccessToken);
@@ -960,7 +977,7 @@ public static class VoiceMessagingEndpoints
 
         // ---- POST /api/messaging/accounts/{id}/set-webhook ----
         app.MapPost("/api/messaging/accounts/{id}/set-webhook", async (string id,
-            Dictionary<string, JsonElement>? body, AppDbContext db) =>
+            Dictionary<string, JsonElement>? body, AppDbContext db, HttpContext ctx) =>
         {
             var account = await ManagedAccount(db, id);
             if (account == null)
@@ -970,20 +987,8 @@ public static class VoiceMessagingEndpoints
                 {
                     detail = "Webhook registration is for Telegram bots only.",
                 }, statusCode: 400);
-            var baseUrl = (body.Str("base_url") ?? "").Trim().TrimEnd('/');
-            if (!baseUrl.StartsWith("https://"))
-                return Results.Json(new
-                {
-                    detail = "base_url must be a public https:// origin.",
-                }, statusCode: 400);
-            // The bot token is the webhook path secret — it must never be echoed
-            // back to the browser, so we do not return the composed URL.
-            return Results.Json(new
-            {
-                ok = false,
-                detail = "Telegram setWebhook is not wired up in this backend yet — register " +
-                         $"{baseUrl}/api/messaging/webhook/telegram/<bot-token> with Telegram directly.",
-            }, statusCode: 501);
+            // setWebhook with a secret_token; the bot token (the path secret) is never echoed back
+            return await MessagingAccountTransport.SetWebhookAsync(account, body, ctx);
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         MapEmailSettings(app);
@@ -1073,18 +1078,13 @@ public static class VoiceMessagingEndpoints
         app.MapPost("/api/messaging/settings", save).RequireAuthorization(AuthPolicies.SuperAdmin);
         app.MapPut("/api/messaging/settings", save).RequireAuthorization(AuthPolicies.SuperAdmin);
 
-        app.MapPost("/api/messaging/settings/test", (Dictionary<string, JsonElement>? body,
-            ScopingService sc) =>
+        app.MapPost("/api/messaging/settings/test", async (Dictionary<string, JsonElement>? body,
+            HttpContext ctx) =>
         {
             var to = (body.Str("to") ?? "").Trim();
             if (!to.Contains('@'))
                 return Results.Json(new { detail = "Valid 'to' email required." }, statusCode: 400);
-            return Results.Json(new
-            {
-                ok = false,
-                detail = "SMTP sending is not wired up in this backend yet — the stored settings " +
-                         "were not used to send a test message.",
-            }, statusCode: 501);
+            return await MessagingAccountTransport.DefaultSmtpTestAsync(to, ctx);
         }).RequireAuthorization(AuthPolicies.Authenticated);
     }
 }

@@ -266,6 +266,8 @@ export function InboxSetupDrawer({
       c.host = cfg.host || ''
       c.port = cfg.port != null ? String(cfg.port) : '587'
       c.username = cfg.username || ''
+      c.imap_host = cfg.imap_host || ''
+      c.imap_port = cfg.imap_port != null && cfg.imap_port !== '' ? String(cfg.imap_port) : ''
       c.external_id = inbox.msg.channel === 'telegram' ? '' : inbox.msg.external_id || ''
     } else if (k === 'email') c.port = '587'
     if (inbox?.voice) {
@@ -453,6 +455,9 @@ export function InboxSetupDrawer({
         port: c('port') || '587',
         username: c('username'),
         use_tls: tls,
+        // optional inbound — "" clears back to the default IMAP host
+        imap_host: c('imap_host'),
+        imap_port: c('imap_port'),
       })
       if (c('password')) body.password = c('password')
     } else {
