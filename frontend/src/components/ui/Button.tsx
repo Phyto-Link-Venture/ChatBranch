@@ -1,26 +1,34 @@
 import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from 'react'
 
-type Variant = 'primary' | 'secondary' | 'danger' | 'success' | 'ghost'
+type Variant = 'primary' | 'secondary' | 'accent' | 'danger' | 'success' | 'ghost'
 
-const VARIANTS: Record<Variant, CSSProperties> = {
-  primary: { background: 'linear-gradient(135deg,#3B82F6,#2563EB)', color: 'white', border: 'none' },
-  secondary: { background: 'var(--fill)', color: 'var(--text-high)', border: '1px solid var(--line-strong)' },
-  danger: { background: 'rgba(239,68,68,0.12)', color: '#FCA5A5', border: '1px solid rgba(239,68,68,0.2)' },
-  success: { background: 'rgba(16,185,129,0.12)', color: '#6EE7B7', border: '1px solid rgba(16,185,129,0.2)' },
-  ghost: { background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--line)' },
+// Theme-aware: primary = the theme's primary action (ink on Paper & Ink,
+// the accent on Graphite/Soft); accent = the decorative accent fill.
+const VARIANTS: Record<Variant, string> = {
+  primary: 'bg-primary text-on-primary border border-transparent hover:opacity-90',
+  secondary: 'bg-card text-text-high border border-line-strong hover:bg-fill-hover',
+  accent: 'bg-accent text-[color:var(--on-accent)] border border-transparent hover:opacity-90',
+  danger: 'bg-transparent text-[color:var(--red-ink)] border border-red/40 hover:bg-red/10',
+  success: 'bg-transparent text-[color:var(--green-ink)] border border-green/40 hover:bg-green/10',
+  ghost: 'bg-transparent text-text-mid border border-transparent hover:bg-fill-hover hover:text-text-high',
 }
+
+const SIZES = {
+  sm: 'h-8 px-3 text-[12.5px]',
+  md: 'h-9 px-4 text-[13px]',
+} as const
 
 interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant
+  size?: keyof typeof SIZES
   children: ReactNode
   style?: CSSProperties
 }
 
-export function Button({ variant = 'primary', children, style, ...rest }: Props) {
+export function Button({ variant = 'primary', size = 'md', children, className = '', ...rest }: Props) {
   return (
     <button
-      className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-4 py-2 text-[13px] font-semibold tracking-[-0.2px] disabled:cursor-not-allowed disabled:opacity-50"
-      style={{ ...VARIANTS[variant], ...style }}
+      className={`inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg font-semibold transition-[background,opacity,color] disabled:cursor-not-allowed disabled:opacity-50 ${VARIANTS[variant]} ${SIZES[size]} ${className}`}
       {...rest}
     >
       {children}

@@ -43,7 +43,7 @@ function Toggle({ on, disabled, onChange }: { on: boolean; disabled?: boolean; o
       className={`relative h-[22px] w-[38px] rounded-full transition-colors ${
         disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
       }`}
-      style={{ background: on ? '#3B82F6' : 'var(--fill-hover)' }}
+      style={{ background: on ? 'rgb(var(--c-brand))' : 'var(--fill-hover)' }}
     >
       <div
         className="absolute top-[3px] h-4 w-4 rounded-full bg-white transition-all"

@@ -1,4 +1,9 @@
 /** @type {import('tailwindcss').Config} */
+
+// Accent scales resolve to "R G B" triplets in globals.css so opacity
+// modifiers (bg-brand-400/10) keep working and the scale flips with the theme.
+const rgbVar = (name) => `rgb(var(${name}) / <alpha-value>)`
+
 module.exports = {
   darkMode: 'class', // html.dark / html.light — set by the pre-paint script + ThemeToggle
   content: [
@@ -22,36 +27,71 @@ module.exports = {
         'text-mid': 'var(--text-mid)',
         'text-muted': 'var(--text-muted)',
         'text-faint': 'var(--text-faint)',
-        // Neutral line / fill tokens (theme-aware) — replace raw white/α utilities
+        // Neutral line / fill tokens (theme-aware)
         line: 'var(--line)',
         'line-strong': 'var(--line-strong)',
         fill: 'var(--fill)',
         'fill-hover': 'var(--fill-hover)',
         'fill-subtle': 'var(--fill-subtle)',
-        // Brand scales — brand = OCEAN BLUE (rebranded from emerald)
-        // DEFAULT=primary, 400=hover, 300=light/ink, 200=palest.
-        brand: { DEFAULT: '#3B82F6', 400: '#60A5FA', 300: '#93C5FD', 200: '#BFDBFE' },
-        cyan: { DEFAULT: '#06B6D4', 600: '#0891B2', 300: '#67E8F9' },
-        purple: { DEFAULT: '#8B5CF6', 600: '#7C3AED', 700: '#4F46E5', 400: '#A78BFA', 300: '#C4B5FD' },
-        green: { DEFAULT: '#10B981', 600: '#059669', 300: '#6EE7B7' },
-        amber: { DEFAULT: '#F59E0B', 600: '#D97706', 400: '#FBBF24', 300: '#FCD34D' },
-        red: { DEFAULT: '#EF4444', 400: '#F87171', 300: '#FCA5A5' },
-        blue: { DEFAULT: '#3B82F6', 400: '#60A5FA', 300: '#93C5FD' },
+        // Primary action (ink in light, cream in dark) + its foreground
+        primary: 'var(--primary)',
+        'on-primary': 'var(--on-primary)',
+        accent: 'var(--accent)',
+        // Brand = TANGERINE. DEFAULT/500 fills, 400 stronger fill/border,
+        // 300/200 readable text ink.
+        brand: {
+          DEFAULT: rgbVar('--c-brand'),
+          500: rgbVar('--c-brand'),
+          400: rgbVar('--c-brand-400'),
+          300: rgbVar('--c-brand-300'),
+          200: rgbVar('--c-brand-200'),
+        },
+        cyan: { DEFAULT: rgbVar('--c-cyan'), 600: rgbVar('--c-cyan-600'), 300: rgbVar('--c-cyan-300') },
+        purple: {
+          DEFAULT: rgbVar('--c-purple'),
+          700: rgbVar('--c-purple-700'),
+          600: rgbVar('--c-purple-600'),
+          400: rgbVar('--c-purple-400'),
+          300: rgbVar('--c-purple-300'),
+        },
+        green: { DEFAULT: rgbVar('--c-green'), 600: rgbVar('--c-green-600'), 300: rgbVar('--c-green-300') },
+        amber: {
+          DEFAULT: rgbVar('--c-amber'),
+          600: rgbVar('--c-amber-600'),
+          400: rgbVar('--c-amber-400'),
+          300: rgbVar('--c-amber-300'),
+        },
+        red: { DEFAULT: rgbVar('--c-red'), 400: rgbVar('--c-red-400'), 300: rgbVar('--c-red-300') },
+        blue: { DEFAULT: rgbVar('--c-blue'), 400: rgbVar('--c-blue-400'), 300: rgbVar('--c-blue-300') },
       },
       fontFamily: {
-        sans: ['var(--font-jakarta)', 'Plus Jakarta Sans', 'sans-serif'],
+        // Per-theme font stacks live in globals.css (--font-sans/--font-display).
+        sans: ['var(--font-sans)'],
+        display: ['var(--font-display)'],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+      },
+      // The radius scale is a theme variable: Paper & Ink is crisp, Soft Blocks
+      // is round, and a user can override it in Settings → Appearance.
+      borderRadius: {
+        md: 'var(--r-md)',
+        lg: 'var(--r-lg)',
+        xl: 'var(--r-xl)',
+        '2xl': 'var(--r-2xl)',
+        '3xl': 'var(--r-3xl)',
+      },
+      boxShadow: {
+        pop: 'var(--shadow-pop)',
       },
       keyframes: {
         pulseRing: {
-          '0%': { boxShadow: '0 0 0 0 rgba(59,130,246,0.5)' },
-          '70%': { boxShadow: '0 0 0 7px rgba(59,130,246,0)' },
-          '100%': { boxShadow: '0 0 0 0 rgba(59,130,246,0)' },
+          '0%': { boxShadow: '0 0 0 0 rgba(255,90,31,0.45)' },
+          '70%': { boxShadow: '0 0 0 7px rgba(255,90,31,0)' },
+          '100%': { boxShadow: '0 0 0 0 rgba(255,90,31,0)' },
         },
         pulseGreen: {
-          '0%': { boxShadow: '0 0 0 0 rgba(16,185,129,0.5)' },
-          '70%': { boxShadow: '0 0 0 7px rgba(16,185,129,0)' },
-          '100%': { boxShadow: '0 0 0 0 rgba(16,185,129,0)' },
+          '0%': { boxShadow: '0 0 0 0 rgba(47,125,79,0.45)' },
+          '70%': { boxShadow: '0 0 0 7px rgba(47,125,79,0)' },
+          '100%': { boxShadow: '0 0 0 0 rgba(47,125,79,0)' },
         },
         slideDown: {
           from: { opacity: '0', transform: 'translateY(-8px)' },
@@ -68,7 +108,7 @@ module.exports = {
       animation: {
         pulseRing: 'pulseRing 2s ease-out infinite',
         pulseGreen: 'pulseGreen 2s infinite',
-        slideDown: 'slideDown 0.35s ease',
+        slideDown: 'slideDown 0.25s ease',
         spin: 'spin 0.8s linear infinite',
         fadeIn: 'fadeIn 0.2s ease',
       },

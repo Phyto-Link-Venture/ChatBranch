@@ -7,11 +7,11 @@ const STATUS: Record<
   string,
   { lbl: string; bg: string; c: string; dot: string }
 > = {
-  active: { lbl: 'Active', bg: 'rgba(59,130,246,0.15)', c: '#93C5FD', dot: '#3B82F6' },
-  pending: { lbl: 'Pending', bg: 'rgba(245,158,11,0.13)', c: '#FCD34D', dot: '#F59E0B' },
-  'message-sent': { lbl: 'Msg Sent', bg: 'rgba(139,92,246,0.15)', c: '#C4B5FD', dot: '#8B5CF6' },
-  resolved: { lbl: 'Resolved', bg: 'rgba(16,185,129,0.13)', c: '#6EE7B7', dot: '#10B981' },
-  failed: { lbl: 'Failed', bg: 'rgba(239,68,68,0.13)', c: '#FCA5A5', dot: '#EF4444' },
+  active: { lbl: 'Active', bg: 'rgba(255,90,31,0.15)', c: 'var(--brand-ink)', dot: 'rgb(var(--c-brand))' },
+  pending: { lbl: 'Pending', bg: 'rgba(200,137,26,0.13)', c: 'var(--amber-ink)', dot: 'rgb(var(--c-amber))' },
+  'message-sent': { lbl: 'Msg Sent', bg: 'rgba(122,78,140,0.15)', c: 'var(--purple-ink)', dot: 'rgb(var(--c-purple))' },
+  resolved: { lbl: 'Resolved', bg: 'rgba(47,125,79,0.13)', c: 'var(--green-ink)', dot: 'rgb(var(--c-green))' },
+  failed: { lbl: 'Failed', bg: 'rgba(192,57,43,0.13)', c: 'var(--red-ink)', dot: 'rgb(var(--c-red))' },
 }
 
 export function StatusBadge({ status }: { status: ContactStatus }) {
@@ -32,13 +32,13 @@ export function StatusBadge({ status }: { status: ContactStatus }) {
 
 // ── Call-log status badge ─────────────────────────────────────────────────────
 const LOG_STATUS: Record<string, { lbl: string; c: string; bg: string }> = {
-  completed: { lbl: 'Completed', c: '#6EE7B7', bg: 'rgba(16,185,129,0.13)' },
-  active: { lbl: 'Live', c: '#93C5FD', bg: 'rgba(59,130,246,0.15)' },
-  voicemail: { lbl: 'Voicemail', c: '#FCD34D', bg: 'rgba(245,158,11,0.13)' },
-  'no-answer': { lbl: 'No Answer', c: '#FCA5A5', bg: 'rgba(239,68,68,0.13)' },
-  'callback-requested': { lbl: 'Callback Req.', c: '#C4B5FD', bg: 'rgba(139,92,246,0.15)' },
-  read: { lbl: 'Read', c: '#6EE7B7', bg: 'rgba(16,185,129,0.13)' },
-  delivered: { lbl: 'Delivered', c: '#93C5FD', bg: 'rgba(59,130,246,0.13)' },
+  completed: { lbl: 'Completed', c: 'var(--green-ink)', bg: 'rgba(47,125,79,0.13)' },
+  active: { lbl: 'Live', c: 'var(--brand-ink)', bg: 'rgba(255,90,31,0.15)' },
+  voicemail: { lbl: 'Voicemail', c: 'var(--amber-ink)', bg: 'rgba(200,137,26,0.13)' },
+  'no-answer': { lbl: 'No Answer', c: 'var(--red-ink)', bg: 'rgba(192,57,43,0.13)' },
+  'callback-requested': { lbl: 'Callback Req.', c: 'var(--purple-ink)', bg: 'rgba(122,78,140,0.15)' },
+  read: { lbl: 'Read', c: 'var(--green-ink)', bg: 'rgba(47,125,79,0.13)' },
+  delivered: { lbl: 'Delivered', c: 'var(--brand-ink)', bg: 'rgba(255,90,31,0.13)' },
 }
 
 export function LogStatusBadge({ status }: { status: string }) {

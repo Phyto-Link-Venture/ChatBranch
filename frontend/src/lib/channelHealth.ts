@@ -53,11 +53,11 @@ export interface ChannelHealthPayload {
 }
 
 export const HEALTH_META: Record<HealthStatus, { lbl: string; dot: string; ink: string; bg: string }> = {
-  healthy: { lbl: 'Healthy', dot: '#10B981', ink: 'var(--green-ink)', bg: 'rgba(16,185,129,0.12)' },
-  degraded: { lbl: 'Degraded', dot: '#F59E0B', ink: 'var(--amber-ink)', bg: 'rgba(245,158,11,0.12)' },
-  unknown: { lbl: 'Unknown', dot: '#F59E0B', ink: 'var(--amber-ink)', bg: 'rgba(245,158,11,0.12)' },
-  disconnected: { lbl: 'Disconnected', dot: '#EF4444', ink: 'var(--red-ink)', bg: 'rgba(239,68,68,0.13)' },
-  banned: { lbl: 'Banned', dot: '#EF4444', ink: 'var(--red-ink)', bg: 'rgba(239,68,68,0.13)' },
+  healthy: { lbl: 'Healthy', dot: 'rgb(var(--c-green))', ink: 'var(--green-ink)', bg: 'rgba(47,125,79,0.12)' },
+  degraded: { lbl: 'Degraded', dot: 'rgb(var(--c-amber))', ink: 'var(--amber-ink)', bg: 'rgba(200,137,26,0.12)' },
+  unknown: { lbl: 'Unknown', dot: 'rgb(var(--c-amber))', ink: 'var(--amber-ink)', bg: 'rgba(200,137,26,0.12)' },
+  disconnected: { lbl: 'Disconnected', dot: 'rgb(var(--c-red))', ink: 'var(--red-ink)', bg: 'rgba(192,57,43,0.13)' },
+  banned: { lbl: 'Banned', dot: 'rgb(var(--c-red))', ink: 'var(--red-ink)', bg: 'rgba(192,57,43,0.13)' },
 }
 
 /** An account in this state can no longer send — treat as an alarm. */

@@ -44,8 +44,8 @@ export function TopBar({
         <div
           className="grid h-[30px] w-[30px] place-items-center rounded-[9px]"
           style={{
-            background: 'linear-gradient(135deg,#3B82F6,#2563EB)',
-            boxShadow: '0 4px 14px rgba(59,130,246,0.35)',
+            background: 'var(--primary)',
+            boxShadow: '0 4px 14px rgba(255,90,31,0.35)',
           }}
         >
           <span className="text-[11px] font-extrabold tracking-[-0.5px] text-white">CB</span>
@@ -77,7 +77,7 @@ export function TopBar({
         <EntitySwitcher />
         <div
           className="grid h-[32px] w-[32px] shrink-0 place-items-center rounded-xl text-[11px] font-extrabold tracking-[-0.5px] text-white"
-          style={{ background: 'linear-gradient(135deg,#4F46E5,#7C3AED)' }}
+          style={{ background: 'var(--primary)' }}
           title={user?.name || 'Not signed in'}
         >
           {(user?.name || 'CB').slice(0, 2).toUpperCase()}

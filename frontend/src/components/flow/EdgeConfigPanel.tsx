@@ -78,7 +78,7 @@ export default function EdgeConfigPanel({
   }
 
   return (
-    <aside className="config-panel" style={{ '--kind': '#64748B' } as React.CSSProperties}>
+    <aside className="config-panel" style={{ '--kind': 'var(--text-muted)' } as React.CSSProperties}>
       <header className="config-header">
         <span className="config-icon">
           <Spline size={15} aria-hidden />

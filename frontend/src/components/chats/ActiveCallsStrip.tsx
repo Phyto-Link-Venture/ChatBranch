@@ -6,9 +6,9 @@ import { useApp } from '@/lib/AppContext'
 import { initials } from '@/lib/mocks'
 
 const STATE_DOT: Record<string, string> = {
-  dialing: '#F59E0B',
-  ringing: '#F59E0B',
-  live: '#10B981',
+  dialing: 'rgb(var(--c-amber))',
+  ringing: 'rgb(var(--c-amber))',
+  live: 'rgb(var(--c-green))',
 }
 
 /** Fleet strip: one chip per concurrent SIP call, always visible above the
@@ -58,14 +58,14 @@ export default function ActiveCallsStrip({
             title={openable ? 'Open this chat' : 'Manual call — no linked chat'}
             className="flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors disabled:cursor-default"
             style={{
-              background: isActive ? 'rgba(59,130,246,0.12)' : 'var(--fill-subtle)',
-              border: `1px solid ${isActive ? 'rgba(59,130,246,0.35)' : 'var(--line)'}`,
+              background: isActive ? 'rgba(255,90,31,0.12)' : 'var(--fill-subtle)',
+              border: `1px solid ${isActive ? 'rgba(255,90,31,0.35)' : 'var(--line)'}`,
               cursor: openable ? 'pointer' : 'default',
             }}
           >
             <span
               className="relative grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10px] font-bold text-white"
-              style={{ background: 'linear-gradient(135deg,#1E40AF,#3B82F6)' }}
+              style={{ background: 'linear-gradient(135deg,#1E40AF,rgb(var(--c-brand)))' }}
             >
               {initials(c.name || 'Contact')}
               <span

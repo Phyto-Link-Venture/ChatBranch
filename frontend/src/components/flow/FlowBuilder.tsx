@@ -531,7 +531,7 @@ export default function FlowBuilder() {
             <MiniMap
               zoomable
               pannable
-              nodeColor={(n) => paletteByKind[n.type as NodeKind]?.color ?? '#94a3b8'}
+              nodeColor={(n) => paletteByKind[n.type as NodeKind]?.color ?? 'var(--text-faint)'}
             />
           </ReactFlow>
           {nodes.length === 0 && (

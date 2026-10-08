@@ -1,16 +1,13 @@
 import type { Metadata, Viewport } from 'next'
-import { Plus_Jakarta_Sans } from 'next/font/google'
+import '@fontsource-variable/fraunces/opsz.css'
+import '@fontsource-variable/schibsted-grotesk/index.css'
+import '@fontsource-variable/geist/index.css'
+import '@fontsource-variable/nunito/index.css'
 import './globals.css'
 import { AppProvider } from '@/lib/AppContext'
 import { EntityProvider } from '@/lib/EntityContext'
 import { Shell } from '@/components/shell/Shell'
-
-const jakarta = Plus_Jakarta_Sans({
-  subsets: ['latin'],
-  weight: ['300', '400', '500', '600', '700', '800'],
-  variable: '--font-jakarta',
-  display: 'swap',
-})
+import { PREPAINT_SCRIPT } from '@/lib/themeScript'
 
 export const metadata: Metadata = {
   title: 'ChatBranch',
@@ -32,21 +29,15 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" className="theme-paper light" suppressHydrationWarning>
       <head>
-        {/* Set the theme class before first paint so there's no flash. Class
-            strategy (html.dark / html.light) — matches Tailwind's
-            darkMode:'class'. Reads the persisted choice; defaults to dark
-            (the navy design is the showcase look). suppressHydrationWarning
-            on <html>: the script legitimately swaps the class before React
-            hydrates when a 'light' choice is stored. */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('theme');var c=document.documentElement.classList;if(t==='light'){c.remove('dark');c.add('light');}else{c.remove('light');c.add('dark');}}catch(e){}})();`,
-          }}
-        />
+        {/* Apply the saved look (theme, mode, accent, text size…) before first
+            paint so there's no flash; lib/theme.ts owns the format. The class
+            swap is an intentional pre-hydration mutation, hence
+            suppressHydrationWarning on <html>. */}
+        <script dangerouslySetInnerHTML={{ __html: PREPAINT_SCRIPT }} />
       </head>
-      <body className={`${jakarta.variable} font-sans`}>
+      <body className="font-sans">
         <EntityProvider>
           <AppProvider>
             <Shell>{children}</Shell>

@@ -74,7 +74,7 @@ export function EntitySwitcher() {
       >
         <span
           className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded-lg text-[9px] font-extrabold text-white"
-          style={{ background: 'linear-gradient(135deg,#3B82F6,#2563EB)' }}
+          style={{ background: 'var(--primary)' }}
         >
           {initials}
         </span>

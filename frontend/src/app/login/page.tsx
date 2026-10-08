@@ -79,8 +79,8 @@ export default function LoginPage() {
           <div
             className="grid h-14 w-14 place-items-center rounded-[18px]"
             style={{
-              background: 'linear-gradient(135deg,#3B82F6,#2563EB)',
-              boxShadow: '0 10px 26px rgba(59,130,246,0.45)',
+              background: 'var(--primary)',
+              boxShadow: '0 10px 26px rgba(255,90,31,0.45)',
             }}
           >
             <span className="text-[20px] font-extrabold tracking-[-0.5px] text-white">CB</span>
@@ -146,7 +146,7 @@ export default function LoginPage() {
             onClick={submit}
             disabled={busy || !username.trim() || !password}
             className="mt-6 flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-            style={{ background: 'linear-gradient(135deg,#3B82F6,#2563EB)' }}
+            style={{ background: 'var(--primary)' }}
           >
             {busy && <Loader2 size={14} className="animate-spin" aria-hidden />}
             Sign in

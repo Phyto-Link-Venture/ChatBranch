@@ -7,6 +7,7 @@ import { Modal } from '@/components/ui/Modal'
 import { authHeaders, hasCap } from '@/lib/auth'
 import { useEntity, useEntityQuery } from '@/lib/EntityContext'
 import { EntityScopeSelect } from './EntityScopeSelect'
+import { tint } from '@/lib/color'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -99,7 +100,7 @@ export function WidgetsSettings() {
   const [name, setName] = useState('')
   const [title, setTitle] = useState('')
   const [greeting, setGreeting] = useState('')
-  const [accent, setAccent] = useState('#3B82F6')
+  const [accent, setAccent] = useState('rgb(var(--c-brand))')
   const [placeholder, setPlaceholder] = useState('')
   const [entity, setEntity] = useState<string | null>(null)
 
@@ -123,7 +124,7 @@ export function WidgetsSettings() {
     setName('')
     setTitle('Chat with us')
     setGreeting('Hi! How can we help?')
-    setAccent('#3B82F6')
+    setAccent('rgb(var(--c-brand))')
     setPlaceholder('Type your message…')
     setEntity(activeEntity?.slug ?? null)
     setMsg(null)
@@ -135,7 +136,7 @@ export function WidgetsSettings() {
     setName(w.name)
     setTitle(w.title)
     setGreeting(w.greeting)
-    setAccent(w.accent || '#3B82F6')
+    setAccent(w.accent || 'rgb(var(--c-brand))')
     setPlaceholder(w.placeholder)
     setEntity(w.entity)
     setMsg(null)
@@ -237,7 +238,7 @@ export function WidgetsSettings() {
             <div className="mb-3 flex items-start gap-2.5">
               <div
                 className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-[9px]"
-                style={{ background: (w.accent || '#3B82F6') + '22', color: w.accent || '#3B82F6' }}
+                style={{ background: tint(w.accent || 'rgb(var(--c-brand))', '22'), color: w.accent || 'rgb(var(--c-brand))' }}
               >
                 <Globe size={16} aria-hidden />
               </div>

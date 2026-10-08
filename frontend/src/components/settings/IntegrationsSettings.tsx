@@ -112,10 +112,10 @@ const ICONS: Record<string, typeof Plug> = {
  *  only: `var(--…)` inside a lucide `color=` prop renders invisible. */
 function StatusChip({ status, detail }: { status: string; detail?: string }) {
   const map: Record<string, { bg: string; fg: string; lbl: string }> = {
-    healthy: { bg: 'rgba(16,185,129,0.12)', fg: 'var(--green-ink)', lbl: 'Healthy' },
-    degraded: { bg: 'rgba(245,158,11,0.12)', fg: 'var(--amber-ink)', lbl: 'Degraded' },
-    disconnected: { bg: 'rgba(239,68,68,0.12)', fg: 'var(--red-ink)', lbl: 'Disconnected' },
-    revoked: { bg: 'rgba(239,68,68,0.12)', fg: 'var(--red-ink)', lbl: 'Revoked' },
+    healthy: { bg: 'rgba(47,125,79,0.12)', fg: 'var(--green-ink)', lbl: 'Healthy' },
+    degraded: { bg: 'rgba(200,137,26,0.12)', fg: 'var(--amber-ink)', lbl: 'Degraded' },
+    disconnected: { bg: 'rgba(192,57,43,0.12)', fg: 'var(--red-ink)', lbl: 'Disconnected' },
+    revoked: { bg: 'rgba(192,57,43,0.12)', fg: 'var(--red-ink)', lbl: 'Revoked' },
     unknown: { bg: 'var(--fill)', fg: 'var(--text-muted)', lbl: 'Not checked' },
   }
   const s = map[status] || map.unknown
@@ -355,7 +355,7 @@ export function IntegrationsSettings() {
         return (
           <div className="flex items-center gap-2.5">
             <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-fill">
-              <Icon size={14} color="#3B82F6" aria-hidden />
+              <Icon size={14} color="#D9480F" aria-hidden />
             </span>
             <span className="text-[12.5px] font-semibold text-text-high">{a.provider_label}</span>
           </div>
@@ -504,7 +504,7 @@ export function IntegrationsSettings() {
               >
                 <div className="flex items-start gap-2.5">
                   <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-fill">
-                    <Icon size={16} color="#3B82F6" aria-hidden />
+                    <Icon size={16} color="#D9480F" aria-hidden />
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
@@ -575,7 +575,7 @@ export function IntegrationsSettings() {
         {showBookingHours && (
           <div className="mt-1 rounded-xl border border-line bg-card p-4">
             <div className="mb-1 flex items-center gap-2">
-              <CalendarDays size={15} color="#3B82F6" aria-hidden />
+              <CalendarDays size={15} color="#D9480F" aria-hidden />
               <h3 className="text-[13px] font-bold text-text-high">Google Calendar · Booking hours</h3>
             </div>
             <p className="mb-2 text-[11px] leading-relaxed text-text-muted">

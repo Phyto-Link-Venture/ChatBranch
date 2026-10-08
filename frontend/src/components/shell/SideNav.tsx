@@ -269,7 +269,7 @@ export function SideNav({
                   {!collapsed && n.badge && (
                     <span
                       className="nav-label flex h-[17px] min-w-[17px] shrink-0 items-center justify-center rounded-[9px] px-1 text-[10px] font-bold text-white"
-                      style={{ background: 'rgba(239,68,68,0.85)' }}
+                      style={{ background: 'rgba(192,57,43,0.85)' }}
                     >
                       {n.badge}
                     </span>
@@ -289,7 +289,7 @@ export function SideNav({
       >
         <div
           className="grid h-[32px] w-[32px] shrink-0 place-items-center rounded-full text-[11px] font-extrabold tracking-[-0.5px] text-white"
-          style={{ background: 'linear-gradient(135deg,#4F46E5,#7C3AED)' }}
+          style={{ background: 'var(--primary)' }}
           title={user?.name || 'Not signed in'}
         >
           {(user?.name || 'CB').slice(0, 2).toUpperCase()}

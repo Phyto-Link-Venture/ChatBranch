@@ -28,12 +28,12 @@ export interface PaletteEntry {
 }
 
 export const PALETTE: PaletteEntry[] = [
-  { kind: 'trigger', title: 'Trigger', color: '#8B5CF6', Icon: Zap, hint: 'Date-based event that starts a flow (e.g. 1 day after due)' },
-  { kind: 'stage', title: 'Stage section', color: '#3B82F6', Icon: Layers, hint: 'Day-range lane (e.g. Normal D+1 → D+7) — drop steps inside it' },
-  { kind: 'action', title: 'Action', color: '#10B981', Icon: PhoneCall, hint: 'Something the caller does (verify, offer, confirm, log)' },
-  { kind: 'decision', title: 'Decision', color: '#F59E0B', Icon: Split, hint: 'Yes / No branch point' },
-  { kind: 'handover', title: 'Handover', color: '#EF4444', Icon: UserRound, hint: 'Transfer the case to a human' },
-  { kind: 'end', title: 'End', color: '#64748B', Icon: Flag, hint: 'Close the call / stop the flow' },
+  { kind: 'trigger', title: 'Trigger', color: 'rgb(var(--c-purple))', Icon: Zap, hint: 'Date-based event that starts a flow (e.g. 1 day after due)' },
+  { kind: 'stage', title: 'Stage section', color: 'rgb(var(--c-brand))', Icon: Layers, hint: 'Day-range lane (e.g. Normal D+1 → D+7) — drop steps inside it' },
+  { kind: 'action', title: 'Action', color: 'rgb(var(--c-green))', Icon: PhoneCall, hint: 'Something the caller does (verify, offer, confirm, log)' },
+  { kind: 'decision', title: 'Decision', color: 'rgb(var(--c-amber))', Icon: Split, hint: 'Yes / No branch point' },
+  { kind: 'handover', title: 'Handover', color: 'rgb(var(--c-red))', Icon: UserRound, hint: 'Transfer the case to a human' },
+  { kind: 'end', title: 'End', color: 'var(--text-muted)', Icon: Flag, hint: 'Close the call / stop the flow' },
 ]
 
 export const DEFAULT_LABELS: Record<NodeKind, string> = {

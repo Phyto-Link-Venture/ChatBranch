@@ -133,9 +133,9 @@ const BUTTON_TYPES = [
 ]
 
 const STATUS_STYLE: Record<string, { color: string; background: string }> = {
-  APPROVED: { color: 'var(--green-ink)', background: 'rgba(16,185,129,0.12)' },
-  PENDING: { color: 'var(--amber-ink)', background: 'rgba(245,158,11,0.12)' },
-  REJECTED: { color: 'var(--red-ink)', background: 'rgba(239,68,68,0.12)' },
+  APPROVED: { color: 'var(--green-ink)', background: 'rgba(47,125,79,0.12)' },
+  PENDING: { color: 'var(--amber-ink)', background: 'rgba(200,137,26,0.12)' },
+  REJECTED: { color: 'var(--red-ink)', background: 'rgba(192,57,43,0.12)' },
 }
 
 const BUTTON_ICON = {
@@ -699,7 +699,7 @@ export function TemplatesSettings() {
                 {(t.bindings || []).some(Boolean) && (
                   <span
                     className="rounded-full px-2 py-px text-[10px] font-semibold"
-                    style={{ color: 'var(--brand-ink)', background: 'rgba(59,130,246,0.1)' }}
+                    style={{ color: 'var(--brand-ink)', background: 'rgba(255,90,31,0.1)' }}
                     title={(t.bindings || [])
                       .map((b, i) => `{{${i + 1}}} → ${b ? bindingLabel(b) : 'manual'}`)
                       .join(', ')}

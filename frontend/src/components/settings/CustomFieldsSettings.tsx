@@ -137,7 +137,7 @@ export function CustomFieldsSettings() {
     <div className="flex flex-col gap-5">
       <div>
         <div className="flex items-center gap-2">
-          <Tags size={15} color="#3B82F6" aria-hidden />
+          <Tags size={15} color="#D9480F" aria-hidden />
           <span className="text-[13px] font-bold text-text-high">Custom Fields</span>
         </div>
         <p className="mt-1 max-w-[640px] text-[11.5px] leading-relaxed text-text-muted">

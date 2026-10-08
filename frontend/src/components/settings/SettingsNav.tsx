@@ -67,7 +67,7 @@ function DirtyControls() {
           onClick={() => void save()}
           disabled={saving}
           className="flex cursor-pointer items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-[12px] font-bold text-white disabled:opacity-60"
-          style={{ background: 'linear-gradient(135deg,#3B82F6,#2563EB)' }}
+          style={{ background: 'var(--primary)' }}
         >
           {saving && <Loader2 size={13} className="animate-spin" aria-hidden />}
           Save changes

@@ -1,23 +1,51 @@
+using System.Text.Json;
+
 namespace ChatBranch.Data.Ai;
 
 public record LlmResult(string Text, int PromptTokens, int CompletionTokens,
     string Provider, string Model);
 
+/// <summary>A function the model may call: name, description and a JSON-schema
+/// object describing its arguments (OpenAI "tools" format).</summary>
+public record LlmTool(string Name, string Description, JsonElement Parameters);
+
+/// <summary>One call the model asked for. <see cref="ArgumentsJson"/> is the raw
+/// JSON string the model produced — parse defensively, it can be malformed.</summary>
+public record LlmToolCall(string Id, string Name, string ArgumentsJson);
+
+/// <summary>A chat turn for tool-aware conversations. Roles: system | user |
+/// assistant | tool. An assistant turn may carry <see cref="ToolCalls"/>; a tool
+/// turn answers one call via <see cref="ToolCallId"/>.</summary>
+public record LlmMessage(string Role, string? Content,
+    IReadOnlyList<LlmToolCall>? ToolCalls = null, string? ToolCallId = null);
+
+public record LlmChatResult(string Text, IReadOnlyList<LlmToolCall> ToolCalls,
+    int PromptTokens, int CompletionTokens, string Provider, string Model);
+
 /// <summary>
-/// The pluggable LLM boundary. A real implementation (OpenRouter/OpenAI, added
-/// in a later pass) posts the assembled messages; the sandbox one keeps the app
-/// fully runnable with zero credentials — the same rule as the Django app.
+/// The pluggable LLM boundary. The real implementation posts to an
+/// OpenAI-compatible chat-completions API (OpenRouter → OpenAI → local); the
+/// sandbox one keeps the app fully runnable with zero credentials.
 /// </summary>
 public interface ILlmClient
 {
     bool IsConfigured { get; }
+
+    /// <summary>Plain completion: no tools, text out.</summary>
     Task<LlmResult> CompleteAsync(string system, IReadOnlyList<(string role, string content)> messages,
+        CancellationToken ct = default);
+
+    /// <summary>One tool-aware round. The caller runs any returned tool calls and
+    /// sends their results back as <c>tool</c> messages (see <see cref="ToolLoop"/>).</summary>
+    Task<LlmChatResult> ChatAsync(string system, IReadOnlyList<LlmMessage> messages,
+        IReadOnlyList<LlmTool>? tools = null, string? model = null, double temperature = 0.5,
         CancellationToken ct = default);
 }
 
 /// <summary>
 /// Zero-credential fallback: echoes an acknowledgement so every AI path works in
 /// sandbox mode. Deterministic (no network), which also keeps tests hermetic.
+/// Never asks for tools.
 /// </summary>
 public class SandboxLlmClient : ILlmClient
 {
@@ -27,11 +55,21 @@ public class SandboxLlmClient : ILlmClient
         IReadOnlyList<(string role, string content)> messages, CancellationToken ct = default)
     {
         var lastUser = messages.LastOrDefault(m => m.role == "user").content ?? "";
-        var reply = string.IsNullOrWhiteSpace(lastUser)
-            ? "Hello! How can I help you today?"
-            : $"Thanks for your message. (sandbox reply) You said: \"{Trim(lastUser, 120)}\".";
-        return Task.FromResult(new LlmResult(reply, 0, 0, "sandbox", "sandbox"));
+        return Task.FromResult(new LlmResult(Echo(lastUser), 0, 0, "sandbox", "sandbox"));
     }
+
+    public Task<LlmChatResult> ChatAsync(string system, IReadOnlyList<LlmMessage> messages,
+        IReadOnlyList<LlmTool>? tools = null, string? model = null, double temperature = 0.5,
+        CancellationToken ct = default)
+    {
+        var lastUser = messages.LastOrDefault(m => m.Role == "user")?.Content ?? "";
+        return Task.FromResult(new LlmChatResult(Echo(lastUser), Array.Empty<LlmToolCall>(),
+            0, 0, "sandbox", "sandbox"));
+    }
+
+    private static string Echo(string lastUser) => string.IsNullOrWhiteSpace(lastUser)
+        ? "Hello! How can I help you today?"
+        : $"Thanks for your message. (sandbox reply) You said: \"{Trim(lastUser, 120)}\".";
 
     private static string Trim(string s, int n) => s.Length <= n ? s : s[..n] + "…";
 }

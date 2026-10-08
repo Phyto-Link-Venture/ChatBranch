@@ -21,7 +21,7 @@ const DAY_OPTIONS = [7, 30, 90]
 /*
  * Chart palette (dataviz skill, validated with scripts/validate_palette.js
  * against both card surfaces — dark #151517, light #ffffff):
- *   categorical trio  --viz-s1/s2/s3  (#3B82F6 / #059669 / #8B5CF6) — PASS
+ *   categorical trio  --viz-s1/s2/s3  (rgb(var(--c-brand)) / rgb(var(--c-green-600)) / rgb(var(--c-purple))) — PASS
  *     both modes, worst adjacent CVD ΔE 80.1, all ≥3:1 contrast
  *   funnel ordinal ramp (emerald, --viz-f1..f4) and conversion ordinal ramp
  *     (blue, --viz-c1..c4) — each mode's steps validated with --ordinal
@@ -30,15 +30,15 @@ const DAY_OPTIONS = [7, 30, 90]
  */
 const VIZ_VARS = `
 .viz-analytics{
-  --viz-s1:#3B82F6;--viz-s2:#059669;--viz-s3:#8B5CF6;
-  --viz-pay:#10B981;
-  --viz-f1:#A7F3D0;--viz-f2:#6EE7B7;--viz-f3:#34D399;--viz-f4:#10B981;
-  --viz-c1:#93C5FD;--viz-c2:#60A5FA;--viz-c3:#3B82F6;--viz-c4:#2563EB;
+  --viz-s1:rgb(var(--c-brand));--viz-s2:rgb(var(--c-green-600));--viz-s3:rgb(var(--c-purple));
+  --viz-pay:rgb(var(--c-green));
+  --viz-f1:var(--green-ink);--viz-f2:var(--green-ink);--viz-f3:var(--green-ink);--viz-f4:rgb(var(--c-green));
+  --viz-c1:var(--brand-ink);--viz-c2:var(--brand-ink);--viz-c3:rgb(var(--c-brand));--viz-c4:rgb(var(--c-brand-400));
 }
 :root.light .viz-analytics{
-  --viz-pay:#059669;
-  --viz-f1:#10B981;--viz-f2:#059669;--viz-f3:#047857;--viz-f4:#065F46;
-  --viz-c1:#60A5FA;--viz-c2:#3B82F6;--viz-c3:#2563EB;--viz-c4:#1E40AF;
+  --viz-pay:rgb(var(--c-green-600));
+  --viz-f1:rgb(var(--c-green));--viz-f2:rgb(var(--c-green-600));--viz-f3:#047857;--viz-f4:#065F46;
+  --viz-c1:var(--brand-ink);--viz-c2:rgb(var(--c-brand));--viz-c3:rgb(var(--c-brand-400));--viz-c4:#1E40AF;
 }
 `
 

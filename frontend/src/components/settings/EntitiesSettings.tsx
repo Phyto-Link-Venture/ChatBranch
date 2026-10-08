@@ -458,7 +458,7 @@ export function EntitiesSettings() {
                 type="checkbox"
                 checked={active}
                 onChange={(e) => setActive(e.target.checked)}
-                style={{ accentColor: '#3B82F6' }}
+                style={{ accentColor: 'rgb(var(--c-brand))' }}
               />
               <span className="text-[12px] text-text-primary">
                 Active

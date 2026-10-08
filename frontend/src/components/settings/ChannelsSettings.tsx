@@ -110,12 +110,12 @@ const CHANNEL_TYPES: {
   Icon: LucideIcon
   beta?: boolean
 }[] = [
-  { id: 'whatsapp', lbl: 'WhatsApp', provider: 'Cloud API / Baileys', color: '#10B981', Icon: MessageCircle },
+  { id: 'whatsapp', lbl: 'WhatsApp', provider: 'Cloud API / Baileys', color: 'rgb(var(--c-green))', Icon: MessageCircle },
   { id: 'telegram', lbl: 'Telegram', provider: 'Bot API', color: '#229ED9', Icon: Send },
-  { id: 'facebook', lbl: 'Messenger', provider: 'Meta Send API', color: '#3B82F6', Icon: Facebook, beta: true },
+  { id: 'facebook', lbl: 'Messenger', provider: 'Meta Send API', color: 'rgb(var(--c-brand))', Icon: Facebook, beta: true },
   { id: 'instagram', lbl: 'Instagram', provider: 'Meta Send API', color: '#E1306C', Icon: Instagram, beta: true },
-  { id: 'email', lbl: 'Email', provider: 'SMTP', color: '#F59E0B', Icon: Mail },
-  { id: 'website', lbl: 'Website', provider: 'Embeddable widget', color: '#8B5CF6', Icon: Globe },
+  { id: 'email', lbl: 'Email', provider: 'SMTP', color: 'rgb(var(--c-amber))', Icon: Mail },
+  { id: 'website', lbl: 'Website', provider: 'Embeddable widget', color: 'rgb(var(--c-purple))', Icon: Globe },
   { id: 'voice', lbl: 'Voice', provider: 'Twilio SIP trunk', color: '#F22F46', Icon: Phone },
 ]
 
@@ -310,7 +310,7 @@ function EmailAccountsPanel({
           <div className="flex items-center gap-3">
             <div
               className="grid h-9 w-9 shrink-0 place-items-center rounded-[9px] text-white"
-              style={{ background: '#F59E0B' }}
+              style={{ background: 'rgb(var(--c-amber))' }}
             >
               <Mail size={16} aria-hidden />
             </div>
@@ -459,7 +459,7 @@ function EmailAccountsPanel({
             type="checkbox"
             checked={tls}
             onChange={(e) => setTls(e.target.checked)}
-            style={{ accentColor: '#3B82F6' }}
+            style={{ accentColor: 'rgb(var(--c-brand))' }}
           />
           Use TLS
         </label>
@@ -657,7 +657,7 @@ const SOCIAL_META: Record<
 > = {
   facebook: {
     lbl: 'Messenger', provider: 'Meta Send API',
-    color: '#3B82F6', Icon: Facebook, accountLbl: 'page', namePh: 'e.g. Northwind Page', beta: true,
+    color: 'rgb(var(--c-brand))', Icon: Facebook, accountLbl: 'page', namePh: 'e.g. Northwind Page', beta: true,
   },
   instagram: {
     lbl: 'Instagram', provider: 'Meta Send API',

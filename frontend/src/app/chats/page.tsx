@@ -55,6 +55,7 @@ import { useApp } from '@/lib/AppContext'
 import { CONVERSATION_TAGS, tagMeta } from '@/lib/tags'
 import { subscribeChatStream } from '@/lib/chatStream'
 import './chats.css'
+import { tint } from '@/lib/color'
 
 // Native Django API base. Override with NEXT_PUBLIC_API_URL (same as AppContext).
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
@@ -63,14 +64,14 @@ type Channel = 'whatsapp' | 'facebook' | 'instagram' | 'telegram' | 'email' | 'w
 type ThreadStatus = 'open' | 'pending' | 'snoozed' | 'resolved'
 
 const CHANNEL_META: Record<Channel, { lbl: string; color: string; Icon: LucideIcon; placeholder: string; beta?: boolean }> = {
-  whatsapp: { lbl: 'WhatsApp', color: '#10B981', Icon: MessageCircle, placeholder: '+60 phone number' },
-  facebook: { lbl: 'Messenger', color: '#3B82F6', Icon: Facebook, placeholder: 'Messenger PSID', beta: true },
+  whatsapp: { lbl: 'WhatsApp', color: 'rgb(var(--c-green))', Icon: MessageCircle, placeholder: '+60 phone number' },
+  facebook: { lbl: 'Messenger', color: 'rgb(var(--c-brand))', Icon: Facebook, placeholder: 'Messenger PSID', beta: true },
   instagram: { lbl: 'Instagram', color: '#E1306C', Icon: Instagram, placeholder: 'Instagram IGSID', beta: true },
   telegram: { lbl: 'Telegram', color: '#229ED9', Icon: Send, placeholder: 'Telegram chat ID' },
-  email: { lbl: 'Email', color: '#F59E0B', Icon: Mail, placeholder: 'customer@email.com' },
+  email: { lbl: 'Email', color: 'rgb(var(--c-amber))', Icon: Mail, placeholder: 'customer@email.com' },
   // The site widget: the visitor's browser is the transport, so there is no
   // address to start a conversation FROM our side — they always begin it.
-  website: { lbl: 'Website', color: '#8B5CF6', Icon: Globe, placeholder: 'started by the visitor' },
+  website: { lbl: 'Website', color: 'rgb(var(--c-purple))', Icon: Globe, placeholder: 'started by the visitor' },
 }
 
 const THREAD_STATUSES: ThreadStatus[] = ['open', 'pending', 'snoozed', 'resolved']
@@ -291,7 +292,7 @@ function ChannelBadge({ channel }: { channel: Channel }) {
   return (
     <span
       className="mb-0.5 flex w-fit items-center gap-1 rounded-full px-1.5 py-px text-[8.5px] font-bold uppercase tracking-wide"
-      style={{ background: `${meta.color}26`, color: meta.color }}
+      style={{ background: `${tint(meta.color, '26')}`, color: meta.color }}
     >
       <meta.Icon size={9} aria-hidden /> {meta.lbl}
     </span>
@@ -850,7 +851,7 @@ function TemplatePickerModal({
                       {bound && (
                         <span
                           className="rounded-full px-1.5 py-px font-sans text-[9px] font-bold uppercase"
-                          style={{ color: 'var(--brand-ink)', background: 'rgba(59,130,246,0.1)' }}
+                          style={{ color: 'var(--brand-ink)', background: 'rgba(255,90,31,0.1)' }}
                           title="Filled from the contact record — edit if needed"
                         >
                           auto-filled
@@ -1878,9 +1879,9 @@ export default function ChatsPage() {
                     }}
                     className="flex shrink-0 cursor-pointer items-center gap-1 rounded-full px-2 py-[3px] text-[10.5px] font-semibold transition-colors"
                     style={{
-                      background: activeChip ? 'rgba(59,130,246,0.14)' : 'var(--fill)',
+                      background: activeChip ? 'rgba(255,90,31,0.14)' : 'var(--fill)',
                       color: activeChip ? 'var(--brand-ink)' : 'var(--text-muted)',
-                      border: `1px solid ${activeChip ? 'rgba(59,130,246,0.3)' : 'var(--line)'}`,
+                      border: `1px solid ${activeChip ? 'rgba(255,90,31,0.3)' : 'var(--line)'}`,
                     }}
                   >
                     {c === 'all' ? 'All' : CHANNEL_META[c].lbl} {n > 0 && <span>{n}</span>}
@@ -1900,9 +1901,9 @@ export default function ChatsPage() {
                     onClick={() => setStatusFilter(s)}
                     className="flex shrink-0 cursor-pointer items-center gap-1 rounded-full px-2 py-[3px] text-[10.5px] font-semibold capitalize transition-colors"
                     style={{
-                      background: activeChip ? 'rgba(245,158,11,0.14)' : 'var(--fill)',
+                      background: activeChip ? 'rgba(200,137,26,0.14)' : 'var(--fill)',
                       color: activeChip ? 'var(--amber-ink)' : 'var(--text-muted)',
-                      border: `1px solid ${activeChip ? 'rgba(245,158,11,0.3)' : 'var(--line)'}`,
+                      border: `1px solid ${activeChip ? 'rgba(200,137,26,0.3)' : 'var(--line)'}`,
                     }}
                   >
                     {s === 'all' ? 'Any status' : s} {s !== 'all' && n > 0 && <span>{n}</span>}
@@ -1921,9 +1922,9 @@ export default function ChatsPage() {
                     onClick={() => setLabelFilter(tg.slug)}
                     className="flex shrink-0 cursor-pointer items-center gap-1 rounded-full px-2 py-[3px] text-[10.5px] font-semibold transition-colors"
                     style={{
-                      background: activeChip ? (tg.color ? `${tg.color}26` : 'var(--fill-hover)') : 'var(--fill)',
+                      background: activeChip ? (tg.color ? `${tint(tg.color, '26')}` : 'var(--fill-hover)') : 'var(--fill)',
                       color: activeChip ? (tg.color || 'var(--text-high)') : 'var(--text-muted)',
-                      border: `1px solid ${activeChip ? (tg.color ? `${tg.color}55` : 'var(--line-strong)') : 'var(--line)'}`,
+                      border: `1px solid ${activeChip ? (tg.color ? `${tint(tg.color, '55')}` : 'var(--line-strong)') : 'var(--line)'}`,
                     }}
                   >
                     {tg.color && <span className="h-1.5 w-1.5 rounded-full" style={{ background: tg.color }} aria-hidden />}
@@ -1991,7 +1992,7 @@ export default function ChatsPage() {
                           <span
                             key={c}
                             className="grid h-3.5 w-3.5 shrink-0 place-items-center rounded-full"
-                            style={{ background: `${meta.color}26`, color: meta.color }}
+                            style={{ background: `${tint(meta.color, '26')}`, color: meta.color }}
                           >
                             <meta.Icon size={8} aria-hidden />
                           </span>
@@ -2058,7 +2059,7 @@ export default function ChatsPage() {
             <div className="grid flex-1 place-content-center text-center">
               <div
                 className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-2xl text-white"
-                style={{ background: 'linear-gradient(135deg,#3B82F6,#2563EB)', boxShadow: '0 8px 24px rgba(59,130,246,0.25)' }}
+                style={{ background: 'var(--primary)', boxShadow: '0 8px 24px rgba(255,90,31,0.25)' }}
               >
                 <Send size={28} aria-hidden />
               </div>
@@ -2117,13 +2118,13 @@ export default function ChatsPage() {
                       style={{
                         background: active.ai_enabled && !optedOut ? 'var(--nav-active-bg)' : 'var(--fill)',
                         color: active.ai_enabled && !optedOut ? 'var(--nav-active-text)' : 'var(--text-muted)',
-                        borderColor: active.ai_enabled && !optedOut ? 'rgba(59,130,246,0.35)' : 'var(--line)',
+                        borderColor: active.ai_enabled && !optedOut ? 'rgba(255,90,31,0.35)' : 'var(--line)',
                       }}
                     >
                       AI
                       <span
                         className="relative inline-flex h-3.5 w-6 items-center rounded-full transition-colors"
-                        style={{ background: active.ai_enabled && !optedOut ? '#3B82F6' : 'var(--line-strong)' }}
+                        style={{ background: active.ai_enabled && !optedOut ? 'rgb(var(--c-brand))' : 'var(--line-strong)' }}
                       >
                         <span
                           className="absolute h-2.5 w-2.5 rounded-full bg-white transition-transform"
@@ -2227,9 +2228,9 @@ export default function ChatsPage() {
                     }}
                     className="flex shrink-0 cursor-pointer items-center gap-1 rounded-full px-2 py-[3px] text-[10.5px] font-semibold transition-colors"
                     style={{
-                      background: combinedOn && !voiceOnly ? 'rgba(59,130,246,0.14)' : 'var(--fill)',
+                      background: combinedOn && !voiceOnly ? 'rgba(255,90,31,0.14)' : 'var(--fill)',
                       color: combinedOn && !voiceOnly ? 'var(--brand-ink)' : 'var(--text-muted)',
-                      border: `1px solid ${combinedOn && !voiceOnly ? 'rgba(59,130,246,0.3)' : 'var(--line)'}`,
+                      border: `1px solid ${combinedOn && !voiceOnly ? 'rgba(255,90,31,0.3)' : 'var(--line)'}`,
                     }}
                   >
                     <Layers size={10} aria-hidden /> All channels
@@ -2249,9 +2250,9 @@ export default function ChatsPage() {
                         }}
                         className="flex shrink-0 cursor-pointer items-center gap-1 rounded-full px-2 py-[3px] text-[10.5px] font-semibold transition-colors"
                         style={{
-                          background: isCurrent ? `${meta.color}26` : 'var(--fill)',
+                          background: isCurrent ? `${tint(meta.color, '26')}` : 'var(--fill)',
                           color: isCurrent ? meta.color : 'var(--text-muted)',
-                          border: `1px solid ${isCurrent ? `${meta.color}55` : 'var(--line)'}`,
+                          border: `1px solid ${isCurrent ? `${tint(meta.color, '55')}` : 'var(--line)'}`,
                         }}
                       >
                         <meta.Icon size={10} aria-hidden /> {meta.lbl}
@@ -2268,9 +2269,9 @@ export default function ChatsPage() {
                     title="Show call history only"
                     className="flex shrink-0 cursor-pointer items-center gap-1 rounded-full px-2 py-[3px] text-[10.5px] font-semibold transition-colors"
                     style={{
-                      background: voiceOnly ? 'rgba(59,130,246,0.14)' : 'var(--fill)',
+                      background: voiceOnly ? 'rgba(255,90,31,0.14)' : 'var(--fill)',
                       color: voiceOnly ? 'var(--brand-ink)' : 'var(--text-muted)',
-                      border: `1px solid ${voiceOnly ? 'rgba(59,130,246,0.3)' : 'var(--line)'}`,
+                      border: `1px solid ${voiceOnly ? 'rgba(255,90,31,0.3)' : 'var(--line)'}`,
                     }}
                   >
                     <PhoneCall size={10} aria-hidden /> Voice
@@ -2932,7 +2933,7 @@ export default function ChatsPage() {
                         style={
                           on
                             ? { color: '#fff', background: tg.color, border: `1px solid ${tg.color}` }
-                            : { color: tg.color, background: tg.color + '18', border: `1px solid ${tg.color}55` }
+                            : { color: tg.color, background: tint(tg.color, '18'), border: `1px solid ${tint(tg.color, '55')}` }
                         }
                       >
                         <span

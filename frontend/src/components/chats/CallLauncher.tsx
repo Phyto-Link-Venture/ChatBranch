@@ -93,7 +93,7 @@ export default function CallLauncher() {
                     onClick={() => setMode(m)}
                     className="flex-1 px-2.5 py-1.5 text-[12px] font-semibold"
                     style={{
-                      background: mode === m ? 'rgba(59,130,246,0.15)' : 'var(--fill)',
+                      background: mode === m ? 'rgba(255,90,31,0.15)' : 'var(--fill)',
                       color: mode === m ? 'var(--brand-ink)' : 'var(--text-mid)',
                     }}
                   >

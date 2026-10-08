@@ -29,6 +29,7 @@ import {
 import { authHeaders } from '@/lib/auth'
 import { HEALTH_META, relTime, type HealthStatus } from '@/lib/channelHealth'
 import { Select, type SelectOption } from '@/components/ui/Select'
+import { tint } from '@/lib/color'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -71,20 +72,20 @@ export interface HubPayload {
 }
 
 const CH_META: Record<string, { lbl: string; color: string; Icon: LucideIcon }> = {
-  whatsapp: { lbl: 'WhatsApp', color: '#10B981', Icon: MessageCircle },
-  email: { lbl: 'Email', color: '#F59E0B', Icon: Mail },
-  facebook: { lbl: 'Messenger', color: '#3B82F6', Icon: Facebook },
+  whatsapp: { lbl: 'WhatsApp', color: 'rgb(var(--c-green))', Icon: MessageCircle },
+  email: { lbl: 'Email', color: 'rgb(var(--c-amber))', Icon: Mail },
+  facebook: { lbl: 'Messenger', color: 'rgb(var(--c-brand))', Icon: Facebook },
   instagram: { lbl: 'Instagram', color: '#E1306C', Icon: Instagram },
   telegram: { lbl: 'Telegram', color: '#229ED9', Icon: Send },
-  voice: { lbl: 'AI Voice', color: '#3B82F6', Icon: Mic },
+  voice: { lbl: 'AI Voice', color: 'rgb(var(--c-brand))', Icon: Mic },
 }
 
 /** Connection dot: emerald = connected via a healthy account, amber =
  * connected but degraded/unknown health, red = not currently reachable. */
 function dotColor(ch: HubChannel): string {
-  if (!ch.connected) return '#EF4444'
-  if (ch.channel === 'voice') return '#10B981'
-  return (ch.identities ?? []).some((i) => i.account_health === 'healthy') ? '#10B981' : '#F59E0B'
+  if (!ch.connected) return 'rgb(var(--c-red))'
+  if (ch.channel === 'voice') return 'rgb(var(--c-green))'
+  return (ch.identities ?? []).some((i) => i.account_health === 'healthy') ? 'rgb(var(--c-green))' : 'rgb(var(--c-amber))'
 }
 
 function IdentityRow({ ident }: { ident: ChannelIdentity }) {
@@ -148,9 +149,9 @@ function ChannelRow({ ch }: { ch: HubChannel }) {
       >
         <span
           className="grid h-6 w-6 shrink-0 place-items-center rounded-md"
-          style={{ background: meta.color + '1F' }}
+          style={{ background: tint(meta.color, '1F') }}
         >
-          <meta.Icon size={13} strokeWidth={1.75} color={meta.color} />
+          <meta.Icon size={13} strokeWidth={1.75} style={{ color: meta.color }} />
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">

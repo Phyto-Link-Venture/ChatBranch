@@ -62,13 +62,38 @@ public class OpenAiLlmClient : ILlmClient
     public async Task<LlmResult> CompleteAsync(string system,
         IReadOnlyList<(string role, string content)> messages, CancellationToken ct = default)
     {
+        var r = await ChatAsync(system, messages.Select(m => new LlmMessage(m.role, m.content)).ToList(),
+            null, null, 0.5, ct);
+        return new LlmResult(r.Text, r.PromptTokens, r.CompletionTokens, r.Provider, r.Model);
+    }
+
+    public async Task<LlmChatResult> ChatAsync(string system, IReadOnlyList<LlmMessage> messages,
+        IReadOnlyList<LlmTool>? tools = null, string? model = null, double temperature = 0.5,
+        CancellationToken ct = default)
+    {
         var provider = Resolve();
-        if (provider == null) return await _sandbox.CompleteAsync(system, messages, ct);
+        if (provider == null) return await _sandbox.ChatAsync(system, messages, tools, model, temperature, ct);
 
         try
         {
             var payloadMessages = new List<object> { new { role = "system", content = system } };
-            payloadMessages.AddRange(messages.Select(m => (object)new { role = m.role, content = m.content }));
+            payloadMessages.AddRange(messages.Select(ToWire));
+
+            var body = new Dictionary<string, object?>
+            {
+                ["model"] = string.IsNullOrWhiteSpace(model) ? provider.Model : model,
+                ["messages"] = payloadMessages,
+                ["temperature"] = temperature,
+            };
+            if (tools is { Count: > 0 })
+            {
+                body["tools"] = tools.Select(t => new
+                {
+                    type = "function",
+                    function = new { name = t.Name, description = t.Description, parameters = t.Parameters },
+                }).ToList();
+                body["tool_choice"] = "auto";
+            }
 
             var client = _http.CreateClient("llm");
             using var req = new HttpRequestMessage(HttpMethod.Post, $"{provider.BaseUrl}/chat/completions");
@@ -78,30 +103,67 @@ public class OpenAiLlmClient : ILlmClient
                 req.Headers.TryAddWithoutValidation("HTTP-Referer", "https://chatbranch.local");
                 req.Headers.TryAddWithoutValidation("X-Title", "ChatBranch");
             }
-            req.Content = JsonContent.Create(new
-            {
-                model = provider.Model,
-                messages = payloadMessages,
-                temperature = 0.5,
-            });
+            req.Content = JsonContent.Create(body);
 
             using var resp = await client.SendAsync(req, ct);
             resp.EnsureSuccessStatusCode();
             var json = await resp.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
 
-            var text = json.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
+            var msg = json.GetProperty("choices")[0].GetProperty("message");
+            var text = msg.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.String
+                ? c.GetString() ?? "" : "";
+            var calls = new List<LlmToolCall>();
+            if (msg.TryGetProperty("tool_calls", out var tc) && tc.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var call in tc.EnumerateArray())
+                {
+                    if (!call.TryGetProperty("function", out var fn)) continue;
+                    var id = call.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
+                    var name = fn.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
+                    var args = fn.TryGetProperty("arguments", out var a)
+                        ? (a.ValueKind == JsonValueKind.String ? a.GetString() ?? "{}" : a.GetRawText())
+                        : "{}";
+                    if (name.Length > 0)
+                        calls.Add(new LlmToolCall(id.Length > 0 ? id : $"call_{calls.Count}", name, args));
+                }
+            }
             int pin = 0, pout = 0;
             if (json.TryGetProperty("usage", out var usage))
             {
-                pin = usage.TryGetProperty("prompt_tokens", out var a) ? a.GetInt32() : 0;
-                pout = usage.TryGetProperty("completion_tokens", out var b) ? b.GetInt32() : 0;
+                pin = usage.TryGetProperty("prompt_tokens", out var p) ? p.GetInt32() : 0;
+                pout = usage.TryGetProperty("completion_tokens", out var q) ? q.GetInt32() : 0;
             }
-            return new LlmResult(text.Trim(), pin, pout, provider.Name, provider.Model);
+            var usedModel = json.TryGetProperty("model", out var m) ? m.GetString() ?? provider.Model : provider.Model;
+            return new LlmChatResult(text.Trim(), calls, pin, pout, provider.Name, usedModel);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {
             // Provider error → degrade to sandbox rather than break the reply path.
-            return await _sandbox.CompleteAsync(system, messages, ct);
+            return await _sandbox.ChatAsync(system, messages, tools, model, temperature, ct);
         }
+    }
+
+    /// <summary>OpenAI wire shape for one turn (assistant tool calls, tool results).</summary>
+    private static object ToWire(LlmMessage m)
+    {
+        if (m.Role == "tool")
+            return new { role = "tool", tool_call_id = m.ToolCallId ?? "", content = m.Content ?? "" };
+        if (m.Role == "assistant" && m.ToolCalls is { Count: > 0 })
+            return new
+            {
+                role = "assistant",
+                content = m.Content,
+                tool_calls = m.ToolCalls.Select(t => new
+                {
+                    id = t.Id,
+                    type = "function",
+                    function = new { name = t.Name, arguments = t.ArgumentsJson },
+                }).ToList(),
+            };
+        return new { role = m.Role, content = m.Content ?? "" };
     }
 }

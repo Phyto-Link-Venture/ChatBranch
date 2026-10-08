@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react'
 
-// Card = bg #111D35, border rgba(255,255,255,0.07), radius 12.
+/** A paper card: hairline rule, the theme's card surface, theme radius. */
 export function Card({
   children,
   className = '',
@@ -11,16 +11,23 @@ export function Card({
   style?: CSSProperties
 }) {
   return (
-    <div
-      className={`rounded-2xl border border-line bg-card ${className}`}
-      style={style}
-    >
+    <div className={`rounded-xl border border-line bg-card ${className}`} style={style}>
       {children}
     </div>
   )
 }
 
-// Uppercase section label (10–11px caps muted).
+/** Card section heading in the display face, with an optional right slot. */
+export function CardTitle({ children, right, className = '' }: { children: ReactNode; right?: ReactNode; className?: string }) {
+  return (
+    <div className={`flex items-baseline justify-between gap-3 ${className}`}>
+      <h2 className="display text-[19px] leading-tight text-text-heading">{children}</h2>
+      {right && <div className="shrink-0 text-[12px]">{right}</div>}
+    </div>
+  )
+}
+
+// Uppercase section label (eyebrow).
 export function SectionLabel({
   children,
   className = '',
@@ -28,11 +35,5 @@ export function SectionLabel({
   children: ReactNode
   className?: string
 }) {
-  return (
-    <div
-      className={`text-[11px] font-semibold uppercase tracking-[0.06em] text-text-muted ${className}`}
-    >
-      {children}
-    </div>
-  )
+  return <div className={`eyebrow ${className}`}>{children}</div>
 }

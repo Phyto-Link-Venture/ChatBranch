@@ -34,6 +34,7 @@ import { useEntity, useEntityQuery } from '@/lib/EntityContext'
 import { initials, primaryRecord } from '@/lib/mocks'
 import { StatusBadge } from '@/components/ui/Badges'
 import { RecoveryBanner } from '@/components/settings/RoutingRulesSettings'
+import { tint } from '@/lib/color'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -48,12 +49,12 @@ interface EngagementStats {
 
 /* Channel-Health "fan" tab metadata: entity color + short code + icon. */
 const CH_TAB: Record<string, { lbl: string; code: string; color: string; Icon: LucideIcon }> = {
-  whatsapp: { lbl: 'WhatsApp', code: 'WA', color: '#10B981', Icon: MessageCircle },
+  whatsapp: { lbl: 'WhatsApp', code: 'WA', color: 'rgb(var(--c-green))', Icon: MessageCircle },
   telegram: { lbl: 'Telegram', code: 'TG', color: '#229ED9', Icon: Send },
-  facebook: { lbl: 'Messenger', code: 'FB', color: '#3B82F6', Icon: Facebook },
+  facebook: { lbl: 'Messenger', code: 'FB', color: 'rgb(var(--c-brand))', Icon: Facebook },
   instagram: { lbl: 'Instagram', code: 'IG', color: '#E1306C', Icon: Instagram },
-  email: { lbl: 'Email', code: 'EM', color: '#F59E0B', Icon: Mail },
-  voice: { lbl: 'Voice', code: 'VC', color: '#A78BFA', Icon: Mic },
+  email: { lbl: 'Email', code: 'EM', color: 'rgb(var(--c-amber))', Icon: Mail },
+  voice: { lbl: 'Voice', code: 'VC', color: 'var(--purple-ink)', Icon: Mic },
 }
 const CH_ORDER = ['whatsapp', 'telegram', 'facebook', 'instagram', 'email', 'voice']
 
@@ -190,17 +191,17 @@ export default function DashboardPage() {
   }, [channels, activeCh])
 
   const stats: { label: string; value: string; sub: string; color: string; Icon: LucideIcon; href: string }[] = [
-    { label: 'Open Contacts', value: String(openContacts.length), sub: 'not yet resolved', color: '#60A5FA', Icon: Users, href: '/contacts' },
-    { label: 'Active Calls', value: String(activeN), sub: activeN + ' in progress now', color: '#34D399', Icon: Phone, href: '/chats' },
-    { label: 'Awaiting Reply', value: String(engagement?.awaiting_reply ?? '—'), sub: 'threads waiting on us', color: '#FBBF24', Icon: MessagesSquare, href: '/chats' },
-    { label: 'Needs Human', value: String(engagement?.needs_human ?? '—'), sub: 'flagged for review', color: '#F87171', Icon: UserRound, href: '/chats' },
+    { label: 'Open Contacts', value: String(openContacts.length), sub: 'not yet resolved', color: 'var(--brand-ink)', Icon: Users, href: '/contacts' },
+    { label: 'Active Calls', value: String(activeN), sub: activeN + ' in progress now', color: 'var(--green-ink)', Icon: Phone, href: '/chats' },
+    { label: 'Awaiting Reply', value: String(engagement?.awaiting_reply ?? '—'), sub: 'threads waiting on us', color: 'var(--amber-ink)', Icon: MessagesSquare, href: '/chats' },
+    { label: 'Needs Human', value: String(engagement?.needs_human ?? '—'), sub: 'flagged for review', color: 'var(--red-ink)', Icon: UserRound, href: '/chats' },
   ]
 
   const engagementStats = [
-    { lbl: 'Threads', val: String(engagement?.threads_total ?? '—'), color: '#60A5FA', Icon: MessagesSquare },
-    { lbl: 'Replied', val: String(engagement?.replied ?? '—'), color: '#34D399', Icon: UserCheck },
-    { lbl: 'Calls', val: String(engagement?.calls_total ?? '—'), color: '#A78BFA', Icon: Phone },
-    { lbl: 'Follow-ups set', val: String(engagement?.followups_set ?? '—'), color: '#FBBF24', Icon: MessagesSquare },
+    { lbl: 'Threads', val: String(engagement?.threads_total ?? '—'), color: 'var(--brand-ink)', Icon: MessagesSquare },
+    { lbl: 'Replied', val: String(engagement?.replied ?? '—'), color: 'var(--green-ink)', Icon: UserCheck },
+    { lbl: 'Calls', val: String(engagement?.calls_total ?? '—'), color: 'var(--purple-ink)', Icon: Phone },
+    { lbl: 'Follow-ups set', val: String(engagement?.followups_set ?? '—'), color: 'var(--amber-ink)', Icon: MessagesSquare },
   ]
 
   const activeChannel = channels.find((c) => c.key === activeCh) ?? null
@@ -234,8 +235,8 @@ export default function DashboardPage() {
                   <span className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-text-muted">
                     {s.label}
                   </span>
-                  <span className="grid h-[28px] w-[28px] place-items-center rounded-lg" style={{ background: s.color + '1A' }}>
-                    <s.Icon size={14} strokeWidth={1.85} color={s.color} />
+                  <span className="grid h-[28px] w-[28px] place-items-center rounded-lg" style={{ background: tint(s.color, '1A') }}>
+                    <s.Icon size={14} strokeWidth={1.85} style={{ color: s.color }} />
                   </span>
                 </div>
                 <div className="text-[22px] font-extrabold tracking-[-0.7px] text-text-primary">{s.value}</div>
@@ -268,8 +269,8 @@ export default function DashboardPage() {
                 className="cursor-pointer rounded-xl border border-line bg-well px-3 py-2.5 transition-colors hover:border-line-strong"
               >
                 <div className="mb-1 flex items-center gap-1.5">
-                  <span className="grid h-6 w-6 place-items-center rounded-md" style={{ background: s.color + '1A' }}>
-                    <s.Icon size={12} strokeWidth={1.85} color={s.color} />
+                  <span className="grid h-6 w-6 place-items-center rounded-md" style={{ background: tint(s.color, '1A') }}>
+                    <s.Icon size={12} strokeWidth={1.85} style={{ color: s.color }} />
                   </span>
                 </div>
                 <div className="text-[17px] font-extrabold leading-tight tracking-[-0.5px] text-text-primary">{s.val}</div>
@@ -331,7 +332,7 @@ export default function DashboardPage() {
                         color: active ? 'var(--text-high)' : 'var(--text-muted)',
                       }}
                     >
-                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: c.down ? '#F87171' : meta.color }} />
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: c.down ? 'var(--red-ink)' : meta.color }} />
                       {meta.code}
                     </button>
                   )
@@ -407,7 +408,7 @@ export default function DashboardPage() {
               >
                 <div
                   className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full text-[11px] font-bold text-white"
-                  style={{ background: 'linear-gradient(135deg,#3B82F6,#2563EB)' }}
+                  style={{ background: 'var(--primary)' }}
                 >
                   {initials(d.name)}
                 </div>

@@ -5,8 +5,7 @@ import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 
 /**
- * Reusable glass modal (upgrade §2). A centered `bg-surface` card over the
- * frosted `backdrop-blur-sm` scrim, matching the CampaignModal look but generic:
+ * Reusable modal: a centred card over a dimmed scrim (theme tokens only):
  *  - Esc and scrim-click close (scrim-click can be disabled per-call)
  *  - focus trap (Tab cycles inside; focus restored to the opener on close)
  *  - `role="dialog"` + `aria-modal` + labelled title
@@ -17,12 +16,13 @@ import { X } from 'lucide-react'
  * ancestor (the shell panels clip their content).
  */
 
-type Size = 'sm' | 'md' | 'lg'
+type Size = 'sm' | 'md' | 'lg' | 'xl'
 
 const MAX_W: Record<Size, string> = {
   sm: 'max-w-[440px]',
   md: 'max-w-[560px]',
   lg: 'max-w-[760px]',
+  xl: 'max-w-[980px]',
 }
 
 const FOCUSABLE =
@@ -110,8 +110,8 @@ export function Modal({
         if (closeOnScrim && e.target === e.currentTarget) onClose()
       }}
       onKeyDown={onKeyDown}
-      className="fixed inset-0 z-[60] flex animate-fadeIn items-center justify-center p-4 sm:p-6 backdrop-blur-sm"
-      style={{ background: 'rgba(4,8,18,0.72)' }}
+      className="fixed inset-0 z-[60] flex animate-fadeIn items-center justify-center p-4 sm:p-6"
+      style={{ background: 'var(--scrim)' }}
     >
       <div
         ref={cardRef}
@@ -119,21 +119,20 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={labelledById}
         tabIndex={-1}
-        className={`flex max-h-[88vh] w-full ${MAX_W[size]} flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface outline-none`}
-        style={{ boxShadow: '0 24px 60px rgba(0,0,0,0.5)' }}
+        className={`flex max-h-[88vh] w-full ${MAX_W[size]} flex-col overflow-hidden rounded-2xl border border-line-strong bg-card shadow-pop outline-none`}
       >
         {/* Header */}
         <div className="flex items-start justify-between gap-3 border-b border-line px-[22px] py-[16px]">
           <div className="min-w-0">
-            <div id={labelledById} className="text-[15px] font-extrabold tracking-[-0.4px] text-text-heading">
+            <div id={labelledById} className="display text-[21px] leading-tight text-text-heading">
               {title}
             </div>
-            {subtitle && <div className="mt-0.5 text-[11.5px] leading-relaxed text-text-muted">{subtitle}</div>}
+            {subtitle && <div className="mt-1 text-[12.5px] leading-relaxed text-text-muted">{subtitle}</div>}
           </div>
           <button
             onClick={onClose}
             aria-label="Close"
-            className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-lg border border-line bg-fill text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
           >
             <X size={15} strokeWidth={1.75} aria-hidden />
           </button>
@@ -144,7 +143,7 @@ export function Modal({
 
         {/* Footer (optional) */}
         {footer && (
-          <div className="flex items-center justify-end gap-2 border-t border-line px-[22px] py-3.5">{footer}</div>
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line bg-surface px-[22px] py-3.5">{footer}</div>
         )}
       </div>
     </div>,

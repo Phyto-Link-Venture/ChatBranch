@@ -33,6 +33,7 @@ import ContactProvidersCard from '@/components/ContactProvidersCard'
 import { fetchCustomFields, formatFieldValue, type FieldDef } from '@/lib/customFields'
 import { DEFAULT_WORKFLOWS } from '@/lib/flow/defaultWorkflows'
 import type { FlowNode } from '@/lib/flow/types'
+import { tint } from '@/lib/color'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -40,18 +41,18 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 const RECENT_EVENTS = 5
 
 const HIST_CFG: Record<string, { lbl: string; c: string; bg: string; Icon: LucideIcon }> = {
-  'ai-call': { lbl: 'AI Call', c: '#6EE7B7', bg: 'rgba(16,185,129,0.15)', Icon: Mic },
-  'bot-call': { lbl: 'Bot Call', c: '#67E8F9', bg: 'rgba(6,182,212,0.15)', Icon: Phone },
-  message: { lbl: 'Message', c: '#C4B5FD', bg: 'rgba(139,92,246,0.15)', Icon: MessageSquare },
-  resolved: { lbl: 'Resolved', c: '#6EE7B7', bg: 'rgba(16,185,129,0.15)', Icon: CheckCircle },
+  'ai-call': { lbl: 'AI Call', c: 'var(--green-ink)', bg: 'rgba(47,125,79,0.15)', Icon: Mic },
+  'bot-call': { lbl: 'Bot Call', c: 'var(--cyan-ink)', bg: 'rgba(46,125,116,0.15)', Icon: Phone },
+  message: { lbl: 'Message', c: 'var(--purple-ink)', bg: 'rgba(122,78,140,0.15)', Icon: MessageSquare },
+  resolved: { lbl: 'Resolved', c: 'var(--green-ink)', bg: 'rgba(47,125,79,0.15)', Icon: CheckCircle },
 }
 
 /* Live communication channels (the real stores) */
 const CH_CFG: Record<string, { lbl: string; color: string; Icon: LucideIcon }> = {
-  voice: { lbl: 'AI Voice Call', color: '#3B82F6', Icon: Mic },
-  whatsapp: { lbl: 'WhatsApp', color: '#10B981', Icon: MessageCircle },
-  email: { lbl: 'Email', color: '#F59E0B', Icon: Mail },
-  facebook: { lbl: 'Messenger', color: '#3B82F6', Icon: Facebook },
+  voice: { lbl: 'AI Voice Call', color: 'rgb(var(--c-brand))', Icon: Mic },
+  whatsapp: { lbl: 'WhatsApp', color: 'rgb(var(--c-green))', Icon: MessageCircle },
+  email: { lbl: 'Email', color: 'rgb(var(--c-amber))', Icon: Mail },
+  facebook: { lbl: 'Messenger', color: 'rgb(var(--c-brand))', Icon: Facebook },
   instagram: { lbl: 'Instagram', color: '#E1306C', Icon: Instagram },
   telegram: { lbl: 'Telegram', color: '#229ED9', Icon: Send },
 }
@@ -75,10 +76,10 @@ interface AiSummary {
 /* Flow-builder stage lanes (defaults) — used to place the contact in the
    flow defined in the Flow Builder, based on their primary record's due date. */
 const STAGES = [
-  { lbl: 'Pre-due', min: 0, max: 0, color: '#10B981' },
-  { lbl: 'Normal', min: 1, max: 7, color: '#3B82F6' },
-  { lbl: 'Serious', min: 8, max: 30, color: '#F59E0B' },
-  { lbl: 'Critical', min: 31, max: Infinity, color: '#EF4444' },
+  { lbl: 'Pre-due', min: 0, max: 0, color: 'rgb(var(--c-green))' },
+  { lbl: 'Normal', min: 1, max: 7, color: 'rgb(var(--c-brand))' },
+  { lbl: 'Serious', min: 8, max: 30, color: 'rgb(var(--c-amber))' },
+  { lbl: 'Critical', min: 31, max: Infinity, color: 'rgb(var(--c-red))' },
 ]
 
 /** The user's saved Flow Builder library (falls back to the shipped defaults). */
@@ -230,10 +231,10 @@ export default function ContactDetailPage() {
           onClick={() => router.push('/contacts')}
           className="flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-line bg-fill px-2.5 py-1.5 text-[12px] font-semibold text-text-muted"
         >
-          <ArrowLeft size={14} strokeWidth={1.75} color="#64748B" />
+          <ArrowLeft size={14} strokeWidth={1.75} color="#8A8177" />
           Contacts
         </button>
-        <ChevronRight size={12} strokeWidth={1.75} color="#374151" />
+        <ChevronRight size={12} strokeWidth={1.75} color="#8A8177" />
         <span className="text-[12px] text-text-muted">{d.name}</span>
       </div>
 
@@ -243,7 +244,7 @@ export default function ContactDetailPage() {
           <div className="flex items-center gap-3.5">
             <div
               className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[14px] text-[16px] font-extrabold text-white"
-              style={{ background: 'linear-gradient(135deg,#3B82F6,#2563EB)' }}
+              style={{ background: 'var(--primary)' }}
             >
               {initials(d.name)}
             </div>
@@ -255,11 +256,11 @@ export default function ContactDetailPage() {
               <div className="flex flex-wrap gap-1.5">
                 <StatusBadge status={d.status} />
                 {d.tags.map((t) => (
-                  <Pill key={t} color="#6EE7B7" bg="rgba(16,185,129,0.1)">
+                  <Pill key={t} color="#2F7D4F" bg="rgba(47,125,79,0.1)">
                     {t}
                   </Pill>
                 ))}
-                <Pill color={stage.color} bg={stage.color + '1F'}>
+                <Pill color={stage.color} bg={tint(stage.color, '1F')}>
                   {stage.lbl} stage
                 </Pill>
               </div>
@@ -292,7 +293,7 @@ export default function ContactDetailPage() {
       <div className="rounded-2xl border border-line bg-card px-5 py-4">
         <div className="mb-2 flex items-center gap-2">
           <div className="grid h-7 w-7 place-items-center rounded-lg bg-purple/15">
-            <Sparkles size={14} strokeWidth={1.75} color="#A78BFA" />
+            <Sparkles size={14} strokeWidth={1.75} color="#7A4E8C" />
           </div>
           <div className="flex-1">
             <span className="text-[13px] font-bold text-text-high">AI Case Summary</span>
@@ -333,7 +334,7 @@ export default function ContactDetailPage() {
             </div>
             {d.status === 'resolved' ? (
               <div className="flex items-center gap-2 rounded-lg border border-green/20 bg-green/10 px-3 py-2.5 text-[12px] font-semibold text-green-300">
-                <CheckCircle size={15} strokeWidth={1.75} color="#6EE7B7" />
+                <CheckCircle size={15} strokeWidth={1.75} color="#2F7D4F" />
                 Case resolved
               </div>
             ) : (
@@ -341,7 +342,7 @@ export default function ContactDetailPage() {
                 onClick={() => markResolved(d.id)}
                 className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-green/30 bg-green/[0.12] px-3 py-[11px] text-[13px] font-bold text-green-300 transition-all"
               >
-                <CheckCircle size={15} strokeWidth={1.75} color="#6EE7B7" />
+                <CheckCircle size={15} strokeWidth={1.75} color="#2F7D4F" />
                 Mark Resolved
               </button>
             )}
@@ -520,9 +521,9 @@ export default function ContactDetailPage() {
                     <div className="flex shrink-0 flex-col items-center">
                       <div
                         className="grid h-8 w-8 shrink-0 place-items-center rounded-full"
-                        style={{ background: cfg.color + '22' }}
+                        style={{ background: tint(cfg.color, '22') }}
                       >
-                        <cfg.Icon size={14} strokeWidth={1.75} color={cfg.color} />
+                        <cfg.Icon size={14} strokeWidth={1.75} style={{ color: cfg.color }} />
                       </div>
                       {i < events.length - 1 && (
                         <div className="mx-auto mt-1 min-h-[14px] w-px flex-1 bg-fill" />
@@ -532,7 +533,7 @@ export default function ContactDetailPage() {
                       <div className="mb-1 flex flex-wrap items-center gap-1.5">
                         <span
                           className="rounded px-[7px] py-px text-[10px] font-semibold"
-                          style={{ color: cfg.color, background: cfg.color + '1C' }}
+                          style={{ color: cfg.color, background: tint(cfg.color, '1C') }}
                         >
                           {cfg.lbl}
                         </span>
@@ -579,7 +580,7 @@ export default function ContactDetailPage() {
                         className="grid h-8 w-8 shrink-0 place-items-center rounded-full"
                         style={{ background: cfg.bg }}
                       >
-                        <cfg.Icon size={14} strokeWidth={1.75} color={cfg.c} />
+                        <cfg.Icon size={14} strokeWidth={1.75} style={{ color: cfg.c }} />
                       </div>
                       {i < d.history.length - 1 && (
                         <div className="mx-auto mt-1 min-h-[14px] w-px flex-1 bg-fill" />

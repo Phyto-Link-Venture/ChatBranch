@@ -96,8 +96,8 @@ function providerLabel(o: string): string {
 /** Where the current value comes from — mirrors app_settings.sources(). */
 function SourceChip({ src }: { src?: string }) {
   const map: Record<string, { lbl: string; bg: string; fg: string }> = {
-    settings: { lbl: 'from Settings', bg: 'rgba(16,185,129,0.12)', fg: 'var(--green-ink)' },
-    env: { lbl: 'from .env', bg: 'rgba(245,158,11,0.12)', fg: 'var(--amber-ink)' },
+    settings: { lbl: 'from Settings', bg: 'rgba(47,125,79,0.12)', fg: 'var(--green-ink)' },
+    env: { lbl: 'from .env', bg: 'rgba(200,137,26,0.12)', fg: 'var(--amber-ink)' },
     '': { lbl: 'not set', bg: 'var(--fill)', fg: 'var(--text-muted)' },
   }
   const s = map[src || ''] || map['']
@@ -407,7 +407,7 @@ export function AiProvidersSettings() {
       {/* Honest env boundary — the endpoint hands us this note verbatim. */}
       {note && (
         <div className="flex items-start gap-2 rounded-lg border border-brand-400/20 bg-brand-400/10 px-3 py-2.5 text-[11.5px] leading-relaxed text-text-mid">
-          <Info size={14} className="mt-0.5 shrink-0" color="#3B82F6" aria-hidden />
+          <Info size={14} className="mt-0.5 shrink-0" color="#D9480F" aria-hidden />
           <span>{note}</span>
         </div>
       )}
@@ -429,7 +429,7 @@ export function AiProvidersSettings() {
           <div key={g} className="rounded-xl border border-line bg-card p-4">
             <div className="flex items-center gap-2">
               <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-fill">
-                <Icon size={14} color="#3B82F6" aria-hidden />
+                <Icon size={14} color="#D9480F" aria-hidden />
               </span>
               <span className="text-[12.5px] font-bold text-text-high">{gm.title}</span>
             </div>

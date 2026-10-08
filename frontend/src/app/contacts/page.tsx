@@ -21,11 +21,11 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /* Kanban columns — one per contact status, in workflow order. */
 const KANBAN: { key: ContactStatus; lbl: string; color: string }[] = [
-  { key: 'active', lbl: 'Active', color: '#60A5FA' },
-  { key: 'pending', lbl: 'Pending', color: '#FBBF24' },
-  { key: 'message-sent', lbl: 'Msg Sent', color: '#A78BFA' },
-  { key: 'resolved', lbl: 'Resolved', color: '#34D399' },
-  { key: 'failed', lbl: 'Failed', color: '#F87171' },
+  { key: 'active', lbl: 'Active', color: 'var(--brand-ink)' },
+  { key: 'pending', lbl: 'Pending', color: 'var(--amber-ink)' },
+  { key: 'message-sent', lbl: 'Msg Sent', color: 'var(--purple-ink)' },
+  { key: 'resolved', lbl: 'Resolved', color: 'var(--green-ink)' },
+  { key: 'failed', lbl: 'Failed', color: 'var(--red-ink)' },
 ]
 
 const STATUS_OPTS = [
@@ -388,7 +388,7 @@ function KanbanCard({ d, onOpen }: { d: Contact; onOpen: () => void }) {
       <div className="flex items-center gap-2.5">
         <div
           className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full text-[11px] font-bold text-brand-200"
-          style={{ background: 'linear-gradient(135deg,#1E3A5F,#2563EB)' }}
+          style={{ background: 'linear-gradient(135deg,#1E3A5F,rgb(var(--c-brand-400)))' }}
         >
           {initials(d.name)}
         </div>
@@ -494,7 +494,7 @@ export default function ContactsPage() {
         <div className="flex items-center gap-2.5">
           <div
             className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full text-[11px] font-bold text-brand-200"
-            style={{ background: 'linear-gradient(135deg,#1E3A5F,#2563EB)' }}
+            style={{ background: 'linear-gradient(135deg,#1E3A5F,rgb(var(--c-brand-400)))' }}
           >
             {initials(d.name)}
           </div>

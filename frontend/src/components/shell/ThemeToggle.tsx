@@ -2,47 +2,39 @@
 
 import { useEffect, useState } from 'react'
 import { Sun, Moon } from 'lucide-react'
+import { resolveDark, saveAppearance, storedAppearance, DEFAULT_APPEARANCE, type Appearance } from '@/lib/theme'
 
-type Theme = 'dark' | 'light'
-
-/** Sun/moon toggle in the sidebar footer. Persists the choice to localStorage
- *  and swaps the `dark` / `light` class on <html> (Tailwind class strategy);
- *  the pre-paint script in layout.tsx applies it on load so there's no flash.
- *  Defaults to light. */
+/** Sun/moon quick switch (sidebar footer). Flips light/dark inside the
+ *  user's chosen theme and saves it like Settings → Appearance does; the rest
+ *  of the look (theme, accent, text size…) is untouched. */
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>('light')
+  const [prefs, setPrefs] = useState<Appearance>(DEFAULT_APPEARANCE)
+  const [dark, setDark] = useState(false)
 
-  // Sync initial state from whatever the pre-paint script already applied.
   useEffect(() => {
-    setTheme(document.documentElement.classList.contains('light') ? 'light' : 'dark')
+    const sync = () => {
+      const a = storedAppearance() ?? DEFAULT_APPEARANCE
+      setPrefs(a)
+      setDark(document.documentElement.classList.contains('dark'))
+    }
+    sync()
+    window.addEventListener('appearance-change', sync)
+    return () => window.removeEventListener('appearance-change', sync)
   }, [])
 
   function toggle() {
-    const next: Theme = theme === 'dark' ? 'light' : 'dark'
-    setTheme(next)
-    const cls = document.documentElement.classList
-    cls.remove('dark', 'light')
-    cls.add(next)
-    try {
-      localStorage.setItem('theme', next)
-    } catch {
-      /* private mode / storage disabled — theme still applies for this session */
-    }
+    const next: Appearance = { ...prefs, mode: resolveDark(prefs.mode) ? 'light' : 'dark' }
+    void saveAppearance(next)
   }
 
-  const isDark = theme === 'dark'
   return (
     <button
       onClick={toggle}
-      aria-label={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
-      title={isDark ? 'Light mode' : 'Dark mode'}
-      className="flex h-[34px] w-[34px] items-center justify-center rounded-lg border border-line bg-fill text-text-muted transition-colors hover:text-text-high"
+      aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+      title={dark ? 'Light mode' : 'Dark mode'}
+      className="flex h-[34px] w-[34px] items-center justify-center rounded-lg border border-line bg-card text-text-muted transition-colors hover:text-text-high"
     >
-      {isDark ? (
-        <Sun size={15} strokeWidth={1.75} />
-      ) : (
-        <Moon size={15} strokeWidth={1.75} />
-      )}
+      {dark ? <Sun size={15} strokeWidth={1.75} /> : <Moon size={15} strokeWidth={1.75} />}
     </button>
   )
 }

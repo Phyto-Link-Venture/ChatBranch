@@ -22,7 +22,7 @@ export default function SkillEditorPanel({
   onClose: () => void
 }) {
   return (
-    <aside className="config-panel" style={{ '--kind': '#3B82F6' } as React.CSSProperties}>
+    <aside className="config-panel" style={{ '--kind': 'rgb(var(--c-brand))' } as React.CSSProperties}>
       <header className="config-header">
         <span className="config-icon">
           <BookOpen size={15} aria-hidden />
