@@ -76,6 +76,7 @@ using (var scope = app.Services.CreateScope())
 
 app.UseCors(CorsPolicy);
 app.UseAuthentication();
+app.UseMiddleware<ChatBranch.Api.Audit.RequestAuditMiddleware>(); // activity log (sees authz refusals too)
 app.UseAuthorization();
 
 // ---- Phase 1 endpoints ------------------------------------------------------
@@ -113,6 +114,10 @@ app.MapWidgetAdminEndpoints();
 app.MapHelpCenterEndpoints();
 app.MapReportsEndpoints();
 app.MapBindingsEndpoints();
+app.MapAuditEndpoints();
+app.MapDevelopersEndpoints();
+app.MapMcpServerEndpoints();
+app.MapAssistantEndpoints();
 
 // Inbound conversations route themselves to a team. The hook lives here so the
 // data layer never has to reference the API assembly.

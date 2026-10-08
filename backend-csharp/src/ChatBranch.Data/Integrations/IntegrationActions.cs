@@ -67,7 +67,7 @@ public class IntegrationActions
 
         try
         {
-            return action switch
+            var result = action switch
             {
                 "Create calendar event" => await CreateCalendarEventAsync(row, contact, config, text, ct),
                 "Find free slot" => await FindFreeSlotAsync(row, config, ct),
@@ -78,6 +78,11 @@ public class IntegrationActions
                 "Create Stripe payment link" => await CreatePaymentLinkAsync(row, contact, config, ct),
                 _ => Skip($"Action '{action}' has no implementation — step skipped."),
             };
+            // every action that touched a provider lands in the activity log
+            ChatBranch.Data.Audit.AuditTrail.Write(_db, "integration.action", $"{action} ({Label(provider)})",
+                $"{(result.Ok ? "ok" : result.Skipped ? "skipped" : "failed")}: {result.Detail}",
+                entityId: entityId, userId: userId);
+            return result;
         }
         catch (Exception e)
         {

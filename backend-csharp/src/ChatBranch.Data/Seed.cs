@@ -53,6 +53,25 @@ public static class Seed
         AddTableIfMissing(db, "crm_teammember",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_teammember\" PRIMARY KEY AUTOINCREMENT, "
             + "\"team_id\" INTEGER NOT NULL, \"user_id\" INTEGER NOT NULL, \"created_at\" TEXT NOT NULL");
+        // activity log provenance (platform)
+        AddColumnIfMissing(db, "crm_auditlog", "source", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_auditlog", "entity_id", "INTEGER NULL");
+        AddColumnIfMissing(db, "crm_auditlog", "method", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_auditlog", "path", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_auditlog", "status", "INTEGER NULL");
+        AddColumnIfMissing(db, "crm_auditlog", "user_agent", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_auditlog", "request_id", "TEXT NOT NULL DEFAULT ''");
+        AddTableIfMissing(db, "crm_apikey",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_apikey\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"user_id\" INTEGER NOT NULL, \"name\" TEXT NOT NULL, \"prefix\" TEXT NOT NULL, "
+            + "\"hash\" TEXT NOT NULL, \"scopes\" TEXT NOT NULL, \"last_used_at\" TEXT NULL, "
+            + "\"expires_at\" TEXT NULL, \"revoked_at\" TEXT NULL, \"created_at\" TEXT NOT NULL");
+        AddTableIfMissing(db, "crm_assistantaction",
+            "\"id\" TEXT NOT NULL CONSTRAINT \"PK_crm_assistantaction\" PRIMARY KEY, "
+            + "\"user_id\" INTEGER NOT NULL, \"tool\" TEXT NOT NULL, \"args\" TEXT NOT NULL, "
+            + "\"summary\" TEXT NOT NULL, \"status\" TEXT NOT NULL, \"result\" TEXT NOT NULL, "
+            + "\"created_at\" TEXT NOT NULL, \"expires_at\" TEXT NOT NULL, \"decided_at\" TEXT NULL");
+        ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 
     /// <summary>

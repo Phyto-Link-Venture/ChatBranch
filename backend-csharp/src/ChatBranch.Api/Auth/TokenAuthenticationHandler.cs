@@ -30,6 +30,17 @@ public class TokenAuthenticationHandler : AuthenticationHandler<AuthenticationSc
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
+        // API keys (cbk_…, Bearer or X-Api-Key) act as their owning user, marked
+        // auth_source=api and optionally narrowed by the key's scopes (ApiKeyAuth).
+        if (ApiKeyAuth.Presented(Request) is string apiKey)
+        {
+            var key = await ApiKeyAuth.ResolveAsync(_db, apiKey);
+            if (key?.User?.Profile is not Profile kp) return AuthenticateResult.Fail("Invalid API key.");
+            var keyTicket = Ticket(key.User.Username, kp.Role, kp.Id, kp.TenantId);
+            ApiKeyAuth.Decorate(keyTicket.Principal, key);
+            return AuthenticateResult.Success(keyTicket);
+        }
+
         var profile = await ResolveProfileAsync();
         if (profile != null && profile.User is { IsActive: true })
             return AuthenticateResult.Success(Ticket(profile.User.Username, profile.Role,

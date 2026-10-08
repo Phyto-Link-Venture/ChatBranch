@@ -61,6 +61,7 @@ public static class AdminEndpoints
         ("app_keys.manage", "Settings", "Manage app keys"),
         ("pronunciation.manage", "Settings", "Manage pronunciation"),
         ("rbac.manage", "Admin", "Edit the permission matrix"),
+        ("api_keys.manage", "Developers", "Manage API keys & MCP access"),
     };
 
     private static readonly string[] CapabilityIds =

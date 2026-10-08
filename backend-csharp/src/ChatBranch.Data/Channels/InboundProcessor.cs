@@ -123,7 +123,11 @@ public class InboundProcessor
             }
             var reply = _assistant.GenerateReplyAsync(thread).GetAwaiter().GetResult();
             if (!string.IsNullOrWhiteSpace(reply))
+            {
                 _sender.Send(thread, reply, MessageSource.Ai, thread.AccountId);
+                ChatBranch.Data.Audit.AuditTrail.Write(_db, "ai.reply", $"{thread.Channel}:{thread.Key}",
+                    reply, actor: "ai", source: AuditSources.System, entityId: thread.EntityId);
+            }
         }
         catch { /* AI failure never breaks the webhook path */ }
     }

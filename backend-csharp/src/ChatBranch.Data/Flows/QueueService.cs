@@ -164,6 +164,9 @@ public class QueueService
             job.SentMessageId = msg.Id;
             job.Attempts += 1;
             job.UpdatedAt = DateTime.UtcNow;
+            ChatBranch.Data.Audit.AuditTrail.Add(_db, "queue.send", $"{job.Channel}:{job.ToAddress}",
+                $"{job.Kind} job #{job.Id} → {msg.Status}", actor: "queue",
+                source: job.FlowRunId != null ? AuditSources.Flow : AuditSources.System, entityId: thread.EntityId);
             _db.SaveChanges();
         }
         catch (Exception ex)
@@ -172,6 +175,9 @@ public class QueueService
             job.LastError = ex.Message;
             job.Attempts += 1;
             job.UpdatedAt = DateTime.UtcNow;
+            ChatBranch.Data.Audit.AuditTrail.Add(_db, "queue.failed", $"{job.Channel}:{job.ToAddress}",
+                $"{job.Kind} job #{job.Id}: {ex.Message}", actor: "queue",
+                source: job.FlowRunId != null ? AuditSources.Flow : AuditSources.System);
             _db.SaveChanges();
         }
     }
