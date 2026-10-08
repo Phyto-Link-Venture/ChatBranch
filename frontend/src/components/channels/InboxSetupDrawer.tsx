@@ -52,6 +52,7 @@ import {
   kindMeta,
   testInbox,
   type AiDefault,
+  type ReviewMode,
   type Inbox,
   type InboxKind,
   type MessagingAccount,
@@ -235,6 +236,7 @@ export function InboxSetupDrawer({
   const [teamId, setTeamId] = useState('')
   const [role, setRole] = useState<AccountRole>('reminder')
   const [aiDefault, setAiDefault] = useState<AiDefault>('')
+  const [reviewMode, setReviewMode] = useState<ReviewMode>('')
   const [delivery, setDelivery] = useState<DeliveryState>(() => deliveryStateFrom(null))
   const [showDelivery, setShowDelivery] = useState(false)
   // validation + status
@@ -288,6 +290,7 @@ export function InboxSetupDrawer({
     setTeamId(inbox?.teamId != null ? String(inbox.teamId) : '')
     setRole(inbox?.wa ? accountRole(inbox.wa) : k === 'wa_qr' ? 'conversation' : 'reminder')
     setAiDefault(inbox?.aiDefault ?? '')
+    setReviewMode(inbox?.reviewMode ?? '')
     setDelivery(deliveryStateFrom(inbox?.wa?.delivery))
     setErrors({})
     setTouched({})
@@ -394,7 +397,7 @@ export function InboxSetupDrawer({
 
   // ── payloads ───────────────────────────────────────────────────────────
   const who = () => {
-    const o: Record<string, string> = { team_id: teamId, ai_default: aiDefault }
+    const o: Record<string, string> = { team_id: teamId, ai_default: aiDefault, ai_review_mode: reviewMode }
     // only send the binding when it changes — a rebind re-files the inbox's
     // conversations and writes an audit row
     if (!saved || (saved.entity ?? null) !== entity) o.entity = entity ?? ''
@@ -882,6 +885,26 @@ export function InboxSetupDrawer({
             ? ` — “By role” means ${role === 'reminder' ? 'off on reminder numbers (unless the routing rules turn it on)' : 'on for conversation numbers'}`
             : ' — “Default” means on'}
           . An agent can still switch it per chat; their choice always wins.
+        </Help>
+      </div>
+
+      <div>
+        <Label>Check the AI before it sends</Label>
+        <Select
+          size="md"
+          value={reviewMode}
+          onChange={(v) => setReviewMode(v as ReviewMode)}
+          ariaLabel="AI review mode for this inbox"
+          options={[
+            { value: '', label: 'Use the AI monitor setting', hint: '(inherit)' },
+            { value: 'auto', label: 'Send automatically' },
+            { value: 'review_flagged', label: 'Hold risky replies for review' },
+            { value: 'review_all', label: 'Hold every AI reply for review' },
+            { value: 'shadow', label: 'Shadow — draft only, never send' },
+          ]}
+        />
+        <Help>
+          Held replies wait in the AI monitor (and on the chat) until someone approves, edits or rejects them.
         </Help>
       </div>
 

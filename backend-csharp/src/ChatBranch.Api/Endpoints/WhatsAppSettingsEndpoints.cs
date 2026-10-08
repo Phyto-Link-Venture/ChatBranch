@@ -585,7 +585,8 @@ public static class WhatsAppSettingsEndpoints
             if (ApplyDelivery(row, body) is IResult deliveryErr) return deliveryErr;
             // inbox "who answers it" keys: owning team + AI reply default
             if (InboxSettings.Apply(db, row, AsString(body, InboxSettings.TeamKey),
-                    AsString(body, InboxSettings.AiDefaultKey)) is string inboxErr)
+                    AsString(body, InboxSettings.AiDefaultKey),
+                    AsString(body, InboxSettings.ReviewModeKey)) is string inboxErr)
                 return Results.Json(new { detail = inboxErr }, statusCode: 400);
             db.ChannelAccounts.Add(row);
             await db.SaveChangesAsync();
@@ -643,7 +644,8 @@ public static class WhatsAppSettingsEndpoints
             // brain/STT) — same config JSON, no health reset either
             if (ApplyDelivery(row, body) is IResult deliveryErr) return deliveryErr;
             if (InboxSettings.Apply(db, row, AsString(body, InboxSettings.TeamKey),
-                    AsString(body, InboxSettings.AiDefaultKey)) is string inboxErr)
+                    AsString(body, InboxSettings.AiDefaultKey),
+                    AsString(body, InboxSettings.ReviewModeKey)) is string inboxErr)
                 return Results.Json(new { detail = inboxErr }, statusCode: 400);
 
             var entityChanged = false;
@@ -1514,6 +1516,7 @@ public static class WhatsAppSettingsEndpoints
         // "Who answers it": owning team (null = none) + AI default ("" = role decides)
         team_id = InboxSettings.TeamId(a),
         ai_default = InboxSettings.AiDefaultWire(a),
+        ai_review_mode = InboxSettings.ReviewModeWire(a),
     };
 
     internal static Dictionary<string, string> DeliveryPayload(ChannelAccount a) =>

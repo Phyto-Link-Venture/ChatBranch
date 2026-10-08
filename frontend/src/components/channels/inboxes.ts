@@ -151,6 +151,7 @@ export interface WaAccount {
   delivery?: AccountDelivery
   team_id?: number | null
   ai_default?: AiDefault
+  ai_review_mode?: ReviewMode
 }
 
 export interface MessagingAccount {
@@ -165,6 +166,7 @@ export interface MessagingAccount {
   configured?: boolean
   team_id?: number | null
   ai_default?: AiDefault
+  ai_review_mode?: ReviewMode
   config?: {
     host?: string
     port?: number | string
@@ -191,6 +193,7 @@ export interface Widget {
   script_url: string
   team_id?: number | null
   ai_default?: AiDefault
+  ai_review_mode?: ReviewMode
 }
 
 export interface VoiceSettings {
@@ -212,6 +215,9 @@ export interface Team {
 
 // ── the card shape ───────────────────────────────────────────────────────────
 
+/** Who checks the AI before it sends on this inbox; '' = inherit the AI monitor setting. */
+export type ReviewMode = '' | 'auto' | 'review_flagged' | 'review_all' | 'shadow'
+
 export interface Inbox {
   /** Unique across kinds, e.g. "wa:3", "msg:7", "widget:2", "voice". */
   key: string
@@ -224,6 +230,7 @@ export interface Inbox {
   entityName: string
   teamId: number | null
   aiDefault: AiDefault
+  reviewMode: ReviewMode
   role?: AccountRole
   configured: boolean
   /** Read-only rows (the backend/.env WhatsApp account). */
@@ -261,6 +268,7 @@ export function fromWa(a: WaAccount): Inbox {
     entityName: a.entity_name ?? '',
     teamId: a.team_id ?? null,
     aiDefault: a.ai_default ?? '',
+    reviewMode: a.ai_review_mode ?? '',
     role: accountRole(a),
     configured: a.configured,
     envManaged: a.env_managed,
@@ -291,6 +299,7 @@ export function fromMessaging(a: MessagingAccount): Inbox {
     entityName: a.entity_name ?? '',
     teamId: a.team_id ?? null,
     aiDefault: a.ai_default ?? '',
+    reviewMode: a.ai_review_mode ?? '',
     configured: !!a.configured,
     healthId: a.id,
     msg: a,
@@ -308,6 +317,7 @@ export function fromWidget(w: Widget): Inbox {
     entityName: w.entity_name ?? '',
     teamId: w.team_id ?? null,
     aiDefault: w.ai_default ?? '',
+    reviewMode: w.ai_review_mode ?? '',
     configured: true,
     healthId: String(w.id),
     widget: w,
@@ -327,6 +337,7 @@ export function fromVoice(v: VoiceSettings): Inbox | null {
     entityName: '',
     teamId: null,
     aiDefault: '',
+    reviewMode: '',
     configured: v.health.configured,
     voice: v,
   }

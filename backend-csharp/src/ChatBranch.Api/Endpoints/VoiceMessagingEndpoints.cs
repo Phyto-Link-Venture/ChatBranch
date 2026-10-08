@@ -654,6 +654,7 @@ public static class VoiceMessagingEndpoints
             // "Who answers it": owning team (null = none) + AI default ("" = inherit)
             ["team_id"] = ChatBranch.Data.Channels.InboxSettings.TeamId(a),
             ["ai_default"] = ChatBranch.Data.Channels.InboxSettings.AiDefaultWire(a),
+            ["ai_review_mode"] = ChatBranch.Data.Channels.InboxSettings.ReviewModeWire(a),
         };
         var cfg = a.Config ?? new Dictionary<string, object?>();
         if (a.Channel == "email")
@@ -998,7 +999,8 @@ public static class VoiceMessagingEndpoints
         string? Raw(string key) => body.Has(key) ? body.Str(key) ?? "" : null;
         var err = ChatBranch.Data.Channels.InboxSettings.Apply(db, account,
             Raw(ChatBranch.Data.Channels.InboxSettings.TeamKey),
-            Raw(ChatBranch.Data.Channels.InboxSettings.AiDefaultKey));
+            Raw(ChatBranch.Data.Channels.InboxSettings.AiDefaultKey),
+            Raw(ChatBranch.Data.Channels.InboxSettings.ReviewModeKey));
         return err == null ? null : Results.Json(new { detail = err }, statusCode: 400);
     }
 

@@ -16,11 +16,22 @@ namespace ChatBranch.Data.Channels;
 /// * <b>ai_default</b> — "on" / "off"; blank = inherit (WhatsApp: the account
 ///   role decides; other channels: AI on). Applied to a conversation when it is
 ///   first created, so an operator's later per-chat tick always wins.
+/// * <b>ai_review_mode</b> — who checks the AI before it sends on this inbox
+///   (auto | review_flagged | review_all | shadow); blank = inherit the
+///   entity/organization AI-behaviour setting (AiBehaviourSettings reads it).
 /// </summary>
 public static class InboxSettings
 {
     public const string TeamKey = "team_id";
     public const string AiDefaultKey = "ai_default";
+    public const string ReviewModeKey = ChatBranch.Data.Ai.AiBehaviourSettings.ReviewMode;
+
+    /// <summary>The inbox's own review mode, or "" when it inherits.</summary>
+    public static string ReviewModeWire(ChannelAccount? account) =>
+        account != null && account.Config.TryGetValue(ReviewModeKey, out var raw) && raw != null
+            && ChatBranch.Data.Ai.AiBehaviourSettings.ReviewModes.Contains(raw.ToString()?.Trim().ToLowerInvariant() ?? "")
+            ? raw.ToString()!.Trim().ToLowerInvariant()
+            : "";
 
     /// <summary>The owning team id, or null when none is set.</summary>
     public static int? TeamId(ChannelAccount? account)
@@ -55,7 +66,8 @@ public static class InboxSettings
     /// empty string clears it back to inherit. Returns an error message for a
     /// bad value, else null. The caller saves.
     /// </summary>
-    public static string? Apply(AppDbContext db, ChannelAccount account, string? teamRaw, string? aiRaw)
+    public static string? Apply(AppDbContext db, ChannelAccount account, string? teamRaw, string? aiRaw,
+        string? reviewRaw = null)
     {
         var cfg = new Dictionary<string, object?>(account.Config);
         if (teamRaw != null)
@@ -81,6 +93,16 @@ public static class InboxSettings
                 cfg[AiDefaultKey] = "off";
             else
                 return "ai_default must be \"on\", \"off\" or empty (inherit).";
+        }
+        if (reviewRaw != null)
+        {
+            var r = reviewRaw.Trim().ToLowerInvariant();
+            if (r is "" or "inherit" or "null")
+                cfg.Remove(ReviewModeKey);
+            else if (ChatBranch.Data.Ai.AiBehaviourSettings.ReviewModes.Contains(r))
+                cfg[ReviewModeKey] = r;
+            else
+                return $"ai_review_mode must be one of {string.Join(", ", ChatBranch.Data.Ai.AiBehaviourSettings.ReviewModes)} or empty (inherit).";
         }
         account.Config = cfg;
         return null;

@@ -63,7 +63,8 @@ public static class WidgetAdminEndpoints
                 CreatedAt = DateTime.UtcNow,
             };
             if (InboxSettings.Apply(db, row, InboxRaw(body, InboxSettings.TeamKey),
-                    InboxRaw(body, InboxSettings.AiDefaultKey)) is string inboxErr)
+                    InboxRaw(body, InboxSettings.AiDefaultKey),
+                    InboxRaw(body, InboxSettings.ReviewModeKey)) is string inboxErr)
                 return Results.Json(new { detail = inboxErr }, statusCode: 400);
             db.ChannelAccounts.Add(row);
             db.AuditLogs.Add(new AuditLog
@@ -85,7 +86,8 @@ public static class WidgetAdminEndpoints
             if (row == null) return Results.NotFound(new { detail = "Widget not found." });
 
             if (InboxSettings.Apply(db, row, InboxRaw(body, InboxSettings.TeamKey),
-                    InboxRaw(body, InboxSettings.AiDefaultKey)) is string inboxErr)
+                    InboxRaw(body, InboxSettings.AiDefaultKey),
+                    InboxRaw(body, InboxSettings.ReviewModeKey)) is string inboxErr)
                 return Results.Json(new { detail = inboxErr }, statusCode: 400);
 
             if (Has(body, "name"))
@@ -164,6 +166,7 @@ public static class WidgetAdminEndpoints
             // "Who answers it": owning team (null = none) + AI default ("" = on)
             team_id = InboxSettings.TeamId(a),
             ai_default = InboxSettings.AiDefaultWire(a),
+            ai_review_mode = InboxSettings.ReviewModeWire(a),
             // Paste-ready: one tag, no build step, no npm package.
             embed = $"<script src=\"{origin}/widget.js\" data-token=\"{a.ExternalId}\" async></script>",
             script_url = $"{origin}/widget.js",

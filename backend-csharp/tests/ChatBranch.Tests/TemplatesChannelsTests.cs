@@ -207,6 +207,22 @@ public class TemplatesChannelsTests : IClassFixture<ApiFactory>
             Assert.False(thread.AiEnabled);
         }
 
+        // per-inbox AI review mode: validated, returned, clearable
+        var wid = widget.GetProperty("id").GetInt32();
+        Assert.Equal("", widget.GetProperty("ai_review_mode").GetString());
+        var badMode = await admin.PatchAsJsonAsync($"/api/widgets/{wid}", new { ai_review_mode = "sometimes" });
+        Assert.Equal(HttpStatusCode.BadRequest, badMode.StatusCode);
+        var held = await admin.PatchAsJsonAsync($"/api/widgets/{wid}", new { ai_review_mode = "review_all" });
+        held.EnsureSuccessStatusCode();
+        Assert.Equal("review_all", (await held.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("ai_review_mode").GetString());
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var acct = await db.ChannelAccounts.AsNoTracking().FirstAsync(a => a.Id == wid);
+            Assert.Equal("review_all", acct.Config["ai_review_mode"]?.ToString());
+        }
+        (await admin.PatchAsJsonAsync($"/api/widgets/{wid}", new { ai_review_mode = "" })).EnsureSuccessStatusCode();
+
         // clearing both keys returns the inbox to inherit
         var id = widget.GetProperty("id").GetInt32();
         var cleared = await admin.PatchAsJsonAsync($"/api/widgets/{id}", new { team_id = "", ai_default = "" });
