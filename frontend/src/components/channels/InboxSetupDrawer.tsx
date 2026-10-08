@@ -314,12 +314,20 @@ export function InboxSetupDrawer({
     }
   }, [])
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      e.stopPropagation()
+  // Esc closes even when focus has fallen back to <body> (a step change
+  // unmounts the button that had it), so listen on the window, not the panel.
+  useEffect(() => {
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      // an open dropdown inside the drawer closes first
+      if (document.querySelector('[role="listbox"]')) return
       onClose()
-      return
     }
+    window.addEventListener('keydown', onEsc)
+    return () => window.removeEventListener('keydown', onEsc)
+  }, [onClose])
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key !== 'Tab' || !panelRef.current) return
     const items = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
       (el) => el.offsetParent !== null,
@@ -340,6 +348,8 @@ export function InboxSetupDrawer({
   const bodyRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: 0 })
+    // keep keyboard focus inside the dialog when the focused button unmounted
+    if (!panelRef.current?.contains(document.activeElement)) panelRef.current?.focus()
   }, [step])
 
   // ── validation ─────────────────────────────────────────────────────────
