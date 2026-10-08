@@ -78,7 +78,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Automate',
     items: [
       { href: '/flow-builder', lbl: 'Flow builder', Icon: Workflow, cap: 'flows.manage', roles: ADMINS, keywords: 'workflows campaigns' },
-      { href: '/ai-monitor', lbl: 'AI monitor', Icon: ScanEye, cap: 'ai.monitor', roles: ADMINS, keywords: 'drafts approve review bot' },
+      { href: '/ai-monitor', lbl: 'AI monitor', Icon: ScanEye, cap: 'ai.monitor', keywords: 'drafts approve review bot' },
       { href: '/automations', lbl: 'Automations', Icon: Zap, cap: 'flows.manage', roles: ADMINS, keywords: 'rules triggers' },
       { href: '/persona', lbl: 'Voice & calls', Icon: Mic, cap: 'settings.ai.manage', roles: ADMINS, keywords: 'voice persona calling' },
     ],
