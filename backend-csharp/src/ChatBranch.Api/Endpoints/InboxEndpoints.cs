@@ -165,6 +165,7 @@ public static class InboxEndpoints
                                                       && m.Direction == MessageDirection.In) <= 1;
             if (firstInbound) automation.Run("conversation_created", thread, body.Text, true);
             automation.Run("message_created", thread, body.Text, firstInbound);
+            await NotificationService.NotifyInboundMessageAsync(db, thread, body.Text);
             return Results.Ok(new { thread = Dtos.ThreadDto(thread), message = Dtos.MessageDto(msg) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 

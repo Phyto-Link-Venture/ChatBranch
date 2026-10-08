@@ -53,14 +53,18 @@ export const CAPABILITY_CATALOG: { capability: string; area: string; label: stri
   { capability: 'entities.manage', area: 'Entities', label: 'Manage entities & tenants' },
   { capability: 'templates.manage', area: 'Library', label: 'Manage message templates' },
   { capability: 'script_templates.manage', area: 'Library', label: 'Manage script templates' },
-  { capability: 'notifications.manage', area: 'Review', label: 'Manage notification prefs' },
+  { capability: 'notifications.manage', area: 'Settings', label: 'Manage organization notification defaults' },
   { capability: 'analytics.view', area: 'Review', label: 'View analytics' },
   { capability: 'call_logs.view', area: 'Review', label: 'View call logs' },
   { capability: 'activity.view', area: 'Review', label: 'View activity log' },
   { capability: 'settings.ai.manage', area: 'Settings', label: 'Manage AI configuration' },
   { capability: 'account_assignment.manage', area: 'Settings', label: 'Manage account assignment' },
-  { capability: 'app_keys.manage', area: 'Settings', label: 'Manage app keys' },
+  { capability: 'app_keys.manage', area: 'Settings', label: 'Manage app & provider keys' },
   { capability: 'pronunciation.manage', area: 'Settings', label: 'Manage pronunciation' },
+  // Settings sub-pages — one capability each (Personal pages need none).
+  { capability: 'settings.appearance.org', area: 'Settings', label: 'Set the organization default appearance' },
+  { capability: 'settings.custom_fields.manage', area: 'Settings', label: 'Manage custom fields' },
+  { capability: 'settings.ai_keys.manage', area: 'Settings', label: 'Manage AI keys & models' },
   { capability: 'rbac.manage', area: 'Admin', label: 'Edit the permission matrix' },
 ]
 
@@ -74,7 +78,7 @@ const ALL_CAPS = CAPABILITY_CATALOG.map((c) => c.capability)
  */
 export const DEFAULT_ROLE_CAPS: Record<Role, string[]> = {
   superadmin: ALL_CAPS,
-  admin: ALL_CAPS.filter((c) => c !== 'rbac.manage' && c !== 'app_keys.manage'),
+  admin: ALL_CAPS.filter((c) => c !== 'rbac.manage' && c !== 'app_keys.manage' && c !== 'settings.ai_keys.manage'),
   agent: [
     'contacts.view',
     'chats.view',
