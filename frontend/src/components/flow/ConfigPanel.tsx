@@ -382,13 +382,16 @@ function DeliveryFields({
   const opts = ai ? SEND_CHANNELS.filter((c) => c.value !== 'SMS') : [...SEND_CHANNELS, { value: TEAM_PUSH, label: 'Team notification (in-app)' }]
   return (
     <>
-      <Field label="Send on" help={ai ? undefined : 'Pick every channel this message should go out on.'}>
+      <Field
+        label="Send on"
+        help={ai ? 'Leave empty to reply on their latest conversation’s channel.' : 'Pick every channel this message should go out on.'}
+      >
         <MultiSelect
           value={deliver}
           onChange={(v) => onPatch({ channels: ai ? [AI_MESSAGE, ...v] : v })}
           options={opts}
           size="md"
-          placeholder="Choose a channel"
+          placeholder={ai ? 'Their latest channel' : 'Choose a channel'}
           ariaLabel="Channels"
           maxChips={3}
         />

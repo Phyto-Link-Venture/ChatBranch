@@ -30,7 +30,6 @@ export function flowIssues(nodes: FlowNode[], edges: FlowEdge[]): Record<string,
         const ch = channelsOf(c)
         const type = actionType(c)
         if (!ch.length) add(n.id, 'Pick at least one channel.')
-        if (type === 'ai' && ch.filter((x) => x !== AI_MESSAGE).length === 0) add(n.id, 'Pick the channel the AI message is sent on.')
         if (type === 'send' && !s(c.script) && !(c.waMode === 'template' && s(c.templateName)) && ch.some((x) => x !== 'In-app push'))
           add(n.id, 'Write the message.')
         if (ch.includes('WhatsApp') && c.waMode !== 'text' && c.waMode && !s(c.templateName)) add(n.id, 'Choose the WhatsApp template.')
@@ -39,7 +38,7 @@ export function flowIssues(nodes: FlowNode[], edges: FlowEdge[]): Record<string,
       }
       case 'followup': {
         const ch = channelsOf(c).filter((x) => x !== AI_MESSAGE)
-        if (!ch.length) add(n.id, 'Pick the channel follow-ups are sent on.')
+        if (!ch.length && !channelsOf(c).includes(AI_MESSAGE)) add(n.id, 'Pick the channel follow-ups are sent on.')
         if (!channelsOf(c).includes(AI_MESSAGE) && !s(c.script) && !(c.waMode === 'template' && s(c.templateName)))
           add(n.id, 'Write the follow-up message.')
         break

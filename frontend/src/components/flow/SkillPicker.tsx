@@ -5,15 +5,19 @@ import { ExternalLink } from 'lucide-react'
 import { Select, type SelectOption } from '@/components/ui/Select'
 import type { AgentSkill } from '@/lib/flow/types'
 
+/** Skill kinds from the Skills page: a PROMPT skill is a brief the AI writes
+ * with — the only kind a step can pick. Tools and reply checks run on their
+ * own whenever the AI writes, so they are listed for reference only. */
 const KIND_LABEL: Record<string, string> = {
-  playbook: 'Playbooks',
-  tool: 'Tools',
-  persona: 'Persona',
-  knowledge: 'Knowledge',
+  prompt: 'Prompt skills',
+  tool: 'Tools — used automatically',
+  check: 'Reply checks — run automatically',
 }
 
+const isPrompt = (kind?: string) => !kind || kind === 'prompt'
+
 const groupName = (kind?: string) =>
-  kind ? (KIND_LABEL[kind] ?? kind.charAt(0).toUpperCase() + kind.slice(1)) : undefined
+  KIND_LABEL[kind || 'prompt'] ?? (kind ? kind.charAt(0).toUpperCase() + kind.slice(1) : undefined)
 
 /**
  * Which AI skill guides this step. Reads the real skills (GET
@@ -36,11 +40,12 @@ export default function SkillPicker({
   const byName = !byId && value ? skills.find((s) => s.name === value) : undefined
   const options: SelectOption[] = [
     { value: '', label: 'No skill — the default assistant' },
-    ...skills.map((s) => ({
+    ...[...skills.filter((s) => isPrompt(s.kind)), ...skills.filter((s) => !isPrompt(s.kind))].map((s) => ({
       value: s.id,
       label: s.name,
       group: groupName(s.kind),
       hint: s.enabled === false ? '(off)' : undefined,
+      disabled: !isPrompt(s.kind),
     })),
   ]
   if (value && !byId && !byName) options.push({ value, label: `${value} (not found)` })

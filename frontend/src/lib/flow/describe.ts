@@ -140,7 +140,7 @@ export function describeStep(node: FlowNode, ctx: DescribeContext = {}): StepTex
         const skill = skillName(cfg.skill, ctx.skills)
         return {
           eyebrow: 'AI message',
-          title: `AI writes ${channelWords(channels) ? `a ${channelWords(channels)}` : 'a'} message`,
+          title: channelWords(channels) ? `AI writes a ${channelWords(channels)} message` : 'AI writes a message on their latest channel',
           detail: [skill && `Skill: ${skill}`, script && clip(script, 90)].filter(Boolean).join(' · ') || undefined,
         }
       }
