@@ -51,6 +51,8 @@ public class InboundProcessor
                 _db.SaveChanges();
             }
         }
+        // a brand-new conversation takes its inbox's AI reply default
+        InboxSettings.ApplyToNewThread(_db, thread);
 
         var msg = _threads.AppendMessage(thread, MessageDirection.In, MessageSource.Customer,
             text, status: "received", externalId: wamid, accountId: accountId, providerTs: providerTs);

@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
+using ChatBranch.Data.Channels;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 
@@ -61,6 +62,9 @@ public static class WidgetAdminEndpoints
                 HealthStatus = Health.Healthy,
                 CreatedAt = DateTime.UtcNow,
             };
+            if (InboxSettings.Apply(db, row, InboxRaw(body, InboxSettings.TeamKey),
+                    InboxRaw(body, InboxSettings.AiDefaultKey)) is string inboxErr)
+                return Results.Json(new { detail = inboxErr }, statusCode: 400);
             db.ChannelAccounts.Add(row);
             db.AuditLogs.Add(new AuditLog
             {
@@ -68,6 +72,7 @@ public static class WidgetAdminEndpoints
                 Target = row.Name, CreatedAt = DateTime.UtcNow,
             });
             await db.SaveChangesAsync();
+            await db.Entry(row).Reference(a => a.Entity).LoadAsync();
             return Results.Json(Payload(row, ctx, 0), statusCode: 201);
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
@@ -78,6 +83,10 @@ public static class WidgetAdminEndpoints
             var row = await db.ChannelAccounts.FirstOrDefaultAsync(
                 a => a.Id == id && a.Channel == Channels.Website);
             if (row == null) return Results.NotFound(new { detail = "Widget not found." });
+
+            if (InboxSettings.Apply(db, row, InboxRaw(body, InboxSettings.TeamKey),
+                    InboxRaw(body, InboxSettings.AiDefaultKey)) is string inboxErr)
+                return Results.Json(new { detail = inboxErr }, statusCode: 400);
 
             if (Has(body, "name"))
             {
@@ -98,10 +107,18 @@ public static class WidgetAdminEndpoints
             }
             // Rotating the token invalidates every embed of the old one — that
             // IS the point (a leaked snippet on a site you no longer own).
-            if (Bool(body, "rotate_token") == true)
+            var rotated = Bool(body, "rotate_token") == true;
+            if (rotated)
                 row.ExternalId = WidgetEndpoints.NewWidgetToken();
 
+            db.AuditLogs.Add(new AuditLog
+            {
+                Actor = me.Identity?.Name ?? "system", Action = "widget.update", Target = row.Name,
+                Detail = rotated ? "token rotated" : "", CreatedAt = DateTime.UtcNow,
+            });
             await db.SaveChangesAsync();
+            // the response names the entity, so load it (only the FK moved)
+            await db.Entry(row).Reference(a => a.Entity).LoadAsync();
             return Results.Ok(Payload(row, ctx, await db.Threads.CountAsync(t => t.AccountId == row.Id)));
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
@@ -143,6 +160,9 @@ public static class WidgetAdminEndpoints
             placeholder = Cfg(a, "placeholder"),
             conversations,
             created = a.CreatedAt,
+            // "Who answers it": owning team (null = none) + AI default ("" = on)
+            team_id = InboxSettings.TeamId(a),
+            ai_default = InboxSettings.AiDefaultWire(a),
             // Paste-ready: one tag, no build step, no npm package.
             embed = $"<script src=\"{origin}/widget.js\" data-token=\"{a.ExternalId}\" async></script>",
             script_url = $"{origin}/widget.js",
@@ -171,6 +191,9 @@ public static class WidgetAdminEndpoints
 
     private static bool Has(JsonElement b, string key) =>
         b.ValueKind == JsonValueKind.Object && b.TryGetProperty(key, out _);
+
+    /// <summary>An inbox key's raw value: null when absent, "" when JSON null.</summary>
+    private static string? InboxRaw(JsonElement b, string key) => Has(b, key) ? Str(b, key) ?? "" : null;
 
     private static string? Str(JsonElement b, string key) =>
         b.ValueKind == JsonValueKind.Object && b.TryGetProperty(key, out var v)

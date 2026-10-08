@@ -579,6 +579,10 @@ public static class WhatsAppSettingsEndpoints
                 CreatedAt = DateTime.UtcNow,
             };
             if (ApplyDelivery(row, body) is IResult deliveryErr) return deliveryErr;
+            // inbox "who answers it" keys: owning team + AI reply default
+            if (InboxSettings.Apply(db, row, AsString(body, InboxSettings.TeamKey),
+                    AsString(body, InboxSettings.AiDefaultKey)) is string inboxErr)
+                return Results.Json(new { detail = inboxErr }, statusCode: 400);
             db.ChannelAccounts.Add(row);
             await db.SaveChangesAsync();
 
@@ -634,6 +638,9 @@ public static class WhatsAppSettingsEndpoints
             // per-account delivery + AI knobs (quiet hours, send pacing, voice-call
             // brain/STT) — same config JSON, no health reset either
             if (ApplyDelivery(row, body) is IResult deliveryErr) return deliveryErr;
+            if (InboxSettings.Apply(db, row, AsString(body, InboxSettings.TeamKey),
+                    AsString(body, InboxSettings.AiDefaultKey)) is string inboxErr)
+                return Results.Json(new { detail = inboxErr }, statusCode: 400);
 
             var entityChanged = false;
             if (Has(body, "entity"))
@@ -1498,6 +1505,9 @@ public static class WhatsAppSettingsEndpoints
         // Per-account overrides ("" = inherit the organization-wide value).
         // Edited from Settings → Channels → edit account → Delivery & AI.
         delivery = DeliveryPayload(a),
+        // "Who answers it": owning team (null = none) + AI default ("" = role decides)
+        team_id = InboxSettings.TeamId(a),
+        ai_default = InboxSettings.AiDefaultWire(a),
     };
 
     internal static Dictionary<string, string> DeliveryPayload(ChannelAccount a) =>
@@ -1685,6 +1695,8 @@ public static class WhatsAppSettingsEndpoints
         if (t.AccountId is not int accountId) return t.AiEnabled;
         if (AiOverride(t, accountId) is bool tick) return tick;
         if (account == null) return t.AiEnabled;
+        // The inbox's own AI default (Channels → Who answers it) beats the role's.
+        if (InboxSettings.AiDefault(account) is bool inboxDefault) return inboxDefault;
         return AccountRole(account) == "reminder" ? reminderDefaultOn : true;
     }
 

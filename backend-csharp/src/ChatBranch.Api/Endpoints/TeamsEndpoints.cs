@@ -170,13 +170,21 @@ public static class TeamsEndpoints
         try
         {
             if (thread.TeamId != null) return;
-            var team = await db.Teams.Include(t => t.Members)
+            // The receiving inbox's own team (Channels → Who answers it) wins.
+            var inboxTeamId = ChatBranch.Data.Channels.InboxSettings.TeamId(thread.AccountId is int aid
+                ? thread.Account ?? await db.ChannelAccounts.AsNoTracking().FirstOrDefaultAsync(a => a.Id == aid)
+                : null);
+            var team = (inboxTeamId is int itid
+                           ? await db.Teams.Include(t => t.Members).FirstOrDefaultAsync(t => t.Id == itid)
+                           : null)
+                       ?? await db.Teams.Include(t => t.Members)
                            .FirstOrDefaultAsync(t => t.AutoAssign && t.EntityId == thread.EntityId)
                        ?? await db.Teams.Include(t => t.Members)
                            .FirstOrDefaultAsync(t => t.AutoAssign && t.EntityId == null);
             if (team == null) return;
             thread.TeamId = team.Id;
-            if (thread.Assignee.Length == 0)
+            // an inbox's team may have round-robin off: it owns the thread, a human picks up
+            if (thread.Assignee.Length == 0 && team.AutoAssign)
                 thread.Assignee = await NextAssigneeAsync(db, team) ?? "";
             thread.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();

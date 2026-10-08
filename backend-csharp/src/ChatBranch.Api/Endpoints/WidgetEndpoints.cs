@@ -76,6 +76,8 @@ public static class WidgetEndpoints
                 thread = store.GetOrCreateThread(Channels.Website, session,
                     name.Length > 0 ? name : "Website visitor", account.Id);
                 thread.EntityId = account.EntityId;
+                // the widget inbox's AI reply default (Channels → Who answers it)
+                ChatBranch.Data.Channels.InboxSettings.ApplyToNewThread(db, thread);
                 // A visitor who gave an email becomes a real contact so the
                 // conversation is not orphaned the moment they close the tab.
                 if (email.Length > 0 || name.Length > 0)
