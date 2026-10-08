@@ -901,7 +901,7 @@ public static class ContactsEndpoints
     /// Tenant-scope a Contact queryset the way <c>tenant_from_request</c> does:
     /// superadmin is unscoped, everyone else sees only their own tenant's rows.
     /// </summary>
-    private static IQueryable<Contact> ScopeContacts(IQueryable<Contact> qs, ClaimsPrincipal me,
+    internal static IQueryable<Contact> ScopeContacts(IQueryable<Contact> qs, ClaimsPrincipal me,
         AppDbContext db, ScopingService? sc = null)
     {
         // Provider login ("their own world"): only the customers bound to them.
