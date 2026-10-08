@@ -116,6 +116,13 @@ export function EntityProvider({ children }: { children: ReactNode }) {
     [entities, activeSlug]
   )
 
+  // Stable identity: consumers put reload in effect deps (the Entities page
+  // reloads the switcher after an edit). A fresh arrow per render made that
+  // effect re-fire on every context update — an endless fetch loop.
+  const reload = useCallback(() => {
+    void load()
+  }, [load])
+
   const value = useMemo<EntityState>(
     () => ({
       tenant,
@@ -123,10 +130,10 @@ export function EntityProvider({ children }: { children: ReactNode }) {
       activeEntity,
       allEntities: activeSlug === ALL,
       setActiveEntity,
-      reload: () => void load(),
+      reload,
       loading,
     }),
-    [tenant, entities, activeEntity, activeSlug, setActiveEntity, load, loading]
+    [tenant, entities, activeEntity, activeSlug, setActiveEntity, reload, loading]
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
