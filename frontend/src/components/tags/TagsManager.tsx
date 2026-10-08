@@ -338,12 +338,12 @@ function TagRow({
   const meta = APPLIES_TO_META[tag.applies_to]
   const usage = `${tag.usage} ${tag.usage === 1 ? meta.noun : meta.plural}`
   return (
-    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-3.5 py-3 last:border-b-0">
-      <div className="min-w-0 flex-[1_1_240px]">
+    <li className="grid grid-cols-1 gap-2 border-b border-line px-3.5 py-3 last:border-b-0 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_150px_minmax(190px,auto)] md:items-center md:gap-4">
+      <div className="min-w-0">
         <TagChip name={tag.name} color={tag.color} />
         {tag.description && <p className="mt-1 line-clamp-2 text-[12px] text-text-muted">{tag.description}</p>}
       </div>
-      <div className="flex min-w-0 flex-[1_1_200px] flex-wrap items-center gap-1.5">
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
         {tag.attributes.length === 0 ? (
           <span className="text-[11.5px] text-text-faint">No fields</span>
         ) : (
@@ -360,10 +360,10 @@ function TagRow({
         )}
         {tag.attributes.length > 4 && <span className="text-[11px] text-text-faint">+{tag.attributes.length - 4}</span>}
       </div>
-      <span className="w-[150px] shrink-0 truncate text-[12px] text-text-mid" title={tag.entity_name || 'Organization-wide'}>
+      <span className="truncate text-[12px] text-text-mid" title={tag.entity_name || 'Organization-wide'}>
         {tag.entity_name || 'Organization-wide'}
       </span>
-      <div className="ml-auto flex shrink-0 items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1 md:justify-end">
         {tag.applies_to === 'conversation' ? (
           <Link
             href="/chats"

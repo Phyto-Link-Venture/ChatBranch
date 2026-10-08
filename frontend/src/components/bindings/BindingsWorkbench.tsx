@@ -298,7 +298,7 @@ export function BindingsWorkbench() {
                 </span>
                 <span className="min-w-0">
                   <span className="block text-[13.5px] font-bold text-text-heading">{k.label}</span>
-                  <span className="mt-0.5 line-clamp-2 block text-[11.5px] leading-snug text-text-muted">{k.hint}</span>
+                  <span className="mt-0.5 line-clamp-2 text-[11.5px] leading-snug text-text-muted">{k.hint}</span>
                 </span>
               </button>
             )

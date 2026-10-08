@@ -68,6 +68,10 @@ export function entityTreeGroups(entities: TreeEntity[], hint?: (e: TreeEntity) 
   return [...groups.values()]
 }
 
+/** "Aina, Ben" for a couple of members (so a one-item card still says who), else "5 contacts". */
+const count = (members: { label: string }[], noun: string) =>
+  members.length <= 2 ? members.map((m) => m.label).join(', ') : `${members.length} ${noun}s`
+
 /**
  * Groups = every entity in tree order (main entities badged, sub-entities
  * labelled with their parent); items = the records linked directly to that
@@ -93,7 +97,7 @@ export function itemsByEntityGroups(
       id: `e${row.id}`,
       label: row.name,
       badge: depth === 0 ? 'Main' : undefined,
-      sub: `${depth > 0 && parent ? `Under ${parent.name} · ` : ''}${members.length} ${noun}${members.length === 1 ? '' : 's'}`,
+      sub: `${depth > 0 && parent ? `Under ${parent.name} · ` : ''}${count(members, noun)}`,
       items: members,
     })
   }
@@ -102,7 +106,7 @@ export function itemsByEntityGroups(
     out.push({
       id: 'none',
       label: 'No entity',
-      sub: `${loose.length} ${noun}${loose.length === 1 ? '' : 's'} not linked to an entity`,
+      sub: `Not linked to an entity · ${count(loose, noun)}`,
       items: loose.map((i) => ({ id: String(i.id), label: i.label, hint: i.hint })),
     })
   return out
