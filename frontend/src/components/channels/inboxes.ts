@@ -175,6 +175,9 @@ export interface MessagingAccount {
     from_email?: string
     password?: string
     password_masked?: string
+    /** inbound — blank = the default IMAP host + this mailbox's SMTP login */
+    imap_host?: string
+    imap_port?: number | string
   }
 }
 

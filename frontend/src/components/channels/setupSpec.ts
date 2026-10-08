@@ -75,6 +75,16 @@ export const CRED_FIELDS: Partial<Record<InboxKind, FieldSpec[]>> = {
       key: 'password', label: 'Password', placeholder: 'App password', secret: true,
       help: 'An app password, not your login — Google Account → Security → App passwords.',
     },
+    {
+      key: 'imap_host', label: 'IMAP host (replies)', placeholder: 'imap.gmail.com', half: true, optional: true,
+      help: 'Where customer replies are read from, with the same login. Blank = the default under Advanced.',
+      check: host,
+    },
+    {
+      key: 'imap_port', label: 'IMAP port', placeholder: '993', inputMode: 'numeric', half: true, optional: true,
+      help: '993 = implicit TLS (most providers), 143 = STARTTLS.',
+      check: (v) => (/^\d+$/.test(v) && Number(v) > 0 && Number(v) < 65536 ? null : 'A port number, like 993.'),
+    },
   ],
   telegram: [
     {
@@ -133,7 +143,7 @@ export const GUIDES: Partial<Record<InboxKind, string[]>> = {
     'Use a mailbox your team already reads (support@, hello@…).',
     'Find the SMTP server in your provider’s help pages (“SMTP settings”).',
     'Create an app password if the account has two-step sign-in.',
-    'Replies are pulled in over IMAP from the shared settings under Advanced.',
+    'Replies from known contacts are pulled in over IMAP — this mailbox’s IMAP host, or the default under Advanced.',
   ],
   telegram: [
     'Open a chat with @BotFather in Telegram.',
