@@ -1,10 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { KeyRound, Loader2, ShieldAlert, Tags, UserCheck, UserPlus, UserX } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Building2, KeyRound, Loader2, ShieldAlert, UserCheck, UserPlus, UserX } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
+import { Select, type SelectOption } from '@/components/ui/Select'
 import { DataTable, type Column } from '@/components/ui/DataTable'
+import { EntityAccessGrid } from '@/components/bindings/EntityAccessGrid'
+import { orderEntityTree } from '@/components/bindings/groups'
 import { roleHeaders } from '@/lib/role'
 import { expireSessionOn401, getAuth, authHeaders } from '@/lib/auth'
 import { useRole } from '@/lib/useRole'
@@ -29,11 +32,6 @@ interface ManagedUser {
   last_login: string | null
   tenant: string | null
   entities: UserEntity[]
-  /** Service Provider this login IS (crm.Resource). Bound = the user sees only
-   *  that provider's own customers and chats. null/absent = unbound.
-   *  Still honoured server-side; no longer edited from this table. */
-  resource_id?: number | null
-  resource_name?: string | null
   /** Contact this login IS — a registered customer who signs in to use the
    *  integrations connected against their own record. null/absent = unbound. */
   contact_id?: number | null
@@ -48,17 +46,18 @@ interface RoleRow {
   user_count: number
 }
 
-/** /api/v1/entities row — the pool the brand-access picker chooses from. */
+/** /api/v1/entities row — the pool the entity-access grid chooses from. */
 interface EntityRow {
   id: number
   name: string
   slug: string
   tenant: string
+  parent_id: number | null
   is_active: boolean
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  // Canonical user management lives at /api/v1/users (DRF). Errors use the v1
+  // Canonical user management lives at /api/v1/users. Errors use the v1
   // envelope {error:{message}}; we also read legacy {detail} for safety.
   const res = await fetch(`${API}/v1/${path}`, {
     headers: { 'Content-Type': 'application/json', ...roleHeaders() },
@@ -74,7 +73,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 const inputCls =
-  'w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400'
+  'h-9 w-full rounded-lg border border-line-strong bg-card px-3 text-[13px] text-text-primary outline-none transition-colors placeholder:text-text-faint focus:border-text-primary'
 
 const BUILTIN_ROLES = ['superadmin', 'admin', 'agent']
 
@@ -84,60 +83,17 @@ const FALLBACK_ROLE_LABEL: Record<string, string> = {
   agent: 'Agent',
 }
 
-// superadmin = blue entity, admin = neutral zinc, agent = amber, custom = purple
+// superadmin = ink, admin = neutral, agent = ochre, custom = plum
 const ROLE_CHIP: Record<string, string> = {
-  superadmin: 'bg-brand-400/15 text-brand-200',
-  admin: 'bg-fill-hover text-text-mid',
-  agent: 'bg-amber/15 text-amber-300',
+  superadmin: 'bg-primary text-on-primary',
+  admin: 'border border-line-strong text-text-high',
+  agent: 'bg-amber/15 text-[color:var(--amber-ink)]',
 }
-const CUSTOM_ROLE_CHIP = 'bg-purple/15 text-purple-300'
+const CUSTOM_ROLE_CHIP = 'bg-purple/15 text-[color:var(--purple-ink)]'
 
 const humanize = (slug: string) =>
   FALLBACK_ROLE_LABEL[slug] ||
   slug.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-
-/** Toggleable entity chips — used by both the add-user form and the per-user
- * brand-access editor. */
-function EntityPicker({
-  entities,
-  selected,
-  onToggle,
-}: {
-  entities: EntityRow[]
-  selected: number[]
-  onToggle: (id: number) => void
-}) {
-  if (entities.length === 0) {
-    return (
-      <span className="text-[10.5px] text-text-muted">
-        No entities yet — create one under Entities.
-      </span>
-    )
-  }
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {entities.map((b) => {
-        const on = selected.includes(b.id)
-        return (
-          <button
-            type="button"
-            key={b.id}
-            aria-pressed={on}
-            onClick={() => onToggle(b.id)}
-            className={`cursor-pointer rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-              on
-                ? 'border-brand-400/40 bg-brand-400/15 text-brand-200'
-                : 'border-line-strong bg-surface text-text-muted hover:text-text-high'
-            }`}
-          >
-            {on ? '✓ ' : ''}
-            {b.name}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
 
 function Field({
   label,
@@ -156,7 +112,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[11px] font-bold text-text-high">{label}</span>
+      <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">{label}</span>
       <input
         type={secret ? 'password' : 'text'}
         value={value}
@@ -168,8 +124,19 @@ function Field({
         autoComplete={secret ? 'new-password' : 'off'}
         className={inputCls}
       />
-      {hint && <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">{hint}</span>}
+      {hint && <span className="mt-1 block text-[11px] leading-relaxed text-text-muted">{hint}</span>}
     </label>
+  )
+}
+
+function ErrorBox({ text }: { text: string }) {
+  return (
+    <div
+      role="alert"
+      className="rounded-lg border border-red/30 bg-red/10 px-3 py-2 text-[12.5px] font-semibold text-[color:var(--red-ink)]"
+    >
+      {text}
+    </div>
   )
 }
 
@@ -184,10 +151,14 @@ function Field({
  * /api/auth/roles — built-ins plus any custom role — not a hardcoded 3. Custom
  * roles are agent-level for assignment tiering: an admin may assign agent + any
  * custom role, but never admin/superadmin.
+ *
+ * Entity access uses the Permissions-page card pattern: one card per main
+ * entity holding it and its sub-entities.
  */
 export function UsersSettings() {
   const { role: myRole, ready } = useRole()
-  const me = getAuth()?.username
+  const [me, setMe] = useState<string | undefined>(undefined)
+  useEffect(() => setMe(getAuth()?.username), [])
   const [users, setUsers] = useState<ManagedUser[] | null>(null)
   // Seed with the built-ins so the role selectors never flash empty before the
   // /api/auth/roles fetch (which adds any custom roles) resolves.
@@ -199,18 +170,17 @@ export function UsersSettings() {
   // reset-password modal (one row at a time)
   const [pwFor, setPwFor] = useState<number | null>(null)
   const [pwDraft, setPwDraft] = useState('')
-  // brand-access modal (agents)
+  // entity-access modal (agents)
   const [entitiesFor, setEntitiesFor] = useState<number | null>(null)
   const [entitiesDraft, setEntitiesDraft] = useState<number[]>([])
   // add-user modal
   const [showAdd, setShowAdd] = useState(false)
-  // add-user form
   const [newUsername, setNewUsername] = useState('')
   const [newName, setNewName] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [newRole, setNewRole] = useState<string>('agent')
   const [newEntityIds, setNewEntityIds] = useState<number[]>([])
-  // entity pool for the pickers (RBAC entities, /api/v1)
+  // entity pool for the access grid (RBAC entities, /api/v1)
   const [entityPool, setEntityPool] = useState<EntityRow[]>([])
   // Contact pool for the customer-login binding
   const [contactPool, setContactPool] = useState<{ id: number; name: string; phone: string }[]>([])
@@ -252,15 +222,26 @@ export function UsersSettings() {
       )
   }, [refresh])
 
-  const toggleIn = (list: number[], id: number) =>
-    list.includes(id) ? list.filter((x) => x !== id) : [...list, id]
-
   const roleLabel = (slug: string) => roleOptions.find((r) => r.slug === slug)?.label || humanize(slug)
   const roleChip = (slug: string) => ROLE_CHIP[slug] || CUSTOM_ROLE_CHIP
   /** Roles the CURRENT operator may assign. Superadmin: all. Admin: agent-level
    *  only (agent + any custom) — never admin/superadmin. */
   const assignableRoles = (): RoleRow[] =>
-    (myRole === 'superadmin' ? roleOptions : roleOptions.filter((r) => r.slug !== 'admin' && r.slug !== 'superadmin'))
+    myRole === 'superadmin' ? roleOptions : roleOptions.filter((r) => r.slug !== 'admin' && r.slug !== 'superadmin')
+
+  const roleSelectOptions: SelectOption[] = roleOptions.map((r) => ({
+    value: r.slug,
+    label: r.label,
+    group: r.is_system ? 'Built-in roles' : 'Custom roles',
+  }))
+
+  const contactOptions = useMemo<SelectOption[]>(
+    () => [
+      { value: '', label: '— none —' },
+      ...contactPool.map((c) => ({ value: String(c.id), label: c.name, hint: c.phone })),
+    ],
+    [contactPool],
+  )
 
   const run = async (fn: () => Promise<unknown>, okText?: string) => {
     setBusy(true)
@@ -368,12 +349,18 @@ export function UsersSettings() {
       setEntitiesFor(null)
     }, `Entity access updated for ${u.username}.`)
 
+  // entity name lookup with the tree's main/sub knowledge, for the table chips
+  const entityDepth = useMemo(
+    () => new Map(orderEntityTree(entityPool).map((o) => [o.row.id, o.depth])),
+    [entityPool],
+  )
+
   if (!ready) return null // role resolves after mount — don't flash the denial
 
   if (myRole === 'agent') {
     return (
-      <div className="flex items-center gap-2 py-6 text-[12.5px] text-text-muted">
-        <ShieldAlert size={15} className="text-amber-300" aria-hidden />
+      <div className="flex items-center gap-2 py-6 text-[13px] text-text-muted">
+        <ShieldAlert size={15} className="text-[color:var(--amber-ink)]" aria-hidden />
         Users are managed by admins.
       </div>
     )
@@ -381,9 +368,7 @@ export function UsersSettings() {
 
   if (users === null) {
     return (
-      <div className="py-6 text-[12px] text-text-muted">
-        User management unavailable — is the backend API running?
-      </div>
+      <div className="py-6 text-[13px] text-text-muted">User management unavailable — is the backend API running?</div>
     )
   }
 
@@ -396,12 +381,10 @@ export function UsersSettings() {
       render: (u) => (
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-[13px] font-semibold text-text-high">{u.username}</span>
-            {u.username === me && <span className="text-[10.5px] font-bold text-text-muted">(you)</span>}
+            <span className="text-[13.5px] font-semibold text-text-heading">{u.username}</span>
+            {u.username === me && <span className="text-[11px] font-semibold text-text-muted">(you)</span>}
           </div>
-          <div className="mt-0.5 text-[11px] text-text-muted">
-            {u.name || '—'}
-          </div>
+          {u.name && u.name !== u.username && <div className="mt-0.5 text-[11.5px] text-text-muted">{u.name}</div>}
         </div>
       ),
     },
@@ -409,25 +392,20 @@ export function UsersSettings() {
       key: 'role',
       header: 'Role',
       sortable: true,
-      width: 150,
+      width: 170,
       value: (u) => roleLabel(u.role),
       render: (u) =>
         isSuper ? (
-          <select
+          <Select
             value={u.role}
             disabled={busy}
-            onChange={(e) => setRole(u, e.target.value)}
-            aria-label={`Role for ${u.username}`}
-            className="cursor-pointer rounded-[7px] border border-line-strong bg-surface px-2.5 py-1.5 text-[12px] font-semibold text-text-high outline-none"
-          >
-            {roleOptions.map((r) => (
-              <option key={r.slug} value={r.slug}>
-                {r.label}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => v !== u.role && setRole(u, v)}
+            options={roleSelectOptions}
+            ariaLabel={`Role for ${u.username}`}
+            className="w-[150px]"
+          />
         ) : (
-          <span className={`rounded-full px-2 py-px text-[10px] font-bold uppercase ${roleChip(u.role)}`}>
+          <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${roleChip(u.role)}`}>
             {roleLabel(u.role)}
           </span>
         ),
@@ -440,67 +418,72 @@ export function UsersSettings() {
       value: (u) => (u.active ? 'active' : 'deactivated'),
       render: (u) =>
         u.active ? (
-          <span className="rounded-full bg-green/15 px-2 py-px text-[10px] font-bold text-green-300">Active</span>
+          <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[color:var(--green-ink)]">
+            <span className="h-1.5 w-1.5 rounded-full bg-green" aria-hidden /> Active
+          </span>
         ) : (
-          <span className="rounded-full bg-red/15 px-2 py-px text-[10px] font-bold text-red-300">Deactivated</span>
+          <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[color:var(--red-ink)]">
+            <span className="h-1.5 w-1.5 rounded-full bg-red" aria-hidden /> Deactivated
+          </span>
         ),
     },
     {
       key: 'entities',
-      header: 'Entities',
-      width: 190,
+      header: 'Entity access',
+      width: 220,
+      value: (u) => u.entities.map((e) => e.name).join(' '),
       render: (u) =>
-        u.role !== 'agent' ? (
-          <span className="text-[10.5px] text-text-faint">—</span>
+        u.role === 'admin' || u.role === 'superadmin' ? (
+          <span className="text-[12px] text-text-muted">All entities</span>
         ) : u.entities.length === 0 ? (
-          <span className="text-[10.5px] text-amber-300">No access</span>
+          <span className="text-[12px] text-text-muted">Whole organization</span>
         ) : (
           <div className="flex flex-wrap items-center gap-1">
             {u.entities.slice(0, 3).map((b) => (
-              <span key={b.id} className="rounded-full bg-fill-hover px-2 py-px text-[10px] font-semibold text-text-mid">
+              <span
+                key={b.id}
+                className="inline-flex items-center gap-1 rounded-md border border-line bg-well px-1.5 py-px text-[11px] font-semibold text-text-mid"
+              >
+                {entityDepth.get(b.id) === 0 && (
+                  <span className="rounded-sm bg-primary px-1 text-[8.5px] font-bold uppercase tracking-[0.05em] text-on-primary">
+                    Main
+                  </span>
+                )}
                 {b.name}
               </span>
             ))}
-            {u.entities.length > 3 && <span className="text-[10px] text-text-faint">+{u.entities.length - 3}</span>}
+            {u.entities.length > 3 && <span className="text-[11px] text-text-faint">+{u.entities.length - 3}</span>}
           </div>
         ),
     },
     {
       key: 'contact',
-      header: 'Contact',
-      width: 210,
+      header: 'Signs in as contact',
+      width: 220,
       value: (u) => u.contact_name ?? '',
       render: (u) =>
         !canManage(u) ? (
           u.contact_id ? (
-            <span className={`rounded-full px-2 py-px text-[10px] font-bold ${CUSTOM_ROLE_CHIP}`}>
-              {u.contact_name || `#${u.contact_id}`}
-            </span>
+            <span className="text-[12px] font-semibold text-text-high">{u.contact_name || `#${u.contact_id}`}</span>
           ) : (
-            <span className="text-[10.5px] text-text-faint">—</span>
+            <span className="text-[12px] text-text-faint">—</span>
           )
         ) : (
-          <select
+          <Select
             // The bound contact may be missing from the pool (another tenant,
-            // list cap) — the fallback <option> keeps its name visible instead
-            // of showing a blank select.
-            value={u.contact_id ?? ''}
+            // list cap) — the extra option keeps its name visible.
+            value={u.contact_id ? String(u.contact_id) : ''}
             disabled={busy}
-            onChange={(e) => setBoundContact(u, e.target.value)}
-            aria-label={`Contact for ${u.username}`}
-            className="w-full cursor-pointer rounded-[7px] border border-line-strong bg-surface px-2.5 py-1.5 text-[12px] font-semibold text-text-high outline-none"
-          >
-            <option value="">— none —</option>
-            {u.contact_id != null && !contactPool.some((c) => c.id === u.contact_id) && (
-              <option value={u.contact_id}>{u.contact_name || `#${u.contact_id}`}</option>
-            )}
-            {contactPool.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-                {c.phone ? ` · ${c.phone}` : ''}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => v !== (u.contact_id ? String(u.contact_id) : '') && setBoundContact(u, v)}
+            options={
+              u.contact_id != null && !contactPool.some((c) => c.id === u.contact_id)
+                ? [...contactOptions, { value: String(u.contact_id), label: u.contact_name || `#${u.contact_id}` }]
+                : contactOptions
+            }
+            ariaLabel={`Contact for ${u.username}`}
+            searchable
+            className="w-[200px]"
+          />
         ),
     },
     {
@@ -510,20 +493,21 @@ export function UsersSettings() {
       width: 150,
       value: (u) => u.last_login ?? '',
       render: (u) => (
-        <span className="text-[11px] text-text-muted">
-          {u.last_login ? new Date(u.last_login).toLocaleString() : 'never'}
+        <span className="text-[12px] text-text-muted">
+          {u.last_login ? new Date(u.last_login).toLocaleString() : 'Never'}
         </span>
       ),
     },
     {
       key: 'actions',
       header: 'Actions',
+      srHeader: true,
       align: 'right',
       render: (u) => (
-        // Compact icon actions (with tooltips) so the row never wraps — matches
-        // the other tables (Contacts/Entities/Templates).
+        // Compact icon actions (with tooltips) so the row never wraps
         <div className="flex items-center justify-end gap-1">
-          {u.role === 'agent' && (
+          {/* the users API grants entity access to agents only */}
+          {u.role === 'agent' && canManage(u) && (
             <button
               disabled={busy}
               onClick={() => {
@@ -533,9 +517,9 @@ export function UsersSettings() {
               }}
               title="Entity access"
               aria-label={`Entity access for ${u.username}`}
-              className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:opacity-50"
+              className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:opacity-50"
             >
-              <Tags size={14} aria-hidden />
+              <Building2 size={14} aria-hidden />
             </button>
           )}
           {canManage(u) && (
@@ -549,7 +533,7 @@ export function UsersSettings() {
                 }}
                 title="Reset password"
                 aria-label={`Reset password for ${u.username}`}
-                className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:opacity-50"
+                className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:opacity-50"
               >
                 <KeyRound size={14} aria-hidden />
               </button>
@@ -558,8 +542,8 @@ export function UsersSettings() {
                 onClick={() => toggleActive(u)}
                 title={u.active ? 'Deactivate' : 'Reactivate'}
                 aria-label={`${u.active ? 'Deactivate' : 'Reactivate'} ${u.username}`}
-                className={`grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg transition-colors hover:bg-fill-hover disabled:opacity-50 ${
-                  u.active ? 'text-text-muted hover:text-red-300' : 'text-text-muted hover:text-green-300'
+                className={`grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover disabled:opacity-50 ${
+                  u.active ? 'hover:text-[color:var(--red-ink)]' : 'hover:text-[color:var(--green-ink)]'
                 }`}
               >
                 {u.active ? <UserX size={14} aria-hidden /> : <UserCheck size={14} aria-hidden />}
@@ -571,61 +555,75 @@ export function UsersSettings() {
     },
   ]
 
+  const modalOpen = showAdd || pwFor !== null || entitiesFor !== null
+  const entitiesFor_ = (u: { tenant: string | null }) =>
+    entityPool.filter((b) => !u.tenant || b.tenant === u.tenant)
+
   return (
-    <div className="flex flex-col gap-4 pt-3.5">
-      <p className="text-[11.5px] leading-relaxed text-text-mid">
-        Operator logins for this dashboard. Passwords are set here — a password reset or deactivation clears that
-        user&apos;s session token, signing them out everywhere immediately. The last active super admin can never be
-        demoted or deactivated.
+    <div className="flex flex-col gap-5 pt-4">
+      <p className="max-w-[760px] text-[13px] leading-relaxed text-text-mid">
+        Operator logins for this dashboard. A password reset or deactivation signs that user out everywhere
+        immediately, and the last active super admin can never be demoted or deactivated.
         {!isSuper && ' As an admin you can create and manage agent-level users in your own organization.'}
       </p>
 
-      {/* what each role (user group) can do — the built-in capability matrix */}
-      <div className="grid gap-2 sm:grid-cols-3">
+      {/* what each built-in role can do */}
+      <div className="grid gap-3 sm:grid-cols-3">
         {(
           [
             {
-              lbl: 'Super admin', chip: ROLE_CHIP.superadmin,
-              items: ['Everything, across every organization', 'App keys & global settings', 'Creates admins & agents', 'Any entity'],
+              slug: 'superadmin',
+              items: ['Everything, across every organization', 'App keys & global settings', 'Creates admins & agents'],
             },
             {
-              lbl: 'Admin', chip: ROLE_CHIP.admin,
-              items: ['Own organization only', 'Channel accounts, routing, flows, templates', 'Creates agent-level users + entity access', 'No app keys / global settings'],
+              slug: 'admin',
+              items: ['Own organization, every entity', 'Channels, routing, flows, templates, tags', 'Creates agent-level users'],
             },
             {
-              lbl: 'Agent', chip: ROLE_CHIP.agent,
-              items: ['Work queues: chats, calls, contacts', 'Only contacts on their assigned entities', 'No settings management'],
+              slug: 'agent',
+              items: ['Chats, calls and contacts', 'Only the entities assigned to them (and beneath)', 'No settings'],
             },
-          ] as { lbl: string; chip: string; items: string[] }[]
+          ] as { slug: string; items: string[] }[]
         ).map((c) => (
-          <div key={c.lbl} className="rounded-lg border border-line bg-fill p-3">
-            <span className={`rounded-full px-2 py-px text-[10px] font-bold uppercase ${c.chip}`}>{c.lbl}</span>
-            <ul className="mt-2 flex flex-col gap-1 text-[11px] leading-relaxed text-text-mid">
+          <div key={c.slug} className="rounded-xl border border-line bg-card p-3.5">
+            <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${ROLE_CHIP[c.slug]}`}>
+              {humanize(c.slug)}
+            </span>
+            <ul className="mt-2.5 flex flex-col gap-1 text-[12px] leading-relaxed text-text-mid">
               {c.items.map((i) => (
-                <li key={i}>· {i}</li>
+                <li key={i} className="flex gap-1.5">
+                  <span className="text-text-faint">—</span>
+                  {i}
+                </li>
               ))}
             </ul>
           </div>
         ))}
       </div>
-      <p className="-mt-1 text-[10.5px] leading-relaxed text-text-muted">
+      <p className="-mt-2 text-[11.5px] leading-relaxed text-text-muted">
         Custom roles (managed under Permissions) are agent-level for assignment and use whatever capabilities the
         permission matrix grants them.
       </p>
 
-      <p className="-mt-1 text-[10.5px] leading-relaxed text-text-muted">
-        Binding a login to a Service Provider scopes that user to their own customers and chats. Pair with the Provider
-        role.
-      </p>
+      {/* Failures raised while a modal is open render inside that modal; the
+          scrim would otherwise hide them. Successes always show here. */}
+      {msg && (msg.ok || !modalOpen) && (
+        <div
+          role={msg.ok ? 'status' : 'alert'}
+          className={`text-[12.5px] font-semibold ${msg.ok ? 'text-[color:var(--green-ink)]' : 'text-[color:var(--red-ink)]'}`}
+        >
+          {msg.text}
+        </div>
+      )}
 
-      {/* user table */}
       <DataTable
         columns={columns}
         rows={users}
         rowKey={(u) => u.id}
-        searchKeys={['user', 'role', 'provider']}
+        searchKeys={['user', 'role', 'entities', 'contact']}
         searchPlaceholder="Search users…"
         empty="No users yet."
+        pageSize={15}
         toolbarRight={
           <Button
             onClick={() => {
@@ -633,16 +631,10 @@ export function UsersSettings() {
               setShowAdd(true)
             }}
           >
-            <UserPlus size={13} aria-hidden /> Add user
+            <UserPlus size={14} aria-hidden /> Add user
           </Button>
         }
       />
-
-      {/* Failures raised while a modal is open render inside that modal (below);
-          the scrim would otherwise hide them. Successes always show here. */}
-      {msg && (msg.ok || !(showAdd || pwFor !== null || entitiesFor !== null)) && (
-        <div className={`text-[12px] font-semibold ${msg.ok ? 'text-green-300' : 'text-red-300'}`}>{msg.text}</div>
-      )}
 
       {/* add user modal */}
       <Modal
@@ -663,127 +655,104 @@ export function UsersSettings() {
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {msg && !msg.ok && (
-            <div
-              role="alert"
-              className="sm:col-span-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] font-semibold text-red-300"
-            >
-              {msg.text}
+        <div className="flex flex-col gap-4">
+          {msg && !msg.ok && <ErrorBox text={msg.text} />}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field
+              label="Username"
+              value={newUsername}
+              onChange={setNewUsername}
+              placeholder="e.g. agent2"
+              hint="Login name — must be unique."
+            />
+            <Field label="Display name" value={newName} onChange={setNewName} placeholder="e.g. Aina Rahman" />
+            <Field
+              label="Password"
+              value={newPassword}
+              onChange={setNewPassword}
+              placeholder="min 8 characters"
+              hint="Share it with the user out-of-band; you can reset it here any time."
+              secret
+            />
+            <div>
+              <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">Role</span>
+              <Select
+                value={newRole}
+                onChange={setNewRole}
+                size="md"
+                ariaLabel="Role"
+                options={assignableRoles().map((r) => ({
+                  value: r.slug,
+                  label: r.label,
+                  group: r.is_system ? 'Built-in roles' : 'Custom roles',
+                }))}
+              />
+              <span className="mt-1 block text-[11px] leading-relaxed text-text-muted">
+                Super admin: everything · Admin: own organization · Agent &amp; custom: assigned entities only.
+              </span>
+            </div>
+          </div>
+          {newRole === 'agent' && (
+            <div className="border-t border-line pt-4">
+              <span className="block text-[11.5px] font-bold text-text-high">Entity access</span>
+              <span className="mb-2.5 mt-0.5 block text-[11px] leading-relaxed text-text-muted">
+                An agent sees only the contacts and chats of the entities ticked here — and everything beneath them.
+                None ticked = the whole organization. Change it later with the entity button on their row.
+              </span>
+              <EntityAccessGrid entities={entityPool} value={newEntityIds} onChange={setNewEntityIds} disabled={busy} />
             </div>
           )}
-          <Field
-            label="Username"
-            value={newUsername}
-            onChange={setNewUsername}
-            placeholder="e.g. agent2"
-            hint="Login name — must be unique."
-          />
-          <Field label="Display name" value={newName} onChange={setNewName} placeholder="e.g. Aina Rahman" />
-          <Field
-            label="Password"
-            value={newPassword}
-            onChange={setNewPassword}
-            placeholder="min 8 characters"
-            hint="Share it with the user out-of-band; you can reset it here any time."
-            secret
-          />
-          <label className="block">
-            <span className="mb-1 block text-[11px] font-bold text-text-high">Role</span>
-            <select
-              value={newRole}
-              onChange={(e) => setNewRole(e.target.value)}
-              className="w-full cursor-pointer rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] font-semibold text-text-high outline-none"
-            >
-              {assignableRoles().map((r) => (
-                <option key={r.slug} value={r.slug}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
-            <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">
-              Super admin: everything · Admin: own tenant, all entities · Agent &amp; custom: assigned entities only.
-            </span>
-          </label>
         </div>
-        {newRole === 'agent' && (
-          <div className="mt-3">
-            <span className="mb-1.5 block text-[11px] font-bold text-text-high">Entity access</span>
-            <EntityPicker
-              entities={entityPool}
-              selected={newEntityIds}
-              onToggle={(id) => setNewEntityIds((d) => toggleIn(d, id))}
-            />
-            <span className="mt-1.5 block text-[10.5px] leading-relaxed text-text-muted">
-              An agent only sees contacts on their assigned entities (all entities must belong to one tenant). You can
-              change this later with the Entities button on their row.
-            </span>
-          </div>
-        )}
       </Modal>
 
       {/* reset-password modal */}
       {(() => {
         const pwUser = pwFor !== null ? users.find((u) => u.id === pwFor) : undefined
+        const close = () => {
+          setPwFor(null)
+          setPwDraft('')
+        }
         return (
           <Modal
             open={!!pwUser}
-            onClose={() => {
-              setPwFor(null)
-              setPwDraft('')
-            }}
+            onClose={close}
             title={pwUser ? `Reset password — ${pwUser.username}` : 'Reset password'}
             subtitle="Setting a new password signs the user out everywhere immediately."
             size="sm"
             footer={
               <>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setPwFor(null)
-                    setPwDraft('')
-                  }}
-                >
+                <Button variant="ghost" onClick={close}>
                   Cancel
                 </Button>
-                <Button
-                  variant="primary"
-                  disabled={busy || pwDraft.length < 8}
-                  onClick={() => pwUser && resetPassword(pwUser)}
-                >
+                <Button variant="primary" disabled={busy || pwDraft.length < 8} onClick={() => pwUser && resetPassword(pwUser)}>
                   {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null} Set password
                 </Button>
               </>
             }
           >
-            {msg && !msg.ok && (
-              <div
-                role="alert"
-                className="mb-3 block rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] font-semibold text-red-300"
-              >
-                {msg.text}
-              </div>
-            )}
-            {pwUser && (
-              <label className="block">
-                <span className="mb-1 block text-[11px] font-bold text-text-high">New password</span>
-                <input
-                  type="password"
-                  value={pwDraft}
-                  onChange={(e) => setPwDraft(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && resetPassword(pwUser)}
-                  placeholder={`New password for ${pwUser.username} (min 8 characters)`}
-                  autoComplete="new-password"
-                  aria-label={`New password for ${pwUser.username}`}
-                  className={inputCls}
-                />
-              </label>
-            )}
+            <div className="flex flex-col gap-3">
+              {msg && !msg.ok && <ErrorBox text={msg.text} />}
+              {pwUser && (
+                <label className="block">
+                  <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">New password</span>
+                  <input
+                    type="password"
+                    value={pwDraft}
+                    onChange={(e) => setPwDraft(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && resetPassword(pwUser)}
+                    placeholder="At least 8 characters"
+                    autoComplete="new-password"
+                    aria-label={`New password for ${pwUser.username}`}
+                    className={inputCls}
+                  />
+                </label>
+              )}
+            </div>
           </Modal>
         )
       })()}
 
-      {/* brand-access modal */}
+      {/* entity-access modal */}
       {(() => {
         const entitiesUser = entitiesFor !== null ? users.find((u) => u.id === entitiesFor) : undefined
         return (
@@ -791,10 +760,11 @@ export function UsersSettings() {
             open={!!entitiesUser}
             onClose={() => setEntitiesFor(null)}
             title={entitiesUser ? `Entity access — ${entitiesUser.username}` : 'Entity access'}
-            subtitle="An agent only sees contacts on their assigned entities."
-            size="md"
+            subtitle="Tick a main entity to grant everything under it, or open Manage to pick sub-entities one by one. None ticked = the whole organization."
+            size="lg"
             footer={
               <>
+                <span className="mr-auto text-[12px] text-text-muted">{entitiesDraft.length} selected</span>
                 <Button variant="ghost" onClick={() => setEntitiesFor(null)}>
                   Cancel
                 </Button>
@@ -804,21 +774,17 @@ export function UsersSettings() {
               </>
             }
           >
-            {msg && !msg.ok && (
-              <div
-                role="alert"
-                className="mb-3 block rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] font-semibold text-red-300"
-              >
-                {msg.text}
-              </div>
-            )}
-            {entitiesUser && (
-              <EntityPicker
-                entities={entityPool.filter((b) => !entitiesUser.tenant || b.tenant === entitiesUser.tenant)}
-                selected={entitiesDraft}
-                onToggle={(id) => setEntitiesDraft((d) => toggleIn(d, id))}
-              />
-            )}
+            <div className="flex flex-col gap-3">
+              {msg && !msg.ok && <ErrorBox text={msg.text} />}
+              {entitiesUser && (
+                <EntityAccessGrid
+                  entities={entitiesFor_(entitiesUser)}
+                  value={entitiesDraft}
+                  onChange={setEntitiesDraft}
+                  disabled={busy}
+                />
+              )}
+            </div>
           </Modal>
         )
       })()}

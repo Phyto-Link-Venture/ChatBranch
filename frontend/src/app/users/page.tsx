@@ -6,7 +6,7 @@ import { UsersSettings } from '@/components/settings/UsersSettings'
 
 export default function UsersPage() {
   return (
-    <AreaPage title="Users & Roles" subtitle="Operator logins, roles and entity access" Icon={Users}>
+    <AreaPage title="Users & Roles" eyebrow="Admin" subtitle="Operator logins, their roles and the entities they can see" Icon={Users}>
       <UsersSettings />
     </AreaPage>
   )

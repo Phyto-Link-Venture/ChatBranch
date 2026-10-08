@@ -8,7 +8,8 @@ export default function BindingsPage() {
   return (
     <AreaPage
       title="Bindings"
-      subtitle="Bind contacts, users, teams, entities and providers in bulk"
+      eyebrow="Admin"
+      subtitle="Who sees which entity, who is in which team, what is tagged — in one place"
       Icon={Link2}
     >
       <BindingsWorkbench />

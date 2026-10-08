@@ -657,6 +657,17 @@ sandbox mode.
   gaps the pickers were already advertising: `{{link}}`/`{{tracking_url}}` (off
   `Record.Data`), `{{account_number}}`, `{{best_contact_time}}`,
   `{{preferred_channel}}`, `{{last_contact_date}}`.
+- **Tags replace Service Providers** (2026-10-08). `Resource`/`ResourceLink`,
+  `ProviderScope`, the `resource_id` claim and `{{provider_<key>}}` are GONE.
+  `Tag` (palette-key colour, `applies_to` contact|entity|conversation, an
+  exclusive `group`, attribute field defs, entity scope = ScopeInherited) +
+  `TagAssignment` (values). ALL rules live in `Data/Tags/TagService.cs`: group
+  exclusivity, attribute validation, and `Contact.Tags` as a write-through
+  CACHE of tag names (both ways — a raw `tags` write via PATCH/import is
+  reconciled into the registry). Conversation tags stay on `Thread.Labels` as
+  slugs; the registry is their vocabulary (`lib/tags.ts useTags`). Attributes
+  render as `{{tag_<slug_with_underscores>_<key>}}`. Caps `tags.view` /
+  `tags.manage`; UI at `/tags` (Library). Tests: `TagsTests.cs`.
 - **Communication hub + analytics** (`calls/views.py`):
   `GET /api/contacts/<id>/channels` = the per-contact unified channel profile
   (identities across whatsapp/email/social + voice, carrying account + its

@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, Loader2, Plus, Tags, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
@@ -22,11 +23,6 @@ const inputCls =
   'w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400'
 
 const TARGET_META: Record<FieldTarget, { title: string; blurb: string; example: string }> = {
-  provider: {
-    title: 'Service Providers',
-    blurb: 'Labels on the delivery side — teachers, coaches, practitioners.',
-    example: 'e.g. Language (dropdown: English / Malay / Chinese), Subject, Years of experience',
-  },
   customer: {
     title: 'Customers',
     blurb: 'Labels on your contacts.',
@@ -38,10 +34,11 @@ const NEEDS_OPTIONS: FieldKind[] = ['select', 'multiselect']
 
 /**
  * Settings → Custom Fields: define the per-vertical labels that appear on the
- * Service Provider and Customer forms. This is CONFIGURATION (what fields
- * exist); the actual providers/customers are managed from the sidebar. Values
- * land in each row's `attributes` JSON, which the AI already reads — so a
- * "Language: Malay" label on a teacher reaches the bot's context.
+ * Customer form. This is CONFIGURATION (what fields exist); the contacts
+ * themselves are managed from the sidebar. Values land in each contact's
+ * `attributes` JSON, which the AI already reads — so a "Grade: 5" label on a
+ * customer reaches the bot's context. Fields that only make sense for one
+ * kind of contact (a driver's licence number) belong on a TAG instead.
  */
 export function CustomFieldsSettings() {
   const { role } = useRole()
@@ -52,10 +49,9 @@ export function CustomFieldsSettings() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [saving, setSaving] = useState<FieldTarget | null>(null)
-  const [dirty, setDirty] = useState<Record<FieldTarget, boolean>>({ provider: false, customer: false })
+  const [dirty, setDirty] = useState<Record<FieldTarget, boolean>>({ customer: false })
   // Live preview values (never saved) so admins can see how the form will look.
   const [preview, setPreview] = useState<Record<FieldTarget, Record<string, unknown>>>({
-    provider: {},
     customer: {},
   })
 
@@ -137,13 +133,15 @@ export function CustomFieldsSettings() {
     <div className="flex flex-col gap-5">
       <div>
         <div className="flex items-center gap-2">
-          <Tags size={15} color="#D9480F" aria-hidden />
+          <Tags size={15} className="text-brand-300" aria-hidden />
           <span className="text-[13px] font-bold text-text-high">Custom Fields</span>
         </div>
         <p className="mt-1 max-w-[640px] text-[11.5px] leading-relaxed text-text-muted">
-          Define the labels that appear on the Service Provider and Customer forms — so the app fits your
-          vertical instead of the other way round. Values are visible to the AI, so a provider&apos;s{' '}
-          <b>Language</b> or a customer&apos;s <b>Grade</b> informs its replies and matching.
+          Define the labels that appear on the Customer form — so the app fits your vertical instead of the
+          other way round. Values are visible to the AI, so a customer&apos;s <b>Grade</b> informs its replies.
+          Details that only apply to some contacts (a driver&apos;s licence number, an outside company&apos;s
+          contract end) belong on a <Link href="/tags" className="font-semibold text-brand-300 hover:underline">tag</Link>{' '}
+          with attributes instead.
         </p>
       </div>
 
@@ -226,7 +224,7 @@ export function CustomFieldsSettings() {
                             checked={f.required}
                             disabled={!canEdit}
                             onChange={(e) => patchField(t, i, { required: e.target.checked })}
-                            className="h-3.5 w-3.5 accent-emerald-500"
+                            className="h-3.5 w-3.5 accent-[color:var(--primary)]"
                           />
                           Required
                         </label>

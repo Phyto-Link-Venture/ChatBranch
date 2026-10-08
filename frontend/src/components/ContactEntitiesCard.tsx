@@ -1,160 +1,165 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { Loader2, Plus, X } from 'lucide-react'
-import { authHeaders } from '@/lib/auth'
-import { getRole } from '@/lib/role'
-import { useEntity } from '@/lib/EntityContext'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Building2, CornerDownRight, Loader2 } from 'lucide-react'
+import { Button } from '@/components/ui/Button'
+import { Modal } from '@/components/ui/Modal'
+import { EntityAccessGrid } from '@/components/bindings/EntityAccessGrid'
+import { orderEntityTree, type TreeEntity } from '@/components/bindings/groups'
+import { authHeaders, hasCap } from '@/lib/auth'
 import { useApp } from '@/lib/AppContext'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
-interface EntityRef {
-  slug: string
-  name: string
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API}/${path}`, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const d = data as { detail?: string; error?: { message?: string } }
+    throw new Error(d.detail || d.error?.message || `HTTP ${res.status}`)
+  }
+  return data as T
 }
 
 /**
- * Per-brand membership editor on the contact detail page. A contact profile is
- * shared tenant-wide; this shows which entities it is active on and lets an admin
- * link/unlink ONE entity at a time — WITHOUT deleting the shared profile (plain
- * contact delete removes it from every entity). Backed by
- * GET /v1/contacts/<id> (entities) + POST/DELETE /v1/contacts/<id>/entities.
+ * Which entities this contact belongs to, on the contact detail page. A contact
+ * profile is shared tenant-wide; linking/unlinking an entity never deletes it.
+ * Editing uses the Permissions-page card pattern (a card per main entity with
+ * its sub-entities) and saves a DIFF through POST /api/bindings/contact-entities.
  */
 export default function ContactEntitiesCard({ contactId }: { contactId: number }) {
-  const { entities: allEntities } = useEntity()
   const { reloadContacts } = useApp()
-  const [linked, setLinked] = useState<EntityRef[]>([])
+  const [pool, setPool] = useState<TreeEntity[]>([])
+  const [linked, setLinked] = useState<number[]>([])
+  const [draft, setDraft] = useState<number[]>([])
   const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [adding, setAdding] = useState(false)
   const [canEdit, setCanEdit] = useState(false)
-
-  useEffect(() => setCanEdit(['admin', 'superadmin'].includes(getRole())), [])
+  useEffect(() => setCanEdit(hasCap('contacts.manage')), [])
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`${API}/v1/contacts/${contactId}`, {
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      })
-      const data = await res.json().catch(() => ({}))
-      if (res.ok && Array.isArray(data.entities)) setLinked(data.entities as EntityRef[])
+      const [ents, members] = await Promise.all([
+        api<{ entities: TreeEntity[] }>('v1/entities'),
+        api<{ member_ids: number[] }>(`bindings/contact-entities?target=${contactId}`),
+      ])
+      setPool(ents.entities.map((e) => ({ id: e.id, name: e.name, parent_id: e.parent_id, slug: e.slug })))
+      setLinked(members.member_ids)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
     } finally {
       setLoading(false)
     }
   }, [contactId])
 
   useEffect(() => {
-    load()
+    void load()
   }, [load])
 
-  const mutate = async (method: 'POST' | 'DELETE', slug: string) => {
-    setBusy(slug)
+  const ordered = useMemo(() => orderEntityTree(pool), [pool])
+  const shown = ordered.filter((o) => linked.includes(o.row.id))
+  const byId = new Map(pool.map((e) => [e.id, e]))
+
+  const save = async () => {
+    setBusy(true)
     setError(null)
     try {
-      const res = await fetch(`${API}/v1/contacts/${contactId}/entities`, {
-        method,
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ entity: slug }),
+      const add = draft.filter((id) => !linked.includes(id))
+      const remove = linked.filter((id) => !draft.includes(id))
+      const d = await api<{ member_ids: number[] }>('bindings/contact-entities', {
+        method: 'POST',
+        body: JSON.stringify({ target: contactId, add, remove }),
       })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        throw new Error((data as { error?: { message?: string } }).error?.message || `HTTP ${res.status}`)
-      }
-      setAdding(false)
-      await load()
-      await reloadContacts()
+      setLinked(d.member_ids)
+      setEditing(false)
+      void reloadContacts()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
-      setBusy(null)
+      setBusy(false)
     }
   }
 
-  const linkedSlugs = new Set(linked.map((b) => b.slug))
-  const available = allEntities.filter((b) => !linkedSlugs.has(b.slug))
-
   return (
     <div className="rounded-2xl border border-line bg-card p-4">
-      <div className="mb-3 text-[12px] font-bold uppercase tracking-[0.06em] text-text-mid">Entities</div>
+      <div className="mb-3 flex items-baseline justify-between gap-2">
+        <div className="text-[12px] font-bold uppercase tracking-[0.06em] text-text-mid">Entities</div>
+        {canEdit && !loading && (
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(linked)
+              setError(null)
+              setEditing(true)
+            }}
+            className="text-[11px] font-semibold text-text-muted hover:text-text-high hover:underline"
+          >
+            Edit
+          </button>
+        )}
+      </div>
 
       {loading ? (
         <div className="flex items-center gap-2 text-[12px] text-text-muted">
           <Loader2 size={13} className="animate-spin" aria-hidden /> Loading…
         </div>
+      ) : shown.length === 0 ? (
+        <p className="text-[12px] text-text-muted">Not linked to any entity.</p>
       ) : (
-        <>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {linked.length === 0 && (
-              <span className="text-[11.5px] text-text-muted">Not linked to any entity.</span>
-            )}
-            {linked.map((b) => (
-              <span
-                key={b.slug}
-                className="flex items-center gap-1 rounded-full bg-brand-400/10 px-2.5 py-1 text-[11px] font-semibold text-brand-300"
-              >
-                {b.name}
-                {canEdit && (
-                  <button
-                    onClick={() => mutate('DELETE', b.slug)}
-                    disabled={busy === b.slug}
-                    title={`Remove from ${b.name}`}
-                    aria-label={`Remove from ${b.name}`}
-                    className="cursor-pointer text-brand-300/70 transition-colors hover:text-red-300 disabled:opacity-50"
-                  >
-                    {busy === b.slug ? <Loader2 size={11} className="animate-spin" /> : <X size={12} />}
-                  </button>
+        <ul className="flex flex-col gap-1.5">
+          {shown.map(({ row, depth }) => {
+            const parent = row.parent_id !== null ? byId.get(row.parent_id) : undefined
+            return (
+              <li key={row.id} className="flex min-w-0 items-center gap-1.5 text-[12.5px]">
+                {depth === 0 ? (
+                  <span className="shrink-0 rounded-sm bg-primary px-1 py-px text-[9px] font-bold uppercase tracking-[0.05em] text-on-primary">
+                    Main
+                  </span>
+                ) : (
+                  <CornerDownRight size={12} className="shrink-0 text-text-faint" aria-hidden />
                 )}
-              </span>
-            ))}
+                <span className="truncate font-semibold text-text-high">{row.name}</span>
+                {parent && <span className="truncate text-[11.5px] text-text-muted">under {parent.name}</span>}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {error && !editing && <div className="mt-2 text-[12px] font-semibold text-[color:var(--red-ink)]">{error}</div>}
 
-            {canEdit && available.length > 0 && !adding && (
-              <button
-                onClick={() => setAdding(true)}
-                className="flex items-center gap-1 rounded-full border border-dashed border-line-strong px-2.5 py-1 text-[11px] font-semibold text-text-muted transition-colors hover:bg-fill-hover"
-              >
-                <Plus size={12} /> Add entity
-              </button>
-            )}
-          </div>
-
-          {canEdit && adding && (
-            <div className="mt-2 flex items-center gap-2">
-              <select
-                defaultValue=""
-                onChange={(e) => e.target.value && mutate('POST', e.target.value)}
-                disabled={!!busy}
-                className="rounded-lg border border-line-strong bg-card px-2 py-1.5 text-[11.5px] text-text-high outline-none focus:border-brand-400"
-              >
-                <option value="" disabled>
-                  Select an entity…
-                </option>
-                {available.map((b) => (
-                  <option key={b.slug} value={b.slug}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={() => setAdding(false)}
-                className="text-[11px] font-semibold text-text-muted hover:text-text-high"
-              >
-                Cancel
-              </button>
+      <Modal
+        open={editing}
+        onClose={() => setEditing(false)}
+        title="Entities for this contact"
+        subtitle="A contact on a sub-entity is visible to its main entity. Unlinking never deletes the contact."
+        size="lg"
+        footer={
+          <>
+            <span className="mr-auto text-[12px] text-text-muted">{draft.length} linked</span>
+            <Button variant="ghost" onClick={() => setEditing(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={save} disabled={busy}>
+              {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Building2 size={13} aria-hidden />} Save
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          {error && (
+            <div role="alert" className="rounded-lg border border-red/30 bg-red/10 px-3 py-2 text-[12.5px] font-semibold text-[color:var(--red-ink)]">
+              {error}
             </div>
           )}
-
-          {error && <div className="mt-2 text-[11px] font-semibold text-red-300">{error}</div>}
-          {canEdit && (
-            <p className="mt-2.5 text-[10.5px] leading-[1.5] text-text-faint">
-              Removing an entity unlinks this contact from it only — the shared profile and its
-              other entities stay. Deleting the contact removes it from every entity.
-            </p>
-          )}
-        </>
-      )}
+          <EntityAccessGrid entities={pool} value={draft} onChange={setDraft} disabled={busy} />
+        </div>
+      </Modal>
     </div>
   )
 }

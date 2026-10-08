@@ -29,7 +29,7 @@ import { initials, methodLabel, primaryRecord } from '@/lib/mocks'
 import { StatusBadge, Pill } from '@/components/ui/Badges'
 import ChannelHub from '@/components/ChannelHub'
 import ContactEntitiesCard from '@/components/ContactEntitiesCard'
-import ContactProvidersCard from '@/components/ContactProvidersCard'
+import ContactTagsCard from '@/components/contacts/ContactTagsCard'
 import { fetchCustomFields, formatFieldValue, type FieldDef } from '@/lib/customFields'
 import { DEFAULT_WORKFLOWS } from '@/lib/flow/defaultWorkflows'
 import type { FlowNode } from '@/lib/flow/types'
@@ -477,9 +477,8 @@ export default function ContactDetailPage() {
           {/* Per-brand membership — link/unlink without deleting the profile */}
           <ContactEntitiesCard contactId={d.id} />
 
-          {/* Which providers (teacher / supplier…) this contact is bound to —
-              the contact ↔ provider binding seen from the contact's side. */}
-          <ContactProvidersCard contactId={d.id} />
+          {/* Registry tags (boss / employee / driver…) with their attribute values */}
+          <ContactTagsCard contactId={d.id} />
         </div>
 
         {/* Live communications — recent few by default, full log on demand */}
