@@ -15,6 +15,8 @@ import { ChannelLogo, channelLabel } from '@/components/ui/ChannelLogo'
 import ChannelHub from '@/components/ChannelHub'
 import ContactEntitiesCard from '@/components/ContactEntitiesCard'
 import ContactTagsCard from '@/components/contacts/ContactTagsCard'
+import { TagChip } from '@/components/tags/TagChip'
+import { useTags } from '@/lib/tags'
 import { fetchCustomFields, formatFieldValue, type FieldDef } from '@/lib/customFields'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
@@ -68,6 +70,8 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 
 export default function ContactDetailPage() {
   const params = useParams()
+  // registry colours for the header's tag chips (Library → Tags)
+  const { tags: contactTagDefs } = useTags('contact')
   const id = Number(params.id)
   const { contacts, reloadContacts } = useApp()
 
@@ -216,9 +220,12 @@ export default function ContactDetailPage() {
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <StatusBadge status={d.status} />
             {d.tags.map((t) => (
-              <span key={t} className="rounded-full border border-line-strong px-2 py-0.5 text-[11.5px] text-text-mid">
-                {t}
-              </span>
+              <TagChip
+                key={t}
+                name={t}
+                size="sm"
+                color={contactTagDefs.find((x) => x.name.toLowerCase() === t.toLowerCase())?.color ?? 'ink'}
+              />
             ))}
           </div>
         </div>

@@ -81,6 +81,7 @@ import { createView, deleteView, listViews, reorderViews, updateView, type Saved
 import { getRole } from '@/lib/role'
 import { useApp } from '@/lib/AppContext'
 import { tagMeta } from '@/lib/tags'
+import PendingDraftBanner from '@/components/chats/PendingDraftBanner'
 import { subscribeChatStream } from '@/lib/chatStream'
 import './chats.css'
 
@@ -1641,6 +1642,14 @@ function ChatsPage() {
                   </div>
                 </div>
               ) : (
+                <>
+                {activeId && (
+                  <PendingDraftBanner
+                    channel={activeId.channel}
+                    threadKey={activeId.key}
+                    refreshToken={active?.messages.length}
+                  />
+                )}
                 <div className="shrink-0 border-t border-line px-3 pb-3 pt-2 sm:px-4">
                   <div className="mb-2 flex gap-1" role="tablist" aria-label="Composer mode">
                     <button
@@ -1788,6 +1797,7 @@ function ChatsPage() {
                     </div>
                   )}
                 </div>
+                </>
               )}
             </>
           )}

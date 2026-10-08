@@ -6,7 +6,7 @@ import { ExternalLink, Link2, Mail, X } from 'lucide-react'
 import { Select } from '@/components/ui/Select'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import ChannelHub from '@/components/ChannelHub'
-import { CONVERSATION_TAGS } from '@/lib/tags'
+import { useTags } from '@/lib/tags'
 import { tint } from '@/lib/color'
 import { Avatar, BetaChip } from './MessageParts'
 import {
@@ -77,6 +77,8 @@ export default function ChatInfoPanel({
   onSetStatus: (s: ThreadStatus) => void
   onSaveLabels: (labels: string[]) => void
 }) {
+  // Conversation labels come from the Tags registry (Library → Tags).
+  const { metas: conversationTags } = useTags('conversation')
   const labels = active.labels ?? []
   const meta = CHANNEL_META[active.channel]
   return (
@@ -242,7 +244,7 @@ export default function ChatInfoPanel({
 
       <InfoCard title="Labels">
         <div className="flex flex-wrap gap-1.5">
-          {CONVERSATION_TAGS.map((tg) => {
+          {conversationTags.map((tg) => {
             const on = labels.includes(tg.slug)
             return (
               <button
@@ -266,10 +268,10 @@ export default function ChatInfoPanel({
           })}
         </div>
         {/* legacy free-text labels not in the registry — still removable */}
-        {labels.some((l) => !CONVERSATION_TAGS.some((t) => t.slug === l)) && (
+        {labels.some((l) => !conversationTags.some((t) => t.slug === l)) && (
           <div className="mt-2 flex flex-wrap gap-1">
             {labels
-              .filter((l) => !CONVERSATION_TAGS.some((t) => t.slug === l))
+              .filter((l) => !conversationTags.some((t) => t.slug === l))
               .map((label) => (
                 <span key={label} className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-[11.5px] text-text-mid">
                   {label}

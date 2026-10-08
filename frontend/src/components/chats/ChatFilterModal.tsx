@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { MultiSelect, Select, type SelectOption } from '@/components/ui/Select'
 import { EntityMultiPicker } from '@/components/ui/EntityPicker'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
-import { CONVERSATION_TAGS } from '@/lib/tags'
+import { useTags } from '@/lib/tags'
 import {
   CHANNEL_META,
   CHANNELS,
@@ -167,6 +167,8 @@ export default function ChatFilterModal({
   onApply: (f: InboxFilters) => void
   onSaveView: (name: string, f: InboxFilters) => Promise<void>
 }) {
+  // Conversation labels come from the Tags registry (Library → Tags).
+  const { metas: conversationTags } = useTags('conversation')
   const [draft, setDraft] = useState<InboxFilters>(initial)
   const [count, setCount] = useState<number | null>(null)
   const [counting, setCounting] = useState(false)
@@ -230,10 +232,10 @@ export default function ChatFilterModal({
     { value: 'none', label: 'No team' },
   ]
   const labelOptions: SelectOption[] = [
-    ...CONVERSATION_TAGS.map((t) => ({ value: t.slug, label: t.label })),
+    ...conversationTags.map((t) => ({ value: t.slug, label: t.label })),
     // keep a saved view's legacy free-text label visible
     ...draft.labels
-      .filter((l) => !CONVERSATION_TAGS.some((t) => t.slug === l))
+      .filter((l) => !conversationTags.some((t) => t.slug === l))
       .map((l) => ({ value: l, label: l })),
   ]
   const tagOptions: SelectOption[] = Array.from(new Set([...contactTags, ...draft.tags]))
