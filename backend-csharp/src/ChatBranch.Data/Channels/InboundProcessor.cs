@@ -72,6 +72,9 @@ public class InboundProcessor
         }
         catch { }
 
+        // page the people who own this conversation (assignee → team → admins)
+        NotificationService.NotifyInboundMessage(_db, thread, text);
+
         // coverage gate: AI auto-reply only for threads linked to a contact + AI on
         if (thread.ContactId != null && thread.AiEnabled && !thread.OptedOut)
             TryAiReply(thread);

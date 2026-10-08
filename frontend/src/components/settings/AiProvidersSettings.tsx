@@ -13,8 +13,9 @@ import {
   SlidersHorizontal,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { Select, type SelectOption } from '@/components/ui/Select'
 import { roleHeaders } from '@/lib/role'
-import { useRole } from '@/lib/useRole'
+import { useAccess } from '@/lib/useAccess'
 import { expireSessionOn401 } from '@/lib/auth'
 import { useSettingsDirty } from './SettingsDirtyContext'
 
@@ -138,31 +139,25 @@ function ModelPicker({
 
   return (
     <>
-      <select
+      <Select
         value={isCustom ? CUSTOM : value}
         disabled={disabled}
-        onChange={(e) => {
-          const v = e.target.value
+        onChange={(v) => {
           if (v === CUSTOM) setForceCustom(true)
           else {
             setForceCustom(false)
             onChange(v)
           }
         }}
-        className={`${inputCls} ${disabled ? 'cursor-default bg-fill-subtle' : ''}`}
-      >
-        <option value="">Provider default</option>
-        {catalog.map((g) => (
-          <optgroup key={g.provider} label={g.label}>
-            {g.models.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-        <option value={CUSTOM}>Custom…</option>
-      </select>
+        options={[
+          { value: '', label: 'Provider default' },
+          ...catalog.flatMap((g): SelectOption[] => g.models.map((m) => ({ value: m, label: m, group: g.label }))),
+          { value: CUSTOM, label: 'Custom…', group: 'Other' },
+        ]}
+        size="md"
+        searchable
+        className="w-full"
+      />
       {isCustom && (
         <input
           value={value}
@@ -255,7 +250,7 @@ function OrderList({
  * the chat provider as a dropdown from `chat_provider_options`, ints as number
  * inputs honouring `min`, each with its `help` and a provenance chip.
  *
- * GET works for any bearer role; PUT is superadmin-only, so non-superadmins see
+ * GET works for any bearer role; PUT needs settings.ai_keys.manage, so others see
  * every value read-only. Saves go through the shared header Save/Discard cluster
  * (SettingsDirtyContext) and send ONLY changed fields — untouched masked secrets
  * still carry the "••••" placeholder so the backend treats them as unchanged,
@@ -263,8 +258,9 @@ function OrderList({
  * source from .env to Settings).
  */
 export function AiProvidersSettings() {
-  const { role, ready } = useRole()
-  const isSuper = role === 'superadmin'
+  // Editing = the settings.ai_keys.manage capability (superadmin by default).
+  const { ready, can } = useAccess()
+  const isSuper = can('settings.ai_keys.manage')
 
   const [meta, setMeta] = useState<FieldMeta[] | null>(null)
   const [options, setOptions] = useState<string[]>([])
@@ -399,7 +395,7 @@ export function AiProvidersSettings() {
         </span>
         {!isSuper && (
           <span className="flex items-center gap-1 text-[10.5px] font-semibold text-text-muted">
-            <Lock size={11} aria-hidden /> superadmin only to edit
+            <Lock size={11} aria-hidden /> read-only — needs the AI keys permission
           </span>
         )}
       </div>
@@ -476,18 +472,15 @@ export function AiProvidersSettings() {
                     </span>
 
                     {f.kind === 'select' ? (
-                      <select
+                      <Select
                         value={val}
                         disabled={!isSuper}
-                        onChange={(e) => edit(f.key, e.target.value)}
-                        className={`${inputCls} ${isSuper ? '' : 'cursor-default bg-fill-subtle'}`}
-                      >
-                        {options.map((o) => (
-                          <option key={o || 'auto'} value={o}>
-                            {providerLabel(o)}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(v) => edit(f.key, v)}
+                        options={options.map((o) => ({ value: o, label: providerLabel(o) }))}
+                        size="md"
+                        ariaLabel={f.label}
+                        className="w-full"
+                      />
                     ) : f.kind === 'model' ? (
                       <ModelPicker
                         value={val}

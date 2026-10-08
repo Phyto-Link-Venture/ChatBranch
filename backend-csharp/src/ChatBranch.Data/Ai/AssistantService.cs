@@ -83,6 +83,11 @@ public class AssistantService
                + $"({tz.Id}, UTC{local.ToString("zzz", CultureInfo.InvariantCulture)}).";
     }
 
+    /// <summary>The SKILLS prompt section for an entity (voice dispatch reads it
+    /// too): enabled instruction skills in scope.</summary>
+    public string SkillsBlock(int? entityId, string? channel = null) =>
+        SkillsBlock(_skills.InScope(entityId, channel));
+
     /// <summary>Prompt (instruction) skills only — tool and check skills reach the
     /// model as callable tools and as post-checks, not as prose.</summary>
     private static string SkillsBlock(IEnumerable<AgentSkill> inScope)

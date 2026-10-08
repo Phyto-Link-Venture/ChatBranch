@@ -11,8 +11,9 @@ ChatBranch — an industry-agnostic multi-channel conversation platform
    SQLite (EF Core). THE backend: contacts, the unified inbox, flows, the
    outbound queue, AI, integrations, RBAC. Root `/` 404s — it is API-only.
 2. **Voice agent worker** (`backend/voice_agent/`) — a **separate** long-lived
-   LiveKit Agents process (Python, framework-free). Dials over SIP, runs a
-   realtime speech model, writes results to `backend/data/`. NOT started by the
+   LiveKit Agents process (Node/TypeScript on `@livekit/agents`, no database).
+   The API dispatches it into each call's room; it runs the conversation and
+   writes results to the shared data dir (`backend/data/`). NOT started by the
    API.
 3. **Next.js dashboard** (`frontend/`, port 3000) — operator UI.
 4. **Baileys gateway** (`backend/baileys_service/`, port 3020) — Node sidecar
@@ -39,16 +40,18 @@ Or individually (what the root `package.json` scripts do):
 
 ```bash
 npm run dev:api      # C# API, :8090
-npm run dev:agent    # voice agent worker (separate terminal)
+npm run dev:agent    # voice agent worker, tsx (separate terminal)
 npm run dev:web      # Next.js, :3000 (separate terminal)
 npm run dev:baileys  # Baileys gateway, :3020 (separate terminal)
 ```
 
-First-time bootstrap: `npm install` then `npm run setup` (installs the frontend
-and the Baileys gateway). The API needs no bootstrap — SQLite is created and
-seeded on first boot (`Seed.Run`, additive `UpgradeSchema` for new columns).
-**Nothing in `.env` is required to boot**; with it empty the whole app runs in
-sandbox mode.
+First-time bootstrap: `npm install` then `npm run setup` (installs the frontend,
+the Baileys gateway and the voice agent). The API needs no bootstrap — SQLite
+is created and seeded on first boot (`Seed.Run`, additive `UpgradeSchema` for
+new columns). **Nothing in `.env` is required to boot**; with it empty the whole
+app runs in sandbox mode (the voice agent exits at once, naming the missing
+LIVEKIT_* keys). The API and the agent share ONE data dir: `CHATBRANCH_DATA_DIR`,
+default `backend/data` of the checkout (`VoiceAgentBridge.ResolveDataDir`).
 
 ## Architecture that isn't obvious from the tree
 
@@ -122,11 +125,14 @@ sandbox mode.
   omitting it is what leaves a page showing the previous outlet's data.
   Tests: `tests/test_entity_scoping.py`.
 - **Cross-process IPC with the voice agent stays file-based ON PURPOSE** —
-  the agent process is Django-free. `storage.py` writes/reads: live
-  transcripts (`data/live/{room}.json`), the operator instruction inbox
-  (`data/inbox/{room}.json`, consume-once), and final call records
-  (`data/calls.json`, mirrored into `crm.CallRecord` by `seed_demo`). The
-  WhatsApp call-signal files (`data/whatsapp/calls/`) are the same pattern.
+  the agent process never touches the database. `voice_agent/src/storage.ts`
+  writes/reads (atomically): live transcripts (`data/live/{room}.json`), the
+  operator instruction inbox (`data/inbox/{room}.json`, a list of
+  `{mode, text, ts}`, consume-once), final call records (`data/calls.json`,
+  folded into `CallRecord` + the `LlmUsage` ledger by `VoiceCallSync`),
+  per-contact `memory/{id}.md` and `pronunciation.json`. The C# side is
+  `ChatBranch.Data/Sidecars/VoiceAgentBridge.cs`. The WhatsApp call-signal
+  files (`data/whatsapp/calls/`) are the same pattern.
 - **`calls/lk.py` bridges Django → voice-agent code.** It adds `backend/voice_agent`
   to `sys.path` and imports `caller`/`storage` directly (the voice_agent dir is a
   plain script dir, not a package). `_AGENT_DIR` in `lk.py` is the join point — if
@@ -453,6 +459,20 @@ sandbox mode.
   throws into a webhook, and an unknown operator matches NOTHING rather than
   everything. `/api/automations/catalog` is the single vocabulary source the
   editor reads.
+- **Notifications + Settings sections** (2026-10-08). `NotificationService`
+  (ChatBranch.Data, root namespace) is the ONLY notification writer: org mute
+  `notif_<category>` → the recipient's own switch (`Profile.Preferences` JSON,
+  `notifications{}`) → "only assigned to me / my teams" for messages →
+  `RefKey` collapse (one unread row per conversation per user). Fail-open,
+  never throws. Inbound customer messages notify assignee → team members →
+  the tenant's admins (InboundProcessor, /simulate, widget). `/notifications`
+  is everyone's inbox (`/api/notifications*`); the bell keeps
+  `/api/auth/notifications`. Settings = sections of flat `/settings/<id>`
+  pages, each with its own capability (`SETTINGS_SECTIONS`), checked
+  server-side via `SettingsEndpoints.RequireCapability`. Appearance:
+  `/api/auth/preferences` + `/api/settings/appearance` (org default).
+  Account assignment is a Work module at `/assignments` (+ `POST
+  /api/whatsapp/assignments/rebalance`).
 - **Help Center** (`/help`, `/api/help/articles`, 2026-08-16) — published
   `KnowledgeItem`s, readable by anyone. `Published` is PUBLIC readability and is
   NOT `Active` (whether the AI may use it): an internal note is active and
@@ -505,9 +525,9 @@ sandbox mode.
   communication_style, sentiment_trend, ai_profile_summary).
   `memory.build_context` (~1500 chars, structured + recency, no embeddings
   on purpose) feeds a "CONTACT MEMORY" block into BOTH assistant.py and the
-  WhatsApp voice dispatch metadata (`memory` key → prompts.py) — chat and voice
-  share one memory. (Asymmetry worth knowing: memory is wired into the WhatsApp
-  dispatch builder only; SIP dials carry knowledge but not memory.) Persona =
+  voice dispatch metadata (`memory` key → `voice_agent/src/prompts.ts`) — chat
+  and voice share one memory. (The C# dispatch builder, `VoiceDispatch`, sends
+  memory, knowledge and skills on SIP and WhatsApp calls alike.) Persona =
   `HARD_RULES` (safety floor, never overridable) +
   `DEFAULT_PERSONA` (a neutral business assistant), overridable via Setting
   `aicore_persona` — `GET/PUT /api/aicore/persona` (PUT superadmin),
@@ -581,7 +601,7 @@ sandbox mode.
   `GET/POST /api/calls/script-templates`); it honours the SAME `callVia` as
   the AI voice call, so a script call runs over SIP **or** a linked WhatsApp
   number — the script rides the agent's `script` dispatch metadata key on
-  both transports, so neither the Baileys gateway nor agent.py needs a
+  both transports, so neither the Baileys gateway nor agent.ts needs a
   per-transport branch, and `baileys_calls.start_call`'s compliance gates
   (opt-out absolute, cold-call guard) apply unchanged. Script calls force a
   literal-TTS voice (`engine._script_call_voice` auto-picks a ready ElevenLabs
@@ -898,45 +918,61 @@ sandbox mode.
 
 ## Voice agent gotchas
 
-- **Pin LiveKit packages to matching versions.** `livekit-agents`,
-  `livekit-plugins-openai`, `livekit-plugins-google` must be the **same** version
-  (skew causes `ImportError: LanguageCode`). Pinned to `==1.5.2`.
+- **Node/TypeScript worker** (`backend/voice_agent/src/`): `agent.ts` (entry,
+  call lifecycle, watchdogs), `session.ts` (provider models), `prompts.ts`,
+  `storage.ts` (file IPC), `metadata.ts` (the dispatch-metadata contract — keep
+  it in step with the API's `VoiceDispatch.cs`), `config.ts` (env from
+  `backend/.env` + validation), `audioGate.ts`, `recorder.ts`. Run it with
+  `npm run dev` / `npm start` in that folder (or `npm run dev:agent` at the root).
+- **Pin LiveKit packages to matching versions.** Every `@livekit/agents*`
+  package is pinned to the same exact version (`1.9.1`) — skew between them
+  breaks imports. Bump them together, then `npm run selftest`.
+- **The API is the control plane.** `/api/calls/dial` and WhatsApp call/start
+  dispatch the agent (by `AGENT_NAME`) through `Sidecars/LiveKitClient.cs`
+  (HS256 tokens + Twirp JSON); `/hangup` deletes the room. No LIVEKIT_* or
+  `SIP_OUTBOUND_TRUNK_ID` → a 503 that names what to set, never a fake call.
 - `REALTIME_PROVIDER=openai`, model `gpt-realtime` (Realtime API — NOT available
-  via OpenRouter). Gemini native audio branch exists but its free tier is flaky
-  (429 / `1011 Deadline`).
+  via OpenRouter). Gemini Live (`@livekit/agents-plugin-google`) exists but its
+  free tier is flaky (429 / `1011 Deadline`). `voice_provider` `elevenlabs` /
+  `ilmu` in the metadata switches to an STT→LLM→TTS cascade.
 - VAD: `VAD_SILENCE_MS` ≈ 900 — lower values cut off speakers who pause.
+  Interruptions are VAD-based on purpose (the SDK's adaptive detector needs
+  LiveKit Cloud inference).
 - SIP requires E.164 phone numbers (`+60…`). One-time trunk setup:
-  `voice_agent/setup_trunk.py`. Config + validation in `voice_agent/config.py`.
-- The agent polls the inbox each second: `guide` → `generate_reply` (steer),
+  `npm run setup-trunk` (in `backend/voice_agent`); `npm run dial -- +60…` for
+  a manual test call. Config + validation in `voice_agent/src/config.ts`.
+- The agent polls the inbox each second: `guide` → `generateReply` (steer),
   `takeover` → `session.say` (verbatim), plus a max-duration failsafe and
   auto-hangup after the goodbye.
-- **Greeting is gated on the callee answering.** `_await_answer()` waits for
-  `sip.callStatus == "active"` (SIP) or `wa.callStatus == "active"` (both
-  WhatsApp bridges) before the agent speaks. The WhatsApp bridges join the
+- **Greeting is gated on the callee answering.** `awaitAnswer()` waits for
+  `sip.callStatus == "active"` (SIP) or `wa.callStatus == "active"` (the
+  Baileys bridge) before the agent speaks. The WhatsApp bridge joins the
   room EARLY (during ringing, attribute "ringing") so pickup→greeting is
   ~1-2s instead of ~8s; the Baileys gateway gates audio on `this.active` so
   the agent never hears ringback. After the flip, `ANSWER_SETTLE_MS`
   (default 1500) adds a human beat before the opening.
 - **Call endings have three layers:** the `end_call` tool; a marker failsafe
   (realtime models sometimes SAY "{end_call}" instead of invoking it —
-  agent.py detects the text, scrubs it, hangs up); and a contact-silence
-  watchdog (`SILENCE_NUDGE_SECONDS`=12 → re-ask,
-  `SILENCE_HANGUP_SECONDS`=120 → forced hangup; only USER speech resets it).
-- **Caller-hangup detection:** a `participant_disconnected` room handler ends the
-  call when the borrower hangs up first (one-shot guard, then `_hangup`).
+  agent.ts detects the text, scrubs it from the transcript AND from what the
+  cascade TTS speaks, hangs up); and a contact-silence watchdog
+  (`SILENCE_NUDGE_SECONDS`=12 → re-ask, `SILENCE_HANGUP_SECONDS`=120 → forced
+  hangup; only USER speech resets it).
+- **Caller-hangup detection:** a `ParticipantDisconnected` room handler ends the
+  call when the callee hangs up first (one-shot guard, then hang up).
 - **Call provenance:** every hangup site records who ended the call
-  (`_END_CAUSE` → live store `ended_by`: agent / contact / system:silence /
-  system:max_duration; operator End button wins via a wa_calls sidecar).
-  `wa_calls.save_call_transcript` persists `meta`
-  {initiated_by, ended_by, account} next to the turns (patient backfill —
-  the agent writes ended_by only after its LLM summary), shown on the
-  /chats call cards. Call CRM identity uses `store.contact_for_thread`
-  (thread FK first) on BOTH transports — never the raw phone match alone.
-- **Prompts inject the real date** via `prompts._today()` (the model otherwise
-  assumes its ~2023 training cutoff and misreads "next Friday"/overdue math). The
-  **call language comes from the contact** — `_language_directive` opens and
+  (`END_CAUSE` → live store `ended_by`: agent / contact / system:silence /
+  system:max_duration / system:no_answer / system:script_complete /
+  system:tts_unavailable), written with the final live write after the LLM
+  summary. An operator hang-up through the API deletes the room, which the
+  agent records as `contact`.
+- **Prompts inject the real date** via `prompts.today()` (the model otherwise
+  assumes its training cutoff and misreads "next Friday"/overdue math). The
+  **call language comes from the contact** — `languageDirective` opens and
   conducts the whole call in `contact.language` (`en`/`ms`/`zh`), switching only
-  if the borrower clearly uses another.
+  if the callee clearly uses another.
+- **Smoke-testing without a phone line:** a local `livekit-server --dev` plus an
+  OpenAI-compatible mock as `ILMU_BASE_URL` (voice_provider `ilmu`) exercises a
+  full cascade call — dispatch, answer gating, inbox, endings, calls.json.
 
 ## Flow builder
 
@@ -963,22 +999,24 @@ sandbox mode.
   exceptions. Lint with `npx eslint src`. (There is **no**
   `frontend/__tests__/`; jest is configured but has no test files.)
 - CI runs all of this on push/PR (`.github/workflows/ci.yml`): API build+tests,
-  dashboard types/lint/build, and the gateway's offline call-engine self-test.
+  dashboard types/lint/build, the gateway's offline call-engine self-test, and
+  the voice agent's types + offline self-test.
   Containers: `docker compose up` builds `backend-csharp/Dockerfile` +
-  `frontend/Dockerfile` (the gateway sits behind the `whatsapp` profile). SQLite
-  is a FILE — the API's /data volume is not optional.
+  `frontend/Dockerfile` (the gateway sits behind the `whatsapp` profile, the
+  voice agent behind `voice`). SQLite is a FILE — the API's /data volume is not
+  optional, and the voice agent shares it.
 - Backend: `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
-  then `QUEUE_WORKER=0 dotnet test tests/ChatBranch.Tests` — 47 tests covering
+  then `QUEUE_WORKER=0 dotnet test tests/ChatBranch.Tests` — 56 tests covering
   auth/RBAC, the inbox, webhooks (incl. wamid dedup and the QUEUED ai_reply
   that Send Pacing acts on), contacts, flows + the outbound queue, analytics,
-  settings and custom fields. `QUEUE_WORKER=0` stops the drain thread racing
-  the assertions. Keep them green.
+  settings, custom fields and the LiveKit control plane. `QUEUE_WORKER=0`
+  stops the drain thread racing the assertions. Keep them green.
 - The API rebuilds and reseeds against `src/ChatBranch.Api/chatbranch.sqlite3`;
   new columns go in `Seed.UpgradeSchema` (append-only, idempotent
   `ALTER TABLE ADD COLUMN`) because `EnsureCreated()` never alters a live
   schema.
-- Voice agent: `python -m py_compile` on changed files under
-  `backend/voice_agent/`.
+- Voice agent: `cd backend/voice_agent && npx tsc --noEmit && npm run selftest`
+  (offline — no LiveKit server or keys).
 
 ## Notes
 

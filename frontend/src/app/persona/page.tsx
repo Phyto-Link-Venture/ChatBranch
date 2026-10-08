@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '@/lib/AppContext'
 import { SectionLabel } from '@/components/ui/Card'
+import { Select } from '@/components/ui/Select'
 import { buildOpeningLine } from '@/lib/personaLine'
 import { stopPreview, subscribePlaying } from '@/lib/voice'
 import { PERSONAS, PERSONA_LABELS } from '@/lib/personas'
@@ -43,19 +44,7 @@ function VoiceFilterSelect({
   onChange: (v: string) => void
   opts: { value: string; label: string }[]
 }) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="cursor-pointer rounded-[7px] border border-line-strong bg-well px-2.5 py-1.5 text-[12px] font-semibold text-text-high outline-none"
-    >
-      {opts.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  )
+  return <Select value={value} onChange={onChange} options={opts} className="min-w-[130px]" />
 }
 
 // Free-text fields (gender, accent) come from ElevenLabs labels or manual entry with
@@ -366,30 +355,22 @@ export default function PersonaPage() {
                   </div>
                 </details>
                 <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
-                  <select
+                  <Select
                     value={cloneLanguage}
-                    onChange={(e) => setCloneLanguage(e.target.value)}
+                    onChange={setCloneLanguage}
                     disabled={busy || recording}
-                    className="cursor-pointer rounded-md border border-line-strong bg-well px-2.5 py-1.5 text-[11px] font-semibold text-text-high outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {CLONE_LANGUAGES.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.label}
-                      </option>
-                    ))}
-                  </select>
-                  <select
+                    options={CLONE_LANGUAGES.map((l) => ({ value: l.id, label: l.label }))}
+                    ariaLabel="Voice language"
+                    className="w-[130px]"
+                  />
+                  <Select
                     value={clonePersona}
-                    onChange={(e) => setClonePersona(e.target.value)}
+                    onChange={setClonePersona}
                     disabled={busy || recording}
-                    className="cursor-pointer rounded-md border border-line-strong bg-well px-2.5 py-1.5 text-[11px] font-semibold text-text-high outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {PERSONAS.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.label}
-                      </option>
-                    ))}
-                  </select>
+                    options={PERSONAS.map((p) => ({ value: p.id, label: p.label }))}
+                    ariaLabel="Voice persona"
+                    className="w-[150px]"
+                  />
                   <button
                     disabled={busy || recording}
                     onClick={() => fileRef.current?.click()}
@@ -565,28 +546,18 @@ export default function PersonaPage() {
                         placeholder="Accent"
                       />
                     </div>
-                    <select
+                    <Select
                       value={editLanguage}
-                      onChange={(e) => setEditLanguage(e.target.value)}
-                      className="cursor-pointer rounded-md border border-line-strong bg-well px-2 py-1 text-[11px] text-text-high outline-none"
-                    >
-                      {EDIT_LANGUAGES.map((l) => (
-                        <option key={l.id} value={l.id}>
-                          {l.label}
-                        </option>
-                      ))}
-                    </select>
-                    <select
+                      onChange={setEditLanguage}
+                      options={EDIT_LANGUAGES.map((l) => ({ value: l.id, label: l.label }))}
+                      ariaLabel="Voice language"
+                    />
+                    <Select
                       value={editPersona}
-                      onChange={(e) => setEditPersona(e.target.value)}
-                      className="cursor-pointer rounded-md border border-line-strong bg-well px-2 py-1 text-[11px] text-text-high outline-none"
-                    >
-                      {PERSONAS.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.label}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={setEditPersona}
+                      options={PERSONAS.map((p) => ({ value: p.id, label: p.label }))}
+                      ariaLabel="Voice persona"
+                    />
                     <div className="mt-1 flex gap-1.5">
                       <button
                         disabled={voiceActionBusy}

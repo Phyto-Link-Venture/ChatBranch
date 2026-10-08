@@ -257,17 +257,11 @@ public class AutomationService
 
     private void Notify(AutomationRule rule, Thread thread, string text)
     {
-        var users = _db.Profiles.AsNoTracking()
-            .Where(p => p.Role == Roles.SuperAdmin || p.Role == Roles.Admin)
-            .Select(p => p.UserId).ToList();
-        foreach (var uid in users)
-            _db.Notifications.Add(new Notification
-            {
-                UserId = uid, Kind = "system",
-                Title = Trim($"Automation · {rule.Name}", 160),
-                Body = Trim($"{thread.Name} ({thread.Channel}) — {text}", 400),
-                CreatedAt = DateTime.UtcNow,
-            });
+        // Through the one notifier (org mutes + personal prefs); Run() saves.
+        NotificationService.Notify(_db, NotificationCategories.Flows, "system",
+            $"Automation · {rule.Name}", $"{thread.Name} ({thread.Channel}) — {text}",
+            $"/chats?channel={Uri.EscapeDataString(thread.Channel)}&key={Uri.EscapeDataString(thread.Key)}",
+            NotificationAudience.Admins(), new NotifyOptions { Thread = thread, Save = false });
     }
 
     // ---- helpers ------------------------------------------------------------
