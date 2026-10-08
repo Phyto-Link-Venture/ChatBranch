@@ -7,7 +7,7 @@ import { resolveDark, saveAppearance, storedAppearance, DEFAULT_APPEARANCE, type
 /** Sun/moon quick switch (sidebar footer). Flips light/dark inside the
  *  user's chosen theme and saves it like Settings → Appearance does; the rest
  *  of the look (theme, accent, text size…) is untouched. */
-export function ThemeToggle() {
+export function ThemeToggle({ className = '' }: { className?: string }) {
   const [prefs, setPrefs] = useState<Appearance>(DEFAULT_APPEARANCE)
   const [dark, setDark] = useState(false)
 
@@ -32,9 +32,9 @@ export function ThemeToggle() {
       onClick={toggle}
       aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
       title={dark ? 'Light mode' : 'Dark mode'}
-      className="flex h-[34px] w-[34px] items-center justify-center rounded-lg border border-line bg-card text-text-muted transition-colors hover:text-text-high"
+      className={`grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high ${className}`}
     >
-      {dark ? <Sun size={15} strokeWidth={1.75} /> : <Moon size={15} strokeWidth={1.75} />}
+      {dark ? <Sun size={16} strokeWidth={1.75} /> : <Moon size={16} strokeWidth={1.75} />}
     </button>
   )
 }
