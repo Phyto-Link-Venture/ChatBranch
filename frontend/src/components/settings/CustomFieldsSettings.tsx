@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { TagListInput } from '@/components/ui/TagListInput'
 import { CustomFieldsInputs } from '@/components/CustomFieldsInputs'
-import { useRole } from '@/lib/useRole'
+import { hasCap } from '@/lib/auth'
 import {
   EMPTY_SCHEMA,
   KIND_LABELS,
@@ -41,8 +41,9 @@ const NEEDS_OPTIONS: FieldKind[] = ['select', 'multiselect']
  * kind of contact (a driver's licence number) belong on a TAG instead.
  */
 export function CustomFieldsSettings() {
-  const { role } = useRole()
-  const canEdit = role === 'admin' || role === 'superadmin'
+  // read after mount (localStorage) — same capability the PUT checks
+  const [canEdit, setCanEdit] = useState(false)
+  useEffect(() => setCanEdit(hasCap('settings.custom_fields.manage')), [])
 
   const [schema, setSchema] = useState<CustomFieldsSchema | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)

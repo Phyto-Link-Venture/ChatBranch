@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ChatBranch.Api.Auth;
@@ -93,8 +94,12 @@ public static class CustomFieldsEndpoints
 
         // PUT replaces the schema. Body: {customer:[...]} — an omitted key leaves
         // that target untouched (a legacy "provider" key is ignored).
-        app.MapPut("/api/settings/custom-fields", async (HttpContext ctx, ScopingService sc) =>
+        // Gate: the settings.custom_fields.manage capability (superadmin always).
+        app.MapPut("/api/settings/custom-fields", async (HttpContext ctx, ScopingService sc,
+            AppDbContext db, ClaimsPrincipal me) =>
         {
+            if (await SettingsEndpoints.RequireCapability(db, me, "settings.custom_fields.manage") is { } denied)
+                return denied;
             JsonElement body;
             try { body = await ctx.Request.ReadFromJsonAsync<JsonElement>(); }
             catch { return Results.Json(new { detail = "invalid body" }, statusCode: 400); }
@@ -113,7 +118,13 @@ public static class CustomFieldsEndpoints
                 schema.Customer = fields;
             }
             sc.SetSetting(Key, JsonSerializer.Serialize(schema));
+            db.AuditLogs.Add(new ChatBranch.Domain.AuditLog
+            {
+                Actor = me.Identity?.Name ?? "system", Action = "settings.custom_fields",
+                Target = Key, Detail = $"{schema.Customer.Count} customer field(s)", CreatedAt = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync();
             return Results.Ok(Payload(schema));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
     }
 }
