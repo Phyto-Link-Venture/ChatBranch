@@ -155,7 +155,7 @@ export const GUIDES: Partial<Record<InboxKind, string[]>> = {
     'Create an Elastic SIP trunk in the Twilio Console.',
     'Add a credential list under Termination and note the username and password.',
     'Copy the termination SIP URI.',
-    'The trunk id itself stays in backend/.env as SIP_OUTBOUND_TRUNK_ID (run voice_agent/setup_trunk.py once).',
+    'Run `npm --prefix backend/voice_agent run setup-trunk` once and put the printed SIP_OUTBOUND_TRUNK_ID in backend/.env (with LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET); start the worker with `npm run dev:agent`.',
   ],
 }
 

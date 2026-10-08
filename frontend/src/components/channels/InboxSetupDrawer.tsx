@@ -1025,11 +1025,25 @@ export function InboxSetupDrawer({
           )}
 
           {kind === 'voice' && (
-            <p className="text-[12px] leading-relaxed text-text-muted">
-              The outbound trunk id stays in <code className="rounded bg-fill px-1">backend/.env</code> as{' '}
-              <code className="rounded bg-fill px-1">SIP_OUTBOUND_TRUNK_ID</code> — the voice agent reads it once at
-              boot (one-time setup: <code className="rounded bg-fill px-1">voice_agent/setup_trunk.py</code>).
-            </p>
+            <Section title="Run the voice agent">
+              <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-[12.5px] leading-relaxed text-text-mid">
+                <li>
+                  Put the LiveKit project in <code className="rounded bg-fill px-1">backend/.env</code>:{' '}
+                  <code className="rounded bg-fill px-1">LIVEKIT_URL</code>,{' '}
+                  <code className="rounded bg-fill px-1">LIVEKIT_API_KEY</code>,{' '}
+                  <code className="rounded bg-fill px-1">LIVEKIT_API_SECRET</code>.
+                </li>
+                <li>
+                  Once, create the outbound SIP trunk and copy the printed{' '}
+                  <code className="rounded bg-fill px-1">SIP_OUTBOUND_TRUNK_ID</code> into the same file:
+                </li>
+              </ol>
+              <CopyRow label="One-time trunk setup" value="npm --prefix backend/voice_agent run setup-trunk" />
+              <p className="text-[12.5px] leading-relaxed text-text-mid">
+                Then start the worker alongside the API — it answers every AI call, SIP and WhatsApp:
+              </p>
+              <CopyRow label="Run the worker" value="npm run dev:agent" />
+            </Section>
           )}
         </>
       )}
