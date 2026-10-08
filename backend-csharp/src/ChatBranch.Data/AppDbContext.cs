@@ -66,6 +66,15 @@ public class AppDbContext : DbContext
     public DbSet<Integration> Integrations => Set<Integration>();
     // crm — per-user saved list views (the inbox's saved filter tabs)
     public DbSet<SavedView> SavedViews => Set<SavedView>();
+    // developer platform: API keys + the operator assistant's pending writes
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+    public DbSet<AssistantAction> AssistantActions => Set<AssistantAction>();
+
+    /// <summary>Every AuditLog row is stamped with its request/source provenance
+    /// on save (Audit/AuditStampInterceptor), so the per-file audit helpers carry
+    /// source, method, path and user without each being edited.</summary>
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) =>
+        optionsBuilder.AddInterceptors(ChatBranch.Data.Audit.AuditStampInterceptor.Instance);
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -138,6 +147,9 @@ public class AppDbContext : DbContext
             .WithMany()
             .HasForeignKey(i => i.OwnerUserId)
             .OnDelete(DeleteBehavior.SetNull);
+        b.Entity<ApiKey>().ToTable("crm_apikey");
+        b.Entity<ApiKey>().HasIndex(k => k.Prefix).IsUnique().HasDatabaseName("uniq_apikey_prefix");
+        b.Entity<AssistantAction>().ToTable("crm_assistantaction");
 
         // ---- Profile <-> Entity many-to-many (Django crm_profile_entities) -----
         b.Entity<Profile>()
@@ -212,6 +224,7 @@ public class AppDbContext : DbContext
         Json<Integration, Dictionary<string, object?>>(b, x => x.Credentials);
         Json<Integration, Dictionary<string, object?>>(b, x => x.Config);
         Json<AgentSkill, List<string>>(b, x => x.Channels);
+        Json<ApiKey, List<string>>(b, x => x.Scopes);
 
         // ---- snake_case columns to match Django (<field>_id for FKs) -----------
         // Django names every column snake_case; matching it is what lets this

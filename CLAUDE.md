@@ -487,6 +487,21 @@ default `backend/data` of the checkout (`VoiceAgentBridge.ResolveDataDir`).
   channel, counting conversations TOUCHED in the window (not created), with
   "(unassigned)" reported rather than dropped. CSV fields are quoted so a label
   containing a comma cannot corrupt the export.
+- **Activity log, API keys, MCP, assistant** (platform). `AuditLog` carries
+  `source` (user|api|mcp|assistant|automation|flow|webhook|system), entity,
+  method/path/status/user-agent/request-id. Rows are stamped from the ambient
+  `AuditContext` by an EF interceptor (`Data/Audit`), so old per-file helpers
+  need no edits; new code uses `AuditTrail.Add/Write` and passes `source` only
+  when it is not the request's actor. `RequestAuditMiddleware` writes ONE
+  generic row per mutating `/api` request that wrote no domain row (opt out a
+  read-POST with `[SkipRequestAudit]` metadata). Read API `/api/audit[.csv|/facets]`.
+  API keys `cbk_<prefix>_<secret>` (Bearer or X-Api-Key) act as their owner
+  (+ optional scope subset; a scoped key without write caps is read-only).
+  `POST /mcp` = ChatBranch as an MCP server over `Tools/ToolRegistry`; the
+  operator assistant (`/api/assistant/*`) uses the same registry. Tool writes
+  call the dashboard's OWN endpoints in-process (`Tools/InternalApi`) so every
+  guard applies — a renamed route breaks the tool (tests catch it). Assistant
+  writes are confirm-first `AssistantAction` rows (15 min).
 - **`backend/messaging/` = email + social channels** in the same unified
   `/chats` inbox (endpoints under `/api/messaging/`) — the PERMANENT in-house
   home for these channels (Chatwoot was fully removed 2026-07-17 on the

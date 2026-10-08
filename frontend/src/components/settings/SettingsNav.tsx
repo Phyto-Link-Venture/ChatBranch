@@ -14,7 +14,6 @@ import {
   Loader2,
   Lock,
   Palette,
-  Server,
   type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -112,13 +111,8 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
         Icon: Cpu,
         cap: 'settings.ai_keys.manage',
       },
-      {
-        id: 'mcp',
-        lbl: 'MCP servers',
-        blurb: 'External tool servers the assistant may call.',
-        Icon: Server,
-        cap: 'api_keys.manage', // "Manage API keys & MCP" (platform's capability)
-      },
+      // External MCP servers live on /developers (with API keys and
+      // ChatBranch's own MCP server); /settings/mcp redirects there.
     ],
   },
 ]

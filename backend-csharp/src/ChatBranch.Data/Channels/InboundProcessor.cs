@@ -129,7 +129,11 @@ public class InboundProcessor
             // a held reply (checks failed → handover/block) comes back with no text
             var reply = _assistant.GenerateReplyAsync(thread).GetAwaiter().GetResult();
             if (reply.ShouldSend)
+            {
                 _sender.Send(thread, reply.Text, MessageSource.Ai, thread.AccountId);
+                ChatBranch.Data.Audit.AuditTrail.Write(_db, "ai.reply", $"{thread.Channel}:{thread.Key}",
+                    reply.Text, actor: "ai", source: AuditSources.System, entityId: thread.EntityId);
+            }
         }
         catch { /* AI failure never breaks the webhook path */ }
     }

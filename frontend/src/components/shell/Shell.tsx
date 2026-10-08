@@ -14,6 +14,7 @@ import { HOME, canSee, isActive, NAV_GROUPS } from './nav'
 import { resetNotifications } from './notificationsStore'
 import { useLive } from './liveStore'
 import { CampaignModal } from '@/components/CampaignModal'
+import { AssistantDock } from '@/components/assistant/AssistantDock'
 
 /**
  * App chrome, Paper & Ink: a flush layout — the sidebar rail (surface, hairline
@@ -172,6 +173,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
       <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} user={user} />
       <CampaignModal />
+      <AssistantDock />
     </div>
   )
 }

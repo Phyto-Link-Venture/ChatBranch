@@ -82,6 +82,7 @@ using (var scope = app.Services.CreateScope())
 
 app.UseCors(CorsPolicy);
 app.UseAuthentication();
+app.UseMiddleware<ChatBranch.Api.Audit.RequestAuditMiddleware>(); // activity log (sees authz refusals too)
 app.UseAuthorization();
 
 // ---- Phase 1 endpoints ------------------------------------------------------
@@ -122,6 +123,10 @@ app.MapWidgetAdminEndpoints();
 app.MapHelpCenterEndpoints();
 app.MapReportsEndpoints();
 app.MapBindingsEndpoints();
+app.MapAuditEndpoints();
+app.MapDevelopersEndpoints();
+app.MapMcpServerEndpoints();
+app.MapAssistantEndpoints();
 app.MapSearchEndpoints();
 app.MapLiveEndpoints();
 

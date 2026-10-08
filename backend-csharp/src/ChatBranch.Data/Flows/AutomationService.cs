@@ -249,6 +249,7 @@ public class AutomationService
         _db.AuditLogs.Add(new AuditLog
         {
             Actor = "automation", Action = "automation.fired",
+            Source = AuditSources.Automation, EntityId = thread.EntityId,
             Target = $"{thread.Channel}:{thread.Key}",
             Detail = $"{rule.Name} → {string.Join(", ", applied)}",
             CreatedAt = DateTime.UtcNow,
