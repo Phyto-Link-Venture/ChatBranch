@@ -194,8 +194,8 @@ requires a restart.
 | **WhatsApp (Cloud API)** | A Meta app, phone number ID, access token, app secret, WABA id, and a public webhook (`/api/whatsapp/webhook`) | inbound + text send live; templates go out as rendered text; media send stored locally |
 | **WhatsApp (Baileys)** | A spare phone. Add a "QR" WhatsApp inbox and scan. ⚠ Read the ToS warning below | inbound text, send, calls live; inbound media dropped |
 | **Website widget** | Nothing — paste the snippet the inbox gives you | live |
-| **Telegram** | A BotFather token; register `https://<host>/api/messaging/webhook/telegram/<token>` with Telegram yourself | inbound live; replies are sandbox-only |
-| **Email** | Per-mailbox SMTP/IMAP credentials | sandbox-only (no SMTP send, IMAP sync is a stub) |
+| **Telegram** | A BotFather token, then "Register webhook" in the inbox (needs a public https URL — `PUBLIC_BASE_URL` or the one you type) | live: inbound text + media, replies and attachments via the Bot API |
+| **Email** | Per-mailbox SMTP credentials (+ an IMAP host, per mailbox or the default under Channels → Advanced) | live: SMTP send with threaded replies, IMAP pull from known senders |
 | **Messenger / Instagram** | A page token | sandbox-only (no inbound webhook route yet) |
 | **Voice (SIP)** | LiveKit + a SIP trunk: `npm --prefix backend/voice_agent run setup-trunk`, then Channels → Voice | live |
 
