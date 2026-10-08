@@ -30,7 +30,7 @@ export function HBarList({
   const allZero = stages.every((s) => s.value === 0)
 
   if (allZero) {
-    return <div className="py-8 text-center text-[12px] text-text-faint">{empty}</div>
+    return <div className="py-8 text-center text-[12.5px] text-text-muted">{empty}</div>
   }
 
   return (

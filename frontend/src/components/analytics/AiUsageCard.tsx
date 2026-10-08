@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
+import { Card, CardTitle } from '@/components/ui/Card'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -41,10 +42,10 @@ const usd = (n: number) => `$${n >= 100 ? n.toFixed(0) : n >= 1 ? n.toFixed(2) :
 
 function MiniStat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="rounded-xl border border-line bg-fill-subtle px-3.5 py-2.5">
-      <div className="text-[10.5px] font-semibold uppercase tracking-wide text-text-faint">{label}</div>
-      <div className="mt-0.5 text-[17px] font-bold text-text-high">{value}</div>
-      {sub && <div className="text-[10.5px] text-text-muted">{sub}</div>}
+    <div className="min-w-0 bg-card px-4 py-3">
+      <div className="text-[12px] font-semibold text-text-muted">{label}</div>
+      <div className="display mt-1 text-[24px] leading-none text-text-heading">{value}</div>
+      {sub && <div className="mt-1 truncate text-[11.5px] text-text-muted">{sub}</div>}
     </div>
   )
 }
@@ -58,9 +59,9 @@ function UsageTable({
 }) {
   return (
     <div>
-      <div className="mb-1.5 text-[11.5px] font-bold text-text-high">{title}</div>
+      <div className="eyebrow mb-1.5">{title}</div>
       {rows.length === 0 ? (
-        <div className="text-[11px] text-text-faint">Nothing recorded in this window yet.</div>
+        <div className="text-[12px] text-text-muted">Nothing recorded in this window yet.</div>
       ) : (
         <table className="w-full text-[11.5px]">
           <tbody>
@@ -68,7 +69,7 @@ function UsageTable({
               <tr key={r.key} className="border-b border-line last:border-0">
                 <td className="max-w-[180px] truncate py-1.5 pr-2 text-text-mid">
                   {r.label}
-                  {r.flag && <span className="ml-1.5 text-[10px] text-amber-300">{r.flag}</span>}
+                  {r.flag && <span className="ml-1.5 text-[10.5px] text-[color:var(--amber-ink)]">{r.flag}</span>}
                 </td>
                 <td className="py-1.5 pr-2 text-right tabular-nums text-text-muted">{num(r.tokens)} tok</td>
                 <td className="py-1.5 text-right font-semibold tabular-nums text-text-high">{usd(r.cost)}</td>
@@ -116,16 +117,14 @@ export function AiUsageCard({ days }: { days: number }) {
   const t = data.totals
   const audioTokens = t.audio_prompt_tokens + t.audio_completion_tokens
   return (
-    <div className="rounded-2xl border border-line bg-card px-5 py-[18px]">
-      <div className="mb-0.5">
-        <span className="text-[13px] font-bold text-text-high">AI usage &amp; estimated cost</span>
-      </div>
-      <div className="mb-4 text-[11px] text-text-muted">
+    <Card className="px-5 py-[18px]">
+      <CardTitle>AI usage &amp; estimated cost</CardTitle>
+      <div className="mb-4 mt-1 text-[12px] text-text-muted">
         Every LLM call metered (replies, summaries, voice calls). Costs are estimates from the
         price table — verify against your provider&rsquo;s billing before invoicing.
       </div>
 
-      <div className="mb-4 grid grid-cols-2 gap-2.5 md:grid-cols-4">
+      <div className="mb-5 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line md:grid-cols-4">
         <MiniStat label="Est. cost" value={usd(t.est_cost_usd)} sub={`last ${data.days} days`} />
         <MiniStat label="Total tokens" value={num(tok(t))} sub={`${num(t.prompt_tokens)} in · ${num(t.completion_tokens)} out`} />
         <MiniStat label="Audio tokens" value={num(audioTokens)} sub="realtime voice calls" />
@@ -162,6 +161,6 @@ export function AiUsageCard({ days }: { days: number }) {
           }))}
         />
       </div>
-    </div>
+    </Card>
   )
 }
