@@ -539,7 +539,9 @@ public static class InboxThreadsEndpoints
                 : last.Text.Length == 0 && last.MediaType.Length > 0 ? $"[{last.MediaType}]"
                 : last.Text;
             var isWa = t.Channel == ChatBranch.Domain.Channels.WhatsApp;
-            var address = t.Address.Length > 0 ? t.Address : isWa ? $"+{t.Key}" : t.Key;
+            var address = t.Address.Length > 0 ? t.Address : t.Key;
+            // a WhatsApp id is bare digits — show it as the phone number it is
+            if (isWa && address.Length > 0 && address.All(char.IsDigit)) address = $"+{address}";
             var callStatus = string.IsNullOrEmpty(t.CallStatus) ? "idle" : t.CallStatus;
 
             outv.Add(new Dictionary<string, object?>
@@ -578,6 +580,7 @@ public static class InboxThreadsEndpoints
                 ["last_dir"] = last?.Direction ?? "",
                 ["last_status"] = last?.Status ?? "",
                 ["last_source"] = last?.Source ?? "",
+                ["last_private"] = last?.Private ?? false,
                 ["last_ts"] = c.LastActivity.ToString("o"),
                 ["last_inbound_ts"] = c.LastInTs is DateTime li
                     ? DateTime.SpecifyKind(li, DateTimeKind.Utc).ToString("o") : null,

@@ -319,10 +319,14 @@ sandbox mode.
   looks the CRM `Contact` up by phone (`store._match_contact`) and passes the
   real name/amount/overdue/language into the dispatch metadata — NOT the
   WhatsApp push-name.
-  The `/chats` UI follows Whatomate's ChatView design (three-pane inbox →
-  chat → info panel; WhatsApp bubble palette lives in
-  `src/app/chats/chats.css` — don't replace the raw WhatsApp greens with
-  brand tokens, they're intentional).
+  The `/chats` UI is a three-pane inbox → chat → info panel in the Paper &
+  Ink design: bubbles are theme tokens in `src/app/chats/chats.css`
+  (ours = primary ink, theirs = a hairline card); the old WhatsApp-green
+  palette is retired — don't reintroduce raw hex. The list is SERVER-filtered
+  via `GET /api/inbox/threads` (every channel, entity-scoped like the old
+  lists; `count_only=1` powers the filter pop-up's live "Show N chats") and
+  the filter tabs are per-user `SavedView` rows (`/api/views?scope=chats`).
+  Deep links: `/chats?thread=<channel>:<key>`, `/chats?q=<text>`.
 - **Channel health + contact→account routing.** `whatsapp/health.py` is the
   ONLY writer of `ChannelAccount.health_status` (unknown/healthy/degraded/
   disconnected/banned): send paths, the Cloud webhook, Baileys gateway

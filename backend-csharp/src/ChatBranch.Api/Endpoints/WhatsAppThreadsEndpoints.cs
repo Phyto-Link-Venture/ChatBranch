@@ -788,7 +788,9 @@ public static class WhatsAppThreadsEndpoints
             ["pk"] = m.Id,                       // stable pagination cursor + media key
             ["dir"] = m.Direction,
             ["text"] = m.Text,
-            ["ts"] = m.CreatedAt.ToString("o"),
+            // SQLite hands DateTimes back Kind=Unspecified — without the Z the
+            // browser reads UTC as local time and every bubble shifts.
+            ["ts"] = DateTime.SpecifyKind(m.CreatedAt, DateTimeKind.Utc).ToString("o"),
             ["status"] = m.Status,
             ["source"] = m.Source,
         };
