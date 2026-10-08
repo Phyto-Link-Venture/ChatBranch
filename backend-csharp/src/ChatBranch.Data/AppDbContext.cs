@@ -198,6 +198,8 @@ public class AppDbContext : DbContext
             .IsUnique()
             .HasFilter("[external_id] <> ''")
             .HasDatabaseName("uniq_message_thread_external_id");
+        // receipts look a message up by its provider id alone (statuses carry no thread)
+        b.Entity<Message>().HasIndex(m => m.ExternalId).HasDatabaseName("ix_message_external_id");
         b.Entity<Thread>()
             .HasIndex(t => new { t.Channel, t.Key })
             .IsUnique()

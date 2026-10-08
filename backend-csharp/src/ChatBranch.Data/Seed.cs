@@ -126,6 +126,8 @@ public static class Seed
             + "CONSTRAINT \"uniq_tag_assignment\" UNIQUE (\"tag_id\", \"target_type\", \"target_id\")");
         // Meta delivery-status failures (WhatsApp Cloud statuses[].errors) on the message row
         AddColumnIfMissing(db, "crm_message", "error", "TEXT NOT NULL DEFAULT ''");
+        // delivery receipts (Cloud statuses, Baileys ticks, Messenger) find the message by provider id
+        AddIndexIfMissing(db, "ix_message_external_id", "crm_message", "\"external_id\"");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 
