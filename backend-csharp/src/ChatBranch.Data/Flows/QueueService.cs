@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ChatBranch.Data.Ai;
 using ChatBranch.Data.Channels;
 using ChatBranch.Data.Stores;
@@ -13,24 +14,43 @@ namespace ChatBranch.Data.Flows;
 /// CLAIMED ATOMICALLY (queued→sending guarded UPDATE) so two tickers can never
 /// double-send the same job — the exact bug the Python fought. Account is
 /// resolved at SEND time. In sandbox mode a send stores the message locally.
+///
+/// AI traffic goes through the AI monitor here too:
+///  * <c>ai_reply</c> jobs (the debounced "wait for the customer to finish"
+///    reply) are answered by <see cref="AiResponder"/> at send time;
+///  * text jobs with payload <c>source: "ai"</c> (AI-composed flow messages)
+///    are submitted to <see cref="AiGate"/> rather than sent blind;
+///  * jobs carrying <c>draft_id</c> are the gate's own deliveries (bubbles of an
+///    approved/auto-sent reply) — re-checked at send time, chained in order;
+///  * <c>humanize: true</c> jobs are split and typed like a person.
 /// </summary>
 public class QueueService
 {
+    /// <summary>Job status for an AI message parked in the monitor for review.</summary>
+    public const string HeldStatus = "held";
+
     private readonly AppDbContext _db;
     private readonly ScopingService _scoping;
     private readonly ThreadStore _threads;
-    private readonly AssistantService _assistant;
     private readonly OutboundSender _sender;
+    private readonly AiGate _gate;
+    private readonly AiResponder _responder;
+    private readonly TimeProvider _clock;
 
     public QueueService(AppDbContext db, ScopingService scoping, ThreadStore threads,
-        AssistantService assistant, OutboundSender sender)
+        AssistantService assistant, OutboundSender sender,
+        AiResponder? responder = null, AiGate? gate = null, TimeProvider? clock = null)
     {
         _db = db;
         _scoping = scoping;
         _threads = threads;
-        _assistant = assistant;
         _sender = sender;
+        _clock = clock ?? TimeProvider.System;
+        _gate = gate ?? new AiGate(db, scoping, threads, sender, _clock);
+        _responder = responder ?? new AiResponder(db, scoping, new AiComposer(db, assistant), _gate, _clock);
     }
+
+    private DateTime Now => _clock.GetUtcNow().UtcDateTime;
 
     public OutboundJob Enqueue(string channel, string kind, string toAddress,
         Dictionary<string, object?> payload, int? contactId = null, int? accountId = null,
@@ -41,7 +61,7 @@ public class QueueService
             Channel = channel, Kind = kind, ToAddress = toAddress, Payload = payload,
             ContactId = contactId, AccountId = accountId, Status = JobStatus.Queued,
             NotBefore = notBefore, FlowRunId = flowRunId, FlowNode = flowNode,
-            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+            CreatedAt = Now, UpdatedAt = Now,
         };
         _db.OutboundJobs.Add(job);
         _db.SaveChanges();
@@ -61,7 +81,7 @@ public class QueueService
     public int Drain(int maxThisPass = 5)
     {
         var dailyCap = IntSetting("queue_daily_cap", 200);
-        var now = DateTime.UtcNow;
+        var now = Now;
         var sent = 0;
 
         var due = _db.OutboundJobs
@@ -95,15 +115,22 @@ public class QueueService
 
             // quiet hours are checked at SEND time against the account that
             // will carry the message — the job simply waits until they end
-            if (AccountDelivery.InQuietHours(account, _scoping)) continue;
+            if (AccountDelivery.InQuietHours(account, _scoping, _clock.GetLocalNow().DateTime)) continue;
 
-            // per-account gap: derived from the last sent job's sent_at
-            var (minGap, maxGap) = AccountDelivery.PacingGap(account, _scoping);
-            var gap = minGap + Random.Shared.Next(0, Math.Max(1, maxGap - minGap + 1));
-            var lastSent = _db.OutboundJobs
-                .Where(j => j.Status == JobStatus.Sent && j.AccountId == accountId && j.SentAt != null)
-                .Max(j => (DateTime?)j.SentAt);
-            if (lastSent != null && (now - lastSent.Value).TotalSeconds < gap) continue; // wait
+            // per-account gap: derived from the last sent job's sent_at. The AI
+            // monitor's own deliveries (draft_id) and the bubbles of a split
+            // message skip it: their timing already came from the debounce /
+            // typing schedule or a person clicking send, and the parts of one
+            // reply must not be spread 30s apart.
+            if (!job.Payload.ContainsKey("draft_id") && !job.Payload.ContainsKey("bubble"))
+            {
+                var (minGap, maxGap) = AccountDelivery.PacingGap(account, _scoping);
+                var gap = minGap + Random.Shared.Next(0, Math.Max(1, maxGap - minGap + 1));
+                var lastSent = _db.OutboundJobs
+                    .Where(j => j.Status == JobStatus.Sent && j.AccountId == accountId && j.SentAt != null)
+                    .Max(j => (DateTime?)j.SentAt);
+                if (lastSent != null && (now - lastSent.Value).TotalSeconds < gap) continue; // wait
+            }
 
             // per-account daily cap
             var since = now.AddHours(-24);
@@ -112,8 +139,7 @@ public class QueueService
             if (todayCount >= dailyCap) continue;
 
             if (!TryClaim(job.Id)) continue; // atomic queued→sending; lost race → skip
-            Deliver(job.Id);
-            sent++;
+            if (Deliver(job.Id)) sent++;
         }
         return sent;
     }
@@ -125,55 +151,167 @@ public class QueueService
             .Where(j => j.Id == jobId && j.Status == JobStatus.Queued)
             .ExecuteUpdate(s => s
                 .SetProperty(j => j.Status, "sending")
-                .SetProperty(j => j.UpdatedAt, DateTime.UtcNow));
+                .SetProperty(j => j.UpdatedAt, Now));
         return affected == 1;
     }
 
-    private void Deliver(int jobId)
+    /// <summary>Deliver one claimed job. True when something went out (or is on its way).</summary>
+    private bool Deliver(int jobId)
     {
         var job = _db.OutboundJobs.First(j => j.Id == jobId);
+        var draftId = (int?)AiGate.Num(job.Payload, "draft_id");
         try
         {
-            var text = ResolveText(job);
             var thread = _threads.GetOrCreateThread(job.Channel, job.ToAddress,
                 contactId: job.ContactId, accountId: job.AccountId);
+            var source = AiGate.Str(job.Payload, "source", "");
 
+            // the debounced AI reply: written NOW, so a burst of messages gets one answer
             if (job.Kind == JobKind.AiReply)
             {
-                // generated AT SEND time so several inbound get one coherent answer
-                text = _assistant.GenerateReplyAsync(thread).GetAwaiter().GetResult();
-                if (string.IsNullOrWhiteSpace(text))
-                {
-                    job.Status = JobStatus.Cancelled; // guard declined → cancelled, not failed
-                    job.LastError = "ai_reply guard declined";
-                    job.UpdatedAt = DateTime.UtcNow;
-                    _db.SaveChanges();
-                    return;
-                }
+                var outcome = _responder.RespondAsync(thread, job.AccountId, job.Id).GetAwaiter().GetResult();
+                return Finish(job, outcome);
             }
 
-            var source = job.Payload.TryGetValue("source", out var s) && s?.ToString() == "system"
-                ? MessageSource.System
-                : (job.Kind == JobKind.AiReply ? MessageSource.Ai : MessageSource.Agent);
+            // an AI-composed message from a flow: through the monitor like any AI message
+            if (source == "ai" && draftId == null && job.Kind == JobKind.Text)
+            {
+                var ctx = FlowContext(job);
+                var outcome = _gate.Submit(new AiSubmission(thread, AiDraftKind.FlowMessage, ResolveText(job),
+                    ctx, job.AccountId, Humanize: AiGate.Bool(job.Payload, "humanize") == true));
+                return Finish(job, outcome);
+            }
 
+            // compliance at send time: an opt-out stops everything but an explicit force;
+            // free text cannot cross a closed WhatsApp 24h window (templates can)
+            if (draftId is int did)
+            {
+                var block = _gate.SendTimeBlock(thread, job.AccountId, isTemplate: job.Kind == JobKind.Template);
+                if (block != null)
+                {
+                    _gate.MarkDraftFailed(did, block);
+                    return Fail(job, block);
+                }
+            }
+            else
+            {
+                if (thread.OptedOut && AiGate.Bool(job.Payload, "force") != true)
+                    return Fail(job, "contact opted out");
+                if (job.Kind == JobKind.Text && _gate.WindowClosed(thread, job.AccountId))
+                    return Fail(job, "WhatsApp 24h window closed — use a template");
+            }
+
+            var messageSource = source switch
+            {
+                "system" => MessageSource.System,
+                "ai" => MessageSource.Ai,
+                _ => MessageSource.Agent,
+            };
+
+            // "send like a person": split + typing pause for a job that asked for it
+            if (job.Kind == JobKind.Text && draftId == null && AiGate.Bool(job.Payload, "humanize") == true
+                && !job.Payload.ContainsKey("bubble"))
+            {
+                var account = job.AccountId is int aid
+                    ? _db.ChannelAccounts.AsNoTracking().FirstOrDefault(a => a.Id == aid) : null;
+                var policy = AiBehaviourSettings.Resolve(_scoping, thread.EntityId, account ?? thread.Account);
+                var extra = new Dictionary<string, object?>();
+                foreach (var (k, v) in job.Payload)
+                    if (k is not ("text" or "humanize")) extra[k] = v;
+                var start = _gate.StartHumanSend(thread, ResolveText(job), messageSource,
+                    account ?? thread.Account, policy, humanize: true, extra);
+                return Sent(job, start.MessageId);
+            }
+
+            var text = ResolveText(job);
             // Real send when the account is configured, sandbox otherwise.
-            var msg = _sender.Send(thread, text, source, job.AccountId);
-
-            job.Status = JobStatus.Sent;
-            job.SentAt = DateTime.UtcNow;
-            job.SentMessageId = msg.Id;
-            job.Attempts += 1;
-            job.UpdatedAt = DateTime.UtcNow;
-            _db.SaveChanges();
+            var msg = _sender.Send(thread, text, messageSource, job.AccountId);
+            if (draftId is int sentDraft) _gate.MarkDraftSent(sentDraft, msg.Id);
+            Sent(job, msg.Id);
+            if (job.Payload.ContainsKey("rest")) _gate.ContinueHumanSend(job, thread);
+            return true;
         }
         catch (Exception ex)
         {
-            job.Status = JobStatus.Failed;
-            job.LastError = ex.Message;
-            job.Attempts += 1;
-            job.UpdatedAt = DateTime.UtcNow;
-            _db.SaveChanges();
+            if (draftId is int did) { try { _gate.MarkDraftFailed(did, ex.Message); } catch { } }
+            return Fail(job, ex.Message);
         }
+    }
+
+    /// <summary>Map an AI outcome onto the job that produced it.</summary>
+    private bool Finish(OutboundJob job, AiGateOutcome outcome)
+    {
+        switch (outcome.Status)
+        {
+            case AiGateStatus.Sent:
+            case AiGateStatus.Scheduled:
+                Sent(job, outcome.MessageIds.Count > 0 ? outcome.MessageIds[0] : null);
+                return true;
+            case AiGateStatus.Held:
+            case AiGateStatus.Shadow:
+                Close(job, HeldStatus, $"{(outcome.Status == AiGateStatus.Held ? "held for review" : "shadow draft")}"
+                                       + $" — AI monitor draft #{outcome.DraftId}");
+                return false;
+            case AiGateStatus.Blocked when outcome.DraftId > 0:
+                Fail(job, outcome.Detail);
+                return false;
+            default:
+                // guard declined / nothing to say → cancelled, not failed
+                Close(job, JobStatus.Cancelled, outcome.Detail.Length > 0 ? outcome.Detail : "ai_reply guard declined");
+                return false;
+        }
+    }
+
+    private bool Sent(OutboundJob job, int? messageId)
+    {
+        job.Status = JobStatus.Sent;
+        job.SentAt = Now;
+        job.SentMessageId = messageId;
+        job.Attempts += 1;
+        job.UpdatedAt = Now;
+        _db.SaveChanges();
+        return true;
+    }
+
+    private bool Fail(OutboundJob job, string error)
+    {
+        job.Status = JobStatus.Failed;
+        job.LastError = error;
+        job.Attempts += 1;
+        job.UpdatedAt = Now;
+        _db.SaveChanges();
+        return false;
+    }
+
+    private void Close(OutboundJob job, string status, string detail)
+    {
+        job.Status = status;
+        job.LastError = detail;
+        job.Attempts += 1;
+        job.UpdatedAt = Now;
+        _db.SaveChanges();
+    }
+
+    /// <summary>
+    /// Review context for an AI-composed flow message: the flow refs plus the
+    /// composer's metadata (payload <c>ai_meta</c>: tools, checks, model…) lifted
+    /// to the top level, where the gate's review rules read it.
+    /// </summary>
+    private static Dictionary<string, object?> FlowContext(OutboundJob job)
+    {
+        var ctx = new Dictionary<string, object?>
+        {
+            ["job_id"] = job.Id, ["flow_run_id"] = job.FlowRunId, ["flow_node"] = job.FlowNode,
+        };
+        if (job.Payload.TryGetValue("ai_meta", out var meta) && meta != null)
+        {
+            ctx["ai_meta"] = meta;
+            if (meta is JsonElement { ValueKind: JsonValueKind.Object } el)
+                foreach (var p in el.EnumerateObject()) ctx.TryAdd(p.Name, p.Value.Clone());
+            else if (meta is IDictionary<string, object?> d)
+                foreach (var (k, v) in d) ctx.TryAdd(k, v);
+        }
+        return ctx;
     }
 
     private static string ResolveText(OutboundJob job)

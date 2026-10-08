@@ -105,6 +105,11 @@ public class ApiFactory : WebApplicationFactory<Program>
         // POST /api/flows/tick in tests (deterministic, no timing races).
         Environment.SetEnvironmentVariable("QUEUE_WORKER", "0");
         Environment.SetEnvironmentVariable("FLOWS_WORKER", "0");
+        // AI ops: no background auto-send/follow-up pass, and the human-like
+        // DEFAULTS (wait for the customer, typing pauses, splitting) off so the
+        // sandbox answers inline; tests that need them set the Setting rows.
+        Environment.SetEnvironmentVariable("AI_FOLLOWUP_WORKER", "0");
+        Environment.SetEnvironmentVariable("AI_HUMANIZE", "0");
         // Production seeds clean (no admin/agent logins) since the deploy pass,
         // but the suite signs in as those users on nearly every test. A test
         // host IS a demo environment, so it asks for the demo seed itself

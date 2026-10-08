@@ -27,6 +27,14 @@ builder.Services.AddScoped<ChatBranch.Data.Channels.InboundProcessor>();
 builder.Services.AddScoped<ChatBranch.Data.Flows.QueueService>();
 builder.Services.AddScoped<ChatBranch.Data.Flows.FlowEngine>();
 builder.Services.AddScoped<ChatBranch.Data.Flows.AutomationService>();
+// AI ops: the monitor gate, human-like replies, follow-ups (+ their clock)
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<ChatBranch.Data.Ai.ITypingIndicator, ChatBranch.Data.Ai.LiveTypingIndicator>();
+builder.Services.AddScoped<ChatBranch.Data.Ai.AiComposer>();
+builder.Services.AddScoped<ChatBranch.Data.Ai.AiGate>();
+builder.Services.AddScoped<ChatBranch.Data.Ai.AiResponder>();
+builder.Services.AddScoped<ChatBranch.Data.Ai.AiFollowUpService>();
+builder.Services.AddHostedService<ChatBranch.Api.Workers.AiOpsWorker>();
 builder.Services.AddHostedService<ChatBranch.Api.Workers.OutboundQueueWorker>();
 builder.Services.AddHostedService<ChatBranch.Api.Workers.FlowEngineWorker>();
 builder.Services.AddScoped<ChatBranch.Data.Analytics.AnalyticsService>();
@@ -113,6 +121,7 @@ app.MapWidgetAdminEndpoints();
 app.MapHelpCenterEndpoints();
 app.MapReportsEndpoints();
 app.MapBindingsEndpoints();
+app.MapAiMonitorEndpoints();
 
 // Inbound conversations route themselves to a team. The hook lives here so the
 // data layer never has to reference the API assembly.
