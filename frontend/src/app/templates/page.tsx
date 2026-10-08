@@ -1,13 +1,14 @@
 'use client'
 
-import { MessageSquare } from 'lucide-react'
-import { AreaPage } from '@/components/shell/AreaPage'
-import { SharedTemplatesSettings } from '@/components/settings/SharedTemplatesSettings'
+import { Suspense } from 'react'
+import { TemplatesModule } from '@/components/templates/TemplatesModule'
 
+// One Templates module: Messages (quick replies), Call scripts and WhatsApp
+// (Meta-approved) — the tab is ?tab=messages|scripts|whatsapp.
 export default function TemplatesPage() {
   return (
-    <AreaPage title="Message Templates" subtitle="Cross-channel shared replies inserted with /short-code" Icon={MessageSquare}>
-      <SharedTemplatesSettings />
-    </AreaPage>
+    <Suspense fallback={null}>
+      <TemplatesModule />
+    </Suspense>
   )
 }
