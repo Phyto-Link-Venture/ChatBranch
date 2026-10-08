@@ -438,6 +438,12 @@ public static class IntegrationsEndpoints
                     return Results.Redirect($"{dashboard}?error={Uri.EscapeDataString("Google returned no authorization code.")}");
                 await oauth.ExchangeCodeAsync(row, code!, RedirectUri(ctx, sc));
                 var label = Meta(row.Provider)?.Label ?? row.Provider;
+                // The browser carries no token here: attribute the connect to the row's owner.
+                var owner = row.OwnerUserId is int ou
+                    ? await db.Users.Where(u => u.Id == ou).Select(u => u.Username).FirstOrDefaultAsync() : null;
+                ChatBranch.Data.Audit.AuditTrail.Write(db, "integration.connect", $"{row.Provider}", label,
+                    actor: owner ?? "oauth", source: AuditSources.User, entityId: row.EntityId,
+                    userId: row.OwnerUserId);
                 return Results.Redirect($"{dashboard}?connected={Uri.EscapeDataString(label)}");
             }
             catch (GoogleOAuth.OAuthException e)

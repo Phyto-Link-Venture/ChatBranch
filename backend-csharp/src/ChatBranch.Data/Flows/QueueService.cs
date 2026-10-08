@@ -326,6 +326,9 @@ public class QueueService
         job.SentMessageId = messageId;
         job.Attempts += 1;
         job.UpdatedAt = Now;
+        ChatBranch.Data.Audit.AuditTrail.Add(_db, "queue.send", $"{job.Channel}:{job.ToAddress}",
+            $"{job.Kind} job #{job.Id}{(messageId is int mid ? $" → message #{mid}" : "")}", actor: "queue",
+            source: job.FlowRunId != null ? AuditSources.Flow : AuditSources.System, entityId: EntityOf(job));
         _db.SaveChanges();
         return true;
     }
@@ -336,8 +339,21 @@ public class QueueService
         job.LastError = error;
         job.Attempts += 1;
         job.UpdatedAt = Now;
+        ChatBranch.Data.Audit.AuditTrail.Add(_db, "queue.failed", $"{job.Channel}:{job.ToAddress}",
+            $"{job.Kind} job #{job.Id}: {error}", actor: "queue",
+            source: job.FlowRunId != null ? AuditSources.Flow : AuditSources.System, entityId: EntityOf(job));
         _db.SaveChanges();
         return false;
+    }
+
+    private int? EntityOf(OutboundJob job)
+    {
+        try
+        {
+            return _db.Threads.AsNoTracking().Where(t => t.Channel == job.Channel && t.Key == job.ToAddress)
+                .Select(t => t.EntityId).FirstOrDefault();
+        }
+        catch { return null; }
     }
 
     private void Close(OutboundJob job, string status, string detail)

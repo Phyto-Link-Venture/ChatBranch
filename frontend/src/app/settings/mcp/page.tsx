@@ -1,5 +1,6 @@
-import { McpServersSettings } from '@/components/settings/McpServersSettings'
+import { LegacyRedirect } from '@/components/shell/LegacyRedirect'
 
+/** MCP servers moved to Developers (alongside API keys and ChatBranch's own MCP server). */
 export default function McpServersSettingsPage() {
-  return <McpServersSettings />
+  return <LegacyRedirect to="/developers" />
 }

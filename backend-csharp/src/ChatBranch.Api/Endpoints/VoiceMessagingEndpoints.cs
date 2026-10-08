@@ -244,8 +244,8 @@ public static class VoiceMessagingEndpoints
             sc.SetSetting("stt_provider", provider);
             return Results.Ok(new { stt_provider = provider });
         };
-        app.MapPost("/api/voice/stt-settings", saveStt).AllowAnonymous();
-        app.MapPut("/api/voice/stt-settings", saveStt).AllowAnonymous();
+        app.MapPost("/api/voice/stt-settings", saveStt).RequireAuthorization(AuthPolicies.AdminPlus);
+        app.MapPut("/api/voice/stt-settings", saveStt).RequireAuthorization(AuthPolicies.AdminPlus);
 
         app.MapGet("/api/voice/llm-settings", (ScopingService sc) =>
         {
@@ -267,8 +267,8 @@ public static class VoiceMessagingEndpoints
             sc.SetSetting("llm_provider", provider);
             return Results.Ok(new { llm_provider = provider });
         };
-        app.MapPost("/api/voice/llm-settings", saveLlm).AllowAnonymous();
-        app.MapPut("/api/voice/llm-settings", saveLlm).AllowAnonymous();
+        app.MapPost("/api/voice/llm-settings", saveLlm).RequireAuthorization(AuthPolicies.AdminPlus);
+        app.MapPut("/api/voice/llm-settings", saveLlm).RequireAuthorization(AuthPolicies.AdminPlus);
     }
 
     // =========================================================================

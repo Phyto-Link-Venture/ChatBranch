@@ -1,40 +1,23 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
+using ChatBranch.Data.Audit;
+using ChatBranch.Data.Mcp;
 
 namespace ChatBranch.Api.Endpoints;
 
 /// <summary>
-/// MCP server registry (under /api/integrations/mcp), ported from
-/// integrations/mcp_views.py. The C# schema has no McpServer table yet, so the
-/// registry is persisted as a JSON blob in the global Setting `mcp_servers` —
-/// enough for the dashboard's list / add / edit / remove flow. The live
-/// tools/list probe is not available in this build (`test` returns a clean
-/// "not available" so the page degrades instead of erroring). Auth tokens are
-/// stored server-side and only ever returned masked.
+/// External MCP server registry (under /api/integrations/mcp): servers whose
+/// tools the operator assistant may use. Persisted as the JSON Setting
+/// <c>mcp_servers</c> (<see cref="McpServerRegistry"/>). Test is a REAL probe —
+/// initialize + tools/list over Streamable HTTP (<see cref="McpClient"/>) — and
+/// caches the advertised tools plus a health status; only enabled, healthy
+/// servers offer tools (<see cref="ExternalMcpTools"/>). Every change is audited;
+/// auth tokens never leave the server unmasked.
 /// </summary>
 public static class McpEndpoints
 {
-    private const string Key = "mcp_servers";
-
-    private class Row
-    {
-        [JsonPropertyName("id")] public int Id { get; set; }
-        [JsonPropertyName("name")] public string Name { get; set; } = "";
-        [JsonPropertyName("url")] public string Url { get; set; } = "";
-        [JsonPropertyName("transport")] public string Transport { get; set; } = "streamable-http";
-        [JsonPropertyName("enabled")] public bool Enabled { get; set; } = true;
-        [JsonPropertyName("tool_allowlist")] public List<string> ToolAllowlist { get; set; } = new();
-        [JsonPropertyName("headers")] public Dictionary<string, string> Headers { get; set; } = new();
-        [JsonPropertyName("auth_header")] public string AuthHeader { get; set; } = "";
-        [JsonPropertyName("auth_token")] public string AuthToken { get; set; } = "";
-    }
-
-    private static string Mask(string token) =>
-        string.IsNullOrEmpty(token) ? "" : new string('•', Math.Max(0, token.Length - 4)) + token[^Math.Min(4, token.Length)..];
-
-    private static object Payload(Row r) => new
+    private static object Payload(McpServerRow r) => new
     {
         id = r.Id,
         name = r.Name,
@@ -42,75 +25,130 @@ public static class McpEndpoints
         transport = r.Transport,
         enabled = r.Enabled,
         tool_allowlist = r.ToolAllowlist,
-        headers = r.Headers,
+        headers = r.Headers.ToDictionary(h => h.Key, h => McpServerRegistry.Mask(h.Value)),
         auth_header = r.AuthHeader,
-        auth_token_masked = Mask(r.AuthToken),
+        auth_token_masked = McpServerRegistry.Mask(r.AuthToken),
         has_auth_token = !string.IsNullOrEmpty(r.AuthToken),
+        status = string.IsNullOrEmpty(r.Status) ? "unknown" : r.Status,
+        status_detail = r.StatusDetail,
+        last_ok_at = r.LastOkAt,
+        server_name = r.ServerName,
+        tool_namespace = McpServerRegistry.Slug(r.Name),
+        usable = r.Enabled && r.Status == "healthy" && r.OfferedTools().Any(),
+        tools = r.Tools.Select(t => new
+        {
+            name = t.Name,
+            title = t.Title,
+            description = t.Description,
+            read_only = t.ReadOnly,
+            offered = r.ToolAllowlist.Count == 0 || r.ToolAllowlist.Contains(t.Name),
+            qualified_name = ExternalMcpTools.Qualify(r, t.Name),
+        }),
     };
-
-    private static List<Row> Load(ScopingService sc)
-    {
-        var raw = sc.SettingValue(Key);
-        if (string.IsNullOrWhiteSpace(raw)) return new List<Row>();
-        try { return JsonSerializer.Deserialize<List<Row>>(raw) ?? new List<Row>(); }
-        catch { return new List<Row>(); }
-    }
-
-    private static void Save(ScopingService sc, List<Row> rows) =>
-        sc.SetSetting(Key, JsonSerializer.Serialize(rows));
 
     public static void MapMcpEndpoints(this IEndpointRouteBuilder app)
     {
-        // GET list
         app.MapGet("/api/integrations/mcp", (ScopingService sc) =>
-            Results.Ok(new { servers = Load(sc).Select(Payload) }))
+            Results.Ok(new { servers = McpServerRegistry.Load(sc).Select(Payload) }))
             .RequireAuthorization(AuthPolicies.Authenticated);
 
-        // POST create (admin+)
-        app.MapPost("/api/integrations/mcp", async (HttpContext ctx, ScopingService sc) =>
+        app.MapPost("/api/integrations/mcp", async (HttpContext ctx, ScopingService sc, AppDbContext db) =>
         {
             var body = await ReadBody(ctx);
-            var rows = Load(sc);
-            var row = new Row { Id = rows.Count == 0 ? 1 : rows.Max(r => r.Id) + 1 };
+            var rows = McpServerRegistry.Load(sc);
+            var row = new McpServerRow { Id = rows.Count == 0 ? 1 : rows.Max(r => r.Id) + 1 };
             Apply(row, body);
+            if (Validate(row) is string bad) return Results.Json(new { detail = bad }, statusCode: 400);
             rows.Add(row);
-            Save(sc, rows);
+            McpServerRegistry.Save(sc, rows);
+            AuditTrail.Write(db, "mcp_server.create", row.Name, row.Url);
             return Results.Ok(Payload(row));
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
-        // PATCH update (admin+)
-        app.MapPatch("/api/integrations/mcp/{id:int}", async (int id, HttpContext ctx, ScopingService sc) =>
+        app.MapPatch("/api/integrations/mcp/{id:int}", async (int id, HttpContext ctx, ScopingService sc,
+            AppDbContext db) =>
         {
-            var rows = Load(sc);
+            var rows = McpServerRegistry.Load(sc);
             var row = rows.FirstOrDefault(r => r.Id == id);
             if (row == null) return Results.NotFound(new { detail = "not found" });
+            var urlBefore = row.Url;
             Apply(row, await ReadBody(ctx));
-            Save(sc, rows);
+            if (Validate(row) is string bad) return Results.Json(new { detail = bad }, statusCode: 400);
+            // A new address (or new credentials) means the cached tools are stale.
+            if (row.Url != urlBefore) { row.Status = "unknown"; row.Tools.Clear(); row.StatusDetail = ""; }
+            McpServerRegistry.Save(sc, rows);
+            AuditTrail.Write(db, "mcp_server.update", row.Name,
+                $"enabled={row.Enabled}; allowlist={row.ToolAllowlist.Count}");
             return Results.Ok(Payload(row));
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
-        // DELETE (admin+)
-        app.MapDelete("/api/integrations/mcp/{id:int}", (int id, ScopingService sc) =>
+        app.MapDelete("/api/integrations/mcp/{id:int}", (int id, ScopingService sc, AppDbContext db) =>
         {
-            var rows = Load(sc);
-            var removed = rows.RemoveAll(r => r.Id == id);
-            if (removed == 0) return Results.NotFound(new { detail = "not found" });
-            Save(sc, rows);
+            var rows = McpServerRegistry.Load(sc);
+            var row = rows.FirstOrDefault(r => r.Id == id);
+            if (row == null) return Results.NotFound(new { detail = "not found" });
+            rows.Remove(row);
+            McpServerRegistry.Save(sc, rows);
+            AuditTrail.Write(db, "mcp_server.delete", row.Name, row.Url);
             return Results.Ok(new { ok = true });
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
-        // POST test — live probe unavailable in this build (sandbox-safe).
-        app.MapPost("/api/integrations/mcp/{id:int}/test", (int id, ScopingService sc) =>
+        // Live probe: initialize + tools/list. Answers 200 either way with ok/detail
+        // — a failing server is a status to show, not an API error.
+        app.MapPost("/api/integrations/mcp/{id:int}/test", async (int id, ScopingService sc, AppDbContext db,
+            IHttpClientFactory http, CancellationToken ct) =>
         {
-            var row = Load(sc).FirstOrDefault(r => r.Id == id);
+            var rows = McpServerRegistry.Load(sc);
+            var row = rows.FirstOrDefault(r => r.Id == id);
             if (row == null) return Results.NotFound(new { detail = "not found" });
+
+            bool ok;
+            try
+            {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(TimeSpan.FromSeconds(20));
+                var client = new McpClient(http.CreateClient("mcp"), row);
+                await client.InitializeAsync(timeout.Token);
+                row.Tools = await client.ListToolsAsync(timeout.Token);
+                var info = client.ServerInfo;
+                row.ServerName = info.ValueKind == JsonValueKind.Object && info.TryGetProperty("name", out var n)
+                    ? n.GetString() ?? "" : "";
+                var version = info.ValueKind == JsonValueKind.Object && info.TryGetProperty("version", out var v)
+                    ? v.GetString() ?? "" : "";
+                row.Status = "healthy";
+                row.LastOkAt = DateTime.UtcNow;
+                row.StatusDetail = $"{(row.ServerName.Length > 0 ? row.ServerName : "Server")}"
+                                   + (version.Length > 0 ? $" {version}" : "")
+                                   + $" · {row.Tools.Count} tool{(row.Tools.Count == 1 ? "" : "s")}";
+                ok = true;
+            }
+            catch (Exception ex) when (ex is McpException or OperationCanceledException or InvalidOperationException
+                                           or UriFormatException)
+            {
+                row.Status = "disconnected";
+                row.StatusDetail = ex is OperationCanceledException
+                    ? "The server did not answer within 20 seconds."
+                    : ex.Message;
+                ok = false;
+            }
+            McpServerRegistry.Save(sc, rows);
+            AuditTrail.Write(db, "mcp_server.test", row.Name, ok ? row.StatusDetail : $"failed: {row.StatusDetail}");
             return Results.Ok(new
             {
-                ok = false,
-                tools = Array.Empty<string>(),
-                detail = "Live MCP tools/list probe is not available in this build.",
+                ok,
+                detail = row.StatusDetail,
+                tools = row.Tools.Select(t => t.Name),
+                server = Payload(row),
             });
         }).RequireAuthorization(AuthPolicies.AdminPlus);
+    }
+
+    private static string? Validate(McpServerRow row)
+    {
+        if (row.Name.Length == 0) return "A name is required.";
+        if (!Uri.TryCreate(row.Url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+            return "The server URL must be an http(s) address.";
+        return null;
     }
 
     private static async Task<JsonElement> ReadBody(HttpContext ctx)
@@ -119,7 +157,7 @@ public static class McpEndpoints
         catch { return JsonDocument.Parse("{}").RootElement; }
     }
 
-    private static void Apply(Row row, JsonElement b)
+    private static void Apply(McpServerRow row, JsonElement b)
     {
         if (b.ValueKind != JsonValueKind.Object) return;
         if (b.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String) row.Name = n.GetString()!.Trim();
@@ -129,8 +167,18 @@ public static class McpEndpoints
         if (b.TryGetProperty("auth_header", out var ah) && ah.ValueKind == JsonValueKind.String) row.AuthHeader = ah.GetString()!.Trim();
         if (b.TryGetProperty("auth_token", out var at) && at.ValueKind == JsonValueKind.String) row.AuthToken = at.GetString()!;
         if (b.TryGetProperty("tool_allowlist", out var ta) && ta.ValueKind == JsonValueKind.Array)
-            row.ToolAllowlist = ta.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList();
+            row.ToolAllowlist = ta.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String)
+                .Select(x => x.GetString()!.Trim()).Where(x => x.Length > 0).Distinct().ToList();
         if (b.TryGetProperty("headers", out var h) && h.ValueKind == JsonValueKind.Object)
-            row.Headers = h.EnumerateObject().Where(p => p.Value.ValueKind == JsonValueKind.String).ToDictionary(p => p.Name, p => p.Value.GetString()!);
+        {
+            // A masked value coming back unchanged keeps the stored secret.
+            var next = new Dictionary<string, string>();
+            foreach (var p in h.EnumerateObject().Where(p => p.Value.ValueKind == JsonValueKind.String))
+            {
+                var v = p.Value.GetString()!;
+                next[p.Name] = v.Contains('•') && row.Headers.TryGetValue(p.Name, out var old) ? old : v;
+            }
+            row.Headers = next;
+        }
     }
 }

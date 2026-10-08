@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Mic, Eye, X } from 'lucide-react'
 import { CALL_LOGS } from '@/lib/mocks'
 import { authHeaders } from '@/lib/auth'
-import WhatsAppIcon from '@/components/chats/WhatsAppIcon'
+import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { tint } from '@/lib/color'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
@@ -122,7 +122,7 @@ export default function CallLogsPage() {
                   style={{ background: tint(color, '18') }}
                 >
                   {log.type === 'wa-call' ? (
-                    <WhatsAppIcon size={16} />
+                    <ChannelLogo channel="whatsapp" size={16} />
                   ) : (
                     <Mic size={16} strokeWidth={1.75} style={{ color: color }} />
                   )}

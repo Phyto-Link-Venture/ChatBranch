@@ -81,13 +81,20 @@ public class SummaryService
         var (count, asOf) = Extent(thread);
         var now = DateTime.UtcNow;
 
+        // A summary row is contact memory (crm_conversationsummary.contact_id is
+        // a required FK), so a conversation with no linked contact gets its
+        // brief back without storing one — writing ContactId 0 used to fail the
+        // FK and turn the whole request into a 500.
+        if (contact == null)
+            return new Brief(text, heuristic, count, asOf, now);
+
         // one row per thread — replace rather than pile up revisions
         var existing = _db.ConversationSummaries
             .Where(s => s.Ref == RefFor(thread)).ToList();
         _db.ConversationSummaries.RemoveRange(existing);
         _db.ConversationSummaries.Add(new ConversationSummary
         {
-            ContactId = contact?.Id ?? 0,
+            ContactId = contact.Id,
             Source = "chat",
             Channel = thread.Channel,
             Ref = RefFor(thread),
@@ -97,11 +104,8 @@ public class SummaryService
         });
         // Durable memory: the contact's rolling profile is what the AI reads on
         // the next conversation (memory.build_context).
-        if (contact != null)
-        {
-            var tracked = await _db.Contacts.FirstOrDefaultAsync(c => c.Id == contact.Id, ct);
-            if (tracked != null) { tracked.AiProfileSummary = Trim(text, 600); tracked.UpdatedAt = now; }
-        }
+        var tracked = await _db.Contacts.FirstOrDefaultAsync(c => c.Id == contact.Id, ct);
+        if (tracked != null) { tracked.AiProfileSummary = Trim(text, 600); tracked.UpdatedAt = now; }
         await _db.SaveChangesAsync(ct);
         return new Brief(text, heuristic, count, asOf, now);
     }

@@ -47,6 +47,10 @@ public class Workflow : IEntityScoped
     public List<object?> Nodes { get; set; } = new();
     public List<object?> Edges { get; set; } = new();
     public bool Active { get; set; }
+    /// <summary>When the flow last went live (null while paused). "Contact
+    /// created" and "Scheduled" triggers only act on what happens after it,
+    /// so arming a flow never back-fires on the whole contact book.</summary>
+    public DateTime? LiveSince { get; set; }
     public int Position { get; set; }
     public string UpdatedBy { get; set; } = "";
     public DateTime CreatedAt { get; set; }

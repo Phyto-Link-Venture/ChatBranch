@@ -132,6 +132,9 @@ public class AiGate
             draft.SendAfter = policy.AutosendMinutes > 0 ? now.AddMinutes(policy.AutosendMinutes) : null;
             Save(draft);
             NotifyReviewers(draft, thread, policy);
+            Audit.AuditTrail.Write(_db, "ai.draft.held", $"{thread.Channel}:{thread.Key}",
+                $"draft #{draft.Id} ({draft.Kind}): {draft.HoldReason}", actor: "ai",
+                source: AuditSources.System, entityId: thread.EntityId);
             return new AiGateOutcome(AiGateStatus.Held, draft.Id, Array.Empty<int>(), draft.HoldReason);
         }
 
@@ -335,6 +338,12 @@ public class AiGate
 
         var humanize = Bool(draft.Context, "humanize") != false;
         var start = StartHumanSend(thread, draft.Content, MessageSource.Ai, account, policy, humanize, extra);
+        // the activity log's "the AI said something" row (a person's approval is
+        // audited by the endpoint that took the decision)
+        if (!humanDecision)
+            Audit.AuditTrail.Write(_db, draft.Kind == AiDraftKind.Reply ? "ai.reply" : $"ai.{draft.Kind}",
+                $"{thread.Channel}:{thread.Key}", draft.Content, actor: "ai", source: AuditSources.System,
+                entityId: thread.EntityId);
         if (start.MessageId is int mid)
         {
             draft.SentAt = Now;
