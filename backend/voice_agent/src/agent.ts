@@ -34,6 +34,7 @@ import {
   saveCall,
   saveLive,
   saveMemory,
+  operatorEnded,
 } from './storage.js';
 import { type CallSummary, generateSummary } from './summary.js';
 import {
@@ -54,7 +55,9 @@ import {
  */
 const END_CAUSE = new Map<string, string>();
 const endCause = (room: string, cause: string): void => {
-  if (!END_CAUSE.has(room)) END_CAUSE.set(room, cause);
+  // An operator's End button deletes the room, which looks like the contact
+  // leaving; the API's marker file says who really pressed it.
+  if (!END_CAUSE.has(room)) END_CAUSE.set(room, operatorEnded(room) ? 'operator' : cause);
 };
 
 /** Delete the room (hang up), logging instead of throwing — the room may already be closing. */

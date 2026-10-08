@@ -247,6 +247,12 @@ await check('storage: live transcript round-trip, incl. the final ended_by + llm
   assert.ok(existsSync(path.join(dataDir, 'live', 'escape.json')));
 });
 
+await check('storage: an operator-end marker (written by the API) is seen by the agent', () => {
+  assert.equal(storage.operatorEnded('call-op_1'), false);
+  writeFileSync(path.join(dataDir, 'live', 'call-op_1.operator-end'), new Date().toISOString());
+  assert.equal(storage.operatorEnded('call-op_1'), true);
+});
+
 await check('storage: operator inbox is consume-once and accepts both API shapes', () => {
   assert.deepEqual(storage.popInstructions('call-x'), []);
   storage.pushInstruction('call-x', { mode: 'guide', text: 'Offer Friday.' });

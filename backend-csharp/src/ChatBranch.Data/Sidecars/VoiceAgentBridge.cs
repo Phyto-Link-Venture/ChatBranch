@@ -111,6 +111,12 @@ public class VoiceAgentBridge
     /// <summary>Steer the agent to generate a reply from a hint ("guide").</summary>
     public void Guide(string room, string text) => PushInstruction(room, "guide", text);
 
+    /// <summary>Mark that an OPERATOR is ending this call (live/{room}.operator-end),
+    /// written just before the room is deleted: the agent sees the contact
+    /// "leave" and would otherwise record ended_by=contact.</summary>
+    public void MarkOperatorEnd(string room) =>
+        WriteAtomic(Path.Combine(DataDir, "live", $"{SafeName(room)}.operator-end"), DateTime.UtcNow.ToString("O"));
+
     /// <summary>Make the agent say something verbatim ("takeover").</summary>
     public void Say(string room, string text) => PushInstruction(room, "takeover", text);
 
