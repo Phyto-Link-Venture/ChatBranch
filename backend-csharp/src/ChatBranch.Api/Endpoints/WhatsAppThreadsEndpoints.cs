@@ -988,6 +988,7 @@ public static class WhatsAppThreadsEndpoints
                 return el.GetBoolean();
         }
         if (account == null) return thread.AiEnabled;
+        if (InboxSettings.AiDefault(account) is bool inboxDefault) return inboxDefault;
         if (AccountRole(account) == "reminder")
             return Rule(sc, "reminder_ai_default", "off") == "on";
         return true;

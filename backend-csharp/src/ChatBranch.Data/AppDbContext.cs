@@ -203,6 +203,7 @@ public class AppDbContext : DbContext
         Json<AutomationRule, List<object?>>(b, x => x.Conditions);
         Json<AutomationRule, List<object?>>(b, x => x.Actions);
         Json<KnowledgeItem, List<string>>(b, x => x.Channels);
+        Json<CannedResponse, List<string>>(b, x => x.Channels);
         Json<FlowRun, Dictionary<string, object?>>(b, x => x.Context);
         Json<FlowRun, List<object?>>(b, x => x.Log);
         Json<OutboundJob, Dictionary<string, object?>>(b, x => x.Payload);
@@ -210,6 +211,7 @@ public class AppDbContext : DbContext
         Json<ConversationSummary, List<object?>>(b, x => x.Facts);
         Json<Integration, Dictionary<string, object?>>(b, x => x.Credentials);
         Json<Integration, Dictionary<string, object?>>(b, x => x.Config);
+        Json<AgentSkill, List<string>>(b, x => x.Channels);
 
         // ---- snake_case columns to match Django (<field>_id for FKs) -----------
         // Django names every column snake_case; matching it is what lets this

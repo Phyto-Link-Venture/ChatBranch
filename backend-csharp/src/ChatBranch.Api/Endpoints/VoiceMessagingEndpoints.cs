@@ -651,6 +651,9 @@ public static class VoiceMessagingEndpoints
                 : DateTime.SpecifyKind(a.CreatedAt, DateTimeKind.Utc).ToString("o"),
             ["entity"] = a.Entity?.Slug,
             ["entity_name"] = a.Entity?.Name ?? "",
+            // "Who answers it": owning team (null = none) + AI default ("" = inherit)
+            ["team_id"] = ChatBranch.Data.Channels.InboxSettings.TeamId(a),
+            ["ai_default"] = ChatBranch.Data.Channels.InboxSettings.AiDefaultWire(a),
         };
         var cfg = a.Config ?? new Dictionary<string, object?>();
         if (a.Channel == "email")
@@ -761,6 +764,7 @@ public static class VoiceMessagingEndpoints
                     },
                 };
                 account.EntityId = await InboxEndpoints.EntityId(db, body.Str("entity"));
+                if (ApplyInbox(db, account, body) is IResult inboxErr) return inboxErr;
                 db.ChannelAccounts.Add(account);
                 await db.SaveChangesAsync();
                 await db.Entry(account).Reference(a => a.Entity).LoadAsync();
@@ -791,6 +795,7 @@ public static class VoiceMessagingEndpoints
                 CreatedAt = DateTime.UtcNow,
             };
             social.EntityId = await InboxEndpoints.EntityId(db, body.Str("entity"));
+            if (ApplyInbox(db, social, body) is IResult socialInboxErr) return socialInboxErr;
             db.ChannelAccounts.Add(social);
             await db.SaveChangesAsync();
             await db.Entry(social).Reference(a => a.Entity).LoadAsync();
@@ -822,12 +827,46 @@ public static class VoiceMessagingEndpoints
                 if (body!.Count == 1) return Results.Ok(AccountPayload(account));
             }
 
+            // Inbox settings (owning team, AI default) — editable on every channel.
+            var inboxTouched = body.Has(ChatBranch.Data.Channels.InboxSettings.TeamKey)
+                               || body.Has(ChatBranch.Data.Channels.InboxSettings.AiDefaultKey);
+            if (inboxTouched && ApplyInbox(db, account, body) is IResult inboxErr) return inboxErr;
+
             if (account.Channel != "email")
-                return Results.Json(new
+            {
+                // Social accounts: rename, re-point the page/IG id, or re-token
+                // (a masked placeholder round-trips as "keep the stored token").
+                var socialTouched = new List<string>();
+                var newName = (body.Str("name") ?? "").Trim();
+                if (newName.Length > 0)
                 {
-                    detail = "PATCH is supported for email accounts only — " +
-                             "delete and re-link other channels.",
-                }, statusCode: 400);
+                    account.Name = newName.Length > 120 ? newName[..120] : newName;
+                    socialTouched.Add("name");
+                }
+                if (body.Has("external_id"))
+                {
+                    account.ExternalId = (body.Str("external_id") ?? "").Trim();
+                    socialTouched.Add("external_id");
+                }
+                var newToken = body.Str("access_token") ?? "";
+                if (newToken.Trim().Length > 0 && !Untouched(newToken))
+                {
+                    account.AccessToken = newToken.Trim();
+                    // a re-tokened account must become routable again now
+                    account.HealthStatus = Health.Unknown;
+                    account.HealthDetail = "";
+                    account.FailStreak = 0;
+                    account.HealthChangedAt = DateTime.UtcNow;
+                    socialTouched.Add("access_token");
+                }
+                if (socialTouched.Count == 0 && !inboxTouched)
+                    return Results.Json(new { detail = "Nothing to update." }, statusCode: 400);
+                await db.SaveChangesAsync();
+                if (inboxTouched) socialTouched.Add("inbox");
+                Audit(db, me, ctx, "account.update", $"{account.Channel}:{account.Name}",
+                    $"keys: {string.Join(", ", socialTouched.OrderBy(k => k))}");
+                return Results.Ok(AccountPayload(account));
+            }
 
             var cfg = new Dictionary<string, object?>(account.Config ?? new());
             var touched = new List<string>();
@@ -864,13 +903,14 @@ public static class VoiceMessagingEndpoints
                 touched.Add("from_email");
             }
             var name = (body.Str("name") ?? "").Trim();
-            if (touched.Count == 0 && name.Length == 0)
+            if (touched.Count == 0 && name.Length == 0 && !inboxTouched)
                 return Results.Json(new { detail = "Nothing to update." }, statusCode: 400);
             if (name.Length > 0)
             {
                 account.Name = name.Length > 120 ? name[..120] : name;
                 touched.Add("name");
             }
+            if (inboxTouched) touched.Add("inbox");
             account.Config = cfg;
             await db.SaveChangesAsync();
             Audit(db, me, ctx, "account.update", $"email:{account.Name}",
@@ -886,6 +926,8 @@ public static class VoiceMessagingEndpoints
             if (account == null)
                 return Results.Json(new { detail = "Account not found." }, statusCode: 404);
             var label = $"{account.Channel}:{account.Name}";
+            // conversations stay (back in sandbox) — unlink them first
+            await ChatBranch.Data.Channels.InboxSettings.DetachAccountAsync(db, account.Id);
             db.ChannelAccounts.Remove(account);
             await db.SaveChangesAsync();
             Audit(db, me, ctx, "account.delete", label, "");
@@ -944,6 +986,20 @@ public static class VoiceMessagingEndpoints
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         MapEmailSettings(app);
+    }
+
+    /// <summary>
+    /// Apply the inbox keys (team_id, ai_default) a write body carries; absent
+    /// keys stay untouched, a blank/null value clears back to inherit.
+    /// </summary>
+    private static IResult? ApplyInbox(AppDbContext db, ChannelAccount account,
+        Dictionary<string, JsonElement>? body)
+    {
+        string? Raw(string key) => body.Has(key) ? body.Str(key) ?? "" : null;
+        var err = ChatBranch.Data.Channels.InboxSettings.Apply(db, account,
+            Raw(ChatBranch.Data.Channels.InboxSettings.TeamKey),
+            Raw(ChatBranch.Data.Channels.InboxSettings.AiDefaultKey));
+        return err == null ? null : Results.Json(new { detail = err }, statusCode: 400);
     }
 
     private static (int Port, IResult? Error) ParsePort(string? raw)

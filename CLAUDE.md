@@ -563,6 +563,21 @@ default `backend/data` of the checkout (`VoiceAgentBridge.ResolveDataDir`).
   and the builder's skill sidebar/editor are READ-ONLY. Skills render as a
   `SKILLS` prompt section (`use_when` selects, `instructions` is the body) on
   every channel and every call. Don't re-add a second writer.
+- **Code skills (2026-10).** `AgentSkill.Kind` = prompt (the SKILLS block) |
+  tool (JS `run(args, ctx)` the model CALLS) | check (JS `check(reply, ctx)`
+  run on EVERY draft). JS runs in `Ai/Skills/SkillRuntime` (Jint: no CLR, no
+  eval, 250 ms / 8 MB / statement + recursion caps; faults come back as data).
+  Built-in C# tools (current_time, current_week, date_add, days_between,
+  convert_timezone; zone = Setting `org_timezone` → TZ → UTC) are always
+  offered. `AssistantService` is a PURE GENERATOR returning `AiReplyResult`
+  (text, draft, tools, checks, retries, tokens) — callers send. A failing
+  check → rewrite with the reason (max 2), then OnFail: retry→handover,
+  handover (immediate), block; handover = private note + status pending +
+  notify. Flow Action `skill` (SkillId, or legacy name) / "AI message" →
+  `ComposeActionTextAsync`; jobs carry `source:"ai"` + `ai_meta`. PUT refuses
+  an ENABLED code skill whose code/tests changed unless its tests pass.
+  Authoring: `POST /api/aicore/skills/draft` (describe → questions | draft;
+  sandbox = template library), `/skills/test`, `GET /skills/builtins`.
 - **`backend/flows/` = the flow-builder execution engine.** The `/flow-builder`
   page syncs its whole library to the DB (`crm.Workflow` / `crm.AgentSkill`,
   React Flow JSON stored verbatim) via `GET/PUT /api/flows/library` (PUT is
