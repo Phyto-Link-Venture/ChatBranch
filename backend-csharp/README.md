@@ -1,96 +1,77 @@
 # ChatBranch — C# / ASP.NET Core backend
 
-The in-progress C# rewrite of the Django API (`../backend/`). Same JSON
-contract, so the existing Next.js dashboard (`../frontend/`) and the voice /
-Baileys sidecars stay unchanged. See `../docs/CSHARP_MIGRATION_PLAN.md` for the
-full plan and phasing.
-
-## Status: Phases 0–6 complete (52 endpoints, 38 tests green)
-
-Built so far: the foundation (below) plus the **unified inbox** (threads /
-messages / send / simulate / SSE / canned), the **AI brain** (persona /
-knowledge / skills / reply via a pluggable `ILlmClient`), the **outbound queue**
-(pacing + atomic claim, as a `BackgroundService`), **contacts / channel hub /
-analytics / script templates**, **sidecar bridges** (voice-agent file IPC +
-Baileys HTTP contract), and **integrations** (sandbox + webhook HMAC) with the
-**`/api/v1`** DRF-twin surface + bulk record sync. Full coverage matrix and the
-deferred long tail: `../docs/CSHARP_PARITY.md`.
-
-### Foundation (Phase 0 + 1)
-
-**Phase 0 — Skeleton**
-- Solution with four projects (`Domain`, `Data`, `Api`, `Tests`).
-- EF Core + SQLite, DI, bearer-token auth, RBAC policies, CORS for the dashboard.
-- Open liveness probe: `GET /api/whatsapp/status`.
-
-**Phase 1 — Foundation (crm + scoping + auth)**
-- **All 28 CRM entities** + `ingest` Tenant/Entity, defined in
-  `src/ChatBranch.Domain/`.
-- **`AppDbContext`** (`src/ChatBranch.Data/`) maps them to Django's table names
-  (`crm_*`, `ingest_*`, `auth_user`) with **snake_case columns**, JSON-column
-  converters, and the **partial unique indexes** that replicate Django's
-  filtered constraints — most importantly the Setting rules (one global row per
-  key; one override per `(key, entity)`).
-- **`ScopingService`** — a faithful port of `crm/scoping.py`: the three verbs
-  (`SettingValue`, `ScopeInherited`, `ScopeOwned`), the entity-scoped-settings
-  allowlist, and thread attribution.
-- **`DjangoPasswordHasher`** — PBKDF2-SHA256 interop so this backend can
-  authenticate users created by the Django app against the **same** database.
-- **Auth**: `TokenAuthenticationHandler` (Bearer → `AuthToken` row, with the
-  `X-Role` pre-seed bootstrap), `superadmin` / `admin+` policies.
-- **Endpoints**: `POST /api/auth/login`, `POST /api/auth/logout`,
-  `GET /api/auth/whoami`, `GET/PUT /api/settings` (entity-scoped, superadmin
-  write gate).
-- **Seed**: demo tenant + entity + roles + users (superadmin/super123,
-  admin/admin123, agent/agent123 — POC creds).
-
-**Tests (19, all green):** scoping parity ported from
-`backend/tests/test_entity_scoping.py`, password-hash round-trips, and
-end-to-end HTTP smoke (login → whoami, the 403/400 gates) via
-`WebApplicationFactory`.
-
-## Prerequisites
-
-.NET SDK 8.0+ (`dotnet --version`).
-
-## Build · test · run
-
-```bash
-cd backend-csharp
-dotnet build
-dotnet test
-
-# run against a local SQLite file (created + seeded on first boot)
-dotnet run --project src/ChatBranch.Api --no-launch-profile --urls http://127.0.0.1:8000
-```
-
-Point it at the **existing Django database** instead of a fresh one by setting
-the connection string (the schema already matches — table + column names are
-Django's):
-
-```bash
-ConnectionStrings__Default="Data Source=../backend/db.sqlite3" \
-  dotnet run --project src/ChatBranch.Api --no-launch-profile
-```
-
-> ⚠️ Column-level fidelity against a live Django DB still needs a verification
-> pass (Phase 7 cutover): a few columns may need explicit mapping where the
-> snake_case guess differs from Django's actual name. Do a read-only diff
-> before enabling writes on a real database.
+THE backend of ChatBranch (the Django API it replaced was removed on
+2026-08-16): ASP.NET Core 8 minimal APIs over SQLite via EF Core. It serves the
+Next.js dashboard (`../frontend/`), drives the Baileys gateway over HTTP and the
+voice agent through LiveKit + shared files, and exposes an MCP server. The
+repo-level guide is [`../CLAUDE.md`](../CLAUDE.md) — read its **Port status**
+table before relying on a channel transport.
 
 ## Layout
 
 ```
-src/ChatBranch.Domain   entities (28 + Tenant/Entity), enums, IEntityScoped
-src/ChatBranch.Data     AppDbContext, ScopingService, DjangoPasswordHasher, Seed, JSON converters
-src/ChatBranch.Api      Program, auth handler, RBAC policies, endpoints
-tests/ChatBranch.Tests  xUnit — scoping parity, hasher, HTTP smoke
+src/ChatBranch.Domain   entities (Contact, Thread, Message, Tag, AiDraft, …), wire-value constants
+src/ChatBranch.Data     AppDbContext + Seed (schema bootstrap/upgrade), ScopingService,
+                        Stores/ThreadStore, Ai/ (assistant, gate, composer, responder,
+                        follow-ups, skills sandbox), Flows/ (engine, queue, call placer,
+                        automations), Channels/, Integrations/, Notifications/, Tags/,
+                        Audit/, Mcp/ (client), Sidecars/ (LiveKit, voice-agent bridge, Baileys)
+src/ChatBranch.Api      Program.cs, Endpoints/ (one file per area), Auth/ (bearer + API keys,
+                        policies), Audit/ (request audit middleware), Tools/ (the MCP/assistant
+                        tool registry), Assistant/ (Ask ChatBranch), Workers/ (queue, flows, AI ops)
+tests/ChatBranch.Tests  xUnit — 218 tests, mostly end-to-end over WebApplicationFactory
 ```
 
-## Next
+## Build · test · run
 
-The deferred long tail (live per-provider webhooks, media serving, a real
-send/LLM client, the flow node interpreter, voice dialling, integrations OAuth,
-full RBAC admin) is tracked in `../docs/CSHARP_PARITY.md`. Each item is isolated
-and additive — plug a real `IWhatsAppClient`/`ILlmClient` behind the store the
-same way `SandboxLlmClient` slots in today.
+Requires the .NET 8 SDK.
+
+```bash
+cd backend-csharp
+dotnet build src/ChatBranch.Api -c Release
+dotnet test tests/ChatBranch.Tests        # the test host sets its own env (see below)
+
+# run (from the repo root `npm run dev:api` does the same)
+dotnet run --project src/ChatBranch.Api --urls http://0.0.0.0:8090
+```
+
+- **`--urls` vs `ASPNETCORE_URLS`:** `Properties/launchSettings.json` (profile
+  `http`, port 5223) overrides an `ASPNETCORE_URLS` environment variable; a
+  `--urls` argument overrides the profile. Use `--no-launch-profile` when you
+  configure the URL through the environment.
+- **Database:** `ConnectionStrings:Default`, default `Data Source=chatbranch.sqlite3`
+  relative to the content root — under `dotnet run` that is
+  `src/ChatBranch.Api/chatbranch.sqlite3`; Docker uses `/data/chatbranch.sqlite3`.
+  `Seed.Run` creates and seeds it on boot; `Seed.UpgradeSchema` adds new
+  columns/tables to an existing file (there are no EF migrations — add every new
+  column there too).
+- **Seed:** the Demo tenant, the `main` entity, the built-in roles and a
+  `superadmin` login (`SUPERADMIN_PASSWORD`, else `super123`). `SEED_DEMO=1`
+  adds `admin/admin123`, `agent/agent123` and a sample contact.
+- **Data dir:** `CHATBRANCH_DATA_DIR` (default `../backend/data` in a checkout) —
+  shared with the voice agent.
+- **Config:** Setting rows (edited in the dashboard) → process environment. The
+  API does not load `.env` files, except that it reads the LiveKit keys from
+  `../backend/.env` per call.
+- **Workers** (`src/ChatBranch.Api/Workers/`): outbound queue every 5 s
+  (`QUEUE_WORKER=0` disables), flow engine every 10 s (`FLOWS_WORKER=0`), AI ops
+  every 30 s (`AI_FOLLOWUP_WORKER=0`). `AI_HUMANIZE=0` switches the human-like
+  AI defaults off. The test host sets all four to `0`, plus `SEED_DEMO=1`, a
+  throwaway database and data dir, and an unconfigured LiveKit client.
+
+## Conventions
+
+- Every route needs `RequireAuthorization(...)` or an explicit `AllowAnonymous()`
+  — there is no fallback policy. Capability checks go through
+  `AdminEndpoints.HasCapabilityAsync` / `SettingsEndpoints.RequireCapability`.
+- Entity scoping lives in `ScopingService` only (`SettingValue`,
+  `ScopeInherited`, `ScopeOwned`).
+- Table and column names match the old Django schema (`crm_*`, snake_case) so
+  the context could attach to the previous database; keep the naming when you
+  add tables.
+- Nothing on a webhook, send or AI path may throw; sandbox mode must answer
+  every endpoint with zero credentials.
+
+More: [`../docs/DATABASE_SCHEMA.md`](../docs/DATABASE_SCHEMA.md),
+[`../docs/API_CONVENTIONS.md`](../docs/API_CONVENTIONS.md),
+[`../docs/RBAC_AND_BRANDS.md`](../docs/RBAC_AND_BRANDS.md).

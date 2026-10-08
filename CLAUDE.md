@@ -270,8 +270,9 @@ When you fix one of these, update this table, `README.md` and
   (stamped on a brand-new thread only, so a later per-chat tick wins) and
   `ai_review_mode` (per-inbox AI monitor policy). Deleting a messaging account
   or a widget KEEPS its conversations (`InboxSettings.DetachAccountAsync`).
-  Advanced channel settings (verify token, routing rules, voice/SIP creds) live
-  in `ChannelsAdvanced.tsx`.
+  `ChannelsAdvanced.tsx` shows the Meta webhook URL + verify token (edited at
+  Settings → App & provider keys) and the default mail settings; the
+  routing-rules card sits on `/assignments`.
 - **Account assignment (`/assignments`, a Work module)** — sticky
   `AccountAssignment` rows (contact × channel → account, `Pinned`), edited via
   `GET/PUT /api/whatsapp/assignments?channel=…`; `POST
@@ -358,11 +359,13 @@ When you fix one of these, update this table, `README.md` and
   channel-agnostic generator: system prompt = `PersonaService.HardRules` (safety
   floor, never overridable) + persona (Setting `aicore_persona`, entity-scoped,
   else `DefaultPersona`; `GET/PUT /api/aicore/persona`, PUT superadmin — there
-  is no persona UI) + SKILLS block + CRM enrichment + `CONTACT MEMORY` (durable
-  contact fields + summaries, 1500 chars) + `COMPANY KNOWLEDGE`
-  (`KnowledgeService`: kind fact/policy/faq/event/notice, `StartsAt/EndsAt`
-  self-expiry, tiers notice → event → fact then top-4 keyword-matched
-  faq/policy, **no embeddings on purpose**, 1800-char budget). It is a **PURE
+  is no persona UI) + SKILLS block (prompt skills in scope) + `COMPANY
+  KNOWLEDGE` (`KnowledgeService`: kind fact/policy/faq/event/notice,
+  `StartsAt/EndsAt` self-expiry, tiers notice → event → fact then top-4
+  keyword-matched faq/policy, **no embeddings on purpose**, 1800-char budget) +
+  `CONTACT` (name, company, language, tag NAMES, profile summary — not custom
+  fields, tag attributes or records) + `CONTACT MEMORY` (durable contact fields +
+  the last 3 summaries, 1500 chars) + the current org-local date/time. It is a **PURE
   GENERATOR returning `AiReplyResult`** (text, draft, tools, checks, retries,
   tokens) — callers send. Every path is exception-safe. LLM:
   `OpenAiLlmClient` = OpenRouter → OpenAI → local (OpenAI-compatible base URL),
@@ -742,9 +745,10 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 - **The vocabulary is a contract** with `FlowEngine.cs`
   (`lib/flow/nodeConfig.ts` — change both sides together). Triggers: Contact
   created · Tag added · Message received (optional keyword/channel) · Date field
-  (days before/on/after a date field) · Scheduled (time + weekdays) · Manual /
-  API (`POST /api/flows/{flowId}/start`); repeat Once / Every time / Once a
-  day. Legacy record-due-date triggers still execute but are never offered.
+  (days before/on/after a contact DATE CUSTOM FIELD, optionally yearly — not the
+  record's due date) · Scheduled (time + weekdays) · Manual / API
+  (`POST /api/flows/{flowId}/start`); repeat Once / Every time / Once a day.
+  Legacy record-due-date triggers still execute but are never offered.
   Step kinds: trigger · action (send message on WhatsApp/Email/Telegram/SMS(logged
   only)/In-app push, or a template · **AI message** = the `AI message` marker
   channel + a `skill` id, composed by `ComposeActionTextAsync` and sent through

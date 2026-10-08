@@ -1,5 +1,7 @@
 # ChatBranch → C# / ASP.NET Core Migration Plan
 
+> **Historical.** The plan for porting the Django API to C# (August 2026). The port shipped and Django was removed; for the current state and the remaining gaps see the Port status table in [`CLAUDE.md`](../CLAUDE.md).
+
 Status: **planning** · Branch: `claude/chatwoot-csharp-migration-dzeyrj` ·
 Author: Claude Code · Date: 2026-08-13
 

@@ -1,5 +1,7 @@
 # ChatBranch — Admin/RBAC/UX upgrade spec
 
+> **Historical.** A build contract for an earlier UX round (Django backend, ocean-blue theme). Superseded by the 2026-10 overhaul — Paper & Ink design system, `components/shell/nav.ts`, Settings sections; see [`CLAUDE.md`](../CLAUDE.md).
+
 Five changes, built in parallel by a backend agent, a main frontend agent, and a
 flow-templates agent. **This doc is the shared contract** — every API shape here
 is authoritative so the frontend can build against it before the backend lands.

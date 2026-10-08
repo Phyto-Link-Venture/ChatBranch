@@ -1,5 +1,7 @@
 # ChatBranch — UX round 2 (custom roles, integrations redesign, datatables)
 
+> **Historical.** A build contract for an earlier UX round (Django backend, ocean-blue theme). Superseded by the 2026-10 overhaul; see [`CLAUDE.md`](../CLAUDE.md).
+
 Follows `docs/UPGRADE-SPEC.md` (dynamic RBAC already shipped: `crm.RolePermission`,
 `crm/permissions_store.py`, `GET/PUT /api/auth/permissions`, `has_capability`,
 login/whoami return `capabilities`). Build on it — don't rebuild it.

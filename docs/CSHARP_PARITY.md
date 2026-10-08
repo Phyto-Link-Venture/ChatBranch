@@ -1,5 +1,7 @@
 # C# / ASP.NET Core port — parity & cutover
 
+> **Historical.** A parity snapshot taken mid-port (56 endpoints, 46 tests). Many "deferred" items have since landed (Baileys intake, SIP/WhatsApp calls, OAuth, integration actions, RBAC admin); the current gaps are in the Port status table in [`CLAUDE.md`](../CLAUDE.md).
+
 Companion to `CSHARP_MIGRATION_PLAN.md`. Tracks what the C# backend
 (`backend-csharp/`) covers versus the Django API, and how to verify + cut over.
 
