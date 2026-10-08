@@ -1,3 +1,5 @@
+import { authHeaders } from './auth'
+
 // One shared <audio> element so starting a preview stops the previous one.
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8090/api'
 
@@ -51,7 +53,7 @@ export async function playPreview(voiceId: string, text: string): Promise<void> 
   try {
     const resp = await fetch(`${API}/voice/preview`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ voiceId, text }),
       signal: controller.signal,
     })
