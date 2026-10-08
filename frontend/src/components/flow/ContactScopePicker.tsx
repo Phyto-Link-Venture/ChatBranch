@@ -1,28 +1,21 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { Plus, Search, X } from 'lucide-react'
 import { authHeaders } from '@/lib/auth'
+import { inputCls } from './fields'
 
 /**
- * Trigger scope picker: "every contact" (the default) or a named few.
+ * Pick specific contacts — searched SERVER-side (GET /api/v1/contacts?search=,
+ * RBAC-scoped and paginated) because a contact book can run to hundreds of
+ * thousands of rows; only one page of matches is ever rendered.
  *
- * Deliberately NOT a checkbox list of the contact book — the book can run to
- * hundreds of thousands of rows, so neither chips nor a full <select> is
- * viable. This searches SERVER-side (GET /api/v1/contacts?search=, which is
- * RBAC-scoped and paginated) and only ever renders one page of matches.
- *
- * Storage contract:
- *   customers      string[] of customer ids — the ONLY key flows/engine reads.
- *                  Empty/absent = every contact, so flows saved before this
- *                  field existed keep working unchanged.
- *   contactLabels {id: name} kept purely so the panel can show what is
- *                  selected without re-fetching every id. The engine ignores
- *                  it; a rename shows the stale label until re-picked.
+ * `selected` holds contact ids as strings (the trigger's `contacts` key, which
+ * the engine reads — empty = everyone); `labels` {id: name} is display-only.
  */
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
-const PAGE_SIZE = 50
+const PAGE_SIZE = 20
 
 interface Row {
   id: number
@@ -34,38 +27,33 @@ export default function ContactScopePicker({
   selected,
   labels,
   onChange,
+  placeholder = 'Search contacts by name or phone…',
 }: {
   selected: string[]
   labels: Record<string, string>
   onChange: (ids: string[], labels: Record<string, string>) => void
+  placeholder?: string
 }) {
-  // Mode is explicit state, NOT derived from selected.length — otherwise
-  // choosing "only selected" could never stick, because the list starts empty.
-  const [mode, setMode] = useState<'all' | 'some'>(selected.length ? 'some' : 'all')
-  const scoped = mode === 'some'
   const [query, setQuery] = useState('')
   const [rows, setRows] = useState<Row[]>([])
   const [count, setCount] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [open, setOpen] = useState(false)
   const reqId = useRef(0)
 
-  // Debounced server-side search — only while the "specific contacts" mode is
-  // on, so the default (all contacts) costs no requests at all.
   useEffect(() => {
-    if (!scoped) return
+    if (!open) return
     const mine = ++reqId.current
     const t = setTimeout(async () => {
       setBusy(true)
       setError('')
       try {
-        const url = `${API}/v1/contacts?page_size=${PAGE_SIZE}${
-          query.trim() ? `&search=${encodeURIComponent(query.trim())}` : ''
-        }`
+        const url = `${API}/v1/contacts?page_size=${PAGE_SIZE}${query.trim() ? `&search=${encodeURIComponent(query.trim())}` : ''}`
         const res = await fetch(url, { headers: authHeaders() })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const data = await res.json()
-        if (mine !== reqId.current) return // a newer keystroke won
+        if (mine !== reqId.current) return
         setRows(Array.isArray(data.results) ? data.results : [])
         setCount(typeof data.count === 'number' ? data.count : 0)
       } catch (e) {
@@ -78,89 +66,86 @@ export default function ContactScopePicker({
       }
     }, 250)
     return () => clearTimeout(t)
-  }, [query, scoped])
+  }, [query, open])
+
+  const unpicked = useMemo(() => rows.filter((r) => !selected.includes(String(r.id))), [rows, selected])
 
   const add = (row: Row) => {
     const id = String(row.id)
     if (selected.includes(id)) return
     onChange([...selected, id], { ...labels, [id]: row.name })
   }
-
   const remove = (id: string) => {
-    const nextLabels = { ...labels }
-    delete nextLabels[id]
-    onChange(selected.filter((x) => x !== id), nextLabels)
+    const next = { ...labels }
+    delete next[id]
+    onChange(selected.filter((x) => x !== id), next)
   }
 
-  const unpicked = useMemo(
-    () => rows.filter((r) => !selected.includes(String(r.id))),
-    [rows, selected],
-  )
-
   return (
-    <div className="contact-scope">
-      <select
-        value={mode}
-        onChange={(e) => {
-          const next = e.target.value as 'all' | 'some'
-          setMode(next)
-          setQuery('')
-          if (next === 'all') onChange([], {}) // back to the default scope
-        }}
-      >
-        <option value="all">All contacts (default)</option>
-        <option value="some">Only selected contacts…</option>
-      </select>
-
-      {scoped && (
-        <>
-          <div className="contact-scope-chips">
-            {selected.map((id) => (
-              <span key={id} className="multi-chip on">
-                {labels[id] || `#${id}`}
-                <button type="button" aria-label={`Remove ${labels[id] || id}`} onClick={() => remove(id)}>
-                  <X size={11} aria-hidden />
-                </button>
-              </span>
-            ))}
-          </div>
-          <input
-            type="search"
-            value={query}
-            placeholder="Search contacts by name or phone…"
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <select
-            value=""
-            onChange={(e) => {
-              const row = unpicked.find((r) => String(r.id) === e.target.value)
-              if (row) add(row)
-            }}
-          >
-            <option value="" disabled>
-              {busy ? 'Searching…' : unpicked.length ? 'Add a contact…' : 'No matches'}
-            </option>
-            {unpicked.map((r) => (
-              <option key={r.id} value={String(r.id)}>
-                {r.name}
-                {r.phone ? ` — ${r.phone}` : ''}
-              </option>
-            ))}
-          </select>
-          <div className="config-help">
-            {selected.length === 0 ? (
-              // An empty list is "all contacts" to the engine, so this mode with
-              // nothing picked would silently enrol everyone — say so loudly.
-              <strong>Pick at least one contact — an empty list still means ALL contacts.</strong>
+    <div className="flex flex-col gap-2">
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {selected.map((id) => (
+            <span key={id} className="inline-flex items-center gap-1 rounded-md border border-line-strong bg-card py-0.5 pl-2 pr-1 text-[12px] text-text-high">
+              {labels[id] || `#${id}`}
+              <button
+                type="button"
+                aria-label={`Remove ${labels[id] || id}`}
+                onClick={() => remove(id)}
+                className="grid h-4 w-4 place-items-center rounded text-text-muted hover:bg-fill-hover hover:text-text-high"
+              >
+                <X size={11} aria-hidden />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="relative">
+        <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-faint" aria-hidden />
+        <input
+          type="search"
+          value={query}
+          placeholder={placeholder}
+          onFocus={() => setOpen(true)}
+          onChange={(e) => {
+            setQuery(e.target.value)
+            setOpen(true)
+          }}
+          className={`${inputCls} pl-8`}
+          aria-label="Search contacts"
+        />
+      </div>
+      {open && (
+        <div className="rounded-lg border border-line bg-card">
+          <div className="max-h-[200px] overflow-y-auto py-1">
+            {busy && rows.length === 0 ? (
+              <div className="px-3 py-2 text-[12px] text-text-muted">Searching…</div>
             ) : error ? (
-              `Contact search unavailable — ${error}`
-            ) : count > rows.length ? (
-              `Showing ${rows.length} of ${count.toLocaleString()} matches — type to narrow.`
+              <div className="px-3 py-2 text-[12px] text-[color:var(--red-ink)]">Contact search unavailable — {error}</div>
+            ) : unpicked.length === 0 ? (
+              <div className="px-3 py-2 text-[12px] text-text-muted">No matches.</div>
             ) : (
-              `${count.toLocaleString()} match${count === 1 ? '' : 'es'}.`
+              unpicked.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => add(r)}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] text-text-high hover:bg-fill-hover"
+                >
+                  <Plus size={12} className="shrink-0 text-text-muted" aria-hidden />
+                  <span className="min-w-0 flex-1 truncate">{r.name}</span>
+                  {r.phone && <span className="shrink-0 text-[11.5px] text-text-muted">{r.phone}</span>}
+                </button>
+              ))
             )}
           </div>
-        </>
+          <div className="flex items-center justify-between border-t border-line px-3 py-1.5 text-[11px] text-text-muted">
+            <span>{count > rows.length ? `Showing ${rows.length} of ${count.toLocaleString()} — type to narrow` : `${count.toLocaleString()} match${count === 1 ? '' : 'es'}`}</span>
+            <button type="button" className="font-semibold hover:text-text-high" onClick={() => setOpen(false)}>
+              Done
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )
