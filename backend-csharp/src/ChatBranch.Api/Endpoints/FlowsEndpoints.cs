@@ -371,20 +371,17 @@ public static class FlowsEndpoints
             }
         }
 
-        var triggerIds = nodes.Where(n => n.Type == "trigger").Select(n => n.Id).ToHashSet();
+        var perDay = DayCounts(windowRuns, zone);
+        var enteredByDay = events.Where(e => e.Kind == FlowStepKind.Entered).GroupBy(e => e.Day)
+            .ToDictionary(g => g.Key, g => g.GroupBy(e => e.NodeId)
+                .ToDictionary(n => n.Key, n => n.Select(e => e.RunId).Distinct().Count()));
         var series = dayKeys.Select(day =>
         {
-            var dayEvents = events.Where(e => e.Day == day && e.Kind == FlowStepKind.Entered).ToList();
+            var c = perDay.GetValueOrDefault(day);
             return new
             {
-                day,
-                started = windowRuns.Count(r => OrgClock.Day(r.StartedAt, zone) == day),
-                completed = windowRuns.Count(r => r.Status == FlowRunStatus.Done && r.FinishedAt is DateTime f
-                                                  && OrgClock.Day(f, zone) == day),
-                failed = windowRuns.Count(r => r.Status == FlowRunStatus.Failed && r.FinishedAt is DateTime f
-                                               && OrgClock.Day(f, zone) == day),
-                nodes = dayEvents.GroupBy(e => e.NodeId)
-                    .ToDictionary(g => g.Key, g => g.Select(e => e.RunId).Distinct().Count()),
+                day, started = c.Started, completed = c.Completed, failed = c.Failed,
+                nodes = enteredByDay.GetValueOrDefault(day) ?? new Dictionary<string, int>(),
             };
         }).ToList();
 
@@ -441,6 +438,7 @@ public static class FlowsEndpoints
         {
             var mine = runs.Where(r => r.WorkflowId == f.Id).ToList();
             var cohort = mine.Where(r => r.StartedAt >= sinceUtc).ToList();
+            var perDay = DayCounts(mine, zone);
             return new
             {
                 flowId = f.FlowId, name = f.Name, active = f.Active,
@@ -449,14 +447,10 @@ public static class FlowsEndpoints
                 completed = mine.Count(r => r.Status == FlowRunStatus.Done && r.FinishedAt >= sinceUtc),
                 failed = mine.Count(r => r.Status == FlowRunStatus.Failed && r.FinishedAt >= sinceUtc),
                 inProgress = inProgress.GetValueOrDefault(f.Id),
-                series = dayKeys.Select(day => new
+                series = dayKeys.Select(day =>
                 {
-                    day,
-                    entered = mine.Count(r => OrgClock.Day(r.StartedAt, zone) == day),
-                    completed = mine.Count(r => r.Status == FlowRunStatus.Done && r.FinishedAt is DateTime fin
-                                                && OrgClock.Day(fin, zone) == day),
-                    failed = mine.Count(r => r.Status == FlowRunStatus.Failed && r.FinishedAt is DateTime fin
-                                             && OrgClock.Day(fin, zone) == day),
+                    var c = perDay.GetValueOrDefault(day);
+                    return new { day, entered = c.Started, completed = c.Completed, failed = c.Failed };
                 }).ToList(),
             };
         }).OrderByDescending(r => r.active).ThenByDescending(r => r.entered).ToList();
@@ -464,6 +458,23 @@ public static class FlowsEndpoints
     }
 
     // ======================= helpers =========================================
+
+    private record struct DayCount(int Started, int Completed, int Failed);
+
+    /// <summary>Runs started / finished / failed per org-local day, in one pass.</summary>
+    private static Dictionary<string, DayCount> DayCounts(IEnumerable<RunRow> runs, TimeZoneInfo zone)
+    {
+        var outv = new Dictionary<string, DayCount>();
+        void Bump(string day, Func<DayCount, DayCount> f) => outv[day] = f(outv.GetValueOrDefault(day));
+        foreach (var r in runs)
+        {
+            Bump(OrgClock.Day(r.StartedAt, zone), c => c with { Started = c.Started + 1 });
+            if (r.FinishedAt is not DateTime fin) continue;
+            if (r.Status == FlowRunStatus.Done) Bump(OrgClock.Day(fin, zone), c => c with { Completed = c.Completed + 1 });
+            if (r.Status == FlowRunStatus.Failed) Bump(OrgClock.Day(fin, zone), c => c with { Failed = c.Failed + 1 });
+        }
+        return outv;
+    }
 
     private record NodeMeta(string Id, string Type, string Label);
     private record EdgeMeta(string Source, string Target, string Branch);
