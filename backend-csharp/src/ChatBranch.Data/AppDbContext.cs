@@ -66,6 +66,8 @@ public class AppDbContext : DbContext
     public DbSet<AiConversationState> AiConversationStates => Set<AiConversationState>();
     // integrations
     public DbSet<Integration> Integrations => Set<Integration>();
+    // crm — per-user saved list views (the inbox's saved filter tabs)
+    public DbSet<SavedView> SavedViews => Set<SavedView>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -130,6 +132,7 @@ public class AppDbContext : DbContext
         b.Entity<AiConversationState>().ToTable("crm_aiconversationstate");
         b.Entity<AiConversationState>().HasIndex(s => s.ThreadId).IsUnique();
         b.Entity<Integration>().ToTable("integrations_integration");
+        b.Entity<SavedView>().ToTable("crm_savedview");
         // Per-user grants: deleting a login must not delete the connection row
         // (an admin can re-own it) — null the owner instead.
         b.Entity<Integration>()
@@ -202,6 +205,7 @@ public class AppDbContext : DbContext
         Json<AutomationRule, List<object?>>(b, x => x.Conditions);
         Json<AutomationRule, List<object?>>(b, x => x.Actions);
         Json<KnowledgeItem, List<string>>(b, x => x.Channels);
+        Json<CannedResponse, List<string>>(b, x => x.Channels);
         Json<FlowRun, Dictionary<string, object?>>(b, x => x.Context);
         Json<FlowRun, List<object?>>(b, x => x.Log);
         Json<OutboundJob, Dictionary<string, object?>>(b, x => x.Payload);
@@ -209,6 +213,7 @@ public class AppDbContext : DbContext
         Json<ConversationSummary, List<object?>>(b, x => x.Facts);
         Json<Integration, Dictionary<string, object?>>(b, x => x.Credentials);
         Json<Integration, Dictionary<string, object?>>(b, x => x.Config);
+        Json<AgentSkill, List<string>>(b, x => x.Channels);
         Json<AiDraft, Dictionary<string, object?>>(b, x => x.Context);
 
         // ---- snake_case columns to match Django (<field>_id for FKs) -----------

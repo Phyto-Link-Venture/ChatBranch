@@ -117,6 +117,14 @@ public class AiGate
             : policy.ReviewMode == "review_all" ? new List<string> { "Every AI reply is reviewed" }
             : policy.ReviewMode == "review_flagged" ? flags
             : new List<string>();
+        // The assistant itself refused (its checks blocked the draft, or it asked
+        // for a person): never sent blind, whatever the mode — a person decides.
+        var action = Str(ctx, "action", AiActions.Send);
+        if (!s.Canned && action is AiActions.Handover or AiActions.Block)
+        {
+            hold = flags.Count > 0 ? new List<string>(flags) : new List<string> { "The AI's reply checks stopped this reply" };
+            if (policy.ReviewMode == "review_all") hold.Insert(0, "Every AI reply is reviewed");
+        }
         if (hold.Count > 0)
         {
             draft.Status = AiDraftStatus.Pending;
@@ -142,9 +150,22 @@ public class AiGate
         AiBehaviour policy, string kind)
     {
         var reasons = new List<string>();
-        foreach (var check in Items(ctx, "checks"))
-            if (Bool(check, "passed") == false)
-                reasons.Add($"Check failed: {Str(check, "name", "check")}");
+        var action = Str(ctx, "action", AiActions.Send);
+        if (action == AiActions.Block)
+        {
+            var why = Str(ctx, "reason", "");
+            reasons.Add(why.Length > 0 ? $"A reply check blocked it: {why}" : "A reply check blocked it");
+        }
+        // only the checks run on the FINAL draft count (an earlier attempt that a
+        // retry fixed shows up as "needed a retry" instead)
+        var checks = Items(ctx, "checks").ToList();
+        var lastAttempt = checks.Select(c => Num(c, "attempt") ?? 0).DefaultIfEmpty(0).Max();
+        foreach (var check in checks.Where(c => (Num(c, "attempt") ?? 0) == lastAttempt))
+            if (Bool(check, "passed") == false || Bool(check, "ok") == false)
+            {
+                var why = Str(check, "reason", "");
+                reasons.Add($"Check failed: {Str(check, "name", "check")}{(why.Length > 0 ? $" — {why}" : "")}");
+            }
         foreach (var tool in Items(ctx, "tools"))
             if (Bool(tool, "ok") == false)
                 reasons.Add($"Tool failed: {Str(tool, "name", "tool")}");

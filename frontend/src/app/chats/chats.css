@@ -1,111 +1,129 @@
-/* ── Chat styling — "Navy + Emerald" ───────────────────────────────────────
-   Contact (incoming) bubbles LEFT on the nested-card surface; AI/agent
-   (outgoing) bubbles RIGHT in the emerald gradient with dark ink. Colors use
-   the semantic navy tokens so light/dark both flip; only the outgoing bubble
-   keeps the literal emerald gradient. Read ticks stay the WhatsApp blue. */
+/* ── Chats — Paper & Ink ──────────────────────────────────────────────────
+   The conversation sits on paper; the customer's messages are paper cards with
+   a hairline rule, ours are set in the theme's primary ink. Every colour here
+   is a theme token, so all three themes and both modes follow automatically.
+   (The old WhatsApp-green bubble palette is retired on purpose.) */
 
-.wa-chat-bg {
-  background-color: var(--panel); /* middle-panel ground */
+.cb-paper {
+  background-color: var(--panel);
 }
 
-.wa-bubble {
+.cb-bubble {
   position: relative;
-  max-width: 66%;
-  border-radius: 1rem;
-  padding: 8px 14px 9px;
-  font-size: 13px;
+  max-width: min(66%, 560px);
+  border-radius: var(--r-2xl);
+  padding: 9px 14px 10px;
+  font-size: 13.5px;
   line-height: 1.5;
   color: var(--text-primary);
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
-.wa-bubble-in {
-  background-color: var(--card); /* #111C33 nested card */
-  border: 1px solid var(--line);
-  border-bottom-left-radius: 0.375rem;
+@media (max-width: 640px) {
+  .cb-bubble {
+    max-width: 86%;
+  }
 }
-.wa-bubble-out {
-  background: linear-gradient(135deg, rgb(var(--c-green)), rgb(var(--c-green-600))); /* emerald gradient */
-  color: #052e1f; /* dark ink on emerald */
-  border-bottom-right-radius: 0.375rem;
+.cb-bubble-in {
+  background-color: var(--card);
+  border: 1px solid var(--line);
+}
+.cb-bubble-out {
+  background-color: var(--primary);
+  color: var(--on-primary);
+}
+/* Private note — agent-only, never sent to the customer */
+.cb-bubble-note {
+  background-color: color-mix(in srgb, rgb(var(--c-amber)) 12%, var(--card));
+  border: 1px dashed color-mix(in srgb, rgb(var(--c-amber)) 55%, transparent);
+  color: var(--text-primary);
 }
 
 /* time + ticks sit inline at the bubble's bottom-right */
-.wa-bubble-time {
+.cb-bubble-time {
   float: right;
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  margin-left: 8px;
+  margin-left: 10px;
   margin-bottom: -4px;
   position: relative;
   top: 5px;
-  font-size: 10px;
-  color: var(--text-faint);
+  font-size: 10.5px;
+  color: var(--text-muted);
 }
-.wa-bubble-out .wa-bubble-time {
-  color: rgba(4, 35, 26, 0.6);
+.cb-bubble-out .cb-bubble-time {
+  color: color-mix(in srgb, var(--on-primary) 68%, transparent);
 }
-.wa-tick-read {
-  color: #0a6b45; /* read tick — dark emerald on the emerald bubble */
+.cb-tick-read {
+  color: var(--blue-ink);
 }
-.wa-tick-failed {
-  color: rgb(var(--c-red-400));
+.cb-bubble-out .cb-tick-read {
+  color: var(--accent);
+}
+.cb-tick-failed {
+  color: var(--red-ink);
 }
 
 /* who wrote an outgoing message (Agent vs AI) — small caps above the text */
-.wa-bubble-source {
+.cb-bubble-source {
   display: block;
-  font-size: 9px;
+  font-size: 9.5px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(4, 35, 26, 0.62);
-  margin-bottom: 1px;
+  opacity: 0.7;
+  margin-bottom: 2px;
 }
 
-/* Chatwoot-style private note — agent-only, never sent to the customer */
-.wa-bubble-note {
-  background-color: rgba(200,137,26, 0.16);
-  border: 1px dashed rgba(200,137,26, 0.45);
-  border-bottom-right-radius: 0.375rem;
-}
-:root.light .wa-bubble-note {
-  background-color: #fef9c3; /* Chatwoot's note yellow */
-  border-color: #facc15;
-}
-
-/* centered date / system chips */
-.wa-day-chip,
-.wa-system-chip {
-  display: inline-block;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-size: 10.5px;
-  background: var(--fill);
-  border: 1px solid var(--line);
+/* centred muted line between hairlines — day separators and system notes */
+.cb-center-note {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11.5px;
   color: var(--text-muted);
+  text-align: center;
+}
+.cb-center-note::before,
+.cb-center-note::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.cb-center-note > span {
+  max-width: 80%;
 }
 
-/* gradient avatar fallbacks (Whatomate getAvatarGradient pattern) */
-.wa-avatar {
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  color: #fff;
-  font-weight: 700;
+/* channel switch chips above a linked contact's conversation */
+.cb-switch {
+  display: inline-flex;
   flex-shrink: 0;
-  box-shadow: 0 0 0 2px var(--line-strong);
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  color: var(--text-mid);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
 }
-.wa-grad-0 { background: linear-gradient(135deg, rgb(var(--c-green)), rgb(var(--c-green-600))); }
-.wa-grad-1 { background: var(--primary); }
-.wa-grad-2 { background: linear-gradient(135deg, rgb(var(--c-purple)), rgb(var(--c-purple-600))); }
-.wa-grad-3 { background: linear-gradient(135deg, rgb(var(--c-amber)), rgb(var(--c-amber-600))); }
-.wa-grad-4 { background: linear-gradient(135deg, rgb(var(--c-cyan)), rgb(var(--c-cyan-600))); }
-.wa-grad-5 { background: linear-gradient(135deg, rgb(var(--c-red)), rgb(var(--c-red-400))); }
+.cb-switch:hover {
+  background: var(--fill-hover);
+  color: var(--text-high);
+}
+.cb-switch.is-on {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .wa-chat-bg * {
+  .cb-paper * {
     transition: none !important;
   }
 }

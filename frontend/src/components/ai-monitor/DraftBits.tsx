@@ -114,25 +114,42 @@ export function ContextChips({ d }: { d: Draft }) {
       </Chip>,
     ),
   )
-  checks.forEach((k, i) =>
+  // the checks run on the final draft (earlier attempts were retried)
+  const lastAttempt = checks.reduce((m, k) => Math.max(m, k.attempt ?? 0), 0)
+  checks
+    .filter((k) => (k.attempt ?? 0) === lastAttempt)
+    .forEach((k, i) => {
+      const failed = k.ok === false || k.passed === false
+      const why = k.reason || k.detail
+      chips.push(
+        <Chip
+          key={`c${i}`}
+          Icon={failed ? X : Check}
+          tone={failed ? 'red' : 'green'}
+          title={`Check ${k.name ?? ''}: ${failed ? 'failed' : 'passed'}${why ? `\n${why}` : ''}`}
+        >
+          {k.name ?? 'check'}
+        </Chip>,
+      )
+    })
+  if (c.action === 'block' || c.action === 'handover')
     chips.push(
       <Chip
-        key={`c${i}`}
-        Icon={k.passed === false ? X : Check}
-        tone={k.passed === false ? 'red' : 'green'}
-        title={`Check ${k.name ?? ''}: ${k.passed === false ? 'failed' : 'passed'}${k.detail ? `\n${k.detail}` : ''}`}
+        key="act"
+        Icon={AlertTriangle}
+        tone="red"
+        title={`The assistant ${c.action === 'block' ? 'blocked this reply' : 'asked for a person'}${c.reason ? `: ${String(c.reason)}` : ''}`}
       >
-        {k.name ?? 'check'}
+        {c.action === 'block' ? 'blocked by a check' : 'asked for a person'}
       </Chip>,
-    ),
-  )
+    )
   if (typeof c.retries === 'number' && c.retries > 0)
     chips.push(
       <Chip key="r" Icon={RotateCcw} tone="amber" title="The AI rewrote its answer after a check">
         {c.retries} retr{c.retries === 1 ? 'y' : 'ies'}
       </Chip>,
     )
-  if (c.handover)
+  if (c.handover && c.action !== 'handover')
     chips.push(
       <Chip key="h" Icon={UserRound} tone="amber" title="The AI asked for a person to take over">
         handover

@@ -54,6 +54,8 @@ public class InboundProcessor
                 _db.SaveChanges();
             }
         }
+        // a brand-new conversation takes its inbox's AI reply default
+        InboxSettings.ApplyToNewThread(_db, thread);
 
         var msg = _threads.AppendMessage(thread, MessageDirection.In, MessageSource.Customer,
             text, status: "received", externalId: wamid, accountId: accountId, providerTs: providerTs);
@@ -144,7 +146,8 @@ public class InboundProcessor
                 return;
             }
             // instant: through the AI monitor (review policy, acknowledgement skip,
-            // human-like delivery) like every other AI message
+            // human-like delivery) like every other AI message — the gate, not the
+            // assistant, decides what a failed check or a handover request means
             _responder.RespondAsync(thread).GetAwaiter().GetResult();
         }
         catch { /* AI failure never breaks the webhook path */ }

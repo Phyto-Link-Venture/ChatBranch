@@ -251,6 +251,35 @@ public class AiOpsTests
     }
 
     [Fact]
+    public void A_reply_the_assistant_refused_is_held_even_in_auto_mode()
+    {
+        using var r = new AiRig();
+        r.Contact("Ref", "60120000005");
+        r.Say("60120000005", "hello");
+        var thread = r.ThreadOf("60120000005");
+
+        // AiReplyResult.ToMeta() of a draft whose checks asked for a person
+        var o = r.Gate.Submit(new AiSubmission(thread, AiDraftKind.Reply, "We can refund you in full today.",
+            new Dictionary<string, object?>
+            {
+                ["action"] = AiActions.Handover, ["reason"] = "policy check failed twice", ["handover"] = true,
+                ["checks"] = new List<object?>
+                {
+                    new Dictionary<string, object?> { ["name"] = "refund policy", ["ok"] = false, ["attempt"] = 0 },
+                    new Dictionary<string, object?> { ["name"] = "refund policy", ["ok"] = false, ["attempt"] = 1,
+                        ["reason"] = "promises a refund" },
+                },
+                ["retries"] = 1,
+            }));
+
+        Assert.Equal(AiGateStatus.Held, o.Status);
+        var held = r.T.Fresh().AiDrafts.First(d => d.Id == o.DraftId);
+        Assert.Contains("hand over", held.HoldReason);
+        Assert.Contains("Check failed: refund policy — promises a refund", held.HoldReason);
+        Assert.Single(r.AiMessages("60120000005"));   // only the earlier greeting reply went out
+    }
+
+    [Fact]
     public void Shadow_mode_never_sends()
     {
         using var r = new AiRig();

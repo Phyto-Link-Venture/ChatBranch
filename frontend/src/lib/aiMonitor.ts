@@ -35,10 +35,15 @@ export interface ToolCall {
   arguments?: string
 }
 
+/** One reply check (AiReplyResult.ToMeta: ok/reason/attempt; older rows: passed/detail). */
 export interface CheckRun {
   name?: string
+  ok?: boolean
   passed?: boolean
+  reason?: string
   detail?: string
+  fix?: string
+  attempt?: number
 }
 
 export interface DraftContext {
@@ -47,6 +52,9 @@ export interface DraftContext {
   checks?: CheckRun[]
   retries?: number
   handover?: boolean
+  /** send | handover | block — what the assistant itself decided. */
+  action?: string
+  reason?: string
   model?: string
   provider?: string
   prompt_tokens?: number
