@@ -253,6 +253,20 @@ public static class AnalyticsEndpoints
 
         var (chatSessions, sessionMsgs, multiSecs) = ChatSessions(msgs);
 
+        // ---- first response + the prior window of equal length, so the KPI
+        // strip can say "▲ 8% vs prior" without a second round trip.
+        var (frMedian, frSamples) = FirstResponse(msgs);
+        var priorSince = since.AddDays(-days);
+        var prior = (await db.Messages.AsNoTracking()
+                .Where(m => m.CreatedAt >= priorSince && m.CreatedAt < since)
+                .Select(m => new MsgRow(m.ThreadId, m.AccountId, m.Direction, m.Private,
+                    m.Status, m.CreatedAt)).ToListAsync())
+            .Where(m => threadMeta.ContainsKey(m.ThreadId)).ToList();
+        var priorSent = prior.Count(IsOut);
+        var priorRead = prior.Count(m => IsOut(m) && m.Status == "read");
+        var priorReplied = Replied(prior);
+        var (priorFr, priorFrSamples) = FirstResponse(prior);
+
         return Results.Ok(new
         {
             days,
@@ -293,6 +307,21 @@ public static class AnalyticsEndpoints
                 avg_chat_session_seconds = multiSecs.Count > 0
                     ? (long)Math.Round(multiSecs.Average()) : 0L,
             },
+            // Median time from a customer's message to the first reply after it
+            // (any outbound, human or AI); null when nothing was answered.
+            first_response = new
+            {
+                median_seconds = frMedian,
+                samples = frSamples,
+            },
+            prior = new
+            {
+                since = Iso(priorSince),
+                sent = priorSent,
+                read_rate = Rate(priorRead, priorSent),
+                reply_rate = Rate(priorReplied, priorSent),
+                first_response_median_seconds = priorFrSamples > 0 ? priorFr : null,
+            },
             // FRANCHISE VIEW: in the All-entities scope, the same headline numbers
             // broken out per outlet. Empty when one entity is already selected
             // (the page IS that row).
@@ -328,6 +357,35 @@ public static class AnalyticsEndpoints
             else replied++;            // inbound on both sides -> active two-way thread
         }
         return replied;
+    }
+
+    /// <summary>
+    /// First response: per thread, the first customer message after our last
+    /// reply opens a wait; the next outbound closes it. Median over every closed
+    /// wait in the window (private notes excluded). Waits still open at the end
+    /// of the window are not counted — they show up in the live "waiting" list.
+    /// </summary>
+    private static (long? MedianSeconds, int Samples) FirstResponse(List<MsgRow> msgs)
+    {
+        var waits = new List<double>();
+        foreach (var g in msgs.Where(m => !m.Private).GroupBy(m => m.ThreadId))
+        {
+            DateTime? open = null;
+            foreach (var m in g.OrderBy(m => m.CreatedAt))
+            {
+                if (m.Direction == MessageDirection.In) open ??= m.CreatedAt;
+                else if (IsOut(m) && open is DateTime o)
+                {
+                    waits.Add(Math.Max(0, (m.CreatedAt - o).TotalSeconds));
+                    open = null;
+                }
+            }
+        }
+        if (waits.Count == 0) return (null, 0);
+        waits.Sort();
+        var mid = waits.Count / 2;
+        var median = waits.Count % 2 == 1 ? waits[mid] : (waits[mid - 1] + waits[mid]) / 2;
+        return ((long)Math.Round(median), waits.Count);
     }
 
     /// <summary>
@@ -478,6 +536,7 @@ public static class AnalyticsEndpoints
                 avg_call_seconds = 0L, calls_counted = 0, chat_sessions = 0,
                 avg_chat_messages = 0d, avg_chat_session_seconds = 0L,
             },
+            first_response = new { median_seconds = (long?)null, samples = 0 },
             by_entity = new List<object>(),
         });
     }
