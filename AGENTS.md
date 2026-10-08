@@ -25,9 +25,9 @@ npm run dev:all          # all four — cross-platform (Windows/macOS/Linux)
 npm run dev:api | dev:agent | dev:web | dev:baileys
 ```
 
-venv is at `backend/venv`. `scripts/setup-api.js` / `scripts/run-py.js`
-resolve the right Python + venv path per OS — don't hardcode a
-platform-specific path back into `package.json`.
+The voice agent is a Node/TypeScript project (`backend/voice_agent`,
+`npm run dev:agent`); there is no Python in the repo. Its offline gate:
+`npm --prefix backend/voice_agent run typecheck && npm run test:agent`.
 
 ## Verify before you claim done
 

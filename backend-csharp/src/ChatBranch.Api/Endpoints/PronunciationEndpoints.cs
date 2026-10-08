@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
+using ChatBranch.Data.Sidecars;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 
@@ -45,7 +46,7 @@ public static class PronunciationEndpoints
         })).AllowAnonymous();
 
         app.MapPost("/api/pronunciation", async (JsonElement body, AppDbContext db,
-            ScopingService sc, ClaimsPrincipal me, HttpContext ctx) =>
+            ScopingService sc, VoiceAgentBridge voice, ClaimsPrincipal me, HttpContext ctx) =>
         {
             if (body.ValueKind != JsonValueKind.Object ||
                 !body.TryGetProperty("terms", out var raw) || raw.ValueKind != JsonValueKind.Array)
@@ -65,6 +66,10 @@ public static class PronunciationEndpoints
             }
 
             sc.SetSetting(TermsKey, JsonSerializer.Serialize(terms));
+            // The voice agent reads data/pronunciation.json when a call starts and
+            // respells these terms in everything its cascade TTS says.
+            try { voice.WritePronunciation(terms.Select(t => (t.term, t.alias))); }
+            catch { /* the Setting row is the source of truth; the mirror is rewritten on the next save */ }
             Audit(db, me, ctx, "settings.update", "pronunciation", $"terms={terms.Count}");
 
             // Django syncs the list into an ElevenLabs pronunciation dictionary

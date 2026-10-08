@@ -1,7 +1,8 @@
 name: CI
 
 # Runs the checks the repo already has but nobody ran automatically: the API
-# build + tests, and the dashboard's types, lint and production build.
+# build + tests, the dashboard's types, lint and production build, and the two
+# Node sidecars' offline self-tests.
 on:
   push:
     branches: [master]
@@ -67,3 +68,24 @@ jobs:
       # The gateway has no test suite; its own offline self-check is the gate.
       - name: Call-engine self-test
         run: node calls.js --selftest
+
+  agent:
+    name: Voice agent
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/voice_agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/voice_agent/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Types
+        run: npx tsc --noEmit
+      # Offline: metadata, prompts, call-ending cues, file IPC, WAV writer,
+      # WebRTC VAD and provider wiring — no LiveKit server, no keys.
+      - name: Self-test
+        run: npm run selftest
