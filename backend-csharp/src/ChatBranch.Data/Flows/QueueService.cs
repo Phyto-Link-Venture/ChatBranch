@@ -245,6 +245,22 @@ public class QueueService
                 return Sent(job, start.MessageId);
             }
 
+            // a template job: a REAL template message on a configured Cloud number
+            // (rendered body as text on Baileys / sandbox) — OutboundSender decides
+            if (job.Kind == JobKind.Template)
+            {
+                var tmsg = _sender.SendTemplate(thread, AiGate.Str(job.Payload, "name", ""),
+                    AiGate.Str(job.Payload, "language", ""), TemplateArgs.FromPayload(job.Payload),
+                    messageSource, job.AccountId);
+                if (tmsg.Status == "failed")
+                {
+                    if (draftId is int failedDraft) _gate.MarkDraftFailed(failedDraft, tmsg.Text);
+                    return Fail(job, tmsg.Text);
+                }
+                if (draftId is int tmplDraft) _gate.MarkDraftSent(tmplDraft, tmsg.Id);
+                return Sent(job, tmsg.Id);
+            }
+
             var text = ResolveText(job);
             // Real send when the account is configured, sandbox otherwise.
             var msg = _sender.Send(thread, text, messageSource, job.AccountId);

@@ -678,6 +678,8 @@ public static class VoiceMessagingEndpoints
         {
             outv["access_token_masked"] = Mask(a.AccessToken);
             outv["configured"] = !string.IsNullOrEmpty(a.AccessToken);
+            // Messenger / Instagram: the Meta app secret that verifies the webhook
+            if (a.Channel is "facebook" or "instagram") outv["app_secret_masked"] = Mask(a.AppSecret);
         }
         return outv;
     }
@@ -792,6 +794,8 @@ public static class VoiceMessagingEndpoints
                 Name = (body.Str("name") ?? "").Trim() is { Length: > 0 } sn ? sn : channel,
                 ExternalId = (body.Str("external_id") ?? "").Trim(),
                 AccessToken = token,
+                // Messenger / Instagram: verifies X-Hub-Signature-256 on /api/messaging/webhook
+                AppSecret = channel is "facebook" or "instagram" ? (body.Str("app_secret") ?? "").Trim() : "",
                 Owner = owner,
                 CreatedAt = DateTime.UtcNow,
             };
@@ -859,6 +863,13 @@ public static class VoiceMessagingEndpoints
                     account.FailStreak = 0;
                     account.HealthChangedAt = DateTime.UtcNow;
                     socialTouched.Add("access_token");
+                }
+                var newSecret = body.Str("app_secret") ?? "";
+                if (account.Channel is "facebook" or "instagram" && body.Has("app_secret")
+                    && !Untouched(newSecret))
+                {
+                    account.AppSecret = newSecret.Trim();
+                    socialTouched.Add("app_secret");
                 }
                 if (socialTouched.Count == 0 && !inboxTouched)
                     return Results.Json(new { detail = "Nothing to update." }, statusCode: 400);
@@ -940,11 +951,14 @@ public static class VoiceMessagingEndpoints
         // not ported yet. Rather than claim a connection we never opened, report
         // honestly (501) while still telling the operator whether the stored
         // configuration LOOKS complete.
-        app.MapPost("/api/messaging/accounts/{id}/test", async (string id, AppDbContext db) =>
+        app.MapPost("/api/messaging/accounts/{id}/test", async (string id, AppDbContext db,
+            ChatBranch.Data.Channels.IMetaMessagingClient meta) =>
         {
             var account = await ManagedAccount(db, id);
             if (account == null)
                 return Results.Json(new { detail = "Account not found." }, statusCode: 404);
+            if (account.Channel is "facebook" or "instagram")
+                return await MetaAccountTest(db, meta, account);
             var configured = account.Channel == "email"
                 ? EmailAccountConfigured(account.Config ?? new())
                 : !string.IsNullOrEmpty(account.AccessToken);
@@ -987,6 +1001,53 @@ public static class VoiceMessagingEndpoints
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         MapEmailSettings(app);
+    }
+
+    /// <summary>
+    /// Messenger / Instagram "Test connection": GET /me with the page token. A
+    /// success heals the account, a refused token disconnects it — both through
+    /// AccountHealth.SetStatus (via MetaErrors), one audit row per transition.
+    /// </summary>
+    private static async Task<IResult> MetaAccountTest(AppDbContext db,
+        ChatBranch.Data.Channels.IMetaMessagingClient meta, ChannelAccount account)
+    {
+        if (!meta.IsConfigured(account))
+            return Results.Json(new { ok = false, detail = $"This {account.Channel} account has no page token yet." },
+                statusCode: 400);
+        var r = await meta.GetMeAsync(account);
+        if (r.Ok)
+        {
+            ChatBranch.Data.Channels.MetaErrors.MarkHealthy(db, account, "account test passed", actor: "user");
+            await db.SaveChangesAsync();
+            var name = ChatBranch.Data.Channels.MetaGraph.Str(r.Body, "name");
+            return Results.Ok(new
+            {
+                ok = true,
+                detail = $"Connected{(name.Length > 0 ? $" as {name}" : "")}.",
+                name,
+                id = ChatBranch.Data.Channels.MetaGraph.Str(r.Body, "id"),
+                health_status = account.HealthStatus,
+            });
+        }
+        // a token Meta refuses is a dead connection (a classified code — rate
+        // limit, policy block — keeps its own verdict); an unreachable Graph is
+        // not the account's fault — health stays put
+        if (r.ErrorCode != null)
+        {
+            if (ChatBranch.Data.Channels.MetaErrors.Classify(r.ErrorCode, r.ErrorSubcode).Health != null)
+                ChatBranch.Data.Channels.MetaErrors.ApplyToAccount(db, account, r.ErrorCode, r.ErrorSubcode,
+                    r.Detail, actor: "user");
+            else
+                ChatBranch.Data.Channels.AccountHealth.SetStatus(db, account, Health.Disconnected,
+                    $"account test failed: {r.Detail}", actor: "user");
+        }
+        await db.SaveChangesAsync();
+        return Results.Json(new
+        {
+            ok = false,
+            detail = $"Meta refused the page token: {r.Detail}",
+            health_status = account.HealthStatus,
+        }, statusCode: r.ErrorCode != null ? 400 : 502);
     }
 
     /// <summary>

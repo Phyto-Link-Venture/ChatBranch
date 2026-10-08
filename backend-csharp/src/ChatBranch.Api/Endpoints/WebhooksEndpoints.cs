@@ -10,54 +10,106 @@ namespace ChatBranch.Api.Endpoints;
 
 /// <summary>
 /// Live inbound webhooks (open routes — the signature IS the auth). Meta Cloud
-/// (GET verify + signed POST), Telegram, and the email IMAP sync nudge. Each
+/// (GET verify + signed POST: messages incl. media, delivery statuses),
+/// Telegram, the Baileys gateway pushes, and the email IMAP sync nudge. Each
 /// routes inbound through <see cref="InboundProcessor"/> (store + dedup + flow
-/// resume + coverage-gated AI reply). Signature is REQUIRED once an account
-/// carries an app_secret; sandbox (no configured account) accepts unsigned.
+/// resume + coverage-gated AI reply). The Cloud signature is REQUIRED once any
+/// Cloud account is configured; sandbox (nothing configured) accepts unsigned.
+/// Messenger / Instagram live in <see cref="MetaWebhookEndpoints"/>.
 /// </summary>
 public static class WebhooksEndpoints
 {
     public static void MapWebhookEndpoints(this IEndpointRouteBuilder app)
     {
         // ---- Meta Cloud: GET verification -------------------------------------
+        // Same token + rules as the Messenger/Instagram webhook (MetaWebhookAuth):
+        // Setting whatsapp_verify_token → verify_token → env; the shipped default
+        // is never accepted.
         app.MapGet("/api/whatsapp/webhook", (HttpContext ctx, ScopingService sc) =>
-        {
-            var mode = ctx.Request.Query["hub.mode"].ToString();
-            var token = ctx.Request.Query["hub.verify_token"].ToString();
-            var challenge = ctx.Request.Query["hub.challenge"].ToString();
-            var expected = sc.SettingValue("whatsapp_verify_token");
-            if (string.IsNullOrEmpty(expected))
-                expected = Environment.GetEnvironmentVariable("WHATSAPP_VERIFY_TOKEN") ?? "";
-            if (mode == "subscribe" && expected != "" && token == expected)
-                return Results.Text(challenge);
-            return Results.StatusCode(403);
-        }).AllowAnonymous();
+            MetaWebhookAuth.Verify(ctx, sc)).AllowAnonymous();
 
-        // ---- Meta Cloud: POST inbound -----------------------------------------
-        app.MapPost("/api/whatsapp/webhook", async (HttpContext ctx, AppDbContext db,
-            InboundProcessor processor) =>
+        // ---- Meta Cloud: POST inbound + delivery statuses ----------------------
+        // Signature: X-Hub-Signature-256 is REQUIRED once any Cloud account is
+        // configured (a DB row with token + phone_number_id, or the env-default
+        // WHATSAPP_* pair) or the addressed account carries an app_secret; it is
+        // verified against the known Meta app secrets. A live setup without any
+        // app secret answers 401 — set the account's app secret. With nothing
+        // configured (sandbox) unsigned posts are still accepted.
+        app.MapPost("/api/whatsapp/webhook", async (HttpContext ctx, AppDbContext db, ScopingService sc,
+            InboundProcessor processor, MediaFetcher fetcher) =>
         {
             var raw = await ReadBody(ctx);
             JsonElement root;
             try { root = JsonSerializer.Deserialize<JsonElement>(raw); }
-            catch { return Results.Ok(new { ok = true }); } // never NACK on garbage
+            catch { return Results.Ok(new { ok = true }); } // never NACK on garbage (no side effects)
 
-            var phoneNumberId = FindPhoneNumberId(root);
-            var account = phoneNumberId != null
-                ? await db.ChannelAccounts.FirstOrDefaultAsync(a => a.Channel == "whatsapp"
-                    && a.ExternalId == phoneNumberId)
-                : null;
-
-            // signature required once an account carries an app_secret
-            if (account != null && !string.IsNullOrEmpty(account.AppSecret))
+            var pnids = MetaWebhook.PhoneNumberIds(root);
+            var accounts = await db.ChannelAccounts
+                .Where(a => a.Channel == "whatsapp" && a.Provider != "baileys" && pnids.Contains(a.ExternalId))
+                .ToListAsync();
+            var env = MetaWebhookAuth.EnvCloudAccount();
+            var required = env != null || accounts.Any(a => a.AppSecret != "")
+                           || await db.ChannelAccounts.AnyAsync(a => a.Channel == "whatsapp" && a.Provider != "baileys"
+                                                                     && a.AccessToken != "" && a.ExternalId != "");
+            var signature = ctx.Request.Headers["X-Hub-Signature-256"].ToString();
+            if (required || signature.Length > 0)
             {
-                var sig = ctx.Request.Headers["X-Hub-Signature-256"].ToString();
-                if (!WebhookVerify.Meta(account.AppSecret, raw, sig))
+                var secrets = MetaWebhookAuth.KnownSecrets(db, sc);
+                if (secrets.Count == 0)
+                {
+                    if (required)
+                        return Results.Json(new
+                        {
+                            detail = "WhatsApp webhook signature required — set the account's app secret.",
+                        }, statusCode: 401);
+                }
+                else if (!MetaWebhookAuth.Signed(secrets, raw, signature))
                     return Results.StatusCode(401);
             }
 
-            foreach (var (from, name, wamid, text, ts) in ExtractMessages(root))
-                processor.ProcessInbound("whatsapp", from, text, name, account?.Id, wamid, ts);
+            ChatBranch.Domain.ChannelAccount? AccountFor(string pnid) =>
+                accounts.FirstOrDefault(a => a.ExternalId == pnid);
+
+            foreach (var m in MetaWebhook.CloudMessages(root))
+            {
+                try
+                {
+                    // a redelivered wamid already ran every side effect (AI, flows,
+                    // notifications) the first time — don't run them twice
+                    if (m.Wamid.Length > 0 && await db.Messages.AnyAsync(x => x.ExternalId == m.Wamid
+                            && x.Direction == "in" && x.Thread!.Channel == "whatsapp"))
+                        continue;
+                    var account = AccountFor(m.PhoneNumberId);
+                    // Meta's own timestamp, not arrival time: the 24h window is
+                    // computed from it (webhooks can arrive hours late)
+                    var msg = processor.ProcessInbound("whatsapp", m.From, m.Text, m.Name, account?.Id,
+                        m.Wamid, m.Timestamp);
+                    if (m.MediaId.Length > 0)
+                    {
+                        // two-phase: placeholder stored now, the file attached off the ack
+                        var source = account ?? (env != null && env.ExternalId == m.PhoneNumberId ? env : null);
+                        if (source != null && source.AccessToken != "")
+                            fetcher.FetchCloudMedia(msg.Id, MetaWebhookAuth.Snapshot(source), m.MediaId, m.Mime,
+                                m.Filename, m.Type);
+                    }
+                    if (account != null)
+                    {
+                        // inbound traffic proves the number is alive
+                        MetaErrors.MarkHealthy(db, account, "inbound message received", actor: "webhook");
+                        account.LastInboundAt = DateTime.UtcNow;
+                        await db.SaveChangesAsync();
+                    }
+                }
+                catch { /* one bad message never fails the batch */ }
+            }
+
+            // delivery receipts: sent → delivered → read, or failed (+ 131047 window
+            // close; account-level codes → health, per-recipient codes never)
+            foreach (var st in MetaWebhook.CloudStatuses(root))
+            {
+                try { MetaWebhook.ApplyStatus(db, st, AccountFor(st.PhoneNumberId)); }
+                catch { }
+            }
 
             return Results.Ok(new { ok = true });
         }).AllowAnonymous();
@@ -173,18 +225,60 @@ public static class WebhooksEndpoints
             return Results.Ok(new { ok = true });
         }).AllowAnonymous();
 
-        // Media (/media) arrives from the gateway too; media storage is not in
-        // this build — ack it so the gateway never retries into a 404.
-        app.MapPost("/api/whatsapp/baileys/media", (HttpContext ctx, ScopingService sc) =>
-            BaileysSecretOk(ctx, sc) ? Results.Ok(new { ok = true, stored = false }) : Results.StatusCode(401))
-            .AllowAnonymous();
+        // Inbound media, phase two: the gateway (the only holder of the Signal keys)
+        // decrypts the attachment and posts it here AFTER pushing the message's
+        // text placeholder to /inbound — multipart wa_id, msg_id, media_type, file.
+        // The file lands in data/whatsapp/media/{wa_id}/ and attaches to the
+        // message with that msg_id (20 MB cap). If the text push never landed, the
+        // row is created through the normal inbound path first.
+        app.MapPost("/api/whatsapp/baileys/media", async (HttpContext ctx, AppDbContext db,
+            ScopingService sc, InboundProcessor processor, MediaStore media) =>
+        {
+            if (!BaileysSecretOk(ctx, sc)) return Results.StatusCode(401);
+            if (!ctx.Request.HasFormContentType) return Results.Ok(new { ok = true, stored = false });
+            IFormCollection form;
+            try { form = await ctx.Request.ReadFormAsync(); }
+            catch { return Results.Ok(new { ok = true, stored = false }); }
+            var waId = new string(form["wa_id"].ToString().Where(char.IsDigit).ToArray());
+            var msgId = form["msg_id"].ToString().Trim();
+            var declared = form["media_type"].ToString().Trim().ToLowerInvariant();
+            var file = form.Files["file"];
+            if (waId.Length == 0 || file == null || file.Length == 0)
+                return Results.Ok(new { ok = true, stored = false });
+            if (file.Length > MediaStore.MaxBytes)
+                return Results.Ok(new { ok = true, stored = false, detail = "file too large" });
+
+            var type = declared is "image" or "video" or "audio" or "document"
+                ? declared : MediaStore.TypeForMime(file.ContentType);
+            var thread = await db.Threads.FirstOrDefaultAsync(t => t.Channel == "whatsapp" && t.Key == waId);
+            var msg = thread != null && msgId.Length > 0
+                ? await db.Messages.FirstOrDefaultAsync(m => m.ThreadId == thread.Id && m.ExternalId == msgId)
+                : null;
+            if (msg == null)
+            {
+                msg = processor.ProcessInbound("whatsapp", waId, $"[{type}]", null, thread?.AccountId, msgId);
+                thread = await db.Threads.FirstAsync(t => t.Id == msg.ThreadId);
+            }
+            if (msg.MediaPath.Length > 0) return Results.Ok(new { ok = true, stored = true }); // redelivery
+
+            await using var stream = file.OpenReadStream();
+            var rel = await media.SaveAsync("whatsapp", waId, stream,
+                MediaStore.ExtFor(file.ContentType, file.FileName));
+            if (rel == null) return Results.Ok(new { ok = true, stored = false, detail = "file too large" });
+            msg.MediaType = type;
+            msg.MediaPath = rel;
+            thread!.UpdatedAt = DateTime.UtcNow; // the inbox stream re-renders the bubble
+            await db.SaveChangesAsync();
+            return Results.Ok(new { ok = true, stored = true });
+        }).AllowAnonymous().DisableAntiforgery();
 
         // Call lifecycle for a WhatsApp call the API started (call/start):
         // ringing → connected → ended, each carrying the LiveKit room. The thread
         // is found by that room (falling back to the callee's wa_id); an event
         // for a call nobody tracks is acked and ignored.
         app.MapPost("/api/whatsapp/baileys/call-event", async (HttpContext ctx, AppDbContext db,
-            ScopingService sc, ThreadStore store) =>
+            ScopingService sc, ThreadStore store, CallRecordings recordings,
+            ChatBranch.Data.Sidecars.VoiceAgentBridge voice) =>
         {
             if (!BaileysSecretOk(ctx, sc)) return Results.StatusCode(401);
             JsonElement body;
@@ -210,6 +304,9 @@ public static class WebhooksEndpoints
                     thread.CallStatus = "in_call";
                     break;
                 case "ended" when live:
+                    // the recording's paired transcript ({wa_id}-{ms}.json) — the
+                    // /chats "Calls" section and the WAV route read it
+                    SaveCallTranscript(db, recordings, voice, thread, body);
                     thread.CallStatus = "ended";
                     thread.CallId = null;
                     var reason = Str(body, "reason");
@@ -224,6 +321,31 @@ public static class WebhooksEndpoints
             await db.SaveChangesAsync();
             return Results.Ok(new { ok = true });
         }).AllowAnonymous();
+    }
+
+    /// <summary>
+    /// wa_calls.save_call_transcript — on the gateway's <c>ended</c> push, write
+    /// the call's transcript + provenance next to its recording. Best-effort.
+    /// </summary>
+    private static void SaveCallTranscript(AppDbContext db, CallRecordings recordings,
+        ChatBranch.Data.Sidecars.VoiceAgentBridge voice, Domain.Thread thread, JsonElement body)
+    {
+        try
+        {
+            long? recStarted = body.ValueKind == JsonValueKind.Object
+                && body.TryGetProperty("rec_started_at", out var rs) && rs.ValueKind == JsonValueKind.Number
+                && rs.TryGetInt64(out var ms) ? ms : null;
+            // who placed it: the operator's call.start audit row, else a queued (flow) call
+            var starter = db.AuditLogs.AsNoTracking()
+                .Where(a => a.Action == "call.start" && a.Target == $"whatsapp:{thread.Key}")
+                .OrderByDescending(a => a.Id).Select(a => a.Actor).FirstOrDefault();
+            var account = thread.AccountId is int aid
+                ? db.ChannelAccounts.AsNoTracking().Where(a => a.Id == aid).Select(a => a.Name).FirstOrDefault() ?? ""
+                : "";
+            recordings.SaveEnded(thread.Key, Str(body, "recording"), thread.CallRoom, recStarted,
+                Str(body, "reason") ?? "", string.IsNullOrEmpty(starter) ? "flow" : starter, account, voice);
+        }
+        catch { /* the call state still resets */ }
     }
 
     // ---- Baileys helpers ---------------------------------------------------
@@ -251,54 +373,6 @@ public static class WebhooksEndpoints
     private static string? Str(JsonElement e, string k) =>
         e.ValueKind == JsonValueKind.Object && e.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String
             ? v.GetString() : (e.ValueKind == JsonValueKind.Object && e.TryGetProperty(k, out var n) && n.ValueKind == JsonValueKind.Number ? n.ToString() : null);
-
-    private static string? FindPhoneNumberId(JsonElement root)
-    {
-        if (root.TryGetProperty("entry", out var entries) && entries.ValueKind == JsonValueKind.Array)
-            foreach (var entry in entries.EnumerateArray())
-                if (entry.TryGetProperty("changes", out var changes))
-                    foreach (var ch in changes.EnumerateArray())
-                        if (ch.TryGetProperty("value", out var val)
-                            && val.TryGetProperty("metadata", out var meta)
-                            && meta.TryGetProperty("phone_number_id", out var pid))
-                            return pid.GetString();
-        return null;
-    }
-
-    private static IEnumerable<(string from, string? name, string wamid, string text, DateTime? ts)>
-        ExtractMessages(JsonElement root)
-    {
-        if (!root.TryGetProperty("entry", out var entries) || entries.ValueKind != JsonValueKind.Array)
-            yield break;
-        foreach (var entry in entries.EnumerateArray())
-        {
-            if (!entry.TryGetProperty("changes", out var changes)) continue;
-            foreach (var ch in changes.EnumerateArray())
-            {
-                if (!ch.TryGetProperty("value", out var val)) continue;
-                string? name = null;
-                if (val.TryGetProperty("contacts", out var contacts) && contacts.GetArrayLength() > 0
-                    && contacts[0].TryGetProperty("profile", out var prof)
-                    && prof.TryGetProperty("name", out var nm))
-                    name = nm.GetString();
-                if (!val.TryGetProperty("messages", out var messages)) continue;
-                foreach (var msg in messages.EnumerateArray())
-                {
-                    var type = msg.TryGetProperty("type", out var ty) ? ty.GetString() : "";
-                    if (type != "text") continue; // media/interactive deferred
-                    var from = msg.TryGetProperty("from", out var fr) ? fr.GetString() ?? "" : "";
-                    var wamid = msg.TryGetProperty("id", out var id) ? id.GetString() ?? "" : "";
-                    var text = msg.TryGetProperty("text", out var tx)
-                        && tx.TryGetProperty("body", out var body) ? body.GetString() ?? "" : "";
-                    DateTime? ts = null;
-                    if (msg.TryGetProperty("timestamp", out var tsv)
-                        && long.TryParse(tsv.GetString(), out var unix))
-                        ts = DateTimeOffset.FromUnixTimeSeconds(unix).UtcDateTime;
-                    if (from != "" && text != "") yield return (from, name, wamid, text, ts);
-                }
-            }
-        }
-    }
 
     private static async Task<byte[]> ReadBody(HttpContext ctx)
     {

@@ -124,6 +124,8 @@ public static class Seed
             + "\"tag_id\" INTEGER NOT NULL, \"target_type\" TEXT NOT NULL, \"target_id\" INTEGER NOT NULL, "
             + "\"values\" TEXT NOT NULL, \"created_by\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL, "
             + "CONSTRAINT \"uniq_tag_assignment\" UNIQUE (\"tag_id\", \"target_type\", \"target_id\")");
+        // Meta delivery-status failures (WhatsApp Cloud statuses[].errors) on the message row
+        AddColumnIfMissing(db, "crm_message", "error", "TEXT NOT NULL DEFAULT ''");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 

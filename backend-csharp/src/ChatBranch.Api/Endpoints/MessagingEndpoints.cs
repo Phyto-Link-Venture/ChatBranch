@@ -514,24 +514,32 @@ public static class MessagingEndpoints
 
     private static void MapThreadActions(IEndpointRouteBuilder app)
     {
-        // POST …/send {text} — SANDBOX: no SMTP/Meta/Telegram transport is
-        // ported yet, so the message is stored locally with status "sandbox"
-        // (what Django does for an unconfigured channel). It shows in the
-        // thread, in the timeline and in analytics — it is simply not claimed
-        // to have left the building.
+        // POST …/send {text} — through OutboundSender, the one live-or-sandbox
+        // seam: a configured Messenger / Instagram page sends via the Send API
+        // (+ {media_url, media_type} sends an attachment by public URL); an
+        // unconfigured channel stores the message locally with status "sandbox"
+        // (what Django does) — it shows in the thread, the timeline and
+        // analytics, it is simply not claimed to have left the building.
         app.MapPost("/api/messaging/threads/{channel}/{key}/send",
             (string channel, string key, Dictionary<string, JsonElement>? body,
-             AppDbContext db, ThreadStore store, ClaimsPrincipal me, HttpContext ctx) =>
+             AppDbContext db, ChatBranch.Data.Channels.OutboundSender sender, ClaimsPrincipal me, HttpContext ctx) =>
         {
             var text = (Str(body, "text") ?? "").Trim();
-            if (text.Length == 0)
+            var mediaUrl = (Str(body, "media_url") ?? "").Trim();
+            if (text.Length == 0 && mediaUrl.Length == 0)
                 return Results.Json(new { detail = "text is required." }, statusCode: 400);
+            if (mediaUrl.Length > 0 && !mediaUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                return Results.Json(new { detail = "media_url must be a public https:// URL." }, statusCode: 400);
             var thread = GetThread(db, channel, key);
             if (thread == null)
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
 
-            var msg = store.AppendMessage(thread, MessageDirection.Out, MessageSource.Agent, text,
-                status: "sandbox", accountId: thread.AccountId);
+            Message msg = null!;
+            if (mediaUrl.Length > 0)
+                msg = sender.SendMediaUrl(thread, (Str(body, "media_type") ?? "image").Trim().ToLowerInvariant(),
+                    mediaUrl, MessageSource.Agent, thread.AccountId);
+            if (text.Length > 0)
+                msg = sender.Send(thread, text, MessageSource.Agent, thread.AccountId);
             Audit(db, me, ctx, "message.send", $"{channel}:{key}", text);
             return Results.Ok(new { message = MessagePayload(msg, thread.Channel, thread.Account?.Name) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
