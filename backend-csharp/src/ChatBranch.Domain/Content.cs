@@ -76,8 +76,9 @@ public class AgentSkill : IEntityScoped
     public bool Enabled { get; set; } = true;
     /// <summary>Channels the skill applies on; empty = every channel.</summary>
     public List<string> Channels { get; set; } = new();
-    /// <summary>Check skills: what happens when a reply still fails after the
-    /// retries — retry (then hand over) | handover | block.</summary>
+    /// <summary>Check skills, when a reply fails: retry = rewrite with the reason
+    /// (max 2×), then hand over · handover = hand over at once (a rewrite cannot
+    /// fix it) · block = rewrite (max 2×), then send nothing.</summary>
     public string OnFail { get; set; } = "retry";
     public DateTime? UpdatedAt { get; set; }
 }

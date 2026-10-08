@@ -158,6 +158,24 @@ public class AssistantSkillsTests
     }
 
     [Fact]
+    public async Task A_handover_check_hands_over_at_once()
+    {
+        var llm = new ScriptedLlm(Says("Sure, I'll refund you RM5,000 today."));
+        var w = Build(llm, "I want a refund or I'm calling my lawyer");
+        using var _ = w.T;
+        AddSkill(w.T, "as-legal", "Legal threats go to a human", SkillKinds.Check,
+            "function check(reply, ctx) { return /lawyer|legal/i.test(ctx.lastMessage) ? { ok: false, reason: 'Legal threat.' } : { ok: true }; }",
+            onFail: "handover");
+
+        var r = await w.Assistant.GenerateReplyAsync(w.Thread);
+
+        Assert.Equal(AiActions.Handover, r.Action);
+        Assert.Equal(0, r.Retries);
+        Assert.Single(llm.Seen);
+        Assert.Equal(ThreadStatus.Pending, w.T.Fresh().Threads.Single().Status);
+    }
+
+    [Fact]
     public async Task A_retry_that_fixes_the_draft_is_sent()
     {
         var llm = new ScriptedLlm(Says("We guarantee it."), Says("We aim to deliver by Friday."));

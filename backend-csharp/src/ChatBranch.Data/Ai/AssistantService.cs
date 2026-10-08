@@ -401,15 +401,19 @@ public class AssistantService
             checks.AddRange(runs.Select(r => new AiCheckRun(r.SkillId, r.Name, r.Ok, r.Reason, r.Fix, r.Error, attempt)));
             failing = runs.Where(r => !r.Ok).ToList();
             if (failing.Count == 0) { action = AiActions.Send; break; }
+            // A check whose OnFail is "handover" flags a situation a rewrite
+            // cannot fix (a refund dispute, legal threat…): straight to a human.
+            if (failing.Any(f => f.OnFail == "handover")) { action = AiActions.Handover; break; }
         }
 
         if (action == "")
         {
             // Still failing after the retries: block only when EVERY failing check
-            // says block; retry-exhausted and handover both mean a human answers.
+            // says block; an exhausted "retry" means a human answers.
             action = failing.All(f => f.OnFail == "block") ? AiActions.Block : AiActions.Handover;
-            reason = string.Join("; ", failing.Select(f => $"{f.Name}: {f.Reason}"));
         }
+        if (failing.Count > 0 && action is AiActions.Handover or AiActions.Block)
+            reason = string.Join("; ", failing.Select(f => $"{f.Name}: {f.Reason}"));
 
         var result = new AiReplyResult
         {
