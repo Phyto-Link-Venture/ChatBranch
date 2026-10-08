@@ -4,27 +4,25 @@ import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, ExternalLink, Loader2, MessageSquareReply, Phone, RefreshCw } from 'lucide-react'
 import { authHeaders } from '@/lib/auth'
 import type { FlowConfig } from '@/lib/flow/types'
+import { Field, Segmented } from './fields'
 
 /**
- * WhatsApp "Message type" block inside an Action node's settings — shown only
- * when the WhatsApp channel is selected. Free text needs Meta's 24h service
- * window; a pre-approved TEMPLATE can be sent anytime, which is what scheduled
- * reminders and status updates need.
+ * WhatsApp "message type" block inside a send / AI message / follow-up step —
+ * shown only when WhatsApp is one of the step's channels. Free text only
+ * delivers inside Meta's 24-hour service window; an approved TEMPLATE goes out
+ * any time; "auto" sends the text while the window is open and the template
+ * once it has closed.
  *
- * Writes the exact node-config contract the backend flow engine executes:
- *   waMode ('text' | 'template'), templateName, templateLanguage,
- *   templateVariables ({"1": "{{name}}", …} — position → value, values may
- *   hold {{placeholders}} rendered from the CRM at send time).
- *
- * Templates come from GET /api/whatsapp/templates (bearer-authed). Without a
- * linked account the endpoint serves the sandbox demo set — the picker works
- * with those too.
+ * Writes the node-config contract the engine executes: waMode
+ * ('text' | 'template' | 'auto'), templateName, templateLanguage,
+ * templateVariables ({"1": "{{first_name}}"} — slot → value, rendered from the
+ * CRM at send time).
  */
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface WaTemplateButton {
-  type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER' | string
+  type: string
   text: string
   url?: string
   phone_number?: string
@@ -37,27 +35,13 @@ interface WaTemplate {
   status: string
   body: string
   buttons?: WaTemplateButton[]
-  /** Settings → Message Templates slot bindings ({{n}} → CRM field key). */
   bindings?: string[]
-  /** Highest {{n}} index in the body (the server precomputes it). */
   variables?: number
 }
 
-/** CRM placeholders the flow engine can render into a template variable —
- *  the engine-fillable subset of lib/flow/variables.ts (variables_for()). */
-const QUICK_VARS: { key: string; label: string }[] = [
-  { key: 'name', label: 'Contact name' },
-  { key: 'amount', label: 'Record amount' },
-  { key: 'days_overdue', label: 'Days past due' },
-  { key: 'due_date', label: 'Due date' },
-  { key: 'link', label: 'Record link' },
-  { key: 'company', label: 'Company name' },
-  // Filled at SEND time from the account routing picks for this contact, not at
-  // enqueue time like the rest — so the message names the number it actually
-  // went out from even if health failover moves it.
-  { key: 'whatsapp_assignment_account_number', label: 'Sending number (assigned account in settings -> account assignments)' },
-  { key: 'whatsapp_assignment_account_name', label: 'Sending account name' },
-]
+/** The placeholders most templates need — the full list lives in the message
+ * field's "Insert a variable" picker. */
+const QUICK_VARS = ['first_name', 'name', 'business_name', 'record_title', 'due_date', 'link', 'website']
 
 const BUTTON_ICON: Record<string, typeof MessageSquareReply> = {
   QUICK_REPLY: MessageSquareReply,
@@ -70,10 +54,9 @@ const PLACEHOLDER_RE = /(\{\{\s*\d+\s*\}\})/g
 const variableCount = (body: string) =>
   Math.max(0, ...[...(body || '').matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map((m) => parseInt(m[1], 10)))
 
-/** One fetch per page visit — clicking between nodes must not re-hit the API. */
+/** One fetch per page visit — clicking between steps must not re-hit the API. */
 let templatesCache: { templates: WaTemplate[]; sandbox: boolean } | null = null
 
-/** Body preview with {{n}} slots live-substituted from templateVariables. */
 function PreviewBody({ body, values }: { body: string; values: Record<string, string> }) {
   return (
     <>
@@ -82,7 +65,11 @@ function PreviewBody({ body, values }: { body: string; values: Record<string, st
         if (!m) return <span key={i}>{part}</span>
         const v = (values[m[1]] ?? '').trim()
         return (
-          <mark key={i} className={`tpl-ph${v ? ' filled' : ''}`} title={`Variable {{${m[1]}}}`}>
+          <mark
+            key={i}
+            className={`rounded px-0.5 ${v ? 'bg-green/15 text-text-high' : 'bg-amber/20 text-[color:var(--amber-ink)]'}`}
+            title={`Variable {{${m[1]}}}`}
+          >
             {v || `{{${m[1]}}}`}
           </mark>
         )
@@ -91,26 +78,37 @@ function PreviewBody({ body, values }: { body: string; values: Record<string, st
   )
 }
 
+type Mode = 'text' | 'template' | 'auto'
+
+const MODE_COPY: Record<Mode, { label: string; hint: string }> = {
+  text: { label: 'Free text', hint: '24h window only' },
+  template: { label: 'Template', hint: 'works any time' },
+  auto: { label: 'Text, else template', hint: 'template after 24h' },
+}
+
 export default function WaTemplateConfig({
   config,
   onPatch,
+  modes = ['text', 'template', 'auto'],
+  textLabel,
 }: {
   config: FlowConfig
   onPatch: (patch: FlowConfig) => void
+  modes?: Mode[]
+  /** what "text" means on this step, e.g. "AI text" */
+  textLabel?: string
 }) {
-  const mode: 'text' | 'template' = config.waMode === 'template' ? 'template' : 'text'
+  const raw = (config.waMode as Mode) || 'text'
+  const mode: Mode = modes.includes(raw) ? raw : modes[0]
   const templateName = typeof config.templateName === 'string' ? config.templateName : ''
   const templateLanguage = typeof config.templateLanguage === 'string' ? config.templateLanguage : ''
   const rawVars = config.templateVariables
   const values: Record<string, string> =
-    rawVars && typeof rawVars === 'object' && !Array.isArray(rawVars)
-      ? (rawVars as Record<string, string>)
-      : {}
+    rawVars && typeof rawVars === 'object' && !Array.isArray(rawVars) ? (rawVars as Record<string, string>) : {}
 
   const [data, setData] = useState<{ templates: WaTemplate[]; sandbox: boolean } | null>(templatesCache)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  /** Which {{n}} input the quick-insert chips target (last focused). */
   const [focusSlot, setFocusSlot] = useState('1')
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
@@ -122,10 +120,7 @@ export default function WaTemplateConfig({
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`${API}/whatsapp/templates`, {
-        headers: authHeaders(),
-        cache: 'no-store',
-      })
+      const res = await fetch(`${API}/whatsapp/templates`, { headers: authHeaders(), cache: 'no-store' })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error((body as { detail?: string }).detail || `HTTP ${res.status}`)
       templatesCache = {
@@ -140,17 +135,15 @@ export default function WaTemplateConfig({
     }
   }
 
+  const needsTemplate = mode !== 'text'
   useEffect(() => {
-    if (mode === 'template' && !data) load()
+    if (needsTemplate && !data) load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode])
+  }, [needsTemplate])
 
   const selected =
-    data?.templates.find(
-      (t) => t.name === templateName && (!templateLanguage || t.language === templateLanguage),
-    ) ?? null
+    data?.templates.find((t) => t.name === templateName && (!templateLanguage || t.language === templateLanguage)) ?? null
 
-  /** {{n}} slots to edit: from the picked template, else from saved values. */
   const slotCount = selected
     ? (selected.variables ?? variableCount(selected.body))
     : Math.max(0, ...Object.keys(values).map((k) => parseInt(k, 10) || 0))
@@ -162,23 +155,14 @@ export default function WaTemplateConfig({
     const vars: Record<string, string> = {}
     for (let i = 1; i <= count; i++) {
       const binding = t.bindings?.[i - 1]
-      // Re-picking the same template keeps typed values; a different template
-      // starts from its Settings-page bindings (slot → CRM field) if any.
       vars[String(i)] = (same && values[String(i)]) || (binding ? `{{${binding}}}` : '')
     }
-    onPatch({
-      waMode: 'template',
-      templateName: t.name,
-      templateLanguage: t.language,
-      templateVariables: vars,
-    })
+    onPatch({ templateName: t.name, templateLanguage: t.language, templateVariables: vars })
     setFocusSlot('1')
   }
 
-  const setValue = (slot: string, value: string) =>
-    onPatch({ templateVariables: { ...values, [slot]: value } })
+  const setValue = (slot: string, value: string) => onPatch({ templateVariables: { ...values, [slot]: value } })
 
-  /** Insert a {{placeholder}} at the cursor of the last-focused slot input. */
   const insert = (token: string) => {
     const slot = slots.includes(focusSlot) ? focusSlot : slots[0]
     if (!slot) return
@@ -196,170 +180,152 @@ export default function WaTemplateConfig({
   }
 
   return (
-    <div className="wa-tpl-section">
-      <div className="config-field">
-        <span>WhatsApp message type</span>
-        <div className="wa-mode-switch" role="radiogroup" aria-label="WhatsApp message type">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={mode === 'text'}
-            className={`wa-mode-btn${mode === 'text' ? ' on' : ''}`}
-            onClick={() => onPatch({ waMode: 'text' })}
-          >
-            Free text
-            <small>24h window only</small>
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={mode === 'template'}
-            className={`wa-mode-btn${mode === 'template' ? ' on' : ''}`}
-            onClick={() => onPatch({ waMode: 'template' })}
-          >
-            Template
-            <small>works anytime</small>
-          </button>
-        </div>
-        <small>
-          {mode === 'text'
-            ? 'Free text only delivers inside Meta’s 24-hour service window (after the customer last wrote). Scheduled reminders outside it need a template.'
-            : 'Pre-approved templates can be sent at any time — the right choice for automatic reminders.'}
-        </small>
-      </div>
+    <div className="flex flex-col gap-3 rounded-lg border border-line bg-well p-3">
+      <Field
+        label="WhatsApp message type"
+        help={
+          mode === 'text'
+            ? 'Free text only delivers inside Meta’s 24-hour window (after the customer last wrote). Scheduled messages usually need a template.'
+            : mode === 'template'
+              ? 'An approved template can be sent at any time.'
+              : 'Sends the text while the 24-hour window is open, and this template once it has closed.'
+        }
+      >
+        <Segmented
+          ariaLabel="WhatsApp message type"
+          value={mode}
+          onChange={(m) => onPatch({ waMode: m })}
+          options={modes.map((m) => ({
+            value: m,
+            label: m === 'text' && textLabel ? textLabel : MODE_COPY[m].label,
+            hint: MODE_COPY[m].hint,
+          }))}
+        />
+      </Field>
 
-      {mode === 'template' && (
-        <div className="config-field">
-          <span className="tpl-list-head">
-            Template
+      {needsTemplate && (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[12px] font-semibold text-text-mid">Template</span>
             <button
               type="button"
-              className="tpl-refresh"
               onClick={() => load(true)}
               title="Reload templates"
               aria-label="Reload templates"
               disabled={loading}
+              className="grid h-6 w-6 place-items-center rounded-md text-text-muted hover:bg-fill-hover hover:text-text-high"
             >
-              <RefreshCw size={11} aria-hidden />
+              <RefreshCw size={12} aria-hidden />
             </button>
-          </span>
+          </div>
 
           {loading ? (
-            <div className="tpl-status">
-              <Loader2 size={12} className="tpl-spin" aria-hidden /> Loading templates…
+            <div className="flex items-center gap-1.5 text-[12px] text-text-muted">
+              <Loader2 size={12} className="animate-spin" aria-hidden /> Loading templates…
             </div>
           ) : error ? (
-            <div className="tpl-status tpl-error">
+            <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-[color:var(--red-ink)]">
               <AlertCircle size={12} aria-hidden /> {error}
-              <button type="button" className="tpl-retry" onClick={() => load(true)}>
+              <button type="button" className="font-semibold underline" onClick={() => load(true)}>
                 Retry
               </button>
             </div>
           ) : (
-            <>
-              <div className="tpl-list" role="listbox" aria-label="WhatsApp templates">
-                {templateName && data && !selected && (
-                  <div className="tpl-row on tpl-missing" title="Saved on this step but not in the current template list">
-                    <span className="tpl-row-head">
-                      <span className="tpl-name">{templateName}</span>
-                      {templateLanguage && <span className="tpl-tag">{templateLanguage}</span>}
-                      <span className="tpl-tag">missing</span>
-                    </span>
-                  </div>
-                )}
-                {(data?.templates ?? []).map((t) => {
-                  const approved = (t.status || '').toUpperCase() === 'APPROVED'
-                  const on = selected === t
-                  return (
-                    <button
-                      type="button"
-                      key={`${t.name}:${t.language}`}
-                      role="option"
-                      aria-selected={on}
-                      className={`tpl-row${on ? ' on' : ''}`}
-                      disabled={!approved}
-                      title={approved ? undefined : `Only APPROVED templates can be sent — this one is ${t.status || 'unreviewed'}.`}
-                      onClick={() => pick(t)}
-                    >
-                      <span className="tpl-row-head">
-                        <span className="tpl-name">{t.name}</span>
-                        <span className="tpl-tag">{t.language}</span>
-                        <span className={`tpl-tag tpl-status-${(t.status || '').toLowerCase()}`}>
-                          {t.status || '—'}
-                        </span>
-                      </span>
-                      {t.body && <span className="tpl-row-body">{t.body}</span>}
-                    </button>
-                  )
-                })}
-                {data && data.templates.length === 0 && (
-                  <div className="tpl-status">No templates — create one in Settings → Message Templates.</div>
-                )}
-              </div>
-              {data?.sandbox && (
-                <small>Sandbox — no WhatsApp account linked, so these are the local demo templates. They send the same way once an account is connected.</small>
+            <div role="listbox" aria-label="WhatsApp templates" className="flex max-h-[220px] flex-col gap-1 overflow-y-auto">
+              {templateName && data && !selected && (
+                <div className="rounded-lg border border-amber/40 bg-amber/10 px-2.5 py-2 text-[12px] text-[color:var(--amber-ink)]">
+                  {templateName} {templateLanguage && `· ${templateLanguage}`} — not in the current template list
+                </div>
               )}
-            </>
+              {(data?.templates ?? []).map((t) => {
+                const approved = (t.status || '').toUpperCase() === 'APPROVED'
+                const on = selected === t
+                return (
+                  <button
+                    type="button"
+                    key={`${t.name}:${t.language}`}
+                    role="option"
+                    aria-selected={on}
+                    disabled={!approved}
+                    title={approved ? undefined : `Only APPROVED templates can be sent — this one is ${t.status || 'unreviewed'}.`}
+                    onClick={() => pick(t)}
+                    className={`flex flex-col gap-0.5 rounded-lg border px-2.5 py-2 text-left transition-colors disabled:opacity-50 ${
+                      on ? 'border-text-primary bg-card' : 'border-line bg-card hover:border-line-strong'
+                    }`}
+                  >
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[12.5px] font-semibold text-text-high">{t.name}</span>
+                      <span className="rounded bg-fill-hover px-1 text-[10.5px] text-text-muted">{t.language}</span>
+                      {!approved && <span className="rounded bg-fill-hover px-1 text-[10.5px] text-text-muted">{t.status || '—'}</span>}
+                    </span>
+                    {t.body && <span className="line-clamp-2 text-[11.5px] text-text-muted">{t.body}</span>}
+                  </button>
+                )
+              })}
+              {data && data.templates.length === 0 && (
+                <div className="text-[12px] text-text-muted">No templates yet — create one under Templates.</div>
+              )}
+              {data?.sandbox && (
+                <div className="text-[11.5px] text-text-muted">
+                  Sandbox — no WhatsApp account linked, so these are the local demo templates.
+                </div>
+              )}
+            </div>
           )}
 
-          {(selected || (templateName && slots.length > 0)) && (
-            <>
-              {selected && (
-                <div className="tpl-preview" aria-label="Template preview">
-                  <PreviewBody body={selected.body} values={values} />
-                  {(selected.buttons ?? []).length > 0 && (
-                    <div className="tpl-buttons" aria-label="Template buttons (fixed by the approved template)">
-                      {(selected.buttons ?? []).map((b, i) => {
-                        const Icon = BUTTON_ICON[b.type] ?? MessageSquareReply
-                        return (
-                          <span key={i} className="tpl-btn-chip" title={b.url || b.phone_number || 'Quick reply'}>
-                            <Icon size={10} aria-hidden /> {b.text}
-                          </span>
-                        )
-                      })}
-                    </div>
-                  )}
+          {selected && (
+            <div className="rounded-lg border border-line bg-card px-3 py-2 text-[12.5px] leading-relaxed text-text-high" aria-label="Template preview">
+              <PreviewBody body={selected.body} values={values} />
+              {(selected.buttons ?? []).length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {(selected.buttons ?? []).map((b, i) => {
+                    const Icon = BUTTON_ICON[b.type] ?? MessageSquareReply
+                    return (
+                      <span key={i} className="inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-[11px] text-text-mid">
+                        <Icon size={10} aria-hidden /> {b.text}
+                      </span>
+                    )
+                  })}
                 </div>
               )}
+            </div>
+          )}
 
-              {slots.length > 0 && (
-                <div className="tpl-vars">
-                  {slots.map((slot) => (
-                    <label key={slot} className="tpl-var-row">
-                      <code className="tpl-var-slot">{`{{${slot}}}`}</code>
-                      <input
-                        type="text"
-                        ref={(el) => {
-                          inputRefs.current[slot] = el
-                        }}
-                        value={values[slot] ?? ''}
-                        placeholder="Value or {{placeholder}}"
-                        aria-label={`Value for template variable ${slot}`}
-                        onFocus={() => setFocusSlot(slot)}
-                        onChange={(e) => setValue(slot, e.target.value)}
-                      />
-                    </label>
-                  ))}
-                  <div className="tpl-quick" aria-label="Insert a CRM placeholder">
-                    <span className="tpl-quick-label">Insert into {`{{${slots.includes(focusSlot) ? focusSlot : slots[0]}}}`}:</span>
-                    {QUICK_VARS.map((v) => (
-                      <button
-                        type="button"
-                        key={v.key}
-                        className="tpl-quick-chip"
-                        title={v.label}
-                        onClick={() => insert(`{{${v.key}}}`)}
-                      >
-                        {`{{${v.key}}}`}
-                      </button>
-                    ))}
-                  </div>
-                  <small>
-                    {'{{placeholders}}'} are filled from the customer record when the engine sends.
-                  </small>
-                </div>
-              )}
-            </>
+          {slots.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              {slots.map((slot) => (
+                <label key={slot} className="flex items-center gap-2">
+                  <code className="w-10 shrink-0 text-[11.5px] text-text-muted">{`{{${slot}}}`}</code>
+                  <input
+                    type="text"
+                    ref={(el) => {
+                      inputRefs.current[slot] = el
+                    }}
+                    value={values[slot] ?? ''}
+                    placeholder="Value or {{first_name}}"
+                    aria-label={`Value for template variable ${slot}`}
+                    onFocus={() => setFocusSlot(slot)}
+                    onChange={(e) => setValue(slot, e.target.value)}
+                    className="h-8 w-full min-w-0 rounded-md border border-line-strong bg-card px-2 text-[12.5px] text-text-high outline-none focus:border-text-primary"
+                  />
+                </label>
+              ))}
+              <div className="flex flex-wrap items-center gap-1">
+                <span className="text-[11px] text-text-muted">
+                  Insert into {`{{${slots.includes(focusSlot) ? focusSlot : slots[0]}}}`}:
+                </span>
+                {QUICK_VARS.map((v) => (
+                  <button
+                    type="button"
+                    key={v}
+                    onClick={() => insert(`{{${v}}}`)}
+                    className="rounded-md border border-line bg-card px-1.5 py-0.5 text-[11px] text-text-mid hover:border-line-strong"
+                  >
+                    {`{{${v}}}`}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       )}
