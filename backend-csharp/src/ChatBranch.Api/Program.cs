@@ -118,6 +118,8 @@ app.MapAuditEndpoints();
 app.MapDevelopersEndpoints();
 app.MapMcpServerEndpoints();
 app.MapAssistantEndpoints();
+app.MapSearchEndpoints();
+app.MapLiveEndpoints();
 
 // Inbound conversations route themselves to a team. The hook lives here so the
 // data layer never has to reference the API assembly.

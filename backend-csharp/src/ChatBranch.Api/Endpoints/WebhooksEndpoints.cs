@@ -113,7 +113,8 @@ public static class WebhooksEndpoints
             if (account != null && account.HealthStatus != Domain.Health.Healthy)
             {
                 // Inbound traffic proves the session is alive — heal like Django does.
-                account.HealthStatus = Domain.Health.Healthy;
+                ChatBranch.Data.Channels.AccountHealth.SetStatus(db, account, Domain.Health.Healthy,
+                    "inbound message received", actor: "webhook");
                 account.LastInboundAt = DateTime.UtcNow;
                 await db.SaveChangesAsync();
             }
@@ -141,14 +142,12 @@ public static class WebhooksEndpoints
                 "disconnected" => Domain.Health.Degraded,
                 _ => account.HealthStatus,
             };
-            var changed = next != account.HealthStatus;
-            account.HealthStatus = next;
-            account.HealthDetail = string.IsNullOrEmpty(reason) ? evt : $"{evt}: {reason}";
-            if (next == Domain.Health.Healthy) { account.LastOkAt = DateTime.UtcNow; account.FailStreak = 0; }
-            if (changed) account.HealthChangedAt = DateTime.UtcNow;
             // The gateway is the only source of the paired number — learn it.
             var number = Str(body, "number");
             if (!string.IsNullOrEmpty(number) && string.IsNullOrEmpty(account.Name)) account.Name = number;
+            // One audit row per real transition (Analytics → health events).
+            ChatBranch.Data.Channels.AccountHealth.SetStatus(db, account, next,
+                string.IsNullOrEmpty(reason) ? evt : $"{evt}: {reason}", actor: "webhook");
             await db.SaveChangesAsync();
             return Results.Ok(new { ok = true });
         }).AllowAnonymous();

@@ -62,7 +62,11 @@ export const CAPABILITY_CATALOG: { capability: string; area: string; label: stri
   { capability: 'app_keys.manage', area: 'Settings', label: 'Manage app keys' },
   { capability: 'pronunciation.manage', area: 'Settings', label: 'Manage pronunciation' },
   { capability: 'rbac.manage', area: 'Admin', label: 'Edit the permission matrix' },
-  { capability: 'api_keys.manage', area: 'Developers', label: 'Manage API keys & MCP access' },
+  { capability: 'tags.view', area: 'Library', label: 'View tags' },
+  { capability: 'tags.manage', area: 'Library', label: 'Create & edit tags' },
+  { capability: 'api_keys.manage', area: 'Admin', label: 'Manage API keys & MCP' },
+  { capability: 'ai.monitor', area: 'AI', label: 'See & approve AI drafts' },
+  { capability: 'ai.behaviour.manage', area: 'AI', label: 'Edit AI behaviour settings' },
 ]
 
 const ALL_CAPS = CAPABILITY_CATALOG.map((c) => c.capability)
@@ -84,6 +88,8 @@ export const DEFAULT_ROLE_CAPS: Record<Role, string[]> = {
     'analytics.view',
     'call_logs.view',
     'activity.view',
+    'tags.view',
+    'ai.monitor',
   ],
 }
 
@@ -224,6 +230,23 @@ export async function login(username: string, password: string): Promise<AuthUse
   user.resource_id = ident.resource_id ?? null
   setAuth(user)
   return user
+}
+
+/**
+ * Re-read the signed-in user's capabilities from whoami and update the cached
+ * session, so a session cached before the capability catalog changed (or
+ * before an admin edited the matrix) still gates the UI correctly. The shell
+ * calls it once per sign-in; listeners hear an 'auth-change' window event.
+ */
+export async function refreshIdentity(): Promise<AuthUser | null> {
+  const user = getAuth()
+  if (!user) return null
+  const ident = await fetchIdentity(user.token)
+  if (!ident.capabilities) return user
+  const next: AuthUser = { ...user, capabilities: ident.capabilities }
+  setAuth(next)
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('auth-change'))
+  return next
 }
 
 export async function logout(): Promise<void> {
