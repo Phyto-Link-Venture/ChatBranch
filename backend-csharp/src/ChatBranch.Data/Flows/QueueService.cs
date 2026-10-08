@@ -36,10 +36,12 @@ public class QueueService
     private readonly AiGate _gate;
     private readonly AiResponder _responder;
     private readonly TimeProvider _clock;
+    private readonly QueueCallPlacer? _calls;
 
     public QueueService(AppDbContext db, ScopingService scoping, ThreadStore threads,
         AssistantService assistant, OutboundSender sender,
-        AiResponder? responder = null, AiGate? gate = null, TimeProvider? clock = null)
+        AiResponder? responder = null, AiGate? gate = null, TimeProvider? clock = null,
+        QueueCallPlacer? calls = null)
     {
         _db = db;
         _scoping = scoping;
@@ -48,6 +50,8 @@ public class QueueService
         _clock = clock ?? TimeProvider.System;
         _gate = gate ?? new AiGate(db, scoping, threads, sender, _clock);
         _responder = responder ?? new AiResponder(db, scoping, new AiComposer(db, assistant), _gate, _clock);
+        // null = no voice plumbing wired (bare unit-test construction): call jobs stay queued
+        _calls = calls;
     }
 
     private DateTime Now => _clock.GetUtcNow().UtcDateTime;
@@ -105,10 +109,10 @@ public class QueueService
             return acct;
         }
 
+        var sipDialled = false;
         foreach (var job in due)
         {
             if (sent >= maxThisPass) break;
-            if (job.Kind == JobKind.Call) continue; // calls serialise elsewhere (Phase 5)
 
             var accountId = job.AccountId;
             var account = AccountFor(job);
@@ -116,6 +120,24 @@ public class QueueService
             // quiet hours are checked at SEND time against the account that
             // will carry the message — the job simply waits until they end
             if (AccountDelivery.InQuietHours(account, _scoping, _clock.GetLocalNow().DateTime)) continue;
+
+            // calls: one per number at a time (gateway-authoritative), a breather
+            // between calls, a daily cap — and SIP, with no liveness endpoint,
+            // dials at most once per pass. A busy number WAITS (no attempt burned).
+            if (job.Kind == JobKind.Call)
+            {
+                if (_calls == null) continue;
+                var sip = !QueueCallPlacer.IsWhatsApp(job);
+                if (sip && sipDialled) continue;
+                if (_calls.WaitReason(job) != null) continue;
+                if (!TryClaim(job.Id)) continue;
+                if (DeliverCall(job.Id))
+                {
+                    sent++;
+                    if (sip) sipDialled = true;
+                }
+                continue;
+            }
 
             // per-account gap: derived from the last sent job's sent_at. The AI
             // monitor's own deliveries (draft_id) and the bubbles of a split
@@ -235,6 +257,41 @@ public class QueueService
         {
             if (draftId is int did) { try { _gate.MarkDraftFailed(did, ex.Message); } catch { } }
             return Fail(job, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Place one claimed call job. <c>sent</c> means DIALLED, not completed. A
+    /// busy line puts the job back in the queue untouched; a refusal fails it and
+    /// un-parks the flow run that was waiting on the call.
+    /// </summary>
+    private bool DeliverCall(int jobId)
+    {
+        var job = _db.OutboundJobs.First(j => j.Id == jobId);
+        CallAttempt attempt;
+        try { attempt = _calls!.Place(job); }
+        catch (Exception ex) { attempt = new CallAttempt(CallAttempt.Failed, ex.Message); }
+
+        if (attempt.AccountId is int aid) job.AccountId = aid;
+        switch (attempt.Outcome)
+        {
+            case CallAttempt.Placed:
+                job.Payload = new Dictionary<string, object?>(job.Payload) { ["room"] = attempt.Room };
+                return Sent(job, null);
+            case CallAttempt.Wait:
+                // a wait, not an attempt: back to queued. The claim was an
+                // ExecuteUpdate the tracker never saw, so the tracked Status still
+                // reads "queued" — mark it modified or EF would skip the write.
+                job.Status = JobStatus.Queued;
+                job.LastError = $"waiting: {attempt.Detail}";
+                job.UpdatedAt = Now;
+                _db.Entry(job).Property(j => j.Status).IsModified = true;
+                _db.SaveChanges();
+                return false;
+            default:
+                Fail(job, attempt.Detail);
+                _calls!.UnparkRun(job, attempt.Detail);
+                return false;
         }
     }
 

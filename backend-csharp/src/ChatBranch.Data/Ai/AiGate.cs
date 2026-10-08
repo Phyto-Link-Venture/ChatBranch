@@ -503,40 +503,44 @@ public class AiGate
     // ---- reviewers -----------------------------------------------------------
 
     /// <summary>
-    /// Bell notification for the people who review: admins + the conversation's
-    /// assignee. At most one unread "waiting for review" per person per 10
-    /// minutes, honouring the global "messages" notification mute.
+    /// Bell notification for the people who review — the conversation's assignee
+    /// plus the admins of its tenant — through the central NotificationService
+    /// (org mute, personal switches, "only assigned to me"). The collapse key
+    /// keeps it to ONE unread "waiting for review" row per reviewer that later
+    /// drafts refresh, rather than a row per draft.
     /// </summary>
     private void NotifyReviewers(AiDraft draft, Thread thread, AiBehaviour policy)
     {
         if (!policy.NotifyReviewers) return;
         try
         {
-            if (_scoping.SettingValue("notif_messages").Equals("false", StringComparison.OrdinalIgnoreCase))
-                return;
-            var ids = _db.Profiles.AsNoTracking()
-                .Where(p => p.Role == Roles.SuperAdmin || p.Role == Roles.Admin)
-                .Select(p => p.UserId).ToList();
+            var ids = new List<int>();
             if (!string.IsNullOrWhiteSpace(thread.Assignee))
             {
                 var assignee = _db.Users.AsNoTracking()
                     .Where(u => u.Username == thread.Assignee).Select(u => (int?)u.Id).FirstOrDefault();
                 if (assignee is int aid) ids.Add(aid);
             }
-            var cutoff = Now.AddMinutes(-10);
-            var recent = _db.Notifications.AsNoTracking()
-                .Where(n => n.Link == ReviewLink && !n.Read && n.CreatedAt >= cutoff)
-                .Select(n => n.UserId).ToHashSet();
+            int? tenantId = thread.EntityId is int eid
+                ? _db.Entities.AsNoTracking().Where(e => e.Id == eid).Select(e => (int?)e.TenantId).FirstOrDefault()
+                : null;
             var who = string.IsNullOrWhiteSpace(thread.Name) ? thread.Key : thread.Name;
             var snippet = draft.Content.Length > 140 ? draft.Content[..140] + "…" : draft.Content;
-            foreach (var uid in ids.Distinct().Where(u => !recent.Contains(u)))
-                _db.Notifications.Add(new Notification
+            NotificationService.Notify(_db, NotificationCategories.Messages, "message",
+                "AI reply waiting for review", Cap($"{who} ({thread.Channel}): {snippet}", 400),
+                $"{ReviewLink}?tab=review",
+                new NotificationAudience
                 {
-                    UserId = uid, Kind = "message", Link = ReviewLink, CreatedAt = Now,
-                    Title = "AI reply waiting for review",
-                    Body = Cap($"{who} ({thread.Channel}): {snippet}", 400),
+                    RoleSlugs = new[] { Roles.SuperAdmin, Roles.Admin },
+                    UserIds = ids,
+                    TenantId = tenantId,
+                },
+                new NotifyOptions
+                {
+                    Thread = thread,
+                    RefKey = "ai-review",
+                    CollapsedTitle = "AI replies waiting for review",
                 });
-            _db.SaveChanges();
         }
         catch { /* a notification never blocks the gate */ }
     }

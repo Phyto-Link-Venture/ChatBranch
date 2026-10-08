@@ -25,6 +25,7 @@ builder.Services.AddSingleton<ChatBranch.Data.Channels.IWhatsAppCloudClient, Cha
 builder.Services.AddScoped<ChatBranch.Data.Channels.OutboundSender>();
 builder.Services.AddScoped<ChatBranch.Data.Channels.InboundProcessor>();
 builder.Services.AddScoped<ChatBranch.Data.Flows.QueueService>();
+builder.Services.AddScoped<ChatBranch.Data.Flows.QueueCallPlacer>();
 builder.Services.AddScoped<ChatBranch.Data.Flows.FlowEngine>();
 builder.Services.AddScoped<ChatBranch.Data.Flows.AutomationService>();
 // AI ops: the monitor gate, human-like replies, follow-ups (+ their clock)

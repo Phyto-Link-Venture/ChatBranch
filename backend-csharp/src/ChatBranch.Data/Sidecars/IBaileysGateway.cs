@@ -33,6 +33,14 @@ public interface IBaileysGateway
         Dictionary<string, object?> dispatch, CancellationToken ct = default);
     /// <summary>Hang up the account's active call (a no-op when none is live).</summary>
     Task<BaileysResult> EndCallAsync(string accountExternalId, CancellationToken ct = default);
+    /// <summary>
+    /// The gateway's own view of the account's call: idle | connecting | ringing |
+    /// in_call (GET /accounts/{id}/call-status). Null = unknown (no gateway, or it
+    /// didn't answer) — the caller falls back to the thread rows. Authoritative
+    /// because thread rows are not reliably attributed to the calling account.
+    /// </summary>
+    Task<string?> CallStatusAsync(string accountExternalId, CancellationToken ct = default) =>
+        Task.FromResult<string?>(null);
     // ---- pairing (Settings → Channels → WhatsApp → Pair) ----
     Task<BaileysStatus> StatusAsync(string accountExternalId, CancellationToken ct = default);
     Task<BaileysStatus> StartAsync(string accountExternalId, CancellationToken ct = default);
@@ -184,5 +192,14 @@ public class HttpBaileysGateway : IBaileysGateway
     {
         var (ok, _, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/call-end", new { }, ct);
         return ok ? new BaileysResult(true, "ended") : new BaileysResult(false, err);
+    }
+
+    public async Task<string?> CallStatusAsync(string a, CancellationToken ct = default)
+    {
+        var (ok, body, _) = await CallAsync(HttpMethod.Get, $"/accounts/{Uri.EscapeDataString(a)}/call-status", null, ct);
+        return ok && body.ValueKind == JsonValueKind.Object && body.TryGetProperty("status", out var st)
+               && st.ValueKind == JsonValueKind.String
+            ? st.GetString()
+            : null;
     }
 }
