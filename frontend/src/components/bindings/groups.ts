@@ -4,7 +4,9 @@
  * Teams member picker, the contact page and the tag binding view, so "a main
  * entity card with its sub-entities inside" means the same thing everywhere.
  */
+import type { ReactNode } from 'react'
 import type { BindingGroup, BindingItem } from '@/components/ui/BindingGrid'
+import { channelLabel } from '@/components/ui/ChannelLogo'
 
 export interface TreeEntity {
   id: number
@@ -125,25 +127,18 @@ export function usersByRoleGroups(users: { id: number; label: string; role: stri
   })
 }
 
-const CHANNEL_LABEL: Record<string, string> = {
-  whatsapp: 'WhatsApp',
-  email: 'Email',
-  telegram: 'Telegram',
-  facebook: 'Messenger',
-  instagram: 'Instagram',
-  website: 'Website widget',
-}
-
-/** Channel accounts grouped by channel. */
+/** Channel accounts grouped by channel (label + optional logo per channel). */
 export function accountsByChannelGroups(
   accounts: { id: number; label: string; channel: string; sub?: string }[],
+  icon?: (channel: string) => ReactNode,
 ): BindingGroup[] {
   const channels = [...new Set(accounts.map((a) => a.channel))].sort()
   return channels.map((ch) => {
     const members = accounts.filter((a) => a.channel === ch)
     return {
       id: `c-${ch}`,
-      label: CHANNEL_LABEL[ch] ?? ch,
+      label: channelLabel(ch),
+      icon: icon?.(ch),
       sub: `${members.length} account${members.length === 1 ? '' : 's'}`,
       items: members.map((a) => ({ id: String(a.id), label: a.label, hint: a.sub })),
     }

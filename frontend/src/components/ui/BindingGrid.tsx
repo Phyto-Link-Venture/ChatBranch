@@ -39,6 +39,8 @@ export interface BindingGroup {
   label: string
   sub?: string
   badge?: string
+  /** Optional leading mark (e.g. a channel logo). */
+  icon?: ReactNode
   items: BindingItem[]
 }
 
@@ -209,6 +211,7 @@ function GroupCard({
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
+            {group.icon}
             {group.badge && (
               <span className="shrink-0 rounded bg-primary px-1 py-px text-[9.5px] font-bold uppercase tracking-[0.06em] text-on-primary">
                 {group.badge}

@@ -5,6 +5,7 @@ import { Building2, Loader2, Radio, Tag, Tags, UserCog, Users, type LucideIcon }
 import { BindingGrid, SaveBar, type BindingGroup } from '@/components/ui/BindingGrid'
 import { Select, type SelectOption } from '@/components/ui/Select'
 import { EntityPicker } from '@/components/ui/EntityPicker'
+import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { authHeaders, hasCap } from '@/lib/auth'
 import type { Entity } from '@/lib/EntityContext'
 import {
@@ -195,6 +196,7 @@ export function BindingsWorkbench() {
             channel: a.channel,
             sub: a.entity_id === null ? 'Organization-wide' : a.entity_id === targetId ? undefined : `Now on ${a.sub}`,
           })),
+          (ch) => <ChannelLogo channel={ch} size={16} title="" />,
         )
       default:
         return []
