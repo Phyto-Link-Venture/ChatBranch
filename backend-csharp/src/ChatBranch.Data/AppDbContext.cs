@@ -48,6 +48,7 @@ public class AppDbContext : DbContext
     public DbSet<Thread> Threads => Set<Thread>();
     public DbSet<Message> Messages => Set<Message>();
     public DbSet<AccountAssignment> AccountAssignments => Set<AccountAssignment>();
+    public DbSet<EmailHeader> EmailHeaders => Set<EmailHeader>();
     // crm — content libraries
     public DbSet<CannedResponse> CannedResponses => Set<CannedResponse>();
     public DbSet<ScriptTemplate> ScriptTemplates => Set<ScriptTemplate>();
@@ -129,6 +130,9 @@ public class AppDbContext : DbContext
         b.Entity<Thread>().ToTable("crm_thread");
         b.Entity<Message>().ToTable("crm_message");
         b.Entity<AccountAssignment>().ToTable("crm_accountassignment");
+        b.Entity<EmailHeader>().ToTable("crm_emailheader");
+        b.Entity<EmailHeader>().HasIndex(h => h.ThreadId).HasDatabaseName("ix_emailheader_thread");
+        b.Entity<EmailHeader>().HasIndex(h => h.MessageId).HasDatabaseName("ix_emailheader_message");
         b.Entity<CannedResponse>().ToTable("crm_cannedresponse");
         b.Entity<ScriptTemplate>().ToTable("crm_scripttemplate");
         b.Entity<Workflow>().ToTable("crm_workflow");
