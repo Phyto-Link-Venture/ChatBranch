@@ -126,9 +126,10 @@ public class InboundProcessor
                         new Dictionary<string, object?>(), thread.ContactId, thread.AccountId);
                 return;
             }
+            // a held reply (checks failed → handover/block) comes back with no text
             var reply = _assistant.GenerateReplyAsync(thread).GetAwaiter().GetResult();
-            if (!string.IsNullOrWhiteSpace(reply))
-                _sender.Send(thread, reply, MessageSource.Ai, thread.AccountId);
+            if (reply.ShouldSend)
+                _sender.Send(thread, reply.Text, MessageSource.Ai, thread.AccountId);
         }
         catch { /* AI failure never breaks the webhook path */ }
     }

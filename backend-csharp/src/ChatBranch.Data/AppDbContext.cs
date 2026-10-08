@@ -205,6 +205,7 @@ public class AppDbContext : DbContext
         Json<ConversationSummary, List<object?>>(b, x => x.Facts);
         Json<Integration, Dictionary<string, object?>>(b, x => x.Credentials);
         Json<Integration, Dictionary<string, object?>>(b, x => x.Config);
+        Json<AgentSkill, List<string>>(b, x => x.Channels);
 
         // ---- snake_case columns to match Django (<field>_id for FKs) -----------
         // Django names every column snake_case; matching it is what lets this
