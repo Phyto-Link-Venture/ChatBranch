@@ -373,6 +373,7 @@ function riskyReasons(text: string, keywords: string): string[] {
 
 function clock(sec: number): string {
   const s = Math.round(sec)
+  if (s >= 3600) return `${Math.floor(s / 3600)}h${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}`
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
@@ -433,7 +434,7 @@ function ExampleTimeline({ values: v }: { values: Record<string, string> }) {
         mode === 'review_all'
           ? ['every reply is reviewed']
           : mode === 'review_flagged'
-            ? [...riskyReasons(text, v.ai_review_keywords ?? ''), ...(idx < firstN ? [`one of the first ${firstN} replies`] : [])]
+            ? [...riskyReasons(text, v.ai_review_keywords ?? ''), ...(idx < firstN ? [firstN === 1 ? 'the first reply in the conversation' : `one of the first ${firstN} replies`] : [])]
             : []
       if (mode === 'shadow') {
         out.push({ at: t, who: 'note', text: 'Shadow mode: the draft is recorded in the AI monitor and never sent' })

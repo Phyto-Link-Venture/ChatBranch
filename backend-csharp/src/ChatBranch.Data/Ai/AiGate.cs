@@ -188,7 +188,9 @@ public class AiGate
                 && (d.Status == AiDraftStatus.AutoSent || d.Status == AiDraftStatus.Approved
                     || d.Status == AiDraftStatus.Edited || d.Status == AiDraftStatus.Sent));
             if (delivered < policy.FirstN)
-                reasons.Add($"One of the first {policy.FirstN} AI replies in this conversation");
+                reasons.Add(policy.FirstN == 1
+                    ? "The first AI reply in this conversation"
+                    : $"One of the first {policy.FirstN} AI replies in this conversation");
         }
         return reasons.Distinct().ToList();
     }

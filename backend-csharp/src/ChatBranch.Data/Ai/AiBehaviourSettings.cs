@@ -98,7 +98,8 @@ public static class AiBehaviourSettings
             "Comma-separated. A reply mentioning one of these — or a money amount or a date — is "
             + "held in \"review risky replies\" mode."),
         new(Notify, "review", "bool", "true", "Notify reviewers when a reply is waiting",
-            "Sends a bell notification (at most one every 10 minutes per person)."),
+            "A bell notification to the conversation's assignee and the admins — one unread alert "
+            + "per person that newer held replies refresh, so it never floods."),
 
         // ---- wait for the customer to finish --------------------------------
         new(WaitSeconds, "wait", "number", "25", "Wait for the customer to finish (seconds)",

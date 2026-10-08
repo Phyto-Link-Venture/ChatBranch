@@ -122,7 +122,7 @@ export function ReviewQueue({
         r.status === 'rejected'
           ? `Rejected the reply to ${displayName(d)}.`
           : r.status === 'scheduled'
-            ? `Approved — ${r.detail.replace(/\.$/, '')} (${displayName(d)}).`
+            ? `Approved the reply to ${displayName(d)} — ${r.detail.charAt(0).toLowerCase()}${r.detail.slice(1)}`
             : `Sent to ${displayName(d)}.`,
       )
       setFeedback((f) => {
@@ -328,7 +328,7 @@ export function ReviewQueue({
             onMouseDown={() => setSelected(i)}
             aria-label={`AI reply to ${displayName(d)}`}
             className={`rounded-xl border bg-card p-4 outline-none transition-colors sm:p-5 ${
-              active ? 'border-line-strong ring-1 ring-text-primary/30' : 'border-line'
+              active ? 'border-text-muted' : 'border-line'
             }`}
           >
             <DraftHeader

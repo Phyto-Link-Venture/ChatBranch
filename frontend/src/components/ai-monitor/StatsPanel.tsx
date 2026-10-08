@@ -21,6 +21,11 @@ import { Card, CardTitle } from '@/components/ui/Card'
 import { KIND_LABEL, aiApi, duration, type DraftKind, type MonitorStats } from '@/lib/aiMonitor'
 
 const DAY_OPTIONS = [7, 30, 90]
+const KIND_PLURAL: Record<DraftKind, string> = {
+  reply: 'replies',
+  follow_up: 'follow-ups',
+  flow_message: 'flow messages',
+}
 
 const VIZ_CSS = `
 .aim-viz{--aim-held:rgb(var(--c-brand));--aim-auto:var(--text-faint);}
@@ -165,7 +170,8 @@ function DailyChart({ daily }: { daily: MonitorStats['daily'] }) {
                   role="tooltip"
                   className="pointer-events-none absolute z-10 w-max min-w-[150px] rounded-lg border border-line-strong bg-card px-3 py-2 text-[12px] shadow-pop"
                   style={{
-                    bottom: H + 6,
+                    // inside the plot: the horizontal scroll box would clip anything above it
+                    top: 4,
                     left: `${((hover + 0.5) / daily.length) * 100}%`,
                     transform: `translateX(${hover / daily.length > 0.6 ? '-100%' : hover / daily.length < 0.2 ? '0' : '-50%'})`,
                   }}
@@ -290,7 +296,7 @@ export function StatsPanel({ entityQuery }: { entityQuery: string }) {
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
             <Tile label="AI messages" value={stats.total.toLocaleString()} sub={Object.entries(stats.by_kind)
               .filter(([, n]) => n > 0)
-              .map(([k, n]) => `${n} ${KIND_LABEL[k as DraftKind].toLowerCase()}${n === 1 ? '' : 's'}`)
+              .map(([k, n]) => `${n} ${n === 1 ? KIND_LABEL[k as DraftKind].toLowerCase() : KIND_PLURAL[k as DraftKind]}`)
               .join(' · ') || 'none yet'} />
             <Tile label="Held for review" value={stats.held.toLocaleString()} sub={`${stats.pending} waiting now`} />
             <Tile

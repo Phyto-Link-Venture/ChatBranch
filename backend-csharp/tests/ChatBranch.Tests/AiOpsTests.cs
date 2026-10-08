@@ -244,7 +244,7 @@ public class AiOpsTests
         r.Say("60120000033", "hi there");
         var first = Assert.Single(r.Drafts("60120000033"));
         Assert.Equal(AiDraftStatus.Pending, first.Status);
-        Assert.Contains("first 1 AI replies", first.HoldReason);
+        Assert.Contains("The first AI reply in this conversation", first.HoldReason);
         Assert.True(r.Gate.Approve(first.Id, "alice").Delivered);
         r.Say("60120000033", "and another question");
         Assert.Equal(AiDraftStatus.AutoSent, r.Drafts("60120000033").Last().Status);
