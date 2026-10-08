@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
+import { refreshNotifications } from '@/components/shell/notificationsStore'
 import { tint } from '@/lib/color'
 import {
   NOTIF_CATEGORIES,
@@ -164,6 +165,7 @@ export function NotificationsInbox() {
       const r = await notifApi<{ unread: number }>(`notifications/${n.id}/${read ? 'read' : 'unread'}`, { method: 'POST' })
       patchLocal([n.id], read)
       setUnread(r.unread)
+      void refreshNotifications() // keep the bell + sidebar counter in step
       setByCat((m) => ({ ...m, [n.category]: Math.max(0, (m[n.category] ?? 0) + (read ? -1 : 1)) }))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -181,6 +183,7 @@ export function NotificationsInbox() {
       setItems((xs) => xs.filter((x) => x.id !== n.id))
       setTotal((t) => Math.max(0, t - 1))
       setUnread(r.unread)
+      void refreshNotifications()
       setSelected((s) => {
         const next = new Set(s)
         next.delete(n.id)
@@ -204,6 +207,7 @@ export function NotificationsInbox() {
       }
       setSelected(new Set())
       await load(1)
+      void refreshNotifications()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -220,6 +224,7 @@ export function NotificationsInbox() {
         body: JSON.stringify(category ? { category } : {}),
       })
       await load(1)
+      void refreshNotifications()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -232,6 +237,7 @@ export function NotificationsInbox() {
     try {
       await notifApi('notifications/delete', { method: 'POST', body: JSON.stringify({ read: true }) })
       await load(1)
+      void refreshNotifications()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
