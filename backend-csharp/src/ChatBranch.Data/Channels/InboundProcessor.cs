@@ -9,9 +9,13 @@ namespace ChatBranch.Data.Channels;
 
 /// <summary>
 /// The shared inbound path for every channel: store the message (wamid dedup),
-/// link a CRM contact by phone/email, resume flow runs parked on a reply, and —
-/// behind the coverage gate (thread has a linked contact AND AI is on) — generate
-/// and send an AI auto-reply. Called by the live webhooks; runs off the ack path.
+/// link a CRM contact by phone/email, move the conversation onto the number
+/// that received it, apply STOP/START (<see cref="OptOut"/>), resume flow runs
+/// parked on a reply, and — behind the coverage gate (linked contact, the
+/// EFFECTIVE chatbot tick (<see cref="AiEligibility"/>) on, not opted out) —
+/// generate and send an AI auto-reply; a business (reminder) number with the
+/// chatbot off gets the <see cref="BusinessRedirect"/> instead. Called by the
+/// live webhooks; runs off the ack path.
 /// </summary>
 public class InboundProcessor
 {
@@ -54,11 +58,18 @@ public class InboundProcessor
                 _db.SaveChanges();
             }
         }
+        // the number that RECEIVES a message decides attribution: a conversation
+        // sitting on another of our numbers moves to the one the customer wrote to
+        try { Reattribute(thread, accountId); } catch { }
         // a brand-new conversation takes its inbox's AI reply default
         InboxSettings.ApplyToNewThread(_db, thread);
 
         var msg = _threads.AppendMessage(thread, MessageDirection.In, MessageSource.Customer,
             text, status: "received", externalId: wamid, accountId: accountId, providerTs: providerTs);
+
+        // STOP / UNSUBSCRIBE / BERHENTI (+ configured words) opt the conversation
+        // out of everything automated; START / UNSTOP / MULA opts it back in
+        ApplyOptOut(thread, text);
 
         // event axis: resume flow runs parked on a reply
         try { _engine.OnInboundMessage(channel, key, text); } catch { }
@@ -84,11 +95,50 @@ public class InboundProcessor
         // next reply covers everything the customer said
         _responder.OnCustomerMessage(thread);
 
-        // coverage gate: AI auto-reply only for threads linked to a contact + AI on
-        if (thread.ContactId != null && thread.AiEnabled && !thread.OptedOut)
-            TryAiReply(thread);
-
+        AutoAnswer(thread, accountId);
         return msg;
+    }
+
+    /// <summary>Apply a customer message to the conversation's STOP/START state (never throws).</summary>
+    public string? ApplyOptOut(Thread thread, string? text) =>
+        OptOut.Apply(_db, _scoping, _threads, thread, text);
+
+    /// <summary>
+    /// The one auto-answer decision for an inbound: nothing for an opted-out
+    /// conversation; the AI reply behind the coverage gate (linked contact AND
+    /// the effective chatbot tick — the same rule the dashboard shows); else, on
+    /// a business (reminder) number, the queued redirect.
+    /// </summary>
+    private void AutoAnswer(Thread thread, int? receivingAccountId)
+    {
+        try
+        {
+            if (thread.OptedOut) return;
+            if (thread.ContactId != null && AiEligibility.Effective(_db, _scoping, thread))
+            {
+                TryAiReply(thread);
+                return;
+            }
+            BusinessRedirect.Maybe(_db, _scoping, thread, receivingAccountId);
+        }
+        catch { /* never breaks the webhook */ }
+    }
+
+    /// <summary>
+    /// Inbound re-attribution: a WhatsApp conversation moving between the
+    /// business and personal numbers follows the number the customer last wrote
+    /// to, so the reply (and that number's own chatbot tick) comes from there.
+    /// </summary>
+    private void Reattribute(Thread thread, int? accountId)
+    {
+        if (accountId is not int aid || thread.AccountId is null || thread.AccountId == aid) return;
+        var account = _db.ChannelAccounts.Find(aid);
+        if (account == null || account.Channel != thread.Channel) return;
+        thread.AccountId = aid;
+        thread.Account = account;
+        _scoping.SyncThreadEntity(thread, save: false);
+        thread.UpdatedAt = DateTime.UtcNow;
+        _db.SaveChanges();
     }
 
     /// <summary>
@@ -99,8 +149,22 @@ public class InboundProcessor
     public void AfterSimulatedInbound(Thread thread)
     {
         _responder.OnCustomerMessage(thread);
-        if (thread.ContactId != null && thread.AiEnabled && !thread.OptedOut)
-            TryAiReply(thread);
+        AutoAnswer(thread, thread.AccountId);
+    }
+
+    /// <summary>
+    /// Run the auto-reply for a thread whose message was stored by another path
+    /// (the website widget). Same coverage gate as the webhook: a linked contact
+    /// is not required for a widget visitor, but AI must be on and the contact
+    /// not opted out. Pass the visitor's <paramref name="text"/> so STOP/START
+    /// applies here too.
+    /// </summary>
+    public void MaybeAutoReply(Thread thread, string? text = null)
+    {
+        if (text != null) ApplyOptOut(thread, text);
+        _responder.OnCustomerMessage(thread);
+        if (thread.OptedOut || !AiEligibility.Effective(_db, _scoping, thread)) return;
+        TryAiReply(thread);
     }
 
     /// <summary>
@@ -115,19 +179,6 @@ public class InboundProcessor
     ///
     /// A thread never stacks queued replies: one pending job at a time.
     /// </summary>
-    /// <summary>
-    /// Run the auto-reply for a thread whose message was stored by another path
-    /// (the website widget). Same coverage gate as the webhook: a linked contact
-    /// is not required for a widget visitor, but AI must be on and the contact
-    /// not opted out.
-    /// </summary>
-    public void MaybeAutoReply(Thread thread)
-    {
-        _responder.OnCustomerMessage(thread);
-        if (!thread.AiEnabled || thread.OptedOut) return;
-        TryAiReply(thread);
-    }
-
     private void TryAiReply(Thread thread)
     {
         try
@@ -175,14 +226,7 @@ public class InboundProcessor
     {
         if (channel == "email")
             return _db.Contacts.FirstOrDefault(c => c.Email.ToLower() == key.ToLower());
-        var digits = new string(key.Where(char.IsDigit).ToArray());
-        if (digits.Length < 8) return null;
-        var tail = digits[^8..];
-        foreach (var c in _db.Contacts.AsEnumerable())
-        {
-            var p = new string((c.Phone ?? "").Where(char.IsDigit).ToArray());
-            if (p.Length >= 8 && p[^8..] == tail) return c;
-        }
-        return null;
+        if (PhoneMatch.Tail(key) == null) return null;
+        return PhoneMatch.Find(_db.Contacts.AsEnumerable(), key);
     }
 }

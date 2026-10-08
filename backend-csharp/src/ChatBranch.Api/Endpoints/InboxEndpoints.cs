@@ -117,14 +117,26 @@ public static class InboxEndpoints
 
         // ---- sandbox send ------------------------------------------------------
         app.MapPost("/api/whatsapp/threads/{channel}/{key}/send",
-            (string channel, string key, SendRequest body, ThreadStore store,
-             ChatBranch.Data.Channels.OutboundSender sender) =>
+            (string channel, string key, SendRequest body, ThreadStore store, AppDbContext db,
+             ScopingService sc, ChatBranch.Data.Channels.OutboundSender sender) =>
         {
             var thread = store.GetOrCreateThread(channel, key);
             if (thread.OptedOut && !body.Force)
                 return Results.Json(new { detail = "contact opted out; use force" }, statusCode: 409);
+            // Routing at send time unless the caller named the account: the
+            // thread's healthy number → sticky / least-loaded → failover.
+            var accountId = body.AccountId;
+            if (accountId == null)
+            {
+                var route = new ChatBranch.Data.Channels.Routing(db, sc).ForThread(thread,
+                    channel == Channels.WhatsApp
+                        ? ChatBranch.Data.Channels.RouteNeed.Conversation
+                        : ChatBranch.Data.Channels.RouteNeed.Any, apply: true);
+                if (!route.Ok) return Results.Json(new { detail = route.Error }, statusCode: 409);
+                accountId = route.Account?.Id ?? thread.AccountId;
+            }
             // Real send when the account is configured, sandbox otherwise.
-            var msg = sender.Send(thread, body.Text, MessageSource.Agent, body.AccountId ?? thread.AccountId);
+            var msg = sender.Send(thread, body.Text, MessageSource.Agent, accountId);
             return Results.Ok(Dtos.MessageDto(msg));
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
@@ -141,6 +153,8 @@ public static class InboxEndpoints
             if (thread.ContactId == null && matched != null) { thread.ContactId = matched.Id; }
             var msg = store.AppendMessage(thread, MessageDirection.In, MessageSource.Customer,
                 body.Text, status: "received");
+            // STOP / START work in the sandbox exactly as on a live webhook
+            inbound.ApplyOptOut(thread, body.Text);
             // event axis: resume any flow runs parked on a reply from this contact
             engine.OnInboundMessage(body.Channel, body.Key, body.Text);
             // A simulated inbound is still an INBOUND: route it to a team the
@@ -454,8 +468,16 @@ public static class InboxEndpoints
         var fallback = configured.Count == 1 && !envConfigured ? configured[0] : null;
         var envIsSoleFallback = configured.Count == 0 && envConfigured;
 
-        // Entity-scoped default for the chatbot tick on reminder-role numbers.
-        var reminderDefaultOn = sc.SettingValue("reminder_ai_default", entityId) == "on";
+        // Entity-scoped default for the chatbot tick on reminder-role numbers —
+        // resolved for each thread's OWN entity, exactly as the AI gate does.
+        var reminderDefaults = new Dictionary<int, bool>();
+        bool ReminderDefaultOn(int? eid)
+        {
+            var k = eid ?? 0;
+            if (!reminderDefaults.TryGetValue(k, out var on))
+                reminderDefaults[k] = on = ChatBranch.Data.Ai.AiEligibility.ReminderDefaultOn(sc, eid);
+            return on;
+        }
 
         var outv = new List<object>();
         foreach (var t in threads)
@@ -497,7 +519,7 @@ public static class InboxEndpoints
                 account_id = t.AccountId?.ToString(),
                 account_name = t.Account?.Name ?? "",
                 provider = baileys ? Providers.Baileys : Providers.Cloud,
-                ai_enabled = WhatsAppSettingsEndpoints.EffectiveAi(t, account, reminderDefaultOn),
+                ai_enabled = WhatsAppSettingsEndpoints.EffectiveAi(t, account, ReminderDefaultOn(t.EntityId)),
                 assignee = t.Assignee,
                 team_id = t.TeamId,
                 opted_out = t.OptedOut,

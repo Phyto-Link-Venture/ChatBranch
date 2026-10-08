@@ -17,6 +17,8 @@ namespace ChatBranch.Data.Channels;
 ///
 /// The reconnect reset (new credentials → unknown) deliberately stays silent and
 /// does not come through here, as in Django's <c>reset_on_reconfigure</c>.
+/// A conversation-role number transitioning INTO banned/disconnected also runs
+/// <see cref="Recovery.OnTransition"/> (admin notification + auto recovery).
 /// The caller saves.
 /// </summary>
 public static class AccountHealth
@@ -49,6 +51,9 @@ public static class AccountHealth
             Detail = reason.Length > 0 ? $"{prev} → {next} — {reason}" : $"{prev} → {next}",
             CreatedAt = now,
         });
+        // a conversation number going down: "Account X down — N contacts
+        // affected" (+ the recovery template when recovery_mode = auto)
+        Recovery.OnTransition(db, account, prev, next);
         return true;
     }
 }

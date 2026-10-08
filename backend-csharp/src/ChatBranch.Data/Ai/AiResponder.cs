@@ -89,7 +89,7 @@ public class AiResponder
         {
             // cheap guards before spending tokens (the gate re-checks at send time)
             if (thread.OptedOut) return Out(AiGateStatus.Skipped, "The contact opted out.");
-            if (!AiGate.AiAllowed(thread)) return Out(AiGateStatus.Skipped, "AI is off for this conversation.");
+            if (!_gate.AiAllowed(thread)) return Out(AiGateStatus.Skipped, "AI is off for this conversation.");
             if (thread.ContactId == null && thread.Channel != ChatBranch.Domain.Channels.Website)
                 return Out(AiGateStatus.Skipped, "No linked contact.");
 

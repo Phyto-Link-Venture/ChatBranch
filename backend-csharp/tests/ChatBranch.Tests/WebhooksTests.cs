@@ -96,10 +96,13 @@ public class WebhooksTests : IClassFixture<ApiFactory>
     {
         var admin = await Authed("admin", "admin123");
         await admin.PostAsJsonAsync("/api/contacts", new { name = "Paced", phone = "60129990111" });
-        // a real (configured) Cloud account carries this number
+        // a real (configured) Cloud account carries this number — as a
+        // CONVERSATION number: a business (reminder) number has the chatbot off
+        // by default and would answer with the business redirect instead
         await admin.PostAsJsonAsync("/api/whatsapp/accounts", new
         {
             name = "Paced Number", phone_number_id = "PN-PACED", access_token = "tok-live",
+            role = "conversation",
         });
 
         var payload = JsonSerializer.Serialize(new

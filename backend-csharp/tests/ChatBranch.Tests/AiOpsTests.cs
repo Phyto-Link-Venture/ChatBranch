@@ -127,10 +127,15 @@ internal sealed class AiRig : IDisposable
 
     public ChannelAccount LiveAccount()
     {
+        // a live Cloud number used as a CONVERSATION number: a Cloud account
+        // defaults to the reminder role, whose chatbot tick is off unless the
+        // reminder_ai_default rule says otherwise (AiEligibility) — these tests
+        // exercise the AI ops, not the business-number rules
         var a = new ChannelAccount
         {
             Channel = "whatsapp", Provider = Providers.Cloud, Name = "Live", ExternalId = "PN-LIVE",
             AccessToken = "tok", CreatedAt = DateTime.UtcNow,
+            Config = new Dictionary<string, object?> { ["role"] = AccountRoles.Conversation },
         };
         Db.ChannelAccounts.Add(a);
         Db.SaveChanges();

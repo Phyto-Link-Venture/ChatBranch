@@ -196,7 +196,13 @@ public static class WhatsAppThreadsEndpoints
                              + "Resend with force=true to override as a manual exception.",
                 }, statusCode: 409);
 
-            var account = await EffectiveAccount(db, wa, thread);
+            // Routing at send time: the thread's own healthy number, else the
+            // contact's sticky / least-loaded conversation number, failing over
+            // off a banned/disconnected one (the move happens just before sending).
+            var routing = new Routing(db, sc);
+            var route = routing.ForThread(thread, RouteNeed.Conversation, apply: false);
+            if (!route.Ok) return Results.Json(new { detail = route.Error }, statusCode: 409);
+            var account = route.Account;
             var live = account != null && wa.IsConfigured(account);
 
             // Cold-text guard: free text into a zero-inbound thread on a
@@ -217,6 +223,8 @@ public static class WhatsAppThreadsEndpoints
                     detail = "WhatsApp 24h window closed — use a template.",
                 }, statusCode: 409);
 
+            if (account != null && account.Id != thread.AccountId)
+                routing.ForThread(thread, RouteNeed.Conversation, apply: true);
             // OutboundSender is the one live-or-sandbox seam: configured account →
             // graph.facebook.com, otherwise stored locally with status "sandbox".
             var msg = sender.Send(thread, text, MessageSource.Agent, account?.Id);
@@ -246,9 +254,16 @@ public static class WhatsAppThreadsEndpoints
                 {
                     detail = "Contact opted out of WhatsApp contact — template sends are blocked.",
                 }, statusCode: 409);
-            // Templates never fail over to Baileys (no template API on WhatsApp
-            // Web); a Baileys account sends the rendered body as free text.
-            var account = await EffectiveAccount(db, wa, thread);
+            // Capability routing: a template goes out on a healthy Cloud number
+            // (the business/reminder one first) — a Baileys assignment is
+            // overridden for this one send, and templates NEVER fail over to
+            // Baileys: with Cloud numbers configured but none healthy → 409 and
+            // the thread is untouched. An organization with no Cloud number at
+            // all keeps the thread's own number (Baileys renders it as text).
+            var routing = new Routing(db, sc);
+            var route = routing.ForThread(thread, RouteNeed.Template, apply: false);
+            if (!route.Ok) return Results.Json(new { detail = route.Error }, statusCode: 409);
+            var account = route.Account;
             // quiet hours are a per-account setting (Settings → Channels → edit
             // account), falling back to the organization-wide value
             if (AccountDelivery.InQuietHours(account, sc))
@@ -273,6 +288,9 @@ public static class WhatsAppThreadsEndpoints
             // account sends the RENDERED body as text (and OutboundSender records
             // a Meta rejection honestly instead of faking success); sandbox stores
             // it locally exactly like Django's sandbox branch.
+            // (per-send restamp: the conversation continues on the number that carried it)
+            if (account != null && account.Id != thread.AccountId)
+                routing.ForThread(thread, RouteNeed.Template, apply: true);
             var msg = sender.Send(thread, rendered, MessageSource.Agent, account?.Id);
             await Audit(db, ctx, me, "message.send", $"whatsapp:{thread.Key}", $"template:{name}");
             return Results.Ok(new { message = MessagePayload(msg, account) });
@@ -976,41 +994,19 @@ public static class WhatsAppThreadsEndpoints
 
     /// <summary>
     /// store._effective_ai — the Chatbot tick for the thread's CURRENT sending
-    /// account. An explicit per-account override wins; otherwise the account's
-    /// ROLE decides (reminder off unless the reminder_ai_default rule flips it,
-    /// conversation on). Account-less/sandbox threads use the legacy column.
+    /// account (<see cref="ChatBranch.Data.Ai.AiEligibility"/>, the same rule
+    /// the inbound auto-reply gate applies).
     /// </summary>
-    private static bool EffectiveAi(ScopingService sc, Thread thread, ChannelAccount? account)
-    {
-        if (thread.AccountId is not int acct) return thread.AiEnabled;
-        if (thread.AiOverrides.TryGetValue(acct.ToString(), out var raw))
-        {
-            if (raw is bool b) return b;
-            if (raw is JsonElement el && el.ValueKind is JsonValueKind.True or JsonValueKind.False)
-                return el.GetBoolean();
-        }
-        if (account == null) return thread.AiEnabled;
-        if (InboxSettings.AiDefault(account) is bool inboxDefault) return inboxDefault;
-        if (AccountRole(account) == "reminder")
-            return Rule(sc, "reminder_ai_default", "off") == "on";
-        return true;
-    }
+    private static bool EffectiveAi(ScopingService sc, Thread thread, ChannelAccount? account) =>
+        ChatBranch.Data.Ai.AiEligibility.Effective(thread, account,
+            ChatBranch.Data.Ai.AiEligibility.ReminderDefaultOn(sc, thread.EntityId));
 
     /// <summary>
     /// wa_config.account_role — config["role"], defaulting by provider: a Cloud
     /// business number is the compliant template cannon ("reminder"), a Baileys
     /// personal number is the AI negotiation layer ("conversation").
     /// </summary>
-    private static string AccountRole(ChannelAccount account)
-    {
-        if (account.Config.TryGetValue("role", out var raw))
-        {
-            var role = raw is JsonElement el && el.ValueKind == JsonValueKind.String
-                ? el.GetString() : raw?.ToString();
-            if (role is "reminder" or "conversation") return role;
-        }
-        return account.Provider == Providers.Baileys ? "conversation" : "reminder";
-    }
+    private static string AccountRole(ChannelAccount account) => AccountRoles.Of(account);
 
     // ======================= settings helpers ================================
 

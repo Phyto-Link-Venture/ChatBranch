@@ -126,7 +126,7 @@ public static class WidgetEndpoints
             if (firstInbound) automation.Run("conversation_created", thread, text, true);
             automation.Run("message_created", thread, text, firstInbound);
             await NotificationService.NotifyInboundMessageAsync(db, thread, text);
-            inbound.MaybeAutoReply(thread);
+            inbound.MaybeAutoReply(thread, text);
 
             return Results.Ok(new { message = WidgetMessage(msg) });
         }).AllowAnonymous().RequireCors("widget");
