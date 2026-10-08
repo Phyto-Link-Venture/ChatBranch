@@ -56,6 +56,40 @@ public class AgentSkill : IEntityScoped
     public string UseWhen { get; set; } = "";
     public string Instructions { get; set; } = "";
     public int Position { get; set; }
+
+    // ---- code skills (2026-10) ----------------------------------------------
+    /// <summary>
+    /// prompt = instructions in the SKILLS block (the original behaviour);
+    /// tool = JavaScript `run(args, ctx)` the model may CALL; check = JavaScript
+    /// `check(reply, ctx)` that validates every AI reply before it is sent.
+    /// See <see cref="SkillKinds"/>.
+    /// </summary>
+    public string Kind { get; set; } = SkillKinds.Prompt;
+    /// <summary>What the operator described, in their own words.</summary>
+    public string Description { get; set; } = "";
+    /// <summary>JavaScript source (tool / check only). Runs in the Jint sandbox.</summary>
+    public string Code { get; set; } = "";
+    /// <summary>JSON schema (text) of a tool's arguments; "" = no arguments.</summary>
+    public string Parameters { get; set; } = "";
+    /// <summary>JSON array (text) of test cases: {name, args|input, expect, now?}.</summary>
+    public string Tests { get; set; } = "";
+    public bool Enabled { get; set; } = true;
+    /// <summary>Channels the skill applies on; empty = every channel.</summary>
+    public List<string> Channels { get; set; } = new();
+    /// <summary>Check skills: what happens when a reply still fails after the
+    /// retries — retry (then hand over) | handover | block.</summary>
+    public string OnFail { get; set; } = "retry";
+    public DateTime? UpdatedAt { get; set; }
+}
+
+/// <summary>Wire values of <see cref="AgentSkill.Kind"/>.</summary>
+public static class SkillKinds
+{
+    public const string Prompt = "prompt";
+    public const string Tool = "tool";
+    public const string Check = "check";
+
+    public static bool IsCode(string? kind) => kind is Tool or Check;
 }
 
 public class KnowledgeItem : IEntityScoped

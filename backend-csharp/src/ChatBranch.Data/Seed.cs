@@ -53,6 +53,16 @@ public static class Seed
         AddTableIfMissing(db, "crm_teammember",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_teammember\" PRIMARY KEY AUTOINCREMENT, "
             + "\"team_id\" INTEGER NOT NULL, \"user_id\" INTEGER NOT NULL, \"created_at\" TEXT NOT NULL");
+        // code skills (tool / reply-check kinds) on crm_agentskill
+        AddColumnIfMissing(db, "crm_agentskill", "kind", "TEXT NOT NULL DEFAULT 'prompt'");
+        AddColumnIfMissing(db, "crm_agentskill", "description", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_agentskill", "code", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_agentskill", "parameters", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_agentskill", "tests", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_agentskill", "enabled", "INTEGER NOT NULL DEFAULT 1");
+        AddColumnIfMissing(db, "crm_agentskill", "channels", "TEXT NOT NULL DEFAULT '[]'");
+        AddColumnIfMissing(db, "crm_agentskill", "on_fail", "TEXT NOT NULL DEFAULT 'retry'");
+        AddColumnIfMissing(db, "crm_agentskill", "updated_at", "TEXT NULL");
     }
 
     /// <summary>
