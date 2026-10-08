@@ -15,7 +15,7 @@ const PROVIDER_LBL: Record<string, string> = {
 export function AccountsTable({ accounts }: { accounts: AccountVolume[] }) {
   if (accounts.length === 0) {
     return (
-      <div className="py-8 text-center text-[12px] text-text-faint">
+      <div className="py-8 text-center text-[12.5px] text-text-muted">
         No messages in this window yet — send something from the inbox to see per-account volume.
       </div>
     )

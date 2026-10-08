@@ -121,6 +121,8 @@ app.MapWidgetAdminEndpoints();
 app.MapHelpCenterEndpoints();
 app.MapReportsEndpoints();
 app.MapBindingsEndpoints();
+app.MapSearchEndpoints();
+app.MapLiveEndpoints();
 app.MapAiMonitorEndpoints();
 
 // Inbound conversations route themselves to a team. The hook lives here so the
