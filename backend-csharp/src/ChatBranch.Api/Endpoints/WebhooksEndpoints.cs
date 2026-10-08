@@ -3,6 +3,7 @@ using ChatBranch.Api.Auth;
 using ChatBranch.Data;
 using ChatBranch.Data.Channels;
 using ChatBranch.Data.Integrations;
+using ChatBranch.Data.Stores;
 using Microsoft.EntityFrameworkCore;
 
 namespace ChatBranch.Api.Endpoints;
@@ -173,15 +174,57 @@ public static class WebhooksEndpoints
             return Results.Ok(new { ok = true });
         }).AllowAnonymous();
 
-        // Media (/media) and call events (/call-event) arrive from the gateway too;
-        // media storage + the LiveKit call bridge are not in this build — ack them
-        // so the gateway never retries into a 404.
+        // Media (/media) arrives from the gateway too; media storage is not in
+        // this build — ack it so the gateway never retries into a 404.
         app.MapPost("/api/whatsapp/baileys/media", (HttpContext ctx, ScopingService sc) =>
             BaileysSecretOk(ctx, sc) ? Results.Ok(new { ok = true, stored = false }) : Results.StatusCode(401))
             .AllowAnonymous();
-        app.MapPost("/api/whatsapp/baileys/call-event", (HttpContext ctx, ScopingService sc) =>
-            BaileysSecretOk(ctx, sc) ? Results.Ok(new { ok = true }) : Results.StatusCode(401))
-            .AllowAnonymous();
+
+        // Call lifecycle for a WhatsApp call the API started (call/start):
+        // ringing → connected → ended, each carrying the LiveKit room. The thread
+        // is found by that room (falling back to the callee's wa_id); an event
+        // for a call nobody tracks is acked and ignored.
+        app.MapPost("/api/whatsapp/baileys/call-event", async (HttpContext ctx, AppDbContext db,
+            ScopingService sc, ThreadStore store) =>
+        {
+            if (!BaileysSecretOk(ctx, sc)) return Results.StatusCode(401);
+            JsonElement body;
+            try { body = await ctx.Request.ReadFromJsonAsync<JsonElement>(); }
+            catch { return Results.Ok(new { ok = true }); }
+            var room = Str(body, "room");
+            var waId = Str(body, "wa_id");
+            var thread = !string.IsNullOrEmpty(room)
+                ? await db.Threads.FirstOrDefaultAsync(t => t.CallRoom == room)
+                : null;
+            thread ??= string.IsNullOrEmpty(waId)
+                ? null
+                : await db.Threads.FirstOrDefaultAsync(t => t.Channel == "whatsapp" && t.Key == waId);
+            if (thread == null) return Results.Ok(new { ok = true });
+
+            var live = thread.CallStatus is "connecting" or "ringing" or "in_call";
+            switch ((Str(body, "event") ?? "").ToLowerInvariant())
+            {
+                case "ringing" when live:
+                    thread.CallStatus = "ringing";
+                    break;
+                case "connected" when live:
+                    thread.CallStatus = "in_call";
+                    break;
+                case "ended" when live:
+                    thread.CallStatus = "ended";
+                    thread.CallId = null;
+                    var reason = Str(body, "reason");
+                    store.AppendMessage(thread, Domain.MessageDirection.Out, Domain.MessageSource.System,
+                        string.IsNullOrEmpty(reason) ? "WhatsApp call ended." : $"WhatsApp call ended ({reason}).",
+                        status: "sent", accountId: thread.AccountId);
+                    break;
+                default:
+                    return Results.Ok(new { ok = true }); // stale or unknown event
+            }
+            thread.UpdatedAt = DateTime.UtcNow; // the /chats stream refreshes on this
+            await db.SaveChangesAsync();
+            return Results.Ok(new { ok = true });
+        }).AllowAnonymous();
     }
 
     // ---- Baileys helpers ---------------------------------------------------

@@ -34,7 +34,7 @@ public class FlowEngine
         _actions = actions;
     }
 
-    private static readonly string[] ClosedStatuses =
+    internal static readonly string[] ClosedStatuses =
         { "closed", "done", "resolved", "cancelled", "completed" };
 
     // ---- graph helpers ------------------------------------------------------
