@@ -141,20 +141,24 @@ public class QueueService
             if (job.Kind == JobKind.AiReply)
             {
                 // generated AT SEND time so several inbound get one coherent answer
-                text = _assistant.GenerateReplyAsync(thread).GetAwaiter().GetResult();
+                var ai = _assistant.GenerateReplyAsync(thread).GetAwaiter().GetResult();
+                text = ai.ShouldSend ? ai.Text : "";
                 if (string.IsNullOrWhiteSpace(text))
                 {
                     job.Status = JobStatus.Cancelled; // guard declined → cancelled, not failed
-                    job.LastError = "ai_reply guard declined";
+                    job.LastError = ai.Action is AiActions.Handover or AiActions.Block
+                        ? $"ai_reply {ai.Action}: {ai.Reason}"
+                        : "ai_reply guard declined";
                     job.UpdatedAt = DateTime.UtcNow;
                     _db.SaveChanges();
                     return;
                 }
             }
 
-            var source = job.Payload.TryGetValue("source", out var s) && s?.ToString() == "system"
+            var src = job.Payload.TryGetValue("source", out var s) ? s?.ToString() : null;
+            var source = src == "system"
                 ? MessageSource.System
-                : (job.Kind == JobKind.AiReply ? MessageSource.Ai : MessageSource.Agent);
+                : (job.Kind == JobKind.AiReply || src == "ai" ? MessageSource.Ai : MessageSource.Agent);
 
             // Real send when the account is configured, sandbox otherwise.
             var msg = _sender.Send(thread, text, source, job.AccountId);

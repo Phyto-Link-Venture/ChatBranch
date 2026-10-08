@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { CheckCircle, FileSpreadsheet, Loader2, Upload } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
+import { Select } from '@/components/ui/Select'
 import { authHeaders } from '@/lib/auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
@@ -193,19 +194,16 @@ export function ContactImportModal({
                     {FIELD_LABELS[f] || f}
                     {REQUIRED.has(f) && <span className="text-red-300"> *</span>}
                   </span>
-                  <select
+                  <Select
                     value={mapping[f] || ''}
-                    aria-label={`Column for ${FIELD_LABELS[f] || f}`}
-                    onChange={(e) => setMapping({ ...mapping, [f]: e.target.value })}
-                    className="flex-1 cursor-pointer rounded-lg border border-line-strong bg-well px-2.5 py-1.5 text-[12px] text-text-primary outline-none"
-                  >
-                    <option value="">— none —</option>
-                    {preview.headers.filter(Boolean).map((h) => (
-                      <option key={h} value={h}>
-                        {h}
-                      </option>
-                    ))}
-                  </select>
+                    ariaLabel={`Column for ${FIELD_LABELS[f] || f}`}
+                    onChange={(v) => setMapping({ ...mapping, [f]: v })}
+                    options={[
+                      { value: '', label: '— none —' },
+                      ...preview.headers.filter(Boolean).map((h) => ({ value: h, label: h })),
+                    ]}
+                    className="min-w-0 flex-1"
+                  />
                 </div>
               ))}
             </div>

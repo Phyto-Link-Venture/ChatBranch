@@ -63,6 +63,8 @@ public class AppDbContext : DbContext
     public DbSet<ConversationSummary> ConversationSummaries => Set<ConversationSummary>();
     // integrations
     public DbSet<Integration> Integrations => Set<Integration>();
+    // crm — per-user saved list views (the inbox's saved filter tabs)
+    public DbSet<SavedView> SavedViews => Set<SavedView>();
     // developer platform: API keys + the operator assistant's pending writes
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<AssistantAction> AssistantActions => Set<AssistantAction>();
@@ -131,6 +133,7 @@ public class AppDbContext : DbContext
         b.Entity<PendingToolAction>().ToTable("crm_pendingtoolaction");
         b.Entity<ConversationSummary>().ToTable("crm_conversationsummary");
         b.Entity<Integration>().ToTable("integrations_integration");
+        b.Entity<SavedView>().ToTable("crm_savedview");
         // Per-user grants: deleting a login must not delete the connection row
         // (an admin can re-own it) — null the owner instead.
         b.Entity<Integration>()
@@ -206,6 +209,7 @@ public class AppDbContext : DbContext
         Json<AutomationRule, List<object?>>(b, x => x.Conditions);
         Json<AutomationRule, List<object?>>(b, x => x.Actions);
         Json<KnowledgeItem, List<string>>(b, x => x.Channels);
+        Json<CannedResponse, List<string>>(b, x => x.Channels);
         Json<FlowRun, Dictionary<string, object?>>(b, x => x.Context);
         Json<FlowRun, List<object?>>(b, x => x.Log);
         Json<OutboundJob, Dictionary<string, object?>>(b, x => x.Payload);
@@ -213,6 +217,7 @@ public class AppDbContext : DbContext
         Json<ConversationSummary, List<object?>>(b, x => x.Facts);
         Json<Integration, Dictionary<string, object?>>(b, x => x.Credentials);
         Json<Integration, Dictionary<string, object?>>(b, x => x.Config);
+        Json<AgentSkill, List<string>>(b, x => x.Channels);
         Json<ApiKey, List<string>>(b, x => x.Scopes);
 
         // ---- snake_case columns to match Django (<field>_id for FKs) -----------

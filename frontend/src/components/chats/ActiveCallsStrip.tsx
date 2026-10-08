@@ -43,8 +43,8 @@ export default function ActiveCallsStrip({
   }
 
   return (
-    <div className="no-scrollbar flex items-center gap-2 overflow-x-auto rounded-lg border border-line bg-card px-2.5 py-2">
-      <span className="flex shrink-0 items-center gap-1.5 pr-1 text-[11px] font-bold uppercase tracking-[0.06em] text-text-muted">
+    <div className="no-scrollbar flex shrink-0 items-center gap-2 overflow-x-auto border-b border-line bg-surface px-3 py-2">
+      <span className="eyebrow flex shrink-0 items-center gap-1.5 pr-1">
         <PhoneCall size={12} aria-hidden /> {active.length} live
       </span>
       {active.map((c) => {
@@ -56,17 +56,11 @@ export default function ActiveCallsStrip({
             onClick={() => openable && onOpenContact(c.contactId as number)}
             disabled={!openable}
             title={openable ? 'Open this chat' : 'Manual call — no linked chat'}
-            className="flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors disabled:cursor-default"
-            style={{
-              background: isActive ? 'rgba(255,90,31,0.12)' : 'var(--fill-subtle)',
-              border: `1px solid ${isActive ? 'rgba(255,90,31,0.35)' : 'var(--line)'}`,
-              cursor: openable ? 'pointer' : 'default',
-            }}
+            className={`flex shrink-0 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors ${
+              isActive ? 'border-line-strong bg-[var(--nav-active-bg)]' : 'border-line bg-card hover:bg-fill'
+            } ${openable ? 'cursor-pointer' : 'cursor-default'}`}
           >
-            <span
-              className="relative grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10px] font-bold text-white"
-              style={{ background: 'linear-gradient(135deg,#1E40AF,rgb(var(--c-brand)))' }}
-            >
+            <span className="relative grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary text-[10px] font-semibold text-on-primary">
               {initials(c.name || 'Contact')}
               <span
                 className="absolute -bottom-px -right-px h-2.5 w-2.5 rounded-full"
@@ -77,7 +71,7 @@ export default function ActiveCallsStrip({
               <span className="block max-w-[120px] truncate text-[12px] font-bold text-text-high">
                 {c.name || c.phone || 'Contact'}
               </span>
-              <span className="block text-[10.5px] font-semibold text-text-mid">
+              <span className="block text-[11px] text-text-muted">
                 {c.status === 'live' ? timer(c.startedAt) : c.statusText}
               </span>
             </span>

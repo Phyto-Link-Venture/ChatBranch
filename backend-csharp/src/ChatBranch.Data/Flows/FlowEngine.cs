@@ -24,14 +24,16 @@ public class FlowEngine
     private readonly ScopingService _scoping;
     private readonly QueueService _queue;
     private readonly Integrations.IntegrationActions? _actions;
+    private readonly Ai.AssistantService? _assistant;
 
     public FlowEngine(AppDbContext db, ScopingService scoping, QueueService queue,
-        Integrations.IntegrationActions? actions = null)
+        Integrations.IntegrationActions? actions = null, Ai.AssistantService? assistant = null)
     {
         _db = db;
         _scoping = scoping;
         _queue = queue;
         _actions = actions;
+        _assistant = assistant;
     }
 
     internal static readonly string[] ClosedStatuses =
@@ -377,6 +379,11 @@ public class FlowEngine
             return false;
         }
 
+        // AI message composition (the ai area's seam): a step naming a skill or
+        // selecting "AI message" has its text written by the assistant.
+        var ai = ComposeMessage(run, nodeId, contact, cfg, ref script, ref channels);
+        var aiSince = DateTime.UtcNow;
+
         foreach (var ch in channels)
         {
             try
@@ -408,8 +415,76 @@ public class FlowEngine
             }
             catch (Exception e) { Log(run, nodeId, $"{ch} failed: {e.Message}"); }
         }
+        if (ai is { Composed: true, ShouldSend: true }) StampAiJobs(run, nodeId, aiSince, ai);
         _db.SaveChanges();
         return true;
+    }
+
+    // ---- AI message composition (owned by the ai area) ----------------------
+
+    private static readonly string[] MessageChannels = { "WhatsApp", "Email", "Telegram" };
+
+    /// <summary>
+    /// Let the assistant write this step's message when the step names a skill
+    /// (config <c>skill</c>: SkillId, or a legacy skill name) or selects
+    /// "AI message"; otherwise the rendered script stands, exactly as before.
+    /// "AI message" on its own sends on the contact's latest conversation
+    /// channel. A draft that fails its reply checks is NOT sent: the message
+    /// channels are dropped for this step and the reason is logged.
+    /// </summary>
+    private Ai.AiReplyResult? ComposeMessage(FlowRun run, string nodeId, Contact? contact, JsonElement cfg,
+        ref string script, ref List<string> channels)
+    {
+        var aiMessage = channels.Contains("AI message");
+        if (aiMessage)
+        {
+            channels = channels.Where(c => c != "AI message").ToList();
+            if (!channels.Any(c => MessageChannels.Contains(c)) && contact != null)
+            {
+                var latest = _db.Threads.AsNoTracking()
+                    .Where(t => t.ContactId == contact.Id
+                                && (t.Channel == "whatsapp" || t.Channel == "email" || t.Channel == "telegram"))
+                    .OrderByDescending(t => t.UpdatedAt).Select(t => t.Channel).FirstOrDefault();
+                var target = latest switch
+                {
+                    "email" => "Email",
+                    "telegram" => "Telegram",
+                    "whatsapp" => "WhatsApp",
+                    _ => !string.IsNullOrEmpty(contact.Phone) ? "WhatsApp"
+                        : !string.IsNullOrEmpty(contact.Email) ? "Email" : null,
+                };
+                if (target != null) channels = channels.Append(target).ToList();
+            }
+        }
+        if (_assistant == null || (!aiMessage && CfgStr(cfg, "skill").Trim() == "")) return null;
+        if (!channels.Any(c => MessageChannels.Contains(c))) return null;
+
+        var result = _assistant.ComposeActionTextAsync(run, contact, cfg, script).GetAwaiter().GetResult();
+        if (!result.Composed)
+        {
+            if (result.Reason.Length > 0) Log(run, nodeId, $"ai message: {result.Reason}");
+            return result;
+        }
+        if (result.ShouldSend)
+        {
+            script = result.Text;
+            var tools = result.Tools.Count > 0 ? $", tools: {string.Join(", ", result.Tools.Select(t => t.Name))}" : "";
+            Log(run, nodeId, $"ai message composed ({result.Checks.Count(c => c.Ok)}/{result.Checks.Count} checks passed{tools})");
+            return result;
+        }
+        channels = channels.Where(c => !MessageChannels.Contains(c)).ToList();
+        Log(run, nodeId, $"ai message held ({result.Action}): {result.Reason}");
+        return result;
+    }
+
+    /// <summary>Mark this step's queued text jobs as AI-written, with the audit
+    /// metadata a review gate shows (skill, tools called, checks run).</summary>
+    private void StampAiJobs(FlowRun run, string nodeId, DateTime since, Ai.AiReplyResult ai)
+    {
+        foreach (var job in _db.OutboundJobs.Where(j => j.FlowRunId == run.Id && j.FlowNode == nodeId
+                     && j.Kind == JobKind.Text && j.CreatedAt >= since).ToList())
+            job.Payload = new Dictionary<string, object?>(job.Payload) { ["source"] = "ai", ["ai_meta"] = ai.ToMeta() };
+        _db.SaveChanges();
     }
 
     private void QueueWhatsApp(FlowRun run, string nodeId, Contact? contact, JsonElement cfg, string script)

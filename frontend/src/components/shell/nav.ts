@@ -34,7 +34,8 @@ export interface NavDef {
   /** Extra path prefixes that also mark this item active (detail routes). */
   alsoActive?: string[]
   /** Capability that unlocks this item — the preferred gate. */
-  cap?: string
+  /** Capability gate; an array means ANY of them. */
+  cap?: string | string[]
   /** Role fallback when the session carries no capability list (an older
    *  cached session, or a backend that predates the matrix). */
   roles?: string[]
@@ -85,7 +86,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Library',
     items: [
-      { href: '/templates', lbl: 'Templates', Icon: FileText, alsoActive: ['/script-templates'], cap: 'templates.manage', roles: ADMINS, keywords: 'canned replies scripts messages' },
+      { href: '/templates', lbl: 'Templates', Icon: FileText, alsoActive: ['/script-templates'], cap: ['templates.manage', 'script_templates.manage'], roles: ADMINS, keywords: 'canned replies scripts messages' },
       { href: '/knowledge', lbl: 'Knowledge base', Icon: BookOpen, cap: 'settings.ai.manage', roles: ADMINS, keywords: 'faq policies facts' },
       { href: '/skills', lbl: 'AI skills', Icon: Sparkles, cap: 'settings.ai.manage', roles: ADMINS, keywords: 'instructions' },
       { href: '/tags', lbl: 'Tags', Icon: Tag, cap: 'tags.view', keywords: 'labels fields' },
@@ -140,9 +141,10 @@ export function canSee(user: AuthUser | null, n: NavDef): boolean {
   if (!n.cap && !n.roles) return true
   const role = user?.role ?? 'agent'
   const caps = user?.capabilities
-  if (Array.isArray(caps) && caps.length > 0 && n.cap) return caps.includes(n.cap)
+  const need = n.cap ? ([] as string[]).concat(n.cap) : []
+  if (Array.isArray(caps) && caps.length > 0 && need.length) return need.some((c) => caps.includes(c))
   if (n.roles) return n.roles.includes(role)
-  return n.cap ? (DEFAULT_ROLE_CAPS[role] ?? []).includes(n.cap) : true
+  return need.length ? need.some((c) => (DEFAULT_ROLE_CAPS[role] ?? []).includes(c)) : true
 }
 
 export function isActive(pathname: string, n: NavDef): boolean {

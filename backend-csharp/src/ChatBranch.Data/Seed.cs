@@ -56,6 +56,22 @@ public static class Seed
         AddColumnIfMissing(db, "crm_notification", "category", "TEXT NOT NULL DEFAULT ''");
         AddColumnIfMissing(db, "crm_notification", "ref_key", "TEXT NOT NULL DEFAULT ''");
         AddColumnIfMissing(db, "crm_profile", "preferences", "TEXT NULL");
+        AddTableIfMissing(db, "crm_savedview",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_savedview\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"user_id\" INTEGER NOT NULL, \"scope\" TEXT NOT NULL, \"name\" TEXT NOT NULL, "
+            + "\"filters\" TEXT NOT NULL, \"position\" INTEGER NOT NULL, \"created_at\" TEXT NOT NULL");
+        AddColumnIfMissing(db, "crm_cannedresponse", "channels", "TEXT NOT NULL DEFAULT '[]'");
+        AddColumnIfMissing(db, "crm_cannedresponse", "updated_at", "TEXT NULL");
+        // code skills (tool / reply-check kinds) on crm_agentskill
+        AddColumnIfMissing(db, "crm_agentskill", "kind", "TEXT NOT NULL DEFAULT 'prompt'");
+        AddColumnIfMissing(db, "crm_agentskill", "description", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_agentskill", "code", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_agentskill", "parameters", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_agentskill", "tests", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_agentskill", "enabled", "INTEGER NOT NULL DEFAULT 1");
+        AddColumnIfMissing(db, "crm_agentskill", "channels", "TEXT NOT NULL DEFAULT '[]'");
+        AddColumnIfMissing(db, "crm_agentskill", "on_fail", "TEXT NOT NULL DEFAULT 'retry'");
+        AddColumnIfMissing(db, "crm_agentskill", "updated_at", "TEXT NULL");
         // activity log provenance (platform)
         AddColumnIfMissing(db, "crm_auditlog", "source", "TEXT NOT NULL DEFAULT ''");
         AddColumnIfMissing(db, "crm_auditlog", "entity_id", "INTEGER NULL");
