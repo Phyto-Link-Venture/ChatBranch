@@ -197,6 +197,7 @@ public class AppDbContext : DbContext
         Json<AutomationRule, List<object?>>(b, x => x.Conditions);
         Json<AutomationRule, List<object?>>(b, x => x.Actions);
         Json<KnowledgeItem, List<string>>(b, x => x.Channels);
+        Json<CannedResponse, List<string>>(b, x => x.Channels);
         Json<FlowRun, Dictionary<string, object?>>(b, x => x.Context);
         Json<FlowRun, List<object?>>(b, x => x.Log);
         Json<OutboundJob, Dictionary<string, object?>>(b, x => x.Payload);

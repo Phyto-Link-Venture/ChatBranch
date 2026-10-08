@@ -60,6 +60,8 @@ public static class Seed
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_savedview\" PRIMARY KEY AUTOINCREMENT, "
             + "\"user_id\" INTEGER NOT NULL, \"scope\" TEXT NOT NULL, \"name\" TEXT NOT NULL, "
             + "\"filters\" TEXT NOT NULL, \"position\" INTEGER NOT NULL, \"created_at\" TEXT NOT NULL");
+        AddColumnIfMissing(db, "crm_cannedresponse", "channels", "TEXT NOT NULL DEFAULT '[]'");
+        AddColumnIfMissing(db, "crm_cannedresponse", "updated_at", "TEXT NULL");
     }
 
     /// <summary>

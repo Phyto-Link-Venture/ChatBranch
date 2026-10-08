@@ -11,8 +11,17 @@ public class CannedResponse : IEntityScoped
     public Entity? Entity { get; set; }
     public string ShortCode { get; set; } = "";
     public string Content { get; set; } = "";
+    /// <summary>
+    /// Channels this quick reply is offered on (thread channel ids: whatsapp,
+    /// telegram, email, facebook = Messenger, instagram, website). EMPTY = every
+    /// channel — the default, so templates written before the column existed
+    /// stay shared.
+    /// </summary>
+    public List<string> Channels { get; set; } = new();
     public string CreatedBy { get; set; } = "";
     public DateTime CreatedAt { get; set; }
+    /// <summary>Last edit (null on rows written before the column existed).</summary>
+    public DateTime? UpdatedAt { get; set; }
 }
 
 public class ScriptTemplate : IEntityScoped
