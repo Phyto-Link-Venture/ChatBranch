@@ -119,7 +119,7 @@ app.MapAdminEndpoints();
 app.MapWhatsAppSettingsEndpoints();
 app.MapVoiceMessagingEndpoints();
 app.MapMcpEndpoints();
-app.MapResourcesEndpoints();
+app.MapTagsEndpoints();
 app.MapPronunciationEndpoints();
 app.MapWhatsAppThreadsEndpoints();
 app.MapMessagingEndpoints();

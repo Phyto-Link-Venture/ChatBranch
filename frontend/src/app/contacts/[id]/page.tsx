@@ -14,7 +14,7 @@ import { Select } from '@/components/ui/Select'
 import { ChannelLogo, channelLabel } from '@/components/ui/ChannelLogo'
 import ChannelHub from '@/components/ChannelHub'
 import ContactEntitiesCard from '@/components/ContactEntitiesCard'
-import ContactProvidersCard from '@/components/ContactProvidersCard'
+import ContactTagsCard from '@/components/contacts/ContactTagsCard'
 import { fetchCustomFields, formatFieldValue, type FieldDef } from '@/lib/customFields'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
@@ -308,9 +308,8 @@ export default function ContactDetailPage() {
           {/* Per-entity membership — link/unlink without deleting the profile */}
           <ContactEntitiesCard contactId={d.id} />
 
-          {/* Which providers (teacher / supplier…) this contact is bound to —
-              the contact ↔ provider binding seen from the contact's side. */}
-          <ContactProvidersCard contactId={d.id} />
+          {/* Registry tags (boss / employee / driver…) with their attribute values */}
+          <ContactTagsCard contactId={d.id} />
         </div>
 
         {/* main column — the real communications timeline */}

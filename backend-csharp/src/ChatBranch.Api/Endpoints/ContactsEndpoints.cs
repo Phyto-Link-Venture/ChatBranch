@@ -6,6 +6,7 @@ using ChatBranch.Api.Auth;
 using ChatBranch.Data;
 using ChatBranch.Data.Flows;
 using ChatBranch.Data.Stores;
+using ChatBranch.Data.Tags;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 using Thread = ChatBranch.Domain.Thread;
@@ -51,7 +52,7 @@ public static class ContactsEndpoints
     public static void MapContactsEndpoints(this IEndpointRouteBuilder app)
     {
         // ---- contact list / detail --------------------------------------------
-        app.MapGet("/api/contacts", async (string? q, int? limit, string? entity,
+        app.MapGet("/api/contacts", async (string? q, int? limit, string? entity, string? tag,
             AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var query = ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc);
@@ -66,6 +67,13 @@ public static class ContactsEndpoints
             }
             if (!string.IsNullOrWhiteSpace(q))
                 query = query.Where(c => c.Name.Contains(q) || c.Phone.Contains(q) || c.Email.Contains(q));
+            if (!string.IsNullOrWhiteSpace(tag))
+            {
+                // ?tag=<slug> — contacts carrying that registry tag
+                var tagSlug = tag.Trim().ToLowerInvariant();
+                query = query.Where(c => db.TagAssignments.Any(a => a.TargetType == TagService.ContactTarget
+                                                                  && a.TargetId == c.Id && a.Tag!.Slug == tagSlug));
+            }
 
             var rows = await query.OrderByDescending(c => c.UpdatedAt).Take(limit ?? 200).ToListAsync();
             return Results.Ok(new { contacts = await ContactItemsAsync(db, rows) });
@@ -88,6 +96,8 @@ public static class ContactsEndpoints
             };
             db.Contacts.Add(row);
             await db.SaveChangesAsync();
+            // tag names → registry tags (Contact.Tags is the registry's cache)
+            if (row.Tags.Count > 0) TagService.ApplyContactNames(db, row.Id, row.Tags, me.Identity?.Name ?? "");
             return Results.Ok((await ContactItemsAsync(db, new List<Contact> { row })).First());
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
@@ -117,6 +127,7 @@ public static class ContactsEndpoints
             }
             c.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
+            if (b.Tags != null) TagService.ApplyContactNames(db, c.Id, b.Tags, me.Identity?.Name ?? "");
             return Results.Ok((await ContactItemsAsync(db, new List<Contact> { c })).First());
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
@@ -792,6 +803,10 @@ public static class ContactsEndpoints
                     await db.SaveChangesAsync();
                     created++;
                 }
+                // registry write-through: the CSV's tag names become registry tags
+                if (tags.Count > 0)
+                    try { TagService.ApplyContactNames(db, written.Id, tags, "import"); }
+                    catch { /* tagging never fails an imported row */ }
             }
             catch (Exception e)
             {
@@ -924,10 +939,6 @@ public static class ContactsEndpoints
     internal static IQueryable<Contact> ScopeContacts(IQueryable<Contact> qs, ClaimsPrincipal me,
         AppDbContext db, ScopingService? sc = null)
     {
-        // Provider login ("their own world"): only the customers bound to them.
-        // Applied FIRST and unconditionally — a provider who is also superadmin
-        // is still a provider here.
-        qs = ProviderScope.Contacts(qs, me, db);
         var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
         if (role == Roles.SuperAdmin) return qs;
         if (TenantId(me) is not int tid) return qs;

@@ -1,16 +1,17 @@
 /**
- * Custom Fields — the per-vertical label schema for Service Providers and
- * Customers (Settings → Custom Fields). Definitions come from
- * GET /api/settings/custom-fields; VALUES are stored in each row's free-form
- * `attributes` JSON (Resource.attributes / Contact.attributes), which the AI
- * already reads — so a "Language: Malay" label on a teacher reaches the bot.
+ * Custom Fields — the per-vertical label schema for Customers (Settings →
+ * Custom Fields). Definitions come from GET /api/settings/custom-fields;
+ * VALUES are stored in each contact's free-form `attributes` JSON, which the
+ * AI already reads — so a "Grade: 5" label on a customer reaches the bot.
+ * (Fields that depend on a relationship — a driver's licence number — ride on
+ * registry tags instead: lib/tags.ts.)
  */
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export type FieldKind = 'text' | 'select' | 'multiselect' | 'number' | 'boolean'
-export type FieldTarget = 'provider' | 'customer'
+export type FieldTarget = 'customer'
 
 export interface FieldDef {
   key: string
@@ -22,7 +23,6 @@ export interface FieldDef {
 }
 
 export interface CustomFieldsSchema {
-  provider: FieldDef[]
   customer: FieldDef[]
   kinds: FieldKind[]
   targets: FieldTarget[]
@@ -37,10 +37,9 @@ export const KIND_LABELS: Record<FieldKind, string> = {
 }
 
 export const EMPTY_SCHEMA: CustomFieldsSchema = {
-  provider: [],
   customer: [],
   kinds: ['text', 'select', 'multiselect', 'number', 'boolean'],
-  targets: ['provider', 'customer'],
+  targets: ['customer'],
 }
 
 export async function fetchCustomFields(): Promise<CustomFieldsSchema> {
@@ -49,15 +48,17 @@ export async function fetchCustomFields(): Promise<CustomFieldsSchema> {
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   const d = (await res.json()) as Partial<CustomFieldsSchema>
   return {
-    provider: Array.isArray(d.provider) ? d.provider : [],
     customer: Array.isArray(d.customer) ? d.customer : [],
     kinds: Array.isArray(d.kinds) ? (d.kinds as FieldKind[]) : EMPTY_SCHEMA.kinds,
-    targets: Array.isArray(d.targets) ? (d.targets as FieldTarget[]) : EMPTY_SCHEMA.targets,
+    // only targets this client knows how to render
+    targets: (Array.isArray(d.targets) ? (d.targets as string[]) : EMPTY_SCHEMA.targets).filter(
+      (t): t is FieldTarget => t === 'customer',
+    ),
   }
 }
 
 export async function saveCustomFields(
-  patch: Partial<Pick<CustomFieldsSchema, 'provider' | 'customer'>>,
+  patch: Partial<Pick<CustomFieldsSchema, 'customer'>>,
 ): Promise<CustomFieldsSchema> {
   const res = await fetch(`${API}/settings/custom-fields`, {
     method: 'PUT',

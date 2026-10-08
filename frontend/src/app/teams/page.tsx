@@ -8,6 +8,7 @@ export default function TeamsPage() {
   return (
     <AreaPage
       title="Teams"
+      eyebrow="Admin"
       subtitle="Who owns a conversation, and who it rotates to"
       Icon={Users}
     >

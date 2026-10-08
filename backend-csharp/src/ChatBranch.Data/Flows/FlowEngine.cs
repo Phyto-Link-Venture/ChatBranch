@@ -148,51 +148,40 @@ public class FlowEngine
 
     /// <summary>
     /// Operator-defined Custom Fields (Settings → Custom Fields) as template
-    /// variables. Customer fields become <c>{{cf_&lt;key&gt;}}</c>, and the fields of
-    /// the service provider bound to this contact become
-    /// <c>{{provider_&lt;key&gt;}}</c>. The prefixes are deliberate: a field labelled
-    /// "Company" or "Email" would otherwise silently shadow a built-in.
-    /// A field with no value renders as an empty string (never the literal
-    /// placeholder), so a template never leaks "{{cf_grade}}" to a customer.
+    /// variables: customer fields become <c>{{cf_&lt;key&gt;}}</c>, and the
+    /// attributes of the contact's registry tags become
+    /// <c>{{tag_&lt;tagslug&gt;_&lt;key&gt;}}</c> (TagService.MergeVariables). The
+    /// prefixes are deliberate: a field labelled "Company" or "Email" would
+    /// otherwise silently shadow a built-in. A field with no value renders as
+    /// an empty string (never the literal placeholder), so a template never
+    /// leaks "{{cf_grade}}" to a customer.
     /// </summary>
     private void MergeCustomFields(Dictionary<string, string> vars, Contact contact)
     {
         try
         {
-            var schema = CustomFieldSchema();
-            foreach (var (key, kind) in schema.customer)
+            foreach (var (key, kind) in CustomFieldSchema())
                 vars[$"cf_{key}"] = FormatAttribute(contact.Attributes, key, kind);
-
-            if (schema.provider.Count == 0) return;
-            // the provider this contact is bound to (contact ↔ service provider)
-            var resource = _db.ResourceLinks.AsNoTracking()
-                .Where(l => l.ContactId == contact.Id && l.Active)
-                .OrderBy(l => l.Id)
-                .Select(l => l.Resource)
-                .FirstOrDefault();
-            foreach (var (key, kind) in schema.provider)
-                vars[$"provider_{key}"] = resource == null
-                    ? "" : FormatAttribute(resource.Attributes, key, kind);
         }
         catch
         {
             // custom fields are a nicety — a malformed schema must never break a send
         }
+        Tags.TagService.MergeVariables(_db, vars, contact);
     }
 
     /// <summary>A string out of a Record.Data JSON bag ("" when absent).</summary>
     private static string DataString(Dictionary<string, object?> data, string key) =>
         FormatAttribute(data, key, "text");
 
-    /// <summary>The custom-field schema as (key, kind) pairs per target, read
+    /// <summary>The customer custom-field schema as (key, kind) pairs, read
     /// straight from the `custom_fields` Setting row (the API layer owns the
     /// write side; this only needs the shape).</summary>
-    private (List<(string key, string kind)> customer, List<(string key, string kind)> provider) CustomFieldSchema()
+    private List<(string key, string kind)> CustomFieldSchema()
     {
         var customer = new List<(string, string)>();
-        var provider = new List<(string, string)>();
         var raw = _scoping.SettingValue("custom_fields");
-        if (string.IsNullOrWhiteSpace(raw)) return (customer, provider);
+        if (string.IsNullOrWhiteSpace(raw)) return customer;
         using var doc = JsonDocument.Parse(raw);
         void Read(string target, List<(string, string)> into)
         {
@@ -207,8 +196,7 @@ public class FlowEngine
             }
         }
         Read("customer", customer);
-        Read("provider", provider);
-        return (customer, provider);
+        return customer;
     }
 
     /// <summary>Render one stored attribute the way the dashboard shows it

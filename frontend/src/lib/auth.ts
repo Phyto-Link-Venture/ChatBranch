@@ -25,9 +25,6 @@ export interface AuthUser {
   /** Fine-grained permissions for the current role (dynamic RBAC). Optional so
    *  older cached sessions still parse — absence triggers the role fallback. */
   capabilities?: string[]
-  /** Provider login: this user IS a Service Provider (teacher / supplier) and
-   *  sees only their own customers/chats. Null/undefined = operator login. */
-  resource_id?: number | null
 }
 
 /**
@@ -115,6 +112,8 @@ export function getAuth(): AuthUser | null {
     if (!raw) return null
     const u = JSON.parse(raw) as AuthUser
     if ((u.role as string) === 'collector') u.role = 'agent' // pre-revert cached session
+    // a session cached while Service Providers existed may still carry one
+    delete (u as { resource_id?: unknown }).resource_id
     return u.token ? u : null
   } catch {
     return null
@@ -189,24 +188,18 @@ export function expireSessionOn401(res: Response): boolean {
  * Never throws — a backend that predates the matrix just leaves capabilities
  * undefined and the role fallback takes over.
  */
-async function fetchIdentity(
-  token: string,
-): Promise<{ capabilities?: string[]; resource_id?: number | null }> {
+async function fetchIdentity(token: string): Promise<{ capabilities?: string[] }> {
   for (const path of ['auth/whoami', 'v1/whoami']) {
     try {
       const res = await fetch(`${API}/${path}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok) continue
-      const data = (await res.json().catch(() => ({}))) as {
-        capabilities?: unknown
-        resource_id?: unknown
-      }
+      const data = (await res.json().catch(() => ({}))) as { capabilities?: unknown }
       const caps = Array.isArray(data.capabilities)
         ? data.capabilities.filter((c): c is string => typeof c === 'string')
         : undefined
-      const rid = typeof data.resource_id === 'number' ? data.resource_id : null
-      if (caps) return { capabilities: caps, resource_id: rid }
+      if (caps) return { capabilities: caps }
     } catch {
       /* try the next endpoint */
     }
@@ -231,7 +224,6 @@ export async function login(username: string, password: string): Promise<AuthUse
     undefined
   const ident = await fetchIdentity(user.token)
   user.capabilities = inline || ident.capabilities
-  user.resource_id = ident.resource_id ?? null
   setAuth(user)
   return user
 }

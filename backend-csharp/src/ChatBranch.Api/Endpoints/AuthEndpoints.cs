@@ -103,9 +103,6 @@ public static class AuthEndpoints
                 capabilities = (await AdminEndpoints.CapabilitiesForAsync(db, role))
                     .Where(c => ApiKeyAuth.Scopes(me) is not { } s || s.Contains(c)).ToList(),
                 auth_source = ApiKeyAuth.IsApiKey(me) ? "api" : "session",
-                // Provider login (this user IS a Service Provider) — the UI trims
-                // to "their own world" when set.
-                resource_id = ProviderScope.ResourceId(me),
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
     }

@@ -28,13 +28,6 @@ public class Profile
     public int? TenantId { get; set; }
     public Tenant? Tenant { get; set; }
 
-    // Provider login: when set, this user IS that Service Provider (teacher /
-    // supplier) — every data query is scoped to the provider's own world (the
-    // customers bound to them via ResourceLink, their conversations, their
-    // bookings). Null = a normal operator login. Nullable FK to crm.Resource.
-    public int? ResourceId { get; set; }
-    public Resource? Resource { get; set; }
-
     // Customer login: when set, this user IS that Contact — a registered
     // customer who signs in to use the integrations bound to their own record
     // (their calendar, their documents), rather than an operator seat.

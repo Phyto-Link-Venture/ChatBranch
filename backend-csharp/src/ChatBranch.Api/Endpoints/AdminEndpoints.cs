@@ -427,7 +427,6 @@ public static class AdminEndpoints
             var q = db.Users.AsNoTracking()
                 .Include(u => u.Profile!).ThenInclude(p => p.Tenant)
                 .Include(u => u.Profile!).ThenInclude(p => p.Entities)
-                .Include(u => u.Profile!).ThenInclude(p => p.Resource)
                 .Include(u => u.Profile!).ThenInclude(p => p.Contact)
                 .AsQueryable();
             if (role == Roles.Admin)
@@ -456,14 +455,10 @@ public static class AdminEndpoints
         tenant = u.Profile?.Tenant?.Slug,
         entities = (u.Profile?.Entities ?? new List<Entity>())
             .Select(e => new { id = e.Id, name = e.Name, slug = e.Slug }),
-        // Provider login: this user IS this Service Provider (scoped to their
-        // own customers/chats). Null for operator logins.
-        resource_id = u.Profile?.ResourceId,
         // Customer login: the Contact this user signs in as (integrations are
         // connected per registered user, against their own contact record).
         contact_id = u.Profile?.ContactId,
         contact_name = u.Profile?.Contact?.Name,
-        resource_name = u.Profile?.Resource?.Name,
     };
 
     /// A Django superuser with no Profile row still counts as superadmin.

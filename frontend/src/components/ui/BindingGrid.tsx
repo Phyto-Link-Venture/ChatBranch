@@ -39,10 +39,15 @@ export interface BindingGroup {
   label: string
   sub?: string
   badge?: string
+  /** Optional leading mark (e.g. a channel logo). */
+  icon?: ReactNode
   items: BindingItem[]
 }
 
 type Status = 'none' | 'partial' | 'full'
+
+/** entity → entities, member → members */
+const plural = (w: string) => (/[^aeiou]y$/.test(w) ? `${w.slice(0, -1)}ies` : `${w}s`)
 
 const PILL: Record<Status, string> = {
   none: 'border border-line-strong text-text-mid',
@@ -206,6 +211,7 @@ function GroupCard({
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
+            {group.icon}
             {group.badge && (
               <span className="shrink-0 rounded bg-primary px-1 py-px text-[9.5px] font-bold uppercase tracking-[0.06em] text-on-primary">
                 {group.badge}
@@ -214,7 +220,7 @@ function GroupCard({
             <span className="truncate text-[14px] font-bold text-text-heading">{group.label}</span>
           </div>
           <div className="mt-0.5 truncate text-[12px] text-text-muted">
-            {group.sub ?? `${sum.n} ${itemNoun}${sum.n === 1 ? '' : 's'}`}
+            {group.sub ?? `${sum.n} ${sum.n === 1 ? itemNoun : plural(itemNoun)}`}
           </div>
         </div>
         <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11.5px] font-semibold ${PILL[sum.status]}`}>{sum.label}</span>
@@ -290,8 +296,8 @@ function ManageModal({
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={`Search ${itemNoun}s…`}
-              aria-label={`Search ${itemNoun}s`}
+              placeholder={`Search ${plural(itemNoun)}…`}
+              aria-label={`Search ${plural(itemNoun)}`}
               className="min-w-0 flex-1 bg-transparent text-[13px] text-text-primary outline-none"
             />
           </label>

@@ -412,8 +412,6 @@ public static class MessagingEndpoints
             var entityId = await InboxEndpoints.EntityId(db, entity);
             IQueryable<Thread> q = db.Threads.AsNoTracking().Include(t => t.Contact)
                 .Where(t => t.Channel != Channels.WhatsApp);
-            // Provider login: only conversations with THEIR bound customers.
-            q = ProviderScope.Threads(q, me, db);
             var rows = await sc.ScopeOwned(q, entityId, includeUnassigned: true).ToListAsync();
 
             var ids = rows.Select(t => t.Id).ToList();
