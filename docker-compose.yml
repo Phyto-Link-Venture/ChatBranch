@@ -1,8 +1,10 @@
-# ChatBranch — the three long-lived processes.
+# ChatBranch — the long-lived processes.
 #
-# The voice agent worker is deliberately NOT here: it needs LiveKit + SIP
-# credentials and shares file state with the API, so it runs alongside (see
-# README). Everything below boots with zero credentials in sandbox mode.
+# `docker compose up` boots the API and the dashboard with zero credentials in
+# sandbox mode. Optional profiles add the WhatsApp Web gateway (`whatsapp`) and
+# the LiveKit voice-agent worker for AI calls (`voice`: LiveKit + provider keys
+# in backend/.env for the worker, and LIVEKIT_* / SIP_OUTBOUND_TRUNK_ID exported
+# or in the repo-root .env for the API to dial).
 services:
   api:
     build:
@@ -14,9 +16,18 @@ services:
       - Cors__Origins__0=http://localhost:3000
       # Where the OAuth callback bounces the operator back to.
       - FRONTEND_URL=http://localhost:3000
+      # AI calls (optional): the LiveKit control plane the API dials through —
+      # taken from your shell or the repo-root .env compose reads; unset keeps
+      # dialing a clean 503.
+      - LIVEKIT_URL=${LIVEKIT_URL:-}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-}
+      - SIP_OUTBOUND_TRUNK_ID=${SIP_OUTBOUND_TRUNK_ID:-}
+      - AGENT_NAME=${AGENT_NAME:-chatbranch-agent}
     volumes:
       # SQLite is a FILE — without this volume every redeploy starts from an
-      # empty database and re-seeds the demo users.
+      # empty database and re-seeds the demo users. It is also the data dir the
+      # voice agent shares (live transcripts, operator inbox, calls.json).
       - chatbranch-data:/data
     restart: unless-stopped
 
@@ -47,6 +58,23 @@ services:
       - api
     restart: unless-stopped
     profiles: ["whatsapp"]
+
+  # Optional: the LiveKit voice-agent worker that runs every AI call. It reaches
+  # LiveKit, not the API: the two share files on the data volume.
+  agent:
+    build:
+      context: ./backend/voice_agent
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      - CHATBRANCH_DATA_DIR=/data
+      # same name the API dispatches (above)
+      - AGENT_NAME=${AGENT_NAME:-chatbranch-agent}
+    volumes:
+      - chatbranch-data:/data
+    restart: unless-stopped
+    profiles: ["voice"]
 
 volumes:
   chatbranch-data:
