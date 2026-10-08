@@ -62,6 +62,9 @@ public class AppDbContext : DbContext
     public DbSet<LlmUsage> LlmUsage => Set<LlmUsage>();
     public DbSet<PendingToolAction> PendingToolActions => Set<PendingToolAction>();
     public DbSet<ConversationSummary> ConversationSummaries => Set<ConversationSummary>();
+    // crm — ai ops (monitor + follow-ups)
+    public DbSet<AiDraft> AiDrafts => Set<AiDraft>();
+    public DbSet<AiConversationState> AiConversationStates => Set<AiConversationState>();
     // integrations
     public DbSet<Integration> Integrations => Set<Integration>();
     // crm — per-user saved list views (the inbox's saved filter tabs)
@@ -138,6 +141,11 @@ public class AppDbContext : DbContext
         b.Entity<LlmUsage>().ToTable("crm_llmusage");
         b.Entity<PendingToolAction>().ToTable("crm_pendingtoolaction");
         b.Entity<ConversationSummary>().ToTable("crm_conversationsummary");
+        b.Entity<AiDraft>().ToTable("crm_aidraft");
+        b.Entity<AiDraft>().HasIndex(d => new { d.Status, d.CreatedAt });
+        b.Entity<AiDraft>().HasIndex(d => d.ThreadId);
+        b.Entity<AiConversationState>().ToTable("crm_aiconversationstate");
+        b.Entity<AiConversationState>().HasIndex(s => s.ThreadId).IsUnique();
         b.Entity<Integration>().ToTable("integrations_integration");
         b.Entity<SavedView>().ToTable("crm_savedview");
         // Per-user grants: deleting a login must not delete the connection row
@@ -225,6 +233,7 @@ public class AppDbContext : DbContext
         Json<Integration, Dictionary<string, object?>>(b, x => x.Config);
         Json<AgentSkill, List<string>>(b, x => x.Channels);
         Json<ApiKey, List<string>>(b, x => x.Scopes);
+        Json<AiDraft, Dictionary<string, object?>>(b, x => x.Context);
 
         // ---- snake_case columns to match Django (<field>_id for FKs) -----------
         // Django names every column snake_case; matching it is what lets this

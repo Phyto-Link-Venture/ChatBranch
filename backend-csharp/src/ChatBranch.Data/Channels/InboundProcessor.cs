@@ -23,10 +23,11 @@ public class InboundProcessor
     private readonly QueueService _queue;
     private readonly ScopingService _scoping;
     private readonly AutomationService _automation;
+    private readonly AiResponder _responder;
 
     public InboundProcessor(AppDbContext db, ThreadStore threads, AssistantService assistant,
         OutboundSender sender, FlowEngine engine, QueueService queue, ScopingService scoping,
-        AutomationService automation)
+        AutomationService automation, AiResponder? responder = null)
     {
         _db = db;
         _threads = threads;
@@ -36,6 +37,8 @@ public class InboundProcessor
         _queue = queue;
         _scoping = scoping;
         _automation = automation;
+        _responder = responder ?? new AiResponder(db, scoping, new AiComposer(db, assistant),
+            new AiGate(db, scoping, threads, sender));
     }
 
     public Message ProcessInbound(string channel, string key, string text, string? name = null,
@@ -77,11 +80,27 @@ public class InboundProcessor
         // page the people who own this conversation (assignee → team → admins)
         NotificationService.NotifyInboundMessage(_db, thread, text);
 
+        // a reply still waiting in the AI monitor is stale now — expire it so the
+        // next reply covers everything the customer said
+        _responder.OnCustomerMessage(thread);
+
         // coverage gate: AI auto-reply only for threads linked to a contact + AI on
         if (thread.ContactId != null && thread.AiEnabled && !thread.OptedOut)
             TryAiReply(thread);
 
         return msg;
+    }
+
+    /// <summary>
+    /// The sandbox <c>/simulate</c> path: the same post-inbound AI step as a real
+    /// webhook (stale drafts expire, coverage-gated auto-reply) — a sandbox that
+    /// behaves differently from production hides bugs.
+    /// </summary>
+    public void AfterSimulatedInbound(Thread thread)
+    {
+        _responder.OnCustomerMessage(thread);
+        if (thread.ContactId != null && thread.AiEnabled && !thread.OptedOut)
+            TryAiReply(thread);
     }
 
     /// <summary>
@@ -104,6 +123,7 @@ public class InboundProcessor
     /// </summary>
     public void MaybeAutoReply(Thread thread)
     {
+        _responder.OnCustomerMessage(thread);
         if (!thread.AiEnabled || thread.OptedOut) return;
         TryAiReply(thread);
     }
@@ -113,27 +133,22 @@ public class InboundProcessor
         try
         {
             var mode = _scoping.SettingValue("ai_reply_mode", thread.EntityId);
-            // Sandbox stays instant (flows/queue.py's rule): with no configured
-            // account there is nothing to pace, and a demo that answers 30s later
-            // just looks broken.
-            if (mode != "instant" && _sender.WouldSendLive(thread))
+            var behaviour = AiBehaviourSettings.Resolve(_scoping, thread.EntityId, thread.Account);
+            // "Wait for the customer to finish" (any channel, when enabled) and the
+            // queued routing rule on live accounts share ONE debounced ai_reply job
+            // per thread: each inbound pushes its not_before out, and the reply is
+            // written at send time so a burst of messages gets one answer. With no
+            // wait configured a sandbox still answers instantly (flows/queue.py's
+            // rule: nothing to pace, and a demo that answers late looks broken).
+            if (behaviour.WaitSeconds > 0 || (mode != "instant" && _sender.WouldSendLive(thread)))
             {
-                var pending = _db.OutboundJobs.Any(j => j.Kind == JobKind.AiReply
-                    && j.Status == JobStatus.Queued
-                    && j.Channel == thread.Channel && j.ToAddress == thread.Key);
-                if (!pending)
-                    _queue.Enqueue(thread.Channel, JobKind.AiReply, thread.Key,
-                        new Dictionary<string, object?>(), thread.ContactId, thread.AccountId);
+                _responder.ScheduleReply(thread, behaviour.WaitSeconds, behaviour.WaitMaxSeconds);
                 return;
             }
-            // a held reply (checks failed → handover/block) comes back with no text
-            var reply = _assistant.GenerateReplyAsync(thread).GetAwaiter().GetResult();
-            if (reply.ShouldSend)
-            {
-                _sender.Send(thread, reply.Text, MessageSource.Ai, thread.AccountId);
-                ChatBranch.Data.Audit.AuditTrail.Write(_db, "ai.reply", $"{thread.Channel}:{thread.Key}",
-                    reply.Text, actor: "ai", source: AuditSources.System, entityId: thread.EntityId);
-            }
+            // instant: through the AI monitor (review policy, acknowledgement skip,
+            // human-like delivery) like every other AI message — the gate, not the
+            // assistant, decides what a failed check or a handover request means
+            _responder.RespondAsync(thread).GetAwaiter().GetResult();
         }
         catch { /* AI failure never breaks the webhook path */ }
     }

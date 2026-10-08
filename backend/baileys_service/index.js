@@ -456,6 +456,19 @@ async function sendText(id, to, text, rawJid = null) {
   return result?.key?.id || ''
 }
 
+/** Presence for a chat — the backend shows "typing…" while the AI composes a
+ *  reply (state: composing | paused | available). Best-effort by design. */
+async function sendPresence(id, to, state) {
+  const a = accounts.get(id)
+  if (!a || a.state !== 'connected') throw new Error(`account ${id} is not connected (state: ${a?.state || 'stopped'})`)
+  const d = digits(to)
+  const jid = lidHints.get(d) || `${d}@s.whatsapp.net`
+  const kind = ['composing', 'paused', 'available'].includes(state) ? state : 'composing'
+  try { await a.sock.presenceSubscribe(jid) } catch { /* optional */ }
+  await a.sock.sendPresenceUpdate(kind, jid)
+  return { ok: true, state: kind }
+}
+
 async function logout(id) {
   const a = accounts.get(id)
   try {
@@ -531,7 +544,7 @@ const readBody = (req) =>
 http
   .createServer(async (req, res) => {
     if (req.headers['x-baileys-secret'] !== SECRET) return json(res, 403, { detail: 'bad secret' })
-    const m = req.url.match(/^\/accounts\/([\w-]+)\/(status|start|send|logout|check|call|call-end|call-status)$/)
+    const m = req.url.match(/^\/accounts\/([\w-]+)\/(status|start|send|presence|logout|check|call|call-end|call-status)$/)
     if (!m) return json(res, 404, { detail: 'not found' })
     const [, id, action] = m
     try {
@@ -554,6 +567,11 @@ http
         const { to, text, raw_jid } = await readBody(req)
         if (!to || !text) return json(res, 400, { detail: 'to and text are required' })
         return json(res, 200, { id: await sendText(id, to, text, raw_jid || null) })
+      }
+      if (action === 'presence') {
+        const { to, state } = await readBody(req)
+        if (!to) return json(res, 400, { detail: 'to is required' })
+        return json(res, 200, await sendPresence(id, to, state))
       }
       if (action === 'check') {
         const { to } = await readBody(req)

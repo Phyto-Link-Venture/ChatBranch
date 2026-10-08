@@ -43,6 +43,14 @@ public class ScopingService
         "recovery_mode", "recovery_template",
         "cold_text_guard", "cold_call_guard",
         "support_contact", "flow_call_voice", "email_subject",
+        // AI monitor + human-like behaviour (Ai/AiBehaviourSettings.cs)
+        "ai_review_mode", "ai_review_autosend_minutes", "ai_review_first_n",
+        "ai_review_keywords", "ai_review_notify",
+        "ai_wait_seconds", "ai_wait_max_seconds",
+        "ai_typing", "ai_typing_cps", "ai_typing_min_s", "ai_typing_max_s",
+        "ai_split", "ai_split_max_chars", "ai_ack_skip", "ai_ack_text",
+        "ai_followup", "ai_followup_first_hours", "ai_followup_between_hours",
+        "ai_followup_max", "ai_followup_template", "ai_followup_guidance",
     };
 
     public static bool IsEntityScoped(string? key) =>

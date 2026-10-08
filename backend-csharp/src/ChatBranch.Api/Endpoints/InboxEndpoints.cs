@@ -136,7 +136,7 @@ public static class InboxEndpoints
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- simulate inbound (sandbox) ---------------------------------------
-        app.MapPost("/api/whatsapp/simulate", async (SimulateRequest body, ThreadStore store, AppDbContext db,
+        app.MapPost("/api/whatsapp/simulate", async (SimulateRequest body, string? ai, ThreadStore store, AppDbContext db,
             ChatBranch.Data.Flows.FlowEngine engine, ChatBranch.Data.Channels.InboundProcessor inbound,
             ChatBranch.Data.Flows.AutomationService automation) =>
         {
@@ -160,6 +160,10 @@ public static class InboxEndpoints
             if (firstInbound) automation.Run("conversation_created", thread, body.Text, true);
             automation.Run("message_created", thread, body.Text, firstInbound);
             await NotificationService.NotifyInboundMessageAsync(db, thread, body.Text);
+            // ?ai=1 also runs the AI step a webhook runs (stale AI drafts expire,
+            // debounce, coverage-gated auto-reply through the AI monitor). Opt-in:
+            // a plain simulate stays a bare inbound, which the inbox relies on.
+            if (ai is "1" or "true") inbound.AfterSimulatedInbound(thread);
             return Results.Ok(new { thread = Dtos.ThreadDto(thread), message = Dtos.MessageDto(msg) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 

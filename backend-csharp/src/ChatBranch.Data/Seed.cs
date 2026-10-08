@@ -119,6 +119,20 @@ public static class Seed
         {
             if (wasClosed) conn.Close();
         }
+        AddTableIfMissing(db, "crm_aidraft",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_aidraft\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"thread_id\" INTEGER NULL, \"thread_key\" TEXT NOT NULL, \"channel\" TEXT NOT NULL, "
+            + "\"contact_id\" INTEGER NULL, \"entity_id\" INTEGER NULL, \"account_id\" INTEGER NULL, "
+            + "\"kind\" TEXT NOT NULL, \"content\" TEXT NOT NULL, \"original_content\" TEXT NOT NULL, "
+            + "\"context\" TEXT NOT NULL, \"status\" TEXT NOT NULL, \"hold_reason\" TEXT NOT NULL, "
+            + "\"decided_by\" TEXT NOT NULL, \"decided_at\" TEXT NULL, \"reject_reason\" TEXT NOT NULL, "
+            + "\"send_after\" TEXT NULL, \"created_at\" TEXT NOT NULL, \"sent_at\" TEXT NULL, "
+            + "\"sent_message_id\" INTEGER NULL, \"error\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
+        AddTableIfMissing(db, "crm_aiconversationstate",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_aiconversationstate\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"thread_id\" INTEGER NOT NULL, \"follow_ups_sent\" INTEGER NOT NULL, "
+            + "\"last_follow_up_at\" TEXT NULL, \"next_follow_up_at\" TEXT NULL, "
+            + "\"anchor_message_id\" INTEGER NULL, \"note\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
     }
 
     /// <summary>
