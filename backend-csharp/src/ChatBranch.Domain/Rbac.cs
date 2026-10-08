@@ -38,6 +38,10 @@ public class Profile
     // Agent entity allow-list (empty for superadmin/admin, whose access is derived).
     public ICollection<Entity> Entities { get; set; } = new List<Entity>();
     public ICollection<AuthToken> AuthTokens { get; set; } = new List<AuthToken>();
+
+    // Per-user preferences as one JSON document ({appearance, notifications}).
+    // Null = never chose anything: the organization defaults apply.
+    public string? Preferences { get; set; }
 }
 
 public class AuthToken

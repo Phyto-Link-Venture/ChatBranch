@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { Select } from '@/components/ui/Select'
 import { TagListInput } from '@/components/ui/TagListInput'
 import { roleHeaders } from '@/lib/role'
 import { useRole } from '@/lib/useRole'
@@ -367,17 +368,14 @@ export function KnowledgeSettings() {
           <div className="grid gap-3 md:grid-cols-2">
             <label className="block">
               <span className="mb-1 block text-[10.5px] font-bold text-text-high">Type</span>
-              <select
+              <Select
                 value={draft.kind || 'fact'}
-                onChange={(e) => setDraft({ ...draft, kind: e.target.value })}
-                className={inputCls}
-              >
-                {data.kinds.map((k) => (
-                  <option key={k.id} value={k.id}>
-                    {k.label}
-                  </option>
-                ))}
-              </select>
+                onChange={(v) => setDraft({ ...draft, kind: v })}
+                options={data.kinds.map((k) => ({ value: k.id, label: k.label }))}
+                size="md"
+                ariaLabel="Type"
+                className="w-full"
+              />
             </label>
             <label className="block">
               <span className="mb-1 block text-[10.5px] font-bold text-text-high">Priority</span>

@@ -89,6 +89,7 @@ app.MapGet("/api/whatsapp/status", () => Results.Ok(new
 
 app.MapAuthEndpoints();
 app.MapSettingsEndpoints();
+app.MapAssignmentsEndpoints();
 app.MapInboxEndpoints();
 app.MapAiEndpoints();
 app.MapFlowsEndpoints();
@@ -113,6 +114,8 @@ app.MapWidgetAdminEndpoints();
 app.MapHelpCenterEndpoints();
 app.MapReportsEndpoints();
 app.MapBindingsEndpoints();
+app.MapSearchEndpoints();
+app.MapLiveEndpoints();
 
 // Inbound conversations route themselves to a team. The hook lives here so the
 // data layer never has to reference the API assembly.

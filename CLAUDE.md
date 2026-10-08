@@ -453,6 +453,20 @@ sandbox mode.
   throws into a webhook, and an unknown operator matches NOTHING rather than
   everything. `/api/automations/catalog` is the single vocabulary source the
   editor reads.
+- **Notifications + Settings sections** (2026-10-08). `NotificationService`
+  (ChatBranch.Data, root namespace) is the ONLY notification writer: org mute
+  `notif_<category>` → the recipient's own switch (`Profile.Preferences` JSON,
+  `notifications{}`) → "only assigned to me / my teams" for messages →
+  `RefKey` collapse (one unread row per conversation per user). Fail-open,
+  never throws. Inbound customer messages notify assignee → team members →
+  the tenant's admins (InboundProcessor, /simulate, widget). `/notifications`
+  is everyone's inbox (`/api/notifications*`); the bell keeps
+  `/api/auth/notifications`. Settings = sections of flat `/settings/<id>`
+  pages, each with its own capability (`SETTINGS_SECTIONS`), checked
+  server-side via `SettingsEndpoints.RequireCapability`. Appearance:
+  `/api/auth/preferences` + `/api/settings/appearance` (org default).
+  Account assignment is a Work module at `/assignments` (+ `POST
+  /api/whatsapp/assignments/rebalance`).
 - **Help Center** (`/help`, `/api/help/articles`, 2026-08-16) — published
   `KnowledgeItem`s, readable by anyone. `Published` is PUBLIC readability and is
   NOT `Active` (whether the AI may use it): an internal note is active and
@@ -830,6 +844,17 @@ sandbox mode.
   editor, Users, Entities, both template editors): a `role="alert"` div as the
   first child of the modal body for `!msg.ok`, the page-level copy gated on the
   modal being closed, and `setMsg(null)` when opening one.
+- **Shell (2026-10-08):** the sidebar IA lives in `components/shell/nav.ts`
+  (`NAV_GROUPS`, `canSee`) — a new page = one entry there; the command palette
+  searches the same list plus `GET /api/search` (each type capability-gated
+  and scoped like its list endpoint). `/api/live` + `lib/chatStream` (ONE SSE
+  connection per tab, now with a connection status) feed the Live chip, the
+  sidebar's Chats counter and Analytics' waiting card via `liveStore`.
+  Analytics is home (`/`, post-login, `/dashboard` all go there). PWA:
+  `app/manifest.ts`, hand-written `public/sw.js` (never caches `/api/*` or
+  the stream; offline navigations redirect to `/offline?from=`), icons in
+  `public/icons/` rendered from `Logo.tsx`'s `brandMarkSvg`. Channel health
+  transitions write `account.health` audit rows via `AccountHealth.SetStatus`.
 - **Never call `getRole()` / `getAuth()` during render.** They read
   localStorage, which doesn't exist during SSR — the server paints the
   `'agent'` fallback, the client paints the real role, and React aborts

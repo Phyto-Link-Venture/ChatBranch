@@ -695,11 +695,7 @@ public class FlowEngine
 
     private void Notify(string[] roles, string title, string body)
     {
-        var users = _db.Profiles.Where(p => roles.Contains(p.Role)).Select(p => p.UserId).ToList();
-        foreach (var uid in users)
-            _db.Notifications.Add(new Notification { UserId = uid, Kind = "system",
-                Title = Trim(title, 160), Body = Trim(body, 400), CreatedAt = DateTime.UtcNow });
-        _db.SaveChanges();
+        NotificationService.Notify(_db, NotificationCategories.Flows, "system", title, body, "", NotificationAudience.ForRoles(roles));
     }
 
     private static List<string> ChannelList(JsonElement cfg)

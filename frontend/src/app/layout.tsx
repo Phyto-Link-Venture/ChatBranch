@@ -7,20 +7,42 @@ import './globals.css'
 import { AppProvider } from '@/lib/AppContext'
 import { EntityProvider } from '@/lib/EntityContext'
 import { Shell } from '@/components/shell/Shell'
+import { ServiceWorkerRegistrar } from '@/components/shell/pwa'
 import { PREPAINT_SCRIPT } from '@/lib/themeScript'
 
 export const metadata: Metadata = {
   title: 'ChatBranch',
   description: 'ChatBranch — multi-channel conversation platform',
+  applicationName: 'ChatBranch',
+  // app/manifest.ts is linked automatically; these cover the icon tags the
+  // manifest doesn't (browser tab, iOS home screen).
+  icons: {
+    icon: [
+      { url: '/icons/favicon.svg', type: 'image/svg+xml' },
+      { url: '/icons/favicon-32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/icons/favicon-16.png', sizes: '16x16', type: 'image/png' },
+    ],
+    apple: [{ url: '/icons/apple-touch-icon.png', sizes: '180x180' }],
+  },
+  appleWebApp: {
+    capable: true,
+    title: 'ChatBranch',
+    statusBarStyle: 'default',
+  },
+  formatDetection: { telephone: false },
 }
 
-// Mobile-first: render at device width (no more desktop-width zoom-out on
-// phones/tablets). `viewport-fit=cover` lets full-bleed panels reach the edges
-// on notched devices.
+// Mobile-first: render at device width. `viewport-fit=cover` lets full-bleed
+// panels reach the edges on notched devices. theme-color follows the paper in
+// each mode (the shell retints it to the chosen theme at runtime).
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#FAF7F2' },
+    { media: '(prefers-color-scheme: dark)', color: '#1C1A17' },
+  ],
 }
 
 export default function RootLayout({
@@ -38,6 +60,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: PREPAINT_SCRIPT }} />
       </head>
       <body className="font-sans">
+        <ServiceWorkerRegistrar />
         <EntityProvider>
           <AppProvider>
             <Shell>{children}</Shell>

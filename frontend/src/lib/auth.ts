@@ -25,10 +25,6 @@ export interface AuthUser {
   /** Fine-grained permissions for the current role (dynamic RBAC). Optional so
    *  older cached sessions still parse — absence triggers the role fallback. */
   capabilities?: string[]
-  /** @deprecated Service Providers were removed (tags replace them); the API no
-   *  longer sends this and it is never set. Kept only so stale readers compile
-   *  until they are cleaned up — do not use. */
-  resource_id?: null
 }
 
 /**
@@ -54,17 +50,24 @@ export const CAPABILITY_CATALOG: { capability: string; area: string; label: stri
   { capability: 'entities.manage', area: 'Entities', label: 'Manage entities & tenants' },
   { capability: 'templates.manage', area: 'Library', label: 'Manage message templates' },
   { capability: 'script_templates.manage', area: 'Library', label: 'Manage script templates' },
-  { capability: 'tags.view', area: 'Library', label: 'View tags' },
-  { capability: 'tags.manage', area: 'Library', label: 'Create, edit & apply tags' },
-  { capability: 'notifications.manage', area: 'Review', label: 'Manage notification prefs' },
+  { capability: 'notifications.manage', area: 'Settings', label: 'Manage organization notification defaults' },
   { capability: 'analytics.view', area: 'Review', label: 'View analytics' },
   { capability: 'call_logs.view', area: 'Review', label: 'View call logs' },
   { capability: 'activity.view', area: 'Review', label: 'View activity log' },
   { capability: 'settings.ai.manage', area: 'Settings', label: 'Manage AI configuration' },
   { capability: 'account_assignment.manage', area: 'Settings', label: 'Manage account assignment' },
-  { capability: 'app_keys.manage', area: 'Settings', label: 'Manage app keys' },
+  { capability: 'app_keys.manage', area: 'Settings', label: 'Manage app & provider keys' },
   { capability: 'pronunciation.manage', area: 'Settings', label: 'Manage pronunciation' },
+  // Settings sub-pages — one capability each (Personal pages need none).
+  { capability: 'settings.appearance.org', area: 'Settings', label: 'Set the organization default appearance' },
+  { capability: 'settings.custom_fields.manage', area: 'Settings', label: 'Manage custom fields' },
+  { capability: 'settings.ai_keys.manage', area: 'Settings', label: 'Manage AI keys & models' },
   { capability: 'rbac.manage', area: 'Admin', label: 'Edit the permission matrix' },
+  { capability: 'tags.view', area: 'Library', label: 'View tags' },
+  { capability: 'tags.manage', area: 'Library', label: 'Create & edit tags' },
+  { capability: 'api_keys.manage', area: 'Admin', label: 'Manage API keys & MCP' },
+  { capability: 'ai.monitor', area: 'AI', label: 'See & approve AI drafts' },
+  { capability: 'ai.behaviour.manage', area: 'AI', label: 'Edit AI behaviour settings' },
 ]
 
 const ALL_CAPS = CAPABILITY_CATALOG.map((c) => c.capability)
@@ -77,7 +80,7 @@ const ALL_CAPS = CAPABILITY_CATALOG.map((c) => c.capability)
  */
 export const DEFAULT_ROLE_CAPS: Record<Role, string[]> = {
   superadmin: ALL_CAPS,
-  admin: ALL_CAPS.filter((c) => c !== 'rbac.manage' && c !== 'app_keys.manage'),
+  admin: ALL_CAPS.filter((c) => c !== 'rbac.manage' && c !== 'app_keys.manage' && c !== 'settings.ai_keys.manage'),
   agent: [
     'contacts.view',
     'chats.view',
@@ -87,6 +90,7 @@ export const DEFAULT_ROLE_CAPS: Record<Role, string[]> = {
     'call_logs.view',
     'activity.view',
     'tags.view',
+    'ai.monitor',
   ],
 }
 
@@ -222,6 +226,23 @@ export async function login(username: string, password: string): Promise<AuthUse
   user.capabilities = inline || ident.capabilities
   setAuth(user)
   return user
+}
+
+/**
+ * Re-read the signed-in user's capabilities from whoami and update the cached
+ * session, so a session cached before the capability catalog changed (or
+ * before an admin edited the matrix) still gates the UI correctly. The shell
+ * calls it once per sign-in; listeners hear an 'auth-change' window event.
+ */
+export async function refreshIdentity(): Promise<AuthUser | null> {
+  const user = getAuth()
+  if (!user) return null
+  const ident = await fetchIdentity(user.token)
+  if (!ident.capabilities) return user
+  const next: AuthUser = { ...user, capabilities: ident.capabilities }
+  setAuth(next)
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('auth-change'))
+  return next
 }
 
 export async function logout(): Promise<void> {

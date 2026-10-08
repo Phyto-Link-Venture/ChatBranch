@@ -18,7 +18,7 @@ function transitionTarget(detail: string): HealthStatus | null {
 export function HealthEvents({ events }: { events: HealthEvent[] }) {
   if (events.length === 0) {
     return (
-      <div className="py-8 text-center text-[12px] text-text-faint">
+      <div className="py-8 text-center text-[12.5px] text-text-muted">
         No health transitions in this window — accounts have been stable.
       </div>
     )
