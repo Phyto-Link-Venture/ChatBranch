@@ -1,5 +1,7 @@
 # ChatBranch — Move .env vars into frontend-editable Settings
 
+> **Historical.** The plan for moving `.env` keys into dashboard Settings (Django era). The pattern stuck — Setting rows over env — but the module names below are Django's; see [`DATABASE_SCHEMA.md`](DATABASE_SCHEMA.md) for today's Setting keys.
+
 Goal: make runtime configuration (LLM keys, provider selection, tunables)
 editable from **Settings** instead of hardcoded in `.env`, so a deployment can
 be re-configured without touching files or redeploying. Some vars must remain in

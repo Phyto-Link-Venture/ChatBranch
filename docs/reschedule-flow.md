@@ -1,5 +1,7 @@
 # Meeting reschedule flow — setup & smoke test
 
+> **Obsolete.** This scenario was built on Service Providers (`crm.Resource` / `ResourceLink`) and the Django AI tools, all of which are gone. Model teachers and students with **tags** (see [`DOMAIN_MODEL.md`](DOMAIN_MODEL.md)) and per-user Google integrations instead.
+
 How the musician-studio scenario runs end to end, and how to bring it live.
 Scenario: a student cancels a class → the AI checks the teacher's availability
 (a Google Sheet) → proposes open times to the parent → on confirmation, books the

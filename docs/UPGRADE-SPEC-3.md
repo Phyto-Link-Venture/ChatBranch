@@ -1,5 +1,7 @@
 # ChatBranch — UX round 3 (full CRUD, permissions card-grid, channels cleanup)
 
+> **Historical.** A build contract for an earlier UX round (Django backend, ocean-blue theme). Superseded by the 2026-10 overhaul; see [`CLAUDE.md`](../CLAUDE.md).
+
 Builds on rounds 1–2 (modals, datatables, dynamic RBAC with `crm.Role` +
 `crm.RolePermission`, `GET/PUT /api/auth/permissions`, `GET/POST/DELETE
 /api/auth/roles`, capabilities in login/whoami). Don't rebuild those.

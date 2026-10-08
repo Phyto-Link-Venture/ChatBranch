@@ -1,14 +1,19 @@
 # Bulk record sync
 
 How to feed ChatBranch from an external system of record — an ERP, a shop
-backend, a ticketing system, a partner API.
+backend, a ticketing system.
 
-This is the **push** path: the source system POSTs to us on its own schedule. We
-never pull. It complements the two other ways records get in — by hand from the
-dashboard, and automatically from a connected Shopify/Stripe webhook (Settings →
-Integrations).
+This is the **push** path: your system POSTs to ChatBranch on its own schedule;
+ChatBranch never pulls. It complements the other ways records get in — by hand
+(`/contacts`), CSV import (`POST /api/contacts/import`), and automatically from a
+connected Shopify/Stripe webhook (`/integrations`).
 
-Everything lives in the `ingest` Django app.
+> **Changed with the C# backend.** The Django pipeline this document used to
+> describe (`X-API-Key` data sources, `sync_timestamp` batches, an immutable
+> staging table, normalizer savepoints, dead-lettering, `/api/v1/sync/batches`,
+> the `manage.py` commands) does **not** exist any more. The C# endpoint below is
+> a simple synchronous upsert. Implementation:
+> `backend-csharp/src/ChatBranch.Api/Endpoints/ApiV1Endpoints.cs`.
 
 ---
 
@@ -16,217 +21,83 @@ Everything lives in the `ingest` Django app.
 
 ```
 POST /api/v1/sync/records
-Headers:  X-API-Key: <the key you issued>
-          Content-Type: application/json
+Authorization: Bearer <token>          (an admin/superadmin session, or)
+X-Api-Key: cbk_<prefix>_<secret>       (an API key owned by an admin)
+Content-Type: application/json
 ```
+
+The route requires the **admin+** policy, so the caller (or the API key's
+owner) must be an admin or superadmin. Create a key at **API keys & MCP**
+(`/developers`) — a key is easier to rotate than a password and shows up in the
+activity log as source `api`.
+
+The body is **camelCase**:
 
 ```json
 {
-  "sync_timestamp": "2026-08-01T07:00:00Z",
-  "active_record_count": 1,
   "records": [
     {
-      "external_id": "ORD-10233",
+      "externalId": "ORD-10233",
       "type": "order",
       "title": "3× Ceramic mug",
       "status": "packed",
       "amount": 48.90,
-      "currency": "MYR",
-      "due_date": "2026-08-05",
-      "data": {"tracking_url": "https://track/…", "items": [ … ]},
+      "dueDate": "2026-08-05",
       "contact": {
-        "external_id": "CUST-77",
-        "name": "Siti Rahman",
         "phone": "+60123456789",
-        "email": "siti@example.com",
-        "company_name": "Kedai Siti",
-        "language": "ms",
-        "tags": ["vip"],
-        "attributes": {"tier": "gold"}
+        "name": "Siti Rahman",
+        "email": "siti@example.com"
       }
     }
   ]
 }
 ```
 
-**Required:** `external_id` on the record, and `contact.name` + `contact.phone`.
-`type` must be one of `order | shipment | invoice | booking | ticket | custom`.
-`due_date` matters more than it looks — **every time-based flow trigger is an
-offset from it**.
-
-The authoritative version of this shape is the module docstring of
-`backend/ingest/normalizer.py`. Read it before writing an exporter.
-
-### Match order
-
-| Object | Matched on |
-|---|---|
-| Contact | `(tenant, contact.external_id)` → then `(tenant, phone)` |
-| Record | `(tenant, type, external_id)` |
-
-A status change or an amount change books a `crm.RecordEvent`, so the timeline
-shows what moved.
-
----
-
-## 2. Onboard a source (issue the API key)
-
-```bash
-cd backend
-python manage.py create_data_source \
-  --tenant-slug acme --tenant-name "Acme Services" \
-  --source-name "Acme Shopify"
-```
-
-Creates (or reuses) the tenant, creates the data source, and prints the key
-**once**:
-
-```
-  API key (shown once — store it now):
-    sk_9f2c…<48 hex>
-```
-
-Only `sha256(key)` is stored, in `DataSource.api_key_hash`, and inbound keys are
-compared in constant time. Hand the raw key over through a secure channel — it
-cannot be recovered.
-
-Rotate (which invalidates the old key immediately):
-
-```bash
-python manage.py create_data_source --tenant-slug acme \
-  --source-name "Acme Shopify" --rotate
-```
-
-The data source can be attached to a `Brand`, which is how synced records land
-in the right brand scope.
-
----
-
-## 3. Responses and idempotency
-
-| Status | Meaning |
-|---|---|
-| `200` + `{"duplicate": true}` | this `sync_timestamp` already landed for this source — no-op |
-| `200` (dev, inline normalization) | accepted **and** normalized; body includes `rows_upserted` |
-| `202` (production, deferred) | accepted; raw rows landed, a worker will normalize |
-| `401` | missing or invalid `X-API-Key` |
-| `403` | tenant is suspended |
-| `413` | payload bytes or record count over the limit |
-| `422` | malformed JSON, or `records` is not an array |
-| `429` | per-source hourly rate limit hit (`Retry-After: 3600`) |
-
-**Idempotency is keyed on `(data_source, source_timestamp)`** by a partial unique
-constraint, so a source retrying the identical push is safe. The response body
-carries the batch id.
-
----
-
-## 4. Normalization: inline vs deferred
-
-- **Dev (default):** `INGEST_PROCESS_INLINE` defaults to `DEBUG`, so intake
-  normalizes immediately and the response reports `rows_upserted`.
-- **Production:** set `INGEST_PROCESS_INLINE = False`. Intake then only lands raw
-  rows — fast and reliable — and returns `202`. Drain with a worker:
-
-  ```bash
-  python manage.py process_sync              # all pending batches
-  python manage.py process_sync --source 3   # one data source
-  python manage.py process_sync --limit 10   # cap the batches per run
-  ```
-
-  Schedule it just after the source's push window (cron, a platform scheduler,
-  or Celery beat — Celery is **not** a dependency here; add it when you want
-  concurrency).
-
-**Rows are isolated.** Each row normalizes in its own savepoint: one bad row sets
-`process_error` on its staging row, the batch finishes `partial`, and the good
-rows still land.
-
----
-
-## 5. Monitoring and recovery
-
-- **Pipeline health** — `GET /api/v1/sync/health` (bearer, admin+) returns the
-  unprocessed backlog, dead-letter count, last-synced time and the 24h batch
-  outcome mix. This is the endpoint to alert on.
-- **One batch** — `GET /api/v1/sync/batches/<id>` returns status, counts and
-  `error_detail` (per-row failures with attempt counts).
-- **Django admin** — *Ingest → Sync batches* and *Record sync staging* (raw
-  payload read-only; `attempts` / `dead_lettered` visible).
-- Every processed batch writes an `AuditLog` row; a `failed` or `partial` batch
-  also notifies superadmins and admins in-app.
-
-### Retries and dead-letters
-
-A row that errors is retried on each subsequent drain up to
-`INGEST_MAX_ROW_ATTEMPTS` (default 3), then **dead-lettered** — skipped by the
-drain, with a `[dead-letter]` marker on its `process_error`. After fixing the
-cause:
-
-```bash
-python manage.py replay_batch 12                # replay the whole batch from raw staging
-python manage.py replay_batch 12 --failed-only  # only the errored rows; resets attempts
-```
-
-Replay reads the **immutable raw payload**, so it is always faithful to what the
-source actually sent.
-
-### Retention
-
-```bash
-python manage.py purge_staging --older-than-days 90 --yes
-```
-
-Deletes old *processed* staging rows. Unprocessed and dead-lettered rows are kept
-unless you pass `--include-unprocessed`. Run it past your audit-retention window
-— staging is append-only and will otherwise grow forever.
-
----
-
-## 6. Settings knobs
-
-Django settings (defaults in `backend/ingest/views.py` and `normalizer.py`;
-override in `core/settings.py`):
-
-| Setting | Default | Purpose |
+| Field | Required | Notes |
 |---|---|---|
-| `INGEST_PROCESS_INLINE` | `DEBUG` | normalize during intake (dev) vs defer to a worker (prod) |
-| `INGEST_MAX_SYNC_BYTES` | 32 MB | reject oversized payloads (413) |
-| `INGEST_MAX_RECORDS` | 100 000 | reject oversized record counts (413) |
-| `INGEST_MAX_SYNC_PER_HOUR` | 12 | per-source intake rate limit (429). `0` disables |
-| `INGEST_MAX_ROW_ATTEMPTS` | 3 | failed-row retries before dead-lettering |
+| `externalId` | yes | the record's id in your system (order #, tracking #, invoice #) |
+| `type` | no | `order` \| `shipment` \| `invoice` \| `booking` \| `ticket` \| `custom` (default `custom`) |
+| `title`, `status`, `amount`, `dueDate` | no | only fields you send are updated; `status` is your own vocabulary |
+| `contact.phone` | **yes, in practice** | a record without a contact phone is skipped (records need an identity) |
+| `contact.name`, `contact.email` | no | used only when the contact is created |
 
----
+Response: `{"created": n, "updated": n, "total": n}` (`total` counts every row
+you sent, including skipped ones).
 
-## 7. Local smoke test
+## 2. Matching rules
 
-```bash
-cd backend
-python manage.py create_data_source --tenant-slug demo --tenant-name Demo \
-  --source-name "Demo ERP"
-# copy the printed key into KEY below
+- **Tenant** — the caller's tenant (from the session or the key's owner). Rows
+  never cross tenants.
+- **Contact** — matched on the exact `phone` string within the tenant; created
+  when no contact has it (name falls back to the phone). Send E.164 consistently
+  (`+60…`) or you will get twins. Note that the dashboard's own add-contact path
+  refuses a phone that shares its last 8 digits with an existing contact; this
+  endpoint matches exactly.
+- **Record** — matched on `(type, externalId)` within the tenant. A match is
+  updated, otherwise a record is created for the matched contact. An existing
+  record is NOT moved to a different contact.
 
-curl -sS -X POST http://localhost:8000/api/v1/sync/records \
-  -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
-  -d '{"sync_timestamp":"2026-08-01T07:00:00Z","active_record_count":1,
-       "records":[{"external_id":"ORD-1","type":"order","title":"Test order",
-       "status":"packed","amount":48.90,"due_date":"2026-08-05",
-       "contact":{"name":"Michael Tan","phone":"+60123456789"}}]}'
-# dev (inline): the response shows rows_upserted: 1 — the contact + record now exist.
-```
+Re-sending the same payload is idempotent: the second call reports `updated`.
 
----
+## 3. What this endpoint does not do (yet)
 
-## 8. Before production
+- It does not set `currency` (default `MYR`), `data` (tracking URL, links, line
+  items) or custom fields — use `PATCH /api/v1/contacts/{id}` (`attributes`) and
+  the contact/record UI for those, or extend `SyncRecord`.
+- It does not book `RecordEvent` rows on status or amount changes (the
+  Shopify/Stripe mappers do).
+- It is synchronous and unbatched: one transaction per row, no staging, no
+  replay. Keep payloads to a few hundred records and retry a failed call whole.
+- It does not tag contacts or start flows. To react to a sync, either tag the
+  contact (`PUT /api/contacts/{id}/tags`, `tags.manage`) so a "Tag added" flow
+  fires, or start a "Manual / API" flow with
+  `POST /api/flows/{flowId}/start {"contactIds": [...]}`.
 
-- **Tenant isolation is application-layer only.** The API key resolves the
-  tenant on ingest and every scoped query filters by it, but SQLite has no
-  row-level security and none was added for Postgres. On a Postgres move, RLS
-  policies on `tenant_id` are the obvious defence in depth, and `raw_payload`
-  should become real `JSONB`.
-- **Raw payloads are stored verbatim and unencrypted.** If your source sends
-  identity data you must not retain, filter it before it reaches us, or shorten
-  the `purge_staging` window aggressively. There is no PII vault, no column
-  encryption and no PII access log in this codebase.
-- **Keys are hashed at rest here** — keep the raw key in the source system's own
-  secret store, never in this repo.
+## 4. Recommended shape for an exporter
+
+1. Map your entities to `type`, your states to a status vocabulary, and your
+   "when" to `dueDate` (see [vertical-guide.md](vertical-guide.md) §2.1).
+2. Normalise phones to E.164 before sending.
+3. Send changed records every few minutes (or nightly), in chunks.
+4. Log the `{created, updated, total}` response; a `total` larger than
+   `created + updated` means rows were skipped for lack of a contact phone.

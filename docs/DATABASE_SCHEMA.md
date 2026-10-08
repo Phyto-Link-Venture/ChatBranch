@@ -1,469 +1,424 @@
 # Database schema
 
-The **actual** shipped schema, verified against `backend/crm/models.py`,
-`backend/ingest/models.py` and `backend/integrations/models.py`.
+The **actual** schema, verified against `backend-csharp/src/ChatBranch.Domain/`
+(the entities) and `backend-csharp/src/ChatBranch.Data/AppDbContext.cs` (table
+names, JSON columns, indexes).
 
-Engine: **SQLite by default** (zero-config), via the Django ORM. Setting
-`DATABASE_URL` to a `postgres://` URL switches the ORM to Postgres — nothing
-beyond the ORM has been tuned for it, and there is no row-level security
-(see [Isolation](#isolation-and-what-it-does-not-do)).
-
-Three apps own tables:
-
-| App | Owns |
-|---|---|
-| `crm` | everything operational — contacts, records, conversations, accounts, AI config, queue, audit |
-| `ingest` | multi-tenancy roots + the external-sync landing zone |
-| `integrations` | third-party provider connections |
-
-Migrations were squashed to a clean initial for the template release:
-`crm/0001_initial` + `crm/0002_knowledgeitem`, `ingest/0001_initial`,
-`integrations/0001_initial`. `makemigrations --check --dry-run` reports no
-changes.
+- **Engine:** SQLite through EF Core, one context (`AppDbContext`). The file is
+  `chatbranch.sqlite3` in the API's content root in development
+  (`backend-csharp/src/ChatBranch.Api/`) and `/data/chatbranch.sqlite3` in
+  Docker; `ConnectionStrings__Default` overrides it.
+- **Names:** tables keep the names the Django backend used (`<app>_<model>`:
+  `crm_*`, `ingest_*`, `auth_user`, `integrations_integration`) and every column
+  is snake_case (`EntityId` → `entity_id`), so the C# API could attach to the
+  old Django database.
+- **No migrations.** `EnsureCreated()` builds a fresh database;
+  `Seed.UpgradeSchema` (append-only, idempotent `ALTER TABLE … ADD COLUMN` /
+  `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`) brings an older
+  file up to date on every boot. **A new column or table must be added there as
+  well as on the entity**, or existing installs break on the first query.
+- **JSON columns** are TEXT holding JSON, converted by `JsonColumn` (listed per
+  table below).
+- **Timestamps** are stored as TEXT and are UTC.
 
 ---
 
 ## The shape in one picture
 
 ```
-Tenant ──┬── Brand ──── DataSource ──── SyncBatch ──── RecordSyncStaging
-         │     │                                              │ normalizer
-         │     └──────────── ContactBrand ─┐                  ▼
-         ├── Profile (RBAC, M2M → Brand)   │        Contact ──── Record ──── RecordEvent
-         ├── KnowledgeItem ────────────────┘           │  │
-         └── Integration                               │  ├── Thread ──── Message
-                                                       │  │      ▲            │
-                                                       │  │      └ ChannelAccount
-                                                       │  ├── AccountAssignment
-                                                       │  ├── CallRecord
-                                                       │  ├── ConversationSummary
-                                                       │  ├── PendingToolAction
-                                                       │  ├── FlowRun ──── OutboundJob
-                                                       │  └── (Workflow, AgentSkill: global)
-                                                       └── Setting, CannedResponse,
-                                                           ScriptTemplate, AuditLog,
-                                                           Notification  (global)
+Tenant ──── Entity (tree: parent_id) ──┬── ChannelAccount ── Thread ── Message
+  │            │                       │        │              │  ▲
+  │            │                       │        │              │  └ AiDraft, AiConversationState
+  │            │                       │        └ AccountAssignment (contact × channel)
+  │            │                       ├── Setting (entity override) · Team ── TeamMember
+  │            │                       ├── libraries: CannedResponse, ScriptTemplate,
+  │            │                       │   KnowledgeItem, AgentSkill, Workflow, Tag,
+  │            │                       │   AutomationRule, Integration  (null = org-wide)
+  │            └── Profile (role, M2M → Entity) ── AuthToken, ApiKey, SavedView
+  │
+  └── Contact ──┬── ContactEntity ──▶ Entity
+                ├── TagAssignment ──▶ Tag   (entity targets too)
+                ├── Record ── RecordEvent
+                ├── FlowRun ── OutboundJob, FlowStepEvent
+                ├── CallRecord, ConversationSummary, LlmUsage
+                └── Thread (contact_id)
 ```
 
-Two naming notes that will otherwise confuse you:
+Two naming notes:
 
-- **`Message.source` still has the value `"customer"`** (choices:
-  `customer | agent | ai | system`). That is *who wrote the message* — a speaker
-  role, not a pointer at a model. Everything that points **at** a `Contact` is
-  called `contact` / `contact_id`, including every JSON wire key.
-- Several tables are deliberately **not** tenant-scoped: `Thread`,
-  `ChannelAccount`, `Message`, `CallRecord`, `Workflow`, `AgentSkill`,
-  `Setting`. They are global to the installation. Tenanting them is an open
-  piece of work, not a shipped feature.
-
----
-
-## 1. Tenancy, identity, RBAC
-
-### `ingest.Tenant`
-The organization using the platform. Root of isolation.
-
-| Field | Type | Notes |
-|---|---|---|
-| `name` | char(160) | |
-| `slug` | slug(80), **unique** | the id used in API payloads |
-| `status` | char | `active` \| `suspended` — a suspended tenant's sync is rejected |
-| `created_at` / `updated_at` | datetime | |
-
-### `ingest.Brand`
-A client brand a tenant operates. Access control is brand-level.
-
-`tenant` FK · `name` · `slug` · `is_active` · timestamps.
-**unique together** `(tenant, slug)`.
-
-### `crm.Profile`
-Attaches a role + API token to a Django `auth.User` (one-to-one).
-
-| Field | Type | Notes |
-|---|---|---|
-| `user` | O2O → auth.User | |
-| `role` | char(12) | `superadmin` \| `admin` \| `agent` |
-| `token` | char(64), indexed | bearer token, **rotated on every login** |
-| `tenant` | FK → Tenant, null | the user's org |
-| `brands` | M2M → Brand | agents only; superadmin/admin access is derived |
-
-### `crm.ContactBrand`
-Which of a tenant's brands a contact is active on. The contact profile is shared
-tenant-wide; this records the per-brand association.
-
-`contact` FK · `brand` FK · `external_ref` · `created_at`.
-**unique together** `(contact, brand)`.
-
-### `crm.AuditLog`
-`user` FK(null) · `actor` (username \| `system` \| `webhook`) · `action`
-(e.g. `login`, `settings.update`, `account.health`, `integration.status`) ·
-`target` · `detail` · `ip` · `created_at`. Ordered newest first.
-
-### `crm.Notification`
-`user` FK · `kind` (`message` \| `call` \| `system`) · `title` · `body` ·
-`link` · `read` · `created_at`. Fanned out by role; muting is per category via
-`Setting` rows `notif_<category>`.
+- **`Message.source` has the value `"customer"`** (`customer | agent | ai |
+  system`) — who wrote the message, not a pointer at a model. Everything that
+  points at a `Contact` is `contact_id`.
+- **Entities scope almost everything**, but by two different rules (see
+  `ScopingService`): *libraries* with a nullable `entity_id` are inherited (an
+  outlet sees its own rows plus the org-wide `null` ones); *records* (threads,
+  contacts via `crm_contactentity`, AI drafts) belong to exactly one subtree.
 
 ---
 
-## 2. The two core business tables
+## 1. Tenancy, identity, access
 
-### `crm.Contact` — the person
-The identity side. Anything vertical-specific about *why* you are talking hangs
-off `Record`; anything vertical-specific about the *person* goes in
-`attributes` / `tags`.
+### `ingest_tenant`
+`name` · `slug` · `status` (`active` …) · `created_at` / `updated_at`. The
+organization; root of isolation.
 
-| Field | Type | Notes |
-|---|---|---|
-| `name` | char(120) | required |
-| `phone` | char(32) | E.164. **The identity key everywhere.** Unique per tenant, not globally |
-| `email` | email | |
-| `language` | char(8) | `auto` \| `en` \| `ms` \| `zh` — drives the voice agent's opening language |
-| `status` | char(16) | `active` \| `pending` \| `message-sent` \| `resolved` \| `failed` |
-| `method` | char(12) | `ai-call` \| `bot-call` \| `message` — preferred outreach |
-| `company_name` | char(120) | |
-| `do_not_call` | bool | hard compliance gate on dialling |
-| `notes` | text | renders as the `{{situation}}` flow variable |
-| **`external_id`** | char(64), indexed | id in your system of record |
-| **`tags`** | JSON list | `["vip","wholesale"]` — branchable in the flow builder |
-| **`attributes`** | JSON dict | vertical custom fields; **visible to the AI** |
-| `preferred_contact_time` | char(64) | written by the AI summarizer |
-| `communication_style` | char(120) | written by the AI summarizer |
-| `sentiment_trend` | char(16) | `positive` \| `neutral` \| `negative` |
-| `ai_profile_summary` | text | written by the AI summarizer |
-| `tenant` | FK, null | |
-| `last_synced_at` | datetime | |
-| `created_at` / `updated_at` | | ordered by `-updated_at` |
+### `ingest_entity`
+`tenant_id` · **`parent_id`** (self-FK, `Restrict` on delete — the API refuses
+to delete an entity with children) · `name` · `slug` · timestamps. A tree:
+`parent_id` null = a top-level ("main") entity; a child always shares its
+parent's tenant. The `/api/v1/brands` endpoints read and write these rows.
 
-Constraints:
-- `uniq_contact_tenant_external_id` — unique `(tenant, external_id)`, partial
-  (only where `external_id != ""`).
-- `uniq_contact_tenant_phone` — unique `(tenant, phone)`, partial (only where
-  `tenant` is set).
+### `auth_user`
+`username` · `password` (Django-format `pbkdf2_sha256$…`, verified by
+`DjangoPasswordHasher`) · `is_active` · `is_superuser` · `last_login`.
 
-### `crm.Record` — the thing the conversation is about
-An order, a shipment, an invoice, a booking, a ticket. **This is the model a
-vertical customises.**
-
-| Field | Type | Notes |
-|---|---|---|
-| `contact` | FK → Contact | `related_name="records"` |
-| `tenant` | FK, null | |
-| `type` | char(16) | `order` \| `shipment` \| `invoice` \| `booking` \| `ticket` \| `custom` — **fixed choices** |
-| `external_id` | char(64), indexed | order #, tracking #, invoice # |
-| `title` | char(190) | |
-| `status` | char(32), default `open` | **free text, your vocabulary** |
-| `amount` | decimal(12,2), null | |
-| `currency` | char(8), default `MYR` | |
-| `due_date` | date, null | delivery ETA / due date / appointment. **Every time trigger is an offset from this** |
-| `data` | JSON dict | line items, addresses, anything. `data["tracking_url"]` → `{{tracking_url}}`; `data["link"]` or `data["url"]` → `{{link}}` |
-| `created_at` / `updated_at` | | ordered by `-updated_at` |
-
-Constraint `uniq_record_tenant_type_external_id` — unique
-`(tenant, type, external_id)`, partial.
-
-`flows.engine.primary_record(contact)` picks the record a flow run and a
-conversation are about: the first record **not** in
-`CLOSED_RECORD_STATUSES = ("closed","done","resolved","cancelled","completed")`,
-else the most recent of any.
-
-### `crm.RecordEvent` — the record's timeline
-`record` FK · `kind` (`status` \| `payment` \| `note` \| `scan`) · `at` ·
-`amount` · `data` · `created_at`. Ordered `-at`.
-
-Written by the sync normalizer on a status/amount change, and by the Shopify /
-Stripe webhook mappers. `integrations.mapping.book_event(dedupe_key=…)` makes
-webhook redelivery idempotent.
-
----
-
-## 3. Conversations
-
-### `crm.ChannelAccount` — a provider account
-One row per WhatsApp number, Facebook page, Instagram account, Telegram bot or
-SMTP mailbox.
-
-| Field | Notes |
+### `crm_profile` (+ `crm_profile_entities`)
+| Column | Notes |
 |---|---|
-| `channel` | `whatsapp` \| `facebook` \| `instagram` \| `telegram` \| `email` |
-| `provider` | `cloud` \| `baileys` (only meaningful for WhatsApp) |
-| `name`, `external_id` | `external_id` = phone_number_id / page id / bot id / from-address |
-| `waba_id` | WhatsApp Business Account id — needed to *list* templates |
-| `access_token`, `app_secret`, `api_version` | Telegram puts the BotFather token in `access_token` |
-| `config` | JSON. Email SMTP lives here; `config["role"]` = `reminder` \| `conversation` |
-| `health_status` | `unknown` \| `healthy` \| `degraded` \| `disconnected` \| `banned` |
-| `health_detail`, `last_ok_at`, `last_inbound_at`, `fail_streak`, `health_changed_at` | |
+| `user_id` | one-to-one → `auth_user` |
+| `role` | a `crm_role.slug` (`superadmin`, `admin`, `agent` or a custom role) |
+| `token` | legacy single token (sessions live in `crm_authtoken`) |
+| `tenant_id` | the user's organization |
+| `contact_id` | nullable → `crm_contact` (`SetNull`): a **customer login** — this user IS that contact |
+| `preferences` | TEXT JSON `{appearance, notifications}`; null = organization defaults |
+| *(legacy)* `resource_id` | still added by `UpgradeSchema`; unused since Service Providers were removed |
 
-> **`whatsapp/health.py` is the only writer of the `health_*` fields.** Every
-> send path, webhook, gateway push and the periodic checker funnels through
-> `set_status`, which fans out one Notification + one AuditLog per real
-> transition. Do not write these fields anywhere else.
+`crm_profile_entities` is the M2M of entities an agent/custom role is assigned
+to (empty for admin/superadmin, whose access is derived).
 
-`healthy` / `degraded` accounts are routable; `disconnected` / `banned` are
-skipped and trigger failover of their assigned contacts.
+### `crm_authtoken`
+`profile_id` · `token` (**unique**) · `created_at`. One row per login session;
+concurrent sessions are allowed.
 
-### `crm.Thread` — one conversation per (channel, counterparty)
+### `crm_role` · `crm_rolepermission`
+`crm_role`: `slug` · `label` · `is_system` · `created_at`.
+`crm_rolepermission`: `role` (slug) · `capability` · `allowed` · `updated_at` —
+the capability matrix. A missing row falls back to the code default; superadmin
+is always allowed in code. Catalog: `docs/RBAC_AND_BRANDS.md`.
 
-| Field | Notes |
+### `crm_apikey`
+`user_id` · `name` · `prefix` (**unique**, `uniq_apikey_prefix`) · `hash`
+(lowercase hex SHA-256 of the secret) · `scopes` (JSON list of capabilities;
+empty = everything the owner holds) · `last_used_at` (refreshed at most once a
+minute) · `expires_at` · `revoked_at` · `created_at`. The token
+`cbk_<prefix>_<secret>` is shown once and never stored.
+
+### `crm_team` · `crm_teammember`
+`crm_team`: `entity_id` (null = org-wide) · `name` · `description` ·
+`auto_assign` · `last_assignee` (round-robin cursor) · timestamps.
+`crm_teammember`: `team_id` · `user_id` · `created_at`.
+
+---
+
+## 2. Contacts and records
+
+### `crm_contact`
+| Column | Notes |
 |---|---|
-| `channel` + `key` | **unique together.** `key` = wa_id digits / email / PSID / IGSID / TG chat id |
+| `name`, `phone` (E.164), `email` | phone is the identity key; the API refuses a second contact whose phone shares the last 8 digits (409) — there is no DB constraint |
+| `language` | `auto` \| `en` \| `ms` \| `zh` — the voice agent opens calls in it |
+| `status`, `method`, `company_name`, `notes` | `notes` renders as `{{situation}}` |
+| `do_not_call` | hard gate on dialling |
+| `external_id` | id in your system of record |
+| `tags` | JSON list — **a write-through cache of the contact's registry tag NAMES** (`TagService`); writing it directly is reconciled into `crm_tagassignment` |
+| `attributes` | JSON dict — custom-field values (`{{cf_<key>}}`); not part of the AI prompt |
+| `preferred_contact_time`, `communication_style`, `sentiment_trend`, `ai_profile_summary` | AI memory (summaries write `ai_profile_summary`) |
+| `tenant_id`, `last_synced_at`, timestamps | |
+
+### `crm_contactentity`
+`contact_id` · `entity_id` · `external_ref` · `created_at`. Which entities a
+contact belongs to (a contact on a sub-entity is visible to its parent).
+
+### `crm_record` — what a conversation is about
+`contact_id` · `tenant_id` · `type` (`order` \| `shipment` \| `invoice` \|
+`booking` \| `ticket` \| `custom`) · `external_id` · `title` · `status` (free
+text; `closed/done/resolved/cancelled/completed` count as closed) · `amount`
+(decimal) · `currency` (default `MYR`) · `due_date` (date) · `data` (JSON —
+`tracking_url` → `{{tracking_url}}`, `link`/`url` → `{{link}}`) · timestamps.
+The "primary record" of a contact is the first open one, else the most recent.
+
+### `crm_recordevent`
+`record_id` · `kind` (`status` \| `payment` \| `note` \| `scan`) · `at` ·
+`amount` · `data` (JSON) · `created_at`. Written by the Shopify/Stripe mappers.
+
+---
+
+## 3. Tags
+
+### `crm_tag`
+| Column | Notes |
+|---|---|
+| `entity_id` | null = organization-wide (inherited by every outlet) |
+| `name`, `slug` | slug is globally unique and immutable (conversation labels store it) |
+| `color` | a palette KEY — `tangerine`/`ink`/`teal`/`plum`/`ochre`/`blue`/`green`/`rose` — never a hex |
+| `description` | |
+| `applies_to` | `contact` \| `entity` \| `conversation` |
+| `group_name` | optional exclusivity group ("" = none): one tag per group per target |
+| `attributes` | JSON list of field defs `{key, label, type (text\|number\|date\|select\|boolean\|phone\|email), options, required}` |
+| `position`, timestamps | |
+
+### `crm_tagassignment`
+`tag_id` · `target_type` (`contact` \| `entity`) · `target_id` · `values`
+(JSON attribute values) · `created_by` · `created_at`. **Unique**
+`(tag_id, target_type, target_id)` (`uniq_tag_assignment`). Conversation tags
+are NOT assignments — they stay on `crm_thread.labels` as slugs. Attribute
+values render as `{{tag_<slug_with_underscores>_<key>}}`.
+
+All rules (group exclusivity, attribute validation, the `crm_contact.tags`
+cache) live in `ChatBranch.Data/Tags/TagService.cs`.
+
+---
+
+## 4. Conversations
+
+### `crm_channelaccount` — an inbox
+| Column | Notes |
+|---|---|
+| `entity_id` | null = org-wide. **Decides which outlet a conversation belongs to** |
+| `channel` | `whatsapp` \| `facebook` \| `instagram` \| `telegram` \| `email` \| `website` |
+| `provider` | `cloud` \| `baileys` (WhatsApp) |
+| `name`, `external_id` | external_id = phone_number_id / page id / bot id / from-address / the widget's PUBLIC token / the Baileys gateway account key |
+| `waba_id`, `access_token`, `app_secret`, `api_version`, `owner` | secrets never leave the API unmasked |
+| `config` | JSON: `role` (`reminder`\|`conversation`), delivery (`quiet_start`, `quiet_end`, `quiet_schedule`, `queue_min_gap_s`, `queue_max_gap_s`, `llm_provider`, `stt_provider`), inbox ("who answers it": `team_id`, `ai_default`, `ai_review_mode`, any AI-behaviour override), email SMTP creds, widget look |
+| `health_status` | `unknown` \| `healthy` \| `degraded` \| `disconnected` \| `banned` — written only by `AccountHealth.SetStatus` |
+| `health_detail`, `last_ok_at`, `last_inbound_at`, `fail_streak`, `health_changed_at`, `created_at` | |
+
+### `crm_thread` — one conversation per `(channel, key)`
+| Column | Notes |
+|---|---|
+| `channel` + `key` | **unique** (`uniq_thread_channel_key`); key = wa_id digits / email / PSID / IGSID / TG chat id / widget session |
 | `address`, `name` | |
-| `status` | `open` \| `pending` \| `snoozed` \| `resolved` |
-| `assignee`, `labels` | |
-| `contact` | FK, null — the CRM join. **Auto-replies only fire on linked threads** |
-| `account` | FK → ChannelAccount, null |
-| `ai_enabled` | the account-less/sandbox fallback |
-| `ai_overrides` | JSON `{account_pk: bool}` — **the real per-chat Chatbot tick, per sending account** |
-| `opted_out` | STOP/UNSUBSCRIBE/BERHENTI seen; blocks AI + templates |
+| `status` | `open` \| `pending` \| `snoozed` \| `resolved` (an inbound message reopens resolved/snoozed) |
+| `assignee`, `team_id` | two-level assignment; `team_id` → `crm_team` (`SetNull` on delete) |
+| `labels` | JSON list of conversation-tag slugs |
+| `contact_id` | the CRM link. **AI auto-replies only fire on linked threads** |
+| `account_id` | current sending account |
+| `entity_id` | denormalized attribution, re-synced by `ScopingService.SyncThreadEntity` |
+| `ai_enabled` | the account-less fallback tick — and what the inbound coverage gate reads |
+| `ai_overrides` | JSON `{account_pk: bool}` — the per-sending-account Chatbot tick |
+| `opted_out` | blocks AI, templates and calls |
 | `call_permission`, `call_id`, `call_status`, `call_room` | WhatsApp voice-call state |
+| `created_at`, `updated_at` | **`updated_at` + message count is the SSE change token** — bump it on every write |
 
-The `/chats` SSE change token watches `Thread.updated_at` + message count — any
-write path using a queryset `.update()` must also bump `updated_at` or the
-dashboard will not refresh.
+### `crm_message`
+`thread_id` · `account_id` (which number carried it) · `external_id` (wamid /
+mid / tg id) · `direction` (`in`\|`out`) · `source` (`customer`\|`agent`\|`ai`\|
+`system`) · `private` (internal note) · `text` · `status`
+(`sent`/`delivered`/`read`/`received`/`sandbox`/`failed`) · `media_type` ·
+`media_path` · `created_at` (provider timestamp for inbound). **Unique**
+`(thread_id, external_id)` where `external_id <> ''`
+(`uniq_message_thread_external_id`) — the webhook-redelivery guarantee.
 
-### `crm.Message`
+### `crm_accountassignment`
+`contact_id` · `channel` · `account_id` · `pinned` · timestamps. **Unique**
+`(contact_id, channel)`. Sticky contact → account routing; rebalance moves
+unpinned rows.
 
-| Field | Notes |
-|---|---|
-| `thread` | FK |
-| `account` | FK, null — **which number carried this message**, denormalized at write time so attribution survives later account switches |
-| `external_id` | wamid / mid / SMTP Message-ID / TG id |
-| `direction` | `in` \| `out` |
-| `source` | `customer` \| `agent` \| `ai` \| `system` (see the naming note above) |
-| `private` | agent-only note, never sent |
-| `text`, `status` | status: `sent`/`delivered`/`read`/`received`/`sandbox`/`failed` |
-| `media_type`, `media_path` | served auth-gated via `/api/whatsapp/media/<pk>` or `/api/messaging/media/<pk>` |
-| `created_at` | ordered ascending |
-
-Constraint `uniq_message_thread_external_id` — unique `(thread, external_id)`,
-partial (`external_id != ""`). **This is the webhook-redelivery idempotency
-guarantee.**
-
-### `crm.AccountAssignment` — sticky contact→account routing
-`contact` FK · `channel` · `account` FK · `pinned` · timestamps.
-**unique together** `(contact, channel)`.
-
-Auto-created by `whatsapp/routing.py` (least-loaded healthy account) on first
-outreach. `pinned` marks an operator's explicit choice: rebalancing skips pinned
-rows, but **failover overrides even a pin** — a dead account must never block
-follow-up.
-
-### `crm.CannedResponse` / `crm.ScriptTemplate`
-Both are named, reusable text with `{{variable}}` placeholders rendered from the
-CRM at send time. `CannedResponse.short_code` (unique) is what the composer's
-`/short_code` picker inserts on every channel. `ScriptTemplate` is for one-way
-"dial, read verbatim, hang up" calls.
+### `crm_savedview`
+`user_id` · `scope` (`chats` today) · `name` · `filters` (the posted filter
+object, JSON text) · `position` · `created_at`. Strictly per user — the inbox's
+saved filter tabs.
 
 ---
 
-## 4. AI configuration
+## 5. Libraries (entity-scoped, `entity_id` null = org-wide)
 
-### `crm.KnowledgeItem`
-Operator-authored knowledge, retrieved by `aicore/knowledge.py` into a bounded
-`COMPANY KNOWLEDGE` prompt block.
+Each has a pair of partial unique indexes: unique per `(key, entity_id)` where
+`entity_id IS NOT NULL`, and unique per key where `entity_id IS NULL`.
 
-| Field | Notes |
+### `crm_cannedresponse` — quick replies
+`entity_id` · `short_code` (the unique key) · `content` · **`channels`** (JSON
+list of thread channel ids; empty = every channel) · `created_by` ·
+`created_at` · **`updated_at`** (null on old rows).
+
+### `crm_scripttemplate`
+`entity_id` · `name` (the unique key) · `content` · `created_by` · timestamps.
+The text a one-way "Script call" reads verbatim.
+
+### `crm_knowledgeitem`
+`tenant_id` · `entity_id` · `kind` (`fact`\|`policy`\|`faq`\|`event`\|`notice`) ·
+`title` · `question` · `content` · `tags` (JSON) · `channels` (JSON; empty =
+all) · `priority` · **`published`** (public on `/help`) · **`slug`** ·
+**`category`** · `active` (the AI may use it) · `starts_at` / `ends_at`
+(self-expiry) · `created_by` · timestamps.
+
+### `crm_agentskill`
+| Column | Notes |
 |---|---|
-| `tenant`, `brand` | `brand=null` = every brand. Brand scoping stops one brand's private notice leaking into another's conversation |
-| `kind` | `fact` \| `policy` \| `faq` \| `event` \| `notice` — decides the retrieval tier |
-| `title`, `question`, `content` | `question` is the FAQ's *asked* form |
-| `tags` | JSON list — keyword matching hints |
-| `channels` | JSON list, `[]` = every channel |
-| `priority` | int, ties broken high-first |
-| `active` | |
-| `starts_at` / `ends_at` | null = always live. **This is what makes a "sudden notice" self-expire** |
-| `created_by`, timestamps | |
+| `entity_id`, `skill_id` (the unique key), `name`, `use_when`, `instructions`, `position` | the original prompt-skill fields |
+| **`kind`** | `prompt` (default) \| `tool` (JS `run(args, ctx)`) \| `check` (JS `check(reply, ctx)`) |
+| **`description`** | what the operator described, in their words |
+| **`code`** | JavaScript for tool/check skills (Jint sandbox) |
+| **`parameters`** | JSON-schema text of a tool's arguments |
+| **`tests`** | JSON-array text of test cases |
+| **`enabled`** | default 1 |
+| **`channels`** | JSON list; empty = every channel |
+| **`on_fail`** | check skills: `retry` (default) \| `handover` \| `block` |
+| **`updated_at`** | |
 
-Ordered `-priority, -updated_at`; index on `(kind, active)`.
+`GET/PUT /api/aicore/skills` is the only writer.
 
-Retrieval is **keyword + recency + priority — no embeddings**, the same
-deliberate choice as `aicore/memory.py`. Tiers: all live `notice` → all live
-`event` → all live `fact` → top-4 keyword-matched `faq`/`policy`. Hard budget
-1800 chars, per-item truncation labelled. Zero keyword hits contributes nothing
-rather than padding.
+### `crm_workflow`
+`entity_id` · `flow_id` (the unique key, `wf-…`) · `name` · `hint` · `nodes` /
+`edges` (JSON — React Flow, stored verbatim) · `active` · **`live_since`** (when
+it last went live; "Contact created"/"Scheduled" triggers only act after it) ·
+`position` · `updated_by` · timestamps.
 
-### `crm.AgentSkill`
-`skill_id` (unique) · `name` · `use_when` · `instructions` · `position`.
+### `crm_automationrule`
+`entity_id` · `name` · `description` · `event` (`conversation_created` \|
+`message_created` \| `status_changed` \| `assigned`) · `active` · `position` ·
+`conditions` / `actions` (JSON) · `times_fired` · `last_fired_at` · timestamps.
 
-> ⚠ **`GET/PUT /api/aicore/skills` is the sole writer.** `PUT
-> /api/flows/library` used to upsert *and prune* these rows, so a stale
-> flow-builder tab could silently delete a skill an operator had just typed. The
-> library PUT now ignores the `agentSkills` it still receives, and the builder's
-> skill sidebar is read-only. Do not add a second writer.
+---
 
-### `crm.ConversationSummary` — AI memory
-`contact` FK · `source` (`chat` \| `call`) · `channel` · `ref` (thread key /
-call id) · `summary` · `facts` (JSON list) · `sentiment` · `created_at`.
+## 6. Flows and the outbound queue
 
-Generated after calls and after idle chats. Durable facts are written back onto
-the `Contact` (`preferred_contact_time`, `communication_style`,
-`sentiment_trend`, `ai_profile_summary`).
+### `crm_flowrun`
+`workflow_id` · `contact_id` · `trigger_key` · `status` (`running` \|
+`waiting` \| `done` \| `failed` \| `cancelled`) · `current_node` · `wait_until`
+· `wait_for` (`''` \| `reply` \| `record`) · `context` (JSON; deliveries,
+integration results) · `log` (JSON) · `started_at` · `updated_at` ·
+`finished_at` · **`detail`** (why it ended: the End step's outcome, "end of
+path", or the failure reason).
 
-### `crm.LlmUsage` — LLM usage ledger (billing)
+### `crm_flowstepevent`
+`workflow_id` (the builder's `flow_id` string) · `run_id` · `contact_id` ·
+`node_id` · `kind` (`entered` \| `completed` \| `waiting` \| `failed` \|
+`skipped` \| `followup`) · `detail` · `at` · `day` (yyyy-MM-dd in the org's
+timezone). Indexes `(workflow_id, day)` and `(run_id)`. Append-only; read by
+`/api/flows/{flowId}/stats`, `/api/flows/runs` and `/api/analytics/flows`.
+
+### `crm_outboundjob`
+`channel` · `kind` (`text` \| `template` \| `ai_reply` \| `call`) · `contact_id`
+· `to_address` · `payload` (JSON: `source` ai\|flow\|system, `humanize`,
+`draft_id`, `account_id` pin, call `{transport, script, voice_provider, voice,
+extra}` …) · `account_id` · `flow_run_id` · `flow_node` · `status` (`queued` \|
+`sending` (claimed) \| `sent` \| `failed` \| `cancelled` \| `held` (AI message
+waiting in the monitor)) · `attempts` · `not_before` · `last_error` ·
+`sent_message_id` · timestamps · `sent_at`. For calls, `sent` means DIALLED.
+
+---
+
+## 7. AI
+
+### `crm_aidraft` — the AI monitor
+`thread_id` · `thread_key` (`<channel>:<key>`) · `channel` · `contact_id` ·
+`entity_id` · `account_id` · `kind` (`reply` \| `follow_up` \| `flow_message`) ·
+`content` · `original_content` (the AI's text when a person edited it) ·
+`context` (JSON: the messages answered, tools, checks, model, tokens, why held)
+· `status` (`pending` \| `approved` \| `edited` \| `rejected` \| `sent` \|
+`auto_sent` \| `expired` \| `failed` \| `shadow`) · `hold_reason` ·
+`decided_by` / `decided_at` · `reject_reason` · `send_after` (auto-send
+deadline) · `created_at` · `sent_at` · `sent_message_id` · `error` ·
+`updated_at`. Indexes `(status, created_at)`, `(thread_id)`. One row for EVERY
+AI-written outbound, sent or held.
+
+### `crm_aiconversationstate` — follow-up bookkeeping
+`thread_id` (**unique**) · `follow_ups_sent` · `last_follow_up_at` ·
+`next_follow_up_at` · `anchor_message_id` (the inbound the count belongs to) ·
+`note` (why follow-ups stopped/postponed) · `updated_at`.
+
+### `crm_conversationsummary`
+`contact_id` · `source` (`chat`\|`call`) · `channel` · `ref` (thread key / call
+id) · `summary` · `facts` (JSON) · `sentiment` · `created_at`. On-demand case
+summaries.
+
+### `crm_llmusage` — metering ledger
 `feature` (`chat_reply` \| `summary` \| `timeline` \| `playground` \|
-`voice_call`) · `provider` · `model` · `channel` · `contact` FK ·
-`ref` (thread key / room / phone) · `prompt_tokens` · `completion_tokens` ·
-`audio_prompt_tokens` / `audio_completion_tokens` (realtime voice bills audio
-separately) · `detail` (JSON) · `created_at` (indexed).
+`voice_call` …) · `provider` · `model` · `channel` · `contact_id` · `ref` ·
+`prompt_tokens` · `completion_tokens` · `audio_prompt_tokens` ·
+`audio_completion_tokens` · `detail` (JSON) · `created_at`. Costs are NOT
+stored — estimated at read time from Setting `llm_prices`.
 
-Written ONLY by `aicore/usage.py record()` (exception-safe — never breaks a
-reply/call path), from every LLM call site: chat replies incl. tool-loop
-rounds, memory/timeline summaries, the playground, and voice calls (the
-Django-free agent accumulates tokens from LiveKit metrics and ships them via
-the live store; `wa_calls.save_call_transcript` folds them in). Costs are NOT
-stored — they are estimated at read time from Setting `llm_prices` (JSON,
-USD per 1M tokens) over `usage.PRICES_DEFAULT`, surfaced at
-`GET /api/analytics/usage` and the Analytics page's "AI usage" card.
+### `crm_callrecord`
+`call_id` (**unique**) · `contact_id` · `phone` · `name` · `started_at` /
+`ended_at` (strings from the agent) · `transcript` · `summary` · `outcome` ·
+`followup_date` · `needs_human`. Folded in from the voice agent's `calls.json`
+by `VoiceCallSync`.
 
-### `crm.PendingToolAction` — AI tool double-confirmation
-`contact` FK · `channel` · `tool` · `fingerprint` (canonical JSON of the args,
-minus the `confirmed` flag) · `session` (the reply-generation round that asked)
-· `asked_at`. Unique on (`contact`, `channel`, `tool`).
-
-The enforcement state behind `aicore/tools.py`'s double-confirm gate for
-state-changing tools (`_MUTATING`, e.g. `book_appointment`): the model's first
-call records a row and is refused with "ask the customer"; only a confirmed
-re-call from a LATER reply round with the same fingerprint executes, and the
-execution CONSUMES the row (atomic delete — a replayed confirm re-asks instead
-of double-firing). Rows expire after 30 minutes (`_CONFIRM_TTL_S`), pruned
-opportunistically on each gate pass. Written only by `aicore/tools.py`.
-
-### `crm.Setting` — runtime config
-`key` (unique) · `value` (text) · `updated_at`.
-
-A row overrides the matching `backend/.env` default; blanking it falls back to
-env. Notable keys: `aicore_persona`, `voice_twilio_settings`,
-`integrations_settings`, the business variables (`business_name`, `agent_name`,
-`support_number`, `support_email`, `website`), the queue knobs
-(`queue_min_gap_s`, `queue_max_gap_s`, `queue_daily_cap`, `queue_active_cap`,
-`queue_active_window_h`, `queue_call_gap_s`, `queue_call_daily_cap`), the
-routing rules (`ai_reply_mode`, `business_redirect`, `recovery_mode`,
-`cold_text_guard`), and `notif_<category>`.
-
-Read these through their accessor functions (`wa_config.*`, `catalog.settings()`,
-`health.voice_settings()`, `persona.persona_text()`) — never re-add module-level
-constants, or dashboard edits will need a restart.
+### `crm_pendingtoolaction` *(legacy)*
+`contact_id` · `channel` · `tool` · `fingerprint` · `session` · `asked_at`;
+unique `(contact_id, channel, tool)`. The Django tool double-confirm state —
+mapped but unused by the C# AI (only cleaned up on contact delete).
 
 ---
 
-## 5. Automation
+## 8. Platform
 
-### `crm.Workflow`
-`flow_id` (unique, builder id `wf-…`) · `name` · `hint` · `nodes` (JSON) ·
-`edges` (JSON) · `active` · `position` · `updated_by` · timestamps.
+### `crm_auditlog` — the activity log
+| Column | Notes |
+|---|---|
+| `user_id`, `actor` | username \| `system` \| `webhook` … |
+| `action`, `target`, `detail`, `ip`, `created_at` | e.g. `login`, `settings.update`, `account.health` (`"prev → next — reason"`), `ai.draft.approve`, `api_key.create` |
+| **`source`** | `user` \| `api` \| `mcp` \| `assistant` \| `automation` \| `flow` \| `webhook` \| `system` |
+| **`entity_id`** | the outlet, no FK on purpose (the trail outlives a deleted entity) |
+| **`method`**, **`path`**, **`status`**, **`user_agent`**, **`request_id`** | request provenance (never the query string) |
 
-The React Flow JSON is stored **verbatim**. The builder is the only writer;
-`flows/engine.py` is the only interpreter. Only `active` workflows execute.
+Stamped automatically from the ambient `AuditContext` by an EF interceptor.
 
-> ⚠ `PUT /api/flows/library` **prunes** server-side workflows missing from the
-> browser's copy. After creating a Workflow row outside the UI, refresh
-> `/flow-builder` before its next sync.
+### `crm_notification`
+`user_id` · `kind` (`message` \| `call` \| `system`) · `title` · `body` ·
+`link` · `read` · `created_at` · **`category`** (`messages` \| `account_health`
+\| `flows` \| `admin` \| `system`; "" on old rows = derived from kind) ·
+**`ref_key`** (collapse key, e.g. `thread:<id>` — at most one UNREAD row per key
+per user). Written only by `NotificationService`.
 
-### `crm.FlowRun`
-`workflow` FK · `contact` FK(null) · `trigger_key` · `status`
-(`running` \| `waiting` \| `done` \| `failed` \| `cancelled`) · `current_node` ·
-`wait_until` · `wait_for` (`''` \| `reply` \| `payment`) · `context` (JSON) ·
-`log` (JSON) · timestamps.
+### `crm_assistantaction`
+`id` (TEXT, opaque `act_…`) · `user_id` · `tool` · `args` (JSON text, exactly
+as it will run) · `summary` · `status` (`pending` \| `done` \| `failed` \|
+`cancelled` \| `expired`) · `result` · `created_at` · `expires_at` (15 min) ·
+`decided_at`. The operator assistant's confirm-before-write queue.
 
-`context["deliveries"]` records what was sent; `context["integrations"]` keeps
-the last 20 integration-action results.
+### `crm_setting` — runtime configuration
+`entity_id` (null = organization-wide) · `key` · `value` (text) · `updated_at`.
+Two partial unique indexes: one global row per key (`uniq_setting_key_global`)
+and one override per `(key, entity_id)` (`uniq_setting_key_entity`). Only keys in
+`ScopingService.EntityScopedSettings` may carry an entity override. Read through
+`ScopingService.SettingValue` — a raw read must say `entity_id IS NULL`.
 
-### `crm.OutboundJob` — the pacing queue
-`channel` · `kind` (`text` \| `template` \| `ai_reply` \| `call`) · `contact` FK ·
-`to_address` · `payload` (JSON) · `account` FK(null) · `flow_run` FK(null) ·
-`flow_node` · `status` (`queued` \| `sent` \| `failed` \| `cancelled`) ·
-`attempts` · `not_before` · `last_error` · `sent_message` FK(null) ·
-`created_at` / `updated_at` / `sent_at`.
+Notable keys:
 
-Drained by `flows/queue.py` with human-like jitter, per-account gaps, daily caps
-and an active-conversation cap. **The account is resolved at send time** via
-routing + health failover, not at enqueue time. A job may pin its account with
-`payload["account_id"]`. For `kind="call"`, `sent` means **dialled**, not
-completed; a busy number is a *wait*, never a failure.
+| Group | Keys |
+|---|---|
+| AI providers | `openrouter_api_key`, `openai_api_key`, `google_api_key`, `ilmu_api_key`, `elevenlabs_api_key`, `local_base_url`, `local_api_key`, `chat_model`, `chat_provider_pref` (mirrored to `chat_provider`), `chat_provider_order`, `llm_prices` |
+| AI content | `aicore_persona`, `org_timezone` (built-in date tools), `booking_hours` |
+| AI monitor + behaviour | `ai_review_mode`, `ai_review_autosend_minutes`, `ai_review_first_n`, `ai_review_keywords`, `ai_review_notify`, `ai_wait_seconds`, `ai_wait_max_seconds`, `ai_typing*`, `ai_split*`, `ai_ack_skip`, `ai_ack_text`, `ai_followup*` |
+| Queue + routing | `quiet_start`, `quiet_end`, `queue_min_gap_s`, `queue_max_gap_s`, `queue_daily_cap`, `queue_active_cap`, `queue_active_window_h`, `queue_call_gap_s`, `queue_call_daily_cap`, `ai_reply_mode`, `reminder_ai_default`, `business_redirect*`, `recovery_mode`, `recovery_template`, `cold_text_guard`, `cold_call_guard`, `flow_call_voice` |
+| Channels | `whatsapp_verify_token` (+ legacy `verify_token`), `whatsapp_custom_templates`, `whatsapp_template_bindings`, `voice_twilio_settings`, `baileys_url`, `baileys_secret`, SMTP defaults |
+| Organization | `custom_fields` (seeded `{"customer":[]}`), `appearance_default`, `notif_<category>`, `timezone` (flow statistics' day boundary), business variables (`business_name`, `agent_name`, `support_number`, `support_email`, `website`) |
+| Integrations + MCP | `integrations_settings` (one JSON row: Google client, webhook secrets), `oauth_state_secret`, `mcp_servers` |
+| Voice | `pronunciation_terms` |
+| Markers | `tags_registry_v1` (one-time tag-registry bootstrap) |
 
-### `crm.CallRecord`
-`call_id` (unique) · `contact` FK(null) · `phone` · `name` · `started_at` /
-`ended_at` (strings) · `transcript` · `summary` · `outcome` · `followup_date` ·
-`needs_human`.
-
-The voice agent process runs **without Django** and writes
-`backend/data/calls.json`; `seed_demo` / the timeline sync mirror those records
-into this table for querying and admin.
-
----
-
-## 6. External sync (`ingest`)
-
-### `DataSource`
-`tenant` FK · `brand` FK(null) · `name` · `api_key_hash` (indexed) ·
-`is_active` · timestamps. **unique together** `(tenant, name)`.
-
-Only a **hash** of the `X-API-Key` is stored; inbound keys are hashed and
-compared in constant time. Create one with `manage.py create_data_source`.
-
-### `SyncBatch`
-One row per push. `tenant` · `data_source` · `source_timestamp` ·
-`active_record_count` · `status` (`received` \| `processing` \| `completed` \|
-`partial` \| `failed`) · `rows_received` / `rows_upserted` / `rows_failed` ·
-`error_detail` · `started_at` / `finished_at` / `created_at`.
-
-Constraint `uniq_syncbatch_source_ts` — unique `(data_source, source_timestamp)`,
-partial. **Replaying the same payload is a no-op.**
-
-### `RecordSyncStaging`
-Immutable raw landing zone, one row per record in the payload. `tenant` ·
-`sync_batch` · `record_external_id` (indexed) · `raw_payload` (JSON) ·
-`processed` · `process_error` · `processed_at` · `attempts` · `dead_lettered` ·
-`created_at`.
-
-Indexes: `(tenant, record_external_id)`, plus the partial
-`idx_staging_unprocessed` on `processed = False` for worker pickup.
-
-Each row normalizes in its own savepoint, so one bad row never poisons a batch.
-Three failed attempts dead-letter the row until `manage.py replay_batch` resets
-it. Old staging rows are dropped by `manage.py purge_staging`.
-
-Payload shape and match order are documented in
-`backend/ingest/normalizer.py`'s module docstring — that is the contract, and it
-is worth reading before you write an exporter.
+### `integrations_integration`
+`entity_id` · **`owner_user_id`** (null = a shared connection; `SetNull` when
+the login is deleted) · `provider` (`google_calendar` \| `google_drive` \|
+`gmail` \| `google_sheets` \| `shopify` \| `stripe`) · `status` (`unknown` \|
+`connected` \| `disconnected` \| `revoked`) · `status_detail` · `credentials`
+(JSON, **never leaves the server unmasked**) · `config` (JSON) · **`scopes`**
+(JSON, what Google actually granted) · timestamps.
 
 ---
 
-## 7. Integrations
+## Legacy tables
 
-### `integrations.Integration`
-`ChannelAccount`'s twin for third parties.
-
-`tenant` FK(null) · `provider` (`google_calendar` \| `google_drive` \| `gmail` \|
-`google_sheets` \| `shopify` \| `stripe`) · `name` · `external_id` ·
-`credentials` (JSON) · `scopes` (JSON) · `config` (JSON) · `status`
-(`unknown` \| `healthy` \| `degraded` \| `disconnected` \| `revoked`) ·
-`status_detail` · `last_ok_at` · `status_changed_at` · `created_by` ·
-timestamps. `.connected` = has an access token or an API key.
-
-> **`credentials` never leaves the server unmasked.** The API emits only
-> `api_key_masked` / `webhook_secret_masked` (`••••1234`) and
-> `has_refresh_token`; access and refresh tokens have no API representation at
-> all. A value containing `••` on the way in is treated as an untouched
-> round-trip. `integrations/health.py set_status` is the only writer of
-> `status`. Nothing sensitive is logged — not tokens, not provider bodies.
+A database first created by the Django backend can still contain tables the C#
+context does not map — the Service Provider tables (`Resource` /
+`ResourceLink`), brand/`ContactBrand` tables and the old `ingest` sync staging
+tables (data sources, batches, staging rows). The C# API never reads or writes
+them; they are safe to leave in place.
 
 ---
 
 ## Isolation, and what it does not do
 
-- **Tenant isolation is application-layer only.** Every scoped queryset filters
-  by tenant; there is no database-level enforcement. A forgotten filter is a
-  cross-tenant data leak. If you move to Postgres, adding RLS policies on
-  `tenant_id` is the obvious defence in depth — nobody has done it.
-- **Several operational tables are not tenanted at all** (see the note at the
-  top). A single-tenant deployment is the well-tested path.
+- **Tenant and entity isolation is application-layer only.** Queries filter by
+  tenant and by entity subtree (`ScopingService`); SQLite has no row-level
+  security. A forgotten filter is a data leak.
 - **There is no PII vault, no column encryption and no PII access log.**
-  Contact names, phones, emails, message bodies, call transcripts and call
-  recordings are stored in plain text in the database and under `backend/data/`.
-  `backend/data/` is gitignored for that reason. Whatever regulation applies to
-  you (PDPA, GDPR, …) — consent capture, retention windows, right-to-erasure and
-  recording consent are **yours to add**.
-- **Retention is mostly manual.** WhatsApp call logs self-prune after 14 days
-  and `purge_staging` handles sync staging; transcripts, recordings, messages,
-  audit rows and notifications grow without bound.
+  Contact details, message bodies, call transcripts and recordings are stored in
+  plain text in the database and under the data dir (`backend/data/` is
+  gitignored for that reason). Consent capture, retention windows,
+  right-to-erasure and recording consent are **yours to add**.
+- **Retention is manual.** Messages, AI drafts, flow step events, audit rows,
+  notifications and LLM usage grow without bound.
