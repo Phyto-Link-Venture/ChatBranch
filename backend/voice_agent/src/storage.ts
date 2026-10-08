@@ -13,7 +13,7 @@
  * Writes are atomic (temp file + rename) so a reader never sees half a file.
  */
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import * as config from './config.js';
 
@@ -94,6 +94,17 @@ export function saveLive(
   if (final.endedBy) payload.ended_by = final.endedBy;
   if (final.llmUsage) payload.llm_usage = final.llmUsage;
   writeAtomic(livePath(callId), JSON.stringify(payload));
+}
+
+/**
+ * The API drops this marker (live/{room}.operator-end) right before an
+ * operator's End button deletes the room, so the caller-disconnect that
+ * follows is recorded as the operator's hang-up, not the contact's.
+ */
+const operatorEndPath = (callId: string): string => dataPath('live', `${safeName(callId)}.operator-end`);
+
+export function operatorEnded(callId: string): boolean {
+  return existsSync(operatorEndPath(callId));
 }
 
 export function getLive(callId: string): LivePayload | null {

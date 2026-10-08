@@ -364,6 +364,8 @@ public static class CallsVoiceEndpoints
                 return Results.Json(new { ok = false, room, queued = "guide", detail = reason }, statusCode: 503);
             }
 
+            try { bridge.MarkOperatorEnd(room); }
+            catch { /* provenance only — never block the hang-up on it */ }
             var dropped = await livekit.DeleteRoomAsync(room, ct);
             // 404: the room is already gone — the call has ended either way.
             if (!dropped.Ok && dropped.Status != 404)

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
+import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { HealthBadge, RoleChip, accountRole } from '@/components/ui/Badges'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import { relTime } from '@/lib/channelHealth'
@@ -228,7 +229,8 @@ export function AssignmentsSettings() {
             const share = total ? Math.round((rows.length / total) * 100) : 0
             return (
               <div key={a.id} className="flex flex-col gap-3 rounded-xl border border-line bg-card p-4">
-                <div className="flex items-start gap-2">
+                <div className="flex items-start gap-2.5">
+                  <ChannelLogo channel={a.provider === 'baileys' ? 'baileys' : channel} size={32} variant="tile" title="" />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[14px] font-bold text-text-heading">{a.name}</div>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
