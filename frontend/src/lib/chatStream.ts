@@ -91,13 +91,28 @@ async function run() {
   if (listeners.size) void run()
 }
 
+// Grace period before the last unsubscribe closes the connection. Pages
+// mount and unmount their subscribers on navigation (and effects re-run when
+// their deps change); closing on every momentary zero dropped the stream and
+// showed "reconnecting" for a whole retry interval on each page load.
+const CLOSE_GRACE_MS = 2000
+let closeTimer: ReturnType<typeof setTimeout> | null = null
+
 /** Subscribe to inbox change events. Returns the unsubscribe function. */
 export function subscribeChatStream(listener: Listener): () => void {
   listeners.add(listener)
+  if (closeTimer) {
+    clearTimeout(closeTimer)
+    closeTimer = null
+  }
   if (!running) void run()
   return () => {
     listeners.delete(listener)
-    if (!listeners.size) ctrl?.abort()
+    if (listeners.size || closeTimer) return
+    closeTimer = setTimeout(() => {
+      closeTimer = null
+      if (!listeners.size) ctrl?.abort()
+    }, CLOSE_GRACE_MS)
   }
 }
 
