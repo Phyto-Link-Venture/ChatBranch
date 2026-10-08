@@ -131,6 +131,7 @@ public static class WidgetAdminEndpoints
             // Conversations stay: they are history, and deleting a widget must
             // not erase what customers said through it.
             var convos = await db.Threads.CountAsync(t => t.AccountId == row.Id);
+            await InboxSettings.DetachAccountAsync(db, row.Id);
             db.ChannelAccounts.Remove(row);
             db.AuditLogs.Add(new AuditLog
             {

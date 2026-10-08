@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using ChatBranch.Domain;
 
 namespace ChatBranch.Data.Channels;
@@ -83,6 +84,22 @@ public static class InboxSettings
         }
         account.Config = cfg;
         return null;
+    }
+
+    /// <summary>
+    /// Unlink everything that points at an account before it is deleted, so
+    /// its conversations SURVIVE the inbox (back in sandbox) instead of the
+    /// delete failing on a foreign key — the schema has no ON DELETE clauses.
+    /// </summary>
+    public static async Task DetachAccountAsync(AppDbContext db, int accountId)
+    {
+        await db.Threads.Where(t => t.AccountId == accountId)
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.AccountId, (int?)null));
+        await db.Messages.Where(m => m.AccountId == accountId)
+            .ExecuteUpdateAsync(s => s.SetProperty(m => m.AccountId, (int?)null));
+        await db.OutboundJobs.Where(j => j.AccountId == accountId)
+            .ExecuteUpdateAsync(s => s.SetProperty(j => j.AccountId, (int?)null));
+        await db.AccountAssignments.Where(a => a.AccountId == accountId).ExecuteDeleteAsync();
     }
 
     /// <summary>

@@ -214,6 +214,16 @@ public class TemplatesChannelsTests : IClassFixture<ApiFactory>
         var after = await cleared.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(JsonValueKind.Null, after.GetProperty("team_id").ValueKind);
         Assert.Equal("", after.GetProperty("ai_default").GetString());
+
+        // deleting the inbox keeps its conversation (unlinked, not a FK failure)
+        var del = await admin.DeleteAsync($"/api/widgets/{id}");
+        del.EnsureSuccessStatusCode();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var thread = await db.Threads.AsNoTracking().FirstAsync(t => t.Channel == "website" && t.Key == key);
+            Assert.Null(thread.AccountId);
+        }
     }
 
     [Fact]

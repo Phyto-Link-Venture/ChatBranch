@@ -923,6 +923,8 @@ public static class VoiceMessagingEndpoints
             if (account == null)
                 return Results.Json(new { detail = "Account not found." }, statusCode: 404);
             var label = $"{account.Channel}:{account.Name}";
+            // conversations stay (back in sandbox) — unlink them first
+            await ChatBranch.Data.Channels.InboxSettings.DetachAccountAsync(db, account.Id);
             db.ChannelAccounts.Remove(account);
             await db.SaveChangesAsync();
             Audit(db, me, ctx, "account.delete", label, "");
