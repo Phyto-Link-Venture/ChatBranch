@@ -380,7 +380,8 @@ Notable keys:
 
 | Group | Keys |
 |---|---|
-| AI providers | `openrouter_api_key`, `openai_api_key`, `google_api_key`, `ilmu_api_key`, `elevenlabs_api_key`, `local_base_url`, `local_api_key`, `chat_model`, `chat_provider_pref` (mirrored to `chat_provider`), `chat_provider_order`, `llm_prices` |
+| AI providers | `openrouter_api_key`, `openai_api_key`, `google_api_key`, `ilmu_api_key` (+ optional `ilmu_base_url`, `ilmu_chat_model`), `elevenlabs_api_key`, `local_base_url`, `local_api_key`, `chat_model`, `chat_provider_pref` (mirrored to `chat_provider`), `chat_provider_order`, `llm_prices` |
+| Compliance | `opt_out_keywords`, `opt_in_keywords` (org-wide JSON lists that ADD to STOP/UNSUBSCRIBE/BERHENTI and START/UNSTOP/MULA) |
 | AI content | `aicore_persona`, `org_timezone` (built-in date tools), `booking_hours` |
 | AI monitor + behaviour | `ai_review_mode`, `ai_review_autosend_minutes`, `ai_review_first_n`, `ai_review_keywords`, `ai_review_notify`, `ai_wait_seconds`, `ai_wait_max_seconds`, `ai_typing*`, `ai_split*`, `ai_ack_skip`, `ai_ack_text`, `ai_followup*` |
 | Queue + routing | `quiet_start`, `quiet_end`, `queue_min_gap_s`, `queue_max_gap_s`, `queue_daily_cap`, `queue_active_cap`, `queue_active_window_h`, `queue_call_gap_s`, `queue_call_daily_cap`, `ai_reply_mode`, `reminder_ai_default`, `business_redirect*`, `recovery_mode`, `recovery_template`, `cold_text_guard`, `cold_call_guard`, `flow_call_voice` |

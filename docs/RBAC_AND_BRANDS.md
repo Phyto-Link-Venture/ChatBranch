@@ -148,12 +148,16 @@ logged with source `api` / `mcp`.
 - **superadmin** — any user, any role, any tenant (`tenant` slug on create).
 - **admin** — only agent-level users (agents and custom roles) in their own
   tenant; may not change roles to/from admin/superadmin or touch
-  admins/superadmins (403).
+  admins/superadmins (403). A custom role granted `users.manage` is tiered the
+  same way.
 - everyone else — 403 on `users.manage`.
 
-Other rules: passwords ≥ 8 characters; `entity_ids` on create applies to agent
-users only and must sit in one tenant (an admin's must be their own); an agent
-created without entities inherits the creating admin's tenant; a login can be
+Other rules: passwords ≥ 8 characters; `entity_ids` (create and update) applies
+to agent-level users — agents AND custom roles — and must sit in one tenant,
+bounded by the creator's scope (their tenant; a custom-role manager who is
+itself bound to entities only within those subtrees); switching agent ↔ custom
+role keeps the binding, promotion to admin drops it; an agent-level user
+created without entities inherits the creating manager's tenant; a login can be
 bound to a Contact (`contact_id` — a **customer login**). Deactivation kills the
 user's sessions. UI: `/users` (Users & roles), `/teams`, `/entities`,
 `/bindings`, `/permissions`.

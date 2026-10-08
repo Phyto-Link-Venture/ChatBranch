@@ -30,7 +30,7 @@ another.
 | Delivery receipts | ❌ `statuses` ignored | ✅ `/baileys/message-status` | — | — | — | — |
 | Typing / read | ✅ Graph `typing_indicator` | ✅ gateway presence | — | — | — | — |
 | 24h window | ✅ enforced (409 → use a template) | none | none | none | not modelled | — |
-| Opt-out | honoured; **STOP detection not ported** | same | same | same | same | same |
+| Opt-out | ✅ STOP/UNSUBSCRIBE/BERHENTI → opted out, START/UNSTOP/MULA → back in | same | same | same | same (once inbound exists) | same (once inbound exists) |
 | Health | event-driven only (no prober) | ✅ lifecycle pushes + inbound heal | — | — | — | — |
 | Voice calls | ❌ (Cloud bridge removed; `call/start` → 501) | ✅ (ToS-violating) | — | — | — | — |
 | Auth on inbound | `X-Hub-Signature-256` when the account has an `app_secret` | `X-Baileys-Secret` | anonymous by design (session id) | bot token in path | — | — |
@@ -82,9 +82,9 @@ outbound queue are already channel-blind.
 - Unofficial WhatsApp Web protocol. **Violates WhatsApp's ToS**; dev/demo only.
   See `backend/baileys_service/README.md` and `RESEARCH.md`.
 - No templates (rendered as text), no 24h window. The cold-text guard
-  (`cold_text_guard`, default `block`) refuses manual free text from a
-  conversation-role number to a contact who never wrote to it; the queue's
-  cold-call guard does the same for calls.
+  (`cold_text_guard`, default `block`) refuses free text — manual sends and
+  queued text jobs alike — from a live conversation-role number to a contact who
+  never wrote to it; the queue's cold-call guard does the same for calls.
 - Gateway pushes: `/api/whatsapp/baileys/inbound` (text), `/message-status`
   (ticks), `/status-event` (lifecycle → health), `/call-event` (ringing →
   connected → ended), `/media` (acked, not stored). All require
@@ -127,13 +127,21 @@ These are channel-blind; a new channel gets them for free if it goes through
 
 **Inbound** — `InboundProcessor.ProcessInbound(channel, key, text, name,
 accountId, externalId, providerTs)`: get-or-create the thread (entity
-attribution), link a contact (email exact, else last-8-digit phone), apply the
-inbox's AI default to a brand-new thread, store the message (dedup on external
-id), resume flow runs parked on a reply, route to a team, run automations,
-notify (assignee → team → admins), expire stale AI drafts, then — behind the
-**coverage gate** (linked contact, AI on, not opted out) — the AI reply,
-debounced through the queue or instant (`ai_reply_mode` + the AI behaviour
-settings). It never throws into the webhook.
+attribution), link a contact (email exact, else last-8-digit phone), move the
+conversation onto the account that received it, apply the inbox's AI default to
+a brand-new thread, store the message (dedup on external id), apply STOP/START
+(`Channels/OptOut.cs`: the whole message is the keyword; org Settings
+`opt_out_keywords` / `opt_in_keywords` add words; opting out cancels the
+conversation's queued jobs, writes a private note and an audit row, and sends
+nothing back), resume flow runs parked on a reply, route to a team, run
+automations, notify (assignee → team → admins), expire stale AI drafts, then —
+behind the **coverage gate** (linked contact, the effective chatbot tick from
+`Ai/AiEligibility` — the same rule every `ai_enabled` payload shows — and not
+opted out) — the AI reply, debounced through the queue or instant
+(`ai_reply_mode` + the AI behaviour settings); with the chatbot off on a
+WhatsApp reminder (business) number, the business redirect instead. It never
+throws into the webhook. Manual sends to an opted-out conversation need
+`{"force": true}` on every send endpoint; templates are refused outright.
 
 **Outbound** — `OutboundSender.Send(thread, text, source, accountId)` is the one
 live-or-sandbox seam: a configured Cloud or Baileys account sends for real
@@ -152,9 +160,21 @@ health.
 
 **Assignment** — sticky `AccountAssignment` rows (contact × channel → account,
 optionally pinned), edited on `/assignments`, spread evenly by
-`POST /api/whatsapp/assignments/rebalance`; the per-chat switch pins one. The
-queue uses `job.AccountId ?? thread.AccountId` — automatic least-loaded
-assignment and failover at send time are not ported.
+`POST /api/whatsapp/assignments/rebalance`; the per-chat switch pins one.
+Routing happens AT SEND TIME (`Channels/Routing.cs`, used by the queue drain and
+the manual send endpoints; a job's payload `account_id` pins it): the thread's
+healthy number → the sticky row → least-loaded auto-assign (writes an unpinned
+row) → failover when the number is banned/disconnected (row moves and loses its
+pin, the thread moves, a system note + `account.failover` audit + admin
+notification). Eligible = configured and not down, among the conversation's
+entity's own numbers (else the organization-wide ones); WhatsApp text/AI never
+fails over onto a reminder number when conversation numbers exist; templates
+need a Cloud number (reminder first), are carried per send without moving the
+sticky row and never fall back to Baileys — nothing eligible fails the job / 409s
+the endpoint. With no configured account nothing is routed (sandbox). A
+conversation number going INTO banned/disconnected notifies admins and, with
+`recovery_mode=auto`, queues `recovery_template` for its contacts
+(`Channels/Recovery.cs`, hooked in `AccountHealth.SetStatus`).
 
 **The inbox stream** — `GET /api/whatsapp/stream` (SSE) covers all channels;
 its change token is thread `updated_at` + message count, so **any write that

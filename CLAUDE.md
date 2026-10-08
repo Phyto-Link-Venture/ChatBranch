@@ -91,8 +91,8 @@ the message is stored with `status="sandbox"` and never leaves the machine.
 | SIP voice | dial / live / say / hangup / escalate through LiveKit | — |
 | Media serving | — | `/api/whatsapp/media/{id}` (advertised in message payloads) and `/api/whatsapp/calls/recording/{name}` have no route |
 | Channel health | event-driven writer (`AccountHealth.SetStatus`) | no periodic prober; "Check now" only stamps a time |
-| Routing | sticky `AccountAssignment` rows, rebalance, manual per-chat switch, recovery (manual, queues templates) | no least-loaded auto-assign/failover at send time (job → `job.AccountId ?? thread.AccountId`); `business_redirect` and auto-recovery are stored but not enforced |
-| Compliance | `OptedOut` honoured everywhere it is read; cold-text guard (manual WhatsApp send), cold-call guard (queued calls), do-not-call | **nothing sets `Thread.OptedOut`** — STOP/UNSUBSCRIBE/BERHENTI detection is not ported |
+| Routing | `Channels/Routing.cs` at SEND time (queue drain + manual sends): thread's healthy number → sticky `AccountAssignment` → least-loaded auto-assign → failover off banned/disconnected (pin cleared, thread moved, note + notification); role/provider aware (templates → Cloud, never Baileys; 409 when none); inbound re-attribution; `business_redirect` (`Channels/BusinessRedirect.cs`); recovery one-click + auto (`Channels/Recovery.cs`, hooked in `AccountHealth.SetStatus`) | AI replies sent INSTANTLY (sandbox / `ai_reply_mode=instant`) use the thread's own number, not routing |
+| Compliance | STOP/UNSUBSCRIBE/BERHENTI (+ `opt_out_keywords`) → `Thread.OptedOut` on every inbound channel, START/UNSTOP/MULA opts back in (`Channels/OptOut.cs`); queued jobs cancelled; manual sends need `force`; cold-text guard (manual + queued WhatsApp text), cold-call guard, do-not-call | the opt-out lives on the conversation (no contact-level column) |
 
 When you fix one of these, update this table, `README.md` and
 `docs/channel-adapter.md` in the same change.
@@ -223,14 +223,16 @@ When you fix one of these, update this table, `README.md` and
   (contact link, flows, team routing, automations, notifications; the AI step
   only with `?ai=1`).
 - **Inbound path** = `Channels/InboundProcessor.ProcessInbound`, shared by every
-  webhook: store (dedup) → link a contact (email exact, else last-8-digit phone)
-  → the inbox's AI default on a brand-new thread → resume flow runs parked on a
-  reply → team auto-assign (`TeamsEndpoints.AutoAssignAsync` via the
-  `InboundProcessor.TeamRouter` hook set in Program.cs) → automation rules →
+  webhook: store (dedup) → link a contact (email exact, else last-8-digit phone,
+  `Stores/PhoneMatch`) → move the thread onto the RECEIVING number → the inbox's
+  AI default on a brand-new thread → STOP/START (`Channels/OptOut`) → resume flow
+  runs parked on a reply → team auto-assign (`TeamsEndpoints.AutoAssignAsync` via
+  the `InboundProcessor.TeamRouter` hook set in Program.cs) → automation rules →
   `NotificationService.NotifyInboundMessage` → expire stale AI drafts →
-  **coverage gate** (linked contact AND `thread.AiEnabled` AND not opted out) →
-  AI reply (debounced/queued or instant, see AI monitor). Nothing in it may
-  throw into a webhook.
+  **coverage gate** (linked contact AND the EFFECTIVE chatbot tick
+  `Ai/AiEligibility` AND not opted out) → AI reply (debounced/queued or instant,
+  see AI monitor); else on a reminder number the business redirect. Nothing in
+  it may throw into a webhook.
 - **WhatsApp specifics.** Accounts are `ChannelAccount` rows (provider `cloud`
   or `baileys`); `WHATSAPP_*` env keys surface as a read-only `env-default`
   account. The Cloud webhook routes by `metadata.phone_number_id`; the verify
@@ -246,14 +248,26 @@ When you fix one of these, update this table, `README.md` and
   roles:** `Config["role"]` = `reminder` (Cloud business number) or
   `conversation` (Baileys personal number), defaulting by provider. **The
   per-chat Chatbot tick is per sending account** (`Thread.AiOverrides`
-  `{account_pk: bool}`; `WhatsAppThreadsEndpoints.EffectiveAi`: override →
-  the inbox's `ai_default` → role, with reminder numbers off unless the
-  `reminder_ai_default` rule is on); the AI toggle also mirrors into
-  `Thread.AiEnabled`, which is what the inbound coverage gate reads.
+  `{account_pk: bool}`; ONE rule, `Ai/AiEligibility.Effective`: override →
+  an account-less OFF stays off → the inbox's `ai_default` → role, with reminder
+  numbers off unless the `reminder_ai_default` rule is on). Every payload
+  (`ai_enabled`) AND every gate (inbound, queued ai_reply drain, AI monitor
+  send-time guard, follow-ups) reads it — never `Thread.AiEnabled` directly;
+  write a tick with `AiEligibility.Set` (per-account tick + legacy column).
   Routing-rule knobs live behind `GET/PUT /api/whatsapp/routing-rules` (PUT
   `account_assignment.manage`; `ai_reply_mode` queued|instant, `cold_text_guard` block|warn|allow,
   `cold_call_guard`, `reminder_ai_default`, `business_redirect*`,
-  `recovery_mode`/`recovery_template`). `Message.AccountId` records which
+  `recovery_mode`/`recovery_template`, org-wide `opt_out_keywords` /
+  `opt_in_keywords` that ADD to STOP/UNSUBSCRIBE/BERHENTI · START/UNSTOP/MULA).
+  **Business redirect** (`Channels/BusinessRedirect.cs`): inbound on a
+  reminder number with the chatbot off → ONE queued answer per 24h (throttle =
+  OutboundJob rows with `payload.redirect`), pinned to that number, target
+  `conversation` (wa.me link to the contact's conversation number — account
+  `Config.phone`/`number`, else a numeric name), `support` or `template`.
+  **Recovery** (`Channels/Recovery.cs`): a conversation number going INTO
+  banned/disconnected notifies "Account X down — N contacts affected" and, with
+  `recovery_mode=auto`, queues `recovery_template` per assigned contact (24h
+  dedup; also `POST /api/whatsapp/recovery/{id}`). `Message.AccountId` records which
   number carried each message; the UI shows "via <account>" and a divider at
   sender switches. Baileys: `IBaileysGateway` (`Sidecars/IBaileysGateway.cs`,
   Setting `baileys_url`/`baileys_secret` → env → default) drives the gateway;
@@ -280,7 +294,15 @@ When you fix one of these, update this table, `README.md` and
   unpinned rows evenly over eligible accounts. Gate:
   `account_assignment.manage`. Per-chat switch: `POST
   /api/whatsapp/threads/{key}/account` (admin+) pins the assignment and appends
-  a system note.
+  a system note. **Send-time routing** is `Channels/Routing.ForThread` (queue
+  drain + manual sends; payload `account_id` pins a job): the thread's healthy
+  number → sticky row → least-loaded auto-assign (an unpinned row) → failover
+  off a banned/disconnected number (row moves, pin cleared, thread moves, system
+  note, `account.failover` audit, admin notification). Conversational sends only
+  fail over to conversation numbers; templates go to a Cloud number (reminder
+  first) per send without moving the sticky row, never to Baileys — none
+  eligible ⇒ the job fails / the endpoint 409s, thread untouched. Entity rule:
+  an outlet's own numbers (nearest level of the tree), else the global ones.
 - **Channel health.** `Channels/AccountHealth.SetStatus` is the ONLY writer of
   `ChannelAccount.HealthStatus` (unknown/healthy/degraded/disconnected/banned):
   one `account.health` AuditLog row per real transition (detail
@@ -368,12 +390,17 @@ When you fix one of these, update this table, `README.md` and
   the last 3 summaries, 1500 chars) + the current org-local date/time. It is a **PURE
   GENERATOR returning `AiReplyResult`** (text, draft, tools, checks, retries,
   tokens) — callers send. Every path is exception-safe. LLM:
-  `OpenAiLlmClient` = OpenRouter → OpenAI → local (OpenAI-compatible base URL),
-  keys from Setting rows (`openrouter_api_key`, `openai_api_key`,
-  `local_base_url`, `chat_model`, pin `chat_provider` mirrored from
-  `chat_provider_pref`) with process-env fallback (`OPENROUTER_API_KEY`…),
-  edited at Settings → AI keys & models (`/api/settings/ai-providers`,
-  `settings.ai_keys.manage`); nothing configured → `SandboxLlmClient`. Usage is
+  `OpenAiLlmClient` speaks OpenAI-compatible `/chat/completions` to openrouter,
+  openai, **ilmu** (`ILMU_BASE_URL`, default `https://api.ilmu.ai/v1`,
+  `ilmu-v3.1`), **google** (Gemini's `…/v1beta/openai`, `gemini-2.5-flash`) and
+  local; keys from Setting rows (`openrouter_api_key`, `openai_api_key`,
+  `ilmu_api_key`, `google_api_key`, `local_base_url`, `chat_model` — env
+  `WHATSAPP_CHAT_MODEL`) with process-env fallback. A pin (`chat_provider_pref`,
+  mirrored to `chat_provider`) is used ALONE (failure → sandbox, never another
+  vendor); else `chat_provider_order` is tried in order, an error falling through
+  to the next (`chat_model` applies to the first only). Edited at Settings → AI
+  keys & models (`/api/settings/ai-providers`, `settings.ai_keys.manage`);
+  nothing configured → `SandboxLlmClient`. Usage is
   metered into `LlmUsage` at every call site; costs are estimated at READ time
   from Setting `llm_prices` (`AnalyticsService`). Case summaries
   (`SummaryService`, `/api/messaging/threads/{channel}/{key}/summary`) are

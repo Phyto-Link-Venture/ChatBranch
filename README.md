@@ -97,7 +97,8 @@ you move to multi-host, that file layer is the seam to replace.
 ## Prerequisites
 
 - **.NET 8 SDK** (the API) and **Node 20+** (dashboard, gateway, voice agent).
-- **Only for real AI replies:** an OpenRouter or OpenAI key.
+- **Only for real AI replies:** an OpenRouter, OpenAI, Google Gemini or ILMU key
+  (or a local OpenAI-compatible model).
 - **Only for real phone calls:** a [LiveKit](https://cloud.livekit.io) project
   with SIP, an OpenAI key with Realtime API access (`gpt-realtime`) or an
   ElevenLabs/ILMU cascade, and a SIP trunk (e.g. Twilio Elastic SIP Trunking) —
@@ -273,8 +274,7 @@ every pull request.
   IMAP), Telegram replies and Messenger/Instagram store messages in sandbox
   mode; WhatsApp Cloud sends templates as rendered text (outside the 24-hour
   window Meta will reject them) and doesn't send media; inbound media isn't
-  stored; there is no periodic channel-health prober and no automatic account
-  failover; STOP/UNSUBSCRIBE opt-out detection isn't ported. The full table is
+  stored; there is no periodic channel-health prober. The full table is
   in [CLAUDE.md](CLAUDE.md#port-status--what-is-real-what-is-sandbox).
 - **WhatsApp via Baileys violates WhatsApp's Terms of Service.** It speaks the
   unofficial WhatsApp Web protocol; automated messaging — and *especially*
