@@ -13,6 +13,13 @@ namespace ChatBranch.Data.Flows;
 /// <see cref="OnInboundMessage"/> (event axis — resume runs parked on a reply).
 /// Execution state lives in FlowRun. Sends are ENQUEUED onto the outbound queue,
 /// never inline, so pacing + account resolution happen at send time.
+///
+/// Step types: trigger · action (send message / AI message / call / app
+/// action) · wait · decision ("Ask &amp; branch") · followup ("Follow up if no
+/// reply") · handover · update ("Update contact") · end — plus the legacy
+/// "stage" section, executed as a pass-through. Every arrival, completion,
+/// park and failure is appended to <see cref="FlowStepEvent"/> (per flow, per
+/// org-local day) so the builder can show how many people reached each step.
 /// </summary>
 public class FlowEngine
 {
@@ -24,6 +31,11 @@ public class FlowEngine
     private readonly ScopingService _scoping;
     private readonly QueueService _queue;
     private readonly Integrations.IntegrationActions? _actions;
+    private readonly Dictionary<int, string> _flowKeys = new();
+    private TimeZoneInfo? _zone;
+    /// <summary>What the step being processed reports in its "completed" event
+    /// (a branch verdict, an outcome) — set by the step handler.</summary>
+    private string _completeDetail = "";
 
     public FlowEngine(AppDbContext db, ScopingService scoping, QueueService queue,
         Integrations.IntegrationActions? actions = null)
@@ -227,22 +239,49 @@ public class FlowEngine
     }
 
     // ---- trigger matching ---------------------------------------------------
+    //
+    // The builder offers six plain-language triggers. The six debt-collection
+    // era `when` values (due dates, record status, "Contact has tag") are no
+    // longer offered but still run, so flows saved before the rename keep
+    // working unchanged.
 
-    private bool TriggerMatches(JsonElement cfg, Contact contact)
+    public const string WhenContactCreated = "Contact created";
+    public const string WhenTagAdded = "Tag added";
+    public const string WhenMessageReceived = "Message received";
+    public const string WhenDateField = "Date field";
+    public const string WhenScheduled = "Scheduled";
+    public const string WhenManual = "Manual / API";
+
+    private static string When(JsonElement cfg)
     {
-        var when = CfgStr(cfg, "when"); if (when == "") when = "Days after due date";
+        var when = CfgStr(cfg, "when");
+        return when == "" ? "Days after due date" : when;
+    }
+
+    private bool TriggerMatches(JsonElement cfg, Contact contact, Workflow wf)
+    {
+        var when = When(cfg);
+        switch (when)
+        {
+            case WhenContactCreated:
+                return wf.LiveSince is DateTime live && contact.CreatedAt >= live;
+            case WhenTagAdded:
+                return HasTag(contact, CfgStr(cfg, "tag"));
+            case WhenDateField:
+                return DateFieldMatches(cfg, contact);
+            case WhenScheduled:
+                return true; // the time gate is per trigger, see ScheduleDue
+            case WhenMessageReceived:
+            case WhenManual:
+                return false; // event-driven — never polled
+        }
         if (when == "Record status is")
         {
             var record = PrimaryRecord(contact);
             var wanted = CfgStr(cfg, "status").Trim().ToLowerInvariant();
             return record != null && wanted != "" && record.Status.Trim().ToLowerInvariant() == wanted;
         }
-        if (when == "Contact has tag")
-        {
-            var wanted = CfgStr(cfg, "tag").Trim().ToLowerInvariant();
-            var tags = contact.Tags.Select(t => t.Trim().ToLowerInvariant()).ToHashSet();
-            return wanted != "" && tags.Contains(wanted);
-        }
+        if (when == "Contact has tag") return HasTag(contact, CfgStr(cfg, "tag"));
         var rec = PrimaryRecord(contact);
         if (rec?.DueDate is not DateOnly dueDate) return false;
         var days = CfgInt(cfg, "days");
@@ -253,18 +292,157 @@ public class FlowEngine
         return od >= (days == 0 ? 1 : days);
     }
 
-    private bool AlreadyRan(Workflow wf, string nodeId, Contact contact, string repeat)
+    private static bool HasTag(Contact? contact, string tag)
+    {
+        var wanted = (tag ?? "").Trim().ToLowerInvariant();
+        if (wanted == "" || contact == null) return false;
+        return contact.Tags.Any(t => (t ?? "").Trim().ToLowerInvariant() == wanted);
+    }
+
+    /// <summary>"N days before / on / after" a contact date custom field. With
+    /// <c>yearly</c> only month + day count (birthdays, renewals).</summary>
+    private bool DateFieldMatches(JsonElement cfg, Contact contact)
+    {
+        var field = CfgStr(cfg, "field").Trim();
+        if (field == "") return false;
+        var raw = FormatAttribute(contact.Attributes, field, "text").Trim();
+        if (raw == "" || !TryParseDate(raw, out var date)) return false;
+        var days = Math.Abs(CfgInt(cfg, "days"));
+        var target = CfgStr(cfg, "dateWhen") switch
+        {
+            "before" => date.AddDays(-days),
+            "after" => date.AddDays(days),
+            _ => date,
+        };
+        var today = DateOnly.FromDateTime(OrgNow());
+        if (CfgBool(cfg, "yearly"))
+            return target.Month == today.Month && target.Day == today.Day;
+        return target == today;
+    }
+
+    private static bool TryParseDate(string raw, out DateOnly date)
+    {
+        if (DateOnly.TryParseExact(raw, new[] { "yyyy-MM-dd", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy" },
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out date)) return true;
+        if (DateTime.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out var dt))
+        {
+            date = DateOnly.FromDateTime(dt);
+            return true;
+        }
+        date = default;
+        return false;
+    }
+
+    private static readonly string[] WeekdayKeys = { "sun", "mon", "tue", "wed", "thu", "fri", "sat" };
+
+    /// <summary>
+    /// "Every day at HH:MM" (optionally only some weekdays): due once today's
+    /// slot has passed — but only a slot that came AFTER the flow went live, so
+    /// arming a 09:00 flow at 15:00 waits for tomorrow instead of firing now.
+    /// </summary>
+    private bool ScheduleDue(JsonElement cfg, Workflow wf, out DateTime slotUtc)
+    {
+        slotUtc = DateTime.MaxValue;
+        var zone = Zone();
+        var orgNow = OrgClock.ToOrg(DateTime.UtcNow, zone);
+        if (!TimeSpan.TryParse(CfgStr(cfg, "time") is { Length: > 0 } t ? t : "09:00", out var at)) return false;
+        var weekdays = CfgList(cfg, "weekdays").Select(d => d.ToLowerInvariant()).ToList();
+        if (weekdays.Count > 0 && !weekdays.Contains(WeekdayKeys[(int)orgNow.DayOfWeek])) return false;
+        var slot = orgNow.Date + at;
+        if (orgNow < slot) return false;
+        slotUtc = OrgClock.ToUtc(slot, zone);
+        return !(wf.LiveSince is DateTime live && live > slotUtc);
+    }
+
+    /// <summary>
+    /// Legacy "call window" (9:00–12:00…) on old triggers: enrolment waits for
+    /// the window. New triggers no longer offer it — quiet hours already gate
+    /// every send — but a saved value is still honoured.
+    /// </summary>
+    private bool InTriggerWindow(JsonElement cfg)
+    {
+        var window = CfgStr(cfg, "window").Trim();
+        if (window == "" || window.StartsWith("Any", StringComparison.OrdinalIgnoreCase)) return true;
+        var parts = window.Split(new[] { '–', '-', '—' }, StringSplitOptions.TrimEntries);
+        if (parts.Length != 2 || !TimeSpan.TryParse(parts[0], out var from)
+                              || !TimeSpan.TryParse(parts[1], out var to)) return true;
+        var now = OrgNow().TimeOfDay;
+        return from <= to ? now >= from && now < to : now >= from || now < to;
+    }
+
+    /// <summary>
+    /// The audience filters every trigger shares: specific contacts (the
+    /// "Apply to" picker — empty = everyone), an optional "only contacts
+    /// tagged" filter, and the workflow's own entity (an outlet's flow only
+    /// enrols that outlet's contacts).
+    /// </summary>
+    private bool TriggerAllows(JsonElement cfg, Contact contact, HashSet<int>? entityContacts)
+    {
+        var scoped = CfgList(cfg, "contacts");
+        if (scoped.Count > 0 && !scoped.Contains(contact.Id.ToString())) return false;
+        var onlyTag = CfgStr(cfg, "onlyTag");
+        if (onlyTag.Trim() != "" && !HasTag(contact, onlyTag)) return false;
+        if (entityContacts != null && !entityContacts.Contains(contact.Id)) return false;
+        return true;
+    }
+
+    private HashSet<int>? EntityContacts(Workflow wf)
+    {
+        if (wf.EntityId is not int eid) return null;
+        var ids = _scoping.EntitySubtreeIds(eid);
+        return _db.ContactEntities.AsNoTracking().Where(l => ids.Contains(l.EntityId))
+            .Select(l => l.ContactId).ToHashSet();
+    }
+
+    /// <summary>
+    /// Re-entry policy. A contact never has two live runs of one trigger.
+    /// "Once" = once ever (legacy default). "Every time" = every event for
+    /// message triggers, and at most once per org day for polled triggers
+    /// (their condition stays true all day). "Once a day" / legacy "Daily until
+    /// answered" = once per org day; legacy "Every 2 days" kept as is.
+    /// </summary>
+    private bool AlreadyRan(Workflow wf, string nodeId, int contactId, string repeat,
+        bool polled, DateTime? notBefore = null)
     {
         var runs = _db.FlowRuns.Where(r => r.WorkflowId == wf.Id && r.TriggerKey == nodeId
-                                           && r.ContactId == contact.Id);
+                                           && r.ContactId == contactId);
         if (runs.Any(r => r.Status == FlowRunStatus.Running || r.Status == FlowRunStatus.Waiting))
             return true;
-        if (repeat == "Every 2 days")
-            return runs.Any(r => r.StartedAt >= DateTime.UtcNow.AddDays(-2));
-        // "Daily until answered" and "Once" both collapse to: don't re-run today / ever
-        if (repeat == "Daily until answered")
-            return runs.Any(r => r.StartedAt.Date == DateTime.UtcNow.Date);
-        return runs.Any();
+        if (notBefore is DateTime nb && runs.Any(r => r.StartedAt >= nb)) return true;
+        var dayStart = OrgClock.TodayStartUtc(Zone());
+        switch (repeat)
+        {
+            case "Every 2 days":
+                var twoDays = DateTime.UtcNow.AddDays(-2);
+                return runs.Any(r => r.StartedAt >= twoDays);
+            case "Daily until answered":
+            case "Once a day":
+                return runs.Any(r => r.StartedAt >= dayStart);
+            case "Every time":
+                return polled && runs.Any(r => r.StartedAt >= dayStart);
+            default:
+                return runs.Any();
+        }
+    }
+
+    private FlowRun Start(Workflow wf, string triggerNodeId, Contact contact, string reason,
+        Dictionary<string, object?>? context = null)
+    {
+        var run = new FlowRun
+        {
+            WorkflowId = wf.Id, ContactId = contact.Id, TriggerKey = triggerNodeId,
+            CurrentNode = triggerNodeId, Status = FlowRunStatus.Running,
+            Context = context ?? new(),
+            StartedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+        };
+        _db.FlowRuns.Add(run);
+        _db.SaveChanges();
+        _flowKeys[wf.Id] = wf.FlowId;
+        Log(run, triggerNodeId, $"trigger fired: {reason}");
+        Advance(run, wf);
+        return run;
     }
 
     public int EvaluateTriggers()
@@ -273,30 +451,132 @@ public class FlowEngine
         var contacts = _db.Contacts.Where(c => c.Status != "resolved").ToList();
         foreach (var wf in _db.Workflows.Where(w => w.Active).ToList())
         {
+            if (wf.LiveSince == null)
+            {
+                // armed before LiveSince existed (or by a direct DB write): the
+                // clock starts now, so "Contact created" never back-fires.
+                wf.LiveSince = DateTime.UtcNow;
+                _db.SaveChanges();
+            }
+            HashSet<int>? entityContacts = null;
+            var entityLoaded = false;
             foreach (var node in Nodes(wf).Where(n => Str(n, "type") == "trigger"))
             {
                 var cfg = Cfg(node);
+                var when = When(cfg);
+                if (when is WhenMessageReceived or WhenManual) continue;
+                if (!InTriggerWindow(cfg)) continue;
+                DateTime? notBefore = null;
+                if (when == WhenScheduled)
+                {
+                    if (!ScheduleDue(cfg, wf, out var slotUtc)) continue;
+                    notBefore = slotUtc;
+                }
+                if (!entityLoaded) { entityContacts = EntityContacts(wf); entityLoaded = true; }
                 var repeat = CfgStr(cfg, "repeat"); if (repeat == "") repeat = "Once";
                 var nodeId = Str(node, "id");
                 foreach (var contact in contacts)
                 {
-                    if (!TriggerMatches(cfg, contact)) continue;
-                    if (AlreadyRan(wf, nodeId, contact, repeat)) continue;
-                    var run = new FlowRun
-                    {
-                        WorkflowId = wf.Id, ContactId = contact.Id, TriggerKey = nodeId,
-                        CurrentNode = nodeId, Status = FlowRunStatus.Running,
-                        StartedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
-                    };
-                    _db.FlowRuns.Add(run);
-                    _db.SaveChanges();
-                    Log(run, nodeId, $"trigger fired: {CfgStr(cfg, "when")} ({repeat})");
-                    Advance(run, wf);
+                    if (!TriggerAllows(cfg, contact, entityContacts)) continue;
+                    if (!TriggerMatches(cfg, contact, wf)) continue;
+                    if (AlreadyRan(wf, nodeId, contact.Id, repeat, polled: true, notBefore)) continue;
+                    Start(wf, nodeId, contact, $"{TriggerText(cfg)} ({repeat})");
                     started++;
                 }
             }
         }
         return started;
+    }
+
+    /// <summary>Plain-words description of a trigger for the run log.</summary>
+    private static string TriggerText(JsonElement cfg)
+    {
+        var when = When(cfg);
+        return when switch
+        {
+            WhenTagAdded => $"tagged '{CfgStr(cfg, "tag")}'",
+            WhenDateField => $"date field {CfgStr(cfg, "field")}",
+            WhenScheduled => $"scheduled {CfgStr(cfg, "time")}",
+            _ => when,
+        };
+    }
+
+    /// <summary>
+    /// Event axis of "Message received" triggers: a customer message (any
+    /// channel, or one channel; optionally only when it contains a keyword)
+    /// starts a run. The message itself seeds the run as its first reply, so an
+    /// "Ask &amp; branch: reply contains…" step right after the trigger reads it.
+    /// </summary>
+    private List<int> StartMessageTriggers(Contact contact, string channel, string text)
+    {
+        var startedIds = new List<int>();
+        foreach (var wf in _db.Workflows.Where(w => w.Active).ToList())
+        {
+            HashSet<int>? entityContacts = null;
+            var entityLoaded = false;
+            foreach (var node in Nodes(wf).Where(n => Str(n, "type") == "trigger"))
+            {
+                var cfg = Cfg(node);
+                if (When(cfg) != WhenMessageReceived) continue;
+                if (!ChannelMatches(CfgStr(cfg, "channel"), channel)) continue;
+                var keywords = Keywords(CfgStr(cfg, "keyword"));
+                if (keywords.Count > 0 && !keywords.Any(k => (text ?? "").Contains(k, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                if (!entityLoaded) { entityContacts = EntityContacts(wf); entityLoaded = true; }
+                if (!TriggerAllows(cfg, contact, entityContacts)) continue;
+                var repeat = CfgStr(cfg, "repeat"); if (repeat == "") repeat = "Every time";
+                var nodeId = Str(node, "id");
+                if (AlreadyRan(wf, nodeId, contact.Id, repeat, polled: false)) continue;
+                var run = Start(wf, nodeId, contact, $"message received on {channel}", new()
+                {
+                    ["last_reply"] = Trim(text ?? "", 500),
+                    ["reply_consumed"] = false,
+                    ["answered"] = true,
+                    ["trigger_message"] = Trim(text ?? "", 500),
+                });
+                startedIds.Add(run.Id);
+            }
+        }
+        return startedIds;
+    }
+
+    private static bool ChannelMatches(string wanted, string channel)
+    {
+        var w = (wanted ?? "").Trim().ToLowerInvariant();
+        if (w is "" or "any" or "any channel") return true;
+        var c = (channel ?? "").Trim().ToLowerInvariant();
+        if (w is "messenger") w = Domain.Channels.Facebook;
+        if (w is "website chat" or "widget") w = Domain.Channels.Website;
+        return w == c;
+    }
+
+    private static List<string> Keywords(string raw) =>
+        (raw ?? "").Split(new[] { ',', ';', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(k => k.Length > 0).ToList();
+
+    /// <summary>
+    /// "Manual / API" trigger: start the flow for the given contacts now
+    /// (POST /api/flows/{flowId}/start). A contact that already has a live run
+    /// of this flow is skipped — never two runs at once.
+    /// </summary>
+    public (int started, int skipped) StartManual(Workflow wf, IEnumerable<int> contactIds)
+    {
+        var triggers = Nodes(wf).Where(n => Str(n, "type") == "trigger").ToList();
+        if (triggers.Count == 0) return (0, contactIds.Count());
+        var trigger = triggers.FirstOrDefault(n => When(Cfg(n)) == WhenManual);
+        if (trigger.ValueKind == JsonValueKind.Undefined) trigger = triggers[0];
+        var nodeId = Str(trigger, "id");
+        int started = 0, skipped = 0;
+        foreach (var id in contactIds.Distinct())
+        {
+            var contact = _db.Contacts.Find(id);
+            var live = _db.FlowRuns.Any(r => r.WorkflowId == wf.Id && r.ContactId == id
+                && (r.Status == FlowRunStatus.Running || r.Status == FlowRunStatus.Waiting));
+            if (contact == null || live) { skipped++; continue; }
+            Start(wf, nodeId, contact, "started manually");
+            started++;
+        }
+        return (started, skipped);
     }
 
     // ---- decisions ----------------------------------------------------------
@@ -316,6 +596,12 @@ public class FlowEngine
         return yes.Success ? "yes" : "no";
     }
 
+    /// <summary>
+    /// "Ask &amp; branch". The new checks never park: they read what the run
+    /// already knows (did a reply arrive during the last wait, what did it say,
+    /// the contact's tags and fields). The legacy "Contact's answer" still parks
+    /// until a reply arrives, exactly as before.
+    /// </summary>
     private string? Decide(FlowRun run, JsonElement node)
     {
         var cfg = Cfg(node);
@@ -324,36 +610,57 @@ public class FlowEngine
             ? _db.Contacts.Include(c => c.EntityLinks).FirstOrDefault(c => c.Id == cid)
             : null;
         var nodeId = Str(node, "id");
-
-        if (basis == "Record status")
+        var answered = CtxBool(run, "answered");
+        var reply = Ctx(run, "last_reply");
+        string Yn(bool b) => b ? "yes" : "no";
+        string? answer = null;
+        switch (basis)
         {
-            var record = PrimaryRecord(contact);
-            var wanted = CfgStr(cfg, "status").Trim().ToLowerInvariant();
-            string answer = wanted != ""
-                ? (record != null && record.Status.Trim().ToLowerInvariant() == wanted ? "yes" : "no")
-                : (record != null && ClosedStatuses.Contains(record.Status.Trim().ToLowerInvariant()) ? "yes" : "no");
-            Log(run, nodeId, $"decision (record status): {answer}");
+            case "They replied":
+                answer = Yn(answered);
+                break;
+            case "Reply contains":
+                var kws = Keywords(CfgStr(cfg, "keyword"));
+                answer = Yn(answered && kws.Any(k => reply.Contains(k, StringComparison.OrdinalIgnoreCase)));
+                break;
+            case "They said yes":
+                answer = Yn(answered && ClassifyReply(reply) == "yes");
+                break;
+            case "Has tag":
+            case "Contact tag":
+                answer = Yn(HasTag(contact, CfgStr(cfg, "tag")));
+                break;
+            case "Custom field equals":
+                var field = CfgStr(cfg, "field").Trim();
+                var value = FormatAttribute(contact?.Attributes ?? new(), field, "text").Trim();
+                var wantedValue = CfgStr(cfg, "value").Trim();
+                answer = Yn(field != "" && (wantedValue == ""
+                    ? value != ""
+                    : string.Equals(value, wantedValue, StringComparison.OrdinalIgnoreCase)));
+                break;
+            case "Record status":
+                var record = PrimaryRecord(contact);
+                var wanted = CfgStr(cfg, "status").Trim().ToLowerInvariant();
+                answer = wanted != ""
+                    ? Yn(record != null && record.Status.Trim().ToLowerInvariant() == wanted)
+                    : Yn(record != null && ClosedStatuses.Contains(record.Status.Trim().ToLowerInvariant()));
+                break;
+        }
+        if (answer != null)
+        {
+            Log(run, nodeId, $"decision ({basis.ToLowerInvariant()}): {answer}");
+            _completeDetail = answer;
             return answer;
         }
-        if (basis == "Contact tag")
+        // legacy "Contact's answer": consume an unread reply, else park
+        if (reply != "" && !CtxBool(run, "reply_consumed"))
         {
-            var wanted = CfgStr(cfg, "tag").Trim().ToLowerInvariant();
-            var tags = (contact?.Tags ?? new()).Select(t => t.Trim().ToLowerInvariant()).ToHashSet();
-            var answer = wanted != "" && tags.Contains(wanted) ? "yes" : "no";
-            Log(run, nodeId, $"decision (contact tag {wanted}): {answer}");
-            return answer;
+            SetCtx(run, "reply_consumed", true);
+            var verdict = ClassifyReply(reply);
+            Log(run, nodeId, $"decision (reply): {verdict}");
+            _completeDetail = verdict;
+            return verdict;
         }
-        var ctx = run.Context;
-        if (ctx.TryGetValue("last_reply", out var reply) && reply != null
-            && !(ctx.TryGetValue("reply_consumed", out var rc) && rc is JsonElement je && je.ValueKind == JsonValueKind.True))
-        {
-            ctx["reply_consumed"] = true;
-            run.Context = ctx;
-            var answer = ClassifyReply(reply.ToString() ?? "");
-            Log(run, nodeId, $"decision (reply): {answer}");
-            return answer;
-        }
-        Log(run, nodeId, "parked: waiting for contact reply");
         return null;
     }
 
@@ -384,8 +691,9 @@ public class FlowEngine
                 switch (ch)
                 {
                     case "WhatsApp": QueueWhatsApp(run, nodeId, contact, cfg, script); break;
-                    case "Email": QueueSimple(run, nodeId, contact, "email", contact?.Email, script); break;
-                    case "Telegram": QueueTelegram(run, nodeId, contact, script); break;
+                    case "Email": QueueEmail(run, nodeId, contact, cfg, script); break;
+                    case "Telegram": QueueTelegram(run, nodeId, contact, cfg, script); break;
+                    case "AI message": break; // composition marker — the text above is AI-written; sent on the step's other channels
                     case "AI voice call": EnqueueCall(run, nodeId, contact, cfg, ""); break;
                     case "Script call": EnqueueScriptCall(run, nodeId, contact, cfg); break;
                     case "In-app push":
@@ -406,55 +714,163 @@ public class FlowEngine
                         break;
                 }
             }
-            catch (Exception e) { Log(run, nodeId, $"{ch} failed: {e.Message}"); }
+            catch (Exception e)
+            {
+                Log(run, nodeId, $"{ch} failed: {e.Message}");
+                Track(run, nodeId, FlowStepKind.Skipped, $"{ch} failed: {e.Message}");
+            }
         }
         _db.SaveChanges();
         return true;
     }
 
+    /// <summary>
+    /// Queue-payload hints every message a flow enqueues carries: <c>source</c>
+    /// ("ai" when the step's text is AI-written — the "AI message" channel — so
+    /// the AI monitor can gate it; "flow" for an operator-written message) and
+    /// <c>humanize</c> ("Send like a person": typing delay + short bursts — the
+    /// queue reads it, the flow only sets it).
+    /// </summary>
+    private static Dictionary<string, object?> PayloadHints(JsonElement cfg)
+    {
+        var hints = new Dictionary<string, object?>
+        {
+            ["source"] = ChannelList(cfg).Contains("AI message") ? "ai" : "flow",
+        };
+        if (CfgBool(cfg, "humanize")) hints["humanize"] = true;
+        return hints;
+    }
+
+    private static Dictionary<string, object?> WithHints(Dictionary<string, object?> payload, JsonElement cfg)
+    {
+        foreach (var (k, v) in PayloadHints(cfg)) payload[k] = v;
+        return payload;
+    }
+
+    /// <summary>"Send to: all linked" (legacy key waAllNumbers) — every
+    /// identity on file instead of just the CRM primary.</summary>
+    private static bool AllLinked(JsonElement cfg) => CfgBool(cfg, "allLinked") || CfgBool(cfg, "waAllNumbers");
+
+    private static string Digits(string? s) => new((s ?? "").Where(char.IsDigit).ToArray());
+
+    /// <summary>The WhatsApp numbers this step sends to: the CRM phone, plus —
+    /// with "all linked" — every WhatsApp chat linked to the contact. Deduped on
+    /// the last nine digits so "+60 12…" and "6012…" are one number.</summary>
+    private List<string> WhatsAppTargets(Contact contact, JsonElement cfg)
+    {
+        var raw = new List<string>();
+        if (!string.IsNullOrWhiteSpace(contact.Phone)) raw.Add(contact.Phone);
+        if (AllLinked(cfg))
+            raw.AddRange(_db.Threads.AsNoTracking()
+                .Where(t => t.Channel == Domain.Channels.WhatsApp && t.ContactId == contact.Id)
+                .Select(t => t.Key).ToList());
+        var seen = new HashSet<string>();
+        var outv = new List<string>();
+        foreach (var r in raw)
+        {
+            var d = Digits(r);
+            if (d.Length < 6) continue;
+            var key = d.Length > 9 ? d[^9..] : d;
+            if (seen.Add(key)) outv.Add(r);
+        }
+        return outv;
+    }
+
+    /// <summary>Meta's 24h customer-service window: open when the contact wrote
+    /// to this number in the last 24 hours.</summary>
+    private bool WhatsAppWindowOpen(Contact contact, string address)
+    {
+        var digits = Digits(address);
+        var since = DateTime.UtcNow.AddHours(-24);
+        return _db.Messages.AsNoTracking().Any(m => m.Direction == MessageDirection.In && m.CreatedAt >= since
+            && m.Thread != null && m.Thread.Channel == Domain.Channels.WhatsApp
+            && (m.Thread.Key == digits || m.Thread.Key == address || m.Thread.ContactId == contact.Id));
+    }
+
+    /// <summary>templateVariables {"1": "{{name}}", …} rendered from the CRM, in
+    /// slot order.</summary>
+    private List<string> TemplateParameters(JsonElement cfg, Contact contact)
+    {
+        if (cfg.ValueKind != JsonValueKind.Object || !cfg.TryGetProperty("templateVariables", out var tv)
+            || tv.ValueKind != JsonValueKind.Object) return new();
+        var vars = VariablesFor(contact);
+        return tv.EnumerateObject()
+            .OrderBy(p => int.TryParse(p.Name, out var n) ? n : int.MaxValue)
+            .Select(p => Render(p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() ?? "" : p.Value.ToString(), vars))
+            .ToList();
+    }
+
     private void QueueWhatsApp(FlowRun run, string nodeId, Contact? contact, JsonElement cfg, string script)
     {
-        if (contact == null || string.IsNullOrEmpty(contact.Phone))
-        { Log(run, nodeId, "whatsapp skipped: no contact phone"); return; }
+        if (contact == null) { Skip(run, nodeId, "whatsapp skipped: no contact"); return; }
+        var targets = WhatsAppTargets(contact, cfg);
+        if (targets.Count == 0) { Skip(run, nodeId, "whatsapp skipped: no contact phone"); return; }
+        // waMode: text (default) | template | auto (text inside the 24h
+        // window, the template once it has closed)
         var mode = CfgStr(cfg, "waMode").Trim().ToLowerInvariant();
         var templateName = CfgStr(cfg, "templateName").Trim();
-        string kind; Dictionary<string, object?> payload;
-        if (mode == "template" && templateName != "")
+        List<string>? parameters = null;
+        var jobs = new List<int>();
+        foreach (var to in targets)
         {
-            payload = new() { ["name"] = templateName,
-                ["language"] = CfgStr(cfg, "templateLanguage") is { Length: > 0 } l ? l : "en",
-                ["variables"] = "" };
-            kind = JobKind.Template;
+            var useTemplate = templateName != ""
+                && (mode == "template" || (mode == "auto" && !WhatsAppWindowOpen(contact, to)));
+            string kind; Dictionary<string, object?> payload;
+            if (useTemplate)
+            {
+                parameters ??= TemplateParameters(cfg, contact);
+                payload = new() { ["name"] = templateName,
+                    ["language"] = CfgStr(cfg, "templateLanguage") is { Length: > 0 } l ? l : "en",
+                    ["variables"] = string.Join(", ", parameters),
+                    ["parameters"] = parameters };
+                kind = JobKind.Template;
+            }
+            else
+            {
+                if (string.IsNullOrEmpty(script)) { Skip(run, nodeId, "whatsapp skipped: empty message"); continue; }
+                kind = JobKind.Text; payload = new() { ["text"] = script };
+            }
+            var job = _queue.Enqueue("whatsapp", kind, to, WithHints(payload, cfg), contact.Id,
+                flowRunId: run.Id, flowNode: nodeId);
+            jobs.Add(job.Id);
+            Log(run, nodeId, $"whatsapp queued ({kind}, job #{job.Id})");
         }
-        else
-        {
-            if (string.IsNullOrEmpty(script)) { Log(run, nodeId, "whatsapp skipped: empty script"); return; }
-            kind = JobKind.Text; payload = new() { ["text"] = script };
-        }
-        var job = _queue.Enqueue("whatsapp", kind, contact.Phone, payload, contact.Id,
-            flowRunId: run.Id, flowNode: nodeId);
-        Log(run, nodeId, $"whatsapp queued ({kind}, job #{job.Id})");
     }
 
-    private void QueueSimple(FlowRun run, string nodeId, Contact? contact, string channel,
-        string? address, string script)
+    /// <summary>Email: the CRM address plus — with "all linked" — every email
+    /// thread linked to the contact (deduped case-insensitively).</summary>
+    private void QueueEmail(FlowRun run, string nodeId, Contact? contact, JsonElement cfg, string script)
     {
-        if (contact == null || string.IsNullOrEmpty(address) || !address.Contains('@'))
-        { Log(run, nodeId, $"{channel} skipped: no address"); return; }
-        if (string.IsNullOrEmpty(script)) { Log(run, nodeId, $"{channel} skipped: empty script"); return; }
-        var job = _queue.Enqueue(channel, JobKind.Text, address, new() { ["text"] = script },
-            contact.Id, flowRunId: run.Id, flowNode: nodeId);
-        Log(run, nodeId, $"{channel} queued (job #{job.Id})");
+        if (contact == null) { Skip(run, nodeId, "email skipped: no contact"); return; }
+        var raw = new List<string>();
+        if (!string.IsNullOrWhiteSpace(contact.Email)) raw.Add(contact.Email.Trim());
+        if (AllLinked(cfg))
+            raw.AddRange(_db.Threads.AsNoTracking()
+                .Where(t => t.Channel == Domain.Channels.Email && t.ContactId == contact.Id)
+                .Select(t => t.Key).ToList());
+        var targets = raw.Where(a => a.Contains('@'))
+            .GroupBy(a => a.Trim().ToLowerInvariant()).Select(g => g.First().Trim()).ToList();
+        if (targets.Count == 0) { Skip(run, nodeId, "email skipped: no address"); return; }
+        if (string.IsNullOrEmpty(script)) { Skip(run, nodeId, "email skipped: empty message"); return; }
+        foreach (var to in targets)
+        {
+            var payload = new Dictionary<string, object?> { ["text"] = script };
+            if (CfgStr(cfg, "subject") is { Length: > 0 } subject) payload["subject"] = subject;
+            var job = _queue.Enqueue("email", JobKind.Text, to, WithHints(payload, cfg),
+                contact.Id, flowRunId: run.Id, flowNode: nodeId);
+            Log(run, nodeId, $"email queued (job #{job.Id})");
+        }
     }
 
-    private void QueueTelegram(FlowRun run, string nodeId, Contact? contact, string script)
+    private void QueueTelegram(FlowRun run, string nodeId, Contact? contact, JsonElement cfg, string script)
     {
-        if (contact == null) { Log(run, nodeId, "telegram skipped: no contact"); return; }
+        if (contact == null) { Skip(run, nodeId, "telegram skipped: no contact"); return; }
         var keys = _db.Threads.Where(t => t.Channel == "telegram" && t.ContactId == contact.Id)
             .Select(t => t.Key).ToList();
-        if (keys.Count == 0) { Log(run, nodeId, "telegram skipped: no linked chat"); return; }
+        if (keys.Count == 0) { Skip(run, nodeId, "telegram skipped: no linked chat"); return; }
+        if (string.IsNullOrEmpty(script)) { Skip(run, nodeId, "telegram skipped: empty message"); return; }
         foreach (var key in keys)
-            _queue.Enqueue("telegram", JobKind.Text, key, new() { ["text"] = script },
+            _queue.Enqueue("telegram", JobKind.Text, key, WithHints(new() { ["text"] = script }, cfg),
                 contact.Id, flowRunId: run.Id, flowNode: nodeId);
         Log(run, nodeId, $"telegram queued ×{keys.Count}");
     }
@@ -462,8 +878,8 @@ public class FlowEngine
     private void EnqueueCall(FlowRun run, string nodeId, Contact? contact, JsonElement cfg, string script)
     {
         if (contact == null || string.IsNullOrEmpty(contact.Phone))
-        { Log(run, nodeId, "call skipped: no contact phone"); return; }
-        if (contact.DoNotCall) { Log(run, nodeId, "call skipped: do-not-call flag"); return; }
+        { Skip(run, nodeId, "call skipped: no contact phone"); return; }
+        if (contact.DoNotCall) { Skip(run, nodeId, "call skipped: do-not-call flag"); return; }
         var whatsapp = CfgStr(cfg, "callVia").ToLowerInvariant().StartsWith("whatsapp");
         var payload = new Dictionary<string, object?>
         {
@@ -471,6 +887,7 @@ public class FlowEngine
             ["script"] = script,
             ["voice"] = CfgStr(cfg, "voice"),
         };
+        if (CfgStr(cfg, "skill") is { Length: > 0 } skill) payload["skill"] = skill;
         var job = _queue.Enqueue(whatsapp ? "whatsapp" : "voice", JobKind.Call, contact.Phone,
             payload, contact.Id, flowRunId: run.Id, flowNode: nodeId);
         Log(run, nodeId, $"call queued via {(whatsapp ? "WhatsApp" : "SIP")} (job #{job.Id})");
@@ -478,44 +895,327 @@ public class FlowEngine
 
     private void EnqueueScriptCall(FlowRun run, string nodeId, Contact? contact, JsonElement cfg)
     {
-        if (contact == null) { Log(run, nodeId, "script call skipped: no contact"); return; }
+        if (contact == null) { Skip(run, nodeId, "script call skipped: no contact"); return; }
         var templateId = CfgInt(cfg, "scriptTemplateId");
         var template = templateId > 0 ? _db.ScriptTemplates.Find(templateId) : null;
-        if (template == null) { Log(run, nodeId, "script call skipped: no template"); return; }
+        if (template == null) { Skip(run, nodeId, "script call skipped: no script chosen"); return; }
         var spoken = Render(template.Content, VariablesFor(contact));
         EnqueueCall(run, nodeId, contact, cfg, spoken);
     }
 
-    private void DoHandover(FlowRun run, JsonElement node)
+    private void Skip(FlowRun run, string nodeId, string why)
+    {
+        Log(run, nodeId, why);
+        Track(run, nodeId, FlowStepKind.Skipped, why);
+    }
+
+    // ---- hand over / update contact / end ------------------------------------
+
+    /// <summary>
+    /// Hand the conversation to people: the contact's latest conversation moves
+    /// to the chosen team (unclaimed, so the team's queue picks it up), the bot
+    /// stands down on it, and a private note records why. Priority decides who
+    /// hears about it: the team's members always; admins too when it is High or
+    /// Urgent (or when the team has nobody in it).
+    /// </summary>
+    private void DoHandover(FlowRun run, JsonElement node, Workflow wf)
     {
         var cfg = Cfg(node);
+        var nodeId = Str(node, "id");
         var contact = run.ContactId is int cid ? _db.Contacts.Find(cid) : null;
-        var team = CfgStr(cfg, "team"); if (team == "") team = "Senior agent";
+        var teamRef = CfgStr(cfg, "team").Trim();
+        var priority = CfgStr(cfg, "priority").Trim(); if (priority == "") priority = "Normal";
         var reason = Render(CfgStr(cfg, "reason"), VariablesFor(contact));
-        Notify(new[] { "superadmin", "admin" },
-            $"Flow handover → {team}: {contact?.Name ?? "unknown"}", reason);
-        Log(run, Str(node, "id"), $"handover → {team}");
+        Team? team = null;
+        if (teamRef != "")
+            team = int.TryParse(teamRef, out var tid)
+                ? _db.Teams.FirstOrDefault(t => t.Id == tid)
+                : _db.Teams.AsEnumerable().FirstOrDefault(t =>
+                    string.Equals(t.Name, teamRef, StringComparison.OrdinalIgnoreCase));
+        var teamLabel = team?.Name ?? (teamRef != "" && !int.TryParse(teamRef, out _) ? teamRef : "the team");
+
+        var thread = contact == null ? null : _db.Threads
+            .Where(t => t.ContactId == contact.Id).OrderByDescending(t => t.UpdatedAt).FirstOrDefault();
+        if (thread != null)
+        {
+            if (team != null) { thread.TeamId = team.Id; thread.Assignee = ""; }
+            thread.Status = ThreadStatus.Open;
+            thread.AiEnabled = false;
+            if (thread.AccountId is int aid)
+            {
+                var overrides = new Dictionary<string, object?>(thread.AiOverrides) { [aid.ToString()] = false };
+                thread.AiOverrides = overrides;
+            }
+            var note = $"Handed over by the flow “{wf.Name}” to {teamLabel} · {priority} priority"
+                       + (reason.Trim() != "" ? $" — {reason.Trim()}" : "");
+            _db.Messages.Add(new Message
+            {
+                ThreadId = thread.Id, AccountId = thread.AccountId, Direction = MessageDirection.Out,
+                Source = MessageSource.System, Private = true, Text = Trim(note, 1000),
+                Status = "sent", CreatedAt = DateTime.UtcNow,
+            });
+            thread.UpdatedAt = DateTime.UtcNow;
+            _db.SaveChanges();
+        }
+
+        var recipients = team == null ? new List<int>()
+            : _db.TeamMembers.Where(m => m.TeamId == team.Id).Select(m => m.UserId).ToList();
+        var escalate = priority is "High" or "Urgent";
+        if (escalate || recipients.Count == 0)
+            recipients.AddRange(_db.Profiles.Where(p => p.Role == Roles.Admin || p.Role == Roles.SuperAdmin)
+                .Select(p => p.UserId).ToList());
+        var prefix = priority switch { "Urgent" => "URGENT · ", "High" => "High priority · ", _ => "" };
+        NotifyUsers(recipients.Distinct(), $"{prefix}Handover → {teamLabel}: {contact?.Name ?? "unknown"}",
+            reason, contact != null ? $"/contacts/{contact.Id}" : "");
+        Log(run, nodeId, $"handover → {teamLabel} ({priority}){(thread == null ? " — no conversation to move" : "")}");
+        _completeDetail = $"{teamLabel} · {priority}";
+    }
+
+    /// <summary>"Update contact": add or remove a tag, or set a custom field
+    /// (value may hold {{variables}}).</summary>
+    private void DoUpdate(FlowRun run, JsonElement node)
+    {
+        var cfg = Cfg(node);
+        var nodeId = Str(node, "id");
+        var contact = run.ContactId is int cid ? _db.Contacts.Find(cid) : null;
+        if (contact == null) { Skip(run, nodeId, "update skipped: no contact"); return; }
+        var op = CfgStr(cfg, "op"); if (op == "") op = "add_tag";
+        var vars = VariablesFor(contact);
+        switch (op)
+        {
+            case "add_tag":
+            case "remove_tag":
+                var tag = Render(CfgStr(cfg, "tag"), vars).Trim();
+                if (tag == "") { Skip(run, nodeId, "update skipped: no tag"); return; }
+                var tags = contact.Tags.Where(t => !string.Equals(t.Trim(), tag, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (op == "add_tag") tags.Add(tag);
+                contact.Tags = tags;
+                _completeDetail = op == "add_tag" ? $"tagged '{tag}'" : $"untagged '{tag}'";
+                break;
+            case "set_field":
+                var field = CfgStr(cfg, "field").Trim();
+                if (field == "") { Skip(run, nodeId, "update skipped: no field"); return; }
+                var value = Render(CfgStr(cfg, "value"), vars);
+                var attrs = new Dictionary<string, object?>(contact.Attributes) { [field] = value };
+                contact.Attributes = attrs;
+                _completeDetail = $"{field} = {Trim(value, 60)}";
+                break;
+            default:
+                Skip(run, nodeId, $"update skipped: unknown change '{op}'");
+                return;
+        }
+        contact.UpdatedAt = DateTime.UtcNow;
+        _db.SaveChanges();
+        Log(run, nodeId, $"contact updated: {_completeDetail}");
+    }
+
+    /// <summary>End: finish with the outcome code, and (when asked) remember the
+    /// outcome in the contact's AI memory so chat and calls know how it went.</summary>
+    private void DoEnd(FlowRun run, JsonElement node, Workflow wf)
+    {
+        var nodeId = Str(node, "id");
+        var cfg = Cfg(node);
+        var code = EndCode(node);
+        var remember = CfgStr(cfg, "updateMemory").Trim().ToLowerInvariant() is "yes" or "true";
+        if (remember && run.ContactId is int cid)
+        {
+            try
+            {
+                var label = node.TryGetProperty("data", out var d) ? Str(d, "label") : "";
+                _db.ConversationSummaries.Add(new ConversationSummary
+                {
+                    ContactId = cid, Source = "flow", Channel = "", Ref = $"flow:{wf.FlowId}:{run.Id}",
+                    Summary = Trim($"Finished the “{wf.Name}” flow — outcome {code}"
+                                   + (label.Trim() != "" ? $" ({label.Trim()})." : "."), 600),
+                    CreatedAt = DateTime.UtcNow,
+                });
+                _db.SaveChanges();
+            }
+            catch (Exception e) { Log(run, nodeId, $"memory note skipped: {e.Message}"); }
+        }
+        Track(run, nodeId, FlowStepKind.Completed, code);
+        Finish(run, FlowRunStatus.Done, code);
+    }
+
+    private static string EndCode(JsonElement node)
+    {
+        var code = CfgStr(Cfg(node), "logCode").Trim();
+        return code == "" ? "END" : code;
+    }
+
+    // ---- wait + follow-up ---------------------------------------------------
+
+    private static TimeSpan Duration(JsonElement cfg, string amountKey, string unitKey, TimeSpan fallback)
+    {
+        var raw = CfgStr(cfg, amountKey);
+        if (!double.TryParse(raw, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var n) || n <= 0) return fallback;
+        return CfgStr(cfg, unitKey).ToLowerInvariant() switch
+        {
+            "minutes" => TimeSpan.FromMinutes(n),
+            "hours" => TimeSpan.FromHours(n),
+            "weeks" => TimeSpan.FromDays(n * 7),
+            _ => TimeSpan.FromDays(n),
+        };
+    }
+
+    private static string Human(TimeSpan t)
+    {
+        if (t.TotalDays >= 1 && Math.Abs(t.TotalDays - Math.Round(t.TotalDays)) < 0.01)
+            return $"{Math.Round(t.TotalDays)} day{(Math.Round(t.TotalDays) == 1 ? "" : "s")}";
+        if (t.TotalHours >= 1 && Math.Abs(t.TotalHours - Math.Round(t.TotalHours)) < 0.01)
+            return $"{Math.Round(t.TotalHours)} hour{(Math.Round(t.TotalHours) == 1 ? "" : "s")}";
+        return $"{Math.Max(1, Math.Round(t.TotalMinutes))} min";
+    }
+
+    /// <summary>
+    /// "Wait": a set amount of time, or until the contact replies (optionally
+    /// giving up after a timeout). Either way the run moves on afterwards; the
+    /// <c>answered</c> flag records whether a reply arrived, which the next
+    /// "Ask &amp; branch: They replied" step reads.
+    /// </summary>
+    private bool DoWait(FlowRun run, JsonElement node)
+    {
+        var cfg = Cfg(node);
+        var nodeId = Str(node, "id");
+        var forReply = CfgStr(cfg, "mode") == "reply";
+        if (Ctx(run, "_park_node") == nodeId)
+        {
+            var wake = Ctx(run, "_wake");
+            if (forReply && wake == "reply") { _completeDetail = "replied"; return true; }
+            if (forReply)
+            {
+                SetCtx(run, "answered", false);
+                _completeDetail = "no reply in time";
+                Log(run, nodeId, "no reply before the timeout — moving on");
+                return true;
+            }
+            _completeDetail = "wait over";
+            return true;
+        }
+        SetCtx(run, "answered", false);
+        SetCtx(run, "reply_consumed", true);
+        if (forReply)
+        {
+            var timeout = Duration(cfg, "timeoutAmount", "timeoutUnit", TimeSpan.Zero);
+            var detail = "waiting for a reply" + (timeout > TimeSpan.Zero ? $" (up to {Human(timeout)})" : "");
+            Park(run, nodeId, "reply", timeout > TimeSpan.Zero ? DateTime.UtcNow + timeout : null, detail);
+        }
+        else
+        {
+            var span = Duration(cfg, "amount", "unit", TimeSpan.FromDays(1));
+            Park(run, nodeId, "", DateTime.UtcNow + span, $"waiting {Human(span)}");
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// "Follow up if no reply": wait, and if the contact has not answered send a
+    /// follow-up (the step's own message, template or AI-written text — through
+    /// the normal action path, so the queue paces it and quiet hours hold it),
+    /// up to N times. Any reply ends it on the "replied" branch; so does a stop
+    /// condition (a tag appears, the conversation is resolved). Running out of
+    /// follow-ups takes the "no reply" branch.
+    /// </summary>
+    private string? DoFollowUp(FlowRun run, JsonElement node)
+    {
+        var cfg = Cfg(node);
+        var nodeId = Str(node, "id");
+        var max = Math.Clamp(CfgInt(cfg, "maxFollowUps", 2), 1, 5);
+        var gap = Duration(cfg, "waitAmount", "waitUnit", TimeSpan.FromDays(1));
+        if (Ctx(run, "_park_node") != nodeId)
+        {
+            SetCtx(run, "_fu_count", 0);
+            SetCtx(run, "answered", false);
+            SetCtx(run, "reply_consumed", true);
+            Park(run, nodeId, "reply", DateTime.UtcNow + gap, $"waiting {Human(gap)} for a reply");
+            return null;
+        }
+        var sent = CtxInt(run, "_fu_count");
+        if (Ctx(run, "_wake") == "reply")
+        {
+            _completeDetail = sent == 0 ? "replied before any follow-up" : $"replied after follow-up {sent}";
+            return "yes";
+        }
+        var stop = StopReason(run, cfg);
+        if (stop != null) { _completeDetail = $"stopped: {stop}"; return "yes"; }
+        if (sent >= max)
+        {
+            SetCtx(run, "answered", false);
+            _completeDetail = $"no reply after {sent} follow-up{(sent == 1 ? "" : "s")}";
+            return "no";
+        }
+        if (InQuietHours() || !DoAction(run, node))
+        {
+            Park(run, nodeId, "reply", DateTime.UtcNow.AddMinutes(30), "", track: false);
+            Log(run, nodeId, "quiet hours — follow-up postponed 30 min");
+            return null;
+        }
+        SetCtx(run, "_fu_count", sent + 1);
+        Track(run, nodeId, FlowStepKind.FollowUp, $"follow-up {sent + 1} sent");
+        Log(run, nodeId, $"follow-up {sent + 1} of {max} sent");
+        Park(run, nodeId, "reply", DateTime.UtcNow + gap, "", track: false);
+        return null;
+    }
+
+    private string? StopReason(FlowRun run, JsonElement cfg)
+    {
+        if (run.ContactId is not int cid) return null;
+        var contact = _db.Contacts.AsNoTracking().FirstOrDefault(c => c.Id == cid);
+        var stopTag = CfgStr(cfg, "stopTag");
+        if (stopTag.Trim() != "" && HasTag(contact, stopTag)) return $"tag '{stopTag.Trim()}' added";
+        if (CfgBool(cfg, "stopOnResolved"))
+        {
+            if (string.Equals(contact?.Status, "resolved", StringComparison.OrdinalIgnoreCase))
+                return "contact resolved";
+            var latest = _db.Threads.AsNoTracking().Where(t => t.ContactId == cid)
+                .OrderByDescending(t => t.UpdatedAt).Select(t => t.Status).FirstOrDefault();
+            if (latest == ThreadStatus.Resolved) return "conversation resolved";
+        }
+        return null;
+    }
+
+    /// <summary>Park the run AT a node (wait/follow-up/decision): it resumes on
+    /// <paramref name="until"/> (time or timeout) or, for "reply", on a reply.</summary>
+    private void Park(FlowRun run, string nodeId, string waitFor, DateTime? until, string detail, bool track = true)
+    {
+        run.Status = FlowRunStatus.Waiting;
+        run.WaitFor = waitFor;
+        run.WaitUntil = until;
+        SetCtx(run, "_park_node", nodeId);
+        SetCtx(run, "_wake", null);
+        if (track && detail != "") Track(run, nodeId, FlowStepKind.Waiting, detail);
+        if (detail != "") Log(run, nodeId, $"parked: {detail}");
+        _db.SaveChanges();
     }
 
     // ---- the walk -----------------------------------------------------------
 
+    private const string TimeoutTiming = "No answer / timeout";
+
+    /// <summary>
+    /// The edge out of a node. A branch (decision yes/no, follow-up
+    /// replied/no-reply) takes the edge from its handle (or, for old flows, a
+    /// label starting with it); with no such edge the path simply ends — it
+    /// never falls through to the other branch. Timeout edges are only taken by
+    /// the timeout machinery.
+    /// </summary>
     private JsonElement? PickEdge(Workflow wf, JsonElement node, string? branch)
     {
         var nodeId = Str(node, "id");
-        var edges = Edges(wf).Where(e => Str(e, "source") == nodeId).ToList();
+        var edges = Edges(wf).Where(e => Str(e, "source") == nodeId && EdgeTiming(e) != TimeoutTiming).ToList();
         if (edges.Count == 0) return null;
-        if (branch != null)
+        if (branch == null) return edges[0];
+        foreach (var e in edges)
+            if (Str(e, "sourceHandle").ToLowerInvariant() == branch) return e;
+        foreach (var e in edges)
+            if (Str(e, "sourceHandle") == "" && Str(e, "label").Trim().ToLowerInvariant().StartsWith(branch)) return e;
+        foreach (var e in edges)
         {
-            foreach (var e in edges)
-            {
-                var handle = Str(e, "sourceHandle").ToLowerInvariant();
-                var label = Str(e, "label").Trim().ToLowerInvariant();
-                if (handle == branch || label.StartsWith(branch)) return e;
-            }
-            return edges[0];
+            var label = Str(e, "label").Trim().ToLowerInvariant();
+            if (Str(e, "sourceHandle") == "" && !label.StartsWith("yes") && !label.StartsWith("no")) return e;
         }
-        var normal = edges.Where(e => EdgeTiming(e) != "No answer / timeout").ToList();
-        return (normal.Count > 0 ? normal : edges)[0];
+        return null;
     }
 
     private static string EdgeTiming(JsonElement edge)
@@ -528,35 +1228,70 @@ public class FlowEngine
 
     private static double EdgeWaitDays(JsonElement edge)
     {
-        if (edge.TryGetProperty("data", out var d) && d.TryGetProperty("config", out var c)
+        if (edge.TryGetProperty("data", out var d) && d.ValueKind == JsonValueKind.Object
+            && d.TryGetProperty("config", out var c) && c.ValueKind == JsonValueKind.Object
             && c.TryGetProperty("waitDays", out var w))
             return w.ValueKind == JsonValueKind.Number ? w.GetDouble()
-                : double.TryParse(w.ToString(), out var n) ? n : 0;
+                : double.TryParse(w.ToString(), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : 0;
         return 0;
     }
 
-    private bool ApplyEdge(FlowRun run, JsonElement edge)
+    /// <summary>The soonest "No answer / timeout" edge out of a node (a timeout
+    /// edge with no days set gives up after one day).</summary>
+    private JsonElement? TimeoutEdgeFrom(Workflow wf, string nodeId) =>
+        Edges(wf).Where(e => Str(e, "source") == nodeId && EdgeTiming(e) == TimeoutTiming)
+            .OrderBy(e => EdgeWaitDays(e) > 0 ? EdgeWaitDays(e) : 1)
+            .Cast<JsonElement?>().FirstOrDefault();
+
+    private static DateTime TimeoutAt(JsonElement edge) =>
+        DateTime.UtcNow.AddDays(EdgeWaitDays(edge) > 0 ? EdgeWaitDays(edge) : 1);
+
+    private JsonElement? EdgeById(Workflow wf, string id) =>
+        Edges(wf).Where(e => Str(e, "id") == id).Cast<JsonElement?>().FirstOrDefault();
+
+    /// <summary>
+    /// Old-style timing on a line (edge): wait N days, wait for a reply (with
+    /// an optional "No answer / timeout" line out of the same step as the
+    /// fallback), or wait for a record update. The run parks BEFORE the
+    /// target step, which is entered when it resumes.
+    /// </summary>
+    private bool ApplyEdge(FlowRun run, Workflow wf, JsonElement edge)
     {
         var timing = EdgeTiming(edge); if (timing == "") timing = "Immediately";
+        var source = Str(edge, "source");
         run.CurrentNode = Str(edge, "target");
+        SetCtx(run, "_park_node", null);
+        SetCtx(run, "_wake", null);
+        SetCtx(run, "_timeout_edge", null);
         if (timing == "Wait N days")
         {
+            var days = EdgeWaitDays(edge);
+            run.Status = FlowRunStatus.Waiting; run.WaitFor = "";
+            run.WaitUntil = DateTime.UtcNow.AddDays(days);
+            var detail = $"waiting {days:0.##} day{(days == 1 ? "" : "s")}";
+            Track(run, run.CurrentNode, FlowStepKind.Waiting, detail);
+            Log(run, run.CurrentNode, $"parked: {detail}");
+            _db.SaveChanges();
+            return false;
+        }
+        if (timing is "On contact reply" or "On record update")
+        {
+            var reply = timing == "On contact reply";
             run.Status = FlowRunStatus.Waiting;
-            run.WaitUntil = DateTime.UtcNow.AddDays(EdgeWaitDays(edge));
-            Log(run, run.CurrentNode, "parked: waiting");
-            _db.SaveChanges();
-            return false;
-        }
-        if (timing == "On contact reply")
-        {
-            run.Status = FlowRunStatus.Waiting; run.WaitFor = "reply";
-            Log(run, run.CurrentNode, "parked: waiting for reply");
-            _db.SaveChanges();
-            return false;
-        }
-        if (timing == "On record update")
-        {
-            run.Status = FlowRunStatus.Waiting; run.WaitFor = "record";
+            run.WaitFor = reply ? "reply" : "record";
+            run.WaitUntil = null;
+            SetCtx(run, "_wait_from", source);
+            if (reply) { SetCtx(run, "answered", false); SetCtx(run, "reply_consumed", true); }
+            else SetCtx(run, "_park_at", DateTime.UtcNow.ToString("o"));
+            if (TimeoutEdgeFrom(wf, source) is JsonElement te)
+            {
+                SetCtx(run, "_timeout_edge", Str(te, "id"));
+                run.WaitUntil = TimeoutAt(te);
+            }
+            var detail = reply ? "waiting for a reply" : "waiting for a record update";
+            Track(run, run.CurrentNode, FlowStepKind.Waiting, detail);
+            Log(run, run.CurrentNode, $"parked: {detail}");
             _db.SaveChanges();
             return false;
         }
@@ -566,37 +1301,82 @@ public class FlowEngine
 
     private void Advance(FlowRun run, Workflow wf)
     {
-        var byId = Nodes(wf).ToDictionary(n => Str(n, "id"), n => n);
+        _flowKeys[wf.Id] = wf.FlowId;
+        var byId = new Dictionary<string, JsonElement>();
+        foreach (var n in Nodes(wf)) byId.TryAdd(Str(n, "id"), n);
         for (var i = 0; i < MaxSteps; i++)
         {
             if (!byId.TryGetValue(run.CurrentNode, out var node))
-            { Finish(run, FlowRunStatus.Failed, $"node {run.CurrentNode} not in workflow"); return; }
+            { Finish(run, FlowRunStatus.Failed, $"step {run.CurrentNode} is no longer in the flow"); return; }
+            var nodeId = Str(node, "id");
             var kind = Str(node, "type");
+            EnterNode(run, nodeId);
+            _completeDetail = "";
             string? branch = null;
-            if (kind == "action")
+            switch (kind)
             {
-                if (!DoAction(run, node)) { _db.SaveChanges(); return; }
+                case "trigger":
+                case "stage": // legacy day-range section — a pass-through
+                    break;
+                case "action":
+                    if (!DoAction(run, node))
+                    {
+                        Track(run, nodeId, FlowStepKind.Waiting, "quiet hours — postponed 30 min");
+                        _db.SaveChanges();
+                        return;
+                    }
+                    // a message just went out: a reply from here on is an answer to it
+                    SetCtx(run, "answered", false);
+                    SetCtx(run, "reply_consumed", true);
+                    break;
+                case "decision":
+                    branch = Decide(run, node);
+                    if (branch == null)
+                    {
+                        var te = TimeoutEdgeFrom(wf, nodeId);
+                        Park(run, nodeId, "reply", te is JsonElement e ? TimeoutAt(e) : null,
+                            "waiting for the contact's answer");
+                        if (te is JsonElement t) { SetCtx(run, "_timeout_edge", Str(t, "id")); _db.SaveChanges(); }
+                        return;
+                    }
+                    break;
+                case "wait":
+                    if (!DoWait(run, node)) return;
+                    break;
+                case "followup":
+                    branch = DoFollowUp(run, node);
+                    if (branch == null) return;
+                    break;
+                case "handover":
+                    DoHandover(run, node, wf);
+                    break;
+                case "update":
+                    DoUpdate(run, node);
+                    break;
+                case "end":
+                    DoEnd(run, node, wf);
+                    return;
+                default:
+                    Log(run, nodeId, $"unknown step type '{kind}' — passed through");
+                    break;
             }
-            else if (kind == "decision")
-            {
-                branch = Decide(run, node);
-                if (branch == null)
-                { run.Status = FlowRunStatus.Waiting; run.WaitFor = "reply"; _db.SaveChanges(); return; }
-            }
-            else if (kind == "handover") DoHandover(run, node);
-            else if (kind == "end") { Finish(run, FlowRunStatus.Done, EndCode(node)); return; }
-
+            Track(run, nodeId, FlowStepKind.Completed, _completeDetail != "" ? _completeDetail : branch ?? "");
+            SetCtx(run, "_park_node", null);
+            SetCtx(run, "_wake", null);
             var edge = PickEdge(wf, node, branch);
             if (edge == null) { Finish(run, FlowRunStatus.Done, "end of path"); return; }
-            if (!ApplyEdge(run, edge.Value)) return;
+            if (!ApplyEdge(run, wf, edge.Value)) return;
         }
-        Finish(run, FlowRunStatus.Failed, "aborted (cycle?)");
+        Finish(run, FlowRunStatus.Failed, $"stopped after {MaxSteps} steps in one go (a loop in the flow?)");
     }
 
-    private static string EndCode(JsonElement node)
+    /// <summary>Record "entered" once per arrival — a run resuming at the step
+    /// it parked on is not a second arrival.</summary>
+    private void EnterNode(FlowRun run, string nodeId)
     {
-        var code = CfgStr(Cfg(node), "logCode").Trim();
-        return code == "" ? "END" : code;
+        if (Ctx(run, "_node") == nodeId) return;
+        SetCtx(run, "_node", nodeId);
+        Track(run, nodeId, FlowStepKind.Entered);
     }
 
     // ---- resume: time + events ----------------------------------------------
@@ -615,30 +1395,87 @@ public class FlowEngine
         {
             var wf = _db.Workflows.Find(run.WorkflowId);
             if (wf == null) { Finish(run, FlowRunStatus.Failed, "workflow gone"); continue; }
-            run.Status = FlowRunStatus.Running; run.WaitUntil = null;
+            _flowKeys[wf.Id] = wf.FlowId;
+            var waitedFor = run.WaitFor;
+            run.Status = FlowRunStatus.Running; run.WaitUntil = null; run.WaitFor = "";
+            if (waitedFor is "reply" or "record")
+            {
+                // a reply/record wait ran out of time
+                var timeoutEdge = Ctx(run, "_timeout_edge");
+                if (timeoutEdge != "" && EdgeById(wf, timeoutEdge) is JsonElement te)
+                {
+                    var at = run.CurrentNode;
+                    if (Ctx(run, "_node") == at)
+                        Track(run, at, FlowStepKind.Completed, "no reply — took the timeout path");
+                    Log(run, at, $"no {(waitedFor == "reply" ? "reply" : "update")} in time — taking the timeout path");
+                    SetCtx(run, "answered", false);
+                    SetCtx(run, "_timeout_edge", null);
+                    SetCtx(run, "_park_node", null);
+                    run.CurrentNode = Str(te, "target");
+                    _db.SaveChanges();
+                    Advance(run, wf);
+                    resumed++;
+                    continue;
+                }
+                SetCtx(run, "_wake", "timeout");
+            }
+            else SetCtx(run, "_wake", "time");
             Log(run, run.CurrentNode, "wait elapsed — resuming");
+            Advance(run, wf);
+            resumed++;
+        }
+
+        // "On record update" waits: resume once any of the contact's records
+        // (or their events) changed after the run parked.
+        foreach (var run in _db.FlowRuns.Where(r => r.Status == FlowRunStatus.Waiting
+                     && r.WaitFor == "record").ToList())
+        {
+            if (run.ContactId is not int cid) continue;
+            var since = DateTime.TryParse(Ctx(run, "_park_at"), System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind, out var p) ? p.ToUniversalTime() : run.UpdatedAt;
+            var changed = _db.Records.Any(r => r.ContactId == cid && r.UpdatedAt > since)
+                          || _db.RecordEvents.Any(e => e.Record != null && e.Record.ContactId == cid && e.CreatedAt > since);
+            if (!changed) continue;
+            var wf = _db.Workflows.Find(run.WorkflowId);
+            if (wf == null) { Finish(run, FlowRunStatus.Failed, "workflow gone"); continue; }
+            run.Status = FlowRunStatus.Running; run.WaitUntil = null; run.WaitFor = "";
+            SetCtx(run, "_timeout_edge", null);
+            SetCtx(run, "_wake", "record");
+            Log(run, run.CurrentNode, "record updated — resuming");
             Advance(run, wf);
             resumed++;
         }
         return resumed;
     }
 
+    /// <summary>
+    /// Event axis. A customer message (1) starts runs of "Message received"
+    /// flows, (2) is remembered on every live run of that contact (so a "They
+    /// replied" check after a timed wait sees it), and (3) resumes runs parked
+    /// on a reply. Returns how many parked runs it resumed.
+    /// </summary>
     public int OnInboundMessage(string channel, string key, string text)
     {
         var contact = ContactFor(channel, key);
         if (contact == null) return 0;
+        var started = new List<int>();
+        try { started = StartMessageTriggers(contact, channel, text); }
+        catch { /* a broken trigger must never block resuming parked runs */ }
         var resumed = 0;
-        foreach (var run in _db.FlowRuns.Where(r => r.Status == FlowRunStatus.Waiting
-                     && r.WaitFor == "reply" && r.ContactId == contact.Id).ToList())
+        foreach (var run in _db.FlowRuns.Where(r => r.ContactId == contact.Id
+                     && (r.Status == FlowRunStatus.Waiting || r.Status == FlowRunStatus.Running)).ToList())
         {
+            if (started.Contains(run.Id)) continue;
+            SetCtx(run, "last_reply", Trim(text, 500));
+            SetCtx(run, "reply_consumed", false);
+            SetCtx(run, "answered", true);
+            if (run.Status != FlowRunStatus.Waiting || run.WaitFor != "reply") { _db.SaveChanges(); continue; }
             var wf = _db.Workflows.Find(run.WorkflowId);
             if (wf == null) continue;
-            var ctx = run.Context;
-            ctx["last_reply"] = Trim(text, 500);
-            ctx["reply_consumed"] = false;
-            ctx["answered"] = true;
-            run.Context = ctx;
-            run.Status = FlowRunStatus.Running; run.WaitFor = "";
+            _flowKeys[wf.Id] = wf.FlowId;
+            run.Status = FlowRunStatus.Running; run.WaitFor = ""; run.WaitUntil = null;
+            SetCtx(run, "_timeout_edge", null);
+            SetCtx(run, "_wake", "reply");
             Log(run, run.CurrentNode, $"contact replied on {channel}");
             Advance(run, wf);
             resumed++;
@@ -691,7 +1528,7 @@ public class FlowEngine
     {
         if (_actions == null)
         {
-            Log(run, nodeId, $"{action}: skipped (integrations unavailable)");
+            Skip(run, nodeId, $"{action}: skipped (integrations unavailable)");
             return;
         }
         var args = new Dictionary<string, string>();
@@ -703,14 +1540,20 @@ public class FlowEngine
         var result = _actions.RunAsync(action, contact, args, script, entityId, null)
             .GetAwaiter().GetResult();
         Log(run, nodeId, $"{action}: {result.Detail}");
+        if (!result.Ok) Track(run, nodeId, FlowStepKind.Skipped, $"{action}: {result.Detail}");
     }
 
     private void Notify(string[] roles, string title, string body)
     {
         var users = _db.Profiles.Where(p => roles.Contains(p.Role)).Select(p => p.UserId).ToList();
-        foreach (var uid in users)
+        NotifyUsers(users, title, body, "");
+    }
+
+    private void NotifyUsers(IEnumerable<int> userIds, string title, string body, string link)
+    {
+        foreach (var uid in userIds)
             _db.Notifications.Add(new Notification { UserId = uid, Kind = "system",
-                Title = Trim(title, 160), Body = Trim(body, 400), CreatedAt = DateTime.UtcNow });
+                Title = Trim(title, 160), Body = Trim(body, 400), Link = link, CreatedAt = DateTime.UtcNow });
         _db.SaveChanges();
     }
 
@@ -725,6 +1568,92 @@ public class FlowEngine
         return new();
     }
 
+    /// <summary>A config value as a string list (arrays, or one string; numbers
+    /// stringified) — the "contacts" scope picker stores ids either way.</summary>
+    private static List<string> CfgList(JsonElement cfg, string key)
+    {
+        if (cfg.ValueKind != JsonValueKind.Object || !cfg.TryGetProperty(key, out var v)) return new();
+        if (v.ValueKind == JsonValueKind.Array)
+            return v.EnumerateArray()
+                .Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() ?? "" : x.ToString())
+                .Where(s => s.Trim() != "").Select(s => s.Trim()).ToList();
+        if (v.ValueKind is JsonValueKind.String or JsonValueKind.Number)
+            return v.ToString().Trim() is { Length: > 0 } one ? new() { one } : new();
+        return new();
+    }
+
+    private static bool CfgBool(JsonElement cfg, string key) =>
+        CfgStr(cfg, key).Trim().ToLowerInvariant() is "true" or "yes" or "1" or "on";
+
+    // ---- run context (JSON bag; values come back as JsonElement after a reload)
+
+    private static string Ctx(FlowRun run, string key)
+    {
+        if (!run.Context.TryGetValue(key, out var v) || v == null) return "";
+        if (v is JsonElement je)
+            return je.ValueKind switch
+            {
+                JsonValueKind.String => je.GetString() ?? "",
+                JsonValueKind.Null or JsonValueKind.Undefined => "",
+                JsonValueKind.True => "true",
+                JsonValueKind.False => "false",
+                _ => je.ToString(),
+            };
+        if (v is bool b) return b ? "true" : "false";
+        return v.ToString() ?? "";
+    }
+
+    private static bool CtxBool(FlowRun run, string key) => Ctx(run, key) == "true";
+
+    private static int CtxInt(FlowRun run, string key) => int.TryParse(Ctx(run, key), out var n) ? n : 0;
+
+    private static void SetCtx(FlowRun run, string key, object? value)
+    {
+        var ctx = run.Context;
+        if (value == null) ctx.Remove(key); else ctx[key] = value;
+        run.Context = ctx;
+    }
+
+    // ---- step events ---------------------------------------------------------
+
+    private DateTime OrgNow() => OrgClock.ToOrg(DateTime.UtcNow, Zone());
+
+    private TimeZoneInfo Zone() => _zone ??= OrgClock.Zone(_scoping);
+
+    private string FlowKey(FlowRun run)
+    {
+        if (_flowKeys.TryGetValue(run.WorkflowId, out var key)) return key;
+        key = _db.Workflows.AsNoTracking().Where(w => w.Id == run.WorkflowId)
+            .Select(w => w.FlowId).FirstOrDefault() ?? "";
+        _flowKeys[run.WorkflowId] = key;
+        return key;
+    }
+
+    /// <summary>
+    /// Append one step event. Cheap, and NEVER throws into the engine: a failed
+    /// insert is detached so it cannot poison the run's own next save.
+    /// </summary>
+    private void Track(FlowRun run, string nodeId, string kind, string detail = "")
+    {
+        FlowStepEvent? ev = null;
+        try
+        {
+            var now = DateTime.UtcNow;
+            ev = new FlowStepEvent
+            {
+                WorkflowId = FlowKey(run), RunId = run.Id, ContactId = run.ContactId,
+                NodeId = nodeId ?? "", Kind = kind, Detail = Trim(detail ?? "", 300),
+                At = now, Day = OrgClock.Day(now, Zone()),
+            };
+            _db.FlowStepEvents.Add(ev);
+            _db.SaveChanges();
+        }
+        catch
+        {
+            try { if (ev != null) _db.Entry(ev).State = EntityState.Detached; } catch { }
+        }
+    }
+
     private void Log(FlowRun run, string nodeId, string evt)
     {
         var log = run.Log;
@@ -735,11 +1664,16 @@ public class FlowEngine
         _db.SaveChanges();
     }
 
+    /// <summary>End a run, keeping WHY: the outcome code, "end of path", or the
+    /// failure reason (also recorded as a "failed" step event).</summary>
     private void Finish(FlowRun run, string status, string detail = "")
     {
         run.Status = status; run.WaitFor = ""; run.WaitUntil = null;
         run.FinishedAt = DateTime.UtcNow; run.UpdatedAt = DateTime.UtcNow;
-        _db.SaveChanges();
+        run.Detail = Trim(detail, 300);
+        if (status == FlowRunStatus.Failed)
+            Track(run, run.CurrentNode, FlowStepKind.Failed, detail);
+        Log(run, run.CurrentNode, status == FlowRunStatus.Done ? $"finished: {detail}" : $"{status}: {detail}");
     }
 
     private static string Trim(string s, int n) => (s ?? "").Length <= n ? s ?? "" : s[..n];

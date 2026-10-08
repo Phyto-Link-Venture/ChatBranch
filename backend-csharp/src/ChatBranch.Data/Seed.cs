@@ -53,6 +53,34 @@ public static class Seed
         AddTableIfMissing(db, "crm_teammember",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_teammember\" PRIMARY KEY AUTOINCREMENT, "
             + "\"team_id\" INTEGER NOT NULL, \"user_id\" INTEGER NOT NULL, \"created_at\" TEXT NOT NULL");
+        AddColumnIfMissing(db, "crm_flowrun", "detail", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_workflow", "live_since", "TEXT NULL");
+        AddTableIfMissing(db, "crm_flowstepevent",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_flowstepevent\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"workflow_id\" TEXT NOT NULL, \"run_id\" INTEGER NOT NULL, \"contact_id\" INTEGER NULL, "
+            + "\"node_id\" TEXT NOT NULL, \"kind\" TEXT NOT NULL, \"detail\" TEXT NOT NULL, "
+            + "\"at\" TEXT NOT NULL, \"day\" TEXT NOT NULL");
+        AddIndexIfMissing(db, "ix_flowstepevent_workflow_day", "crm_flowstepevent", "\"workflow_id\", \"day\"");
+        AddIndexIfMissing(db, "ix_flowstepevent_run", "crm_flowstepevent", "\"run_id\"");
+    }
+
+    /// <summary>Create a (non-unique) index EnsureCreated() will never add to an
+    /// existing database. Idempotent via IF NOT EXISTS.</summary>
+    private static void AddIndexIfMissing(AppDbContext db, string name, string table, string columns)
+    {
+        var conn = db.Database.GetDbConnection();
+        var wasClosed = conn.State != System.Data.ConnectionState.Open;
+        if (wasClosed) conn.Open();
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = $"CREATE INDEX IF NOT EXISTS \"{name}\" ON \"{table}\" ({columns})";
+            cmd.ExecuteNonQuery();
+        }
+        finally
+        {
+            if (wasClosed) conn.Close();
+        }
     }
 
     /// <summary>

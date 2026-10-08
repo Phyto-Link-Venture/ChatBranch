@@ -56,6 +56,7 @@ public class AppDbContext : DbContext
     // crm — flows
     public DbSet<FlowRun> FlowRuns => Set<FlowRun>();
     public DbSet<OutboundJob> OutboundJobs => Set<OutboundJob>();
+    public DbSet<FlowStepEvent> FlowStepEvents => Set<FlowStepEvent>();
     // crm — ai
     public DbSet<CallRecord> CallRecords => Set<CallRecord>();
     public DbSet<LlmUsage> LlmUsage => Set<LlmUsage>();
@@ -117,6 +118,11 @@ public class AppDbContext : DbContext
         b.Entity<KnowledgeItem>().ToTable("crm_knowledgeitem");
         b.Entity<FlowRun>().ToTable("crm_flowrun");
         b.Entity<OutboundJob>().ToTable("crm_outboundjob");
+        b.Entity<FlowStepEvent>().ToTable("crm_flowstepevent");
+        b.Entity<FlowStepEvent>().HasIndex(e => new { e.WorkflowId, e.Day })
+            .HasDatabaseName("ix_flowstepevent_workflow_day");
+        b.Entity<FlowStepEvent>().HasIndex(e => e.RunId)
+            .HasDatabaseName("ix_flowstepevent_run");
         b.Entity<CallRecord>().ToTable("crm_callrecord");
         b.Entity<LlmUsage>().ToTable("crm_llmusage");
         b.Entity<PendingToolAction>().ToTable("crm_pendingtoolaction");
