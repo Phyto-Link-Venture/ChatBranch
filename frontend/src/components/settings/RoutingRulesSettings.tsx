@@ -3,9 +3,12 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { AlertTriangle, CheckCircle, Loader2, Route, Send } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { Card } from '@/components/ui/Card'
 import { Select } from '@/components/ui/Select'
+import { Toggle } from '@/components/ui/Toggle'
 import { roleHeaders, getRole } from '@/lib/role'
 import { expireSessionOn401 } from '@/lib/auth'
+import { useAccess } from '@/lib/useAccess'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -101,7 +104,7 @@ export function RecoveryBanner({ className = '' }: { className?: string }) {
   const goRules = () => {
     const el = document.getElementById('routing-rules')
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    else window.location.assign('/settings/assignments')
+    else window.location.assign('/assignments#routing-rules')
   }
 
   if (downs.length === 0) return null
@@ -113,9 +116,9 @@ export function RecoveryBanner({ className = '' }: { className?: string }) {
         return (
           <div
             key={a.account_id}
-            className="flex flex-wrap items-center gap-3 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3"
+            className="flex flex-wrap items-center gap-3 rounded-xl border border-red/25 bg-red/10 px-4 py-3"
           >
-            <AlertTriangle size={16} className="shrink-0 text-red-300" aria-hidden />
+            <AlertTriangle size={16} className="shrink-0 text-[color:var(--red-ink)]" aria-hidden />
             <div className="min-w-0 flex-1 text-[12.5px] leading-relaxed">
               <span className="font-bold" style={{ color: 'var(--red-ink)' }}>
                 「{a.name}」 is down
@@ -187,51 +190,20 @@ const DEFAULTS: RoutingRules = {
   cold_text_guard: 'block',
 }
 
-/** Controlled version of the settings-page toggle (that one is uncontrolled). */
-function Toggle({
-  on,
-  onChange,
-  disabled = false,
-  ariaLabel,
-}: {
-  on: boolean
-  onChange: (v: boolean) => void
-  disabled?: boolean
-  ariaLabel: string
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-label={ariaLabel}
-      disabled={disabled}
-      onClick={() => onChange(!on)}
-      className="relative h-[22px] w-[38px] shrink-0 cursor-pointer rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-      style={{ background: on ? 'rgb(var(--c-brand))' : 'var(--fill-hover)' }}
-    >
-      <span
-        className="absolute top-[3px] h-4 w-4 rounded-full bg-white transition-all"
-        style={{ left: on ? 18 : 3 }}
-      />
-    </button>
-  )
-}
-
 function RuleRow({ label, sub, control }: { label: string; sub: ReactNode; control: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-line py-3.5">
-      <div className="min-w-0">
-        <div className="mb-0.5 text-[13px] font-semibold text-text-high">{label}</div>
-        <div className="max-w-[520px] text-[11px] leading-relaxed text-text-muted">{sub}</div>
+    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2.5 border-t border-line px-4 py-3.5 sm:px-5">
+      <div className="min-w-[220px] flex-1">
+        <div className="mb-0.5 text-[13.5px] font-semibold text-text-high">{label}</div>
+        <div className="max-w-[560px] text-[12px] leading-relaxed text-text-muted">{sub}</div>
       </div>
-      <div className="shrink-0">{control}</div>
+      <div className="max-w-full shrink-0">{control}</div>
     </div>
   )
 }
 
 /**
- * Settings → Account Assignment → Routing Rules: how reminder (business) and
+ * Account assignment → Routing rules: how reminder (business) and
  * conversation (personal) numbers cooperate. GET/PUT /api/whatsapp/routing-rules
  * (PUT admin+). Renders defensively with the contract defaults while the
  * backend lands in parallel — a 404 just means "defaults, save retries live".
@@ -240,11 +212,10 @@ export function RoutingRulesSettings() {
   const [rules, setRules] = useState<RoutingRules | null>(null)
   const [endpointUp, setEndpointUp] = useState(true)
   const [templates, setTemplates] = useState<string[]>([])
-  const [canManage, setCanManage] = useState(false)
+  const { ready, can } = useAccess()
+  const canManage = ready && can('account_assignment.manage')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
-
-  useEffect(() => setCanManage(getRole() !== 'agent'), [])
 
   useEffect(() => {
     api<Partial<RoutingRules>>('routing-rules')
@@ -312,234 +283,246 @@ export function RoutingRulesSettings() {
   ]
 
   return (
-    <div id="routing-rules" className="mt-6 scroll-mt-4 border-t border-line pt-4">
-      <div className="mb-1 flex items-center gap-2">
-        <Route size={14} className="text-brand-300" aria-hidden />
-        <span className="text-[12.5px] font-bold text-text-high">Routing rules</span>
-      </div>
-      <p className="text-[11px] leading-relaxed text-text-muted">
-        How reminder (business) and conversation (personal) numbers cooperate: AI reply pacing,
-        the reminder-number redirect, ban recovery and the cold-text guard.
-      </p>
+    <section id="routing-rules" className="scroll-mt-4">
+      <Card className="overflow-hidden">
+        <div className="flex items-start gap-3 px-4 pb-3.5 pt-4 sm:px-5">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-fill text-text-high">
+            <Route size={15} aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <h2 className="display text-[19px] leading-tight text-text-heading">Routing rules</h2>
+            <p className="mt-0.5 text-[12.5px] leading-relaxed text-text-muted">
+              How reminder (business) and conversation (personal) numbers cooperate: AI reply pacing, the
+              reminder-number redirect, ban recovery and the cold-text guard.
+            </p>
+          </div>
+        </div>
 
-      <RuleRow
-        label="AI reply pacing"
-        sub={
-          <>
-            <span className="font-semibold text-text-mid">Queued</span> sends one message at a
-            time per account with human-like delays (recommended). Outside working hours — quiet
-            hours in App Keys — queued replies wait for the working window.{' '}
-            <span className="font-semibold text-text-mid">Instant</span> replies immediately.
-          </>
-        }
-        control={
-          <Select
-            value={rules.ai_reply_mode}
-            onChange={(v) => set('ai_reply_mode', v as RoutingRules['ai_reply_mode'])}
-            options={[
-              { value: 'queued', label: 'Queued', hint: '(recommended)' },
-              { value: 'instant', label: 'Instant' },
-            ]}
-            className="w-[200px]"
-            size="md"
-            disabled={!canManage}
-            ariaLabel="AI reply pacing"
-          />
-        }
-      />
-
-      <RuleRow
-        label="Business-number chatbot"
-        sub={
-          <>
-            Default Chatbot state for reminder (business) numbers.{' '}
-            <span className="font-semibold text-text-mid">Off</span>: the business number stays a
-            template/notification channel — inbound replies get the redirect below, and the bot
-            only answers chats where you tick Chatbot on.{' '}
-            <span className="font-semibold text-text-mid">On</span>: the bot converses on the
-            business number by default (replies are instant — queued pacing only protects
-            personal numbers). Per-chat Chatbot ticks always win over this default.
-          </>
-        }
-        control={
-          <Toggle
-            on={rules.reminder_ai_default === 'on'}
-            onChange={(v) => set('reminder_ai_default', v ? 'on' : 'off')}
-            disabled={!canManage}
-            ariaLabel="Business-number chatbot default"
-          />
-        }
-      />
-
-      <RuleRow
-        label="Business-number redirect"
-        sub="When a contact replies to a reminder (business) number and the chatbot is off for that chat, auto-send one message per 24h pointing them somewhere a conversation can happen."
-        control={
-          <Toggle
-            on={rules.business_redirect}
-            onChange={(v) => set('business_redirect', v)}
-            disabled={!canManage}
-            ariaLabel="Business-number redirect"
-          />
-        }
-      />
-
-      {rules.business_redirect && (
         <RuleRow
-          label="Redirect to"
+          label="AI reply pacing"
           sub={
             <>
-              <span className="font-semibold text-text-mid">Conversation number</span> sends a
-              wa.me link to the contact&rsquo;s assigned conversation (personal) number.{' '}
-              <span className="font-semibold text-text-mid">Customer support</span> tells them
-              this line is automated and to contact your human support instead.{' '}
-              <span className="font-semibold text-text-mid">Your template</span> answers with an
-              approved template you pick below.
+              <span className="font-semibold text-text-mid">Queued</span> sends one message at a
+              time per account with human-like delays (recommended). During an account&rsquo;s quiet
+              hours (Channels → edit account → Delivery &amp; AI) queued replies wait for the working
+              window.{' '}
+              <span className="font-semibold text-text-mid">Instant</span> replies immediately.
             </>
           }
           control={
             <Select
-              value={rules.business_redirect_target}
-              onChange={(v) =>
-                set('business_redirect_target', v as RoutingRules['business_redirect_target'])
-              }
+              value={rules.ai_reply_mode}
+              onChange={(v) => set('ai_reply_mode', v as RoutingRules['ai_reply_mode'])}
               options={[
-                { value: 'conversation', label: 'Conversation number', hint: '(recommended)' },
-                { value: 'support', label: 'Customer support' },
-                { value: 'template', label: 'Your template' },
+                { value: 'queued', label: 'Queued', hint: '(recommended)' },
+                { value: 'instant', label: 'Instant' },
               ]}
-              className="w-[240px]"
+              className="w-[200px]"
               size="md"
               disabled={!canManage}
-              ariaLabel="Redirect target"
+              ariaLabel="AI reply pacing"
             />
           }
         />
-      )}
 
-      {rules.business_redirect && rules.business_redirect_target === 'template' && (
         <RuleRow
-          label="Auto-reply template"
-          sub="Sent from the business number itself when a contact replies to it (once per 24h). Leave on None and the redirect falls back to the wa.me conversation-number handoff."
+          label="Business-number chatbot"
+          sub={
+            <>
+              Default Chatbot state for reminder (business) numbers.{' '}
+              <span className="font-semibold text-text-mid">Off</span>: the business number stays a
+              template/notification channel — inbound replies get the redirect below, and the bot
+              only answers chats where you tick Chatbot on.{' '}
+              <span className="font-semibold text-text-mid">On</span>: the bot converses on the
+              business number by default (replies are instant — queued pacing only protects
+              personal numbers). Per-chat Chatbot ticks always win over this default.
+            </>
+          }
+          control={
+            <Toggle
+              on={rules.reminder_ai_default === 'on'}
+              onChange={(v) => set('reminder_ai_default', v ? 'on' : 'off')}
+              disabled={!canManage}
+              label="Business-number chatbot default"
+            />
+          }
+        />
+
+        <RuleRow
+          label="Business-number redirect"
+          sub="When a contact replies to a reminder (business) number and the chatbot is off for that chat, auto-send one message per 24h pointing them somewhere a conversation can happen."
+          control={
+            <Toggle
+              on={rules.business_redirect}
+              onChange={(v) => set('business_redirect', v)}
+              disabled={!canManage}
+              label="Business-number redirect"
+            />
+          }
+        />
+
+        {rules.business_redirect && (
+          <RuleRow
+            label="Redirect to"
+            sub={
+              <>
+                <span className="font-semibold text-text-mid">Conversation number</span> sends a
+                wa.me link to the contact&rsquo;s assigned conversation (personal) number.{' '}
+                <span className="font-semibold text-text-mid">Customer support</span> tells them
+                this line is automated and to contact your human support instead.{' '}
+                <span className="font-semibold text-text-mid">Your template</span> answers with an
+                approved template you pick below.
+              </>
+            }
+            control={
+              <Select
+                value={rules.business_redirect_target}
+                onChange={(v) =>
+                  set('business_redirect_target', v as RoutingRules['business_redirect_target'])
+                }
+                options={[
+                  { value: 'conversation', label: 'Conversation number', hint: '(recommended)' },
+                  { value: 'support', label: 'Customer support' },
+                  { value: 'template', label: 'Your template' },
+                ]}
+                className="w-[240px]"
+                size="md"
+                disabled={!canManage}
+                ariaLabel="Redirect target"
+              />
+            }
+          />
+        )}
+
+        {rules.business_redirect && rules.business_redirect_target === 'template' && (
+          <RuleRow
+            label="Auto-reply template"
+            sub="Sent from the business number itself when a contact replies to it (once per 24h). Leave on None and the redirect falls back to the wa.me conversation-number handoff."
+            control={
+              <Select
+                value={rules.business_redirect_template}
+                onChange={(v) => set('business_redirect_template', v)}
+                options={[
+                  { value: '', label: 'None', hint: '(falls back to wa.me handoff)' },
+                  ...templates.map((n) => ({ value: n, label: n })),
+                  ...(rules.business_redirect_template &&
+                  !templates.includes(rules.business_redirect_template)
+                    ? [{
+                        value: rules.business_redirect_template,
+                        label: rules.business_redirect_template,
+                        hint: '(not in the approved list)',
+                      }]
+                    : []),
+                ]}
+                className="w-[280px]"
+                size="md"
+                disabled={!canManage}
+                ariaLabel="Business auto-reply template"
+              />
+            }
+          />
+        )}
+
+        {rules.business_redirect && rules.business_redirect_target === 'support' && (
+          <RuleRow
+            label="Support contact"
+            sub="Included in the auto-reply so the contact knows where a human answers — a phone number, email or link. Empty sends generic wording."
+            control={
+              <input
+                value={rules.support_contact}
+                onChange={(e) => set('support_contact', e.target.value)}
+                maxLength={200}
+                placeholder="e.g. +60 3-1234 5678"
+                disabled={!canManage}
+                aria-label="Support contact"
+                className="h-9 w-[240px] rounded-lg border border-line bg-fill px-3 text-[12.5px] text-text-high outline-none placeholder:text-text-faint focus:border-brand-400/50 disabled:cursor-not-allowed disabled:opacity-50"
+              />
+            }
+          />
+        )}
+
+        <RuleRow
+          label="Ban recovery"
+          sub="How recovery starts when a conversation number goes down with contacts assigned: one click from the alert/notification, or fully automatic."
           control={
             <Select
-              value={rules.business_redirect_template}
-              onChange={(v) => set('business_redirect_template', v)}
+              value={rules.recovery_mode}
+              onChange={(v) => set('recovery_mode', v as RoutingRules['recovery_mode'])}
               options={[
-                { value: '', label: 'None', hint: '(falls back to wa.me handoff)' },
-                ...templates.map((n) => ({ value: n, label: n })),
-                ...(rules.business_redirect_template &&
-                !templates.includes(rules.business_redirect_template)
-                  ? [{
-                      value: rules.business_redirect_template,
-                      label: rules.business_redirect_template,
-                      hint: '(not in the approved list)',
-                    }]
-                  : []),
+                { value: 'one_click', label: 'One-click from notification', hint: '(recommended)' },
+                { value: 'auto', label: 'Automatic' },
               ]}
               className="w-[280px]"
               size="md"
               disabled={!canManage}
-              ariaLabel="Business auto-reply template"
+              ariaLabel="Ban recovery mode"
             />
           }
         />
-      )}
 
-      {rules.business_redirect && rules.business_redirect_target === 'support' && (
         <RuleRow
-          label="Support contact"
-          sub="Included in the auto-reply so the contact knows where a human answers — a phone number, email or link. Empty sends generic wording."
+          label="Recovery template"
+          sub="Sent via the business number to affected contacts when a conversation number goes down, pointing them to the replacement number. Approved templates only."
           control={
-            <input
-              value={rules.support_contact}
-              onChange={(e) => set('support_contact', e.target.value)}
-              maxLength={200}
-              placeholder="e.g. +60 3-1234 5678"
+            <Select
+              value={rules.recovery_template}
+              onChange={(v) => set('recovery_template', v)}
+              options={templateOptions}
+              className="w-[280px]"
+              size="md"
               disabled={!canManage}
-              aria-label="Support contact"
-              className="h-9 w-[240px] rounded-lg border border-line bg-fill px-3 text-[12.5px] text-text-high outline-none placeholder:text-text-faint focus:border-brand-400/50 disabled:cursor-not-allowed disabled:opacity-50"
+              ariaLabel="Recovery template"
             />
           }
         />
-      )}
 
-      <RuleRow
-        label="Ban recovery"
-        sub="How recovery starts when a conversation number goes down with contacts assigned: one click from the alert/notification, or fully automatic."
-        control={
-          <Select
-            value={rules.recovery_mode}
-            onChange={(v) => set('recovery_mode', v as RoutingRules['recovery_mode'])}
-            options={[
-              { value: 'one_click', label: 'One-click from notification', hint: '(recommended)' },
-              { value: 'auto', label: 'Automatic' },
-            ]}
-            className="w-[280px]"
-            size="md"
-            disabled={!canManage}
-            ariaLabel="Ban recovery mode"
-          />
-        }
-      />
+        <RuleRow
+          label="Cold-text guard"
+          sub="First-contact messages to contacts who never wrote in are WhatsApp's top ban trigger for conversation numbers. Block stops them (recommended), Warn flags them for confirmation, Allow sends anyway — at your own ban risk."
+          control={
+            <Select
+              value={rules.cold_text_guard}
+              onChange={(v) => set('cold_text_guard', v as RoutingRules['cold_text_guard'])}
+              options={[
+                { value: 'block', label: 'Block', hint: '(recommended)' },
+                { value: 'warn', label: 'Warn' },
+                { value: 'allow', label: 'Allow' },
+              ]}
+              className="w-[200px]"
+              size="md"
+              disabled={!canManage}
+              ariaLabel="Cold-text guard"
+            />
+          }
+        />
 
-      <RuleRow
-        label="Recovery template"
-        sub="Sent via the business number to affected contacts when a conversation number goes down, pointing them to the replacement number. Approved templates only."
-        control={
-          <Select
-            value={rules.recovery_template}
-            onChange={(v) => set('recovery_template', v)}
-            options={templateOptions}
-            className="w-[280px]"
-            size="md"
-            disabled={!canManage}
-            ariaLabel="Recovery template"
-          />
-        }
-      />
-
-      <RuleRow
-        label="Cold-text guard"
-        sub="First-contact messages to contacts who never wrote in are WhatsApp's top ban trigger for conversation numbers. Block stops them (recommended), Warn flags them for confirmation, Allow sends anyway — at your own ban risk."
-        control={
-          <Select
-            value={rules.cold_text_guard}
-            onChange={(v) => set('cold_text_guard', v as RoutingRules['cold_text_guard'])}
-            options={[
-              { value: 'block', label: 'Block', hint: '(recommended)' },
-              { value: 'warn', label: 'Warn' },
-              { value: 'allow', label: 'Allow' },
-            ]}
-            className="w-[200px]"
-            size="md"
-            disabled={!canManage}
-            ariaLabel="Cold-text guard"
-          />
-        }
-      />
-
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        {canManage ? (
-          <Button variant="primary" onClick={save} disabled={busy}>
-            {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <CheckCircle size={13} aria-hidden />}{' '}
-            Save routing rules
-          </Button>
-        ) : (
-          <span className="text-[11px] text-text-muted">Routing rules are managed by admins.</span>
+        <div className="flex flex-wrap items-center gap-2 border-t border-line bg-surface px-4 py-3 sm:px-5">
+          {canManage ? (
+            <Button variant="primary" onClick={save} disabled={busy}>
+              {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <CheckCircle size={13} aria-hidden />}{' '}
+              Save routing rules
+            </Button>
+          ) : (
+            <span className="text-[12px] text-text-muted">
+              Routing rules need the account assignment permission.
+            </span>
+          )}
+          {msg && (
+            <span
+              role={msg.ok ? 'status' : 'alert'}
+              className="text-[12px] font-semibold"
+              style={{ color: msg.ok ? 'var(--green-ink)' : 'var(--red-ink)' }}
+            >
+              {msg.text}
+            </span>
+          )}
+        </div>
+        {!endpointUp && (
+          <p className="border-t border-line px-4 py-2 text-[11.5px] text-text-muted sm:px-5">
+            Routing-rules endpoint not reachable — showing defaults; saving retries against the live API.
+          </p>
         )}
-        {msg && (
-          <span className={`text-[12px] font-semibold ${msg.ok ? 'text-green-300' : 'text-red-300'}`}>
-            {msg.text}
-          </span>
-        )}
-      </div>
-      {!endpointUp && (
-        <p className="mt-2 text-[11px] text-text-muted">
-          Routing-rules endpoint not reachable yet — showing defaults; saving retries against the
-          live API.
-        </p>
-      )}
-    </div>
+      </Card>
+    </section>
   )
 }

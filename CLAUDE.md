@@ -453,6 +453,20 @@ sandbox mode.
   throws into a webhook, and an unknown operator matches NOTHING rather than
   everything. `/api/automations/catalog` is the single vocabulary source the
   editor reads.
+- **Notifications + Settings sections** (2026-10-08). `NotificationService`
+  (ChatBranch.Data, root namespace) is the ONLY notification writer: org mute
+  `notif_<category>` → the recipient's own switch (`Profile.Preferences` JSON,
+  `notifications{}`) → "only assigned to me / my teams" for messages →
+  `RefKey` collapse (one unread row per conversation per user). Fail-open,
+  never throws. Inbound customer messages notify assignee → team members →
+  the tenant's admins (InboundProcessor, /simulate, widget). `/notifications`
+  is everyone's inbox (`/api/notifications*`); the bell keeps
+  `/api/auth/notifications`. Settings = sections of flat `/settings/<id>`
+  pages, each with its own capability (`SETTINGS_SECTIONS`), checked
+  server-side via `SettingsEndpoints.RequireCapability`. Appearance:
+  `/api/auth/preferences` + `/api/settings/appearance` (org default).
+  Account assignment is a Work module at `/assignments` (+ `POST
+  /api/whatsapp/assignments/rebalance`).
 - **Help Center** (`/help`, `/api/help/articles`, 2026-08-16) — published
   `KnowledgeItem`s, readable by anyone. `Published` is PUBLIC readability and is
   NOT `Active` (whether the AI may use it): an internal note is active and

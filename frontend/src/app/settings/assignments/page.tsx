@@ -1,13 +1,6 @@
-import { AssignmentsSettings } from '@/components/settings/AssignmentsSettings'
-import { RecoveryBanner, RoutingRulesSettings } from '@/components/settings/RoutingRulesSettings'
+import { LegacyRedirect } from '@/components/shell/LegacyRedirect'
 
-export default function AssignmentsSettingsPage() {
-  return (
-    <div>
-      {/* alarm banner: conversation numbers down with contacts assigned */}
-      <RecoveryBanner className="mt-3.5" />
-      <AssignmentsSettings />
-      <RoutingRulesSettings />
-    </div>
-  )
+// Account assignment is a Work module with its own route now.
+export default function LegacyAssignmentsSettingsPage() {
+  return <LegacyRedirect to="/assignments" />
 }
