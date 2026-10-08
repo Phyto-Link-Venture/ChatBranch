@@ -97,7 +97,8 @@ you move to multi-host, that file layer is the seam to replace.
 ## Prerequisites
 
 - **.NET 8 SDK** (the API) and **Node 20+** (dashboard, gateway, voice agent).
-- **Only for real AI replies:** an OpenRouter or OpenAI key.
+- **Only for real AI replies:** an OpenRouter, OpenAI, Google Gemini or ILMU key
+  (or a local OpenAI-compatible model).
 - **Only for real phone calls:** a [LiveKit](https://cloud.livekit.io) project
   with SIP, an OpenAI key with Realtime API access (`gpt-realtime`) or an
   ElevenLabs/ILMU cascade, and a SIP trunk (e.g. Twilio Elastic SIP Trunking) —
@@ -254,7 +255,7 @@ ChatBranch/
 
 ```bash
 cd backend-csharp && dotnet build src/ChatBranch.Api -c Release
-cd backend-csharp && dotnet test tests/ChatBranch.Tests    # 218 tests
+cd backend-csharp && dotnet test tests/ChatBranch.Tests    # 302 tests
 cd frontend && npx tsc --noEmit && npx eslint src && npx next build
 cd backend/voice_agent && npx tsc --noEmit && npm run selftest
 node backend/baileys_service/calls.js --selftest
@@ -270,11 +271,14 @@ every pull request.
 
 ## Honest limitations
 
-- **Several transports are not ported to the C# backend yet.** Email (SMTP and
-  IMAP) and Telegram replies store messages in sandbox mode; Baileys numbers
-  can't send media (the gateway has no media route); Telegram and email inbound
-  media isn't stored; there is no periodic channel-health prober and no automatic account
-  failover; STOP/UNSUBSCRIBE opt-out detection isn't ported. The full table is
+- **Every channel transport is wired, with a few edges left.**
+  Baileys numbers can't send media (the gateway has no media route) and send
+  templates as rendered text; WhatsApp Cloud has no voice calls; Messenger's
+  24-hour window isn't modelled (Meta's refusal shows as a failed send); email
+  bodies are plain text; the opt-out flag lives on the conversation, not the
+  contact; AI replies sent instantly use the thread's own number rather than
+  send-time routing. Nothing has been exercised against the live providers from
+  this repo's CI — expect field debugging on a first real account. The full table is
   in [CLAUDE.md](CLAUDE.md#port-status--what-is-real-what-is-sandbox).
 - **WhatsApp via Baileys violates WhatsApp's Terms of Service.** It speaks the
   unofficial WhatsApp Web protocol; automated messaging — and *especially*

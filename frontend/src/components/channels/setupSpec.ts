@@ -103,6 +103,11 @@ export const CRED_FIELDS: Partial<Record<InboxKind, FieldSpec[]>> = {
       key: 'access_token', label: 'Page access token', placeholder: 'EAAG…', secret: true,
       help: 'Meta App Dashboard → Messenger → Settings → Access tokens → Generate for this page.',
     },
+    {
+      key: 'app_secret', label: 'App secret', placeholder: 'From App settings → Basic', secret: true,
+      optional: true,
+      help: 'Meta App Dashboard → App settings → Basic → App secret. Inbound messages are only accepted when Meta signs them with it, so set it before you go live.',
+    },
   ],
   instagram: [
     {
@@ -113,6 +118,11 @@ export const CRED_FIELDS: Partial<Record<InboxKind, FieldSpec[]>> = {
     {
       key: 'access_token', label: 'Page access token', placeholder: 'EAAG…', secret: true,
       help: 'The token of the Facebook page the Instagram account is linked to.',
+    },
+    {
+      key: 'app_secret', label: 'App secret', placeholder: 'From App settings → Basic', secret: true,
+      optional: true,
+      help: 'Meta App Dashboard → App settings → Basic → App secret. Inbound messages are only accepted when Meta signs them with it, so set it before you go live.',
     },
   ],
   voice: [

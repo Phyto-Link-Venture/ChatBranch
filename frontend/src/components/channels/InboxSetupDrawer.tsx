@@ -463,6 +463,8 @@ export function InboxSetupDrawer({
     } else {
       if (kind !== 'telegram') body.external_id = c('external_id')
       if (c('access_token')) body.access_token = c('access_token')
+      // Messenger / Instagram: Meta signs every webhook with the app secret
+      if (kind !== 'telegram' && c('app_secret')) body.app_secret = c('app_secret')
     }
     if (!id) body.channel = kind === 'email' ? 'email' : SOCIAL_CHANNEL[kind]
     const m = await api<MessagingAccount>(id ? `messaging/accounts/${id}` : 'messaging/accounts', {
@@ -636,7 +638,7 @@ export function InboxSetupDrawer({
         ? f.key === 'access_token'
           ? saved.wa?.access_token_masked || saved.msg?.access_token_masked
           : f.key === 'app_secret'
-            ? saved.wa?.app_secret_masked
+            ? saved.wa?.app_secret_masked || saved.msg?.app_secret_masked
             : f.key === 'password'
               ? saved.msg?.config?.password_masked
               : f.key === 'sip_password'

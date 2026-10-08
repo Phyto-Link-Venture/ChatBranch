@@ -254,6 +254,7 @@ public static class InboxThreadsEndpoints
         public int Id;
         public string Channel = "";
         public int? AccountId;
+        public int? EntityId;
         public bool AiEnabled;
         public Dictionary<string, object?>? AiOverrides;
         public List<string>? Labels;
@@ -348,6 +349,7 @@ public static class InboxThreadsEndpoints
             t.Id,
             t.Channel,
             t.AccountId,
+            t.EntityId,
             t.AiEnabled,
             t.AiOverrides,
             t.Labels,
@@ -368,6 +370,7 @@ public static class InboxThreadsEndpoints
             Id = r.Id,
             Channel = r.Channel,
             AccountId = r.AccountId,
+            EntityId = r.EntityId,
             AiEnabled = r.AiEnabled,
             AiOverrides = r.AiOverrides,
             Labels = r.Labels,
@@ -439,7 +442,18 @@ public static class InboxThreadsEndpoints
         private Dictionary<int, ChannelAccount> _byId = new();
         private ChannelAccount? _fallback;
         private bool _envIsSoleFallback;
-        private bool _reminderDefaultOn;
+        private ScopingService? _sc;
+        private readonly Dictionary<int, bool> _reminderDefaults = new();
+
+        /// <summary>reminder_ai_default for the THREAD's own entity — exactly what the AI gate reads.</summary>
+        private bool ReminderDefaultOn(int? entityId)
+        {
+            var k = entityId ?? 0;
+            if (!_reminderDefaults.TryGetValue(k, out var on))
+                _reminderDefaults[k] = on = _sc != null
+                    && ChatBranch.Data.Ai.AiEligibility.ReminderDefaultOn(_sc, entityId);
+            return on;
+        }
 
         public static async Task<WaContext> LoadAsync(AppDbContext db, ScopingService sc, int? entityId)
         {
@@ -454,7 +468,7 @@ public static class InboxThreadsEndpoints
                 // one — never a guess between several (wa_config.get_account)
                 _fallback = configured.Count == 1 && !env ? configured[0] : null,
                 _envIsSoleFallback = configured.Count == 0 && env,
-                _reminderDefaultOn = sc.SettingValue("reminder_ai_default", entityId) == "on",
+                _sc = sc,
             };
         }
 
@@ -486,11 +500,12 @@ public static class InboxThreadsEndpoints
             if (c.Channel != ChatBranch.Domain.Channels.WhatsApp) return c.AiEnabled;
             var probe = new Thread
             {
+                Channel = c.Channel,
                 AccountId = c.AccountId,
                 AiEnabled = c.AiEnabled,
                 AiOverrides = c.AiOverrides ?? new Dictionary<string, object?>(),
             };
-            return WhatsAppSettingsEndpoints.EffectiveAi(probe, Account(c.AccountId), _reminderDefaultOn);
+            return WhatsAppSettingsEndpoints.EffectiveAi(probe, Account(c.AccountId), ReminderDefaultOn(c.EntityId));
         }
 
         public bool IsBaileys(int? accountId) => Account(accountId)?.Provider == Providers.Baileys;

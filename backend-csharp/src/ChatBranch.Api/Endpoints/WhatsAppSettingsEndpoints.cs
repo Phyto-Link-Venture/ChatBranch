@@ -294,6 +294,44 @@ public static class WhatsAppSettingsEndpoints
                 patch["support_contact"] = trimmed.Length > 200 ? trimmed[..200] : trimmed;
             }
 
+            // STOP / START keywords (organization-wide — compliance words are not
+            // per-outlet): the built-ins always apply, these ADD to them. A list
+            // or a comma/newline string; stored as a JSON list of the extras.
+            var keywordPatch = new Dictionary<string, string>();
+            foreach (var (key, builtins) in new[]
+                     {
+                         (OptOut.OutKey, OptOut.DefaultOutWords), (OptOut.InKey, OptOut.DefaultInWords),
+                     })
+            {
+                if (!Has(body, key)) continue;
+                var el = body.GetProperty(key);
+                var raw = el.ValueKind switch
+                {
+                    JsonValueKind.Array => el.GetRawText(),
+                    JsonValueKind.String => el.GetString() ?? "",
+                    JsonValueKind.Null => "",
+                    _ => null,
+                };
+                if (raw == null)
+                    return Results.Json(new { detail = $"{key} must be a list of words (or a comma-separated string)." },
+                                        statusCode: 400);
+                var extras = OptOut.ParseList(raw).Where(w => !builtins.Contains(w)).ToList();
+                if (extras.Any(w => w.Length > 40))
+                    return Results.Json(new { detail = $"{key}: keywords are single short words or phrases (40 characters max)." },
+                                        statusCode: 400);
+                keywordPatch[key] = extras.Count == 0 ? "" : JsonSerializer.Serialize(extras);
+            }
+            if (keywordPatch.Count > 0)
+            {
+                string Words(string key) => keywordPatch.TryGetValue(key, out var v) ? v : sc.SettingValue(key);
+                var outs = OptOut.ParseList(Words(OptOut.OutKey)).Concat(OptOut.DefaultOutWords);
+                var clash = OptOut.ParseList(Words(OptOut.InKey)).Concat(OptOut.DefaultInWords)
+                    .Intersect(outs).ToList();
+                if (clash.Count > 0)
+                    return Results.Json(new { detail = $"A keyword can't both opt out and opt in: {string.Join(", ", clash)}." },
+                                        statusCode: 400);
+            }
+
             var queuePatch = new Dictionary<string, int>();
             foreach (var key in new[] { "queue_min_gap_s", "queue_max_gap_s" })
             {
@@ -324,13 +362,14 @@ public static class WhatsAppSettingsEndpoints
                 foreach (var (key, value) in patch) sc.SetSetting(key, value, entityId);
                 foreach (var (key, value) in queuePatch)
                     sc.SetSetting(key, value.ToString(), entityId);
+                foreach (var (key, value) in keywordPatch) sc.SetSetting(key, value);   // org-wide
             }
             catch (InvalidOperationException ex)
             {
                 return Results.Json(new { detail = ex.Message }, statusCode: 400);
             }
 
-            var touched = patch.Keys.Concat(queuePatch.Keys).OrderBy(k => k);
+            var touched = patch.Keys.Concat(queuePatch.Keys).Concat(keywordPatch.Keys).OrderBy(k => k);
             await Audit(db, ctx, me, "settings.update", "routing-rules",
                         $"keys: {string.Join(", ", touched)}");
             return Results.Ok(RulesPayload(sc, entityId));
@@ -443,7 +482,7 @@ public static class WhatsAppSettingsEndpoints
         // ---- conversation-account recovery funnel --------------------------
         // Conversation-role accounts currently banned/disconnected with at least
         // one assigned contact — the dashboard's one-click recovery list.
-        app.MapGet("/api/whatsapp/recovery", async (AppDbContext db) =>
+        app.MapGet("/api/whatsapp/recovery", async (AppDbContext db, ScopingService sc) =>
         {
             var assigned = await db.AccountAssignments.AsNoTracking()
                 .Where(a => a.Channel == Channels.WhatsApp)
@@ -455,6 +494,7 @@ public static class WhatsAppSettingsEndpoints
                 .Where(a => a.Channel == Channels.WhatsApp && IneligibleStatuses.Contains(a.HealthStatus))
                 .OrderBy(a => a.Id).ToListAsync();
 
+            var routing = new Routing(db, sc);
             var accounts = down
                 .Where(a => AccountRole(a) == "conversation")
                 .Select(a => new
@@ -463,6 +503,11 @@ public static class WhatsAppSettingsEndpoints
                     name = a.Name,
                     health = a.HealthStatus,
                     affected = assigned.GetValueOrDefault(a.Id, 0),
+                    // what the one-click button will do for THIS account's outlet
+                    recovery_mode = Recovery.Mode(sc, a.EntityId),
+                    recovery_template = Recovery.Template(sc, a.EntityId),
+                    can_recover = Recovery.Template(sc, a.EntityId) != ""
+                        && routing.Eligible(Channels.WhatsApp, RouteNeed.Template, a.EntityId).Count > 0,
                 })
                 .Where(a => a.affected >= 1)
                 .ToList();
@@ -475,57 +520,24 @@ public static class WhatsAppSettingsEndpoints
         // recovery_mode="auto" (health.enqueue_recovery). The jobs ride the
         // outbound queue, which routes them through a reminder/Cloud account.
         app.MapPost("/api/whatsapp/recovery/{accountId:int}", async (int accountId, HttpContext ctx,
-            AppDbContext db, ScopingService sc, QueueService queue, ClaimsPrincipal me) =>
+            AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var row = await db.ChannelAccounts
                 .FirstOrDefaultAsync(a => a.Id == accountId && a.Channel == Channels.WhatsApp);
             if (row == null) return Results.NotFound(new { detail = "Account not found." });
 
-            var template = sc.SettingValue("recovery_template", row.EntityId);
-            if (template == "")
-                return Results.Json(new
-                {
-                    detail = "No recovery template configured — set 'recovery_template' " +
-                             "under Settings → Routing rules first.",
-                }, statusCode: 409);
-
-            // Templates NEVER fail over to Baileys: the carrier has to be a
-            // healthy Cloud number (routing.eligible_accounts provider="cloud").
-            var carriers = (await db.ChannelAccounts.AsNoTracking()
-                    .Where(a => a.Channel == Channels.WhatsApp && a.Provider == Providers.Cloud)
-                    .ToListAsync())
-                .Where(a => IsConfigured(a) && !IneligibleStatuses.Contains(a.HealthStatus))
-                .ToList();
-            if (carriers.Count == 0)
-                return Results.Json(new
-                {
-                    detail = "No healthy reminder (Cloud API) account to carry the " +
-                             "recovery template — reconnect one under Settings → Channels.",
-                }, statusCode: 409);
-
-            var affected = await db.AccountAssignments.AsNoTracking().Include(a => a.Contact)
-                .Where(a => a.AccountId == accountId && a.Channel == Channels.WhatsApp)
-                .ToListAsync();
-            var queued = 0;
-            foreach (var asg in affected)
-            {
-                var phone = asg.Contact?.Phone ?? "";
-                if (phone == "") continue; // nothing to address the template to
-                // Account resolved AT SEND TIME by the queue (health failover),
-                // so the job carries no pinned account.
-                queue.Enqueue(Channels.WhatsApp, JobKind.Template, phone,
-                    new Dictionary<string, object?>
-                    {
-                        ["name"] = template,
-                        ["language"] = "en",
-                        ["variables"] = new Dictionary<string, string>(),
-                    }, contactId: asg.ContactId);
-                queued++;
-            }
+            // Same path as recovery_mode = auto (Recovery.Enqueue): one template
+            // job per assigned contact (wa_id-keyed, deduped per 24h, opted-out
+            // skipped). Jobs carry no account — the queue routes each one AT SEND
+            // TIME to a healthy Cloud number; templates never go out on Baileys.
+            var result = Recovery.Enqueue(db, sc, row);
+            if (result.Error != null)
+                return Results.Json(new { detail = result.Error }, statusCode: 409);
 
             await Audit(db, ctx, me, "recovery.start", $"whatsapp:{row.Name}",
-                        $"queued {queued} recovery template(s)");
-            return Results.Ok(new { queued });
+                        $"queued {result.Queued} recovery template(s)"
+                        + (result.Skipped > 0 ? $", skipped {result.Skipped}" : ""));
+            return Results.Ok(new { queued = result.Queued, skipped = result.Skipped, affected = result.Affected });
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         // ---- account registry (create / edit / delete / test) ---------------
@@ -1279,6 +1291,12 @@ public static class WhatsAppSettingsEndpoints
             // Settings → AI Configuration → Send Pacing
             queue_min_gap_s = IntSetting(sc, "queue_min_gap_s", QueueMinGapDefault, entityId),
             queue_max_gap_s = IntSetting(sc, "queue_max_gap_s", QueueMaxGapDefault, entityId),
+            // STOP / START (organization-wide): the effective lists, and the
+            // operator's own additions to the built-ins (what PUT takes)
+            opt_out_keywords = OptOut.ParseList(sc.SettingValue(OptOut.OutKey)),
+            opt_in_keywords = OptOut.ParseList(sc.SettingValue(OptOut.InKey)),
+            opt_out_keywords_effective = OptOut.OutWords(sc),
+            opt_in_keywords_effective = OptOut.InWords(sc),
         };
     }
 
@@ -1809,26 +1827,13 @@ public static class WhatsAppSettingsEndpoints
     /// needs token + phone_number_id, baileys is gateway-enforced, email needs
     /// SMTP host+login in config, other channels need an access_token.
     /// </summary>
-    internal static bool IsConfigured(ChannelAccount a)
-    {
-        if (a.Channel == Channels.WhatsApp)
-            return a.Provider == Providers.Baileys
-                   || (a.AccessToken != "" && a.ExternalId != "");
-        if (a.Channel == Channels.Email)
-            return Cfg(a, "host") != "" && Cfg(a, "username") != "" && Cfg(a, "password") != "";
-        return a.AccessToken != "";
-    }
+    internal static bool IsConfigured(ChannelAccount a) => Routing.IsConfigured(a);
 
     /// <summary>
     /// wa_config.account_role — "reminder" | "conversation". Unset/invalid values
     /// default by provider: cloud → reminder, baileys → conversation.
     /// </summary>
-    internal static string AccountRole(ChannelAccount a)
-    {
-        var role = Cfg(a, "role").Trim().ToLowerInvariant();
-        if (role is "reminder" or "conversation") return role;
-        return a.Provider == Providers.Baileys ? "conversation" : "reminder";
-    }
+    internal static string AccountRole(ChannelAccount a) => ChatBranch.Data.Channels.AccountRoles.Of(a);
 
     internal static string Cfg(ChannelAccount a, string key) =>
         a.Config.TryGetValue(key, out var v) ? v?.ToString() ?? "" : "";
@@ -1848,38 +1853,18 @@ public static class WhatsAppSettingsEndpoints
     /// This account's explicit per-chat chatbot tick on a thread, or null when
     /// the thread has none and the account's ROLE decides (store._effective_ai).
     /// </summary>
-    internal static bool? AiOverride(ChatBranch.Domain.Thread t, int accountId)
-    {
-        if (!t.AiOverrides.TryGetValue(accountId.ToString(), out var raw) || raw is null) return null;
-        if (raw is bool b) return b;
-        if (raw is JsonElement el)
-            return el.ValueKind switch
-            {
-                JsonValueKind.True => true,
-                JsonValueKind.False => false,
-                _ => null,
-            };
-        return bool.TryParse(raw.ToString(), out var parsed) ? parsed : null;
-    }
+    internal static bool? AiOverride(ChatBranch.Domain.Thread t, int accountId) =>
+        ChatBranch.Data.Ai.AiEligibility.Override(t, accountId);
 
     /// <summary>
     /// store._effective_ai — the Chatbot tick for the thread's CURRENT sending
-    /// account. Each account keeps its own per-chat override; with none, the
-    /// account's ROLE decides (reminder off unless reminder_ai_default flips it,
-    /// conversation on), so switching the sender shows that number's own
-    /// setting. Account-less threads (sandbox, env pseudo-account) fall back to
-    /// the legacy column.
+    /// account. ONE rule (<see cref="ChatBranch.Data.Ai.AiEligibility"/>) shared
+    /// with the inbound auto-reply gate, the queue and the AI monitor, so what
+    /// the dashboard shows is what the AI does.
     /// </summary>
     internal static bool EffectiveAi(ChatBranch.Domain.Thread t, ChannelAccount? account,
-        bool reminderDefaultOn)
-    {
-        if (t.AccountId is not int accountId) return t.AiEnabled;
-        if (AiOverride(t, accountId) is bool tick) return tick;
-        if (account == null) return t.AiEnabled;
-        // The inbox's own AI default (Channels → Who answers it) beats the role's.
-        if (InboxSettings.AiDefault(account) is bool inboxDefault) return inboxDefault;
-        return AccountRole(account) == "reminder" ? reminderDefaultOn : true;
-    }
+        bool reminderDefaultOn) =>
+        ChatBranch.Data.Ai.AiEligibility.Effective(t, account, reminderDefaultOn);
 
     // ---- Baileys pairing (sandbox stub) --------------------------------------
 

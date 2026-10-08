@@ -37,6 +37,7 @@ public class QueueService
     private readonly AiResponder _responder;
     private readonly TimeProvider _clock;
     private readonly QueueCallPlacer? _calls;
+    private readonly Routing _routing;
 
     public QueueService(AppDbContext db, ScopingService scoping, ThreadStore threads,
         AssistantService assistant, OutboundSender sender,
@@ -52,6 +53,7 @@ public class QueueService
         _responder = responder ?? new AiResponder(db, scoping, new AiComposer(db, assistant), _gate, _clock);
         // null = no voice plumbing wired (bare unit-test construction): call jobs stay queued
         _calls = calls;
+        _routing = new Routing(db, scoping);
     }
 
     private DateTime Now => _clock.GetUtcNow().UtcDateTime;
@@ -96,13 +98,14 @@ public class QueueService
 
         // Per-account delivery settings resolved once per pass (pacing window +
         // quiet hours live on the ChannelAccount, falling back to the global
-        // Setting rows) — see AccountDelivery.
+        // Setting rows) — see AccountDelivery. The account is the one the job
+        // will ACTUALLY go out on (routing dry run: pin → the thread's healthy
+        // number → sticky / least-loaded / failover), so a failed-over job paces
+        // and waits for quiet hours on its new number.
         var accountCache = new Dictionary<int, ChannelAccount?>();
         ChannelAccount? AccountFor(OutboundJob job)
         {
-            var id = job.AccountId ?? _db.Threads.AsNoTracking()
-                .Where(t => t.Channel == job.Channel && t.Key == job.ToAddress)
-                .Select(t => t.AccountId).FirstOrDefault();
+            var id = PeekAccountId(job);
             if (id is not int aid) return null;
             if (!accountCache.TryGetValue(aid, out var acct))
                 accountCache[aid] = acct = _db.ChannelAccounts.AsNoTracking().FirstOrDefault(a => a.Id == aid);
@@ -114,8 +117,8 @@ public class QueueService
         {
             if (sent >= maxThisPass) break;
 
-            var accountId = job.AccountId;
             var account = AccountFor(job);
+            var accountId = account?.Id ?? job.AccountId;
 
             // quiet hours are checked at SEND time against the account that
             // will carry the message — the job simply waits until they end
@@ -166,6 +169,92 @@ public class QueueService
         return sent;
     }
 
+    // ---- account resolution (routing at send time) ----------------------------
+
+    /// <summary>What the job needs from its carrier: a Cloud number for a
+    /// template, a conversation number for WhatsApp text / AI replies.</summary>
+    private static RouteNeed NeedFor(OutboundJob job) =>
+        job.Kind == JobKind.Template ? RouteNeed.Template
+        : job.Channel == ChatBranch.Domain.Channels.WhatsApp ? RouteNeed.Conversation
+        : RouteNeed.Any;
+
+    /// <summary>routing._pinned_account: payload <c>account_id</c> (the business redirect) fixes the carrier.</summary>
+    private static int? Pinned(OutboundJob job) => AiGate.Num(job.Payload, "account_id") is double d ? (int)d : null;
+
+    /// <summary>
+    /// The thread a job belongs to. WhatsApp threads are keyed by the digits-only
+    /// wa_id, but flows address jobs to the contact's phone ("+60…"): an existing
+    /// thread under the literal address still wins, else the digits key — so a
+    /// flow message lands in the same conversation the customer writes into.
+    /// </summary>
+    private string ThreadKey(OutboundJob job)
+    {
+        if (job.Channel != ChatBranch.Domain.Channels.WhatsApp) return job.ToAddress;
+        var digits = PhoneMatch.Digits(job.ToAddress);
+        if (digits.Length == 0 || digits == job.ToAddress) return job.ToAddress;
+        var literal = _db.Threads.AsNoTracking().Any(t => t.Channel == job.Channel && t.Key == job.ToAddress);
+        return literal ? job.ToAddress : digits;
+    }
+
+    /// <summary>Dry run: the account this job would go out on now (no writes).</summary>
+    private int? PeekAccountId(OutboundJob job)
+    {
+        try
+        {
+            if (Pinned(job) is int pin) return pin;
+            var key = ThreadKey(job);
+            var thread = _db.Threads.AsNoTracking()
+                .FirstOrDefault(t => t.Channel == job.Channel && t.Key == key);
+            if (job.Kind == JobKind.Call || thread == null) return job.AccountId ?? thread?.AccountId;
+            var r = _routing.ForThread(thread, NeedFor(job), thread.AccountId ?? job.AccountId, apply: false);
+            return r.Account?.Id ?? thread.AccountId ?? job.AccountId;
+        }
+        catch { return job.AccountId; }
+    }
+
+    /// <summary>
+    /// Resolve and stamp the carrying account for a claimed job. A refusal
+    /// (nothing eligible — e.g. no healthy Cloud number for a template) comes
+    /// back with an error; the thread is left untouched.
+    /// </summary>
+    private RouteResult? RouteForSend(OutboundJob job, Thread thread)
+    {
+        int? carrier;
+        RouteResult? route = null;
+        if (Pinned(job) is int pin) carrier = pin;
+        else
+        {
+            route = _routing.ForThread(thread, NeedFor(job), thread.AccountId ?? job.AccountId, apply: true);
+            if (!route.Ok) return route;
+            carrier = route.Account?.Id ?? thread.AccountId ?? job.AccountId;
+        }
+        if (carrier != job.AccountId)
+        {
+            job.AccountId = carrier;
+            job.UpdatedAt = Now;
+            _db.SaveChanges();
+        }
+        return route;
+    }
+
+    /// <summary>
+    /// The cold-text guard for queued free text (Setting <c>cold_text_guard</c>,
+    /// "block" by default): a WhatsApp conversation-role number never opens a
+    /// conversation with free text — the contact has to have written to the
+    /// conversation first. An explicit <c>force</c> job is let through.
+    /// </summary>
+    private bool ColdTextBlocked(Thread thread, OutboundJob job)
+    {
+        if (thread.Channel != ChatBranch.Domain.Channels.WhatsApp || job.AccountId is not int aid) return false;
+        if (AiGate.Bool(job.Payload, "force") == true) return false;
+        var account = _db.ChannelAccounts.AsNoTracking().FirstOrDefault(a => a.Id == aid);
+        if (account == null || AccountRoles.Of(account) != AccountRoles.Conversation) return false;
+        if (!_sender.WouldSendLive(thread, aid)) return false;   // sandbox never bans anyone
+        var guard = _scoping.SettingValue("cold_text_guard", thread.EntityId).Trim().ToLowerInvariant();
+        if (guard is "warn" or "allow") return false;
+        return !_db.Messages.AsNoTracking().Any(m => m.ThreadId == thread.Id && m.Direction == MessageDirection.In);
+    }
+
     /// <summary>Atomic claim: only one worker wins the queued→sending transition.</summary>
     private bool TryClaim(int jobId)
     {
@@ -184,9 +273,19 @@ public class QueueService
         var draftId = (int?)AiGate.Num(job.Payload, "draft_id");
         try
         {
-            var thread = _threads.GetOrCreateThread(job.Channel, job.ToAddress,
+            var thread = _threads.GetOrCreateThread(job.Channel, ThreadKey(job),
                 contactId: job.ContactId, accountId: job.AccountId);
             var source = AiGate.Str(job.Payload, "source", "");
+
+            // the carrying account, resolved NOW (routing: pin → the thread's
+            // healthy number → sticky / least-loaded / failover, which moves the
+            // thread). Stamped on the job so pacing and caps count the real number.
+            var route = RouteForSend(job, thread);
+            if (route is { Ok: false })
+            {
+                if (draftId is int blocked) _gate.MarkDraftFailed(blocked, route.Error!);
+                return Fail(job, route.Error!);
+            }
 
             // the debounced AI reply: written NOW, so a burst of messages gets one answer
             if (job.Kind == JobKind.AiReply)
@@ -221,6 +320,9 @@ public class QueueService
                     return Fail(job, "contact opted out");
                 if (job.Kind == JobKind.Text && _gate.WindowClosed(thread, job.AccountId))
                     return Fail(job, "WhatsApp 24h window closed — use a template");
+                if (job.Kind == JobKind.Text && ColdTextBlocked(thread, job))
+                    return Fail(job, "cold text blocked — this contact has never messaged this conversation "
+                                     + "number (Routing rules → cold-text guard); open with a template");
             }
 
             var messageSource = source switch

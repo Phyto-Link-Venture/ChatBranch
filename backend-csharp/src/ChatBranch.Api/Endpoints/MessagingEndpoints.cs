@@ -172,14 +172,16 @@ public static class MessagingEndpoints
     }
 
     /// <summary>store._serialize — the full thread the chat pane renders.</summary>
-    private static Dictionary<string, object?> ThreadPayload(Thread t, List<Message> messages) =>
+    private static Dictionary<string, object?> ThreadPayload(AppDbContext db, Thread t, List<Message> messages) =>
         new()
         {
             ["key"] = t.Key,
             ["channel"] = t.Channel,
             ["address"] = string.IsNullOrEmpty(t.Address) ? t.Key : t.Address,
             ["name"] = string.IsNullOrEmpty(t.Name) ? t.Key : t.Name,
-            ["ai_enabled"] = t.AiEnabled,
+            // the EFFECTIVE tick — the same rule the auto-reply gate applies
+            ["ai_enabled"] = ChatBranch.Data.Ai.AiEligibility.Effective(db, new ScopingService(db), t),
+            ["opted_out"] = t.OptedOut,
             ["status"] = t.Status,
             ["assignee"] = t.Assignee,
             ["team_id"] = t.TeamId,
@@ -497,7 +499,7 @@ public static class MessagingEndpoints
                 await db.SaveChangesAsync();
             }
             await db.Entry(thread).Reference(t => t.Contact).LoadAsync();
-            return Results.Ok(ThreadPayload(thread, MessagesOf(db, thread.Id)));
+            return Results.Ok(ThreadPayload(db, thread, MessagesOf(db, thread.Id)));
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // GET /api/messaging/threads/{channel}/{key} — the full thread.
@@ -507,7 +509,7 @@ public static class MessagingEndpoints
             var thread = GetThread(db, channel, key);
             if (thread == null)
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
-            return Results.Ok(ThreadPayload(thread, MessagesOf(db, thread.Id)));
+            return Results.Ok(ThreadPayload(db, thread, MessagesOf(db, thread.Id)));
         }).RequireAuthorization(AuthPolicies.Authenticated);
     }
 
@@ -538,6 +540,13 @@ public static class MessagingEndpoints
             var thread = GetThread(db, channel, key);
             if (thread == null)
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
+            // STOP is honoured on every channel: an opted-out conversation takes a
+            // manual send only as an explicit, audited exception
+            if (thread.OptedOut && !BoolOf(body, "force", false))
+                return Results.Json(new
+                {
+                    detail = "Contact opted out (STOP). Resend with force=true to override as a manual exception.",
+                }, statusCode: 409);
 
             var subject = (Str(body, "subject") ?? "").Trim();
             Message msg = null!;
@@ -560,8 +569,10 @@ public static class MessagingEndpoints
             var thread = GetThread(db, channel, key);
             if (thread == null)
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
-            thread.AiEnabled = BoolOf(body, "enabled", false);
-            thread.UpdatedAt = DateTime.UtcNow; // the SSE change token watches this
+            // the current sending account's tick + the legacy column, so the gate
+            // and every payload read the same answer (AiEligibility); bumps UpdatedAt
+            // for the SSE change token
+            ChatBranch.Data.Ai.AiEligibility.Set(thread, BoolOf(body, "enabled", false));
             await db.SaveChangesAsync();
             return Results.Ok(new { ai_enabled = thread.AiEnabled });
         }).RequireAuthorization(AuthPolicies.Authenticated);

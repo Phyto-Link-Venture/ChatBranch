@@ -395,6 +395,7 @@ public static class AiMonitorEndpoints
             }
 
         var now = clock.GetUtcNow().UtcDateTime;
+        var scoping = new ScopingService(db);
         return rows.Select(d =>
         {
             var t = threads.FirstOrDefault(x => x.Id == d.ThreadId);
@@ -412,7 +413,7 @@ public static class AiMonitorEndpoints
                 thread = t == null ? null : new
                 {
                     id = t.Id, key = t.Key, name = t.Name, status = t.Status, assignee = t.Assignee,
-                    ai_enabled = t.AiEnabled, opted_out = t.OptedOut,
+                    ai_enabled = AiEligibility.Effective(db, scoping, t), opted_out = t.OptedOut,
                 },
                 thread_key = d.ThreadKey,
                 contact = c == null ? null : new { id = c.Id, name = c.Name },

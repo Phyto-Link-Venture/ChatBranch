@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Select } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
+import { TagListInput } from '@/components/ui/TagListInput'
 import { roleHeaders, getRole } from '@/lib/role'
 import { expireSessionOn401 } from '@/lib/auth'
 import { useAccess } from '@/lib/useAccess'
@@ -176,6 +177,9 @@ interface RoutingRules {
   recovery_mode: 'one_click' | 'auto'
   recovery_template: string
   cold_text_guard: 'block' | 'warn' | 'allow'
+  // org-wide words that ADD to the built-in STOP / START keywords
+  opt_out_keywords: string[]
+  opt_in_keywords: string[]
 }
 
 const DEFAULTS: RoutingRules = {
@@ -188,6 +192,8 @@ const DEFAULTS: RoutingRules = {
   recovery_mode: 'one_click',
   recovery_template: '',
   cold_text_guard: 'block',
+  opt_out_keywords: [],
+  opt_in_keywords: [],
 }
 
 function RuleRow({ label, sub, control }: { label: string; sub: ReactNode; control: ReactNode }) {
@@ -493,6 +499,42 @@ export function RoutingRulesSettings() {
               disabled={!canManage}
               ariaLabel="Cold-text guard"
             />
+          }
+        />
+
+        <RuleRow
+          label="Opt-out keywords"
+          sub={
+            <>
+              A customer message that is exactly one of these opts the conversation out of AI replies,
+              templates and queued messages (any channel). STOP, UNSUBSCRIBE and BERHENTI always apply;
+              add your own here. Organization-wide.
+            </>
+          }
+          control={
+            <div className="w-[280px]">
+              <TagListInput
+                value={rules.opt_out_keywords}
+                onChange={(v) => set('opt_out_keywords', v)}
+                placeholder="e.g. BATAL"
+                disabled={!canManage}
+              />
+            </div>
+          }
+        />
+
+        <RuleRow
+          label="Opt-in keywords"
+          sub="Words that opt a conversation back in. START, UNSTOP and MULA always apply."
+          control={
+            <div className="w-[280px]">
+              <TagListInput
+                value={rules.opt_in_keywords}
+                onChange={(v) => set('opt_in_keywords', v)}
+                placeholder="e.g. SAMBUNG"
+                disabled={!canManage}
+              />
+            </div>
           }
         />
 

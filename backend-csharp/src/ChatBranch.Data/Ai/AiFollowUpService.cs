@@ -59,7 +59,10 @@ public class AiFollowUpService
         {
             var horizon = Now.AddDays(-HorizonDays);
             threads = _db.Threads.Include(t => t.Account)
-                .Where(t => !t.OptedOut && t.AiEnabled && t.Status != ThreadStatus.Resolved
+                // a WhatsApp thread can be AI-on through its per-account tick or
+                // role while the legacy column is off — the loop applies the real rule
+                .Where(t => !t.OptedOut && (t.AiEnabled || t.AccountId != null)
+                            && t.Status != ThreadStatus.Resolved
                             && t.UpdatedAt >= horizon)
                 .OrderBy(t => t.UpdatedAt).Take(500).ToList();
         }
@@ -72,7 +75,7 @@ public class AiFollowUpService
             {
                 var policy = AiBehaviourSettings.Resolve(_scoping, t.EntityId, t.Account);
                 if (!policy.FollowUpEnabled || policy.FollowUpMax <= 0) continue;
-                if (!AiGate.AiAllowed(t)) continue;
+                if (!_gate.AiAllowed(t)) continue;   // the effective tick (AiEligibility)
                 if (t.ContactId == null && t.Channel != ChatBranch.Domain.Channels.Website) continue; // coverage gate
                 considered++;
                 if (Consider(t, policy)) submitted++;

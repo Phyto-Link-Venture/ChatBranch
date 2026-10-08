@@ -31,7 +31,8 @@ owner) must be an admin or superadmin. Create a key at **API keys & MCP**
 (`/developers`) — a key is easier to rotate than a password and shows up in the
 activity log as source `api`.
 
-The body is **camelCase**:
+The body may be **camelCase or snake_case** (`externalId` / `external_id`,
+`dueDate` / `due_date` — any casing of the same key is accepted):
 
 ```json
 {
@@ -55,24 +56,35 @@ The body is **camelCase**:
 
 | Field | Required | Notes |
 |---|---|---|
-| `externalId` | yes | the record's id in your system (order #, tracking #, invoice #) |
+| `externalId` | yes | the record's id in your system (order #, tracking #, invoice #); a row without one is skipped |
 | `type` | no | `order` \| `shipment` \| `invoice` \| `booking` \| `ticket` \| `custom` (default `custom`) |
-| `title`, `status`, `amount`, `dueDate` | no | only fields you send are updated; `status` is your own vocabulary |
-| `contact.phone` | **yes, in practice** | a record without a contact phone is skipped (records need an identity) |
+| `title`, `status`, `amount`, `dueDate` | no | only fields you send are updated; `status` is your own vocabulary; `amount` may be a number or a numeric string; `dueDate` is `YYYY-MM-DD` (an ISO timestamp is accepted and cut to its UTC date) |
+| `contact.phone` | **yes, in practice** | the identity a record hangs on (see matching); with no phone, an existing contact with the same `contact.email` is used, else the row is skipped |
 | `contact.name`, `contact.email` | no | used only when the contact is created |
 
-Response: `{"created": n, "updated": n, "total": n}` (`total` counts every row
-you sent, including skipped ones).
+Response:
+
+```json
+{"created": 1, "updated": 0, "skipped": 1, "total": 2, "contacts_created": 1,
+ "skipped_rows": [{"index": 1, "external_id": "ORD-10234", "reason": "no contact phone"}]}
+```
+
+`created + updated + skipped = total` (every row you sent). `skipped_rows`
+lists the first 100 skipped rows with their position in your `records` array
+and the reason (`missing externalId`, `no contact phone`, `contact phone has
+fewer than 8 digits`, `not an object`).
 
 ## 2. Matching rules
 
 - **Tenant** — the caller's tenant (from the session or the key's owner). Rows
   never cross tenants.
-- **Contact** — matched on the exact `phone` string within the tenant; created
-  when no contact has it (name falls back to the phone). Send E.164 consistently
-  (`+60…`) or you will get twins. Note that the dashboard's own add-contact path
-  refuses a phone that shares its last 8 digits with an existing contact; this
-  endpoint matches exactly.
+- **Contact** — matched within the tenant by the same phone rule as the rest of
+  the app (inbound linking, the add-contact duplicate check): **the last 8
+  digits**, punctuation, spaces, `+` and trunk prefixes ignored — so
+  `+60 12-345 6789`, `60123456789` and `0123456789` are one person. No phone
+  match → an exact (case-insensitive) `contact.email` match; neither → a new
+  contact (name falls back to the phone). A phone with fewer than 8 digits can't
+  identify anyone and the row is skipped.
 - **Record** — matched on `(type, externalId)` within the tenant. A match is
   updated, otherwise a record is created for the matched contact. An existing
   record is NOT moved to a different contact.
@@ -99,5 +111,5 @@ Re-sending the same payload is idempotent: the second call reports `updated`.
    "when" to `dueDate` (see [vertical-guide.md](vertical-guide.md) §2.1).
 2. Normalise phones to E.164 before sending.
 3. Send changed records every few minutes (or nightly), in chunks.
-4. Log the `{created, updated, total}` response; a `total` larger than
-   `created + updated` means rows were skipped for lack of a contact phone.
+4. Log the `{created, updated, skipped, total}` response; `skipped_rows` tells
+   you which rows to fix and why.

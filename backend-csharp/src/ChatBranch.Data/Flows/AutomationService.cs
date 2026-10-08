@@ -213,11 +213,13 @@ public class AutomationService
                 case "assign_agent":
                     thread.Assignee = value;
                     break;
+                // the current number's own tick + the legacy column (AiEligibility),
+                // so the switch reaches the auto-reply gate on a WhatsApp number too
                 case "disable_ai":
-                    thread.AiEnabled = false;
+                    ChatBranch.Data.Ai.AiEligibility.Set(thread, false);
                     break;
                 case "enable_ai":
-                    thread.AiEnabled = true;
+                    ChatBranch.Data.Ai.AiEligibility.Set(thread, true);
                     break;
                 case "add_note":
                     // A private note is a message the customer never sees.

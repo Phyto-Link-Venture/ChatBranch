@@ -163,6 +163,8 @@ export interface MessagingAccount {
   entity?: string | null
   entity_name?: string
   access_token_masked?: string
+  /** Messenger / Instagram only. */
+  app_secret_masked?: string
   configured?: boolean
   team_id?: number | null
   ai_default?: AiDefault

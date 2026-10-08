@@ -497,18 +497,12 @@ public class AiGate
         return null;
     }
 
-    /// <summary>The thread's chatbot switch, including an explicit per-account OFF tick.</summary>
-    public static bool AiAllowed(Thread t)
-    {
-        if (!t.AiEnabled) return false;
-        if (t.AccountId is int acct && t.AiOverrides.TryGetValue(acct.ToString(), out var raw))
-        {
-            if (raw is bool b) return b;
-            if (raw is JsonElement el && el.ValueKind == JsonValueKind.False) return false;
-            if (raw is string s && bool.TryParse(s, out var parsed)) return parsed;
-        }
-        return true;
-    }
+    /// <summary>
+    /// The thread's EFFECTIVE chatbot tick — the same rule the dashboard shows
+    /// (<see cref="AiEligibility"/>: per-account tick → inbox default → account
+    /// role), so the gate and the UI can never disagree.
+    /// </summary>
+    public bool AiAllowed(Thread t) => AiEligibility.Effective(_db, _scoping, t);
 
     /// <summary>Meta's 24h rule: only a LIVE WhatsApp Cloud number is bound by it.</summary>
     public bool WindowClosed(Thread thread, int? accountId)
