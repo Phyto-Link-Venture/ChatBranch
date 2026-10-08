@@ -62,6 +62,7 @@ export const CAPABILITY_CATALOG: { capability: string; area: string; label: stri
   { capability: 'app_keys.manage', area: 'Settings', label: 'Manage app keys' },
   { capability: 'pronunciation.manage', area: 'Settings', label: 'Manage pronunciation' },
   { capability: 'rbac.manage', area: 'Admin', label: 'Edit the permission matrix' },
+  { capability: 'api_keys.manage', area: 'Developers', label: 'Manage API keys & MCP access' },
 ]
 
 const ALL_CAPS = CAPABILITY_CATALOG.map((c) => c.capability)
