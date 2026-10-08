@@ -109,13 +109,6 @@ public static class InboxEndpoints
             }
             var rows = store.ListThreads(channel, entityId, status,
                                          limit is int n && n > 0 ? n : 100);
-            // Provider login: only conversations with THEIR bound customers.
-            if (ProviderScope.ResourceId(me) is int rid)
-            {
-                var bound = db.ResourceLinks.AsNoTracking()
-                    .Where(l => l.ResourceId == rid && l.Active).Select(l => l.ContactId).ToHashSet();
-                rows = rows.Where(t => t.ContactId is int cid && bound.Contains(cid)).ToList();
-            }
             return Results.Ok(new { threads = await ThreadSummaries(db, sc, rows, entityId) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 

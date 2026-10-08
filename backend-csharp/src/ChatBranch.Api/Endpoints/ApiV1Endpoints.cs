@@ -64,7 +64,6 @@ public static class ApiV1Endpoints
                 tenant,
                 entities,
                 capabilities,
-                resource_id = ProviderScope.ResourceId(me),
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
@@ -170,6 +169,9 @@ public static class ApiV1Endpoints
                 Target = row.Phone, Detail = row.Name, CreatedAt = DateTime.UtcNow,
             });
             await db.SaveChangesAsync();
+            // tag names → registry tags (Contact.Tags is the registry's cache)
+            if (row.Tags.Count > 0)
+                ChatBranch.Data.Tags.TagService.ApplyContactNames(db, row.Id, row.Tags, me.Identity?.Name ?? "");
 
             var saved = await db.Contacts.Include(c => c.EntityLinks).ThenInclude(l => l.Entity)
                 .FirstAsync(c => c.Id == row.Id);
@@ -270,6 +272,8 @@ public static class ApiV1Endpoints
                 });
                 await db.SaveChangesAsync();
             }
+            if (changed.Contains("tags"))
+                ChatBranch.Data.Tags.TagService.ApplyContactNames(db, contact.Id, contact.Tags, me.Identity?.Name ?? "");
             var fresh = await db.Contacts.AsNoTracking()
                 .Include(c => c.EntityLinks).ThenInclude(l => l.Entity)
                 .FirstAsync(c => c.Id == contact.Id);
@@ -279,7 +283,7 @@ public static class ApiV1Endpoints
         // ---- DELETE /api/v1/contacts/{id} -------------------------------------
         // Hard-delete, gated on `contacts.manage` and scoped exactly like the
         // read. The dependent sweep mirrors Django's FK rules: rows the contact
-        // OWNS go away (records + their events, entity links, resource links,
+        // OWNS go away (records + their events, entity links, tag assignments,
         // assignments, queued jobs, pending tool actions, summaries), while
         // conversation history (threads, call records, flow runs, LLM usage) is
         // preserved-but-unlinked — the DB has no ON DELETE clauses, so doing
@@ -300,7 +304,13 @@ public static class ApiV1Endpoints
                     .ExecuteDeleteAsync();
                 await db.Records.Where(r => r.ContactId == id).ExecuteDeleteAsync();
                 await db.ContactEntities.Where(l => l.ContactId == id).ExecuteDeleteAsync();
-                await db.ResourceLinks.Where(l => l.ContactId == id).ExecuteDeleteAsync();
+                await db.TagAssignments.Where(a => a.TargetType == "contact" && a.TargetId == id)
+                    .ExecuteDeleteAsync();
+                // Legacy rows of the retired Service Provider binding would block
+                // the delete on a DB whose FKs carry no ON DELETE — sweep them
+                // while the old table is still there (absent on new DBs).
+                try { await db.Database.ExecuteSqlRawAsync("DELETE FROM crm_resourcelink WHERE contact_id = {0}", id); }
+                catch { /* no legacy table */ }
                 await db.AccountAssignments.Where(a => a.ContactId == id).ExecuteDeleteAsync();
                 await db.PendingToolActions.Where(p => p.ContactId == id).ExecuteDeleteAsync();
                 await db.ConversationSummaries.Where(s => s.ContactId == id).ExecuteDeleteAsync();
@@ -578,13 +588,16 @@ public static class ApiV1Endpoints
             var knowledge = await db.KnowledgeItems.CountAsync(k => k.EntityId == id);
             // Children too — deleting a parent would orphan its sub-entities.
             var children = await db.Entities.CountAsync(e => e.ParentId == id);
-            if (contacts > 0 || agents > 0 || knowledge > 0 || children > 0)
+            // …and the tags this entity owns (its own library entries).
+            var ownTags = await db.Tags.CountAsync(t => t.EntityId == id);
+            if (contacts > 0 || agents > 0 || knowledge > 0 || children > 0 || ownTags > 0)
             {
                 var parts = new List<string>();
                 if (contacts > 0) parts.Add($"{contacts} contact(s)");
                 if (agents > 0) parts.Add($"{agents} user(s)");
                 if (knowledge > 0) parts.Add($"{knowledge} knowledge item(s)");
                 if (children > 0) parts.Add($"{children} child entity(ies)");
+                if (ownTags > 0) parts.Add($"{ownTags} tag(s)");
                 return Results.Json(new
                 {
                     error = new
@@ -598,6 +611,8 @@ public static class ApiV1Endpoints
             }
 
             var label = $"{entity.Tenant?.Slug}/{entity.Slug}";
+            // the tags ON this entity (inner/outside company…) go with it
+            db.TagAssignments.RemoveRange(db.TagAssignments.Where(a => a.TargetType == "entity" && a.TargetId == id));
             db.Entities.Remove(entity);
             db.AuditLogs.Add(new AuditLog
             {
@@ -763,31 +778,9 @@ public static class ApiV1Endpoints
                 newEntities = resolved;
             }
 
-            // Bind / unbind this login to a Service Provider. `resource_id`:
-            // an int binds (the user becomes that provider's login — scoped to
-            // their own customers/chats); null/0 unbinds. Must exist + be in
-            // the same tenant.
-            bool setResource = false; int? newResourceId = null;
-            if (Has(body, "resource_id"))
-            {
-                setResource = true;
-                var rp = body.GetProperty("resource_id");
-                if (rp.ValueKind == JsonValueKind.Number && rp.GetInt32() > 0)
-                {
-                    var rid = rp.GetInt32();
-                    var res = await db.Resources.AsNoTracking().FirstOrDefaultAsync(r => r.Id == rid);
-                    if (res == null) return V1Error("bad_request", "resource_id must reference an existing service provider.", 400);
-                    if (res.TenantId != null && profile.TenantId != null && res.TenantId != profile.TenantId)
-                        return V1Error("bad_request", "That service provider belongs to a different tenant than this user.", 400);
-                    newResourceId = rid;
-                }
-                else if (rp.ValueKind is not (JsonValueKind.Null or JsonValueKind.Number))
-                    return V1Error("bad_request", "resource_id must be a provider id or null.", 400);
-            }
-
             // Bind / unbind this login to a CONTACT — a registered customer who
             // signs in to use the integrations connected against their own
-            // record. Same shape as resource_id: an int binds, null/0 unbinds.
+            // record. An int binds, null/0 unbinds.
             bool setContact = false; int? newContactId = null;
             if (Has(body, "contact_id"))
             {
@@ -820,11 +813,6 @@ public static class ApiV1Endpoints
             {
                 profile.ContactId = newContactId;
                 changed.Add("contact_id");
-            }
-            if (setResource && profile.ResourceId != newResourceId)
-            {
-                profile.ResourceId = newResourceId;
-                changed.Add("resource_id");
             }
             // `name` is accepted and ignored: auth_user has no first_name column
             // in this port, so managed_user_payload already reports the username.
@@ -1247,7 +1235,6 @@ public static class ApiV1Endpoints
 
     private static Task<AppUser?> TargetUserAsync(AppDbContext db, int id) =>
         db.Users.Include(u => u.Profile!).ThenInclude(p => p.Entities)
-                .Include(u => u.Profile!).ThenInclude(p => p.Resource)
                 .Include(u => u.Profile!).ThenInclude(p => p.Contact)
             .FirstOrDefaultAsync(u => u.Id == id);
 
@@ -1318,7 +1305,6 @@ public static class ApiV1Endpoints
         var row = await db.Users.AsNoTracking()
             .Include(u => u.Profile!).ThenInclude(p => p.Tenant)
             .Include(u => u.Profile!).ThenInclude(p => p.Entities)
-                .Include(u => u.Profile!).ThenInclude(p => p.Resource)
                 .Include(u => u.Profile!).ThenInclude(p => p.Contact)
             .FirstAsync(u => u.Id == id);
         return AdminEndpoints.ManagedUserPayload(row);

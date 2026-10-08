@@ -6,13 +6,13 @@ using ChatBranch.Data;
 namespace ChatBranch.Api.Endpoints;
 
 /// <summary>
-/// Custom Fields — the per-vertical label schema for Service Providers
-/// (crm.Resource) and Customers (crm.Contact). A tutoring deployment defines
-/// "Language: English/Malay/Chinese" and "Subject" on providers, "Grade" on
-/// customers; a clinic defines something else. The definitions live in the
-/// global Setting <c>custom_fields</c>; the VALUES are saved into each row's
-/// existing free-form <c>attributes</c> JSON (which the AI already reads), so
-/// no schema migration is needed and the data model stays generic.
+/// Custom Fields — the per-vertical label schema for Customers (crm.Contact).
+/// A tutoring deployment defines "Grade"; a clinic defines something else.
+/// The definitions live in the global Setting <c>custom_fields</c>; the VALUES
+/// are saved into each contact's existing free-form <c>attributes</c> JSON
+/// (which the AI already reads), so no schema migration is needed and the data
+/// model stays generic. (Per-relationship fields — a driver's licence number,
+/// an outside company's contract end — ride on registry TAGS instead.)
 ///
 /// Field kinds: text · select (one option) · multiselect · number · boolean.
 /// Reads are open to any authed role (forms render them); writes are admin+.
@@ -20,7 +20,7 @@ namespace ChatBranch.Api.Endpoints;
 public static class CustomFieldsEndpoints
 {
     private const string Key = "custom_fields";
-    private static readonly string[] Targets = { "provider", "customer" };
+    private static readonly string[] Targets = { "customer" };
     private static readonly string[] Kinds = { "text", "select", "multiselect", "number", "boolean" };
 
     public class FieldDef
@@ -35,7 +35,6 @@ public static class CustomFieldsEndpoints
 
     public class Schema
     {
-        [JsonPropertyName("provider")] public List<FieldDef> Provider { get; set; } = new();
         [JsonPropertyName("customer")] public List<FieldDef> Customer { get; set; } = new();
     }
 
@@ -49,7 +48,6 @@ public static class CustomFieldsEndpoints
 
     private static object Payload(Schema s) => new
     {
-        provider = s.Provider.OrderBy(f => f.Position).ToList(),
         customer = s.Customer.OrderBy(f => f.Position).ToList(),
         kinds = Kinds,
         targets = Targets,
@@ -88,13 +86,13 @@ public static class CustomFieldsEndpoints
 
     public static void MapCustomFieldsEndpoints(this IEndpointRouteBuilder app)
     {
-        // GET the whole schema (both targets) — forms + the settings tab read this.
+        // GET the whole schema — forms + the settings tab read this.
         app.MapGet("/api/settings/custom-fields", (ScopingService sc) =>
             Results.Ok(Payload(Load(sc))))
             .RequireAuthorization(AuthPolicies.Authenticated);
 
-        // PUT replaces the schema. Body: {provider:[...], customer:[...]} — either
-        // key may be omitted to leave that target untouched.
+        // PUT replaces the schema. Body: {customer:[...]} — an omitted key leaves
+        // that target untouched (a legacy "provider" key is ignored).
         app.MapPut("/api/settings/custom-fields", async (HttpContext ctx, ScopingService sc) =>
         {
             JsonElement body;
@@ -112,7 +110,7 @@ public static class CustomFieldsEndpoints
                 catch { return Results.Json(new { detail = $"{target}: malformed field list" }, statusCode: 400); }
                 var err = Validate(fields, target);
                 if (err != null) return Results.Json(new { detail = err }, statusCode: 400);
-                if (target == "provider") schema.Provider = fields; else schema.Customer = fields;
+                schema.Customer = fields;
             }
             sc.SetSetting(Key, JsonSerializer.Serialize(schema));
             return Results.Ok(Payload(schema));

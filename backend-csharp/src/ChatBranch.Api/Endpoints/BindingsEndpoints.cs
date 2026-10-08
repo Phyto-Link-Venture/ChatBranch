@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
+using ChatBranch.Data.Tags;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 
@@ -12,78 +13,116 @@ namespace ChatBranch.Api.Endpoints;
 /// the system, instead of ticking boxes one row at a time in five different
 /// places.
 ///
-/// The shape is deliberately uniform: pick a TARGET (an entity, a team, a
-/// provider), get every CANDIDATE with a `member` flag, then send a diff. That
-/// uniformity is what lets one page filter, select-all-matching and apply in
-/// batches for relationships whose storage could not be more different —
-/// a join table (ContactEntity), a skip-navigation collection (Profile.Entities),
-/// a row with its own fields (ResourceLink) and a plain FK (Profile.ContactId).
+/// The shape is deliberately uniform: pick a TARGET (a user, a team, a tag, an
+/// entity…), get every CANDIDATE with a `member` flag, then send a diff. That
+/// uniformity is what lets one page (the BindingGrid card pattern) bind
+/// relationships whose storage could not be more different — a join table
+/// (ContactEntity), a skip-navigation collection (Profile.Entities), a row with
+/// its own values (TagAssignment) and a plain FK (ChannelAccount.EntityId).
 ///
-/// Every kind is symmetric: bind "contacts to an entity" or "entities to a
-/// contact" — whichever list the operator has in front of them.
+/// The first six kinds are the ones the Bindings page offers; the reversed
+/// variants stay for API callers so neither side is second-class.
 /// </summary>
 public static class BindingsEndpoints
 {
     /// <summary>
-    /// The binding kinds the UI may ask for. `Target` is what you pick first;
-    /// `Candidate` is what you tick. Reversed variants exist so neither side is
-    /// second-class.
+    /// The binding kinds. `Target` is what you pick first; `Candidate` is what
+    /// you tick; `Capability` gates the write (checked server-side).
     /// </summary>
-    public static readonly (string Id, string Label, string Target, string Candidate, string Hint)[] Kinds =
+    public static readonly (string Id, string Label, string Target, string Candidate, string Capability, bool Primary, string Hint)[] Kinds =
     {
-        ("entity-contacts", "Contacts on an entity", "entity", "contact",
-            "Which customers belong to this branch. A contact on a child branch is visible to its parent."),
-        ("contact-entities", "Entities for a contact", "contact", "entity",
-            "Which branches this customer belongs to. Zero is allowed."),
-        ("team-users", "Members of a team", "team", "user",
-            "Who is in this team. New conversations round-robin across them."),
-        ("user-teams", "Teams for a user", "user", "team",
+        ("user-entities", "User ↔ entities", "user", "entity", "users.manage", true,
+            "Which entities this login may see. A main entity includes everything beneath it. None = the whole organization."),
+        ("team-users", "Team ↔ members", "team", "user", "users.manage", true,
+            "Who is in this team. New conversations round-robin across its members."),
+        ("contact-entities", "Contact ↔ entities", "contact", "entity", "contacts.manage", true,
+            "Which entities this customer belongs to. A contact on a sub-entity is visible to its main entity."),
+        ("tag-contacts", "Tag ↔ contacts", "tag", "contact", "tags.manage", true,
+            "Which contacts carry this tag. Applying a tag that has a group replaces the contact's other tag of that group."),
+        ("tag-entities", "Tag ↔ entities", "tag", "entity", "tags.manage", true,
+            "Which entities carry this tag (e.g. inner company / outside company)."),
+        ("entity-accounts", "Channel account ↔ entity", "entity", "account", "channels.manage", true,
+            "The numbers and inboxes that belong to this entity. Messages they receive are filed under it. An account belongs to one entity at a time — binding it here moves it."),
+        ("entity-contacts", "Contacts on an entity", "entity", "contact", "contacts.manage", false,
+            "Which customers belong to this entity."),
+        ("user-teams", "Teams for a user", "user", "team", "users.manage", false,
             "Which teams this login belongs to."),
-        ("entity-users", "Users with access to an entity", "entity", "user",
-            "Agents scoped to this branch see only its conversations (and those beneath it)."),
-        ("user-entities", "Entity access for a user", "user", "entity",
-            "Which branches this login may see. Empty = the whole organization."),
-        ("provider-contacts", "Customers bound to a service provider", "provider", "contact",
-            "The customers this teacher/practitioner serves."),
-        ("contact-providers", "Service providers for a contact", "contact", "provider",
-            "Who serves this customer."),
+        ("entity-users", "Users with access to an entity", "entity", "user", "users.manage", false,
+            "Agents scoped to this entity see only its conversations (and those beneath it)."),
     };
 
     public static void MapBindingsEndpoints(this IEndpointRouteBuilder app)
     {
         // ---- what can be bound, and what you can pick ------------------------
-        app.MapGet("/api/bindings/catalog", async (AppDbContext db, ClaimsPrincipal me) =>
+        app.MapGet("/api/bindings/catalog", async (AppDbContext db, ClaimsPrincipal me, ScopingService sc) =>
         {
+            var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
+            var tenantId = int.TryParse(me.FindFirstValue("tenant_id"), out var t) ? t : (int?)null;
+
             // Ordinal sorting puts "MS1" before "Main", which reads as a bug to
             // anyone scanning the list — order these the way a person would.
-            var entities = await db.Entities.AsNoTracking().Include(e => e.Parent)
-                .OrderBy(e => e.Name.ToLower())
-                .Select(e => new { id = e.Id, label = e.Name, sub = e.Parent != null ? e.Parent.Name : "Top level" })
-                .ToListAsync();
-            var teams = await db.Teams.AsNoTracking().OrderBy(t => t.Name.ToLower())
-                .Select(t => new { id = t.Id, label = t.Name, sub = t.Description })
-                .ToListAsync();
-            var users = await db.Profiles.AsNoTracking().Include(p => p.User)
-                .Where(p => p.User != null && p.User.IsActive)
-                .OrderBy(p => p.User!.Username)
+            var entityRows = await AdminEndpoints.AccessibleEntitiesAsync(db, me);
+            var entities = entityRows.OrderBy(e => e.Name.ToLower())
+                .Select(e => new
+                {
+                    id = e.Id, label = e.Name, slug = e.Slug, parent_id = e.ParentId,
+                    sub = e.Parent != null ? e.Parent.Name : "Main entity",
+                }).ToList();
+            var visibleEntityIds = entityRows.Select(e => e.Id).ToHashSet();
+
+            var teams = (await db.Teams.AsNoTracking().Include(x => x.Entity).ToListAsync())
+                .Where(x => x.EntityId == null || visibleEntityIds.Contains(x.EntityId.Value))
+                .OrderBy(x => x.Name.ToLower())
+                .Select(x => new { id = x.Id, label = x.Name, sub = x.Entity?.Name ?? "Organization-wide" })
+                .ToList();
+
+            var userQ = db.Profiles.AsNoTracking().Include(p => p.User)
+                .Where(p => p.User != null && p.User.IsActive);
+            if (role != Roles.SuperAdmin)
+                userQ = userQ.Where(p => p.TenantId == tenantId);
+            var users = await userQ.OrderBy(p => p.User!.Username)
                 .Select(p => new { id = p.UserId, label = p.User!.Username, sub = p.Role })
                 .ToListAsync();
-            var providers = await db.Resources.AsNoTracking().OrderBy(r => r.Name.ToLower())
-                .Select(r => new { id = r.Id, label = r.Name, sub = r.Active ? "" : "inactive" })
+
+            var contacts = await ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
+                .OrderBy(c => c.Name.ToLower()).Take(2000)
+                .Select(c => new
+                {
+                    id = c.Id, label = c.Name, sub = c.Phone,
+                    entity_ids = c.EntityLinks.Select(l => l.EntityId).ToList(),
+                })
                 .ToListAsync();
-            var contacts = await db.Contacts.AsNoTracking().OrderBy(c => c.Name.ToLower()).Take(2000)
-                .Select(c => new { id = c.Id, label = c.Name, sub = c.Phone })
-                .ToListAsync();
+
+            var tags = (await db.Tags.AsNoTracking().ToListAsync())
+                .Where(x => x.EntityId == null || visibleEntityIds.Contains(x.EntityId.Value))
+                .OrderBy(x => x.AppliesTo).ThenBy(x => x.Position).ThenBy(x => x.Name.ToLower())
+                .Select(x => new
+                {
+                    id = x.Id, label = x.Name, sub = x.GroupName, slug = x.Slug, color = x.Color,
+                    applies_to = x.AppliesTo, group = x.GroupName,
+                }).ToList();
+
+            var accounts = (await db.ChannelAccounts.AsNoTracking().Include(a => a.Entity).ToListAsync())
+                .Where(a => a.EntityId == null || visibleEntityIds.Contains(a.EntityId.Value))
+                .OrderBy(a => a.Channel).ThenBy(a => a.Name.ToLower())
+                .Select(a => new
+                {
+                    id = a.Id,
+                    label = a.Name.Length > 0 ? a.Name : a.ExternalId,
+                    sub = a.Entity?.Name ?? "Organization-wide",
+                    channel = a.Channel, provider = a.Provider, entity_id = a.EntityId,
+                }).ToList();
 
             return Results.Ok(new
             {
                 kinds = Kinds.Select(k => new
                 {
                     id = k.Id, label = k.Label, target = k.Target,
-                    candidate = k.Candidate, hint = k.Hint,
+                    candidate = k.Candidate, hint = k.Hint, primary = k.Primary,
+                    capability = k.Capability,
                 }),
                 // one pool per side so the UI never has to guess what to list
-                pools = new { entities, teams, users, providers, contacts },
+                pools = new { entities, teams, users, contacts, tags, accounts },
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
@@ -101,10 +140,15 @@ public static class BindingsEndpoints
         // and sending "these are all the members" from a filtered list would
         // silently unbind everyone they had filtered out.
         app.MapPost("/api/bindings/{kind}", async (string kind, JsonElement body, AppDbContext db,
-            ClaimsPrincipal me) =>
+            ClaimsPrincipal me, ScopingService sc) =>
         {
-            if (!Kinds.Any(k => k.Id == kind))
+            var def = Kinds.FirstOrDefault(k => k.Id == kind);
+            if (def.Id == null)
                 return Results.Json(new { detail = "Unknown binding kind." }, statusCode: 400);
+            var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
+            if (!await AdminEndpoints.HasCapabilityAsync(db, role, def.Capability))
+                return Results.Json(new { detail = $"The {def.Capability} capability is required." },
+                                    statusCode: 403);
             var target = Int(body, "target") ?? 0;
             if (target <= 0)
                 return Results.Json(new { detail = "target is required." }, statusCode: 400);
@@ -116,7 +160,19 @@ public static class BindingsEndpoints
                 return Results.Json(new { detail = "The same id cannot be added and removed." },
                                     statusCode: 400);
 
-            var (added, removed) = await ApplyAsync(db, kind, target, add, remove);
+            if (def.Target == "tag")
+            {
+                var tag = await db.Tags.AsNoTracking().FirstOrDefaultAsync(x => x.Id == target);
+                var wanted = kind == "tag-contacts" ? TagService.ContactTarget : TagService.EntityTarget;
+                if (tag == null)
+                    return Results.Json(new { detail = "Tag not found." }, statusCode: 404);
+                if (tag.AppliesTo != wanted)
+                    return Results.Json(new { detail = $"'{tag.Name}' is a {tag.AppliesTo} tag, not a {wanted} tag." },
+                                        statusCode: 400);
+            }
+
+            var (added, removed) = await ApplyAsync(db, sc, kind, target, add, remove,
+                                                    me.Identity?.Name ?? "system");
             db.AuditLogs.Add(new AuditLog
             {
                 Actor = me.Identity?.Name ?? "system", Action = "binding.update",
@@ -152,10 +208,15 @@ public static class BindingsEndpoints
         "user-entities" => await db.Profiles.AsNoTracking()
             .Where(p => p.UserId == target).SelectMany(p => p.Entities.Select(e => e.Id)).ToListAsync(),
 
-        "provider-contacts" => await db.ResourceLinks.AsNoTracking()
-            .Where(l => l.ResourceId == target && l.Active).Select(l => l.ContactId).ToListAsync(),
-        "contact-providers" => await db.ResourceLinks.AsNoTracking()
-            .Where(l => l.ContactId == target && l.Active).Select(l => l.ResourceId).ToListAsync(),
+        "tag-contacts" => await db.TagAssignments.AsNoTracking()
+            .Where(a => a.TagId == target && a.TargetType == TagService.ContactTarget)
+            .Select(a => a.TargetId).ToListAsync(),
+        "tag-entities" => await db.TagAssignments.AsNoTracking()
+            .Where(a => a.TagId == target && a.TargetType == TagService.EntityTarget)
+            .Select(a => a.TargetId).ToListAsync(),
+
+        "entity-accounts" => await db.ChannelAccounts.AsNoTracking()
+            .Where(a => a.EntityId == target).Select(a => a.Id).ToListAsync(),
 
         _ => new List<int>(),
     };
@@ -165,8 +226,8 @@ public static class BindingsEndpoints
     /// that is not) is a NO-OP rather than an error — two operators working the
     /// same list must not collide.
     /// </summary>
-    private static async Task<(int added, int removed)> ApplyAsync(AppDbContext db, string kind,
-        int target, List<int> add, List<int> remove)
+    private static async Task<(int added, int removed)> ApplyAsync(AppDbContext db, ScopingService sc,
+        string kind, int target, List<int> add, List<int> remove, string actor)
     {
         var current = await MembersAsync(db, kind, target);
         var toAdd = add.Distinct().Where(id => !current.Contains(id)).ToList();
@@ -181,6 +242,14 @@ public static class BindingsEndpoints
                 var byEntity = kind == "entity-contacts";
                 Func<int, int> entityOf = byEntity ? _ => target : id => id;
                 Func<int, int> contactOf = byEntity ? id => id : _ => target;
+                var addEntityIds = toAdd.Select(entityOf).Distinct().ToList();
+                var addContactIds = toAdd.Select(contactOf).Distinct().ToList();
+                var validEntities = await db.Entities.Where(e => addEntityIds.Contains(e.Id))
+                    .Select(e => e.Id).ToListAsync();
+                var validContacts = await db.Contacts.Where(c => addContactIds.Contains(c.Id))
+                    .Select(c => c.Id).ToListAsync();
+                toAdd = toAdd.Where(id => validEntities.Contains(entityOf(id)) && validContacts.Contains(contactOf(id)))
+                    .ToList();
                 foreach (var id in toAdd)
                     db.ContactEntities.Add(new ContactEntity
                     {
@@ -192,6 +261,13 @@ public static class BindingsEndpoints
                     .ToListAsync();
                 db.ContactEntities.RemoveRange(
                     links.Where(l => goneIds.Any(g => g.e == l.EntityId && g.c == l.ContactId)));
+                await db.SaveChangesAsync();
+                // A contact's entity links decide where its conversations are
+                // filed when the receiving number has no entity of its own.
+                var touched = toAdd.Concat(toRemove).Select(contactOf).Distinct().ToList();
+                foreach (var thread in await db.Threads.Include(x => x.Contact).Include(x => x.Account)
+                             .Where(x => x.ContactId != null && touched.Contains(x.ContactId.Value)).ToListAsync())
+                    sc.SyncThreadEntity(thread, save: false);
                 break;
             }
 
@@ -238,43 +314,38 @@ public static class BindingsEndpoints
                 break;
             }
 
-            case "provider-contacts":
-            case "contact-providers":
+            case "tag-contacts":
+            case "tag-entities":
             {
-                var byProvider = kind == "provider-contacts";
-                Func<int, int> resourceOf = byProvider ? _ => target : id => id;
-                Func<int, int> contactOf2 = byProvider ? id => id : _ => target;
+                // Through TagService so group exclusivity and the Contact.Tags
+                // cache hold no matter which screen did the binding.
+                var targetType = kind == "tag-contacts" ? TagService.ContactTarget : TagService.EntityTarget;
+                var tag = await db.Tags.FirstAsync(x => x.Id == target);
+                var valid = targetType == TagService.ContactTarget
+                    ? await db.Contacts.Where(c => toAdd.Contains(c.Id)).Select(c => c.Id).ToListAsync()
+                    : await db.Entities.Where(e => toAdd.Contains(e.Id)).Select(e => e.Id).ToListAsync();
+                toAdd = toAdd.Where(valid.Contains).ToList();
                 foreach (var id in toAdd)
-                {
-                    // An inactive link is reactivated rather than duplicated —
-                    // rebinding a customer must not create a second row.
-                    var existing = await db.ResourceLinks.FirstOrDefaultAsync(
-                        l => l.ResourceId == resourceOf(id) && l.ContactId == contactOf2(id));
-                    if (existing != null)
-                    {
-                        existing.Active = true;
-                        existing.UpdatedAt = DateTime.UtcNow;
-                    }
-                    else
-                    {
-                        db.ResourceLinks.Add(new ResourceLink
-                        {
-                            ResourceId = resourceOf(id), ContactId = contactOf2(id), Active = true,
-                            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
-                        });
-                    }
-                }
-                var rows = await db.ResourceLinks
-                    .Where(l => kind == "provider-contacts" ? l.ResourceId == target : l.ContactId == target)
-                    .ToListAsync();
-                // Deactivate rather than delete: the binding's history (since
-                // when, what relationship) is worth keeping.
-                foreach (var row in rows.Where(l =>
-                             toRemove.Contains(kind == "provider-contacts" ? l.ContactId : l.ResourceId)))
-                {
-                    row.Active = false;
-                    row.UpdatedAt = DateTime.UtcNow;
-                }
+                    TagService.Assign(db, tag, targetType, id, new Dictionary<string, object?>(), actor);
+                TagService.Unassign(db, tag.Id, targetType, toRemove);
+                break;
+            }
+
+            case "entity-accounts":
+            {
+                // An account carries ONE entity: binding moves it here, unbinding
+                // returns it to organization-wide.
+                var ids = toAdd.Concat(toRemove).ToList();
+                var accounts = await db.ChannelAccounts.Where(a => ids.Contains(a.Id)).ToListAsync();
+                toAdd = toAdd.Where(id => accounts.Any(a => a.Id == id)).ToList();
+                foreach (var a in accounts)
+                    a.EntityId = toAdd.Contains(a.Id) ? target : null;
+                await db.SaveChangesAsync();
+                // Re-file the numbers' existing conversations under their new scope.
+                var moved = accounts.Select(a => a.Id).ToList();
+                foreach (var thread in await db.Threads.Include(x => x.Contact).Include(x => x.Account)
+                             .Where(x => x.AccountId != null && moved.Contains(x.AccountId.Value)).ToListAsync())
+                    sc.SyncThreadEntity(thread, save: false);
                 break;
             }
         }

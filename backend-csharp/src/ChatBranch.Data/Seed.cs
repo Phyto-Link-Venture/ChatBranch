@@ -53,6 +53,17 @@ public static class Seed
         AddTableIfMissing(db, "crm_teammember",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_teammember\" PRIMARY KEY AUTOINCREMENT, "
             + "\"team_id\" INTEGER NOT NULL, \"user_id\" INTEGER NOT NULL, \"created_at\" TEXT NOT NULL");
+        AddTableIfMissing(db, "crm_tag",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_tag\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"entity_id\" INTEGER NULL, \"name\" TEXT NOT NULL, \"slug\" TEXT NOT NULL, "
+            + "\"color\" TEXT NOT NULL, \"description\" TEXT NOT NULL, \"applies_to\" TEXT NOT NULL, "
+            + "\"group_name\" TEXT NOT NULL, \"attributes\" TEXT NOT NULL, \"position\" INTEGER NOT NULL, "
+            + "\"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
+        AddTableIfMissing(db, "crm_tagassignment",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_tagassignment\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"tag_id\" INTEGER NOT NULL, \"target_type\" TEXT NOT NULL, \"target_id\" INTEGER NOT NULL, "
+            + "\"values\" TEXT NOT NULL, \"created_by\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL, "
+            + "CONSTRAINT \"uniq_tag_assignment\" UNIQUE (\"tag_id\", \"target_type\", \"target_id\")");
     }
 
     /// <summary>
@@ -183,51 +194,13 @@ public static class Seed
             }
         }
 
-        // A starter "Provider" role for Service Provider logins (teachers,
-        // suppliers…) — a CUSTOM role (not system) so admins can rename it, tune
-        // its permissions in the matrix, or clone it into Teacher / Supplier
-        // roles. Read-mostly by default: their own contacts + chats + calendar.
-        // Row-level "own world" scoping is enforced by Profile.ResourceId, not by
-        // this role — the role only decides which ACTIONS are allowed.
-        if (!db.Roles.Any(r => r.Slug == "provider"))
-        {
-            db.Roles.Add(new Role { Slug = "provider", Label = "Provider", IsSystem = false,
-                CreatedAt = DateTime.UtcNow });
-            var allow = new HashSet<string>
-            {
-                "contacts.view", "chats.view", "chats.send", "integrations.view",
-                "integrations.manage", "call_logs.view",
-            };
-            foreach (var cap in new[]
-                     {
-                         "contacts.view", "contacts.manage", "chats.view", "chats.send", "chats.manage",
-                         "flows.view", "flows.manage", "channels.view", "channels.manage",
-                         "integrations.view", "integrations.manage", "users.view", "users.manage",
-                         "entities.view", "entities.manage", "templates.manage",
-                         "script_templates.manage", "notifications.manage", "analytics.view",
-                         "call_logs.view", "activity.view", "settings.ai.manage",
-                         "account_assignment.manage", "app_keys.manage", "pronunciation.manage",
-                         "rbac.manage",
-                     })
-                db.RolePermissions.Add(new RolePermission
-                {
-                    Role = "provider", Capability = cap, Allowed = allow.Contains(cap),
-                    UpdatedAt = DateTime.UtcNow,
-                });
-            db.SaveChanges();
-        }
-
         // Default Custom Fields schema — seeded ONLY when none exists yet, so it
-        // never overwrites a deployment's own labels. Service Providers are a
-        // generic concept (teachers, suppliers, coaches…), so the out-of-the-box
-        // provider field is a "Type" dropdown that tells them apart. Admins edit
-        // or extend this from Settings → Custom Fields.
+        // never overwrites a deployment's own labels. Admins edit or extend this
+        // from Settings → Custom Fields. (How a contact relates to the business —
+        // boss, employee, driver — is a registry Tag, not a field.)
         if (!db.Settings.Any(s => s.Key == "custom_fields" && s.EntityId == null))
         {
-            const string defaultSchema =
-                "{\"provider\":[{\"key\":\"type\",\"label\":\"Type\",\"kind\":\"select\"," +
-                "\"options\":[\"Teacher\",\"Supplier\"],\"required\":true,\"position\":0}]," +
-                "\"customer\":[]}";
+            const string defaultSchema = "{\"customer\":[]}";
             db.Settings.Add(new Setting
             {
                 Key = "custom_fields", Value = defaultSchema, EntityId = null,
@@ -235,6 +208,10 @@ public static class Seed
             });
             db.SaveChanges();
         }
+
+        // Tag registry bootstrap (one-time, marker-guarded): the inbox's
+        // conversation labels + existing free-text contact tags become tags.
+        ChatBranch.Data.Tags.TagService.SeedRegistry(db, seedDemo);
 
         // ONE test customer only (the operator's own number) — enough to exercise
         // the contact page, chats and AI replies end-to-end without a pile of

@@ -37,10 +37,11 @@ public class AppDbContext : DbContext
     // crm — contacts
     public DbSet<Contact> Contacts => Set<Contact>();
     public DbSet<ContactEntity> ContactEntities => Set<ContactEntity>();
-    public DbSet<Resource> Resources => Set<Resource>();
-    public DbSet<ResourceLink> ResourceLinks => Set<ResourceLink>();
     public DbSet<Record> Records => Set<Record>();
     public DbSet<RecordEvent> RecordEvents => Set<RecordEvent>();
+    // crm — tag registry (contacts / entities / conversations)
+    public DbSet<Tag> Tags => Set<Tag>();
+    public DbSet<TagAssignment> TagAssignments => Set<TagAssignment>();
     // crm — channels
     public DbSet<ChannelAccount> ChannelAccounts => Set<ChannelAccount>();
     public DbSet<Setting> Settings => Set<Setting>();
@@ -101,10 +102,13 @@ public class AppDbContext : DbContext
         b.Entity<Notification>().ToTable("crm_notification");
         b.Entity<Contact>().ToTable("crm_contact");
         b.Entity<ContactEntity>().ToTable("crm_contactentity");
-        b.Entity<Resource>().ToTable("crm_resource");
-        b.Entity<ResourceLink>().ToTable("crm_resourcelink");
         b.Entity<Record>().ToTable("crm_record");
         b.Entity<RecordEvent>().ToTable("crm_recordevent");
+        b.Entity<Tag>().ToTable("crm_tag");
+        b.Entity<TagAssignment>().ToTable("crm_tagassignment");
+        b.Entity<TagAssignment>()
+            .HasIndex(a => new { a.TagId, a.TargetType, a.TargetId })
+            .IsUnique().HasDatabaseName("uniq_tag_assignment");
         b.Entity<ChannelAccount>().ToTable("crm_channelaccount");
         b.Entity<Setting>().ToTable("crm_setting");
         b.Entity<Thread>().ToTable("crm_thread");
@@ -180,8 +184,6 @@ public class AppDbContext : DbContext
         // ---- JSON columns ------------------------------------------------------
         Json<Contact, List<string>>(b, x => x.Tags);
         Json<Contact, Dictionary<string, object?>>(b, x => x.Attributes);
-        Json<Resource, Dictionary<string, object?>>(b, x => x.Config);
-        Json<Resource, Dictionary<string, object?>>(b, x => x.Attributes);
         Json<Record, Dictionary<string, object?>>(b, x => x.Data);
         Json<RecordEvent, Dictionary<string, object?>>(b, x => x.Data);
         Json<ChannelAccount, Dictionary<string, object?>>(b, x => x.Config);
@@ -201,6 +203,8 @@ public class AppDbContext : DbContext
         Json<ConversationSummary, List<object?>>(b, x => x.Facts);
         Json<Integration, Dictionary<string, object?>>(b, x => x.Credentials);
         Json<Integration, Dictionary<string, object?>>(b, x => x.Config);
+        Json<Tag, List<TagAttribute>>(b, x => x.Attributes);
+        Json<TagAssignment, Dictionary<string, object?>>(b, x => x.Values);
 
         // ---- snake_case columns to match Django (<field>_id for FKs) -----------
         // Django names every column snake_case; matching it is what lets this
