@@ -10,7 +10,7 @@
      mode   : .light (default) / .dark
    lib/theme.ts applies the classes plus any per-user overrides (accent
    colour, text size, corner style, heading font) as inline vars on <html>.
-   Every semantic Tailwind colour (app/surface/card/text-* /line/fill) AND the
+   Every semantic Tailwind colour (app, surface, card, text-*, line, fill) AND the
    accent scales (brand, green, amber, red, purple, cyan, blue) resolve here,
    so no component carries per-theme overrides.
 

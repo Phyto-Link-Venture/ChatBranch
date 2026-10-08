@@ -65,6 +65,11 @@ public static class AdminEndpoints
         ("settings.custom_fields.manage", "Settings", "Manage custom fields"),
         ("settings.ai_keys.manage", "Settings", "Manage AI keys & models"),
         ("rbac.manage", "Admin", "Edit the permission matrix"),
+        ("tags.view", "Library", "View tags"),
+        ("tags.manage", "Library", "Create & edit tags"),
+        ("api_keys.manage", "Admin", "Manage API keys & MCP"),
+        ("ai.monitor", "AI", "See & approve AI drafts"),
+        ("ai.behaviour.manage", "AI", "Edit AI behaviour settings"),
     };
 
     private static readonly string[] CapabilityIds =
@@ -93,6 +98,7 @@ public static class AdminEndpoints
     {
         "contacts.view", "chats.view", "chats.send", "flows.view",
         "analytics.view", "call_logs.view", "activity.view",
+        "tags.view", "ai.monitor",
     };
 
     /// rbac.manage for superadmin is never toggleable off (anti-lockout).

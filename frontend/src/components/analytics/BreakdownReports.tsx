@@ -1,7 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Download, Users } from 'lucide-react'
+import { Download } from 'lucide-react'
+import { Card, CardTitle } from '@/components/ui/Card'
+import { channelLabel } from '@/components/ui/ChannelLogo'
 import { authHeaders } from '@/lib/auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
@@ -107,29 +109,33 @@ export function BreakdownReports({ days, entityQ }: { days: number; entityQ: str
     rows: (string | number)[][]
     empty: string
   }) => (
-    <div className="rounded-2xl border border-line bg-card p-4">
-      <div className="mb-3 flex items-center gap-2">
-        <span className="flex-1 text-[13px] font-bold text-text-high">{title}</span>
-        <button
-          onClick={() => download(report)}
-          title={`Download ${title} as CSV`}
-          aria-label={`Download ${title} as CSV`}
-          className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-line bg-fill px-2.5 py-1 text-[11px] font-semibold text-text-mid transition-colors hover:bg-fill-hover hover:text-text-high"
-        >
-          <Download size={12} aria-hidden /> CSV
-        </button>
-      </div>
+    <Card className="min-w-0 px-5 py-[18px]">
+      <CardTitle
+        className="mb-3"
+        right={
+          <button
+            onClick={() => download(report)}
+            title={`Download ${title} as CSV`}
+            aria-label={`Download ${title} as CSV`}
+            className="inline-flex cursor-pointer items-center gap-1 font-semibold text-text-mid transition-colors hover:text-text-high"
+          >
+            <Download size={12} aria-hidden /> CSV
+          </button>
+        }
+      >
+        {title}
+      </CardTitle>
       {rows.length === 0 ? (
-        <p className="text-[11.5px] text-text-muted">{empty}</p>
+        <p className="text-[12.5px] text-text-muted">{empty}</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[380px] border-collapse">
+          <table className="w-full min-w-[340px] border-collapse">
             <thead>
               <tr>
                 {head.map((h, i) => (
                   <th
                     key={h}
-                    className={`border-b border-line pb-1.5 text-[10px] font-bold uppercase tracking-[0.06em] text-text-faint ${
+                    className={`border-b border-line pb-1.5 text-[11.5px] font-semibold text-text-muted ${
                       i === 0 ? 'text-left' : 'text-right'
                     }`}
                   >
@@ -144,8 +150,8 @@ export function BreakdownReports({ days, entityQ }: { days: number; entityQ: str
                   {r.map((cell, ci) => (
                     <td
                       key={ci}
-                      className={`border-b border-line py-1.5 text-[12px] ${
-                        ci === 0 ? 'text-left font-semibold text-text-high' : 'text-right text-text-mid'
+                      className={`border-b border-line py-1.5 text-[12.5px] ${
+                        ci === 0 ? 'text-left font-semibold text-text-high' : 'text-right tabular-nums text-text-mid'
                       }`}
                     >
                       {cell}
@@ -157,20 +163,19 @@ export function BreakdownReports({ days, entityQ }: { days: number; entityQ: str
           </table>
         </div>
       )}
-    </div>
+    </Card>
   )
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <Users size={14} className="text-text-muted" aria-hidden />
-        <span className="text-[13px] font-bold text-text-high">Breakdowns</span>
-        <span className="text-[11px] text-text-muted">
-          conversations touched in the last {data.days} days
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line pb-2">
+        <h2 className="display text-[22px] leading-tight text-text-heading">Breakdowns</h2>
+        <span className="text-[12.5px] text-text-muted">
+          Who handled what — conversations touched in the last {data.days} days
         </span>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-5 lg:grid-cols-2">
         <Section
           title="By agent"
           report="agents"
@@ -196,7 +201,7 @@ export function BreakdownReports({ days, entityQ }: { days: number; entityQ: str
           title="By channel"
           report="channels"
           head={['Channel', 'Conversations', 'Received', 'Sent']}
-          rows={data.channels.map((c) => [c.name, c.conversations, c.in, c.out])}
+          rows={data.channels.map((c) => [channelLabel(c.name), c.conversations, c.in, c.out])}
           empty="No conversations in this window."
         />
       </div>

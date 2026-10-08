@@ -833,6 +833,17 @@ sandbox mode.
   editor, Users, Entities, both template editors): a `role="alert"` div as the
   first child of the modal body for `!msg.ok`, the page-level copy gated on the
   modal being closed, and `setMsg(null)` when opening one.
+- **Shell (2026-10-08):** the sidebar IA lives in `components/shell/nav.ts`
+  (`NAV_GROUPS`, `canSee`) — a new page = one entry there; the command palette
+  searches the same list plus `GET /api/search` (each type capability-gated
+  and scoped like its list endpoint). `/api/live` + `lib/chatStream` (ONE SSE
+  connection per tab, now with a connection status) feed the Live chip, the
+  sidebar's Chats counter and Analytics' waiting card via `liveStore`.
+  Analytics is home (`/`, post-login, `/dashboard` all go there). PWA:
+  `app/manifest.ts`, hand-written `public/sw.js` (never caches `/api/*` or
+  the stream; offline navigations redirect to `/offline?from=`), icons in
+  `public/icons/` rendered from `Logo.tsx`'s `brandMarkSvg`. Channel health
+  transitions write `account.health` audit rows via `AccountHealth.SetStatus`.
 - **Never call `getRole()` / `getAuth()` during render.** They read
   localStorage, which doesn't exist during SSR — the server paints the
   `'agent'` fallback, the client paints the real role, and React aborts
