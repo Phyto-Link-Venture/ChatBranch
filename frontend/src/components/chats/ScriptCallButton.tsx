@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Megaphone, X } from 'lucide-react'
 import { useApp } from '@/lib/AppContext'
 import { authHeaders } from '@/lib/auth'
+import { Select } from '@/components/ui/Select'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -62,23 +63,20 @@ export default function ScriptCallButton({ contactId }: { contactId: number }) {
             </button>
           </div>
           {templates.length > 0 && (
-            <select
+            <Select
               value={templateId}
-              onChange={(e) => {
-                const id = e.target.value
+              onChange={(id) => {
                 setTemplateId(id)
                 const t = templates.find((x) => String(x.id) === id)
                 if (t) setScript(t.content)
               }}
-              className="mb-1.5 w-full rounded-lg border border-line bg-fill px-2 py-1.5 text-[12px] text-text-high outline-none focus:border-brand"
-            >
-              <option value="">— custom / edit below —</option>
-              {templates.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: '', label: 'Custom script', hint: '(edit below)' },
+                ...templates.map((t) => ({ value: String(t.id), label: t.name })),
+              ]}
+              ariaLabel="Script template"
+              className="mb-1.5 w-full"
+            />
           )}
           <textarea
             value={script}
