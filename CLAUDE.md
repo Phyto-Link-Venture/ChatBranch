@@ -7,28 +7,30 @@ Guidance for Claude Code working in this repo. Read before making changes.
 ChatBranch — an industry-agnostic multi-channel conversation platform
 (template). Four cooperating processes:
 
-1. **C# API** (`backend-csharp/`, port 8090) — ASP.NET Core minimal APIs over
+1. **C# API** (`backend-csharp/`, port 8090) — ASP.NET Core 8 minimal APIs over
    SQLite (EF Core). THE backend: contacts, the unified inbox, flows, the
-   outbound queue, AI, integrations, RBAC. Root `/` 404s — it is API-only.
+   outbound queue, the AI, integrations, RBAC, the LiveKit control plane for
+   calls, the MCP server. Root `/` 404s — it is API-only.
 2. **Voice agent worker** (`backend/voice_agent/`) — a **separate** long-lived
    LiveKit Agents process (Node/TypeScript on `@livekit/agents`, no database).
    The API dispatches it into each call's room; it runs the conversation and
-   writes results to the shared data dir (`backend/data/`). NOT started by the
-   API.
+   writes results to the shared data dir. NOT started by the API.
 3. **Next.js dashboard** (`frontend/`, port 3000) — operator UI.
 4. **Baileys gateway** (`backend/baileys_service/`, port 3020) — Node sidecar
    for `provider="baileys"` WhatsApp accounts (unofficial WhatsApp Web:
    QR-paired personal numbers, text + voice calls). The C# API is its only
-   client; its env var is `API_URL` (`DJANGO_URL` still accepted).
+   client; its push-target env var is `API_URL` (`DJANGO_URL` still accepted).
 
-> **The Django backend was removed on 2026-08-16.** Everything it did lives in
-> `backend-csharp/` now, including OAuth and the integration actions that were
-> the last stubs. `backend/` retains only the two Django-free sidecars above
-> plus `backend/data/` — which holds the LIVE Baileys WhatsApp session
-> (`data/whatsapp/baileys/<account>/creds.json`) and inbound media. Never
-> delete it. Historical references below to `crm/*.py`, `whatsapp/store.py`,
-> `flows/engine.py` etc. describe the behaviour the C# port reproduces; read
-> them as the SPEC, and find the code under `backend-csharp/src/`.
+> **There is no Python in the repo.** The Django backend was removed on
+> 2026-08-16 and the voice agent was ported to Node/TypeScript in the
+> 2026-10 overhaul. `backend/` holds only the two Node sidecars,
+> `backend/.env(.example)` and the gitignored `backend/data/` — which holds the
+> LIVE Baileys WhatsApp session (`data/whatsapp/baileys/<account>/creds.json`),
+> media and the voice-agent IPC files. Never delete it. Comments and docs that
+> name Django modules (`crm/scoping.py`, `whatsapp/store.py`, `flows/engine.py`,
+> `aicore/assistant.py`…) describe the behaviour the C# port reproduces — read
+> them as the SPEC and find the code under `backend-csharp/src/`. The C# port
+> is NOT at full parity; see **Port status** below before promising a feature.
 
 ## Run
 
@@ -39,927 +41,632 @@ npm run dev:all  # repo root — all four processes via concurrently (api/agent/
 Or individually (what the root `package.json` scripts do):
 
 ```bash
-npm run dev:api      # C# API, :8090
-npm run dev:agent    # voice agent worker, tsx (separate terminal)
-npm run dev:web      # Next.js, :3000 (separate terminal)
-npm run dev:baileys  # Baileys gateway, :3020 (separate terminal)
+npm run dev:api      # dotnet run --project backend-csharp/src/ChatBranch.Api --urls http://0.0.0.0:8090
+npm run dev:agent    # voice agent worker (tsx)
+npm run dev:web      # Next.js, :3000
+npm run dev:baileys  # Baileys gateway, :3020
 ```
 
-First-time bootstrap: `npm install` then `npm run setup` (installs the frontend,
-the Baileys gateway and the voice agent). The API needs no bootstrap — SQLite
-is created and seeded on first boot (`Seed.Run`, additive `UpgradeSchema` for
-new columns). **Nothing in `.env` is required to boot**; with it empty the whole
-app runs in sandbox mode (the voice agent exits at once, naming the missing
-LIVEKIT_* keys). The API and the agent share ONE data dir: `CHATBRANCH_DATA_DIR`,
-default `backend/data` of the checkout (`VoiceAgentBridge.ResolveDataDir`).
+- First-time bootstrap: `npm install` then `npm run setup` (installs the
+  frontend, the Baileys gateway and the voice agent). The API needs no
+  bootstrap — SQLite is created and seeded on first boot (`Seed.Run`,
+  additive `Seed.UpgradeSchema` for new columns/tables).
+- **Seeding is clean by default**: only the Demo tenant, the `main` entity, the
+  three built-in roles and ONE login — `superadmin` (password
+  `SUPERADMIN_PASSWORD`, else the POC `super123`). **`SEED_DEMO=1`** adds the
+  `admin/admin123` + `agent/agent123` logins and one sample contact. POC creds —
+  rotate before deploy. The test host sets `SEED_DEMO=1` itself.
+- **Nothing in `.env` is required to boot**; with nothing set the whole app runs
+  in sandbox mode (the voice agent exits at once, naming the missing LIVEKIT_*
+  keys). **Where config comes from:** the API reads Setting rows (dashboard) →
+  its own process environment. It does NOT load `backend/.env`, except the
+  LiveKit keys (`LIVEKIT_URL/API_KEY/API_SECRET`, `AGENT_NAME`,
+  `SIP_OUTBOUND_TRUNK_ID`, read per call by `Sidecars/LiveKitClient.cs`). The
+  voice agent and the Baileys gateway load `backend/.env` themselves; docker
+  compose passes it to every service.
+- The API and the agent share ONE data dir: `CHATBRANCH_DATA_DIR`, default
+  `backend/data` of the checkout (`VoiceAgentBridge.ResolveDataDir`; Docker
+  `/data`).
+- **`dotnet run` gotcha:** `Properties/launchSettings.json` (profile `http`,
+  port 5223) OVERRIDES an `ASPNETCORE_URLS` env var. A `--urls` argument wins
+  over the profile (that is what `dev:api` uses); if you configure the URL via
+  env, run `dotnet run --no-launch-profile --urls …`.
+- Under `dotnet run` the content root is the project dir, so the dev database is
+  `backend-csharp/src/ChatBranch.Api/chatbranch.sqlite3` (gitignored;
+  `ConnectionStrings__Default` overrides; Docker uses `/data/chatbranch.sqlite3`).
+
+## Port status — what is real, what is sandbox
+
+The C# port runs every screen, but several transports are still stubs. Sandbox =
+the message is stored with `status="sandbox"` and never leaves the machine.
+
+| Area | Real | Not ported / stub |
+|---|---|---|
+| WhatsApp Cloud | inbound webhook (verify token, signature when the account has an `app_secret`, wamid dedup, provider timestamps); **text send** via Graph (`OutboundSender`); typing/read indicator | templates are sent as RENDERED TEXT (no Meta template API; outside 24h Meta rejects it); Meta template listing (3 demo + operator custom templates only); media send is stored locally as sandbox; delivery `statuses` ignored; no Cloud voice calls (`call/start` on a Cloud account → 501) |
+| WhatsApp Baileys | inbound text, message-status ticks, lifecycle → health, **text send**, presence, **voice calls** (call/start, call-event) | inbound media (`/baileys/media` is acked and dropped); call recordings list is an empty stub |
+| Telegram | inbound webhook `/api/messaging/webhook/telegram/{token}` (text) | send (sandbox); `set-webhook` answers 501 — register the URL with Telegram by hand |
+| Email | account CRUD, masked SMTP creds | SMTP send (sandbox); IMAP — `POST /api/messaging/email/sync` is a stub |
+| Messenger / Instagram | account CRUD | **no inbound webhook route** (`/api/messaging/webhook` does not exist in C#) and no send (sandbox) |
+| Website widget | full (internal transport) | — |
+| SIP voice | dial / live / say / hangup / escalate through LiveKit | — |
+| Media serving | — | `/api/whatsapp/media/{id}` (advertised in message payloads) and `/api/whatsapp/calls/recording/{name}` have no route |
+| Channel health | event-driven writer (`AccountHealth.SetStatus`) | no periodic prober; "Check now" only stamps a time |
+| Routing | sticky `AccountAssignment` rows, rebalance, manual per-chat switch, recovery (manual, queues templates) | no least-loaded auto-assign/failover at send time (job → `job.AccountId ?? thread.AccountId`); `business_redirect` and auto-recovery are stored but not enforced |
+| Compliance | `OptedOut` honoured everywhere it is read; cold-text guard (manual WhatsApp send), cold-call guard (queued calls), do-not-call | **nothing sets `Thread.OptedOut`** — STOP/UNSUBSCRIBE/BERHENTI detection is not ported |
+
+When you fix one of these, update this table, `README.md` and
+`docs/channel-adapter.md` in the same change.
 
 ## Architecture that isn't obvious from the tree
 
-- **The database is `crm` (SQLite via Django ORM)** — Contact, Record,
-  RecordEvent, ContactBrand, ChannelAccount, AccountAssignment, Thread,
-  Message, CannedResponse, ScriptTemplate, KnowledgeItem, AgentSkill,
-  Workflow, FlowRun, OutboundJob, ConversationSummary, CallRecord, Setting,
-  Profile, AuditLog, Notification. Full field-level reference:
-  `docs/DATABASE_SCHEMA.md`. The whatsapp/messaging
-  `store.py` and `*_config.py` modules are ORM-backed but kept their old
-  function signatures + dict shapes — views/AI/bridge code never touch models
-  directly, so **change the store layer, not the callers**. Bootstrap:
-  the C# API seeds itself on first boot (`Seed.Run`: demo users, the Main
-  entity, roles/capabilities). Demo creds superadmin/super123, admin/admin123,
-  agent/agent123 — POC only, rotate before deploy.
-- **Entities are a TREE (`ingest_entity.parent_id`, added 2026-08-15).** A
-  top-level entity (parent null) with branches/outlets under it; a child ALWAYS
-  inherits its parent's tenant, so the dashboard's Add-entity form asks for a
-  **parent**, never a tenant slug (the Tenant field is gone; `/entities` is
-  titled just "Entities"). `POST/PATCH /api/v1/entities` take `parent_id` (pk,
-  number or numeric string — `Str()` returns null for JSON numbers, hence
-  `ParentPk()`) or `parent` (slug); 0/""/null = top level. Guards: no
-  self-parent, no cycles (`IsDescendantAsync`), parent and child share a
-  tenant, and DELETE refuses while children exist. The GET payloads carry
-  `parent_id`/`parent`/`parent_name`, and the page renders the tree
-  depth-first with indentation (`orderTree`). Tenant still exists underneath —
-  RBAC/scoping are unchanged — it is simply never typed in by hand.
-- **Entity scope flows UP the tree (2026-08-16).** `ScopeOwned` narrows to an
-  entity's SUBTREE (`ScopingService.EntitySubtreeIds`, breadth-first, depth
-  capped): head office reads a branch's contacts/threads, a branch never reads
-  head office's. `/api/contacts?entity=<slug>` filters by that subtree too.
-  Agents/custom roles are additionally bounded by their ASSIGNED entities
-  (`ContactsEndpoints.AssignedEntityIds`) — an out-of-scope `?entity=` narrows
-  to their own scope instead of widening; an agent with NO assignment keeps the
-  tenant-wide view (unchanged behaviour, not a lockout).
-- **Entity scoping = global default -> entity override.** `crm/scoping.py` is
-  the ONE place the rule lives: *an entity-specific binding wins; the global
-  one is the fallback*. Three verbs, and picking the wrong one is the bug the
-  module exists to prevent:
-  `setting_value(key, entity)` (config: entity row -> global row -> ""),
-  `scope_inherited(qs, entity)` (libraries an outlet INHERITS — knowledge,
-  canned/script templates, skills, workflows, channel accounts, integrations:
-  its own PLUS the global ones) and `scope_owned(qs, entity)` (records that
-  belong to exactly ONE outlet — contacts, threads, call records, analytics).
-  `entity=None` means "All entities" for the scope_* helpers and "the global
-  value" for the setting helpers.
-  **`crm.Setting` is no longer key-unique**: it carries a nullable `entity`
-  FK with a partial unique constraint per scope, so every global read MUST say
-  `filter(entity__isnull=True, …)` or another outlet's override leaks into the
-  org-wide value — that sweep is already applied across wa_config / msg_config
-  / health / queue / engine / catalog / persona / app_settings. Only the keys
-  in `scoping.ENTITY_SCOPED_SETTINGS` may be overridden (hours, persona, quiet
-  hours, pacing, routing rules, tool use…); credentials and webhook secrets are
-  organization-wide BY DESIGN and `set_setting` raises if you try.
-  **`ChannelAccount.entity` is the linchpin**: the number that receives a
-  message decides which outlet the conversation belongs to, so attribution
-  needs no manual tagging. `scoping.thread_entity` is that chain — receiving
-  account's entity -> linked contact's entity -> None ("unassigned", shown in
-  every view rather than guessed at). It is denormalized onto `Thread.entity`
-  and re-synced by `sync_thread_entity` at EVERY seam that moves a thread
-  (creation, account switch, contact link/unlink, account re-binding); a new
-  write path that sets `thread.account` or `thread.contact` must call it too.
-  `accounts_for_entity` / `integration_for_entity` are a PREFERENCE, not a
-  union: an outlet with its own WhatsApp number or Google Calendar never falls
-  back to the shared one. Endpoints take `?entity=<slug>` via
-  `scoping.entity_from_request`, which BOUNDS the slug by RBAC — and falls
-  through to the caller's own scope rather than returning None for a rejected
-  slug, because None means "all entities" and would widen the response.
-  Frontend: `useEntityQuery()` (lib/EntityContext) is the only way pages build
+- **The database is one EF Core context** (`ChatBranch.Data/AppDbContext.cs`)
+  over SQLite with **Django's table names** (`crm_*`, `ingest_*`, `auth_user`,
+  `integrations_integration`) and snake_case columns. There are no EF
+  migrations: `EnsureCreated()` builds a fresh DB and `Seed.UpgradeSchema`
+  (append-only, idempotent `ADD COLUMN` / `CREATE TABLE IF NOT EXISTS`) upgrades
+  an old one — a new column or table MUST be added there too. Entities live in
+  `ChatBranch.Domain/`. Field reference: `docs/DATABASE_SCHEMA.md`.
+  **Write messages through `Stores/ThreadStore`**: `GetOrCreateThread` adopts
+  the receiving account / matched contact and re-syncs the thread's entity;
+  `AppendMessage` dedupes on `(thread, external_id)`, stamps
+  `Message.AccountId`, reopens a resolved/snoozed thread on inbound and bumps
+  `Thread.UpdatedAt` — the SSE change token. A bulk `ExecuteUpdate` on
+  messages/threads must bump `UpdatedAt` itself or the dashboard won't refresh.
+- **Entities are a TREE (`ingest_entity.parent_id`).** A top-level entity
+  (parent null) with branches/outlets under it; a child ALWAYS inherits its
+  parent's tenant, so the dashboard asks for a **parent**, never a tenant slug.
+  `POST/PATCH /api/v1/entities` take `parent_id` (number or numeric string —
+  hence `ParentPk()`) or `parent` (slug); 0/""/null = top level. Guards: no
+  self-parent, no cycles (`IsDescendantAsync`), same tenant, and DELETE refuses
+  while children exist. Pickers render the tree with
+  `components/ui/EntityPicker.tsx` (`entityTree`, `EntityPicker`,
+  `EntityMultiPicker`). Tenant still exists underneath — it is simply never
+  typed in by hand. ("Brands" in `/api/v1/brands` are entities.)
+- **Entity scope flows UP the tree.** `ScopeOwned` narrows to an entity's
+  SUBTREE (`ScopingService.EntitySubtreeIds`): head office reads a branch's
+  contacts/threads, a branch never reads head office's. Agents/custom roles are
+  additionally bounded by their ASSIGNED entities
+  (`ContactsEndpoints.AssignedEntityIds`; conversations via
+  `Endpoints/ShellScope.cs`) — an out-of-scope `?entity=` narrows to their own
+  scope instead of widening; an agent with NO assignment keeps the tenant-wide
+  view (not a lockout).
+- **Entity scoping = global default → entity override.**
+  `ChatBranch.Data/ScopingService.cs` is the ONE place the rule lives: *an
+  entity-specific binding wins; the global one is the fallback*. Three verbs,
+  and picking the wrong one is the bug the class exists to prevent:
+  `SettingValue(key, entityId)` (config: entity row → global row → ""),
+  `ScopeInherited(q, entityId)` (libraries an outlet INHERITS — knowledge,
+  canned/script templates, skills, workflows, tags, teams, channel accounts,
+  integrations: its own PLUS the global ones) and `ScopeOwned(q, entityId)`
+  (records that belong to exactly ONE outlet — contacts, threads, AI drafts,
+  analytics). `entityId == null` means "All entities" for the Scope* helpers and
+  "the global value" for the setting helpers.
+  **`Setting` is not key-unique**: a nullable `EntityId` with two partial unique
+  indexes (one global row per key; one override per `(key, entity)`), so a raw
+  read MUST say `EntityId == null` or another outlet's override leaks into the
+  org-wide value. Only keys in `ScopingService.EntityScopedSettings` may be
+  overridden (persona, quiet hours, pacing, routing rules, AI review/behaviour…);
+  credentials and webhook secrets are organization-wide BY DESIGN.
+  **`ChannelAccount.EntityId` is the linchpin**: the number that receives a
+  message decides which outlet the conversation belongs to.
+  `ScopingService.ThreadEntity` = receiving account's entity → linked contact's
+  entity → null ("unassigned", shown in every view rather than guessed at),
+  denormalized onto `Thread.EntityId` and re-synced by `SyncThreadEntity` at
+  EVERY seam that moves a thread (creation, account switch, contact link/unlink,
+  account re-binding); a new write path that sets `thread.AccountId` or
+  `thread.ContactId` must call it too. Endpoints take `?entity=<slug>`
+  (`InboxEndpoints.EntityId` resolves it; scoped lists then bound it by RBAC).
+  Frontend: `useEntityQuery()` (`lib/EntityContext`) is the only way pages build
   the parameter, and it belongs in the fetching effect's dependency array —
   omitting it is what leaves a page showing the previous outlet's data.
-  Tests: `tests/test_entity_scoping.py`.
-- **Cross-process IPC with the voice agent stays file-based ON PURPOSE** —
-  the agent process never touches the database. `voice_agent/src/storage.ts`
-  writes/reads (atomically): live transcripts (`data/live/{room}.json`), the
-  operator instruction inbox (`data/inbox/{room}.json`, a list of
-  `{mode, text, ts}`, consume-once), final call records (`data/calls.json`,
-  folded into `CallRecord` + the `LlmUsage` ledger by `VoiceCallSync`),
-  per-contact `memory/{id}.md` and `pronunciation.json`. The C# side is
-  `ChatBranch.Data/Sidecars/VoiceAgentBridge.cs`. The WhatsApp call-signal
-  files (`data/whatsapp/calls/`) are the same pattern.
-- **`calls/lk.py` bridges Django → voice-agent code.** It adds `backend/voice_agent`
-  to `sys.path` and imports `caller`/`storage` directly (the voice_agent dir is a
-  plain script dir, not a package). `_AGENT_DIR` in `lk.py` is the join point — if
-  you rename the folder, update it there.
-- **`lk` is imported LAZILY inside the views that dial/poll** (`calls/views.py`),
-  never at module top. Importing it pulls the whole LiveKit SDK (seconds). Keep
-  `/contacts` and other cheap endpoints free of that import. Don't "tidy" the
-  lazy imports up to the top.
-- **`calls/contacts.py` is DATABASE-FIRST** (`crm.Contact`), falling back to a
-  legacy `backend/data/contacts.json` file only when the table is empty (fresh
-  clone before the API seeds itself). It maps snake_case contact dicts →
-  the frontend's camelCase `Contact` (`to_contact`) and builds the voice-agent
-  dispatch metadata (`dial_meta`, everything vertical-specific riding on the
-  contact's primary `Record`). `backend/data/` is gitignored — it holds PII.
-- **`backend/whatsapp/` = WhatsApp Cloud API app** (endpoints under
-  `/api/whatsapp/`; dashboard page `/chats`). API surface ported from the
-  Whatomate repo (Go, AGPL — protocol shapes reimplemented, not copied).
-  Threads/messages are `crm.Thread` / `crm.Message` rows (the old
-  `data/whatsapp/{wa_id}.json` files were migrated into the DB; `store.py`
-  kept its dict shapes).
-  **Sandbox mode**: without a linked account everything stores locally and
-  `/simulate` fakes inbound messages; with accounts the same code hits
-  graph.facebook.com. **Multi-account** (Whatomate's model): accounts are
-  `crm.ChannelAccount` rows (managed from Settings → Channels → WhatsApp;
-  `WHATSAPP_*` env keys surface as a read-only `env-default` account), every
-  `client.py` function takes the account dict, threads carry `account_id`,
-  and the webhook routes by `metadata.phone_number_id`. Global app settings
-  (AI keys, verify token) live in `crm.Setting` rows, editable from
-  Settings → App Keys. **Quiet hours, send pacing (queue min/max gap) and
-  the voice-call LLM brain / STT engine are PER CHANNEL ACCOUNT** since
-  2026-08-15 (the AI Configuration tab was retired; `/settings/ai` redirects
-  to `/channels`): they live in `ChannelAccount.config` next to `role`, edited
-  from Channels → edit account → "Delivery & AI", accepted as top-level keys
-  on `POST /api/whatsapp/accounts/<id>` (`quiet_start`, `quiet_end`,
-  `queue_min_gap_s`, `queue_max_gap_s`, `llm_provider`, `stt_provider`; blank
-  = inherit) and returned as `delivery{}` in the account payload. Resolution
-  is account → Setting row → env → default, in ONE place (C#
-  `ChatBranch.Data/Channels/AccountDelivery.cs`); the queue drain applies the
-  pacing window AND quiet hours per job account at send time, and the
-  template-send gate checks the sending account. The old global
-  `POST /api/whatsapp/settings` quiet keys and `PUT /api/whatsapp/routing-rules`
-  gaps still exist as the inherited defaults (no UI edits them now).
-  **RBAC is real**: `/api/auth/login` issues bearer
-  tokens (rotated per login, stored on `crm.Profile`); roles = superadmin /
-  admin / **agent** (`lib/auth.ts getAuth()` normalizes a cached `'collector'`
-  session from the pre-template naming, and still reads the legacy
-  `ai-collector-auth` localStorage key). Server-side gates: global settings
-  = superadmin; account management = admin+; audit log = admin+ (superadmin
-  sees all actors). **Brands/tenant model**: `ingest.Tenant`
-  owns `ingest.Brand`; admins see their whole tenant, agents only
-  `Profile.brands`. `/api/v1` (DRF, same bearer token): whoami / brands
-  (GET/POST) / users (GET/POST, creation hierarchy) / contacts
-  (GET/POST, brand-scoped) + contacts/<id> (GET/PATCH). UI: Settings →
-  **Brands & Tenants** (`BrandsSettings.tsx`,
-  admin+ create) and Settings → Users & Roles (visible to admin+, with a
-  role-capability matrix; agent rows carry tenant/brand chips + a Brands
-  editor). Both `/api/v1/users` and the legacy `/api/auth/users` call
-  `crm/user_service.py`, which holds the TIERED rules in one place:
-  superadmin manages everyone; admin lists only their own
-  tenant and creates/manages ONLY agents there (no role changes, no
-  touching admins/superadmins — 403s); they accept `brand_ids` (agents
-  only, one tenant, validated before create; role change away from agent
-  clears brand access; an agent created without brands inherits the
-  creating admin's tenant).
-  Demo users from `seed_demo`: superadmin/super123, admin/admin123,
-  agent/agent123 — POC creds, change before deploy. Frontend auth in
-  `lib/auth.ts` (login page `/login`, guard in `Shell.tsx`, `lib/role.ts` is
-  a back-compat shim). Notifications (`crm.Notification`) fan out by role on
-  inbound messages + settings changes → bell in the header; Settings →
-  Notifications is REAL (not a mock): global mute toggles per category
-  (`messages` / `account_health` / `flows` / `admin`), Setting rows
-  `notif_<category>`, `GET/PUT /api/auth/notification-prefs` (PUT admin+),
-  enforced fail-open inside `rbac.notify` via its `category=` param
-  (unset → derived from kind: message→messages, else admin). Audit trail
-  (`crm.AuditLog`) records logins, sends, calls, account/settings changes →
-  Activity page + admin. The `X-Role` header only works while NO Profile
-  rows exist (pre-seed bootstrap). Read config via `wa_config` accessor
-  functions — never re-add module-level constants.
-  **Hardened (production pass):** every `/api/whatsapp/` endpoint except the
-  webhook and `status` returns 401 without a bearer role (messaging endpoints
-  use the same `_auth_required` pattern); the webhook signature is REQUIRED
-  once any account is configured (live accounts must set `app_secret`); the
-  verify token auto-generates once into a Setting row — the shipped default is
-  never accepted, copy the real value from Settings; inbound wamids are deduped
-  (partial unique constraint, crm migration 0003) and AI replies run on a
-  daemon thread so the webhook ack never blocks on OpenAI. **24h-window
-  truth:** inbound rows store Meta's own `messages[].timestamp`
-  (`append_message provider_ts`) because webhooks can arrive HOURS late (Meta
-  retry backlog) — window math off arrival time offers sends Meta then
-  rejects with 131047; a 131047 status auto-runs `store.close_window` (caps
-  too-new inbound created_at; `except_account_id` keeps the new number's own
-  replies on account switches) so the composer flips to template mode.
-  **Text features:** template messages (account `waba_id` enables live listing
-  from Meta; sandbox serves 3 demo templates), media send/receive (files under
-  `data/whatsapp/media/`, served auth-gated at `/api/whatsapp/media/<pk>`;
-  **inbound media is ALL-channel**: the Baileys gateway decrypts attachments
-  itself — only it holds the Signal keys — and pushes them multipart to
-  `POST /api/whatsapp/baileys/media` (X-Baileys-Secret, two-phase like the
-  Cloud webhook: text placeholder first, media attached after); telegram
-  (getFile) / messenger+IG (CDN url) download async off the webhook ack,
-  email attachments come straight from the IMAP part — those non-whatsapp
-  files live under `data/messaging/media/` served at
-  `/api/messaging/media/<pk>`, one media per crm.Message so extra
-  attachments become extra rows; 20MB cap, animated .tgs/.webm stickers keep
-  their text placeholder, webp stickers render as images),
-  24h-window flags on threads (`window_open`; closed window → 409, use a
-  template), STOP/UNSUBSCRIBE/BERHENTI opt-out (blocks AI + templates; manual
-  send needs `{"force": true}`), quiet hours (`quiet_start`/`quiet_end` global
-  settings, server-local time), message pagination (`?limit=&before=`).
-  The `/chats` page does NOT poll the threads endpoints — it subscribes to
-  `GET /api/whatsapp/stream` (SSE; lives in the whatsapp app because that
-  channel's plumbing predates the unified inbox, but covers ALL chat channels via
-  `crm.Thread`) and re-fetches only on `change` events
-  (`frontend/src/lib/chatStream.ts`). The stream's change token watches
-  `Thread.updated_at` + message count, so any store write path that uses a
-  queryset `.update()` must also bump the thread's `updated_at` (see
-  `update_message_status`) or the dashboard won't refresh.
-  Linking walkthrough: `backend/whatsapp/SETUP.md`. AI auto-reply (`whatsapp/ai.py`) uses
-  OpenRouter if `OPENROUTER_API_KEY` is set, else `OPENAI_API_KEY` — lazy
-  `openai`/`httpx` imports, same rule as `lk`: don't hoist them to module top.
-  **Coverage gate:** auto-answers (AI replies on ALL channels + the
-  business-number redirect/template) fire only for threads linked to a
-  `crm.Contact` (`thread.contact_id`, set by phone match or manual link) —
-  unknown contacts get nothing; the queued ai_reply drain re-checks it
-  (cancel "no linked contact").
-  WhatsApp **voice calls**: fully implemented — `wa_calls.py` (signaling +
-  process control) spawns one `whatsapp/bridge.py` process per call (aiortc
-  terminates Meta's WebRTC leg, joins a LiveKit room as `whatsapp_borrower`,
-  and the normal voice agent is dispatched there). Webhook↔bridge IPC =
-  `data/whatsapp/calls/{call_id}.json` signal files (SDP answer, hangup).
-  (The Cloud-API WebRTC bridge was Python and went with the Django removal —
-  WhatsApp calling now runs over the Baileys transport only.)
-  Calls are PID-tracked (`data/whatsapp/calls/pending-{wa_id}.json`, pid
-  merged into the call signal): stale call state self-recovers when the
-  bridge pid is dead, each call writes its own log under
-  `data/whatsapp/calls/logs/` (14-day retention), and TURN/STUN comes from
-  `WHATSAPP_ICE_SERVERS` in .env (JSON list; malformed → aiortc defaults).
-  Untested against a real Meta calling-enabled number (Business Calling is
-  gated beta) — expect field debugging on first live call.
-  **Baileys transport** (`provider="baileys"` accounts): the Node gateway
-  `backend/baileys_service/` pairs a personal WhatsApp number by QR
-  (Settings → WhatsApp Accounts) and does text send/receive AND **voice
-  calls** without Meta's beta. Calls (`calls.js` + Django
-  `whatsapp/baileys_calls.py`) compose baileys-caller's internals
-  (SignalingBridge/WasmEngine — NOT its VoipClient, which would open a
-  conflicting second socket) around the gateway's existing account socket and
-  bridge audio in-process to LiveKit (16 kHz, no ffmpeg, no per-call
-  process). Django dispatches the agent + mints the room token; the gateway
-  joins as `whatsapp_borrower` and pushes ringing/connected/ended to
-  `/api/whatsapp/baileys/call-event` (X-Baileys-Secret, like `/inbound`).
-  No permission flow (auto-granted), one call at a time per gateway,
-  outbound-only. Agent voice is selectable per call: `POST call/start` takes
-  `{voice_provider, voice_id}` → `baileys_calls._resolve_voice` resolves an
-  ElevenLabs dashboard voice to its real voice_id and passes `voice_provider`
-  /`voice` in the dispatch metadata (the agent then runs the ElevenLabs
-  STT→LLM→TTS pipeline instead of the native realtime voice); empty = native.
-  The `/chats` call panel has an "Agent voice" picker (ElevenLabs clones from
-  `GET /api/voices`, remembered in `localStorage['wa-call-voice']`). Only the
-  Baileys transport honours it — the Cloud bridge builds its own metadata.
-  Offline check: `node calls.js --selftest`. ⚠ ToS-violating
-  transport — dev/demo only, not for production; use a spare number. Docs: `backend/baileys_service/README.md`.
-  **Live call monitor** (both call transports): a WhatsApp call runs the same
-  voice agent as a SIP call, so the agent writes its transcript to the
-  voice-agent file store (`data/live/{room}.json`) and reads operator
-  instructions from `data/inbox/{room}.json` regardless of channel — the room
-  is stored on the thread as `call.room`. `/api/whatsapp/threads/{wa_id}/call/
-  {live,say,escalate}` (auth-gated) reuse that store via `wa_calls.live_transcript`
-  / `push_say` (which import voice_agent `storage` directly — NOT `calls.lk`,
-  to skip the LiveKit SDK on the frequent poll). The `/chats` info panel polls
-  `call/live` and shows the transcript + Guide/Takeover/Escalate/End. **There is
-  no separate `/live-calls` page** — the whole call UI lives in `/chats`
-  (`components/chats/`: `CallLauncher`, `VoiceCallButton`, `ScriptCallButton`,
-  `ActiveCallsStrip`, `VoiceCallPanel`) plus `CampaignModal` for batch dials.
-  **Recording + transcript (one entry):** the Baileys gateway records each call
-  to a local stereo WAV (`data/whatsapp/calls/recordings/{wa_id}-{ms}.wav`,
-  L=contact R=agent), captured off the pacer with no I/O in the hot path (env
-  `BAILEYS_RECORD_CALLS=0` to disable). On the gateway's `ended` push (which
-  carries the recording filename), `wa_calls.save_call_transcript` writes the
-  paired `{wa_id}-{ms}.json` transcript next to it. `GET call/recordings` lists
-  each call with its transcript inline; the WAV streams auth-gated via
-  `GET /api/whatsapp/calls/recording/<name>`. The `/chats` info panel shows a
-  "Calls" section — one entry per call = audio player + click-to-expand
-  transcript (transcript is NOT dumped into the message stream). Cloud-bridge
-  calls are recorded too since 2026-07-17 (`bridge.py _CallRecorder`, same
-  `{wa_id}-{ms}.wav` naming, `wa_calls.save_call_transcript` on cleanup, env
-  `WHATSAPP_RECORD_CALLS=0` to disable); inbound calls are unsupported
-  (baileys-caller is outbound-only). **Greeting waits for answer:** the gateway defers its LiveKit
-  join until `CallState.Active`, so the agent (which waits on the participant)
-  doesn't greet into a ringing line. **Contact identity:** `_dispatch_agent`
-  looks the CRM `Contact` up by phone (`store._match_contact`) and passes the
-  real name/amount/overdue/language into the dispatch metadata — NOT the
-  WhatsApp push-name.
-  The `/chats` UI is a three-pane inbox → chat → info panel in the Paper &
-  Ink design: bubbles are theme tokens in `src/app/chats/chats.css`
-  (ours = primary ink, theirs = a hairline card); the old WhatsApp-green
-  palette is retired — don't reintroduce raw hex. The list is SERVER-filtered
-  via `GET /api/inbox/threads` (every channel, entity-scoped like the old
-  lists; `count_only=1` powers the filter pop-up's live "Show N chats") and
-  the filter tabs are per-user `SavedView` rows (`/api/views?scope=chats`).
-  Deep links: `/chats?thread=<channel>:<key>`, `/chats?q=<text>`.
-- **Channel health + contact→account routing.** `whatsapp/health.py` is the
-  ONLY writer of `ChannelAccount.health_status` (unknown/healthy/degraded/
-  disconnected/banned): send paths, the Cloud webhook, Baileys gateway
-  lifecycle pushes (`POST /api/whatsapp/baileys/status-event`,
-  X-Baileys-Secret) and a periodic checker thread (whatsapp/apps.py,
-  `WHATSAPP_HEALTH_INTERVAL` default 300s) all funnel through `set_status`,
-  which fans out a Notification + AuditLog (`account.health`) once per
-  transition. Checker coverage: Graph token ping (Cloud), Telegram
-  `getMe` + `getWebhookInfo` (revoked token → disconnected; missing/failing
-  webhook or stuck backlog → degraded), SMTP probe (email), SIP voice
-  (`voice_health()` — **config-presence only, `live_check` is always false**:
-  no REST endpoint proves a SIP credential short of placing a real call.
-  Configured = `SIP_OUTBOUND_TRUNK_ID` in .env **plus** a termination URI, and
-  health degrades to a hint when the SIP username/password are missing. Creds
-  are dashboard-managed: Settings →
-  Channels → Voice ↔ `GET/PUT /api/whatsapp/voice-settings` (PUT superadmin,
-  masked-token round-trip) + `POST …/voice-settings/test`; stored in Setting
-  `voice_twilio_settings` via `health.voice_settings()`, per-field fallback
-  to `TWILIO_SIP_USERNAME`/`TWILIO_SIP_PASSWORD`/`TWILIO_TERMINATION_URI` in
-  .env. `SIP_OUTBOUND_TRUNK_ID` stays env-only — the agent worker reads it at
-  boot); Baileys is event-driven. The Meta error-code
-  classification lives in the health.py docstring — per-recipient codes
-  (131047 window closed etc.) never damage account health. The env-default
-  pseudo-account appears in health only when .env actually configures it.
-  **Routing is ALL-channel**: `routing.account_for_contact(contact,
-  channel)` = sticky `crm.AccountAssignment` → least-loaded eligible
-  auto-assign (even distribution) → failover when the assigned account is
-  banned/disconnected (clears the pin, moves `thread.account` at send time,
-  notifies). Non-whatsapp channels count as configured when `access_token`
-  is set. Endpoints: `GET /api/whatsapp/channels/health`, `GET/PUT
-  /api/whatsapp/assignments?channel=…`, `POST …/assignments/rebalance`
-  (admin+, body `{"channel"}`). Per-chat manual switch: `POST /api/whatsapp/
-  threads/<wa_id>/account` (admin+) — provider-aware (Baileys → ban-risk
-  guidance, no templates; Cloud → per-account window truth via
-  `Message.account` history), pins the assignment, appends a system note.
-  UI: dashboard "Channel health" card (60s poll, red on any down account,
-  incl. email + voice chips), Settings → Account Assignment (channel
-  selector; pins survive rebalance, not failover), chat info panel "Sending
-  account" row. **Reconnect reset:** saving new credentials on an account
-  calls `health.reset_on_reconfigure` (silent → unknown + instant re-check
-  on a daemon thread) — without it a re-tokened account stays
-  "disconnected" and failover keeps steering sends away. **Capability
-  routing:** template sends resolve via `_template_send_account` /
-  `routing.account_for_contact(provider="cloud")` — templates NEVER fail
-  over to Baileys; a healthy-but-wrong-provider assignment is overridden
-  per-send without moving the sticky assignment, and zero eligible Cloud
-  accounts → 409 with a clear message, thread untouched. **Account roles
-  (client operating model):** `ChannelAccount.config["role"]` = "reminder"
-  (Cloud business number = compliant template cannon) or "conversation"
-  (Baileys personal numbers = the AI negotiation layer, inbound-first);
-  unset defaults by provider (cloud → reminder, baileys → conversation).
-  **The per-chat Chatbot tick is PER SENDING ACCOUNT**
-  (`Thread.ai_overrides` {account_pk: bool}, crm migration 0017,
-  `store._effective_ai`): no override → the account's role decides
-  (reminder off, conversation on), so a WhatsApp thread moving between
-  business/personal numbers (inbound re-attribution, per-send template
-  restamp, manual switch) automatically uses the CURRENT number's own
-  tick — switches never mutate AI state, and operator ticks stick per
-  (chat, account). `Thread.ai_enabled` survives only as the
-  account-less/sandbox fallback (and for non-whatsapp channels); a role
-  change → reminder stamps explicit OFF ticks on the account's threads so
-  flipping the role back never re-enables anything. Accessor
-  `wa_config.account_role(row_or_dict)`; the accounts API surfaces/accepts
-  `role` (no health reset on change); `routing.eligible_accounts` /
-  `account_for_contact` take a `role=` filter — conversational sends
-  (queue text jobs, AI replies) use role="conversation" so conversation
-  failover never lands on the business number, and template routing PREFERS
-  role="reminder" clouds (falls back to any eligible Cloud). Operating
-  knobs = `GET/PUT /api/whatsapp/routing-rules` (Setting rows, PUT admin+):
-  `ai_reply_mode` queued(default)|instant — queued turns AI replies on
-  conversation accounts into kind="ai_reply" OutboundJobs (dedup one per
-  thread; reply GENERATED AT SEND TIME so several contact messages get one
-  coherent answer; quiet hours park the job via not_before, sandbox stays
-  instant); `business_redirect` (default true) — inbound on a reminder
-  number with AI off gets ONE queued auto-answer per 24h
-  (`views._maybe_business_redirect`, job pinned via payload account_id to
-  the receiving account; throttle reads OutboundJob rows with
-  payload.redirect, not message text): `business_redirect_target`
-  conversation(default) = wa.me nudge to the contact's conversation number |
-  support = human-support pointer | template = the operator's own approved
-  template (`business_redirect_template` name; unset falls back to the
-  wa.me nudge); `recovery_mode`
-  one_click(default)|auto + `recovery_template` — on a conversation
-  account's transition INTO banned/disconnected, health.py
-  `_on_conversation_account_down` notifies "Account X down — N contacts
-  affected" and (auto) queues the recovery template per affected contact;
-  `GET /api/whatsapp/recovery` lists down conversation accounts with
-  assignments, `POST /api/whatsapp/recovery/<id>` (admin+) is the manual
-  trigger (409 without template/Cloud account); `cold_text_guard`
-  block(default)|warn|allow — free-text into a ZERO-inbound thread on a
-  conversation-role number 409s (admin `{"force": true}` overrides) or gets
-  an amber system note; queue text jobs fail the same way; templates +
-  reminder numbers unaffected; `reminder_ai_default` off(default)|on — the
-  DEFAULT Chatbot tick for reminder-role (business) accounts: "on" lets the
-  business number hold AI conversations without per-chat ticks (replies stay
-  on the INSTANT path — queued pacing is conversation-role-only — and the
-  business redirect stands down, since it only answers AI-off inbound);
-  explicit per-chat overrides always win, incl. the OFF ticks a
-  conversation→reminder role change stamps
-  (`wa_config.reminder_ai_default_on`, `store._effective_ai`, toggle on the
-  Routing Rules card). `crm.Message.account` records which number carried every
-  message — both stores stamp it; keep that when adding write paths. The
-  chat UI shows "via <account>" on bubbles when >1 account exists and an
-  amber divider at sender-account switches AND (in the merged contact view)
-  at contact-identity switches.
-- **Website widget** (`/widget.js` + `/api/widget/<token>/*`, 2026-08-16) — the
-  one channel a customer can start with no phone number. A widget IS a
-  `ChannelAccount` with channel="website" (its ExternalId is the PUBLIC token
-  that ships in the script tag), so the inbox, teams, automations, AI replies
-  and entity scoping work on widget conversations with no special-casing. The
-  script renders into a SHADOW ROOT (host CSS can't leak in or out). Public
-  endpoints are anonymous by necessity and carry their own permissive CORS
-  policy ("widget") — a widget runs on other people's domains, so an origin
-  allow-list is impossible; safe because they carry no credentials and expose
-  one visitor's own conversation, keyed by a server-minted 128-bit session id.
-  Admin CRUD at `/api/widgets` (paste-ready snippet, token rotation; deleting a
-  widget KEEPS its conversations).
-- **Teams + automations** (2026-08-16). Assignment is TWO-LEVEL: a thread
-  belongs to a `Team` (who owns it) and optionally one agent inside it
-  (`Thread.Assignee`), so an unclaimed conversation still has an owner.
-  Round-robin uses a stored cursor (`Team.LastAssignee`) and runs on inbound
-  (`TeamsEndpoints.AutoAssignAsync`, hooked into `InboundProcessor` AND
-  `/simulate` — a sandbox that behaves differently hides bugs).
-  `AutomationRule` + `AutomationService` are the CONVERSATION-centric,
+  Tests: `ScopingServiceTests.cs`.
+- **Auth + RBAC.** `POST /api/auth/login` issues a bearer token stored as one
+  `AuthToken` row per session (concurrent sessions allowed; `Profile.Token` is a
+  legacy fallback) — `Auth/TokenAuthenticationHandler.cs`. **API keys**
+  (`cbk_<prefix>_<secret>`, Bearer or `X-Api-Key`, `Auth/ApiKeyAuth.cs`) act as
+  their owning user, optionally narrowed by scopes (a scoped key with no
+  `.manage`/`.send` capability is read-only). Roles: superadmin / admin /
+  agent / custom (`Role` + `RolePermission`). Capabilities are data-driven:
+  the catalog is `AdminEndpoints.Catalog` (34 entries — keep it in step with
+  `CAPABILITY_CATALOG` in `frontend/src/lib/auth.ts`); **superadmin is always
+  allowed in code**, a missing matrix row falls back to the code default, admin
+  gets everything except `rbac.manage` / `app_keys.manage` /
+  `settings.ai_keys.manage`, agent gets `contacts.view chats.view chats.send
+  flows.view analytics.view call_logs.view activity.view tags.view ai.monitor`.
+  Server checks use `AdminEndpoints.HasCapabilityAsync` /
+  `SettingsEndpoints.RequireCapability` on top of the coarse policies
+  (`authenticated` / `admin+` / `superadmin`). **There is no fallback policy:
+  every route must carry `RequireAuthorization(...)` or an explicit
+  `AllowAnonymous()`** — the anonymous set is listed in
+  `docs/API_CONVENTIONS.md`. User management (`/api/v1/users`) is tiered:
+  superadmin manages everyone; admin lists their own tenant and manages only
+  agents there. A login may be bound to a Contact (`Profile.ContactId`,
+  "customer login"). The `X-Role` header only works while NO Profile rows exist
+  (pre-seed bootstrap). Frontend gating (`lib/useAccess.ts`, `nav.ts canSee`)
+  is cosmetic.
+- **Voice: the API is the control plane, the agent is a file-IPC sidecar.**
+  `POST /api/calls/dial` and WhatsApp `call/start` build the dispatch metadata
+  in `Sidecars/VoiceDispatch.cs` (contact, primary record, memory, knowledge,
+  skills, voice/brain/STT, script — the contract is documented key by key in
+  `backend/voice_agent/src/metadata.ts`, keep both in step) and dispatch the
+  agent by `AGENT_NAME` through `Sidecars/LiveKitClient.cs` (HS256 tokens +
+  Twirp JSON; SIP participant via `SIP_OUTBOUND_TRUNK_ID`); `/hangup` deletes
+  the room. No LIVEKIT_* / trunk → a **503 naming what to set**, never a fake
+  call. **Every call endpoint requires a signed-in user** (`/api/calls/*`,
+  `/api/whatsapp/threads/{key}/call/*`). The agent never touches the database:
+  `voice_agent/src/storage.ts` ↔ `Sidecars/VoiceAgentBridge.cs` share, atomically,
+  `live/{room}.json` (transcript, `done`, `ended_by`, `llm_usage`),
+  `inbox/{room}.json` (operator `{mode: guide|takeover, text, ts}` list,
+  consume-once), `calls.json` (finished records — folded into `CallRecord` +
+  `LlmUsage` by `Sidecars/VoiceCallSync.cs`, idempotent by call id),
+  `memory/{contact_id}.md` and `pronunciation.json`.
+- **The unified inbox.** Every channel is a `Thread` (unique `(channel, key)`)
+  + `Message` rows. `/chats` is a three-pane inbox → chat → info panel; its list
+  is SERVER-filtered by `GET /api/inbox/threads`
+  (`Endpoints/InboxThreadsEndpoints.cs` — status, channel, account, assignee,
+  team, entity, labels, contact tags, AI on/off, 24h window, opt-out, waiting,
+  live call, linked, date ranges, sorts, cursor paging; `count_only=1` powers the
+  filter pop-up's live "Show N chats"). The filter UI is `ChatFilterModal.tsx`;
+  the filter tabs are per-user `SavedView` rows (`/api/views?scope=chats`,
+  `lib/savedViews.ts`). Deep links: `/chats?thread=<channel>:<key>`,
+  `/chats?q=<text>`. The page does NOT poll — `lib/chatStream.ts` holds ONE SSE
+  connection per tab to `GET /api/whatsapp/stream` (all channels; the change
+  token is `ThreadStore.ChangeToken()` = thread `UpdatedAt` + message count),
+  ref-counted with a 2 s close grace so page navigation doesn't drop it, and
+  exposes a connection status (connected / reconnecting / offline). Older
+  per-channel endpoints (`/api/whatsapp/threads/{key}/…`,
+  `/api/messaging/threads/{channel}/{key}/…`) still carry the thread actions
+  (send, template, media, AI tick, status, assign, labels, note, link, calls).
+  Bubbles are theme tokens in `src/app/chats/chats.css` (ours = primary ink,
+  theirs = a hairline card) — no WhatsApp greens. `POST /api/whatsapp/simulate`
+  fakes an inbound message through the same side effects as a real webhook
+  (contact link, flows, team routing, automations, notifications; the AI step
+  only with `?ai=1`).
+- **Inbound path** = `Channels/InboundProcessor.ProcessInbound`, shared by every
+  webhook: store (dedup) → link a contact (email exact, else last-8-digit phone)
+  → the inbox's AI default on a brand-new thread → resume flow runs parked on a
+  reply → team auto-assign (`TeamsEndpoints.AutoAssignAsync` via the
+  `InboundProcessor.TeamRouter` hook set in Program.cs) → automation rules →
+  `NotificationService.NotifyInboundMessage` → expire stale AI drafts →
+  **coverage gate** (linked contact AND `thread.AiEnabled` AND not opted out) →
+  AI reply (debounced/queued or instant, see AI monitor). Nothing in it may
+  throw into a webhook.
+- **WhatsApp specifics.** Accounts are `ChannelAccount` rows (provider `cloud`
+  or `baileys`); `WHATSAPP_*` env keys surface as a read-only `env-default`
+  account. The Cloud webhook routes by `metadata.phone_number_id`; the verify
+  token lives in Setting `whatsapp_verify_token` (legacy `verify_token` is kept
+  in sync). **24h-window truth:** inbound rows store Meta's own timestamp,
+  because webhooks can arrive hours late; free text into a closed window → 409
+  (use a template). **Per-account delivery + AI settings**
+  (`Channels/AccountDelivery.cs`): quiet hours (`quiet_start`/`quiet_end` or a
+  per-weekday `quiet_schedule`), send pacing (`queue_min_gap_s`/`queue_max_gap_s`)
+  and the voice-call `llm_provider`/`stt_provider` live in
+  `ChannelAccount.Config`, resolved account → entity/global Setting → env →
+  default in ONE place, applied by the queue drain at SEND time. **Account
+  roles:** `Config["role"]` = `reminder` (Cloud business number) or
+  `conversation` (Baileys personal number), defaulting by provider. **The
+  per-chat Chatbot tick is per sending account** (`Thread.AiOverrides`
+  `{account_pk: bool}`; `WhatsAppThreadsEndpoints.EffectiveAi`: override →
+  the inbox's `ai_default` → role, with reminder numbers off unless the
+  `reminder_ai_default` rule is on); the AI toggle also mirrors into
+  `Thread.AiEnabled`, which is what the inbound coverage gate reads.
+  Routing-rule knobs live behind `GET/PUT /api/whatsapp/routing-rules`
+  (`ai_reply_mode` queued|instant, `cold_text_guard` block|warn|allow,
+  `cold_call_guard`, `reminder_ai_default`, `business_redirect*`,
+  `recovery_mode`/`recovery_template`). `Message.AccountId` records which
+  number carried each message; the UI shows "via <account>" and a divider at
+  sender switches. Baileys: `IBaileysGateway` (`Sidecars/IBaileysGateway.cs`,
+  Setting `baileys_url`/`baileys_secret` → env → default) drives the gateway;
+  gateway pushes come in on `/api/whatsapp/baileys/*` authenticated by
+  `X-Baileys-Secret`. ⚠ Baileys is a ToS-violating transport — dev/demo only;
+  read `backend/baileys_service/README.md` + `RESEARCH.md`.
+- **Inboxes (`/channels`)** — Chatwoot-style: every number, mailbox, bot, page,
+  widget and the SIP trunk as a connected card (`components/channels/inboxes.ts`
+  folds the existing account endpoints into one shape), "Add a channel" blocks,
+  and a step-by-step setup drawer (`InboxSetupDrawer.tsx`: choose → connect →
+  who answers it → test). "Who answers it" rides on every account write as
+  top-level keys stored in `ChannelAccount.Config` (`Channels/InboxSettings.cs`):
+  `team_id` (new conversations go to that team first), `ai_default` on|off|""
+  (stamped on a brand-new thread only, so a later per-chat tick wins) and
+  `ai_review_mode` (per-inbox AI monitor policy). Deleting a messaging account
+  or a widget KEEPS its conversations (`InboxSettings.DetachAccountAsync`).
+  Advanced channel settings (verify token, routing rules, voice/SIP creds) live
+  in `ChannelsAdvanced.tsx`.
+- **Account assignment (`/assignments`, a Work module)** — sticky
+  `AccountAssignment` rows (contact × channel → account, `Pinned`), edited via
+  `GET/PUT /api/whatsapp/assignments?channel=…`; `POST
+  /api/whatsapp/assignments/rebalance` (`AssignmentsEndpoints.cs`) spreads
+  unpinned rows evenly over eligible accounts. Gate:
+  `account_assignment.manage`. Per-chat switch: `POST
+  /api/whatsapp/threads/{key}/account` (admin+) pins the assignment and appends
+  a system note.
+- **Channel health.** `Channels/AccountHealth.SetStatus` is the ONLY writer of
+  `ChannelAccount.HealthStatus` (unknown/healthy/degraded/disconnected/banned):
+  one `account.health` AuditLog row per real transition (detail
+  `"prev → next — reason"`, which the Analytics health card parses). Writers
+  today: Baileys lifecycle pushes (`/api/whatsapp/baileys/status-event`) and
+  inbound traffic (heals). Saving new credentials resets an account to
+  `unknown` silently. `GET /api/whatsapp/channels/health` feeds the Analytics
+  channel-health card; SIP voice health is config-presence only
+  (`/api/whatsapp/voice-settings`, PUT superadmin, masked round-trip, Setting
+  `voice_twilio_settings` with `TWILIO_*` env fallback).
+- **Website widget** (`/widget.js` + `/api/widget/{token}/*`) — the one channel
+  a customer can start with no phone number. A widget IS a `ChannelAccount` with
+  channel `website` (its ExternalId is the PUBLIC token in the script tag), so
+  the inbox, teams, automations, AI replies and entity scoping work with no
+  special-casing. The script renders into a SHADOW ROOT. Public endpoints are
+  anonymous with their own permissive CORS policy (`widget`) — safe because they
+  carry no credentials and expose one visitor's own conversation, keyed by a
+  server-minted 128-bit session id. Admin CRUD at `/api/widgets`.
+- **Teams + automations.** Assignment is TWO-LEVEL: a thread belongs to a `Team`
+  and optionally one agent in it (`Thread.Assignee`). Round-robin uses a stored
+  cursor (`Team.LastAssignee`) and runs on inbound AND `/simulate`.
+  `AutomationRule` + `Flows/AutomationService.cs` are the CONVERSATION-centric,
   event-driven counterpart to the contact-centric flow builder: on
   conversation_created / message_created / status_changed / assigned, ALL
-  matching rules run in Position order (not first-match). The engine never
-  throws into a webhook, and an unknown operator matches NOTHING rather than
-  everything. `/api/automations/catalog` is the single vocabulary source the
-  editor reads.
-- **Notifications + Settings sections** (2026-10-08). `NotificationService`
-  (ChatBranch.Data, root namespace) is the ONLY notification writer: org mute
-  `notif_<category>` → the recipient's own switch (`Profile.Preferences` JSON,
-  `notifications{}`) → "only assigned to me / my teams" for messages →
-  `RefKey` collapse (one unread row per conversation per user). Fail-open,
-  never throws. Inbound customer messages notify assignee → team members →
-  the tenant's admins (InboundProcessor, /simulate, widget). `/notifications`
-  is everyone's inbox (`/api/notifications*`); the bell keeps
-  `/api/auth/notifications`. Settings = sections of flat `/settings/<id>`
-  pages, each with its own capability (`SETTINGS_SECTIONS`), checked
-  server-side via `SettingsEndpoints.RequireCapability`. Appearance:
-  `/api/auth/preferences` + `/api/settings/appearance` (org default).
-  Account assignment is a Work module at `/assignments` (+ `POST
-  /api/whatsapp/assignments/rebalance`).
-- **AI monitor + human-like behaviour** (`/ai-monitor`, `/api/ai/monitor`,
-  `/api/ai/behaviour`, 2026-10-08). EVERY AI-written outbound (instant reply,
-  queued ai_reply, follow-up, queue job with payload `source:"ai"`) goes
-  through `Ai/AiGate.Submit`, which records an `AiDraft` row EVEN when it sends
-  (`auto_sent`) — the monitor is the full trail. Policy `ai_review_mode` =
-  auto | review_flagged | review_all | shadow (+ autosend minutes, first-N,
-  risky keywords; entity-overridable, account `Config` wins). Approve/edit
-  re-runs the send-time guards (opt-out, coverage, 24h window; quiet hours
-  wait). Generation sits behind ONE seam, `Ai/AiComposer` — adapt it there when
-  AssistantService's return type changes. `Ai/AiResponder` = one debounced
-  ai_reply job per thread on every channel + acknowledgement skip;
-  `AiGate.StartHumanSend` = 1–3 bubbles chained through the queue with typing
-  pauses (never sleeps on a request); `Ai/AiFollowUpService` + `AiOpsWorker`
-  (`AI_FOLLOWUP_WORKER=0` off) = follow-ups + auto-send deadlines. Test host
-  sets `AI_HUMANIZE=0` (human-like DEFAULTS off so the sandbox answers inline).
-- **Help Center** (`/help`, `/api/help/articles`, 2026-08-16) — published
-  `KnowledgeItem`s, readable by anyone. `Published` is PUBLIC readability and is
-  NOT `Active` (whether the AI may use it): an internal note is active and
-  unpublished, a public FAQ is both. Slugs derive from the title when unset.
-  `Shell.PUBLIC_ROUTES` renders `/help` outside the operator shell with no auth
-  guard — don't let a customer reading the refund policy hit a login screen.
-- **Reports** (`/api/analytics/reports[.csv]`) — by agent / team / label /
-  channel, counting conversations TOUCHED in the window (not created), with
-  "(unassigned)" reported rather than dropped. CSV fields are quoted so a label
-  containing a comma cannot corrupt the export.
-- **Activity log, API keys, MCP, assistant** (platform). `AuditLog` carries
-  `source` (user|api|mcp|assistant|automation|flow|webhook|system), entity,
+  matching rules run in Position order. An unknown operator matches NOTHING.
+  `/api/automations/catalog` is the single vocabulary the editor reads.
+- **Notifications.** `NotificationService` (`ChatBranch.Data/Notifications/`,
+  root namespace) is the ONLY notification writer: org mute
+  `notif_<category>` (categories `messages`/`account_health`/`flows`/`admin`/
+  `system`) → the recipient's own switch (`Profile.Preferences` JSON,
+  `notifications{}`) → "only conversations assigned to me / my teams" for
+  messages → `RefKey` collapse (one unread row per conversation per user).
+  Fail-open, never throws. Inbound messages notify assignee → team members →
+  the tenant's admins. `/notifications` is everyone's inbox
+  (`/api/notifications*`, per-user prefs at `/api/notifications/preferences`);
+  the bell keeps `/api/auth/notifications`; org defaults are
+  `GET/PUT /api/auth/notification-prefs` (`notifications.manage`).
+- **Activity log.** `AuditLog` carries provenance: `Source`
+  (user|api|mcp|assistant|automation|flow|webhook|system), `EntityId`,
   method/path/status/user-agent/request-id. Rows are stamped from the ambient
-  `AuditContext` by an EF interceptor (`Data/Audit`), so old per-file helpers
-  need no edits; new code uses `AuditTrail.Add/Write` and passes `source` only
-  when it is not the request's actor. `RequestAuditMiddleware` writes ONE
-  generic row per mutating `/api` request that wrote no domain row (opt out a
-  read-POST with `[SkipRequestAudit]` metadata). Read API `/api/audit[.csv|/facets]`.
-  API keys `cbk_<prefix>_<secret>` (Bearer or X-Api-Key) act as their owner
-  (+ optional scope subset; a scoped key without write caps is read-only).
-  `POST /mcp` = ChatBranch as an MCP server over `Tools/ToolRegistry`; the
-  operator assistant (`/api/assistant/*`) uses the same registry. Tool writes
-  call the dashboard's OWN endpoints in-process (`Tools/InternalApi`) so every
-  guard applies — a renamed route breaks the tool (tests catch it). Assistant
-  writes are confirm-first `AssistantAction` rows (15 min).
-- **`backend/messaging/` = email + social channels** in the same unified
-  `/chats` inbox (endpoints under `/api/messaging/`) — the PERMANENT in-house
-  home for these channels (Chatwoot was fully removed 2026-07-17 on the
-  client's decision; do not reintroduce it). Email = outbound SMTP + inbound
-  IMAP (`imap_client.py`, pulled by `POST /api/messaging/email/sync` — /chats
-  nudges it every 60s, server throttles real IMAP hits to one per 30s; the
-  fetch marks mail `\Seen` so each message is considered exactly once).
-  **Inbound mail is scope-filtered** (`views._known_sender`): only senders
-  matching a CRM contact email, or an email thread we've corresponded on
-  (contact-linked or has an outbound message), are ingested — newsletters /
-  platform notifications are skipped for good.
-  **Multi-account**: `ChannelAccount(channel="email")` rows hold per-mailbox
-  SMTP creds in the `config` JSONField (crm migration 0014; external_id =
-  from-address, password never leaves the API unmasked), managed via
-  `/api/messaging/accounts`, sent per-account (thread account → sticky
-  routing → global `data/messaging/config.json`/env fallback), probed by the
-  health checker; Messenger + Instagram =
-  Meta Send API (`/me/messages`) with webhook intake at
-  `/api/messaging/webhook` (objects `page` / `instagram`, same verify token
-  as WhatsApp); Telegram = Bot API (token accounts, Chatwoot-style webhook
-  path `/api/messaging/webhook/telegram/<token>`, inbound heals health).
-  AI auto-replies reuse `whatsapp/ai.py` so every text channel behaves
-  identically. Same sandbox rule: unconfigured channels store locally.
-  Endpoints are bearer-auth gated like whatsapp (webhook + status stay open).
-  Cross-channel shared templates = `crm.CannedResponse` with full CRUD at
-  `GET/POST /api/messaging/canned` + `PATCH/DELETE …/canned/<id>` (mutations
-  admin+, 409 on duplicate short_code) — managed in Settings → Message
-  Templates, inserted via the composer's `/short_code` picker on ALL channels.
-- **`backend/aicore/` = the AI brain.** `aicore/assistant.py` is the
-  channel-agnostic AI: persona hard rules + CRM enrichment (Contact lookup by
-  phone; status, tags, attributes and open `Record`s) + `detect_handoff()`;
-  `whatsapp/ai.py` is a thin delegate to it, so every channel's bot behaves
-  identically.
-  **AI memory + persona** (`aicore/memory.py`, `aicore/persona.py`):
-  `crm.ConversationSummary` rows are generated after calls
-  (`wa_calls.save_call_transcript` daemon-thread hook) and idle chats (aicore
-  apps.py ticker, `AICORE_SUMMARY_INTERVAL`=600s / `AICORE_SUMMARY_IDLE_MIN`
-  =120; one summary per burst, cheap already-summarized check); durable
-  facts write back onto Contact (preferred_contact_time,
-  communication_style, sentiment_trend, ai_profile_summary).
-  `memory.build_context` (~1500 chars, structured + recency, no embeddings
-  on purpose) feeds a "CONTACT MEMORY" block into BOTH assistant.py and the
-  voice dispatch metadata (`memory` key → `voice_agent/src/prompts.ts`) — chat
-  and voice share one memory. (The C# dispatch builder, `VoiceDispatch`, sends
-  memory, knowledge and skills on SIP and WhatsApp calls alike.) Persona =
-  `HARD_RULES` (safety floor, never overridable) +
-  `DEFAULT_PERSONA` (a neutral business assistant), overridable via Setting
-  `aicore_persona` — `GET/PUT /api/aicore/persona` (PUT superadmin),
-  Settings → AI Persona. All memory entry points are
-  exception-safe: they must never break a send/webhook path.
-  **Knowledge base + skills** (`aicore/knowledge.py`, Phase 8):
-  `crm.KnowledgeItem` rows (kind = fact/policy/faq/event/notice, with a
-  `starts_at`/`ends_at` window that makes a "sudden notice" SELF-EXPIRE) are
-  assembled by `build_knowledge_context()` into a bounded `COMPANY KNOWLEDGE`
-  block and injected at the SAME seams as memory — `assistant.py`'s system
-  prompt, `whatsapp.store.call_metadata()` and `calls.contacts.dial_meta()`
-  (`knowledge` key → `prompts._metadata_knowledge_block`) — so it reaches all
-  six channels AND both call transports with no per-channel code. Retrieval
-  is keyword + recency + priority, **no embeddings, same deliberate choice as
-  memory.py**: tiers notice → event → fact (all live rows), then the top-4
-  keyword-matched faq/policy; zero hits contributes NOTHING rather than
-  padding. `BUDGET`=1800 chars hard cap, per-item truncation is labelled, and
-  every entry point is exception-safe (a failure degrades to "answer without
-  knowledge"). Filters: active, date window, `channels` (empty = all) and
-  brand scope (item brand null, or one of the contact's `ContactBrand`
-  links — an anonymous build sees only brand-agnostic rows). API:
-  `GET/POST /api/aicore/knowledge`, `PATCH/DELETE …/knowledge/<id>`,
-  `POST …/knowledge/preview` (the exact block the AI receives — turns "why did
-  the bot say that?" into a button), Settings → Knowledge Base.
-  ⚠ **`crm.AgentSkill` is owned by `GET/PUT /api/aicore/skills` ALONE**
-  (Settings → AI Skills, PUT admin+). `PUT /api/flows/library` used to upsert
-  AND PRUNE those rows, so a stale flow-builder tab silently deleted skills an
-  operator had just typed; it now ignores the `agentSkills` it still receives
-  and the builder's skill sidebar/editor are READ-ONLY. Skills render as a
-  `SKILLS` prompt section (`use_when` selects, `instructions` is the body) on
-  every channel and every call. Don't re-add a second writer.
-- **Code skills (2026-10).** `AgentSkill.Kind` = prompt (the SKILLS block) |
-  tool (JS `run(args, ctx)` the model CALLS) | check (JS `check(reply, ctx)`
-  run on EVERY draft). JS runs in `Ai/Skills/SkillRuntime` (Jint: no CLR, no
+  `AuditContext` by an EF interceptor (`Data/Audit/AuditStampInterceptor.cs`),
+  so the many per-file audit helpers need no edits; new code uses
+  `AuditTrail.Add/Write` and passes `source` only when it is not the request's
+  actor. `Api/Audit/RequestAuditMiddleware.cs` writes ONE generic row per
+  mutating `/api` (or `/mcp`) request that wrote no domain row of its own (opt a
+  read-POST out with `[SkipRequestAudit]`); it never logs bodies, query strings
+  or secret path segments. Read API: `/api/audit`, `/api/audit.csv`,
+  `/api/audit/facets` (`activity.view`) → the `/activity` page.
+- **Developer platform.** API keys at `/api/developers/keys`
+  (`api_keys.manage`; token shown once, SHA-256 stored). **`POST /mcp`** =
+  ChatBranch as an MCP server (Streamable HTTP, JSON-RPC, stateless) over
+  `Api/Tools/ToolRegistry` (`BuiltinTools.cs`: search/get/create/update contact,
+  list/get conversation, send message, add note, set status, assign, templates,
+  knowledge, flows, analytics, activity, tags) — authenticated by an API key,
+  acting as its owner. Tool writes call the dashboard's OWN endpoints
+  in-process (`Tools/InternalApi.cs`) so every guard applies — a renamed route
+  breaks the tool (tests catch it). External MCP servers the assistant may use:
+  `/api/integrations/mcp` (Setting `mcp_servers`, real initialize + tools/list
+  probe, masked auth). The page is `/developers`.
+- **Ask ChatBranch** (operator assistant, `Api/Assistant/OperatorAssistant.cs`,
+  `/api/assistant/chat|confirm|cancel`, `components/assistant/AssistantDock.tsx`
+  docked on every signed-in page). Acts AS the signed-in user over the same tool
+  registry + allowlisted external MCP tools: reads run straight away; writes
+  become confirm-first `AssistantAction` rows (15 min, one user cannot confirm
+  another's). With no LLM it falls back to a deterministic helper (find
+  contacts, counts, "go to …", how-to answers from `AssistantGuide.cs` + the
+  knowledge base).
+- **Help Center** (`/help`, `/api/help/articles`) — published `KnowledgeItem`s,
+  readable by anyone. `Published` (public readability) is NOT `Active` (whether
+  the AI may use it). `Shell.PUBLIC_ROUTES` (`/help`, `/offline`) render outside
+  the operator shell with no auth guard.
+- **Reports** (`/api/analytics/reports[.csv]`) — by agent / team / label /
+  channel, counting conversations TOUCHED in the window, with "(unassigned)"
+  reported rather than dropped; CSV fields are quoted.
+- **The AI brain** (`ChatBranch.Data/Ai/`). `AssistantService` is the
+  channel-agnostic generator: system prompt = `PersonaService.HardRules` (safety
+  floor, never overridable) + persona (Setting `aicore_persona`, entity-scoped,
+  else `DefaultPersona`; `GET/PUT /api/aicore/persona`, PUT superadmin — there
+  is no persona UI) + SKILLS block + CRM enrichment + `CONTACT MEMORY` (durable
+  contact fields + summaries, 1500 chars) + `COMPANY KNOWLEDGE`
+  (`KnowledgeService`: kind fact/policy/faq/event/notice, `StartsAt/EndsAt`
+  self-expiry, tiers notice → event → fact then top-4 keyword-matched
+  faq/policy, **no embeddings on purpose**, 1800-char budget). It is a **PURE
+  GENERATOR returning `AiReplyResult`** (text, draft, tools, checks, retries,
+  tokens) — callers send. Every path is exception-safe. LLM:
+  `OpenAiLlmClient` = OpenRouter → OpenAI → local (OpenAI-compatible base URL),
+  keys from Setting rows (`openrouter_api_key`, `openai_api_key`,
+  `local_base_url`, `chat_model`, pin `chat_provider` mirrored from
+  `chat_provider_pref`) with process-env fallback (`OPENROUTER_API_KEY`…),
+  edited at Settings → AI keys & models (`/api/settings/ai-providers`,
+  `settings.ai_keys.manage`); nothing configured → `SandboxLlmClient`. Usage is
+  metered into `LlmUsage` at every call site; costs are estimated at READ time
+  from Setting `llm_prices` (`AnalyticsService`). Case summaries
+  (`SummaryService`, `/api/messaging/threads/{channel}/{key}/summary`) are
+  on-demand, persisted as `ConversationSummary`, heuristic without an LLM.
+  Knowledge API: `/api/aicore/knowledge` (+ `/preview` = the exact block the AI
+  receives), page `/knowledge`.
+- **AI skills (`/skills`).** `AgentSkill.Kind` = **prompt** (`use_when` +
+  `instructions` in the SKILLS block) | **tool** (JS `run(args, ctx)` the model
+  CALLS) | **check** (JS `check(reply, ctx)` run on EVERY draft). JS runs in
+  `Ai/Skills/SkillRuntime.cs` (Jint: fresh engine per run, no CLR interop, no
   eval, 250 ms / 8 MB / statement + recursion caps; faults come back as data).
-  Built-in C# tools (current_time, current_week, date_add, days_between,
-  convert_timezone; zone = Setting `org_timezone` → TZ → UTC) are always
-  offered. `AssistantService` is a PURE GENERATOR returning `AiReplyResult`
-  (text, draft, tools, checks, retries, tokens) — callers send. A failing
-  check → rewrite with the reason (max 2), then OnFail: retry→handover,
-  handover (immediate), block; handover = private note + status pending +
-  notify. Flow Action `skill` (SkillId, or legacy name) / "AI message" →
-  `ComposeActionTextAsync`; jobs carry `source:"ai"` + `ai_meta`. PUT refuses
-  an ENABLED code skill whose code/tests changed unless its tests pass.
-  Authoring: `POST /api/aicore/skills/draft` (describe → questions | draft;
-  sandbox = template library), `/skills/test`, `GET /skills/builtins`.
-- **`backend/flows/` = the flow-builder execution engine.** The `/flow-builder`
-  page syncs its whole library to the DB (`crm.Workflow` / `crm.AgentSkill`,
-  React Flow JSON stored verbatim) via `GET/PUT /api/flows/library` (PUT is
-  admin+; localStorage is only the offline fallback). Workflows toggled **Live**
-  (`active`) are executed automatically by `flows/engine.py` — the ONLY
-  interpreter of that JSON: time triggers match `Contact.overdue_days` each
-  tick (in-process ticker thread started by `flows/apps.py` under runserver;
-  `POST /api/flows/tick` is the manual seam), and
-  inbound customer messages resume runs parked on a reply (hooked into the
-  whatsapp + messaging webhooks via `flows_engine.on_inbound_async`, off the
-  ack path). Per-contact execution state lives in `crm.FlowRun`
-  (`GET /api/flows/runs` to inspect). Action channels: WhatsApp/Email/Telegram
-  send for real or sandbox with `{{variable}}` rendering from the CRM
-  (Telegram texts every linked telegram thread — no phone addressing), AI
-  voice call via lazy `calls.lk` OR — node config `callVia: "WhatsApp
-  (Baileys)"` — an automatic WhatsApp voice call through `baileys_calls
-  .start_call` on the contact's sticky/least-loaded Baileys account (agent
-  voice from node config `voice` = an ElevenLabs voice id → Setting
-  `flow_call_voice` global default → native realtime; `engine._flow_call_voice`,
-  builder field type `voiceselect` fetching `GET /api/voices`, same voice
-  source as the /chats manual call picker), **Script call** = the one-way
-  "dial, read a `crm.ScriptTemplate` verbatim, hang up" bot call (no LLM
-  conversation, no listening — `engine._dial_script`, node config
-  `scriptTemplateId`, library at Settings → Script Templates /
-  `GET/POST /api/calls/script-templates`); it honours the SAME `callVia` as
-  the AI voice call, so a script call runs over SIP **or** a linked WhatsApp
-  number — the script rides the agent's `script` dispatch metadata key on
-  both transports, so neither the Baileys gateway nor agent.ts needs a
-  per-transport branch, and `baileys_calls.start_call`'s compliance gates
-  (opt-out absolute, cold-call guard) apply unchanged. Script calls force a
-  literal-TTS voice (`engine._script_call_voice` auto-picks a ready ElevenLabs
-  clone when nothing else chose one) because native realtime models have no
-  standalone TTS and have been observed to emit NO audible speech when asked
-  to read verbatim. In-app
-  push → Notification; SMS stays log-only (no provider). Trigger `when`
-  options include "Days overdue (exactly)" (od == days — pinpoint targeting,
-  unlike the ≥ default). `drain()` holds a non-blocking in-process lock AND
-  claims each job atomically (queued→"sending" UPDATE, stale-claim reaper
-  after 10min) — two tickers (manual tick vs ticker, or a mid-reload zombie
-  runserver, both observed live) used to double-send the same job.
-  `_flow_owns_reply` (whatsapp + messaging) blocks the AI when a run is
-  parked on a reply OR has CONSUMED the thread's latest inbound — without
-  the latter the AI text-answered the same message the flow already handled
-  (landed while the flow's auto call was ringing). AI replies
-  (aicore/assistant.py) render leaked
-  `{{placeholders}}` through the same `variables_for` catalog before
-  returning. ⚠ The /flow-builder page's library PUT PRUNES server-side
-  workflows missing from the browser's copy — after creating a Workflow row
-  outside the UI, the user must refresh /flow-builder before its next sync.
-  Decision "Contact's answer" classifies replies with keyword lists
-  (EN + BM) — deterministic on purpose, keep it that way for tests.
-  **WhatsApp action sends are QUEUED, not inline:** `flows/queue.py` drains
-  `crm.OutboundJob` on the same ticker with human-like pacing — Setting keys
-  (env fallback; the gap pair is dashboard-editable from Settings → AI
-  Configuration → Send Pacing) `queue_min_gap_s`=10 / `queue_max_gap_s`=30 (jittered
-  per-account gap, derived from `OutboundJob.sent_at` so restarts keep the
-  clock), `queue_daily_cap`=200, `queue_active_cap`=8 +
-  `queue_active_window_h`=24 (a thread awaiting reply holds a conversation
-  slot; an inbound frees it — that's the pause/resume behaviour). Account
-  resolved AT SEND TIME via `whatsapp/routing` (+ health failover),
-  role-aware: text jobs route role="conversation", template jobs
-  provider="cloud" preferring role="reminder"; a job may pin its account via
-  payload `account_id` (`_pinned_account`, used by the business redirect),
-  and message attribution honours payload `source` ("system" for redirects,
-  default "ai"). Job kinds: text | template | **ai_reply** (queued AI
-  replies — guards re-checked at drain, reply generated at send time via
-  `ai.generate_reply(thread)`, sent through the thread's own account;
-  guard-declined jobs go `cancelled`, not failed) | **call**. **Calls are
-  queued too** (crm migration 0019): a WhatsApp number carries exactly ONE
-  call and the gateway 502s a second dial, so the engine's call nodes
-  enqueue (`engine._enqueue_call`, payload `{transport, script,
-  voice_provider, voice, extra}`) instead of ringing inline — two runs
-  reaching their call step in the same tick used to collide and the loser
-  failed permanently. `queue._place_call` serialises on
-  `baileys_calls.account_call_busy` (**gateway-authoritative** — thread rows
-  aren't reliably attributed to the calling account, so a DB-first check
-  reports "free" mid-call; stale busy rows are reconciled there), and a busy
-  number is a WAIT (job stays queued, no attempt burned), never a failure.
-  Only compliance refusals (opt-out, cold-call guard, do-not-call —
-  re-checked at dial time) fail a call for good. `sent` means DIALLED, not
-  completed. Settings `queue_call_gap_s` (60, post-call breather) /
-  `queue_call_daily_cap` (50). `transport:"sip"` jobs have no liveness
-  endpoint so they pace by gap + one dial per pass. When a call can't be
-  placed the queue also **un-parks its flow run** (`_unpark_run`) — the run
-  waits on a reply only the call could prompt, and a parked run blocks
-  `_already_ran` from ever re-enrolling that contact. Quiet
-  hours push `not_before`; opt-out fails the job; the cold-text guard fails
-  text jobs into zero-inbound conversation-number threads (Setting
-  `cold_text_guard`); text jobs fail on a closed
-  24h window while **template action nodes pass it** — builder saves
-  `waMode:"template"` + `templateName`/`templateLanguage`/`templateVariables`
-  on the node, engine renders values via `variables_for` ({{name}},
-  {{amount_due}}, {{days_overdue}}, {{due_date}}, {{payment_link}},
-  {{company}}) and enqueues; Baileys templates send as rendered free text.
-  Node config `allLinked` (builder's "Send to" switch on Action steps, shown
-  when WhatsApp or Email is selected; legacy key `waAllNumbers` still
-  honoured) fans the send out to EVERY linked identity on the step's
-  channels — one queue job per WhatsApp number (deduped on normalized
-  digits, per-thread compliance gates apply per number) and one email per
-  linked address (deduped case-insensitively vs the CRM email). AI voice
-  calls always dial the primary number — no multi-dial.
-  Deliveries land in `FlowRun.context["deliveries"]`; inspect jobs via
-  `GET /api/flows/queue`. Default library workflow `wf-repayment-reminder`
-  ships inactive in `lib/flow/defaultWorkflows.ts`.
-- **Custom fields reach templates as variables** (2026-08-15). The operator's
-  Custom Fields (Settings → Custom Fields, `custom_fields` Setting row) are
-  merged into `FlowEngine.VariablesFor` as `{{cf_<key>}}` (customer fields, off
-  `Contact.Attributes`) and `{{provider_<key>}}` (the service provider bound via
-  an active `ResourceLink`, off `Resource.Attributes`). The prefixes are
-  deliberate — a field labelled "Company"/"Email" would otherwise shadow a
-  built-in. Values format like the dashboard does (boolean → Yes/No,
-  multiselect → comma list); a missing value renders empty, never the literal
-  placeholder. Both template editors share
-  `components/settings/TemplateVariablePicker.tsx` (built-in chips + a live
-  custom-fields group) instead of their old hardcoded arrays. Also filled the
-  gaps the pickers were already advertising: `{{link}}`/`{{tracking_url}}` (off
-  `Record.Data`), `{{account_number}}`, `{{best_contact_time}}`,
-  `{{preferred_channel}}`, `{{last_contact_date}}`.
-- **Tags replace Service Providers** (2026-10-08). `Resource`/`ResourceLink`,
-  `ProviderScope`, the `resource_id` claim and `{{provider_<key>}}` are GONE.
-  `Tag` (palette-key colour, `applies_to` contact|entity|conversation, an
-  exclusive `group`, attribute field defs, entity scope = ScopeInherited) +
-  `TagAssignment` (values). ALL rules live in `Data/Tags/TagService.cs`: group
+  Built-in C# tools are always offered (`BuiltinSkills.cs`: current_time,
+  current_week, date_add, days_between, convert_timezone; zone = Setting
+  `org_timezone` → TZ → UTC). A failing check → rewrite with the reason (max 2),
+  then `OnFail`: retry→handover, handover (immediate) or block; handover =
+  private note + status pending + notify. **`GET/PUT /api/aicore/skills` is the
+  ONLY writer of `AgentSkill`** (PUT admin+, prunes within its own scope, and
+  refuses an ENABLED code skill whose code/tests changed unless its tests pass);
+  the flow library PUT ignores the `agentSkills` it receives. Authoring:
+  `POST /api/aicore/skills/draft` (describe → up to 4 clarifying questions →
+  draft; sandbox = a deterministic template library), `/skills/test`,
+  `GET /skills/builtins`; the wizard is `components/skills/SkillWizard.tsx`.
+- **AI monitor + human-like behaviour** (`/ai-monitor`, `/api/ai/monitor*`,
+  `/api/ai/behaviour`). EVERY AI-written outbound (instant reply, queued
+  ai_reply, follow-up, flow job with payload `source:"ai"`) goes through
+  `Ai/AiGate.Submit`, which records an `AiDraft` row EVEN when it sends
+  (`auto_sent`) — the monitor is the full trail. Policy `ai_review_mode` = auto
+  | review_flagged | review_all | shadow (+ autosend minutes, first-N, risky
+  keywords, notify) resolved inbox `Config` → entity Setting → org Setting →
+  default (`Ai/AiBehaviourSettings.cs`, whose `Fields` the settings UI renders
+  verbatim). Approve/edit re-runs the send-time guards (opt-out, coverage, 24h
+  window; quiet hours wait). The chat shows a held reply in
+  `PendingDraftBanner.tsx`. Generation sits behind ONE seam, `Ai/AiComposer` —
+  adapt it there when `AssistantService`'s return type changes.
+  `Ai/AiResponder` = ONE debounced ai_reply job per thread (wait
+  `ai_wait_seconds`, capped by `ai_wait_max_seconds`) + acknowledgement skip;
+  `AiGate.StartHumanSend` = 1–3 bubbles chained through the queue with typing
+  pauses (`ITypingIndicator`; never sleeps on a request);
+  `Ai/AiFollowUpService` = follow-ups when the customer goes quiet (only after
+  an open question; stops on reply/opt-out/resolve/human takeover; closed 24h
+  window → `ai_followup_template` or a skip note). `Workers/AiOpsWorker` (every
+  30 s; `AI_FOLLOWUP_WORKER=0` disables) runs due auto-sends + follow-ups;
+  `POST /api/ai/monitor/tick` is the manual seam. Caps `ai.monitor` (agents
+  hold it) / `ai.behaviour.manage`. `AI_HUMANIZE=0` turns the human-like
+  DEFAULTS off (explicit Setting rows still win) — the test host sets it.
+- **Tags replace Service Providers.** `Resource`/`ResourceLink`,
+  `ProviderScope`, the `resource_id` claim, the provider role and
+  `{{provider_<key>}}` are GONE (the old `crm_profile.resource_id` column is
+  only kept by `UpgradeSchema`). `Tag` (palette-key colour
+  tangerine/ink/teal/plum/ochre/blue/green/rose, `AppliesTo`
+  contact|entity|conversation, an exclusive `GroupName`, attribute field defs,
+  entity scope = ScopeInherited) + `TagAssignment` (attribute values; unique per
+  tag × target). ALL rules live in `Data/Tags/TagService.cs`: group
   exclusivity, attribute validation, and `Contact.Tags` as a write-through
   CACHE of tag names (both ways — a raw `tags` write via PATCH/import is
-  reconciled into the registry). Conversation tags stay on `Thread.Labels` as
-  slugs; the registry is their vocabulary (`lib/tags.ts useTags`). Attributes
-  render as `{{tag_<slug_with_underscores>_<key>}}`. Caps `tags.view` /
-  `tags.manage`; UI at `/tags` (Library). Tests: `TagsTests.cs`.
-- **Communication hub + analytics** (`calls/views.py`):
-  `GET /api/contacts/<id>/channels` = the per-contact unified channel profile
-  (identities across whatsapp/email/social + voice, carrying account + its
-  health, in/out counts, last active, 24h-window + opt-out state; reuses
-  whatsapp.store's own window helpers so numbers match the inbox) → rendered
-  by `components/ChannelHub.tsx` in the `/chats` info panel and
-  `/contacts/[id]`. `POST` on the same URL ({channel, address}) registers an
-  identity by hand — creates/claims the thread via the channel's own store
-  and links it (409 if linked to another contact); the contact page's hub shows
-  the add form (`ChannelHub allowAdd`), the /chats "Contact" picker stays the
-  link-an-existing-chat seam. `GET /api/analytics/summary?days=` powers `/analytics`
-  (message funnel with documented replied-approximation, repayment
-  conversion, per-account volumes incl. the null-account bucket, call
-  outcomes, `account.health` AuditLog trail, zero-filled daily series).
-  `GET /api/analytics/usage?days=` = LLM metering/billing (crm.LlmUsage rows
-  written by `aicore/usage.py record()` at EVERY LLM call site — chat replies
-  incl. tool rounds, memory/timeline summaries, playground, voice calls via
-  agent metrics → live store llm_usage → `wa_calls.save_call_transcript`;
-  costs estimated at READ time from Setting `llm_prices` (USD per 1M tokens)
-  over `usage.PRICES_DEFAULT`, per-contact breakdown for customer billing;
-  "AI usage" card on /analytics renders it).
-- **`backend/integrations/` = third-party integrations** (`/api/integrations/`;
-  Settings → Integrations). `Integration` is `ChannelAccount`'s twin: creds in
-  a JSONField that **never leave the server unmasked**, `config` for
-  per-provider settings, and `status` written ONLY through
-  `integrations/health.py set_status` (one AuditLog + one admin+ Notification
-  per real transition; never-connected rows transition silently). Providers:
-  Google Calendar / Drive / Gmail / Sheets (**OAuth2, one Google client,
-  incremental per-product scopes, PKCE S256 + a signed 600s `state`** —
-  `integrations/oauth.py`; the callback is the only open non-webhook route
-  because a browser back from Google carries no bearer token, so the signed
-  state IS the CSRF control), plus Shopify + Stripe as **API-key** providers
-  (Shopify's own single-store path is a custom-app Admin token; Stripe OAuth
-  is Connect, a marketplace feature — neither fits a template). Token refresh
-  is LAZY at call time and a failed refresh transitions status to
-  `disconnected` and returns `""` — it never throws into a send path. Never
-  log tokens/secrets/provider bodies. Global keys (Google client, webhook
-  signing secrets) live in Setting `integrations_settings` with .env
-  fallback, masked round-trip, PUT superadmin — same pattern as
-  `voice_twilio_settings`. **Both webhooks verify HMAC**
-  (`integrations/webhooks.py`: Shopify base64 `X-Shopify-Hmac-Sha256`, Stripe
-  `t=…,v1=…` + a 300s replay window, both `compare_digest`) and **no secret
-  configured ⇒ 503, never "accept unsigned"** — the explicit non-repeat of the
-  Messenger/IG gap. `integrations/mapping.py` turns `orders/*` and
-  `payment_intent.succeeded` into `crm.Record` + `crm.RecordEvent` (phone-first
-  then email contact matching, creating a Contact when the payload carries an
-  identity; `book_event(dedupe_key=…)` makes redelivery idempotent; Stripe
-  `metadata.record_external_id` attaches a payment to the EXISTING order).
-  Flow-builder action nodes (`integrations/actions.py`, dispatched by
-  `flows/engine.py _do_integration` off the Action node's `channels` list):
-  Create calendar event · Find free slot · Upload file to Drive · Append row
-  to Sheet · Send via Gmail · Update order status · Create Stripe payment
-  link. **Sandbox is mandatory**: with zero credentials every endpoint answers,
-  `oauth/start` 400s with an operator-facing reason instead of opening a
-  socket, and every action returns `{ok: false, skipped: true, detail: …}` so
-  the step logs a clear skip and the run continues. The seven action labels are
-  a contract shared with `frontend/src/lib/flow/nodeConfig.ts
-  INTEGRATION_ACTIONS` — change both sides together.
-- **Integrations are per USER, per entity, or global (2026-08-16).**
-  `Integration.OwnerUserId` (nullable) is what makes "different people,
-  different Google Calendars" possible: a connect flow writes to the CALLER's
-  own row (`IntegrationResolver.OwnRowAsync`), never an ownerless one, so a
-  second user can no longer overwrite the first's tokens. Resolution at call
-  time is **the acting user's grant → the entity's shared grant (then its
-  subtree) → the organization-wide one** (`IntegrationResolver.Active`); only
-  rows that actually carry credentials count.
-  `ChatBranch.Data/Integrations/`: `GoogleOAuth.cs` (PKCE S256, HMAC-signed
-  600s state, lazy refresh that marks a row disconnected and returns "" rather
-  than throwing), `IntegrationActions.cs` (the seven flow actions, executed for
-  real; a missing connection SKIPS so the run continues), `IntegrationSettings.cs`
-  (the org-wide keys live in ONE JSON Setting row `integrations_settings` — a
-  plain `SettingValue("google_client_id")` finds nothing, which is exactly how
-  the OAuth service first shipped believing no client was registered; both the
-  API and the OAuth service now read this helper). The callback
-  `/api/integrations/oauth/google/callback` is deliberately ANONYMOUS — the
-  browser arrives from accounts.google.com with no bearer token, so the signed
-  state IS the CSRF control. Set `GOOGLE_REDIRECT_URI` (must match the Google
-  console exactly) and `FRONTEND_URL` (where the callback bounces back to) in
-  production; both fall back to localhost.
-- **Docs:** `docs/vertical-guide.md` = how to configure the template for an
-  industry (the five layers: hard rules → persona → skills → knowledge →
-  memory). `docs/DATABASE_SCHEMA.md` = the real schema.
-  `docs/DOMAIN_MODEL.md` = the four core concepts (Entity/Tenant+Brand ·
-  Resource/provider · Customer/Contact · Admin/Profile) + how they bind.
-  `docs/API_CONVENTIONS.md` = both REST surfaces + which endpoints are open.
-  `docs/RBAC_AND_BRANDS.md` = roles/tenants/brands + dynamic capabilities.
-  `docs/record-sync.md` = the bulk `/api/v1/sync/records` pipeline.
-  `docs/channel-adapter.md` = per-channel capabilities + how to add one
-  (**Messenger/IG webhook has NO signature check — real, open gap**).
-  `backend/baileys_service/
-  RESEARCH.md` = Baileys production research: DisconnectReason table, ban
-  evidence (<2% inbound-first vs 15–30% cold outbound), pacing numbers the
-  queue defaults come from, and unused native pre-ban telemetry
-  (`reachoutTimeLock`, `message-capping.update`) worth wiring next.
+  reconciled into the registry, creating org-wide tags for unknown names).
+  Conversation tags stay on `Thread.Labels` as slugs; the registry is their
+  vocabulary (`lib/tags.ts useTags`). Attributes render as
+  `{{tag_<slug_with_underscores>_<key>}}`. Caps `tags.view` / `tags.manage`;
+  page `/tags` (Library). Tests: `TagsTests.cs`.
+- **Bindings (`/bindings`).** One page for every many-to-many relationship,
+  built on `components/ui/BindingGrid.tsx` (level 1: a card per group with a
+  None / k of N / All N pill and a tri-state checkbox; level 2: Manage modal
+  with per-member switches; nothing persists until the `SaveBar`). Server side
+  `Endpoints/BindingsEndpoints.cs`: `GET /api/bindings/catalog`,
+  `GET/POST /api/bindings/{kind}` (pick a target, get candidates with a
+  `member` flag, POST a diff). Kinds: user-entities, team-users,
+  contact-entities, tag-contacts, tag-entities, entity-accounts (+ reversed
+  entity-contacts, user-teams, entity-users for API callers), each gated by its
+  own capability.
+- **Custom fields reach templates as variables.** Settings → Custom fields
+  (`custom_fields` Setting, `settings.custom_fields.manage`) merge into
+  `FlowEngine.VariablesFor` as `{{cf_<key>}}` (off `Contact.Attributes`), next
+  to the tag attributes. The prefixes are deliberate — a field labelled
+  "Company" would otherwise shadow a built-in. Values format like the dashboard
+  (boolean → Yes/No, multiselect → comma list); a missing value renders empty.
+  Both template editors share `components/settings/TemplateVariablePicker.tsx`.
+- **Templates (`/templates`)** — ONE module (`components/templates/
+  TemplatesModule.tsx`) with tabs in the URL (`?tab=messages|scripts|whatsapp`):
+  Messages = `CannedResponse` quick replies (`/api/messaging/canned`,
+  `templates.manage`, optional `Channels` list — empty = every channel; the
+  composer's `/short_code` picker passes `?channel=`), Call scripts =
+  `ScriptTemplate` (`/api/calls/script-templates`, `script_templates.manage`),
+  WhatsApp = per-account templates (`/api/whatsapp/templates`). Old
+  `/script-templates` and `/settings/templates` redirect here.
+- **Flows** — see **Flow builder** below for the editor. Execution:
+  `Flows/FlowEngine.cs` is the ONLY interpreter of the builder's React Flow
+  JSON (`Workflow.Nodes/Edges`, stored verbatim). Time axis
+  `FlowEngine.Tick` (`Workers/FlowEngineWorker`, every 10 s,
+  `FLOWS_WORKER=0` disables; `POST /api/flows/tick` is the manual seam);
+  event axis `OnInboundMessage` (resume runs parked on a reply, start
+  "Message received" flows). Per-contact state is `FlowRun`; every transition
+  appends a `FlowStepEvent` (org-local `Day`). "Contact created" and
+  "Scheduled" triggers only act on what happens after `Workflow.LiveSince`, so
+  arming a flow never back-fires on the whole contact book. Sends are
+  **QUEUED** onto `OutboundJob`, never inline: `Flows/QueueService.cs` drains
+  (`Workers/OutboundQueueWorker`, every 5 s, `QUEUE_WORKER=0` disables) with a
+  jittered per-account gap, daily cap, quiet hours and an **atomic
+  queued→sending claim** (two tickers can never double-send). Job kinds: text |
+  template | ai_reply (reply generated at SEND time by `AiResponder`) | call.
+  Payload `source:"ai"` jobs go through the AI gate; `humanize:true` jobs are
+  split and typed. **Calls are queued too**
+  (`Flows/QueueCallPlacer.cs`): `transport:"sip"` → the same LiveKit path as
+  `/api/calls/dial` (paced by `queue_call_gap_s` + one dial per pass);
+  `transport:"baileys"` → dispatch the agent, then the gateway's `/call`. A
+  WhatsApp number carries ONE call — busy is checked at the GATEWAY, and busy is
+  a WAIT (job stays queued), never a failure; only compliance refusals
+  (do-not-call, opt-out, cold-call guard) or an unconfigured transport fail a
+  call for good. `sent` means DIALLED. Integration action steps
+  (`Integrations/IntegrationActions.cs`) execute for real against the resolved
+  connection or SKIP with `{ok:false, skipped:true}` so the run continues — the
+  seven action labels are a contract with `frontend/src/lib/flow/nodeConfig.ts
+  INTEGRATION_ACTIONS`. Inspect: `/api/flows/runs[/{id}]`,
+  `/api/flows/{flowId}/stats`, `/api/flows/queue`, `/api/analytics/flows`.
+- **Communication hub + analytics.** `GET /api/contacts/{id}/channels` = the
+  per-contact channel profile (identities across channels with account +
+  health, in/out counts, last active, 24h window + opt-out) rendered by
+  `components/ChannelHub.tsx` in the chat info panel and `/contacts/[id]`;
+  `POST` registers an identity by hand. Analytics (`/analytics`, the HOME page):
+  `GET /api/analytics/summary?days=` (funnel, per-account volumes, call
+  outcomes, health events, daily series, KPI deltas),
+  `GET /api/analytics/usage?days=` (LLM metering/billing, admin+),
+  `/api/analytics/reports`, `/api/analytics/flows`, `/api/live` (waiting
+  conversations + active calls).
+- **Integrations** (`/integrations`, `/api/integrations/*`,
+  `ChatBranch.Data/Integrations/`). `Integration` is `ChannelAccount`'s twin:
+  creds in a JSON column that **never leaves the server unmasked**, `Config` for
+  per-provider settings. Providers: Google Calendar / Drive / Gmail / Sheets
+  (`GoogleOAuth.cs`: one Google client, incremental per-product scopes, PKCE
+  S256, HMAC-signed 600 s `state`, lazy refresh that marks a row disconnected
+  and returns "" rather than throwing) and Shopify / Stripe (API keys).
+  **Per user, per entity, or global:** `Integration.OwnerUserId` — a connect
+  flow writes the CALLER's own row (`IntegrationResolver.OwnRowAsync`);
+  resolution at call time is the acting user's grant → the entity's shared grant
+  (then its subtree) → the organization-wide one (`IntegrationResolver.Active`).
+  The org-wide keys live in ONE JSON Setting `integrations_settings`
+  (`IntegrationSettings.cs` — a plain `SettingValue("google_client_id")` finds
+  nothing). The callback `/api/integrations/oauth/google/callback` is
+  deliberately ANONYMOUS (the signed state IS the CSRF control); set
+  `GOOGLE_REDIRECT_URI` and `FRONTEND_URL` in production. Both commerce
+  webhooks verify HMAC (`WebhookVerify.cs`: Shopify base64, Stripe `t=…,v1=…` +
+  300 s replay window) and **no secret configured ⇒ 503, never "accept
+  unsigned"**. Sandbox is mandatory: with zero credentials every endpoint
+  answers and every action skips cleanly.
+- **Docs:** `docs/vertical-guide.md` (configure the template for an industry:
+  hard rules → persona → skills → knowledge → memory, plus tags, the AI monitor
+  and follow-ups) · `docs/DATABASE_SCHEMA.md` (the real schema) ·
+  `docs/DOMAIN_MODEL.md` (Entity · Customer/Contact · Tag · Admin/Profile) ·
+  `docs/API_CONVENTIONS.md` (the REST surface + which endpoints are anonymous) ·
+  `docs/RBAC_AND_BRANDS.md` (roles, capabilities, entity scope) ·
+  `docs/record-sync.md` (`/api/v1/sync/records`) · `docs/channel-adapter.md`
+  (per-channel capabilities, port gaps, how to add one) ·
+  `backend/voice_agent/README.md` · `backend/baileys_service/README.md` +
+  `RESEARCH.md` (Baileys ban evidence, the pacing numbers the queue defaults
+  come from). Files marked "historical" at the top (`CSHARP_*`, `UPGRADE-SPEC*`,
+  `*-PLAN.md`, `reschedule-flow.md`) describe how the code got here, not how it
+  is.
 
 ## Frontend conventions
 
-- **`src/lib/AppContext.tsx`** holds all shared state + the real-call seams.
-  Pages consume `useApp()`. API base = `NEXT_PUBLIC_API_URL` (default
-  `http://localhost:8000/api`); falls back to `src/lib/mocks.ts` data if the API
-  is down.
+- **Shell (`components/shell/`).** The sidebar IA lives in `nav.ts`
+  (`NAV_GROUPS`: Analytics + Notifications, then Work · Automate · Library ·
+  Channels · Admin · Review; Settings is the footer link) — **a new page = one
+  entry there**. Groups are collapsible and the whole rail collapses
+  (`nav-collapsed`). Items are gated by `cap` (a string, or an array = ANY of
+  them) with a `roles` fallback for sessions without a capability list
+  (`canSee`). **Analytics is home** (`HOME = '/analytics'`; `/`, post-login and
+  `/dashboard` redirect there — there is no Dashboard page). Ctrl/⌘+K opens the
+  command palette (`CommandPalette.tsx`): the visible nav pages plus
+  `GET /api/search` (contacts, conversations, templates, knowledge, flows, users,
+  entities — each type gated by the capability of the page it opens and scoped
+  like that page's list endpoint). The top bar's **Live chip** (`LiveChip.tsx`)
+  shows the SSE connection status dot + "N calls · N waiting" from `/api/live`
+  (`liveStore.ts`: refreshed every 15 s AND on every stream `change`, keyed by
+  entity; also feeds the sidebar's Chats counter and Analytics' waiting card).
+  Below `lg` the rail becomes a drawer and a **bottom tab bar** (Home · Chats ·
+  Contacts · More) takes over. `Shell.FULL_BLEED` (`/chats`, `/flow-builder`,
+  `/settings`) render edge-to-edge and own their height; `PUBLIC_ROUTES`
+  (`/help`, `/offline`) and `/login` render bare. **PWA:** `app/manifest.ts`,
+  hand-written `public/sw.js` (never caches `/api/*` or the stream; offline
+  navigations land on `/offline?from=`), icons in `public/icons/` rendered from
+  `Logo.tsx`'s `brandMarkSvg`. **Ask ChatBranch** (`AssistantDock`) is docked
+  bottom-right on every signed-in page; its conversation lives in
+  `sessionStorage`.
+- **`src/lib/AppContext.tsx`** holds shared state + the real-call seams. API
+  base = `NEXT_PUBLIC_API_URL` (default `http://localhost:8090/api`; baked in at
+  BUILD time). `src/lib/mocks.ts` is the type source (`Contact`, `RecordDto`,
+  `TranscriptLine`, …) — its data arrays are EMPTY since the production-clean
+  pass; only the voice presets remain. It was once lost to a `.gitignore`
+  `lib/` rule — `.gitignore` explicitly un-ignores `frontend/src/lib/`.
 - **Calls are multi-concurrent.** State is a `calls: Record<room, LiveCall>` map
-  plus a waiting `queue`, not a single call. Dial seams: `dialContact(id)`,
-  `dialManual(phone,name,language)`, `launchBatch(ids)` (enqueue many). A pump
-  effect starts queued dials as slots free up. **All per-call actions are
-  room-scoped:** `sendSay(room,…)`, `hangupCall(room)`, `escalateCall(room)`,
-  `setHumanControl(room,v)`, `injectResponse(text,room?)`, `resetCall(room?)`.
-  `selectedRoom`/`selectCall` track the focused call.
-- **Concurrency cap = `MAX_CONCURRENT`** (`NEXT_PUBLIC_MAX_CONCURRENT`, default
-  **3**) — set it to your SIP trunk's channel limit. `startDial` inserts a
-  placeholder synchronously (status `dialing`, temp key `pending-N`) so it counts
-  toward the cap *before* the network round-trip, then re-keys to the real room
-  id; this prevents a batch from overshooting the cap.
-- **The call UI lives in `/chats`, not a dedicated page.** `CallLauncher`
-  (dial + agent-voice picker), `VoiceCallButton` / `ScriptCallButton`,
-  `ActiveCallsStrip` (every live call at a glance) and `VoiceCallPanel`
-  (transcript + Guide/Takeover/Escalate/End) are all in
-  `components/chats/`; `CampaignModal` enqueues a batch. There is **no**
-  `/live-calls` route and no `CallPanel` component — older notes referring to
-  a monitor grid describe a page that no longer exists. AI insight
-  sentiment/highlights are **static mock**; KB refs are real from `turn.kb`.
-- **Settings IA:** every tab is its OWN ROUTE (`/settings/<id>` — refresh
-  keeps your place): tab registry + chrome in
-  `components/settings/SettingsNav.tsx` (`SETTINGS_TABS` + `SettingsShell`,
-  rendered from `app/settings/layout.tsx`), one thin
-  `app/settings/<id>/page.tsx` per tab. `/settings` itself only REDIRECTS —
-  legacy `?tab=x` links (backend notification links use them, incl. the
-  pre-consolidation `whatsapp` id) map through `LEGACY_TABS`. New tab = a
-  `SETTINGS_TABS` entry + a route page. ONE consolidated **Channels** tab
-  (`components/settings/ChannelsSettings.tsx`) is where all provider accounts
-  are added — pick WhatsApp / Telegram / Messenger / Instagram / Email, add N
-  accounts per channel. The Meta template manager (`TemplatesSettings`) lives
-  INSIDE the WhatsApp panel; the global "Message Templates" tab is the
-  cross-channel CannedResponse manager (`SharedTemplatesSettings`). Don't
-  re-add per-channel top-level tabs. Three tabs were added in the
-  integrations/knowledge pass: **Integrations** (`IntegrationsSettings.tsx`,
-  provider card grid), **Knowledge Base** (`KnowledgeSettings.tsx`) and
-  **AI Skills** (`SkillsSettings.tsx`, the sole writer of `crm.AgentSkill`).
-  The Escalation Rules tab was removed
-  2026-07-22 (it was mock-only; escalation is modelled in the flow builder
-  instead — don't re-add it). The **AI Configuration** tab was removed
-  2026-08-15: its real rows (quiet hours, send pacing, voice-call LLM/STT)
-  became PER-ACCOUNT settings in Channels → edit account → "Delivery & AI",
-  and its remaining `MockRows` demo rows went with it —
-  `AiChatSettings.tsx` / `AiConfigDemoRows.tsx` / `LlmProviderSelect.tsx` /
-  `SttProviderSelect.tsx` are deleted, `/settings/ai` redirects to
-  `/channels`. Don't re-add the tab. Settings → Notifications is real
-  (server-backed).
-- **Settings is system configuration ONLY.** Content the operator authors lives
-  in the sidebar: Knowledge Base (`/knowledge`) and AI Skills (`/skills`) moved
-  out of Settings 2026-08-16 (old routes + `?tab=` redirect), joining Message
-  and Script Templates under Library. The **Chat Persona** tab was removed
-  entirely — the assistant ships `DEFAULT_PERSONA` and is shaped through Skills
-  and Knowledge; `/settings/persona` redirects. Analytics / Call Logs /
-  Activity are three sidebar destinations, NOT a tabbed section — the shared
-  `ReviewTabs` strip is deleted, don't re-add it.
-- **A modal's errors render INSIDE the modal.** `Modal` portals over a
-  `backdrop-blur-sm` scrim, so a page-level `{msg && …}` under an open dialog is
-  invisible — the "password too short" report. The pattern (WhatsApp account
-  editor, Users, Entities, both template editors): a `role="alert"` div as the
-  first child of the modal body for `!msg.ok`, the page-level copy gated on the
-  modal being closed, and `setMsg(null)` when opening one.
-- **Shell (2026-10-08):** the sidebar IA lives in `components/shell/nav.ts`
-  (`NAV_GROUPS`, `canSee`) — a new page = one entry there; the command palette
-  searches the same list plus `GET /api/search` (each type capability-gated
-  and scoped like its list endpoint). `/api/live` + `lib/chatStream` (ONE SSE
-  connection per tab, now with a connection status) feed the Live chip, the
-  sidebar's Chats counter and Analytics' waiting card via `liveStore`.
-  Analytics is home (`/`, post-login, `/dashboard` all go there). PWA:
-  `app/manifest.ts`, hand-written `public/sw.js` (never caches `/api/*` or
-  the stream; offline navigations redirect to `/offline?from=`), icons in
-  `public/icons/` rendered from `Logo.tsx`'s `brandMarkSvg`. Channel health
-  transitions write `account.health` audit rows via `AccountHealth.SetStatus`.
+  plus a waiting `queue`. Seams: `dialContact(id)`, `dialManual(phone,…)`,
+  `launchBatch(ids)`; every per-call action is room-scoped (`sendSay(room,…)`,
+  `hangupCall(room)`, `escalateCall(room)`, `setHumanControl(room,v)`,
+  `resetCall(room?)`). Cap = `NEXT_PUBLIC_MAX_CONCURRENT` (default 3 — your SIP
+  trunk's channel limit); `startDial` inserts a `pending-N` placeholder
+  synchronously so a batch can't overshoot it. The call UI lives in `/chats`
+  (`components/chats/`: `CallLauncher`, `VoiceCallButton`, `ScriptCallButton`,
+  `ActiveCallsStrip`, `VoiceCallPanel`) plus `CampaignModal` for batch dials;
+  there is no `/live-calls` page. `/call-logs` lists finished calls (its
+  detail page's "Sentiment" is a static mapping from call status, not an AI
+  judgement). `/persona` ("Voice & calls") is the voice library, opening line
+  and pronunciation — not the chat persona.
+- **Settings is system configuration ONLY**, organised as SECTIONS of flat
+  `/settings/<id>` pages, each with its own capability
+  (`components/settings/SettingsNav.tsx` `SETTINGS_SECTIONS`, checked again
+  server-side): Personal — Appearance, My notifications (no cap); Organization —
+  Notification defaults (`notifications.manage`), Custom fields
+  (`settings.custom_fields.manage`), App & provider keys (`app_keys.manage`);
+  AI — AI keys & models (`settings.ai_keys.manage`). New page = a
+  `SETTINGS_SECTIONS` entry + `app/settings/<id>/page.tsx` + the capability in
+  `AdminEndpoints.cs` and `lib/auth.ts` + the server-side check. Everything
+  else moved to the sidebar and its old route redirects (`movedAreas.ts`,
+  `LegacyRedirect`): Channels, Integrations, Users, Entities, Templates, Script
+  templates, Knowledge, Skills, Account assignment (`/assignments`), MCP
+  (`/developers`), Service providers (`/tags`), Pronunciation
+  (`/persona#pronunciation`); the AI Configuration (`/settings/ai` →
+  `/channels`), Chat Persona and Escalation Rules tabs are gone — don't re-add
+  them. Pages that stage edits use `SettingsDirtyContext` (Discard / Save in the
+  masthead).
+- **A modal's errors render INSIDE the modal.** `Modal` portals over a scrim,
+  so a page-level `{msg && …}` under an open dialog is invisible. Pattern: a
+  `role="alert"` div as the first child of the modal body, the page-level copy
+  gated on the modal being closed, `setMsg(null)` when opening one. The same
+  holds for drawers (`InboxSetupDrawer`).
 - **Never call `getRole()` / `getAuth()` during render.** They read
   localStorage, which doesn't exist during SSR — the server paints the
   `'agent'` fallback, the client paints the real role, and React aborts
-  hydration ("Expected server HTML to contain a matching `<svg>` in
-  `<button>`") and re-renders the whole root. Read the role **after mount**:
-  either `useRole()` from `src/lib/useRole.ts` (returns
-  `{ role, ready }` — `'agent'`/`false` until the mount effect runs; gate
-  admin UI on `role`, use `ready` to render nothing for a frame instead of
-  flashing a "not allowed" notice) or the older
-  `useState(false)` + `useEffect(() => setCanManage(getRole() !== 'agent'), [])`
-  pattern still used across `components/settings/`. Both are hydration-safe;
-  the direct-call form is not.
-- **`src/lib/mocks.ts`** is the type + mock-data source of truth (`Contact`,
-  `RecordDto`, `TranscriptLine {who,t,kb}`, `ScheduledCall`, etc.) AND the
-  offline fallback the pages render when the API is unreachable. It was once
-  lost to a `.gitignore` `lib/` rule — `.gitignore` now explicitly un-ignores
-  `frontend/src/lib/`. Don't re-break that.
+  hydration. Read the role/capabilities **after mount**: `useAccess()`
+  (`lib/useAccess.ts`, `{ready, can}`), `useRole()` (`lib/useRole.ts`,
+  `{role, ready}`), or `useState(false)` + `useEffect`. `lib/auth.ts` still
+  migrates the legacy `chatwood-auth` / `ai-collector-auth` session keys and a
+  cached `'collector'` role.
+- **Contacts:** `/contacts` is a list (the kanban board is gone);
+  `/contacts/[id]` shows the AI summary (`/api/messaging/timeline/summary`),
+  details + custom fields, records, the channel hub, entities
+  (`ContactEntitiesCard`), tags (`ContactTagsCard`) and the communications
+  timeline.
 
-### Design & theming (light/dark)
+### Design system — Paper & Ink (light/dark)
 
-- **The design language follows Whatomate** (the open-source WhatsApp platform
-  this app's WhatsApp module was ported from): near-black neutral surfaces
-  (`#0a0a0b`/`#0f0f10`), zinc text scale, and **emerald as the single brand
-  accent** — the Tailwind `brand` scale maps to emerald, NOT blue. Shell =
-  left **sidebar** (`components/shell/SideNav.tsx`, grouped Overview → Work →
-  Configure → Review → Settings) + a `TopBar`. `Shell.tsx` `FULL_PAGE` lists
-  the routes that break out of the shell entirely (`/flow-builder`,
-  `/settings`) and own their own back/save chrome. A new page needs a
-  `NAV_GROUPS` entry in `SideNav.tsx`.
-- Colors are **CSS variables** in `src/app/globals.css`: `:root` = dark (default),
-  `:root.light` = light — the **class strategy** (`html.dark` / `html.light`,
-  Tailwind `darkMode: 'class'`), NOT a data-theme attribute. Tailwind semantic
-  tokens resolve to them: `app / surface / card / text-* / line / line-strong /
-  fill / fill-hover / fill-subtle`. **Use these tokens, not raw `white/α` or
-  hardcoded slate hex** — raw white-alpha doesn't flip and vanishes on light
-  backgrounds.
-- Theme is toggled by `ThemeToggle` (sidebar footer) → swaps the class on
-  `<html>` + `localStorage`. A pre-paint script in `layout.tsx` applies it
-  before render (html ships with `className="light"` +
-  `suppressHydrationWarning` — the script's class swap on a stored 'dark'
-  choice is an intentional pre-hydration mutation).
-- Full-height pages (`/flow-builder`, `/chats`) size themselves with
-  `h-[calc(100dvh-98px)]` — 98px = 58px header + 40px main padding; update
-  both if the shell chrome changes.
-- **Never put `var(--…)` in a lucide `color=` prop** (or any SVG presentation
-  attribute) — `var()` doesn't resolve there and the icon renders invisible. Use
-  a static hex for icons, or a Tailwind text class. For inline **text** accent
-  colors that must flip, use the `--brand-ink / --amber-ink / --green-ink /
-  --red-ink` vars. Pale accent text classes (`text-brand-200`, `text-*-300`) are
-  darkened in light mode via scoped overrides at the top of `globals.css`.
+Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
+
+- **Three switchable themes × light/dark**, all CSS variables on `<html>`
+  defined in `src/app/globals.css`: `theme-paper` = **Paper & Ink** (default:
+  warm paper, ink type, Fraunces serif headings, ONE tangerine accent),
+  `theme-graphite` = Graphite Pro (neutral, violet accent, compact),
+  `theme-soft` = Soft Blocks (pastel, round). Mode = `.light` / `.dark` class
+  (Tailwind `darkMode: 'class'`). Every semantic Tailwind colour resolves to a
+  var — surfaces `app / surface / panel / card / well`, text `text-primary /
+  text-heading / text-high / text-mid / text-muted / text-faint`, `line /
+  line-strong`, `fill / fill-hover / fill-subtle`, `primary / on-primary`,
+  `accent` — so no component carries per-theme overrides.
+- **Accent scales are bare RGB-triplet vars** (`--c-brand`, `--c-green`,
+  `--c-amber`, `--c-red`, `--c-blue`, `--c-purple`, `--c-cyan` + shades) so
+  opacity modifiers keep working (`bg-brand-400/10`). Shade convention: DEFAULT
+  = fills/dots/borders, 400 = stronger fill/border, 300/200 = readable TEXT ink.
+  For inline text colour use the `--brand-ink / --green-ink / --amber-ink /
+  --red-ink / --blue-ink / --purple-ink / --cyan-ink` vars. `brand` is
+  TANGERINE (not emerald, not blue). On Paper & Ink the primary action is INK;
+  on the other two it is the accent.
+- **Appearance prefs** (`lib/theme.ts`): theme, mode (light/dark/system),
+  accent override (with **contrast correction** — `accentVars` walks lightness
+  until text inks reach 4.5:1 and fills 3:1 against the theme's ground), text
+  size (`--ui-zoom`: the shell applies `zoom` and divides its height by it),
+  corner radius (`--r-md…--r-3xl`), heading font (`--font-display`).
+  `applyAppearance` sets the classes + inline vars and caches the resolved set
+  in localStorage (`ui-appearance`); the pre-paint script
+  (`lib/themeScript.ts PREPAINT_SCRIPT`, inlined by `app/layout.tsx`, whose
+  `<html className="theme-paper light" suppressHydrationWarning>` swap is an
+  intentional pre-hydration mutation) re-applies it before first paint.
+  Persistence: the user's own choice at `GET/PUT /api/auth/preferences`
+  (`Profile.Preferences`), the organization default at
+  `GET/PUT /api/settings/appearance` (`settings.appearance.org`); the shell
+  syncs once per sign-in. UI: Settings → Appearance.
+- **Typography helpers:** `.display` (the theme's display family/weight/
+  tracking — page titles) and `.eyebrow` (the small uppercase label above a
+  title). `tint(color, alpha)` (`lib/color.ts`) makes a translucent version of
+  ANY colour, including a `var()` token, via `color-mix` — use it instead of the
+  old `hex + '1F'` idiom.
+- **Shared components (`components/ui/`) — use them, don't re-invent:**
+  `Select` / `MultiSelect` (search, keyboard, groups, tree indent, portalled
+  list), `EntityPicker` / `EntityMultiPicker` + `entityTree` /
+  `entityOptions`, `BindingGrid` + `SaveBar`, `ChannelLogo` (+ `channelLabel`,
+  `channelColor` — real brand marks for channels and integrations; the only
+  place brand hexes like WhatsApp green are allowed), `PageHeader`, `Toggle`,
+  `Modal`, `DataTable` (keeps wide tables from scrolling the page sideways on a
+  phone), `Button` (variants `primary | secondary | accent | danger | success |
+  ghost`, sizes `sm | md`), `Card`/`SectionLabel`, `Badges` (status, health,
+  account-role chips), `PhoneInput`, `TagListInput`.
+- **Rules:** never a native `<select>` (use `Select`); never hardcode palette
+  colours (raw hex, `white/α`, Tailwind's fixed palettes like `slate-*` or
+  `emerald-*`) — use the tokens, or `tint()` on a token; **never put `var(--…)`
+  in a lucide `color=` prop** or any SVG presentation attribute (it doesn't
+  resolve there and the icon vanishes) — use a Tailwind text class or a static
+  hex; tag colours are palette KEYS mapped to tokens, never hex.
 
 ## Voice agent gotchas
 
@@ -967,15 +674,12 @@ default `backend/data` of the checkout (`VoiceAgentBridge.ResolveDataDir`).
   call lifecycle, watchdogs), `session.ts` (provider models), `prompts.ts`,
   `storage.ts` (file IPC), `metadata.ts` (the dispatch-metadata contract — keep
   it in step with the API's `VoiceDispatch.cs`), `config.ts` (env from
-  `backend/.env` + validation), `audioGate.ts`, `recorder.ts`. Run it with
+  `backend/.env` + validation), `audioGate.ts`, `recorder.ts`, `summary.ts`,
+  `transcript.ts`, `dial.ts`, `setupTrunk.ts`, `selftest.ts`. Run it with
   `npm run dev` / `npm start` in that folder (or `npm run dev:agent` at the root).
 - **Pin LiveKit packages to matching versions.** Every `@livekit/agents*`
   package is pinned to the same exact version (`1.9.1`) — skew between them
   breaks imports. Bump them together, then `npm run selftest`.
-- **The API is the control plane.** `/api/calls/dial` and WhatsApp call/start
-  dispatch the agent (by `AGENT_NAME`) through `Sidecars/LiveKitClient.cs`
-  (HS256 tokens + Twirp JSON); `/hangup` deletes the room. No LIVEKIT_* or
-  `SIP_OUTBOUND_TRUNK_ID` → a 503 that names what to set, never a fake call.
 - `REALTIME_PROVIDER=openai`, model `gpt-realtime` (Realtime API — NOT available
   via OpenRouter). Gemini Live (`@livekit/agents-plugin-google`) exists but its
   free tier is flaky (429 / `1011 Deadline`). `voice_provider` `elevenlabs` /
@@ -987,96 +691,118 @@ default `backend/data` of the checkout (`VoiceAgentBridge.ResolveDataDir`).
   `npm run setup-trunk` (in `backend/voice_agent`); `npm run dial -- +60…` for
   a manual test call. Config + validation in `voice_agent/src/config.ts`.
 - The agent polls the inbox each second: `guide` → `generateReply` (steer),
-  `takeover` → `session.say` (verbatim), plus a max-duration failsafe and
-  auto-hangup after the goodbye.
+  `takeover` → `session.say` (verbatim), plus a max-duration failsafe
+  (`MAX_CALL_SECONDS`) and auto-hangup after the goodbye.
 - **Greeting is gated on the callee answering.** `awaitAnswer()` waits for
   `sip.callStatus == "active"` (SIP) or `wa.callStatus == "active"` (the
-  Baileys bridge) before the agent speaks. The WhatsApp bridge joins the
-  room EARLY (during ringing, attribute "ringing") so pickup→greeting is
-  ~1-2s instead of ~8s; the Baileys gateway gates audio on `this.active` so
-  the agent never hears ringback. After the flip, `ANSWER_SETTLE_MS`
-  (default 1500) adds a human beat before the opening.
+  Baileys bridge) before the agent speaks; the gateway joins EARLY (attribute
+  "ringing") and gates audio on `this.active` so the agent never hears
+  ringback. After the flip, `ANSWER_SETTLE_MS` (default 1500) adds a human beat.
 - **Call endings have three layers:** the `end_call` tool; a marker failsafe
-  (realtime models sometimes SAY "{end_call}" instead of invoking it —
-  agent.ts detects the text, scrubs it from the transcript AND from what the
-  cascade TTS speaks, hangs up); and a contact-silence watchdog
-  (`SILENCE_NUDGE_SECONDS`=12 → re-ask, `SILENCE_HANGUP_SECONDS`=120 → forced
-  hangup; only USER speech resets it).
-- **Caller-hangup detection:** a `ParticipantDisconnected` room handler ends the
-  call when the callee hangs up first (one-shot guard, then hang up).
+  (realtime models sometimes SAY "{end_call}" — agent.ts detects it, scrubs it
+  from the transcript AND from what the cascade TTS speaks, hangs up); and a
+  contact-silence watchdog (`SILENCE_NUDGE_SECONDS`=12 → re-ask,
+  `SILENCE_HANGUP_SECONDS`=120 → forced hangup; only USER speech resets it).
+  A `ParticipantDisconnected` handler ends the call when the callee hangs up.
 - **Call provenance:** every hangup site records who ended the call
   (`END_CAUSE` → live store `ended_by`: agent / contact / system:silence /
   system:max_duration / system:no_answer / system:script_complete /
   system:tts_unavailable), written with the final live write after the LLM
   summary. An operator hang-up through the API deletes the room, which the
   agent records as `contact`.
-- **Prompts inject the real date** via `prompts.today()` (the model otherwise
-  assumes its training cutoff and misreads "next Friday"/overdue math). The
-  **call language comes from the contact** — `languageDirective` opens and
-  conducts the whole call in `contact.language` (`en`/`ms`/`zh`), switching only
-  if the callee clearly uses another.
+- **Script calls** (flow "Script call" step) read the `script` metadata key
+  verbatim with audio input disabled, then hang up — they need a literal TTS
+  voice (a cascade voice), because native realtime models have been observed to
+  emit no audible speech when asked to read verbatim.
+- **Prompts inject the real date** via `prompts.today()`. The **call language
+  comes from the contact** — `languageDirective` opens and conducts the call in
+  `contact.language` (`en`/`ms`/`zh`), switching only if the callee clearly
+  uses another.
 - **Smoke-testing without a phone line:** a local `livekit-server --dev` plus an
   OpenAI-compatible mock as `ILMU_BASE_URL` (voice_provider `ilmu`) exercises a
   full cascade call — dispatch, answer gating, inbox, endings, calls.json.
 
 ## Flow builder
 
-- The **visual flow builder** lives in the dashboard: route `/flow-builder`,
-  components `frontend/src/components/flow/`, data model
-  `frontend/src/lib/flow/` (uses `@xyflow/react`; the library syncs to the DB
-  via `/api/flows/library` and `backend/flows/` executes Live flows —
-  localStorage is only the offline fallback). **Agent skills are READ-ONLY on
-  this page** — Settings → AI Skills owns them (see the aicore bullet);
-  `lib/flow/defaultAgentSkills.ts` is now only the offline fallback for the
-  Action node's picker and the "Load starter skills" button. Its variable catalog
-  (`lib/flow/variables.ts`) must stay in step with
-  `flows/engine.py variables_for()`. Styles are token-based in
-  `src/app/flow-builder/flow-builder.css`, scoped under `.flow-studio` — same
-  theming rules as the rest of the frontend.
-- **Two views, one graph (2026-10).** Steps (default) reads nodes/edges as a
-  tree (`lib/flow/steps.ts buildStepTree`, mirroring the engine's PickEdge)
-  and edits it with insert/delete/move + `autoLayout`; the Advanced canvas is
-  React Flow over the same JSON. Plain-language summaries come from ONE place
-  (`lib/flow/describe.ts`). Step kinds: trigger · action (send / "AI message"
-  marker channel + `skill` id / call / app) · wait · followup (yes=replied,
-  no=no reply) · decision · handover · update · end; `stage` is legacy
-  pass-through. Every run transition writes a `FlowStepEvent` (org-local
-  `day`); `/api/flows/{flowId}/stats`, paged `/api/flows/runs[/{id}]` and
-  `/api/analytics/flows` read them (flows.view, contact-scoped). Flow queue
-  payloads carry `source` ai|flow and optional `humanize`.
-
-> There is no `handbook/` directory. The domain SOP that used to live there was
-> removed in the template conversion; `docs/vertical-guide.md` is what replaces
-> it — how an operator configures a vertical without forking.
+- Route `/flow-builder` (full-bleed), components `frontend/src/components/flow/`,
+  data model `frontend/src/lib/flow/` (`@xyflow/react`). The library syncs to
+  the DB via `GET/PUT /api/flows/library` (GET `flows.view`, PUT
+  `flows.manage`); localStorage is only the offline fallback. ⚠ **The PUT
+  PRUNES** server-side workflows (in its scope) missing from the browser's copy
+  — after creating a Workflow row outside the UI, refresh `/flow-builder`
+  before its next sync.
+- **Two views, one graph.** **Steps** (default, `StepsView.tsx`) reads
+  nodes/edges as a tree (`lib/flow/steps.ts buildStepTree`, mirroring the
+  engine's edge picking) and edits it with insert / delete / move +
+  `autoLayout`; the **Advanced canvas** (`CanvasView.tsx`) is React Flow over
+  the same JSON. Plain-language summaries come from ONE place
+  (`lib/flow/describe.ts`). New flows start from the template gallery
+  (`lib/flow/templates.ts STARTER_TEMPLATES`: welcome series, appointment
+  reminder, re-engage, lead qualification, feedback request — all paused).
+- **The vocabulary is a contract** with `FlowEngine.cs`
+  (`lib/flow/nodeConfig.ts` — change both sides together). Triggers: Contact
+  created · Tag added · Message received (optional keyword/channel) · Date field
+  (days before/on/after a date field) · Scheduled (time + weekdays) · Manual /
+  API (`POST /api/flows/{flowId}/start`); repeat Once / Every time / Once a
+  day. Legacy record-due-date triggers still execute but are never offered.
+  Step kinds: trigger · action (send message on WhatsApp/Email/Telegram/SMS(logged
+  only)/In-app push, or a template · **AI message** = the `AI message` marker
+  channel + a `skill` id, composed by `ComposeActionTextAsync` and sent through
+  the AI gate · call = AI voice call or Script call, `callVia` `Phone (SIP)` |
+  `WhatsApp (Baileys)` · app action) · wait (time, or until they reply) ·
+  **followup** ("Follow up if no reply": yes = replied, no = no reply; up to 5
+  nudges, stops on resolve) · decision ("Ask & branch": They replied / Reply
+  contains / They said yes (EN + BM keyword lists — deterministic on purpose) /
+  Has tag / Custom field equals) · handover (to a team) · update (add/remove
+  tag, set a field) · end (outcome code); `stage` is a legacy pass-through. The
+  step `skill` picker (`SkillPicker.tsx`) offers PROMPT skills only — tools and
+  checks run on their own; skills are edited only on `/skills`.
+- **Runs panel** (`RunsPanel.tsx`): totals, people entering per day, reach and
+  drop-off per step, failure reasons, and each contact's path — from
+  `/api/flows/{flowId}/stats` and paged `/api/flows/runs[/{id}]` (contact-scoped
+  like every flows read).
+- The variable catalog (`lib/flow/variables.ts`) must stay in step with
+  `FlowEngine.VariablesFor` (contact, business, record, memory groups +
+  `{{cf_*}}` + `{{tag_*}}`). Styles are token-based in
+  `src/app/flow-builder/flow-builder.css`, scoped under `.flow-studio`.
 
 ## Verifying changes
 
-- Frontend types: `cd frontend && npx tsc --noEmit` — clean, no known
-  exceptions. Lint with `npx eslint src`. (There is **no**
-  `frontend/__tests__/`; jest is configured but has no test files.)
-- CI runs all of this on push/PR (`.github/workflows/ci.yml`): API build+tests,
-  dashboard types/lint/build, the gateway's offline call-engine self-test, and
-  the voice agent's types + offline self-test.
-  Containers: `docker compose up` builds `backend-csharp/Dockerfile` +
-  `frontend/Dockerfile` (the gateway sits behind the `whatsapp` profile, the
-  voice agent behind `voice`). SQLite is a FILE — the API's /data volume is not
-  optional, and the voice agent shares it.
-- Backend: `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
-  then `QUEUE_WORKER=0 dotnet test tests/ChatBranch.Tests` — 56 tests covering
-  auth/RBAC, the inbox, webhooks (incl. wamid dedup and the QUEUED ai_reply
-  that Send Pacing acts on), contacts, flows + the outbound queue, analytics,
-  settings, custom fields and the LiveKit control plane. `QUEUE_WORKER=0`
-  stops the drain thread racing the assertions. Keep them green.
-- The API rebuilds and reseeds against `src/ChatBranch.Api/chatbranch.sqlite3`;
-  new columns go in `Seed.UpgradeSchema` (append-only, idempotent
-  `ALTER TABLE ADD COLUMN`) because `EnsureCreated()` never alters a live
-  schema.
-- Voice agent: `cd backend/voice_agent && npx tsc --noEmit && npm run selftest`
-  (offline — no LiveKit server or keys).
+- **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
+  then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
+  **218 tests** covering auth/RBAC, scoping, the inbox + server-side filters +
+  saved views, webhooks (wamid dedup, the queued ai_reply), contacts, tags,
+  templates + inbox settings, flows + step events + stats, the outbound queue +
+  queued calls, the AI (tool loop, skills runtime/drafter/API, built-ins, AI
+  monitor + human-like behaviour), integrations, notifications + settings,
+  search/live, the platform (audit, API keys, MCP, assistant) and the LiveKit
+  control plane. Keep them green. The test host (`ApiFactory` in
+  `ApiSmokeTests.cs`) sets its own env: `QUEUE_WORKER=0`, `FLOWS_WORKER=0`,
+  `AI_FOLLOWUP_WORKER=0` (drains are driven explicitly — no timing races),
+  `AI_HUMANIZE=0` (sandbox answers inline), `SEED_DEMO=1` (the suite signs in as
+  admin/agent), a throwaway `CHATBRANCH_DATA_DIR` and SQLite file, and a LiveKit
+  client that is never configured (a developer's `backend/.env` can't place real
+  calls).
+- **Schema changes** go in `Seed.UpgradeSchema` as well as the entity +
+  `AppDbContext` mapping (append-only, idempotent) because `EnsureCreated()`
+  never alters a live database.
+- **Frontend:** `cd frontend && npx tsc --noEmit` (clean) and `npx eslint src`;
+  `npx next build` for a production check. There is no `frontend/__tests__/`
+  (jest is configured, no test files).
+- **Voice agent:** `cd backend/voice_agent && npx tsc --noEmit && npm run selftest`
+  (offline — metadata, prompts, call-ending cues, file IPC, WAV writer, VAD,
+  provider wiring; no LiveKit server or keys). Root: `npm run test:agent`.
+- **Baileys gateway:** `node backend/baileys_service/calls.js --selftest`.
+- CI (`.github/workflows/ci.yml`) runs all four on push to master / PRs: API
+  build + tests, dashboard types + lint + build, the gateway self-test, the
+  voice agent's types + self-test. Containers: `docker compose up` builds the API
+  and the dashboard (the gateway sits behind the `whatsapp` profile, the voice
+  agent behind `voice`); `docker-compose.override.yml` + `deploy/nginx-
+  chatbranch.conf` are one production single-origin setup. SQLite is a FILE —
+  the API's `/data` volume is not optional, and the voice agent shares it.
 
 ## Notes
 
 - Dev slowness is normal **Next.js on-demand route compilation** (each route
-  compiles on first visit). `Documents\` here is local, NOT OneDrive-synced, so
-  that's not the cause. Use `next dev --turbo` or a prod build for speed.
+  compiles on first visit). Use `next dev --turbo` or a prod build for speed.
 - CodeGraph MCP is available (`codegraph_*`) — prefer it for structural queries.

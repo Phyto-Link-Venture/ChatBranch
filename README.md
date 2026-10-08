@@ -1,71 +1,86 @@
 # ChatBranch
 
 An industry-agnostic **multi-channel conversation platform** you can clone and
-configure for your own business. One operator dashboard, one AI brain, and one
-contact record shared across WhatsApp, email, Telegram, Messenger, Instagram
-**and real phone calls**.
+configure for your own business. One operator dashboard, one AI brain and one
+contact record shared across WhatsApp, a website chat widget, email, Telegram,
+Messenger, Instagram **and real phone calls**.
 
 It is a template, not a product: the domain logic lives in editable
-configuration (persona, skills, knowledge base, visual flows, contact
-attributes), not in the code. Configuring it for e-commerce, logistics,
-services or clinics is a settings exercise, not a fork —
-see **[docs/vertical-guide.md](docs/vertical-guide.md)**.
+configuration (AI skills, a knowledge base, visual flows, tags, custom fields),
+not in the code. Configuring it for e-commerce, logistics, services or clinics
+is a settings exercise, not a fork — see
+**[docs/vertical-guide.md](docs/vertical-guide.md)**.
 
 > **It runs with zero API keys.** Every channel and every integration has a
 > sandbox mode: messages are stored locally, inbound traffic can be simulated
 > from the UI, and integration actions report a clean "skipped, not connected".
-> You can clone, `npm run setup`, `npm run dev:all` and click through the whole
-> product before signing up for anything. See
-> [What works with zero keys](#what-works-with-zero-api-keys).
+> Clone, `npm run setup`, `npm run dev:all` and click through the whole product
+> before signing up for anything.
 
 ---
 
-## What's in the box
+## Features
 
-| Capability | Status |
-|---|---|
-| Unified inbox (`/chats`) across WhatsApp / email / Telegram / Messenger / Instagram | working |
-| AI auto-reply on every text channel, from one shared brain | working |
-| Operator-authored **persona**, **skills** and **knowledge base** (no redeploy) | working |
-| Per-contact **AI memory** — conversation summaries + durable facts, shared by chat and voice | working |
-| Visual **flow builder** with a real execution engine (triggers, waits, decisions, actions) | working |
-| Outbound **pacing queue** — jitter, daily caps, active-conversation caps, quiet hours | working |
-| **AI voice calls** over SIP, with live transcript, guide / take-over / escalate | working |
-| **AI voice calls over WhatsApp** (two transports — see the honesty notes) | working, with caveats |
-| Multi-account channels, health monitoring, sticky routing + failover | working |
-| Third-party integrations: Google Calendar / Drive / Gmail / Sheets, Shopify, Stripe | working, fixture-tested only |
-| RBAC (superadmin / admin / agent), tenants, brands, audit log, notifications | working |
+- **Unified inbox** (`/chats`) — every channel in one server-filtered list with
+  a filter pop-up, per-user saved views, labels, teams, assignment, private
+  notes, AI summaries and a live SSE stream (no polling).
+- **One AI brain for every channel** — skills (prompt instructions, sandboxed
+  JavaScript **tools** the model calls, and **reply checks** that vet every
+  draft), a self-expiring knowledge base, per-contact memory, built-in date/time
+  tools. Describe a skill in plain words and the wizard drafts and tests the code.
+- **AI monitor** (`/ai-monitor`) — every AI message is recorded; choose auto,
+  review risky replies, review everything, or shadow mode. Human-like delivery:
+  waits for the customer to finish, skips "ok/thanks", types, splits long
+  replies, and follows up when a conversation goes quiet.
+- **Flow builder** (`/flow-builder`) — a step list for most people, a canvas for
+  power users, starter templates, a real execution engine (triggers, waits,
+  "follow up if no reply", branches, hand-over, AI messages, calls, app actions)
+  and a Runs panel showing how many people reached each step.
+- **Outbound pacing queue** — jittered per-account gaps, daily caps, quiet hours,
+  atomic claims; calls are queued too.
+- **AI voice calls** over SIP or WhatsApp (LiveKit), with a live transcript and
+  guide / take-over / escalate / end.
+- **Tags** with attributes and exclusive groups for contacts, entities and
+  conversations; **custom fields**; both usable as template variables.
+- **Entities** (a branch tree), teams, automations, bulk **bindings**, role-based
+  access with a capability matrix, API keys, an **MCP server** (`/mcp`) for AI
+  apps, and an in-app assistant ("Ask ChatBranch") that acts as you.
+- **Integrations** — Google Calendar / Drive / Gmail / Sheets (OAuth, per user or
+  shared), Shopify and Stripe (HMAC-verified webhooks).
+- **Analytics** home page, reports with CSV export, LLM usage/billing, an
+  activity log of who did what from where (dashboard, API, MCP, assistant, flow).
+- **Paper & Ink** design system — three themes × light/dark, per-user accent,
+  text size and corners; installable PWA with a phone tab bar.
+
+Not every transport is live yet in the C# backend (email, Telegram sends and
+Messenger/Instagram are sandbox-only today) — read
+[Honest limitations](#honest-limitations) before you plan a launch.
+
+## Screenshots
+
+The design system and key screens are on the design canvas:
+**https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb**
 
 ---
 
 ## The four processes
 
-ChatBranch is four cooperating processes. They are separate on purpose.
-
 | # | Process | Path | Port | What it does |
 |---|---|---|---|---|
-| 1 | **C# API** | `backend-csharp/` | 8090 | The whole REST surface, the database, the channel transports, the flow engine, the outbound queue. |
-| 2 | **Voice agent worker** | `backend/voice_agent/` | — | A long-lived [LiveKit Agents](https://docs.livekit.io/agents/) process (Node/TypeScript). Runs every AI call the API dispatches — SIP or WhatsApp — with a realtime speech model or an STT→LLM→TTS cascade, and streams a live transcript. It shares state with the API through files, not the database. |
+| 1 | **C# API** | `backend-csharp/` | 8090 | ASP.NET Core 8 + EF Core over SQLite. The whole REST surface, the database, the channel transports, the AI, the flow engine, the outbound queue, the LiveKit control plane for calls, the MCP server. |
+| 2 | **Voice agent worker** | `backend/voice_agent/` | — | A long-lived [LiveKit Agents](https://docs.livekit.io/agents/) process (Node/TypeScript). Runs every AI call the API dispatches — SIP or WhatsApp — with a realtime speech model or an STT→LLM→TTS cascade. Shares state with the API through files, not the database. |
 | 3 | **Next.js dashboard** | `frontend/` | 3000 | The operator UI. |
-| 4 | **Baileys gateway** | `backend/baileys_service/` | 3020 | Node sidecar for QR-paired personal WhatsApp numbers. Optional; the C# API is its only client. |
+| 4 | **Baileys gateway** | `backend/baileys_service/` | 3020 | Node sidecar for QR-paired personal WhatsApp numbers (text + calls). Optional; the C# API is its only client. |
 
-How they talk to each other:
-
-```bash
-cd backend-csharp && dotnet build src/ChatBranch.Api -c Release
-cd backend-csharp && QUEUE_WORKER=0 dotnet test tests/ChatBranch.Tests   # 47 tests
-cd frontend && npx tsc --noEmit
-cd frontend && npx eslint src
-cd frontend && npx next build
 ```
                     ┌──────────────── Next.js dashboard :3000
                     │                        │ HTTP + SSE
                     ▼                        ▼
-   providers ──▶  C# API :8090  ──▶ SQLite (crm)
-   (Meta, SMTP,      │   ▲
-    Telegram…)       │   │  files in backend/data/  (live transcripts,
-                     │   │  operator inbox, call records — deliberate IPC)
-                     ▼   │
+   providers ──▶  C# API :8090  ──▶ SQLite (chatbranch.sqlite3)
+   (Meta, Telegram,  │   ▲   └──▶ LiveKit (dispatch + SIP)
+    Shopify, Stripe…)│   │
+                     │   │  files in CHATBRANCH_DATA_DIR (live transcripts,
+                     ▼   │  operator inbox, calls.json — deliberate IPC)
               Voice agent worker ──SIP──▶ phone network
                      ▲
                      │ LiveKit room (audio)
@@ -73,28 +88,20 @@ cd frontend && npx next build
 ```
 
 The voice agent shares state with the API through **JSON files under
-`backend/data/`**, not the database. That is a deliberate choice: the agent
-process stays free of the API so it can be deployed, restarted and scaled on
-its own. If you move to multi-host, that file layer is the seam to replace.
+`CHATBRANCH_DATA_DIR`** (default `backend/data`), not the database — the agent
+stays free of the API so it can be deployed, restarted and scaled on its own. If
+you move to multi-host, that file layer is the seam to replace.
 
 ---
 
 ## Prerequisites
 
-**To run the dashboard and the messaging side (no keys needed):**
-
-- **.NET 8 SDK** (the API)
-- **Node 20+** (dashboard, Baileys gateway, voice agent)
-
-**Only if you want real AI replies:** an `OPENAI_API_KEY` or
-`OPENROUTER_API_KEY`.
-
-**Only if you want real phone calls:**
-
-- A [LiveKit](https://cloud.livekit.io) project (URL + API key/secret) with SIP enabled
-- An OpenAI key with Realtime API access (model `gpt-realtime`)
-- A SIP trunk for outbound PSTN (e.g. Twilio Elastic SIP Trunking) — one-time
-  setup via `npm --prefix backend/voice_agent run setup-trunk`
+- **.NET 8 SDK** (the API) and **Node 20+** (dashboard, gateway, voice agent).
+- **Only for real AI replies:** an OpenRouter or OpenAI key.
+- **Only for real phone calls:** a [LiveKit](https://cloud.livekit.io) project
+  with SIP, an OpenAI key with Realtime API access (`gpt-realtime`) or an
+  ElevenLabs/ILMU cascade, and a SIP trunk (e.g. Twilio Elastic SIP Trunking) —
+  see [backend/voice_agent/README.md](backend/voice_agent/README.md).
 
 Nothing above is required to explore the product.
 
@@ -106,126 +113,113 @@ Nothing above is required to explore the product.
 git clone <your-fork-url> chatbranch
 cd chatbranch
 npm install         # root dev tooling (concurrently)
-npm run setup       # npm install for the frontend, the Baileys gateway and
-                    # the voice agent (the API seeds itself on first boot)
-npm run dev:all     # starts all four processes with prefixed logs
+npm run setup       # npm install for the frontend, the Baileys gateway and the
+                    # voice agent (the API seeds itself on first boot)
+SEED_DEMO=1 npm run dev:all   # all four processes with prefixed logs
+                              # (PowerShell: $env:SEED_DEMO=1; npm run dev:all)
 ```
 
-Then open **http://localhost:3000** and sign in with one of the demo accounts
-created by `seed_demo`:
+Then open **http://localhost:3000** and sign in.
+
+A clean boot seeds only one login, `superadmin` (password from
+`SUPERADMIN_PASSWORD`, else `super123`). **`SEED_DEMO=1`** also creates:
 
 | Username | Password | Role |
 |---|---|---|
-| `superadmin` | `super123` | everything, all tenants, global keys |
-| `admin` | `admin123` | their tenant: accounts, users, flows |
-| `agent` | `agent123` | only the brands assigned to them |
+| `superadmin` | `super123` | everything, every tenant, global keys and the permission matrix |
+| `admin` | `admin123` | their tenant: channels, users, flows, settings except keys |
+| `agent` | `agent123` | the inbox, contacts, analytics, AI monitor — scoped to assigned entities |
 
-**These are POC credentials in a public template. Change them before any
-deployment.**
+plus one sample contact. **These are POC credentials in a public template.
+Rotate them before any deployment.**
 
-### Cross-platform: Windows, macOS, Linux
+**Turn on real AI replies:** sign in as superadmin → **Settings → AI keys &
+models** and paste an OpenRouter (or OpenAI) key; pick the model there. Or
+export `OPENROUTER_API_KEY` / `OPENAI_API_KEY` in the API's environment before
+`npm run dev:api` (the API reads its process environment and the dashboard's
+Setting rows — it does not read `backend/.env` for these).
 
-`npm run setup` and `npm run dev:*` work the same on Windows, macOS and
-Linux. The API needs the .NET 8 SDK; everything else is Node.
-
-Ports 8090, 3000 and 3020 must be free.
-
-Individual processes: `npm run dev:api`, `npm run dev:agent`, `npm run
-dev:web`, `npm run dev:baileys`. `npm run dev` is an alias for
-`npm run dev:all`. Ctrl+C stops all of them.
-
-If you'd rather run the four processes by hand instead of through npm:
+Individual processes: `npm run dev:api`, `npm run dev:agent`, `npm run dev:web`,
+`npm run dev:baileys` (`npm run dev` = `dev:all`). Ports 8090, 3000 and 3020 must
+be free. Running the API by hand:
 
 ```bash
-# 1. API — SQLite is created and seeded on first boot, no bootstrap needed
-cd backend-csharp
-dotnet run --project src/ChatBranch.Api --urls http://0.0.0.0:8090   # :8090
-
-# 2. Voice agent worker (separate terminal; only needed for calls)
-cd backend/voice_agent && npm install && npm run dev
-
-# 3. Dashboard (separate terminal)
-cd frontend && npm install && npm run dev           # :3000
-
-# 4. Baileys gateway (separate terminal; only for QR-paired WhatsApp)
-cd backend/baileys_service && npm install && npm start      # :3020
+dotnet run --project backend-csharp/src/ChatBranch.Api --urls http://0.0.0.0:8090
 ```
+
+`--urls` beats the launch profile; an `ASPNETCORE_URLS` env var does NOT (the
+`http` profile in `launchSettings.json` overrides it) — use
+`dotnet run --no-launch-profile` if you configure the URL through the
+environment. The dev database is `backend-csharp/src/ChatBranch.Api/chatbranch.sqlite3`.
+
+### Docker
+
+`docker compose up` builds the API and the dashboard in sandbox mode. Add
+`--profile whatsapp` for the Baileys gateway and `--profile voice` for the voice
+agent (LiveKit keys in `backend/.env`). SQLite and the shared data dir live in
+the `chatbranch-data` volume — don't drop it. `docker-compose.override.yml` +
+`deploy/nginx-chatbranch.conf` show one single-origin production setup.
 
 ---
 
 ## What works with zero API keys
 
-This is the point of the sandbox, so it is worth being precise about it.
-
-**Fully working offline:**
-
-- The whole dashboard: contacts, chats, flow builder, analytics, settings, RBAC.
-- **Chats.** Send a message on any channel and it is stored as a real
-  `crm.Message` with `status="sandbox"` — it just never leaves the machine.
-  Fake an inbound message with the **Simulate** action on a thread
-  (`POST /api/whatsapp/threads/<wa_id>/simulate`, or the messaging equivalent).
-- **WhatsApp templates.** Three demo templates (`order_confirmation`,
-  `delivery_update`, `appointment_reminder`) are served and rendered locally, so
-  the template path is demoable without a WABA.
-- **Flow builder + engine.** Flows execute for real against the seeded contacts;
-  sends land in the outbound queue and are stored as sandbox messages.
-- **Knowledge base, skills, persona.** Editable and previewable — `POST
-  /api/aicore/knowledge/preview` shows the exact prompt block the AI would get.
-- **Integrations.** `GET /api/integrations/providers` reports `sandbox: true`;
-  every flow action returns `{ok: false, skipped: true, detail: "<Provider> is
-  not connected — step skipped."}` and the flow run continues. `oauth/start`
-  returns a readable 400 instead of opening a socket.
-
-**Needs a key:**
-
-- AI replies and conversation summaries — set `OPENAI_API_KEY` or
-  `OPENROUTER_API_KEY` in `backend/.env`. Without one, the AI paths log and skip.
-- Any real send/receive (see below).
-- Voice calls of any kind — they need LiveKit plus a realtime model.
+- The whole dashboard: inbox, contacts, flow builder, AI monitor, analytics,
+  tags, settings, RBAC, the assistant (in a deterministic fallback mode).
+- **Chats.** Sends on any channel are stored as real messages with
+  `status="sandbox"`. Fake an inbound message with **Simulate**
+  (`POST /api/whatsapp/simulate`) — it runs the same inbound path as a webhook:
+  contact linking, flows, team routing, automations, notifications, and (with
+  `?ai=1`) the AI reply.
+- **WhatsApp templates.** Three demo templates plus your own are rendered
+  locally.
+- **Flows** execute for real against your contacts; sends land in the outbound
+  queue and are stored as sandbox messages.
+- **AI skills** — the describe-a-skill wizard uses a built-in template library
+  and code skills run in the sandbox; replies come from a sandbox echo until a
+  key is set.
+- **Integrations** report `sandbox: true`; every action returns
+  `{ok: false, skipped: true, detail: …}` and the flow run continues.
 
 ---
 
 ## Connecting real channels
 
-All accounts are added from **Settings → Channels** in the dashboard; nothing
-requires a restart. `.env` keys act as a read-only fallback account.
+All accounts are added from **Channels** (`/channels`) in the dashboard — pick a
+channel, follow the setup drawer (connect → who answers it → test). Nothing
+requires a restart.
 
-| Channel | What you need |
-|---|---|
-| **WhatsApp (Cloud API)** | A Meta app, a phone number ID, an access token, an app secret, and a public webhook URL. Full walkthrough: **[backend/whatsapp/SETUP.md](backend/whatsapp/SETUP.md)**. |
-| **WhatsApp (Baileys)** | Nothing but a spare phone. Add an account with provider `baileys` and scan the QR. ⚠ Read the ToS warning below. |
-| **Telegram** | A BotFather token. Then **Set webhook** on the account with your public base URL. |
-| **Messenger / Instagram** | A Meta page/IG-professional account + page access token; webhook at `/api/messaging/webhook`. ⚠ No signature verification yet — see below. |
-| **Email** | Per-mailbox SMTP + IMAP credentials on an email account row. Inbound is pulled by `POST /api/messaging/email/sync` (the chats page nudges it). |
-| **Voice (SIP)** | LiveKit + a SIP trunk. Run `npm --prefix backend/voice_agent run setup-trunk` once, then fill Settings → Channels → Voice. See [backend/voice_agent/README.md](backend/voice_agent/README.md). |
+| Channel | What you need | Status in the C# API |
+|---|---|---|
+| **WhatsApp (Cloud API)** | A Meta app, phone number ID, access token, app secret, WABA id, and a public webhook (`/api/whatsapp/webhook`) | inbound + text send live; templates go out as rendered text; media send stored locally |
+| **WhatsApp (Baileys)** | A spare phone. Add a "QR" WhatsApp inbox and scan. ⚠ Read the ToS warning below | inbound text, send, calls live; inbound media dropped |
+| **Website widget** | Nothing — paste the snippet the inbox gives you | live |
+| **Telegram** | A BotFather token; register `https://<host>/api/messaging/webhook/telegram/<token>` with Telegram yourself | inbound live; replies are sandbox-only |
+| **Email** | Per-mailbox SMTP/IMAP credentials | sandbox-only (no SMTP send, IMAP sync is a stub) |
+| **Messenger / Instagram** | A page token | sandbox-only (no inbound webhook route yet) |
+| **Voice (SIP)** | LiveKit + a SIP trunk: `npm --prefix backend/voice_agent run setup-trunk`, then Channels → Voice | live |
 
-Inbound webhooks need a public HTTPS URL. For local development, tunnel port
-8090 (`ngrok http 8090` or `cloudflared tunnel --url http://localhost:8090`)
-and add the tunnel host to `ALLOWED_HOSTS` in `backend/.env`.
+Inbound webhooks need a public HTTPS URL; for local development tunnel port 8090
+(`ngrok http 8090` or `cloudflared tunnel --url http://localhost:8090`).
 
 ## Connecting integrations
 
-**Settings → Integrations.** Two kinds:
+**Integrations** (`/integrations`):
 
-- **Google** (Calendar, Drive, Gmail, Sheets) — OAuth2 with PKCE. Create one
-  Google Cloud OAuth client, paste the client id/secret into the superadmin-only
-  panel on that page (or set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` in
-  `.env`), then click **Connect** per product. Scopes are requested
-  incrementally, per product.
-- **Shopify / Stripe** — API-key providers. Shopify wants a custom-app Admin API
-  token; Stripe wants a secret key. Both also take a **webhook signing secret**,
-  and both webhooks are HMAC-verified. An unsigned or badly-signed payload is
-  rejected with **401**, and a webhook whose secret was never configured
-  answers **503** — it never falls back to accepting unsigned traffic.
+- **Google** (Calendar, Drive, Gmail, Sheets) — OAuth2 with PKCE. Register one
+  Google Cloud OAuth client, enter its id/secret in **Settings → App & provider
+  keys** (or `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`), set
+  `GOOGLE_REDIRECT_URI` + `FRONTEND_URL` in production, then **Connect** per
+  product. A connection can be yours, an entity's, or organization-wide.
+- **Shopify / Stripe** — API-key providers with a **webhook signing secret**.
+  Both webhooks are HMAC-verified; a bad signature is rejected with 401 and a
+  webhook whose secret was never configured answers **503** — never "accept
+  unsigned". Shopify `orders/*` and Stripe `payment_intent.succeeded` become
+  `Record` + `RecordEvent` rows.
 
-Shopify `orders/*` and Stripe `payment_intent.succeeded` are mapped onto
-`crm.Record` + `crm.RecordEvent`, matching the contact by phone then email. That
-is what makes the e-commerce vertical work end to end without writing code.
-
-The seven integration actions available to flow-builder Action nodes:
-`Create calendar event` · `Find free slot` · `Upload file to Drive` ·
-`Append row to Sheet` · `Send via Gmail` · `Update order status` ·
-`Create Stripe payment link`.
+Flow "App action" steps: `Create calendar event` · `Find free slot` ·
+`Upload file to Drive` · `Append row to Sheet` · `Send via Gmail` ·
+`Update order status` · `Create Stripe payment link`.
 
 ---
 
@@ -233,28 +227,24 @@ The seven integration actions available to flow-builder Action nodes:
 
 ```
 ChatBranch/
-├── backend-csharp/        THE BACKEND (ASP.NET Core 8, EF Core + SQLite)
-│   ├── src/ChatBranch.Api/        minimal-API endpoints, one file per area
-│   │   ├── Endpoints/             contacts, inbox, whatsapp, messaging, flows,
-│   │   │                          ai, analytics, integrations, admin, v1…
-│   │   ├── Auth/                  bearer tokens, policies, provider scope
-│   │   └── Workers/               outbound queue drain + flow ticker
-│   ├── src/ChatBranch.Data/       stores, services, the seams that do the work
-│   │   ├── Ai/                    assistant, persona, knowledge, summaries
-│   │   ├── Channels/              send/receive, per-account delivery settings
-│   │   ├── Flows/                 flow engine + the outbound pacing queue
-│   │   ├── Integrations/          Google OAuth, actions, key resolution
-│   │   └── Stores/                thread/message store
-│   ├── src/ChatBranch.Domain/     entities (Contact, Thread, Message, Entity…)
-│   └── tests/ChatBranch.Tests/    56 API-level tests
-├── backend/               the two framework-free sidecars + their state
-│   ├── baileys_service/   Node gateway for QR-paired WhatsApp numbers (:3020)
-│   ├── voice_agent/       LiveKit worker (Node/TypeScript) — its own process
-│   └── data/              LIVE state: WhatsApp session, media, call records
-│                          (gitignored — never delete)
-├── frontend/              Next.js dashboard (App Router, :3000)
-├── docs/                  domain model, RBAC, schema, channel adapters
-└── scripts/               cross-platform launchers
+├── backend-csharp/              THE BACKEND (ASP.NET Core 8, EF Core + SQLite)
+│   ├── src/ChatBranch.Api/      Program, endpoints (one file per area), auth +
+│   │                            API keys, request audit, MCP tools, the operator
+│   │                            assistant, background workers
+│   ├── src/ChatBranch.Data/     AppDbContext + Seed, scoping, stores, AI (gate,
+│   │                            composer, skills sandbox), flows + queue, channels,
+│   │                            integrations, notifications, tags, sidecar clients
+│   ├── src/ChatBranch.Domain/   entities
+│   └── tests/ChatBranch.Tests/  218 xUnit tests (API-level + unit)
+├── backend/
+│   ├── baileys_service/         Node gateway for QR-paired WhatsApp numbers (:3020)
+│   ├── voice_agent/             LiveKit worker (Node/TypeScript) — its own process
+│   ├── .env.example             sidecar + LiveKit config (copy to backend/.env)
+│   └── data/                    LIVE state: WhatsApp session, media, call files
+│                                (gitignored — never delete)
+├── frontend/                    Next.js dashboard (App Router, :3000)
+├── deploy/                      example nginx config
+└── docs/                        domain model, schema, API, RBAC, channels, guide
 ```
 
 ---
@@ -263,65 +253,49 @@ ChatBranch/
 
 ```bash
 cd backend-csharp && dotnet build src/ChatBranch.Api -c Release
-cd backend-csharp && QUEUE_WORKER=0 dotnet test tests/ChatBranch.Tests   # 47 tests
-cd frontend && npx tsc --noEmit
-cd frontend && npx eslint src
-cd frontend && npx next build
+cd backend-csharp && dotnet test tests/ChatBranch.Tests    # 218 tests
+cd frontend && npx tsc --noEmit && npx eslint src && npx next build
+cd backend/voice_agent && npx tsc --noEmit && npm run selftest
+node backend/baileys_service/calls.js --selftest
 ```
 
-`QUEUE_WORKER=0` stops the outbound-queue drain thread racing the assertions.
-
-There is **no CI workflow in this repo**. If you publish a fork, wiring the
-commands above into GitHub Actions is a five-minute job and worth doing.
+The test host disables the background workers and the human-like AI defaults
+itself (`QUEUE_WORKER=0`, `FLOWS_WORKER=0`, `AI_FOLLOWUP_WORKER=0`,
+`AI_HUMANIZE=0`) and seeds the demo logins (`SEED_DEMO=1`). CI
+(`.github/workflows/ci.yml`) runs all of the above on every push to master and
+every pull request.
 
 ---
 
 ## Honest limitations
 
-A template that oversells wastes your time. These are the real edges:
-
+- **Several transports are not ported to the C# backend yet.** Email (SMTP and
+  IMAP), Telegram replies and Messenger/Instagram store messages in sandbox
+  mode; WhatsApp Cloud sends templates as rendered text (outside the 24-hour
+  window Meta will reject them) and doesn't send media; inbound media isn't
+  stored; there is no periodic channel-health prober and no automatic account
+  failover; STOP/UNSUBSCRIBE opt-out detection isn't ported. The full table is
+  in [CLAUDE.md](CLAUDE.md#port-status--what-is-real-what-is-sandbox).
 - **WhatsApp via Baileys violates WhatsApp's Terms of Service.** It speaks the
-  unofficial WhatsApp Web protocol. Automated messaging — and *especially*
-  automated calling — gets numbers banned. It is here for development and demos
-  because Meta's calling API is gated. Use a dedicated spare number, keep volumes
-  low, and do not ship it to production. Background research, including real ban
-  statistics and where the queue's pacing defaults come from:
+  unofficial WhatsApp Web protocol; automated messaging — and *especially*
+  automated calling — gets numbers banned. It is here for development and demos.
+  Use a dedicated spare number, keep volumes low, don't ship it to production.
+  Research and ban statistics:
   [`backend/baileys_service/RESEARCH.md`](backend/baileys_service/RESEARCH.md).
-- **WhatsApp Cloud voice calling is untested against a live number.** Meta's
-  Business Calling API is a gated beta. The bridge (`whatsapp/bridge.py`,
-  aiortc ↔ LiveKit) is fully implemented and self-tests offline
-  (`python -m whatsapp.bridge --selftest`), but it has never completed a call
-  with a real calling-enabled Meta number. Expect field debugging.
-- **The Messenger / Instagram webhook has no signature verification.** The
-  WhatsApp webhook checks `X-Hub-Signature-256`; `/api/messaging/webhook` does
-  not. Anyone who learns the URL can post fake inbound messages. This is a known,
-  unfixed gap — see [`docs/channel-adapter.md`](docs/channel-adapter.md). Do not
-  expose it publicly without fixing it first.
-- **Integrations are fixture-tested, never provider-tested.** The Shopify and
-  Stripe webhook mappings, and the HTTP shapes of the seven Google actions, are
-  covered by tests built from documented payloads — no live Shopify store,
-  Stripe account or Google Workspace has ever exercised them. Treat the first
-  real connection as an integration test you are running yourself.
-- **SQLite by default.** Fine for development and a single-host pilot; it is not
-  a production database for concurrent writes. `DATABASE_URL` with a
-  `postgres://` value switches the ORM to Postgres, but nothing beyond the ORM
-  has been tuned for it.
-- **Tenant isolation is enforced in the application layer only.** There is no
-  row-level security. A missing filter is a data leak; the tests cover the
-  current query paths, not future ones.
-- **Demo credentials and a dev secret key ship in the repo.** Before any
-  deployment: rotate the three demo passwords, set the CORS origins in
-  `backend-csharp/src/ChatBranch.Api/appsettings.json`, and change
-  `BAILEYS_SECRET`. The WhatsApp verify token auto-generates on first use — the
-  shipped default is never accepted.
-- **SMS has no provider.** Flow SMS actions log and skip.
-- **There is no container deployment yet.** `docker-compose.yml` was removed
-  with the Django backend on 2026-08-16 — it built a Python image that no
-  longer exists and pointed at Postgres, while the C# API uses SQLite. The four
-  processes run directly (`npm run dev:all`, or a process manager per service);
-  a compose/Dockerfile pass for `backend-csharp` is still to do.
-- **The AI insights panel's sentiment/highlights are static mock data.** The
-  transcript and knowledge-base references next to them are real.
+- **WhatsApp Cloud voice calling is not available** — the old WebRTC bridge
+  went with the Django backend; WhatsApp calls run over Baileys only.
+- **Integrations are fixture-tested, never provider-tested.** Treat your first
+  real Shopify/Stripe/Google connection as an integration test.
+- **SQLite only.** Fine for development and a single-host pilot; not a
+  production database for heavy concurrent writes. There are no EF migrations —
+  schema upgrades are additive statements in `Seed.UpgradeSchema`.
+- **Tenant isolation is application-layer only.** No row-level security; a
+  missing filter is a data leak.
+- **Demo credentials ship in the repo.** Before any deployment: set
+  `SUPERADMIN_PASSWORD`, don't set `SEED_DEMO`, set the CORS origins
+  (`backend-csharp/src/ChatBranch.Api/appsettings.json` or `Cors__Origins__0`),
+  and change `BAILEYS_SECRET`.
+- **SMS has no provider.** Flow SMS steps log and skip.
 
 ---
 
@@ -330,24 +304,24 @@ A template that oversells wastes your time. These are the real edges:
 | You want to… | Read |
 |---|---|
 | Configure this for your industry | **[docs/vertical-guide.md](docs/vertical-guide.md)** |
-| Understand the data model | [docs/DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) |
-| Call the API | [docs/API_CONVENTIONS.md](docs/API_CONVENTIONS.md) · live schema at `/api/v1/docs` |
-| Feed contacts/records from your own system | [docs/record-sync.md](docs/record-sync.md) |
-| Understand roles, tenants, brands | [docs/RBAC_AND_BRANDS.md](docs/RBAC_AND_BRANDS.md) |
+| Understand the data model | [docs/DOMAIN_MODEL.md](docs/DOMAIN_MODEL.md) · [docs/DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) |
+| Call the API (or connect an AI app over MCP) | [docs/API_CONVENTIONS.md](docs/API_CONVENTIONS.md) |
+| Feed records from your own system | [docs/record-sync.md](docs/record-sync.md) |
+| Understand roles, capabilities and entities | [docs/RBAC_AND_BRANDS.md](docs/RBAC_AND_BRANDS.md) |
 | Add or debug a channel | [docs/channel-adapter.md](docs/channel-adapter.md) |
-| Link a real WhatsApp Business number | [backend/whatsapp/SETUP.md](backend/whatsapp/SETUP.md) |
+| Run real calls | [backend/voice_agent/README.md](backend/voice_agent/README.md) |
 | Understand the Baileys transport and its risk | [backend/baileys_service/README.md](backend/baileys_service/README.md) · [RESEARCH.md](backend/baileys_service/RESEARCH.md) |
-| Change the code (or point a coding agent at it) | [CLAUDE.md](CLAUDE.md) |
+| Change the code (or point a coding agent at it) | [CLAUDE.md](CLAUDE.md) · [AGENTS.md](AGENTS.md) |
 
 ## Notes
 
 - **Dev slowness is Next.js**, not your machine: each route compiles on first
   visit. Use `next dev --turbo` or a production build for a faster loop.
-- API base for the frontend is `NEXT_PUBLIC_API_URL` (default
-  `http://localhost:8090/api`). If the API is unreachable the dashboard falls
-  back to the bundled mock data in `src/lib/mocks.ts`.
+- The dashboard's API base is `NEXT_PUBLIC_API_URL` (default
+  `http://localhost:8090/api`), baked in at build time.
 - `NEXT_PUBLIC_MAX_CONCURRENT` (default `3`) caps simultaneous live calls —
   match it to your SIP trunk's concurrent-channel limit.
-- The WhatsApp module's API surface and the `/chats` three-pane design follow
-  [Whatomate](https://github.com/shridarpatil/whatomate) (Go, AGPL). Protocol
-  shapes were reimplemented, not copied.
+- The WhatsApp module's API surface was modelled on
+  [Whatomate](https://github.com/shridarpatil/whatomate) (Go, AGPL) and the
+  inbox/teams/automations on Chatwoot. Protocol shapes were reimplemented, not
+  copied.
