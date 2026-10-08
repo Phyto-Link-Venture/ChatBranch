@@ -205,7 +205,9 @@ cache) live in `ChatBranch.Data/Tags/TagService.cs`.
 mid / tg id) · `direction` (`in`\|`out`) · `source` (`customer`\|`agent`\|`ai`\|
 `system`) · `private` (internal note) · `text` · `status`
 (`sent`/`delivered`/`read`/`received`/`sandbox`/`failed`) · `media_type` ·
-`media_path` · `created_at` (provider timestamp for inbound). **Unique**
+`media_path` (relative to `data/whatsapp/media/` or `data/messaging/media/`) ·
+`error` (Meta's code + reason for a failed delivery, e.g. `131047: …`) ·
+`created_at` (provider timestamp for inbound). **Unique**
 `(thread_id, external_id)` where `external_id <> ''`
 (`uniq_message_thread_external_id`) — the webhook-redelivery guarantee.
 

@@ -123,7 +123,8 @@ public static class CallsVoiceEndpoints
         // in Django too and has no C# store yet, so this returns the ai-call
         // rows only — the page's "WhatsApp" tab simply counts 0.
         // Auth-gated like Django (the page sends authHeaders()).
-        app.MapGet("/api/call-logs", async (AppDbContext db, VoiceAgentBridge bridge) =>
+        app.MapGet("/api/call-logs", async (AppDbContext db, VoiceAgentBridge bridge,
+            ChatBranch.Data.Channels.CallRecordings recordings) =>
         {
             await VoiceCallSync.SyncAsync(db, bridge); // fold in calls the agent finished since
             var rows = await db.CallRecords.AsNoTracking()
@@ -143,10 +144,10 @@ public static class CallsVoiceEndpoints
                     ["ts"] = CallTs(r),
                     ["outcome"] = r.Outcome ?? "",
                     ["summary"] = r.Summary ?? "",
-                    // The agent records to data/recordings/, but nothing in this
-                    // build serves those files yet, so the row reports "no audio"
-                    // rather than a dead link.
-                    ["recording"] = null,
+                    // The agent's WAV (data/recordings/{call_id}.wav) when it exists —
+                    // streamed by GET /api/calls/recording/{call_id}; else "no audio".
+                    ["recording"] = recordings.ResolveAgentCall(r.CallId) != null
+                        ? $"/api/calls/recording/{Uri.EscapeDataString(r.CallId)}" : null,
                     ["transcript"] = ParseTranscript(r.Transcript),
                     ["contact_id"] = r.ContactId,
                 })

@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
 using ChatBranch.Data.Channels;
@@ -49,7 +48,16 @@ public static class WhatsAppThreadsEndpoints
 
     public record SendTextRequest(string? Text, bool Force = false);
 
-    public record SendTemplateRequest(string? Name, string? Language, List<string>? Variables);
+    /// <summary>
+    /// <c>variables</c> fill the body's {{1}}…{{n}} (positional). A TEXT header and
+    /// dynamic URL buttons take <c>header_variables</c> / <c>button_variables</c>
+    /// when given (else the body value of the same number); a media header needs
+    /// <c>header_media_url</c>.
+    /// </summary>
+    public record SendTemplateRequest(string? Name, string? Language, List<string>? Variables,
+        [property: JsonPropertyName("header_variables")] List<string>? HeaderVariables = null,
+        [property: JsonPropertyName("button_variables")] List<string>? ButtonVariables = null,
+        [property: JsonPropertyName("header_media_url")] string? HeaderMediaUrl = null);
 
     public record ToggleAiRequest(bool Enabled);
 
@@ -97,24 +105,6 @@ public static class WhatsAppThreadsEndpoints
         [".m4a"] = ("audio", "audio/mp4"),
         [".mp4"] = ("video", "video/mp4"),
     };
-
-    /// <summary>
-    /// Sandbox template set — mirrors WhatsAppSettingsEndpoints.DemoTemplates so a
-    /// template send works with zero Meta credentials (views.DEMO_TEMPLATES).
-    /// </summary>
-    private static readonly Dictionary<string, string> DemoTemplateBodies = new()
-    {
-        ["order_confirmation"] =
-            "Hi {{1}}, thanks for your order {{2}}. We'll have it ready by {{3}}. " +
-            "Reply here if you have any questions.",
-        ["delivery_update"] =
-            "Hi {{1}}, an update on {{2}}: it's on the way and should arrive on {{3}}. " +
-            "Reply here if anything needs to change.",
-        ["appointment_reminder"] =
-            "Hi {{1}}, a reminder about {{2}} on {{3}}. Reply here to reschedule.",
-    };
-
-    private static readonly Regex PlaceholderRe = new(@"\{\{\s*(\d+)\s*\}\}", RegexOptions.Compiled);
 
     private const string ColdTextBlockDetail =
         "This number has never received a message from this contact. Cold free-text "
@@ -229,10 +219,13 @@ public static class WhatsAppThreadsEndpoints
 
         // ---- send: template --------------------------------------------------
         // views.send_template — the only way to (re)open a conversation outside
-        // the 24h window, so it deliberately does NOT check window_open.
+        // the 24h window, so it deliberately does NOT check window_open. A
+        // configured Cloud number sends a REAL template message (name, language,
+        // header/body/button parameters) and the inbox stores the rendered body;
+        // Baileys and sandbox store/send the rendered body as text.
         app.MapPost("/api/whatsapp/threads/{key}/send-template", async (string key,
             SendTemplateRequest body, AppDbContext db, ScopingService sc, OutboundSender sender,
-            IWhatsAppCloudClient wa, ClaimsPrincipal me, HttpContext ctx) =>
+            IWhatsAppCloudClient wa, WhatsAppTemplateCatalog catalog, ClaimsPrincipal me, HttpContext ctx) =>
         {
             var name = (body.Name ?? "").Trim();
             if (name.Length == 0)
@@ -257,33 +250,26 @@ public static class WhatsAppThreadsEndpoints
                     detail = "Quiet hours are in effect for this account (Settings → Channels → "
                              + "edit account) — template sends resume when they end.",
                 }, statusCode: 409);
-            var bodyText = DemoTemplateBodies.TryGetValue(name, out var demo) ? demo : "";
-            if (bodyText.Length == 0)
-            {
-                bodyText = CustomTemplateBody(sc, name);
-                if (bodyText.Length == 0 && !(account != null && wa.IsConfigured(account)))
-                    return Results.BadRequest(new { detail = $"Unknown sandbox template '{name}'." });
-            }
-            var rendered = bodyText.Length > 0
-                ? RenderTemplateBody(bodyText, variables)
-                : $"[template: {name}]"
-                  + (variables.Count > 0 ? $" — {string.Join(", ", variables)}" : "");
+            // Without a live number only the known (demo + custom) set exists; a
+            // live number lets Meta be the judge of the name.
+            if (!(account != null && wa.IsConfigured(account))
+                && await catalog.FindAsync(account, name, body.Language) == null)
+                return Results.BadRequest(new { detail = $"Unknown sandbox template '{name}'." });
 
-            // No template endpoint on IWhatsAppCloudClient in this build: a live
-            // account sends the RENDERED body as text (and OutboundSender records
-            // a Meta rejection honestly instead of faking success); sandbox stores
-            // it locally exactly like Django's sandbox branch.
-            var msg = sender.Send(thread, rendered, MessageSource.Agent, account?.Id);
+            var msg = sender.SendTemplate(thread, name, body.Language,
+                new TemplateArgs(variables, body.HeaderVariables, body.ButtonVariables, body.HeaderMediaUrl),
+                MessageSource.Agent, account?.Id);
             await Audit(db, ctx, me, "message.send", $"whatsapp:{thread.Key}", $"template:{name}");
             return Results.Ok(new { message = MessagePayload(msg, account) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- send: media (multipart) -----------------------------------------
         // views.send_media. The file is ALWAYS kept on disk (live or sandbox) so
-        // the inbox can render the bubble either way.
+        // the inbox can render the bubble either way; a configured Cloud number
+        // then uploads it to /{phone_number_id}/media and sends it by id.
         app.MapPost("/api/whatsapp/threads/{key}/send-media", async (string key, HttpContext ctx,
-            AppDbContext db, ThreadStore store, IWhatsAppCloudClient wa,
-            IConfiguration cfg, ClaimsPrincipal me) =>
+            AppDbContext db, OutboundSender sender, IWhatsAppCloudClient wa,
+            MediaStore media, ClaimsPrincipal me) =>
         {
             if (!ctx.Request.HasFormContentType)
                 return Results.BadRequest(new { detail = "file is required (multipart/form-data)." });
@@ -323,16 +309,15 @@ public static class WhatsAppThreadsEndpoints
                     detail = "WhatsApp 24h window closed — use a template.",
                 }, statusCode: 409);
 
-            var relPath = await StoreMediaFile(cfg, thread.Key, ext, upload);
+            string relPath;
+            await using (var stream = upload.OpenReadStream())
+                relPath = await media.SaveAsync(ChatBranch.Domain.Channels.WhatsApp, thread.Key, stream, ext)
+                          ?? "";
+            if (relPath.Length == 0)
+                return Results.BadRequest(new { detail = "File too large (max 16 MB)." });
             var text = caption.Length > 0 ? caption : $"[{kind.Type}]";
-            // No media upload path on IWhatsAppCloudClient in this build, so the
-            // row is stored locally (status "sandbox") even on a live account —
-            // the bubble renders, nothing is silently reported as delivered.
-            var msg = store.AppendMessage(thread, MessageDirection.Out, MessageSource.Agent, text,
-                status: "sandbox", accountId: account?.Id);
-            msg.MediaType = kind.Type;
-            msg.MediaPath = relPath;
-            await db.SaveChangesAsync();
+            var msg = sender.SendMedia(thread, relPath, kind.Type, kind.Mime, caption,
+                Path.GetFileName(upload.FileName ?? ""), MessageSource.Agent, account?.Id);
             await Audit(db, ctx, me, "message.send", $"whatsapp:{thread.Key}",
                 $"media:{kind.Type} {Cap(text, 150)}");
             return Results.Ok(new { message = MessagePayload(msg, account) });
@@ -566,15 +551,18 @@ public static class WhatsAppThreadsEndpoints
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
-        // Recordings — STUB. Call audio is written by the Baileys gateway / call
-        // bridge, neither of which exists here, and there is no
-        // /api/whatsapp/calls/recording/<name> streamer to point a url at, so an
-        // empty list is the honest answer (dead players would be worse).
-        app.MapGet("/api/whatsapp/threads/{key}/call/recordings", async (string key, AppDbContext db) =>
+        // Recordings — one entry per past call of this conversation: the Baileys
+        // gateway's WAV ({wa_id}-{ms}.wav, else the voice agent's recording of the
+        // same room) + its paired transcript and who started / ended it, newest
+        // first. Played through GET /api/whatsapp/calls/recording/{name}.
+        app.MapGet("/api/whatsapp/threads/{key}/call/recordings", async (string key, AppDbContext db,
+            ScopingService sc, CallRecordings recordings, VoiceAgentBridge voice, ClaimsPrincipal me) =>
         {
             var thread = await FindThread(db, key);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
-            return Results.Ok(new { recordings = Array.Empty<object>() });
+            if (!await WhatsAppMediaEndpoints.CanSeeThread(db, sc, me, thread))
+                return Results.NotFound(new { detail = "Thread not found." });
+            return Results.Ok(new { recordings = recordings.ListFor(thread.Key, voice) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // Start. A linked Baileys account places a real call. With no linked
@@ -867,6 +855,8 @@ public static class WhatsAppThreadsEndpoints
             ["source"] = m.Source,
         };
         if (m.Private) payload["private"] = true;
+        // Meta's reason for a failed delivery (status webhook / send error)
+        if (!string.IsNullOrEmpty(m.Error)) payload["error"] = m.Error;
         if (m.AccountId is int acct)
         {
             // lets the chat UI show "via <number>" and flag mid-thread switches
@@ -959,19 +949,10 @@ public static class WhatsAppThreadsEndpoints
     /// <paramref name="exceptAccountId"/> keeps the NEW number's own inbounds
     /// intact on an account switch (their window is genuinely open).
     /// </summary>
-    private static async Task CloseWindow(AppDbContext db, Thread thread, int? exceptAccountId)
+    private static Task CloseWindow(AppDbContext db, Thread thread, int? exceptAccountId)
     {
-        var cutoff = DateTime.UtcNow.AddHours(-WindowHours - 1);
-        var rows = await db.Messages
-            .Where(m => m.ThreadId == thread.Id && m.Direction == MessageDirection.In
-                        && m.CreatedAt > cutoff
-                        && (exceptAccountId == null || m.AccountId != exceptAccountId))
-            .ToListAsync();
-        if (rows.Count == 0) return;
-        foreach (var m in rows) m.CreatedAt = cutoff;
-        // the SSE change token watches updated_at — a bulk edit must bump it too
-        thread.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync();
+        WhatsAppWindow.Close(db, thread, exceptAccountId);
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -1019,59 +1000,6 @@ public static class WhatsAppThreadsEndpoints
     {
         var v = (sc.SettingValue(key) ?? "").Trim();
         return v.Length > 0 ? v : fallback;
-    }
-
-    /// <summary>
-    /// Body text of an operator-created sandbox template (wa_config.custom_templates,
-    /// Setting <c>whatsapp_custom_templates</c> — the same rows Settings →
-    /// Message Templates writes).
-    /// </summary>
-    private static string CustomTemplateBody(ScopingService sc, string name)
-    {
-        try
-        {
-            var raw = sc.SettingValue("whatsapp_custom_templates");
-            if (string.IsNullOrWhiteSpace(raw)) return "";
-            using var doc = JsonDocument.Parse(raw);
-            if (doc.RootElement.ValueKind != JsonValueKind.Array) return "";
-            foreach (var t in doc.RootElement.EnumerateArray())
-            {
-                if (t.ValueKind != JsonValueKind.Object) continue;
-                if (!t.TryGetProperty("name", out var n) || n.GetString() != name) continue;
-                return t.TryGetProperty("body", out var b) ? b.GetString() ?? "" : "";
-            }
-        }
-        catch { /* a malformed row degrades to "no custom template" */ }
-        return "";
-    }
-
-    /// <summary>
-    /// views._render_template_body — fill {{1}}/{{2}}… from the positional list.
-    /// A missing value leaves the placeholder visible rather than erroring.
-    /// </summary>
-    private static string RenderTemplateBody(string body, List<string> variables) =>
-        PlaceholderRe.Replace(body ?? "", m =>
-        {
-            var i = int.Parse(m.Groups[1].Value) - 1;
-            return i >= 0 && i < variables.Count ? variables[i] : m.Value;
-        });
-
-    // ======================= media + misc ====================================
-
-    /// <summary>
-    /// Persist an upload under data/whatsapp/media/{wa_id}/ and return the
-    /// thread-relative path stored on the Message (store.MEDIA_DIR layout).
-    /// </summary>
-    private static async Task<string> StoreMediaFile(IConfiguration cfg, string waId, string ext,
-        IFormFile upload)
-    {
-        var dataDir = cfg["DataDir"] ?? Path.Combine(AppContext.BaseDirectory, "data");
-        var dir = Path.Combine(dataDir, "whatsapp", "media", waId);
-        Directory.CreateDirectory(dir);
-        var filename = $"{Guid.NewGuid():N}{ext}";
-        await using var stream = File.Create(Path.Combine(dir, filename));
-        await upload.CopyToAsync(stream);
-        return $"{waId}/{filename}";
     }
 
     /// <summary>store.normalize_wa_id — digits only (a wa_id is never punctuated).</summary>

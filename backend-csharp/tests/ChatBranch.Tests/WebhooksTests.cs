@@ -14,6 +14,20 @@ public class WebhooksTests : IClassFixture<ApiFactory>
     private readonly ApiFactory _factory;
     public WebhooksTests(ApiFactory factory) => _factory = factory;
 
+    /// <summary>The Meta app secret of the configured account below. Every post is
+    /// signed with it: once a live account exists the webhook refuses unsigned posts,
+    /// and xUnit does not promise test order inside a class.</summary>
+    private const string AppSecret = "wh-test-app-secret";
+
+    private static StringContent Signed(string json)
+    {
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+        using var h = new System.Security.Cryptography.HMACSHA256(Encoding.UTF8.GetBytes(AppSecret));
+        content.Headers.Add("X-Hub-Signature-256",
+            "sha256=" + Convert.ToHexString(h.ComputeHash(Encoding.UTF8.GetBytes(json))).ToLowerInvariant());
+        return content;
+    }
+
     private async Task<HttpClient> Authed(string user, string pass)
     {
         var c = _factory.CreateClient();
@@ -73,8 +87,7 @@ public class WebhooksTests : IClassFixture<ApiFactory>
         };
 
         var c = _factory.CreateClient();
-        var res = await c.PostAsync("/api/whatsapp/webhook",
-            new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"));
+        var res = await c.PostAsync("/api/whatsapp/webhook", Signed(JsonSerializer.Serialize(payload)));
         res.EnsureSuccessStatusCode();
 
         // thread now has the inbound + a sandbox AI reply
@@ -101,6 +114,7 @@ public class WebhooksTests : IClassFixture<ApiFactory>
         await admin.PostAsJsonAsync("/api/whatsapp/accounts", new
         {
             name = "Paced Number", phone_number_id = "PN-PACED", access_token = "tok-live",
+            app_secret = AppSecret,
         });
 
         var payload = JsonSerializer.Serialize(new
@@ -113,8 +127,10 @@ public class WebhooksTests : IClassFixture<ApiFactory>
             } } } } },
         });
         var c = _factory.CreateClient();
-        (await c.PostAsync("/api/whatsapp/webhook",
-            new StringContent(payload, Encoding.UTF8, "application/json"))).EnsureSuccessStatusCode();
+        // a live account now exists: an unsigned (or wrongly signed) post is refused
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.PostAsync("/api/whatsapp/webhook",
+            new StringContent(payload, Encoding.UTF8, "application/json"))).StatusCode);
+        (await c.PostAsync("/api/whatsapp/webhook", Signed(payload))).EnsureSuccessStatusCode();
 
         // nothing sent inline …
         var msgs = await admin.GetFromJsonAsync<JsonElement>(
@@ -143,8 +159,8 @@ public class WebhooksTests : IClassFixture<ApiFactory>
                     type = "text", text = new { body = "dup" } } },
             } } } } },
         });
-        await c.PostAsync("/api/whatsapp/webhook", new StringContent(Body(), Encoding.UTF8, "application/json"));
-        await c.PostAsync("/api/whatsapp/webhook", new StringContent(Body(), Encoding.UTF8, "application/json"));
+        await c.PostAsync("/api/whatsapp/webhook", Signed(Body()));
+        await c.PostAsync("/api/whatsapp/webhook", Signed(Body()));
 
         var msgs = await admin.GetFromJsonAsync<JsonElement>(
             "/api/whatsapp/threads/whatsapp/60111000222/messages");

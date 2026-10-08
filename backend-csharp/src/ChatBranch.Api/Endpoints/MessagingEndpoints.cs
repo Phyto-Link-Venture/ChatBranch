@@ -517,28 +517,36 @@ public static class MessagingEndpoints
 
     private static void MapThreadActions(IEndpointRouteBuilder app)
     {
-        // POST …/send {text, subject?} — through OutboundSender: a configured
-        // mailbox / bot sends for real; anything without a transport (or an
-        // unconfigured channel) is stored locally with status "sandbox" (what
-        // Django does) — it shows in the thread, the timeline and analytics, it
-        // is simply not claimed to have left the building.
+        // POST …/send {text, subject?, media_url?, media_type?} — through
+        // OutboundSender, the one live-or-sandbox seam: a configured mailbox (SMTP),
+        // Telegram bot or Messenger / Instagram page sends for real (a public
+        // https media_url sends an attachment via the Send API); an unconfigured
+        // channel stores the message locally with status "sandbox" — it shows in
+        // the thread, the timeline and analytics, it is simply not claimed to have
+        // left the building. A provider refusal comes back as a "failed" row.
         app.MapPost("/api/messaging/threads/{channel}/{key}/send",
             (string channel, string key, Dictionary<string, JsonElement>? body,
              AppDbContext db, ChatBranch.Data.Channels.OutboundSender sender, ClaimsPrincipal me,
              HttpContext ctx) =>
         {
             var text = (Str(body, "text") ?? "").Trim();
-            if (text.Length == 0)
+            var mediaUrl = (Str(body, "media_url") ?? "").Trim();
+            if (text.Length == 0 && mediaUrl.Length == 0)
                 return Results.Json(new { detail = "text is required." }, statusCode: 400);
+            if (mediaUrl.Length > 0 && !mediaUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                return Results.Json(new { detail = "media_url must be a public https:// URL." }, statusCode: 400);
             var thread = GetThread(db, channel, key);
             if (thread == null)
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
 
-            // the one live-or-sandbox seam: email (SMTP) and Telegram send for real
-            // when configured; a provider refusal comes back as a "failed" row
             var subject = (Str(body, "subject") ?? "").Trim();
-            var msg = sender.Send(thread, text, MessageSource.Agent, null,
-                subject: subject.Length > 0 ? subject : null);
+            Message msg = null!;
+            if (mediaUrl.Length > 0)
+                msg = sender.SendMediaUrl(thread, (Str(body, "media_type") ?? "image").Trim().ToLowerInvariant(),
+                    mediaUrl, MessageSource.Agent, thread.AccountId);
+            if (text.Length > 0)
+                msg = sender.Send(thread, text, MessageSource.Agent, null,
+                    subject: subject.Length > 0 ? subject : null);
             Audit(db, me, ctx, "message.send", $"{channel}:{key}", text);
             return Results.Ok(new { message = MessagePayload(msg, thread.Channel, thread.Account?.Name) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
@@ -859,7 +867,7 @@ public static class MessagingEndpoints
             void Consider(Thread? t)
             {
                 if (t == null) return;
-                if (!seen.Add($"{t.Channel} {t.Key}")) return;
+                if (!seen.Add($"{t.Channel}\0{t.Key}")) return;
                 threads.Add(t);
             }
 

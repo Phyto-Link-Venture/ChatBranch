@@ -51,6 +51,13 @@ builder.Services.AddSingleton<ChatBranch.Data.Sidecars.IBaileysGateway, ChatBran
 var dataDir = builder.Configuration["DataDir"] =
     ChatBranch.Data.Sidecars.VoiceAgentBridge.ResolveDataDir(builder.Configuration["DataDir"]);
 builder.Services.AddSingleton(new ChatBranch.Data.Sidecars.VoiceAgentBridge(dataDir));
+// Meta transports: Messenger/Instagram Send API, the template registry, message
+// attachments + call recordings on disk, and inbound downloads off the webhook ack.
+builder.Services.AddSingleton<ChatBranch.Data.Channels.IMetaMessagingClient, ChatBranch.Data.Channels.MetaMessagingClient>();
+builder.Services.AddScoped<ChatBranch.Data.Channels.WhatsAppTemplateCatalog>();
+builder.Services.AddSingleton(new ChatBranch.Data.Channels.MediaStore(dataDir));
+builder.Services.AddSingleton(new ChatBranch.Data.Channels.CallRecordings(dataDir));
+builder.Services.AddSingleton<ChatBranch.Data.Channels.MediaFetcher>();
 builder.Services.AddSingleton<ChatBranch.Data.Sidecars.LiveKitClient>();
 // Email (SMTP out via MailKit, IMAP pull), Telegram Bot API, and the channel-health
 // prober (periodic HealthProbeWorker + "Check now" + the post-save re-check).
@@ -167,6 +174,8 @@ app.MapApiV1Endpoints();
 app.MapWebhookEndpoints();
 app.MapTelegramWebhookEndpoints();
 app.MapMessagingTransportEndpoints();
+app.MapMetaWebhookEndpoints();
+app.MapWhatsAppMediaEndpoints();
 
 app.Run();
 

@@ -175,6 +175,9 @@ public class InboundProcessor
     {
         if (channel == "email")
             return _db.Contacts.FirstOrDefault(c => c.Email.ToLower() == key.ToLower());
+        // Messenger PSIDs / Instagram IGSIDs are opaque numbers, not phones — an
+        // 8-digit tail match would link a stranger to a random contact
+        if (channel is ChatBranch.Domain.Channels.Facebook or ChatBranch.Domain.Channels.Instagram) return null;
         var digits = new string(key.Where(char.IsDigit).ToArray());
         if (digits.Length < 8) return null;
         var tail = digits[^8..];

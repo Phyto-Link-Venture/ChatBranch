@@ -68,26 +68,8 @@ public static class MessagingTransportEndpoints
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
-        // ---- attachment download (bubbles fetch it with the bearer token) ----
-        app.MapGet("/api/messaging/media/{pk:int}", async (int pk, AppDbContext db, ScopingService sc,
-            ClaimsPrincipal me, VoiceAgentBridge bridge) =>
-        {
-            var msg = await db.Messages.AsNoTracking().Include(m => m.Thread)
-                .FirstOrDefaultAsync(m => m.Id == pk);
-            if (msg?.Thread == null || msg.Thread.Channel == ChannelIds.WhatsApp || msg.MediaPath.Length == 0)
-                return Results.Json(new { detail = "Media not found." }, statusCode: 404);
-            // the same conversation scope the inbox applies — an out-of-scope id is "not found"
-            var scope = ShellScope.ThreadEntityIds(db, sc, me, null);
-            if (scope != null && msg.Thread.EntityId is int eid && !scope.Contains(eid))
-                return Results.Json(new { detail = "Media not found." }, statusCode: 404);
-            var path = MessagingMedia.Resolve(bridge.DataDir, msg.MediaPath);
-            if (path == null || !File.Exists(path))
-                return Results.Json(new { detail = "Media not found." }, statusCode: 404);
-            var name = Path.GetFileName(path);
-            var dash = name.IndexOf('-');
-            var download = dash > 0 && dash < name.Length - 1 ? name[(dash + 1)..] : name;
-            return Results.File(path, MessagingMedia.ContentTypeFor(path), download);
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        // attachment download: GET /api/messaging/media/{id} is served by
+        // WhatsAppMediaEndpoints (one implementation for every channel).
 
         // ---- attachment send (email / Telegram) ----
         app.MapPost("/api/messaging/threads/{channel:regex(^(email|telegram)$)}/{key}/send-media",

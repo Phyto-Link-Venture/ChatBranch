@@ -7,14 +7,10 @@ another.
 > ## ⚠ Read this first: several transports are not ported yet
 >
 > The Django backend had live clients for every channel; the C# port does not
-> (yet). Today **WhatsApp (Cloud + Baileys), the website widget, Telegram,
-> email and SIP calls are live**; **Messenger/Instagram are sandbox-only** —
-> and there is **no Messenger/Instagram webhook route at all**:
-> `/api/messaging/webhook`, which the Channels setup drawer still shows as the
-> callback URL, returns 404. The old "Messenger/IG webhook has no signature
-> check" gap is therefore moot until the route is rebuilt — and when it is, it
-> must verify `X-Hub-Signature-256` like the WhatsApp webhook does
-> (`Integrations/WebhookVerify.Meta`).
+> (yet). Today **WhatsApp (Cloud + Baileys), Messenger/Instagram, Telegram,
+> email, the website widget and SIP calls are live**. The Messenger/Instagram
+> webhook (`/api/messaging/webhook`) **requires** `X-Hub-Signature-256` — the
+> old "no signature check" gap is closed.
 
 ---
 
@@ -22,18 +18,18 @@ another.
 
 | | WhatsApp Cloud | WhatsApp Baileys | Website widget | Telegram | Messenger / IG | Email |
 |---|---|---|---|---|---|---|
-| Receive text | ✅ webhook | ✅ gateway push | ✅ widget API | ✅ webhook | ❌ no route | ✅ IMAP pull (`/email/sync`) |
-| Send text | ✅ Graph API | ✅ gateway | ✅ (stored; the widget polls them) | ✅ Bot API | ❌ sandbox | ✅ SMTP (threaded replies) |
-| Templates | ⚠ sent as rendered text; no Meta listing | rendered as free text | — | — | — | — |
-| Send media | ❌ stored locally as sandbox | ❌ | — | ✅ sendPhoto / sendDocument | — | ✅ attachment |
-| Receive media | ❌ text only | ❌ `/baileys/media` acked and dropped | — | ✅ getFile, off the ack | — | ✅ attachments (≤5, 10 MB) |
-| Delivery receipts | ❌ `statuses` ignored | ✅ `/baileys/message-status` | — | — | — | — |
+| Receive text | ✅ webhook | ✅ gateway push | ✅ widget API | ✅ webhook | ✅ webhook | ✅ IMAP pull (`/email/sync`) |
+| Send text | ✅ Graph API | ✅ gateway | ✅ (stored; the widget polls them) | ✅ Bot API | ✅ Send API (page token) | ✅ SMTP (threaded replies) |
+| Templates | ✅ real template messages; live registry (list/create/edit/delete) with a `waba_id` | rendered as free text | — | — | — | — |
+| Send media | ✅ upload → send by id | ❌ stored locally (no gateway route) | — | ✅ sendPhoto / sendDocument | ✅ by public URL | ✅ attachment |
+| Receive media | ✅ downloaded off the ack | ✅ `/baileys/media` (two-phase) | — | ✅ getFile, off the ack | ✅ CDN url, downloaded off the ack | ✅ attachments (≤5, 10 MB) |
+| Delivery receipts | ✅ `statuses` (forward-only; failed + error code) | ✅ `/baileys/message-status` | — | — | ✅ delivery / read | — |
 | Typing / read | ✅ Graph `typing_indicator` | ✅ gateway presence | — | — | — | — |
-| 24h window | ✅ enforced (409 → use a template) | none | none | none | not modelled | — |
+| 24h window | ✅ enforced (409 → use a template); 131047 closes it | none | none | none | not modelled (refusal = failed send) | — |
 | Opt-out | honoured; **STOP detection not ported** | same | same | same | same | same |
-| Health | ✅ Graph token ping (prober) | ✅ lifecycle pushes + inbound heal | — | ✅ getMe + getWebhookInfo, inbound heal | ✅ `GET /me` (prober) | ✅ SMTP login (prober), send outcomes |
-| Voice calls | ❌ (Cloud bridge removed; `call/start` → 501) | ✅ (ToS-violating) | — | — | — | — |
-| Auth on inbound | `X-Hub-Signature-256` when the account has an `app_secret` | `X-Baileys-Secret` | anonymous by design (session id) | bot token in path (constant time) + `X-Telegram-Bot-Api-Secret-Token` once registered from the dashboard | — | n/a (we pull over IMAP) |
+| Health | ✅ Graph token ping (prober) + send / status / test results (`MetaErrors`), inbound heal | ✅ lifecycle pushes + inbound heal | — | ✅ getMe + getWebhookInfo, inbound heal | ✅ `GET /me` (prober, test), send results, inbound heal | ✅ SMTP login (prober), send outcomes |
+| Voice calls | ❌ (Cloud bridge removed; `call/start` → 501) | ✅ (ToS-violating) + recordings | — | — | — | — |
+| Auth on inbound | `X-Hub-Signature-256`, **required once any Cloud account is configured** | `X-Baileys-Secret` | anonymous by design (session id) | bot token in path (constant time) + `X-Telegram-Bot-Api-Secret-Token` once registered from the dashboard | `X-Hub-Signature-256`, **always required** | n/a (we pull over IMAP) |
 
 Where the code is (`backend-csharp/src/`):
 
@@ -42,12 +38,17 @@ Where the code is (`backend-csharp/src/`):
 | Every inbound | `ChatBranch.Data/Channels/InboundProcessor.cs` |
 | Every outbound (live vs sandbox) | `ChatBranch.Data/Channels/OutboundSender.cs` |
 | Thread/message store | `ChatBranch.Data/Stores/ThreadStore.cs` |
-| WhatsApp Cloud client | `ChatBranch.Data/Channels/WhatsAppCloudClient.cs` |
+| WhatsApp Cloud client (text, templates, media, template registry) | `ChatBranch.Data/Channels/WhatsAppCloudClient.cs` |
+| Messenger / Instagram Send API client | `ChatBranch.Data/Channels/MetaMessagingClient.cs` |
+| Meta webhook parsing + delivery statuses, error classification, templates | `Channels/MetaWebhook.cs`, `Channels/MetaErrors.cs`, `Channels/MetaTemplates.cs` |
+| Media + call recordings on disk, inbound downloads | `Channels/WhatsAppMediaStore.cs`, `Channels/WhatsAppMediaRecordings.cs`, `Channels/WhatsAppMediaFetcher.cs` |
+| Media / recording routes | `ChatBranch.Api/Endpoints/WhatsAppMediaEndpoints.cs` |
 | Baileys gateway client | `ChatBranch.Data/Sidecars/IBaileysGateway.cs` (+ the Node gateway `backend/baileys_service/`) |
-| Webhooks (Meta, Baileys) | `ChatBranch.Api/Endpoints/WebhooksEndpoints.cs` |
+| Webhooks (Meta Cloud, Baileys) | `ChatBranch.Api/Endpoints/WebhooksEndpoints.cs` |
+| Messenger / Instagram webhook + the shared Meta verify/signature rules | `ChatBranch.Api/Endpoints/MetaWebhookEndpoints.cs` |
 | Telegram (webhook, Bot API client, send) | `TelegramWebhookEndpoints.cs`, `ChatBranch.Data/Channels/TelegramClient.cs` |
 | Email (SMTP send, IMAP pull, settings) | `ChatBranch.Data/Channels/EmailChannel.cs`, `EmailTransport.cs`, `ImapSync.cs`, `EmailSettings.cs`; endpoints `MessagingTransportEndpoints.cs` |
-| Non-WhatsApp media files | `ChatBranch.Data/Channels/MessagingMedia.cs` (served at `/api/messaging/media/{id}`) |
+| Media files | `ChatBranch.Data/Channels/WhatsAppMediaStore.cs` (`MediaStore`), `MessagingMedia.cs`; served by `WhatsAppMediaEndpoints.cs` |
 | Widget (public + admin) | `WidgetEndpoints.cs`, `WidgetAdminEndpoints.cs` |
 | Accounts (WhatsApp / messaging) | `WhatsAppSettingsEndpoints.cs`, `VoiceMessagingEndpoints.cs` |
 | Inbox settings (team, AI default, review mode), channel vocabulary for templates | `ChatBranch.Data/Channels/InboxSettings.cs` |
@@ -69,16 +70,34 @@ outbound queue are already channel-blind.
   message; free text and media into a closed window return **409 — use a
   template**. Inbound rows store **Meta's own timestamp**, not arrival time —
   Meta's retry backlog can deliver a webhook hours late.
-- **Signature:** the webhook verifies `X-Hub-Signature-256` against the account
-  matched by `metadata.phone_number_id` **when that account has an
-  `app_secret`**. A live account without an app secret accepts unsigned posts —
-  always set it.
+- **Signature:** `X-Hub-Signature-256` is **required once any Cloud account is
+  configured** (a row with token + phone_number_id, or the env-default
+  `WHATSAPP_*` pair) and is verified against the known Meta app secrets (the
+  accounts' `app_secret`, Setting `meta_app_secret`, env `META_APP_SECRET` /
+  `WHATSAPP_APP_SECRET`). A live setup with no app secret answers 401. Only a
+  fully unconfigured (sandbox) install accepts unsigned posts.
+- **Delivery statuses** (`statuses[]`) update the outbound message by wamid —
+  forward-only (sent → delivered → read), `failed` stores Meta's code in
+  `Message.Error` (the bubble's `error`). **131047** closes the window (inbound
+  timestamps capped; a thread that has since moved to another number keeps that
+  number's replies). Account-level codes (190, 131031, 368, 133010, rate
+  limits…) move health through `AccountHealth.SetStatus`; per-recipient codes
+  (131047, 131026, 131050, …) never do — `Channels/MetaErrors.cs` is the table.
+- **Media:** inbound media is stored with a text placeholder and downloaded off
+  the ack (`GET /{media-id}` → the lookaside URL, both with the bearer token,
+  20 MB cap) into `data/whatsapp/media/{wa_id}/`; outbound media uploads to
+  `/{phone_number_id}/media` and sends by id. Served by `/api/whatsapp/media/{id}`.
 - **Verify token:** Setting `whatsapp_verify_token` (legacy `verify_token` kept
   in sync), env `WHATSAPP_VERIFY_TOKEN` fallback; edited at Settings → App &
   provider keys and shown with the callback URL under Channels → Advanced.
-- **Templates** are the 3 demo templates plus operator-defined ones (Setting
-  `whatsapp_custom_templates`); a live send renders the body and sends it as
-  TEXT, which Meta refuses outside the 24h window. Template routing prefers a
+- **Templates:** a configured Cloud number sends a real `type: "template"`
+  message (name, language, header/body parameters from the variables, dynamic
+  URL-button parameters) and the inbox stores the rendered body. With a
+  `waba_id` the registry is Meta's (`GET /{waba_id}/message_templates`, paged,
+  cached 5 min; create/edit/delete go to Graph) merged with operator custom ones
+  (Setting `whatsapp_custom_templates`); sandbox is the 3 demo templates + custom.
+  The composer, flows (`parameters`), business redirect and recovery all go
+  through `OutboundSender.SendTemplate`. Template routing prefers a
   `reminder`-role Cloud account with a WABA id.
 - `WHATSAPP_*` env keys surface as a read-only `env-default` account.
 
@@ -89,11 +108,18 @@ outbound queue are already channel-blind.
   (`cold_text_guard`, default `block`) refuses manual free text from a
   conversation-role number to a contact who never wrote to it; the queue's
   cold-call guard does the same for calls.
-- Gateway pushes: `/api/whatsapp/baileys/inbound` (text), `/message-status`
-  (ticks), `/status-event` (lifecycle → health), `/call-event` (ringing →
-  connected → ended), `/media` (acked, not stored). All require
+- Gateway pushes: `/api/whatsapp/baileys/inbound` (text / media placeholder),
+  `/message-status` (ticks), `/status-event` (lifecycle → health), `/call-event`
+  (ringing → connected → ended; `ended` writes the recording's paired transcript
+  `{wa_id}-{ms}.json`), `/media` (multipart `wa_id`, `msg_id`, `media_type`,
+  `file` — attached to the placeholder message, 20 MB cap). All require
   `X-Baileys-Secret` (Setting `baileys_secret` → env `BAILEYS_SECRET` →
   `baileys-local-dev` — change it).
+- Call recordings: `GET /api/whatsapp/threads/{key}/call/recordings` lists the
+  gateway's `data/whatsapp/calls/recordings/{wa_id}-{ms}.wav` (else the voice
+  agent's `data/recordings/{room}.wav`) with the transcript and who started /
+  ended the call; `GET /api/whatsapp/calls/recording/{name}` streams the WAV
+  (Range supported, name-validated).
 - One call at a time per number; outbound only.
 
 ### Website widget
@@ -123,8 +149,20 @@ outbound queue are already channel-blind.
   linked threads.
 
 ### Messenger / Instagram
-- Accounts can be created and stored (page token masked), but there is no
-  inbound webhook route and sends are sandbox. "Test" answers 501.
+- Webhook `GET/POST /api/messaging/webhook` (objects `page` / `instagram`),
+  same verify token as WhatsApp. The POST **always** needs a valid
+  `X-Hub-Signature-256` — the page account's `app_secret` (or any known Meta app
+  secret); none configured ⇒ 401. Events route by the entry id to the account
+  whose `external_id` is that page / Instagram account id; the thread key is the
+  PSID / IGSID (name fetched once). Redelivered mids are skipped; attachments
+  download from the CDN off the ack (one media per message row); delivery / read
+  receipts tick our outbound messages; echoes are ignored.
+- Sends go through the Send API (`POST /me/messages`, page token, `RESPONSE`),
+  text or an attachment by public URL (`media_url` on the messaging send route).
+  "Test" calls `GET /me` and moves health (ok → healthy, refused → disconnected).
+- The dashboard's Messenger/Instagram setup has no app-secret field yet: set it
+  with `PATCH /api/messaging/accounts/{id}` (`app_secret`), Setting
+  `meta_app_secret`, or reuse the WhatsApp account's app secret (one Meta app).
 
 ### Email
 - Accounts: per-mailbox SMTP creds in `Config` (`host port username password
@@ -165,7 +203,8 @@ debounced through the queue or instant (`ai_reply_mode` + the AI behaviour
 settings). It never throws into the webhook.
 
 **Outbound** — `OutboundSender.Send(thread, text, source, accountId)` is the one
-live-or-sandbox seam: a configured Cloud or Baileys account sends for real
+live-or-sandbox seam (with `SendTemplate` / `SendMedia` beside it): a configured
+Cloud, Baileys, Messenger or Instagram account sends for real
 (recording a provider failure honestly as a `failed` system message); anything
 else stores `status="sandbox"`. Flows and AI never send inline — they enqueue
 `OutboundJob`s that `QueueService` drains with per-account pacing, daily caps,
@@ -176,8 +215,9 @@ quiet hours and an atomic claim.
 admin `account_health` bell for a problem or a recovery) per real transition.
 `healthy`/`degraded` accounts are usable; `disconnected`/`banned` show red on
 the Analytics channel-health card. Signals: the Baileys gateway's lifecycle
-pushes, inbound traffic, email/Telegram send outcomes, and the periodic prober
-(`HealthProbeWorker`, every `WHATSAPP_HEALTH_INTERVAL` s, default 300;
+pushes, inbound traffic, send outcomes (Meta results classified by
+`Channels/MetaErrors.cs`; email/Telegram by their transports), and the periodic
+prober (`HealthProbeWorker`, every `WHATSAPP_HEALTH_INTERVAL` s, default 300;
 `HEALTH_WORKER=0` disables) which "Check now" also runs. Saving new credentials
 resets an account to `unknown` and re-probes it. Per-recipient errors (a closed
 window, a bad number, a blocked bot) must never damage account health.

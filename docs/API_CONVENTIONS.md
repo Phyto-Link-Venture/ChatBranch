@@ -61,8 +61,9 @@ and narrow to that entity's subtree, but never beyond what the caller may see.
 |---|---|---|
 | `POST /api/auth/login` | obviously | credentials |
 | `GET /api/whatsapp/status`, `GET /api/messaging/status` | pre-login sandbox/configured banner | exposes flags only |
-| `GET /api/whatsapp/webhook` | Meta's verification handshake | the verify token (Setting `whatsapp_verify_token`) |
-| `POST /api/whatsapp/webhook` | Meta Cloud inbound | `X-Hub-Signature-256` HMAC, **required when the matched account has an `app_secret`** |
+| `GET /api/whatsapp/webhook`, `GET /api/messaging/webhook` | Meta's verification handshake | the verify token (Setting `whatsapp_verify_token`; the shipped default is never accepted) |
+| `POST /api/whatsapp/webhook` | Meta Cloud inbound + delivery statuses | `X-Hub-Signature-256` HMAC, **required once any Cloud account is configured** (sandbox accepts unsigned) |
+| `POST /api/messaging/webhook` | Messenger / Instagram inbound + receipts | `X-Hub-Signature-256` HMAC, **always required**; no Meta app secret configured → 401 |
 | `POST /api/messaging/webhook/telegram/{token}` | Telegram inbound | the bot token in the path (constant-time match, unknown → 404) + `X-Telegram-Bot-Api-Secret-Token` once the webhook was registered from the dashboard (401 without) |
 | `POST /api/whatsapp/baileys/{inbound,status-event,message-status,media,call-event}` | Baileys gateway pushes | `X-Baileys-Secret` shared secret (401 without) |
 | `POST /api/integrations/webhooks/{shopify,stripe}` | commerce webhooks | HMAC (Shopify base64, Stripe `t=…,v1=…` + 300 s replay window). Bad signature → 401; **secret never configured → 503**, never "accept unsigned" |
@@ -145,14 +146,13 @@ Not every route — the endpoint files are authoritative — but every area.
 | Developers | `/api/developers/keys[/{id}]`, `/api/developers/mcp` (+ `/test`) | `DevelopersEndpoints` |
 | Assistant | `POST /api/assistant/chat`, `/confirm`, `/cancel` | `AssistantEndpoints` |
 | Public | `/api/help/articles[/{slug}]`, `/api/widget/{token}/*`, `/widget.js` | `HelpCenterEndpoints`, `WidgetEndpoints` |
-| Webhooks | `/api/whatsapp/webhook`, `/api/whatsapp/baileys/*` | `WebhooksEndpoints` |
+| Webhooks | `/api/whatsapp/webhook`, `/api/messaging/webhook` (Messenger/Instagram), `/api/whatsapp/baileys/*` | `WebhooksEndpoints`, `MetaWebhookEndpoints` |
 | Telegram inbound | `/api/messaging/webhook/telegram/{token}` | `TelegramWebhookEndpoints` |
-| Email + messaging media | `POST /api/messaging/email/sync` (IMAP pull), `GET /api/messaging/media/{id}`, `POST /api/messaging/threads/{email\|telegram}/{key}/send-media` | `MessagingTransportEndpoints` |
+| Email + messaging attachments | `POST /api/messaging/email/sync` (IMAP pull), `POST /api/messaging/threads/{email\|telegram}/{key}/send-media` | `MessagingTransportEndpoints` |
+| Media + recordings | `GET /api/whatsapp/media/{id}`, `GET /api/messaging/media/{id}` (the attachment of message `id`, every channel), `GET /api/whatsapp/threads/{key}/call/recordings`, `GET /api/whatsapp/calls/recording/{name}`, `GET /api/calls/recording/{call_id}` — signed-in + `chats.view` / `call_logs.view` + entity scope, Range supported | `WhatsAppMediaEndpoints`, `WhatsAppThreadsEndpoints` |
 
-**Not present in the C# API** (despite older docs and some UI text): a
-Messenger/Instagram webhook (`/api/messaging/webhook`), the WhatsApp media download route
-(`/api/whatsapp/media/{id}`), call-recording
-streaming, `/api/auth/users` (use `/api/v1/users`), `/api/v1/ping`, OpenAPI.
+**Not present in the C# API** (despite older docs and some UI text):
+`/api/auth/users` (use `/api/v1/users`), `/api/v1/ping`, OpenAPI.
 
 ---
 

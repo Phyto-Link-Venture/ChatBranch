@@ -321,7 +321,8 @@ public static class ContactsEndpoints
         // Read-only: the transcript + outcome per AI voice call, rendered inline in
         // the /chats message stream and on the contact detail page. Kept cheap so
         // it stays pollable (no LiveKit/agent plumbing on this path).
-        app.MapGet("/api/contacts/{id:int}/calls", async (int id, AppDbContext db, ClaimsPrincipal me) =>
+        app.MapGet("/api/contacts/{id:int}/calls", async (int id, AppDbContext db, ClaimsPrincipal me,
+            ChatBranch.Data.Channels.CallRecordings recordings) =>
         {
             var contact = await ScopeContacts(db.Contacts.AsNoTracking(), me, db)
                 .FirstOrDefaultAsync(c => c.Id == id);
@@ -337,9 +338,9 @@ public static class ContactsEndpoints
                     outcome = r.Outcome.Length > 0 ? r.Outcome : "unclear",
                     followup_date = r.FollowupDate,
                     needs_human = r.NeedsHuman,
-                    // CallRecord carries no recording path (the recorders write
-                    // WAVs next to the WhatsApp call transcripts, not here).
-                    recording = (string?)null,
+                    // the voice agent's WAV of this call (data/recordings/{call_id}.wav),
+                    // streamed auth-gated by GET /api/calls/recording/{call_id}
+                    recording = recordings.ResolveAgentCall(r.CallId) != null ? $"{r.CallId}.wav" : null,
                     transcript = ParseTranscript(r.Transcript),
                 })
                 .OrderByDescending(x => x.ended_at.Length > 0 ? x.ended_at : x.started_at)

@@ -132,6 +132,10 @@ public static class Seed
             + "\"in_reply_to\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL");
         AddIndexIfMissing(db, "ix_emailheader_thread", "crm_emailheader", "\"thread_id\"");
         AddIndexIfMissing(db, "ix_emailheader_message", "crm_emailheader", "\"message_id\"");
+        // Meta delivery-status failures (WhatsApp Cloud statuses[].errors) on the message row
+        AddColumnIfMissing(db, "crm_message", "error", "TEXT NOT NULL DEFAULT ''");
+        // delivery receipts (Cloud statuses, Baileys ticks, Messenger) find the message by provider id
+        AddIndexIfMissing(db, "ix_message_external_id", "crm_message", "\"external_id\"");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 
