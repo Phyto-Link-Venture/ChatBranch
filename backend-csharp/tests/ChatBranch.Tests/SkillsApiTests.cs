@@ -184,6 +184,17 @@ public class SkillsApiTests : IClassFixture<ApiFactory>
         })).Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(0, run.GetProperty("failed").GetInt32());
 
+        // kind_hint (the documented snake_case name) is honoured
+        var prompt = await (await admin.PostAsJsonAsync("/api/aicore/skills/draft",
+            new { description = "When someone asks for bulk pricing, collect the quantity", kind_hint = "prompt" }))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("draft", prompt.GetProperty("status").GetString());
+        Assert.Equal("prompt", prompt.GetProperty("skill").GetProperty("kind").GetString());
+        var camel = await (await admin.PostAsJsonAsync("/api/aicore/skills/draft",
+            new { description = "Never repeat an IC number", kindHint = "check" }))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("check", camel.GetProperty("skill").GetProperty("kind").GetString());
+
         var empty = await admin.PostAsJsonAsync("/api/aicore/skills/draft", new { description = " " });
         Assert.Equal(HttpStatusCode.BadRequest, empty.StatusCode);
     }

@@ -137,7 +137,7 @@ export function SkillWizard({
   const [round, setRound] = useState(0) // index in qa where the current batch starts
   const [form, setForm] = useState<Form | null>(original ? formFromSkill(original) : null)
   const [note, setNote] = useState<{ text: string; source: string } | null>(null)
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState<false | 'draft' | 'test' | 'save'>(false)
   const [error, setError] = useState<string | null>(null)
   const [run, setRun] = useState<TestResponse | null>(null)
   const [stale, setStale] = useState(true)
@@ -153,7 +153,7 @@ export function SkillWizard({
   // ---- describe / clarify ----------------------------------------------------
 
   const draft = async (answers: { question: string; answer: string }[]) => {
-    setBusy(true)
+    setBusy('draft')
     setError(null)
     try {
       const d = await aicore<DraftResponse>('skills/draft', {
@@ -223,7 +223,7 @@ export function SkillWizard({
       setError(t.error || p.error)
       return
     }
-    setBusy(true)
+    setBusy('test')
     setError(null)
     setStep('test')
     try {
@@ -257,7 +257,7 @@ export function SkillWizard({
       setError(t.error || p.error)
       return
     }
-    setBusy(true)
+    setBusy('save')
     setError(null)
     try {
       await saveSkill(
@@ -319,14 +319,15 @@ export function SkillWizard({
           Close
         </Button>
       )
-    const spin = busy && <Loader2 size={13} className="animate-spin" aria-hidden />
+    const spinner = <Loader2 size={13} className="animate-spin" aria-hidden />
+    const spin = busy === 'draft' && spinner
     if (step === 'describe')
       return (
         <>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={() => draft([])} disabled={busy || description.trim().length < 4}>
+          <Button onClick={() => draft([])} disabled={!!busy || description.trim().length < 4}>
             {spin || <Sparkles size={13} aria-hidden />} Continue
           </Button>
         </>
@@ -335,19 +336,19 @@ export function SkillWizard({
       const current = qa.slice(round)
       return (
         <>
-          <Button variant="ghost" onClick={() => setStep('describe')} disabled={busy}>
+          <Button variant="ghost" onClick={() => setStep('describe')} disabled={!!busy}>
             <ArrowLeft size={13} aria-hidden /> Back
           </Button>
           <Button
             variant="secondary"
-            disabled={busy}
+            disabled={!!busy}
             onClick={() =>
               draft(qa.map((x) => ({ ...x, answer: x.answer.trim() || 'No preference — use a sensible default.' })))
             }
           >
             Skip — draft now
           </Button>
-          <Button onClick={() => draft(qa)} disabled={busy || current.some((x) => !x.answer.trim())}>
+          <Button onClick={() => draft(qa)} disabled={!!busy || current.some((x) => !x.answer.trim())}>
             {spin} Continue <ArrowRight size={13} aria-hidden />
           </Button>
         </>
@@ -357,38 +358,38 @@ export function SkillWizard({
       return (
         <>
           {!editing && (
-            <Button variant="ghost" onClick={() => setStep(qa.length ? 'clarify' : 'describe')} disabled={busy}>
+            <Button variant="ghost" onClick={() => setStep(qa.length ? 'clarify' : 'describe')} disabled={!!busy}>
               <ArrowLeft size={13} aria-hidden /> Back
             </Button>
           )}
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
+          <Button variant="ghost" onClick={onClose} disabled={!!busy}>
             Cancel
           </Button>
           {isCode ? (
-            <Button onClick={runTests} disabled={busy}>
-              {spin || <Play size={13} aria-hidden />} Run tests
+            <Button onClick={runTests} disabled={!!busy}>
+              {busy === 'test' ? spinner : <Play size={13} aria-hidden />} Run tests
             </Button>
           ) : (
-            <Button onClick={() => save(form?.enabled ?? true)} disabled={busy}>
-              {spin || <Check size={13} aria-hidden />} Save
+            <Button onClick={() => save(form?.enabled ?? true)} disabled={!!busy}>
+              {busy === 'save' ? spinner : <Check size={13} aria-hidden />} Save
             </Button>
           )}
         </>
       )
     return (
       <>
-        <Button variant="ghost" onClick={() => setStep('review')} disabled={busy}>
+        <Button variant="ghost" onClick={() => setStep('review')} disabled={!!busy}>
           <ArrowLeft size={13} aria-hidden /> Back to code
         </Button>
-        <Button variant="secondary" onClick={() => save(false)} disabled={busy}>
+        <Button variant="secondary" onClick={() => save(false)} disabled={!!busy}>
           Save anyway as disabled
         </Button>
         <Button
           onClick={() => save(true)}
-          disabled={busy || !allPassed}
+          disabled={!!busy || !allPassed}
           title={allPassed ? undefined : 'Every test must pass (and there must be at least one) to switch the skill on.'}
         >
-          {spin || <Check size={13} aria-hidden />} Save &amp; switch on
+          {busy === 'save' ? spinner : <Check size={13} aria-hidden />} Save &amp; switch on
         </Button>
       </>
     )
@@ -642,7 +643,7 @@ export function SkillWizard({
       )}
 
       {step === 'test' && form && (
-        <TestStep run={run} busy={busy} stale={stale} onRerun={runTests} rows={form.rows.length} />
+        <TestStep run={run} busy={busy === 'test'} stale={stale} onRerun={runTests} rows={form.rows.length} />
       )}
     </Modal>
   )

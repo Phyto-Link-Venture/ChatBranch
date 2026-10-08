@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
 using ChatBranch.Data.Ai.Skills;
@@ -30,7 +31,9 @@ public static class AiSkillsEndpoints
 
     public record SkillsWrite(string? Entity, List<SkillDto>? Skills);
     public record DraftAnswer(string? Question, string? Answer);
-    public record DraftRequest(string? Description, string? KindHint, List<DraftAnswer>? Answers);
+    /// <summary>`kind_hint` is the documented wire name; `kindHint` binds too.</summary>
+    public record DraftRequest(string? Description, string? KindHint, List<DraftAnswer>? Answers,
+        [property: JsonPropertyName("kind_hint")] string? KindHintSnake = null);
     public record TestRequest(string? Kind, string? Code, JsonElement? Tests);
 
     private static readonly HashSet<string> Kinds = new() { SkillKinds.Prompt, SkillKinds.Tool, SkillKinds.Check };
@@ -153,7 +156,7 @@ public static class AiSkillsEndpoints
                 .Where(a => !string.IsNullOrWhiteSpace(a.Answer))
                 .Select(a => new SkillDrafter.Answer((a.Question ?? "").Trim(), a.Answer!.Trim()))
                 .Take(20).ToList();
-            var r = await drafter.DraftAsync(description, body.KindHint, answers, ct);
+            var r = await drafter.DraftAsync(description, body.KindHintSnake ?? body.KindHint, answers, ct);
             return Results.Ok(new
             {
                 status = r.Status,

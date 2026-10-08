@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
@@ -426,10 +427,19 @@ function SkillRow({
         </div>
         <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-relaxed text-text-muted">{summary}</p>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-text-muted">
-          <span className="inline-flex items-center gap-1">
-            <Globe size={11} aria-hidden />
-            {s.channels.length ? s.channels.map(channelLabel).join(', ') : 'All channels'}
-          </span>
+          {s.channels.length ? (
+            <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+              {s.channels.map((c) => (
+                <span key={c} className="inline-flex items-center gap-1">
+                  <ChannelLogo channel={c} size={12} title="" /> {channelLabel(c)}
+                </span>
+              ))}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1">
+              <Globe size={11} aria-hidden /> All channels
+            </span>
+          )}
           {s.kind !== 'prompt' && (
             <span className="inline-flex items-center gap-1">
               <CheckCircle size={11} aria-hidden /> {tests} test{tests === 1 ? '' : 's'}

@@ -208,7 +208,7 @@ public class SkillDrafter
                 return new DraftResult("questions", new[]
                 {
                     "What are your opening hours for each day? (e.g. Mon–Fri 09:00–18:00, Sat 09:00–13:00, Sun closed)",
-                }, null, "template", "Sandbox mode: drafted from the built-in template library.");
+                }, null, "template", "Sandbox mode: no AI model is configured, so the built-in template library is asking.");
             var note = hours == null
                 ? "Couldn't read the hours from your answer, so the usual Mon–Fri 09:00–18:00, Sat 09:00–13:00 is used — edit HOURS at the top of the code."
                 : "Hours read from your answer — check the HOURS table at the top of the code.";
@@ -272,7 +272,7 @@ public class SkillDrafter
             when = m.Groups[1].Value.Trim();
             body = char.ToUpperInvariant(m.Groups[2].Value.Trim()[0]) + m.Groups[2].Value.Trim()[1..];
         }
-        var skill = new DraftSkill(NameFrom(description, "New instruction"), SkillKinds.Prompt, when, description,
+        var skill = new DraftSkill(NameFrom(body, "New instruction"), SkillKinds.Prompt, when, description,
             Json("{}"), "", Json("[]"), body, "retry");
         return new DraftResult("draft", Array.Empty<string>(), skill, "template",
             "Sandbox mode: your description becomes the instructions — refine the wording and the use-when trigger.");

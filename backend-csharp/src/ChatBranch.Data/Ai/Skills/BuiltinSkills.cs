@@ -32,7 +32,7 @@ public static class BuiltinSkills
             "\"amount\":{\"type\":\"integer\"},\"unit\":{\"type\":\"string\",\"enum\":[\"days\",\"weeks\",\"business_days\"]}," + TzProp +
             "},\"required\":[\"amount\"]}"),
         new Builtin("days_between", "Days between dates",
-            "Calendar days and business days (Mon–Fri) between two dates. `to` defaults to today.",
+            "Calendar days and business days (Mon–Fri) between two dates; the end date defaults to today.",
             "{\"type\":\"object\",\"properties\":{\"from\":{\"type\":\"string\",\"description\":\"YYYY-MM-DD\"}," +
             "\"to\":{\"type\":\"string\",\"description\":\"YYYY-MM-DD; defaults to today\"}," + TzProp + "},\"required\":[\"from\"]}"),
         new Builtin("convert_timezone", "Convert timezone",

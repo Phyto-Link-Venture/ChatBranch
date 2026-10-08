@@ -360,6 +360,24 @@ public class AssistantSkillsTests
     }
 
     [Fact]
+    public void A_provider_outage_falls_back_to_the_static_script()
+    {
+        // configured, but the provider failed → the client answered with the sandbox echo
+        var llm = new ScriptedLlm(new LlmChatResult("Hello! How can I help you today?", Array.Empty<LlmToolCall>(), 0, 0, "sandbox", "sandbox"));
+        var w = Build(llm);
+        using var _ = w.T;
+        AddSkill(w.T, "as-reminder", "Friendly reminder", SkillKinds.Prompt, instructions: "Be warm.");
+        SeedFlow(w.T, new { channels = new[] { "WhatsApp" }, script = "Hi {{name}}, see you Friday.", skill = "as-reminder" });
+        var engine = Engine(w, llm, out var _q);
+
+        Advance(engine, StartRun(w.T, w.Contact), w.T.Db.Workflows.Single());
+
+        var job = w.T.Fresh().OutboundJobs.Single();
+        Assert.Equal("Hi Aisha Rahman, see you Friday.", job.Payload["text"]!.ToString());
+        Assert.False(job.Payload.ContainsKey("ai_meta"));
+    }
+
+    [Fact]
     public void Without_a_skill_the_static_script_is_sent_unchanged()
     {
         var llm = new ScriptedLlm(Says("SHOULD NOT BE USED"));

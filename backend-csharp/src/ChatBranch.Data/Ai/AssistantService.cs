@@ -301,6 +301,10 @@ public class AssistantService
             var result = await RunAsync(new Spec(sb.ToString().TrimEnd(), messages, entityId, channel, contact,
                 thread == null ? "" : History(thread.Id, 10).LastOrDefault(m => m.Direction == MessageDirection.In)?.Text ?? "",
                 "flow_message", $"flow:{run.Id}:{nodeId}"), _llm, ct);
+            // The real client degrades to the sandbox echo when the provider
+            // errors — an echo must never reach a customer as a flow message.
+            if (result.Provider == "sandbox")
+                return Static("The AI model could not be reached — the step's script was used as written.");
             result = result with { SkillId = skill?.SkillId };
             if (!result.ShouldSend) ApplyOutcome(null, result, contact);
             return result;
