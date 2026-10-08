@@ -87,12 +87,15 @@ public class ContactsTests : IClassFixture<ApiFactory>
             var empty = bridge.LiveTranscript("room-1");
             Assert.Equal("idle", empty.GetProperty("status").GetString());
 
-            // pushing an instruction writes the consume-once inbox file
+            // instructions append to the consume-once inbox list the agent pops
             bridge.Say("room-1", "Please hold.");
+            bridge.Guide("room-1", "Offer Friday.");
             var inbox = Path.Combine(dir, "inbox", "room-1.json");
             Assert.True(File.Exists(inbox));
             var doc = JsonDocument.Parse(File.ReadAllText(inbox));
-            Assert.Equal("takeover", doc.RootElement.GetProperty("kind").GetString());
+            Assert.Equal(2, doc.RootElement.GetArrayLength());
+            Assert.Equal("takeover", doc.RootElement[0].GetProperty("mode").GetString());
+            Assert.Equal("Offer Friday.", doc.RootElement[1].GetProperty("text").GetString());
 
             // a live transcript written by the "agent" is read back verbatim
             Directory.CreateDirectory(Path.Combine(dir, "live"));

@@ -24,15 +24,17 @@ namespace ChatBranch.Api.Endpoints;
 ///   * The Activity page reads <c>GET /api/auth/audit</c> — superadmin sees
 ///     every actor, admin only their own trail (agents are 403'd by policy).
 /// </summary>
-public static class NotificationEndpoints
+public static partial class NotificationEndpoints
 {
     /// <summary>Mirrors <c>crm.auth.NOTIF_CATEGORIES</c> — the mute groups the
     /// settings page renders. Order is the page's display order.</summary>
-    private static readonly string[] NotifCategories =
-        { "messages", "account_health", "flows", "admin" };
+    private static readonly string[] NotifCategories = NotificationCategories.All;
 
     public static void MapNotificationEndpoints(this IEndpointRouteBuilder app)
     {
+        // The full inbox (/notifications page) + per-user preferences.
+        MapNotificationInbox(app);
+
         // ---- global mute switches ---------------------------------------------
 
         // GET /api/auth/notification-prefs → {messages: true, account_health: …}
@@ -40,11 +42,15 @@ public static class NotificationEndpoints
             Results.Ok(ReadPrefs(scoping)))
             .RequireAuthorization(AuthPolicies.Authenticated);
 
-        // PUT /api/auth/notification-prefs {<category>: bool, …} (admin+)
+        // PUT /api/auth/notification-prefs {<category>: bool, …}
+        // Gate = the `notifications.manage` capability (Settings → Organization →
+        // Notification defaults); superadmin always passes.
         // Partial patch: only the categories present in the body are written.
         app.MapPut("/api/auth/notification-prefs", async (HttpContext ctx,
             AppDbContext db, ScopingService scoping, ClaimsPrincipal me) =>
         {
+            if (await SettingsEndpoints.RequireCapability(db, me, OrgDefaultsCapability) is { } denied)
+                return denied;
             var root = await ReadJson(ctx);
             var patch = new Dictionary<string, bool>();
             if (root is JsonElement body && body.ValueKind == JsonValueKind.Object)
@@ -69,7 +75,7 @@ public static class NotificationEndpoints
                             .Select(k => $"'{k}'")) + "]");
 
             return Results.Ok(ReadPrefs(scoping));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- per-user bell -----------------------------------------------------
 
@@ -93,6 +99,7 @@ public static class NotificationEndpoints
                 {
                     id = n.Id,
                     kind = n.Kind,
+                    category = NotificationCategories.Normalize(n.Category, n.Kind),
                     title = n.Title,
                     body = n.Body,
                     link = n.Link,

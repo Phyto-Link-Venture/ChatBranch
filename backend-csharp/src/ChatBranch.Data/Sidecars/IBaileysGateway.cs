@@ -28,8 +28,11 @@ public interface IBaileysGateway
     string BaseUrl { get; }
     Task<BaileysResult> SendTextAsync(string accountExternalId, string toWaId, string text,
         CancellationToken ct = default);
+    /// <summary>Place a WhatsApp voice call bridged into a LiveKit room; ExternalId = the gateway's call id.</summary>
     Task<BaileysResult> StartCallAsync(string accountExternalId, string toWaId,
         Dictionary<string, object?> dispatch, CancellationToken ct = default);
+    /// <summary>Hang up the account's active call (a no-op when none is live).</summary>
+    Task<BaileysResult> EndCallAsync(string accountExternalId, CancellationToken ct = default);
     // ---- pairing (Settings → Channels → WhatsApp → Pair) ----
     Task<BaileysStatus> StatusAsync(string accountExternalId, CancellationToken ct = default);
     Task<BaileysStatus> StartAsync(string accountExternalId, CancellationToken ct = default);
@@ -51,6 +54,9 @@ public class SandboxBaileysGateway : IBaileysGateway
 
     public Task<BaileysResult> StartCallAsync(string accountExternalId, string toWaId,
         Dictionary<string, object?> dispatch, CancellationToken ct = default) =>
+        Task.FromResult(new BaileysResult(false, "baileys gateway not configured (sandbox)"));
+
+    public Task<BaileysResult> EndCallAsync(string accountExternalId, CancellationToken ct = default) =>
         Task.FromResult(new BaileysResult(false, "baileys gateway not configured (sandbox)"));
 
     public Task<BaileysStatus> StatusAsync(string a, CancellationToken ct = default) => Task.FromResult(NotAttached);
@@ -167,7 +173,16 @@ public class HttpBaileysGateway : IBaileysGateway
         CancellationToken ct = default)
     {
         var payload = new Dictionary<string, object?>(dispatch) { ["to"] = toWaId };
-        var (ok, _, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/call", payload, ct);
-        return ok ? new BaileysResult(true, "dialled") : new BaileysResult(false, err);
+        var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/call", payload, ct);
+        if (!ok) return new BaileysResult(false, err);
+        var callId = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("call_id", out var id)
+            ? id.ToString() : "";
+        return new BaileysResult(true, "dialled", callId);
+    }
+
+    public async Task<BaileysResult> EndCallAsync(string a, CancellationToken ct = default)
+    {
+        var (ok, _, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/call-end", new { }, ct);
+        return ok ? new BaileysResult(true, "ended") : new BaileysResult(false, err);
     }
 }

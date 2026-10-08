@@ -125,6 +125,7 @@ public static class WidgetEndpoints
                                                       && m.Direction == MessageDirection.In) <= 1;
             if (firstInbound) automation.Run("conversation_created", thread, text, true);
             automation.Run("message_created", thread, text, firstInbound);
+            await NotificationService.NotifyInboundMessageAsync(db, thread, text);
             inbound.MaybeAutoReply(thread);
 
             return Results.Ok(new { message = WidgetMessage(msg) });

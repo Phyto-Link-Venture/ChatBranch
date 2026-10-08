@@ -515,10 +515,13 @@ public static class VoiceMessagingEndpoints
             Results.Ok(AiProvidersPayload(sc)))
             .RequireAuthorization(AuthPolicies.Authenticated);
 
-        // PUT: SUPER ADMIN — the same gate every organization-wide credential has.
-        app.MapPut("/api/settings/ai-providers", (Dictionary<string, JsonElement>? body,
+        // PUT: the settings.ai_keys.manage capability (Settings → AI → AI keys &
+        // models) — superadmin-only by default, like every org-wide credential.
+        app.MapPut("/api/settings/ai-providers", async (Dictionary<string, JsonElement>? body,
             AppDbContext db, ScopingService sc, ClaimsPrincipal me, HttpContext ctx) =>
         {
+            if (await SettingsEndpoints.RequireCapability(db, me, "settings.ai_keys.manage") is { } denied)
+                return denied;
             var patch = new Dictionary<string, object?>();
 
             // secrets + free-text/select/model strings: honour the masked round-trip
@@ -588,7 +591,7 @@ public static class VoiceMessagingEndpoints
             Audit(db, me, ctx, "settings.update", "ai-providers",
                 $"keys: {string.Join(", ", patch.Keys.OrderBy(k => k))}");
             return Results.Ok(AiProvidersPayload(sc));
-        }).RequireAuthorization(AuthPolicies.SuperAdmin);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
     }
 
     /// <summary>Raw JSON text for a key — lets an ARRAY body value reach the CSV/JSON parser.</summary>
