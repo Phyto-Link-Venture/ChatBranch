@@ -80,7 +80,7 @@ public class AssistantService
         }
     }
 
-    private string SkillsBlock(int? entityId)
+    public string SkillsBlock(int? entityId)
     {
         var skills = _scoping.ScopeInherited(_db.AgentSkills.AsNoTracking(), entityId)
             .OrderBy(s => s.Position).ToList();

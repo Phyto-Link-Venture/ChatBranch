@@ -1,0 +1,41 @@
+{
+  "name": "chatbranch-voice-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ChatBranch LiveKit voice-agent worker (Node/TypeScript). Shares state with the C# API through files under CHATBRANCH_DATA_DIR.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx src/agent.ts dev",
+    "build": "tsc -p tsconfig.json",
+    "prestart": "npm run build",
+    "start": "node dist/agent.js start",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "selftest": "tsx src/selftest.ts",
+    "setup-trunk": "tsx src/setupTrunk.ts",
+    "dial": "tsx src/dial.ts",
+    "download-files": "livekit-agents download-files"
+  },
+  "dependencies": {
+    "@echogarden/fvad-wasm": "0.2.0",
+    "@google/genai": "2.28.0",
+    "@livekit/agents": "1.9.1",
+    "@livekit/agents-plugin-elevenlabs": "1.9.1",
+    "@livekit/agents-plugin-google": "1.9.1",
+    "@livekit/agents-plugin-openai": "1.9.1",
+    "@livekit/agents-plugin-silero": "1.9.1",
+    "@livekit/noise-cancellation-node": "0.3.0",
+    "@livekit/rtc-node": "1.1.0",
+    "dotenv": "16.6.1",
+    "livekit-server-sdk": "2.19.1",
+    "openai": "6.49.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
+  }
+}

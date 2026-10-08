@@ -45,7 +45,7 @@ ChatBranch is four cooperating processes. They are separate on purpose.
 | # | Process | Path | Port | What it does |
 |---|---|---|---|---|
 | 1 | **C# API** | `backend-csharp/` | 8090 | The whole REST surface, the database, the channel transports, the flow engine, the outbound queue. |
-| 2 | **Voice agent worker** | `backend/voice_agent/` | — | A long-lived [LiveKit Agents](https://docs.livekit.io/agents/) process. Dials over SIP, runs a realtime speech model, streams a live transcript. Framework-free — it shares state through files, not the database. |
+| 2 | **Voice agent worker** | `backend/voice_agent/` | — | A long-lived [LiveKit Agents](https://docs.livekit.io/agents/) process (Node/TypeScript). Runs every AI call the API dispatches — SIP or WhatsApp — with a realtime speech model or an STT→LLM→TTS cascade, and streams a live transcript. It shares state with the API through files, not the database. |
 | 3 | **Next.js dashboard** | `frontend/` | 3000 | The operator UI. |
 | 4 | **Baileys gateway** | `backend/baileys_service/` | 3020 | Node sidecar for QR-paired personal WhatsApp numbers. Optional; the C# API is its only client. |
 
@@ -83,8 +83,8 @@ its own. If you move to multi-host, that file layer is the seam to replace.
 
 **To run the dashboard and the messaging side (no keys needed):**
 
-- **Python 3.11+** (3.13 is what `npm run setup` provisions)
-- **Node 18+**
+- **.NET 8 SDK** (the API)
+- **Node 20+** (dashboard, Baileys gateway, voice agent)
 
 **Only if you want real AI replies:** an `OPENAI_API_KEY` or
 `OPENROUTER_API_KEY`.
@@ -94,7 +94,7 @@ its own. If you move to multi-host, that file layer is the seam to replace.
 - A [LiveKit](https://cloud.livekit.io) project (URL + API key/secret) with SIP enabled
 - An OpenAI key with Realtime API access (model `gpt-realtime`)
 - A SIP trunk for outbound PSTN (e.g. Twilio Elastic SIP Trunking) — one-time
-  setup via `backend/voice_agent/setup_trunk.py`
+  setup via `npm --prefix backend/voice_agent run setup-trunk`
 
 Nothing above is required to explore the product.
 
@@ -106,8 +106,8 @@ Nothing above is required to explore the product.
 git clone <your-fork-url> chatbranch
 cd chatbranch
 npm install         # root dev tooling (concurrently)
-npm run setup       # backend venv + pip install + migrate + seed_demo,
-                    # frontend npm install, baileys npm install, .env from example
+npm run setup       # npm install for the frontend, the Baileys gateway and
+                    # the voice agent (the API seeds itself on first boot)
 npm run dev:all     # starts all four processes with prefixed logs
 ```
 
@@ -126,9 +126,7 @@ deployment.**
 ### Cross-platform: Windows, macOS, Linux
 
 `npm run setup` and `npm run dev:*` work the same on Windows, macOS and
-Linux. The API needs the .NET 8 SDK; `scripts/run-py.js` resolves the right
-Python launcher for the voice agent (`py -3.13` on Windows,
-`python3.13`/`python3`/`python` elsewhere) instead of hardcoding one.
+Linux. The API needs the .NET 8 SDK; everything else is Node.
 
 Ports 8090, 3000 and 3020 must be free.
 
@@ -144,7 +142,7 @@ cd backend-csharp
 dotnet run --project src/ChatBranch.Api --urls http://0.0.0.0:8090   # :8090
 
 # 2. Voice agent worker (separate terminal; only needed for calls)
-cd backend/voice_agent && python3 agent.py dev
+cd backend/voice_agent && npm install && npm run dev
 
 # 3. Dashboard (separate terminal)
 cd frontend && npm install && npm run dev           # :3000
@@ -199,7 +197,7 @@ requires a restart. `.env` keys act as a read-only fallback account.
 | **Telegram** | A BotFather token. Then **Set webhook** on the account with your public base URL. |
 | **Messenger / Instagram** | A Meta page/IG-professional account + page access token; webhook at `/api/messaging/webhook`. ⚠ No signature verification yet — see below. |
 | **Email** | Per-mailbox SMTP + IMAP credentials on an email account row. Inbound is pulled by `POST /api/messaging/email/sync` (the chats page nudges it). |
-| **Voice (SIP)** | LiveKit + a SIP trunk. Run `backend/voice_agent/setup_trunk.py` once, then fill Settings → Channels → Voice. |
+| **Voice (SIP)** | LiveKit + a SIP trunk. Run `npm --prefix backend/voice_agent run setup-trunk` once, then fill Settings → Channels → Voice. See [backend/voice_agent/README.md](backend/voice_agent/README.md). |
 
 Inbound webhooks need a public HTTPS URL. For local development, tunnel port
 8090 (`ngrok http 8090` or `cloudflared tunnel --url http://localhost:8090`)
@@ -248,10 +246,10 @@ ChatBranch/
 │   │   ├── Integrations/          Google OAuth, actions, key resolution
 │   │   └── Stores/                thread/message store
 │   ├── src/ChatBranch.Domain/     entities (Contact, Thread, Message, Entity…)
-│   └── tests/ChatBranch.Tests/    47 API-level tests
+│   └── tests/ChatBranch.Tests/    56 API-level tests
 ├── backend/               the two framework-free sidecars + their state
 │   ├── baileys_service/   Node gateway for QR-paired WhatsApp numbers (:3020)
-│   ├── voice_agent/       LiveKit worker — run as its own process
+│   ├── voice_agent/       LiveKit worker (Node/TypeScript) — its own process
 │   └── data/              LIVE state: WhatsApp session, media, call records
 │                          (gitignored — never delete)
 ├── frontend/              Next.js dashboard (App Router, :3000)
