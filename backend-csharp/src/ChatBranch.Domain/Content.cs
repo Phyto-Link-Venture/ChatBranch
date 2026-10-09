@@ -94,6 +94,15 @@ public class AgentSkill : IEntityScoped
     /// fix it) · block = rewrite (max 2×), then send nothing.</summary>
     public string OnFail { get; set; } = "retry";
     public DateTime? UpdatedAt { get; set; }
+
+    // ---- connected-app skills (2026-10) ---------------------------------------
+    /// <summary>
+    /// Kind "app": which connected app the AI may use and how, as snake_case
+    /// JSON — for <c>app: "calendar"</c> the calendar source, whose calendar,
+    /// the allowed actions, working hours and booking limits (see
+    /// ChatBranch.Data.Bookings.CalendarAppConfig). <c>{}</c> for other kinds.
+    /// </summary>
+    public Dictionary<string, object?> Config { get; set; } = new();
 }
 
 /// <summary>Wire values of <see cref="AgentSkill.Kind"/>.</summary>
@@ -102,6 +111,9 @@ public static class SkillKinds
     public const string Prompt = "prompt";
     public const string Tool = "tool";
     public const string Check = "check";
+    /// <summary>A connected app (e.g. a calendar) the model uses through tools
+    /// ChatBranch implements — configured, not coded.</summary>
+    public const string App = "app";
 
     public static bool IsCode(string? kind) => kind is Tool or Check;
 }

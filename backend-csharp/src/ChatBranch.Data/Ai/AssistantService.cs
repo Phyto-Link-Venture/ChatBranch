@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using ChatBranch.Data.Ai.Skills;
+using ChatBranch.Data.Bookings;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 using Thread = ChatBranch.Domain.Thread;
@@ -56,7 +57,7 @@ public class AssistantService
         var sb = new System.Text.StringBuilder();
         sb.AppendLine(_persona.SystemPreamble(entityId));
 
-        var skills = SkillsBlock(_skills.InScope(entityId, channel));
+        var skills = SkillsBlock(_skills.InScope(entityId, channel), includeApps: true);
         if (skills.Length > 0) sb.AppendLine().AppendLine(skills);
 
         var knowledge = _knowledge.BuildContext(query, entityId, channel);
@@ -84,24 +85,74 @@ public class AssistantService
     }
 
     /// <summary>The SKILLS prompt section for an entity (voice dispatch reads it
-    /// too): enabled instruction skills in scope.</summary>
+    /// too): enabled instruction skills in scope. Connected-app skills are left
+    /// out here — the voice agent has no calendar tools.</summary>
     public string SkillsBlock(int? entityId, string? channel = null) =>
-        SkillsBlock(_skills.InScope(entityId, channel));
+        SkillsBlock(_skills.InScope(entityId, channel), includeApps: false);
 
-    /// <summary>Prompt (instruction) skills only — tool and check skills reach the
-    /// model as callable tools and as post-checks, not as prose.</summary>
-    private static string SkillsBlock(IEnumerable<AgentSkill> inScope)
+    /// <summary>Prompt (instruction) skills — tool and check skills reach the
+    /// model as callable tools and as post-checks, not as prose — plus, for
+    /// chat replies, each connected-app skill with the step-by-step way to use
+    /// its tools (offer slots → wait for the pick → book → restate).</summary>
+    private string SkillsBlock(IEnumerable<AgentSkill> inScope, bool includeApps)
     {
-        var skills = inScope.Where(s => s.Kind is SkillKinds.Prompt or "").ToList();
+        var all = inScope.ToList();
+        var skills = all.Where(s => s.Kind is SkillKinds.Prompt or "" || (includeApps && s.Kind == SkillKinds.App))
+            .ToList();
         if (skills.Count == 0) return "";
+        var apps = includeApps && skills.Any(s => s.Kind == SkillKinds.App) ? _skills.BuildTools(all) : null;
         var sb = new System.Text.StringBuilder("SKILLS:\n");
         foreach (var s in skills)
         {
             var when = string.IsNullOrWhiteSpace(s.UseWhen) ? "" : $" (use when: {s.UseWhen})";
+            if (s.Kind == SkillKinds.App)
+            {
+                if (apps == null || !apps.AppBases.TryGetValue(s.SkillId, out var b)) continue;
+                sb.AppendLine($"- {s.Name}{when}: {s.Instructions}".TrimEnd(' ', ':'));
+                sb.AppendLine(CalendarHowTo(b, CalendarAppConfig.From(s.Config)));
+                continue;
+            }
             sb.AppendLine($"- {s.Name}{when}: {s.Instructions}");
         }
         return sb.ToString().TrimEnd();
     }
+
+    /// <summary>How to use one calendar skill's tools — the part of the prompt
+    /// that makes a model offer, wait, book and restate instead of booking on a whim.</summary>
+    private string CalendarHowTo(string b, CalendarAppConfig cfg)
+    {
+        var tz = _skills.Bookings.TimeZoneFor(cfg);
+        var local = TimeZoneInfo.ConvertTime(_skills.UtcNow, tz);
+        var lines = new List<string>
+        {
+            $"  Connected calendar ({(cfg.Source == "google" ? "Google Calendar" : "ChatBranch bookings")}): "
+            + $"{cfg.DurationMinutes}-minute appointments, times in {tz.Id} "
+            + $"(there it is now {local.ToString("dddd d MMMM yyyy, HH:mm", CultureInfo.InvariantCulture)}).",
+        };
+        if (cfg.Allows("book"))
+            lines.Add($"  To book: 1) call {b}_availability for the day(s) the customer wants — work out \"today\", "
+                      + "\"tomorrow\" or a weekday from the current date; 2) offer two or three of the returned times, "
+                      + "each with weekday, date, time and timezone; 3) wait until the customer picks ONE specific time "
+                      + "(never book on your own pick, on \"any time\", or while they are still deciding); 4) call "
+                      + $"{b}_book with exactly that start; 5) reply confirming the booking, restating the weekday, date, "
+                      + $"time and timezone. Never say a time is booked unless {b}_book returned ok.");
+        else if (cfg.Allows("availability"))
+            lines.Add($"  Call {b}_availability before mentioning any free time; you cannot book — a teammate confirms bookings.");
+        if (cfg.Allows("cancel"))
+            lines.Add($"  To cancel or reschedule: call {b}_my_bookings to find the booking, confirm with the customer "
+                      + $"which one, then call {b}_cancel" + (cfg.Allows("book") ? $" (plus {b}_book for the new time when rescheduling, in the same reply)" : "")
+                      + ".");
+        lines.Add("  If a calendar tool returns ok:false, follow its advice; if the calendar is unavailable, tell the "
+                  + "customer a teammate will confirm the time — never invent or promise a time.");
+        return string.Join("\n", lines);
+    }
+
+    /// <summary>
+    /// Give back what a generation's app tools reserved (nothing will be
+    /// delivered as written: a preview, a refused flow message, an empty reply).
+    /// </summary>
+    public int ReleasePending(AiReplyResult result, string reason) =>
+        result.PendingActions.Count == 0 ? 0 : _skills.Bookings.Release(result.PendingActions, reason);
 
     private static string ContactBlock(Contact c)
     {
@@ -161,8 +212,13 @@ public class AssistantService
                 m.Direction == MessageDirection.In ? "user" : "assistant", m.Text)).ToList();
 
             var result = await RunAsync(new Spec(system, messages, thread.EntityId, thread.Channel, contact,
-                lastUser, "chat_reply", thread.Key), _llm, ct);
-            if (applyOutcome) ApplyOutcome(thread, result);
+                lastUser, "chat_reply", thread.Key) { ThreadId = thread.Id, Assignee = thread.Assignee }, _llm, ct);
+            if (applyOutcome)
+            {
+                ApplyOutcome(thread, result);
+                // a held-back reply recorded as a note is never delivered: give its reservations back
+                if (!result.ShouldSend) ReleasePending(result, $"The AI reply was not sent ({result.Action}).");
+            }
             return result;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
@@ -203,7 +259,8 @@ public class AssistantService
 
             var llm = _llm.IsConfigured ? _llm : new FixedTextLlm(SandboxFollowUp(contact, attempt, lastOut));
             return await RunAsync(new Spec(system, messages, thread.EntityId, thread.Channel, contact, lastUser,
-                "follow_up", thread.Key) { NotRepeating = lastOut }, llm, ct);
+                "follow_up", thread.Key) { NotRepeating = lastOut, ThreadId = thread.Id, Assignee = thread.Assignee },
+                llm, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
@@ -286,6 +343,11 @@ public class AssistantService
                     case SkillKinds.Check:
                         sb.AppendLine($": the message must satisfy this rule — {FirstNonEmpty(skill.Description, skill.UseWhen, skill.Name)}.");
                         break;
+                    case SkillKinds.App:
+                        sb.AppendLine(": use its calendar tools as the SKILLS section describes (check availability "
+                                      + "and offer times; book only a time the customer already chose).");
+                        if (!string.IsNullOrWhiteSpace(skill.Instructions)) sb.AppendLine(skill.Instructions.Trim());
+                        break;
                     default:
                         sb.AppendLine(":").AppendLine(FirstNonEmpty(skill.Instructions, skill.Description));
                         break;
@@ -305,13 +367,22 @@ public class AssistantService
             var nodeId = run.CurrentNode;
             var result = await RunAsync(new Spec(sb.ToString().TrimEnd(), messages, entityId, channel, contact,
                 thread == null ? "" : History(thread.Id, 10).LastOrDefault(m => m.Direction == MessageDirection.In)?.Text ?? "",
-                "flow_message", $"flow:{run.Id}:{nodeId}"), _llm, ct);
+                "flow_message", $"flow:{run.Id}:{nodeId}") { ThreadId = thread?.Id, Assignee = thread?.Assignee ?? "" },
+                _llm, ct);
             // The real client degrades to the sandbox echo when the provider
             // errors — an echo must never reach a customer as a flow message.
             if (result.Provider == "sandbox")
+            {
+                ReleasePending(result, "The AI model could not be reached — the flow step's script was used instead.");
                 return Static("The AI model could not be reached — the step's script was used as written.");
+            }
             result = result with { SkillId = skill?.SkillId };
-            if (!result.ShouldSend) ApplyOutcome(null, result, contact);
+            if (!result.ShouldSend)
+            {
+                // the flow drops a held message (no draft is ever submitted): nothing to make
+                ApplyOutcome(null, result, contact);
+                ReleasePending(result, $"The AI flow message was not sent ({result.Action}).");
+            }
             return result;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
@@ -359,14 +430,40 @@ public class AssistantService
     {
         /// <summary>Follow-ups: the draft must not equal this (the previous message).</summary>
         public string NotRepeating { get; init; } = "";
+        /// <summary>The conversation (app tools book for its contact, in its outlet).</summary>
+        public int? ThreadId { get; init; }
+        /// <summary>Its assigned agent (username) — "the assignee's calendar".</summary>
+        public string Assignee { get; init; } = "";
     }
 
     private async Task<AiReplyResult> RunAsync(Spec spec, ILlmClient llm, CancellationToken ct)
     {
         var inScope = _skills.InScope(spec.EntityId, spec.Channel);
         var toolSet = _skills.BuildTools(inScope);
+        var ctx = _skills.Context(spec.Contact, spec.Channel, spec.LastMessage, spec.ThreadId, spec.EntityId,
+            spec.Assignee);
+        try
+        {
+            var result = await GenerateAsync(spec, llm, inScope, toolSet, ctx, ct);
+            // nothing to deliver ⇒ nothing reserved may stay held. (Handover / block
+            // drafts are kept: the AI gate holds them for a person, whose approval
+            // makes the booking and whose rejection releases it.)
+            if (result.Action is AiActions.Empty or AiActions.Error && ctx.Apps.Actions.Count > 0)
+                _skills.Bookings.Release(ctx.Apps.Actions, $"The AI produced no reply ({result.Action}).");
+            return result;
+        }
+        catch
+        {
+            if (ctx.Apps.Actions.Count > 0)
+                _skills.Bookings.Release(ctx.Apps.Actions, "The AI reply failed before it was written.");
+            throw;
+        }
+    }
+
+    private async Task<AiReplyResult> GenerateAsync(Spec spec, ILlmClient llm, List<AgentSkill> inScope,
+        SkillService.ToolSet toolSet, SkillContext ctx, CancellationToken ct)
+    {
         var checkSkills = inScope.Where(s => s.Kind == SkillKinds.Check).ToList();
-        var ctx = _skills.Context(spec.Contact, spec.Channel, spec.LastMessage);
         var metered = new MeteredLlm(llm);
 
         var tools = new List<AiToolCall>();
@@ -383,7 +480,7 @@ public class AssistantService
             var messages = new List<LlmMessage>(spec.Messages);
             if (attempt > 0) messages.Add(new LlmMessage("system", Feedback(draft, failing)));
             var outcome = await ToolLoop.RunAsync(metered, spec.System, messages, toolSet.Tools,
-                (call, _) => Task.FromResult(_skills.ExecuteTool(toolSet, call, ctx)),
+                (call, token) => _skills.ExecuteToolAsync(toolSet, call, ctx, token),
                 maxRounds: MaxToolRounds, ct: ct);
             tools.AddRange(outcome.Steps.Select(s => new AiToolCall(s.Tool, Trim(s.ArgumentsJson, 500),
                 Trim(s.Result, 500), s.Ok)));
@@ -438,6 +535,7 @@ public class AssistantService
             PromptTokens = metered.Calls.Sum(c => c.Result.PromptTokens),
             CompletionTokens = metered.Calls.Sum(c => c.Result.CompletionTokens),
             Feature = spec.Feature,
+            PendingActions = ctx.Apps.Actions.ToList(),
         };
         RecordUsage(metered, spec, result);
         return result;
