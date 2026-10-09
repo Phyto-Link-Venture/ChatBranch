@@ -3,7 +3,8 @@
 An industry-agnostic **multi-channel conversation platform** you can clone and
 configure for your own business. One operator dashboard, one AI brain and one
 contact record shared across WhatsApp, a website chat widget, email, Telegram,
-Messenger, Instagram **and real phone calls**.
+Messenger, Instagram, LINE, Viber, SMS (Twilio), WeChat, Zalo, TikTok and Douyin
+**and real phone calls**.
 
 It is a template, not a product: the domain logic lives in editable
 configuration (AI skills, a knowledge base, visual flows, tags, custom fields),
@@ -25,13 +26,30 @@ is a settings exercise, not a fork — see
   a filter pop-up, per-user saved views, labels, teams, assignment, private
   notes, AI summaries and a live SSE stream (no polling).
 - **One AI brain for every channel** — skills (prompt instructions, sandboxed
-  JavaScript **tools** the model calls, and **reply checks** that vet every
-  draft), a self-expiring knowledge base, per-contact memory, built-in date/time
-  tools. Describe a skill in plain words and the wizard drafts and tests the code.
+  JavaScript **tools** the model calls, **reply checks** that vet every draft,
+  and **connected apps**), a self-expiring knowledge base with document upload
+  and retrieval (keyword search out of the box, semantic search once an
+  embeddings key is set), per-contact memory, built-in date/time tools. Describe
+  a skill in plain words and the wizard drafts and tests the code.
+- **Calendar booking** — a connected-app skill lets the AI offer free times,
+  book, cancel and reschedule on Google Calendar (the assigned agent's own, an
+  outlet's or the organization's) or in ChatBranch itself with zero
+  credentials; a slot is held while the reply is reviewed and only booked when
+  it is sent. Every booking is on `/bookings`.
 - **AI monitor** (`/ai-monitor`) — every AI message is recorded; choose auto,
   review risky replies, review everything, or shadow mode. Human-like delivery:
   waits for the customer to finish, skips "ok/thanks", types, splits long
-  replies, and follows up when a conversation goes quiet.
+  replies, and follows up when a conversation goes quiet. An AI master switch
+  with a weekly schedule, per-contact "never/always" and never-AI tags; every
+  hand-over to a person is tracked ("Needs human").
+- **The AI learns from your team** — 👍/👎 on any AI reply, and every approve /
+  edit / reject in the monitor, becomes a suggested lesson (an example, a
+  correction or a rule) that a manager approves.
+- **Contact books & identities** — import CSV / Excel / phone vCards or your
+  Google Contacts with column mapping and duplicate handling; each contact's
+  reachable channels are registered (WhatsApp numbers verified through a QR
+  number); invite links bind a customer's chat on another app to their record;
+  unknown customers can be asked who they are.
 - **Flow builder** (`/flow-builder`) — a step list for most people, a canvas for
   power users, starter templates, a real execution engine (triggers, waits,
   "follow up if no reply", branches, hand-over, AI messages, calls, app actions)
@@ -157,9 +175,16 @@ environment. The dev database is `backend-csharp/src/ChatBranch.Api/chatbranch.s
 
 `docker compose up` builds the API and the dashboard in sandbox mode. Add
 `--profile whatsapp` for the Baileys gateway and `--profile voice` for the voice
-agent (LiveKit keys in `backend/.env`). SQLite and the shared data dir live in
-the `chatbranch-data` volume — don't drop it. `docker-compose.override.yml` +
-`deploy/nginx-chatbranch.conf` show one single-origin production setup.
+agent (LiveKit keys in `backend/.env`; export `LIVEKIT_*` /
+`SIP_OUTBOUND_TRUNK_ID` or put them in the repo-root `.env` so the API can dial).
+SQLite and the shared data dir live in the `chatbranch-data` volume — don't drop
+it. The API reaches the gateway at `BAILEYS_URL` (default
+`http://baileys:3020`) with the same `BAILEYS_SECRET` the gateway gets; the
+gateway mounts `chatbranch-data` at `/srv/data` (its call recordings land where
+the API streams them) and keeps the paired WhatsApp sessions in the
+`baileys-auth` volume mounted over `/srv/data/whatsapp/baileys`.
+`docker-compose.override.yml` + `deploy/nginx-chatbranch.conf` show one
+single-origin production setup.
 
 ---
 
@@ -179,7 +204,10 @@ the `chatbranch-data` volume — don't drop it. `docker-compose.override.yml` +
   queue and are stored as sandbox messages.
 - **AI skills** — the describe-a-skill wizard uses a built-in template library
   and code skills run in the sandbox; replies come from a sandbox echo until a
-  key is set.
+  key is set. A calendar skill on the "ChatBranch bookings" source needs no
+  Google account (its availability preview works without any key; the AI needs
+  a model key to book); knowledge retrieval is keyword search until an
+  embeddings provider is configured.
 - **Integrations** report `sandbox: true`; every action returns
   `{ok: false, skipped: true, detail: …}` and the flow run continues.
 
@@ -199,6 +227,10 @@ requires a restart.
 | **Telegram** | A BotFather token, then "Register webhook" in the inbox (needs a public https URL — `PUBLIC_BASE_URL` or the one you type) | live: inbound text + media, replies and attachments via the Bot API, typing indicator |
 | **Email** | Per-mailbox SMTP credentials (+ an IMAP host, per mailbox or the default under Channels → Advanced) | live: SMTP send (text + escaped HTML alternative, threaded replies, mailboxes routed and failed over like WhatsApp numbers), IMAP pull from known senders (HTML-only mail flattened to text) |
 | **Messenger / Instagram** | A page token, the page / IG account id, the Meta app secret, and a public webhook (`/api/messaging/webhook`) | live: signed inbound (incl. attachments), Send API text + files (URL or upload) inside Meta's 24h / 7-day human-agent window, typing indicator, receipts |
+| **LINE · Viber · Zalo OA** | LINE: channel access token + channel secret · Viber: the bot's auth token · Zalo: app id, OA secret key, OA access token (+ refresh token and app secret to renew it); then the webhook URL the inbox shows (LINE and Viber register it in one click) | live, untested against the providers: signed inbound (incl. media), text replies (Zalo also images; Zalo has a 7-day reply window), follow/unfollow → opt-in/out, Viber delivery ticks |
+| **SMS (Twilio)** | Account SID, auth token, a from number or Messaging Service SID; point the number's incoming-message webhook at the URL the inbox shows | live, untested against Twilio: signed inbound (incl. MMS), text replies, Twilio STOP/START mirrored; flow SMS steps send through it |
+| **WeChat Official Account** | AppID, AppSecret, Token (+ EncodingAESKey for safe mode); the server URL the inbox shows | live, untested against WeChat: signed inbound (plaintext or AES), text + image replies inside WeChat's 48h window |
+| **TikTok · Douyin** | ⚠ partner / approval-gated platform apps. TikTok: business id, business access token, app secret · Douyin: client key + secret, the enterprise account's open_id and access token | built to the documented shapes, **unverified against the live APIs**: signed inbound, text replies inside a 48h window |
 | **Voice (SIP)** | LiveKit + a SIP trunk: `npm --prefix backend/voice_agent run setup-trunk`, then Channels → Voice | live |
 
 Inbound webhooks need a public HTTPS URL; for local development tunnel port 8090
@@ -212,7 +244,10 @@ Inbound webhooks need a public HTTPS URL; for local development tunnel port 8090
   Google Cloud OAuth client, enter its id/secret in **Settings → App & provider
   keys** (or `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`), set
   `GOOGLE_REDIRECT_URI` + `FRONTEND_URL` in production, then **Connect** per
-  product. A connection can be yours, an entity's, or organization-wide.
+  product. A connection can be yours, an entity's, or organization-wide. Anyone
+  connects their own Google Calendar and Contacts at **Settings → My
+  connections** — a booking skill set to "the assigned agent's calendar" books
+  into it, and Contacts → Import reads your address book (read-only).
 - **Shopify / Stripe** — API-key providers with a **webhook signing secret**.
   Both webhooks are HMAC-verified; a bad signature is rejected with 401 and a
   webhook whose secret was never configured answers **503** — never "accept
@@ -234,7 +269,9 @@ ChatBranch/
 │   │                            API keys, request audit, MCP tools, the operator
 │   │                            assistant, background workers
 │   ├── src/ChatBranch.Data/     AppDbContext + Seed, scoping, stores, AI (gate,
-│   │                            composer, skills sandbox), flows + queue, channels,
+│   │                            composer, skills sandbox, learning + retrieval),
+│   │                            bookings, contacts (identities, invites, import),
+│   │                            flows + queue, channels (+ Channels/More),
 │   │                            integrations, notifications, tags, sidecar clients
 │   ├── src/ChatBranch.Domain/   entities
 │   └── tests/ChatBranch.Tests/  218 xUnit tests (API-level + unit)
@@ -263,6 +300,7 @@ node backend/baileys_service/calls.js --selftest
 
 The test host disables the background workers and the human-like AI defaults
 itself (`QUEUE_WORKER=0`, `FLOWS_WORKER=0`, `AI_FOLLOWUP_WORKER=0`,
+`HEALTH_WORKER=0`, `EMBEDDING_WORKER=0`, `IDENTITY_CHECK_WORKER=0`,
 `AI_HUMANIZE=0`) and seeds the demo logins (`SEED_DEMO=1`). CI
 (`.github/workflows/ci.yml`) runs all of the above on every push to master and
 every pull request.
@@ -274,7 +312,9 @@ every pull request.
 - **Every channel transport is wired, with a few edges left.**
   Baileys numbers send templates as rendered text; WhatsApp Cloud has no voice
   calls (Meta's calling API is a gated beta); email is composed as plain text (an escaped HTML alternative
-  is rendered from it); the opt-out flag lives on the conversation, not the
+  is rendered from it); LINE, Viber and SMS send text only (they take media by
+  public URL, which ChatBranch's files are not); TikTok and Douyin are text-only;
+  the opt-out flag lives on the conversation, not the
   contact. Nothing has been exercised against the live providers from this
   repo's CI — expect field debugging on a first real account. The full table is
   in [CLAUDE.md](CLAUDE.md#port-status--what-is-real-what-is-sandbox).
@@ -297,7 +337,11 @@ every pull request.
   `SUPERADMIN_PASSWORD`, don't set `SEED_DEMO`, set the CORS origins
   (`backend-csharp/src/ChatBranch.Api/appsettings.json` or `Cors__Origins__0`),
   and change `BAILEYS_SECRET`.
-- **SMS has no provider.** Flow SMS steps log and skip.
+- **The newer channels are untested live.** LINE, Viber, SMS (Twilio), WeChat
+  and Zalo are built to the providers' documented APIs and tested against
+  fakes; TikTok Business Messaging and Douyin enterprise DMs need the platform's
+  approval before they work at all and were built to documented shapes no one
+  here could verify.
 
 ---
 
