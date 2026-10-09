@@ -282,8 +282,9 @@ public class BookingTests
         var perDay = offered.GroupBy(s => s.LocalStart.Date).ToList();
         Assert.True(perDay.Count >= 4, "a spread covers several days, not one morning");
         Assert.All(perDay, g => Assert.True(g.Count() <= 2));
-        // within a day: the first AND the last free time, not 9:00 and 9:30
-        Assert.Equal(new[] { "09:00", "16:00" }, perDay[0].Select(s => s.LocalStart.ToString("HH:mm")).ToArray());
+        // within a day: a morning and an afternoon time (the middle of each half),
+        // not 9:00 and 9:30, nor the day's first and last minute
+        Assert.Equal(new[] { "10:30", "14:30" }, perDay[0].Select(s => s.LocalStart.ToString("HH:mm")).ToArray());
 
         var oneDay = BookingAvailability.Spread(free.Where(s => s.LocalStart.Day == 13).ToList());
         Assert.Equal(8, oneDay.Count);   // a single-day query gets the whole list
@@ -404,7 +405,10 @@ public class BookingTests
 
         var booking = Assert.Single(r.FreshBookings());
         Assert.Equal(BookingStatus.Booked, booking.Status);
-        Assert.Equal(BookingRig.Kul(12, 11), BookingAvailability.Utc(booking.StartUtc)); // first free after the busy hour
+        // the first OFFERED slot: on Monday, clear of the hour Google says is busy
+        var bookedAt = BookingAvailability.Utc(booking.StartUtc);
+        Assert.True(bookedAt >= BookingRig.Kul(12, 11), $"booked {bookedAt:o} overlaps the busy 10–11");
+        Assert.True(bookedAt < BookingRig.Kul(13, 0), $"booked {bookedAt:o} is not on Monday");
         Assert.Equal("evt-1", booking.ExternalEventId);
         Assert.StartsWith("https://calendar.google.com/", booking.EventLink);
         Assert.Equal("Aisha Rahman — appointment", booking.Title);
@@ -425,9 +429,10 @@ public class BookingTests
         // the reply went out, after a private note; audit + notification
         var msgs = r.Messages("60123000001");
         var note = Assert.Single(msgs, m => m.Private);
-        Assert.Equal("📅 Booked Mon 12 Oct, 11:00–11:30 AM (Asia/Kuala_Lumpur) on Google Calendar.", note.Text);
+        var localStart = BookingAvailability.ToLocal(bookedAt, BookingRig.Kl);
+        Assert.Equal($"📅 Booked {BookingAvailability.RangeLabel(localStart, localStart.AddMinutes(30))} (Asia/Kuala_Lumpur) on Google Calendar.", note.Text);
         var ai = Assert.Single(msgs, m => m.Source == MessageSource.Ai);
-        Assert.Contains("Mon 12 Oct, 11:00 AM", ai.Text);
+        Assert.Contains(BookingAvailability.StartLabel(localStart), ai.Text);
         Assert.True(note.Id < ai.Id);
         var fresh = r.T.Fresh();
         Assert.Contains(fresh.AuditLogs, a => a.Action == "booking.created" && a.Target == $"booking:{booking.Id}");

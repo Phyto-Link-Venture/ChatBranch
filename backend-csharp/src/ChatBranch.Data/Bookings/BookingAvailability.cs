@@ -86,8 +86,11 @@ public static class BookingAvailability
             var k = Math.Min(perDay, Math.Min(list.Count, max - picked.Count));
             if (k <= 0) break;
             if (k == 1) { picked.Add(list[0]); continue; }
+            // the middle of each of k equal stretches of the day — e.g. 10:30 and
+            // 14:30 out of 09:00–16:00 — reads like a person offering "a morning
+            // or an afternoon", not the day's first and last minute
             var indexes = Enumerable.Range(0, k)
-                .Select(i => (int)Math.Round(i * (list.Count - 1) / (double)(k - 1)))
+                .Select(i => Math.Min(list.Count - 1, (int)Math.Floor((i + 0.5) * list.Count / k)))
                 .Distinct();
             picked.AddRange(indexes.Select(i => list[i]));
         }
