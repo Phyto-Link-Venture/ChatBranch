@@ -93,8 +93,13 @@ public partial class AssistantService
 
         sb.AppendLine().AppendLine(ClockLine());
         if (parts.Skills) // the date/time tools are only offered with the skills
-            sb.AppendLine("For the current time, today's date or weekday, week numbers and date arithmetic, "
-                          + "call the date/time tools instead of guessing.");
+        {
+            sb.AppendLine("For the current time, today's date or weekday, which weekday a date falls on, week numbers "
+                          + "and date arithmetic, call the date/time tools instead of guessing.");
+            sb.AppendLine($"When a hand-over rule in your instructions applies, or you tell the customer a person will "
+                          + $"take it from here, call {BuiltinSkills.RequestHandover} with the reason — staff are only "
+                          + "alerted through that call.");
+        }
         return sb.ToString().TrimEnd();
     }
 
@@ -558,8 +563,11 @@ public partial class AssistantService
         if (failing.Count > 0 && action is AiActions.Handover or AiActions.Block)
             reason = string.Join("; ", failing.Select(f => $"{f.Name}: {f.Reason}"));
 
+        var asked = tools.Where(t => t.Ok && t.Name == BuiltinSkills.RequestHandover).ToList();
         var result = new AiReplyResult
         {
+            HandoverAsked = asked.Count > 0,
+            HandoverReason = asked.Select(t => HandoverReasonOf(t.Args)).LastOrDefault(r => r.Length > 0) ?? "",
             Text = action == AiActions.Send ? draft : "",
             Draft = draft,
             Action = action,
@@ -577,6 +585,17 @@ public partial class AssistantService
         };
         RecordUsage(metered, spec, result);
         return result;
+    }
+
+    private static string HandoverReasonOf(string? argsJson)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(argsJson ?? "");
+            return doc.RootElement.TryGetProperty("reason", out var r) && r.ValueKind == System.Text.Json.JsonValueKind.String
+                ? Trim(r.GetString()!.Trim(), 300) : "";
+        }
+        catch { return ""; }
     }
 
     private static string Feedback(string draft, IEnumerable<SkillService.CheckRun> failing)

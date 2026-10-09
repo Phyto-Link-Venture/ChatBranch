@@ -72,6 +72,7 @@ const BUILTIN_TEXT: Record<string, { label: MessageKey; description: MessageKey 
   date_add: { label: 'ai.builtins.dateAdd.label', description: 'ai.builtins.dateAdd.description' },
   days_between: { label: 'ai.builtins.daysBetween.label', description: 'ai.builtins.daysBetween.description' },
   convert_timezone: { label: 'ai.builtins.convertTimezone.label', description: 'ai.builtins.convertTimezone.description' },
+  request_handover: { label: 'ai.builtins.requestHandover.label', description: 'ai.builtins.requestHandover.description' },
 }
 
 const builtinText = (b: Builtin, t: TFunction) => {

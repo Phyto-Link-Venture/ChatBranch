@@ -61,6 +61,16 @@ public sealed record AiReplyResult
     /// <summary>A reply check asked for a human (or retries ran out).</summary>
     public bool HandoverRequested => Action == AiActions.Handover;
 
+    /// <summary>
+    /// The model itself called <c>request_handover</c>: the reply still goes out
+    /// (it tells the customer a person will follow up) and the gate flags the
+    /// conversation for a person — the structured twin of
+    /// <see cref="Humanizer.HandsOver"/>'s wording match.
+    /// </summary>
+    public bool HandoverAsked { get; init; }
+    /// <summary>The reason the model gave with <c>request_handover</c>.</summary>
+    public string HandoverReason { get; init; } = "";
+
     public bool ShouldSend => Action == AiActions.Send && !string.IsNullOrWhiteSpace(Text);
 
     public static AiReplyResult Failed(string feature, string reason) => new()
@@ -84,7 +94,9 @@ public sealed record AiReplyResult
         ["reason"] = Reason,
         ["skill_id"] = SkillId,
         ["retries"] = Retries,
-        ["handover"] = HandoverRequested,
+        ["handover"] = HandoverRequested || HandoverAsked,
+        ["handover_asked"] = HandoverAsked,
+        ["handover_reason"] = HandoverReason,
         ["provider"] = Provider,
         ["model"] = Model,
         ["prompt_tokens"] = PromptTokens,

@@ -63,22 +63,46 @@ public static class TextAnalysis
 
     public static bool IsStopword(string token) => EnglishStop.Contains(token) || MalayStop.Contains(token);
 
-    /// <summary>Lower-case word tokens (letters/digits), accents stripped, no stemming.</summary>
+    /// <summary>
+    /// Lower-case word tokens (letters/digits), accents stripped, no stemming.
+    /// Chinese / Japanese script has no spaces, so a run of CJK characters is
+    /// emitted as overlapping BIGRAMS (吉隆坡 → 吉隆, 隆坡) — the standard cheap
+    /// way to keyword-match those languages — and a lone CJK character as
+    /// itself. A token also breaks wherever the script changes (5公斤 → 5, 公斤).
+    /// </summary>
     public static List<string> Words(string? text)
     {
         var outv = new List<string>();
         if (string.IsNullOrWhiteSpace(text)) return outv;
         var sb = new StringBuilder();
+        var cjk = new StringBuilder();
+        void FlushWord() { if (sb.Length > 0) { outv.Add(sb.ToString()); sb.Clear(); } }
+        void FlushCjk()
+        {
+            if (cjk.Length == 1) outv.Add(cjk.ToString());
+            else for (var i = 0; i + 1 < cjk.Length; i++) outv.Add(cjk.ToString(i, 2));
+            cjk.Clear();
+        }
         foreach (var raw in text.Normalize(NormalizationForm.FormD))
         {
             if (CharUnicodeInfo.GetUnicodeCategory(raw) == UnicodeCategory.NonSpacingMark) continue;
+            if (IsCjk(raw)) { FlushWord(); cjk.Append(raw); continue; }
+            if (cjk.Length > 0 && raw != '\'' && raw != '’') FlushCjk();
             if (char.IsLetterOrDigit(raw)) sb.Append(char.ToLowerInvariant(raw));
             else if (raw == '\'' || raw == '’') continue; // "don't" → "dont"
-            else if (sb.Length > 0) { outv.Add(sb.ToString()); sb.Clear(); }
+            else FlushWord();
         }
-        if (sb.Length > 0) outv.Add(sb.ToString());
+        FlushWord();
+        if (cjk.Length > 0) FlushCjk();
         return outv;
     }
+
+    /// <summary>A Han ideograph or Japanese kana (scripts written without spaces).</summary>
+    public static bool IsCjk(char c) =>
+        c is >= '\u4E00' and <= '\u9FFF'     // CJK unified ideographs
+          or >= '\u3400' and <= '\u4DBF'     // extension A
+          or >= '\uF900' and <= '\uFAFF'     // compatibility ideographs
+          or >= '\u3040' and <= '\u30FF';    // hiragana + katakana
 
     /// <summary>
     /// Content terms: words minus stopwords, lightly stemmed. One-letter tokens
@@ -89,6 +113,7 @@ public static class TextAnalysis
         var outv = new List<string>();
         foreach (var w in Words(text))
         {
+            if (w.Length == 1 && IsCjk(w[0])) { outv.Add(w); continue; } // 灯, 店: a word on its own
             if (w.Length < 2 || IsStopword(w)) continue;
             var stem = Stem(w);
             if (stem.Length < 2 || IsStopword(stem)) continue;
@@ -206,7 +231,8 @@ public static class TextAnalysis
         for (var i = 0; i < para.Length; i++)
         {
             var c = para[i];
-            var end = c is '.' or '!' or '?' or '\n' && (i + 1 == para.Length || char.IsWhiteSpace(para[i + 1]));
+            var end = c is '。' or '！' or '？'
+                || c is '.' or '!' or '?' or '\n' && (i + 1 == para.Length || char.IsWhiteSpace(para[i + 1]));
             if (!end) continue;
             var s = para[start..(i + 1)].Trim();
             if (s.Length > 0) yield return s;

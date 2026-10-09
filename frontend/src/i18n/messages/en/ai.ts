@@ -951,6 +951,10 @@ export const ai = {
       label: 'Convert timezone',
       description: 'Convert a date-time (or a HH:mm time today) from one timezone to another.',
     },
+    requestHandover: {
+      label: 'Hand over to a person',
+      description: 'Flags the conversation for a person on the team when a hand-over rule applies or the AI tells the customer a teammate will follow up.',
+    },
   },
   wizard: {
     examples: {

@@ -169,7 +169,8 @@ public static class Handover
         try
         {
             var action = AiGate.Str(ctx, "action", AiActions.Send);
-            switch (KindForAiDraft(draftKind, text, action, canned))
+            var asked = AiGate.Bool(ctx, "handover_asked") == true;
+            switch (KindForAiDraft(draftKind, text, action, canned, asked))
             {
                 case HandoverKinds.CheckFailed:
                     var why = AiGate.Str(ctx, "reason", "");
@@ -181,8 +182,10 @@ public static class Handover
                     // the reply itself still has to reach the customer (its later bubbles are
                     // re-checked against the AI switch), so the AI does not stand down here;
                     // and no note — the reply that follows says it (the banner + chip show it)
-                    Mark(db, thread, HandoverKinds.AskedForHuman, "The AI told the customer a person will help.", "ai",
-                        note: false, standDown: false);
+                    var said = AiGate.Str(ctx, "handover_reason", "");
+                    Mark(db, thread, HandoverKinds.AskedForHuman,
+                        asked && said.Length > 0 ? $"The AI handed over: {said}" : "The AI told the customer a person will help.",
+                        "ai", note: false, standDown: false);
                     break;
             }
         }
@@ -195,11 +198,11 @@ public static class Handover
     /// refused the reply, <c>asked_for_human</c> when the reply tells the customer
     /// a person will help, null otherwise.
     /// </summary>
-    public static string? KindForAiDraft(string draftKind, string text, string action, bool canned)
+    public static string? KindForAiDraft(string draftKind, string text, string action, bool canned, bool asked = false)
     {
         if (canned || draftKind is not (AiDraftKind.Reply or AiDraftKind.FollowUp)) return null;
         if (action is AiActions.Handover or AiActions.Block) return HandoverKinds.CheckFailed;
-        return Humanizer.HandsOver(text) ? HandoverKinds.AskedForHuman : null;
+        return asked || Humanizer.HandsOver(text) ? HandoverKinds.AskedForHuman : null;
     }
 
     /// <summary>

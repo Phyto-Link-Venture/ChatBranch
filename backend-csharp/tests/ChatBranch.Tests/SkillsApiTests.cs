@@ -208,7 +208,7 @@ public class SkillsApiTests : IClassFixture<ApiFactory>
         var admin = await Authed("admin", "admin123");
         var b = await admin.GetFromJsonAsync<JsonElement>("/api/aicore/skills/builtins");
         var names = b.GetProperty("builtins").EnumerateArray().Select(x => x.GetProperty("name").GetString()).ToList();
-        Assert.Equal(new[] { "current_time", "current_week", "date_add", "days_between", "convert_timezone" }, names);
+        Assert.Equal(new[] { "current_time", "current_week", "date_add", "days_between", "convert_timezone", "request_handover" }, names);
         Assert.True(b.GetProperty("builtins")[0].GetProperty("example").TryGetProperty("weekday", out _));
 
         Assert.Equal(HttpStatusCode.Forbidden,

@@ -541,7 +541,8 @@ When you fix one of these, update this table, `README.md` and
   knowledge first — live notices, events and short typed facts ≤800 chars — then
   faq/policy items and chunks of long items / uploaded documents RETRIEVED for
   the customer's latest messages by `Ai/Learning/RetrievalService` (BM25 with EN +
-  BM stopwords and light stemming; plus embeddings when a provider is configured —
+  BM stopwords and light stemming, Chinese/Japanese as overlapping character
+  bigrams — `TextAnalysis.Words`; plus embeddings when a provider is configured —
   0.7·cosine + 0.3·BM25, a provider failure falls back to keywords; keyword-only
   is the zero-config path); zero hits add nothing; 1800-char budget; with no
   query (voice dispatch) the old top-4 faq/policy by priority) + `LEARNED FROM
@@ -585,7 +586,12 @@ When you fix one of these, update this table, `README.md` and
   eval, 250 ms / 8 MB / statement + recursion caps; faults come back as data).
   Built-in C# tools are always offered (`BuiltinSkills.cs`: current_time,
   current_week, date_add, days_between, convert_timezone; zone = Setting
-  `org_timezone` → TZ → UTC). A failing check → rewrite with the reason (max 2),
+  `org_timezone` → TZ → UTC — plus `request_handover(reason)`: the model's
+  structured hand-over signal, `AiReplyResult.HandoverAsked` → meta
+  `handover_asked` → the gate marks an `asked_for_human` handover while the
+  reply still sends; the wording match `Humanizer.HandsOver` (EN/BM/ZH,
+  commitments only — an offer sentence or a question doesn't count) stays as
+  the fallback). A failing check → rewrite with the reason (max 2),
   then `OnFail`: retry→handover, handover (immediate) or block; handover = a
   tracked `check_failed` handover (see Human handover). **`GET/PUT
   /api/aicore/skills` is the ONLY writer of `AgentSkill`** (PUT
@@ -1247,7 +1253,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **655 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **670 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /

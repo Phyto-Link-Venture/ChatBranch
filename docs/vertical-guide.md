@@ -47,6 +47,12 @@ Read that table as a decision tree:
   already covered: the **built-in tools** (`current_time`, `current_week`,
   `date_add`, `days_between`, `convert_timezone`) are always offered, in the
   business timezone (Setting `org_timezone`, set on the Skills page).
+- *"Hand over orders above RM 10,000 / complaints / corporate accounts"* → write
+  the rule in the persona; the built-in **`request_handover`** tool is how the
+  model acts on it — calling it flags the chat for a person (an
+  `asked_for_human` handover) while its reply still goes out. The wording check
+  (`Humanizer.HandsOver`, EN/BM/ZH, offers like *"Would you like me to connect
+  you…?"* don't count) is the fallback for a model that doesn't call it.
 - *"Look up the parcel status by tracking number"* or *"validate a Malaysian IC
   number"* → **a tool skill** — sandboxed JavaScript the model calls.
 - *"Never promise a delivery date; never quote a price below RM50"* → **a check

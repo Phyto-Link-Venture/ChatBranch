@@ -518,6 +518,37 @@ public class AiPlaygroundTests : IClassFixture<PlaygroundFactory>
         Assert.Equal("send", third.Verdict);
     }
 
+    [Fact]
+    public async Task Request_handover_flags_the_reply_for_a_person_whatever_its_wording()
+    {
+        Models("openai");
+        _f.Chat.Script = call =>
+        {
+            var last = call.Messages.LastOrDefault();
+            if (last.ValueKind != JsonValueKind.Object || last.GetProperty("role").GetString() != "tool")
+                return ("", new[] { ("request_handover", "{\"reason\":\"Order above RM 10,000\"}") });
+            return ("Thanks! Noted — we'll be in touch about the 300 panels.", Array.Empty<(string, string)>());
+        };
+        try
+        {
+            var admin = await Admin();
+            var before = Snap();
+            var r = await Ok(await admin.PostAsJsonAsync("/api/ai/playground/reply",
+                Body(new[] { Customer("I need 300 LED panels for a hotel.") })));
+            Untouched(before, Snap());
+            Assert.Contains("request_handover", _f.Chat.Calls[^2].Tools);
+            Assert.Contains("call request_handover", _f.Chat.Calls[^2].System);
+            var production = r.GetProperty("production");
+            Assert.Equal("handover", production.GetProperty("verdict").GetString());
+            Assert.Equal(HandoverKinds.AskedForHuman, production.GetProperty("kind").GetString());
+        }
+        finally
+        {
+            _f.Chat.Script = null;
+            Models();
+        }
+    }
+
     // ---- calendar --------------------------------------------------------------------------------
 
     [Fact]

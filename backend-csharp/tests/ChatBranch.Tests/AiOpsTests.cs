@@ -505,6 +505,24 @@ public class AiOpsTests
         Assert.Equal(2, Humanizer.TypingDelay("ok", 8, 2, 12).TotalSeconds, 3);
     }
 
+    [Theory]
+    // commitments (the demo's missed cases) — EN, MS, ZH
+    [InlineData("That order is above RM 10,000, so I'm passing it to our sales team.", true)]
+    [InlineData("I'm sorry about the damage. I'll pass your case to our Customer Care team.", true)]
+    [InlineData("For 500 parcels a month I'll hand this over to the team.", true)]
+    [InlineData("I'll pass your claim to our After-Sales Support. Could you send a photo?", true)]
+    [InlineData("I can't quote that myself, so a colleague will contact you today.", true)]
+    [InlineData("Saya akan serahkan kepada pasukan jualan kami.", true)]
+    [InlineData("我会把您的问题转给客服团队。", true)]
+    // offers are not handovers until the customer accepts
+    [InlineData("It's delayed in Kota Kinabalu. I can connect you with our Customer Care team if you'd like.", false)]
+    [InlineData("Would you like me to pass this to our Customer Care team?", false)]
+    [InlineData("I can pass this to our Customer Care team.", false)]
+    [InlineData("需要我帮您转给客服吗？", false)]
+    [InlineData("Your parcel arrives on Tuesday.", false)]
+    public void Handover_wording_counts_commitments_not_offers(string reply, bool handsOver) =>
+        Assert.Equal(handsOver, Humanizer.HandsOver(reply));
+
     [Fact]
     public void Split_reply_is_delivered_as_ordered_bubbles_with_typing_pauses()
     {
