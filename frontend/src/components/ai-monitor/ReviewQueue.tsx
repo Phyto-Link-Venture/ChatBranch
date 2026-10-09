@@ -28,6 +28,7 @@ import {
   ContextChips,
   ConversationSnippet,
   Countdown,
+  DraftBookings,
   DraftHeader,
   HoldReasons,
   Kbd,
@@ -383,6 +384,11 @@ export function ReviewQueue({
                   className={inputCls}
                   aria-label="Proposed reply (editable)"
                 />
+                {d.bookings && d.bookings.length > 0 && (
+                  <div className="mt-2">
+                    <DraftBookings d={d} />
+                  </div>
+                )}
                 <div className="mt-2">
                   <ContextChips d={d} />
                 </div>
