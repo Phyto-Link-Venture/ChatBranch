@@ -705,7 +705,7 @@ public static class AnalyticsEndpoints
     /// entity-scoped by design, so this always resolves the organization row.
     /// Malformed entries are ignored rather than failing the report.
     /// </summary>
-    private static Dictionary<string, (double In, double Out)> PriceTable(ScopingService sc)
+    internal static Dictionary<string, (double In, double Out)> PriceTable(ScopingService sc)
     {
         var merged = new Dictionary<string, (double In, double Out)>(PricesDefault);
         try

@@ -49,6 +49,8 @@ builder.Services.AddScoped<ChatBranch.Data.Ai.AiComposer>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.AiGate>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.AiResponder>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.AiFollowUpService>();
+// the AI playground's per-user rate limit (in memory, per process)
+builder.Services.AddSingleton<ChatBranch.Api.Endpoints.PlaygroundRateLimiter>();
 builder.Services.AddHostedService<ChatBranch.Api.Workers.AiOpsWorker>();
 builder.Services.AddHostedService<ChatBranch.Api.Workers.OutboundQueueWorker>();
 builder.Services.AddHostedService<ChatBranch.Api.Workers.FlowEngineWorker>();
@@ -195,6 +197,7 @@ app.MapAiMonitorEndpoints();
 app.MapBookingsEndpoints();
 app.MapLearningEndpoints();
 app.MapAiControlsEndpoints();
+app.MapAiPlaygroundEndpoints();
 app.MapClientErrorEndpoints();
 
 // Inbound conversations route themselves to a team. The hook lives here so the

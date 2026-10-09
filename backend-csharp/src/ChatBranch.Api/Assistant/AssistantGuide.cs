@@ -61,6 +61,14 @@ public static class AssistantGuide
             "The AI answers from the Knowledge Base (facts, policies, FAQs, events and notices that expire on " +
             "their own) and follows AI Skills (what to do when). Published articles also appear in the public " +
             "Help Center at /help."),
+        new("AI playground", "/ai-playground", "ai.monitor",
+            new[] { "playground", "simulate", "rehearse", "test", "testing", "prompt", "compare" },
+            "The AI playground (Automate → AI playground) lets you chat with the AI as a customer would — a made-up " +
+            "customer, an existing contact, or a copy of a real conversation — and see why it answered: the knowledge " +
+            "and lessons it used, tools and checks, and what would happen in production (sent, held for review, handed " +
+            "over, blocked or AI off). Admins can try another model, an unsaved persona or switch knowledge, lessons, " +
+            "skills or memory off, and compare two set-ups side by side. Nothing is sent, stored or booked; a correction " +
+            "you teach there becomes a lesson waiting in AI monitor → Learning."),
         new("Users, roles and permissions", "/users", "users.view",
             new[] { "user", "users", "role", "roles", "permission", "permissions", "login", "password", "agent", "admin", "invite" },
             "Users & Roles creates logins (superadmin, admin, agent or your own roles) and gives agents access to " +
@@ -104,6 +112,7 @@ public static class AssistantGuide
         ("Contacts", "/contacts", "contacts.view", new[] { "contacts", "contact", "customers", "people" }),
         ("Journeys", "/journeys", "flows.manage", new[] { "journeys", "journey", "flow builder", "flows", "flow", "workflows" }),
         ("Automations", "/automations", "flows.manage", new[] { "automations", "automation", "rules" }),
+        ("AI playground", "/ai-playground", "ai.monitor", new[] { "ai playground", "playground", "test the ai", "try the ai" }),
         ("Channels", "/channels", "channels.view", new[] { "channels", "channel", "whatsapp", "accounts" }),
         ("Integrations", "/integrations", "integrations.view", new[] { "integrations", "integration", "google" }),
         ("Users & Roles", "/users", "users.view", new[] { "users", "user", "roles", "logins" }),

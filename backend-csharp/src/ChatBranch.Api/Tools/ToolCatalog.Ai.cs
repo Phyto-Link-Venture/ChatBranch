@@ -207,5 +207,48 @@ public static partial class ToolCatalog
         yield return T(g, "ai_get_learning_stats", "AI quality statistics",
             "The 👍 rate over time, the most common 👎 reasons, and knowledge gaps (questions the AI could not ground).",
             "GET", "/api/ai/learning/stats", monitor, new[] { A.Days(), A.Entity() });
+
+        // ---- AI playground (nothing is sent, stored or booked) ----------------
+        yield return T(g, "ai_get_playground_options", "AI playground options",
+            "What the AI playground can try for an entity: the configured AI providers and their default models " +
+            "(never keys), the stored persona (with ai.behaviour.manage), the channels, the production review " +
+            "policy and AI switch, the learning mode and the custom fields a made-up customer can carry.",
+            "GET", "/api/ai/playground/options", monitorOrBehaviour,
+            new[] { A.Entity("Entity slug; omit for the organisation.") },
+            link: (_, _) => Page("Open the AI playground", "/ai-playground"));
+
+        yield return T(g, "ai_playground_reply", "Try the AI in the playground",
+            "Have the AI answer a made-up (or imported) conversation exactly as it would answer a customer — " +
+            "nothing is sent, stored or booked. Returns the reply as the bubbles it would send, what would happen " +
+            "in production (send | hold | handover | blocked | ai_off, and why), what it was based on (knowledge " +
+            "hits with scores, lessons), the tools it called (calendar bookings previewed only), its checks and " +
+            "retries, provider, model, tokens and estimated cost. Trying changes (provider/model, a persona draft, " +
+            "knowledge/lessons/skills/memory off, show_prompt) needs ai.behaviour.manage.",
+            "POST", "/api/ai/playground/reply", monitorOrBehaviour,
+            new[]
+            {
+                A.Arr("messages", "The transcript, oldest first: [{role: \"customer\" | \"ai\", text}], ending with " +
+                                  "the customer's message (at most 60 turns, 4000 characters each).", req: true),
+                A.Entity("Entity (outlet) slug whose knowledge, skills, persona and policy apply; omit for the organisation."),
+                A.Str("channel", "The channel the chat stands in for (default whatsapp).",
+                    oneOf: Endpoints.AiPlaygroundEndpoints.PlaygroundChannels),
+                A.Int("contact_id", "Answer as if to this real contact (read only: their profile and memory)."),
+                A.Obj("profile", "Or a made-up customer: {name, language: en | ms | zh, tags: [...], fields: {key: value}}."),
+                A.Int("account_id", "The inbox whose review policy applies (optional)."),
+                A.Str("thread", "A real conversation (channel:key) whose AI switch applies (optional)."),
+                A.Obj("options", "{provider, model, persona, knowledge, lessons, skills, memory, show_prompt} — " +
+                                 "anything but the defaults needs ai.behaviour.manage."),
+            }, write: false);
+
+        yield return T(g, "ai_playground_import", "Copy a conversation into the playground",
+            "Read the last messages (default 20, max 60) of a real conversation you can see as a playground " +
+            "transcript, with its entity, channel, inbox and contact. Read only — nothing is changed.",
+            "POST", "/api/ai/playground/import", monitorOrBehaviour,
+            new[]
+            {
+                A.Str("channel", "The conversation's channel.", req: true),
+                A.Str("key", "The conversation's key.", req: true),
+                A.Int("take", "How many of its latest messages (default 20, max 60).", min: 1, max: 60),
+            }, write: false);
     }
 }

@@ -188,12 +188,30 @@ public class BookingService
     public sealed class Session
     {
         public List<AiPendingAction> Actions { get; } = new();
+        /// <summary>
+        /// The AI playground: the tools check everything exactly as for a real
+        /// reply (free/busy, the per-contact cap, the slot still free, whose
+        /// booking it is) but RESERVE NOTHING — no row is written, no booking is
+        /// flipped to cancelling. What the reply would have booked or cancelled is
+        /// recorded in <see cref="Previews"/> instead, and <see cref="Actions"/>
+        /// stays empty, so there is never anything to make or release.
+        /// </summary>
+        public bool Preview { get; set; }
+        /// <summary>What a <see cref="Preview"/> generation would have booked / cancelled.</summary>
+        public List<BookingPreview> Previews { get; } = new();
         internal int? BookedId;
         internal string BookedStart = "";
         internal string BookedResult = "";
         internal int? CancelledId;
         internal string CancelledResult = "";
     }
+
+    /// <summary>
+    /// What a playground reply would have done to the calendar (nothing was
+    /// done): <c>book</c> a slot or <c>cancel</c> one of the contact's bookings.
+    /// </summary>
+    public sealed record BookingPreview(string Type, string Label, string Start, string Timezone, string Calendar,
+        int? BookingId);
 
     /// <summary>One app tool the model may call.</summary>
     public sealed record ToolBinding(AgentSkill Skill, CalendarAppConfig Config, string Action, string Base);
@@ -378,6 +396,30 @@ public class BookingService
                 new() { ["alternatives"] = alternatives.Select(SlotJson).ToList() });
         }
 
+        if (session.Preview)
+        {
+            // the playground: everything above was checked for real; nothing is held
+            var preview = new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["status"] = "reserved",
+                ["booking_id"] = 0,
+                ["start"] = BookingAvailability.LocalIso(slot.LocalStart),
+                ["end"] = BookingAvailability.LocalIso(slot.LocalEnd),
+                ["label"] = BookingAvailability.StartLabel(slot.LocalStart),
+                ["timezone"] = tz.Id,
+                ["calendar"] = target.Label,
+                ["instructions"] = "The time is held for this customer and is confirmed when your reply is sent. "
+                                   + "In your reply, confirm the booking and restate the weekday, date, time and timezone.",
+            };
+            session.Previews.Add(new BookingPreview(AiPendingAction.Book, BookingAvailability.StartLabel(slot.LocalStart),
+                BookingAvailability.LocalIso(slot.LocalStart), tz.Id, target.Label, null));
+            session.BookedId = 0;
+            session.BookedStart = startRaw;
+            session.BookedResult = JsonSerializer.Serialize(preview);
+            return new ToolOutcome(session.BookedResult, true);
+        }
+
         var vars = Vars(contact);
         var row = new Booking
         {
@@ -457,12 +499,18 @@ public class BookingService
                 return Unavailable("Google Calendar is not connected, so the booking can't be cancelled automatically.");
         }
 
-        row.Status = BookingStatus.Cancelling;
-        row.CancelDraftId = null;
-        row.UpdatedAt = UtcNow;
-        await _db.SaveChangesAsync(ct);
-        session.Actions.Add(new AiPendingAction(AiPendingAction.Cancel, row.Id));
+        if (!session.Preview)
+        {
+            row.Status = BookingStatus.Cancelling;
+            row.CancelDraftId = null;
+            row.UpdatedAt = UtcNow;
+            await _db.SaveChangesAsync(ct);
+            session.Actions.Add(new AiPendingAction(AiPendingAction.Cancel, row.Id));
+        }
         var local = BookingAvailability.ToLocal(row.StartUtc, TimeZoneFor(row.Timezone, tz));
+        if (session.Preview) // the playground: checked for real, the booking itself untouched
+            session.Previews.Add(new BookingPreview(AiPendingAction.Cancel, BookingAvailability.StartLabel(local),
+                BookingAvailability.LocalIso(local), row.Timezone, row.CalendarLabel, row.Id));
         var result = new Dictionary<string, object?>
         {
             ["ok"] = true,

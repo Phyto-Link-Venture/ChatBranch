@@ -47,6 +47,10 @@ public static class CustomFieldsEndpoints
         catch { return new Schema(); }
     }
 
+    /// <summary>The contact custom-field definitions, in order (the AI playground's made-up profile form).</summary>
+    internal static List<FieldDef> CustomerFields(ScopingService sc) =>
+        Load(sc).Customer.OrderBy(f => f.Position).ToList();
+
     private static object Payload(Schema s) => new
     {
         customer = s.Customer.OrderBy(f => f.Position).ToList(),

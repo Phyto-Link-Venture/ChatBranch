@@ -33,7 +33,7 @@ public static class LabCategories
         ("automation", "Flows & automations", "Flows on contact created / message received, automation rules, round-robin."),
         ("contacts", "Contacts & data", "CSV import, tag groups, template variables."),
         ("booking", "Bookings", "Calendar booking through an AI skill: offer, book, cancel, release."),
-        ("platform", "Platform", "Ask ChatBranch history, language preference, the website widget."),
+        ("platform", "Platform", "Ask ChatBranch history, language preference, the website widget, the AI playground."),
     };
 }
 
