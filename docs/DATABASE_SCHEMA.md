@@ -34,7 +34,8 @@ Tenant ──── Entity (tree: parent_id) ──┬── ChannelAccount ─�
   │            │                       ├── libraries: CannedResponse, ScriptTemplate,
   │            │                       │   KnowledgeItem, AgentSkill, Workflow, Tag,
   │            │                       │   AutomationRule, Integration  (null = org-wide)
-  │            └── Profile (role, M2M → Entity) ── AuthToken, ApiKey, SavedView
+  │            └── Profile (role, M2M → Entity) ── AuthToken, ApiKey, SavedView,
+  │                                                  AssistantConversation ── AssistantMessage
   │
   └── Contact ──┬── ContactEntity ──▶ Entity
                 ├── TagAssignment ──▶ Tag   (entity targets too)
@@ -370,6 +371,22 @@ per user). Written only by `NotificationService`.
 as it will run) · `summary` · `status` (`pending` \| `done` \| `failed` \|
 `cancelled` \| `expired`) · `result` · `created_at` · `expires_at` (15 min) ·
 `decided_at`. The operator assistant's confirm-before-write queue.
+
+### `crm_assistantconversation` — "Ask ChatBranch" history
+`id` · `user_id` (the owner — every read is filtered by it; no FK, like
+`crm_savedview`) · `title` (the first question, shortened; renamable) ·
+`entity_id` (the outlet in view when the chat started, null = all) ·
+`created_at` · `updated_at` (bumped per turn and per confirm/cancel — the
+history list's order). Index `ix_assistantconversation_user_updated
+(user_id, updated_at)`. At most 100 per user (the least recently used are
+pruned when a new one starts).
+
+### `crm_assistantmessage`
+`id` · `conversation_id` (FK → `crm_assistantconversation`, ON DELETE CASCADE;
+index `ix_assistantmessage_conversation`) · `role` (`user` \| `assistant`) ·
+`text` · `payload` (JSON text: an assistant turn's `{steps, pending_actions:[…,
+state, message], navigation, mode}`, a user turn's `{context:{path, entity}}`)
+· `created_at`. The model's context is rebuilt from these rows (last 12).
 
 ### `crm_setting` — runtime configuration
 `entity_id` (null = organization-wide) · `key` · `value` (text) · `updated_at`.

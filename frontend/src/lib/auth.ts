@@ -15,6 +15,8 @@
  * backend that predates the matrix) the helpers fall back to a static
  * role→capability default that mirrors the server seed.
  */
+import { clearAssistantCache } from './assistantCache'
+
 export type Role = 'superadmin' | 'admin' | 'agent'
 
 export interface AuthUser {
@@ -128,6 +130,8 @@ export function setAuth(user: AuthUser): void {
   }
 }
 
+/** Every way a session ends (sign-out, a 401 on a stale token) comes through
+ *  here — so the assistant's per-user browser cache goes with it. */
 export function clearAuth(): void {
   try {
     localStorage.removeItem(KEY)
@@ -135,6 +139,7 @@ export function clearAuth(): void {
   } catch {
     /* ignore */
   }
+  clearAssistantCache()
 }
 
 export function getRole(): Role {
@@ -224,6 +229,9 @@ export async function login(username: string, password: string): Promise<AuthUse
     undefined
   const ident = await fetchIdentity(user.token)
   user.capabilities = inline || ident.capabilities
+  // a fresh sign-in starts with no assistant cache — whoever used this browser
+  // before, their chat stays on the server under their own login
+  clearAssistantCache()
   setAuth(user)
   return user
 }

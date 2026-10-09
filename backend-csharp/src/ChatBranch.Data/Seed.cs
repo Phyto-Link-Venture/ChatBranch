@@ -220,6 +220,20 @@ public static class Seed
             + "CONSTRAINT \"FK_crm_identityrequest_crm_thread_thread_id\" FOREIGN KEY (\"thread_id\") "
             + "REFERENCES \"crm_thread\" (\"id\") ON DELETE CASCADE, "
             + "CONSTRAINT \"uniq_identityrequest_thread\" UNIQUE (\"thread_id\")");
+        // "Ask ChatBranch" history: per-user assistant chats + their turns
+        AddTableIfMissing(db, "crm_assistantconversation",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_assistantconversation\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"user_id\" INTEGER NOT NULL, \"title\" TEXT NOT NULL, \"entity_id\" INTEGER NULL, "
+            + "\"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
+        AddIndexIfMissing(db, "ix_assistantconversation_user_updated", "crm_assistantconversation",
+            "\"user_id\", \"updated_at\"");
+        AddTableIfMissing(db, "crm_assistantmessage",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_assistantmessage\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"conversation_id\" INTEGER NOT NULL, \"role\" TEXT NOT NULL, \"text\" TEXT NOT NULL, "
+            + "\"payload\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL, "
+            + "CONSTRAINT \"FK_crm_assistantmessage_crm_assistantconversation_conversation_id\" "
+            + "FOREIGN KEY (\"conversation_id\") REFERENCES \"crm_assistantconversation\" (\"id\") ON DELETE CASCADE");
+        AddIndexIfMissing(db, "ix_assistantmessage_conversation", "crm_assistantmessage", "\"conversation_id\"");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 

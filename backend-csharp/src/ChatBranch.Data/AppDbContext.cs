@@ -76,6 +76,9 @@ public class AppDbContext : DbContext
     // developer platform: API keys + the operator assistant's pending writes
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<AssistantAction> AssistantActions => Set<AssistantAction>();
+    // the operator assistant's per-user chat history
+    public DbSet<AssistantConversation> AssistantConversations => Set<AssistantConversation>();
+    public DbSet<AssistantMessage> AssistantMessages => Set<AssistantMessage>();
     // AI learning: feedback on replies, the lessons drawn from it, retrieval vectors
     public DbSet<AiFeedback> AiFeedback => Set<AiFeedback>();
     public DbSet<AiLesson> AiLessons => Set<AiLesson>();
@@ -179,6 +182,18 @@ public class AppDbContext : DbContext
         b.Entity<ApiKey>().ToTable("crm_apikey");
         b.Entity<ApiKey>().HasIndex(k => k.Prefix).IsUnique().HasDatabaseName("uniq_apikey_prefix");
         b.Entity<AssistantAction>().ToTable("crm_assistantaction");
+        // "Ask ChatBranch" history: per-user chats, their turns go with them
+        b.Entity<AssistantConversation>().ToTable("crm_assistantconversation");
+        b.Entity<AssistantConversation>().HasIndex(c => new { c.UserId, c.UpdatedAt })
+            .HasDatabaseName("ix_assistantconversation_user_updated");
+        b.Entity<AssistantMessage>().ToTable("crm_assistantmessage");
+        b.Entity<AssistantMessage>()
+            .HasOne(m => m.Conversation)
+            .WithMany(c => c.Messages)
+            .HasForeignKey(m => m.ConversationId)
+            .OnDelete(DeleteBehavior.Cascade);
+        b.Entity<AssistantMessage>().HasIndex(m => m.ConversationId)
+            .HasDatabaseName("ix_assistantmessage_conversation");
         // AI learning (Ai/Learning/): one explicit rating per user per message /
         // per draft (implicit approve/edit/reject rows are exempt from the filter)
         b.Entity<AiFeedback>().ToTable("crm_aifeedback");
