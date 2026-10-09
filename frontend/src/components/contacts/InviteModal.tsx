@@ -16,6 +16,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { INVITE_CHANNELS, cApi, errText, svgDataUri, type InviteResult } from '@/lib/contactIdentity'
+import { useFormat, useT } from '@/i18n'
 
 const LOGO: Record<string, string> = { facebook: 'messenger' }
 
@@ -42,6 +43,8 @@ export function InviteModal({
   /** Chats this contact already has — "Send via" targets. */
   threads: InviteThread[]
 }) {
+  const t = useT()
+  const f = useFormat()
   const router = useRouter()
   const [picked, setPicked] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
@@ -81,38 +84,38 @@ export function InviteModal({
       setCopied(id)
       setTimeout(() => setCopied((c) => (c === id ? null : c)), 1600)
     } catch {
-      setError('Copy failed — select the text and copy it by hand.')
+      setError(t('contacts.invite.copyFailed'))
     }
   }
 
+  const firstName = contactName.split(' ')[0] || ''
   const allText = result
-    ? [`Hi ${contactName.split(' ')[0] || ''}! You can also reach us here:`.replace(' !', '!'), ...result.links.map((l) => l.text)].join(
-        '\n',
-      )
+    ? [
+        firstName ? t('contacts.invite.greeting', { name: firstName }) : t('contacts.invite.greetingNoName'),
+        ...result.links.map((l) => l.text),
+      ].join('\n')
     : ''
-
-  const expires = result ? new Date(result.expires_at) : null
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title="Invite to another app"
-      subtitle={`Links that connect ${contactName}'s other apps to this contact. One code, 30 days, once per app.`}
+      title={t('contacts.invite.title')}
+      subtitle={t('contacts.invite.subtitle', { name: contactName })}
       size="lg"
       footer={
         <>
           <Button variant="secondary" size="sm" onClick={onClose}>
-            {result ? 'Done' : 'Cancel'}
+            {t(result ? 'common.actions.done' : 'common.actions.cancel')}
           </Button>
           {result ? (
             <Button variant="secondary" size="sm" onClick={() => setResult(null)}>
-              New code
+              {t('contacts.invite.newCode')}
             </Button>
           ) : (
             <Button size="sm" onClick={create} disabled={busy || picked.length === 0}>
               {busy && <Loader2 size={13} className="animate-spin" aria-hidden />}
-              Create invite link{picked.length > 1 ? 's' : ''}
+              {t('contacts.invite.create', { count: Math.max(1, picked.length) })}
             </Button>
           )}
         </>
@@ -126,12 +129,8 @@ export function InviteModal({
 
       {!result ? (
         <div className="flex flex-col gap-3">
-          <p className="text-[12.5px] leading-relaxed text-text-mid">
-            Messenger, Instagram, Telegram and most chat apps don&apos;t let anyone look a customer up by phone number.
-            An invite link does it the other way round: the customer opens it, says hi, and that conversation joins
-            this contact automatically.
-          </p>
-          <div className="eyebrow">Apps</div>
+          <p className="text-[12.5px] leading-relaxed text-text-mid">{t('contacts.invite.intro')}</p>
+          <div className="eyebrow">{t('contacts.invite.apps')}</div>
           <div className="flex flex-wrap gap-2">
             {INVITE_CHANNELS.map((c) => {
               const on = picked.includes(c.value)
@@ -147,32 +146,32 @@ export function InviteModal({
                   }`}
                 >
                   <ChannelLogo channel={LOGO[c.value] ?? c.value} size={15} title="" />
-                  {c.label}
-                  {!connected && <span className="text-[10.5px] font-normal text-text-faint">not connected</span>}
+                  {c.value === 'email' ? t('chats.channels.email') : c.label}
+                  {!connected && <span className="text-[10.5px] font-normal text-text-faint">{t('contacts.invite.notConnected')}</span>}
                   {on && <Check size={12} aria-hidden />}
                 </button>
               )
             })}
           </div>
           <p className="text-[11.5px] text-text-muted">
-            An app with no connected account still gets a code the customer can type into their first message.
+            {t('contacts.invite.noAccountHint')}
           </p>
         </div>
       ) : (
         <div className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-fill-subtle px-4 py-3">
             <div>
-              <div className="eyebrow">Invite code</div>
+              <div className="eyebrow">{t('contacts.invite.code')}</div>
               <div className="font-mono text-[22px] font-bold tracking-[0.18em] text-text-heading">{result.code}</div>
-              {expires && (
+              {result.expires_at && (
                 <div className="text-[11.5px] text-text-muted">
-                  Valid until {expires.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                  {t('contacts.invite.validUntil', { date: f.date(result.expires_at) })}
                 </div>
               )}
             </div>
             <Button variant="secondary" size="sm" onClick={() => copy('all', allText)}>
               {copied === 'all' ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
-              Copy message
+              {t('contacts.invite.copyMessage')}
             </Button>
           </div>
 
@@ -183,14 +182,16 @@ export function InviteModal({
                   <ChannelLogo channel={LOGO[l.channel] ?? l.channel} size={22} variant="tile" title="" />
                   <div className="min-w-0 flex-1">
                     <div className="text-[13px] font-semibold text-text-high">{l.label}</div>
-                    {l.account_name && <div className="truncate text-[11px] text-text-muted">via {l.account_name}</div>}
+                    {l.account_name && (
+                      <div className="truncate text-[11px] text-text-muted">{t('contacts.invite.via', { name: l.account_name })}</div>
+                    )}
                   </div>
                 </div>
                 {l.qr_svg && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={svgDataUri(l.qr_svg)}
-                    alt={`QR code for the ${l.label} invite link`}
+                    alt={t('contacts.invite.qrAlt', { app: l.label })}
                     className="mx-auto h-36 w-36 rounded-lg bg-white p-1.5"
                   />
                 )}
@@ -200,8 +201,8 @@ export function InviteModal({
                     <button
                       type="button"
                       onClick={() => copy(l.channel, l.url!)}
-                      aria-label={`Copy the ${l.label} link`}
-                      title="Copy link"
+                      aria-label={t('contacts.invite.copyLinkAria', { app: l.label })}
+                      title={t('contacts.invite.copyLink')}
                       className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-line text-text-muted hover:text-text-high"
                     >
                       {copied === l.channel ? <Check size={12} aria-hidden /> : <Copy size={12} aria-hidden />}
@@ -217,25 +218,25 @@ export function InviteModal({
 
           {threads.length > 0 && (
             <div>
-              <div className="eyebrow mb-1.5">Send it in a chat</div>
+              <div className="eyebrow mb-1.5">{t('contacts.invite.sendInChat')}</div>
               <div className="flex flex-wrap gap-2">
-                {threads.map((t) => (
+                {threads.map((th) => (
                   <Button
-                    key={`${t.channel}:${t.key}`}
+                    key={`${th.channel}:${th.key}`}
                     variant="secondary"
                     size="sm"
                     onClick={() =>
                       router.push(
-                        `/chats?thread=${encodeURIComponent(`${t.channel}:${t.key}`)}&draft=${encodeURIComponent(allText)}`,
+                        `/chats?thread=${encodeURIComponent(`${th.channel}:${th.key}`)}&draft=${encodeURIComponent(allText)}`,
                       )
                     }
                   >
                     <Send size={12} aria-hidden />
-                    {t.label}
+                    {th.label}
                   </Button>
                 ))}
               </div>
-              <p className="mt-1.5 text-[11px] text-text-muted">Opens the chat with the invite in the composer — review it, then send.</p>
+              <p className="mt-1.5 text-[11px] text-text-muted">{t('contacts.invite.sendHint')}</p>
             </div>
           )}
         </div>

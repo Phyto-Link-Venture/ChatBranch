@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { HelpCircle, Loader2, UserPlus } from 'lucide-react'
 import { cApi, threadPath, type IdentifyState } from '@/lib/contactIdentity'
 import { CreateFromChatModal } from '@/components/contacts/CreateFromChatModal'
+import { useT } from '@/i18n'
 
 export default function IdentityBanner({
   channel,
@@ -26,6 +27,7 @@ export default function IdentityBanner({
   refreshToken?: unknown
   onCreated: (contactId: number) => void
 }) {
+  const t = useT()
   const [state, setState] = useState<IdentifyState | null>(null)
   const [open, setOpen] = useState(false)
 
@@ -48,12 +50,20 @@ export default function IdentityBanner({
   const said = [req.collected.name, req.collected.phone, req.collected.email].filter(Boolean).join(' · ')
   const asking = req.state === 'asking' || req.state === 'armed'
   const text = asking
-    ? `Unknown customer — asking who they are${req.attempts > 0 ? ` (asked ${req.attempts} of ${req.max_asks})` : ''}`
+    ? req.attempts > 0
+      ? t('chats.identity.askingN', { count: req.attempts, max: req.max_asks })
+      : t('chats.identity.asking')
     : req.state === 'ambiguous'
-      ? `Unknown customer${said ? ` (${said})` : ''} matches several contacts — link the right one`
+      ? said
+        ? t('chats.identity.ambiguousSaid', { said })
+        : t('chats.identity.ambiguous')
       : req.state === 'needs_contact'
-        ? `Unknown customer${said ? `: ${said}` : ''} — no matching contact`
-        : `Unknown customer didn't say who they are${said ? ` (${said})` : ''}`
+        ? said
+          ? t('chats.identity.needsContactSaid', { said })
+          : t('chats.identity.needsContact')
+        : said
+          ? t('chats.identity.gaveUpSaid', { said })
+          : t('chats.identity.gaveUp')
 
   return (
     <div
@@ -76,7 +86,7 @@ export default function IdentityBanner({
           onClick={() => setOpen(true)}
           className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg border border-line-strong bg-card px-2.5 text-[11.5px] font-semibold text-text-high transition-colors hover:bg-fill-hover"
         >
-          <UserPlus size={12} aria-hidden /> Create contact
+          <UserPlus size={12} aria-hidden /> {t('chats.identity.createContact')}
         </button>
       )}
       <CreateFromChatModal

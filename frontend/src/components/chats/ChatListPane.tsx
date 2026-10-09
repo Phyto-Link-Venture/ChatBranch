@@ -4,9 +4,11 @@ import type { ReactNode } from 'react'
 import { Bot, CheckSquare, Hand, Loader2, MoreHorizontal, PhoneCall, Search, SlidersHorizontal, Square, X } from 'lucide-react'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { tagMeta } from '@/lib/tags'
+import { handoverKindLabel } from '@/lib/aiControls'
 import { Avatar, StatusTick } from './MessageParts'
-import { CHANNEL_META, listStamp, logoKey, statusLabel, type Channel, type UiThreadSummary } from './inboxTypes'
+import { channelName, listStamp, logoKey, statusLabel, type Channel, type UiThreadSummary } from './inboxTypes'
 import type { FilterChip } from './inboxFilters'
+import { useFormat, useT } from '@/i18n'
 
 export type ViewTab = { id: string; name: string; active: boolean; modified?: boolean; count?: number | null }
 
@@ -72,30 +74,32 @@ export default function ChatListPane({
   /** pinned under the list (the bulk bar) */
   footer?: ReactNode
 }) {
-  const modifiedTab = tabs.find((t) => t.active && t.modified)
+  const t = useT()
+  const f = useFormat()
+  const modifiedTab = tabs.find((tab) => tab.active && tab.modified)
   return (
     <section
-      aria-label="Conversations"
+      aria-label={t('chats.list.sectionAria')}
       className={`min-h-0 w-full shrink-0 flex-col border-r border-line bg-surface lg:w-[320px] xl:w-[340px] ${
         hidden ? 'hidden lg:flex' : 'flex'
       }`}
     >
       <div className="flex flex-col gap-3 border-b border-line px-4 pb-0 pt-4">
         <div className="flex items-baseline gap-2.5">
-          <h1 className="display text-[28px] leading-none text-text-heading">Chats</h1>
-          <span className="text-[13px] text-text-muted" aria-live="polite">
-            {total === null ? '' : `${total} ${total === 1 ? 'conversation' : 'conversations'}`}
+          <h1 className="display text-[28px] leading-none text-text-heading">{t('shell.nav.chats')}</h1>
+          <span className="min-w-0 truncate text-[13px] text-text-muted" aria-live="polite">
+            {total === null ? '' : t('chats.list.conversations', { count: total })}
           </span>
           {onToggleSelectMode && (
             <button
               type="button"
               onClick={onToggleSelectMode}
               aria-pressed={selectMode}
-              className={`ml-auto inline-flex h-7 items-center gap-1 rounded-md px-2 text-[12px] font-semibold transition-colors ${
+              className={`ml-auto inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[12px] font-semibold transition-colors ${
                 selectMode ? 'bg-[var(--nav-active-bg)] text-text-heading' : 'text-text-muted hover:bg-fill-hover hover:text-text-high'
               }`}
             >
-              <CheckSquare size={13} aria-hidden /> {selectMode ? 'Done' : 'Select'}
+              <CheckSquare size={13} aria-hidden /> {selectMode ? t('common.actions.done') : t('common.actions.select')}
             </button>
           )}
         </div>
@@ -106,12 +110,12 @@ export default function ChatListPane({
             <input
               value={search}
               onChange={(e) => onSearch(e.target.value)}
-              placeholder="Name, number or message"
-              aria-label="Search chats"
+              placeholder={t('chats.list.searchPlaceholder')}
+              aria-label={t('chats.list.searchAria')}
               className="min-w-0 flex-1 bg-transparent text-[13px] text-text-primary outline-none placeholder:text-text-faint"
             />
             {search && (
-              <button type="button" onClick={() => onSearch('')} aria-label="Clear search" className="text-text-muted hover:text-text-high">
+              <button type="button" onClick={() => onSearch('')} aria-label={t('chats.list.clearSearch')} className="text-text-muted hover:text-text-high">
                 <X size={13} aria-hidden />
               </button>
             )}
@@ -121,7 +125,7 @@ export default function ChatListPane({
             onClick={onOpenFilters}
             className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 text-[13px] font-semibold text-on-primary transition-opacity hover:opacity-90"
           >
-            <SlidersHorizontal size={14} aria-hidden /> Filter
+            <SlidersHorizontal size={14} aria-hidden /> {t('common.actions.filter')}
             {activeFilterCount > 0 && (
               <span className="rounded-full bg-accent px-1.5 text-[11px] font-bold leading-[18px] text-[color:var(--on-accent)]">
                 {activeFilterCount}
@@ -141,7 +145,7 @@ export default function ChatListPane({
                 <button
                   type="button"
                   onClick={() => onRemoveChip(c)}
-                  aria-label={`Remove filter: ${c.label}`}
+                  aria-label={t('chats.list.removeChip', { label: c.label })}
                   className="grid h-4 w-4 shrink-0 place-items-center rounded-full text-text-muted hover:bg-fill-hover hover:text-text-high"
                 >
                   <X size={11} aria-hidden />
@@ -150,7 +154,7 @@ export default function ChatListPane({
             ))}
             {chips.length > 1 && (
               <button type="button" onClick={onClearFilters} className="px-1 text-[12px] font-semibold text-[color:var(--brand-ink)] hover:underline">
-                Clear all
+                {t('chats.list.clearAll')}
               </button>
             )}
           </div>
@@ -158,35 +162,39 @@ export default function ChatListPane({
 
         {/* saved views: All · Mine · Unassigned · the operator's own */}
         <div className="-mb-px flex items-end gap-1">
-          <div className="no-scrollbar flex min-w-0 flex-1 gap-3.5 overflow-x-auto" role="tablist" aria-label="Views">
-            {tabs.map((t) => (
+          <div className="no-scrollbar flex min-w-0 flex-1 gap-3.5 overflow-x-auto" role="tablist" aria-label={t('chats.list.viewsAria')}>
+            {tabs.map((tab) => (
               <button
-                key={t.id}
+                key={tab.id}
                 type="button"
                 role="tab"
-                aria-selected={t.active}
-                onClick={() => onSelectTab(t.id)}
+                aria-selected={tab.active}
+                onClick={() => onSelectTab(tab.id)}
                 className={`shrink-0 whitespace-nowrap border-b-2 pb-2 text-[13px] transition-colors ${
-                  t.active
+                  tab.active
                     ? 'border-[color:var(--accent)] font-semibold text-text-heading'
                     : 'border-transparent text-text-muted hover:text-text-high'
                 }`}
               >
-                {t.name}
-                {typeof t.count === 'number' && t.count > 0 && (
+                {tab.name}
+                {typeof tab.count === 'number' && tab.count > 0 && (
                   <span className="ml-1 rounded-full bg-amber/15 px-1.5 text-[10.5px] font-bold tabular-nums leading-[16px] text-amber-300">
-                    {t.count > 99 ? '99+' : t.count}
+                    {tab.count > 99 ? '99+' : f.number(tab.count)}
                   </span>
                 )}
-                {t.active && t.modified && <span className="ml-0.5 text-[color:var(--brand-ink)]" title="Filters changed since this view was saved">•</span>}
+                {tab.active && tab.modified && (
+                  <span className="ml-0.5 text-[color:var(--brand-ink)]" title={t('chats.list.modifiedHint')}>
+                    •
+                  </span>
+                )}
               </button>
             ))}
           </div>
           <button
             type="button"
             onClick={onManageViews}
-            title="Manage saved views"
-            aria-label="Manage saved views"
+            title={t('chats.list.manageViews')}
+            aria-label={t('chats.list.manageViews')}
             className="mb-1 grid h-7 w-7 shrink-0 place-items-center rounded-md text-text-muted hover:bg-fill-hover hover:text-text-high"
           >
             <MoreHorizontal size={15} aria-hidden />
@@ -196,9 +204,9 @@ export default function ChatListPane({
 
       {modifiedTab && onSaveViewChanges && (
         <div className="flex items-center justify-between gap-2 border-b border-line bg-well px-4 py-1.5 text-[12px] text-text-mid">
-          <span className="truncate">“{modifiedTab.name}” has unsaved filter changes</span>
+          <span className="truncate">{t('chats.list.unsavedChanges', { name: modifiedTab.name })}</span>
           <button type="button" onClick={onSaveViewChanges} className="shrink-0 font-semibold text-text-high hover:underline">
-            Update view
+            {t('chats.list.updateView')}
           </button>
         </div>
       )}
@@ -206,35 +214,34 @@ export default function ChatListPane({
       <div className="min-h-0 flex-1 overflow-y-auto">
         {loading && rows.length === 0 && (
           <div className="flex items-center justify-center gap-2 px-4 py-10 text-[12.5px] text-text-muted">
-            <Loader2 size={14} className="animate-spin" aria-hidden /> Loading conversations…
+            <Loader2 size={14} className="animate-spin" aria-hidden /> {t('chats.list.loading')}
           </div>
         )}
         {!loading && rows.length === 0 && (
           <div className="px-6 py-10 text-center text-[13px] text-text-muted">
-            {activeFilterCount > 0 || search.trim()
-              ? 'No conversations match these filters.'
-              : 'No conversations yet — they appear here as customers write in.'}
+            {activeFilterCount > 0 || search.trim() ? t('chats.list.emptyFiltered') : t('chats.list.empty')}
             {(activeFilterCount > 0 || search.trim()) && (
               <div className="mt-2">
                 <button type="button" onClick={onClearFilters} className="font-semibold text-text-high underline-offset-2 hover:underline">
-                  Clear filters
+                  {t('chats.list.clearFilters')}
                 </button>
               </div>
             )}
           </div>
         )}
-        {rows.map((t) => {
-          const selected = !!activeId && t.channel === activeId.channel && t.key === activeId.key
-          const merged = (t._mergedChannels?.length ?? 0) > 1
-          const callLive = !!t.call && ['in_call', 'ringing', 'connecting'].includes(t.call.status)
-          const picking = selectMode && !t.pending
-          const picked = picking && !!pickedRefs?.has(rowRef(t))
-          const handedOver = t.handover?.open ? t.handover : null
+        {rows.map((row) => {
+          const selected = !!activeId && row.channel === activeId.channel && row.key === activeId.key
+          const merged = (row._mergedChannels?.length ?? 0) > 1
+          const callLive = !!row.call && ['in_call', 'ringing', 'connecting'].includes(row.call.status)
+          const picking = selectMode && !row.pending
+          const picked = picking && !!pickedRefs?.has(rowRef(row))
+          const handedOver = row.handover?.open ? row.handover : null
+          const callStatus = row.call?.status
           return (
             <button
-              key={`${t.channel}-${t.key}${t.pending ? '-pending' : ''}`}
+              key={`${row.channel}-${row.key}${row.pending ? '-pending' : ''}`}
               type="button"
-              onClick={() => (picking ? onToggleSelect?.(t) : onOpen(t))}
+              onClick={() => (picking ? onToggleSelect?.(row) : onOpen(row))}
               aria-current={selected ? 'true' : undefined}
               aria-pressed={picking ? picked : undefined}
               className={`flex w-full gap-2.5 border-b border-line px-4 py-3 text-left transition-colors ${
@@ -246,53 +253,62 @@ export default function ChatListPane({
                   {picked ? <CheckSquare size={16} className="text-text-heading" /> : <Square size={16} />}
                 </span>
               )}
-              <Avatar name={t.name} channel={merged ? undefined : t.channel} strong={selected} />
+              <Avatar name={row.name} channel={merged ? undefined : row.channel} strong={selected} />
               <span className="min-w-0 flex-1">
                 <span className="flex items-baseline justify-between gap-2">
-                  <span className={`truncate text-[13.5px] text-text-heading ${t.waiting || selected ? 'font-bold' : 'font-semibold'}`}>
-                    {t.name}
+                  <span className={`truncate text-[13.5px] text-text-heading ${row.waiting || selected ? 'font-bold' : 'font-semibold'}`}>
+                    {row.name}
                   </span>
-                  <span className={`shrink-0 text-[11.5px] ${t.waiting ? 'font-semibold text-[color:var(--brand-ink)]' : 'text-text-muted'}`}>
-                    {listStamp(t.last_ts)}
+                  <span className={`shrink-0 text-[11.5px] ${row.waiting ? 'font-semibold text-[color:var(--brand-ink)]' : 'text-text-muted'}`}>
+                    {listStamp(row.last_ts, f)}
                   </span>
                 </span>
                 <span className="mt-0.5 flex items-center gap-1 text-[12.5px] text-text-mid">
-                  {t.last_dir === 'out' && t.last_status && (
+                  {row.last_dir === 'out' && row.last_status && (
                     <span className="shrink-0 text-text-muted">
-                      <StatusTick status={t.last_status} />
+                      <StatusTick status={row.last_status} />
                     </span>
                   )}
-                  <span className={`truncate ${t.pending ? 'italic text-text-muted' : ''}`}>{t.last_message || '—'}</span>
-                  {t.waiting && <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-accent" title="Waiting for our reply" />}
+                  <span className={`truncate ${row.pending ? 'italic text-text-muted' : ''}`}>
+                    {row.pending ? t('chats.list.noConversationYet') : row.last_message || '—'}
+                  </span>
+                  {row.waiting && <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-accent" title={t('chats.list.waitingDot')} />}
                 </span>
-                {(merged || callLive || t.ai_enabled || handedOver || (t.status && t.status !== 'open') || (t.labels ?? []).length > 0 || t.opted_out) && (
+                {(merged || callLive || row.ai_enabled || handedOver || (row.status && row.status !== 'open') || (row.labels ?? []).length > 0 || row.opted_out) && (
                   <span className="mt-1.5 flex flex-wrap items-center gap-1">
                     {handedOver && (
                       <span
                         className="inline-flex max-w-full items-center gap-0.5 rounded-full bg-amber/15 px-1.5 text-[10.5px] font-semibold leading-[17px] text-amber-300"
-                        title={`${handedOver.kind_label} — ${handedOver.reason}`}
+                        title={`${handoverKindLabel(t, handedOver.kind, handedOver.kind_label)} — ${handedOver.reason}`}
                       >
                         <Hand size={9} className="shrink-0" aria-hidden />
                         <span className="truncate">
-                          {handedOver.by === 'ai' ? 'AI handed over' : 'Handed over'} · {handedOver.reason}
+                          {t(handedOver.by === 'ai' ? 'chats.list.aiHandedOver' : 'chats.list.handedOver')} · {handedOver.reason}
                         </span>
                       </span>
                     )}
                     {merged &&
-                      t._mergedChannels!.map((c) => (
-                        <ChannelLogo key={c} channel={logoKey(c)} size={12} title={CHANNEL_META[c].lbl} />
+                      row._mergedChannels!.map((c) => (
+                        <ChannelLogo key={c} channel={logoKey(c)} size={12} title={channelName(t, c)} />
                       ))}
                     {callLive && (
                       <span className="inline-flex items-center gap-0.5 rounded-full bg-green/15 px-1.5 text-[10.5px] font-semibold leading-[17px] text-green-300">
-                        <PhoneCall size={9} aria-hidden /> {t.call!.status === 'in_call' ? 'On call' : t.call!.status}
+                        <PhoneCall size={9} aria-hidden />{' '}
+                        {callStatus === 'in_call'
+                          ? t('chats.list.onCall')
+                          : callStatus === 'ringing'
+                            ? t('chats.list.ringing')
+                            : callStatus === 'connecting'
+                              ? t('chats.list.connecting')
+                              : callStatus}
                       </span>
                     )}
-                    {t.status && t.status !== 'open' && (
+                    {row.status && row.status !== 'open' && (
                       <span className="rounded-full border border-line-strong px-1.5 text-[10.5px] leading-[17px] text-text-mid">
-                        {statusLabel(t.status)}
+                        {statusLabel(t, row.status)}
                       </span>
                     )}
-                    {(t.labels ?? []).slice(0, 3).map((l) => {
+                    {(row.labels ?? []).slice(0, 3).map((l) => {
                       const m = tagMeta(l)
                       return (
                         <span
@@ -304,16 +320,18 @@ export default function ChatListPane({
                         </span>
                       )
                     })}
-                    {(t.labels ?? []).length > 3 && (
-                      <span className="text-[10.5px] text-text-muted">+{(t.labels ?? []).length - 3}</span>
+                    {(row.labels ?? []).length > 3 && (
+                      <span className="text-[10.5px] text-text-muted">+{(row.labels ?? []).length - 3}</span>
                     )}
-                    {t.ai_enabled && !t.opted_out && (
+                    {row.ai_enabled && !row.opted_out && (
                       <span className="inline-flex items-center gap-0.5 rounded-full bg-brand/15 px-1.5 text-[10.5px] font-semibold leading-[17px] text-brand-300">
-                        <Bot size={9} aria-hidden /> AI on
+                        <Bot size={9} aria-hidden /> {t('chats.list.aiOn')}
                       </span>
                     )}
-                    {t.opted_out && (
-                      <span className="rounded-full bg-red/10 px-1.5 text-[10.5px] font-semibold leading-[17px] text-red-300">Opted out</span>
+                    {row.opted_out && (
+                      <span className="rounded-full bg-red/10 px-1.5 text-[10.5px] font-semibold leading-[17px] text-red-300">
+                        {t('chats.list.optedOut')}
+                      </span>
                     )}
                   </span>
                 )}
@@ -329,7 +347,7 @@ export default function ChatListPane({
               disabled={loadingMore}
               className="inline-flex items-center gap-1.5 rounded-lg border border-line-strong bg-card px-3 py-1.5 text-[12.5px] font-semibold text-text-high hover:bg-fill-hover disabled:opacity-50"
             >
-              {loadingMore && <Loader2 size={12} className="animate-spin" aria-hidden />} Load more
+              {loadingMore && <Loader2 size={12} className="animate-spin" aria-hidden />} {t('chats.list.loadMore')}
             </button>
           </div>
         )}

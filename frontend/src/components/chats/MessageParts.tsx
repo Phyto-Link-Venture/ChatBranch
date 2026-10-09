@@ -10,16 +10,18 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AlertCircle, Check, CheckCheck, Clock, FileText, Film, Loader2, Music, PhoneCall, type LucideIcon } from 'lucide-react'
 import { authHeaders } from '@/lib/auth'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
-import { CHANNEL_META, initials, logoKey, resolveMediaUrl, timeShort, type Channel, type UiMedia } from './inboxTypes'
+import { channelName, initials, logoKey, resolveMediaUrl, timeShort, type Channel, type UiMedia } from './inboxTypes'
+import { Trans, useFormat, useI18n, useT, intlTag, type MessageKey, type TFunction } from '@/i18n'
 
 /** Honesty marker: features not yet validated against the live provider. */
 export function BetaChip() {
+  const t = useT()
   return (
     <span
       className="shrink-0 rounded border border-amber/40 px-1 py-px text-[8.5px] font-bold uppercase tracking-wide text-amber-300"
-      title="Not yet validated against the live provider"
+      title={t('chats.parts.betaHint')}
     >
-      Beta
+      {t('chats.parts.beta')}
     </span>
   )
 }
@@ -37,6 +39,7 @@ export function Avatar({
   size?: number
   strong?: boolean
 }) {
+  const t = useT()
   const badge = Math.max(14, Math.round(size * 0.44))
   return (
     <span className="relative inline-block shrink-0" style={{ width: size, height: size }}>
@@ -54,7 +57,7 @@ export function Avatar({
           className="absolute -bottom-0.5 -right-0.5 grid place-items-center rounded-full bg-card"
           style={{ width: badge, height: badge, boxShadow: '0 0 0 1.5px var(--card)' }}
         >
-          <ChannelLogo channel={logoKey(channel)} size={badge - 3} title={CHANNEL_META[channel].lbl} />
+          <ChannelLogo channel={logoKey(channel)} size={badge - 3} title={channelName(t, channel)} />
         </span>
       )}
     </span>
@@ -63,19 +66,21 @@ export function Avatar({
 
 /** Which channel a bubble came from — shown in the combined per-contact view. */
 export function ChannelBadge({ channel }: { channel: Channel }) {
+  const t = useT()
   return (
     <span className="mb-1 flex w-fit items-center gap-1 text-[9.5px] font-bold uppercase tracking-[0.08em] opacity-75">
-      <ChannelLogo channel={logoKey(channel)} size={10} variant="mono" title="" /> {CHANNEL_META[channel].lbl}
+      <ChannelLogo channel={logoKey(channel)} size={10} variant="mono" title="" /> {channelName(t, channel)}
     </span>
   )
 }
 
 export function StatusTick({ status }: { status: string }) {
-  if (status === 'read') return <CheckCheck size={13} className="cb-tick-read" aria-label="Read" />
-  if (status === 'delivered') return <CheckCheck size={13} aria-label="Delivered" />
-  if (status === 'failed') return <AlertCircle size={12} className="cb-tick-failed" aria-label="Failed" />
-  if (status === 'sandbox') return <Clock size={11} aria-label="Sandbox — not sent" />
-  return <Check size={13} aria-label="Sent" />
+  const t = useT()
+  if (status === 'read') return <CheckCheck size={13} className="cb-tick-read" aria-label={t('chats.parts.tickRead')} />
+  if (status === 'delivered') return <CheckCheck size={13} aria-label={t('chats.parts.tickDelivered')} />
+  if (status === 'failed') return <AlertCircle size={12} className="cb-tick-failed" aria-label={t('chats.parts.tickFailed')} />
+  if (status === 'sandbox') return <Clock size={11} aria-label={t('chats.parts.tickSandbox')} />
+  return <Check size={13} aria-label={t('chats.parts.tickSent')} />
 }
 
 /** A centred, muted line between hairlines — day separators and system notes. */
@@ -125,14 +130,15 @@ function useBlobUrl(url: string) {
 
 /** Bubble attachment — the media URL needs the bearer token. */
 export function MediaAttachment({ media }: { media: UiMedia }) {
+  const t = useT()
   const { src: url, failed } = useBlobUrl(media.url)
 
   if (media.type === 'image' && !failed) {
     return url ? (
-      <a href={url} target="_blank" rel="noreferrer" title="Open full size" className="mb-1 block">
+      <a href={url} target="_blank" rel="noreferrer" title={t('chats.parts.openFullSize')} className="mb-1 block">
         {/* object URL — next/image can't optimize blobs */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt="Image attachment" className="block max-h-64 max-w-full rounded-lg object-cover" />
+        <img src={url} alt={t('chats.parts.imageAlt')} className="block max-h-64 max-w-full rounded-lg object-cover" />
       </a>
     ) : (
       <span className="mb-1 grid h-28 w-44 place-items-center rounded-lg bg-fill">
@@ -145,7 +151,11 @@ export function MediaAttachment({ media }: { media: UiMedia }) {
   return (
     <span className="mb-1 flex items-center gap-2 rounded-lg border px-2.5 py-1.5" style={{ borderColor: 'color-mix(in srgb, currentColor 22%, transparent)' }}>
       <ChipIcon size={14} className="shrink-0 opacity-75" aria-hidden />
-      <span className="text-[11.5px] font-semibold capitalize opacity-90">{media.type}</span>
+      <span className="text-[11.5px] font-semibold opacity-90">
+        {['image', 'document', 'audio', 'video'].includes(media.type)
+          ? t(`chats.parts.media.${media.type}` as MessageKey)
+          : media.type}
+      </span>
       {url ? (
         <a
           href={url}
@@ -153,10 +163,10 @@ export function MediaAttachment({ media }: { media: UiMedia }) {
           rel="noreferrer"
           className="ml-1 text-[10.5px] font-bold uppercase tracking-wide underline underline-offset-2"
         >
-          Open
+          {t('common.actions.open')}
         </a>
       ) : failed ? (
-        <span className="text-[10.5px] opacity-60">unavailable</span>
+        <span className="text-[10.5px] opacity-60">{t('chats.parts.unavailable')}</span>
       ) : (
         <Loader2 size={12} className="animate-spin opacity-60" aria-hidden />
       )}
@@ -174,12 +184,13 @@ export function CallRecordingPlayer({
   onTime?: (seconds: number) => void
   audioEl?: React.MutableRefObject<HTMLAudioElement | null>
 }) {
+  const t = useT()
   const { src, failed } = useBlobUrl(url)
-  if (failed) return <span className="text-[11px] text-text-faint">recording unavailable</span>
+  if (failed) return <span className="text-[11px] text-text-faint">{t('chats.parts.recordingUnavailable')}</span>
   if (!src)
     return (
       <span className="flex items-center gap-1.5 text-[11px] text-text-faint">
-        <Loader2 size={12} className="animate-spin" aria-hidden /> loading…
+        <Loader2 size={12} className="animate-spin" aria-hidden /> {t('common.status.loading')}
       </span>
     )
   // eslint-disable-next-line jsx-a11y/media-has-caption
@@ -199,13 +210,19 @@ export function CallRecordingPlayer({
 
 /** Call-transcript timeline entry — collapsed to a line by default. */
 export function CallTranscriptChip({ text, time }: { text: string; time: string }) {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const lines = text.split('\n').slice(1).filter((l) => l.trim()) // drop the header line
   return (
     <div className="my-1.5 flex flex-col items-center">
       <CenterNote>
         <button type="button" onClick={() => setOpen(!open)} className="inline-flex cursor-pointer items-center gap-1.5 hover:text-text-high">
-          <PhoneCall size={11} aria-hidden /> Call transcript · {lines.length} lines · {open ? 'hide' : 'view'} · {time}
+          <PhoneCall size={11} aria-hidden />{' '}
+          {t('chats.parts.transcriptChip', {
+            count: lines.length,
+            action: t(open ? 'chats.parts.hide' : 'chats.parts.view'),
+            time,
+          })}
         </button>
       </CenterNote>
       {open && (
@@ -222,18 +239,22 @@ export function CallTranscriptChip({ text, time }: { text: string; time: string 
 }
 
 /** Human label for the persisted end-cause codes. */
-const endedByLabel = (v: string) =>
-  v === 'agent'
-    ? 'AI agent (wrapped up)'
-    : v === 'contact'
-      ? 'contact hung up'
-      : v === 'system:silence'
-        ? 'auto — silent line'
-        : v === 'system:no_answer'
-          ? 'auto — no response to greeting'
-          : v === 'system:max_duration'
-            ? 'auto — time limit'
-            : v
+const END_CAUSES: Record<string, MessageKey> = {
+  agent: 'chats.parts.endedBy.agent',
+  contact: 'chats.parts.endedBy.contact',
+  operator: 'chats.parts.endedBy.operator',
+  'system:silence': 'chats.parts.endedBy.silence',
+  'system:no_answer': 'chats.parts.endedBy.noAnswer',
+  'system:max_duration': 'chats.parts.endedBy.maxDuration',
+}
+const endedByLabel = (t: TFunction, v: string) => (END_CAUSES[v] ? t(END_CAUSES[v]) : v)
+
+/** A transcript line's clock (with seconds) in the current language. */
+function useTurnClock() {
+  const { locale } = useI18n()
+  const fmt = new Intl.DateTimeFormat(intlTag(locale), { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  return (ts: number) => fmt.format(new Date(ts * 1000))
+}
 
 export interface CallRec {
   name: string
@@ -254,9 +275,6 @@ function recStartMs(rec: CallRec): number {
   return Number.isFinite(ms) && ms > 1e12 ? ms : Date.parse(rec.created)
 }
 
-const turnClock = (ts: number) =>
-  new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-
 /** A turn's position in the recording (seconds), corrected for WHEN each side
  *  is logged: assistant text at generation (audio ~1s later), user text at
  *  transcription-final (~2.5s after they started speaking). */
@@ -268,6 +286,9 @@ function turnOffsetSec(t: { role: string; ts?: number }, startMs: number): numbe
 
 /** One past call: the recording player plus its transcript (hidden until clicked). */
 export function CallEntry({ rec, withTranscript = true }: { rec: CallRec; withTranscript?: boolean }) {
+  const t = useT()
+  const f = useFormat()
+  const turnClock = useTurnClock()
   const [showT, setShowT] = useState(false)
   const [pos, setPos] = useState(-1) // playback position (s); -1 = not playing
   const activeLineRef = useRef<HTMLDivElement | null>(null)
@@ -278,8 +299,8 @@ export function CallEntry({ rec, withTranscript = true }: { rec: CallRec; withTr
   const activeIdx =
     pos < 0
       ? -1
-      : turns.reduce((acc, t, i) => {
-          const off = turnOffsetSec(t, startMs)
+      : turns.reduce((acc, turn, i) => {
+          const off = turnOffsetSec(turn, startMs)
           return off !== null && off <= pos ? i : acc
         }, -1)
 
@@ -287,8 +308,8 @@ export function CallEntry({ rec, withTranscript = true }: { rec: CallRec; withTr
     activeLineRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }, [activeIdx])
 
-  const seekTo = (t: { role: string; ts?: number }) => {
-    const off = turnOffsetSec(t, startMs)
+  const seekTo = (turn: { role: string; ts?: number }) => {
+    const off = turnOffsetSec(turn, startMs)
     const audio = audioRef.current
     if (off === null || !audio) return
     audio.currentTime = off
@@ -300,47 +321,52 @@ export function CallEntry({ rec, withTranscript = true }: { rec: CallRec; withTr
       {(rec.meta?.initiated_by || rec.meta?.ended_by) && (
         <div className="mb-1 text-[10.5px] leading-snug text-text-muted">
           {rec.meta?.initiated_by && (
-            <>
-              Called by <span className="font-semibold text-text-high">{rec.meta.initiated_by}</span>
-              {rec.meta?.account ? ` via ${rec.meta.account}` : ''}
-            </>
+            <Trans
+              k={rec.meta?.account ? 'chats.parts.calledByVia' : 'chats.parts.calledBy'}
+              values={{
+                who: <span className="font-semibold text-text-high">{rec.meta.initiated_by}</span>,
+                account: rec.meta?.account ?? '',
+              }}
+            />
           )}
           {rec.meta?.initiated_by && rec.meta?.ended_by && ' · '}
           {rec.meta?.ended_by && (
-            <>
-              Ended by <span className="font-semibold text-text-high">{endedByLabel(rec.meta.ended_by)}</span>
-            </>
+            <Trans
+              k="chats.parts.endedByLine"
+              values={{ who: <span className="font-semibold text-text-high">{endedByLabel(t, rec.meta.ended_by)}</span> }}
+            />
           )}
         </div>
       )}
       <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="text-[10.5px] text-text-muted">{new Date(rec.created).toLocaleString()}</span>
+        <span className="text-[10.5px] text-text-muted">{f.dateTime(rec.created)}</span>
         {turns.length > 0 && (
           <button
             type="button"
             onClick={() => setShowT(!showT)}
             className="shrink-0 text-[10.5px] font-semibold text-brand-300 hover:underline"
           >
-            {showT ? 'Hide transcript' : `Transcript (${turns.length})`}
+            {showT ? t('chats.parts.hideTranscript') : t('chats.parts.transcriptN', { count: turns.length })}
           </button>
         )}
       </div>
-      <CallRecordingPlayer url={rec.url} audioEl={audioRef} onTime={turns.some((t) => t.ts) ? (s) => setPos(s) : undefined} />
+      <CallRecordingPlayer url={rec.url} audioEl={audioRef} onTime={turns.some((turn) => turn.ts) ? (s) => setPos(s) : undefined} />
       {showT && turns.length > 0 && (
         <div className="mt-1.5 max-h-48 space-y-0.5 overflow-y-auto rounded-md border border-line bg-well p-2 text-[12px] leading-snug">
-          {turns.map((t, i) => (
+          {turns.map((turn, i) => (
             <div
               key={i}
               ref={i === activeIdx ? activeLineRef : undefined}
-              onClick={t.ts ? () => seekTo(t) : undefined}
-              title={t.ts ? 'Play from here' : undefined}
+              onClick={turn.ts ? () => seekTo(turn) : undefined}
+              title={turn.ts ? t('chats.parts.playFromHere') : undefined}
               className={`flex gap-1.5 rounded px-1 py-0.5 transition-colors ${i === activeIdx ? 'bg-brand-400/15' : ''} ${
-                t.ts ? 'cursor-pointer hover:bg-fill-hover' : ''
-              } ${t.role === 'assistant' ? 'text-brand-300' : 'text-text-mid'}`}
+                turn.ts ? 'cursor-pointer hover:bg-fill-hover' : ''
+              } ${turn.role === 'assistant' ? 'text-brand-300' : 'text-text-mid'}`}
             >
-              {t.ts && <span className="shrink-0 pt-px font-mono text-[10px] text-text-faint">{turnClock(t.ts)}</span>}
+              {turn.ts && <span className="shrink-0 pt-px font-mono text-[10px] text-text-faint">{turnClock(turn.ts)}</span>}
               <span>
-                <span className="font-semibold">{t.role === 'assistant' ? 'AI' : 'Customer'}:</span> {t.text}
+                <span className="font-semibold">{t(turn.role === 'assistant' ? 'chats.parts.ai' : 'chats.parts.customer')}:</span>{' '}
+                {turn.text}
               </span>
             </div>
           ))}
@@ -364,14 +390,20 @@ export interface SipCall {
 
 /** A past SIP phone call rendered inline in the message stream. */
 export function SipCallCard({ rec }: { rec: SipCall }) {
+  const t = useT()
+  const f = useFormat()
+  const turnClock = useTurnClock()
   const [open, setOpen] = useState(false)
   return (
     <div className="my-2 flex justify-center">
       <div className="w-[85%] max-w-[440px]">
         <CenterNote>
           <span className="inline-flex items-center gap-1.5">
-            <PhoneCall size={11} aria-hidden /> AI voice call · {rec.outcome.replace(/_/g, ' ')} ·{' '}
-            {timeShort(rec.ended_at || rec.started_at)}
+            <PhoneCall size={11} aria-hidden />{' '}
+            {t('chats.parts.aiVoiceCallLine', {
+              outcome: rec.outcome.replace(/_/g, ' '),
+              time: timeShort(rec.ended_at || rec.started_at, f),
+            })}
           </span>
         </CenterNote>
         <div className="mt-1 rounded-lg border border-line bg-card p-2.5">
@@ -387,16 +419,17 @@ export function SipCallCard({ rec }: { rec: SipCall }) {
               onClick={() => setOpen(!open)}
               className="mt-1 text-[10.5px] font-semibold text-brand-300 hover:underline"
             >
-              {open ? 'Hide transcript' : `Transcript (${rec.transcript.length})`}
+              {open ? t('chats.parts.hideTranscript') : t('chats.parts.transcriptN', { count: rec.transcript.length })}
             </button>
           )}
           {open && (
             <div className="mt-1.5 max-h-56 space-y-0.5 overflow-y-auto rounded-md border border-line bg-well p-2 text-[12px] leading-snug">
-              {rec.transcript.map((t, i) => (
-                <div key={i} className={`flex gap-1.5 ${t.role === 'assistant' ? 'text-brand-300' : 'text-text-mid'}`}>
-                  {t.ts && <span className="shrink-0 pt-px font-mono text-[10px] text-text-faint">{turnClock(t.ts)}</span>}
+              {rec.transcript.map((turn, i) => (
+                <div key={i} className={`flex gap-1.5 ${turn.role === 'assistant' ? 'text-brand-300' : 'text-text-mid'}`}>
+                  {turn.ts && <span className="shrink-0 pt-px font-mono text-[10px] text-text-faint">{turnClock(turn.ts)}</span>}
                   <span>
-                    <span className="font-semibold">{t.role === 'assistant' ? 'AI' : 'Caller'}:</span> {t.text}
+                    <span className="font-semibold">{t(turn.role === 'assistant' ? 'chats.parts.ai' : 'chats.parts.caller')}:</span>{' '}
+                    {turn.text}
                   </span>
                 </div>
               ))}

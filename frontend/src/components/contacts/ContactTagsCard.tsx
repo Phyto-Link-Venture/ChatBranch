@@ -8,6 +8,7 @@ import { TagAssignEditor, type TagValueItem } from '@/components/tags/TagAssignE
 import { hasCap } from '@/lib/auth'
 import { useApp } from '@/lib/AppContext'
 import { fetchContactTags, fetchTags, saveContactTags, type TagDef } from '@/lib/tags'
+import { Trans, useT } from '@/i18n'
 
 const sameItems = (a: TagValueItem[], b: TagValueItem[]) => JSON.stringify(a) === JSON.stringify(b)
 
@@ -18,6 +19,7 @@ const sameItems = (a: TagValueItem[], b: TagValueItem[]) => JSON.stringify(a) ==
  * onto Contact.tags for flows, automations and the AI.
  */
 export default function ContactTagsCard({ contactId }: { contactId: number }) {
+  const t = useT()
   const { reloadContacts } = useApp()
   const [available, setAvailable] = useState<TagDef[]>([])
   const [saved, setSaved] = useState<TagValueItem[]>([])
@@ -34,18 +36,18 @@ export default function ContactTagsCard({ contactId }: { contactId: number }) {
     setError(null)
     try {
       const [mine, all] = await Promise.all([fetchContactTags(contactId), fetchTags('contact')])
-      const items = mine.tags.map((t) => ({ tag_id: t.tag_id, values: t.values ?? {} }))
+      const items = mine.tags.map((x) => ({ tag_id: x.tag_id, values: x.values ?? {} }))
       setSaved(items)
       setDraft(items)
       // a tag on the contact that the registry list did not return (another
       // entity's scope) still has to render — synthesize it from the row
-      const known = new Set(all.tags.map((t) => t.id))
+      const known = new Set(all.tags.map((x) => x.id))
       const extra: TagDef[] = mine.tags
-        .filter((t) => !known.has(t.tag_id))
-        .map((t) => ({
-          id: t.tag_id, name: t.name, slug: t.slug, color: t.color, description: t.description,
-          applies_to: 'contact', group: t.group, attributes: t.attributes, position: 999, entity: null,
-          entity_id: null, entity_name: '', usage: 0, variable_prefix: '', created_at: t.created_at, updated_at: t.created_at,
+        .filter((x) => !known.has(x.tag_id))
+        .map((x) => ({
+          id: x.tag_id, name: x.name, slug: x.slug, color: x.color, description: x.description,
+          applies_to: 'contact', group: x.group, attributes: x.attributes, position: 999, entity: null,
+          entity_id: null, entity_name: '', usage: 0, variable_prefix: '', created_at: x.created_at, updated_at: x.created_at,
         }))
       setAvailable([...all.tags, ...extra])
     } catch (e) {
@@ -70,10 +72,10 @@ export default function ContactTagsCard({ contactId }: { contactId: number }) {
         contactId,
         draft.map((i) => ({ tag_id: i.tag_id, values: i.values })),
       )
-      const items = d.tags.map((t) => ({ tag_id: t.tag_id, values: t.values ?? {} }))
+      const items = d.tags.map((x) => ({ tag_id: x.tag_id, values: x.values ?? {} }))
       setSaved(items)
       setDraft(items)
-      setNotice('Tags saved.')
+      setNotice(t('contacts.tagsCard.saved'))
       void reloadContacts()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -85,15 +87,15 @@ export default function ContactTagsCard({ contactId }: { contactId: number }) {
   return (
     <div className="rounded-2xl border border-line bg-card p-4">
       <div className="mb-3 flex items-baseline justify-between gap-2">
-        <div className="text-[12px] font-bold uppercase tracking-[0.06em] text-text-mid">Tags</div>
+        <div className="text-[12px] font-bold uppercase tracking-[0.06em] text-text-mid">{t('common.fields.tags')}</div>
         <Link href="/tags" className="text-[11px] font-semibold text-text-muted hover:text-text-high hover:underline">
-          Manage tags
+          {t('contacts.tagsCard.manage')}
         </Link>
       </div>
 
       {loading ? (
         <div className="flex items-center gap-2 text-[12px] text-text-muted">
-          <Loader2 size={13} className="animate-spin" aria-hidden /> Loading…
+          <Loader2 size={13} className="animate-spin" aria-hidden /> {t('common.status.loading')}
         </div>
       ) : (
         <>
@@ -110,11 +112,16 @@ export default function ContactTagsCard({ contactId }: { contactId: number }) {
           />
           {available.length === 0 && canManage && (
             <p className="mt-2 text-[11.5px] text-text-muted">
-              No contact tags exist yet —{' '}
-              <Link href="/tags" className="font-semibold text-text-high hover:underline">
-                create one
-              </Link>
-              .
+              <Trans
+                k="contacts.tagsCard.noneYet"
+                values={{
+                  link: (
+                    <Link href="/tags" className="font-semibold text-text-high hover:underline">
+                      {t('contacts.tagsCard.createOne')}
+                    </Link>
+                  ),
+                }}
+              />
             </p>
           )}
           {error && (
@@ -125,12 +132,12 @@ export default function ContactTagsCard({ contactId }: { contactId: number }) {
           {notice && !dirty && <p className="mt-2 text-[12px] font-semibold text-[color:var(--green-ink)]">{notice}</p>}
           {canManage && dirty && (
             <div className="mt-3 flex items-center justify-end gap-2 border-t border-line pt-3">
-              <span className="mr-auto text-[11.5px] font-semibold text-[color:var(--amber-ink)]">Unsaved</span>
+              <span className="mr-auto text-[11.5px] font-semibold text-[color:var(--amber-ink)]">{t('contacts.tagsCard.unsaved')}</span>
               <Button variant="ghost" size="sm" onClick={() => setDraft(saved)} disabled={busy}>
-                Discard
+                {t('common.actions.discard')}
               </Button>
               <Button variant="primary" size="sm" onClick={save} disabled={busy}>
-                {busy && <Loader2 size={12} className="animate-spin" aria-hidden />} Save tags
+                {busy && <Loader2 size={12} className="animate-spin" aria-hidden />} {t('contacts.tagsCard.saveTags')}
               </Button>
             </div>
           )}

@@ -8,6 +8,7 @@ import { EntityAccessGrid } from '@/components/bindings/EntityAccessGrid'
 import { orderEntityTree, type TreeEntity } from '@/components/bindings/groups'
 import { authHeaders, hasCap } from '@/lib/auth'
 import { useApp } from '@/lib/AppContext'
+import { useT } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -31,6 +32,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
  * its sub-entities) and saves a DIFF through POST /api/bindings/contact-entities.
  */
 export default function ContactEntitiesCard({ contactId }: { contactId: number }) {
+  const t = useT()
   const { reloadContacts } = useApp()
   const [pool, setPool] = useState<TreeEntity[]>([])
   const [linked, setLinked] = useState<number[]>([])
@@ -89,7 +91,7 @@ export default function ContactEntitiesCard({ contactId }: { contactId: number }
   return (
     <div className="rounded-2xl border border-line bg-card p-4">
       <div className="mb-3 flex items-baseline justify-between gap-2">
-        <div className="text-[12px] font-bold uppercase tracking-[0.06em] text-text-mid">Entities</div>
+        <div className="text-[12px] font-bold uppercase tracking-[0.06em] text-text-mid">{t('contacts.entities.title')}</div>
         {canEdit && !loading && (
           <button
             type="button"
@@ -100,17 +102,17 @@ export default function ContactEntitiesCard({ contactId }: { contactId: number }
             }}
             className="text-[11px] font-semibold text-text-muted hover:text-text-high hover:underline"
           >
-            Edit
+            {t('common.actions.edit')}
           </button>
         )}
       </div>
 
       {loading ? (
         <div className="flex items-center gap-2 text-[12px] text-text-muted">
-          <Loader2 size={13} className="animate-spin" aria-hidden /> Loading…
+          <Loader2 size={13} className="animate-spin" aria-hidden /> {t('common.status.loading')}
         </div>
       ) : shown.length === 0 ? (
-        <p className="text-[12px] text-text-muted">Not linked to any entity.</p>
+        <p className="text-[12px] text-text-muted">{t('contacts.entities.none')}</p>
       ) : (
         <ul className="flex flex-col gap-1.5">
           {shown.map(({ row, depth }) => {
@@ -119,13 +121,15 @@ export default function ContactEntitiesCard({ contactId }: { contactId: number }
               <li key={row.id} className="flex min-w-0 items-center gap-1.5 text-[12.5px]">
                 {depth === 0 ? (
                   <span className="shrink-0 rounded-sm bg-primary px-1 py-px text-[9px] font-bold uppercase tracking-[0.05em] text-on-primary">
-                    Main
+                    {t('contacts.entities.main')}
                   </span>
                 ) : (
                   <CornerDownRight size={12} className="shrink-0 text-text-faint" aria-hidden />
                 )}
                 <span className="truncate font-semibold text-text-high">{row.name}</span>
-                {parent && <span className="truncate text-[11.5px] text-text-muted">under {parent.name}</span>}
+                {parent && (
+                  <span className="truncate text-[11.5px] text-text-muted">{t('contacts.entities.under', { name: parent.name })}</span>
+                )}
               </li>
             )
           })}
@@ -136,17 +140,18 @@ export default function ContactEntitiesCard({ contactId }: { contactId: number }
       <Modal
         open={editing}
         onClose={() => setEditing(false)}
-        title="Entities for this contact"
-        subtitle="A contact on a sub-entity is visible to its main entity. Unlinking never deletes the contact."
+        title={t('contacts.entities.modalTitle')}
+        subtitle={t('contacts.entities.modalSubtitle')}
         size="lg"
         footer={
           <>
-            <span className="mr-auto text-[12px] text-text-muted">{draft.length} linked</span>
+            <span className="mr-auto text-[12px] text-text-muted">{t('contacts.entities.linked', { count: draft.length })}</span>
             <Button variant="ghost" onClick={() => setEditing(false)} disabled={busy}>
-              Cancel
+              {t('common.actions.cancel')}
             </Button>
             <Button variant="primary" onClick={save} disabled={busy}>
-              {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Building2 size={13} aria-hidden />} Save
+              {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Building2 size={13} aria-hidden />}{' '}
+              {t('common.actions.save')}
             </Button>
           </>
         }

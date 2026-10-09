@@ -5,6 +5,7 @@ import { ChevronLeft, Loader2, Send } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { api, type UiMessage } from './inboxTypes'
+import { useT, type MessageKey, type TFunction } from '@/i18n'
 
 interface WaTemplate {
   name: string
@@ -21,6 +22,15 @@ interface WaTemplate {
 const renderTemplateBody = (body: string, vars: string[]) =>
   body.replace(/\{\{(\d+)\}\}/g, (raw, n) => vars[Number(n) - 1]?.trim() || raw)
 
+const CATEGORIES = ['marketing', 'utility', 'authentication']
+const TPL_STATUSES = ['approved', 'pending', 'rejected', 'paused', 'disabled']
+
+/** Meta's category / status codes in the current language (unknown ones as they come). */
+const categoryLabel = (t: TFunction, c: string) =>
+  CATEGORIES.includes(c.toLowerCase()) ? t(`chats.templatePicker.category.${c.toLowerCase()}` as MessageKey) : c
+const tplStatusLabel = (t: TFunction, s: string) =>
+  TPL_STATUSES.includes(s.toLowerCase()) ? t(`chats.templatePicker.tplStatus.${s.toLowerCase()}` as MessageKey) : s
+
 /** WhatsApp template picker — approved templates re-open a closed 24h window. */
 export default function TemplatePickerModal({
   thread,
@@ -31,6 +41,7 @@ export default function TemplatePickerModal({
   onClose: () => void
   onSent: (m: UiMessage) => void
 }) {
+  const t = useT()
   const [data, setData] = useState<{ templates: WaTemplate[]; sandbox: boolean } | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [sel, setSel] = useState<WaTemplate | null>(null)
@@ -48,9 +59,9 @@ export default function TemplatePickerModal({
       .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)))
   }, [thread.account_id, thread.key])
 
-  const pick = (t: WaTemplate) => {
-    setSel(t)
-    setVars(Array.from({ length: t.variables }, (_, i) => t.resolved?.[i] || ''))
+  const pick = (tpl: WaTemplate) => {
+    setSel(tpl)
+    setVars(Array.from({ length: tpl.variables }, (_, i) => tpl.resolved?.[i] || ''))
     setSendError(null)
   }
 
@@ -86,29 +97,35 @@ export default function TemplatePickerModal({
             <button
               type="button"
               onClick={() => setSel(null)}
-              title="Back to templates"
-              aria-label="Back to template list"
+              title={t('chats.templatePicker.back')}
+              aria-label={t('chats.templatePicker.backAria')}
               className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-line text-text-muted hover:text-text-high"
             >
               <ChevronLeft size={15} aria-hidden />
             </button>
           )}
-          {sel ? sel.name : 'Send a template'}
+          {sel ? sel.name : t('chats.templatePicker.title')}
         </span>
       }
       subtitle={
         sel
-          ? `${sel.language} · ${sel.category.toLowerCase()}${sel.variables ? ` · ${sel.variables} variable${sel.variables > 1 ? 's' : ''}` : ''}`
-          : 'Approved templates can re-open a closed 24h conversation window.'
+          ? sel.variables
+            ? t('chats.templatePicker.metaVars', {
+                language: sel.language,
+                category: categoryLabel(t, sel.category),
+                count: sel.variables,
+              })
+            : t('chats.templatePicker.meta', { language: sel.language, category: categoryLabel(t, sel.category) })
+          : t('chats.templatePicker.subtitle')
       }
       footer={
         sel ? (
           <>
             <Button variant="ghost" onClick={onClose} disabled={sending}>
-              Cancel
+              {t('common.actions.cancel')}
             </Button>
             <Button variant="primary" onClick={send} disabled={!canSend}>
-              {sending ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Send size={13} aria-hidden />} Send template
+              {sending ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Send size={13} aria-hidden />} {t('chats.templatePicker.send')}
             </Button>
           </>
         ) : undefined
@@ -121,7 +138,7 @@ export default function TemplatePickerModal({
       )}
       {!data && !loadError && (
         <div className="flex items-center justify-center gap-2 py-10 text-[12px] text-text-muted">
-          <Loader2 size={14} className="animate-spin" aria-hidden /> Loading templates…
+          <Loader2 size={14} className="animate-spin" aria-hidden /> {t('chats.templatePicker.loading')}
         </div>
       )}
       {loadError && (
@@ -133,35 +150,35 @@ export default function TemplatePickerModal({
         <div className="-mx-[22px] -my-[18px] divide-y divide-line">
           {data.templates.length === 0 && (
             <div className="px-5 py-8 text-center text-[12px] text-text-muted">
-              No templates on this account — create one in Templates (live templates need Meta approval).
+              {t('chats.templatePicker.empty')}
             </div>
           )}
-          {data.templates.map((t) => (
+          {data.templates.map((tpl) => (
             <button
-              key={`${t.name}-${t.language}`}
+              key={`${tpl.name}-${tpl.language}`}
               type="button"
-              onClick={() => pick(t)}
+              onClick={() => pick(tpl)}
               className="block w-full cursor-pointer px-[22px] py-3 text-left transition-colors hover:bg-fill"
             >
               <span className="flex flex-wrap items-center gap-1.5">
-                <span className="truncate text-[13px] font-semibold text-text-high">{t.name}</span>
+                <span className="truncate text-[13px] font-semibold text-text-high">{tpl.name}</span>
                 <span className="shrink-0 rounded-full border border-line px-1.5 py-px text-[9.5px] font-bold uppercase text-text-muted">
-                  {t.category}
+                  {categoryLabel(t, tpl.category)}
                 </span>
                 <span
                   className={`shrink-0 rounded-full px-1.5 py-px text-[9.5px] font-bold uppercase ${
-                    t.status.toUpperCase() === 'APPROVED' ? 'bg-green/15 text-green-300' : 'bg-amber/15 text-amber-300'
+                    tpl.status.toUpperCase() === 'APPROVED' ? 'bg-green/15 text-green-300' : 'bg-amber/15 text-amber-300'
                   }`}
                 >
-                  {t.status}
+                  {tplStatusLabel(t, tpl.status)}
                 </span>
                 {data.sandbox && (
                   <span className="shrink-0 rounded-full bg-amber/15 px-1.5 py-px text-[9.5px] font-bold uppercase text-amber-300">
-                    sandbox
+                    {t('chats.templatePicker.sandbox')}
                   </span>
                 )}
               </span>
-              <span className="mt-0.5 block truncate text-[12px] text-text-muted">{t.body}</span>
+              <span className="mt-0.5 block truncate text-[12px] text-text-muted">{tpl.body}</span>
             </button>
           ))}
         </div>
@@ -177,23 +194,23 @@ export default function TemplatePickerModal({
                   {bound && (
                     <span
                       className="rounded-full bg-brand-400/10 px-1.5 py-px font-sans text-[9px] font-bold uppercase text-brand-300"
-                      title="Filled from the contact record — edit if needed"
+                      title={t('chats.templatePicker.autoFilledHint')}
                     >
-                      auto-filled
+                      {t('chats.templatePicker.autoFilled')}
                     </span>
                   )}
                 </span>
                 <input
                   value={v}
                   onChange={(e) => setVars(vars.map((x, j) => (j === i ? e.target.value : x)))}
-                  placeholder={`Value for {{${i + 1}}}`}
+                  placeholder={t('chats.templatePicker.valueFor', { slot: `{{${i + 1}}}` })}
                   className="h-9 w-full rounded-lg border border-line-strong bg-card px-3 text-[13px] text-text-primary outline-none transition-colors focus:border-text-primary"
                 />
               </label>
             )
           })}
           <div>
-            <div className="eyebrow mb-1.5">Preview</div>
+            <div className="eyebrow mb-1.5">{t('chats.templatePicker.preview')}</div>
             <div className="whitespace-pre-wrap rounded-lg border border-line bg-well px-3 py-2.5 text-[13px] leading-relaxed text-text-primary">
               {renderTemplateBody(sel.body, vars)}
             </div>

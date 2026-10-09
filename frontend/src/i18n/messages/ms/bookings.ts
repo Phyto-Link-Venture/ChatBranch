@@ -1,4 +1,71 @@
 import type { bookings as source } from '../en/bookings'
 import type { Dict } from '../../types'
 
-export const bookings: Dict<typeof source> = {}
+export const bookings: Dict<typeof source> = {
+  status: {
+    pending: 'Dikhaskan',
+    booked: 'Ditempah',
+    cancelling: 'Sedang dibatalkan',
+    cancelled: 'Dibatalkan',
+    released: 'Dilepaskan',
+    failed: 'Gagal',
+  },
+  statusHint: {
+    pending: 'Dikhaskan untuk balasan AI yang belum dihantar — ditempah sebaik sahaja ia dihantar.',
+    booked: 'Dalam kalendar.',
+    cancelling: 'Dibatalkan apabila balasan AI yang menunggu semakan dihantar.',
+    cancelled: 'Dibatalkan — masa itu kosong semula.',
+    released: 'Balasan AI tidak pernah dihantar, jadi tiada apa-apa ditempah.',
+    failed: 'Kalendar menolak tempahan semasa balasan sepatutnya dihantar.',
+  },
+  chatbranchCalendar: 'Tempahan ChatBranch',
+  card: {
+    all: 'Semua tempahan',
+    loadFailed: 'Tempahan tidak dapat dimuatkan sekarang.',
+    none: 'Tiada tempahan akan datang.',
+    noneHint: 'Apabila AI menempah janji temu dengan kenalan ini, ia dipaparkan di sini.',
+    openEvent: 'Buka acara',
+    cancelled: '{label} dibatalkan.',
+  },
+  cancel: {
+    title: 'Batalkan tempahan ini?',
+    keep: 'Kekalkan',
+    confirm: 'Batalkan tempahan',
+    failed: 'Tempahan tidak dapat dibatalkan.',
+    googleNote:
+      'Acara dibuang daripada Google Calendar dan nota ditambah pada perbualan. Pelanggan tidak dihantar mesej secara automatik — maklumkan mereka dalam sembang.',
+    localNote:
+      'Masa itu dikosongkan dan nota ditambah pada perbualan. Pelanggan tidak dihantar mesej secara automatik — maklumkan mereka dalam sembang.',
+  },
+  page: {
+    subtitle: 'Janji temu yang ditempah oleh AI dan pasukan anda — dalam Google Calendar atau disimpan dalam ChatBranch.',
+    upcoming: 'Akan datang',
+    past: 'Lepas',
+    statusActive: 'Ditempah atau dikhaskan',
+    statusAll: 'Semua status',
+    noAccess: 'Anda tiada akses kepada tempahan. Minta pentadbir memberikan kebenaran “Lihat sembang”.',
+    contactChip: 'Kenalan: {name}',
+    showAll: 'Tunjuk tempahan semua kenalan',
+    notAvailable: 'Tempahan belum tersedia pada pelayan ini.',
+    loadFailed: 'Tempahan tidak dapat dimuatkan — {error}',
+    loading: 'Memuatkan tempahan…',
+    colWhen: 'Bila',
+    colContact: 'Kenalan',
+    colCalendar: 'Kalendar',
+    colBookedBy: 'Ditempah oleh',
+    colActions: 'Tindakan',
+    whenTz: '{relative} · {tz}',
+    openConversation: 'Buka perbualan',
+    openConversationWith: 'Buka perbualan dengan {name}',
+    thisContact: 'kenalan ini',
+    openEvent: 'Buka acara kalendar',
+    searchPlaceholder: 'Cari kenalan atau tajuk…',
+    calendarAria: 'Kalendar',
+    allCalendars: 'Semua kalendar',
+    emptyFiltered: 'Tiada tempahan yang sepadan dengan penapis ini.',
+    emptyUpcoming: 'Tiada tempahan akan datang.',
+    emptyPast: 'Tiada tempahan lepas.',
+    emptyHint: 'Berikan AI kalendar di {link} (aplikasi bersambung) dan janji temu yang ditempahnya akan muncul di sini.',
+    cancelledWith: '{label} bersama {name} dibatalkan.',
+  },
+}

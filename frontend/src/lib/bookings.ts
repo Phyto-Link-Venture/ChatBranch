@@ -10,6 +10,7 @@
  * reads as "no bookings", never a crash.
  */
 import { authHeaders, expireSessionOn401 } from './auth'
+import type { MessageKey } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -96,16 +97,17 @@ export function cancelBooking(id: number) {
 /** "No such endpoint / not allowed" — show the empty state, not an error. */
 export const isQuietError = (e: unknown) => e instanceof BookingsError && [403, 404, 405].includes(e.status)
 
+/** Label and hint are translation keys — render with `t(m.label)`. */
 export const BOOKING_STATUS: Record<
   BookingStatus,
-  { label: string; tone: 'green' | 'amber' | 'red' | 'muted'; hint: string }
+  { label: MessageKey; tone: 'green' | 'amber' | 'red' | 'muted'; hint: MessageKey }
 > = {
-  pending: { label: 'Reserved', tone: 'amber', hint: 'Held for an AI reply that hasn’t been sent yet — booked when it is.' },
-  booked: { label: 'Booked', tone: 'green', hint: 'On the calendar.' },
-  cancelling: { label: 'Cancelling', tone: 'amber', hint: 'Cancelled when the AI reply waiting for review is sent.' },
-  cancelled: { label: 'Cancelled', tone: 'muted', hint: 'Cancelled — the time is free again.' },
-  released: { label: 'Released', tone: 'muted', hint: 'The AI reply was never sent, so nothing was booked.' },
-  failed: { label: 'Failed', tone: 'red', hint: 'The calendar refused the booking when the reply was due.' },
+  pending: { label: 'bookings.status.pending', tone: 'amber', hint: 'bookings.statusHint.pending' },
+  booked: { label: 'bookings.status.booked', tone: 'green', hint: 'bookings.statusHint.booked' },
+  cancelling: { label: 'bookings.status.cancelling', tone: 'amber', hint: 'bookings.statusHint.cancelling' },
+  cancelled: { label: 'bookings.status.cancelled', tone: 'muted', hint: 'bookings.statusHint.cancelled' },
+  released: { label: 'bookings.status.released', tone: 'muted', hint: 'bookings.statusHint.released' },
+  failed: { label: 'bookings.status.failed', tone: 'red', hint: 'bookings.statusHint.failed' },
 }
 
 export const ACTIVE_STATUSES: BookingStatus[] = ['pending', 'booked', 'cancelling']
@@ -126,37 +128,18 @@ export function instant(iso: string | null | undefined): number | null {
   return Number.isNaN(t) ? null : t
 }
 
-/** "in 3 days", "in 2 h", "5 days ago" — relative to now. */
-export function relative(iso: string, now = Date.now()): string {
-  const t = instant(iso)
-  if (t == null) return ''
-  const diff = t - now
-  const abs = Math.abs(diff)
-  const mins = Math.round(abs / 60000)
-  const v =
-    mins < 60
-      ? `${Math.max(1, mins)} min`
-      : mins < 60 * 36
-        ? `${Math.round(mins / 60)} h`
-        : `${Math.round(mins / 1440)} day${Math.round(mins / 1440) === 1 ? '' : 's'}`
-  return diff >= 0 ? `in ${v}` : `${v} ago`
-}
-
-/** A booking's display label when the server sent none. */
-export function bookingLabel(b: Pick<Booking, 'label' | 'start' | 'timezone'>): string {
-  if (b.label) return b.label
+/**
+ * A booking's display label — "Tue 14 Oct, 15:00" in the calendar's timezone,
+ * in the dashboard's language (`intl` = the locale's BCP 47 tag). Falls back to
+ * the server's own label when the start can't be read.
+ */
+export function bookingLabel(b: Pick<Booking, 'label' | 'start' | 'timezone'>, intl: string): string {
   const t = instant(b.start)
-  if (t == null) return b.start
+  if (t == null) return b.label || b.start
+  const o: Intl.DateTimeFormatOptions = { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }
   try {
-    return new Date(t).toLocaleString('en-GB', {
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short',
-      hour: 'numeric',
-      minute: '2-digit',
-      timeZone: b.timezone || undefined,
-    })
+    return new Intl.DateTimeFormat(intl, { ...o, timeZone: b.timezone || undefined }).format(t)
   } catch {
-    return new Date(t).toLocaleString()
+    return b.label || new Intl.DateTimeFormat(intl, o).format(t) // unknown timezone
   }
 }

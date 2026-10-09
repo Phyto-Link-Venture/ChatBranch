@@ -5,6 +5,8 @@
  * "Unknown customers" field and ContactImportModal.
  */
 import { authHeaders } from './auth'
+import { LANGUAGES } from './languages'
+import type { MessageKey, TFunction } from '@/i18n'
 
 export const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -26,6 +28,29 @@ export async function cApi<T>(path: string, init?: RequestInit): Promise<T> {
 export function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
+
+// ── contact list helpers ────────────────────────────────────────────────────
+
+/** Record types for the contacts filter (labels are translation keys). */
+export const RECORD_TYPE_OPTS: { value: string; label: MessageKey }[] = [
+  { value: '', label: 'contacts.recordTypes.any' },
+  { value: 'order', label: 'contacts.recordTypes.order' },
+  { value: 'shipment', label: 'contacts.recordTypes.shipment' },
+  { value: 'invoice', label: 'contacts.recordTypes.invoice' },
+  { value: 'booking', label: 'contacts.recordTypes.booking' },
+  { value: 'ticket', label: 'contacts.recordTypes.ticket' },
+  { value: 'custom', label: 'contacts.recordTypes.custom' },
+]
+
+/** A record type in the current language (custom types as they come). */
+export const recordTypeLabel = (t: TFunction, type: string) => {
+  const o = RECORD_TYPE_OPTS.find((x) => x.value === type && x.value !== '')
+  return o ? t(o.label) : type
+}
+
+/** The contact-language options: Auto-detect translated, language names as they are. */
+export const languageOptions = (t: TFunction) =>
+  LANGUAGES.map((l) => ({ value: l.value, label: l.value === 'auto' ? t('contacts.autoDetect') : l.label }))
 
 // ── identities ───────────────────────────────────────────────────────────────
 

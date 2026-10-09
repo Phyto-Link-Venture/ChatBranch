@@ -57,7 +57,9 @@ import {
   CHANNEL_META,
   api,
   apiUpload,
+  channelName,
   dayLabel,
+  statusLabel,
   logoKey,
   rowToSummary,
   threadPath,
@@ -92,6 +94,7 @@ import PendingDraftBanner from '@/components/chats/PendingDraftBanner'
 import IdentityBanner from '@/components/chats/IdentityBanner'
 import { subscribeChatStream } from '@/lib/chatStream'
 import { AiBubbleFeedback, useAiFeedback } from '@/components/ai-learning/BubbleFeedback'
+import { useFormat, useT, type MessageKey } from '@/i18n'
 import './chats.css'
 
 /** First page of the list; "Load more" pages by the same step. */
@@ -140,13 +143,13 @@ interface InboxStatus {
   ai_available: boolean
 }
 
-/** Built-in tabs ahead of the operator's own saved views. */
-const BUILTIN_VIEWS: { id: string; name: string; filters: InboxFilters }[] = [
-  { id: 'all', name: 'All', filters: EMPTY_FILTERS },
-  { id: 'mine', name: 'Mine', filters: { ...EMPTY_FILTERS, assignees: ['me'] } },
-  { id: 'unassigned', name: 'Unassigned', filters: { ...EMPTY_FILTERS, assignees: ['unassigned'] } },
+/** Built-in tabs ahead of the operator's own saved views (names are translation keys). */
+const BUILTIN_VIEWS: { id: string; name: MessageKey; filters: InboxFilters }[] = [
+  { id: 'all', name: 'common.status.all', filters: EMPTY_FILTERS },
+  { id: 'mine', name: 'chats.views.mine', filters: { ...EMPTY_FILTERS, assignees: ['me'] } },
+  { id: 'unassigned', name: 'chats.views.unassigned', filters: { ...EMPTY_FILTERS, assignees: ['unassigned'] } },
   // conversations the AI (or a rule, a flow, a person) handed to a human, not yet answered
-  { id: 'needs_human', name: 'Needs human', filters: { ...EMPTY_FILTERS, handover: 'open' } },
+  { id: 'needs_human', name: 'chats.views.needsHuman', filters: { ...EMPTY_FILTERS, handover: 'open' } },
 ]
 const VIEW_KEY = 'chats-view'
 
@@ -164,6 +167,8 @@ function parseThreadRef(ref: string | null): { channel: Channel; key: string } |
 }
 
 function ChatsPage() {
+  const t = useT()
+  const f = useFormat()
   const { contacts, calls, hangupCall, sendSay: sendSipSay, escalateCall: escalateSipCall, setHumanControl } = useApp()
   const { activeEntity, entities } = useEntity()
   const topEntity = activeEntity?.slug ?? null
@@ -247,8 +252,8 @@ function ChatsPage() {
 
   // ── search debounce ──
   useEffect(() => {
-    const t = setTimeout(() => setQ(search), 280)
-    return () => clearTimeout(t)
+    const timer = setTimeout(() => setQ(search), 280)
+    return () => clearTimeout(timer)
   }, [search])
 
   // ── deep links: /chats?thread=<channel>:<key>, /chats?q=<text>, legacy ?channel=&key= ──
@@ -316,8 +321,8 @@ function ChatsPage() {
       )
       if (seq !== listSeq.current) return
       setThreads((prev) => {
-        const seen = new Set(prev.map((t) => `${t.channel}:${t.key}`))
-        const merged = [...prev, ...d.threads.map(rowToSummary).filter((t) => !seen.has(`${t.channel}:${t.key}`))]
+        const seen = new Set(prev.map((row) => `${row.channel}:${row.key}`))
+        const merged = [...prev, ...d.threads.map(rowToSummary).filter((row) => !seen.has(`${row.channel}:${row.key}`))]
         loadedCount.current = merged.length
         return merged
       })
@@ -339,7 +344,7 @@ function ChatsPage() {
     }
     try {
       if (activeId.channel === 'whatsapp') {
-        const t = await api<{
+        const th = await api<{
           wa_id: string
           phone: string
           name: string
@@ -363,30 +368,30 @@ function ChatsPage() {
         }>(`whatsapp/threads/${activeId.key}`)
         setActive({
           channel: 'whatsapp',
-          key: t.wa_id,
-          name: t.contact_name || t.name,
+          key: th.wa_id,
+          name: th.contact_name || th.name,
           // a WhatsApp id is bare digits — show it as the phone number it is
-          sub: /^\d+$/.test(t.phone) ? `+${t.phone}` : t.phone,
-          ai_enabled: t.ai_enabled,
-          ai_reason: t.ai_reason,
-          ai_forced: t.ai_forced,
-          handover: t.handover ?? null,
-          status: t.status ?? 'open',
-          assignee: t.assignee,
-          team_id: t.team_id ?? null,
-          call: t.call,
-          account_id: t.account_id,
-          provider: t.provider,
-          window_open: t.window_open,
-          window_expires_at: t.window_expires_at,
-          opted_out: t.opted_out,
-          contact_id: t.contact_id,
-          contact_name: t.contact_name,
-          labels: t.labels,
-          messages: t.messages,
+          sub: /^\d+$/.test(th.phone) ? `+${th.phone}` : th.phone,
+          ai_enabled: th.ai_enabled,
+          ai_reason: th.ai_reason,
+          ai_forced: th.ai_forced,
+          handover: th.handover ?? null,
+          status: th.status ?? 'open',
+          assignee: th.assignee,
+          team_id: th.team_id ?? null,
+          call: th.call,
+          account_id: th.account_id,
+          provider: th.provider,
+          window_open: th.window_open,
+          window_expires_at: th.window_expires_at,
+          opted_out: th.opted_out,
+          contact_id: th.contact_id,
+          contact_name: th.contact_name,
+          labels: th.labels,
+          messages: th.messages,
         })
       } else {
-        const t = await api<{
+        const th = await api<{
           key: string
           channel: Channel
           address: string
@@ -409,25 +414,25 @@ function ChatsPage() {
           messages: UiMessage[]
         }>(`messaging/threads/${activeId.channel}/${activeId.key}`)
         setActive({
-          channel: t.channel,
-          key: t.key,
-          name: t.contact_name || t.name,
-          sub: t.address,
-          ai_enabled: t.ai_enabled,
-          ai_reason: t.ai_reason,
-          ai_forced: t.ai_forced,
-          handover: t.handover ?? null,
-          status: t.status,
-          assignee: t.assignee,
-          team_id: t.team_id ?? null,
-          labels: t.labels,
-          contact_id: t.contact_id,
-          contact_name: t.contact_name,
-          window_open: t.window_open,
-          window_expires_at: t.window_expires_at,
-          human_window_open: t.human_window_open,
-          human_window_expires_at: t.human_window_expires_at,
-          messages: t.messages,
+          channel: th.channel,
+          key: th.key,
+          name: th.contact_name || th.name,
+          sub: th.address,
+          ai_enabled: th.ai_enabled,
+          ai_reason: th.ai_reason,
+          ai_forced: th.ai_forced,
+          handover: th.handover ?? null,
+          status: th.status,
+          assignee: th.assignee,
+          team_id: th.team_id ?? null,
+          labels: th.labels,
+          contact_id: th.contact_id,
+          contact_name: th.contact_name,
+          window_open: th.window_open,
+          window_expires_at: th.window_expires_at,
+          human_window_open: th.human_window_open,
+          human_window_expires_at: th.human_window_expires_at,
+          messages: th.messages,
         })
       }
     } catch {
@@ -549,8 +554,8 @@ function ChatsPage() {
   useEffect(() => {
     const sync = () => api('messaging/email/sync', { method: 'POST', body: '{}' }).catch(() => {})
     sync()
-    const t = setInterval(sync, 60000)
-    return () => clearInterval(t)
+    const timer = setInterval(sync, 60000)
+    return () => clearInterval(timer)
   }, [])
 
   // Switching the entity scope (top bar, or the filter's entity pick) closes a
@@ -660,10 +665,10 @@ function ChatsPage() {
         })
         .catch(() => {})
     load()
-    const t = setInterval(load, 2500)
+    const timer = setInterval(load, 2500)
     return () => {
       cancelled = true
-      clearInterval(t)
+      clearInterval(timer)
     }
   }, [activeContactId])
 
@@ -691,8 +696,8 @@ function ChatsPage() {
     prevCallStatus.current = s
     if (prev && ['connecting', 'ringing', 'in_call'].includes(prev) && (!s || !['connecting', 'ringing', 'in_call'].includes(s))) {
       setEndedFlash(true)
-      const t = setTimeout(() => setEndedFlash(false), 5000)
-      return () => clearTimeout(t)
+      const timer = setTimeout(() => setEndedFlash(false), 5000)
+      return () => clearTimeout(timer)
     }
   }, [active?.call?.status])
 
@@ -714,10 +719,10 @@ function ChatsPage() {
       }
     }
     poll()
-    const t = setInterval(poll, 1500)
+    const timer = setInterval(poll, 1500)
     return () => {
       stopped = true
-      clearInterval(t)
+      clearInterval(timer)
     }
   }, [active?.channel, active?.key, active?.call?.status])
 
@@ -757,10 +762,10 @@ function ChatsPage() {
         })
         .catch(() => {})
     load()
-    const t = setInterval(load, 8000)
+    const timer = setInterval(load, 8000)
     return () => {
       cancelled = true
-      clearInterval(t)
+      clearInterval(timer)
     }
   }, [sipContactId])
 
@@ -811,7 +816,7 @@ function ChatsPage() {
       }
       if (!text) return
       const override = isWa && active.opted_out === true
-      if (override && !window.confirm('Customer opted out — send anyway as a manual override?')) return
+      if (override && !window.confirm(t('chats.page.confirmOptedOut'))) return
       setDraft('')
       await api(`${threadPath(active)}/send`, {
         method: 'POST',
@@ -820,20 +825,20 @@ function ChatsPage() {
     })
 
   const onPickFile = (e: ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0]
+    const file = e.target.files?.[0]
     e.target.value = '' // allow re-picking the same file
-    if (!f) return
-    const ext = f.name.toLowerCase().split('.').pop() || ''
+    if (!file) return
+    const ext = file.name.toLowerCase().split('.').pop() || ''
     if (!['jpg', 'jpeg', 'png', 'webp', 'pdf', 'mp4', 'ogg', 'mp3'].includes(ext)) {
-      setError('Unsupported file type — use jpg, png, webp, pdf, mp4, ogg or mp3.')
+      setError(t('chats.page.unsupportedFile'))
       return
     }
-    if (f.size > 16 * 1024 * 1024) {
-      setError('File too large — attachments are limited to 16 MB.')
+    if (file.size > 16 * 1024 * 1024) {
+      setError(t('chats.page.fileTooLarge'))
       return
     }
     setError(null)
-    setPendingFile(f)
+    setPendingFile(file)
   }
 
   const toggleAi = () =>
@@ -920,8 +925,8 @@ function ChatsPage() {
   const escalateCall = () => run(() => api(`whatsapp/threads/${active?.key}/call/escalate`, { method: 'POST' }))
 
   // ── saved views ──
-  const applyFilters = (f: InboxFilters, viewId?: string) => {
-    setFilters(f)
+  const applyFilters = (next: InboxFilters, viewId?: string) => {
+    setFilters(next)
     if (viewId) {
       setActiveView(viewId)
       try {
@@ -941,7 +946,7 @@ function ChatsPage() {
   const tabs: ViewTab[] = [
     ...BUILTIN_VIEWS.map((b) => ({
       id: b.id,
-      name: b.name,
+      name: t(b.name),
       active: sameFilters(filters, b.filters),
       count: b.id === 'needs_human' ? needsHumanCount : undefined,
     })),
@@ -953,17 +958,18 @@ function ChatsPage() {
   ]
   // a built-in tab wins the highlight only when nothing saved is selected;
   // with nothing highlighted, a saved view whose filters are on screen lights up
-  if (tabs.some((t) => t.id.startsWith('v:') && t.active)) tabs.forEach((t) => !t.id.startsWith('v:') && (t.active = false))
-  else if (!tabs.some((t) => t.active)) {
+  if (tabs.some((tab) => tab.id.startsWith('v:') && tab.active))
+    tabs.forEach((tab) => !tab.id.startsWith('v:') && (tab.active = false))
+  else if (!tabs.some((tab) => tab.active)) {
     const match = views.find((v) => sameFilters(filters, normalizeFilters(v.filters)))
-    const tab = match && tabs.find((t) => t.id === `v:${match.id}`)
+    const tab = match && tabs.find((x) => x.id === `v:${match.id}`)
     if (tab) tab.active = true
   }
 
-  const saveView = async (name: string, f: InboxFilters) => {
-    const v = await createView<InboxFilters>('chats', name, f)
+  const saveView = async (name: string, next: InboxFilters) => {
+    const v = await createView<InboxFilters>('chats', name, next)
     await reloadViews()
-    applyFilters(f, `v:${v.id}`)
+    applyFilters(next, `v:${v.id}`)
   }
   const saveViewChanges = async () => {
     if (!activeSaved) return
@@ -976,13 +982,17 @@ function ChatsPage() {
   }
 
   // ── chip lookups ──
-  const chips = activeChips(filters, {
-    accountName: (id) => allAccounts.find((a) => a.id === id)?.name || `#${id}`,
-    agentName: (u) => agents.find((a) => a.username === u)?.name || u,
-    teamName: (id) => teams.find((t) => String(t.id) === id)?.name || `#${id}`,
-    entityName: (slug) => entities.find((e) => e.slug === slug)?.name || slug,
-    labelName: (slug) => tagMeta(slug).label,
-  })
+  const chips = activeChips(
+    filters,
+    {
+      accountName: (id) => allAccounts.find((a) => a.id === id)?.name || `#${id}`,
+      agentName: (u) => agents.find((a) => a.username === u)?.name || u,
+      teamName: (id) => teams.find((tm) => String(tm.id) === id)?.name || `#${id}`,
+      entityName: (slug) => entities.find((e) => e.slug === slug)?.name || slug,
+      labelName: (slug) => tagMeta(slug).label,
+    },
+    t,
+  )
   // Contact-tag choices for the filter: every tag in use across the caller's
   // contacts (not only the top-bar entity's), plus whatever is loaded here.
   const [orgTags, setOrgTags] = useState<string[]>([])
@@ -1010,13 +1020,20 @@ function ChatsPage() {
   const callPill =
     (callStatus && ['connecting', 'ringing', 'in_call'].includes(callStatus)) || (activeIsWa && starting)
       ? {
-          label:
-            callStatus === 'in_call' ? 'On call' : callStatus === 'ringing' ? 'Ringing…' : callStatus === 'connecting' ? 'Connecting…' : 'Calling…',
+          label: t(
+            callStatus === 'in_call'
+              ? 'chats.page.onCall'
+              : callStatus === 'ringing'
+                ? 'chats.page.ringing'
+                : callStatus === 'connecting'
+                  ? 'chats.page.connecting'
+                  : 'chats.page.calling',
+          ),
           pulse: callStatus !== 'in_call',
           cls: 'bg-green/15 text-green-300',
         }
       : endedFlash
-        ? { label: 'Call ended', pulse: false, cls: 'bg-fill text-text-muted' }
+        ? { label: t('chats.page.callEnded'), pulse: false, cls: 'bg-fill text-text-muted' }
         : null
 
   const channelLive = (c: Channel) =>
@@ -1058,8 +1075,8 @@ function ChatsPage() {
   // describes conversations and these are not conversations yet.
   const pendingRows: UiThreadSummary[] = useMemo(() => {
     if (!unfiltered || nextCursor || listLoading) return []
-    const covered = new Set(threads.map((t) => t.contact_id).filter(Boolean) as number[])
-    const waKeys = new Set(threads.filter((t) => t.channel === 'whatsapp').map((t) => t.key))
+    const covered = new Set(threads.map((row) => row.contact_id).filter(Boolean) as number[])
+    const waKeys = new Set(threads.filter((row) => row.channel === 'whatsapp').map((row) => row.key))
     const rows: UiThreadSummary[] = []
     for (const d of contacts) {
       const dig = (d.phone || '').replace(/\D/g, '')
@@ -1071,7 +1088,7 @@ function ChatsPage() {
         sub: d.phone,
         ai_enabled: false,
         contact_id: d.id,
-        last_message: 'No conversation yet',
+        last_message: '', // rendered as "No conversation yet" by the list
         last_ts: '',
         pending: true,
       })
@@ -1086,15 +1103,15 @@ function ChatsPage() {
     if (filters.channels.length === 1) return all
     const groups = new Map<number, UiThreadSummary[]>()
     const order: (number | UiThreadSummary)[] = []
-    for (const t of all) {
-      if (t.contact_id != null && !t.pending) {
-        const g = groups.get(t.contact_id)
-        if (g) g.push(t)
+    for (const row of all) {
+      if (row.contact_id != null && !row.pending) {
+        const g = groups.get(row.contact_id)
+        if (g) g.push(row)
         else {
-          groups.set(t.contact_id, [t])
-          order.push(t.contact_id)
+          groups.set(row.contact_id, [row])
+          order.push(row.contact_id)
         }
-      } else order.push(t)
+      } else order.push(row)
     }
     return order.map((o) => {
       if (typeof o !== 'number') return o
@@ -1159,7 +1176,7 @@ function ChatsPage() {
   const aiFeedback = useAiFeedback(displayMessages)
   const grouped: { day: string; items: TimelineItem[] }[] = []
   for (const m of displayMessages) {
-    const day = dayLabel(m.ts)
+    const day = dayLabel(m.ts, f, t)
     const last = grouped[grouped.length - 1]
     if (last && last.day === day) last.items.push(m)
     else grouped.push({ day, items: [m] })
@@ -1170,7 +1187,7 @@ function ChatsPage() {
   // number/channel. Both get a divider at the exact switch point.
   const msgAccountIds = new Set(displayMessages.filter((m) => m.account_id).map((m) => m.account_id))
   const multiAccount = msgAccountIds.size > 1 || waAccounts.length > 1
-  const acctLabel = (m: UiMessage) => m.account_name || `account #${m.account_id}`
+  const acctLabel = (m: UiMessage) => m.account_name || t('chats.page.accountN', { id: m.account_id ?? '' })
   const switchNotices = new Map<string, string>()
   {
     let prevContact: string | null = null
@@ -1180,11 +1197,7 @@ function ChatsPage() {
       if (contact !== null) {
         if (prevContact !== null && contact !== prevContact) {
           const addr = m.channel === 'whatsapp' ? `+${m.key}` : m.key
-          switchNotices.set(
-            m.id,
-            `Now chatting with this contact's other contact — ${CHANNEL_META[m.channel!]?.lbl ?? m.channel} ${addr}. ` +
-              `On the customer's side this is a separate chat with no shared history.`,
-          )
+          switchNotices.set(m.id, t('chats.page.switchOtherContact', { channel: channelName(t, m.channel!), address: addr ?? '' }))
         }
         prevContact = contact
       }
@@ -1194,16 +1207,16 @@ function ChatsPage() {
           const seenBefore = displayMessages.some((x) => x !== m && x.account_id === m.account_id && x.ts < m.ts)
           switchNotices.set(
             m.id,
-            provider === 'baileys'
-              ? `Switched sender number — now via ${acctLabel(m)} (personal number, no template needed).` +
-                  (seenBefore
-                    ? ' This number has chatted with the customer before.'
-                    : ' Cold first contact from this number carries ban risk — safest is a customer-initiated reply first.')
-              : seenBefore
-                ? `Switched sender number — now via ${acctLabel(m)}. The customer knows this number; if they ` +
-                  `haven't replied to it within 24h, open with an approved template.`
-                : `Switched sender number — now via ${acctLabel(m)}. A new number for this customer ` +
-                  `(their side shows a new chat) — open with an approved template or have them reply first.`,
+            t(
+              provider === 'baileys'
+                ? seenBefore
+                  ? 'chats.page.switchBaileysSeen'
+                  : 'chats.page.switchBaileysCold'
+                : seenBefore
+                  ? 'chats.page.switchSeen'
+                  : 'chats.page.switchCold',
+              { account: acctLabel(m) },
+            ),
           )
         }
         prevAcct = m.account_id
@@ -1213,21 +1226,21 @@ function ChatsPage() {
 
   // Fleet strip → jump to a live call's contact thread.
   const openContactThread = (contactId: number) => {
-    const t = threads.find((x) => x.contact_id === contactId)
-    if (t) setActiveId({ channel: t.channel, key: t.key })
+    const row = threads.find((x) => x.contact_id === contactId)
+    if (row) setActiveId({ channel: row.channel, key: row.key })
   }
 
   // Open an inbox row. A pending contact row has no thread yet — create it on
   // demand (idempotent get-or-create by phone), then open it.
-  const openRow = (t: UiThreadSummary) => {
+  const openRow = (row: UiThreadSummary) => {
     setError(null)
-    if ((t._mergedChannels?.length ?? 0) > 1) setCombinedOn(true)
-    if (!t.pending) {
-      setActiveId({ channel: t.channel, key: t.key })
+    if ((row._mergedChannels?.length ?? 0) > 1) setCombinedOn(true)
+    if (!row.pending) {
+      setActiveId({ channel: row.channel, key: row.key })
       return
     }
     run(async () => {
-      const r = await api<{ wa_id: string }>('whatsapp/threads', { method: 'POST', body: JSON.stringify({ phone: t.sub }) })
+      const r = await api<{ wa_id: string }>('whatsapp/threads', { method: 'POST', body: JSON.stringify({ phone: row.sub }) })
       setActiveId({ channel: 'whatsapp', key: r.wa_id })
     })
   }
@@ -1238,7 +1251,7 @@ function ChatsPage() {
   const toggleSelect = (row: UiThreadSummary) => {
     const refs =
       (row._mergedChannels?.length ?? 0) > 1 && row.contact_id != null
-        ? threads.filter((t) => t.contact_id === row.contact_id).map(rowRef)
+        ? threads.filter((x) => x.contact_id === row.contact_id).map(rowRef)
         : [rowRef(row)]
     setAllMatching(false)
     setSelectedRefs((prev) => {
@@ -1274,7 +1287,7 @@ function ChatsPage() {
           onSearch={setSearch}
           activeFilterCount={activeFilterCount}
           chips={chips}
-          onRemoveChip={(c) => setFilters((f) => c.clear(f))}
+          onRemoveChip={(c) => setFilters((cur) => c.clear(cur))}
           onClearFilters={() => {
             setSearch('')
             setQ('')
@@ -1314,15 +1327,14 @@ function ChatsPage() {
 
         {/* ── conversation (paper) ── */}
         <section
-          aria-label="Conversation"
+          aria-label={t('chats.page.conversationAria')}
           className={`cb-paper min-w-0 flex-1 flex-col lg:min-w-[380px] ${active ? 'flex' : 'hidden lg:flex'}`}
         >
           {!active ? (
             <div className="grid flex-1 place-content-center px-6 text-center">
-              <div className="display text-[26px] text-text-heading">Pick a conversation</div>
+              <div className="display text-[26px] text-text-heading">{t('chats.page.pickConversation')}</div>
               <div className="mx-auto mt-2 max-w-[340px] text-[13px] leading-relaxed text-text-muted">
-                One inbox for WhatsApp, Messenger, Instagram, Telegram, email and your website — use Filter to narrow it
-                down, and save the filters you reach for as a view.
+                {t('chats.page.pickHint')}
               </div>
             </div>
           ) : (
@@ -1334,8 +1346,8 @@ function ChatsPage() {
                     setActiveId(null)
                     setActive(null)
                   }}
-                  aria-label="Back to conversations"
-                  title="Back"
+                  aria-label={t('chats.page.backAria')}
+                  title={t('common.actions.back')}
                   className="-ml-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high lg:hidden"
                 >
                   <ChevronLeft size={18} aria-hidden />
@@ -1346,14 +1358,14 @@ function ChatsPage() {
                     {optedOut && (
                       <span
                         className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red/10 px-2 py-px text-[10.5px] font-semibold text-red-300"
-                        title="Customer opted out of messaging — sends require a manual override"
+                        title={t('chats.page.optedOutHint')}
                       >
-                        <Ban size={10} aria-hidden /> Opted out
+                        <Ban size={10} aria-hidden /> {t('chats.list.optedOut')}
                       </span>
                     )}
                     {active.status && active.status !== 'open' && (
-                      <span className="shrink-0 rounded-full border border-line-strong px-2 py-px text-[10.5px] capitalize text-text-mid">
-                        {active.status}
+                      <span className="shrink-0 rounded-full border border-line-strong px-2 py-px text-[10.5px] text-text-mid">
+                        {statusLabel(t, active.status)}
                       </span>
                     )}
                   </div>
@@ -1362,7 +1374,12 @@ function ChatsPage() {
                     <span className="truncate">
                       {active.sub}
                       {active.channel === 'whatsapp' && active.account_id && waAccounts.length > 0 && (
-                        <> · via {waAccounts.find((a) => a.id === String(active.account_id))?.name ?? `#${active.account_id}`}</>
+                        <>
+                          {' · '}
+                          {t('chats.page.via', {
+                            name: waAccounts.find((a) => a.id === String(active.account_id))?.name ?? `#${active.account_id}`,
+                          })}
+                        </>
                       )}
                     </span>
                     {CHANNEL_META[active.channel].beta && <BetaChip />}
@@ -1379,9 +1396,13 @@ function ChatsPage() {
                       // the server's reason: "Off: AI is switched off for North Branch", "On: switched on for this chat"…
                       title={
                         active.ai_reason ||
-                        (optedOut ? 'Customer opted out — AI disabled' : active.ai_enabled ? 'Turn AI off' : 'Turn AI on')
+                        t(optedOut ? 'chats.page.aiOptedOut' : active.ai_enabled ? 'chats.page.turnAiOff' : 'chats.page.turnAiOn')
                       }
-                      aria-label={`Toggle AI auto-reply${active.ai_reason ? ` — ${active.ai_reason}` : ''}`}
+                      aria-label={
+                        active.ai_reason
+                          ? t('chats.page.toggleAiAriaReason', { reason: active.ai_reason })
+                          : t('chats.page.toggleAiAria')
+                      }
                       className={`flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                         active.ai_enabled && !optedOut
                           ? 'border-line-strong bg-[var(--nav-active-bg)] text-[color:var(--nav-active-text)]'
@@ -1414,12 +1435,24 @@ function ChatsPage() {
                   )}
                   {/* status — every channel, WhatsApp included */}
                   {active.status !== 'resolved' ? (
-                    <Button variant="secondary" size="sm" onClick={() => setThreadStatus('resolved')} disabled={busy} title="Mark conversation resolved">
-                      <CheckCircle2 size={13} aria-hidden /> Resolve
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setThreadStatus('resolved')}
+                      disabled={busy}
+                      title={t('chats.page.resolveTitle')}
+                    >
+                      <CheckCircle2 size={13} aria-hidden /> {t('chats.page.resolve')}
                     </Button>
                   ) : (
-                    <Button variant="secondary" size="sm" onClick={() => setThreadStatus('open')} disabled={busy} title="Re-open conversation">
-                      <RotateCcw size={13} aria-hidden /> Reopen
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setThreadStatus('open')}
+                      disabled={busy}
+                      title={t('chats.page.reopenTitle')}
+                    >
+                      <RotateCcw size={13} aria-hidden /> {t('chats.page.reopen')}
                     </Button>
                   )}
                   {active.channel === 'whatsapp' &&
@@ -1427,22 +1460,22 @@ function ChatsPage() {
                       <button
                         onClick={endCall}
                         disabled={busy}
-                        title="End WhatsApp call"
-                        aria-label="End WhatsApp call"
+                        title={t('chats.page.endWaCall')}
+                        aria-label={t('chats.page.endWaCall')}
                         className="grid h-8 w-8 place-items-center rounded-lg bg-red/10 text-red-300 transition-colors hover:bg-red/20"
                       >
                         <PhoneOff size={15} aria-hidden />
                       </button>
                     ) : starting ? (
-                      <span title="Calling…" aria-label="Calling…" className="grid h-8 w-8 place-items-center rounded-lg text-text-muted">
+                      <span title={t('chats.page.calling')} aria-label={t('chats.page.calling')} className="grid h-8 w-8 place-items-center rounded-lg text-text-muted">
                         <Loader2 size={15} className="animate-spin" aria-hidden />
                       </span>
                     ) : (
                       <button
                         onClick={startCall}
                         disabled={busy}
-                        title="Start WhatsApp call"
-                        aria-label="Start WhatsApp call"
+                        title={t('chats.page.startWaCall')}
+                        aria-label={t('chats.page.startWaCall')}
                         className="grid h-8 w-8 place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
                       >
                         <ChannelLogo channel="whatsapp" size={15} variant="mono" title="" />
@@ -1454,8 +1487,8 @@ function ChatsPage() {
                   {active.contact_id != null && <ScriptCallButton contactId={active.contact_id} />}
                   <button
                     onClick={() => setInfoOpen(!infoOpen)}
-                    title="Conversation details"
-                    aria-label="Toggle conversation details"
+                    title={t('chats.page.details')}
+                    aria-label={t('chats.page.toggleDetails')}
                     aria-pressed={infoOpen}
                     className={`hidden h-8 w-8 place-items-center rounded-lg transition-colors xl:grid ${
                       infoOpen ? 'bg-fill-hover text-text-high' : 'text-text-muted hover:bg-fill-hover'
@@ -1479,7 +1512,7 @@ function ChatsPage() {
               {/* linked contact: single channel ⇄ combined view ⇄ voice-only history */}
               {active.contact_id != null && combined && (
                 <div className="no-scrollbar flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-line px-4 py-2 sm:px-5">
-                  <span className="eyebrow shrink-0 pr-1">{combined.contact.name} on</span>
+                  <span className="eyebrow shrink-0 pr-1">{t('chats.page.contactOn', { name: combined.contact.name })}</span>
                   <button
                     onClick={() => {
                       setCombinedOn(true)
@@ -1487,7 +1520,7 @@ function ChatsPage() {
                     }}
                     className={`cb-switch ${combinedOn && !voiceOnly ? 'is-on' : ''}`}
                   >
-                    <Layers size={11} aria-hidden /> All channels
+                    <Layers size={11} aria-hidden /> {t('chats.page.allChannels')}
                   </button>
                   {combined.channels.map((c) => {
                     const isCurrent = !voiceOnly && !combinedOn && activeId?.channel === c.channel && activeId?.key === c.key
@@ -1502,7 +1535,7 @@ function ChatsPage() {
                         className={`cb-switch ${isCurrent ? 'is-on' : ''}`}
                       >
                         <ChannelLogo channel={logoKey(c.channel)} size={11} variant={isCurrent ? 'mono' : 'mark'} title="" />{' '}
-                        {CHANNEL_META[c.channel]?.lbl ?? c.channel}
+                        {channelName(t, c.channel)}
                       </button>
                     )
                   })}
@@ -1511,10 +1544,10 @@ function ChatsPage() {
                       setCombinedOn(true)
                       setVoiceOnly(true)
                     }}
-                    title="Show call history only"
+                    title={t('chats.page.voiceHint')}
                     className={`cb-switch ${voiceOnly ? 'is-on' : ''}`}
                   >
-                    <PhoneCall size={11} aria-hidden /> Voice
+                    <PhoneCall size={11} aria-hidden /> {t('chats.page.voice')}
                   </button>
                 </div>
               )}
@@ -1524,37 +1557,41 @@ function ChatsPage() {
                 <div className="shrink-0 border-b border-line bg-surface px-4 py-2.5 sm:px-5">
                   <div className="flex items-center gap-1.5">
                     <Sparkles size={12} className="shrink-0 text-brand-300" aria-hidden />
-                    <span className="eyebrow">Summary</span>
+                    <span className="eyebrow">{t('chats.page.summary')}</span>
                     {summaryState.summary?.heuristic && (
-                      <span className="rounded border border-line px-1.5 py-px text-[9px] font-bold uppercase text-text-muted" title="No AI key configured — basic summary">
-                        basic
+                      <span
+                        className="rounded border border-line px-1.5 py-px text-[9px] font-bold uppercase text-text-muted"
+                        title={t('chats.page.basicHint')}
+                      >
+                        {t('chats.page.basic')}
                       </span>
                     )}
                     {summarizing && (
                       <span className="flex items-center gap-1 text-[11px] text-text-muted">
-                        <Loader2 size={10} className="animate-spin" aria-hidden /> updating…
+                        <Loader2 size={10} className="animate-spin" aria-hidden /> {t('chats.page.updating')}
                       </span>
                     )}
                     <div className="flex-1" />
                     {summaryState.summary && !summarizing && (
-                      <span className="text-[11px] text-text-muted">
-                        {summaryState.stale ? 'may be outdated · ' : ''}
-                        {timeAgo(summaryState.summary.generated_at)}
+                      <span className="min-w-0 truncate text-[11px] text-text-muted">
+                        {summaryState.stale
+                          ? t('chats.page.mayBeOutdated', { ago: timeAgo(summaryState.summary.generated_at, f) })
+                          : timeAgo(summaryState.summary.generated_at, f)}
                       </span>
                     )}
                     <button
                       onClick={regenSummary}
                       disabled={summarizing}
-                      title="Refresh summary"
-                      aria-label="Refresh summary"
+                      title={t('chats.page.refreshSummary')}
+                      aria-label={t('chats.page.refreshSummary')}
                       className="grid h-6 w-6 place-items-center rounded text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:opacity-40"
                     >
                       <RefreshCw size={11} className={summarizing ? 'animate-spin' : ''} aria-hidden />
                     </button>
                     <button
                       onClick={() => setSummaryOpen(!summaryOpen)}
-                      title={summaryOpen ? 'Collapse summary' : 'Expand summary'}
-                      aria-label={summaryOpen ? 'Collapse summary' : 'Expand summary'}
+                      title={t(summaryOpen ? 'chats.page.collapseSummary' : 'chats.page.expandSummary')}
+                      aria-label={t(summaryOpen ? 'chats.page.collapseSummary' : 'chats.page.expandSummary')}
                       aria-expanded={summaryOpen}
                       className="grid h-6 w-6 place-items-center rounded text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
                     >
@@ -1563,7 +1600,7 @@ function ChatsPage() {
                   </div>
                   {summaryOpen && (
                     <p className="mt-1 text-[13.5px] leading-[1.6] text-text-high">
-                      {summaryState.summary?.summary ?? (summarizing ? 'Generating the first summary…' : 'No summary yet — press refresh.')}
+                      {summaryState.summary?.summary ?? t(summarizing ? 'chats.page.generatingFirst' : 'chats.page.noSummary')}
                     </p>
                   )}
                 </div>
@@ -1573,19 +1610,22 @@ function ChatsPage() {
               {inCall && (
                 <div className="shrink-0 space-y-1.5 border-b border-line bg-well p-3">
                   <div className="flex items-center justify-between">
-                    <span className="eyebrow">Live transcript</span>
-                    {callLive.done && <span className="text-[11px] text-text-muted">agent finished</span>}
+                    <span className="eyebrow">{t('chats.call.liveTranscript')}</span>
+                    {callLive.done && <span className="text-[11px] text-text-muted">{t('chats.page.agentFinished')}</span>}
                   </div>
                   <div ref={callScrollRef} className="max-h-36 space-y-1 overflow-y-auto pr-1 text-[12.5px] leading-snug">
                     {callLive.turns.length === 0 ? (
                       <div className="flex items-center gap-1.5 py-1 text-text-muted">
                         <Loader2 size={12} className="animate-spin" aria-hidden />
-                        {active.call?.status === 'in_call' ? 'Waiting for the agent to speak…' : 'Connecting the call…'}
+                        {t(active.call?.status === 'in_call' ? 'chats.call.waitingAgent' : 'chats.call.connectingCall')}
                       </div>
                     ) : (
-                      callLive.turns.map((t, i) => (
-                        <div key={i} className={t.role === 'assistant' ? 'text-brand-300' : 'text-text-mid'}>
-                          <span className="font-semibold">{t.role === 'assistant' ? 'AI' : 'Caller'}:</span> {t.text}
+                      callLive.turns.map((turn, i) => (
+                        <div key={i} className={turn.role === 'assistant' ? 'text-brand-300' : 'text-text-mid'}>
+                          <span className="font-semibold">
+                            {t(turn.role === 'assistant' ? 'chats.parts.ai' : 'chats.parts.caller')}:
+                          </span>{' '}
+                          {turn.text}
                         </div>
                       ))
                     )}
@@ -1595,17 +1635,17 @@ function ChatsPage() {
                       value={sayDraft}
                       onChange={(e) => setSayDraft(e.target.value)}
                       rows={1}
-                      placeholder="Steer the AI (Guide) or type words for it to say verbatim (Takeover)…"
+                      placeholder={t('chats.page.steerWa')}
                       className="min-w-[200px] flex-1 resize-none rounded-lg border border-line-strong bg-card px-2.5 py-1.5 text-[12.5px] text-text-primary placeholder:text-text-faint focus:border-text-primary focus:outline-none"
                     />
                     <Button variant="secondary" size="sm" onClick={() => sendSay('guide')} disabled={busy || !sayDraft.trim()}>
-                      <Sparkles size={13} aria-hidden /> Guide
+                      <Sparkles size={13} aria-hidden /> {t('chats.call.guide')}
                     </Button>
                     <Button variant="secondary" size="sm" onClick={() => sendSay('takeover')} disabled={busy || !sayDraft.trim()}>
-                      <Send size={13} aria-hidden /> Takeover
+                      <Send size={13} aria-hidden /> {t('chats.call.takeover')}
                     </Button>
                     <Button variant="secondary" size="sm" onClick={escalateCall} disabled={busy}>
-                      <UserRound size={13} aria-hidden /> Escalate
+                      <UserRound size={13} aria-hidden /> {t('chats.call.escalate')}
                     </Button>
                   </div>
                 </div>
@@ -1615,25 +1655,34 @@ function ChatsPage() {
               {sipCallActive && sipCall && (
                 <div className="shrink-0 space-y-1.5 border-b border-line bg-well p-3">
                   <div className="flex items-center justify-between">
-                    <span className="eyebrow">Live transcript — AI phone call</span>
-                    <span className="text-[11px] text-text-muted">{sipCall.status === 'live' ? 'in call' : sipCall.statusText}</span>
+                    <span className="eyebrow">{t('chats.page.liveTranscriptSip')}</span>
+                    <span className="text-[11px] text-text-muted">
+                      {sipCall.status === 'live'
+                        ? t('chats.call.inCall')
+                        : sipCall.status === 'dialing'
+                          ? t('chats.call.dialing')
+                          : sipCall.status === 'ringing'
+                            ? t('chats.call.ringingPhone')
+                            : sipCall.statusText}
+                    </span>
                   </div>
                   <div className="max-h-36 space-y-1 overflow-y-auto pr-1 text-[12.5px] leading-snug">
                     {sipCall.turns.length === 0 && sipCall.extraLines.length === 0 ? (
                       <div className="flex items-center gap-1.5 py-1 text-text-muted">
                         <Loader2 size={12} className="animate-spin" aria-hidden />
-                        {sipCall.status === 'live' ? 'Waiting for the agent to speak…' : 'Connecting the call…'}
+                        {t(sipCall.status === 'live' ? 'chats.call.waitingAgent' : 'chats.call.connectingCall')}
                       </div>
                     ) : (
                       <>
-                        {sipCall.turns.map((t, i) => (
-                          <div key={i} className={t.who === 'ai' ? 'text-brand-300' : 'text-text-mid'}>
-                            <span className="font-semibold">{t.who === 'ai' ? 'AI' : 'Caller'}:</span> {t.t}
+                        {sipCall.turns.map((turn, i) => (
+                          <div key={i} className={turn.who === 'ai' ? 'text-brand-300' : 'text-text-mid'}>
+                            <span className="font-semibold">{t(turn.who === 'ai' ? 'chats.parts.ai' : 'chats.parts.caller')}:</span>{' '}
+                            {turn.t}
                           </div>
                         ))}
                         {sipCall.extraLines.map((l, i) => (
                           <div key={'x' + i} className={l.human ? 'text-amber-300' : 'text-brand-300'}>
-                            <span className="font-semibold">{l.human ? 'You' : 'AI'}:</span> {l.t}
+                            <span className="font-semibold">{t(l.human ? 'chats.parts.you' : 'chats.parts.ai')}:</span> {l.t}
                           </div>
                         ))}
                       </>
@@ -1644,9 +1693,7 @@ function ChatsPage() {
                       value={sipSayDraft}
                       onChange={(e) => setSipSayDraft(e.target.value)}
                       rows={1}
-                      placeholder={
-                        sipCall.humanControl ? 'Type words for the agent to say verbatim…' : 'Steer the AI (Guide) or type words for it to say verbatim (Takeover)…'
-                      }
+                      placeholder={t(sipCall.humanControl ? 'chats.call.steerHuman' : 'chats.page.steerWa')}
                       className="min-w-[200px] flex-1 resize-none rounded-lg border border-line-strong bg-card px-2.5 py-1.5 text-[12.5px] text-text-primary placeholder:text-text-faint focus:border-text-primary focus:outline-none"
                     />
                     <Button
@@ -1659,7 +1706,7 @@ function ChatsPage() {
                       }}
                       disabled={!sipSayDraft.trim()}
                     >
-                      <Sparkles size={13} aria-hidden /> Guide
+                      <Sparkles size={13} aria-hidden /> {t('chats.call.guide')}
                     </Button>
                     <Button
                       variant="secondary"
@@ -1671,16 +1718,16 @@ function ChatsPage() {
                       }}
                       disabled={!sipSayDraft.trim()}
                     >
-                      <Send size={13} aria-hidden /> Takeover
+                      <Send size={13} aria-hidden /> {t('chats.call.takeover')}
                     </Button>
                     <Button variant="secondary" size="sm" onClick={() => setHumanControl(sipCall.room, !sipCall.humanControl)}>
-                      <UserRound size={13} aria-hidden /> {sipCall.humanControl ? 'Return AI' : 'Take over'}
+                      <UserRound size={13} aria-hidden /> {t(sipCall.humanControl ? 'chats.call.returnAi' : 'chats.call.takeOver')}
                     </Button>
                     <Button variant="secondary" size="sm" onClick={() => escalateSipCall(sipCall.room)}>
-                      <UserRound size={13} aria-hidden /> Escalate
+                      <UserRound size={13} aria-hidden /> {t('chats.call.escalate')}
                     </Button>
                     <Button variant="danger" size="sm" onClick={() => hangupCall(sipCall.room)}>
-                      <PhoneOff size={13} aria-hidden /> End
+                      <PhoneOff size={13} aria-hidden /> {t('chats.page.end')}
                     </Button>
                   </div>
                 </div>
@@ -1690,7 +1737,7 @@ function ChatsPage() {
               <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
                 {displayMessages.length === 0 && (
                   <div className="py-10 text-center text-[13px] text-text-muted">
-                    No messages yet — {active.channel === 'email' ? 'compose the first email below.' : 'say hello below.'}
+                    {t(active.channel === 'email' ? 'chats.page.noMessagesEmail' : 'chats.page.noMessages')}
                   </div>
                 )}
                 {grouped.map((g) => (
@@ -1714,7 +1761,7 @@ function ChatsPage() {
                             <div className="w-[85%] max-w-[440px]">
                               <CenterNote>
                                 <span className="inline-flex items-center gap-1.5">
-                                  <PhoneCall size={11} aria-hidden /> Voice call · {timeShort(m.ts)}
+                                  <PhoneCall size={11} aria-hidden /> {t('chats.page.voiceCallAt', { time: timeShort(m.ts, f) })}
                                 </span>
                               </CenterNote>
                               <div className="mt-1">
@@ -1724,12 +1771,10 @@ function ChatsPage() {
                           </div>
                         ) : m.source === 'system' && !m.private ? (
                           m.text.startsWith('📞 Call transcript') || m.text.startsWith('Call transcript') ? (
-                            <CallTranscriptChip text={m.text} time={timeShort(m.ts)} />
+                            <CallTranscriptChip text={m.text} time={timeShort(m.ts, f)} />
                           ) : (
                             <div className="my-2">
-                              <CenterNote>
-                                {m.text} · {timeShort(m.ts)}
-                              </CenterNote>
+                              <CenterNote>{t('chats.page.systemNote', { text: m.text, time: timeShort(m.ts, f) })}</CenterNote>
                             </div>
                           )
                         ) : (
@@ -1738,7 +1783,7 @@ function ChatsPage() {
                               {combinedOn && m.channel && <ChannelBadge channel={m.channel} />}
                               {m.private && (
                                 <span className="cb-bubble-source">
-                                  <Lock size={8} className="mr-0.5 inline" aria-hidden /> Private note — not sent
+                                  <Lock size={8} className="mr-0.5 inline" aria-hidden /> {t('chats.page.privateNote')}
                                 </span>
                               )}
                               {!m.private && m.dir === 'out' && m.source === 'ai' && <AiBubbleFeedback m={m} store={aiFeedback} />}
@@ -1746,9 +1791,11 @@ function ChatsPage() {
                               {m.text}
                               <span className="cb-bubble-time">
                                 {(multiAccount || combinedOn) && !m.private && m.account_id && (
-                                  <span title={`${m.dir === 'out' ? 'Sent from' : 'Received on'} ${acctLabel(m)}`}>via {acctLabel(m)} ·</span>
+                                  <span title={t(m.dir === 'out' ? 'chats.page.sentFrom' : 'chats.page.receivedOn', { account: acctLabel(m) })}>
+                                    {t('chats.page.viaAccount', { account: acctLabel(m) })}
+                                  </span>
                                 )}
-                                <span>{timeShort(m.ts)}</span>
+                                <span>{timeShort(m.ts, f)}</span>
                                 {m.dir === 'out' && !m.private && <StatusTick status={m.status} />}
                               </span>
                             </div>
@@ -1763,7 +1810,7 @@ function ChatsPage() {
               {error && (
                 <div role="alert" className="flex items-center gap-2 border-t border-red/30 bg-red/10 px-4 py-1.5 text-[12px] text-red-300">
                   <span className="min-w-0 flex-1">{error}</span>
-                  <button onClick={() => setError(null)} aria-label="Dismiss" className="shrink-0 hover:text-text-high">
+                  <button onClick={() => setError(null)} aria-label={t('chats.page.dismiss')} className="shrink-0 hover:text-text-high">
                     <X size={12} aria-hidden />
                   </button>
                 </div>
@@ -1774,7 +1821,7 @@ function ChatsPage() {
                 <div className="shrink-0 border-t border-line p-3">
                   <div className="flex items-center gap-2 rounded-lg border border-dashed border-line-strong px-3 py-2.5 text-[12.5px] text-text-muted">
                     <Layers size={13} className="shrink-0" aria-hidden />
-                    Combined view of every channel — pick a channel above to reply.
+                    {t('chats.page.combinedReadOnly')}
                   </div>
                 </div>
               ) : (
@@ -1801,7 +1848,7 @@ function ChatsPage() {
                   />
                 )}
                 <div className="shrink-0 border-t border-line px-3 pb-3 pt-2 sm:px-4">
-                  <div className="mb-2 flex gap-1" role="tablist" aria-label="Composer mode">
+                  <div className="mb-2 flex gap-1" role="tablist" aria-label={t('chats.page.composerModeAria')}>
                     <button
                       role="tab"
                       aria-selected={!noteMode}
@@ -1810,7 +1857,7 @@ function ChatsPage() {
                         !noteMode ? 'bg-[var(--nav-active-bg)] text-text-heading' : 'text-text-muted hover:bg-fill'
                       }`}
                     >
-                      <Send size={11} aria-hidden /> Reply
+                      <Send size={11} aria-hidden /> {t('chats.page.reply')}
                     </button>
                     <button
                       role="tab"
@@ -1820,12 +1867,12 @@ function ChatsPage() {
                         noteMode ? 'bg-amber/15 text-amber-300' : 'text-text-muted hover:bg-fill'
                       }`}
                     >
-                      <StickyNote size={11} aria-hidden /> Private note
+                      <StickyNote size={11} aria-hidden /> {t('chats.page.privateNoteTab')}
                     </button>
                   </div>
                   {cannedMatches.length > 0 && (
                     <div className="mb-2 overflow-hidden rounded-lg border border-line bg-card shadow-pop">
-                      <div className="eyebrow border-b border-line px-3 py-1.5">Templates</div>
+                      <div className="eyebrow border-b border-line px-3 py-1.5">{t('chats.page.quickReplies')}</div>
                       {cannedMatches.map((c) => (
                         <button
                           key={c.id}
@@ -1859,12 +1906,15 @@ function ChatsPage() {
                     <div className="mb-2 flex items-center gap-2 rounded-lg border border-line bg-card px-3 py-1.5 text-[12.5px] text-text-mid">
                       <Paperclip size={13} className="shrink-0 text-text-muted" aria-hidden />
                       <span className="min-w-0 flex-1 truncate">
-                        {pendingFile.name} · {(pendingFile.size / 1024 / 1024).toFixed(1)} MB
+                        {t('chats.page.fileSize', {
+                          name: pendingFile.name,
+                          size: f.number(pendingFile.size / 1024 / 1024, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+                        })}
                       </span>
                       <button
                         onClick={() => setPendingFile(null)}
-                        title="Remove attachment"
-                        aria-label="Remove attachment"
+                        title={t('chats.page.removeAttachment')}
+                        aria-label={t('chats.page.removeAttachment')}
                         className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
                       >
                         <X size={12} aria-hidden />
@@ -1880,8 +1930,8 @@ function ChatsPage() {
                       <button
                         onClick={() => setTplOpen(true)}
                         disabled={busy}
-                        title="Send a message template"
-                        aria-label="Send a message template"
+                        title={t('chats.page.sendTemplate')}
+                        aria-label={t('chats.page.sendTemplate')}
                         className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg transition-colors disabled:opacity-35 ${
                           windowClosed ? 'bg-primary text-on-primary hover:opacity-90' : 'text-text-muted hover:bg-fill-hover hover:text-text-high'
                         }`}
@@ -1894,14 +1944,14 @@ function ChatsPage() {
                         <button
                           onClick={() => fileRef.current?.click()}
                           disabled={busy || composerLocked}
-                          title={
+                          title={t(
                             windowClosed
-                              ? 'Window closed — media needs an open 24h window'
+                              ? 'chats.page.attachWindowClosed'
                               : socialClosed
-                                ? 'Reply window closed — wait for the customer to write again'
-                                : 'Attach a file'
-                          }
-                          aria-label="Attach a file"
+                                ? 'chats.page.attachSocialClosed'
+                                : 'chats.page.attachFile',
+                          )}
+                          aria-label={t('chats.page.attachFile')}
                           className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:opacity-35"
                         >
                           <Paperclip size={15} aria-hidden />
@@ -1922,27 +1972,27 @@ function ChatsPage() {
                       onChange={(e) => setDraft(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
                       disabled={composerLocked && !noteMode}
-                      placeholder={
+                      placeholder={t(
                         noteMode
-                          ? 'Write a private note — agents only, never sent'
+                          ? 'chats.page.phNote'
                           : windowClosed
-                            ? '24h window closed — send a template to re-open'
+                            ? 'chats.page.phWindowClosed'
                             : socialClosed || platformClosed
-                              ? 'Reply window closed — wait for the customer to write again'
+                              ? 'chats.page.attachSocialClosed'
                               : pendingFile
-                              ? 'Add a caption (optional)'
-                              : active.channel === 'email'
-                                ? 'Write an email…'
-                                : 'Type a message (/ for templates)'
-                      }
-                      aria-label="Message text"
+                                ? 'chats.page.phCaption'
+                                : active.channel === 'email'
+                                  ? 'chats.page.phEmail'
+                                  : 'chats.page.phDefault',
+                      )}
+                      aria-label={t('chats.page.messageAria')}
                       className="min-w-0 flex-1 bg-transparent pl-1 text-[13.5px] text-text-primary outline-none placeholder:text-text-faint disabled:cursor-not-allowed disabled:opacity-50"
                     />
                     <button
                       onClick={sendMessage}
                       disabled={busy || (composerLocked && !noteMode) || (!draft.trim() && !pendingFile)}
-                      title={noteMode ? 'Save private note' : 'Send'}
-                      aria-label={noteMode ? 'Save private note' : 'Send message'}
+                      title={noteMode ? t('chats.page.saveNote') : t('common.actions.send')}
+                      aria-label={t(noteMode ? 'chats.page.saveNote' : 'chats.page.sendMessage')}
                       className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35 ${
                         noteMode ? 'bg-amber text-[color:var(--on-accent)]' : 'bg-primary text-on-primary'
                       }`}
@@ -1953,21 +2003,21 @@ function ChatsPage() {
                   {windowClosed && !noteMode && (
                     <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-amber-300">
                       <Clock size={12} className="shrink-0" aria-hidden />
-                      24h window closed — send a template to re-open the conversation.
+                      {t('chats.page.windowClosedNote')}
                     </div>
                   )}
                   {(socialClosed || socialLate) && !noteMode && (
                     <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-amber-300">
                       <Clock size={12} className="shrink-0" aria-hidden />
-                      {socialClosed
-                        ? `${CHANNEL_META[active.channel].lbl} only accepts replies within 7 days of the customer's last message — wait for them to write again.`
-                        : `Outside ${CHANNEL_META[active.channel].lbl}'s 24h window — your reply goes out as a human-agent message; the AI and automations can't send until the customer writes again.`}
+                      {t(socialClosed ? 'chats.page.socialClosedNote' : 'chats.page.socialLateNote', {
+                        channel: channelName(t, active.channel),
+                      })}
                     </div>
                   )}
                   {platformClosed && !noteMode && (
                     <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-amber-300">
                       <Clock size={12} className="shrink-0" aria-hidden />
-                      {`${CHANNEL_META[active.channel].lbl}'s reply window has closed — nothing can be sent until the customer writes again.`}
+                      {t('chats.page.platformClosedNote', { channel: channelName(t, active.channel) })}
                     </div>
                   )}
                 </div>

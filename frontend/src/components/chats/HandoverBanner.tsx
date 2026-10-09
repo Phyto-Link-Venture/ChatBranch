@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Bot, Hand, Loader2, UserCheck } from 'lucide-react'
 import { handoverAction, handoverBy, type UiHandover } from '@/lib/aiControls'
 import { timeAgo } from './inboxTypes'
+import { useFormat, useT } from '@/i18n'
 
 /**
  * "The AI handed this over" — shown above the composer while a handover is
@@ -29,6 +30,8 @@ export default function HandoverBanner({
   canAct: boolean
   onChanged: () => void
 }) {
+  const t = useT()
+  const f = useFormat()
   const [busy, setBusy] = useState<'take' | 'continue' | null>(null)
   const [err, setErr] = useState<string | null>(null)
   if (!handover?.open) return null
@@ -46,7 +49,7 @@ export default function HandoverBanner({
     }
   }
 
-  const who = handover.by === 'ai' ? 'The AI' : `Handed over by ${handoverBy(handover.by)}`
+  const who = handover.by === 'ai' ? t('chats.handover.theAi') : t('chats.handover.byWho', { who: handoverBy(handover.by, t) })
   const mine = !!me && assignee === me
   const btn =
     'inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[12.5px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50'
@@ -61,12 +64,12 @@ export default function HandoverBanner({
       </span>
       <div className="min-w-0 flex-1 basis-[200px]">
         <div className="text-[13px] font-semibold text-text-heading">
-          {handover.by === 'ai' ? 'The AI handed this over' : who}
-          <span className="font-normal text-text-muted"> · {timeAgo(handover.at)}</span>
+          {handover.by === 'ai' ? t('chats.handover.aiHandedOver') : who}
+          <span className="font-normal text-text-muted"> · {timeAgo(handover.at, f)}</span>
         </div>
         <div className="text-[12.5px] text-text-mid">
           {handover.reason}
-          {mine && <span className="text-text-muted"> — it’s yours now; your reply closes it.</span>}
+          {mine && <span className="text-text-muted">{t('chats.handover.yours')}</span>}
         </div>
         {err && (
           <div role="alert" className="mt-1 text-[12px] text-[color:var(--red-ink)]">
@@ -84,7 +87,7 @@ export default function HandoverBanner({
               className={`${btn} bg-primary text-on-primary hover:opacity-90`}
             >
               {busy === 'take' ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <UserCheck size={13} aria-hidden />}
-              Take it
+              {t('chats.handover.takeIt')}
             </button>
           )}
           <button
@@ -92,10 +95,10 @@ export default function HandoverBanner({
             onClick={() => act('continue')}
             disabled={!!busy}
             className={`${btn} border border-line-strong bg-card text-text-high hover:bg-fill-hover`}
-            title="Close the handover and turn the chatbot back on for this chat"
+            title={t('chats.handover.letAiContinueHint')}
           >
             {busy === 'continue' ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Bot size={13} aria-hidden />}
-            Let AI continue
+            {t('chats.handover.letAiContinue')}
           </button>
         </div>
       )}

@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import type { SavedView } from '@/lib/savedViews'
+import { Trans, useT } from '@/i18n'
 
 /**
  * Rename, reorder and delete the operator's own saved views. Each action is
@@ -26,6 +27,7 @@ export default function SavedViewsManager<F>({
   onDelete: (id: number) => Promise<void>
   onReorder: (ids: number[]) => Promise<void>
 }) {
+  const t = useT()
   const [names, setNames] = useState<Record<number, string>>({})
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
@@ -72,11 +74,11 @@ export default function SavedViewsManager<F>({
       onClose={onClose}
       size="sm"
       labelledById="views-manager-title"
-      title="Saved views"
-      subtitle="Your own tabs above the chat list — nobody else sees them."
+      title={t('chats.savedViews.title')}
+      subtitle={t('chats.savedViews.subtitle')}
       footer={
         <Button variant="secondary" onClick={onClose}>
-          Done
+          {t('common.actions.done')}
         </Button>
       }
     >
@@ -87,8 +89,10 @@ export default function SavedViewsManager<F>({
       )}
       {views.length === 0 ? (
         <p className="py-6 text-center text-[13px] text-text-muted">
-          No saved views yet. Set some filters, then use <span className="font-semibold text-text-high">Save as view</span> in the filter
-          pop-up.
+          <Trans
+            k="chats.savedViews.empty"
+            values={{ button: <span className="font-semibold text-text-high">{t('chats.filterModal.saveAsView')}</span> }}
+          />
         </p>
       ) : (
         <ul className="divide-y divide-line rounded-lg border border-line">
@@ -101,14 +105,14 @@ export default function SavedViewsManager<F>({
                 onKeyDown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()}
                 maxLength={60}
                 disabled={busy}
-                aria-label={`Name of view ${v.name}`}
+                aria-label={t('chats.savedViews.nameAria', { name: v.name })}
                 className="h-8 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 text-[13px] text-text-high outline-none hover:border-line focus:border-text-primary"
               />
               <button
                 type="button"
                 onClick={() => move(i, -1)}
                 disabled={busy || i === 0}
-                aria-label={`Move ${v.name} up`}
+                aria-label={t('chats.savedViews.moveUp', { name: v.name })}
                 className="grid h-7 w-7 place-items-center rounded-md text-text-muted hover:bg-fill-hover hover:text-text-high disabled:opacity-30"
               >
                 <ArrowUp size={13} aria-hidden />
@@ -117,16 +121,16 @@ export default function SavedViewsManager<F>({
                 type="button"
                 onClick={() => move(i, 1)}
                 disabled={busy || i === views.length - 1}
-                aria-label={`Move ${v.name} down`}
+                aria-label={t('chats.savedViews.moveDown', { name: v.name })}
                 className="grid h-7 w-7 place-items-center rounded-md text-text-muted hover:bg-fill-hover hover:text-text-high disabled:opacity-30"
               >
                 <ArrowDown size={13} aria-hidden />
               </button>
               <button
                 type="button"
-                onClick={() => window.confirm(`Delete the view "${v.name}"?`) && run(() => onDelete(v.id))}
+                onClick={() => window.confirm(t('chats.savedViews.confirmDelete', { name: v.name })) && run(() => onDelete(v.id))}
                 disabled={busy}
-                aria-label={`Delete ${v.name}`}
+                aria-label={t('chats.savedViews.deleteAria', { name: v.name })}
                 className="grid h-7 w-7 place-items-center rounded-md text-text-muted hover:bg-red/10 hover:text-red-300 disabled:opacity-30"
               >
                 <Trash2 size={13} aria-hidden />

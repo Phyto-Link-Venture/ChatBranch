@@ -7,6 +7,7 @@ import { Toggle } from '@/components/ui/Toggle'
 import { useAccess } from '@/lib/useAccess'
 import { useEntity } from '@/lib/EntityContext'
 import { getAiControls, putAiControls, type AiControls } from '@/lib/aiControls'
+import { useT } from '@/i18n'
 
 /**
  * The AI master switch as a quick toggle in the top bar's Live popover, for the
@@ -15,6 +16,7 @@ import { getAiControls, putAiControls, type AiControls } from '@/lib/aiControls'
  * live on the AI monitor.
  */
 export function AiQuickToggle() {
+  const t = useT()
   const access = useAccess()
   const { activeEntity } = useEntity()
   const slug = activeEntity?.slug ?? null
@@ -65,10 +67,10 @@ export function AiQuickToggle() {
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-semibold text-text-high">{data?.label ?? 'AI'}</span>
           <Link href="/ai-monitor" className="text-[12px] text-text-muted hover:text-text-high hover:underline">
-            Schedule &amp; exceptions
+            {t('chats.aiControls.scheduleExceptions')}
           </Link>
         </span>
-        <Toggle on={!!data && data.mode !== 'off'} disabled={!data || busy || !data.can_manage} onChange={flip} label="AI master switch" />
+        <Toggle on={!!data && data.mode !== 'off'} disabled={!data || busy || !data.can_manage} onChange={flip} label={t('chats.aiControls.masterSwitch')} />
       </div>
       {err && (
         <div role="alert" className="mt-1.5 text-[12px] text-[color:var(--red-ink)]">

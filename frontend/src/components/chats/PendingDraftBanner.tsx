@@ -17,6 +17,7 @@ import { Check, Loader2, ScanEye, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { DraftBookings } from '@/components/ai-monitor/DraftBits'
 import { aiApi, decide, decisionFromError, type Draft, type DraftList } from '@/lib/aiMonitor'
+import { useT } from '@/i18n'
 
 export default function PendingDraftBanner({
   channel,
@@ -28,6 +29,7 @@ export default function PendingDraftBanner({
   /** Any value that changes when the conversation updates (refetch trigger). */
   refreshToken?: unknown
 }) {
+  const t = useT()
   const [draft, setDraft] = useState<Draft | null>(null)
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -59,7 +61,7 @@ export default function PendingDraftBanner({
       await load()
     } catch (e) {
       const r = decisionFromError(e)
-      setError(r?.detail || (e instanceof Error ? e.message : 'Could not update the draft'))
+      setError(r?.detail || (e instanceof Error ? e.message : t('chats.draft.couldNotUpdate')))
     } finally {
       setBusy(null)
     }
@@ -69,24 +71,24 @@ export default function PendingDraftBanner({
     <div role="status" className="mx-3 mb-2 rounded-xl border border-amber/40 bg-amber/10 px-3.5 py-2.5 sm:mx-4">
       <div className="flex flex-wrap items-center gap-2">
         <ScanEye size={15} className="shrink-0 text-amber-300" aria-hidden />
-        <span className="text-[12.5px] font-semibold text-text-heading">AI reply waiting for review</span>
+        <span className="text-[12.5px] font-semibold text-text-heading">{t('chats.draft.title')}</span>
         {draft.reasons.length > 0 && (
           <span className="min-w-0 truncate text-[12px] text-text-muted">· {draft.reasons.join(' · ')}</span>
         )}
         <span className="ml-auto flex flex-wrap items-center gap-1.5">
           <Button size="sm" variant="primary" disabled={!!busy} onClick={() => void act('approve')}>
             {busy === 'approve' ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Check size={13} aria-hidden />}
-            Approve &amp; send
+            {t('chats.draft.approveSend')}
           </Button>
           <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => void act('reject')}>
             {busy === 'reject' ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <X size={13} aria-hidden />}
-            Reject
+            {t('chats.draft.reject')}
           </Button>
           <Link
             href="/ai-monitor"
             className="inline-flex h-8 items-center rounded-lg px-2.5 text-[12.5px] font-semibold text-text-mid hover:bg-fill-hover hover:text-text-high"
           >
-            Edit in monitor
+            {t('chats.draft.editInMonitor')}
           </Link>
         </span>
       </div>

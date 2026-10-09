@@ -9,6 +9,7 @@
  * shapes the wire.
  */
 import { authHeaders, expireSessionOn401 } from './auth'
+import type { MessageKey, TFunction } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -38,15 +39,9 @@ export type AiMasterMode = 'on' | 'off' | 'schedule'
 export type AiScheduleMode = 'inside' | 'outside'
 export const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
 export type Weekday = (typeof WEEKDAYS)[number]
-export const WEEKDAY_LABEL: Record<Weekday, string> = {
-  mon: 'Mon',
-  tue: 'Tue',
-  wed: 'Wed',
-  thu: 'Thu',
-  fri: 'Fri',
-  sat: 'Sat',
-  sun: 'Sun',
-}
+/** A date that falls on each weekday (5 Jan 2026 is a Monday) — format it with
+ *  `useFormat().weekday()` for the localised short day name. */
+export const weekdayDate = (d: Weekday) => new Date(2026, 0, 5 + WEEKDAYS.indexOf(d), 12)
 /** {"mon": [["18:00","23:59"]], …} — the booking-hours shape. */
 export type AiSchedule = Record<Weekday, [string, string][]>
 
@@ -91,9 +86,14 @@ export const putAiControls = (entity: string | null | undefined, body: AiControl
 export const emptySchedule = (): AiSchedule =>
   Object.fromEntries(WEEKDAYS.map((d) => [d, [] as [string, string][]])) as unknown as AiSchedule
 
-/** "Mon–Fri 18:00–23:59 · Sat 10:00–14:00" — a compact summary for chips and subtitles. */
-export function describeSchedule(s: AiSchedule | null | undefined): string {
-  if (!s) return 'No hours set'
+/** "Mon–Fri 18:00–23:59 · Sat 10:00–14:00" — a compact summary for chips and
+ *  subtitles; `dayLabel` names a weekday in the current language. */
+export function describeSchedule(
+  s: AiSchedule | null | undefined,
+  t: TFunction,
+  dayLabel: (d: Weekday) => string,
+): string {
+  if (!s) return t('chats.aiControls.noHoursSet')
   const groups: { days: Weekday[]; key: string }[] = []
   for (const d of WEEKDAYS) {
     const w = s[d] ?? []
@@ -104,12 +104,14 @@ export function describeSchedule(s: AiSchedule | null | undefined): string {
     if (last && last.key === key && prevDay === d) last.days.push(d)
     else groups.push({ days: [d], key })
   }
-  if (!groups.length) return 'No hours set'
+  if (!groups.length) return t('chats.aiControls.noHoursSet')
   return groups
     .map((g) => {
       const days =
-        g.days.length === 1 ? WEEKDAY_LABEL[g.days[0]] : `${WEEKDAY_LABEL[g.days[0]]}–${WEEKDAY_LABEL[g.days[g.days.length - 1]]}`
-      return `${days} ${g.key === '00:00–00:00' ? 'all day' : g.key}`
+        g.days.length === 1
+          ? dayLabel(g.days[0])
+          : t('chats.aiControls.dayRange', { from: dayLabel(g.days[0]), to: dayLabel(g.days[g.days.length - 1]) })
+      return t('chats.aiControls.dayHours', { days, hours: g.key === '00:00–00:00' ? t('chats.aiControls.allDay') : g.key })
     })
     .join(' · ')
 }
@@ -142,16 +144,23 @@ export type HandoverKind =
   | 'manual'
   | 'unknown_customer'
 
-export const HANDOVER_KINDS: { value: HandoverKind; label: string }[] = [
-  { value: 'check_failed', label: 'A reply check failed' },
-  { value: 'asked_for_human', label: 'The AI asked for a person' },
-  { value: 'send_blocked', label: 'The reply could not be sent' },
-  { value: 'booking_failed', label: 'A booking failed' },
-  { value: 'low_confidence', label: 'Low confidence' },
-  { value: 'rule', label: 'A rule or flow' },
-  { value: 'manual', label: 'Flagged by a person' },
-  { value: 'unknown_customer', label: 'Unknown customer' },
+/** Labels are translation keys — render with `t(k.label)`. */
+export const HANDOVER_KINDS: { value: HandoverKind; label: MessageKey }[] = [
+  { value: 'check_failed', label: 'chats.handoverKinds.check_failed' },
+  { value: 'asked_for_human', label: 'chats.handoverKinds.asked_for_human' },
+  { value: 'send_blocked', label: 'chats.handoverKinds.send_blocked' },
+  { value: 'booking_failed', label: 'chats.handoverKinds.booking_failed' },
+  { value: 'low_confidence', label: 'chats.handoverKinds.low_confidence' },
+  { value: 'rule', label: 'chats.handoverKinds.rule' },
+  { value: 'manual', label: 'chats.handoverKinds.manual' },
+  { value: 'unknown_customer', label: 'chats.handoverKinds.unknown_customer' },
 ]
+
+/** A handover kind's label in the current language; the server's own label for kinds we don't know. */
+export const handoverKindLabel = (t: TFunction, kind: string, fallback?: string) => {
+  const k = HANDOVER_KINDS.find((x) => x.value === kind)
+  return k ? t(k.label) : fallback || kind.replace(/_/g, ' ')
+}
 
 /** The `handover` object on every thread payload (null = never handed over). */
 export interface UiHandover {
@@ -166,13 +175,13 @@ export interface UiHandover {
   count: number
 }
 
-export const handoverBy = (by: string) =>
+export const handoverBy = (by: string, t: TFunction) =>
   by === 'ai'
-    ? 'the AI'
+    ? t('chats.handover.byAi')
     : by === 'flow'
-      ? 'a flow'
+      ? t('chats.handover.byFlow')
       : by.startsWith('rule:')
-        ? 'an automation rule'
+        ? t('chats.handover.byRule')
         : by.startsWith('agent:')
           ? by.slice(6)
           : by

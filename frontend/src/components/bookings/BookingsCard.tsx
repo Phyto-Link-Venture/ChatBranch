@@ -12,8 +12,9 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ExternalLink, Loader2 } from 'lucide-react'
 import { useAccess } from '@/lib/useAccess'
-import { bookingLabel, isQuietError, listBookings, type Booking } from '@/lib/bookings'
-import { BookingStatusChip, CalendarMark, CancelBookingModal } from './BookingBits'
+import { isQuietError, listBookings, type Booking } from '@/lib/bookings'
+import { useT } from '@/i18n'
+import { BookingStatusChip, CalendarMark, CancelBookingModal, calendarName, useBookingLabel } from './BookingBits'
 
 export function BookingsCard({
   contactId,
@@ -26,6 +27,8 @@ export function BookingsCard({
   /** The chat info panel's tighter card. */
   compact?: boolean
 }) {
+  const t = useT()
+  const bookingLabel = useBookingLabel()
   const { ready, can } = useAccess()
   const [rows, setRows] = useState<Booking[] | null>(null)
   const [failed, setFailed] = useState(false)
@@ -51,25 +54,25 @@ export function BookingsCard({
   const shown = (rows ?? []).filter((b) => b.status !== 'released')
 
   return (
-    <section className={`rounded-xl border border-line bg-card ${compact ? 'p-3.5' : 'p-4'}`} aria-label="Bookings">
+    <section className={`rounded-xl border border-line bg-card ${compact ? 'p-3.5' : 'p-4'}`} aria-label={t('shell.nav.bookings')}>
       <div className={`flex items-center justify-between gap-2 ${compact ? 'mb-2' : 'mb-3'}`}>
-        <h3 className="eyebrow">Bookings</h3>
+        <h3 className="eyebrow">{t('shell.nav.bookings')}</h3>
         <Link
           href={`/bookings?contact=${contactId}`}
           className="text-[11px] font-semibold text-text-muted hover:text-text-high hover:underline"
         >
-          All bookings
+          {t('bookings.card.all')}
         </Link>
       </div>
 
       {rows === null ? (
         <div className="flex items-center gap-2 text-[12px] text-text-muted">
-          <Loader2 size={13} className="animate-spin" aria-hidden /> Loading…
+          <Loader2 size={13} className="animate-spin" aria-hidden /> {t('common.status.loading')}
         </div>
       ) : shown.length === 0 ? (
         <p className="text-[12px] leading-relaxed text-text-muted">
-          {failed ? 'Bookings couldn’t be loaded right now.' : 'No upcoming bookings.'}
-          {!failed && !compact && ' When the AI books an appointment with this contact, it shows here.'}
+          {t(failed ? 'bookings.card.loadFailed' : 'bookings.card.none')}
+          {!failed && !compact && ` ${t('bookings.card.noneHint')}`}
         </p>
       ) : (
         <ul className="flex flex-col divide-y divide-line">
@@ -82,7 +85,7 @@ export function BookingsCard({
               <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11.5px] text-text-muted">
                 <CalendarMark source={b.source} size={11} />
                 <span className="truncate">
-                  {b.calendar_label || (b.source === 'google' ? 'Google Calendar' : 'ChatBranch bookings')}
+                  {calendarName(t, b)}
                   {b.timezone ? ` · ${b.timezone}` : ''}
                 </span>
               </div>
@@ -95,7 +98,7 @@ export function BookingsCard({
                       rel="noreferrer"
                       className="inline-flex items-center gap-1 text-[11px] font-semibold text-text-muted hover:text-text-high hover:underline"
                     >
-                      Open event <ExternalLink size={10} aria-hidden />
+                      {t('bookings.card.openEvent')} <ExternalLink size={10} aria-hidden />
                     </a>
                   )}
                   {canCancel && b.status === 'booked' && (
@@ -107,7 +110,7 @@ export function BookingsCard({
                       }}
                       className="text-[11px] font-semibold text-text-muted transition-colors hover:text-[color:var(--red-ink)] hover:underline"
                     >
-                      Cancel
+                      {t('common.actions.cancel')}
                     </button>
                   )}
                 </div>
@@ -127,7 +130,7 @@ export function BookingsCard({
         onClose={() => setConfirm(null)}
         onCancelled={(b) => {
           setConfirm(null)
-          setNotice(`Cancelled ${bookingLabel(b)}.`)
+          setNotice(t('bookings.card.cancelled', { label: bookingLabel(b) }))
           void load()
         }}
       />

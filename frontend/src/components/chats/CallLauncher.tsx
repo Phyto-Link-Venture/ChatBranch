@@ -7,12 +7,14 @@ import { Select } from '@/components/ui/Select'
 import { useApp } from '@/lib/AppContext'
 import { PERSONA_LABELS } from '@/lib/personas'
 import { LANGUAGES } from '@/lib/languages'
+import { useT } from '@/i18n'
 
 /** Slim outbound-call launcher for the Chats page: place a one-off manual call
  *  (raw number) or fan out a batch to selected contacts — the two things the
  *  /live-calls dial bar did that don't belong to any single chat thread. Uses the
  *  same AppContext seams, so calls appear in the fleet + each contact's chat. */
 export default function CallLauncher() {
+  const t = useT()
   const { contacts, voices, dialManual, launchBatch, calls, queuedCount, maxConcurrent, openCampaign } = useApp()
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<'contacts' | 'manual'>('contacts')
@@ -50,8 +52,8 @@ export default function CallLauncher() {
     <>
       <button
         onClick={() => setOpen(true)}
-        title="Place an outbound call"
-        aria-label="New call"
+        title={t('chats.call.placeOutbound')}
+        aria-label={t('chats.call.newCall')}
         className="grid h-8 w-8 place-items-center rounded-lg border border-line bg-fill text-text-muted hover:text-text-high"
       >
         <PhoneCall size={15} aria-hidden />
@@ -71,14 +73,16 @@ export default function CallLauncher() {
             <div className="flex items-center gap-2.5 border-b border-line px-5 py-4">
               <Phone size={15} className="text-brand-300" aria-hidden />
               <div className="min-w-0 flex-1">
-                <div className="text-[14px] font-extrabold tracking-[-0.3px] text-text-primary">Place a call</div>
+                <div className="text-[14px] font-extrabold tracking-[-0.3px] text-text-primary">{t('chats.call.placeACall')}</div>
                 <div className="mt-0.5 text-[11px] text-text-muted">
-                  {liveCount} / {maxConcurrent} live{queuedCount ? ` · ${queuedCount} queued` : ''}
+                  {queuedCount
+                    ? t('chats.call.liveCountQueued', { live: liveCount, max: maxConcurrent, queued: queuedCount })
+                    : t('chats.call.liveCount', { live: liveCount, max: maxConcurrent })}
                 </div>
               </div>
               <button
                 onClick={() => setOpen(false)}
-                aria-label="Close"
+                aria-label={t('common.actions.close')}
                 className="grid h-[30px] w-[30px] place-items-center rounded-lg border border-line bg-fill text-text-muted hover:text-text-high"
               >
                 <X size={15} aria-hidden />
@@ -97,7 +101,7 @@ export default function CallLauncher() {
                       color: mode === m ? 'var(--brand-ink)' : 'var(--text-mid)',
                     }}
                   >
-                    {m === 'contacts' ? 'Contacts (batch)' : 'Manual number'}
+                    {t(m === 'contacts' ? 'chats.call.contactsBatch' : 'chats.call.manualNumber')}
                   </button>
                 ))}
               </div>
@@ -107,10 +111,10 @@ export default function CallLauncher() {
                   value={voiceId}
                   onChange={setVoiceId}
                   options={[
-                    { value: '', label: 'Default voice' },
+                    { value: '', label: t('chats.call.defaultVoice') },
                     ...voices.map((v) => ({ value: v.id, label: `${v.name} — ${PERSONA_LABELS[v.persona] ?? v.persona}` })),
                   ]}
-                  ariaLabel="Agent voice"
+                  ariaLabel={t('chats.call.agentVoice')}
                 />
               )}
 
@@ -125,19 +129,19 @@ export default function CallLauncher() {
                   <input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Name (optional)"
+                    placeholder={t('chats.call.nameOptional')}
                     className="w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none focus:border-brand-400"
                   />
-                  <Select value={lang} onChange={setLang} options={LANGUAGES} ariaLabel="Call language" />
+                  <Select value={lang} onChange={setLang} options={LANGUAGES} ariaLabel={t('chats.call.callLanguage')} />
                 </>
               ) : (
                 <div className="max-h-[280px] overflow-y-auto rounded-lg border border-line">
                   <div className="flex items-center justify-between px-3 py-2 text-[11px] font-bold">
                     <button onClick={() => setBatchSel(contacts.map((c) => c.id))} className="text-brand-300">
-                      Select all
+                      {t('common.actions.selectAll')}
                     </button>
                     <button onClick={() => setBatchSel([])} className="text-text-muted">
-                      Clear
+                      {t('common.actions.clear')}
                     </button>
                   </div>
                   {contacts.map((c) => (
@@ -167,18 +171,18 @@ export default function CallLauncher() {
                 }}
                 style={{ marginRight: 'auto' }}
               >
-                Advanced campaign…
+                {t('chats.call.advancedCampaign')}
               </Button>
               <Button variant="ghost" onClick={() => setOpen(false)}>
-                Cancel
+                {t('common.actions.cancel')}
               </Button>
               <Button variant="success" onClick={start} disabled={!canCall} style={{ opacity: canCall ? 1 : 0.5 }}>
                 <PhoneCall size={13} aria-hidden />{' '}
                 {mode === 'manual'
-                  ? liveCount >= maxConcurrent
-                    ? 'Queue call'
-                    : 'Call'
-                  : `Call ${batchSel.length || ''}`.trim()}
+                  ? t(liveCount >= maxConcurrent ? 'chats.call.queueCall' : 'chats.call.call')
+                  : batchSel.length
+                    ? t('chats.call.callN', { count: batchSel.length })
+                    : t('chats.call.call')}
               </Button>
             </div>
           </div>

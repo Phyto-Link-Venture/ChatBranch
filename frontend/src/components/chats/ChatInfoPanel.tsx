@@ -11,10 +11,13 @@ import { CreateFromChat } from '@/components/contacts/CreateFromChatModal'
 import { useTags } from '@/lib/tags'
 import { tint } from '@/lib/color'
 import { Avatar, BetaChip } from './MessageParts'
+import { useT } from '@/i18n'
 import {
   CHANNEL_META,
   THREAD_STATUSES,
+  channelName,
   logoKey,
+  roleLabel,
   statusLabel,
   type ThreadStatus,
   type UiAccount,
@@ -80,12 +83,13 @@ export default function ChatInfoPanel({
   onSaveLabels: (labels: string[]) => void
 }) {
   // Conversation labels come from the Tags registry (Library → Tags).
+  const t = useT()
   const { metas: conversationTags } = useTags('conversation')
   const labels = active.labels ?? []
   const meta = CHANNEL_META[active.channel]
   return (
     <aside
-      aria-label="Conversation details"
+      aria-label={t('chats.info.aria')}
       className="hidden w-[288px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-line bg-surface p-3 xl:flex"
     >
       <section className="flex flex-col items-center rounded-xl border border-line bg-card px-4 py-5 text-center">
@@ -93,19 +97,15 @@ export default function ChatInfoPanel({
         <div className="display mt-2.5 text-[20px] leading-tight text-text-heading">{active.name}</div>
         <div className="mt-1 flex items-center justify-center gap-1.5 text-[12px] text-text-muted">
           <ChannelLogo channel={logoKey(active.channel)} size={13} />
-          {meta.lbl}
+          {channelName(t, active.channel)}
           {meta.beta && <BetaChip />}
         </div>
         <div className="mt-0.5 max-w-full truncate text-[12px] text-text-mid">{active.sub}</div>
       </section>
 
       <InfoCard
-        title="Contact"
-        note={
-          active.contact_id != null
-            ? 'Every channel this contact uses merges in the "All channels" view above the chat.'
-            : 'Linking joins this chat with the same person’s other channels (WhatsApp links by phone automatically, email by address).'
-        }
+        title={t('chats.info.contact')}
+        note={t(active.contact_id != null ? 'chats.info.contactNoteLinked' : 'chats.info.contactNoteUnlinked')}
       >
         {active.contact_id != null ? (
           <div className="flex items-center justify-between gap-2">
@@ -122,7 +122,7 @@ export default function ChatInfoPanel({
               disabled={busy}
               className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-text-muted transition-colors hover:bg-red/10 hover:text-red-300"
             >
-              Unlink
+              {t('chats.info.unlink')}
             </button>
           </div>
         ) : (
@@ -132,8 +132,8 @@ export default function ChatInfoPanel({
               value={linkSel}
               onChange={onLinkSel}
               options={linkContacts.map((c) => ({ value: String(c.id), label: c.name, hint: c.phone ? `(${c.phone})` : undefined }))}
-              placeholder="Link to a contact…"
-              ariaLabel="Link to contact"
+              placeholder={t('chats.info.linkPlaceholder')}
+              ariaLabel={t('chats.info.linkAria')}
               className="min-w-0 flex-1"
               searchable
             />
@@ -141,8 +141,8 @@ export default function ChatInfoPanel({
               type="button"
               onClick={() => linkSel && onLink(Number(linkSel))}
               disabled={busy || !linkSel}
-              title="Link contact"
-              aria-label="Link contact"
+              title={t('chats.info.linkContact')}
+              aria-label={t('chats.info.linkContact')}
               className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-line-strong bg-card text-text-muted transition-colors hover:text-text-high disabled:opacity-35"
             >
               <Link2 size={13} aria-hidden />
@@ -155,7 +155,7 @@ export default function ChatInfoPanel({
       </InfoCard>
 
       {active.contact_id != null && (
-        <InfoCard title="Channels">
+        <InfoCard title={t('chats.info.channels')}>
           <ChannelHub contactId={active.contact_id} />
         </InfoCard>
       )}
@@ -166,40 +166,40 @@ export default function ChatInfoPanel({
         <BookingsCard contactId={active.contact_id} refreshToken={active.messages.length} compact />
       )}
 
-      <InfoCard title="Conversation" note="A new customer message re-opens a resolved or snoozed conversation.">
+      <InfoCard title={t('chats.info.conversation')} note={t('chats.info.conversationNote')}>
         <div className="flex flex-col gap-2.5">
           <label className="flex flex-col gap-1">
-            <span className="text-[11.5px] font-semibold text-text-mid">Status</span>
+            <span className="text-[11.5px] font-semibold text-text-mid">{t('common.fields.status')}</span>
             <Select
               value={active.status ?? 'open'}
               onChange={(v) => onSetStatus(v as ThreadStatus)}
-              options={THREAD_STATUSES.map((s) => ({ value: s, label: statusLabel(s) }))}
+              options={THREAD_STATUSES.map((s) => ({ value: s, label: statusLabel(t, s) }))}
               disabled={busy}
               size="md"
-              ariaLabel="Conversation status"
+              ariaLabel={t('chats.info.statusAria')}
             />
           </label>
           {teams.length > 0 && (
             <label className="flex flex-col gap-1">
-              <span className="text-[11.5px] font-semibold text-text-mid">Team</span>
+              <span className="text-[11.5px] font-semibold text-text-mid">{t('chats.info.team')}</span>
               <Select
                 value={active.team_id ? String(active.team_id) : ''}
                 onChange={onAssignTeam}
-                options={[{ value: '', label: 'No team' }, ...teams.map((t) => ({ value: String(t.id), label: t.name }))]}
+                options={[{ value: '', label: t('chats.info.noTeam') }, ...teams.map((tm) => ({ value: String(tm.id), label: tm.name }))]}
                 disabled={busy}
                 size="md"
-                ariaLabel="Owning team"
+                ariaLabel={t('chats.info.teamAria')}
               />
             </label>
           )}
           <label className="flex flex-col gap-1">
-            <span className="text-[11.5px] font-semibold text-text-mid">Assignee</span>
+            <span className="text-[11.5px] font-semibold text-text-mid">{t('chats.info.assignee')}</span>
             <Select
               value={active.assignee ?? ''}
               onChange={onAssign}
               options={[
-                { value: '', label: 'Unassigned' },
-                ...agents.map((a) => ({ value: a.username, label: a.name, hint: `(${a.role})` })),
+                { value: '', label: t('chats.info.unassigned') },
+                ...agents.map((a) => ({ value: a.username, label: a.name, hint: `(${roleLabel(t, a.role)})` })),
                 // keep an assignee visible even if their profile disappears
                 ...(active.assignee && !agents.some((a) => a.username === active.assignee)
                   ? [{ value: active.assignee, label: active.assignee }]
@@ -207,7 +207,7 @@ export default function ChatInfoPanel({
               ]}
               disabled={busy}
               size="md"
-              ariaLabel="Assigned agent"
+              ariaLabel={t('chats.info.assigneeAria')}
             />
           </label>
         </div>
@@ -215,15 +215,15 @@ export default function ChatInfoPanel({
 
       {active.channel === 'whatsapp' && waAccounts.length > 0 && (
         <InfoCard
-          title="Sending account"
-          note="Switching starts a new chat on the customer’s side — free text unlocks after they reply to the new number (use a template to open it)."
+          title={t('chats.info.sendingAccount')}
+          note={t('chats.info.sendingAccountNote')}
         >
           <div className="flex items-center justify-between gap-2">
             <span className="flex min-w-0 items-center gap-1.5 text-[13px] font-semibold text-text-high">
               <ChannelLogo channel="whatsapp" size={13} />
               <span className="truncate">
                 {waAccounts.find((a) => a.id === String(active.account_id ?? ''))?.name ??
-                  (active.account_id ? `account #${active.account_id}` : 'Auto')}
+                  (active.account_id ? t('chats.info.accountN', { id: active.account_id }) : t('chats.info.auto'))}
               </span>
             </span>
           </div>
@@ -232,11 +232,11 @@ export default function ChatInfoPanel({
               value={String(active.account_id ?? '')}
               onChange={onSwitchAccount}
               options={[
-                ...(!active.account_id ? [{ value: '', label: 'Auto' }] : []),
+                ...(!active.account_id ? [{ value: '', label: t('chats.info.auto') }] : []),
                 ...waAccounts.map((a) => ({ value: a.id, label: a.name })),
               ]}
               disabled={busy}
-              ariaLabel="Switch sending account"
+              ariaLabel={t('chats.info.switchAccountAria')}
               className="mt-2"
             />
           )}
@@ -244,17 +244,15 @@ export default function ChatInfoPanel({
       )}
 
       {active.channel === 'email' && (
-        <InfoCard title="Email">
+        <InfoCard title={t('common.fields.email')}>
           <p className="flex gap-1.5 text-[12px] leading-relaxed text-text-mid">
             <Mail size={13} className="mt-0.5 shrink-0 text-text-muted" aria-hidden />
-            {imapConfigured
-              ? 'Two-way email — sends go via SMTP and replies are pulled from the IMAP inbox about once a minute.'
-              : 'Outbound-only — replies arrive in your mailbox, not here. Set the IMAP host in Channels to pull them in.'}
+            {t(imapConfigured ? 'chats.info.emailTwoWay' : 'chats.info.emailOutbound')}
           </p>
         </InfoCard>
       )}
 
-      <InfoCard title="Labels">
+      <InfoCard title={t('chats.info.labels')}>
         <div className="flex flex-wrap gap-1.5">
           {conversationTags.map((tg) => {
             const on = labels.includes(tg.slug)
@@ -265,7 +263,7 @@ export default function ChatInfoPanel({
                 aria-pressed={on}
                 onClick={() => onSaveLabels(on ? labels.filter((l) => l !== tg.slug) : [...labels, tg.slug])}
                 disabled={busy}
-                title={on ? `Remove ${tg.label}` : `Add ${tg.label}`}
+                title={t(on ? 'chats.info.removeLabel' : 'chats.info.addLabel', { label: tg.label })}
                 className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11.5px] transition-colors disabled:opacity-50"
                 style={
                   on
@@ -280,10 +278,10 @@ export default function ChatInfoPanel({
           })}
         </div>
         {/* legacy free-text labels not in the registry — still removable */}
-        {labels.some((l) => !conversationTags.some((t) => t.slug === l)) && (
+        {labels.some((l) => !conversationTags.some((tg) => tg.slug === l)) && (
           <div className="mt-2 flex flex-wrap gap-1">
             {labels
-              .filter((l) => !conversationTags.some((t) => t.slug === l))
+              .filter((l) => !conversationTags.some((tg) => tg.slug === l))
               .map((label) => (
                 <span key={label} className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-[11.5px] text-text-mid">
                   {label}
@@ -291,7 +289,7 @@ export default function ChatInfoPanel({
                     type="button"
                     onClick={() => onSaveLabels(labels.filter((l) => l !== label))}
                     disabled={busy}
-                    aria-label={`Remove ${label}`}
+                    aria-label={t('chats.info.removeLabel', { label })}
                     className="grid h-3.5 w-3.5 place-items-center rounded-full hover:bg-fill-hover"
                   >
                     <X size={9} aria-hidden />
@@ -302,13 +300,15 @@ export default function ChatInfoPanel({
         )}
       </InfoCard>
 
-      <InfoCard title="Activity">
+      <InfoCard title={t('chats.info.activity')}>
         <p className="text-[12px] leading-relaxed text-text-mid">
-          {active.messages.filter((m) => m.source !== 'system').length} messages ·{' '}
-          {active.messages.filter((m) => m.source === 'ai').length} AI replies
-          {active.messages.some((m) => m.private) && <> · {active.messages.filter((m) => m.private).length} private notes</>}
+          {t('chats.info.messages', { count: active.messages.filter((m) => m.source !== 'system').length })} ·{' '}
+          {t('chats.info.aiReplies', { count: active.messages.filter((m) => m.source === 'ai').length })}
+          {active.messages.some((m) => m.private) && (
+            <> · {t('chats.info.privateNotes', { count: active.messages.filter((m) => m.private).length })}</>
+          )}
         </p>
-        {sandbox && <p className="mt-1 text-[12px] text-amber-300">Sandbox — nothing is sent externally.</p>}
+        {sandbox && <p className="mt-1 text-[12px] text-amber-300">{t('chats.info.sandbox')}</p>}
       </InfoCard>
     </aside>
   )

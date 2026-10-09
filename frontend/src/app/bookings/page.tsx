@@ -20,7 +20,14 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { Select } from '@/components/ui/Select'
-import { BookingStatusChip, CalendarMark, CancelBookingModal } from '@/components/bookings/BookingBits'
+import {
+  BookingStatusChip,
+  CalendarMark,
+  CancelBookingModal,
+  calendarName,
+  useBookingLabel,
+} from '@/components/bookings/BookingBits'
+import { Trans, useFormat, useT, type MessageKey } from '@/i18n'
 import { useAccess } from '@/lib/useAccess'
 import { useEntityQuery } from '@/lib/EntityContext'
 import { subscribeChatStream } from '@/lib/chatStream'
@@ -29,30 +36,32 @@ import {
   BOOKING_STATUS,
   BookingsError,
   bookedBy,
-  bookingLabel,
+  instant,
   isQuietError,
   listBookings,
-  relative,
   threadHref,
   type Booking,
   type BookingStatus,
 } from '@/lib/bookings'
 
 type Tab = 'upcoming' | 'past'
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'upcoming', label: 'Upcoming' },
-  { id: 'past', label: 'Past' },
+const TABS: { id: Tab; label: MessageKey }[] = [
+  { id: 'upcoming', label: 'bookings.page.upcoming' },
+  { id: 'past', label: 'bookings.page.past' },
 ]
 
-const STATUS_OPTIONS = [
-  { value: 'active', label: 'Booked or held' },
-  { value: 'all', label: 'All statuses' },
+const STATUS_OPTIONS: { value: string; label: MessageKey }[] = [
+  { value: 'active', label: 'bookings.page.statusActive' },
+  { value: 'all', label: 'bookings.page.statusAll' },
   ...(Object.keys(BOOKING_STATUS) as BookingStatus[]).map((s) => ({ value: s, label: BOOKING_STATUS[s].label })),
 ]
 
 const defaultStatus = (t: Tab) => (t === 'upcoming' ? 'active' : 'all')
 
 export default function BookingsPage() {
+  const t = useT()
+  const f = useFormat()
+  const bookingLabel = useBookingLabel()
   const entityQ = useEntityQuery()
   const { ready, can } = useAccess()
   const [tab, setTab] = useState<Tab>('upcoming')
@@ -68,10 +77,10 @@ export default function BookingsPage() {
   // ?tab= and ?contact= after mount (window — no Suspense boundary needed)
   useEffect(() => {
     const p = new URLSearchParams(window.location.search)
-    const t = p.get('tab') as Tab | null
-    if (t && TABS.some((x) => x.id === t)) {
-      setTab(t)
-      setStatus(defaultStatus(t))
+    const fromUrl = p.get('tab') as Tab | null
+    if (fromUrl && TABS.some((x) => x.id === fromUrl)) {
+      setTab(fromUrl)
+      setStatus(defaultStatus(fromUrl))
     }
     const c = Number(p.get('contact'))
     if (Number.isFinite(c) && c > 0) setContactId(c)
@@ -103,13 +112,13 @@ export default function BookingsPage() {
       setRows([])
       setLoadNote(
         isQuietError(e) && (e as BookingsError).status === 404
-          ? 'Bookings aren’t available on this server yet.'
-          : `Bookings couldn’t be loaded — ${e instanceof Error ? e.message : String(e)}`,
+          ? t('bookings.page.notAvailable')
+          : t('bookings.page.loadFailed', { error: e instanceof Error ? e.message : String(e) }),
       )
     } finally {
       setLoading(false)
     }
-  }, [tab, contactId, entityQ])
+  }, [tab, contactId, entityQ, t])
 
   useEffect(() => {
     if (!allowed) return
@@ -121,23 +130,20 @@ export default function BookingsPage() {
   // books or cancels is a new message) — debounced refetch
   useEffect(() => {
     if (!allowed) return
-    let t: number | undefined
+    let timer: number | undefined
     const unsub = subscribeChatStream(() => {
-      window.clearTimeout(t)
-      t = window.setTimeout(() => void load(), 800)
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => void load(), 800)
     })
     return () => {
       unsub()
-      window.clearTimeout(t)
+      window.clearTimeout(timer)
     }
   }, [allowed, load])
 
   const calendars = useMemo(
-    () =>
-      Array.from(
-        new Set((rows ?? []).map((b) => b.calendar_label || (b.source === 'google' ? 'Google Calendar' : 'ChatBranch bookings'))),
-      ).sort(),
-    [rows],
+    () => Array.from(new Set((rows ?? []).map((b) => calendarName(t, b)))).sort(),
+    [rows, t],
   )
 
   const visible = useMemo(() => {
@@ -145,14 +151,13 @@ export default function BookingsPage() {
     return (rows ?? []).filter((b) => {
       if (status === 'active' && !ACTIVE_STATUSES.includes(b.status)) return false
       if (status !== 'active' && status !== 'all' && b.status !== status) return false
-      const cal = b.calendar_label || (b.source === 'google' ? 'Google Calendar' : 'ChatBranch bookings')
-      if (calendar && cal !== calendar) return false
+      if (calendar && calendarName(t, b) !== calendar) return false
       // belt and braces for the tab split (the server already filters)
-      const t = Date.parse(/[zZ]$|[+-]\d\d:\d\d$/.test(b.start) ? b.start : `${b.start}Z`)
-      if (!Number.isNaN(t) && tab === 'past' && t > now) return false
+      const at = instant(b.start)
+      if (at != null && tab === 'past' && at > now) return false
       return true
     })
-  }, [rows, status, calendar, tab])
+  }, [rows, status, calendar, tab, t])
 
   const contactName = contactId != null ? (rows ?? []).find((b) => b.contact_id === contactId)?.contact_name : undefined
   const canCancel = ready && can('chats.send')
@@ -160,15 +165,16 @@ export default function BookingsPage() {
   const columns: Column<Booking>[] = [
     {
       key: 'when',
-      header: 'When',
+      header: t('bookings.page.colWhen'),
       sortable: true,
       value: (b) => b.start,
       render: (b) => (
         <div className="min-w-[150px]">
           <div className="font-semibold text-text-heading">{bookingLabel(b)}</div>
           <div className="text-[11.5px] text-text-muted">
-            {relative(b.start)}
-            {b.timezone ? ` · ${b.timezone}` : ''}
+            {b.timezone
+              ? t('bookings.page.whenTz', { relative: f.relative(instant(b.start)), tz: b.timezone })
+              : f.relative(instant(b.start))}
           </div>
           {/* on a phone the Status column is off to the side — repeat it here */}
           <div className="mt-1 sm:hidden">
@@ -179,7 +185,7 @@ export default function BookingsPage() {
     },
     {
       key: 'contact',
-      header: 'Contact',
+      header: t('bookings.page.colContact'),
       sortable: true,
       value: (b) => `${b.contact_name} ${b.title}`,
       render: (b) => (
@@ -197,21 +203,21 @@ export default function BookingsPage() {
     },
     {
       key: 'calendar',
-      header: 'Calendar',
+      header: t('bookings.page.colCalendar'),
       sortable: true,
-      value: (b) => b.calendar_label,
+      value: (b) => calendarName(t, b),
       render: (b) => (
         <span className="inline-flex min-w-[130px] items-center gap-1.5 text-[12.5px] text-text-mid">
           <CalendarMark source={b.source} />
-          <span className="truncate">{b.calendar_label || (b.source === 'google' ? 'Google Calendar' : 'ChatBranch bookings')}</span>
+          <span className="truncate">{calendarName(t, b)}</span>
         </span>
       ),
     },
     {
       key: 'status',
-      header: 'Status',
+      header: t('common.fields.status'),
       sortable: true,
-      value: (b) => BOOKING_STATUS[b.status]?.label ?? b.status,
+      value: (b) => (BOOKING_STATUS[b.status] ? t(BOOKING_STATUS[b.status].label) : b.status),
       render: (b) => (
         <div className="flex flex-col items-start gap-0.5">
           <BookingStatusChip booking={b} />
@@ -225,7 +231,7 @@ export default function BookingsPage() {
     },
     {
       key: 'by',
-      header: 'Booked by',
+      header: t('bookings.page.colBookedBy'),
       sortable: true,
       value: (b) => bookedBy(b.created_by),
       render: (b) => (
@@ -237,7 +243,7 @@ export default function BookingsPage() {
     },
     {
       key: 'actions',
-      header: 'Actions',
+      header: t('bookings.page.colActions'),
       srHeader: true,
       align: 'right',
       // fixed slots so the icons line up row to row whichever ones a row has
@@ -248,8 +254,8 @@ export default function BookingsPage() {
           ) : (
             <Link
               href={threadHref(b.thread)}
-              title="Open the conversation"
-              aria-label={`Open the conversation with ${b.contact_name || 'this contact'}`}
+              title={t('bookings.page.openConversation')}
+              aria-label={t('bookings.page.openConversationWith', { name: b.contact_name || t('bookings.page.thisContact') })}
               className="grid h-8 w-8 place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
             >
               <MessageSquare size={14} aria-hidden />
@@ -262,8 +268,8 @@ export default function BookingsPage() {
               href={b.event_link}
               target="_blank"
               rel="noreferrer"
-              title="Open the calendar event"
-              aria-label="Open the calendar event"
+              title={t('bookings.page.openEvent')}
+              aria-label={t('bookings.page.openEvent')}
               className="grid h-8 w-8 place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
             >
               <ExternalLink size={14} aria-hidden />
@@ -278,7 +284,7 @@ export default function BookingsPage() {
                 setConfirm(b)
               }}
             >
-              Cancel
+              {t('common.actions.cancel')}
             </Button>
           ) : (
             <span aria-hidden />
@@ -288,41 +294,41 @@ export default function BookingsPage() {
     },
   ]
 
-  const choose = (t: Tab) => {
-    setTab(t)
-    setStatus(defaultStatus(t))
+  const choose = (next: Tab) => {
+    setTab(next)
+    setStatus(defaultStatus(next))
     setNotice(null)
-    syncUrl(t, contactId)
+    syncUrl(next, contactId)
   }
 
   return (
     <AreaPage
-      title="Bookings"
-      eyebrow="Work"
+      title={t('shell.nav.bookings')}
+      eyebrow={t('shell.groups.work')}
       Icon={CalendarCheck}
-      subtitle="Appointments the AI and your team booked — on Google Calendar or kept in ChatBranch."
+      subtitle={t('bookings.page.subtitle')}
     >
       {ready && !allowed ? (
         <Card className="px-5 py-6 text-[13px] text-text-muted">
-          You don’t have access to bookings. Ask an admin for the “View chats” permission.
+          {t('bookings.page.noAccess')}
         </Card>
       ) : (
         <div className="flex flex-col gap-4 pb-10">
           <div className="-mx-1 overflow-x-auto px-1">
-            <div role="tablist" aria-label="Bookings" className="flex min-w-max gap-5 border-b border-line">
-              {TABS.map((t) => {
-                const active = tab === t.id
+            <div role="tablist" aria-label={t('shell.nav.bookings')} className="flex min-w-max gap-5 border-b border-line">
+              {TABS.map((x) => {
+                const active = tab === x.id
                 return (
                   <button
-                    key={t.id}
+                    key={x.id}
                     role="tab"
                     aria-selected={active}
-                    onClick={() => choose(t.id)}
+                    onClick={() => choose(x.id)}
                     className={`-mb-px border-b-2 pb-2 pt-1 text-[13.5px] font-semibold transition-colors ${
                       active ? 'border-text-primary text-text-heading' : 'border-transparent text-text-muted hover:text-text-high'
                     }`}
                   >
-                    {t.label}
+                    {t(x.label)}
                   </button>
                 )
               })}
@@ -332,14 +338,17 @@ export default function BookingsPage() {
           {contactId != null && (
             <div className="flex flex-wrap items-center gap-2 text-[12.5px] text-text-mid">
               <span className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-card py-0.5 pl-2.5 pr-1">
-                Contact: <b className="font-semibold text-text-high">{contactName || `#${contactId}`}</b>
+                <Trans
+                  k="bookings.page.contactChip"
+                  values={{ name: <b className="font-semibold text-text-high">{contactName || `#${contactId}`}</b> }}
+                />
                 <button
                   type="button"
                   onClick={() => {
                     setContactId(null)
                     syncUrl(tab, null)
                   }}
-                  aria-label="Show every contact’s bookings"
+                  aria-label={t('bookings.page.showAll')}
                   className="grid h-5 w-5 place-items-center rounded-full text-text-muted hover:bg-fill-hover hover:text-text-high"
                 >
                   <X size={11} aria-hidden />
@@ -357,7 +366,7 @@ export default function BookingsPage() {
 
           {rows === null ? (
             <div className="flex items-center gap-2 py-8 text-[12.5px] text-text-muted">
-              <Loader2 size={14} className="animate-spin" aria-hidden /> Loading bookings…
+              <Loader2 size={14} className="animate-spin" aria-hidden /> {t('bookings.page.loading')}
             </div>
           ) : (
             <DataTable
@@ -366,7 +375,7 @@ export default function BookingsPage() {
               rows={visible}
               rowKey={(b) => b.id}
               searchKeys={['contact']}
-              searchPlaceholder="Search contact or title…"
+              searchPlaceholder={t('bookings.page.searchPlaceholder')}
               pageSize={20}
               initialSort={{ key: 'when', dir: tab === 'upcoming' ? 'asc' : 'desc' }}
               toolbarRight={
@@ -374,18 +383,18 @@ export default function BookingsPage() {
                   <Select
                     value={status}
                     onChange={setStatus}
-                    options={STATUS_OPTIONS}
-                    ariaLabel="Status"
+                    options={STATUS_OPTIONS.map((o) => ({ value: o.value, label: t(o.label) }))}
+                    ariaLabel={t('common.fields.status')}
                     className="w-[138px] sm:w-[160px]"
                   />
                   <Select
                     value={calendar}
                     onChange={setCalendar}
-                    options={[{ value: '', label: 'All calendars' }, ...calendars.map((c) => ({ value: c, label: c }))]}
-                    ariaLabel="Calendar"
+                    options={[{ value: '', label: t('bookings.page.allCalendars') }, ...calendars.map((c) => ({ value: c, label: c }))]}
+                    ariaLabel={t('bookings.page.calendarAria')}
                     className="w-[148px] sm:w-[170px]"
                   />
-                  <Button variant="ghost" size="sm" onClick={() => void load()} disabled={loading} aria-label="Refresh">
+                  <Button variant="ghost" size="sm" onClick={() => void load()} disabled={loading} aria-label={t('common.actions.refresh')}>
                     <RefreshCw size={13} className={loading ? 'animate-spin' : ''} aria-hidden />
                   </Button>
                 </>
@@ -394,19 +403,26 @@ export default function BookingsPage() {
                 <span className="inline-flex flex-col items-center gap-1.5">
                   <CalendarCheck size={20} className="text-text-faint" aria-hidden />
                   <span>
-                    {(rows ?? []).length > 0
-                      ? 'No bookings match these filters.'
-                      : tab === 'upcoming'
-                        ? 'No upcoming bookings.'
-                        : 'No past bookings.'}
+                    {t(
+                      (rows ?? []).length > 0
+                        ? 'bookings.page.emptyFiltered'
+                        : tab === 'upcoming'
+                          ? 'bookings.page.emptyUpcoming'
+                          : 'bookings.page.emptyPast',
+                    )}
                   </span>
                   {(rows ?? []).length === 0 && (
                     <span className="max-w-[440px] text-[12px] text-text-faint">
-                      Give the AI a calendar on{' '}
-                      <Link href="/skills" className="font-semibold text-text-muted underline-offset-2 hover:underline">
-                        AI skills
-                      </Link>{' '}
-                      (a Connected app) and the appointments it books land here.
+                      <Trans
+                        k="bookings.page.emptyHint"
+                        values={{
+                          link: (
+                            <Link href="/skills" className="font-semibold text-text-muted underline-offset-2 hover:underline">
+                              {t('shell.nav.skills')}
+                            </Link>
+                          ),
+                        }}
+                      />
                     </span>
                   )}
                 </span>
@@ -421,7 +437,11 @@ export default function BookingsPage() {
         onClose={() => setConfirm(null)}
         onCancelled={(b) => {
           setConfirm(null)
-          setNotice(`Cancelled ${bookingLabel(b)}${b.contact_name ? ` with ${b.contact_name}` : ''}.`)
+          setNotice(
+            b.contact_name
+              ? t('bookings.page.cancelledWith', { label: bookingLabel(b), name: b.contact_name })
+              : t('bookings.card.cancelled', { label: bookingLabel(b) }),
+          )
           void load()
         }}
       />

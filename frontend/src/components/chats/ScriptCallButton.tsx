@@ -5,14 +5,9 @@ import { Megaphone, X } from 'lucide-react'
 import { useApp } from '@/lib/AppContext'
 import { authHeaders } from '@/lib/auth'
 import { Select } from '@/components/ui/Select'
+import { useT } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
-
-const DEFAULT_SCRIPT =
-  'Hello {{name}}, this is an automated courtesy call from {{company}} regarding your ' +
-  '{{record_title}}, currently {{record_status}}. ' +
-  'Please check the link sent to you for full details. ' +
-  'Thank you, and have a good day.'
 
 interface ScriptTemplate {
   id: number
@@ -26,9 +21,12 @@ interface ScriptTemplate {
  *  (dialScriptCall queues through the normal dial pipeline), so once placed,
  *  VoiceCallButton's own spinner/hangup control already reflects it. */
 export default function ScriptCallButton({ contactId }: { contactId: number }) {
+  const t = useT()
   const { calls, dialScriptCall } = useApp()
   const [open, setOpen] = useState(false)
-  const [script, setScript] = useState(DEFAULT_SCRIPT)
+  // null = the default script, in the dashboard's language ({{vars}} stay as they are)
+  const [edited, setScript] = useState<string | null>(null)
+  const script = edited ?? t('chats.call.defaultScript')
   const [templates, setTemplates] = useState<ScriptTemplate[]>([])
   const [templateId, setTemplateId] = useState('')
   const inCall = Object.values(calls).some(
@@ -48,8 +46,8 @@ export default function ScriptCallButton({ contactId }: { contactId: number }) {
       <button
         onClick={() => setOpen((v) => !v)}
         disabled={inCall}
-        title="Script call — reads a fixed script, then hangs up"
-        aria-label="Start script call"
+        title={t('chats.call.scriptCallHint')}
+        aria-label={t('chats.call.startScriptCall')}
         className="grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-brand-300 disabled:cursor-not-allowed disabled:opacity-40"
       >
         <Megaphone size={15} aria-hidden />
@@ -57,8 +55,12 @@ export default function ScriptCallButton({ contactId }: { contactId: number }) {
       {open && (
         <div className="absolute right-0 top-9 z-20 w-72 rounded-xl border border-line bg-card p-2.5 shadow-lg">
           <div className="mb-1.5 flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Script call</span>
-            <button onClick={() => setOpen(false)} className="cursor-pointer text-text-faint hover:text-text-high">
+            <span className="text-[11px] font-bold uppercase tracking-wide text-text-muted">{t('chats.call.scriptCall')}</span>
+            <button
+              onClick={() => setOpen(false)}
+              aria-label={t('common.actions.close')}
+              className="cursor-pointer text-text-faint hover:text-text-high"
+            >
               <X size={13} aria-hidden />
             </button>
           </div>
@@ -67,14 +69,14 @@ export default function ScriptCallButton({ contactId }: { contactId: number }) {
               value={templateId}
               onChange={(id) => {
                 setTemplateId(id)
-                const t = templates.find((x) => String(x.id) === id)
-                if (t) setScript(t.content)
+                const tpl = templates.find((x) => String(x.id) === id)
+                if (tpl) setScript(tpl.content)
               }}
               options={[
-                { value: '', label: 'Custom script', hint: '(edit below)' },
-                ...templates.map((t) => ({ value: String(t.id), label: t.name })),
+                { value: '', label: t('chats.call.customScript'), hint: t('chats.call.editBelow') },
+                ...templates.map((tpl) => ({ value: String(tpl.id), label: tpl.name })),
               ]}
-              ariaLabel="Script template"
+              ariaLabel={t('chats.call.scriptTemplateAria')}
               className="mb-1.5 w-full"
             />
           )}
@@ -95,7 +97,7 @@ export default function ScriptCallButton({ contactId }: { contactId: number }) {
             disabled={!script.trim()}
             className="mt-2 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-brand px-2.5 py-1.5 text-[12px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <Megaphone size={13} aria-hidden /> Call &amp; read script
+            <Megaphone size={13} aria-hidden /> {t('chats.call.callReadScript')}
           </button>
         </div>
       )}
