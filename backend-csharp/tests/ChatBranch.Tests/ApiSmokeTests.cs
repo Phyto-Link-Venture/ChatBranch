@@ -141,6 +141,10 @@ public class ApiFactory : WebApplicationFactory<Program>
         // host IS a demo environment, so it asks for the demo seed itself
         // rather than depending on CI to export the variable.
         Environment.SetEnvironmentVariable("SEED_DEMO", "1");
+        // Fast password hashes (Django's test-settings practice): 600 000 PBKDF2
+        // rounds per seeded user and per sign-in saturated a 2-vCPU runner until
+        // logins timed out. Production keeps Django's default.
+        Environment.SetEnvironmentVariable("PASSWORD_HASH_ITERATIONS", "1000");
         // Media, voices.json and the voice-agent files go to a throwaway dir,
         // never into a checkout's live backend/data.
         Environment.SetEnvironmentVariable("CHATBRANCH_DATA_DIR", DataDir);

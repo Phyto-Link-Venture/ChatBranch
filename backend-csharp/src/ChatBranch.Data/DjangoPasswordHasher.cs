@@ -34,9 +34,24 @@ public static class DjangoPasswordHasher
         return CryptographicOperations.FixedTimeEquals(a, b);
     }
 
+    /// <summary>
+    /// Work factor for NEW hashes: Django's default, unless
+    /// <c>PASSWORD_HASH_ITERATIONS</c> asks for another (never below 1 000). The
+    /// test host lowers it — every test host seeds hashed logins and the suite
+    /// signs in hundreds of times, which at 600 000 rounds saturated a 2-vCPU CI
+    /// runner. Verification always uses the count stored IN the hash, so a
+    /// change here never locks anyone out.
+    /// </summary>
+    public static int NewHashIterations() =>
+        NewHashIterations(Environment.GetEnvironmentVariable("PASSWORD_HASH_ITERATIONS"));
+
+    /// <summary>The rule behind <see cref="NewHashIterations()"/> for a configured value.</summary>
+    public static int NewHashIterations(string? configured) =>
+        int.TryParse(configured, out var n) && n > 0 ? Math.Max(n, 1_000) : DefaultIterations;
+
     public static string Hash(string password, int? iterations = null)
     {
-        var iters = iterations ?? DefaultIterations;
+        var iters = iterations ?? NewHashIterations();
         var saltBytes = RandomNumberGenerator.GetBytes(SaltLength);
         // Django salts are alphanumeric ASCII; base64url-ish is fine as long as
         // we hash the exact salt string we store.
