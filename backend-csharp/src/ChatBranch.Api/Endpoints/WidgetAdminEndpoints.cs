@@ -48,6 +48,8 @@ public static class WidgetAdminEndpoints
             var name = (Str(body, "name") ?? "").Trim();
             if (name.Length == 0)
                 return Results.Json(new { detail = "name is required." }, statusCode: 400);
+            if (LanguageError(body) is string langErr)
+                return Results.Json(new { detail = langErr }, statusCode: 400);
             var row = new ChannelAccount
             {
                 Channel = Channels.Website,
@@ -84,6 +86,8 @@ public static class WidgetAdminEndpoints
             var row = await db.ChannelAccounts.FirstOrDefaultAsync(
                 a => a.Id == id && a.Channel == Channels.Website);
             if (row == null) return Results.NotFound(new { detail = "Widget not found." });
+            if (LanguageError(body) is string langErr)
+                return Results.Json(new { detail = langErr }, statusCode: 400);
 
             if (InboxSettings.Apply(db, row, InboxRaw(body, InboxSettings.TeamKey),
                     InboxRaw(body, InboxSettings.AiDefaultKey),
@@ -161,6 +165,8 @@ public static class WidgetAdminEndpoints
             greeting = Cfg(a, "greeting"),
             accent = Cfg(a, "accent"),
             placeholder = Cfg(a, "placeholder"),
+            // the widget's own words: auto = the visitor's browser, else en | ms | zh
+            language = WidgetLanguage(a),
             conversations,
             created = a.CreatedAt,
             // "Who answers it": owning team (null = none) + AI default ("" = on)
@@ -179,8 +185,31 @@ public static class WidgetAdminEndpoints
         var outv = new Dictionary<string, object?>();
         foreach (var key in new[] { "title", "greeting", "accent", "placeholder", "ask_identity" })
             if (Has(body, key)) outv[key] = (Str(body, key) ?? "").Trim();
+        // validated by LanguageError first; "" (or JSON null) = auto
+        if (Has(body, "language")) outv["language"] = NormalizeLanguage(Str(body, "language")) ?? "auto";
         return outv;
     }
+
+    /// <summary>
+    /// The website widget's language: <c>auto</c> (the visitor's browser) or
+    /// one of the dashboard's locales (<see cref="SettingsEndpoints.SupportedLocales"/>).
+    /// The script carries a dictionary for each — keep them in step.
+    /// </summary>
+    internal static string WidgetLanguage(ChannelAccount a) => NormalizeLanguage(Cfg(a, "language")) ?? "auto";
+
+    /// <summary>"auto" / a supported locale, normalized; "" = auto; null for anything else.</summary>
+    private static string? NormalizeLanguage(string? raw)
+    {
+        var v = (raw ?? "").Trim().ToLowerInvariant();
+        if (v.Length == 0 || v == "auto") return "auto";
+        return SettingsEndpoints.SupportedLocales.Contains(v) ? v : null;
+    }
+
+    /// <summary>A 400 detail when the body carries an unknown language, else null.</summary>
+    private static string? LanguageError(JsonElement body) =>
+        Has(body, "language") && NormalizeLanguage(Str(body, "language")) == null
+            ? $"language must be auto or one of: {string.Join(", ", SettingsEndpoints.SupportedLocales)}."
+            : null;
 
     private static string Cfg(ChannelAccount a, string key) =>
         a.Config.TryGetValue(key, out var v) ? v?.ToString() ?? "" : "";

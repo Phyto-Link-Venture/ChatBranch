@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
@@ -39,16 +40,21 @@ public static class WidgetEndpoints
     public static void MapWidgetEndpoints(this IEndpointRouteBuilder app)
     {
         // ---- config: what the widget should look like ------------------------
+        // Title, greeting and placeholder are the operator's own words, sent
+        // only when set: blank ones are filled in by the script from its own
+        // dictionary, in the visitor's language (see `language`).
         app.MapGet("/api/widget/{token}/config", async (string token, AppDbContext db) =>
         {
             var account = await AccountAsync(db, token);
             if (account == null) return Results.NotFound(new { detail = "Unknown widget." });
             return Results.Ok(new
             {
-                title = Cfg(account, "title", account.Name),
-                greeting = Cfg(account, "greeting", "Hi! How can we help?"),
+                title = Cfg(account, "title", ""),
+                greeting = Cfg(account, "greeting", ""),
                 accent = Cfg(account, "accent", "#3B82F6"),
-                placeholder = Cfg(account, "placeholder", "Type your message…"),
+                placeholder = Cfg(account, "placeholder", ""),
+                // auto = the visitor's browser language; else en | ms | zh
+                language = WidgetAdminEndpoints.WidgetLanguage(account),
                 // The visitor is asked for a name/email only when configured to.
                 ask_identity = Cfg(account, "ask_identity", "true") == "true",
             });
@@ -153,7 +159,9 @@ public static class WidgetEndpoints
         app.MapGet("/widget.js", (HttpContext ctx) =>
         {
             ctx.Response.Headers.CacheControl = "public, max-age=300";
-            return Results.Text(WidgetScript, "application/javascript");
+            // UTF-8 declared: the dictionary carries Malay and Chinese, and a
+            // host page in another encoding must not garble them.
+            return Results.Text(WidgetScript, "application/javascript", Encoding.UTF8);
         }).AllowAnonymous().RequireCors("widget");
     }
 
@@ -236,6 +244,13 @@ public static class WidgetEndpoints
     /// A self-contained bubble + panel. Rendered into a SHADOW ROOT so the host
     /// page's CSS cannot leak in and ours cannot leak out — the usual reason an
     /// embedded widget looks broken on a stranger's site.
+    ///
+    /// The widget speaks the visitor's language: its own words (launcher,
+    /// close, send, the default title / greeting / placeholder, the error
+    /// lines) come from the <c>I18N</c> dictionary below — English, Bahasa
+    /// Melayu and 简体中文 — picked by the widget's configured <c>language</c>,
+    /// else the visitor's <c>navigator.languages</c> (Indonesian reads Malay),
+    /// else English. Keep the three in step with the dashboard's locales.
     /// </summary>
     private const string WidgetScript = """
 (function () {
@@ -245,50 +260,115 @@ public static class WidgetEndpoints
   if (!token) return console.error('[chatbranch] data-token is required');
   var KEY = 'chatbranch-widget-' + token;
 
+  // The widget's own words. Picked by the widget's configured language, else
+  // the visitor's browser, else English; the operator's own title, greeting
+  // and placeholder (when set) are shown as written.
+  var I18N = {
+    en: {
+      open: 'Open chat', close: 'Close', title: 'Chat with us', greeting: 'Hi! How can we help?',
+      placeholder: 'Type your message…', send: 'Send', message: 'Message',
+      sendFailed: "Couldn't send your message — check your connection and try again.",
+      expired: 'This conversation has ended. Send your message again to start a new one.',
+      offline: "We can't reach the chat right now. Please try again in a moment."
+    },
+    ms: {
+      open: 'Buka sembang', close: 'Tutup', title: 'Sembang dengan kami', greeting: 'Hai! Apa yang boleh kami bantu?',
+      placeholder: 'Taip mesej anda…', send: 'Hantar', message: 'Mesej',
+      sendFailed: 'Mesej anda tidak dapat dihantar — semak sambungan anda dan cuba lagi.',
+      expired: 'Perbualan ini telah tamat. Hantar mesej anda sekali lagi untuk memulakan perbualan baharu.',
+      offline: 'Sembang tidak dapat dihubungi buat masa ini. Sila cuba sebentar lagi.'
+    },
+    zh: {
+      open: '打开聊天', close: '关闭', title: '与我们聊天', greeting: '您好！有什么可以帮您？',
+      placeholder: '输入消息…', send: '发送', message: '消息',
+      sendFailed: '消息发送失败——请检查网络连接后重试。',
+      expired: '此对话已结束。请重新发送消息以开始新的对话。',
+      offline: '暂时无法连接聊天，请稍后再试。'
+    }
+  };
+
+  function pickLang(pref) {
+    if (pref && I18N[pref]) return pref;
+    var tags = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || ''];
+    for (var i = 0; i < tags.length; i++) {
+      var base = String(tags[i] || '').toLowerCase().split('-')[0];
+      if (base === 'id') return 'ms'; // Indonesian readers get Malay rather than English
+      if (I18N[base]) return base;
+    }
+    return 'en';
+  }
+
+  function load() { try { return localStorage.getItem(KEY) || ''; } catch (e) { return ''; } }
+  function save(v) { try { if (v) localStorage.setItem(KEY, v); else localStorage.removeItem(KEY); } catch (e) {} }
+
   var host = document.createElement('div');
   host.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:2147483000';
   document.body.appendChild(host);
   var root = host.attachShadow({ mode: 'open' });
 
-  var cfg = { title: 'Chat', greeting: '', accent: '#3B82F6', placeholder: 'Type your message…' };
-  var session = localStorage.getItem(KEY) || '';
+  var cfg = { title: '', greeting: '', accent: '#3B82F6', placeholder: '', language: 'auto' };
+  var lang = pickLang(), L = I18N[lang];
+  var session = load();
   var lastId = 0, open = false, poll = null;
 
   root.innerHTML =
     '<style>' +
-    ':host,*{box-sizing:border-box;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}' +
+    ':host,*{box-sizing:border-box;font-family:system-ui,-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif}' +
     '.bubble{width:56px;height:56px;border-radius:50%;border:0;cursor:pointer;color:#fff;' +
       'box-shadow:0 6px 20px rgba(0,0,0,.25);font-size:24px;line-height:1}' +
-    '.panel{display:none;flex-direction:column;width:340px;height:460px;background:#fff;color:#111;' +
+    '.panel{display:none;flex-direction:column;width:340px;max-width:calc(100vw - 40px);height:460px;' +
+      'max-height:calc(100vh - 100px);background:#fff;color:#111;' +
       'border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.28)}' +
     '.panel.open{display:flex}' +
     '.hd{padding:12px 14px;color:#fff;font-weight:700;font-size:14px;display:flex;' +
-      'align-items:center;justify-content:space-between}' +
+      'align-items:center;justify-content:space-between;gap:8px}' +
+    '.hd .ttl{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
     '.hd button{background:transparent;border:0;color:#fff;font-size:18px;cursor:pointer}' +
     '.log{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;background:#f7f7f8}' +
     '.msg{max-width:78%;padding:8px 11px;border-radius:12px;font-size:13px;line-height:1.45;' +
       'white-space:pre-wrap;word-wrap:break-word}' +
     '.in{align-self:flex-end;color:#fff}' +
     '.out{align-self:flex-start;background:#fff;border:1px solid #e6e6e8}' +
+    '.err{display:none;padding:7px 12px;font-size:12px;line-height:1.4;color:#9f1d14;background:#fdf0ee;' +
+      'border-top:1px solid #f6d5d0}' +
+    '.err.on{display:block}' +
     '.ft{display:flex;gap:6px;padding:10px;border-top:1px solid #eee;background:#fff}' +
-    '.ft input{flex:1;padding:9px 11px;border:1px solid #ddd;border-radius:9px;font-size:13px;outline:none}' +
-    '.ft button{border:0;border-radius:9px;padding:0 14px;color:#fff;cursor:pointer;font-weight:600}' +
+    '.ft input{flex:1;min-width:0;padding:9px 11px;border:1px solid #ddd;border-radius:9px;font-size:13px;outline:none}' +
+    '.ft button{border:0;border-radius:9px;padding:0 14px;color:#fff;cursor:pointer;font-weight:600;white-space:nowrap}' +
     '</style>' +
-    '<div class="panel"><div class="hd"><span class="ttl"></span><button class="x" aria-label="Close">&times;</button></div>' +
-    '<div class="log"></div>' +
-    '<form class="ft"><input class="in-txt" autocomplete="off" /><button type="submit">Send</button></form></div>' +
-    '<button class="bubble" aria-label="Open chat">&#128172;</button>';
+    '<div class="panel" role="dialog"><div class="hd"><span class="ttl"></span><button class="x" type="button">&times;</button></div>' +
+    '<div class="log" aria-live="polite"></div>' +
+    '<div class="err" role="status"></div>' +
+    '<form class="ft"><input class="in-txt" autocomplete="off" /><button type="submit"></button></form></div>' +
+    '<button class="bubble" type="button">&#128172;</button>';
 
   var panel = root.querySelector('.panel'), log = root.querySelector('.log');
   var bubble = root.querySelector('.bubble'), form = root.querySelector('.ft');
-  var input = root.querySelector('.in-txt');
+  var input = root.querySelector('.in-txt'), sendBtn = root.querySelector('.ft button');
+  var closeBtn = root.querySelector('.x'), errEl = root.querySelector('.err');
 
+  // Paint the look and every built-in word in the chosen language.
   function paint() {
+    lang = pickLang(cfg.language);
+    L = I18N[lang];
+    panel.setAttribute('lang', lang);
     bubble.style.background = cfg.accent;
+    bubble.setAttribute('aria-label', L.open);
+    bubble.title = L.open;
     root.querySelector('.hd').style.background = cfg.accent;
-    root.querySelector('.ft button').style.background = cfg.accent;
-    root.querySelector('.ttl').textContent = cfg.title;
-    input.placeholder = cfg.placeholder;
+    sendBtn.style.background = cfg.accent;
+    sendBtn.textContent = L.send;
+    closeBtn.setAttribute('aria-label', L.close);
+    closeBtn.title = L.close;
+    root.querySelector('.ttl').textContent = cfg.title || L.title;
+    panel.setAttribute('aria-label', cfg.title || L.title);
+    input.placeholder = cfg.placeholder || L.placeholder;
+    input.setAttribute('aria-label', L.message);
+  }
+
+  function showErr(text) {
+    errEl.textContent = text || '';
+    errEl.classList.toggle('on', !!text);
   }
 
   // Render a message that came from the server (advances the poll cursor).
@@ -313,8 +393,14 @@ public static class WidgetEndpoints
     log.scrollTop = log.scrollHeight;
   }
 
+  // JSON in, JSON out; a non-2xx answer rejects with its status.
   function req(path, opts) {
-    return fetch(api + '/widget/' + token + path, opts).then(function (r) { return r.json(); });
+    return fetch(api + '/widget/' + token + path, opts).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (d) {
+        if (!r.ok) { var e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+        return d;
+      });
+    });
   }
 
   function start() {
@@ -323,12 +409,13 @@ public static class WidgetEndpoints
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session: session })
     }).then(function (d) {
-      if (!d || !d.session) return;
+      if (!d || !d.session) { showErr(L.offline); return; }
       session = d.session;
-      localStorage.setItem(KEY, session);
+      save(session);
+      showErr('');
       (d.messages || []).forEach(add);
-      if ((!d.messages || !d.messages.length) && cfg.greeting) addLocal('out', cfg.greeting);
-    });
+      if (!d.messages || !d.messages.length) addLocal('out', cfg.greeting || L.greeting);
+    }).catch(function () { showErr(L.offline); });
   }
 
   function pump() {
@@ -348,22 +435,38 @@ public static class WidgetEndpoints
       input.focus();
     }
   };
-  root.querySelector('.x').onclick = function () { open = false; panel.classList.remove('open'); };
+  closeBtn.onclick = function () { open = false; panel.classList.remove('open'); };
 
   form.onsubmit = function (e) {
     e.preventDefault();
     var text = input.value.trim();
-    if (!text || !session) return;
+    if (!text) return;
     input.value = '';
-    req('/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session: session, text: text })
-    }).then(function (d) { if (d && d.message) add(d.message); setTimeout(pump, 1200); })
-      .catch(function () {});
+    showErr('');
+    (session ? Promise.resolve() : start()).then(function () {
+      if (!session) { var x = new Error('no session'); x.status = 0; throw x; }
+      return req('/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session: session, text: text })
+      });
+    }).then(function (d) {
+      if (d && d.message) add(d.message);
+      setTimeout(pump, 1200);
+    }).catch(function (err) {
+      input.value = text; // nothing typed is lost
+      if (err && err.status === 404) {
+        // the conversation is gone server-side: the next send starts a new one
+        session = ''; save(''); lastId = 0; log.innerHTML = '';
+        showErr(L.expired);
+      } else {
+        showErr(L.sendFailed);
+      }
+    });
   };
 
-  req('/config').then(function (d) { if (d && d.title) cfg = Object.assign(cfg, d); paint(); }).catch(paint);
+  paint();
+  req('/config').then(function (d) { if (d) cfg = Object.assign(cfg, d); paint(); }).catch(paint);
 })();
 """;
 }
