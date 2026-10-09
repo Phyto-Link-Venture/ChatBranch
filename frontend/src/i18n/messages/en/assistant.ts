@@ -7,6 +7,11 @@ export const assistant = {
     tagline: 'Acts as you · changes wait for your OK',
     sandbox: 'Sandbox',
     sandboxHint: 'No AI model is connected, so I understand simple requests and the product guide.',
+    sandboxNoteAdmin:
+      'Answering without an AI model — none is connected, or it didn’t respond. Add a provider key in {link}; the next message uses it.',
+    sandboxNoteAsk:
+      'Answering without an AI model — none is connected, or it didn’t respond. An admin connects one in Settings → AI keys & models.',
+    aiKeysPage: 'Settings → AI keys & models',
     history: 'History',
     historySub: 'Your chats — only you can see them',
     backToChat: 'Back to the chat',

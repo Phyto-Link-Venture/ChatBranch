@@ -58,6 +58,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [assistantOpen, setAssistantOpen] = useState(false)
 
   useEffect(() => {
     try {
@@ -116,13 +117,18 @@ export function Shell({ children }: { children: ReactNode }) {
     }
   }, [authReady, user, pathname, router])
 
-  // Ctrl/⌘+K anywhere opens the command palette.
+  // Ctrl/⌘+K anywhere opens the command palette; Ctrl/⌘+J toggles Ask ChatBranch.
   useEffect(() => {
     if (isLogin || isPublic) return
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return
+      const key = e.key.toLowerCase()
+      if (key === 'k') {
         e.preventDefault()
         setSearchOpen((v) => !v)
+      } else if (key === 'j') {
+        e.preventDefault()
+        setAssistantOpen((v) => !v)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -174,7 +180,13 @@ export function Shell({ children }: { children: ReactNode }) {
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar user={user} onOpenMobileNav={() => setMobileNavOpen(true)} onOpenSearch={() => setSearchOpen(true)} />
+        <TopBar
+          user={user}
+          onOpenMobileNav={() => setMobileNavOpen(true)}
+          onOpenSearch={() => setSearchOpen(true)}
+          assistantOpen={assistantOpen}
+          onToggleAssistant={() => setAssistantOpen((v) => !v)}
+        />
 
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {isFullBleed ? (
@@ -202,7 +214,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <CampaignModal />
       </ErrorBoundary>
       <ErrorBoundary name="assistant-dock">
-        <AssistantDock />
+        <AssistantDock open={assistantOpen} onOpenChange={setAssistantOpen} />
       </ErrorBoundary>
     </div>
   )

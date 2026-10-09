@@ -7,6 +7,11 @@ export const assistant: Dict<typeof source> = {
     tagline: 'Bertindak sebagai anda · perubahan menunggu kelulusan anda',
     sandbox: 'Kotak pasir',
     sandboxHint: 'Tiada model AI disambungkan, jadi saya hanya memahami permintaan ringkas dan panduan produk.',
+    sandboxNoteAdmin:
+      'Menjawab tanpa model AI — tiada yang disambungkan, atau ia tidak memberi respons. Tambah kunci penyedia di {link}; mesej seterusnya akan menggunakannya.',
+    sandboxNoteAsk:
+      'Menjawab tanpa model AI — tiada yang disambungkan, atau ia tidak memberi respons. Pentadbir menyambungkannya di Tetapan → Kunci & model AI.',
+    aiKeysPage: 'Tetapan → Kunci & model AI',
     history: 'Sejarah',
     historySub: 'Sembang anda — hanya anda yang boleh melihatnya',
     backToChat: 'Kembali ke sembang',

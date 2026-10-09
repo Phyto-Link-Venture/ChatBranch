@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
+import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   ArrowLeft,
@@ -19,7 +20,7 @@ import { getAuth, hasCap } from '@/lib/auth'
 import { dropForeignAssistantCache, readAssistantCurrent, writeAssistantCurrent } from '@/lib/assistantCache'
 import { useEntity } from '@/lib/EntityContext'
 import { BranchMark } from '@/components/shell/Logo'
-import { useT, type MessageKey, type TFunction } from '@/i18n'
+import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
 import { AssistantHistory } from './AssistantHistory'
 import {
   AssistantError,
@@ -32,8 +33,9 @@ import {
 } from './assistantApi'
 
 /**
- * "Ask ChatBranch" — the operator assistant, docked bottom-right on every
- * signed-in page. It answers how-to questions, looks things up and prepares
+ * "Ask ChatBranch" — the operator assistant, a side panel on every signed-in
+ * page, opened from the top bar's button or Ctrl/⌘+J (the shell owns `open`,
+ * so nothing floats over the page while it is closed). It answers how-to questions, looks things up and prepares
  * changes AS the signed-in user (POST /api/assistant/chat). Anything that
  * changes data comes back as a confirm card and only runs when the person
  * presses Confirm (POST /api/assistant/confirm) — the model proposes, the
@@ -74,7 +76,13 @@ const errMsg = (e: unknown, t: TFunction) =>
 
 const SETTLED: ActionState[] = ['done', 'failed', 'cancelled', 'expired']
 
-export function AssistantDock() {
+export function AssistantDock({
+  open,
+  onOpenChange: setOpen,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
   const t = useT()
   // async handlers read the latest t without being re-created on a language switch
   const tRef = useRef(t)
@@ -88,7 +96,6 @@ export function AssistantDock() {
   /** Whose chat the in-memory state below is. Until it equals `username` the
    *  dock renders nothing and writes no cache (a user switch is mid-reset). */
   const [owner, setOwner] = useState<string | null>(null)
-  const [open, setOpen] = useState(false)
   const [view, setView] = useState<'chat' | 'history'>('chat')
   const [conversationId, setConversationId] = useState<number | null>(null)
   const [title, setTitle] = useState('')
@@ -151,7 +158,7 @@ export function AssistantDock() {
     setConversationId(cached.conversationId)
     setDraft(cached.draft)
     setHints(suggestions())
-  }, [username, mounted])
+  }, [username, mounted, setOpen])
 
   // Keep the per-user cache in step (open chat + unsent draft) — only once the
   // state is this user's, never the previous one's values under the new key.
@@ -225,7 +232,7 @@ export function AssistantDock() {
       window.clearTimeout(timer)
       window.removeEventListener('keydown', onKey)
     }
-  }, [open])
+  }, [open, setOpen])
 
   useLayoutEffect(() => {
     const el = listRef.current
@@ -349,32 +356,12 @@ export function AssistantDock() {
 
   if (!mounted || !username || owner !== username) return null
 
-  // The inbox composer and the flow canvas own the bottom-right corner, so the
-  // launcher shrinks to a round button and sits higher on those routes.
-  const crowded = pathname.startsWith('/chats') || pathname.startsWith('/flow-builder')
   const headerBtn =
     'grid h-8 w-8 shrink-0 place-items-center rounded-lg text-text-muted hover:bg-fill-hover hover:text-text-high disabled:opacity-40'
   const inChat = messages.length > 0 || conversationId != null
 
   return (
     <>
-      {!open && (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          aria-label={t('assistant.dock.name')}
-          title={t('assistant.dock.name')}
-          className={`fixed right-4 z-50 inline-flex items-center gap-2 rounded-full bg-primary font-semibold text-on-primary shadow-pop transition-transform hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--focus)] lg:right-6 ${
-            crowded
-              ? 'bottom-[calc(140px+env(safe-area-inset-bottom))] h-11 w-11 justify-center lg:bottom-[104px]'
-              : 'bottom-[calc(76px+env(safe-area-inset-bottom))] h-11 px-4 text-[13px] lg:bottom-6'
-          }`}
-        >
-          <Sparkles size={16} strokeWidth={2} aria-hidden />
-          {!crowded && <span>{t('assistant.dock.name')}</span>}
-        </button>
-      )}
-
       {open && (
         <>
           <div
@@ -456,6 +443,32 @@ export function AssistantDock() {
                 <X size={15} aria-hidden />
               </button>
             </header>
+
+            {view === 'chat' && mode === 'sandbox' && (
+              // the reply came from the built-in helper: say why and where a model is connected
+              <div role="note" className="border-b border-line bg-well px-4 py-2 text-[11.5px] leading-relaxed text-text-mid">
+                {hasCap('settings.ai_keys.manage') ? (
+                  <Trans
+                    k="assistant.dock.sandboxNoteAdmin"
+                    values={{
+                      link: (
+                        <Link
+                          href="/settings/ai-providers"
+                          onClick={() => {
+                            if (window.matchMedia('(max-width: 1023px)').matches) setOpen(false)
+                          }}
+                          className="font-semibold text-brand-300 underline-offset-2 hover:underline"
+                        >
+                          {t('assistant.dock.aiKeysPage')}
+                        </Link>
+                      ),
+                    }}
+                  />
+                ) : (
+                  t('assistant.dock.sandboxNoteAsk')
+                )}
+              </div>
+            )}
 
             <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4" aria-live="polite">
               {view === 'history' ? (

@@ -495,8 +495,12 @@ When you fix one of these, update this table, `README.md` and
   `/api/integrations/mcp` (Setting `mcp_servers`, real initialize + tools/list
   probe, masked auth). The page is `/developers`; the guide is `docs/mcp.md`.
 - **Ask ChatBranch** (operator assistant, `Api/Assistant/OperatorAssistant.cs`,
-  `/api/assistant/chat|confirm|cancel`, `components/assistant/AssistantDock.tsx`
-  docked on every signed-in page). Acts AS the signed-in user over the same tool
+  `/api/assistant/chat|confirm|cancel`, `components/assistant/AssistantDock.tsx`,
+  a side panel on every signed-in page). It uses the SAME model settings as the
+  AI brain (`ILlmClient` → Settings → AI keys & models, else the API process's
+  env keys); with none — or when the provider fails — it answers with the
+  deterministic helper and the panel says so (`mode: "sandbox"`, a note linking
+  to `/settings/ai-providers` for `settings.ai_keys.manage` holders). Acts AS the signed-in user over the same tool
   registry + allowlisted external MCP tools: reads run straight away; writes
   become confirm-first `AssistantAction` rows (15 min, one user cannot confirm
   another's). **History is per user and server-side**
@@ -903,8 +907,10 @@ When you fix one of these, update this table, `README.md` and
   (`/help`, `/offline`) and `/login` render bare. **PWA:** `app/manifest.ts`,
   hand-written `public/sw.js` (never caches `/api/*` or the stream; offline
   navigations land on `/offline?from=`), icons in `public/icons/` rendered from
-  `Logo.tsx`'s `brandMarkSvg`. **Ask ChatBranch** (`AssistantDock`) is docked
-  bottom-right on every signed-in page; its chats live on the server (History
+  `Logo.tsx`'s `brandMarkSvg`. **Ask ChatBranch** (`AssistantDock`) opens from
+  the top bar's sparkle button or Ctrl/⌘+J — the shell owns its `open` state;
+  nothing floats over the page (the old bottom-right pill covered composers and
+  save bars, don't bring it back); its chats live on the server (History
   view, per user); the browser keeps only `assistant:<username>:current` (open
   chat id + draft, `lib/assistantCache.ts`), and `clearAuth()` (sign-out, 401
   expiry) and every login remove every `assistant:*` key.

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
-import { Menu, Search } from 'lucide-react'
+import { Menu, Search, Sparkles } from 'lucide-react'
 import type { AuthUser } from '@/lib/auth'
 import { EntitySwitcher } from './EntitySwitcher'
 import { NotificationsBell } from './NotificationsBell'
@@ -20,16 +20,22 @@ function pageTitle(pathname: string, t: TFunction): string {
 /**
  * Top bar, flush on the paper with a hairline under it: the search field
  * (opens the command palette — so does Ctrl/⌘+K anywhere), the Live chip, the
- * entity switcher and the notification bell. On a phone: menu button, the
- * page title in the display face, Live, a search button and the bell.
+ * entity switcher, Ask ChatBranch (also Ctrl/⌘+J — it lives here rather than
+ * floating over the page, where it covered composers and save bars) and the
+ * notification bell. On a phone: menu button, the page title in the display
+ * face, Live, a search button, Ask ChatBranch and the bell.
  */
 export function TopBar({
   onOpenMobileNav,
   onOpenSearch,
+  assistantOpen = false,
+  onToggleAssistant,
 }: {
   user?: AuthUser | null
   onOpenMobileNav?: () => void
   onOpenSearch: () => void
+  assistantOpen?: boolean
+  onToggleAssistant?: () => void
 }) {
   const pathname = usePathname() || '/'
   const t = useT()
@@ -82,6 +88,22 @@ export function TopBar({
         <div className="hidden sm:block">
           <EntitySwitcher />
         </div>
+        {onToggleAssistant && (
+          <button
+            type="button"
+            onClick={onToggleAssistant}
+            aria-label={t('assistant.dock.name')}
+            aria-expanded={assistantOpen}
+            aria-keyshortcuts="Control+J Meta+J"
+            title={`${t('assistant.dock.name')} (${mod} J)`}
+            className={`inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg px-2.5 text-[13px] font-semibold transition-colors ${
+              assistantOpen ? 'bg-fill-hover text-text-heading' : 'text-text-high hover:bg-fill-hover'
+            }`}
+          >
+            <Sparkles size={18} strokeWidth={1.7} aria-hidden />
+            <span className="hidden xl:inline">{t('assistant.dock.name')}</span>
+          </button>
+        )}
         <NotificationsBell />
       </div>
     </header>
