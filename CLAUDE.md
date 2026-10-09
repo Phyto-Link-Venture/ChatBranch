@@ -208,9 +208,8 @@ When you fix one of these, update this table, `README.md` and
   the inbox's `{channel}/{key}` routes, `/api/inbox/threads/{channel}/{key}/handover`)
   carry `.RequireThreadAccess("chats.view"|"chats.send")`
   (`Auth/ThreadAccessFilter.cs`): the capability AND the inbox's entity scope
-  (`ShellScope.ThreadEntityIds`), out of scope = 404 (not yet on the multipart
-  `…/{channel}/{key}/send-media` in `MessagingTransportEndpoints`, which only
-  requires a sign-in). Linking needs a contact in
+  (`ShellScope.ThreadEntityIds`), out of scope = 404 (the multipart
+  `…/{channel}/{key}/send-media` in `MessagingTransportEndpoints` included). Linking needs a contact in
   the caller's scope, the contact lookups / timeline are scoped, both thread
   lists need `chats.view` (details in `docs/RBAC_AND_BRANDS.md`). Frontend gating
   (`lib/useAccess.ts`, `nav.ts canSee`) is not the control — the server is — but
@@ -224,7 +223,21 @@ When you fix one of these, update this table, `README.md` and
   outlet's. Integrations honour `integrations.view` / `integrations.manage`;
   a personal connection (`Integration.OwnerUserId`) is always its owner's to
   see and disconnect, and running an action needs `integrations.manage` or
-  `flows.manage`. The full gate table is in `docs/RBAC_AND_BRANDS.md`.
+  `flows.manage`. **Read gates.** Every signed-in `/api` GET carries the
+  capability of the page(s) that read it: `.RequireCapability("x")` /
+  `.RequireAnyCapability("x","y")` (`Auth/CapabilityFilter.cs` — 403 before the
+  handler; stamps `RequiredCapabilities` metadata), `.RequireThreadAccess(...)`
+  on per-conversation routes, or a role policy. A lookup shared by several pages
+  opens for ANY of their capabilities and may return a narrower shape to the
+  weaker one (`/api/whatsapp/accounts` → picker shape for the inbox;
+  `/api/bindings/catalog` without user/team/account pools for the Tags page).
+  The only ungated signed-in reads are the shell and the caller's own things
+  (whoami, preferences, notifications, saved views, appearance, entity switcher,
+  Live chip, search, stream, own API keys / connections / assistant history) —
+  each listed with its reason in `PermissionGatesTests.AnySignedInUser`, whose
+  route-table walk fails on any new GET that is neither gated nor listed. A new
+  GET = its gate + a row in `PermissionGatesTests.Gates` + a row in the Read
+  gates table of `docs/RBAC_AND_BRANDS.md`, which holds the full gate table.
 - **Voice: the API is the control plane, the agent is a file-IPC sidecar.**
   `POST /api/calls/dial` and WhatsApp `call/start` build the dispatch metadata
   in `Sidecars/VoiceDispatch.cs` (contact, primary record, memory, knowledge,
@@ -462,9 +475,18 @@ When you fix one of these, update this table, `README.md` and
   docked on every signed-in page). Acts AS the signed-in user over the same tool
   registry + allowlisted external MCP tools: reads run straight away; writes
   become confirm-first `AssistantAction` rows (15 min, one user cannot confirm
-  another's). With no LLM it falls back to a deterministic helper (find
-  contacts, counts, "go to …", how-to answers from `AssistantGuide.cs` + the
-  knowledge base).
+  another's). **History is per user and server-side**
+  (`Api/Assistant/AssistantHistory.cs`; `crm_assistantconversation` +
+  `crm_assistantmessage`; `GET/DELETE /api/assistant/conversations`,
+  `GET/PATCH/DELETE /api/assistant/conversations/{id}` — the caller's own rows
+  only, another login's id is a 404, superadmin included; 100 per user, least
+  recently used pruned). The chat POST takes `{message, conversation_id?}` and
+  the model's context is rebuilt from the conversation's last 12 STORED turns
+  (with each confirm card's outcome), never from client-sent history;
+  confirm/cancel/expiry update the stored card, and deleting a chat cancels
+  writes still waiting in it. With no LLM it falls back to a deterministic
+  helper (find contacts, counts, "go to …", how-to answers from
+  `AssistantGuide.cs` + the knowledge base).
 - **Help Center** (`/help`, `/api/help/articles`) — published `KnowledgeItem`s,
   readable by anyone. `Published` (public readability) is NOT `Active` (whether
   the AI may use it). `Shell.PUBLIC_ROUTES` (`/help`, `/offline`) render outside
@@ -827,8 +849,10 @@ When you fix one of these, update this table, `README.md` and
   hand-written `public/sw.js` (never caches `/api/*` or the stream; offline
   navigations land on `/offline?from=`), icons in `public/icons/` rendered from
   `Logo.tsx`'s `brandMarkSvg`. **Ask ChatBranch** (`AssistantDock`) is docked
-  bottom-right on every signed-in page; its conversation lives in
-  `sessionStorage`.
+  bottom-right on every signed-in page; its chats live on the server (History
+  view, per user); the browser keeps only `assistant:<username>:current` (open
+  chat id + draft, `lib/assistantCache.ts`), and `clearAuth()` (sign-out, 401
+  expiry) and every login remove every `assistant:*` key.
 - **`src/lib/AppContext.tsx`** holds shared state + the real-call seams. API
   base = `NEXT_PUBLIC_API_URL` (default `http://localhost:8090/api` in
   `next.config.js` and `frontend/.env.example` — no longer the Django-era 8000;
@@ -852,7 +876,7 @@ When you fix one of these, update this table, `README.md` and
 - **Settings is system configuration ONLY**, organised as SECTIONS of flat
   `/settings/<id>` pages, each with its own capability
   (`components/settings/SettingsNav.tsx` `SETTINGS_SECTIONS`, checked again
-  server-side): Personal — Appearance, My notifications, My connections (no
+  server-side): Personal — Appearance (incl. Language), My notifications, My connections (no
   cap; `/settings/connections` connects your own Google products, see
   Integrations); Organization — Notification defaults (`notifications.manage`),
   Custom fields (`settings.custom_fields.manage`), App & provider keys
@@ -873,6 +897,25 @@ When you fix one of these, update this table, `README.md` and
   `role="alert"` div as the first child of the modal body, the page-level copy
   gated on the modal being closed, `setMsg(null)` when opening one. The same
   holds for drawers (`InboxSetupDrawer`).
+- **Localisation (`src/i18n/`).** English, Bahasa Melayu, 简体中文 (`locales.ts`;
+  keep in step with `SettingsEndpoints.SupportedLocales`). Strings live in
+  `messages/<locale>/<namespace>.ts` — one file per area (`common`, `shell`,
+  `ui`, `chats`, `contacts`, `flows`, `ai`, `admin`, `settings`, `channels`…);
+  English is the SOURCE and `Dict<typeof source>` makes every other locale carry
+  exactly its keys, so a missing translation is a type error. **No user-visible
+  English literal in a component**: `const t = useT()` → `t('chats.filter.title')`,
+  `t('common.counts.items', { count })` (plural pairs `x_one`/`x_other`, picked by
+  `Intl.PluralRules`), `{name}` placeholders, `<Trans k=… values={{ link: <Link/> }} />`
+  for sentences with elements; shared words come from `common`. Dates, times,
+  relative times, numbers and currency go through `useFormat()` (never
+  `toLocaleString()` or hand-built strings). Module-level constants hold KEYS,
+  translated at render (`nav.ts` `lbl` is a `MessageKey`). The language: the
+  user's own (`Profile.Preferences.locale`) → the org default (Setting
+  `default_locale`, both via the appearance endpoints) → the browser; Settings →
+  Appearance → Language, a switcher on `/login`, synced once per sign-in
+  (`syncLocaleFromServer`). Server render and first paint are English (no
+  hydration mismatch). API error `detail`s, stored notes and audit text stay
+  English.
 - **Never call `getRole()` / `getAuth()` during render.** They read
   localStorage, which doesn't exist during SSR — the server paints the
   `'agent'` fallback, the client paints the real role, and React aborts
@@ -1062,7 +1105,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **332 tests** covering auth/RBAC, scoping, the inbox + server-side filters +
+  **526 tests** covering auth/RBAC, scoping, the inbox + server-side filters +
   saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /
