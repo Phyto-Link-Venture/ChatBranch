@@ -4,15 +4,15 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 
 /**
- * Booking Hours moved into the Google Calendar integration — it configures
- * that integration (the slots the AI books against), not the app globally.
- * Keep this route as a redirect so old links / bookmarks still land somewhere
- * useful.
+ * The old global "Booking hours" setting was read by nothing once booking
+ * moved into AI skills: each calendar booking skill (Connected app → Calendar
+ * on /skills) carries its own working hours, notice, buffer and slot length.
+ * Old links land there.
  */
 export default function BookingHoursSettingsPage() {
   const router = useRouter()
   useEffect(() => {
-    router.replace('/settings/integrations?booking-hours=1')
+    router.replace('/skills')
   }, [router])
   return null
 }
