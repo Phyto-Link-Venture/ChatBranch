@@ -80,6 +80,19 @@ public class Thread : IEntityScoped
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
+    // Human handover (Data/Ai/Handover.cs is the only writer): when the AI — or
+    // a rule, a flow, a person — passed this conversation to a human, why, and
+    // whether that is still open. Cleared (HandoverResolvedAt set, the rest kept
+    // for history) when a person replies or resolves the conversation.
+    public DateTime? HandoverAt { get; set; }
+    public string HandoverReason { get; set; } = "";
+    /// <summary>ai | rule:&lt;id&gt; | flow | agent:&lt;username&gt;</summary>
+    public string HandoverBy { get; set; } = "";
+    /// <summary>check_failed | asked_for_human | send_blocked | booking_failed | low_confidence | rule | manual</summary>
+    public string HandoverKind { get; set; } = "";
+    public DateTime? HandoverResolvedAt { get; set; }
+    public int HandoverCount { get; set; }
+
     public ICollection<Message> Messages { get; set; } = new List<Message>();
 }
 

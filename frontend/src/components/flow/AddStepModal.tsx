@@ -36,7 +36,7 @@ export default function AddStepModal({
               className="flex items-start gap-3 rounded-xl border border-line bg-card px-3 py-2.5 text-left transition-colors hover:border-text-primary disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-line"
             >
               <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-line bg-well text-text-high">
-                <StepIcon kind={c.kind === 'action' ? c.id : c.id === 'branch' ? 'decision' : c.kind} />
+                <StepIcon kind={c.kind === 'action' ? c.id : c.id === 'branch' ? 'decision' : c.kind} config={c.config} />
               </span>
               <span className="min-w-0">
                 <span className="block text-[13px] font-semibold text-text-heading">{c.title}</span>

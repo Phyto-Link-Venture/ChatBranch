@@ -53,6 +53,8 @@ public class ScopingService
         "ai_followup_max", "ai_followup_template", "ai_followup_guidance",
         // AI learning: how feedback becomes lessons (Ai/Learning/LearningService.cs)
         "ai_learning_mode",
+        // AI master switch + schedule + never-AI tags (Ai/AiControls.cs)
+        "ai_enabled", "ai_schedule", "ai_schedule_mode", "ai_never_tags",
     };
 
     public static bool IsEntityScoped(string? key) =>

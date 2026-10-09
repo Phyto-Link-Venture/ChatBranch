@@ -189,6 +189,7 @@ app.MapLiveEndpoints();
 app.MapAiMonitorEndpoints();
 app.MapBookingsEndpoints();
 app.MapLearningEndpoints();
+app.MapAiControlsEndpoints();
 
 // Inbound conversations route themselves to a team. The hook lives here so the
 // data layer never has to reference the API assembly.

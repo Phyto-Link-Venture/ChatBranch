@@ -1,13 +1,17 @@
 'use client'
 
-import { Bot, Loader2, MoreHorizontal, PhoneCall, Search, SlidersHorizontal, X } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { Bot, CheckSquare, Hand, Loader2, MoreHorizontal, PhoneCall, Search, SlidersHorizontal, Square, X } from 'lucide-react'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { tagMeta } from '@/lib/tags'
 import { Avatar, StatusTick } from './MessageParts'
 import { CHANNEL_META, listStamp, logoKey, statusLabel, type Channel, type UiThreadSummary } from './inboxTypes'
 import type { FilterChip } from './inboxFilters'
 
-export type ViewTab = { id: string; name: string; active: boolean; modified?: boolean }
+export type ViewTab = { id: string; name: string; active: boolean; modified?: boolean; count?: number | null }
+
+/** Row identity for multi-select: `channel:key`. */
+export const rowRef = (t: { channel: string; key: string }) => `${t.channel}:${t.key}`
 
 /** Conversation list pane: header, search, filter button + chips, saved-view
  *  tabs and the rows themselves. Pure presentation — the page owns the data. */
@@ -32,6 +36,11 @@ export default function ChatListPane({
   onManageViews,
   onSaveViewChanges,
   hidden,
+  selectMode = false,
+  selected: pickedRefs,
+  onToggleSelect,
+  onToggleSelectMode,
+  footer,
 }: {
   rows: UiThreadSummary[]
   total: number | null
@@ -54,6 +63,14 @@ export default function ChatListPane({
   onSaveViewChanges?: () => void
   /** mobile: hidden while a conversation is open */
   hidden: boolean
+  /** multi-select (bulk actions): rows show a checkbox and a click toggles them */
+  selectMode?: boolean
+  selected?: Set<string>
+  onToggleSelect?: (row: UiThreadSummary) => void
+  /** shows the "Select" button in the header (only for people who may act in bulk) */
+  onToggleSelectMode?: () => void
+  /** pinned under the list (the bulk bar) */
+  footer?: ReactNode
 }) {
   const modifiedTab = tabs.find((t) => t.active && t.modified)
   return (
@@ -69,6 +86,18 @@ export default function ChatListPane({
           <span className="text-[13px] text-text-muted" aria-live="polite">
             {total === null ? '' : `${total} ${total === 1 ? 'conversation' : 'conversations'}`}
           </span>
+          {onToggleSelectMode && (
+            <button
+              type="button"
+              onClick={onToggleSelectMode}
+              aria-pressed={selectMode}
+              className={`ml-auto inline-flex h-7 items-center gap-1 rounded-md px-2 text-[12px] font-semibold transition-colors ${
+                selectMode ? 'bg-[var(--nav-active-bg)] text-text-heading' : 'text-text-muted hover:bg-fill-hover hover:text-text-high'
+              }`}
+            >
+              <CheckSquare size={13} aria-hidden /> {selectMode ? 'Done' : 'Select'}
+            </button>
+          )}
         </div>
 
         <div className="flex gap-2">
@@ -144,6 +173,11 @@ export default function ChatListPane({
                 }`}
               >
                 {t.name}
+                {typeof t.count === 'number' && t.count > 0 && (
+                  <span className="ml-1 rounded-full bg-amber/15 px-1.5 text-[10.5px] font-bold tabular-nums leading-[16px] text-amber-300">
+                    {t.count > 99 ? '99+' : t.count}
+                  </span>
+                )}
                 {t.active && t.modified && <span className="ml-0.5 text-[color:var(--brand-ink)]" title="Filters changed since this view was saved">•</span>}
               </button>
             ))}
@@ -193,16 +227,25 @@ export default function ChatListPane({
           const selected = !!activeId && t.channel === activeId.channel && t.key === activeId.key
           const merged = (t._mergedChannels?.length ?? 0) > 1
           const callLive = !!t.call && ['in_call', 'ringing', 'connecting'].includes(t.call.status)
+          const picking = selectMode && !t.pending
+          const picked = picking && !!pickedRefs?.has(rowRef(t))
+          const handedOver = t.handover?.open ? t.handover : null
           return (
             <button
               key={`${t.channel}-${t.key}${t.pending ? '-pending' : ''}`}
               type="button"
-              onClick={() => onOpen(t)}
+              onClick={() => (picking ? onToggleSelect?.(t) : onOpen(t))}
               aria-current={selected ? 'true' : undefined}
+              aria-pressed={picking ? picked : undefined}
               className={`flex w-full gap-2.5 border-b border-line px-4 py-3 text-left transition-colors ${
-                selected ? 'bg-[var(--nav-active-bg)]' : 'hover:bg-fill'
+                selected || picked ? 'bg-[var(--nav-active-bg)]' : 'hover:bg-fill'
               }`}
             >
+              {picking && (
+                <span className="mt-2 shrink-0 text-text-mid" aria-hidden>
+                  {picked ? <CheckSquare size={16} className="text-text-heading" /> : <Square size={16} />}
+                </span>
+              )}
               <Avatar name={t.name} channel={merged ? undefined : t.channel} strong={selected} />
               <span className="min-w-0 flex-1">
                 <span className="flex items-baseline justify-between gap-2">
@@ -222,8 +265,19 @@ export default function ChatListPane({
                   <span className={`truncate ${t.pending ? 'italic text-text-muted' : ''}`}>{t.last_message || '—'}</span>
                   {t.waiting && <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-accent" title="Waiting for our reply" />}
                 </span>
-                {(merged || callLive || t.ai_enabled || (t.status && t.status !== 'open') || (t.labels ?? []).length > 0 || t.opted_out) && (
+                {(merged || callLive || t.ai_enabled || handedOver || (t.status && t.status !== 'open') || (t.labels ?? []).length > 0 || t.opted_out) && (
                   <span className="mt-1.5 flex flex-wrap items-center gap-1">
+                    {handedOver && (
+                      <span
+                        className="inline-flex max-w-full items-center gap-0.5 rounded-full bg-amber/15 px-1.5 text-[10.5px] font-semibold leading-[17px] text-amber-300"
+                        title={`${handedOver.kind_label} — ${handedOver.reason}`}
+                      >
+                        <Hand size={9} className="shrink-0" aria-hidden />
+                        <span className="truncate">
+                          {handedOver.by === 'ai' ? 'AI handed over' : 'Handed over'} · {handedOver.reason}
+                        </span>
+                      </span>
+                    )}
                     {merged &&
                       t._mergedChannels!.map((c) => (
                         <ChannelLogo key={c} channel={logoKey(c)} size={12} title={CHANNEL_META[c].lbl} />
@@ -280,6 +334,7 @@ export default function ChatListPane({
           </div>
         )}
       </div>
+      {footer}
     </section>
   )
 }

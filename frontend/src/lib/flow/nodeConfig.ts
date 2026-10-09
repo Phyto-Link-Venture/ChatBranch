@@ -133,6 +133,24 @@ export const LEGACY_DECISIONS: Record<string, string> = {
   'Contact tag': 'They have a tag',
 }
 
+// ---- "Set chatbot on/off" (an Update step) -----------------------------------------
+
+/** Update-step op the engine reads as "set the per-chat AI switch" (the spec's alias `updateType: "chatbot"` works too). */
+export const CHATBOT_OP = 'chatbot'
+
+/** Conversation channels a chatbot step can be limited to — THREAD channel ids, as the engine matches them. */
+export const CHATBOT_CHANNELS = [
+  { value: 'whatsapp', label: 'WhatsApp' },
+  { value: 'email', label: 'Email' },
+  { value: 'telegram', label: 'Telegram' },
+  { value: 'facebook', label: 'Messenger' },
+  { value: 'instagram', label: 'Instagram' },
+  { value: 'website', label: 'Website chat' },
+]
+
+export const isChatbotStep = (cfg: FlowConfig | undefined) =>
+  String(cfg?.op ?? '') === CHATBOT_OP || String(cfg?.updateType ?? '') === CHATBOT_OP
+
 // ---- durations ------------------------------------------------------------------
 
 export const DURATION_UNITS = [
@@ -177,6 +195,9 @@ export const STEP_CHOICES: StepChoice[] = [
     config: { team: '', priority: 'Normal', reason: '' } },
   { id: 'update', kind: 'update', title: 'Update contact', hint: 'Add or remove a tag, set a field',
     config: { op: 'add_tag', tag: '' } },
+  // an Update step with op "chatbot" (FlowEngine.SetChatbot): the per-chat AI switch
+  { id: 'chatbot', kind: 'update', title: 'Set chatbot on/off', hint: 'Turn the AI on or off for this contact’s chats',
+    config: { op: CHATBOT_OP, value: 'off', scope: 'all', channels: [] } },
   { id: 'app', kind: 'action', title: 'App action', hint: 'Calendar, Sheets, Drive, Gmail, Shopify, Stripe',
     config: { channels: ['Create calendar event'], script: '' } },
   { id: 'end', kind: 'end', title: 'End', hint: 'Finish with an outcome',
@@ -192,7 +213,7 @@ export const DEFAULT_CONFIG: Record<NodeKind, FlowConfig> = {
   decision: STEP_CHOICES[4].config,
   handover: STEP_CHOICES[6].config,
   update: STEP_CHOICES[7].config,
-  end: STEP_CHOICES[9].config,
+  end: STEP_CHOICES.find((c) => c.id === 'end')!.config,
   stage: {},
 }
 

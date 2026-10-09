@@ -7,6 +7,7 @@ import { MultiSelect, Select, type SelectOption } from '@/components/ui/Select'
 import {
   AI_MESSAGE,
   CALL_CHANNELS,
+  CHATBOT_CHANNELS,
   DECISIONS,
   DURATION_UNITS,
   INTEGRATION_ACTIONS,
@@ -21,6 +22,7 @@ import {
   WEEKDAYS,
   actionType,
   channelsOf,
+  isChatbotStep,
   type ActionType,
 } from '@/lib/flow/nodeConfig'
 import { describeStep } from '@/lib/flow/describe'
@@ -880,6 +882,7 @@ function HandoverForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
 }
 
 function UpdateForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
+  if (isChatbotStep(cfg)) return <ChatbotForm cfg={cfg} set={set} />
   const op = str(cfg.op) || 'add_tag'
   return (
     <>
@@ -909,6 +912,55 @@ function UpdateForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
           <TextInput value={str(cfg.tag)} onChange={(v) => set('tag', v)} placeholder="e.g. qualified" ariaLabel="Tag" />
         </Field>
       )}
+    </>
+  )
+}
+
+/** "Set chatbot on/off" — the per-chat AI switch on this contact's conversations (FlowEngine.SetChatbot). */
+function ChatbotForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
+  const value = str(cfg.value) === 'on' ? 'on' : 'off'
+  const scope = str(cfg.scope) === 'channels' ? 'channels' : 'all'
+  const channels = Array.isArray(cfg.channels) ? (cfg.channels as unknown[]).map(String) : []
+  return (
+    <>
+      <Field label="Chatbot">
+        <Segmented
+          ariaLabel="Chatbot"
+          value={value}
+          onChange={(v) => set('value', v)}
+          options={[
+            { value: 'off', label: 'Off', hint: 'People answer from here on' },
+            { value: 'on', label: 'On', hint: 'The AI answers their chats again' },
+          ]}
+        />
+      </Field>
+      <Field label="Which chats">
+        <Segmented
+          ariaLabel="Which chats"
+          value={scope}
+          onChange={(v) => set('scope', v)}
+          options={[
+            { value: 'all', label: 'All their chats' },
+            { value: 'channels', label: 'Only some channels' },
+          ]}
+        />
+      </Field>
+      {scope === 'channels' && (
+        <Field label="Channels">
+          <MultiSelect
+            value={channels}
+            onChange={(v) => set('channels', v)}
+            options={CHATBOT_CHANNELS}
+            placeholder="Pick channels"
+            size="md"
+            ariaLabel="Channels"
+          />
+        </Field>
+      )}
+      <Notice>
+        It flips the same AI switch the chat header shows. The AI master switch, a contact set to “never”, never-AI tags
+        and opt-outs still win.
+      </Notice>
     </>
   )
 }

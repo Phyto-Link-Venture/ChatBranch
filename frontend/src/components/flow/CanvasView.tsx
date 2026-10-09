@@ -114,7 +114,7 @@ export default function CanvasView({
                 className="fb-palette-item"
                 title={c.hint}
               >
-                <StepIcon kind={c.kind === 'action' ? c.id : c.kind} size={13} />
+                <StepIcon kind={c.kind === 'action' ? c.id : c.kind} config={c.config} size={13} />
                 <span className="min-w-0 flex-1 truncate">{c.title}</span>
                 <GripVertical size={12} className="text-text-faint" aria-hidden />
               </div>

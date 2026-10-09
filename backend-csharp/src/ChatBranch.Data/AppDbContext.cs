@@ -233,6 +233,9 @@ public class AppDbContext : DbContext
             .HasIndex(t => new { t.Channel, t.Key })
             .IsUnique()
             .HasDatabaseName("uniq_thread_channel_key");
+        // the inbox's "Needs human" filter (handover open = at set, not resolved)
+        b.Entity<Thread>().HasIndex(t => new { t.HandoverAt, t.HandoverResolvedAt })
+            .HasDatabaseName("ix_thread_handover");
         b.Entity<AuthToken>().HasIndex(t => t.Token).IsUnique();
         b.Entity<CallRecord>().HasIndex(c => c.CallId).IsUnique();
         b.Entity<AccountAssignment>()

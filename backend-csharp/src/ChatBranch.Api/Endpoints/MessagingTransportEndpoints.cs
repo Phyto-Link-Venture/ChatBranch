@@ -130,6 +130,7 @@ public static class MessagingTransportEndpoints
                     caption.Length > 0 ? caption : null, fileName, MessageSource.Agent, null, humanAgent: human)
                 : sender.Send(thread, text, MessageSource.Agent, null,
                     subject: subject.Length > 0 ? subject : null, media: media);
+            AiControlsEndpoints.HumanReplied(db, thread, msg, me); // answers an open handover
             AuditTrail.Write(db, "message.send", $"{channel}:{thread.Key}", $"media:{type} {Cap(text, 150)}",
                 actor: me.Identity?.Name);
             return Results.Ok(new

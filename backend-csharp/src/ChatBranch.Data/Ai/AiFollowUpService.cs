@@ -61,7 +61,8 @@ public class AiFollowUpService
             threads = _db.Threads.Include(t => t.Account)
                 // a WhatsApp thread can be AI-on through its per-account tick or
                 // role while the legacy column is off — the loop applies the real rule
-                .Where(t => !t.OptedOut && (t.AiEnabled || t.AccountId != null)
+                .Where(t => !t.OptedOut && (t.AiEnabled || t.AccountId != null
+                                            || (t.Contact != null && t.Contact.AiMode == ContactAiModes.Always))
                             && t.Status != ThreadStatus.Resolved
                             && t.UpdatedAt >= horizon)
                 .OrderBy(t => t.UpdatedAt).Take(500).ToList();

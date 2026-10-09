@@ -218,6 +218,7 @@ public static class WhatsAppThreadsEndpoints
             // OutboundSender is the one live-or-sandbox seam: configured account →
             // graph.facebook.com, otherwise stored locally with status "sandbox".
             var msg = sender.Send(thread, text, MessageSource.Agent, account?.Id);
+            AiControlsEndpoints.HumanReplied(db, thread, msg, me); // answers an open handover
             if (coldNote.Length > 0)
                 store.AppendMessage(thread, MessageDirection.Out, MessageSource.System, coldNote,
                     status: live ? "sent" : "sandbox", accountId: account?.Id);
@@ -277,6 +278,7 @@ public static class WhatsAppThreadsEndpoints
             var msg = sender.SendTemplate(thread, name, body.Language,
                 new TemplateArgs(variables, body.HeaderVariables, body.ButtonVariables, body.HeaderMediaUrl),
                 MessageSource.Agent, account?.Id);
+            AiControlsEndpoints.HumanReplied(db, thread, msg, me); // answers an open handover
             await Audit(db, ctx, me, "message.send", $"whatsapp:{thread.Key}", $"template:{name}");
             return Results.Ok(new { message = MessagePayload(msg, account) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
@@ -343,6 +345,7 @@ public static class WhatsAppThreadsEndpoints
             var text = caption.Length > 0 ? caption : $"[{kind.Type}]";
             var msg = sender.SendMedia(thread, relPath, kind.Type, kind.Mime, caption,
                 Path.GetFileName(upload.FileName ?? ""), MessageSource.Agent, account?.Id);
+            AiControlsEndpoints.HumanReplied(db, thread, msg, me); // answers an open handover
             await Audit(db, ctx, me, "message.send", $"whatsapp:{thread.Key}",
                 $"media:{kind.Type} {Cap(text, 150)}");
             return Results.Ok(new { message = MessagePayload(msg, account) });
@@ -358,16 +361,8 @@ public static class WhatsAppThreadsEndpoints
         {
             var thread = await FindThread(db, key);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
-            if (thread.AccountId is int acct)
-            {
-                var overrides = new Dictionary<string, object?>(thread.AiOverrides)
-                {
-                    [acct.ToString()] = body.Enabled,
-                };
-                thread.AiOverrides = overrides;
-            }
-            thread.AiEnabled = body.Enabled;   // account-less/sandbox fallback stays in sync
-            thread.UpdatedAt = DateTime.UtcNow;
+            // the current number's tick (or, account-less, the thread's own) + the legacy column
+            ChatBranch.Data.Ai.AiEligibility.Set(thread, body.Enabled);
             await db.SaveChangesAsync();
             await Audit(db, ctx, me, "thread.ai_toggle", $"whatsapp:{thread.Key}",
                 $"enabled={body.Enabled}");
@@ -395,6 +390,7 @@ public static class WhatsAppThreadsEndpoints
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
             thread.Status = status;
             thread.UpdatedAt = DateTime.UtcNow;
+            AiControlsEndpoints.StatusChanged(db, thread, status, me); // resolving closes a handover
             await db.SaveChangesAsync();
             await Audit(db, ctx, me, "thread.status", $"whatsapp:{thread.Key}", status);
             return Results.Ok(await ThreadPayload(db, sc, wa, thread, DefaultLimit, null));
@@ -829,6 +825,7 @@ public static class WhatsAppThreadsEndpoints
             }
         }
 
+        var aiVerdict = ChatBranch.Data.Ai.AiEligibility.Decide(db, sc, thread); // the full AI rule + its reason
         return new
         {
             wa_id = thread.Key,
@@ -836,7 +833,11 @@ public static class WhatsAppThreadsEndpoints
             name = thread.Name.Length > 0 ? thread.Name : $"+{thread.Key}",
             account_id = thread.AccountId?.ToString(),
             provider = isBaileys ? Providers.Baileys : Providers.Cloud,
-            ai_enabled = EffectiveAi(sc, thread, account),
+            ai_enabled = aiVerdict.Enabled,
+            ai_reason = aiVerdict.Reason,
+            ai_rule = aiVerdict.Rule,
+            ai_forced = aiVerdict.Forced,
+            handover = AiControlsEndpoints.HandoverPayload(thread),
             status = thread.Status,
             assignee = thread.Assignee,
             team_id = thread.TeamId,

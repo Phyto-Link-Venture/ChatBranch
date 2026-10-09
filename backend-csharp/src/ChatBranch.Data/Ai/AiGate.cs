@@ -124,6 +124,7 @@ public class AiGate
             return new AiGateOutcome(AiGateStatus.Shadow, draft.Id, Array.Empty<int>(), draft.HoldReason);
         }
 
+        Handover.FromAiDraft(_db, thread, s.Kind, text, ctx, s.Canned); // the AI passed it to a person?
         var hold = s.Canned ? new List<string>()
             : policy.ReviewMode == "review_all" ? new List<string> { "Every AI reply is reviewed" }
             : policy.ReviewMode == "review_flagged" ? flags
@@ -367,6 +368,7 @@ public class AiGate
         var booking = ConfirmBookings(draft, humanDecision ? draft.DecidedBy : "ai");
         if (!booking.Ok)
         {
+            Handover.Mark(_db, thread, HandoverKinds.BookingFailed, booking.Reason, "ai", note: false, notify: false);
             Fail(draft, booking.Reason);
             HandOver(thread);
             return Outcome(AiGateStatus.Blocked, draft.Id, booking.Reason);
@@ -626,7 +628,11 @@ public class AiGate
     /// (<see cref="AiEligibility"/>: per-account tick → inbox default → account
     /// role), so the gate and the UI can never disagree.
     /// </summary>
-    public bool AiAllowed(Thread t) => AiEligibility.Effective(_db, _scoping, t);
+    public bool AiAllowed(Thread t) => AiEligibility.Effective(_db, _scoping, t, Now);
+
+    /// <summary>A person approved (or edited) this draft — its later bubbles still go out when the AI is off.</summary>
+    public bool HumanApproved(int draftId) => _db.AiDrafts.AsNoTracking()
+        .Any(d => d.Id == draftId && (d.Status == AiDraftStatus.Approved || d.Status == AiDraftStatus.Edited));
 
     /// <summary>Meta's 24h rule: only a LIVE WhatsApp Cloud number is bound by it.</summary>
     public bool WindowClosed(Thread thread, int? accountId)
@@ -728,6 +734,7 @@ public class AiGate
         _db.SaveChanges();
         _bookings.Release(d.Context, $"The reply was not sent — {why}");
         BumpThread(d.ThreadId);
+        Handover.FromFailedDraft(_db, d, why); // an unanswerable customer needs a person
     }
 
     /// <summary>

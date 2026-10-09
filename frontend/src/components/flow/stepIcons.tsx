@@ -1,6 +1,7 @@
 'use client'
 
 import {
+  Bot,
   Flag,
   Hourglass,
   Layers,
@@ -15,7 +16,7 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react'
-import { actionType } from '@/lib/flow/nodeConfig'
+import { actionType, isChatbotStep } from '@/lib/flow/nodeConfig'
 import type { FlowConfig } from '@/lib/flow/types'
 
 const BY_CHOICE: Record<string, LucideIcon> = {
@@ -30,6 +31,7 @@ const BY_CHOICE: Record<string, LucideIcon> = {
   decision: Split,
   handover: UserRound,
   update: UserCog,
+  chatbot: Bot,
   end: Flag,
   stage: Layers,
 }
@@ -37,6 +39,7 @@ const BY_CHOICE: Record<string, LucideIcon> = {
 /** The icon for a step-choice id (insert menu) or a node kind. */
 export function iconFor(kindOrChoice: string, cfg?: FlowConfig): LucideIcon {
   if (kindOrChoice === 'action') return BY_CHOICE[actionType(cfg)] ?? Send
+  if (kindOrChoice === 'update' && isChatbotStep(cfg)) return Bot
   return BY_CHOICE[kindOrChoice] ?? Send
 }
 

@@ -7,6 +7,7 @@ import { ArrowUpRight, PhoneCall } from 'lucide-react'
 import { useEntityQuery } from '@/lib/EntityContext'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { secondsSince, shortAge, useLive, useStreamStatus } from './liveStore'
+import { AiQuickToggle } from '@/components/ai-controls/AiQuickToggle'
 
 const DOT: Record<string, { cls: string; label: string }> = {
   connected: { cls: 'bg-green', label: 'Live — connected' },
@@ -108,6 +109,7 @@ export function LiveChip() {
             <span className="display text-[18px] text-text-heading">Live</span>
             <span className="text-[12px] text-text-muted">{dot.label}</span>
           </div>
+          <AiQuickToggle />
 
           <Section title="Active calls" count={calls}>
             {(data?.active_calls ?? []).length === 0 ? (

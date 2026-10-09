@@ -180,6 +180,15 @@ public static class Seed
             + "\"text\" TEXT NOT NULL, \"content_hash\" TEXT NOT NULL, \"model\" TEXT NOT NULL, "
             + "\"dims\" INTEGER NOT NULL, \"vector\" BLOB NOT NULL, \"updated_at\" TEXT NOT NULL");
         AddIndexIfMissing(db, "ix_embedding_owner", "crm_embedding", "\"owner_type\", \"owner_id\", \"chunk_index\"");
+        // AI controls: per-contact AI mode + human-handover tracking on the conversation
+        AddColumnIfMissing(db, "crm_contact", "ai_mode", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_thread", "handover_at", "TEXT NULL");
+        AddColumnIfMissing(db, "crm_thread", "handover_reason", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_thread", "handover_by", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_thread", "handover_kind", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_thread", "handover_resolved_at", "TEXT NULL");
+        AddColumnIfMissing(db, "crm_thread", "handover_count", "INTEGER NOT NULL DEFAULT 0");
+        AddIndexIfMissing(db, "ix_thread_handover", "crm_thread", "\"handover_at\", \"handover_resolved_at\"");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 

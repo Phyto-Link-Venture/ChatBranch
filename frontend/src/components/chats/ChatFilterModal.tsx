@@ -8,6 +8,7 @@ import { MultiSelect, Select, type SelectOption } from '@/components/ui/Select'
 import { EntityMultiPicker } from '@/components/ui/EntityPicker'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { useTags } from '@/lib/tags'
+import { HANDOVER_KINDS } from '@/lib/aiControls'
 import {
   CHANNEL_META,
   CHANNELS,
@@ -521,6 +522,34 @@ export default function ChatFilterModal({
                 onChange={(v) => set({ sort: v as InboxFilters['sort'] })}
                 options={SORTS.map((s) => ({ value: s.value, label: s.label }))}
                 ariaLabel="Sort"
+              />
+            </div>
+          </div>
+        </Field>
+
+        {/* human handover (Ai/Handover): the AI — or a rule, a flow, a person — passed it on */}
+        <Field label="Handed to a human" wide>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Segmented
+              label="Handover"
+              value={draft.handover}
+              onChange={(v) => set({ handover: v })}
+              options={[
+                { value: '', label: 'Any' },
+                { value: 'open', label: 'Needs a human' },
+                { value: 'any', label: 'Ever' },
+                { value: 'none', label: 'Never' },
+              ]}
+            />
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <span className="text-[12px] font-semibold text-text-mid">Why</span>
+              <MultiSelect
+                value={draft.handoverKinds}
+                onChange={(v) => set({ handoverKinds: v })}
+                options={HANDOVER_KINDS.map((k) => ({ value: k.value, label: k.label }))}
+                placeholder="Any reason"
+                size="md"
+                ariaLabel="Handover reason"
               />
             </div>
           </div>

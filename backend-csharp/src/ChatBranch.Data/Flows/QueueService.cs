@@ -307,7 +307,8 @@ public class QueueService
             // free text cannot cross a closed WhatsApp 24h window (templates can)
             if (draftId is int did)
             {
-                var block = _gate.SendTimeBlock(thread, job.AccountId, isTemplate: job.Kind == JobKind.Template);
+                var block = _gate.SendTimeBlock(thread, job.AccountId, isTemplate: job.Kind == JobKind.Template,
+                    humanDecision: _gate.HumanApproved(did)); // a person approved it: the AI switch no longer applies
                 if (block != null)
                 {
                     _gate.MarkDraftFailed(did, block);
