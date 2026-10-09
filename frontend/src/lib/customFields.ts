@@ -7,6 +7,7 @@
  * registry tags instead: lib/tags.ts.)
  */
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
+import type { MessageKey, TFunction } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -28,12 +29,13 @@ export interface CustomFieldsSchema {
   targets: FieldTarget[]
 }
 
-export const KIND_LABELS: Record<FieldKind, string> = {
-  text: 'Text',
-  select: 'Dropdown (pick one)',
-  multiselect: 'Multi-select (pick many)',
-  number: 'Number',
-  boolean: 'Yes / No',
+/** Field types → translation keys (render with `t(KIND_LABELS[kind])`; the stored kind stays the id). */
+export const KIND_LABELS: Record<FieldKind, MessageKey> = {
+  text: 'settings.customFields.kinds.text',
+  select: 'settings.customFields.kinds.select',
+  multiselect: 'settings.customFields.kinds.multiselect',
+  number: 'settings.customFields.kinds.number',
+  boolean: 'settings.customFields.kinds.boolean',
 }
 
 export const EMPTY_SCHEMA: CustomFieldsSchema = {
@@ -70,11 +72,13 @@ export async function saveCustomFields(
   return data as CustomFieldsSchema
 }
 
-/** Human-readable rendering of one stored attribute value, for lists/badges. */
-export function formatFieldValue(def: FieldDef, value: unknown): string {
+/** Human-readable rendering of one stored attribute value, for lists/badges.
+ *  Pass `t` for a translated Yes / No. */
+export function formatFieldValue(def: FieldDef, value: unknown, t?: TFunction): string {
   if (value === null || value === undefined || value === '') return ''
   switch (def.kind) {
     case 'boolean':
+      if (t) return value ? t('common.status.yes') : t('common.status.no')
       return value ? 'Yes' : 'No'
     case 'multiselect':
       return Array.isArray(value) ? value.join(', ') : String(value)

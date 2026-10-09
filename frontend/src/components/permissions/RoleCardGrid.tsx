@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from 'react'
 import { AlertCircle, ArrowLeft, Check, CheckCheck, Loader2, Search } from 'lucide-react'
+import { useT } from '@/i18n'
+import { capabilityArea } from '@/lib/auth'
 import { AreaCard } from './AreaCard'
 import { ManageAreaModal } from './ManageAreaModal'
 import { groupByArea, isLocked, type CatalogEntry } from './types'
@@ -40,14 +42,17 @@ export function RoleCardGrid({
   onDiscard: () => void
   saveMsg: { ok: boolean; text: string } | null
 }) {
+  const t = useT()
   const [query, setQuery] = useState('')
   const [manageArea, setManageArea] = useState<string | null>(null)
 
   const groups = useMemo(() => groupByArea(catalog), [catalog])
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return q ? groups.filter((g) => g.area.toLowerCase().includes(q)) : groups
-  }, [groups, query])
+    return q
+      ? groups.filter((g) => g.area.toLowerCase().includes(q) || capabilityArea(t, g.area).toLowerCase().includes(q))
+      : groups
+  }, [groups, query, t])
 
   const active = manageArea ? groups.find((g) => g.area === manageArea) : null
 
@@ -74,7 +79,7 @@ export function RoleCardGrid({
           onClick={onBack}
           className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-fill px-3 py-1.5 text-[12px] font-semibold text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
         >
-          <ArrowLeft size={14} strokeWidth={2} aria-hidden /> Roles
+          <ArrowLeft size={14} strokeWidth={2} aria-hidden /> {t('admin.permissions.grid.roles')}
         </button>
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -86,11 +91,11 @@ export function RoleCardGrid({
                 isSystem ? 'bg-fill text-text-muted' : 'bg-brand-400/10 text-brand-300'
               }`}
             >
-              {isSystem ? 'System' : 'Custom'}
+              {isSystem ? t('admin.permissions.system') : t('admin.permissions.custom')}
             </span>
           </div>
           <div className="mt-0.5 text-[11.5px] text-text-muted">
-            Grant this role access per resource area
+            {t('admin.permissions.grid.hint')}
           </div>
         </div>
 
@@ -108,14 +113,14 @@ export function RoleCardGrid({
           {(dirty || saving) && (
             <>
               <span className="hidden text-[12px] font-semibold text-amber-300 sm:inline">
-                Unsaved changes
+                {t('settings.common.unsavedChanges')}
               </span>
               <button
                 onClick={onDiscard}
                 disabled={saving}
                 className="cursor-pointer rounded-xl border border-line bg-fill px-3 py-1.5 text-[12px] font-semibold text-text-muted transition-colors hover:bg-fill-hover disabled:opacity-50"
               >
-                Discard
+                {t('common.actions.discard')}
               </button>
               <button
                 onClick={onSave}
@@ -124,7 +129,7 @@ export function RoleCardGrid({
                 style={{ background: 'var(--primary)' }}
               >
                 {saving && <Loader2 size={13} className="animate-spin" aria-hidden />}
-                Save changes
+                {t('settings.common.saveChanges')}
               </button>
             </>
           )}
@@ -142,7 +147,7 @@ export function RoleCardGrid({
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search resources…"
+            placeholder={t('admin.permissions.grid.searchPlaceholder')}
             className="w-full rounded-xl border border-line-strong bg-card py-2 pl-9 pr-3 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400"
           />
         </div>
@@ -151,7 +156,7 @@ export function RoleCardGrid({
           onClick={checkAll}
           className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-fill px-3 py-2 text-[12px] font-semibold text-text-high transition-colors hover:bg-fill-hover"
         >
-          <CheckCheck size={14} strokeWidth={2} aria-hidden /> Check all
+          <CheckCheck size={14} strokeWidth={2} aria-hidden /> {t('admin.permissions.grid.checkAll')}
         </button>
       </div>
 
@@ -159,7 +164,7 @@ export function RoleCardGrid({
       <div className="min-h-0 flex-1 overflow-auto">
         {filtered.length === 0 ? (
           <div className="py-10 text-center text-[12.5px] text-text-muted">
-            No resources match “{query}”.
+            {t('admin.permissions.grid.noMatch', { query })}
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">

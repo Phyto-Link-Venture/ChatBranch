@@ -3,14 +3,16 @@
 import { Tag } from 'lucide-react'
 import { AreaPage } from '@/components/shell/AreaPage'
 import { TagsManager } from '@/components/tags/TagsManager'
+import { useT } from '@/i18n'
 
 /** Library → Tags: the registry for contact, entity and conversation tags. */
 export default function TagsPage() {
+  const t = useT()
   return (
     <AreaPage
-      title="Tags"
-      eyebrow="Library"
-      subtitle="What a contact, an entity or a conversation is — with the details each one carries"
+      title={t('shell.nav.tags')}
+      eyebrow={t('shell.groups.library')}
+      subtitle={t('admin.tags.page.subtitle')}
       Icon={Tag}
     >
       <TagsManager />

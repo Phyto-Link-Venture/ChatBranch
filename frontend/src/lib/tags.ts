@@ -17,6 +17,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
+import type { MessageKey, TFunction } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -71,56 +72,66 @@ export interface AssignedTag {
 
 // ── palette ──────────────────────────────────────────────────────────────────
 
-/** `ink` = readable text colour, `dot` = the fill used for dots / tints. */
-export const TAG_PALETTE: { key: TagColor; label: string; ink: string; dot: string }[] = [
-  { key: 'tangerine', label: 'Tangerine', ink: 'var(--brand-ink)', dot: 'rgb(var(--c-brand))' },
-  { key: 'ink', label: 'Ink', ink: 'var(--text-high)', dot: 'var(--text-mid)' },
-  { key: 'teal', label: 'Teal', ink: 'var(--cyan-ink)', dot: 'rgb(var(--c-cyan))' },
-  { key: 'plum', label: 'Plum', ink: 'var(--purple-ink)', dot: 'rgb(var(--c-purple))' },
-  { key: 'ochre', label: 'Ochre', ink: 'var(--amber-ink)', dot: 'rgb(var(--c-amber))' },
-  { key: 'blue', label: 'Blue', ink: 'var(--blue-ink)', dot: 'rgb(var(--c-blue))' },
-  { key: 'green', label: 'Green', ink: 'var(--green-ink)', dot: 'rgb(var(--c-green))' },
-  { key: 'rose', label: 'Rose', ink: 'var(--red-ink)', dot: 'rgb(var(--c-red))' },
+/** `ink` = readable text colour, `dot` = the fill used for dots / tints,
+ *  `label` = the colour's name as a translation key (render with `t(p.label)`). */
+export const TAG_PALETTE: { key: TagColor; label: MessageKey; ink: string; dot: string }[] = [
+  { key: 'tangerine', label: 'admin.tags.palette.tangerine', ink: 'var(--brand-ink)', dot: 'rgb(var(--c-brand))' },
+  { key: 'ink', label: 'admin.tags.palette.ink', ink: 'var(--text-high)', dot: 'var(--text-mid)' },
+  { key: 'teal', label: 'admin.tags.palette.teal', ink: 'var(--cyan-ink)', dot: 'rgb(var(--c-cyan))' },
+  { key: 'plum', label: 'admin.tags.palette.plum', ink: 'var(--purple-ink)', dot: 'rgb(var(--c-purple))' },
+  { key: 'ochre', label: 'admin.tags.palette.ochre', ink: 'var(--amber-ink)', dot: 'rgb(var(--c-amber))' },
+  { key: 'blue', label: 'admin.tags.palette.blue', ink: 'var(--blue-ink)', dot: 'rgb(var(--c-blue))' },
+  { key: 'green', label: 'admin.tags.palette.green', ink: 'var(--green-ink)', dot: 'rgb(var(--c-green))' },
+  { key: 'rose', label: 'admin.tags.palette.rose', ink: 'var(--red-ink)', dot: 'rgb(var(--c-red))' },
 ]
 
 const BY_COLOR = new Map(TAG_PALETTE.map((p) => [p.key as string, p]))
 
-export function tagColor(key: string | null | undefined): { ink: string; dot: string; label: string } {
+export function tagColor(key: string | null | undefined): { ink: string; dot: string; label: MessageKey } {
   return BY_COLOR.get(key ?? '') ?? BY_COLOR.get('ink')!
 }
 
-export const APPLIES_TO_META: Record<TagAppliesTo, { label: string; title: string; noun: string; plural: string; blurb: string }> = {
+/** What each target type is called — translation keys (render with `t(…)`);
+ *  `count` is a plural key: `t(meta.count, { count })` → "3 contacts". */
+export const APPLIES_TO_META: Record<
+  TagAppliesTo,
+  { label: MessageKey; title: MessageKey; noun: MessageKey; plural: MessageKey; count: MessageKey; blurb: MessageKey }
+> = {
   contact: {
-    label: 'Contacts',
-    title: 'Contact tags',
-    noun: 'contact',
-    plural: 'contacts',
-    blurb: 'Who a person is to you — boss, employee, driver. Readable by flows, automations and the AI.',
+    label: 'admin.tags.kinds.contact.label',
+    title: 'admin.tags.kinds.contact.title',
+    noun: 'admin.tags.kinds.contact.noun',
+    plural: 'admin.tags.kinds.contact.plural',
+    count: 'admin.tags.kinds.contact.count',
+    blurb: 'admin.tags.kinds.contact.blurb',
   },
   entity: {
-    label: 'Entities',
-    title: 'Entity tags',
-    noun: 'entity',
-    plural: 'entities',
-    blurb: 'What kind of company or unit an entity is — inner company, outside company.',
+    label: 'admin.tags.kinds.entity.label',
+    title: 'admin.tags.kinds.entity.title',
+    noun: 'admin.tags.kinds.entity.noun',
+    plural: 'admin.tags.kinds.entity.plural',
+    count: 'admin.tags.kinds.entity.count',
+    blurb: 'admin.tags.kinds.entity.blurb',
   },
   conversation: {
-    label: 'Conversations',
-    title: 'Conversation tags',
-    noun: 'conversation',
-    plural: 'conversations',
-    blurb: 'Labels operators put on chats in the inbox — follow-up, urgent, resolved.',
+    label: 'admin.tags.kinds.conversation.label',
+    title: 'admin.tags.kinds.conversation.title',
+    noun: 'admin.tags.kinds.conversation.noun',
+    plural: 'admin.tags.kinds.conversation.plural',
+    count: 'admin.tags.kinds.conversation.count',
+    blurb: 'admin.tags.kinds.conversation.blurb',
   },
 }
 
-export const ATTR_TYPE_LABELS: Record<TagAttrType, string> = {
-  text: 'Text',
-  number: 'Number',
-  date: 'Date',
-  select: 'Dropdown',
-  boolean: 'Yes / No',
-  phone: 'Phone',
-  email: 'Email',
+/** Attribute field types → translation keys (the stored type stays the id). */
+export const ATTR_TYPE_LABELS: Record<TagAttrType, MessageKey> = {
+  text: 'admin.tags.attrTypes.text',
+  number: 'admin.tags.attrTypes.number',
+  date: 'admin.tags.attrTypes.date',
+  select: 'admin.tags.attrTypes.select',
+  boolean: 'admin.tags.attrTypes.boolean',
+  phone: 'admin.tags.attrTypes.phone',
+  email: 'admin.tags.attrTypes.email',
 }
 
 /** "Licence no." → "licence_no" — mirrors TagService.AttributeKey. */
@@ -133,10 +144,14 @@ export const attributeKey = (label: string) =>
     .replace(/^_+|_+$/g, '')
     .slice(0, 60)
 
-/** A stored attribute value the way lists show it. */
-export function formatTagValue(attr: TagAttribute, value: unknown): string {
+/** A stored attribute value the way lists show it (pass `t` for a translated Yes / No). */
+export function formatTagValue(attr: TagAttribute, value: unknown, t?: TFunction): string {
   if (value === null || value === undefined || value === '') return ''
-  if (attr.type === 'boolean') return value === true || value === 'true' ? 'Yes' : 'No'
+  if (attr.type === 'boolean') {
+    const yes = value === true || value === 'true'
+    if (t) return yes ? t('common.status.yes') : t('common.status.no')
+    return yes ? 'Yes' : 'No'
+  }
   return String(value)
 }
 

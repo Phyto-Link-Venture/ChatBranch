@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { roleHeaders } from '@/lib/role'
 import { expireSessionOn401 } from '@/lib/auth'
 import { useRole } from '@/lib/useRole'
+import { Trans, useT } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -66,6 +67,7 @@ function Field({
  * backend/.env defaults at runtime; clearing a field falls back to env.
  */
 export function AppKeysSettings() {
+  const t = useT()
   const { role, ready } = useRole()
   const [loaded, setLoaded] = useState<GlobalSettings | null>(null)
   const [verifyToken, setVerifyToken] = useState('')
@@ -87,7 +89,7 @@ export function AppKeysSettings() {
     return (
       <div className="flex items-center gap-2 py-6 text-[12.5px] text-text-muted">
         <ShieldAlert size={15} className="text-amber-300" aria-hidden />
-        App keys are managed by the super admin. Switch role in the sidebar footer to view.
+        {t('settings.appKeys.superOnly')}
       </div>
     )
   }
@@ -95,7 +97,7 @@ export function AppKeysSettings() {
   if (loaded === null) {
     return (
       <div className="py-6 text-[12px] text-text-muted">
-        App settings unavailable — is the backend API running?
+        {t('settings.appKeys.unavailable')}
       </div>
     )
   }
@@ -112,7 +114,7 @@ export function AppKeysSettings() {
         body: JSON.stringify({ verify_token: verifyToken }),
       })
       seed(next)
-      setMsg({ ok: true, text: 'Saved. Live immediately, no restart needed.' })
+      setMsg({ ok: true, text: t('settings.appKeys.saved') })
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
     } finally {
@@ -124,39 +126,40 @@ export function AppKeysSettings() {
     <div className="flex flex-col gap-4 pt-3.5">
       <div className="flex items-center gap-2">
         <span className="flex items-center gap-1.5 rounded-full bg-purple/15 px-2.5 py-1 text-[11px] font-bold text-purple-300">
-          <KeyRound size={12} aria-hidden /> Super admin
+          <KeyRound size={12} aria-hidden /> {t('admin.roles.superadmin')}
         </span>
         <span
           className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
             loaded.ai_available ? 'bg-green/15 text-green-300' : 'bg-fill text-text-muted'
           }`}
         >
-          AI replies {loaded.ai_available ? 'ready' : 'off — no provider key'}
+          {loaded.ai_available ? t('settings.appKeys.aiReady') : t('settings.appKeys.aiOff')}
         </span>
       </div>
 
       <div className="flex items-start gap-2 rounded-xl border border-line bg-fill px-3 py-2.5 text-[12px] text-text-mid">
         <Info size={14} className="mt-0.5 shrink-0 text-brand-300" aria-hidden />
         <span>
-          AI provider keys (OpenAI, OpenRouter, Google Gemini, ILMU, ElevenLabs) now live in{' '}
-          <span className="font-semibold text-text-high">AI &amp; Providers</span>, next to the provider
-          picker and model. This tab only holds the WhatsApp webhook verify token.
+          <Trans
+            k="settings.appKeys.movedNote"
+            values={{ page: <span className="font-semibold text-text-high">{t('settings.nav.pages.aiProviders.lbl')}</span> }}
+          />
         </span>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field
-          label="Webhook verify token"
+          label={t('settings.appKeys.verifyToken')}
           value={verifyToken}
           onChange={setVerifyToken}
           placeholder="chatbranch-verify"
-          hint="Shared by all WhatsApp accounts — must match the Meta webhook form."
+          hint={t('settings.appKeys.verifyHint')}
         />
       </div>
 
       <div className="flex items-center gap-2">
         <Button variant="primary" onClick={save} disabled={busy}>
-          {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null} Save app keys
+          {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null} {t('settings.appKeys.save')}
         </Button>
         {msg && (
           <span className={`text-[12px] font-semibold ${msg.ok ? 'text-green-300' : 'text-red-300'}`}>
@@ -166,10 +169,13 @@ export function AppKeysSettings() {
       </div>
 
       <p className="text-[11px] leading-relaxed text-text-muted">
-        Note: the <strong>voice agent</strong> worker reads its keys (LiveKit, realtime voice) from{' '}
-        <code className="rounded bg-fill px-1">backend/.env</code> at startup — those still require an env
-        edit + agent restart. Keys here apply to WhatsApp text auto-replies instantly. The chat AI
-        provider, model and quiet hours moved to Settings → AI Configuration.
+        <Trans
+          k="settings.appKeys.voiceNote"
+          values={{
+            agent: <strong>{t('settings.appKeys.voiceAgent')}</strong>,
+            env: <code className="rounded bg-fill px-1">backend/.env</code>,
+          }}
+        />
       </p>
     </div>
   )

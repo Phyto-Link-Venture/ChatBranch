@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { X } from 'lucide-react'
 import { tint } from '@/lib/color'
 import { tagColor } from '@/lib/tags'
+import { useT } from '@/i18n'
 
 /**
  * A registry tag as a chip: a coloured dot, the name in the tag's ink, a faint
@@ -29,7 +30,9 @@ export function TagChip({
   children?: ReactNode
   title?: string
 }) {
+  const t = useT()
   const c = tagColor(color)
+  const removeText = removeLabel ?? t('admin.tags.chip.remove', { name })
   return (
     <span
       title={title}
@@ -46,8 +49,8 @@ export function TagChip({
           type="button"
           onClick={onRemove}
           disabled={disabled}
-          aria-label={removeLabel ?? `Remove ${name}`}
-          title={removeLabel ?? `Remove ${name}`}
+          aria-label={removeText}
+          title={removeText}
           className="-mr-1 grid h-4 w-4 shrink-0 cursor-pointer place-items-center rounded-full opacity-70 transition-opacity hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <X size={11} strokeWidth={2.25} aria-hidden />

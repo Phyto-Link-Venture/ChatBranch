@@ -2,6 +2,8 @@
 
 import { useEffect, useRef } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
+import { useT } from '@/i18n'
+import { capabilityArea } from '@/lib/auth'
 import { areaSummary, STATUS_STYLE, type CatalogEntry } from './types'
 
 /**
@@ -25,6 +27,8 @@ export function AreaCard({
   onToggleAll: (value: boolean) => void
   onManage: () => void
 }) {
+  const t = useT()
+  const areaName = capabilityArea(t, area)
   const sum = areaSummary(role, caps, roleCaps)
   const style = STATUS_STYLE[sum.status]
   const boxRef = useRef<HTMLInputElement>(null)
@@ -46,15 +50,15 @@ export function AreaCard({
             type="checkbox"
             checked={sum.status === 'full'}
             onChange={(e) => onToggleAll(e.target.checked)}
-            aria-label={`Grant all ${area} capabilities`}
+            aria-label={t('admin.permissions.area.grantAllAria', { area: areaName })}
             className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-brand"
           />
           <span className="min-w-0">
             <span className="block text-[13.5px] font-bold tracking-[-0.2px] text-text-heading">
-              {area}
+              {areaName}
             </span>
             <span className="mt-0.5 block text-[11px] text-text-muted">
-              {caps.length} capabilit{caps.length === 1 ? 'y' : 'ies'}
+              {t('admin.permissions.area.capCount', { count: caps.length })}
             </span>
           </span>
         </label>
@@ -64,7 +68,7 @@ export function AreaCard({
         className="inline-flex w-fit items-center rounded-full px-2.5 py-1 text-[11px] font-semibold"
         style={{ color: style.ink, background: style.pillBg }}
       >
-        {style.label(sum)}
+        {style.label(t, sum)}
       </span>
 
       <button
@@ -72,7 +76,7 @@ export function AreaCard({
         onClick={onManage}
         className="mt-auto inline-flex items-center justify-center gap-1.5 rounded-xl border border-line bg-fill px-3 py-1.5 text-[12px] font-semibold text-text-high transition-colors hover:bg-fill-hover"
       >
-        <SlidersHorizontal size={13} strokeWidth={2} aria-hidden /> Manage
+        <SlidersHorizontal size={13} strokeWidth={2} aria-hidden /> {t('admin.permissions.area.manage')}
       </button>
     </div>
   )

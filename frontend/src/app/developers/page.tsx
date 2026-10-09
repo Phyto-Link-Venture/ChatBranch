@@ -6,6 +6,7 @@ import { AreaPage } from '@/components/shell/AreaPage'
 import { ApiKeysCard } from '@/components/developers/ApiKeysCard'
 import { ConnectAiCard } from '@/components/developers/ConnectAiCard'
 import { McpServersCard } from '@/components/developers/McpServersCard'
+import { useT } from '@/i18n'
 
 /**
  * Developers — everything for building on ChatBranch: personal API keys (REST +
@@ -15,13 +16,14 @@ import { McpServersCard } from '@/components/developers/McpServersCard'
  * paste; it is never written to storage.
  */
 export default function DevelopersPage() {
+  const t = useT()
   const [freshToken, setFreshToken] = useState<string | null>(null)
   return (
     <AreaPage
-      title="Developers"
-      eyebrow="Admin"
+      title={t('shell.nav.developers')}
+      eyebrow={t('shell.groups.admin')}
       Icon={Code2}
-      subtitle="API keys, AI apps over MCP, and the external tools the assistant may use."
+      subtitle={t('admin.developers.page.subtitle')}
     >
       <div className="flex flex-col gap-5 pb-6">
         <ApiKeysCard onCreated={setFreshToken} />

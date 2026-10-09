@@ -3,13 +3,15 @@
 import { Users } from 'lucide-react'
 import { AreaPage } from '@/components/shell/AreaPage'
 import { TeamsSettings } from '@/components/settings/TeamsSettings'
+import { useT } from '@/i18n'
 
 export default function TeamsPage() {
+  const t = useT()
   return (
     <AreaPage
-      title="Teams"
-      eyebrow="Admin"
-      subtitle="Who owns a conversation, and who it rotates to"
+      title={t('shell.nav.teams')}
+      eyebrow={t('shell.groups.admin')}
+      subtitle={t('admin.teams.page.subtitle')}
       Icon={Users}
     >
       <TeamsSettings />

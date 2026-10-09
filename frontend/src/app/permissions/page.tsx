@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertCircle, Loader2, ShieldCheck } from 'lucide-react'
-import { authHeaders, CAPABILITY_CATALOG } from '@/lib/auth'
+import { authHeaders, CAPABILITY_CATALOG, roleDisplayName } from '@/lib/auth'
+import { Trans, useT } from '@/i18n'
 import { useRole } from '@/lib/useRole'
 import { RoleList } from '@/components/permissions/RoleList'
 import { RoleCardGrid } from '@/components/permissions/RoleCardGrid'
@@ -10,7 +11,6 @@ import { RoleFormModal } from '@/components/permissions/RoleFormModal'
 import {
   BUILTIN_ROLES,
   cloneMatrix,
-  humanize,
   type Matrix,
   type PermsResponse,
   type RoleRow,
@@ -34,6 +34,7 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
  * three built-in roles + shipped catalog if the backend is unavailable.
  */
 export default function PermissionsPage() {
+  const t = useT()
   const { role, ready } = useRole()
 
   const [data, setData] = useState<PermsResponse | null>(null)
@@ -109,8 +110,8 @@ export default function PermissionsPage() {
   const catalog = data?.catalog || CAPABILITY_CATALOG
 
   const labelFor = useCallback(
-    (slug: string) => roleMeta[slug]?.label || humanize(slug),
-    [roleMeta],
+    (slug: string) => roleDisplayName(t, slug, roleMeta[slug]?.label),
+    [roleMeta, t],
   )
   const isSystemRole = useCallback(
     (slug: string) => (roleMeta[slug] ? roleMeta[slug].is_system : BUILTIN_ROLES.includes(slug)),
@@ -142,7 +143,7 @@ export default function PermissionsPage() {
       const next = (body as PermsResponse).matrix || outgoing
       setData((d) => (d ? { ...d, matrix: next } : d))
       setMatrix(cloneMatrix(next))
-      setSaveMsg({ ok: true, text: 'Permissions saved.' })
+      setSaveMsg({ ok: true, text: t('admin.permissions.page.saved') })
     } catch (e) {
       setSaveMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
     } finally {
@@ -164,7 +165,7 @@ export default function PermissionsPage() {
         const body = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error((body as { detail?: string }).detail || `HTTP ${res.status}`)
         setRoleModal(null)
-        setSaveMsg({ ok: true, text: `Role renamed to “${label}”.` })
+        setSaveMsg({ ok: true, text: t('admin.permissions.page.renamed', { name: label }) })
         await load()
       } else {
         const res = await fetch(`${API}/auth/roles`, {
@@ -175,10 +176,7 @@ export default function PermissionsPage() {
         const body = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error((body as { detail?: string }).detail || `HTTP ${res.status}`)
         setRoleModal(null)
-        setSaveMsg({
-          ok: true,
-          text: `Role “${label}” created — open it to grant access, then save.`,
-        })
+        setSaveMsg({ ok: true, text: t('admin.permissions.page.created', { name: label }) })
         await load()
         // Jump straight into the new role's card grid when the slug is echoed.
         const slug = (body as { slug?: string }).slug
@@ -196,11 +194,11 @@ export default function PermissionsPage() {
     if (count > 0) {
       setSaveMsg({
         ok: false,
-        text: `“${labelFor(slug)}” is assigned to ${count} user${count === 1 ? '' : 's'} — reassign them before deleting it.`,
+        text: t('admin.permissions.page.assignedBlock', { name: labelFor(slug), count }),
       })
       return
     }
-    if (!window.confirm(`Delete the custom role “${labelFor(slug)}”? This can't be undone.`)) return
+    if (!window.confirm(t('admin.permissions.page.confirmDelete', { name: labelFor(slug) }))) return
     setSaveMsg(null)
     try {
       const res = await fetch(`${API}/auth/roles/${slug}`, { method: 'DELETE', headers: authHeaders() })
@@ -209,13 +207,15 @@ export default function PermissionsPage() {
         if (res.status === 409) {
           const n = body.user_count ?? body.count
           throw new Error(
-            `“${labelFor(slug)}” is still assigned${n ? ` to ${n} user${n === 1 ? '' : 's'}` : ''} — reassign them first.`,
+            n
+              ? t('admin.permissions.page.stillAssignedN', { name: labelFor(slug), count: n })
+              : t('admin.permissions.page.stillAssigned', { name: labelFor(slug) }),
           )
         }
         throw new Error(body.detail || `HTTP ${res.status}`)
       }
       if (selectedRole === slug) selectRole(null)
-      setSaveMsg({ ok: true, text: `Role “${labelFor(slug)}” deleted.` })
+      setSaveMsg({ ok: true, text: t('admin.permissions.page.deleted', { name: labelFor(slug) }) })
       await load()
     } catch (e) {
       setSaveMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
@@ -228,7 +228,7 @@ export default function PermissionsPage() {
     return (
       <div className="flex items-center gap-2 py-8 text-[12.5px] text-text-muted">
         <ShieldCheck size={15} className="text-amber-300" aria-hidden />
-        The permission matrix is managed by super admins.
+        {t('admin.permissions.page.superadminOnly')}
       </div>
     )
   }
@@ -241,11 +241,9 @@ export default function PermissionsPage() {
           <ShieldCheck size={18} strokeWidth={1.9} className="text-brand-300" aria-hidden />
         </div>
         <div className="min-w-0">
-          <h1 className="text-[20px] font-extrabold tracking-[-0.5px] text-text-heading">Permissions</h1>
+          <h1 className="text-[20px] font-extrabold tracking-[-0.5px] text-text-heading">{t('shell.nav.permissions')}</h1>
           <div className="mt-0.5 text-[12px] text-text-muted">
-            {activeRole
-              ? 'Grant a role access, resource by resource'
-              : 'Roles and what each one can do'}
+            {activeRole ? t('admin.permissions.page.subtitleRole') : t('admin.permissions.page.subtitleList')}
           </div>
         </div>
       </div>
@@ -256,10 +254,7 @@ export default function PermissionsPage() {
           style={{ color: 'var(--red-ink)' }}
         >
           <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden />
-          <span>
-            Couldn&apos;t load the permission matrix — {loadError}. The editable RBAC UI needs the
-            backend (GET/PUT /api/auth/permissions).
-          </span>
+          <span>{t('admin.permissions.page.loadError', { error: loadError })}</span>
         </div>
       )}
       {saveMsg && !saveMsg.ok && (
@@ -273,7 +268,7 @@ export default function PermissionsPage() {
 
       {data === null && !loadError ? (
         <div className="flex items-center gap-1.5 py-6 text-[12px] text-text-muted">
-          <Loader2 size={13} className="animate-spin" aria-hidden /> Loading permissions…
+          <Loader2 size={13} className="animate-spin" aria-hidden /> {t('admin.permissions.page.loading')}
         </div>
       ) : activeRole ? (
         <RoleCardGrid
@@ -315,11 +310,14 @@ export default function PermissionsPage() {
       ) : null}
 
       <p className="text-[11px] leading-relaxed text-text-muted">
-        Access gates the <strong>action</strong>; entity and ownership scoping still apply on top
-        (an admin manages only their own organization&apos;s users, etc.). Super admin keeps{' '}
-        <code className="rounded bg-fill px-1">rbac.manage</code> locked on so access can never be
-        fully removed. Custom roles start with no access — grant capabilities, then{' '}
-        <strong>Save changes</strong>.
+        <Trans
+          k="admin.permissions.page.footnote"
+          values={{
+            action: <strong>{t('admin.permissions.page.action')}</strong>,
+            cap: <code className="rounded bg-fill px-1">rbac.manage</code>,
+            save: <strong>{t('settings.common.saveChanges')}</strong>,
+          }}
+        />
       </p>
 
       <RoleFormModal

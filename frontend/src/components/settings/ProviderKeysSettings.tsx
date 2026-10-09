@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { roleHeaders } from '@/lib/role'
 import { expireSessionOn401 } from '@/lib/auth'
 import { useRole } from '@/lib/useRole'
+import { Trans, useT } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -52,6 +53,7 @@ const inputCls =
 
 /** Read-only value + copy button — for values pasted into a provider's console. */
 function CopyField({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  const t = useT()
   const [copied, setCopied] = useState(false)
   const copy = async () => {
     try {
@@ -75,8 +77,8 @@ function CopyField({ label, value, hint }: { label: string; value: string; hint?
         <button
           type="button"
           onClick={copy}
-          title={`Copy ${label}`}
-          aria-label={`Copy ${label}`}
+          title={t('settings.providerKeys.copyLabel', { label })}
+          aria-label={t('settings.providerKeys.copyLabel', { label })}
           className="grid w-9 shrink-0 place-items-center rounded-lg border border-line-strong bg-fill text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
         >
           {copied ? <Check size={13} className="text-green-300" aria-hidden /> : <Copy size={13} aria-hidden />}
@@ -117,6 +119,7 @@ function SecretField({
 }
 
 export function ProviderKeysSettings() {
+  const t = useT()
   const { role, ready } = useRole()
   const [settings, setSettings] = useState<GlobalSettings | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -154,12 +157,12 @@ export function ProviderKeysSettings() {
       const body: Record<string, string> = {}
       for (const [k, v] of Object.entries(keys)) if (!v.includes('••')) body[k] = v // untouched stays untouched
       if (Object.keys(body).length === 0) {
-        setMsg({ ok: true, text: 'Nothing changed.' })
+        setMsg({ ok: true, text: t('settings.providerKeys.nothingChanged') })
         return
       }
       await api('settings', { method: 'PUT', body: JSON.stringify(body) })
       await load()
-      setMsg({ ok: true, text: 'Provider keys saved — connections use them immediately.' })
+      setMsg({ ok: true, text: t('settings.providerKeys.saved') })
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
     } finally {
@@ -173,7 +176,7 @@ export function ProviderKeysSettings() {
     return (
       <div className="flex items-center gap-2 py-6 text-[12.5px] text-text-muted">
         <ShieldAlert size={15} className="text-amber-300" aria-hidden />
-        Provider keys are managed by the super admin.
+        {t('settings.providerKeys.superOnly')}
       </div>
     )
   }
@@ -181,7 +184,9 @@ export function ProviderKeysSettings() {
   if (settings === null) {
     return (
       <div className="py-6 text-[12px] text-text-muted">
-        Provider keys unavailable{loadError ? ` — ${loadError}` : ' — is the backend API running?'}
+        {loadError
+          ? t('settings.providerKeys.unavailableError', { error: loadError })
+          : t('settings.providerKeys.unavailable')}
       </div>
     )
   }
@@ -193,20 +198,22 @@ export function ProviderKeysSettings() {
       <div>
         <div className="flex items-center gap-2">
           <KeyRound size={15} className="text-text-mid" aria-hidden />
-          <h2 className="text-[14px] font-extrabold tracking-[-0.3px] text-text-heading">Provider keys</h2>
+          <h2 className="text-[14px] font-extrabold tracking-[-0.3px] text-text-heading">{t('settings.providerKeys.title')}</h2>
           <span
             className={`rounded-full px-2 py-px text-[10px] font-bold ${
               settings.google_oauth_configured ? 'bg-green/15 text-green-300' : 'bg-amber/15 text-amber-300'
             }`}
           >
-            Google OAuth {settings.google_oauth_configured ? 'configured' : 'not set up'}
+            {settings.google_oauth_configured
+              ? t('settings.providerKeys.oauthConfigured')
+              : t('settings.providerKeys.oauthMissing')}
           </span>
         </div>
         <p className="mt-1 max-w-[680px] text-[11px] leading-relaxed text-text-muted">
-          One-time system setup. A single Google OAuth client covers Calendar, Drive, Gmail &amp; Sheets for everyone —
-          set it once and anyone connects their own account in one click from{' '}
-          <span className="font-semibold text-text-mid">Integrations</span>. Shopify/Stripe secrets verify their inbound
-          webhooks. Values already stored show masked — leave them alone to keep them.
+          <Trans
+            k="settings.providerKeys.intro"
+            values={{ integrations: <span className="font-semibold text-text-mid">{t('shell.nav.integrations')}</span> }}
+          />
         </p>
       </div>
 
@@ -214,14 +221,14 @@ export function ProviderKeysSettings() {
       <div className="rounded-xl border border-line bg-card p-4">
         <div className="mb-3 flex items-center gap-2">
           <FolderOpen size={14} color="#D9480F" aria-hidden />
-          <span className="text-[12px] font-bold text-text-high">Google OAuth client</span>
+          <span className="text-[12px] font-bold text-text-high">{t('settings.providerKeys.googleClient')}</span>
           <span className="rounded-full bg-fill px-2 py-px text-[9.5px] font-semibold text-text-muted">
             Calendar · Drive · Gmail · Sheets
           </span>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <label className="block">
-            <span className="mb-1 block text-[10.5px] font-bold text-text-high">Google client id</span>
+            <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('settings.providerKeys.clientId')}</span>
             <input
               value={keys.google_client_id || ''}
               autoComplete="off"
@@ -230,15 +237,15 @@ export function ProviderKeysSettings() {
             />
           </label>
           <SecretField
-            label="Google client secret"
+            label={t('settings.providerKeys.clientSecret')}
             value={keys.google_client_secret || ''}
             onChange={(v) => edit('google_client_secret', v)}
           />
           <div className="md:col-span-2">
             <CopyField
-              label="Redirect URI (register this in the Google console)"
+              label={t('settings.providerKeys.redirectUri')}
               value={settings.redirect_uri || settings.google_redirect_uri || '—'}
-              hint="Google Cloud console → Credentials → your OAuth client → Authorized redirect URIs. Paste this exact value."
+              hint={t('settings.providerKeys.redirectHint')}
             />
           </div>
         </div>
@@ -249,37 +256,37 @@ export function ProviderKeysSettings() {
         <div className="rounded-xl border border-line bg-card p-4">
           <div className="mb-3 flex items-center gap-2">
             <ShoppingBag size={14} color="#D9480F" aria-hidden />
-            <span className="text-[12px] font-bold text-text-high">Shopify webhooks</span>
+            <span className="text-[12px] font-bold text-text-high">{t('settings.providerKeys.shopifyTitle')}</span>
           </div>
           <div className="flex flex-col gap-3">
             <SecretField
-              label="Shopify webhook secret"
+              label={t('settings.providerKeys.shopifySecret')}
               value={keys.shopify_webhook_secret || ''}
               onChange={(v) => edit('shopify_webhook_secret', v)}
             />
-            {webhookUrl('shopify') && <CopyField label="Webhook URL" value={webhookUrl('shopify')} />}
+            {webhookUrl('shopify') && <CopyField label={t('settings.providerKeys.webhookUrl')} value={webhookUrl('shopify')} />}
           </div>
         </div>
 
         <div className="rounded-xl border border-line bg-card p-4">
           <div className="mb-3 flex items-center gap-2">
             <CreditCard size={14} color="#D9480F" aria-hidden />
-            <span className="text-[12px] font-bold text-text-high">Stripe webhooks</span>
+            <span className="text-[12px] font-bold text-text-high">{t('settings.providerKeys.stripeTitle')}</span>
           </div>
           <div className="flex flex-col gap-3">
             <SecretField
-              label="Stripe webhook secret (whsec_…)"
+              label={t('settings.providerKeys.stripeSecret')}
               value={keys.stripe_webhook_secret || ''}
               onChange={(v) => edit('stripe_webhook_secret', v)}
             />
-            {webhookUrl('stripe') && <CopyField label="Webhook URL" value={webhookUrl('stripe')} />}
+            {webhookUrl('stripe') && <CopyField label={t('settings.providerKeys.webhookUrl')} value={webhookUrl('stripe')} />}
           </div>
         </div>
       </div>
 
       <div className="flex items-center gap-2">
         <Button variant="primary" onClick={save} disabled={busy}>
-          {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null} Save provider keys
+          {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null} {t('settings.providerKeys.save')}
         </Button>
         {msg && (
           <span className={`text-[12px] font-semibold ${msg.ok ? 'text-green-300' : 'text-red-300'}`}>{msg.text}</span>
