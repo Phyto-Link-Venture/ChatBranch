@@ -47,3 +47,47 @@ public class AssistantAction
     public DateTime ExpiresAt { get; set; }
     public DateTime? DecidedAt { get; set; }
 }
+
+/// <summary>
+/// One "Ask ChatBranch" chat (crm_assistantconversation), owned by exactly one
+/// login. The history is per user: every route reads the CALLER's rows only —
+/// another login's id is a 404, superadmin included. At most
+/// <c>AssistantHistory.MaxConversationsPerUser</c> are kept; the least recently
+/// used ones are pruned when a new one starts.
+/// </summary>
+public class AssistantConversation
+{
+    public int Id { get; set; }
+    /// <summary>auth_user id of the owner (resolved server-side, never posted).</summary>
+    public int UserId { get; set; }
+    /// <summary>The first question, shortened; the owner may rename it.</summary>
+    public string Title { get; set; } = "";
+    /// <summary>The outlet in view when the chat started (null = all entities).</summary>
+    public int? EntityId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    /// <summary>Bumped on every turn and every confirm/cancel — the history list's order.</summary>
+    public DateTime UpdatedAt { get; set; }
+    public List<AssistantMessage> Messages { get; set; } = new();
+}
+
+/// <summary>
+/// One turn of an assistant chat (crm_assistantmessage). The model's context is
+/// rebuilt from these rows — never from history a client sends.
+/// </summary>
+public class AssistantMessage
+{
+    public int Id { get; set; }
+    public int ConversationId { get; set; }
+    public AssistantConversation? Conversation { get; set; }
+    /// <summary>user | assistant</summary>
+    public string Role { get; set; } = "user";
+    public string Text { get; set; } = "";
+    /// <summary>
+    /// JSON text the dock re-renders the turn from: for an assistant turn
+    /// <c>{steps, pending_actions:[{id, …, state, message}], navigation, mode}</c>
+    /// (an action card's state follows confirm/cancel); for a user turn the page
+    /// context it was asked from.
+    /// </summary>
+    public string Payload { get; set; } = "{}";
+    public DateTime CreatedAt { get; set; }
+}

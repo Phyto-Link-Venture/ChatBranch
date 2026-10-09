@@ -144,7 +144,7 @@ Not every route — the endpoint files are authoritative — but every area.
 | Integrations | `/api/integrations`, `/providers`, `/accounts[/{id}]` (+ `/test`, `/disconnect`), `/settings`, `/oauth/{provider}/start`, `/oauth/google/callback`, `/{provider}/connect`, `/action`, `/webhooks/{shopify,stripe}`, `/api/integrations/mcp[/{id}]` (external MCP servers, + `/test`) | `IntegrationsEndpoints`, `McpEndpoints` |
 | Activity | `/api/audit`, `/api/audit.csv`, `/api/audit/facets` (`activity.view`); legacy `/api/auth/audit` | `AuditEndpoints`, `NotificationEndpoints` |
 | Developers | `/api/developers/keys[/{id}]`, `/api/developers/mcp` (+ `/test`) | `DevelopersEndpoints` |
-| Assistant | `POST /api/assistant/chat`, `/confirm`, `/cancel` | `AssistantEndpoints` |
+| Assistant | `POST /api/assistant/chat`, `/confirm`, `/cancel`; per-user history `GET/DELETE /api/assistant/conversations`, `GET/PATCH/DELETE /api/assistant/conversations/{id}` | `AssistantEndpoints` |
 | Public | `/api/help/articles[/{slug}]`, `/api/widget/{token}/*`, `/widget.js` | `HelpCenterEndpoints`, `WidgetEndpoints` |
 | Webhooks | `/api/whatsapp/webhook`, `/api/messaging/webhook` (Messenger/Instagram), `/api/whatsapp/baileys/*` | `WebhooksEndpoints`, `MetaWebhookEndpoints` |
 | Telegram inbound | `/api/messaging/webhook/telegram/{token}` | `TelegramWebhookEndpoints` |
@@ -171,6 +171,40 @@ and entity scope: `search_contacts`, `get_contact`, `create_contact`,
 `list_tags`. Write tools call the dashboard's own endpoints in-process, so every
 guard (opt-out, 24h window, capability, scope) applies. `/developers` shows a
 ready-made client config.
+
+## Operator assistant (`/api/assistant/*`)
+
+"Ask ChatBranch" acts AS the signed-in user (or the API key's owner); every
+route needs a signed-in caller and works on the **caller's own** conversations
+only — another login's id is a `404`, superadmin included.
+
+| Route | Body / query | Answer |
+|---|---|---|
+| `POST /api/assistant/chat` | `{message, conversation_id?, context:{path, entity}}` | `{reply, steps, pending_actions, navigation, mode, conversation_id, title, message_id}` |
+| `POST /api/assistant/confirm` | `{id}` (an `act_…` id from `pending_actions`) | `{ok, id, status, message, result, navigation}` — `404` not yours, `409` already decided / `410` expired (both carry `status`) |
+| `POST /api/assistant/cancel` | `{id}` | `{ok, id, status}` |
+| `GET /api/assistant/conversations` | `?limit=` (1–100, default 30) `&before=` (the previous page's `next_before`) | `{conversations:[{id, title, entity_id, created_at, updated_at, message_count, snippet}], total, has_more, next_before}`, most recently used first |
+| `GET /api/assistant/conversations/{id}` | — | `{id, title, entity_id, created_at, updated_at, messages:[{id, role, text, payload, created_at}]}` |
+| `PATCH /api/assistant/conversations/{id}` | `{title}` (1–120 chars) | the conversation |
+| `DELETE /api/assistant/conversations/{id}` | — | `{ok, deleted}` |
+| `DELETE /api/assistant/conversations` | — | `{ok, deleted}` — clears all of the caller's chats |
+
+- **The model's context is the stored conversation** (its last 12 turns, with
+  the outcome of each confirm card), never history a client sends. A chat
+  without `conversation_id` — or naming one that is not the caller's — starts a
+  new conversation titled after the question. Legacy clients may still send
+  `messages:[{role, content}]` instead of `message`: the last user entry is the
+  question, and the rest is honoured as context only when no
+  `conversation_id` is given.
+- An assistant turn's `payload` is `{steps, pending_actions:[{id, tool, title,
+  args, summary, expires_at, state, message?}], navigation, mode}`; confirm /
+  cancel / expiry update the card's `state` on the stored turn, and a read
+  reports a still-pending card that has since expired as `expired`.
+- At most 100 conversations per user; starting one more prunes the least
+  recently used. Deleting a chat cancels any write still waiting for
+  confirmation in it. Deletes are recorded as `assistant.conversation.delete` /
+  `assistant.conversation.clear` in the activity log; chat POSTs are not (the
+  tools they run write their own rows).
 
 ## The live channel that is not request/response
 
