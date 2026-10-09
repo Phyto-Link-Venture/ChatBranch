@@ -83,6 +83,7 @@ import { useApp } from '@/lib/AppContext'
 import { tagMeta } from '@/lib/tags'
 import PendingDraftBanner from '@/components/chats/PendingDraftBanner'
 import { subscribeChatStream } from '@/lib/chatStream'
+import { AiBubbleFeedback, useAiFeedback } from '@/components/ai-learning/BubbleFeedback'
 import './chats.css'
 
 /** First page of the list; "Load more" pages by the same step. */
@@ -1101,6 +1102,7 @@ function ChatsPage() {
   const displayMessages: TimelineItem[] = extraItems.length
     ? [...baseMessages, ...extraItems].sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0))
     : baseMessages
+  const aiFeedback = useAiFeedback(displayMessages)
   const grouped: { day: string; items: TimelineItem[] }[] = []
   for (const m of displayMessages) {
     const day = dayLabel(m.ts)
@@ -1625,7 +1627,7 @@ function ChatsPage() {
                                   <Lock size={8} className="mr-0.5 inline" aria-hidden /> Private note — not sent
                                 </span>
                               )}
-                              {!m.private && m.dir === 'out' && m.source === 'ai' && <span className="cb-bubble-source">AI assistant</span>}
+                              {!m.private && m.dir === 'out' && m.source === 'ai' && <AiBubbleFeedback m={m} store={aiFeedback} />}
                               {m.media && <MediaAttachment media={m.media} />}
                               {m.text}
                               <span className="cb-bubble-time">
