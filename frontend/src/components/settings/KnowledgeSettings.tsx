@@ -23,6 +23,8 @@ import { EntityScopeSelect, ScopeBadge } from './EntityScopeSelect'
 import { expireSessionOn401 } from '@/lib/auth'
 import { KnowledgeUploadButton } from '@/components/ai-learning/KnowledgeUpload'
 import { RetrievalTester } from '@/components/ai-learning/RetrievalTester'
+import { aiChannelLabel } from '@/lib/aiLearning'
+import { Trans, useT, type MessageKey } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -80,12 +82,29 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 const inputCls =
   'w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400'
 
-const KIND_LABELS: Record<string, string> = {
-  fact: 'Facts',
-  policy: 'Policies',
-  faq: 'FAQs',
-  event: 'Events',
-  notice: 'Notices',
+/** Knowledge kinds by id — the server's English labels are shown translated. */
+const KIND_LABEL: Record<string, MessageKey> = {
+  fact: 'ai.knowledge.kinds.fact',
+  policy: 'ai.knowledge.kinds.policy',
+  faq: 'ai.knowledge.kinds.faq',
+  event: 'ai.knowledge.kinds.event',
+  notice: 'ai.knowledge.kinds.notice',
+}
+
+const KIND_PLURAL: Record<string, MessageKey> = {
+  fact: 'ai.knowledge.kindsPlural.fact',
+  policy: 'ai.knowledge.kindsPlural.policy',
+  faq: 'ai.knowledge.kindsPlural.faq',
+  event: 'ai.knowledge.kindsPlural.event',
+  notice: 'ai.knowledge.kindsPlural.notice',
+}
+
+const KIND_SHORT: Record<string, MessageKey> = {
+  fact: 'ai.knowledge.kindsShort.fact',
+  policy: 'ai.knowledge.kindsShort.policy',
+  faq: 'ai.knowledge.kindsShort.faq',
+  event: 'ai.knowledge.kindsShort.event',
+  notice: 'ai.knowledge.kindsShort.notice',
 }
 
 const CHANNELS = ['whatsapp', 'email', 'telegram', 'facebook', 'instagram', 'voice']
@@ -93,6 +112,7 @@ const CHANNELS = ['whatsapp', 'email', 'telegram', 'facebook', 'instagram', 'voi
 /** Notices get a distinct amber treatment; expired items grey out rather than
  *  disappearing, so they can be re-dated and reused. */
 function KindChip({ kind }: { kind: string }) {
+  const t = useT()
   const amber = kind === 'notice'
   return (
     <span
@@ -103,28 +123,29 @@ function KindChip({ kind }: { kind: string }) {
           : { background: 'var(--fill)', color: 'var(--text-muted)' }
       }
     >
-      {kind}
+      {KIND_SHORT[kind] ? t(KIND_SHORT[kind]) : kind}
     </span>
   )
 }
 
 function StateChip({ item }: { item: Item }) {
-  if (!item.active) return <span className="shrink-0 text-[10px] font-bold text-text-muted">Off</span>
+  const t = useT()
+  if (!item.active) return <span className="shrink-0 text-[10px] font-bold text-text-muted">{t('common.status.off')}</span>
   if (item.expired)
     return (
       <span className="shrink-0 text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>
-        Expired
+        {t('ai.knowledge.expired')}
       </span>
     )
   if (item.scheduled)
     return (
       <span className="shrink-0 text-[10px] font-bold" style={{ color: 'var(--amber-ink)' }}>
-        Scheduled
+        {t('ai.knowledge.scheduled')}
       </span>
     )
   return (
     <span className="shrink-0 text-[10px] font-bold" style={{ color: 'var(--green-ink)' }}>
-      Live
+      {t('ai.knowledge.live')}
     </span>
   )
 }
@@ -150,6 +171,7 @@ const fromLocalInput = (v: string) => (v ? new Date(v).toISOString() : '')
  * the AI would be handed for a given customer message.
  */
 export function KnowledgeSettings() {
+  const t = useT()
   // Entity scope. With an outlet selected the list shows the organization's
   // knowledge PLUS that outlet's own, each labelled — and new items default to
   // that outlet unless the scope picker says otherwise.
@@ -166,6 +188,11 @@ export function KnowledgeSettings() {
   const [draft, setDraft] = useState<Draft | null>(null)
   const [busy, setBusy] = useState(false)
 
+  // the server's kinds, named in the dashboard's language (its own label for an unknown kind)
+  const kinds = useMemo(
+    () => (data?.kinds ?? []).map((k) => ({ id: k.id, label: KIND_LABEL[k.id] ? t(KIND_LABEL[k.id]) : k.label })),
+    [data, t],
+  )
 
   const load = useCallback(async () => {
     try {
@@ -213,10 +240,10 @@ export function KnowledgeSettings() {
       }
       if (draft.id) {
         await api(`knowledge/${draft.id}`, { method: 'PATCH', body: JSON.stringify(body) })
-        setNotice('Knowledge updated — the AI uses it on the next message.')
+        setNotice(t('ai.knowledge.updated'))
       } else {
         await api('knowledge', { method: 'POST', body: JSON.stringify(body) })
-        setNotice('Knowledge added — the AI uses it on the next message.')
+        setNotice(t('ai.knowledge.added'))
       }
       setDraft(null)
       await load()
@@ -240,10 +267,10 @@ export function KnowledgeSettings() {
   }
 
   const remove = async (item: Item) => {
-    if (!window.confirm(`Delete "${item.title}"? The AI stops mentioning it immediately.`)) return
+    if (!window.confirm(t('ai.knowledge.deleteConfirm', { title: item.title }))) return
     try {
       await api(`knowledge/${item.id}`, { method: 'DELETE' })
-      setNotice(`"${item.title}" deleted.`)
+      setNotice(t('ai.knowledge.deleted', { title: item.title }))
       await load()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -272,7 +299,7 @@ export function KnowledgeSettings() {
   if (!ready || (data === null && !loadError)) {
     return (
       <div className="flex items-center gap-1.5 py-6 text-[12px] text-text-muted">
-        <Loader2 size={13} className="animate-spin" aria-hidden /> Loading knowledge base…
+        <Loader2 size={13} className="animate-spin" aria-hidden /> {t('ai.knowledge.loading')}
       </div>
     )
   }
@@ -285,10 +312,10 @@ export function KnowledgeSettings() {
           style={{ color: 'var(--red-ink)' }}
         >
           <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden />
-          <span>Couldn&apos;t load the knowledge base — {loadError}</span>
+          <span>{t('ai.knowledge.loadError', { error: loadError ?? '' })}</span>
         </div>
         <Button variant="ghost" onClick={load} style={{ marginTop: 10 }}>
-          <RefreshCw size={13} aria-hidden /> Retry
+          <RefreshCw size={13} aria-hidden /> {t('common.actions.retry')}
         </Button>
       </div>
     )
@@ -298,22 +325,25 @@ export function KnowledgeSettings() {
     <div className="flex flex-col gap-4 pt-3.5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
         <p className="min-w-0 max-w-[720px] flex-1 text-[11.5px] leading-relaxed text-text-mid">
-          Everything the AI should know about your business, typed by you — no code, no redeploy. Facts and policies
-          are always available; <span className="font-bold text-text-high">events</span> and{' '}
-          <span className="font-bold text-text-high">notices</span> carry a date range and{' '}
-          <span className="font-bold text-text-high">stop being mentioned on their own</span> when it ends. This
-          reaches every channel and every voice call at once.
+          <Trans
+            k="ai.knowledge.intro"
+            values={{
+              events: <span className="font-bold text-text-high">{t('ai.knowledge.introEvents')}</span>,
+              notices: <span className="font-bold text-text-high">{t('ai.knowledge.introNotices')}</span>,
+              stop: <span className="font-bold text-text-high">{t('ai.knowledge.introStop')}</span>,
+            }}
+          />
         </p>
         {canManage && (
           <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
             <KnowledgeUploadButton
-              kinds={data.kinds}
+              kinds={kinds}
               defaultEntity={activeEntity?.slug ?? null}
               // the modal itself confirms the upload; the list just refreshes underneath
               onUploaded={() => void load()}
             />
             <Button onClick={() => setDraft({ kind: kind || 'fact', active: true, priority: 0, entity: activeEntity?.slug ?? null })}>
-              <Plus size={13} aria-hidden /> New entry
+              <Plus size={13} aria-hidden /> {t('ai.knowledge.newEntry')}
             </Button>
           </div>
         )}
@@ -321,7 +351,7 @@ export function KnowledgeSettings() {
 
       {!canManage && (
         <div className="flex items-center gap-1.5 text-[11px] font-semibold text-text-muted">
-          <Lock size={11} aria-hidden /> Read-only — only an admin can edit the knowledge base.
+          <Lock size={11} aria-hidden /> {t('ai.knowledge.readOnly')}
         </div>
       )}
       {error && (
@@ -351,9 +381,9 @@ export function KnowledgeSettings() {
             color: kind === '' ? 'var(--brand-ink)' : 'var(--text-muted)',
           }}
         >
-          All ({data.items.length})
+          {t('ai.knowledge.allCount', { count: data.items.length })}
         </button>
-        {data.kinds.map((k) => (
+        {kinds.map((k) => (
           <button
             key={k.id}
             onClick={() => setKind(k.id)}
@@ -363,7 +393,10 @@ export function KnowledgeSettings() {
               color: kind === k.id ? 'var(--brand-ink)' : 'var(--text-muted)',
             }}
           >
-            {KIND_LABELS[k.id] || k.label} ({data.counts[k.id] ?? 0})
+            {t('ai.knowledge.kindCount', {
+              label: KIND_PLURAL[k.id] ? t(KIND_PLURAL[k.id]) : k.label,
+              count: data.counts[k.id] ?? 0,
+            })}
           </button>
         ))}
       </div>
@@ -373,11 +406,11 @@ export function KnowledgeSettings() {
         <div className="rounded-xl border border-line bg-fill-subtle p-4">
           <div className="mb-3 flex items-center justify-between">
             <span className="text-[12.5px] font-bold text-text-high">
-              {draft.id ? `Edit "${draft.title}"` : 'New knowledge entry'}
+              {draft.id ? t('ai.knowledge.editTitle', { title: draft.title ?? '' }) : t('ai.knowledge.newTitle')}
             </span>
             <button
               onClick={() => setDraft(null)}
-              aria-label="Close form"
+              aria-label={t('ai.knowledge.closeForm')}
               className="grid h-7 w-7 cursor-pointer place-items-center rounded-md text-text-muted hover:bg-fill-hover"
             >
               <X size={14} aria-hidden />
@@ -386,18 +419,18 @@ export function KnowledgeSettings() {
 
           <div className="grid gap-3 md:grid-cols-2">
             <label className="block">
-              <span className="mb-1 block text-[10.5px] font-bold text-text-high">Type</span>
+              <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('common.fields.type')}</span>
               <Select
                 value={draft.kind || 'fact'}
                 onChange={(v) => setDraft({ ...draft, kind: v })}
-                options={data.kinds.map((k) => ({ value: k.id, label: k.label }))}
+                options={kinds.map((k) => ({ value: k.id, label: k.label }))}
                 size="md"
-                ariaLabel="Type"
+                ariaLabel={t('common.fields.type')}
                 className="w-full"
               />
             </label>
             <label className="block">
-              <span className="mb-1 block text-[10.5px] font-bold text-text-high">Priority</span>
+              <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.knowledge.priority')}</span>
               <input
                 type="number"
                 value={draft.priority ?? 0}
@@ -411,25 +444,23 @@ export function KnowledgeSettings() {
               outlet's own. A branch-specific notice ("Studio 2 closed") must
               never reach another branch's customers. */}
           <label className="mt-3 block">
-            <span className="mb-1 block text-[10.5px] font-bold text-text-high">Applies to</span>
+            <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.common.appliesTo')}</span>
             <EntityScopeSelect
               value={draft.entity ?? null}
               onChange={(slug) => setDraft({ ...draft, entity: slug })}
-              globalLabel="All entities (organization-wide)"
+              globalLabel={t('ai.common.allEntitiesOrg')}
               className="w-full"
             />
             <span className="mt-1 block text-[10.5px] text-text-muted">
-              {draft.entity
-                ? 'Only customers of this entity will hear it.'
-                : 'Every entity inherits this.'}
+              {draft.entity ? t('ai.knowledge.onlyCustomers') : t('ai.knowledge.everyInheritsThis')}
             </span>
           </label>
 
           <label className="mt-3 block">
-            <span className="mb-1 block text-[10.5px] font-bold text-text-high">Title</span>
+            <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('common.fields.title')}</span>
             <input
               value={draft.title || ''}
-              placeholder="Opening hours"
+              placeholder={t('ai.knowledge.titlePlaceholder')}
               onChange={(e) => setDraft({ ...draft, title: e.target.value })}
               className={inputCls}
             />
@@ -437,12 +468,10 @@ export function KnowledgeSettings() {
 
           {draft.kind === 'faq' && (
             <label className="mt-3 block">
-              <span className="mb-1 block text-[10.5px] font-bold text-text-high">
-                Question (how a contact would ask it)
-              </span>
+              <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.knowledge.question')}</span>
               <input
                 value={draft.question || ''}
-                placeholder="How long does a refund take?"
+                placeholder={t('ai.knowledge.questionPlaceholder')}
                 onChange={(e) => setDraft({ ...draft, question: e.target.value })}
                 className={inputCls}
               />
@@ -450,11 +479,11 @@ export function KnowledgeSettings() {
           )}
 
           <label className="mt-3 block">
-            <span className="mb-1 block text-[10.5px] font-bold text-text-high">Content</span>
+            <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.knowledge.content')}</span>
             <textarea
               rows={4}
               value={draft.content || ''}
-              placeholder="We're open 9am to 6pm, Monday to Saturday."
+              placeholder={t('ai.knowledge.contentPlaceholder')}
               onChange={(e) => setDraft({ ...draft, content: e.target.value })}
               className={`${inputCls} resize-y leading-[1.6]`}
             />
@@ -462,13 +491,13 @@ export function KnowledgeSettings() {
 
           <label className="mt-3 block">
             <span className="mb-1 block text-[10.5px] font-bold text-text-high">
-              Tags{' '}
-              <span className="font-normal text-text-muted">(matching hints — type one, press Enter to add)</span>
+              {t('common.fields.tags')}{' '}
+              <span className="font-normal text-text-muted">{t('ai.knowledge.tagsHint')}</span>
             </span>
             <TagListInput
               value={draft.tags || []}
-              placeholder="e.g. refund"
-              addLabel="Add tag"
+              placeholder={t('ai.knowledge.tagsPlaceholder')}
+              addLabel={t('ai.knowledge.addTag')}
               onChange={(tags) => setDraft({ ...draft, tags })}
             />
           </label>
@@ -484,24 +513,22 @@ export function KnowledgeSettings() {
                 className="h-3.5 w-3.5 accent-emerald-500"
               />
               <span className="text-[12px] text-text-primary">
-                Publish to the Help Center
-                <span className="ml-1 text-[10.5px] text-text-muted">
-                  — customers can read it at /help; the AI uses it either way
-                </span>
+                {t('ai.knowledge.publish')}
+                <span className="ml-1 text-[10.5px] text-text-muted">{t('ai.knowledge.publishHint')}</span>
               </span>
             </label>
             {draft.published && (
               <label className="mt-2 block">
-                <span className="mb-1 block text-[10.5px] font-bold text-text-high">Category</span>
+                <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.knowledge.category')}</span>
                 <input
                   value={draft.category || ''}
-                  placeholder="Billing"
+                  placeholder={t('ai.knowledge.categoryPlaceholder')}
                   onChange={(e) => setDraft({ ...draft, category: e.target.value })}
                   className={inputCls}
                 />
                 {draft.slug && (
                   <span className="mt-1 block text-[10.5px] text-text-muted">
-                    Public link: <code className="rounded bg-fill px-1">/help/{draft.slug}</code>
+                    {t('ai.knowledge.publicLink')} <code className="rounded bg-fill px-1">/help/{draft.slug}</code>
                   </span>
                 )}
               </label>
@@ -509,9 +536,7 @@ export function KnowledgeSettings() {
           </div>
 
           <div className="mt-3">
-            <span className="mb-1 block text-[10.5px] font-bold text-text-high">
-              Channels (none selected = every channel)
-            </span>
+            <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.common.channelsNoneEvery')}</span>
             <div className="flex flex-wrap gap-1.5">
               {CHANNELS.map((c) => {
                 const on = (draft.channels || []).includes(c)
@@ -532,7 +557,7 @@ export function KnowledgeSettings() {
                       color: on ? 'var(--brand-ink)' : 'var(--text-muted)',
                     }}
                   >
-                    {c}
+                    {aiChannelLabel(c, t)}
                   </button>
                 )
               })}
@@ -541,7 +566,7 @@ export function KnowledgeSettings() {
 
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             <label className="block">
-              <span className="mb-1 block text-[10.5px] font-bold text-text-high">Starts (optional)</span>
+              <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.knowledge.starts')}</span>
               <input
                 type="datetime-local"
                 value={toLocalInput(draft.starts_at)}
@@ -550,9 +575,7 @@ export function KnowledgeSettings() {
               />
             </label>
             <label className="block">
-              <span className="mb-1 block text-[10.5px] font-bold text-text-high">
-                Ends (optional — it expires itself)
-              </span>
+              <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.knowledge.ends')}</span>
               <input
                 type="datetime-local"
                 value={toLocalInput(draft.ends_at)}
@@ -568,16 +591,16 @@ export function KnowledgeSettings() {
               checked={draft.active ?? true}
               onChange={(e) => setDraft({ ...draft, active: e.target.checked })}
             />
-            Active
+            {t('common.status.active')}
           </label>
 
           <div className="mt-3 flex items-center gap-2">
             <Button onClick={submit} disabled={busy || !(draft.title || '').trim() || !(draft.content || '').trim()}>
               {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <CheckCircle size={13} aria-hidden />}
-              {draft.id ? 'Save changes' : 'Add entry'}
+              {draft.id ? t('ai.knowledge.saveChanges') : t('ai.knowledge.addEntry')}
             </Button>
             <Button variant="ghost" onClick={() => setDraft(null)} disabled={busy}>
-              Cancel
+              {t('common.actions.cancel')}
             </Button>
           </div>
         </div>
@@ -587,7 +610,7 @@ export function KnowledgeSettings() {
       <div className="flex flex-col gap-1.5">
         {items.length === 0 && (
           <div className="rounded-xl border border-dashed border-line-strong px-4 py-6 text-center text-[12px] text-text-muted">
-            Nothing here yet — add your opening hours, your return policy, or a notice about a delay.
+            {t('ai.knowledge.emptyList')}
           </div>
         )}
         {items.map((item) => (
@@ -608,7 +631,7 @@ export function KnowledgeSettings() {
               {item.source_file && (
                 <span className="mt-0.5 flex min-w-0 items-center gap-1 text-[10px] font-semibold text-text-muted sm:hidden">
                   <FileText size={10} className="shrink-0" aria-hidden />
-                  <span className="truncate">Source: {item.source_file}</span>
+                  <span className="truncate">{t('ai.knowledge.source', { file: item.source_file })}</span>
                 </span>
               )}
             </button>
@@ -620,18 +643,18 @@ export function KnowledgeSettings() {
             {item.source_file && (
               <span
                 className="hidden min-w-0 max-w-[180px] shrink items-center gap-1 rounded-full bg-fill px-2 py-px text-[9.5px] font-bold text-text-muted sm:inline-flex"
-                title={`Uploaded from ${item.source_file}`}
+                title={t('ai.knowledge.uploadedFrom', { file: item.source_file })}
               >
                 <FileText size={10} className="shrink-0" aria-hidden />
-                <span className="truncate">Source: {item.source_file}</span>
+                <span className="truncate">{t('ai.knowledge.source', { file: item.source_file })}</span>
               </span>
             )}
             {item.published && (
               <span
                 className="shrink-0 rounded-full bg-brand-400/15 px-2 py-px text-[9.5px] font-bold text-brand-300"
-                title="Readable by customers at /help"
+                title={t('ai.knowledge.publishedTitle')}
               >
-                Published
+                {t('ai.knowledge.published')}
               </span>
             )}
             <StateChip item={item} />
@@ -639,16 +662,20 @@ export function KnowledgeSettings() {
               <>
                 <button
                   onClick={() => toggleActive(item)}
-                  title={item.active ? 'Turn off' : 'Turn on'}
-                  aria-label={`${item.active ? 'Deactivate' : 'Activate'} ${item.title}`}
+                  title={item.active ? t('ai.knowledge.turnOff') : t('ai.knowledge.turnOn')}
+                  aria-label={
+                    item.active
+                      ? t('ai.knowledge.deactivate', { title: item.title })
+                      : t('ai.knowledge.activate', { title: item.title })
+                  }
                   className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
                 >
                   <BookOpen size={13} aria-hidden />
                 </button>
                 <button
                   onClick={() => remove(item)}
-                  title={`Delete ${item.title}`}
-                  aria-label={`Delete ${item.title}`}
+                  title={t('ai.knowledge.deleteItem', { title: item.title })}
+                  aria-label={t('ai.knowledge.deleteItem', { title: item.title })}
                   className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/15 hover:text-red-300"
                 >
                   <Trash2 size={13} aria-hidden />

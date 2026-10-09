@@ -28,14 +28,13 @@ import { CodeEditor } from './CodeEditor'
 import { TestCasesEditor, rowsToTests, testsToRows, type TestRow } from './TestCasesEditor'
 import { AppSkillForm, calendarConfigProblem } from './AppSkillForm'
 import {
-  APP_INSTRUCTIONS,
-  APP_USE_WHEN,
-  CHANNEL_OPTIONS,
   KIND_META,
   ON_FAIL_OPTIONS,
   aicore,
+  appLabel,
   calendarApp,
   calendarConfig,
+  channelOptions,
   fetchApps,
   newSkillId,
   pretty,
@@ -48,6 +47,7 @@ import {
   type SkillKind,
   type TestResponse,
 } from './skillsApi'
+import { useFormat, useT, type MessageKey, type TFunction } from '@/i18n'
 
 /**
  * The skill wizard: Describe → Clarify → Review → Test → Save.
@@ -78,18 +78,18 @@ type Hint = '' | Exclude<SkillKind, 'app'>
 const input =
   'w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[13px] text-text-primary outline-none transition-colors focus:border-brand-400 disabled:opacity-70'
 
-const EXAMPLES: { text: string; kind: Hint }[] = [
-  { text: 'Tell customers whether we are open right now and when we open next', kind: '' },
-  { text: 'Never repeat a customer’s full IC number back to them', kind: 'check' },
-  { text: 'Work out the delivery date 3 business days from today', kind: 'tool' },
-  { text: 'Make sure a reply never says the wrong day of the week', kind: 'check' },
+const EXAMPLES: { text: MessageKey; kind: Hint }[] = [
+  { text: 'ai.wizard.examples.open', kind: '' },
+  { text: 'ai.wizard.examples.ic', kind: 'check' },
+  { text: 'ai.wizard.examples.delivery', kind: 'tool' },
+  { text: 'ai.wizard.examples.weekday', kind: 'check' },
 ]
 
-const KIND_CHOICES: { value: Hint; label: string; blurb: string; Icon: typeof Wand2 }[] = [
-  { value: '', label: 'Let the AI decide', blurb: 'Pick the best fit from your description', Icon: Wand2 },
-  { value: 'tool', label: 'Tool', blurb: 'Code the AI calls for an exact answer', Icon: Wrench },
-  { value: 'check', label: 'Reply check', blurb: 'Code that vets every reply before sending', Icon: ShieldCheck },
-  { value: 'prompt', label: 'Instructions', blurb: 'Guidance in plain words — no code', Icon: BookOpen },
+const KIND_CHOICES: { value: Hint; label: MessageKey; blurb: MessageKey; Icon: typeof Wand2 }[] = [
+  { value: '', label: 'ai.wizard.kindChoices.auto', blurb: 'ai.wizard.kindChoices.autoBlurb', Icon: Wand2 },
+  { value: 'tool', label: 'ai.skills.kinds.tool.label', blurb: 'ai.wizard.kindChoices.toolBlurb', Icon: Wrench },
+  { value: 'check', label: 'ai.skills.kinds.check.label', blurb: 'ai.wizard.kindChoices.checkBlurb', Icon: ShieldCheck },
+  { value: 'prompt', label: 'ai.wizard.kindChoices.prompt', blurb: 'ai.wizard.kindChoices.promptBlurb', Icon: BookOpen },
 ]
 
 interface Form {
@@ -133,15 +133,15 @@ function formFromSkill(s: Skill): Form {
   }
 }
 
-/** A fresh Calendar booking skill, prefilled — the server's defaults when known. */
-function newAppForm(scope: string | null, app: AppCatalogEntry): Form {
+/** A fresh Calendar booking skill, prefilled (in the dashboard's language) — the server's defaults when known. */
+function newAppForm(scope: string | null, app: AppCatalogEntry, t: TFunction): Form {
   return {
     id: newSkillId(),
-    name: 'Calendar booking',
+    name: t('ai.wizard.appDefaults.name'),
     kind: 'app',
-    useWhen: APP_USE_WHEN,
-    description: 'Checks the calendar for free times and books, reschedules or cancels appointments.',
-    instructions: APP_INSTRUCTIONS,
+    useWhen: t('ai.wizard.appDefaults.useWhen'),
+    description: t('ai.wizard.appDefaults.description'),
+    instructions: t('ai.wizard.appDefaults.instructions'),
     code: '',
     params: '',
     rows: [],
@@ -170,6 +170,7 @@ export function SkillWizard({
   onClose: () => void
   onSaved: (message: string) => void
 }) {
+  const t = useT()
   const editing = init.mode === 'edit'
   const original = init.mode === 'edit' ? init.skill : null
   // "New connected app" opens straight on Set up — there is nothing to describe
@@ -181,7 +182,7 @@ export function SkillWizard({
   const [qa, setQa] = useState<{ question: string; answer: string }[]>([])
   const [round, setRound] = useState(0) // index in qa where the current batch starts
   const [form, setForm] = useState<Form | null>(
-    original ? formFromSkill(original) : directApp ? newAppForm(defaultScope, calendarApp(null)) : null,
+    original ? formFromSkill(original) : directApp ? newAppForm(defaultScope, calendarApp(null), t) : null,
   )
   const [note, setNote] = useState<{ text: string; source: string } | null>(null)
   const [busy, setBusy] = useState<false | 'draft' | 'test' | 'save'>(false)
@@ -227,7 +228,7 @@ export function SkillWizard({
   const startApp = () => {
     setError(null)
     setNote(null)
-    setForm(newAppForm(defaultScope, calendarApp(apps.list)))
+    setForm(newAppForm(defaultScope, calendarApp(apps.list), t))
     setStep('review')
   }
 
@@ -290,7 +291,7 @@ export function SkillWizard({
 
   const testsPayload = () => {
     if (!form || !isCodeKind(form.kind)) return { tests: [] as unknown[], error: null as string | null }
-    return rowsToTests(form.kind, form.rows)
+    return rowsToTests(form.kind, form.rows, t)
   }
 
   const paramsPayload = (): { value: unknown; error: string | null } => {
@@ -298,19 +299,19 @@ export function SkillWizard({
     try {
       const v = JSON.parse(form.params)
       if (!v || typeof v !== 'object' || Array.isArray(v))
-        return { value: null, error: 'The parameters must be a JSON object (a JSON schema).' }
+        return { value: null, error: t('ai.wizard.paramsObject') }
       return { value: v, error: null }
     } catch {
-      return { value: null, error: 'The parameters are not valid JSON.' }
+      return { value: null, error: t('ai.wizard.paramsJson') }
     }
   }
 
   const runTests = async () => {
     if (!form || !isCodeKind(form.kind)) return
-    const t = testsPayload()
+    const tp = testsPayload()
     const p = paramsPayload()
-    if (t.error || p.error) {
-      setError(t.error || p.error)
+    if (tp.error || p.error) {
+      setError(tp.error || p.error)
       return
     }
     setBusy('test')
@@ -319,7 +320,7 @@ export function SkillWizard({
     try {
       const r = await aicore<TestResponse>('skills/test', {
         method: 'POST',
-        body: JSON.stringify({ kind: form.kind, code: form.code, tests: t.tests }),
+        body: JSON.stringify({ kind: form.kind, code: form.code, tests: tp.tests }),
       })
       setRun(r)
       setStale(false)
@@ -338,14 +339,14 @@ export function SkillWizard({
     if (!form) return
     const name = form.name.trim()
     if (!name) {
-      setError('Give the skill a name.')
+      setError(t('ai.wizard.nameRequired'))
       return
     }
-    const t = testsPayload()
+    const tp = testsPayload()
     const p = paramsPayload()
-    const appProblem = form.kind === 'app' && form.config ? calendarConfigProblem(form.config) : null
-    if (t.error || p.error || appProblem) {
-      setError(t.error || p.error || appProblem)
+    const appProblem = form.kind === 'app' && form.config ? calendarConfigProblem(form.config, t) : null
+    if (tp.error || p.error || appProblem) {
+      setError(tp.error || p.error || appProblem)
       return
     }
     setBusy('save')
@@ -363,7 +364,7 @@ export function SkillWizard({
           description: form.description,
           code: code ? form.code : '',
           parameters: p.value,
-          tests: t.tests,
+          tests: tp.tests,
           enabled,
           channels: form.channels,
           onFail: form.onFail,
@@ -374,10 +375,10 @@ export function SkillWizard({
       )
       onSaved(
         enabled
-          ? `“${name}” saved — the AI uses it from the next message.`
+          ? t('ai.wizard.savedOn', { name })
           : code
-            ? `“${name}” saved switched off — turn it on once its tests pass.`
-            : `“${name}” saved switched off.`,
+            ? t('ai.wizard.savedOffCode', { name })
+            : t('ai.wizard.savedOff', { name }),
       )
       onClose()
     } catch (e) {
@@ -393,39 +394,43 @@ export function SkillWizard({
     const out: { id: Step; label: string }[] = []
     if (isApp) {
       // an app is configured, not drafted: Describe (where it was picked) → Set up
-      if (!editing && !directApp) out.push({ id: 'describe', label: 'Describe' })
-      out.push({ id: 'review', label: 'Set up' })
+      if (!editing && !directApp) out.push({ id: 'describe', label: t('ai.wizard.steps.describe') })
+      out.push({ id: 'review', label: t('ai.wizard.steps.setUp') })
       return out
     }
-    if (!editing) out.push({ id: 'describe', label: 'Describe' }, { id: 'clarify', label: 'Clarify' })
-    out.push({ id: 'review', label: isCode ? 'Review code' : 'Review' })
-    if (isCode) out.push({ id: 'test', label: 'Run tests' })
+    if (!editing)
+      out.push(
+        { id: 'describe', label: t('ai.wizard.steps.describe') },
+        { id: 'clarify', label: t('ai.wizard.steps.clarify') },
+      )
+    out.push({ id: 'review', label: isCode ? t('ai.wizard.steps.reviewCode') : t('ai.wizard.steps.review') })
+    if (isCode) out.push({ id: 'test', label: t('ai.wizard.steps.runTests') })
     return out
-  }, [editing, isCode, isApp, directApp])
+  }, [editing, isCode, isApp, directApp, t])
 
   const title = editing
     ? readOnly
-      ? form?.name ?? 'Skill'
-      : `Edit “${original?.name}”`
+      ? form?.name ?? t('ai.wizard.skillFallback')
+      : t('ai.wizard.editTitle', { name: original?.name ?? '' })
     : isApp && step === 'review'
-      ? 'New connected app'
-      : 'New skill'
+      ? t('ai.wizard.newApp')
+      : t('ai.wizard.newSkill')
   const subtitle: Record<Step, string> = {
-    describe: 'Say in your own words what the AI should be able to do. It will ask if anything is unclear.',
-    clarify: 'A few questions so the code does exactly what you mean.',
+    describe: t('ai.wizard.subtitles.describe'),
+    clarify: t('ai.wizard.subtitles.clarify'),
     review: isApp
-      ? 'Choose the calendar, when the AI may book, and preview the free times it would offer.'
+      ? t('ai.wizard.subtitles.reviewApp')
       : isCode
-        ? 'Check the code and its test cases — everything here is editable.'
-        : 'Check the wording and when it applies.',
-    test: 'The tests run in the same sandbox the AI uses for real replies.',
+        ? t('ai.wizard.subtitles.reviewCode')
+        : t('ai.wizard.subtitles.reviewPrompt'),
+    test: t('ai.wizard.subtitles.test'),
   }
 
   const footer = (() => {
     if (readOnly)
       return (
         <Button variant="secondary" onClick={onClose}>
-          Close
+          {t('common.actions.close')}
         </Button>
       )
     const spinner = <Loader2 size={13} className="animate-spin" aria-hidden />
@@ -434,10 +439,10 @@ export function SkillWizard({
       return (
         <>
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {t('common.actions.cancel')}
           </Button>
           <Button onClick={() => draft([])} disabled={!!busy || description.trim().length < 4}>
-            {spin || <Sparkles size={13} aria-hidden />} Continue
+            {spin || <Sparkles size={13} aria-hidden />} {t('common.actions.continue')}
           </Button>
         </>
       )
@@ -446,19 +451,17 @@ export function SkillWizard({
       return (
         <>
           <Button variant="ghost" onClick={() => setStep('describe')} disabled={!!busy}>
-            <ArrowLeft size={13} aria-hidden /> Back
+            <ArrowLeft size={13} aria-hidden /> {t('common.actions.back')}
           </Button>
           <Button
             variant="secondary"
             disabled={!!busy}
-            onClick={() =>
-              draft(qa.map((x) => ({ ...x, answer: x.answer.trim() || 'No preference — use a sensible default.' })))
-            }
+            onClick={() => draft(qa.map((x) => ({ ...x, answer: x.answer.trim() || t('ai.wizard.noPreference') })))}
           >
-            Skip — draft now
+            {t('ai.wizard.skipDraft')}
           </Button>
           <Button onClick={() => draft(qa)} disabled={!!busy || current.some((x) => !x.answer.trim())}>
-            {spin} Continue <ArrowRight size={13} aria-hidden />
+            {spin} {t('common.actions.continue')} <ArrowRight size={13} aria-hidden />
           </Button>
         </>
       )
@@ -472,19 +475,19 @@ export function SkillWizard({
               onClick={() => setStep(qa.length && !isApp ? 'clarify' : 'describe')}
               disabled={!!busy}
             >
-              <ArrowLeft size={13} aria-hidden /> Back
+              <ArrowLeft size={13} aria-hidden /> {t('common.actions.back')}
             </Button>
           )}
           <Button variant="ghost" onClick={onClose} disabled={!!busy}>
-            Cancel
+            {t('common.actions.cancel')}
           </Button>
           {isCode ? (
             <Button onClick={runTests} disabled={!!busy}>
-              {busy === 'test' ? spinner : <Play size={13} aria-hidden />} Run tests
+              {busy === 'test' ? spinner : <Play size={13} aria-hidden />} {t('ai.wizard.runTests')}
             </Button>
           ) : (
             <Button onClick={() => save(form?.enabled ?? true)} disabled={!!busy}>
-              {busy === 'save' ? spinner : <Check size={13} aria-hidden />} Save
+              {busy === 'save' ? spinner : <Check size={13} aria-hidden />} {t('common.actions.save')}
             </Button>
           )}
         </>
@@ -492,17 +495,17 @@ export function SkillWizard({
     return (
       <>
         <Button variant="ghost" onClick={() => setStep('review')} disabled={!!busy}>
-          <ArrowLeft size={13} aria-hidden /> Back to code
+          <ArrowLeft size={13} aria-hidden /> {t('ai.wizard.backToCode')}
         </Button>
         <Button variant="secondary" onClick={() => save(false)} disabled={!!busy}>
-          Save anyway as disabled
+          {t('ai.wizard.saveDisabled')}
         </Button>
         <Button
           onClick={() => save(true)}
           disabled={!!busy || !allPassed}
-          title={allPassed ? undefined : 'Every test must pass (and there must be at least one) to switch the skill on.'}
+          title={allPassed ? undefined : t('ai.wizard.mustPass')}
         >
-          {busy === 'save' ? spinner : <Check size={13} aria-hidden />} Save &amp; switch on
+          {busy === 'save' ? spinner : <Check size={13} aria-hidden />} {t('ai.wizard.saveSwitchOn')}
         </Button>
       </>
     )
@@ -524,34 +527,34 @@ export function SkillWizard({
       {step === 'describe' && (
         <div className="flex flex-col gap-5">
           <label className="block">
-            <span className="mb-1.5 block text-[12px] font-semibold text-text-high">What should the AI be able to do?</span>
+            <span className="mb-1.5 block text-[12px] font-semibold text-text-high">{t('ai.wizard.whatShould')}</span>
             <textarea
               rows={4}
               value={description}
               autoFocus
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g. Tell customers whether we're open right now, and if not, when we open next."
+              placeholder={t('ai.wizard.describePlaceholder')}
               className={`${input} resize-y leading-[1.6]`}
             />
           </label>
           <div className="flex flex-wrap gap-1.5">
-            <span className="mr-1 self-center text-[11.5px] text-text-muted">Try:</span>
+            <span className="mr-1 self-center text-[11.5px] text-text-muted">{t('ai.wizard.try')}</span>
             {EXAMPLES.map((x) => (
               <button
                 key={x.text}
                 type="button"
                 onClick={() => {
-                  setDescription(x.text)
+                  setDescription(t(x.text))
                   setHint(x.kind)
                 }}
                 className="rounded-full border border-line px-2.5 py-1 text-left text-[11.5px] text-text-mid transition-colors hover:border-line-strong hover:bg-fill-hover hover:text-text-high"
               >
-                {x.text}
+                {t(x.text)}
               </button>
             ))}
           </div>
           <fieldset>
-            <legend className="eyebrow mb-2">Kind of skill</legend>
+            <legend className="eyebrow mb-2">{t('ai.wizard.kindOfSkill')}</legend>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
               {KIND_CHOICES.map(({ value, label, blurb, Icon }) => {
                 const on = hint === value
@@ -567,9 +570,9 @@ export function SkillWizard({
                     }`}
                   >
                     <span className="flex items-center gap-1.5 text-[12.5px] font-semibold text-text-heading">
-                      <Icon size={13} aria-hidden /> {label}
+                      <Icon size={13} aria-hidden /> {t(label)}
                     </span>
-                    <span className="text-[11.5px] leading-snug text-text-muted">{blurb}</span>
+                    <span className="text-[11.5px] leading-snug text-text-muted">{t(blurb)}</span>
                   </button>
                 )
               })}
@@ -584,14 +587,11 @@ export function SkillWizard({
                 <CalendarClock size={15} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-[12.5px] font-semibold text-text-heading">Connected app</span>
-                <span className="block text-[11.5px] leading-snug text-text-muted">
-                  Let the AI use a connected app — e.g. check your calendar and book. Set up directly, no description
-                  needed.
-                </span>
+                <span className="block text-[12.5px] font-semibold text-text-heading">{t(KIND_META.app.label)}</span>
+                <span className="block text-[11.5px] leading-snug text-text-muted">{t('ai.wizard.connectedAppBlurb')}</span>
               </span>
               <span className="inline-flex shrink-0 items-center gap-1 text-[12px] font-semibold text-text-mid">
-                Set up <ArrowRight size={13} aria-hidden />
+                {t('ai.wizard.setUp')} <ArrowRight size={13} aria-hidden />
               </span>
             </button>
           </fieldset>
@@ -626,7 +626,7 @@ export function SkillWizard({
         <div className={step === 'test' ? 'hidden' : 'flex flex-col gap-5'}>
           {note && <Note text={note.text} />}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Field label="Name">
+            <Field label={t('common.fields.name')}>
               <input
                 value={form.name}
                 disabled={readOnly}
@@ -635,20 +635,20 @@ export function SkillWizard({
               />
               {form.kind === 'tool' && (
                 <span className="mt-1 block text-[11px] text-text-muted">
-                  The AI calls it as{' '}
+                  {t('ai.wizard.callsAs')}{' '}
                   <code className="font-mono text-text-mid">
                     {form.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'skill'}()
                   </code>
                 </span>
               )}
             </Field>
-            <Field label="Kind">
+            <Field label={t('ai.common.kind')}>
               {form.kind === 'app' ? (
                 // an app skill holds settings, not code — it can't become another kind
                 <div className="flex h-[38px] items-center gap-2 rounded-lg border border-line bg-fill-subtle px-3 text-[13px] text-text-high">
                   <CalendarClock size={14} className="shrink-0 text-text-muted" aria-hidden />
                   <span className="truncate">
-                    {KIND_META.app.label} · <span className="text-text-muted">{calendarApp(apps.list).label}</span>
+                    {t(KIND_META.app.label)} · <span className="text-text-muted">{appLabel(calendarApp(apps.list), t)}</span>
                   </span>
                 </div>
               ) : (
@@ -661,35 +661,35 @@ export function SkillWizard({
                     if (next === cur) return
                     // tool ↔ check: carry the test cases across in the new shape
                     const carried =
-                      isCodeKind(cur) && isCodeKind(next) ? testsToRows(next, rowsToTests(cur, form.rows).tests) : form.rows
+                      isCodeKind(cur) && isCodeKind(next) ? testsToRows(next, rowsToTests(cur, form.rows, t).tests) : form.rows
                     patch({ kind: next, rows: isCodeKind(next) ? carried : [] })
                   }}
                   size="md"
-                  ariaLabel="Kind"
+                  ariaLabel={t('ai.common.kind')}
                   options={(['prompt', 'tool', 'check'] as SkillKind[]).map((k) => ({
                     value: k,
-                    label: KIND_META[k].label,
-                    hint: k === 'prompt' ? 'no code' : undefined,
+                    label: t(KIND_META[k].label),
+                    hint: k === 'prompt' ? t('ai.wizard.noCode') : undefined,
                   }))}
                 />
               )}
             </Field>
-            <Field label="Use when" hint="When the AI should reach for it.">
+            <Field label={t('ai.wizard.useWhen')} hint={t('ai.wizard.useWhenHint')}>
               <input
                 value={form.useWhen}
                 disabled={readOnly}
                 placeholder={
                   form.kind === 'check'
-                    ? 'every reply'
+                    ? t('ai.wizard.useWhenCheck')
                     : form.kind === 'app'
-                      ? 'e.g. the customer wants to book an appointment'
-                      : 'e.g. the customer asks if we are open'
+                      ? t('ai.wizard.useWhenApp')
+                      : t('ai.wizard.useWhenOther')
                 }
                 onChange={(e) => patch({ useWhen: e.target.value })}
                 className={input}
               />
             </Field>
-            <Field label="Description" hint="What it does, in a sentence — the AI reads this too.">
+            <Field label={t('common.fields.description')} hint={t('ai.wizard.descriptionHint')}>
               <input
                 value={form.description}
                 disabled={readOnly}
@@ -700,22 +700,19 @@ export function SkillWizard({
           </div>
 
           {form.kind === 'prompt' ? (
-            <Field label="Instructions">
+            <Field label={t('ai.wizard.instructions')}>
               <textarea
                 rows={7}
                 value={form.instructions}
                 disabled={readOnly}
-                placeholder="Collect the quantity and company name, then hand the conversation to sales."
+                placeholder={t('ai.wizard.instructionsPlaceholder')}
                 onChange={(e) => patch({ instructions: e.target.value })}
                 className={`${input} resize-y leading-[1.6]`}
               />
             </Field>
           ) : form.kind === 'app' ? (
             <>
-              <Field
-                label="Instructions"
-                hint="How the AI should use the calendar — prefilled with the essentials; edit to taste."
-              >
+              <Field label={t('ai.wizard.instructions')} hint={t('ai.wizard.appInstructionsHint')}>
                 <textarea
                   rows={4}
                   value={form.instructions}
@@ -740,40 +737,41 @@ export function SkillWizard({
           ) : (
             <>
               <Field
-                label="Code"
-                hint={
-                  form.kind === 'tool'
-                    ? 'Define function run(args, ctx) and return the answer. ctx has now, today, time, weekday, timezone, contact; dates.* has date helpers.'
-                    : 'Define function check(reply, ctx) and return { ok: true } or { ok: false, reason, fix }.'
-                }
+                label={t('ai.wizard.code')}
+                hint={form.kind === 'tool' ? t('ai.wizard.codeHintTool') : t('ai.wizard.codeHintCheck')}
               >
-                <CodeEditor value={form.code} readOnly={readOnly} onChange={(v) => patch({ code: v })} ariaLabel="Skill code" />
+                <CodeEditor
+                  value={form.code}
+                  readOnly={readOnly}
+                  onChange={(v) => patch({ code: v })}
+                  ariaLabel={t('ai.wizard.codeAria')}
+                />
               </Field>
               {form.kind === 'tool' && (
-                <Field label="Arguments (JSON schema)" hint="What the AI passes when it calls the tool. Leave empty for none.">
+                <Field label={t('ai.wizard.args')} hint={t('ai.wizard.argsHint')}>
                   <CodeEditor
                     value={form.params}
                     readOnly={readOnly}
                     minRows={4}
                     maxRows={12}
-                    ariaLabel="Arguments schema"
+                    ariaLabel={t('ai.wizard.argsAria')}
                     onChange={(v) => patch({ params: v })}
                   />
                 </Field>
               )}
               {form.kind === 'check' && (
-                <Field label="When a reply fails">
+                <Field label={t('ai.wizard.whenFails')}>
                   <Select
                     value={form.onFail}
                     disabled={readOnly}
                     onChange={(v) => patch({ onFail: v as OnFail })}
                     size="md"
-                    ariaLabel="When a reply fails"
-                    options={ON_FAIL_OPTIONS.map((o) => ({ value: o.value, label: o.label, hint: o.hint }))}
+                    ariaLabel={t('ai.wizard.whenFails')}
+                    options={ON_FAIL_OPTIONS.map((o) => ({ value: o.value, label: t(o.label), hint: t(o.hint) }))}
                   />
                 </Field>
               )}
-              <Field label="Test cases">
+              <Field label={t('ai.wizard.testCases')}>
                 <TestCasesEditor
                   kind={form.kind === 'check' ? 'check' : 'tool'}
                   rows={form.rows}
@@ -786,30 +784,32 @@ export function SkillWizard({
           )}
 
           <div className="grid grid-cols-1 gap-4 border-t border-line pt-4 md:grid-cols-[1fr_1fr_auto]">
-            <Field label="Who uses it">
+            <Field label={t('ai.wizard.whoUses')}>
               <EntityPicker value={form.scope} disabled={readOnly} onChange={(scope) => patch({ scope })} />
             </Field>
-            <Field label="Channels">
+            <Field label={t('ai.common.channels')}>
               <MultiSelect
                 value={form.channels}
                 disabled={readOnly}
                 onChange={(channels) => patch({ channels })}
-                options={CHANNEL_OPTIONS}
-                placeholder="All channels"
+                options={channelOptions(t)}
+                placeholder={t('ai.common.allChannels')}
                 size="md"
-                ariaLabel="Channels"
+                ariaLabel={t('ai.common.channels')}
               />
             </Field>
             {!isCodeKind(form.kind) && (
-              <Field label="Active">
+              <Field label={t('common.status.active')}>
                 <div className="flex h-[38px] items-center gap-2">
                   <Toggle
                     on={form.enabled}
                     disabled={readOnly}
                     onChange={(enabled) => patch({ enabled })}
-                    label="Skill active"
+                    label={t('ai.wizard.skillActive')}
                   />
-                  <span className="text-[12px] text-text-muted">{form.enabled ? 'On' : 'Off'}</span>
+                  <span className="text-[12px] text-text-muted">
+                    {form.enabled ? t('common.status.on') : t('common.status.off')}
+                  </span>
                 </div>
               </Field>
             )}
@@ -899,11 +899,12 @@ function TestStep({
   rows: number
   onRerun: () => void
 }) {
+  const t = useT()
+  const f = useFormat()
   if (busy || !run)
     return (
       <div className="flex items-center gap-2 py-10 text-[13px] text-text-muted">
-        <Loader2 size={15} className="animate-spin" aria-hidden /> Running {rows} test{rows === 1 ? '' : 's'} in the
-        sandbox…
+        <Loader2 size={15} className="animate-spin" aria-hidden /> {t('ai.wizard.running', { count: rows })}
       </div>
     )
   const ok = run.valid && run.total > 0 && run.failed === 0 && !stale
@@ -922,25 +923,25 @@ function TestStep({
         <div className="min-w-0 flex-1">
           <div className="display text-[17px] text-text-heading">
             {!run.valid
-              ? 'The code does not run'
+              ? t('ai.wizard.notRun')
               : run.total === 0
-                ? 'No test cases'
+                ? t('ai.wizard.noCases')
                 : ok
-                  ? `All ${run.total} tests pass`
-                  : `${run.failed} of ${run.total} tests fail`}
+                  ? t('ai.wizard.allPass', { count: run.total })
+                  : t('ai.wizard.failOf', { failed: run.failed, count: run.total })}
           </div>
           <div className="text-[12px] text-text-mid">
             {!run.valid
               ? run.error
               : run.total === 0
-                ? 'Add at least one test case so the skill can be switched on.'
+                ? t('ai.wizard.addOne')
                 : ok
-                  ? 'Ready to switch on.'
-                  : 'Go back to the code, fix it (or the test), and run again — or save it switched off.'}
+                  ? t('ai.wizard.ready')
+                  : t('ai.wizard.goBack')}
           </div>
         </div>
         <Button variant="secondary" size="sm" onClick={onRerun}>
-          <FlaskConical size={13} aria-hidden /> Run again
+          <FlaskConical size={13} aria-hidden /> {t('ai.wizard.runAgain')}
         </Button>
       </div>
 
@@ -949,9 +950,9 @@ function TestStep({
           {run.results.map((r, i) => (
             <li key={i} className="flex flex-wrap items-start gap-x-3 gap-y-1 px-4 py-2.5">
               {r.pass ? (
-                <CheckCircle2 size={14} className="mt-0.5 text-green-300" aria-label="Passed" />
+                <CheckCircle2 size={14} className="mt-0.5 text-green-300" aria-label={t('ai.wizard.passed')} />
               ) : (
-                <XCircle size={14} className="mt-0.5 text-red-300" aria-label="Failed" />
+                <XCircle size={14} className="mt-0.5 text-red-300" aria-label={t('ai.wizard.failed')} />
               )}
               <div className="min-w-0 flex-1">
                 <div className="text-[12.5px] font-semibold text-text-high">{r.name}</div>
@@ -962,11 +963,11 @@ function TestStep({
                     ) : (
                       <>
                         <span className="break-words">
-                          <span className="text-text-faint">expected </span>
+                          <span className="text-text-faint">{t('ai.wizard.expected')} </span>
                           {JSON.stringify(r.expected)}
                         </span>
                         <span className="break-words">
-                          <span className="text-text-faint">got </span>
+                          <span className="text-text-faint">{t('ai.wizard.got')} </span>
                           {JSON.stringify(r.got)}
                         </span>
                       </>
@@ -974,7 +975,9 @@ function TestStep({
                   </div>
                 )}
               </div>
-              <span className="font-mono text-[11px] text-text-faint">{r.ms.toFixed(1)} ms</span>
+              <span className="font-mono text-[11px] text-text-faint">
+                {t('ai.wizard.ms', { ms: f.number(r.ms, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) })}
+              </span>
             </li>
           ))}
         </ul>

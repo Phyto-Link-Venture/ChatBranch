@@ -23,58 +23,131 @@ import { SaveBar } from '@/components/ui/BindingGrid'
 import { Select } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
 import { aiApi, type BehaviourField, type BehaviourPayload } from '@/lib/aiMonitor'
+import { useFormat, useT, type MessageKey, type TFunction } from '@/i18n'
 
-const OPTION_LABELS: Record<string, Record<string, string>> = {
+const OPTION_LABELS: Record<string, Record<string, MessageKey>> = {
   ai_review_mode: {
-    auto: 'Send straight away',
-    review_flagged: 'Review risky replies',
-    review_all: 'Review every reply',
-    shadow: 'Shadow mode — draft only, never send',
+    auto: 'ai.behaviour.options.reviewMode.auto',
+    review_flagged: 'ai.behaviour.options.reviewMode.reviewFlagged',
+    review_all: 'ai.behaviour.options.reviewMode.reviewAll',
+    shadow: 'ai.behaviour.options.reviewMode.shadow',
   },
   ai_learning_mode: {
-    review: 'Review first — a person approves every lesson',
-    auto: 'Learn from admins straight away, review the rest',
-    off: 'Off — count ratings, learn nothing',
+    review: 'ai.behaviour.options.learningMode.review',
+    auto: 'ai.behaviour.options.learningMode.auto',
+    off: 'ai.behaviour.options.learningMode.off',
   },
   ai_split: {
-    off: 'Don’t split',
-    auto: 'Split replies longer than the limit',
-    always: 'Always split at paragraph breaks',
+    off: 'ai.behaviour.options.split.off',
+    auto: 'ai.behaviour.options.split.auto',
+    always: 'ai.behaviour.options.split.always',
   },
 }
 
+/**
+ * The server sends each field's label/help in English (its catalog is the
+ * engine's contract). They are shown in the dashboard's language by the
+ * field's stable `key`; an unknown key falls back to the server's own text.
+ */
+const FIELD_TEXT: Record<string, { label: MessageKey; help?: MessageKey }> = {
+  ai_review_mode: { label: 'ai.behaviour.fields.reviewMode.label', help: 'ai.behaviour.fields.reviewMode.help' },
+  ai_review_autosend_minutes: {
+    label: 'ai.behaviour.fields.autosendMinutes.label',
+    help: 'ai.behaviour.fields.autosendMinutes.help',
+  },
+  ai_review_first_n: { label: 'ai.behaviour.fields.firstN.label', help: 'ai.behaviour.fields.firstN.help' },
+  ai_review_keywords: { label: 'ai.behaviour.fields.keywords.label', help: 'ai.behaviour.fields.keywords.help' },
+  ai_review_notify: { label: 'ai.behaviour.fields.notify.label', help: 'ai.behaviour.fields.notify.help' },
+  ai_wait_seconds: { label: 'ai.behaviour.fields.waitSeconds.label', help: 'ai.behaviour.fields.waitSeconds.help' },
+  ai_wait_max_seconds: {
+    label: 'ai.behaviour.fields.waitMaxSeconds.label',
+    help: 'ai.behaviour.fields.waitMaxSeconds.help',
+  },
+  ai_ack_skip: { label: 'ai.behaviour.fields.ackSkip.label', help: 'ai.behaviour.fields.ackSkip.help' },
+  ai_ack_text: { label: 'ai.behaviour.fields.ackText.label', help: 'ai.behaviour.fields.ackText.help' },
+  ai_typing: { label: 'ai.behaviour.fields.typing.label', help: 'ai.behaviour.fields.typing.help' },
+  ai_typing_cps: { label: 'ai.behaviour.fields.typingCps.label', help: 'ai.behaviour.fields.typingCps.help' },
+  ai_typing_min_s: { label: 'ai.behaviour.fields.typingMin.label' },
+  ai_typing_max_s: { label: 'ai.behaviour.fields.typingMax.label' },
+  ai_split: { label: 'ai.behaviour.fields.split.label', help: 'ai.behaviour.fields.split.help' },
+  ai_split_max_chars: { label: 'ai.behaviour.fields.splitMaxChars.label' },
+  ai_followup: { label: 'ai.behaviour.fields.followUp.label', help: 'ai.behaviour.fields.followUp.help' },
+  ai_followup_first_hours: { label: 'ai.behaviour.fields.followUpFirstHours.label' },
+  ai_followup_between_hours: { label: 'ai.behaviour.fields.followUpBetweenHours.label' },
+  ai_followup_max: { label: 'ai.behaviour.fields.followUpMax.label' },
+  ai_followup_template: {
+    label: 'ai.behaviour.fields.followUpTemplate.label',
+    help: 'ai.behaviour.fields.followUpTemplate.help',
+  },
+  ai_followup_guidance: {
+    label: 'ai.behaviour.fields.followUpGuidance.label',
+    help: 'ai.behaviour.fields.followUpGuidance.help',
+  },
+  ai_learning_mode: { label: 'ai.behaviour.fields.learningMode.label', help: 'ai.behaviour.fields.learningMode.help' },
+}
+
+/** Group titles/descriptions by group id (the server's English for an unknown group). */
+const GROUP_TEXT: Record<string, { title: MessageKey; description: MessageKey }> = {
+  review: { title: 'ai.behaviour.groups.review.title', description: 'ai.behaviour.groups.review.description' },
+  wait: { title: 'ai.behaviour.groups.wait.title', description: 'ai.behaviour.groups.wait.description' },
+  typing: { title: 'ai.behaviour.groups.typing.title', description: 'ai.behaviour.groups.typing.description' },
+  split: { title: 'ai.behaviour.groups.split.title', description: 'ai.behaviour.groups.split.description' },
+  followup: { title: 'ai.behaviour.groups.followup.title', description: 'ai.behaviour.groups.followup.description' },
+  learning: { title: 'ai.behaviour.groups.learning.title', description: 'ai.behaviour.groups.learning.description' },
+}
+
+/** A field's label in the dashboard's language (server text for an unknown key). */
+export function behaviourFieldLabel(f: Pick<BehaviourField, 'key' | 'label'>, t: TFunction): string {
+  const k = FIELD_TEXT[f.key]
+  return k ? t(k.label) : f.label
+}
+
+/** A field's help line in the dashboard's language ("" when the server sends none). */
+function behaviourFieldHelp(f: Pick<BehaviourField, 'key' | 'help'>, t: TFunction): string {
+  if (!f.help) return ''
+  const k = FIELD_TEXT[f.key]?.help
+  return k ? t(k) : f.help
+}
+
+/** One select option's label (the raw value for an option this build doesn't know). */
+function optionLabel(fieldKey: string, value: string, t: TFunction): string {
+  const k = OPTION_LABELS[fieldKey]?.[value]
+  return k ? t(k) : value
+}
+
 /** Fields that only matter when another one is set a certain way. */
-const DEPENDS: Record<string, { on: string; when: (v: string) => boolean; note: string }> = {
+const DEPENDS: Record<string, { on: string; when: (v: string) => boolean; note: MessageKey }> = {
   ai_review_autosend_minutes: {
     on: 'ai_review_mode',
     when: (v) => v === 'review_flagged' || v === 'review_all',
-    note: 'Used when replies are held for review.',
+    note: 'ai.behaviour.depends.held',
   },
-  ai_review_first_n: { on: 'ai_review_mode', when: (v) => v === 'review_flagged', note: 'Used in “Review risky replies”.' },
-  ai_review_keywords: { on: 'ai_review_mode', when: (v) => v === 'review_flagged', note: 'Used in “Review risky replies”.' },
-  ai_wait_max_seconds: { on: 'ai_wait_seconds', when: (v) => Number(v) > 0, note: 'Used when the wait is on.' },
-  ai_ack_text: { on: 'ai_ack_skip', when: (v) => v === 'true', note: 'Used when acknowledgements are skipped.' },
-  ai_typing_cps: { on: 'ai_typing', when: (v) => v === 'true', note: 'Used when typing is on.' },
-  ai_typing_min_s: { on: 'ai_typing', when: (v) => v === 'true', note: 'Used when typing is on.' },
-  ai_typing_max_s: { on: 'ai_typing', when: (v) => v === 'true', note: 'Used when typing is on.' },
-  ai_split_max_chars: { on: 'ai_split', when: (v) => v !== 'off', note: 'Used when splitting is on.' },
-  ai_followup_first_hours: { on: 'ai_followup', when: (v) => v === 'true', note: 'Used when follow-ups are on.' },
-  ai_followup_between_hours: { on: 'ai_followup', when: (v) => v === 'true', note: 'Used when follow-ups are on.' },
-  ai_followup_max: { on: 'ai_followup', when: (v) => v === 'true', note: 'Used when follow-ups are on.' },
-  ai_followup_template: { on: 'ai_followup', when: (v) => v === 'true', note: 'Used when follow-ups are on.' },
-  ai_followup_guidance: { on: 'ai_followup', when: (v) => v === 'true', note: 'Used when follow-ups are on.' },
+  ai_review_first_n: { on: 'ai_review_mode', when: (v) => v === 'review_flagged', note: 'ai.behaviour.depends.risky' },
+  ai_review_keywords: { on: 'ai_review_mode', when: (v) => v === 'review_flagged', note: 'ai.behaviour.depends.risky' },
+  ai_wait_max_seconds: { on: 'ai_wait_seconds', when: (v) => Number(v) > 0, note: 'ai.behaviour.depends.wait' },
+  ai_ack_text: { on: 'ai_ack_skip', when: (v) => v === 'true', note: 'ai.behaviour.depends.ack' },
+  ai_typing_cps: { on: 'ai_typing', when: (v) => v === 'true', note: 'ai.behaviour.depends.typing' },
+  ai_typing_min_s: { on: 'ai_typing', when: (v) => v === 'true', note: 'ai.behaviour.depends.typing' },
+  ai_typing_max_s: { on: 'ai_typing', when: (v) => v === 'true', note: 'ai.behaviour.depends.typing' },
+  ai_split_max_chars: { on: 'ai_split', when: (v) => v !== 'off', note: 'ai.behaviour.depends.split' },
+  ai_followup_first_hours: { on: 'ai_followup', when: (v) => v === 'true', note: 'ai.behaviour.depends.followUps' },
+  ai_followup_between_hours: { on: 'ai_followup', when: (v) => v === 'true', note: 'ai.behaviour.depends.followUps' },
+  ai_followup_max: { on: 'ai_followup', when: (v) => v === 'true', note: 'ai.behaviour.depends.followUps' },
+  ai_followup_template: { on: 'ai_followup', when: (v) => v === 'true', note: 'ai.behaviour.depends.followUps' },
+  ai_followup_guidance: { on: 'ai_followup', when: (v) => v === 'true', note: 'ai.behaviour.depends.followUps' },
 }
 
 const inputCls =
   'w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[13px] text-text-primary outline-none transition-colors focus:border-brand-400 disabled:opacity-60'
 
-function show(field: BehaviourField, v: string): string {
-  if (field.type === 'bool') return v === 'true' ? 'on' : 'off'
-  if (field.type === 'select') return OPTION_LABELS[field.key]?.[v] ?? v
-  return v === '' ? '(blank)' : v
+function show(field: BehaviourField, v: string, t: TFunction): string {
+  if (field.type === 'bool') return v === 'true' ? t('common.status.on') : t('common.status.off')
+  if (field.type === 'select') return optionLabel(field.key, v, t)
+  return v === '' ? t('ai.behaviour.blank') : v
 }
 
 export function AiBehaviourSettings({ initialEntity = null }: { initialEntity?: string | null }) {
+  const t = useT()
   const [entity, setEntity] = useState<string | null>(initialEntity)
   const [data, setData] = useState<BehaviourPayload | null>(null)
   const [draft, setDraft] = useState<Record<string, string>>({})
@@ -119,7 +192,10 @@ export function AiBehaviourSettings({ initialEntity = null }: { initialEntity?: 
           body: JSON.stringify({ values }),
         }),
       )
-      setMsg({ ok: true, text: entity ? `Saved for ${data?.entity_name ?? entity}.` : 'Saved organization defaults.' })
+      setMsg({
+        ok: true,
+        text: entity ? t('ai.common.savedFor', { name: data?.entity_name ?? entity }) : t('ai.behaviour.savedOrg'),
+      })
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
     } finally {
@@ -133,7 +209,7 @@ export function AiBehaviourSettings({ initialEntity = null }: { initialEntity?: 
     try {
       const q = `ai/behaviour?entity=${encodeURIComponent(entity)}${key ? `&key=${encodeURIComponent(key)}` : ''}`
       apply(await aiApi<BehaviourPayload>(q, { method: 'DELETE' }))
-      setMsg({ ok: true, text: key ? 'Back to the organization default.' : 'All overrides removed for this entity.' })
+      setMsg({ ok: true, text: key ? t('ai.behaviour.backToDefault') : t('ai.behaviour.overridesRemoved') })
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
     }
@@ -145,30 +221,30 @@ export function AiBehaviourSettings({ initialEntity = null }: { initialEntity?: 
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-[240px] flex-1 basis-[260px] sm:max-w-[360px]">
-          <label className="mb-1 block text-[12px] font-semibold text-text-mid">Settings for</label>
+          <label className="mb-1 block text-[12px] font-semibold text-text-mid">{t('ai.behaviour.settingsFor')}</label>
           <EntityPicker
             value={entity}
             onChange={(v) => {
-              if (changed.length && !window.confirm('Discard unsaved changes?')) return
+              if (changed.length && !window.confirm(t('ai.behaviour.discardConfirm'))) return
               setEntity(v)
             }}
-            globalLabel="Organization default (every entity)"
-            ariaLabel="Entity whose AI behaviour you are editing"
+            globalLabel={t('ai.behaviour.orgDefaultEvery')}
+            ariaLabel={t('ai.behaviour.entityAria')}
           />
         </div>
         <p className="min-w-0 flex-1 basis-[260px] pb-1 text-[12.5px] leading-relaxed text-text-muted">
           {entity
             ? overrides
-              ? `${overrides} setting${overrides === 1 ? '' : 's'} differ from the organization default here. Everything else inherits it.`
-              : 'This entity inherits every organization default. Change a value to override it here only.'
-            : 'These apply everywhere unless an entity overrides them.'}
+              ? t('ai.behaviour.overridesHere', { count: overrides })
+              : t('ai.behaviour.inheritsAll')
+            : t('ai.behaviour.appliesEverywhere')}
           {entity && overrides > 0 && canManage && (
             <button
               type="button"
               onClick={() => void resetField()}
               className="ml-2 font-semibold text-text-mid underline underline-offset-2 hover:text-text-high"
             >
-              Remove all overrides
+              {t('ai.behaviour.removeAllOverrides')}
             </button>
           )}
         </p>
@@ -176,7 +252,7 @@ export function AiBehaviourSettings({ initialEntity = null }: { initialEntity?: 
 
       {loadError && (
         <div role="alert" className="text-[12.5px] text-[color:var(--red-ink)]">
-          Couldn’t load the settings: {loadError}
+          {t('ai.behaviour.loadError', { error: loadError })}
         </div>
       )}
       {msg && (
@@ -188,12 +264,12 @@ export function AiBehaviourSettings({ initialEntity = null }: { initialEntity?: 
         </div>
       )}
       {data && !canManage && (
-        <p className="text-[12.5px] text-text-muted">You can see these rules; changing them needs the “Edit AI behaviour settings” permission.</p>
+        <p className="text-[12.5px] text-text-muted">{t('ai.behaviour.readOnly')}</p>
       )}
 
       {!data && !loadError && (
         <div className="flex items-center gap-2 p-4 text-[13px] text-text-muted">
-          <Loader2 size={15} className="animate-spin" aria-hidden /> Loading…
+          <Loader2 size={15} className="animate-spin" aria-hidden /> {t('common.status.loading')}
         </div>
       )}
 
@@ -202,8 +278,10 @@ export function AiBehaviourSettings({ initialEntity = null }: { initialEntity?: 
           <div className="flex min-w-0 flex-col gap-4">
             {data.groups.map((g) => (
               <Card key={g.id} className="px-5 py-4">
-                <CardTitle>{g.title}</CardTitle>
-                <p className="mb-3 mt-0.5 text-[12.5px] text-text-muted">{g.description}</p>
+                <CardTitle>{GROUP_TEXT[g.id] ? t(GROUP_TEXT[g.id].title) : g.title}</CardTitle>
+                <p className="mb-3 mt-0.5 text-[12.5px] text-text-muted">
+                  {GROUP_TEXT[g.id] ? t(GROUP_TEXT[g.id].description) : g.description}
+                </p>
                 <div className="flex flex-col divide-y divide-line">
                   {fields
                     .filter((f) => f.group === g.id)
@@ -227,7 +305,11 @@ export function AiBehaviourSettings({ initialEntity = null }: { initialEntity?: 
               saving={saving}
               onSave={() => void save()}
               onDiscard={() => setDraft(Object.fromEntries(fields.map((f) => [f.key, f.value])))}
-              summary={`${changed.length} change${changed.length === 1 ? '' : 's'}${entity ? ` for ${data.entity_name ?? entity}` : ''}`}
+              summary={
+                entity
+                  ? t('ai.behaviour.changesFor', { count: changed.length, name: data.entity_name ?? entity })
+                  : t('ai.behaviour.changes', { count: changed.length })
+              }
             />
           </div>
           <div className="lg:sticky lg:top-0">
@@ -256,6 +338,9 @@ function FieldRow({
   onChange: (v: string) => void
   onReset: () => void
 }) {
+  const t = useT()
+  const label = behaviourFieldLabel(f, t)
+  const help = behaviourFieldHelp(f, t)
   const dep = DEPENDS[f.key]
   const inactive = dep ? !dep.when(all[dep.on] ?? '') : false
   const id = `ab-${f.key}`
@@ -263,16 +348,16 @@ function FieldRow({
 
   const control =
     f.type === 'bool' ? (
-      <Toggle on={value === 'true'} onChange={(v) => onChange(v ? 'true' : 'false')} disabled={disabled} label={f.label} />
+      <Toggle on={value === 'true'} onChange={(v) => onChange(v ? 'true' : 'false')} disabled={disabled} label={label} />
     ) : f.type === 'select' ? (
       <Select
         value={value}
         onChange={onChange}
         disabled={disabled}
         size="md"
-        ariaLabel={f.label}
+        ariaLabel={label}
         className="w-full sm:w-[300px]"
-        options={(f.options ?? []).map((o) => ({ value: o, label: OPTION_LABELS[f.key]?.[o] ?? o }))}
+        options={(f.options ?? []).map((o) => ({ value: o, label: optionLabel(f.key, o, t) }))}
       />
     ) : f.type === 'number' ? (
       <input
@@ -306,10 +391,10 @@ function FieldRow({
       <div className={`flex gap-x-4 gap-y-2 ${wide ? 'flex-col' : 'flex-col sm:flex-row sm:items-start sm:justify-between'}`}>
         <div className="min-w-0 flex-1">
           <label htmlFor={f.type === 'bool' || f.type === 'select' ? undefined : id} className="text-[13px] font-semibold text-text-high">
-            {f.label}
+            {label}
           </label>
-          {f.help && <p className="mt-0.5 text-[12px] leading-relaxed text-text-muted">{f.help}</p>}
-          {inactive && dep && <p className="mt-0.5 text-[11.5px] text-text-faint">{dep.note}</p>}
+          {help && <p className="mt-0.5 text-[12px] leading-relaxed text-text-muted">{help}</p>}
+          {inactive && dep && <p className="mt-0.5 text-[11.5px] text-text-faint">{t(dep.note)}</p>}
         </div>
         <div className={`shrink-0 ${wide ? 'w-full' : ''}`}>{control}</div>
       </div>
@@ -317,21 +402,25 @@ function FieldRow({
         <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11.5px]">
           {f.scope === 'entity' ? (
             <>
-              <span className="rounded-md bg-brand-400/10 px-1.5 py-0.5 font-semibold text-brand-300">Set for this entity</span>
-              <span className="text-text-faint">Organization default: {show(f, f.inherited_value)}</span>
+              <span className="rounded-md bg-brand-400/10 px-1.5 py-0.5 font-semibold text-brand-300">
+                {t('ai.behaviour.setForEntity')}
+              </span>
+              <span className="text-text-faint">
+                {t('ai.behaviour.orgDefaultValue', { value: show(f, f.inherited_value, t) })}
+              </span>
               {!disabled && (
                 <button
                   type="button"
                   onClick={onReset}
                   className="inline-flex items-center gap-1 font-semibold text-text-mid hover:text-text-high"
                 >
-                  <RotateCcw size={11} aria-hidden /> Use default
+                  <RotateCcw size={11} aria-hidden /> {t('ai.behaviour.useDefault')}
                 </button>
               )}
             </>
           ) : (
             <span className="text-text-faint">
-              Inherits organization default{value !== f.value ? ' (overrides when saved)' : ''}
+              {value !== f.value ? t('ai.behaviour.inheritsOverrides') : t('ai.behaviour.inherits')}
             </span>
           )}
         </div>
@@ -344,19 +433,18 @@ function FieldRow({
 
 type Row = { at: number; who: 'customer' | 'ai' | 'note'; text: string }
 
-const SAMPLE = [
-  { at: 0, text: 'Hi' },
-  { at: 6, text: 'Do you deliver to Penang?' },
-  { at: 11, text: 'How much is it?' },
+const SAMPLE: { at: number; text: MessageKey }[] = [
+  { at: 0, text: 'ai.example.msgHi' },
+  { at: 6, text: 'ai.example.msgDeliver' },
+  { at: 11, text: 'ai.example.msgPrice' },
 ]
 
-function sampleReply(covers: number[]): string {
+function sampleReply(covers: number[], t: TFunction): string {
   const has = (i: number) => covers.includes(i)
-  if (has(1) && has(2))
-    return 'Yes, we deliver to Penang — orders placed before noon usually arrive within two working days.\n\nDelivery is RM 15, and free on orders over RM 150.'
-  if (has(2)) return 'Delivery to Penang is RM 15, and free on orders over RM 150.'
-  if (has(1)) return 'Yes, we deliver to Penang — orders placed before noon usually arrive within two working days.'
-  return 'Hi! How can I help you today?'
+  if (has(1) && has(2)) return t('ai.example.replyBoth')
+  if (has(2)) return t('ai.example.replyPrice')
+  if (has(1)) return t('ai.example.replyDeliver')
+  return t('ai.example.replyHi')
 }
 
 function splitBubbles(text: string, mode: string, max: number): string[] {
@@ -366,13 +454,13 @@ function splitBubbles(text: string, mode: string, max: number): string[] {
   return paras.slice(0, 3)
 }
 
-function riskyReasons(text: string, keywords: string): string[] {
+function riskyReasons(text: string, keywords: string, t: TFunction): string[] {
   const out: string[] = []
   for (const k of keywords.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean)) {
     const re = new RegExp(`\\b${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
-    if (re.test(text)) out.push(`mentions “${k}”`)
+    if (re.test(text)) out.push(t('ai.example.mentions', { word: k }))
   }
-  if (/(RM|\$|USD|€|£)\s?\d/i.test(text)) out.push('mentions a money amount')
+  if (/(RM|\$|USD|€|£)\s?\d/i.test(text)) out.push(t('ai.example.mentionsMoney'))
   return out
 }
 
@@ -383,6 +471,8 @@ function clock(sec: number): string {
 }
 
 function ExampleTimeline({ values: v }: { values: Record<string, string> }) {
+  const t = useT()
+  const fmt = useFormat()
   const num = (k: string, d = 0) => (Number.isFinite(Number(v[k])) && v[k] !== '' ? Number(v[k]) : d)
   const on = (k: string) => v[k] === 'true'
 
@@ -409,7 +499,7 @@ function ExampleTimeline({ values: v }: { values: Record<string, string> }) {
         pending = []
         job = null
       }
-      out.push({ at: m.at, who: 'customer', text: m.text })
+      out.push({ at: m.at, who: 'customer', text: t(m.text) })
       pending.push(i)
       if (wait === 0) {
         replies.push({ at: m.at, covers: pending })
@@ -422,60 +512,62 @@ function ExampleTimeline({ values: v }: { values: Record<string, string> }) {
     const lastJob = job as { created: number; due: number } | null
     if (lastJob) replies.push({ at: lastJob.due, covers: pending })
 
-    let t = 0
+    let at = 0
     replies.forEach((r, idx) => {
-      const text = sampleReply(r.covers)
-      t = Math.max(t, r.at)
+      const text = sampleReply(r.covers, t)
+      at = Math.max(at, r.at)
       if (wait > 0)
         out.push({
           at: r.at,
           who: 'note',
-          text:
-            r.covers.length > 1
-              ? `The customer seems done — the AI writes ONE reply to ${r.covers.length} messages`
-              : 'The AI starts writing',
+          text: r.covers.length > 1 ? t('ai.example.oneReply', { count: r.covers.length }) : t('ai.example.startsWriting'),
         })
       const reasons =
         mode === 'review_all'
-          ? ['every reply is reviewed']
+          ? [t('ai.example.everyReviewed')]
           : mode === 'review_flagged'
-            ? [...riskyReasons(text, v.ai_review_keywords ?? ''), ...(idx < firstN ? [firstN === 1 ? 'the first reply in the conversation' : `one of the first ${firstN} replies`] : [])]
+            ? [
+                ...riskyReasons(text, v.ai_review_keywords ?? '', t),
+                ...(idx < firstN
+                  ? [firstN === 1 ? t('ai.example.firstReply') : t('ai.example.firstN', { count: firstN })]
+                  : []),
+              ]
             : []
       if (mode === 'shadow') {
-        out.push({ at: t, who: 'note', text: 'Shadow mode: the draft is recorded in the AI monitor and never sent' })
+        out.push({ at, who: 'note', text: t('ai.example.shadow') })
         return
       }
       if (reasons.length) {
-        out.push({ at: t, who: 'note', text: `Held for review — ${reasons.join(', ')}` })
+        out.push({ at, who: 'note', text: t('ai.example.held', { reasons: fmt.list(reasons) }) })
         if (autosend > 0) {
-          t += autosend * 60
-          out.push({ at: t, who: 'note', text: `Nobody acted for ${autosend} min, so it goes out on its own` })
+          at += autosend * 60
+          out.push({ at, who: 'note', text: t('ai.example.autoAfter', { minutes: autosend }) })
         } else {
-          out.push({ at: t, who: 'note', text: 'Waits until a person approves it (shown as if approved right away)' })
+          out.push({ at, who: 'note', text: t('ai.example.waitsApproval') })
         }
       }
       const bubbles = splitBubbles(text, v.ai_split || 'off', num('ai_split_max_chars', 320))
       bubbles.forEach((b, bi) => {
         const d = typing ? delay(b) : bi === 0 ? 0 : 2
-        if (typing) out.push({ at: t, who: 'note', text: `typing… (${Math.round(d)}s)` })
-        t += d
-        out.push({ at: t, who: 'ai', text: b })
+        if (typing) out.push({ at, who: 'note', text: t('ai.example.typing', { seconds: Math.round(d) }) })
+        at += d
+        out.push({ at, who: 'ai', text: b })
       })
     })
 
     // an acknowledgement afterwards
-    t += 60
-    out.push({ at: t, who: 'customer', text: 'ok thanks' })
+    at += 60
+    out.push({ at, who: 'customer', text: t('ai.example.msgAck') })
     if (on('ai_ack_skip')) {
       const ack = (v.ai_ack_text ?? '').trim()
-      if (mode !== 'shadow' && ack) out.push({ at: t + Math.max(0, wait), who: 'ai', text: ack })
-      else out.push({ at: t, who: 'note', text: 'Just an acknowledgement — no reply needed' })
+      if (mode !== 'shadow' && ack) out.push({ at: at + Math.max(0, wait), who: 'ai', text: ack })
+      else out.push({ at, who: 'note', text: t('ai.example.ackNoReply') })
     } else {
-      out.push({ at: t + Math.max(0, wait), who: 'note', text: 'The AI replies to the acknowledgement too' })
+      out.push({ at: at + Math.max(0, wait), who: 'note', text: t('ai.example.repliesToAck') })
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [v])
+  }, [v, t, fmt])
 
   const followUps = useMemo(() => {
     if (!on('ai_followup')) return null
@@ -483,16 +575,16 @@ function ExampleTimeline({ values: v }: { values: Record<string, string> }) {
     const between = num('ai_followup_between_hours', 24)
     const max = Math.max(0, Math.round(num('ai_followup_max', 2)))
     const out: { h: number; text: string }[] = []
-    for (let i = 0; i < max; i++) out.push({ h: first + i * between, text: `Follow-up ${i + 1}, written by the AI` })
+    for (let i = 0; i < max; i++) out.push({ h: first + i * between, text: t('ai.example.followUp', { n: i + 1 }) })
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [v])
+  }, [v, t])
 
   return (
     <Card className="px-5 py-4">
-      <CardTitle>How it plays out</CardTitle>
-      <p className="mb-3 mt-0.5 text-[12px] text-text-muted">A sample conversation with the settings on screen — updates as you change them.</p>
-      <ol className="relative flex flex-col gap-2 border-l border-line pl-4" aria-label="Example conversation">
+      <CardTitle>{t('ai.example.title')}</CardTitle>
+      <p className="mb-3 mt-0.5 text-[12px] text-text-muted">{t('ai.example.subtitle')}</p>
+      <ol className="relative flex flex-col gap-2 border-l border-line pl-4" aria-label={t('ai.example.ariaLabel')}>
         {rows.map((r, i) => (
           <li key={i} className="relative">
             <span
@@ -512,7 +604,7 @@ function ExampleTimeline({ values: v }: { values: Record<string, string> }) {
                   }`}
                 >
                   <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-text-faint">
-                    {r.who === 'customer' ? 'Customer' : 'AI'}
+                    {r.who === 'customer' ? t('ai.common.customer') : t('ai.common.ai')}
                   </span>
                   {r.text}
                 </span>
@@ -522,22 +614,22 @@ function ExampleTimeline({ values: v }: { values: Record<string, string> }) {
         ))}
       </ol>
       <div className="mt-4 border-t border-line pt-3">
-        <div className="eyebrow mb-1.5">If the AI asks something and hears nothing</div>
+        <div className="eyebrow mb-1.5">{t('ai.example.ifNoAnswer')}</div>
         {followUps === null ? (
-          <p className="text-[12px] text-text-muted">Follow-ups are off — the conversation simply waits.</p>
+          <p className="text-[12px] text-text-muted">{t('ai.example.followUpsOff')}</p>
         ) : followUps.length === 0 ? (
-          <p className="text-[12px] text-text-muted">No follow-ups (the limit is 0).</p>
+          <p className="text-[12px] text-text-muted">{t('ai.example.noFollowUps')}</p>
         ) : (
           <ul className="flex flex-col gap-1 text-[12px] text-text-mid">
             {followUps.map((f) => (
               <li key={f.h} className="flex gap-2">
-                <span className="w-10 shrink-0 tabular-nums text-text-faint">+{f.h}h</span>
+                <span className="w-10 shrink-0 tabular-nums text-text-faint">{t('ai.example.hoursOffset', { hours: f.h })}</span>
                 {f.text}
               </li>
             ))}
             <li className="flex gap-2 text-text-muted">
               <span className="w-10 shrink-0" />
-              Then it stops. Any reply, an opt-out, a teammate stepping in or quiet hours change the plan.
+              {t('ai.example.thenStops')}
             </li>
           </ul>
         )}

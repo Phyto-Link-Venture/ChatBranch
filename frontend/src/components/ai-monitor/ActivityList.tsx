@@ -14,7 +14,7 @@ import { ChevronDown, ChevronRight, ExternalLink, Loader2, Search } from 'lucide
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Select } from '@/components/ui/Select'
-import { channelLabel } from '@/components/ui/ChannelLogo'
+import { aiChannelLabel } from '@/lib/aiLearning'
 import { subscribeChatStream } from '@/lib/chatStream'
 import {
   KIND_LABEL,
@@ -22,11 +22,14 @@ import {
   aiApi,
   decide,
   decisionFromError,
+  parseUtc,
+  rejectReasonLabel,
   type Draft,
   type DraftKind,
   type DraftList,
   type DraftStatus,
 } from '@/lib/aiMonitor'
+import { useFormat, useT } from '@/i18n'
 import {
   ContextChips,
   ConversationSnippet,
@@ -44,13 +47,10 @@ const CHANNELS = ['whatsapp', 'telegram', 'facebook', 'instagram', 'email', 'web
 const inputCls =
   'h-8 w-full rounded-lg border border-line-strong bg-card pl-8 pr-3 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400'
 
-function when(iso: string | null): string {
-  if (!iso) return ''
-  const d = new Date(iso.endsWith('Z') || /[+-]\d\d:\d\d$/.test(iso) ? iso : `${iso}Z`)
-  return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-}
-
 export function ActivityList({ entityQuery, canDecide }: { entityQuery: string; canDecide: boolean }) {
+  const t = useT()
+  const f = useFormat()
+  const when = (iso: string | null) => f.dateTime(parseUtc(iso))
   const [status, setStatus] = useState('')
   const [kind, setKind] = useState('')
   const [channel, setChannel] = useState('')
@@ -65,8 +65,8 @@ export function ActivityList({ entityQuery, canDecide }: { entityQuery: string; 
 
   // debounce the search box
   useEffect(() => {
-    const t = window.setTimeout(() => setQuery(q.trim()), 300)
-    return () => window.clearTimeout(t)
+    const timer = window.setTimeout(() => setQuery(q.trim()), 300)
+    return () => window.clearTimeout(timer)
   }, [q])
   useEffect(() => setPage(1), [status, kind, channel, query, entityQuery])
 
@@ -89,14 +89,14 @@ export function ActivityList({ entityQuery, canDecide }: { entityQuery: string; 
 
   useEffect(() => {
     void load()
-    let t: number | undefined
+    let timer: number | undefined
     const unsub = subscribeChatStream(() => {
-      window.clearTimeout(t)
-      t = window.setTimeout(() => void load(), 600)
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => void load(), 600)
     })
     return () => {
       unsub()
-      window.clearTimeout(t)
+      window.clearTimeout(timer)
     }
   }, [load])
 
@@ -124,10 +124,10 @@ export function ActivityList({ entityQuery, canDecide }: { entityQuery: string; 
   const counts = data?.counts
 
   const statusOptions = [
-    { value: '', label: 'Any status' },
+    { value: '', label: t('ai.common.anyStatus') },
     ...(Object.keys(STATUS_META) as DraftStatus[]).map((s) => ({
       value: s,
-      label: STATUS_META[s].label,
+      label: t(STATUS_META[s].label),
       hint: counts ? String(counts[s] ?? 0) : undefined,
     })),
   ]
@@ -141,30 +141,39 @@ export function ActivityList({ entityQuery, canDecide }: { entityQuery: string; 
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search replies, names, numbers"
+            placeholder={t('ai.activity.searchPlaceholder')}
             className={inputCls}
-            aria-label="Search AI activity"
+            aria-label={t('ai.activity.searchLabel')}
           />
         </div>
-        <Select value={status} onChange={setStatus} options={statusOptions} ariaLabel="Status" className="w-[190px]" />
+        <Select
+          value={status}
+          onChange={setStatus}
+          options={statusOptions}
+          ariaLabel={t('common.fields.status')}
+          className="w-[190px]"
+        />
         <Select
           value={kind}
           onChange={setKind}
-          ariaLabel="Kind"
+          ariaLabel={t('ai.common.kind')}
           className="w-[150px]"
           options={[
-            { value: '', label: 'Any kind' },
-            ...(Object.keys(KIND_LABEL) as DraftKind[]).map((k) => ({ value: k, label: KIND_LABEL[k] })),
+            { value: '', label: t('ai.common.anyKind') },
+            ...(Object.keys(KIND_LABEL) as DraftKind[]).map((k) => ({ value: k, label: t(KIND_LABEL[k]) })),
           ]}
         />
         <Select
           value={channel}
           onChange={setChannel}
-          ariaLabel="Channel"
+          ariaLabel={t('common.fields.channel')}
           className="w-[150px]"
-          options={[{ value: '', label: 'Any channel' }, ...CHANNELS.map((c) => ({ value: c, label: channelLabel(c) }))]}
+          options={[
+            { value: '', label: t('ai.common.anyChannel') },
+            ...CHANNELS.map((c) => ({ value: c, label: aiChannelLabel(c, t) })),
+          ]}
         />
-        {loading && <Loader2 size={14} className="animate-spin text-text-faint" aria-label="Loading" />}
+        {loading && <Loader2 size={14} className="animate-spin text-text-faint" aria-label={t('common.status.loading')} />}
       </div>
 
       {error && (
@@ -176,7 +185,7 @@ export function ActivityList({ entityQuery, canDecide }: { entityQuery: string; 
       <Card className={`overflow-hidden transition-opacity ${loading && data ? 'opacity-70' : ''}`}>
         {data && data.drafts.length === 0 && (
           <div className="px-5 py-8 text-[13px] text-text-muted">
-            No AI activity matches. Everything the AI writes — sent, held, rejected or stopped by a guard — is listed here.
+            {t('ai.activity.empty')}
           </div>
         )}
         <ul className="divide-y divide-line">
@@ -202,7 +211,9 @@ export function ActivityList({ entityQuery, canDecide }: { entityQuery: string; 
                     {(d.decided_by && d.decided_by !== 'auto') || d.error ? (
                       <span className="mt-1 block text-[11.5px] text-text-muted">
                         {d.decided_by && d.decided_by !== 'auto' && d.decided_by !== 'system' ? `${d.decided_by}` : ''}
-                        {d.reject_reason ? ` — “${d.reject_reason}”` : ''}
+                        {d.reject_reason
+                          ? ` — ${t('ai.common.quoted', { text: rejectReasonLabel(d.reject_reason, t) })}`
+                          : ''}
                         {d.error ? `${d.decided_by && d.decided_by !== 'auto' && d.decided_by !== 'system' ? ' · ' : ''}${d.error}` : ''}
                       </span>
                     ) : null}
@@ -211,7 +222,7 @@ export function ActivityList({ entityQuery, canDecide }: { entityQuery: string; 
                 {expanded && (
                   <div className="grid gap-4 border-t border-line bg-well/60 px-4 py-4 md:grid-cols-2 md:pl-11">
                     <section className="min-w-0">
-                      <div className="eyebrow mb-1.5">Answering</div>
+                      <div className="eyebrow mb-1.5">{t('ai.activity.answering')}</div>
                       {d.recent?.length ? (
                         <ConversationSnippet messages={d.recent} />
                       ) : (d.context.answering ?? []).length ? (
@@ -224,18 +235,20 @@ export function ActivityList({ entityQuery, canDecide }: { entityQuery: string; 
                         </ul>
                       ) : (
                         <p className="text-[12.5px] text-text-muted">
-                          {d.kind === 'follow_up' ? 'Nothing — the customer went quiet.' : 'No customer message recorded.'}
+                          {d.kind === 'follow_up' ? t('ai.activity.followUpQuiet') : t('ai.activity.noCustomerMessage')}
                         </p>
                       )}
                     </section>
                     <section className="min-w-0">
-                      <div className="eyebrow mb-1.5">{d.original_content ? 'Sent (after a person edited it)' : 'The AI wrote'}</div>
+                      <div className="eyebrow mb-1.5">
+                        {d.original_content ? t('ai.activity.sentAfterEdit') : t('ai.activity.aiWrote')}
+                      </div>
                       <p className="whitespace-pre-wrap break-words rounded-lg border border-line bg-card px-3 py-2 text-[13px] leading-relaxed text-text-high">
                         {d.content}
                       </p>
                       {d.original_content && (
                         <>
-                          <div className="eyebrow mb-1.5 mt-3">The AI’s original</div>
+                          <div className="eyebrow mb-1.5 mt-3">{t('ai.activity.aiOriginal')}</div>
                           <p className="whitespace-pre-wrap break-words rounded-lg border border-dashed border-line-strong px-3 py-2 text-[12.5px] leading-relaxed text-text-muted">
                             {d.original_content}
                           </p>
@@ -244,25 +257,23 @@ export function ActivityList({ entityQuery, canDecide }: { entityQuery: string; 
                       <div className="mt-3 flex flex-col gap-2">
                         <HoldReasons reasons={d.reasons} />
                         {!d.reasons.length && d.flags.length > 0 && (
-                          <p className="text-[11.5px] text-text-muted">Signals noticed (not held): {d.flags.join('; ')}</p>
+                          <p className="text-[11.5px] text-text-muted">{t('ai.activity.signals', { flags: d.flags.join('; ') })}</p>
                         )}
                         <DraftBookings d={d} />
                         <ContextChips d={d} />
                         <GroundingLine d={d} />
                         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11.5px] text-text-muted">
-                          <dt>Written</dt>
+                          <dt>{t('ai.activity.written')}</dt>
                           <dd>{when(d.created_at)}</dd>
                           {d.decided_at && d.decided_by !== 'auto' && (
                             <>
-                              <dt>Decided</dt>
-                              <dd>
-                                {when(d.decided_at)} by {d.decided_by}
-                              </dd>
+                              <dt>{t('ai.activity.decided')}</dt>
+                              <dd>{t('ai.activity.decidedBy', { when: when(d.decided_at), who: d.decided_by })}</dd>
                             </>
                           )}
                           {d.sent_at && (
                             <>
-                              <dt>Delivered</dt>
+                              <dt>{t('ai.activity.delivered')}</dt>
                               <dd>{when(d.sent_at)}</dd>
                             </>
                           )}
@@ -271,10 +282,10 @@ export function ActivityList({ entityQuery, canDecide }: { entityQuery: string; 
                           {canDecide && (d.status === 'pending' || d.status === 'shadow') && (
                             <>
                               <Button size="sm" variant="secondary" onClick={() => void act(d, 'approve')}>
-                                {d.status === 'shadow' ? 'Use this reply' : 'Approve & send'}
+                                {d.status === 'shadow' ? t('ai.activity.useReply') : t('ai.review.approveSend')}
                               </Button>
                               <Button size="sm" variant="ghost" onClick={() => void act(d, 'reject')}>
-                                {d.status === 'shadow' ? 'Mark as wrong' : 'Reject'}
+                                {d.status === 'shadow' ? t('ai.activity.markWrong') : t('ai.review.reject')}
                               </Button>
                             </>
                           )}
@@ -282,7 +293,7 @@ export function ActivityList({ entityQuery, canDecide }: { entityQuery: string; 
                             href={chatHref(d)}
                             className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-text-mid hover:text-text-high hover:underline"
                           >
-                            Open chat <ExternalLink size={12} aria-hidden />
+                            {t('ai.common.openChat')} <ExternalLink size={12} aria-hidden />
                           </Link>
                         </div>
                         <DraftFeedback d={d} />
@@ -300,14 +311,14 @@ export function ActivityList({ entityQuery, canDecide }: { entityQuery: string; 
       {total > PAGE_SIZE && (
         <div className="flex items-center justify-between gap-2 text-[12.5px] text-text-muted">
           <span>
-            {(page - 1) * PAGE_SIZE + 1}–{Math.min(total, page * PAGE_SIZE)} of {total}
+            {t('ai.activity.range', { from: (page - 1) * PAGE_SIZE + 1, to: Math.min(total, page * PAGE_SIZE), total })}
           </span>
           <span className="flex gap-2">
             <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-              Previous
+              {t('ai.common.previous')}
             </Button>
             <Button size="sm" variant="secondary" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>
-              Next
+              {t('common.actions.next')}
             </Button>
           </span>
         </div>

@@ -8,8 +8,18 @@
  * instead of throwing, so a server without these endpoints simply shows less.
  * Writes still throw an ApiError so the caller can show the reason in place.
  */
+import type { MessageKey, TFunction } from '@/i18n'
+import { channelLabel } from '@/components/ui/ChannelLogo'
 import { authHeaders, expireSessionOn401 } from './auth'
 import { ApiError, aiApi, type Draft } from './aiMonitor'
+
+/** A channel's name for the AI pages: brand names as they are; email / website widget / voice calls translated. */
+export function aiChannelLabel(c: string, t: TFunction): string {
+  if (c === 'email') return t('ai.channels.email')
+  if (c === 'website') return t('ai.channels.website')
+  if (c === 'voice') return t('ai.channels.voice')
+  return channelLabel(c)
+}
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -17,18 +27,19 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export type FeedbackReason = 'wrong_info' | 'didnt_answer' | 'tone' | 'too_long' | 'should_handover' | 'other'
 
-/** The 👎 reasons, in display order — ids are the wire values. */
-export const FEEDBACK_REASONS: { id: FeedbackReason; label: string }[] = [
-  { id: 'wrong_info', label: 'Wrong information' },
-  { id: 'didnt_answer', label: 'Didn’t answer the question' },
-  { id: 'tone', label: 'Wrong tone' },
-  { id: 'too_long', label: 'Too long' },
-  { id: 'should_handover', label: 'A person should answer' },
-  { id: 'other', label: 'Something else' },
+/** The 👎 reasons, in display order — ids are the wire values, labels message keys. */
+export const FEEDBACK_REASONS: { id: FeedbackReason; label: MessageKey }[] = [
+  { id: 'wrong_info', label: 'ai.feedback.reasons.wrongInfo' },
+  { id: 'didnt_answer', label: 'ai.feedback.reasons.didntAnswer' },
+  { id: 'tone', label: 'ai.feedback.reasons.tone' },
+  { id: 'too_long', label: 'ai.feedback.reasons.tooLong' },
+  { id: 'should_handover', label: 'ai.feedback.reasons.shouldHandover' },
+  { id: 'other', label: 'ai.feedback.reasons.other' },
 ]
 
-export function reasonLabel(id: string): string {
-  return FEEDBACK_REASONS.find((r) => r.id === id)?.label ?? id.replace(/_/g, ' ')
+export function reasonLabel(id: string, t: TFunction): string {
+  const r = FEEDBACK_REASONS.find((x) => x.id === id)
+  return r ? t(r.label) : id.replace(/_/g, ' ')
 }
 
 /** The caller's own rating of one AI message / draft. */
@@ -146,17 +157,17 @@ export function draftGrounding(d: Draft): Grounding[] {
 export type LessonKind = 'example' | 'correction' | 'rule'
 export type LessonStatus = 'suggested' | 'active' | 'archived' | 'dismissed'
 
-export const LESSON_KIND_LABEL: Record<LessonKind, string> = {
-  example: 'Good answer',
-  correction: 'Correction',
-  rule: 'Rule',
+export const LESSON_KIND_LABEL: Record<LessonKind, MessageKey> = {
+  example: 'ai.lessonKind.example',
+  correction: 'ai.lessonKind.correction',
+  rule: 'ai.lessonKind.rule',
 }
 
-export const LESSON_STATUS_LABEL: Record<LessonStatus, string> = {
-  suggested: 'Suggested',
-  active: 'Active',
-  archived: 'Archived',
-  dismissed: 'Dismissed',
+export const LESSON_STATUS_LABEL: Record<LessonStatus, MessageKey> = {
+  suggested: 'ai.lessonStatus.suggested',
+  active: 'ai.lessonStatus.active',
+  archived: 'ai.lessonStatus.archived',
+  dismissed: 'ai.lessonStatus.dismissed',
 }
 
 export interface LessonFeedbackRef {
@@ -226,22 +237,10 @@ export const lessonsApi = {
 
 export type LearningMode = 'review' | 'auto' | 'off'
 
-export const LEARNING_MODES: { id: LearningMode; label: string; help: string }[] = [
-  {
-    id: 'review',
-    label: 'Review first',
-    help: 'Ratings and edits become suggested lessons. A person approves each one before the AI uses it.',
-  },
-  {
-    id: 'auto',
-    label: 'Learn from admins',
-    help: 'Lessons from an admin’s feedback go live straight away. Everyone else’s still wait for review.',
-  },
-  {
-    id: 'off',
-    label: 'Off',
-    help: 'Ratings are still counted in the stats, but the AI learns nothing from them.',
-  },
+export const LEARNING_MODES: { id: LearningMode; label: MessageKey; help: MessageKey }[] = [
+  { id: 'review', label: 'ai.learning.modes.review', help: 'ai.learning.modes.reviewHelp' },
+  { id: 'auto', label: 'ai.learning.modes.auto', help: 'ai.learning.modes.autoHelp' },
+  { id: 'off', label: 'ai.learning.modes.off', help: 'ai.learning.modes.offHelp' },
 ]
 
 export interface EmbeddingStatus {
@@ -306,15 +305,15 @@ export const learningApi = {
     aiApi<LearningStats>(`ai/learning/stats?days=${days}${entityQuery ? `&${entityQuery}` : ''}`),
 }
 
-/** Human name for an embedding provider id. */
-export function embeddingProviderLabel(p: string): string {
+/** Human name for an embedding provider id (brand names stay as they are). */
+export function embeddingProviderLabel(p: string, t: TFunction): string {
   const names: Record<string, string> = {
     openai: 'OpenAI',
     google: 'Google Gemini',
-    local: 'Local server',
-    none: 'Off (keyword search)',
-    '': 'Keyword search',
-    keyword: 'Keyword search',
+    local: t('ai.embeddings.providers.local'),
+    none: t('ai.embeddings.providers.offLabel'),
+    '': t('ai.embeddings.providers.keyword'),
+    keyword: t('ai.embeddings.providers.keyword'),
   }
   return names[p] ?? p
 }
@@ -343,11 +342,13 @@ export function threadName(t: ThreadRef): string {
 export const UPLOAD_ACCEPT = '.pdf,.txt,.md,.csv'
 export const UPLOAD_MAX_BYTES = 10 * 1024 * 1024
 
-export function uploadProblem(file: File): string | null {
+/** Why a file can't be uploaded (translated), or null when it's fine. */
+export function uploadProblem(file: File, t: TFunction, formatMb: (mb: number) => string): string | null {
   const ext = file.name.toLowerCase().split('.').pop() ?? ''
-  if (!['pdf', 'txt', 'md', 'csv'].includes(ext)) return `“${file.name}” isn’t a PDF, text, Markdown or CSV file.`
-  if (file.size > UPLOAD_MAX_BYTES) return `“${file.name}” is ${(file.size / 1048576).toFixed(1)} MB — the limit is 10 MB.`
-  if (file.size === 0) return `“${file.name}” is empty.`
+  if (!['pdf', 'txt', 'md', 'csv'].includes(ext)) return t('ai.upload.errors.notSupported', { name: file.name })
+  if (file.size > UPLOAD_MAX_BYTES)
+    return t('ai.upload.errors.tooBig', { name: file.name, size: formatMb(file.size / 1048576) })
+  if (file.size === 0) return t('ai.upload.errors.empty', { name: file.name })
   return null
 }
 
@@ -365,6 +366,7 @@ export interface UploadResult {
 export function uploadKnowledge(
   file: File,
   fields: { kind?: string; title?: string; entity?: string | null },
+  t: TFunction,
   onProgress?: (fraction: number) => void,
 ): { promise: Promise<UploadResult>; abort: () => void } {
   const xhr = new XMLHttpRequest()
@@ -388,7 +390,7 @@ export function uploadKnowledge(
       }
       if (xhr.status === 401) {
         expireSessionOn401(new Response(null, { status: 401 }))
-        reject(new ApiError('Session expired', 401, body))
+        reject(new ApiError(t('common.errors.sessionExpired'), 401, body))
         return
       }
       if (xhr.status >= 200 && xhr.status < 300) resolve(body as UploadResult)
@@ -397,17 +399,17 @@ export function uploadKnowledge(
         const msg =
           detail ||
           (xhr.status === 404 || xhr.status === 405
-            ? 'This server can’t take document uploads yet.'
+            ? t('ai.upload.errors.noUploads')
             : xhr.status === 413
-              ? 'The file is too large — the limit is 10 MB.'
+              ? t('ai.upload.errors.tooLarge')
               : xhr.status === 403
-                ? 'You don’t have permission to change the knowledge base.'
-                : `Upload failed (HTTP ${xhr.status}).`)
+                ? t('ai.upload.errors.noPermission')
+                : t('ai.upload.errors.failedHttp', { status: String(xhr.status) }))
         reject(new ApiError(msg, xhr.status, body))
       }
     }
-    xhr.onerror = () => reject(new ApiError('Couldn’t reach the server — check your connection and try again.', 0, null))
-    xhr.onabort = () => reject(new ApiError('Upload cancelled.', 0, null))
+    xhr.onerror = () => reject(new ApiError(t('ai.upload.errors.unreachable'), 0, null))
+    xhr.onabort = () => reject(new ApiError(t('ai.upload.errors.cancelled'), 0, null))
     xhr.send(form)
   })
   return { promise, abort: () => xhr.abort() }
@@ -474,17 +476,4 @@ export async function previewRetrieval(query: string, channel: string, entity: s
     model: typeof data.model === 'string' ? data.model : '',
     extraBlocks,
   }
-}
-
-/** "3h ago" style — server timestamps are UTC without an offset. */
-export function sinceLabel(iso: string | null | undefined): string {
-  if (!iso) return ''
-  const t = Date.parse(iso.endsWith('Z') || /[+-]\d\d:\d\d$/.test(iso) ? iso : `${iso}Z`)
-  if (Number.isNaN(t)) return ''
-  const s = Math.max(0, Math.round((Date.now() - t) / 1000))
-  if (s < 60) return 'just now'
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`
-  if (s < 86400 * 30) return `${Math.floor(s / 86400)}d ago`
-  return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }

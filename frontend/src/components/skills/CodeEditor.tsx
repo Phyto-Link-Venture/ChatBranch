@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef } from 'react'
+import { useT } from '@/i18n'
 
 /**
  * A plain monospace code box with a line-number gutter. Deliberately a
@@ -13,7 +14,7 @@ export function CodeEditor({
   readOnly = false,
   minRows = 12,
   maxRows = 26,
-  ariaLabel = 'Code',
+  ariaLabel,
   invalid = false,
 }: {
   value: string
@@ -24,6 +25,7 @@ export function CodeEditor({
   ariaLabel?: string
   invalid?: boolean
 }) {
+  const t = useT()
   const gutter = useRef<HTMLDivElement>(null)
   const lines = value.split('\n').length
   const rows = Math.min(Math.max(lines + 1, minRows), maxRows)
@@ -45,7 +47,7 @@ export function CodeEditor({
       <textarea
         value={value}
         readOnly={readOnly}
-        aria-label={ariaLabel}
+        aria-label={ariaLabel ?? t('ai.wizard.code')}
         spellCheck={false}
         autoCapitalize="off"
         autoCorrect="off"

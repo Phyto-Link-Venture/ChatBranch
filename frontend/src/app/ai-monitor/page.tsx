@@ -24,42 +24,54 @@ import { hasCap } from '@/lib/auth'
 import { useEntity, useEntityQuery } from '@/lib/EntityContext'
 import { subscribeChatStream } from '@/lib/chatStream'
 import { aiApi, type BehaviourPayload, type DraftList } from '@/lib/aiMonitor'
+import { useT, type MessageKey, type TFunction } from '@/i18n'
 
 type Tab = 'review' | 'activity' | 'learning' | 'stats' | 'settings'
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'review', label: 'Waiting for review' },
-  { id: 'activity', label: 'AI activity' },
-  { id: 'learning', label: 'Learning' },
-  { id: 'stats', label: 'Stats' },
-  { id: 'settings', label: 'Settings' },
+const TABS: { id: Tab; label: MessageKey }[] = [
+  { id: 'review', label: 'ai.monitor.tabs.review' },
+  { id: 'activity', label: 'ai.monitor.tabs.activity' },
+  { id: 'learning', label: 'ai.monitor.tabs.learning' },
+  { id: 'stats', label: 'ai.monitor.tabs.stats' },
+  { id: 'settings', label: 'shell.nav.settings' },
 ]
 
-const MODE_LABEL: Record<string, string> = {
-  auto: 'the AI sends straight away',
-  review_flagged: 'only risky replies are held',
-  review_all: 'every AI reply is held for a person',
-  shadow: 'shadow mode — the AI drafts but never sends',
+const MODE_LABEL: Record<string, MessageKey> = {
+  auto: 'ai.monitor.mode.auto',
+  review_flagged: 'ai.monitor.mode.reviewFlagged',
+  review_all: 'ai.monitor.mode.reviewAll',
+  shadow: 'ai.monitor.mode.shadow',
+}
+
+/** The review policy in plain words ("only risky replies are held, sent automatically after 10 min…"). */
+function modeText(t: TFunction, mode: string, autosend: number): string {
+  const base = MODE_LABEL[mode] ? t(MODE_LABEL[mode]) : mode
+  return (mode === 'review_all' || mode === 'review_flagged') && autosend > 0
+    ? t('ai.monitor.mode.withAutosend', { mode: base, minutes: autosend })
+    : base
 }
 
 export default function AiMonitorPage() {
+  const t = useT()
   const entityQ = useEntityQuery()
   const { activeEntity } = useEntity()
   const [tab, setTab] = useState<Tab>('review')
   const [access, setAccess] = useState<{ ready: boolean; view: boolean }>({ ready: false, view: false })
   const [pending, setPending] = useState<number | null>(null)
-  const [modeLabel, setModeLabel] = useState<string | undefined>()
+  // the policy as read from the server; worded at render so a language switch re-words it
+  const [policy, setPolicy] = useState<{ mode: string; autosend: number } | null>(null)
+  const modeLabel = policy ? modeText(t, policy.mode, policy.autosend) : undefined
 
   // read the tab + capabilities after mount (localStorage / URL — hydration-safe)
   useEffect(() => {
-    const t = new URLSearchParams(window.location.search).get('tab') as Tab | null
-    if (t && TABS.some((x) => x.id === t)) setTab(t)
+    const q = new URLSearchParams(window.location.search).get('tab') as Tab | null
+    if (q && TABS.some((x) => x.id === q)) setTab(q)
     setAccess({ ready: true, view: hasCap('ai.monitor') || hasCap('ai.behaviour.manage') })
   }, [])
 
-  const choose = (t: Tab) => {
-    setTab(t)
+  const choose = (next: Tab) => {
+    setTab(next)
     const url = new URL(window.location.href)
-    url.searchParams.set('tab', t)
+    url.searchParams.set('tab', next)
     window.history.replaceState(null, '', url.toString())
   }
 
@@ -75,14 +87,14 @@ export default function AiMonitorPage() {
   useEffect(() => {
     if (!access.view) return
     void loadCounts()
-    let t: number | undefined
+    let timer: number | undefined
     const unsub = subscribeChatStream(() => {
-      window.clearTimeout(t)
-      t = window.setTimeout(() => void loadCounts(), 500)
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => void loadCounts(), 500)
     })
     return () => {
       unsub()
-      window.clearTimeout(t)
+      window.clearTimeout(timer)
     }
   }, [access.view, loadCounts])
 
@@ -91,54 +103,49 @@ export default function AiMonitorPage() {
     aiApi<BehaviourPayload>(`ai/behaviour${entityQ ? `?${entityQ}` : ''}`)
       .then((p) => {
         const get = (k: string) => p.fields.find((f) => f.key === k)?.value ?? ''
-        const mode = get('ai_review_mode')
-        const autosend = Number(get('ai_review_autosend_minutes'))
-        setModeLabel(
-          (MODE_LABEL[mode] ?? mode) +
-            ((mode === 'review_all' || mode === 'review_flagged') && autosend > 0
-              ? `, sent automatically after ${autosend} min if nobody acts`
-              : ''),
-        )
+        setPolicy({ mode: get('ai_review_mode'), autosend: Number(get('ai_review_autosend_minutes')) })
       })
-      .catch(() => setModeLabel(undefined))
+      .catch(() => setPolicy(null))
   }, [access.view, entityQ, tab])
 
   return (
     <AreaPage
-      title="AI monitor"
-      eyebrow="Automate"
+      title={t('shell.nav.aiMonitor')}
+      eyebrow={t('shell.groups.automate')}
       Icon={ScanEye}
       subtitle={
         modeLabel
-          ? `Right now ${modeLabel}${activeEntity ? ` (${activeEntity.name})` : ''}.`
-          : 'See what the AI says before it reaches your customers.'
+          ? activeEntity
+            ? t('ai.monitor.rightNowEntity', { mode: modeLabel, entity: activeEntity.name })
+            : t('ai.monitor.rightNow', { mode: modeLabel })
+          : t('ai.monitor.subtitle')
       }
     >
       {access.ready && !access.view ? (
         <Card className="px-5 py-6 text-[13px] text-text-muted">
-          You don’t have access to the AI monitor. Ask an admin for the “See &amp; approve AI drafts” permission.
+          {t('ai.monitor.noAccess')}
         </Card>
       ) : (
         <div className="flex flex-col gap-4">
           {access.ready && <AiMasterSwitch />}
           <div className="-mx-1 overflow-x-auto px-1">
-            <div role="tablist" aria-label="AI monitor sections" className="flex min-w-max gap-5 border-b border-line">
-              {TABS.map((t) => {
-                const active = tab === t.id
+            <div role="tablist" aria-label={t('ai.monitor.tabsLabel')} className="flex min-w-max gap-5 border-b border-line">
+              {TABS.map((x) => {
+                const active = tab === x.id
                 return (
                   <button
-                    key={t.id}
+                    key={x.id}
                     role="tab"
-                    id={`aim-tab-${t.id}`}
+                    id={`aim-tab-${x.id}`}
                     aria-selected={active}
-                    aria-controls={`aim-panel-${t.id}`}
-                    onClick={() => choose(t.id)}
+                    aria-controls={`aim-panel-${x.id}`}
+                    onClick={() => choose(x.id)}
                     className={`-mb-px flex items-center gap-1.5 border-b-2 pb-2 pt-1 text-[13.5px] font-semibold transition-colors ${
                       active ? 'border-text-primary text-text-heading' : 'border-transparent text-text-muted hover:text-text-high'
                     }`}
                   >
-                    {t.label}
-                    {t.id === 'review' && pending != null && pending > 0 && (
+                    {t(x.label)}
+                    {x.id === 'review' && pending != null && pending > 0 && (
                       <span className="rounded-full bg-accent px-1.5 text-[11px] font-bold leading-[18px] text-[color:var(--on-accent)]">
                         {pending}
                       </span>

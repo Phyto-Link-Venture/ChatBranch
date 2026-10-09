@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { aiApi } from '@/lib/aiMonitor'
+import { useT } from '@/i18n'
 
 const fieldCls =
   'w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[13px] leading-relaxed text-text-primary outline-none transition-colors placeholder:text-text-faint focus:border-brand-400'
@@ -36,6 +37,7 @@ export function AddAnswerModal({
   defaultEntity: string | null
   onAdded: (title: string) => void
 }) {
+  const t = useT()
   const open = initialQuestion !== null
   const [question, setQuestion] = useState('')
   const [title, setTitle] = useState('')
@@ -57,13 +59,13 @@ export function AddAnswerModal({
     if (!question.trim() || !answer.trim() || busy) return
     setBusy(true)
     setError(null)
-    const t = title.trim() || question.trim().slice(0, 80)
+    const finalTitle = title.trim() || question.trim().slice(0, 80)
     try {
       await aiApi('aicore/knowledge', {
         method: 'POST',
         body: JSON.stringify({
           kind: 'faq',
-          title: t,
+          title: finalTitle,
           question: question.trim(),
           content: answer.trim(),
           tags: [],
@@ -74,7 +76,7 @@ export function AddAnswerModal({
           entity,
         }),
       })
-      onAdded(t)
+      onAdded(finalTitle)
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -87,8 +89,8 @@ export function AddAnswerModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="Add an answer"
-      subtitle="Saved to the knowledge base as an FAQ. The AI uses it from the next message."
+      title={t('ai.addAnswer.title')}
+      subtitle={t('ai.addAnswer.subtitle')}
       labelledById="add-answer-title"
       footer={
         <>
@@ -96,13 +98,14 @@ export function AddAnswerModal({
             href={knowledgeAddHref(question)}
             className="mr-auto inline-flex items-center gap-1 text-[12.5px] font-semibold text-text-mid hover:text-text-high hover:underline"
           >
-            Open the full editor <ExternalLink size={12} aria-hidden />
+            {t('ai.addAnswer.openFullEditor')} <ExternalLink size={12} aria-hidden />
           </Link>
           <Button size="sm" variant="secondary" onClick={onClose} disabled={busy}>
-            Cancel
+            {t('common.actions.cancel')}
           </Button>
           <Button size="sm" variant="primary" onClick={() => void save()} disabled={busy || !question.trim() || !answer.trim()}>
-            {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <BookOpen size={13} aria-hidden />} Add to knowledge
+            {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <BookOpen size={13} aria-hidden />}{' '}
+            {t('ai.addAnswer.addToKnowledge')}
           </Button>
         </>
       }
@@ -114,26 +117,32 @@ export function AddAnswerModal({
       )}
       <div className="flex flex-col gap-3.5">
         <label className="block">
-          <span className="mb-1 block text-[12px] font-semibold text-text-high">The question (how a customer asks it)</span>
+          <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('ai.addAnswer.question')}</span>
           <textarea rows={2} value={question} onChange={(e) => setQuestion(e.target.value)} className={`${fieldCls} resize-y`} />
         </label>
         <label className="block">
-          <span className="mb-1 block text-[12px] font-semibold text-text-high">The answer</span>
+          <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('ai.addAnswer.answer')}</span>
           <textarea
             rows={4}
             value={answer}
             onChange={(e) => setAnswer(e.target.value)}
-            placeholder="What the AI should tell them"
+            placeholder={t('ai.addAnswer.answerPlaceholder')}
             className={`${fieldCls} resize-y`}
           />
         </label>
         <label className="block">
-          <span className="mb-1 block text-[12px] font-semibold text-text-high">Title (optional)</span>
+          <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('ai.common.titleOptional')}</span>
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={question.slice(0, 80)} className={fieldCls} />
         </label>
         <label className="block">
-          <span className="mb-1 block text-[12px] font-semibold text-text-high">Applies to</span>
-          <EntityPicker ariaLabel="Applies to" value={entity} onChange={setEntity} globalLabel="All entities (organization-wide)" className="w-full" />
+          <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('ai.common.appliesTo')}</span>
+          <EntityPicker
+            ariaLabel={t('ai.common.appliesTo')}
+            value={entity}
+            onChange={setEntity}
+            globalLabel={t('ai.common.allEntitiesOrg')}
+            className="w-full"
+          />
         </label>
       </div>
     </Modal>

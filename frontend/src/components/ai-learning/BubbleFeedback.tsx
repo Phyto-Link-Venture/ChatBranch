@@ -99,7 +99,7 @@ export function useAiFeedback(messages: MsgLike[]): AiFeedbackStore {
 export function AiBubbleFeedback({ m, store }: { m: MsgLike; store: AiFeedbackStore }) {
   const t = useT()
   const pk = messagePk(m as MsgLike & { pk?: unknown })
-  if (!store.enabled || pk == null) return <span className="cb-bubble-source">{t('chats.bubble.aiAssistant')}</span>
+  if (!store.enabled || pk == null) return <span className="cb-bubble-source">{t('ai.feedback.aiAssistant')}</span>
   return <Rated pk={pk} m={m} store={store} />
 }
 
@@ -119,12 +119,16 @@ function Rated({ pk, m, store }: { pk: number; m: MsgLike; store: AiFeedbackStor
           type="button"
           onClick={() => store.toggleReveal(pk)}
           aria-expanded={revealed}
-          aria-label={t(
-            value ? (value.rating === 1 ? 'chats.bubble.rateAriaUp' : 'chats.bubble.rateAriaDown') : 'chats.bubble.rateAria',
-          )}
+          aria-label={
+            value
+              ? value.rating === 1
+                ? t('ai.feedback.rateAriaHelpful')
+                : t('ai.feedback.rateAriaNotHelpful')
+              : t('ai.feedback.rateAria')
+          }
           className="inline-flex cursor-pointer items-center gap-1 uppercase underline-offset-2 hover:underline"
         >
-          {t('chats.bubble.aiAssistant')}
+          {t('ai.feedback.aiAssistant')}
           {value?.rating === 1 && <ThumbsUp size={9} strokeWidth={2.4} fill="currentColor" aria-hidden />}
           {value?.rating === -1 && <ThumbsDown size={9} strokeWidth={2.4} fill="currentColor" aria-hidden />}
         </button>
@@ -145,7 +149,7 @@ function Rated({ pk, m, store }: { pk: number; m: MsgLike; store: AiFeedbackStor
       {/* phones: tap the label, the buttons appear inside the bubble */}
       {revealed && (
         <span className="mb-1 mt-0.5 flex items-center gap-2 sm:hidden" style={{ whiteSpace: 'normal' }}>
-          <span className="text-[11px] opacity-75">{t('chats.bubble.rateThisReply')}</span>
+          <span className="text-[11px] opacity-75">{t('ai.feedback.rateThisReply')}</span>
           <ThumbButtons c={c} tone="bubble" />
         </span>
       )}

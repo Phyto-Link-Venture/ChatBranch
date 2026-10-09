@@ -25,9 +25,10 @@ import { Button } from '@/components/ui/Button'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { useAccess } from '@/lib/useAccess'
 import { useEntity } from '@/lib/EntityContext'
-import { ApiError } from '@/lib/aiMonitor'
-import { learningApi, reasonLabel, sinceLabel, threadHref, type LearningStats as Stats } from '@/lib/aiLearning'
+import { ApiError, parseUtc } from '@/lib/aiMonitor'
+import { learningApi, reasonLabel, threadHref, type LearningStats as Stats } from '@/lib/aiLearning'
 import { AddAnswerModal } from './AddAnswerModal'
+import { useFormat, useT } from '@/i18n'
 
 const VIZ_CSS = `
 .ail-viz{--ail-down:rgb(var(--c-brand));--ail-up:var(--text-faint);}
@@ -41,10 +42,10 @@ function niceMax(v: number): number {
   return 10 * pow
 }
 
-function shortDate(iso: string): string {
+/** "2026-10-09" → a local Date at that calendar day (null when it isn't one). */
+function dayDate(iso: string): Date | null {
   const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
-  if (!y || !m || !d) return iso
-  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })
+  return y && m && d ? new Date(y, m - 1, d) : null
 }
 
 function rateOf(up: number, down: number): number | null {
@@ -62,6 +63,13 @@ function Tile({ label, value, sub }: { label: string; value: string; sub?: strin
 }
 
 function RatingChart({ daily }: { daily: Stats['daily'] }) {
+  const t = useT()
+  const f = useFormat()
+  const shortDate = (iso: string) => {
+    const d = dayDate(iso)
+    return d ? f.date(d) : iso
+  }
+  const pct = (r: number | null) => (r == null ? '—' : f.percent(r / 100))
   const [hover, setHover] = useState<number | null>(null)
   const [table, setTable] = useState(false)
   const tipId = useId()
@@ -81,14 +89,14 @@ function RatingChart({ daily }: { daily: Stats['daily'] }) {
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-text-mid">
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: 'var(--ail-up)' }} aria-hidden />
-          Helpful (above the line)
+          {t('ai.learningStats.helpfulAbove')}
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: 'var(--ail-down)' }} aria-hidden />
-          Not helpful (below)
+          {t('ai.learningStats.notHelpfulBelow')}
         </span>
-        <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setTable((t) => !t)} aria-pressed={table}>
-          <Table2 size={13} aria-hidden /> {table ? 'Show chart' : 'Show table'}
+        <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setTable((v) => !v)} aria-pressed={table}>
+          <Table2 size={13} aria-hidden /> {table ? t('ai.common.showChart') : t('ai.common.showTable')}
         </Button>
       </div>
 
@@ -97,10 +105,10 @@ function RatingChart({ daily }: { daily: Stats['daily'] }) {
           <table className="w-full text-left text-[12.5px]">
             <thead className="sticky top-0 bg-card text-text-muted">
               <tr>
-                <th className="px-3 py-2 font-semibold">Day</th>
-                <th className="px-3 py-2 text-right font-semibold">Helpful</th>
-                <th className="px-3 py-2 text-right font-semibold">Not helpful</th>
-                <th className="px-3 py-2 text-right font-semibold">Rated helpful</th>
+                <th className="px-3 py-2 font-semibold">{t('ai.common.day')}</th>
+                <th className="px-3 py-2 text-right font-semibold">{t('ai.lesson.helpful')}</th>
+                <th className="px-3 py-2 text-right font-semibold">{t('ai.lesson.notHelpful')}</th>
+                <th className="px-3 py-2 text-right font-semibold">{t('ai.learningStats.ratedHelpful')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line tabular-nums text-text-high">
@@ -111,7 +119,7 @@ function RatingChart({ daily }: { daily: Stats['daily'] }) {
                     <td className="px-3 py-1.5">{shortDate(d.day)}</td>
                     <td className="px-3 py-1.5 text-right">{d.up}</td>
                     <td className="px-3 py-1.5 text-right">{d.down}</td>
-                    <td className="px-3 py-1.5 text-right">{r == null ? '—' : `${r}%`}</td>
+                    <td className="px-3 py-1.5 text-right">{pct(r)}</td>
                   </tr>
                 )
               })}
@@ -145,7 +153,7 @@ function RatingChart({ daily }: { daily: Stats['daily'] }) {
                     aria-hidden
                   />
                 ))}
-              <div className="relative flex" style={{ height: H }} role="list" aria-label="Ratings per day">
+              <div className="relative flex" style={{ height: H }} role="list" aria-label={t('ai.learningStats.perDayLabel')}>
                 {daily.map((d, i) => {
                   const r = rateOf(d.up, d.down)
                   return (
@@ -158,7 +166,11 @@ function RatingChart({ daily }: { daily: Stats['daily'] }) {
                       onPointerLeave={() => setHover((h) => (h === i ? null : h))}
                       onFocus={() => setHover(i)}
                       onBlur={() => setHover((h) => (h === i ? null : h))}
-                      aria-label={`${shortDate(d.day)}: ${d.up} helpful, ${d.down} not helpful${r == null ? '' : `, ${r}% helpful`}`}
+                      aria-label={
+                        r == null
+                          ? t('ai.learningStats.barLabel', { date: shortDate(d.day), up: d.up, down: d.down })
+                          : t('ai.learningStats.barLabelRate', { date: shortDate(d.day), up: d.up, down: d.down, rate: pct(r) })
+                      }
                       aria-describedby={hover === i ? tipId : undefined}
                     >
                       <span
@@ -195,14 +207,11 @@ function RatingChart({ daily }: { daily: Stats['daily'] }) {
                 >
                   <div className="mb-1 text-[11px] text-text-muted">{shortDate(daily[hover].day)}</div>
                   {[
-                    { k: 'Helpful', v: String(daily[hover].up), c: 'var(--ail-up)' },
-                    { k: 'Not helpful', v: String(daily[hover].down), c: 'var(--ail-down)' },
+                    { k: t('ai.lesson.helpful'), v: f.number(daily[hover].up), c: 'var(--ail-up)' },
+                    { k: t('ai.lesson.notHelpful'), v: f.number(daily[hover].down), c: 'var(--ail-down)' },
                     {
-                      k: 'rated helpful',
-                      v: (() => {
-                        const r = rateOf(daily[hover].up, daily[hover].down)
-                        return r == null ? '—' : `${r}%`
-                      })(),
+                      k: t('ai.learningStats.ratedHelpfulLower'),
+                      v: pct(rateOf(daily[hover].up, daily[hover].down)),
                       c: '',
                     },
                   ].map((row) => (
@@ -239,15 +248,17 @@ function RatingChart({ daily }: { daily: Stats['daily'] }) {
 }
 
 function ReasonBars({ rows }: { rows: Stats['reasons'] }) {
-  if (!rows.length) return <p className="text-[12.5px] text-text-muted">No thumbs-down in this period.</p>
+  const t = useT()
+  const f = useFormat()
+  if (!rows.length) return <p className="text-[12.5px] text-text-muted">{t('ai.learningStats.noDown')}</p>
   const max = Math.max(...rows.map((r) => r.count))
   return (
     <ul className="flex flex-col gap-2.5">
       {rows.map((r) => (
         <li key={r.reason}>
           <div className="mb-1 flex items-baseline justify-between gap-3 text-[12.5px]">
-            <span className="min-w-0 break-words text-text-high">{reasonLabel(r.reason)}</span>
-            <span className="shrink-0 font-semibold tabular-nums text-text-heading">{r.count}</span>
+            <span className="min-w-0 break-words text-text-high">{reasonLabel(r.reason, t)}</span>
+            <span className="shrink-0 font-semibold tabular-nums text-text-heading">{f.number(r.count)}</span>
           </div>
           <div className="h-1.5 w-full rounded-full bg-fill">
             <div className="h-1.5 rounded-full" style={{ width: `${Math.max(3, (r.count / max) * 100)}%`, background: 'var(--ail-down)' }} />
@@ -259,6 +270,8 @@ function ReasonBars({ rows }: { rows: Stats['reasons'] }) {
 }
 
 export function LearningStats({ entityQuery, days }: { entityQuery: string; days: number }) {
+  const t = useT()
+  const f = useFormat()
   const { ready, can } = useAccess()
   const { activeEntity } = useEntity()
   const [stats, setStats] = useState<Stats | null>(null)
@@ -288,62 +301,64 @@ export function LearningStats({ entityQuery, days }: { entityQuery: string; days
 
   if (hidden) return null
   const canAddKnowledge = ready && can('settings.ai.manage')
-  const t = stats?.totals
-  const rate = t ? rateOf(t.up, t.down) : null
-  const decisions = t ? t.approved + t.edited + t.rejected : 0
+  const tot = stats?.totals
+  const rate = tot ? rateOf(tot.up, tot.down) : null
+  const decisions = tot ? tot.approved + tot.edited + tot.rejected : 0
 
   return (
-    <section className="ail-viz flex flex-col gap-4" aria-label="Feedback on AI replies">
+    <section className="ail-viz flex flex-col gap-4" aria-label={t('ai.learningStats.sectionLabel')}>
       <style>{VIZ_CSS}</style>
       <div className="flex items-center gap-2 pt-2">
-        <h2 className="display text-[21px] leading-tight text-text-heading">Feedback &amp; knowledge gaps</h2>
-        {loading && <Loader2 size={14} className="animate-spin text-text-faint" aria-label="Loading" />}
+        <h2 className="display text-[21px] leading-tight text-text-heading">{t('ai.learningStats.title')}</h2>
+        {loading && <Loader2 size={14} className="animate-spin text-text-faint" aria-label={t('common.status.loading')} />}
       </div>
       {error && (
         <div role="alert" className="text-[12.5px] text-[color:var(--red-ink)]">
-          Couldn’t load feedback stats: {error}
+          {t('ai.learningStats.loadError', { error })}
         </div>
       )}
-      {stats && t && (
+      {stats && tot && (
         <div className={`flex flex-col gap-4 transition-opacity ${loading ? 'opacity-70' : ''}`}>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Tile
-              label="Rated helpful"
-              value={rate == null ? '—' : `${rate}%`}
-              sub={t.rated ? `of ${t.rated.toLocaleString()} rated replies` : 'nobody has rated a reply yet'}
+              label={t('ai.learningStats.ratedHelpful')}
+              value={rate == null ? '—' : f.percent(rate / 100)}
+              sub={tot.rated ? t('ai.learningStats.ofRated', { count: tot.rated }) : t('ai.learningStats.nobodyRated')}
             />
-            <Tile label="Ratings" value={t.rated.toLocaleString()} sub={`${t.up} helpful · ${t.down} not helpful`} />
             <Tile
-              label="Reviewer decisions"
-              value={decisions.toLocaleString()}
-              sub={`${t.approved} approved as-is · ${t.edited} edited · ${t.rejected} rejected`}
+              label={t('ai.learningStats.ratings')}
+              value={f.number(tot.rated)}
+              sub={t('ai.learningStats.upDown', { up: tot.up, down: tot.down })}
+            />
+            <Tile
+              label={t('ai.learningStats.decisions')}
+              value={f.number(decisions)}
+              sub={t('ai.learningStats.decisionsSub', { approved: tot.approved, edited: tot.edited, rejected: tot.rejected })}
             />
           </div>
 
           {stats.daily.length > 0 && (
             <Card className="px-5 py-4">
-              <CardTitle className="mb-3">Ratings per day</CardTitle>
+              <CardTitle className="mb-3">{t('ai.learningStats.perDayLabel')}</CardTitle>
               <RatingChart daily={stats.daily} />
             </Card>
           )}
 
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
             <Card className="px-5 py-4">
-              <CardTitle className="mb-3">Why replies were rated down</CardTitle>
+              <CardTitle className="mb-3">{t('ai.learningStats.whyDown')}</CardTitle>
               <ReasonBars rows={stats.reasons} />
             </Card>
             <Card className="px-5 py-4">
-              <CardTitle className="mb-1">Knowledge gaps</CardTitle>
-              <p className="mb-3 text-[12.5px] leading-relaxed text-text-muted">
-                Questions the AI couldn’t answer well — it handed over, was blocked, or was rated down for wrong or missing information.
-              </p>
+              <CardTitle className="mb-1">{t('ai.learningStats.gaps')}</CardTitle>
+              <p className="mb-3 text-[12.5px] leading-relaxed text-text-muted">{t('ai.learningStats.gapsBody')}</p>
               {notice && (
                 <div role="status" className="mb-2 rounded-lg border border-line bg-well px-3 py-1.5 text-[12.5px] text-text-high">
                   {notice}
                 </div>
               )}
               {stats.gaps.length === 0 ? (
-                <p className="text-[12.5px] text-text-muted">No gaps found in this period.</p>
+                <p className="text-[12.5px] text-text-muted">{t('ai.learningStats.noGaps')}</p>
               ) : (
                 <ul className="flex flex-col divide-y divide-line">
                   {stats.gaps.map((g, i) => {
@@ -353,19 +368,25 @@ export function LearningStats({ entityQuery, days }: { entityQuery: string; days
                         <Lightbulb size={15} className="mt-0.5 hidden shrink-0 text-text-faint sm:block" aria-hidden />
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-baseline gap-x-2">
-                            <span className="text-[13px] font-semibold text-text-heading">{g.topic || 'Untitled topic'}</span>
+                            <span className="text-[13px] font-semibold text-text-heading">
+                              {g.topic || t('ai.learningStats.untitled')}
+                            </span>
                             <span className="text-[11.5px] tabular-nums text-text-muted">
-                              asked {g.count}×{g.last_at ? ` · last ${sinceLabel(g.last_at)}` : ''}
+                              {g.last_at
+                                ? t('ai.learningStats.askedLast', { count: g.count, when: f.relative(parseUtc(g.last_at)) })
+                                : t('ai.learningStats.asked', { count: g.count })}
                             </span>
                           </div>
                           {g.example && (
-                            <p className="mt-0.5 break-words text-[12.5px] leading-snug text-text-mid">“{g.example}”</p>
+                            <p className="mt-0.5 break-words text-[12.5px] leading-snug text-text-mid">
+                              {t('ai.common.quoted', { text: g.example })}
+                            </p>
                           )}
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
                           {href && (
                             <Link href={href} className="inline-flex items-center gap-1 text-[12px] font-semibold text-text-mid hover:text-text-high hover:underline">
-                              Chat <ExternalLink size={11} aria-hidden />
+                              {t('ai.learningStats.chat')} <ExternalLink size={11} aria-hidden />
                             </Link>
                           )}
                           {canAddKnowledge && (
@@ -377,7 +398,7 @@ export function LearningStats({ entityQuery, days }: { entityQuery: string; days
                                 setAnswering(g.example || g.topic)
                               }}
                             >
-                              <Plus size={13} aria-hidden /> Add answer
+                              <Plus size={13} aria-hidden /> {t('ai.learningStats.addAnswer')}
                             </Button>
                           )}
                         </div>
@@ -394,7 +415,7 @@ export function LearningStats({ entityQuery, days }: { entityQuery: string; days
         question={answering}
         onClose={() => setAnswering(null)}
         defaultEntity={activeEntity?.slug ?? null}
-        onAdded={(title) => setNotice(`Added “${title}” to the knowledge base — the AI uses it from the next message.`)}
+        onAdded={(title) => setNotice(t('ai.learningStats.added', { title }))}
       />
     </section>
   )

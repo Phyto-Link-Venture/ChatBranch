@@ -3,6 +3,8 @@
  * settings (/api/ai/behaviour). Server is the source of truth for every label
  * and rule; this file only shapes the wire.
  */
+import { translate, type MessageKey, type TFunction } from '@/i18n'
+import { en } from '@/i18n/messages/en'
 import { authHeaders, expireSessionOn401 } from './auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
@@ -121,19 +123,19 @@ export interface DraftBooking {
   calendar_label: string
 }
 
-/** "Will book" / "Booked" / "Not booked" … — the line a reviewer reads. */
-export function draftBookingVerb(b: DraftBooking): { verb: string; tone: 'pending' | 'done' | 'off' | 'failed' } {
+/** "Will book" / "Booked" / "Not booked" … — the line a reviewer reads (a message key). */
+export function draftBookingVerb(b: DraftBooking): { verb: MessageKey; tone: 'pending' | 'done' | 'off' | 'failed' } {
   if (b.type === 'cancel') {
-    if (b.status === 'cancelled') return { verb: 'Cancelled', tone: 'done' }
-    if (b.status === 'failed') return { verb: 'Cancel failed', tone: 'failed' }
-    if (b.status === 'booked') return { verb: 'Not cancelled', tone: 'off' }
-    return { verb: 'Will cancel', tone: 'pending' }
+    if (b.status === 'cancelled') return { verb: 'ai.draft.booking.cancelled', tone: 'done' }
+    if (b.status === 'failed') return { verb: 'ai.draft.booking.cancelFailed', tone: 'failed' }
+    if (b.status === 'booked') return { verb: 'ai.draft.booking.notCancelled', tone: 'off' }
+    return { verb: 'ai.draft.booking.willCancel', tone: 'pending' }
   }
-  if (b.status === 'booked') return { verb: 'Booked', tone: 'done' }
-  if (b.status === 'cancelled' || b.status === 'cancelling') return { verb: 'Booked, since cancelled', tone: 'off' }
-  if (b.status === 'released') return { verb: 'Not booked', tone: 'off' }
-  if (b.status === 'failed') return { verb: 'Booking failed', tone: 'failed' }
-  return { verb: 'Will book', tone: 'pending' }
+  if (b.status === 'booked') return { verb: 'ai.draft.booking.booked', tone: 'done' }
+  if (b.status === 'cancelled' || b.status === 'cancelling') return { verb: 'ai.draft.booking.bookedSinceCancelled', tone: 'off' }
+  if (b.status === 'released') return { verb: 'ai.draft.booking.notBooked', tone: 'off' }
+  if (b.status === 'failed') return { verb: 'ai.draft.booking.bookingFailed', tone: 'failed' }
+  return { verb: 'ai.draft.booking.willBook', tone: 'pending' }
 }
 
 export interface DraftList {
@@ -238,33 +240,56 @@ export function decisionFromError(e: unknown): DecisionResult | null {
   return null
 }
 
-export const STATUS_META: Record<DraftStatus, { label: string; tone: 'brand' | 'green' | 'amber' | 'red' | 'muted' | 'purple' }> = {
-  pending: { label: 'Waiting for review', tone: 'amber' },
-  approved: { label: 'Approved', tone: 'green' },
-  edited: { label: 'Edited & sent', tone: 'green' },
-  rejected: { label: 'Rejected', tone: 'red' },
-  sent: { label: 'Sent after deadline', tone: 'brand' },
-  auto_sent: { label: 'Sent automatically', tone: 'muted' },
-  expired: { label: 'Superseded', tone: 'muted' },
-  failed: { label: 'Not sent', tone: 'red' },
-  shadow: { label: 'Shadow draft', tone: 'purple' },
+/** Status chip: a message key (translated at render) + its tone. */
+export const STATUS_META: Record<DraftStatus, { label: MessageKey; tone: 'brand' | 'green' | 'amber' | 'red' | 'muted' | 'purple' }> = {
+  pending: { label: 'ai.draftStatus.pending', tone: 'amber' },
+  approved: { label: 'ai.draftStatus.approved', tone: 'green' },
+  edited: { label: 'ai.draftStatus.edited', tone: 'green' },
+  rejected: { label: 'ai.draftStatus.rejected', tone: 'red' },
+  sent: { label: 'ai.draftStatus.sent', tone: 'brand' },
+  auto_sent: { label: 'ai.draftStatus.autoSent', tone: 'muted' },
+  expired: { label: 'ai.draftStatus.expired', tone: 'muted' },
+  failed: { label: 'ai.draftStatus.failed', tone: 'red' },
+  shadow: { label: 'ai.draftStatus.shadow', tone: 'purple' },
 }
 
-export const KIND_LABEL: Record<DraftKind, string> = {
-  reply: 'Reply',
-  follow_up: 'Follow-up',
-  flow_message: 'Flow message',
+/** Draft kind → message key of its name. */
+export const KIND_LABEL: Record<DraftKind, MessageKey> = {
+  reply: 'ai.draftKind.reply',
+  follow_up: 'ai.draftKind.followUp',
+  flow_message: 'ai.draftKind.flowMessage',
 }
 
-/** "2m", "3h", "4d" — compact age for dense rows. */
-export function ago(iso: string | null | undefined, now = Date.now()): string {
-  const t = parseUtc(iso)
-  if (t == null) return ''
-  const s = Math.max(0, Math.round((now - t) / 1000))
-  if (s < 60) return `${s}s`
-  if (s < 3600) return `${Math.floor(s / 60)}m`
-  if (s < 86400) return `${Math.floor(s / 3600)}h`
-  return `${Math.floor(s / 86400)}d`
+/** Draft kind → message key of "{count} replies" (plural pair). */
+export const KIND_COUNT: Record<DraftKind, MessageKey> = {
+  reply: 'ai.draftKind.replyCount',
+  follow_up: 'ai.draftKind.followUpCount',
+  flow_message: 'ai.draftKind.flowMessageCount',
+}
+
+/** The one-tap reject reasons of the review queue. */
+export const QUICK_REJECT_REASONS: MessageKey[] = [
+  'ai.review.quickReasons.wrongInfo',
+  'ai.review.quickReasons.promised',
+  'ai.review.quickReasons.tone',
+  'ai.review.quickReasons.person',
+]
+
+/** A quick reason is STORED in English, so the stats group it the same whatever language the reviewer reads. */
+export function quickReasonWire(k: MessageKey): string {
+  return translate(en, 'en', k)
+}
+
+/** What to store for a typed/picked reason: a quick reason in any language → its English wording. */
+export function rejectReasonWire(text: string, t: TFunction): string {
+  const k = QUICK_REJECT_REASONS.find((q) => t(q) === text || quickReasonWire(q) === text)
+  return k ? quickReasonWire(k) : text
+}
+
+/** A stored reject reason in the reader's language when it is one of the quick reasons (else as written). */
+export function rejectReasonLabel(text: string, t: TFunction): string {
+  const k = QUICK_REJECT_REASONS.find((q) => quickReasonWire(q) === text)
+  return k ? t(k) : text
 }
 
 /** Server timestamps are UTC without an offset — parse them as such. */
@@ -274,11 +299,11 @@ export function parseUtc(iso: string | null | undefined): number | null {
   return Number.isNaN(t) ? null : t
 }
 
-/** 95 -> "1m 35s", 3610 -> "1h 0m", 42 -> "42s" */
-export function duration(secs: number | null | undefined): string {
+/** 95 -> "1m 35s", 3610 -> "1h 0m", 42 -> "42s" (units translated). */
+export function duration(secs: number | null | undefined, t: TFunction): string {
   if (secs == null) return '—'
   const s = Math.round(secs)
-  if (s < 60) return `${s}s`
-  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`
-  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`
+  if (s < 60) return t('ai.units.seconds', { s })
+  if (s < 3600) return t('ai.units.minSec', { m: Math.floor(s / 60), s: s % 60 })
+  return t('ai.units.hourMin', { h: Math.floor(s / 3600), m: Math.floor((s % 3600) / 60) })
 }

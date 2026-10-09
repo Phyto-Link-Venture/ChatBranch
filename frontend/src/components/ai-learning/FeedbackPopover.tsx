@@ -15,6 +15,7 @@ import { createPortal } from 'react-dom'
 import { Loader2, ThumbsDown, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { FEEDBACK_REASONS, type MyFeedback } from '@/lib/aiLearning'
+import { useT } from '@/i18n'
 
 export interface DownFields {
   reasons: string[]
@@ -45,6 +46,7 @@ export function FeedbackPopover({
   onRemove?: () => Promise<void>
   onClose: () => void
 }) {
+  const t = useT()
   const [reasons, setReasons] = useState<string[]>(initial?.reasons ?? [])
   const [note, setNote] = useState(initial?.note ?? '')
   const [correction, setCorrection] = useState(initial?.correction ?? '')
@@ -84,9 +86,9 @@ export function FeedbackPopover({
 
   // initial focus + restore focus to the 👎 on close
   useEffect(() => {
-    const t = window.setTimeout(() => boxRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus(), 0)
+    const timer = window.setTimeout(() => boxRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus(), 0)
     return () => {
-      window.clearTimeout(t)
+      window.clearTimeout(timer)
       anchor.focus?.()
     }
   }, [anchor])
@@ -94,8 +96,8 @@ export function FeedbackPopover({
   // click outside closes (the anchor itself toggles via its own handler)
   useEffect(() => {
     const onDown = (e: MouseEvent | TouchEvent) => {
-      const t = e.target as Node
-      if (boxRef.current?.contains(t) || anchor.contains(t)) return
+      const target = e.target as Node
+      if (boxRef.current?.contains(target) || anchor.contains(target)) return
       onClose()
     }
     document.addEventListener('mousedown', onDown)
@@ -187,19 +189,19 @@ export function FeedbackPopover({
       <div className="mb-2 flex items-center gap-2">
         <ThumbsDown size={14} className="text-text-muted" aria-hidden />
         <span id="fb-pop-title" className="text-[13px] font-semibold text-text-heading">
-          What was wrong with this reply?
+          {t('ai.feedback.popTitle')}
         </span>
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close"
+          aria-label={t('common.actions.close')}
           className="ml-auto grid h-7 w-7 place-items-center rounded-md text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
         >
           <X size={14} aria-hidden />
         </button>
       </div>
 
-      <div className="mb-3 flex flex-wrap gap-1.5" role="group" aria-label="Reasons">
+      <div className="mb-3 flex flex-wrap gap-1.5" role="group" aria-label={t('ai.feedback.reasonsLabel')}>
         {FEEDBACK_REASONS.map((r) => {
           const on = reasons.includes(r.id)
           return (
@@ -212,47 +214,50 @@ export function FeedbackPopover({
                 on ? 'border-text-primary bg-fill-hover font-semibold text-text-heading' : 'border-line text-text-mid hover:bg-fill'
               }`}
             >
-              {r.label}
+              {t(r.label)}
             </button>
           )
         })}
       </div>
 
       <label className="block">
-        <span className="mb-1 block text-[12px] font-semibold text-text-high">What should it have said?</span>
+        <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('ai.feedback.shouldHaveSaid')}</span>
         <textarea
           rows={3}
           value={correction}
           onChange={(e) => setCorrection(e.target.value)}
-          placeholder={aiText ? 'Write the reply you would have sent' : 'The better answer (optional)'}
+          placeholder={aiText ? t('ai.feedback.correctionPlaceholder') : t('ai.feedback.correctionPlaceholderOptional')}
           className={`${fieldCls} resize-y`}
         />
-        <span className="mt-1 block text-[11px] leading-snug text-text-muted">
-          Optional. A correction becomes a lesson the AI can learn from once it is approved.
-        </span>
+        <span className="mt-1 block text-[11px] leading-snug text-text-muted">{t('ai.feedback.correctionHelp')}</span>
       </label>
 
       <label className="mt-2.5 block">
-        <span className="mb-1 block text-[12px] font-semibold text-text-high">Note for your team</span>
-        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional" className={fieldCls} />
+        <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('ai.feedback.noteForTeam')}</span>
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder={t('common.status.optional')}
+          className={fieldCls}
+        />
       </label>
 
-      <p className="mt-2 text-[11px] text-text-faint">The customer never sees any of this.</p>
+      <p className="mt-2 text-[11px] text-text-faint">{t('ai.feedback.customerNever')}</p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {onRemove && (
           <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => void remove()}>
             {busy === 'remove' && <Loader2 size={13} className="animate-spin" aria-hidden />}
-            Remove my rating
+            {t('ai.feedback.removeRating')}
           </Button>
         )}
         <span className="ml-auto flex gap-2">
           <Button size="sm" variant="secondary" disabled={!!busy} onClick={onClose}>
-            Cancel
+            {t('common.actions.cancel')}
           </Button>
           <Button size="sm" variant="primary" disabled={!!busy} onClick={() => void save()}>
             {busy === 'save' ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <ThumbsDown size={13} aria-hidden />}
-            {initial ? 'Update' : 'Send feedback'}
+            {initial ? t('ai.feedback.update') : t('ai.feedback.sendFeedback')}
           </Button>
         </span>
       </div>
