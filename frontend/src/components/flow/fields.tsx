@@ -47,7 +47,7 @@ export function TextInput({
   onChange: (v: string) => void
   placeholder?: string
   id?: string
-  type?: 'text' | 'time' | 'number'
+  type?: 'text' | 'time' | 'number' | 'date'
   ariaLabel?: string
 }) {
   return (

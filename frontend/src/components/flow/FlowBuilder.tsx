@@ -35,8 +35,18 @@ import {
   fetchTeams,
   pushFlowLibrary,
 } from '@/lib/flow/api'
-import { branchLabels, type StepChoice } from '@/lib/flow/nodeConfig'
-import { autoLayout, deleteStep, freshId, insertOnEdge, insertStep, makeNode, moveStep, type Graph } from '@/lib/flow/steps'
+import { branchLabelFor, type StepChoice } from '@/lib/flow/nodeConfig'
+import {
+  autoLayout,
+  deleteStep,
+  freshId,
+  insertOnEdge,
+  insertStep,
+  makeNode,
+  moveStep,
+  reconcileBranchEdges,
+  type Graph,
+} from '@/lib/flow/steps'
 import { workflowFromTemplate, type StarterTemplate } from '@/lib/flow/templates'
 import type { FlowConfig, FlowEdge, FlowNode, FlowStats, WorkflowDef } from '@/lib/flow/types'
 import { flowIssues, issueCount } from '@/lib/flow/validate'
@@ -50,9 +60,9 @@ import StepsView, { type InsertAt } from './StepsView'
 import TemplateGallery from './TemplateGallery'
 
 /**
- * The flow builder. One workflow, two views of the same nodes/edges graph:
- *  - Steps (default): a plain-language list with "+" between steps and YES /
- *    NO columns under branch steps;
+ * Journeys (the flow builder). One workflow, two views of the same nodes/edges graph:
+ *  - Steps (default): a plain-language list with "+" between steps and one
+ *    column per outcome under branch steps (YES / NO, or one per AI option);
  *  - Advanced canvas: React Flow, for free-form layout and line timings.
  * The chosen view is remembered per user. The library autosaves to
  * /api/flows/library (localStorage is the offline fallback), live flows run
@@ -264,7 +274,8 @@ export default function FlowBuilder() {
     setRenaming(false)
   }
 
-  const issues = useMemo(() => flowIssues(graph.nodes, graph.edges), [graph])
+  const fieldKinds = useMemo(() => Object.fromEntries(lookups.fields.map((f) => [f.key, f.kind])), [lookups.fields])
+  const issues = useMemo(() => flowIssues(graph.nodes, graph.edges, fieldKinds), [graph, fieldKinds])
   const nIssues = issueCount(issues)
 
   const setLive = (on: boolean) => {
@@ -354,11 +365,17 @@ export default function FlowBuilder() {
 
   const move = (id: string, dir: 'up' | 'down') => updateGraph((g) => moveStep(g, id, dir), true)
 
+  // a decision's kind / options decide its outgoing lines: keep them in step
   const patchNode = (id: string, patch: FlowConfig) =>
-    updateGraph((g) => ({
-      ...g,
-      nodes: g.nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, config: { ...(n.data.config ?? {}), ...patch } } } : n)),
-    }))
+    updateGraph((g) =>
+      reconcileBranchEdges(
+        {
+          ...g,
+          nodes: g.nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, config: { ...(n.data.config ?? {}), ...patch } } } : n)),
+        },
+        id,
+      ),
+    )
   const labelNode = (id: string, label: string) =>
     updateGraph((g) => ({ ...g, nodes: g.nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, label } } : n)) }))
 
@@ -384,9 +401,8 @@ export default function FlowBuilder() {
   const onConnect = useCallback(
     (c: Connection) =>
       updateGraph((g) => {
-        const kind = g.nodes.find((n) => n.id === c.source)?.type
-        const handle = c.sourceHandle === 'yes' || c.sourceHandle === 'no' ? c.sourceHandle : null
-        const label = handle ? branchLabels(String(kind))[handle] : undefined
+        const source = g.nodes.find((n) => n.id === c.source)
+        const label = c.sourceHandle ? branchLabelFor(source, c.sourceHandle) : undefined
         return { ...g, edges: addEdge<FlowEdge>({ ...c, label, data: { config: { timing: 'Immediately' } } }, g.edges) }
       }),
     [updateGraph],

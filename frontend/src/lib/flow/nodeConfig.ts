@@ -1,5 +1,6 @@
 import type { MessageKey, TFunction } from '@/i18n'
-import type { FlowConfig, NodeKind } from './types'
+import type { FlowConfig, FlowNode, NodeKind } from './types'
+import { AI_DEFAULTS, KIND_AI_PICK, KIND_AI_YES_NO, KIND_CONDITIONS, decisionOutcomes, type Outcome } from './conditions'
 
 /**
  * The flow builder's vocabulary — every `value` here is a CONTRACT with the
@@ -171,21 +172,27 @@ export function channelsOf(cfg: FlowConfig | undefined): string[] {
 // ---- decisions ------------------------------------------------------------------
 
 /**
- * "Ask & branch" kinds. Adding one: (1) a row here — the engine's English
- * `value` + `lbl`/`hint` keys under `flows.decision.*` in messages/{en,ms,zh}/
- * flows.ts; (2) its inputs in ConfigPanel `DecisionForm`; (3) optionally a
- * summary case in describe.ts (without one the card shows the `lbl`); (4) its
- * "unfinished" check in validate.ts; (5) the case in FlowEngine.cs.
+ * "Ask & branch" kinds (stored in `basedOn`). The condition vocabulary and the
+ * AI settings live in ./conditions.ts. Adding a kind: (1) a row here — the
+ * engine's English `value` + `lbl`/`hint` keys under `flows.decision.*` in
+ * messages/{en,ms,zh}/flows.ts; (2) its editor in components/flow/
+ * DecisionEditor.tsx; (3) its summary in describe.ts; (4) its "unfinished"
+ * check in validate.ts; (5) the case in FlowEngine.cs `Decide`.
  */
 export const DECISIONS: Choice[] = [
-  { value: 'They replied', lbl: 'flows.decision.replied', hint: 'flows.decision.repliedHint' },
-  { value: 'Reply contains', lbl: 'flows.decision.replyContains', hint: 'flows.decision.replyContainsHint' },
-  { value: 'They said yes', lbl: 'flows.decision.saidYes', hint: 'flows.decision.saidYesHint' },
-  { value: 'Has tag', lbl: 'flows.decision.hasTag', hint: 'flows.decision.hasTagHint' },
-  { value: 'Custom field equals', lbl: 'flows.decision.fieldEquals', hint: 'flows.decision.fieldEqualsHint' },
+  { value: KIND_CONDITIONS, lbl: 'flows.decision.conditions', hint: 'flows.decision.conditionsHint' },
+  { value: KIND_AI_YES_NO, lbl: 'flows.decision.aiYesNo', hint: 'flows.decision.aiYesNoHint' },
+  { value: KIND_AI_PICK, lbl: 'flows.decision.aiPick', hint: 'flows.decision.aiPickHint' },
 ]
 
+/** Older kinds — still executed by the engine, never offered. The first five
+ * open in the condition builder as the equivalent condition. */
 export const LEGACY_DECISIONS: Record<string, MessageKey> = {
+  'They replied': 'flows.decision.replied',
+  'Reply contains': 'flows.decision.replyContains',
+  'They said yes': 'flows.decision.saidYes',
+  'Has tag': 'flows.decision.hasTag',
+  'Custom field equals': 'flows.decision.fieldEquals',
   "Contact's answer": 'flows.decision.legacyContactsAnswer',
   'Record status': 'flows.legacyTrigger.recordStatusIs',
   'Contact tag': 'flows.decision.hasTag',
@@ -261,7 +268,9 @@ export const STEP_CHOICES: StepChoice[] = [
   { id: 'followup', kind: 'followup', title: 'flows.stepChoice.followup', hint: 'flows.stepChoice.followupHint',
     config: { waitAmount: 1, waitUnit: 'days', maxFollowUps: 2, channels: ['WhatsApp'], waMode: 'auto', script: '', stopOnResolved: true } },
   { id: 'branch', kind: 'decision', title: 'flows.stepChoice.branch', hint: 'flows.stepChoice.branchHint',
-    config: { basedOn: 'They replied' } },
+    config: { basedOn: KIND_CONDITIONS, match: 'all', conditions: [{ subject: 'reply', op: 'replied' }] } },
+  { id: 'aiDecide', kind: 'decision', title: 'flows.stepChoice.aiDecide', hint: 'flows.stepChoice.aiDecideHint',
+    config: { basedOn: KIND_AI_YES_NO, ...AI_DEFAULTS, unsure: 'no' } },
   { id: 'call', kind: 'action', title: 'flows.stepChoice.call', hint: 'flows.stepChoice.callHint',
     config: { channels: ['AI voice call'], callVia: 'Phone (SIP)', script: '' } },
   { id: 'handover', kind: 'handover', title: 'flows.stepChoice.handover', hint: 'flows.stepChoice.handoverHint',
@@ -283,24 +292,33 @@ export const DEFAULT_CONFIG: Record<NodeKind, FlowConfig> = {
   action: STEP_CHOICES[0].config,
   wait: STEP_CHOICES[2].config,
   followup: STEP_CHOICES[3].config,
-  decision: STEP_CHOICES[4].config,
-  handover: STEP_CHOICES[6].config,
-  update: STEP_CHOICES[7].config,
+  decision: STEP_CHOICES.find((c) => c.id === 'branch')!.config,
+  handover: STEP_CHOICES.find((c) => c.id === 'handover')!.config,
+  update: STEP_CHOICES.find((c) => c.id === 'update')!.config,
   end: STEP_CHOICES.find((c) => c.id === 'end')!.config,
   stage: {},
 }
 
-/** Branch outcomes: the words STORED on each side's edge label (English — the
- * engine also follows an un-handled edge whose label starts with yes/no). */
-export function branchLabels(kind: string): { yes: string; no: string } {
-  return kind === 'followup' ? { yes: 'Replied', no: 'No reply' } : { yes: 'Yes', no: 'No' }
+/**
+ * A branch step's outcomes, in order — each its own outgoing edge on its
+ * handle: Follow up = Replied / No reply; a decision = YES / NO, or (AI picks
+ * a path) one per option + "None of these". `stored` is the edge label written
+ * to the flow (English for the fixed words — the engine also follows an
+ * un-handled edge whose label starts with yes/no); `key`/`text` is shown.
+ */
+export function branchOutcomes(node: Pick<FlowNode, 'type' | 'data'> | undefined): Outcome[] {
+  if (node?.type === 'followup')
+    return [
+      { handle: 'yes', stored: 'Replied', key: 'flows.branch.replied', tone: 'yes' },
+      { handle: 'no', stored: 'No reply', key: 'flows.branch.noReply', tone: 'no' },
+    ]
+  if (node?.type === 'decision') return decisionOutcomes(node.data?.config)
+  return []
 }
 
-/** The same outcomes as they are SHOWN (translation keys). */
-export function branchLabelKeys(kind: string): { yes: MessageKey; no: MessageKey } {
-  return kind === 'followup'
-    ? { yes: 'flows.branch.replied', no: 'flows.branch.noReply' }
-    : { yes: 'common.status.yes', no: 'common.status.no' }
+/** The edge label stored for one outcome of a step. */
+export function branchLabelFor(node: Pick<FlowNode, 'type' | 'data'> | undefined, handle: string): string | undefined {
+  return branchOutcomes(node).find((o) => o.handle === handle)?.stored
 }
 
 const STORED_EDGE_LABELS: Record<string, MessageKey> = {
@@ -308,6 +326,7 @@ const STORED_EDGE_LABELS: Record<string, MessageKey> = {
   no: 'common.status.no',
   replied: 'flows.branch.replied',
   'no reply': 'flows.branch.noReply',
+  'none of these': 'flows.branch.none',
 }
 
 /** An edge label for display: the stored branch words translated, anything an

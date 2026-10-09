@@ -9,11 +9,9 @@ import {
   AI_MESSAGE,
   CALL_CHANNELS,
   CHATBOT_CHANNELS,
-  DECISIONS,
   DURATION_UNITS,
   INTEGRATION_ACTIONS,
   INTEGRATION_ACTION_LABELS,
-  LEGACY_DECISIONS,
   LEGACY_REPEATS,
   LEGACY_TRIGGERS,
   MESSAGE_CHANNELS,
@@ -33,6 +31,7 @@ import { describeStep } from '@/lib/flow/describe'
 import { startFlow } from '@/lib/flow/api'
 import type { FlowConfig, FlowNode } from '@/lib/flow/types'
 import ContactScopePicker from './ContactScopePicker'
+import DecisionEditor from './DecisionEditor'
 import SkillPicker from './SkillPicker'
 import VariableTextarea from './VariableTextarea'
 import WaTemplateConfig from './WaTemplateConfig'
@@ -111,7 +110,7 @@ export default function ConfigPanel({
         {node.type === 'action' && <ActionForm cfg={cfg} onPatch={onPatch} set={set} />}
         {node.type === 'wait' && <WaitForm cfg={cfg} set={set} />}
         {node.type === 'followup' && <FollowUpForm cfg={cfg} set={set} onPatch={onPatch} />}
-        {node.type === 'decision' && <DecisionForm cfg={cfg} set={set} />}
+        {node.type === 'decision' && <DecisionEditor cfg={cfg} onPatch={onPatch} />}
         {node.type === 'handover' && <HandoverForm cfg={cfg} set={set} />}
         {node.type === 'update' && <UpdateForm cfg={cfg} set={set} />}
         {node.type === 'end' && <EndForm cfg={cfg} set={set} />}
@@ -823,61 +822,6 @@ function FollowUpForm({ cfg, set, onPatch }: { cfg: FlowConfig; set: SetFn; onPa
 }
 
 // ---- IF / HAND OVER / UPDATE / END -------------------------------------------------------
-
-function DecisionForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
-  const t = useT()
-  const basis = str(cfg.basedOn) || "Contact's answer"
-  const legacy = !DECISIONS.some((d) => d.value === basis)
-  const options: SelectOption[] = [
-    ...choiceOptions(t, DECISIONS),
-    ...(legacy
-      ? [
-          {
-            value: basis,
-            label: t('flows.config.legacySuffix', { label: LEGACY_DECISIONS[basis] ? t(LEGACY_DECISIONS[basis]) : basis }),
-            group: t('flows.config.noLongerOffered'),
-          },
-        ]
-      : []),
-  ]
-  const hintKey = DECISIONS.find((d) => d.value === basis)?.hint
-  return (
-    <>
-      <Field label={t('flows.config.checkWhether')} help={hintKey ? t(hintKey) : undefined}>
-        <Select value={basis} onChange={(v) => set('basedOn', v)} options={options} size="md" ariaLabel={t('flows.config.checkWhether')} />
-      </Field>
-      {basis === 'Reply contains' && (
-        <Field label={t('flows.config.anyOfWords')} help={t('flows.config.anyOfWordsHelp')}>
-          <TextInput value={str(cfg.keyword)} onChange={(v) => set('keyword', v)} placeholder={t('flows.config.anyOfWordsPlaceholder')} ariaLabel={t('flows.config.keywords')} />
-        </Field>
-      )}
-      {(basis === 'Has tag' || basis === 'Contact tag') && (
-        <Field label={t('flows.config.tag')}>
-          <TextInput value={str(cfg.tag)} onChange={(v) => set('tag', v)} placeholder={t('flows.config.vipPlaceholder')} ariaLabel={t('flows.config.tag')} />
-        </Field>
-      )}
-      {basis === 'Custom field equals' && (
-        <>
-          <Field label={t('flows.config.field')}>
-            <FieldPicker value={str(cfg.field)} onChange={(v) => set('field', v)} />
-          </Field>
-          <Field label={t('flows.config.equals')} help={t('flows.config.equalsHelp')}>
-            <TextInput value={str(cfg.value)} onChange={(v) => set('value', v)} ariaLabel={t('flows.config.value')} />
-          </Field>
-        </>
-      )}
-      {basis === 'Record status' && (
-        <Field label={t('flows.config.recordStatus')}>
-          <TextInput value={str(cfg.status)} onChange={(v) => set('status', v)} ariaLabel={t('flows.config.recordStatus')} />
-        </Field>
-      )}
-      {(basis === 'They replied' || basis === 'Reply contains' || basis === 'They said yes') && (
-        <Notice>{t('flows.config.looksAtReply')}</Notice>
-      )}
-      <Notice>{t('flows.config.yesNoPaths')}</Notice>
-    </>
-  )
-}
 
 function HandoverForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
   const t = useT()

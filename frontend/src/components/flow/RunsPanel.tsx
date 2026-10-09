@@ -6,6 +6,7 @@ import { Select } from '@/components/ui/Select'
 import { useFormat, useT, type MessageKey, type TFunction } from '@/i18n'
 import { describeStep } from '@/lib/flow/describe'
 import { fetchRun, fetchRuns, type RunsPage } from '@/lib/flow/api'
+import { aiDecisionText, isAiWaitingNote } from '@/lib/flow/runText'
 import type { FlowNode, FlowRunPathStep, FlowRunRow, FlowStats } from '@/lib/flow/types'
 import DailyBars from './DailyBars'
 import { useFlowView } from './FlowViewContext'
@@ -16,7 +17,9 @@ import { inputCls } from './fields'
  * people entering per day, every step with how many reached it and the
  * drop-off from the step before, why runs failed — and, a click away, each
  * contact's own path through the flow. Reasons and details the engine wrote
- * (failure reasons, outcome codes, the engine log) are shown as stored.
+ * (failure reasons, outcome codes, the engine log) are shown as stored — except
+ * an AI decision's verdict ("AI decided YES (0.82): …"), which is said in the
+ * dashboard language with the model's reason as written (lib/flow/runText).
  */
 
 const STATUS_FILTERS: { value: string; lbl: MessageKey }[] = [
@@ -44,7 +47,7 @@ const STATUS_WORD: Record<StepStatus, MessageKey> = {
 
 /** One row per arrival at a step: its events folded together (reached →
  * waiting → follow-ups → done), with every detail worth reading. */
-function groupPath(t: TFunction, path: FlowRunPathStep[]) {
+function groupPath(t: TFunction, pct: (n: number) => string, path: FlowRunPathStep[]) {
   const groups: { first: FlowRunPathStep; status: StepStatus; details: string[] }[] = []
   for (const p of path) {
     let g = groups[groups.length - 1]
@@ -55,14 +58,18 @@ function groupPath(t: TFunction, path: FlowRunPathStep[]) {
     if (p.kind === 'failed') g.status = 'failed'
     else if (p.kind === 'completed' && g.status !== 'failed') g.status = 'done'
     else if (p.kind === 'waiting' && g.status === 'reached') g.status = 'waiting'
-    const d =
-      p.kind === 'completed' && (p.detail === 'yes' || p.detail === 'no')
-        ? t('flows.runs.answer', { answer: t(p.detail === 'yes' ? 'common.status.yes' : 'common.status.no') })
-        : p.detail
+    const d = p.detail
     if (d && !g.details.includes(d)) g.details.push(d)
   }
-  // a step finished later drops its stale "waiting …" note (the engine writes it in English)
-  for (const g of groups) if (g.status === 'done') g.details = g.details.filter((d) => !d.startsWith('waiting'))
+  for (const g of groups) {
+    // a step finished later drops its stale "waiting …" note (the engine writes it in English)
+    if (g.status === 'done') g.details = g.details.filter((d) => !d.startsWith('waiting') && !isAiWaitingNote(d))
+    g.details = g.details.map((d) =>
+      d === 'yes' || d === 'no'
+        ? t('flows.runs.answer', { answer: t(d === 'yes' ? 'common.status.yes' : 'common.status.no') })
+        : (aiDecisionText(t, pct, d) ?? d),
+    )
+  }
   return groups
 }
 
@@ -365,7 +372,8 @@ function People({
   const rowLine = (r: FlowRunRow) => {
     if (r.status === 'done' || r.status === 'failed') {
       const s = STATUS_COPY[r.status]
-      return t('flows.runs.endedLine', { detail: r.detail || (s ? t(s.lbl) : r.status), when: f.dateTime(r.finishedAt) })
+      const detail = r.detail ? (aiDecisionText(t, f.percent, r.detail) ?? r.detail) : s ? t(s.lbl) : r.status
+      return t('flows.runs.endedLine', { detail, when: f.dateTime(r.finishedAt) })
     }
     const at = r.currentLabel || nodeTitle(r.currentNode)
     const since = f.dateTime(r.startedAt)
@@ -495,7 +503,7 @@ function RunDetail({ id, nodes, onBack }: { id: number; nodes: FlowNode[]; onBac
             <div className={`rounded-lg border px-3 py-2 text-[12.5px] ${data.run.status === 'failed' ? 'border-red/40 text-[color:var(--red-ink)]' : 'border-line text-text-high'}`}>
               {data.run.status === 'failed'
                 ? t('flows.runs.whyFailed', { detail: data.run.detail })
-                : t('flows.runs.outcome', { detail: data.run.detail })}
+                : t('flows.runs.outcome', { detail: aiDecisionText(t, f.percent, data.run.detail) ?? data.run.detail })}
             </div>
           )}
           {data.run.lastReply && (
@@ -504,7 +512,7 @@ function RunDetail({ id, nodes, onBack }: { id: number; nodes: FlowNode[]; onBac
             </div>
           )}
           <ol className="flex flex-col">
-            {groupPath(t, data.path).map((g, i, all) => (
+            {groupPath(t, f.percent, data.path).map((g, i, all) => (
               <li key={i} className="relative flex gap-3 pb-3 last:pb-0">
                 {i < all.length - 1 && <span className="absolute left-[4.5px] top-3 h-full w-px bg-line-strong" aria-hidden />}
                 <span

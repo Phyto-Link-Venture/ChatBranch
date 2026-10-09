@@ -1,12 +1,14 @@
 import type { MessageKey, TFunction, Vars } from '@/i18n'
 import type { FlowConfig, FlowEdge, FlowNode, NodeKind } from './types'
-import { branchLabelKeys, branchLabels, isBranchKind } from './nodeConfig'
+import { branchLabelFor, branchOutcomes, isBranchKind } from './nodeConfig'
+import type { Outcome } from './conditions'
 
 /**
  * Graph ↔ step-list conversion. A workflow is stored as React Flow nodes +
  * edges (what the engine executes and the Advanced canvas draws); the Steps
- * view reads it as a TREE — a chain of steps that splits into YES / NO columns
- * under a branch step — and edits it with the structural operations below,
+ * view reads it as a TREE — a chain of steps that splits into one column per
+ * outcome under a branch step (YES / NO, Replied / No reply, or one per AI
+ * option + "None of these") — and edits it with the structural operations below,
  * which rewrite the graph and then auto-lay it out top-to-bottom so the
  * canvas stays tidy.
  *
@@ -37,7 +39,7 @@ const normalOut = (edges: FlowEdge[], id: string) =>
   edges.filter((e) => e.source === id && !isTimeoutEdge(e))
 
 /** The engine's branch choice for one outcome (null = that path just ends). */
-export function pickBranchEdge(edges: FlowEdge[], nodeId: string, branch: 'yes' | 'no'): FlowEdge | null {
+export function pickBranchEdge(edges: FlowEdge[], nodeId: string, branch: string): FlowEdge | null {
   const outs = normalOut(edges, nodeId)
   const byHandle = outs.find((e) => (e.sourceHandle ?? '').toLowerCase() === branch)
   if (byHandle) return byHandle
@@ -59,15 +61,18 @@ export const nextEdge = (edges: FlowEdge[], nodeId: string): FlowEdge | null => 
 // ---- the step tree --------------------------------------------------------------
 
 export interface BranchTree {
-  key: 'yes' | 'no' | 'next' | 'timeout'
-  /** what the column is called — render with t(labelKey, labelVars) */
-  labelKey: MessageKey
+  /** the outcome's handle (yes / no / opt-N / none), or 'next' / 'timeout' */
+  key: string
+  /** what the column is called — t(labelKey, labelVars), or the operator's own words */
+  labelKey?: MessageKey
   labelVars?: Vars
+  labelText?: string
+  tone: Outcome['tone'] | 'next' | 'timeout'
   /** the edge carrying this outcome (absent = the path ends here) */
   edge: FlowEdge | null
   /** where a new step inserted at the top of this column hangs from */
   source: string
-  handle?: 'yes' | 'no'
+  handle?: string
   child: StepTree | null
 }
 
@@ -80,7 +85,7 @@ export interface StepTree {
   /** linear continuation */
   next: StepTree | null
   nextEdge: FlowEdge | null
-  /** branch columns (YES / NO, or a legacy timeout line) */
+  /** branch columns (one per outcome, or a legacy timeout line) */
   branches: BranchTree[] | null
 }
 
@@ -102,24 +107,34 @@ export function buildStepTree(nodes: FlowNode[], edges: FlowEdge[]): StepForest 
     const tree: StepTree = { node, inEdge, ref: false, next: null, nextEdge: null, branches: null }
     const timeouts = edges.filter((e) => e.source === id && isTimeoutEdge(e))
     if (isBranchKind(node.type)) {
-      const labels = branchLabelKeys(String(node.type))
-      const yes = pickBranchEdge(edges, id, 'yes')
-      const no = pickBranchEdge(edges, id, 'no')
-      if (yes && no && yes.id === no.id) {
-        // one generic line: both outcomes continue the same way
-        tree.nextEdge = yes
-        tree.next = visit(yes.target, yes)
+      const outcomes = branchOutcomes(node)
+      const picked = outcomes.map((o) => pickBranchEdge(edges, id, o.handle))
+      const first = picked[0]
+      if (first && picked.every((e) => e && e.id === first.id)) {
+        // one generic line: every outcome continues the same way
+        tree.nextEdge = first
+        tree.next = visit(first.target, first)
       } else {
-        tree.branches = [
-          { key: 'yes', labelKey: labels.yes, edge: yes, source: id, handle: 'yes', child: yes ? visit(yes.target, yes) : null },
-          { key: 'no', labelKey: labels.no, edge: no, source: id, handle: 'no', child: no ? visit(no.target, no) : null },
-        ]
+        tree.branches = outcomes.map((o, i) => {
+          const e = picked[i]
+          return {
+            key: o.handle,
+            labelKey: o.key,
+            labelVars: o.vars,
+            labelText: o.text,
+            tone: o.tone,
+            edge: e,
+            source: id,
+            handle: o.handle,
+            child: e ? visit(e.target, e) : null,
+          }
+        })
       }
     } else {
       const nxt = nextEdge(edges, id)
       if (timeouts.length) {
         tree.branches = [
-          { key: 'next', labelKey: 'flows.branch.then', edge: nxt, source: id, child: nxt ? visit(nxt.target, nxt) : null },
+          { key: 'next', labelKey: 'flows.branch.then', tone: 'next', edge: nxt, source: id, child: nxt ? visit(nxt.target, nxt) : null },
         ]
       } else {
         tree.nextEdge = nxt
@@ -130,8 +145,8 @@ export function buildStepTree(nodes: FlowNode[], edges: FlowEdge[]): StepForest 
       const days = Number(t.data?.config?.waitDays ?? 0) || 1
       tree.branches = [
         ...(tree.branches ?? []),
-        { key: 'timeout', labelKey: 'flows.branch.noReplyIn', labelVars: { count: days }, edge: t, source: id,
-          child: visit(t.target, t) },
+        { key: 'timeout', labelKey: 'flows.branch.noReplyIn', labelVars: { count: days }, tone: 'timeout', edge: t,
+          source: id, child: visit(t.target, t) },
       ]
     }
     return tree
@@ -173,7 +188,10 @@ export function makeNode(kind: NodeKind, config: FlowConfig, label = ''): FlowNo
   }
 }
 
-export function makeEdge(source: string, target: string, handle?: 'yes' | 'no', sourceKind?: string): FlowEdge {
+/** The first outcome of a branch step (where a step inserted mid-chain continues). */
+export const primaryHandle = (node: FlowNode | undefined): string | undefined => branchOutcomes(node)[0]?.handle
+
+export function makeEdge(source: string, target: string, handle?: string, sourceNode?: FlowNode): FlowEdge {
   const edge: FlowEdge = {
     id: freshId('e'),
     source,
@@ -182,7 +200,7 @@ export function makeEdge(source: string, target: string, handle?: 'yes' | 'no', 
   }
   if (handle) {
     edge.sourceHandle = handle
-    edge.label = branchLabels(sourceKind ?? 'decision')[handle]
+    edge.label = branchLabelFor(sourceNode ?? { type: 'decision', data: { label: '' } }, handle) ?? handle
   }
   return edge
 }
@@ -207,24 +225,25 @@ export interface Graph {
  * Insert a step. With `edgeId` the step goes INTO that line (source → new →
  * old target; the old line keeps its timing/label/handle and now ends at the
  * new step). Without it, the step hangs off `source` (on `handle` for a branch
- * outcome). A branch step inserted mid-chain continues on its YES side.
+ * outcome). A branch step inserted mid-chain continues on its first outcome
+ * (YES, Replied, or its first option).
  */
 export function insertStep(
   g: Graph,
-  at: { source: string; handle?: 'yes' | 'no'; edgeId?: string | null },
+  at: { source: string; handle?: string; edgeId?: string | null },
   node: FlowNode,
 ): Graph {
   const nodes = [...g.nodes, node]
   let edges = [...g.edges]
-  const sourceKind = g.nodes.find((n) => n.id === at.source)?.type
+  const sourceNode = g.nodes.find((n) => n.id === at.source)
   const line = at.edgeId ? edges.find((e) => e.id === at.edgeId) : null
   if (line) {
     edges = edges.map((e) => (e.id === line.id ? { ...e, target: node.id } : e))
     if (node.type !== 'end') {
-      edges.push(makeEdge(node.id, line.target, isBranchKind(node.type) ? 'yes' : undefined, node.type))
+      edges.push(makeEdge(node.id, line.target, isBranchKind(node.type) ? primaryHandle(node) : undefined, node))
     }
   } else {
-    edges.push(makeEdge(at.source, node.id, at.handle, sourceKind))
+    edges.push(makeEdge(at.source, node.id, at.handle, sourceNode))
   }
   return { nodes, edges: dedupe(edges) }
 }
@@ -238,14 +257,14 @@ export function insertOnEdge(g: Graph, edgeId: string, node: FlowNode): Graph {
 
 /**
  * Delete a step and close the gap: lines that led into it now lead to where
- * it continued (a branch step continues on its YES side). Steps that only its
+ * it continued (a branch step continues on its first outcome). Steps that only its
  * other outcome reached go with it — `removed` counts them so the caller can
  * confirm first.
  */
 export function deleteStep(g: Graph, id: string): Graph & { removed: number } {
   const node = g.nodes.find((n) => n.id === id)
   if (!node) return { ...g, removed: 0 }
-  const cont = isBranchKind(node.type) ? pickBranchEdge(g.edges, id, 'yes') : nextEdge(g.edges, id)
+  const cont = isBranchKind(node.type) ? pickBranchEdge(g.edges, id, primaryHandle(node) ?? 'yes') : nextEdge(g.edges, id)
   const target = cont && cont.target !== id ? cont.target : null
   let edges = g.edges.filter((e) => e.source !== id)
   edges = target
@@ -342,9 +361,9 @@ export function autoLayout(g: Graph): Graph {
     const node = byId.get(id)!
     let targets: string[]
     if (isBranchKind(node.type)) {
-      const yes = pickBranchEdge(g.edges, id, 'yes')
-      const no = pickBranchEdge(g.edges, id, 'no')
-      targets = [yes?.target, no?.target].filter((t): t is string => !!t)
+      targets = branchOutcomes(node)
+        .map((o) => pickBranchEdge(g.edges, id, o.handle)?.target)
+        .filter((t): t is string => !!t)
     } else {
       const n = nextEdge(g.edges, id)
       targets = n ? [n.target] : []
@@ -409,4 +428,54 @@ export function autoLayout(g: Graph): Graph {
   }
   nodes = nodes.map((n) => ({ ...n, position: pos.get(n.id) ?? n.position }))
   return { nodes, edges: g.edges.filter((e) => byId.has(e.source) && byId.has(e.target)) }
+}
+
+// ---- keeping a branch step's lines in step with its outcomes ----------------------------
+
+/**
+ * After a decision's kind or options change: lines on handles the step no
+ * longer has are moved to their counterpart (YES ↔ the first option, NO ↔
+ * "None of these") when that outcome is still free, else dropped — the steps
+ * they led to stay in the flow, under "not connected". Lines on an option
+ * take the option's current label.
+ */
+export function reconcileBranchEdges(g: Graph, nodeId: string): Graph {
+  const node = g.nodes.find((n) => n.id === nodeId)
+  if (!node || node.type !== 'decision') return g
+  const outcomes = branchOutcomes(node)
+  const valid = new Set(outcomes.map((o) => o.handle))
+  const taken = new Set(
+    g.edges.filter((e) => e.source === nodeId && e.sourceHandle && valid.has(e.sourceHandle)).map((e) => e.sourceHandle!),
+  )
+  const counterpart = (h: string): string | undefined => {
+    // a removed option's line is dropped, never moved onto another option
+    if (h.startsWith('opt-')) return valid.has('yes') ? 'yes' : undefined
+    if (h === 'yes') return outcomes.find((o) => o.tone === 'option')?.handle
+    if (h === 'no' || h === 'none') return valid.has('no') ? 'no' : valid.has('none') ? 'none' : undefined
+    return undefined
+  }
+  let changed = false
+  const edges: FlowEdge[] = []
+  for (const e of g.edges) {
+    if (e.source !== nodeId || !e.sourceHandle || isTimeoutEdge(e)) {
+      edges.push(e)
+      continue
+    }
+    let handle = e.sourceHandle
+    if (!valid.has(handle)) {
+      const to = counterpart(handle)
+      if (!to || taken.has(to)) {
+        changed = true
+        continue
+      }
+      taken.add(to)
+      handle = to
+    }
+    const label = outcomes.find((o) => o.handle === handle)?.stored
+    if (handle !== e.sourceHandle || (label !== undefined && label !== e.label)) {
+      changed = true
+      edges.push({ ...e, sourceHandle: handle, label })
+    } else edges.push(e)
+  }
+  return changed ? { nodes: g.nodes, edges } : g
 }

@@ -9,7 +9,7 @@ export const shell: Dict<typeof source> = {
     contacts: 'Kenalan',
     bookings: 'Tempahan',
     assignments: 'Penetapan akaun',
-    flowBuilder: 'Pembina aliran',
+    flowBuilder: 'Perjalanan',
     aiMonitor: 'Pemantau AI',
     automations: 'Automasi',
     voice: 'Suara & panggilan',

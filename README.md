@@ -50,10 +50,15 @@ is a settings exercise, not a fork — see
   reachable channels are registered (WhatsApp numbers verified through a QR
   number); invite links bind a customer's chat on another app to their record;
   unknown customers can be asked who they are.
-- **Flow builder** (`/flow-builder`) — a step list for most people, a canvas for
-  power users, starter templates, a real execution engine (triggers, waits,
-  "follow up if no reply", branches, hand-over, AI messages, calls, app actions)
-  and a Runs panel showing how many people reached each step.
+- **Journeys** (`/journeys`, formerly the flow builder) — a step list for most
+  people, a canvas for power users, starter templates, a real execution engine
+  (triggers, waits, "follow up if no reply", hand-over, AI messages, calls, app
+  actions) and a Runs panel showing how many people reached each step. Decisions
+  check **conditions** (custom fields, tags, the contact, the conversation, the
+  reply, bookings — all / any of them) or **let the AI decide** from the
+  conversation history: a yes/no question, or one of 2–6 paths, with a
+  confidence threshold and a "when unsure" choice — every verdict and its
+  reason is on the run.
 - **Outbound pacing queue** — jittered per-account gaps, daily caps, quiet hours,
   atomic claims; calls are queued too.
 - **AI voice calls** over SIP or WhatsApp (LiveKit), with a live transcript and
@@ -190,7 +195,7 @@ single-origin production setup.
 
 ## What works with zero API keys
 
-- The whole dashboard: inbox, contacts, flow builder, AI monitor, analytics,
+- The whole dashboard: inbox, contacts, journeys, AI monitor, analytics,
   tags, settings, RBAC, the assistant (in a deterministic fallback mode).
 - **Chats.** Sends on any channel are stored as real messages with
   `status="sandbox"`. Fake an inbound message with **Simulate**

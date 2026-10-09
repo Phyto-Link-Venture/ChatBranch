@@ -5,7 +5,7 @@ import { useT } from '@/i18n'
 import { STARTER_TEMPLATES, type StarterTemplate } from '@/lib/flow/templates'
 
 /**
- * "Start from a template": the five starter flows plus a blank one. Used by the
+ * "Start from a template": the starter journeys plus a blank one. Used by the
  * builder's empty state and by its "New flow" dialog.
  */
 export default function TemplateGallery({ onPick }: { onPick: (t: StarterTemplate | null) => void }) {

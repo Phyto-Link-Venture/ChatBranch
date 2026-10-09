@@ -215,14 +215,14 @@ exemption list below fails the build.
 |---|---|---|
 | `/api/analytics/summary`, `/reports`, `/reports.csv`, `/api/messaging/engagement` | `analytics.view` | Analytics (home) |
 | `/api/whatsapp/channels/health` | `analytics.view`, `channels.view` | Analytics health card, Channels |
-| `/api/analytics/flows`, `/api/flows/library`, `/runs`, `/runs/{id}`, `/{flowId}/stats` | `flows.view` | Analytics flows card, flow builder, runs panel |
+| `/api/analytics/flows`, `/api/flows/library`, `/runs`, `/runs/{id}`, `/{flowId}/stats` | `flows.view` | Analytics flows card, Journeys, runs panel |
 | `/api/flows/queue` (every outbound job, unscoped) | `flows.manage` | queue inspection |
 | `/api/automations`, `/catalog` | `flows.manage` | Automations |
 | `/api/ai/monitor`, `/stats`, `/{id}` | `ai.monitor` | AI monitor |
 | `/api/ai/behaviour` | `ai.monitor`, `ai.behaviour.manage` | AI monitor |
 | `POST /api/aicore/knowledge/preview` | `settings.ai.manage`, `ai.monitor` | Knowledge, AI monitor's retrieval tester |
 | `/api/aicore/knowledge`, `/persona`, `/skills/apps`, `/skills/builtins` | `settings.ai.manage` | Knowledge base, AI skills |
-| `/api/aicore/skills` | `settings.ai.manage`, `flows.manage` | AI skills, the flow builder's skill picker |
+| `/api/aicore/skills` | `settings.ai.manage`, `flows.manage` | AI skills, the Journeys skill picker |
 | `/api/aicore/booking-hours` | `integrations.view`, `settings.ai.manage` | Integrations (booking hours) |
 | `POST /api/aicore/reply` | `chats.send` | operator-requested AI draft |
 | `/api/audit`, `/audit.csv`, `/audit/facets` | `activity.view` (+ the handler's API-key-scope check and row tiering) | Activity |
@@ -230,13 +230,13 @@ exemption list below fails the build.
 | `/api/calls/{room}`, `/{room}/live`, `/api/whatsapp/calls/recording/{name}` | `chats.view`, `call_logs.view` | live call in the inbox, call logs |
 | `/api/inbox/threads`, `/api/whatsapp/threads`, `/api/messaging/threads`, `/api/messaging/agents`, `/api/whatsapp/media/{id}`, `/api/messaging/media/{id}`, `/api/bookings` | `chats.view` | Chats, Bookings |
 | `/api/messaging/canned` | `chats.view`, `chats.send`, `templates.manage` | composer quick replies, Templates |
-| `/api/whatsapp/templates` | `chats.send`, `templates.manage`, `flows.manage` | template picker, Templates, flow builder |
-| `/api/calls/script-templates` | `chats.send`, `script_templates.manage`, `flows.manage` | Script call button, Templates, flow builder |
+| `/api/whatsapp/templates` | `chats.send`, `templates.manage`, `flows.manage` | template picker, Templates, Journeys |
+| `/api/calls/script-templates` | `chats.send`, `script_templates.manage`, `flows.manage` | Script call button, Templates, Journeys |
 | `/api/whatsapp/accounts` | `chats.view`, `channels.view`, `templates.manage` — the full row (provider ids, masked credentials, delivery config) needs `channels.view` or `templates.manage`; the inbox gets the picker shape (id, name, channel, provider, role, entity, health) | sender picker, Channels, Templates |
 | `/api/contacts` | `contacts.view`, `chats.view`, `users.manage` | Contacts, inbox, Users' customer-login picker |
 | `/api/contacts/{id}`, `/api/v1/contacts/{id}`, `/api/v1/contacts/{id}/entities` | `contacts.view` | contact page |
 | `/api/contacts/{id}/channels`, `/{id}/calls`, `/api/messaging/contacts`, `/contacts/{id}/conversation`, `/api/messaging/timeline` | `contacts.view`, `chats.view` | contact page, chat info panel |
-| `/api/v1/contacts` (now contact-scoped too) | `contacts.view`, `flows.manage` | flow builder's contact picker |
+| `/api/v1/contacts` (now contact-scoped too) | `contacts.view`, `flows.manage` | the Journeys contact picker |
 | `/api/settings/custom-fields` | `contacts.view`, `flows.manage`, `templates.manage`, `script_templates.manage`, `settings.custom_fields.manage` | contact forms, variable pickers, Custom fields |
 | `/api/tags`, `/{id}/targets`, `/assignments`, `/api/contacts/{id}/tags`, `/api/entities/{slug}/tags` | `tags.view` | Tags, contact page, Entities |
 | `/api/bindings/catalog` | `users.view`, `tags.view` — without `users.view` the users/teams/accounts pools are empty, contacts need `contacts.view` | Bindings, a tag's binding view |
