@@ -27,7 +27,7 @@ another.
 | Send media | ✅ upload → send by id | ✅ gateway `send-media` (base64, ≤16 MB) | — | ✅ sendPhoto / sendDocument | ✅ uploaded file (multipart) or public URL | ✅ attachment |
 | Receive media | ✅ downloaded off the ack | ✅ `/baileys/media` (two-phase) | — | ✅ getFile, off the ack | ✅ CDN url, downloaded off the ack | ✅ attachments (≤5, 10 MB) |
 | Delivery receipts | ✅ `statuses` (forward-only; failed + error code) | ✅ `/baileys/message-status` | — | — | ✅ delivery / read | — |
-| Typing / read | ✅ Graph `typing_indicator` | ✅ gateway presence | — | ✅ `sendChatAction` (typing) | — | — |
+| Typing / read | ✅ Graph `typing_indicator` | ✅ gateway presence | — | ✅ `sendChatAction` (typing) | ✅ `mark_seen` + `typing_on` (24h window only) | — |
 | 24h window | ✅ enforced (409 → use a template); 131047 closes it | none | none | none | ✅ ≤24h anything; 24h–7d a person only (`HUMAN_AGENT` tag), AI/automation refused; >7d refused | — |
 | Opt-out | ✅ STOP/UNSUBSCRIBE/BERHENTI → opted out, START/UNSTOP/MULA → back in | same | same | same | same | same |
 | Health | ✅ Graph token ping (prober) + send / status / test results (`MetaErrors`), inbound heal | ✅ lifecycle pushes + inbound heal | — | ✅ getMe + getWebhookInfo, inbound heal | ✅ `GET /me` (prober, test), send results, inbound heal | ✅ SMTP login (prober), send outcomes |
@@ -59,7 +59,7 @@ Where the code is (`backend-csharp/src/`):
 | Per-account delivery (quiet hours, pacing, voice brain/STT) | `ChatBranch.Data/Channels/AccountDelivery.cs` |
 | Health writer | `ChatBranch.Data/Channels/AccountHealth.cs` |
 | Health prober (periodic + "Check now") | `ChatBranch.Data/Channels/HealthProber.cs`, `GraphHealthProbe.cs`, `ChatBranch.Api/Workers/HealthProbeWorker.cs` |
-| Typing indicator | `ChatBranch.Data/Ai/TypingIndicator.cs` (`ChannelTypingIndicator` → `LiveTypingIndicator` / `TelegramTypingIndicator`) |
+| Typing indicator | `ChatBranch.Data/Ai/TypingIndicator.cs` (`ChannelTypingIndicator` → `LiveTypingIndicator` / `TelegramTypingIndicator` / `MetaTypingIndicator`) |
 
 All channels write to the **same** `crm_thread` / `crm_message` tables, so the
 inbox, the SSE stream, the AI, teams, automations, the flow engine and the

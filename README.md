@@ -198,7 +198,7 @@ requires a restart.
 | **Website widget** | Nothing — paste the snippet the inbox gives you | live |
 | **Telegram** | A BotFather token, then "Register webhook" in the inbox (needs a public https URL — `PUBLIC_BASE_URL` or the one you type) | live: inbound text + media, replies and attachments via the Bot API, typing indicator |
 | **Email** | Per-mailbox SMTP credentials (+ an IMAP host, per mailbox or the default under Channels → Advanced) | live: SMTP send (text + escaped HTML alternative, threaded replies, mailboxes routed and failed over like WhatsApp numbers), IMAP pull from known senders (HTML-only mail flattened to text) |
-| **Messenger / Instagram** | A page token, the page / IG account id, the Meta app secret, and a public webhook (`/api/messaging/webhook`) | live: signed inbound (incl. attachments), Send API text + files (URL or upload) inside Meta's 24h / 7-day human-agent window, receipts |
+| **Messenger / Instagram** | A page token, the page / IG account id, the Meta app secret, and a public webhook (`/api/messaging/webhook`) | live: signed inbound (incl. attachments), Send API text + files (URL or upload) inside Meta's 24h / 7-day human-agent window, typing indicator, receipts |
 | **Voice (SIP)** | LiveKit + a SIP trunk: `npm --prefix backend/voice_agent run setup-trunk`, then Channels → Voice | live |
 
 Inbound webhooks need a public HTTPS URL; for local development tunnel port 8090
@@ -255,7 +255,7 @@ ChatBranch/
 
 ```bash
 cd backend-csharp && dotnet build src/ChatBranch.Api -c Release
-cd backend-csharp && dotnet test tests/ChatBranch.Tests    # 326 tests
+cd backend-csharp && dotnet test tests/ChatBranch.Tests    # 329 tests
 cd frontend && npx tsc --noEmit && npx eslint src && npx next build
 cd backend/voice_agent && npx tsc --noEmit && npm run selftest
 node backend/baileys_service/calls.js --selftest
@@ -273,8 +273,7 @@ every pull request.
 
 - **Every channel transport is wired, with a few edges left.**
   Baileys numbers send templates as rendered text; WhatsApp Cloud has no voice
-  calls (Meta's calling API is a gated beta); Messenger / Instagram have no
-  typing indicator; email is composed as plain text (an escaped HTML alternative
+  calls (Meta's calling API is a gated beta); email is composed as plain text (an escaped HTML alternative
   is rendered from it); the opt-out flag lives on the conversation, not the
   contact. Nothing has been exercised against the live providers from this
   repo's CI — expect field debugging on a first real account. The full table is

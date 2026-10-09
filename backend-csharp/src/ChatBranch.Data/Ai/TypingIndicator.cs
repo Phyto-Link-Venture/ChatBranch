@@ -23,18 +23,21 @@ public sealed class NoTypingIndicator : ITypingIndicator
 
 /// <summary>
 /// The registered indicator: picks the channel's own implementation — Telegram
-/// bots through <see cref="TelegramTypingIndicator"/>, everything else (WhatsApp
+/// bots through <see cref="TelegramTypingIndicator"/>, Messenger / Instagram
+/// pages through <see cref="MetaTypingIndicator"/>, everything else (WhatsApp
 /// Cloud + Baileys; a no-op elsewhere) through <see cref="LiveTypingIndicator"/>.
 /// </summary>
 public sealed class ChannelTypingIndicator : ITypingIndicator
 {
     private readonly ITypingIndicator _whatsapp;
     private readonly ITypingIndicator _telegram;
+    private readonly ITypingIndicator? _meta;
 
-    public ChannelTypingIndicator(ITypingIndicator whatsapp, ITypingIndicator telegram)
+    public ChannelTypingIndicator(ITypingIndicator whatsapp, ITypingIndicator telegram, ITypingIndicator? meta = null)
     {
         _whatsapp = whatsapp;
         _telegram = telegram;
+        _meta = meta;
     }
 
     public void Start(Thread thread, ChannelAccount account)
@@ -42,9 +45,64 @@ public sealed class ChannelTypingIndicator : ITypingIndicator
         try
         {
             if (thread.Channel == ChatBranch.Domain.Channels.Telegram) _telegram.Start(thread, account);
+            else if (thread.Channel is ChatBranch.Domain.Channels.Facebook or ChatBranch.Domain.Channels.Instagram)
+                _meta?.Start(thread, account);
             else _whatsapp.Start(thread, account);
         }
         catch { /* presence is best-effort */ }
+    }
+}
+
+/// <summary>
+/// Messenger / Instagram: <c>mark_seen</c> then <c>typing_on</c> from the page
+/// that carries the conversation (Send API sender actions; Meta clears the
+/// indicator on the next message or after ~20 s). Meta only accepts sender
+/// actions inside the standard 24h window, so nothing is sent outside it.
+/// The window is read on the caller's thread (the DbContext is not thread-safe);
+/// the HTTP calls run off it, fire-and-forget, failures swallowed — health is
+/// never touched by a presence call.
+/// </summary>
+public sealed class MetaTypingIndicator : ITypingIndicator
+{
+    private readonly ChatBranch.Data.Channels.IMetaMessagingClient _client;
+    private readonly AppDbContext _db;
+    private readonly TimeProvider _clock;
+
+    public MetaTypingIndicator(ChatBranch.Data.Channels.IMetaMessagingClient client, AppDbContext db,
+        TimeProvider? clock = null)
+    {
+        _client = client;
+        _db = db;
+        _clock = clock ?? TimeProvider.System;
+    }
+
+    public void Start(Thread thread, ChannelAccount account) => _ = StartAsync(thread, account);
+
+    /// <summary>The same call, awaitable (tests). Never throws; false = nothing was sent.</summary>
+    public Task<bool> StartAsync(Thread thread, ChannelAccount account)
+    {
+        try
+        {
+            if (!ChatBranch.Data.Channels.SocialWindow.Live(account, thread.Channel)
+                || !_client.IsConfigured(account) || string.IsNullOrEmpty(thread.Key))
+                return Task.FromResult(false);
+            var state = ChatBranch.Data.Channels.SocialWindow.StateAt(
+                ChatBranch.Data.Channels.SocialWindow.LastInbound(_db, thread), _clock.GetUtcNow().UtcDateTime);
+            if (state != ChatBranch.Data.Channels.SocialWindowState.Open) return Task.FromResult(false);
+            var recipient = thread.Key;
+            return Task.Run(async () =>
+            {
+                try
+                {
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    await _client.SendActionAsync(account, recipient, "mark_seen", cts.Token);
+                    var r = await _client.SendActionAsync(account, recipient, "typing_on", cts.Token);
+                    return r.Ok;
+                }
+                catch { return false; }
+            });
+        }
+        catch { return Task.FromResult(false); }
     }
 }
 

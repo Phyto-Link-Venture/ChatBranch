@@ -35,6 +35,14 @@ public interface IMetaMessagingClient
     Task<SendOutcome> SendFileAsync(ChannelAccount account, string recipientId, string type, byte[] content,
         string mime, string fileName, string? tag = null, CancellationToken ct = default) =>
         Task.FromResult(new SendOutcome(false, "", "file upload is not supported by this client"));
+    /// <summary>
+    /// A sender action (<c>mark_seen</c> | <c>typing_on</c> | <c>typing_off</c>) —
+    /// <c>POST /me/messages</c> with only <c>recipient</c> + <c>sender_action</c>.
+    /// Meta allows these inside the standard 24h window only.
+    /// </summary>
+    Task<SendOutcome> SendActionAsync(ChannelAccount account, string recipientId, string action,
+        CancellationToken ct = default) =>
+        Task.FromResult(new SendOutcome(false, "", "sender actions are not supported by this client"));
     /// <summary>GET /me — proves the token (and names the page / IG account).</summary>
     Task<GraphRead> GetMeAsync(ChannelAccount account, CancellationToken ct = default);
     /// <summary>Best-effort display name of a PSID / IGSID ("" when Meta won't say).</summary>
@@ -92,6 +100,14 @@ public class MetaMessagingClient : IMetaMessagingClient
         body["message"] = new { text };
         return PostAsync(account, body, ct);
     }
+
+    public Task<SendOutcome> SendActionAsync(ChannelAccount account, string recipientId, string action,
+        CancellationToken ct = default) =>
+        PostAsync(account, new Dictionary<string, object?>
+        {
+            ["recipient"] = new { id = recipientId },
+            ["sender_action"] = action,
+        }, ct);
 
     public Task<SendOutcome> SendAttachmentAsync(ChannelAccount account, string recipientId, string type,
         string url, string? tag = null, CancellationToken ct = default)
