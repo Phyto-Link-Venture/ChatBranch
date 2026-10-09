@@ -714,6 +714,39 @@ When you fix one of these, update this table, `README.md` and
   monitor's Learning tab, `/knowledge` upload + Test retrieval, Settings → AI keys
   & models → embeddings. Tests: `RetrievalTests`, `LearningTests`,
   `LearningApiTests` (`LearningFakes.FakeEmbeddingClient`).
+- **AI playground** (`/ai-playground`, Automate after AI monitor;
+  `Endpoints/AiPlaygroundEndpoints.cs`, `Data/Ai/AssistantService.Playground.cs`,
+  `Data/Ai/AiPlayground.cs`). An operator chats with the AI as a customer would —
+  a made-up profile (name, language, tag names, custom-field values: a transient
+  `Contact`, never attached), a real contact (read only, `ScopeContacts`) or a
+  copy of a real conversation (`POST /api/ai/playground/import {channel, key,
+  take?}`, `chats.view` + the inbox scope). `POST /api/ai/playground/reply` is
+  STATELESS (the browser sends the transcript every time; ≤60 turns, ≤4000
+  chars, 30/min per user → 429) and runs the real prompt assembly and generate →
+  check → retry engine through ONE seam, `AssistantService.GeneratePlaygroundAsync`:
+  per-call toggles (knowledge, lessons, skills = every tool incl. built-ins +
+  checks, contact memory), an unsaved persona that replaces the stored one
+  (`HardRules` always lead), a provider pin (`OpenAiLlmClient.Pinned(provider,
+  model)`, configured providers only, else 400). NO side effects: no thread /
+  message / draft / note / notification / handover / status / audit row,
+  calendar tools PREVIEW (`BookingService.Session.Preview`: checked for real,
+  nothing written), lessons not counted as used, usage metered as `LlmUsage`
+  feature `playground`. "What would happen in production" = `AiPlayground.Decide`
+  over the gate's own pure rules (`AiGate.Review` + `AiGate.FlagReasons`,
+  `Handover.KindForAiDraft`, `AiEligibility`): send | hold (shadow) | handover |
+  blocked | ai_off. `GET /api/ai/playground/options?entity=` lists providers
+  (never keys), the stored persona (`ai.behaviour.manage` only), channels, the
+  policy, the learning mode and custom fields. Gates: `ai.monitor` or
+  `ai.behaviour.manage`; overrides (provider/model, persona, parts off,
+  show_prompt) `ai.behaviour.manage` → 403; the entity in the caller's assigned
+  subtree (org-wide: admins or unassigned users). The page
+  (`components/ai-playground/`, `lib/aiPlayground.ts`): Setup · Chat · Inspector
+  (tabs below lg), compare two set-ups, teach a correction / example through
+  `/api/ai/lessons` (status follows the learning mode), export JSON / Markdown;
+  the transcript is cached in localStorage `playground:<username>`, cleared by
+  `clearAuth()` and every login (`lib/playgroundCache.ts`). Tests:
+  `AiPlaygroundTests` (HTTP-level `FakeChatApi`); Test lab scenario
+  `ai-playground-no-side-effects`.
 - **Tags replace Service Providers.** `Resource`/`ResourceLink`,
   `ProviderScope`, the `resource_id` claim, the provider role and
   `{{provider_<key>}}` are GONE (the old `crm_profile.resource_id` column is
@@ -1208,7 +1241,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **640 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **654 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /
@@ -1222,7 +1255,8 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   learning), integrations (+ My connections, shared/personal scope and
   up-the-tree resolution — `IntegrationScopeTests`), notifications + settings,
   search/live, the platform (audit, API keys, MCP — every route a tool or a
-  documented exclusion, `McpCoverageTests` — assistant), the Test lab and the LiveKit
+  documented exclusion, `McpCoverageTests` — assistant), the AI playground
+  (`AiPlaygroundTests`), the Test lab and the LiveKit
   control plane. Keep them green. The test host (`ApiFactory` in
   `ApiSmokeTests.cs`) sets its own env: `QUEUE_WORKER=0`, `FLOWS_WORKER=0`,
   `AI_FOLLOWUP_WORKER=0`, `HEALTH_WORKER=0`, `EMBEDDING_WORKER=0`,
@@ -1262,4 +1296,10 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - Dev slowness is normal **Next.js on-demand route compilation** (each route
   compiles on first visit). Use `next dev --turbo` or a prod build for speed.
+- **Thread-pool floor.** The send seams (`OutboundSender`, the queue drain, the
+  flow engine, the AI gate, the flow AI decision) still block on async provider
+  calls (`.GetAwaiter().GetResult()`), so `Program.cs` raises the pool minimum to
+  `THREADPOOL_MIN_THREADS` (default 64) at boot — without it a 2-vCPU host (CI,
+  a small server) starved and requests stalled past 100 s. A new blocking seam
+  makes this worse; prefer async end to end.
 - CodeGraph MCP is available (`codegraph_*`) — prefer it for structural queries.

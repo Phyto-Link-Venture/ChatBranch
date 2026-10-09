@@ -285,7 +285,7 @@ ChatBranch/
 │   │                            flows + queue, channels (+ Channels/More),
 │   │                            integrations, notifications, tags, sidecar clients
 │   ├── src/ChatBranch.Domain/   entities
-│   └── tests/ChatBranch.Tests/  640 xUnit tests (API-level + unit)
+│   └── tests/ChatBranch.Tests/  654 xUnit tests (API-level + unit)
 ├── backend/
 │   ├── baileys_service/         Node gateway for QR-paired WhatsApp numbers (:3020)
 │   ├── voice_agent/             LiveKit worker (Node/TypeScript) — its own process
@@ -303,7 +303,7 @@ ChatBranch/
 
 ```bash
 cd backend-csharp && dotnet build src/ChatBranch.Api -c Release
-cd backend-csharp && dotnet test tests/ChatBranch.Tests    # 640 tests
+cd backend-csharp && dotnet test tests/ChatBranch.Tests    # 654 tests
 cd frontend && npx tsc --noEmit && npx eslint src && npx next build
 cd backend/voice_agent && npx tsc --noEmit && npm run selftest
 node backend/baileys_service/calls.js --selftest
