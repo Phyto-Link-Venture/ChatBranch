@@ -44,6 +44,7 @@ public static class LiveEndpoints
             var waiting = new List<object>();
             var waitingCount = 0;
             var activeCallCount = 0;
+            var needsHumanCount = 0; // conversations handed to a person and not yet answered (Ai/Handover)
             var recent = new List<(DateTime At, object Row)>();
 
             if (canChats)
@@ -70,6 +71,7 @@ public static class LiveEndpoints
                     url = ShellScope.ChatUrl(c.Channel, c.Key),
                 }).ToList();
                 activeCallCount = await scoped.CountAsync(t => LiveCallStates.Contains(t.CallStatus));
+                needsHumanCount = await scoped.CountAsync(t => t.HandoverAt != null && t.HandoverResolvedAt == null);
 
                 // ---- waiting for a reply: open conversations whose newest
                 // (non-private) message is inbound. "Waiting since" is the first
@@ -157,6 +159,7 @@ public static class LiveEndpoints
                 active_calls = activeCalls,
                 waiting_count = waitingCount,
                 waiting,
+                needs_human_count = needsHumanCount,
                 recent = recent.OrderByDescending(r => r.At).Take(RecentLimit).Select(r => r.Row),
             });
 

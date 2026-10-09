@@ -587,6 +587,7 @@ public partial class AssistantService
                 });
                 if (handover && tracked.Status is ThreadStatus.Open or ThreadStatus.Snoozed)
                     tracked.Status = ThreadStatus.Pending;
+                if (handover) Handover.Mark(_db, tracked, HandoverKinds.CheckFailed, r.Reason, "ai", note: false, notify: false, save: false);
                 tracked.UpdatedAt = DateTime.UtcNow; // the SSE stream refreshes the inbox
             }
             if (handover) Notify(tracked, contact, r);

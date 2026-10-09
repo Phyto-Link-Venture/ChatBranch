@@ -834,6 +834,7 @@ public class FlowEngine
                 if (target != null) channels = channels.Append(target).ToList();
             }
         }
+        if (AiStepBlocked(run, nodeId, contact, cfg, aiMessage, ref channels)) return null; // AI controls
         if (_assistant == null || (!aiMessage && CfgStr(cfg, "skill").Trim() == "")) return null;
         if (!channels.Any(c => MessageChannels.Contains(c))) return null;
 
@@ -1034,14 +1035,12 @@ public class FlowEngine
         {
             if (team != null) { thread.TeamId = team.Id; thread.Assignee = ""; }
             thread.Status = ThreadStatus.Open;
-            thread.AiEnabled = false;
-            if (thread.AccountId is int aid)
-            {
-                var overrides = new Dictionary<string, object?>(thread.AiOverrides) { [aid.ToString()] = false };
-                thread.AiOverrides = overrides;
-            }
+            Ai.AiEligibility.Set(thread, false); // the current number's tick + the legacy column
             var note = $"Handed over by the flow “{wf.Name}” to {teamLabel} · {priority} priority"
                        + (reason.Trim() != "" ? $" — {reason.Trim()}" : "");
+            Ai.Handover.Mark(_db, thread, Ai.HandoverKinds.Rule, reason.Trim() != "" ? reason.Trim()
+                : $"The flow “{wf.Name}” handed it to {teamLabel}", "flow", note: false, notify: false, save: false);
+            thread.Status = ThreadStatus.Open; // the team's queue picks it up
             _db.Messages.Add(new Message
             {
                 ThreadId = thread.Id, AccountId = thread.AccountId, Direction = MessageDirection.Out,
@@ -1074,9 +1073,13 @@ public class FlowEngine
         var contact = run.ContactId is int cid ? _db.Contacts.Find(cid) : null;
         if (contact == null) { Skip(run, nodeId, "update skipped: no contact"); return; }
         var op = CfgStr(cfg, "op"); if (op == "") op = "add_tag";
+        if (op == "add_tag" && CfgStr(cfg, "updateType") == "chatbot") op = "chatbot"; // the spec's alias
         var vars = VariablesFor(contact);
         switch (op)
         {
+            case "chatbot":
+                SetChatbot(run, nodeId, contact, cfg);
+                return;
             case "add_tag":
             case "remove_tag":
                 var tag = Render(CfgStr(cfg, "tag"), vars).Trim();
@@ -1101,6 +1104,90 @@ public class FlowEngine
         contact.UpdatedAt = DateTime.UtcNow;
         _db.SaveChanges();
         Log(run, nodeId, $"contact updated: {_completeDetail}");
+    }
+
+    // ---- AI controls: "Set chatbot on/off" + the master switch on AI steps -------
+
+    /// <summary>
+    /// "Set chatbot on/off" (an Update step with <c>op: "chatbot"</c>):
+    /// <c>value</c> on|off; <c>scope</c> all (every conversation of the contact,
+    /// the default) | channels (only those on <c>channels</c> — thread channel
+    /// ids or their labels). Writes the per-chat tick through AiEligibility.Set,
+    /// so it is the same switch the chat header shows.
+    /// </summary>
+    private void SetChatbot(FlowRun run, string nodeId, Contact contact, JsonElement cfg)
+    {
+        var raw = (CfgStr(cfg, "value") is { Length: > 0 } v ? v : CfgStr(cfg, "chatbot")).Trim().ToLowerInvariant();
+        bool? on = raw is "on" or "true" or "yes" or "enable" ? true
+            : raw is "off" or "false" or "no" or "disable" ? false : null;
+        if (on is not bool enabled) { Skip(run, nodeId, "chatbot skipped: choose on or off"); return; }
+        var channels = ChatbotChannels(cfg);
+        var scopeAll = CfgStr(cfg, "scope").Trim().ToLowerInvariant() != "channels" || channels.Count == 0;
+        var q = _db.Threads.Where(t => t.ContactId == contact.Id);
+        if (!scopeAll) q = q.Where(t => channels.Contains(t.Channel));
+        var threads = q.ToList();
+        if (threads.Count == 0)
+        {
+            Skip(run, nodeId, scopeAll ? "chatbot skipped: no conversation yet"
+                : $"chatbot skipped: no conversation on {string.Join(", ", channels)}");
+            return;
+        }
+        foreach (var t in threads) Ai.AiEligibility.Set(t, enabled);
+        _db.SaveChanges();
+        _completeDetail = $"chatbot {(enabled ? "on" : "off")} · {threads.Count} conversation{(threads.Count == 1 ? "" : "s")}";
+        Log(run, nodeId, $"chatbot turned {(enabled ? "on" : "off")} on {threads.Count} conversation(s)"
+                         + (scopeAll ? "" : $" ({string.Join(", ", channels)})"));
+    }
+
+    private static List<string> ChatbotChannels(JsonElement cfg)
+    {
+        var raw = new List<string>();
+        if (cfg.ValueKind == JsonValueKind.Object && cfg.TryGetProperty("channels", out var el))
+        {
+            if (el.ValueKind == JsonValueKind.Array)
+                raw.AddRange(el.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() ?? "" : x.ToString()));
+            else if (el.ValueKind == JsonValueKind.String)
+                raw.AddRange((el.GetString() ?? "").Split(','));
+        }
+        return raw.Select(c => c.Trim().ToLowerInvariant() switch
+            {
+                "messenger" => Domain.Channels.Facebook,
+                "website chat" or "widget" => Domain.Channels.Website,
+                var x => x,
+            })
+            .Where(c => c is Domain.Channels.WhatsApp or Domain.Channels.Email or Domain.Channels.Telegram
+                or Domain.Channels.Facebook or Domain.Channels.Instagram or Domain.Channels.Website)
+            .Distinct().ToList();
+    }
+
+    /// <summary>
+    /// An AI-written step (an "AI message", or a send step with a skill) while
+    /// the AI controls say no for this contact — the master switch / schedule of
+    /// the conversation's outlet, the contact's "never" mode or a never-AI tag.
+    /// An AI message is skipped with a step note; a send step with its own
+    /// script sends that script as written. False = carry on composing.
+    /// </summary>
+    private bool AiStepBlocked(FlowRun run, string nodeId, Contact? contact, JsonElement cfg, bool aiMessage,
+        ref List<string> channels)
+    {
+        if (!aiMessage && CfgStr(cfg, "skill").Trim() == "") return false;
+        if (!channels.Any(c => MessageChannels.Contains(c))) return false;
+        int? entityId = null;
+        if (contact != null)
+            entityId = _db.Threads.AsNoTracking().Where(t => t.ContactId == contact.Id && t.EntityId != null)
+                .OrderByDescending(t => t.UpdatedAt).Select(t => t.EntityId).FirstOrDefault();
+        entityId ??= _db.Workflows.AsNoTracking().Where(w => w.Id == run.WorkflowId)
+            .Select(w => w.EntityId).FirstOrDefault();
+        var why = new Ai.AiControls(_db, _scoping).FlowBlock(contact, entityId);
+        if (why == null) return false;
+        var reason = why.StartsWith("Off: ") ? why[5..] : why;
+        if (aiMessage)
+        {
+            channels = channels.Where(c => !MessageChannels.Contains(c)).ToList();
+            Skip(run, nodeId, $"AI message skipped — {reason}");
+        }
+        else Log(run, nodeId, $"AI is off ({reason}) — the step's script was used as written");
+        return true;
     }
 
     /// <summary>End: finish with the outcome code, and (when asked) remember the

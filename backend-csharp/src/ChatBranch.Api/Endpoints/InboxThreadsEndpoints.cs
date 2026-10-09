@@ -33,6 +33,8 @@ namespace ChatBranch.Api.Endpoints;
 ///   tags             contact tags (any of)
 ///   ai=on|off · window=open|closed · opted_out=1|0 · waiting=1 ·
 ///   call=any|live · linked=1|0
+///   handover=open|any|none (open = handed to a person and not yet answered;
+///   any = ever handed over; none = never) · handover_kind (any of)
 ///   active_from / active_to   last-activity range (ISO; to is exclusive)
 ///   created_from / created_to conversation-created range
 ///   sort             newest (default) | oldest_waiting | unread
@@ -85,6 +87,27 @@ public static class InboxThreadsEndpoints
         }).RequireAuthorization(AuthPolicies.Authenticated);
     }
 
+    /// <summary>
+    /// The ids of every conversation the caller would see in the list for this
+    /// query (same parsing, scope and filters as <c>GET /api/inbox/threads</c>) —
+    /// the bulk endpoint's "everything in the current filter".
+    /// </summary>
+    internal static async Task<List<int>> MatchingThreadIdsAsync(AppDbContext db, ScopingService sc,
+        ClaimsPrincipal me, IQueryCollection qs)
+    {
+        var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
+        var f = InboxQuery.Parse(qs, me.Identity?.Name ?? "");
+        var scope = await ScopeEntityIdsAsync(db, sc, me, role, f.Entities);
+        var candidates = await Candidates(db, f, scope);
+        var waCtx = await WaContext.LoadAsync(db, sc, scope.Picked);
+        return Sort(ApplyMemoryFilters(candidates, f, waCtx), f.Sort).Select(c => c.Id).ToList();
+    }
+
+    /// <summary>The caller's visible-entity set for the inbox (null = no narrowing).</summary>
+    internal static async Task<List<int>?> VisibleEntityIdsAsync(AppDbContext db, ScopingService sc,
+        ClaimsPrincipal me) =>
+        (await ScopeEntityIdsAsync(db, sc, me, me.FindFirstValue(ClaimTypes.Role) ?? "", new List<string>())).Ids;
+
     // =========================================================================
     // query parsing
     // =========================================================================
@@ -110,6 +133,8 @@ public static class InboxThreadsEndpoints
         public bool Waiting;
         public string Call = "";
         public bool? Linked;
+        public string Handover = "";
+        public List<string> HandoverKinds = new();
         public DateTime? ActiveFrom, ActiveTo, CreatedFrom, CreatedTo;
         public string Sort = "newest";
         public int Limit = DefaultLimit;
@@ -159,6 +184,9 @@ public static class InboxThreadsEndpoints
                 "0" or "false" or "no" or "unlinked" => false,
                 _ => null,
             };
+            f.Handover = One(qs, "handover").Trim().ToLowerInvariant() is "open" or "any" or "none"
+                ? One(qs, "handover").Trim().ToLowerInvariant() : "";
+            f.HandoverKinds = Multi(qs, "handover_kind").Select(s => s.ToLowerInvariant()).ToList();
             f.ActiveFrom = Date(One(qs, "active_from"));
             f.ActiveTo = Date(One(qs, "active_to"));
             f.CreatedFrom = Date(One(qs, "created_from"));
@@ -264,6 +292,10 @@ public static class InboxThreadsEndpoints
         public DateTime? LastTs;
         public DateTime? LastInTs;
         public string? LastPublicDir;
+        public bool OptedOut;
+        public string? ContactAiMode;
+        public DateTime? HandoverAt;
+        public DateTime? HandoverResolvedAt;
 
         public DateTime LastActivity => DateTime.SpecifyKind(LastTs ?? UpdatedAt, DateTimeKind.Utc);
         /// <summary>The newest customer-facing message came FROM the customer.</summary>
@@ -306,6 +338,15 @@ public static class InboxThreadsEndpoints
         if (f.OptedOut is bool oo) q = q.Where(t => t.OptedOut == oo);
         if (f.Linked is bool linked)
             q = linked ? q.Where(t => t.ContactId != null) : q.Where(t => t.ContactId == null);
+        // human handover (Ai/Handover): open = handed to a person, not yet answered
+        if (f.Handover == "open") q = q.Where(t => t.HandoverAt != null && t.HandoverResolvedAt == null);
+        else if (f.Handover == "any") q = q.Where(t => t.HandoverAt != null);
+        else if (f.Handover == "none") q = q.Where(t => t.HandoverAt == null);
+        if (f.HandoverKinds.Count > 0)
+        {
+            var kinds = f.HandoverKinds;
+            q = q.Where(t => t.HandoverAt != null && kinds.Contains(t.HandoverKind));
+        }
         if (f.CreatedFrom is DateTime cf) q = q.Where(t => t.CreatedAt >= cf);
         if (f.CreatedTo is DateTime ct) q = q.Where(t => t.CreatedAt < ct);
 
@@ -354,6 +395,10 @@ public static class InboxThreadsEndpoints
             t.AiOverrides,
             t.Labels,
             ContactTags = t.Contact != null ? t.Contact.Tags : null,
+            ContactAiMode = t.Contact != null ? t.Contact.AiMode : null,
+            t.OptedOut,
+            t.HandoverAt,
+            t.HandoverResolvedAt,
             t.UpdatedAt,
             t.CreatedAt,
             LastTs = t.Messages.Max(m => (DateTime?)m.CreatedAt),
@@ -380,6 +425,10 @@ public static class InboxThreadsEndpoints
             LastTs = r.LastTs,
             LastInTs = r.LastInTs,
             LastPublicDir = r.LastPublicDir,
+            OptedOut = r.OptedOut,
+            ContactAiMode = r.ContactAiMode,
+            HandoverAt = r.HandoverAt,
+            HandoverResolvedAt = r.HandoverResolvedAt,
         }).ToList();
     }
 
@@ -448,6 +497,9 @@ public static class InboxThreadsEndpoints
         private bool _envIsSoleFallback;
         private ScopingService? _sc;
         private readonly Dictionary<int, bool> _reminderDefaults = new();
+        /// <summary>The AI controls (master switch, schedule, never-tags), cached per entity.</summary>
+        private ChatBranch.Data.Ai.AiControls? _ai;
+        private readonly Dictionary<int, ChatBranch.Data.Ai.AiVerdict> _verdicts = new();
 
         /// <summary>reminder_ai_default for the THREAD's own entity — exactly what the AI gate reads.</summary>
         private bool ReminderDefaultOn(int? entityId)
@@ -478,6 +530,7 @@ public static class InboxThreadsEndpoints
                 _fallback = configured.Count == 1 && !env ? configured[0] : null,
                 _envIsSoleFallback = configured.Count == 0 && env,
                 _sc = sc,
+                _ai = new ChatBranch.Data.Ai.AiControls(db, sc),
             };
         }
 
@@ -514,17 +567,37 @@ public static class InboxThreadsEndpoints
         /// The effective chatbot tick: per sending account on WhatsApp (its
         /// role decides when there is no explicit tick), the thread flag elsewhere.
         /// </summary>
-        public bool Ai(Candidate c)
+        public bool Ai(Candidate c) => Verdict(c).Enabled;
+
+        /// <summary>
+        /// The full AI rule with its reason (Ai/AiEligibility.Decide): opted out →
+        /// master switch / schedule → contact never / never-tag → the tick →
+        /// contact always → inbox default → role — what the gates apply.
+        /// </summary>
+        public ChatBranch.Data.Ai.AiVerdict Verdict(Candidate c)
         {
-            if (c.Channel != ChatBranch.Domain.Channels.WhatsApp) return c.AiEnabled;
+            if (_verdicts.TryGetValue(c.Id, out var cached)) return cached;
             var probe = new Thread
             {
+                Id = c.Id,
                 Channel = c.Channel,
                 AccountId = c.AccountId,
+                EntityId = c.EntityId,
                 AiEnabled = c.AiEnabled,
                 AiOverrides = c.AiOverrides ?? new Dictionary<string, object?>(),
+                OptedOut = c.OptedOut,
+                HandoverAt = c.HandoverAt,
+                HandoverResolvedAt = c.HandoverResolvedAt,
             };
-            return WhatsAppSettingsEndpoints.EffectiveAi(probe, Account(c.AccountId), ReminderDefaultOn(c.EntityId));
+            ChatBranch.Data.Ai.AiVerdict v;
+            if (_ai == null)
+                v = new ChatBranch.Data.Ai.AiVerdict(
+                    WhatsAppSettingsEndpoints.EffectiveAi(probe, Account(c.AccountId), ReminderDefaultOn(c.EntityId)),
+                    ChatBranch.Data.Ai.AiRules.ChatTick, "", false);
+            else
+                v = _ai.Decide(probe, Account(c.AccountId), c.ContactAiMode, c.ContactTags);
+            _verdicts[c.Id] = v;
+            return v;
         }
 
         public bool IsBaileys(int? accountId) => Account(accountId)?.Provider == Providers.Baileys;
@@ -586,6 +659,10 @@ public static class InboxThreadsEndpoints
                 ["address"] = address,
                 ["status"] = string.IsNullOrEmpty(t.Status) ? ThreadStatus.Open : t.Status,
                 ["ai_enabled"] = wa.Ai(c),
+                ["ai_reason"] = wa.Verdict(c).Reason,
+                ["ai_rule"] = wa.Verdict(c).Rule,
+                ["ai_forced"] = wa.Verdict(c).Forced,
+                ["handover"] = AiControlsEndpoints.HandoverPayload(t),
                 ["assignee"] = t.Assignee ?? "",
                 ["team_id"] = t.TeamId,
                 ["team_name"] = t.Team?.Name ?? "",

@@ -118,7 +118,7 @@ public static class InboxEndpoints
         // ---- sandbox send ------------------------------------------------------
         app.MapPost("/api/whatsapp/threads/{channel}/{key}/send",
             (string channel, string key, SendRequest body, ThreadStore store, AppDbContext db,
-             ScopingService sc, ChatBranch.Data.Channels.OutboundSender sender) =>
+             ScopingService sc, ChatBranch.Data.Channels.OutboundSender sender, ClaimsPrincipal me) =>
         {
             var thread = store.GetOrCreateThread(channel, key);
             if (thread.OptedOut && !body.Force)
@@ -137,6 +137,7 @@ public static class InboxEndpoints
             }
             // Real send when the account is configured, sandbox otherwise.
             var msg = sender.Send(thread, body.Text, MessageSource.Agent, accountId);
+            AiControlsEndpoints.HumanReplied(db, thread, msg, me); // answers an open handover
             return Results.Ok(Dtos.MessageDto(msg));
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
@@ -483,12 +484,14 @@ public static class InboxEndpoints
             return on;
         }
 
+        var aiRule = new ChatBranch.Data.Ai.AiControls(db, sc); // master switch / contact mode, cached per entity
         var outv = new List<object>();
         foreach (var t in threads)
         {
             var stat = stats.GetValueOrDefault(t.Id);
             var account = t.AccountId is int aid && byId.TryGetValue(aid, out var own)
                 ? own : fallback;
+            var aiVerdict = aiRule.Decide(t, account);
             // Baileys is a normal WhatsApp account over WhatsApp Web — Meta's
             // 24h contact-service window does not apply to it. A sandbox thread
             // is always open too: nothing real is sent, and the demo flow must
@@ -523,7 +526,9 @@ public static class InboxEndpoints
                 account_id = t.AccountId?.ToString(),
                 account_name = t.Account?.Name ?? "",
                 provider = baileys ? Providers.Baileys : Providers.Cloud,
-                ai_enabled = WhatsAppSettingsEndpoints.EffectiveAi(t, account, ReminderDefaultOn(t.EntityId)),
+                ai_enabled = aiVerdict.Enabled,
+                ai_reason = aiVerdict.Reason,
+                handover = AiControlsEndpoints.HandoverPayload(t),
                 assignee = t.Assignee,
                 team_id = t.TeamId,
                 opted_out = t.OptedOut,

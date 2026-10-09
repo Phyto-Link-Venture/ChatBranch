@@ -27,6 +27,9 @@ public class Contact
     public string CommunicationStyle { get; set; } = "";
     public string SentimentTrend { get; set; } = "";
     public string AiProfileSummary { get; set; } = "";
+    /// <summary>"" follow the chat/inbox · "never" the AI never answers this person ·
+    /// "always" the AI answers even where the inbox default is off (Ai/AiEligibility).</summary>
+    public string AiMode { get; set; } = "";
 
     public int? TenantId { get; set; }
     public Tenant? Tenant { get; set; }

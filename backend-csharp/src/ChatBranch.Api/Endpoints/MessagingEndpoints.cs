@@ -179,6 +179,7 @@ public static class MessagingEndpoints
     private static Dictionary<string, object?> ThreadPayload(AppDbContext db, Thread t, List<Message> messages)
     {
         var payload = ThreadFields(db, t, messages);
+        AiControlsEndpoints.AddAiFields(payload, db, new ScopingService(db), t); // ai_enabled + reason + handover
         // Meta's messaging window on a LIVE Messenger / Instagram page (every
         // other messaging channel, and a sandbox page, reads as open)
         var lastIn = messages.Where(m => m.Direction == MessageDirection.In)
@@ -202,8 +203,8 @@ public static class MessagingEndpoints
             ["channel"] = t.Channel,
             ["address"] = string.IsNullOrEmpty(t.Address) ? t.Key : t.Address,
             ["name"] = string.IsNullOrEmpty(t.Name) ? t.Key : t.Name,
-            // the EFFECTIVE tick — the same rule the auto-reply gate applies
-            ["ai_enabled"] = ChatBranch.Data.Ai.AiEligibility.Effective(db, new ScopingService(db), t),
+            // ai_enabled (the EFFECTIVE rule the auto-reply gate applies), ai_reason,
+            // ai_rule, ai_forced and handover are added by ThreadPayload
             ["opted_out"] = t.OptedOut,
             ["status"] = t.Status,
             ["assignee"] = t.Assignee,
@@ -597,6 +598,7 @@ public static class MessagingEndpoints
                     ? sender.SendSocialText(thread, text, MessageSource.Agent, null, human)
                     : sender.Send(thread, text, MessageSource.Agent, null,
                         subject: subject.Length > 0 ? subject : null);
+            AiControlsEndpoints.HumanReplied(db, thread, msg, me); // answers an open handover
             Audit(db, me, ctx, "message.send", $"{channel}:{key}", text);
             return Results.Ok(new { message = MessagePayload(msg, thread.Channel, thread.Account?.Name) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
@@ -635,6 +637,7 @@ public static class MessagingEndpoints
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
             thread.Status = value;
             thread.UpdatedAt = DateTime.UtcNow;
+            AiControlsEndpoints.StatusChanged(db, thread, value, me); // resolving closes a handover
             await db.SaveChangesAsync();
             Audit(db, me, ctx, "thread.status", $"{channel}:{key}", value);
             return Results.Ok(new { status = thread.Status });

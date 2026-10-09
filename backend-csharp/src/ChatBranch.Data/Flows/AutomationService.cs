@@ -56,6 +56,8 @@ public class AutomationService
         ("contact_name", "Contact name"),
         ("contact_tags", "Contact tags"),
         ("is_first_message", "Is the first message"),
+        ("ai_on", "The chatbot is on"),
+        ("handed_over", "Handed over to a human"),
     };
 
     public static readonly (string Id, string Label)[] Operators =
@@ -79,6 +81,7 @@ public class AutomationService
         ("enable_ai", "Turn the chatbot on"),
         ("add_note", "Add a private note"),
         ("notify", "Notify the team"),
+        ("hand_over", "Hand over to a human"),
     };
 
     // ---- entry points -------------------------------------------------------
@@ -147,6 +150,7 @@ public class AutomationService
             var op = Get(cond, "op");
             var wanted = Get(cond, "value");
             var actual = FieldValue(field, thread, contact, messageText, isFirstMessage);
+            if (field is "ai_on" or "handed_over") (actual, wanted) = AiCondition(field, thread, wanted);
             if (!Compare(actual, op, wanted)) return false;  // ALL conditions must hold
         }
         return true;
@@ -234,6 +238,11 @@ public class AutomationService
                 case "notify":
                     Notify(rule, thread, value.Length > 0 ? value : messageText);
                     break;
+                case "hand_over":
+                    // pending + note + bell + audit, and the chatbot stands down (Ai/Handover)
+                    ChatBranch.Data.Ai.Handover.Mark(_db, thread, ChatBranch.Data.Ai.HandoverKinds.Rule,
+                        value.Length > 0 ? value : $"Automation: {rule.Name}", $"rule:{rule.Id}", save: false);
+                    break;
                 default:
                     continue;   // unknown action type — skip, do not guess
             }
@@ -265,6 +274,26 @@ public class AutomationService
             $"Automation · {rule.Name}", $"{thread.Name} ({thread.Channel}) — {text}",
             $"/chats?channel={Uri.EscapeDataString(thread.Channel)}&key={Uri.EscapeDataString(thread.Key)}",
             NotificationAudience.Admins(), new NotifyOptions { Thread = thread, Save = false });
+    }
+
+    /// <summary>
+    /// The AI-control conditions: <c>ai_on</c> — the EFFECTIVE chatbot rule
+    /// (Ai/AiEligibility, master switch and contact mode included);
+    /// <c>handed_over</c> — a handover to a person is open. Both compare as
+    /// true/false; yes/no/on/off in the rule's value mean the same.
+    /// </summary>
+    private (string Actual, string Wanted) AiCondition(string field, Thread thread, string wanted)
+    {
+        var on = field == "ai_on"
+            ? ChatBranch.Data.Ai.AiEligibility.Effective(_db, _scoping, thread)
+            : ChatBranch.Data.Ai.Handover.IsOpen(thread);
+        var w = (wanted ?? "").Trim().ToLowerInvariant() switch
+        {
+            "yes" or "on" or "true" or "1" => "true",
+            "no" or "off" or "false" or "0" => "false",
+            var other => other,
+        };
+        return (on ? "true" : "false", w);
     }
 
     // ---- helpers ------------------------------------------------------------
