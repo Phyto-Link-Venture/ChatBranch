@@ -88,8 +88,9 @@ public static class AiPlayground
             return P(Verdicts.Blocked, $"A reply check blocked it: {r.Reason}. It waits for a person.", null, kind);
         if (r.Action == AiActions.Handover)
             return P(Verdicts.Handover, $"The reply checks asked for a person: {r.Reason}", null, kind);
+        // held — and, when the reply itself says a person will help, the gate marks that handover too
         if (review.Status == AiGateStatus.Held)
-            return P(Verdicts.Hold, string.Join("; ", review.Reasons), policy.ReviewMode);
+            return P(Verdicts.Hold, string.Join("; ", review.Reasons), policy.ReviewMode, kind);
         if (kind == HandoverKinds.AskedForHuman)
             return P(Verdicts.Handover, "Sent — and the chat is flagged for a person, because the reply says one will help.",
                 null, kind);
