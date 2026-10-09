@@ -6,6 +6,19 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ---- thread pool floor ----------------------------------------------------
+// The send seams (OutboundSender, the queue drain, the flow engine, the AI gate)
+// still block on async provider calls (.GetAwaiter().GetResult()). Each blocked
+// request holds a pool thread while the work it waits on needs another one, and
+// the pool starts at one thread per core and grows by ~1 thread per 0.5 s — so on
+// a 2-vCPU host a burst of webhooks (or the test suite's parallel hosts) stalled
+// requests past 100 s. A floor of THREADPOOL_MIN_THREADS (default 64) lets the
+// pool hand out threads at once; it only creates them when work is waiting.
+var poolFloor = int.TryParse(Environment.GetEnvironmentVariable("THREADPOOL_MIN_THREADS"), out var floor) && floor > 0
+    ? floor : 64;
+System.Threading.ThreadPool.GetMinThreads(out var minWorkers, out var minIo);
+System.Threading.ThreadPool.SetMinThreads(Math.Max(minWorkers, poolFloor), Math.Max(minIo, poolFloor));
+
 // ---- data: SQLite via EF Core, pointed at the same file layout as Django ----
 var conn = builder.Configuration.GetConnectionString("Default")
            ?? "Data Source=chatbranch.sqlite3";
