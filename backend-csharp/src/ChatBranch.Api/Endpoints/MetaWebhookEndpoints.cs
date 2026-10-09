@@ -120,7 +120,8 @@ public static class MetaWebhookEndpoints
             MetaWebhookAuth.Verify(ctx, sc)).AllowAnonymous();
 
         app.MapPost("/api/messaging/webhook", async (HttpContext ctx, AppDbContext db, ScopingService sc,
-            InboundProcessor processor, ThreadStore store, MediaFetcher fetcher, IMetaMessagingClient meta) =>
+            InboundProcessor processor, ThreadStore store, MediaFetcher fetcher, IMetaMessagingClient meta,
+            ChatBranch.Data.Contacts.ContactInviteService invites) =>
         {
             var raw = await MetaWebhookAuth.ReadBody(ctx);
             var secrets = MetaWebhookAuth.KnownSecrets(db, sc);
@@ -136,6 +137,11 @@ public static class MetaWebhookEndpoints
             JsonElement root;
             try { root = JsonSerializer.Deserialize<JsonElement>(raw); }
             catch { return Results.Ok(new { ok = true }); } // signed garbage: ack, never NACK
+
+            // invite links: an m.me ?ref= referral binds the chat to its contact
+            // BEFORE the message events below run (messaging_referrals, or the
+            // referral riding on a postback / message)
+            ChatBranch.Data.Contacts.InviteReferrals.Bind(root, db, store, invites);
 
             foreach (var ev in MetaWebhook.MessagingEvents(root))
             {

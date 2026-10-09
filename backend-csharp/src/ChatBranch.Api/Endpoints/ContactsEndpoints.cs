@@ -79,7 +79,8 @@ public static class ContactsEndpoints
             return Results.Ok(new { contacts = await ContactItemsAsync(db, rows) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
-        app.MapPost("/api/contacts", async (ContactWrite b, AppDbContext db, ClaimsPrincipal me) =>
+        app.MapPost("/api/contacts", async (ContactWrite b, AppDbContext db, ClaimsPrincipal me,
+            ChatBranch.Data.Contacts.ContactIdentityService identities) =>
         {
             // create (unlike PATCH) genuinely needs an identity
             var name = (b.Name ?? "").Trim();
@@ -98,6 +99,8 @@ public static class ContactsEndpoints
             await db.SaveChangesAsync();
             // tag names → registry tags (Contact.Tags is the registry's cache)
             if (row.Tags.Count > 0) TagService.ApplyContactNames(db, row.Id, row.Tags, me.Identity?.Name ?? "");
+            // the phone's WhatsApp / voice (/ SMS) and the email become identities
+            try { identities.Discover(row); } catch { /* discovery never fails a create */ }
             return Results.Ok((await ContactItemsAsync(db, new List<Contact> { row })).First());
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
@@ -110,10 +113,12 @@ public static class ContactsEndpoints
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         app.MapMethods("/api/contacts/{id:int}", new[] { "PATCH" },
-            async (int id, ContactWrite b, AppDbContext db, ClaimsPrincipal me) =>
+            async (int id, ContactWrite b, AppDbContext db, ClaimsPrincipal me,
+                ChatBranch.Data.Contacts.ContactIdentityService identities) =>
         {
             var c = await ScopeContacts(db.Contacts, me, db).FirstOrDefaultAsync(x => x.Id == id);
             if (c == null) return NotFound("Contact not found.");
+            var (phoneBefore, emailBefore) = (c.Phone, c.Email);
             if (b.Name != null) c.Name = b.Name;
             if (b.Phone != null) c.Phone = b.Phone;
             if (b.Email != null) c.Email = b.Email;
@@ -128,6 +133,8 @@ public static class ContactsEndpoints
             c.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
             if (b.Tags != null) TagService.ApplyContactNames(db, c.Id, b.Tags, me.Identity?.Name ?? "");
+            if (c.Phone != phoneBefore || c.Email != emailBefore)
+                try { identities.Discover(c); } catch { /* discovery never fails an edit */ }
             return Results.Ok((await ContactItemsAsync(db, new List<Contact> { c })).First());
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
@@ -137,11 +144,15 @@ public static class ContactsEndpoints
         // phone fallback for WhatsApp threads created before linking, each
         // identity's carrying account (+ its health), last activity and history
         // counts, with a voice section built from CallRecord.
-        app.MapGet("/api/contacts/{id:int}/channels", async (int id, AppDbContext db, ClaimsPrincipal me) =>
+        app.MapGet("/api/contacts/{id:int}/channels", async (int id, AppDbContext db, ClaimsPrincipal me,
+            ChatBranch.Data.Contacts.ContactIdentityService identityRegistry) =>
         {
             var contact = await ScopeContacts(db.Contacts.AsNoTracking(), me, db)
                 .FirstOrDefaultAsync(c => c.Id == id);
             if (contact == null) return NotFound("Contact not found.");
+            // registered identities (discovered from the phone / email, with the
+            // WhatsApp lookup verdict) — merged into the thread-based view below
+            var registry = identityRegistry.For(contact.Id);
 
             var digits = Digits(contact.Phone);
             // Same last-9-digits comparison whatsapp.store._match_contact does
@@ -181,7 +192,8 @@ public static class ContactsEndpoints
                 var ts = threads.Where(t => t.Channel == ch).ToList();
                 // Chat channels appear once the contact has a thread on them;
                 // email also appears (empty, disconnected) when an address is on file.
-                if (ts.Count == 0 && !(ch == Channels.Email && contact.Email.Length > 0)) continue;
+                if (ts.Count == 0 && !(ch == Channels.Email && contact.Email.Length > 0)
+                    && !registry.Any(r => r.Channel == ch)) continue;
 
                 var pairs = ts.Select(t =>
                 {
@@ -237,12 +249,18 @@ public static class ContactsEndpoints
                         ["opted_out"] = t.OptedOut,
                         ["window_open"] = windowOpen,
                     };
+                    RegistryFields(payload, registry.FirstOrDefault(r => r.Channel == t.Channel
+                        && r.Address == (t.Channel == Channels.Email ? t.Key.ToLowerInvariant() : t.Key)));
                     return (payload, usable);
                 })
                 .OrderByDescending(p => (string?)p.payload["last_active"] ?? "")
                 .ToList();
 
                 var identities = pairs.Select(p => p.payload).ToList();
+                // registered-only identities: no conversation yet on this address
+                foreach (var r in registry.Where(r => r.Channel == ch))
+                    if (!ts.Any(t => (ch == Channels.Email ? t.Key.ToLowerInvariant() : t.Key) == r.Address))
+                        identities.Add(RegistryIdentity(r));
 
                 // "connected" is deliberately simple, per channel.
                 var connected = ch switch
@@ -264,6 +282,19 @@ public static class ContactsEndpoints
                 });
             }
 
+            // SMS — registered identities only (an `sms` channel account exists)
+            var sms = registry.Where(r => r.Channel == ChatBranch.Data.Contacts.ContactIdentityService.SmsChannel)
+                .Select(RegistryIdentity).ToList();
+            if (sms.Count > 0)
+                channels.Add(new Dictionary<string, object?>
+                {
+                    ["channel"] = ChatBranch.Data.Contacts.ContactIdentityService.SmsChannel,
+                    ["connected"] = true,
+                    ["linked_accounts"] = 0,
+                    ["last_active"] = null,
+                    ["identities"] = sms,
+                });
+
             // Voice — from CallRecord (FK-linked, plus phone-matched rows mirrored
             // from the voice agent's file store before any link existed).
             var callRows = await CallsForAsync(db, contact);
@@ -278,8 +309,12 @@ public static class ContactsEndpoints
                 ["last_call"] = lastCall == null ? null
                     : NullIfEmpty(lastCall.EndedAt.Length > 0 ? lastCall.EndedAt : lastCall.StartedAt),
                 ["last_outcome"] = lastCall?.Outcome,
+                ["number"] = registry.FirstOrDefault(r => r.Channel == ChatBranch.Data.Contacts.ContactIdentityService.VoiceChannel)
+                    ?.Address ?? (contact.Phone.Length > 0 ? contact.Phone : null),
+                ["registered"] = registry.Any(r => r.Channel == ChatBranch.Data.Contacts.ContactIdentityService.VoiceChannel),
             });
 
+            var lookup = ChatBranch.Data.Contacts.ContactIdentityService.LookupAccounts(db).Count > 0;
             return Results.Ok(new
             {
                 contact_id = contact.Id,
@@ -287,6 +322,15 @@ public static class ContactsEndpoints
                 phone = contact.Phone,
                 email = contact.Email,
                 channels,
+                // discovery + invites (ChannelHub: verdict chips, "Find channels", "Invite to another app")
+                identities = registry.Select(ChatBranch.Data.Contacts.ContactIdentityService.Payload),
+                lookup_available = lookup,
+                lookup_note = lookup
+                    ? "WhatsApp numbers are checked through your connected QR number — never by messaging them."
+                    : ChatBranch.Data.Contacts.ContactIdentityService.NoQrDetail,
+                no_lookup_channels = ChatBranch.Data.Contacts.ContactIdentityService.NoLookupChannels,
+                invite_channels = ChatBranch.Data.Contacts.ContactInviteService.LinkChannels
+                    .Where(ch => accounts.Any(a => a.Channel == ch)).ToList(),
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
@@ -294,7 +338,8 @@ public static class ContactsEndpoints
         // existing chat): creates or claims the thread and links it, so a number
         // the operator knows about is reachable without waiting for an inbound.
         app.MapPost("/api/contacts/{id:int}/channels", async (int id, IdentityWrite b,
-            AppDbContext db, ThreadStore store, ScopingService sc) =>
+            AppDbContext db, ThreadStore store, ScopingService sc,
+            ChatBranch.Data.Contacts.ContactIdentityService identities) =>
         {
             var contact = await db.Contacts.FindAsync(id);
             if (contact == null) return NotFound("Contact not found.");
@@ -318,6 +363,8 @@ public static class ContactsEndpoints
             sc.SyncThreadEntity(thread, save: false);
             thread.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
+            // a WhatsApp number added by hand gets its lookup verdict like the rest
+            try { identities.Discover(contact); } catch { }
             return Results.Json(new
             {
                 ok = true, channel = b.Channel, key = thread.Key, contact_id = id,
@@ -362,9 +409,10 @@ public static class ContactsEndpoints
         // NB: the multipart body is read off HttpContext rather than bound as an
         // IFormFile parameter — parameter binding is what would drag in the
         // antiforgery filter, and this API authenticates by bearer token.
-        app.MapPost("/api/contacts/import", async (HttpContext ctx, AppDbContext db,
-            ClaimsPrincipal me) => await ImportAsync(ctx, db, me))
-            .RequireAuthorization(AuthPolicies.AdminPlus);
+        app.MapPost("/api/contacts/import", async (HttpContext ctx, AppDbContext db, ScopingService sc,
+            ClaimsPrincipal me, ChatBranch.Data.Contacts.ContactImporter importer) =>
+                await ImportAsync(ctx, db, sc, me, importer))
+            .RequireAuthorization(AuthPolicies.AdminPlus).RequireCapability("contacts.manage");
 
         // ---- script templates --------------------------------------------------
         app.MapGet("/api/calls/script-templates", async (string? entity, int? contact_id,
@@ -617,240 +665,222 @@ public static class ContactsEndpoints
         return turns;
     }
 
-    // ======================= bulk import (crm/importer.py) ===================
+    // ======================= bulk import (contact books) =====================
 
-    /// <summary>field → accepted header names (lower-cased, EN + a little BM).</summary>
-    private static readonly (string Field, string[] Aliases)[] FieldAliases =
-    {
-        ("name", new[] { "name", "full name", "contact name", "student name", "customer name", "nama" }),
-        ("phone", new[] { "phone", "mobile", "phone number", "mobile number", "contact number",
-                          "whatsapp", "hp", "no telefon", "telefon" }),
-        ("email", new[] { "email", "e-mail", "email address", "emel" }),
-        ("company_name", new[] { "company", "company name", "organization", "organisation", "syarikat" }),
-        ("language", new[] { "language", "lang", "bahasa" }),
-        ("external_id", new[] { "external id", "id", "member id", "student id", "customer id",
-                                "ref", "reference" }),
-        ("notes", new[] { "notes", "note", "remarks", "catatan" }),
-        ("tags", new[] { "tags", "tag", "labels" }),
-    };
+    /// <summary>The field ids the old one-step modal mapped ({field: header}) — still accepted.</summary>
+    private static readonly string[] LegacyFields =
+        { "name", "phone", "email", "company_name", "language", "external_id", "notes", "tags" };
 
-    private static async Task<IResult> ImportAsync(HttpContext ctx, AppDbContext db, ClaimsPrincipal me)
+    /// <summary>
+    /// Parse the upload (.csv / .xlsx / .vcf, or JSON rows — Google Contacts
+    /// commits that way), apply the column mapping and options, and run the
+    /// importer — a preview writes nothing and returns the same counts the
+    /// commit will produce. Form / JSON keys: <c>column_mapping</c>
+    /// {header: target} (or the legacy <c>mapping</c> {field: header}),
+    /// <c>mode</c> skip | update_empty | overwrite, <c>entity</c> (slug, scope-
+    /// checked), <c>tags</c>, <c>discover</c>, <c>preview</c>.
+    /// </summary>
+    private static async Task<IResult> ImportAsync(HttpContext ctx, AppDbContext db, ScopingService sc,
+        ClaimsPrincipal me, ChatBranch.Data.Contacts.ContactImporter importer)
     {
         var preview = IsTruthy(ctx.Request.Query["preview"]);
-        List<string> headers;
-        List<Dictionary<string, string>> rows;
-        Dictionary<string, string>? overrides = null;
+        ChatBranch.Data.Contacts.ImportTable table;
+        Dictionary<string, string>? columnMapping, legacy;
+        string? mode, entity;
+        List<string> tags;
+        bool? discover;
 
         if (ctx.Request.HasFormContentType)
         {
-            var form = await ctx.Request.ReadFormAsync();
+            if (ctx.Request.ContentLength is long len && len > ChatBranch.Data.Contacts.ContactImporter.MaxBytes + 256 * 1024)
+                return TooLarge();
+            IFormCollection form;
+            try { form = await ctx.Request.ReadFormAsync(); }
+            catch { return Bad("Could not read the upload."); }
             if (IsTruthy(form["preview"])) preview = true;
             var upload = form.Files["file"];
             if (upload == null) return Bad("No file uploaded (form field 'file').");
+            if (upload.Length > ChatBranch.Data.Contacts.ContactImporter.MaxBytes) return TooLarge();
 
             var filename = (upload.FileName ?? "").ToLowerInvariant();
-            if (filename.EndsWith(".xlsx"))
-                // Django parses .xlsx with openpyxl; this API has no spreadsheet
-                // reader, so say so instead of failing with a parse error.
-                return Bad("Excel (.xlsx) import isn't supported by this API yet — " +
-                           "save the sheet as .csv and upload that.");
-            if (!filename.EndsWith(".csv"))
-                return Bad("Unsupported file type — upload a .xlsx or .csv file.");
-
-            string text;
             try
             {
-                using var reader = new StreamReader(upload.OpenReadStream(), Encoding.UTF8);
-                text = await reader.ReadToEndAsync();
+                if (filename.EndsWith(".xlsx"))
+                {
+                    using var ms = new MemoryStream();
+                    await upload.CopyToAsync(ms);
+                    ms.Position = 0;
+                    table = ChatBranch.Data.Contacts.ImportReaders.Xlsx(ms);
+                }
+                else if (filename.EndsWith(".vcf") || filename.EndsWith(".vcard"))
+                {
+                    using var ms = new MemoryStream();
+                    await upload.CopyToAsync(ms);
+                    table = ChatBranch.Data.Contacts.ImportReaders.Vcf(ms.ToArray());
+                }
+                else if (filename.EndsWith(".csv") || filename.EndsWith(".tsv") || filename.EndsWith(".txt"))
+                {
+                    using var reader = new StreamReader(upload.OpenReadStream(), Encoding.UTF8);
+                    table = ChatBranch.Data.Contacts.ImportReaders.Csv(await reader.ReadToEndAsync());
+                }
+                else if (filename.EndsWith(".xls"))
+                    return Bad("Old Excel (.xls) files aren't supported — save the sheet as .xlsx or .csv.");
+                else
+                    return Bad("Unsupported file type — upload a .csv, .xlsx or .vcf (vCard) file.");
             }
             catch
             {
-                return Bad("Could not read the file — is it a valid .csv?");
+                return Bad("Could not read the file — is it a valid .csv, .xlsx or .vcf?");
             }
-            (headers, rows) = ParseCsv(text);
-            overrides = ParseMapping(form["mapping"]);
+            columnMapping = ParseMapping(form["column_mapping"]);
+            legacy = ParseMapping(form["mapping"]);
+            mode = form["mode"].ToString();
+            entity = form["entity"].ToString();
+            tags = ParseTags(form["tags"].ToString());
+            discover = form.ContainsKey("discover") ? IsTruthy(form["discover"]) : null;
         }
         else
         {
-            // JSON fallback: {rows: [{header: value, …}], mapping?: {}, preview?: bool}
+            // JSON: {rows: [{header: value}], column_mapping?, mapping?, mode?, entity?, tags?, discover?, preview?, source?}
             JsonElement body;
             try { body = await JsonSerializer.DeserializeAsync<JsonElement>(ctx.Request.Body); }
             catch { return Bad("No file uploaded (form field 'file')."); }
-
-            if (body.ValueKind == JsonValueKind.Object &&
-                body.TryGetProperty("preview", out var pv) && pv.ValueKind == JsonValueKind.True)
-                preview = true;
             if (body.ValueKind != JsonValueKind.Object ||
                 !body.TryGetProperty("rows", out var rawRows) || rawRows.ValueKind != JsonValueKind.Array)
                 return Bad("No file uploaded (form field 'file').");
-
-            rows = new List<Dictionary<string, string>>();
-            headers = new List<string>();
-            foreach (var el in rawRows.EnumerateArray())
-            {
-                if (el.ValueKind != JsonValueKind.Object) continue;
-                var row = new Dictionary<string, string>();
-                foreach (var prop in el.EnumerateObject())
-                {
-                    if (!headers.Contains(prop.Name)) headers.Add(prop.Name);
-                    row[prop.Name] = prop.Value.ValueKind == JsonValueKind.String
-                        ? prop.Value.GetString() ?? "" : prop.Value.ToString();
-                }
-                if (row.Values.Any(v => v.Trim().Length > 0)) rows.Add(row);
-            }
-            if (body.TryGetProperty("mapping", out var mp) && mp.ValueKind == JsonValueKind.Object)
-                overrides = mp.EnumerateObject()
-                    .Where(p => p.Value.ValueKind == JsonValueKind.String)
-                    .ToDictionary(p => p.Name, p => p.Value.GetString() ?? "");
+            if (body.TryGetProperty("preview", out var pv) && pv.ValueKind == JsonValueKind.True) preview = true;
+            var source = AsString(body, "source") is { Length: > 0 } src && src.Length <= 20 ? src : "json";
+            table = ChatBranch.Data.Contacts.ImportReaders.Json(rawRows, source);
+            columnMapping = StringMap(body, "column_mapping");
+            legacy = StringMap(body, "mapping");
+            mode = AsString(body, "mode");
+            entity = AsString(body, "entity");
+            tags = body.TryGetProperty("tags", out var tg) && tg.ValueKind == JsonValueKind.Array
+                ? tg.EnumerateArray().Select(t => t.ToString().Trim()).Where(t => t.Length > 0).ToList()
+                : ParseTags(AsString(body, "tags"));
+            discover = body.TryGetProperty("discover", out var dv) && dv.ValueKind is JsonValueKind.True or JsonValueKind.False
+                ? dv.ValueKind == JsonValueKind.True : null;
         }
 
-        if (headers.Count == 0) return Bad("The file has no rows.");
+        if (table.Truncated > 0)
+            return Bad($"The file has more than {ChatBranch.Data.Contacts.ContactImporter.MaxRows:N0} rows — " +
+                       "split it into smaller files.");
+        if (table.Headers.Count == 0 || table.Rows.Count == 0) return Bad("The file has no rows.");
 
-        var mapping = DetectMapping(headers);
-        if (overrides != null)
-            foreach (var (field, header) in overrides)
-                if (FieldAliases.Any(f => f.Field == field) && !string.IsNullOrWhiteSpace(header))
-                    mapping[field] = header;
-
-        var summary = await RunImportAsync(db, rows, mapping, TenantId(me), preview);
-        return Results.Ok(new Dictionary<string, object?>
+        // the mapping: an explicit {header: target} wins; the legacy {field: header}
+        // overrides the suggestion field by field; otherwise the suggestion
+        Dictionary<string, string> mapping;
+        if (columnMapping != null) mapping = importer.Clean(table.Headers, columnMapping);
+        else
         {
-            ["preview"] = preview,
-            ["headers"] = headers,
-            ["mapping"] = mapping,
-            ["fields"] = FieldAliases.Select(f => f.Field).ToList(),
-            ["total"] = summary.Total,
-            ["created"] = summary.Created,
-            ["updated"] = summary.Updated,
-            ["skipped"] = summary.Skipped,
-            ["errors"] = summary.Errors,
-        });
+            mapping = importer.Suggest(table.Headers);
+            if (legacy != null)
+                foreach (var (field, header) in legacy)
+                {
+                    if (!LegacyFields.Contains(field) || string.IsNullOrWhiteSpace(header) || !mapping.ContainsKey(header))
+                        continue;
+                    foreach (var k in mapping.Where(kv => kv.Value == field).Select(kv => kv.Key).ToList())
+                        mapping[k] = "";
+                    mapping[header] = field;
+                }
+        }
+
+        int? entityId = null;
+        var allowed = await ContactIdentityEndpoints.AllowedEntityIdsAsync(db, sc, me);
+        if (!string.IsNullOrWhiteSpace(entity))
+        {
+            entityId = await InboxEndpoints.EntityId(db, entity);
+            if (entityId == null) return Bad($"Unknown entity \"{entity}\".");
+            if (allowed != null && !allowed.Contains(entityId.Value))
+                return Results.Json(new { detail = "That entity is outside your scope." }, statusCode: 403);
+        }
+
+        var opt = new ChatBranch.Data.Contacts.ImportOptions
+        {
+            Preview = preview,
+            Mode = ChatBranch.Data.Contacts.ContactImporter.Modes.Contains((mode ?? "").Trim())
+                ? mode!.Trim() : ChatBranch.Data.Contacts.ContactImporter.ModeUpdateEmpty,
+            EntityId = entityId,
+            AllowedEntityIds = allowed,
+            Tags = tags,
+            Discover = discover ?? true,
+            TenantId = TenantId(me),
+            Actor = me.Identity?.Name ?? "import",
+        };
+        var report = importer.Run(table, mapping, opt);
+        return Results.Ok(ImportPayload(importer, table, mapping, opt, report));
     }
 
-    private record ImportSummary(int Total, int Created, int Updated, int Skipped, List<object> Errors);
+    private static IResult TooLarge() =>
+        Results.Json(new { detail = "The file is larger than 10 MB — split it into smaller files." }, statusCode: 413);
 
     /// <summary>
-    /// importer.run_import — upsert with the SAME match order as the sync
-    /// normalizer: (tenant, external_id) → (tenant, phone). dry_run computes the
-    /// identical plan without writing, so the preview and the commit agree.
+    /// The import response (preview and commit alike): counts, the detected
+    /// columns with samples + their mapping, the targets a column can feed, and
+    /// the row-numbered errors / warnings (the dashboard offers them as CSV).
     /// </summary>
-    private static async Task<ImportSummary> RunImportAsync(AppDbContext db,
-        List<Dictionary<string, string>> rows, Dictionary<string, string> mapping,
-        int? tenantId, bool dryRun)
+    internal static Dictionary<string, object?> ImportPayload(ChatBranch.Data.Contacts.ContactImporter importer,
+        ChatBranch.Data.Contacts.ImportTable table, Dictionary<string, string> mapping,
+        ChatBranch.Data.Contacts.ImportOptions opt, ChatBranch.Data.Contacts.ImportReport report)
     {
-        int created = 0, updated = 0, skipped = 0;
-        var errors = new List<object>();
-
-        string Val(Dictionary<string, string> row, string field) =>
-            mapping.TryGetValue(field, out var header) && row.TryGetValue(header, out var v)
-                ? (v ?? "").Trim() : "";
-
-        // Match INSIDE the importer's own tenant. Built as a queryable rather
-        // than `c.TenantId == tenantId` so a tenant-less import compares
-        // IS NULL — a parameterized null would match no row and re-create
-        // every contact on every run.
-        IQueryable<Contact> Scope() => tenantId is int tid
-            ? db.Contacts.Where(c => c.TenantId == tid)
-            : db.Contacts.Where(c => c.TenantId == null);
-
-        var idx = 1;
-        foreach (var row in rows)
+        const int maxListed = 5000;
+        var samples = ChatBranch.Data.Contacts.ContactImporter.Samples(table);
+        // legacy {field: header}: the first column feeding each of the old fields
+        var legacy = new Dictionary<string, string>();
+        foreach (var (header, target) in mapping)
+            if (LegacyFields.Contains(target) && !legacy.ContainsKey(target)) legacy[target] = header;
+        return new Dictionary<string, object?>
         {
-            idx++; // +2 overall: row 1 is the header
-            var name = Val(row, "name");
-            var phone = Val(row, "phone");
-            if (name.Length == 0 || phone.Length == 0)
+            ["preview"] = opt.Preview,
+            ["source"] = table.Source,
+            ["total"] = report.Total,
+            ["created"] = report.Created,
+            ["updated"] = report.Updated,
+            ["unchanged"] = report.Unchanged,
+            ["skipped"] = report.Skipped,
+            ["merged"] = report.Merged,
+            ["duplicates"] = report.Duplicates,
+            ["queued_checks"] = report.Queued,
+            ["mode"] = opt.Mode,
+            ["modes"] = ChatBranch.Data.Contacts.ContactImporter.Modes,
+            ["headers"] = table.Headers,
+            ["columns"] = table.Headers.Select(h => new Dictionary<string, object?>
             {
-                skipped++;
-                errors.Add(new { row = idx, reason = "missing name or phone" });
-                continue;
-            }
+                ["header"] = h,
+                ["samples"] = samples.TryGetValue(h, out var s) ? s : new List<string>(),
+                ["target"] = mapping.TryGetValue(h, out var t) ? t : "",
+            }).ToList(),
+            ["column_mapping"] = mapping,
+            ["mapping"] = legacy,
+            ["fields"] = LegacyFields,
+            ["targets"] = importer.Targets().Select(t => new { value = t.Value, label = t.Label, group = t.Group, multi = t.Multi }),
+            ["errors"] = report.Errors.Take(maxListed).ToList(),
+            ["errors_total"] = report.Errors.Count,
+            ["warnings"] = report.Warnings.Take(maxListed).ToList(),
+            ["warnings_total"] = report.Warnings.Count,
+            ["max_rows"] = ChatBranch.Data.Contacts.ContactImporter.MaxRows,
+        };
+    }
 
-            var ext = Val(row, "external_id");
-            Contact? existing = null;
-            if (ext.Length > 0)
-                existing = await Scope().FirstOrDefaultAsync(c => c.ExternalId == ext);
-            existing ??= await Scope().FirstOrDefaultAsync(c => c.Phone == phone);
-
-            if (dryRun)
-            {
-                if (existing != null) updated++; else created++;
-                continue;
-            }
-
-            var email = Val(row, "email");
-            var company = Val(row, "company_name");
-            var language = Val(row, "language");
-            if (language.Length == 0) language = "en";
-            var notes = Val(row, "notes");
-            var tags = SplitTags(Val(row, "tags"));
-            Contact? written = null;
+    private static List<string> ParseTags(string? raw)
+    {
+        var s = (raw ?? "").Trim();
+        if (s.Length == 0) return new List<string>();
+        if (s.StartsWith('['))
             try
             {
-                if (existing != null)
-                {
-                    existing.Name = name;
-                    if (email.Length > 0) existing.Email = email;
-                    if (company.Length > 0) existing.CompanyName = company;
-                    if (language.Length > 0) existing.Language = language;
-                    if (ext.Length > 0) existing.ExternalId = ext;
-                    if (notes.Length > 0) existing.Notes = notes;
-                    if (tags.Count > 0) existing.Tags = tags;
-                    existing.UpdatedAt = DateTime.UtcNow;
-                    written = existing;
-                    await db.SaveChangesAsync();
-                    updated++;
-                }
-                else
-                {
-                    written = new Contact
-                    {
-                        TenantId = tenantId, Name = name, Phone = phone, Email = email,
-                        CompanyName = company, Language = language, ExternalId = ext,
-                        Notes = notes, Tags = tags, Status = "active",
-                        CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
-                    };
-                    db.Contacts.Add(written);
-                    await db.SaveChangesAsync();
-                    created++;
-                }
-                // registry write-through: the CSV's tag names become registry tags
-                if (tags.Count > 0)
-                    try { TagService.ApplyContactNames(db, written.Id, tags, "import"); }
-                    catch { /* tagging never fails an imported row */ }
+                return JsonSerializer.Deserialize<List<string>>(s)?.Select(t => t.Trim()).Where(t => t.Length > 0).ToList()
+                       ?? new List<string>();
             }
-            catch (Exception e)
-            {
-                skipped++;
-                errors.Add(new { row = idx, reason = e.GetType().Name });
-                // Detach the row that blew up (a duplicate phone is the common
-                // case) — leaving it tracked makes EVERY later SaveChanges
-                // re-throw the same error and the whole import fail.
-                if (written != null) db.Entry(written).State = EntityState.Detached;
-            }
-        }
-
-        return new ImportSummary(rows.Count, created, updated, skipped, errors.Take(50).ToList());
+            catch { /* fall through to a comma list */ }
+        return s.Replace(";", ",").Split(',').Select(t => t.Trim()).Where(t => t.Length > 0).ToList();
     }
 
-    private static Dictionary<string, string> DetectMapping(List<string> headers)
-    {
-        var lower = new Dictionary<string, string>();
-        foreach (var h in headers)
-        {
-            var key = (h ?? "").Trim().ToLowerInvariant();
-            if (key.Length > 0 && !lower.ContainsKey(key)) lower[key] = h!;
-        }
-        var mapping = new Dictionary<string, string>();
-        foreach (var (field, aliases) in FieldAliases)
-            foreach (var alias in aliases)
-                if (lower.TryGetValue(alias, out var header)) { mapping[field] = header; break; }
-        return mapping;
-    }
-
-    private static List<string> SplitTags(string raw) =>
-        raw.Replace(";", ",").Split(',')
-            .Select(t => t.Trim()).Where(t => t.Length > 0).ToList();
+    private static Dictionary<string, string>? StringMap(JsonElement body, string key) =>
+        body.TryGetProperty(key, out var mp) && mp.ValueKind == JsonValueKind.Object
+            ? mp.EnumerateObject().Where(p => p.Value.ValueKind == JsonValueKind.String)
+                .ToDictionary(p => p.Name, p => p.Value.GetString() ?? "")
+            : null;
 
     private static Dictionary<string, string>? ParseMapping(string? raw)
     {
@@ -863,57 +893,6 @@ public static class ContactsEndpoints
                 .ToDictionary(p => p.Name, p => p.Value.GetString() ?? "");
         }
         catch { return null; }
-    }
-
-    /// <summary>Minimal RFC4180 CSV reader — quoted cells, doubled quotes, CRLF.</summary>
-    private static (List<string> Headers, List<Dictionary<string, string>> Rows) ParseCsv(string text)
-    {
-        text = text.TrimStart('\uFEFF'); // BOM, if the reader left one behind
-        var table = new List<List<string>>();
-        var row = new List<string>();
-        var cell = new StringBuilder();
-        var quoted = false;
-
-        for (var i = 0; i < text.Length; i++)
-        {
-            var ch = text[i];
-            if (quoted)
-            {
-                if (ch == '"')
-                {
-                    if (i + 1 < text.Length && text[i + 1] == '"') { cell.Append('"'); i++; }
-                    else quoted = false;
-                }
-                else cell.Append(ch);
-                continue;
-            }
-            switch (ch)
-            {
-                case '"': quoted = true; break;
-                case ',': row.Add(cell.ToString()); cell.Clear(); break;
-                case '\r': break;
-                case '\n':
-                    row.Add(cell.ToString()); cell.Clear();
-                    table.Add(row); row = new List<string>();
-                    break;
-                default: cell.Append(ch); break;
-            }
-        }
-        if (cell.Length > 0 || row.Count > 0) { row.Add(cell.ToString()); table.Add(row); }
-        if (table.Count == 0) return (new List<string>(), new List<Dictionary<string, string>>());
-
-        var headers = table[0].Select(h => (h ?? "").Trim()).ToList();
-        var rows = new List<Dictionary<string, string>>();
-        foreach (var raw in table.Skip(1))
-        {
-            var cells = raw.Select(c => (c ?? "").Trim()).ToList();
-            if (!cells.Any(c => c.Length > 0)) continue; // blank line
-            var dict = new Dictionary<string, string>();
-            for (var i = 0; i < headers.Count; i++)
-                if (headers[i].Length > 0) dict[headers[i]] = i < cells.Count ? cells[i] : "";
-            rows.Add(dict);
-        }
-        return (headers, rows);
     }
 
     // ======================= script templates ================================
@@ -990,6 +969,41 @@ public static class ContactsEndpoints
             return Cfg(a, "host").Length > 0 && Cfg(a, "username").Length > 0 &&
                    Cfg(a, "password").Length > 0;
         return a.AccessToken.Length > 0;
+    }
+
+    /// <summary>Attach a registry row's source + WhatsApp verdict to a hub identity.</summary>
+    private static void RegistryFields(Dictionary<string, object?> payload, ContactIdentity? r)
+    {
+        payload["registered"] = r != null;
+        payload["source"] = r?.Source;
+        payload["verification"] = r == null || r.Channel != Channels.WhatsApp ? null
+            : r.Verification.Length > 0 ? r.Verification : IdentityVerdicts.Unknown;
+        payload["verification_detail"] = r?.VerificationDetail ?? "";
+        payload["checked_at"] = r?.CheckedAt is DateTime at ? Iso(at) : null;
+    }
+
+    /// <summary>A registered identity with no conversation yet, in the hub's identity shape.</summary>
+    private static Dictionary<string, object?> RegistryIdentity(ContactIdentity r)
+    {
+        var payload = new Dictionary<string, object?>
+        {
+            ["key"] = r.Address,
+            ["address"] = r.Address,
+            ["name"] = r.Address,
+            ["account_id"] = null,
+            ["account_name"] = null,
+            ["account_provider"] = null,
+            ["account_health"] = Health.Unknown,
+            ["last_active"] = null,
+            ["message_count"] = 0,
+            ["inbound_count"] = 0,
+            ["outbound_count"] = 0,
+            ["last_direction"] = null,
+            ["opted_out"] = false,
+            ["window_open"] = null,
+        };
+        RegistryFields(payload, r);
+        return payload;
     }
 
     private static string Cfg(ChannelAccount a, string key) =>

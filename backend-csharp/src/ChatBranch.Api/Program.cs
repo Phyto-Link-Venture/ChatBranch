@@ -91,6 +91,9 @@ builder.Services.AddSingleton(sp => new ChatBranch.Api.Workers.HealthRecheck(
     sp.GetRequiredService<ILogger<ChatBranch.Api.Workers.HealthRecheck>>(),
     enabled: ChatBranch.Api.Workers.HealthProbeWorker.Enabled));
 builder.Services.AddHostedService<ChatBranch.Api.Workers.HealthProbeWorker>();
+// Contacts: identity registry + WhatsApp lookups (IdentityCheckWorker), invite
+// links, unknown-customer "who are you?", contact-book import (+ Google Contacts)
+builder.Services.AddContactIdentity();
 
 // ---- auth: bearer token handler + RBAC policies -----------------------------
 builder.Services.AddAuthentication(TokenAuthenticationHandler.SchemeName)
@@ -146,6 +149,7 @@ app.MapSavedViewsEndpoints();
 app.MapAiEndpoints();
 app.MapFlowsEndpoints();
 app.MapContactsEndpoints();
+app.MapContactIdentityEndpoints();
 app.MapAnalyticsEndpoints();
 app.MapIntegrationsEndpoints();
 app.MapNotificationEndpoints();

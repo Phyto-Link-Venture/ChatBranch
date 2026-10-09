@@ -1,4 +1,5 @@
 using ChatBranch.Data.Ai;
+using ChatBranch.Data.Contacts;
 using ChatBranch.Data.Flows;
 using ChatBranch.Data.Stores;
 using ChatBranch.Domain;
@@ -49,6 +50,10 @@ public class InboundProcessor
         int? accountId = null, string wamid = "", DateTime? providerTs = null)
     {
         var thread = _threads.GetOrCreateThread(channel, key, name, accountId);
+        // invite links ("[ref:CODE]", "(ref:CODE)", "/start CODE"…) bind the chat to
+        // the invited contact BEFORE phone/email matching; the marker is stripped
+        var invite = Invites.TryBind(thread, text);
+        if (invite != null) text = invite.Stripped;
         if (thread.ContactId == null)
         {
             var contact = MatchContact(channel, key);
@@ -66,6 +71,7 @@ public class InboundProcessor
 
         var msg = _threads.AppendMessage(thread, MessageDirection.In, MessageSource.Customer,
             text, status: "received", externalId: wamid, accountId: accountId, providerTs: providerTs);
+        Invites.Complete(invite, thread, msg);
 
         // STOP / UNSUBSCRIBE / BERHENTI (+ configured words) opt the conversation
         // out of everything automated; START / UNSTOP / MULA opts it back in
@@ -90,6 +96,11 @@ public class InboundProcessor
 
         // page the people who own this conversation (assignee → team → admins)
         NotificationService.NotifyInboundMessage(_db, thread, text);
+
+        // unknown customer: ask who they are (per-inbox identify_unknown / the
+        // ask_identity automation) — a reply that identifies them links the chat
+        // here, so the AI step below answers them
+        Identity.OnInbound(thread, msg);
 
         // a reply still waiting in the AI monitor is stale now — expire it so the
         // next reply covers everything the customer said
@@ -148,6 +159,7 @@ public class InboundProcessor
     /// </summary>
     public void AfterSimulatedInbound(Thread thread)
     {
+        IdentityStepForStored(thread);
         _responder.OnCustomerMessage(thread);
         AutoAnswer(thread, thread.AccountId);
     }
@@ -162,6 +174,8 @@ public class InboundProcessor
     public void MaybeAutoReply(Thread thread, string? text = null)
     {
         if (text != null) ApplyOptOut(thread, text);
+        // while the visitor is being asked who they are, the AI waits
+        if (IdentityStepForStored(thread) is { Linked: false, State: IdentityStates.Asking }) return;
         _responder.OnCustomerMessage(thread);
         if (thread.OptedOut || !AiEligibility.Effective(_db, _scoping, thread)) return;
         TryAiReply(thread);
@@ -233,5 +247,36 @@ public class InboundProcessor
         if (channel != ChatBranch.Domain.Channels.WhatsApp) return null;
         if (PhoneMatch.Tail(key) == null) return null;
         return PhoneMatch.Find(_db.Contacts.AsEnumerable(), key);
+    }
+
+    // ---- contacts: invite binder + "who are you?" ------------------------------
+
+    private ContactInviteService? _invites;
+    private ContactInviteService Invites => _invites ??= new ContactInviteService(_db, _scoping);
+    private IdentityRequestService? _identity;
+    private IdentityRequestService Identity => _identity ??= new IdentityRequestService(_db, _scoping, _threads, _sender);
+
+    /// <summary>
+    /// The binder + identity step for a message ANOTHER path already stored (the
+    /// website widget, the sandbox simulate): an invite marker is stripped from
+    /// the stored row, then the unknown-customer step runs. Never throws.
+    /// </summary>
+    private IdentityOutcome? IdentityStepForStored(Thread thread)
+    {
+        try
+        {
+            var last = _db.Messages.Where(m => m.ThreadId == thread.Id && m.Direction == MessageDirection.In)
+                .OrderByDescending(m => m.Id).FirstOrDefault();
+            if (last == null) return null;
+            var invite = Invites.TryBind(thread, last.Text);
+            if (invite != null)
+            {
+                last.Text = invite.Stripped;
+                _db.SaveChanges();
+                Invites.Complete(invite, thread, last);
+            }
+            return Identity.OnInbound(thread, last);
+        }
+        catch { return null; }
     }
 }

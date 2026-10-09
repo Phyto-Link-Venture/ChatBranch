@@ -18,7 +18,7 @@ namespace ChatBranch.Api.Endpoints;
 public static class IntegrationsEndpoints
 {
     public static readonly string[] Providers =
-        { "google_calendar", "google_drive", "gmail", "google_sheets", "shopify", "stripe" };
+        { "google_calendar", "google_drive", "gmail", "google_sheets", "shopify", "stripe", "google_contacts" };
 
     // Contract shared with frontend lib/flow/nodeConfig.ts INTEGRATION_ACTIONS.
     public static readonly string[] Actions =
@@ -75,6 +75,15 @@ public static class IntegrationsEndpoints
                     new CatalogField("sheet_range", "Range", "Sheet1!A:Z") },
             Array.Empty<CatalogField>(),
             new[] { "Append row to Sheet" }),
+
+        // read-only, per person: Contacts → Import → Google Contacts reads the
+        // CALLER's own address book (People API) — never written back
+        new("google_contacts", "Google Contacts", "oauth", "google",
+            "Import your Google contact book into Contacts (read-only).",
+            new[] { "https://www.googleapis.com/auth/contacts.readonly" },
+            Array.Empty<CatalogField>(),
+            Array.Empty<CatalogField>(),
+            Array.Empty<string>()),
 
         new("shopify", "Shopify", "apikey", "shopify",
             "Orders flow in by webhook and become Records; steps can tag or note an order back.",

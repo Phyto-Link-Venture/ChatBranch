@@ -56,6 +56,8 @@ public class AutomationService
         ("contact_name", "Contact name"),
         ("contact_tags", "Contact tags"),
         ("is_first_message", "Is the first message"),
+        // "yes" when the conversation is linked to a contact, else "no"
+        ("contact_linked", "Contact is linked (yes/no)"),
     };
 
     public static readonly (string Id, string Label)[] Operators =
@@ -79,6 +81,8 @@ public class AutomationService
         ("enable_ai", "Turn the chatbot on"),
         ("add_note", "Add a private note"),
         ("notify", "Notify the team"),
+        // value: "ask" (default) | "ask_and_create" — see Contacts/IdentityRequests.cs
+        ("ask_identity", "Ask who they are (unknown customer)"),
     };
 
     // ---- entry points -------------------------------------------------------
@@ -164,6 +168,7 @@ public class AutomationService
         "contact_name" => contact?.Name ?? "",
         "contact_tags" => contact == null ? "" : string.Join(",", contact.Tags),
         "is_first_message" => isFirstMessage ? "true" : "false",
+        "contact_linked" => thread.ContactId != null ? "yes" : "no",
         _ => "",
     };
 
@@ -233,6 +238,10 @@ public class AutomationService
                     break;
                 case "notify":
                     Notify(rule, thread, value.Length > 0 ? value : messageText);
+                    break;
+                case "ask_identity":
+                    // arms the "who are you?" exchange; the inbound step sends the ask
+                    if (!ChatBranch.Data.Contacts.IdentityRequestService.Arm(_db, thread, value)) continue;
                     break;
                 default:
                     continue;   // unknown action type — skip, do not guess
