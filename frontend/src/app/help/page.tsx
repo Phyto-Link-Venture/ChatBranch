@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { BookOpen, Search } from 'lucide-react'
+import { LanguageSwitcher } from '@/components/i18n/LanguageSwitcher'
+import { useT } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -27,6 +29,7 @@ interface Category {
 }
 
 export default function HelpIndexPage() {
+  const t = useT()
   const [categories, setCategories] = useState<Category[] | null>(null)
   const [total, setTotal] = useState(0)
   const [q, setQ] = useState('')
@@ -57,9 +60,9 @@ export default function HelpIndexPage() {
           <div className="grid h-9 w-9 place-items-center rounded-xl bg-brand-400/15 text-brand-300">
             <BookOpen size={18} aria-hidden />
           </div>
-          <h1 className="text-[26px] font-extrabold tracking-[-0.6px] text-text-heading">Help Center</h1>
+          <h1 className="text-[26px] font-extrabold tracking-[-0.6px] text-text-heading">{t('help.title')}</h1>
         </div>
-        <p className="text-[13px] text-text-muted">Answers to the questions we get most.</p>
+        <p className="text-[13px] text-text-muted">{t('help.subtitle')}</p>
       </header>
 
       <label className="mb-8 flex items-center gap-2 rounded-xl border border-line-strong bg-card px-3 py-2.5">
@@ -67,21 +70,19 @@ export default function HelpIndexPage() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search help articles…"
-          aria-label="Search help articles"
+          placeholder={t('help.searchPlaceholder')}
+          aria-label={t('help.search')}
           className="w-full bg-transparent text-[13.5px] text-text-primary outline-none placeholder:text-text-faint"
         />
       </label>
 
       {categories === null ? (
-        <p className="text-[13px] text-text-muted">Loading…</p>
+        <p className="text-[13px] text-text-muted">{t('common.status.loading')}</p>
       ) : failed ? (
-        <p className="text-[13px] text-text-muted">
-          The help center is temporarily unavailable. Please try again shortly.
-        </p>
+        <p className="text-[13px] text-text-muted">{t('help.unavailable')}</p>
       ) : total === 0 ? (
         <p className="text-[13px] text-text-muted">
-          {q.trim() ? `Nothing matched “${q.trim()}”.` : 'No published articles yet.'}
+          {q.trim() ? t('help.noMatch', { q: q.trim() }) : t('help.empty')}
         </p>
       ) : (
         <div className="flex flex-col gap-8">
@@ -108,6 +109,7 @@ export default function HelpIndexPage() {
           ))}
         </div>
       )}
+      <LanguageSwitcher className="mt-12" />
     </main>
   )
 }

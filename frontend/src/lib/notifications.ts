@@ -1,5 +1,6 @@
 import { Activity, Bell, MessageSquare, ShieldCheck, Workflow, type LucideIcon } from 'lucide-react'
 import { authHeaders, expireSessionOn401 } from './auth'
+import type { MessageKey } from '@/i18n'
 
 /**
  * Notification vocabulary shared by the inbox (/notifications), the personal
@@ -10,8 +11,12 @@ export type NotifCategory = 'messages' | 'account_health' | 'flows' | 'admin' | 
 
 export interface NotifCategoryMeta {
   key: NotifCategory
+  /** English label — kept for callers not yet localised; render `t(labelKey)`. */
   label: string
   description: string
+  /** Translation keys of the label and the one-line description. */
+  labelKey: MessageKey
+  descriptionKey: MessageKey
   Icon: LucideIcon
   /** Inline ink (theme-aware CSS var); chips tint it with tint(ink, 0.12).
    *  Kept out of Tailwind classes on purpose — lib/ is not in Tailwind's
@@ -24,6 +29,8 @@ export const NOTIF_CATEGORIES: NotifCategoryMeta[] = [
     key: 'messages',
     label: 'Customer messages',
     description: 'A customer wrote in, on any chat channel',
+    labelKey: 'notifications.categories.messages',
+    descriptionKey: 'notifications.categories.messagesHint',
     Icon: MessageSquare,
     ink: 'var(--green-ink)',
   },
@@ -31,6 +38,8 @@ export const NOTIF_CATEGORIES: NotifCategoryMeta[] = [
     key: 'account_health',
     label: 'Channel health',
     description: 'An account went down or degraded, routing failover and recovery prompts',
+    labelKey: 'notifications.categories.accountHealth',
+    descriptionKey: 'notifications.categories.accountHealthHint',
     Icon: Activity,
     ink: 'var(--red-ink)',
   },
@@ -38,6 +47,8 @@ export const NOTIF_CATEGORIES: NotifCategoryMeta[] = [
     key: 'flows',
     label: 'Flows & automations',
     description: 'Flow pushes, human handovers and automation alerts',
+    labelKey: 'notifications.categories.flows',
+    descriptionKey: 'notifications.categories.flowsHint',
     Icon: Workflow,
     ink: 'var(--purple-ink)',
   },
@@ -45,6 +56,8 @@ export const NOTIF_CATEGORIES: NotifCategoryMeta[] = [
     key: 'admin',
     label: 'Admin & configuration',
     description: 'Users, app keys, integrations and channel account changes',
+    labelKey: 'notifications.categories.admin',
+    descriptionKey: 'notifications.categories.adminHint',
     Icon: ShieldCheck,
     ink: 'var(--cyan-ink)',
   },
@@ -52,6 +65,8 @@ export const NOTIF_CATEGORIES: NotifCategoryMeta[] = [
     key: 'system',
     label: 'System',
     description: 'Everything else the platform needs you to know',
+    labelKey: 'notifications.categories.system',
+    descriptionKey: 'notifications.categories.systemHint',
     Icon: Bell,
     ink: 'var(--amber-ink)',
   },

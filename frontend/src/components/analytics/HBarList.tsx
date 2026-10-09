@@ -1,5 +1,7 @@
 'use client'
 
+import { useFormat, useT } from '@/i18n'
+
 export interface HBarStage {
   label: string
   value: number
@@ -18,14 +20,18 @@ export function HBarList({
   stages,
   colors,
   empty,
-  formatValue = (n) => n.toLocaleString('en-US'),
+  formatValue,
 }: {
   stages: HBarStage[]
   /** CSS color per stage, aligned by index (e.g. 'var(--viz-f1)') */
   colors: string[]
   empty: string
+  /** Defaults to the locale's number format. */
   formatValue?: (n: number) => string
 }) {
+  const t = useT()
+  const f = useFormat()
+  const fmt = formatValue ?? ((n: number) => f.number(n))
   const max = Math.max(1, ...stages.map((s) => s.value))
   const allZero = stages.every((s) => s.value === 0)
 
@@ -36,11 +42,11 @@ export function HBarList({
   return (
     <div className="flex flex-col gap-3">
       {stages.map((s, i) => (
-        <div key={s.label} title={`${s.label}: ${formatValue(s.value)}`} className="group">
+        <div key={s.label} title={t('analytics.bars.tooltip', { label: s.label, value: fmt(s.value) })} className="group">
           <div className="mb-1 flex items-baseline justify-between gap-2">
-            <span className="text-[11.5px] font-semibold text-text-mid">{s.label}</span>
+            <span className="min-w-0 truncate text-[11.5px] font-semibold text-text-mid">{s.label}</span>
             <span className="shrink-0 text-[11px] text-text-muted">
-              <span className="font-bold text-text-high">{formatValue(s.value)}</span>
+              <span className="font-bold text-text-high">{fmt(s.value)}</span>
               {s.note && <span className="text-text-faint"> · {s.note}</span>}
             </span>
           </div>

@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
+import { LanguageSwitcher } from '@/components/i18n/LanguageSwitcher'
+import { useT } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -24,6 +26,7 @@ interface Article {
 
 /** One public help article. Content is plain text, rendered with its line breaks. */
 export default function HelpArticlePage() {
+  const t = useT()
   const params = useParams<{ slug: string }>()
   const slug = typeof params?.slug === 'string' ? params.slug : ''
   const [article, setArticle] = useState<Article | null>(null)
@@ -43,13 +46,13 @@ export default function HelpArticlePage() {
         href="/help"
         className="mb-6 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-text-muted transition-colors hover:text-text-high"
       >
-        <ArrowLeft size={14} aria-hidden /> All articles
+        <ArrowLeft size={14} aria-hidden /> {t('help.allArticles')}
       </Link>
 
       {missing ? (
-        <p className="text-[13px] text-text-muted">That article doesn&apos;t exist (or isn&apos;t published).</p>
+        <p className="text-[13px] text-text-muted">{t('help.missing')}</p>
       ) : !article ? (
-        <p className="text-[13px] text-text-muted">Loading…</p>
+        <p className="text-[13px] text-text-muted">{t('common.status.loading')}</p>
       ) : (
         <article>
           <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-faint">
@@ -68,7 +71,7 @@ export default function HelpArticlePage() {
           {article.related.length > 0 && (
             <section className="mt-10 border-t border-line pt-6">
               <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.08em] text-text-faint">
-                Related
+                {t('help.related')}
               </h2>
               <div className="flex flex-col gap-1.5">
                 {article.related.map((r) => (
@@ -85,6 +88,7 @@ export default function HelpArticlePage() {
           )}
         </article>
       )}
+      <LanguageSwitcher className="mt-12" />
     </main>
   )
 }

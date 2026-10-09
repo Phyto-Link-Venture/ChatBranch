@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { intlTag, useFormat, useI18n, useT, type MessageKey } from '@/i18n'
 import type { DailyPoint } from './types'
 
 /**
@@ -19,10 +20,15 @@ import type { DailyPoint } from './types'
  * names both, so identity never rides on colour alone.
  */
 
-const SERIES = [
-  { key: 'inbound', lbl: 'Inbound', color: 'var(--text-primary)' },
-  { key: 'outbound', lbl: 'Outbound', color: 'rgb(var(--c-brand))' },
-] as const
+const SERIES: readonly {
+  key: 'inbound' | 'outbound'
+  lbl: MessageKey
+  tip: MessageKey
+  color: string
+}[] = [
+  { key: 'inbound', lbl: 'analytics.daily.inbound', tip: 'analytics.daily.tipInbound', color: 'var(--text-primary)' },
+  { key: 'outbound', lbl: 'analytics.daily.outbound', tip: 'analytics.daily.tipOutbound', color: 'rgb(var(--c-brand))' },
+]
 
 const PAD_L = 36
 const PAD_R = 8
@@ -37,12 +43,14 @@ function niceCeil(n: number): number {
   return 10 * pow
 }
 
-const compact = (v: number) => (v >= 1000 ? `${Math.round((v / 1000) * 10) / 10}k` : `${Math.round(v)}`)
-
-const dayLabel = (iso: string) =>
-  new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
-
 export function DailyVolumeChart({ daily }: { daily: DailyPoint[] }) {
+  const t = useT()
+  const f = useFormat()
+  const { locale } = useI18n()
+  // "9 Oct" / "9 Okt" / "10月9日" — the axis wants day + month only
+  const dayFmt = useMemo(() => new Intl.DateTimeFormat(intlTag(locale), { day: 'numeric', month: 'short' }), [locale])
+  const dayLabel = (iso: string) => dayFmt.format(new Date(`${iso}T00:00:00`))
+  const compact = (v: number) => f.number(v, { notation: 'compact', maximumFractionDigits: 1 })
   const wrapRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(640)
   const [view, setView] = useState<'chart' | 'table'>('chart')
@@ -66,20 +74,20 @@ export function DailyVolumeChart({ daily }: { daily: DailyPoint[] }) {
       {SERIES.map((s) => (
         <span key={s.key} className="flex items-center gap-1.5 text-[12px] text-text-mid">
           <span className="h-2.5 w-2.5" style={{ background: s.color }} aria-hidden />
-          {s.lbl}
+          {t(s.lbl)}
         </span>
       ))}
-      <div className="ml-auto flex overflow-hidden rounded-md border border-line" role="group" aria-label="View">
+      <div className="ml-auto flex overflow-hidden rounded-md border border-line" role="group" aria-label={t('analytics.daily.view')}>
         {(['chart', 'table'] as const).map((v) => (
           <button
             key={v}
             onClick={() => setView(v)}
             aria-pressed={view === v}
-            className={`px-2.5 py-1 text-[11.5px] font-semibold capitalize transition-colors ${
+            className={`px-2.5 py-1 text-[11.5px] font-semibold transition-colors ${
               view === v ? 'bg-primary text-on-primary' : 'text-text-muted hover:bg-fill-hover'
             }`}
           >
-            {v}
+            {v === 'chart' ? t('analytics.daily.chart') : t('analytics.daily.table')}
           </button>
         ))}
       </div>
@@ -90,7 +98,7 @@ export function DailyVolumeChart({ daily }: { daily: DailyPoint[] }) {
     return (
       <div className="flex flex-col gap-3">
         <div className="grid h-[200px] place-items-center rounded-lg bg-fill-subtle">
-          <span className="text-[12.5px] text-text-muted">No messages in this window yet.</span>
+          <span className="text-[12.5px] text-text-muted">{t('analytics.daily.empty')}</span>
         </div>
         {legend}
       </div>
@@ -104,19 +112,19 @@ export function DailyVolumeChart({ daily }: { daily: DailyPoint[] }) {
           <table className="w-full text-[12px]">
             <thead className="sticky top-0 bg-card">
               <tr className="border-b border-line text-left text-text-muted">
-                <th className="px-3 py-2 font-semibold">Date</th>
-                <th className="px-3 py-2 text-right font-semibold">Inbound</th>
-                <th className="px-3 py-2 text-right font-semibold">Outbound</th>
-                <th className="px-3 py-2 text-right font-semibold">Calls</th>
+                <th className="px-3 py-2 font-semibold">{t('analytics.daily.date')}</th>
+                <th className="px-3 py-2 text-right font-semibold">{t('analytics.daily.inbound')}</th>
+                <th className="px-3 py-2 text-right font-semibold">{t('analytics.daily.outbound')}</th>
+                <th className="px-3 py-2 text-right font-semibold">{t('analytics.daily.calls')}</th>
               </tr>
             </thead>
             <tbody>
               {[...daily].reverse().map((d) => (
                 <tr key={d.date} className="border-b border-line last:border-0">
                   <td className="px-3 py-1.5 text-text-mid">{dayLabel(d.date)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums text-text-high">{d.inbound}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums text-text-high">{d.outbound}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums text-text-high">{d.calls}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-text-high">{f.number(d.inbound)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-text-high">{f.number(d.outbound)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-text-high">{f.number(d.calls)}</td>
                 </tr>
               ))}
             </tbody>
@@ -169,7 +177,7 @@ export function DailyVolumeChart({ daily }: { daily: DailyPoint[] }) {
           width={width}
           height={totalH}
           role="img"
-          aria-label="Inbound and outbound messages per day"
+          aria-label={t('analytics.daily.aria')}
           onPointerMove={onMove}
           onPointerLeave={() => setHover(null)}
           className="block"
@@ -183,7 +191,7 @@ export function DailyVolumeChart({ daily }: { daily: DailyPoint[] }) {
             </g>
           ))}
           <text x={PAD_L - 6} y={base + 3.5} textAnchor="end" style={{ fill: 'var(--text-muted)', fontSize: 10 }}>
-            0
+            {f.number(0)}
           </text>
 
           {hover !== null && (
@@ -225,15 +233,14 @@ export function DailyVolumeChart({ daily }: { daily: DailyPoint[] }) {
           >
             <div className="mb-1 text-[11px] font-semibold text-text-muted">{dayLabel(hovered.date)}</div>
             {SERIES.map((s) => (
-              <div key={s.key} className="flex items-center gap-1.5 py-px text-[12px]">
+              <div key={s.key} className="flex items-center gap-1.5 py-px text-[12px] text-text-muted">
                 <span className="h-2 w-2 shrink-0" style={{ background: s.color }} aria-hidden />
-                <span className="font-semibold tabular-nums text-text-high">{hovered[s.key]}</span>
-                <span className="text-text-muted">{s.lbl.toLowerCase()}</span>
+                <span className="tabular-nums">{t(s.tip, { count: hovered[s.key] })}</span>
               </div>
             ))}
             {hovered.calls > 0 && (
-              <div className="pt-0.5 text-[12px] text-text-muted">
-                <span className="font-semibold tabular-nums text-text-high">{hovered.calls}</span> calls
+              <div className="pt-0.5 text-[12px] tabular-nums text-text-muted">
+                {t('analytics.daily.tipCalls', { count: hovered.calls })}
               </div>
             )}
           </div>

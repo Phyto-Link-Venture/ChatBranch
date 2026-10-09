@@ -25,6 +25,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable'
 import { roleHeaders } from '@/lib/role'
 import { useRole } from '@/lib/useRole'
 import { expireSessionOn401 } from '@/lib/auth'
+import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
 import { useSettingsDirty } from './SettingsDirtyContext'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
@@ -81,12 +82,12 @@ interface GlobalSettings {
   webhook_paths: Record<string, string>
 }
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
+async function api<T>(path: string, t: TFunction, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}/integrations/${path}`, {
     headers: { 'Content-Type': 'application/json', ...roleHeaders() },
     ...init,
   })
-  if (expireSessionOn401(res)) throw new Error('Session expired — redirecting to login…')
+  if (expireSessionOn401(res)) throw new Error(t('common.errors.sessionExpired'))
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error((data as { detail?: string }).detail || `HTTP ${res.status}`)
   return data as T
@@ -110,12 +111,13 @@ function ProviderLogo({ id, size }: { id: string; size: number }) {
 /** Per-account health chip (used in the connected-accounts table). Static hex
  *  only: `var(--…)` inside a lucide `color=` prop renders invisible. */
 function StatusChip({ status, detail }: { status: string; detail?: string }) {
-  const map: Record<string, { bg: string; fg: string; lbl: string }> = {
-    healthy: { bg: 'rgba(47,125,79,0.12)', fg: 'var(--green-ink)', lbl: 'Healthy' },
-    degraded: { bg: 'rgba(200,137,26,0.12)', fg: 'var(--amber-ink)', lbl: 'Degraded' },
-    disconnected: { bg: 'rgba(192,57,43,0.12)', fg: 'var(--red-ink)', lbl: 'Disconnected' },
-    revoked: { bg: 'rgba(192,57,43,0.12)', fg: 'var(--red-ink)', lbl: 'Revoked' },
-    unknown: { bg: 'var(--fill)', fg: 'var(--text-muted)', lbl: 'Not checked' },
+  const t = useT()
+  const map: Record<string, { bg: string; fg: string; lbl: MessageKey }> = {
+    healthy: { bg: 'rgba(47,125,79,0.12)', fg: 'var(--green-ink)', lbl: 'channels.health.healthy' },
+    degraded: { bg: 'rgba(200,137,26,0.12)', fg: 'var(--amber-ink)', lbl: 'channels.health.degraded' },
+    disconnected: { bg: 'rgba(192,57,43,0.12)', fg: 'var(--red-ink)', lbl: 'channels.health.disconnected' },
+    revoked: { bg: 'rgba(192,57,43,0.12)', fg: 'var(--red-ink)', lbl: 'channels.integrations.revoked' },
+    unknown: { bg: 'var(--fill)', fg: 'var(--text-muted)', lbl: 'channels.integrations.notChecked' },
   }
   const s = map[status] || map.unknown
   return (
@@ -124,19 +126,21 @@ function StatusChip({ status, detail }: { status: string; detail?: string }) {
       className="inline-block shrink-0 rounded-full px-2 py-px text-[10px] font-bold"
       style={{ background: s.bg, color: s.fg }}
     >
-      {s.lbl}
+      {t(s.lbl)}
     </span>
   )
 }
 
 /** Connect-first card status: Connected / Needs setup / Not connected. */
 function CardStatus({ status }: { status: 'connected' | 'needs_setup' | 'not_connected' }) {
-  const map = {
-    connected: { cls: 'bg-green/15 text-green-300', lbl: 'Connected' },
-    needs_setup: { cls: 'bg-amber/15 text-amber-300', lbl: 'Needs setup' },
-    not_connected: { cls: 'bg-fill text-text-muted', lbl: 'Not connected' },
-  }[status]
-  return <span className={`shrink-0 rounded-full px-2 py-px text-[10px] font-bold ${map.cls}`}>{map.lbl}</span>
+  const t = useT()
+  const all: Record<typeof status, { cls: string; lbl: MessageKey }> = {
+    connected: { cls: 'bg-green/15 text-green-300', lbl: 'common.status.connected' },
+    needs_setup: { cls: 'bg-amber/15 text-amber-300', lbl: 'channels.integrations.needsSetup' },
+    not_connected: { cls: 'bg-fill text-text-muted', lbl: 'channels.integrations.notConnected' },
+  }
+  const map = all[status]
+  return <span className={`shrink-0 rounded-full px-2 py-px text-[10px] font-bold ${map.cls}`}>{t(map.lbl)}</span>
 }
 
 interface DraftAccount {
@@ -160,6 +164,10 @@ interface DraftAccount {
  * section instead of offering a Connect button that would 400.
  */
 export function IntegrationsSettings() {
+  const t = useT()
+  // the loaders read the latest t without re-running (a language switch must not refetch)
+  const tRef = useRef(t)
+  tRef.current = t
   const { role, ready } = useRole()
   const canManage = role === 'admin' || role === 'superadmin'
   const isSuper = role === 'superadmin'
@@ -180,9 +188,9 @@ export function IntegrationsSettings() {
   const load = useCallback(async () => {
     try {
       const [p, a, s] = await Promise.all([
-        api<{ providers: Provider[] }>('providers'),
-        api<{ accounts: Account[] }>('accounts'),
-        api<GlobalSettings>('settings'),
+        api<{ providers: Provider[] }>('providers', tRef.current),
+        api<{ accounts: Account[] }>('accounts', tRef.current),
+        api<GlobalSettings>('settings', tRef.current),
       ])
       setProviders(p.providers)
       setAccounts(a.accounts)
@@ -208,7 +216,7 @@ export function IntegrationsSettings() {
     const ok = q.get('connected')
     const bad = q.get('error')
     if (ok) {
-      setNotice(`Connected "${ok}".`)
+      setNotice(tRef.current('channels.integrations.connectedNotice', { name: ok }))
       void load()
     }
     if (bad) setError(bad)
@@ -239,12 +247,10 @@ export function IntegrationsSettings() {
       // when the platform OAuth app hasn't been registered yet (spec §5).
       const d = await api<{ authorize_url?: string; configured?: boolean; reason?: string }>(
         `oauth/${provider.id}/start`,
+        t,
       )
       if (d.configured === false || !d.authorize_url) {
-        setError(
-          d.reason ||
-            `${provider.label} isn't set up yet — register a Google OAuth client below, then connect in one click.`,
-        )
+        setError(d.reason || t('channels.integrations.notSetUp', { name: provider.label }))
         scrollToKeys()
         return
       }
@@ -262,7 +268,7 @@ export function IntegrationsSettings() {
     setBusy('draft')
     setError(null)
     try {
-      await api('accounts', {
+      await api('accounts', t, {
         method: 'POST',
         body: JSON.stringify({
           provider: draft.provider,
@@ -272,7 +278,7 @@ export function IntegrationsSettings() {
         }),
       })
       setDraft(null)
-      setNotice('Integration saved.')
+      setNotice(t('channels.integrations.saved'))
       await load()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -286,7 +292,7 @@ export function IntegrationsSettings() {
     setError(null)
     setNotice(null)
     try {
-      const d = await api<{ detail: string }>(`accounts/${a.id}/test`, { method: 'POST' })
+      const d = await api<{ detail: string }>(`accounts/${a.id}/test`, t, { method: 'POST' })
       setNotice(`${a.name}: ${d.detail}`)
     } catch (e) {
       setError(`${a.name}: ${e instanceof Error ? e.message : String(e)}`)
@@ -297,11 +303,11 @@ export function IntegrationsSettings() {
   }
 
   const disconnect = async (a: Account) => {
-    if (!window.confirm(`Disconnect "${a.name}"? Its stored tokens are deleted; the setup is kept.`)) return
+    if (!window.confirm(t('channels.integrations.disconnectConfirm', { name: a.name }))) return
     setBusy(`dc-${a.id}`)
     try {
-      await api(`accounts/${a.id}/disconnect`, { method: 'POST' })
-      setNotice(`${a.name} disconnected.`)
+      await api(`accounts/${a.id}/disconnect`, t, { method: 'POST' })
+      setNotice(t('channels.integrations.disconnected', { name: a.name }))
       await load()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -311,11 +317,11 @@ export function IntegrationsSettings() {
   }
 
   const remove = async (a: Account) => {
-    if (!window.confirm(`Delete "${a.name}"? Flow steps using it will start skipping.`)) return
+    if (!window.confirm(t('channels.integrations.deleteConfirm', { name: a.name }))) return
     setBusy(`rm-${a.id}`)
     try {
-      await api(`accounts/${a.id}`, { method: 'DELETE' })
-      setNotice(`${a.name} removed.`)
+      await api(`accounts/${a.id}`, t, { method: 'DELETE' })
+      setNotice(t('channels.integrations.removed', { name: a.name }))
       await load()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -334,7 +340,7 @@ export function IntegrationsSettings() {
   const accountColumns: Column<Account>[] = [
     {
       key: 'provider',
-      header: 'Integration',
+      header: t('channels.integrations.colIntegration'),
       sortable: true,
       width: 200,
       value: (a) => a.provider_label,
@@ -349,7 +355,7 @@ export function IntegrationsSettings() {
     },
     {
       key: 'name',
-      header: 'Account',
+      header: t('channels.integrations.colAccount'),
       sortable: true,
       value: (a) => `${a.name} ${a.config?.shop_domain ?? ''}`,
       render: (a) => (
@@ -361,7 +367,7 @@ export function IntegrationsSettings() {
     },
     {
       key: 'status',
-      header: 'Status',
+      header: t('common.fields.status'),
       sortable: true,
       width: 130,
       value: (a) => a.status,
@@ -369,7 +375,7 @@ export function IntegrationsSettings() {
     },
     {
       key: 'actions',
-      header: 'Actions',
+      header: t('channels.integrations.colActions'),
       align: 'right',
       width: 130,
       render: (a) =>
@@ -378,8 +384,8 @@ export function IntegrationsSettings() {
             <button
               onClick={() => testAccount(a)}
               disabled={busy === `test-${a.id}`}
-              title="Test this connection"
-              aria-label={`Test ${a.name}`}
+              title={t('channels.integrations.testTitle')}
+              aria-label={t('channels.integrations.testAria', { name: a.name })}
               className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-md text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
             >
               {busy === `test-${a.id}` ? (
@@ -391,8 +397,8 @@ export function IntegrationsSettings() {
             {a.connected && (
               <button
                 onClick={() => disconnect(a)}
-                title="Disconnect (forget the tokens)"
-                aria-label={`Disconnect ${a.name}`}
+                title={t('channels.integrations.disconnectTitle')}
+                aria-label={t('channels.integrations.disconnectAria', { name: a.name })}
                 className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-md text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
               >
                 <Unplug size={13} aria-hidden />
@@ -400,8 +406,8 @@ export function IntegrationsSettings() {
             )}
             <button
               onClick={() => remove(a)}
-              title="Delete this integration"
-              aria-label={`Delete ${a.name}`}
+              title={t('channels.integrations.deleteTitle')}
+              aria-label={t('channels.integrations.deleteAria', { name: a.name })}
               className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-md text-text-muted transition-colors hover:bg-red/15 hover:text-red-300"
             >
               <Trash2 size={13} aria-hidden />
@@ -416,7 +422,7 @@ export function IntegrationsSettings() {
   if (!ready || (providers === null && !loadError)) {
     return (
       <div className="flex items-center gap-1.5 py-6 text-[12px] text-text-muted">
-        <Loader2 size={13} className="animate-spin" aria-hidden /> Loading integrations…
+        <Loader2 size={13} className="animate-spin" aria-hidden /> {t('channels.integrations.loading')}
       </div>
     )
   }
@@ -429,10 +435,10 @@ export function IntegrationsSettings() {
           style={{ color: 'var(--red-ink)' }}
         >
           <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden />
-          <span>Couldn&apos;t load integrations — {loadError}</span>
+          <span>{t('channels.integrations.loadFailed', { error: loadError ?? '' })}</span>
         </div>
         <Button variant="ghost" onClick={load} style={{ marginTop: 10 }}>
-          <RefreshCw size={13} aria-hidden /> Retry
+          <RefreshCw size={13} aria-hidden /> {t('common.actions.retry')}
         </Button>
       </div>
     )
@@ -441,11 +447,10 @@ export function IntegrationsSettings() {
   return (
     <div className="flex flex-col gap-6 pt-3.5">
       <p className="max-w-[720px] text-[11.5px] leading-relaxed text-text-mid">
-        Connect the outside systems a conversation needs: book a slot, file a document, log a row, email from a real
-        mailbox, or let orders and payments flow in on their own. Shopify and Stripe are{' '}
-        <span className="font-bold text-text-high">inbound-first</span> — their webhooks turn an order or a successful
-        payment into a Record the flow builder and the AI already understand. Everything here is optional: with nothing
-        connected the app runs exactly as before and integration steps log a clear skip.
+        <Trans
+          k="channels.integrations.intro"
+          values={{ b: <span className="font-bold text-text-high">{t('channels.integrations.inboundFirst')}</span> }}
+        />
       </p>
 
       {error && (
@@ -470,11 +475,11 @@ export function IntegrationsSettings() {
         <div>
           <div className="flex items-center gap-2">
             <Link2 size={15} className="text-brand-300" aria-hidden />
-            <h2 className="text-[14px] font-extrabold tracking-[-0.3px] text-text-heading">Connect an integration</h2>
+            <h2 className="text-[14px] font-extrabold tracking-[-0.3px] text-text-heading">
+              {t('channels.integrations.connectTitle')}
+            </h2>
           </div>
-          <p className="mt-0.5 text-[11px] text-text-muted">
-            One click to link your own account. Google products share a single sign-in.
-          </p>
+          <p className="mt-0.5 text-[11px] text-text-muted">{t('channels.integrations.connectHint')}</p>
         </div>
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -505,19 +510,19 @@ export function IntegrationsSettings() {
                       className="inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-2.5 py-1.5 text-[12px] font-semibold text-text-high hover:bg-fill-hover"
                     >
                       <CalendarDays size={13} aria-hidden />
-                      Booking hours are set per AI skill
+                      {t('channels.integrations.bookingHours')}
                     </Link>
                   )}
                   {!canManage ? (
-                    <span className="text-[10.5px] text-text-muted">Managed by an admin.</span>
+                    <span className="text-[10.5px] text-text-muted">{t('channels.integrations.managedByAdmin')}</span>
                   ) : p.kind === 'oauth' ? (
                     blocked ? (
                       <div className="flex flex-col gap-1">
                         <Button variant="secondary" onClick={scrollToKeys}>
-                          <Lock size={12} aria-hidden /> Set up (admin, one-time)
+                          <Lock size={12} aria-hidden /> {t('channels.integrations.setUp')}
                         </Button>
                         <span className="text-[10.5px] leading-relaxed text-text-muted">
-                          Register the Google OAuth client once (below); then connect <b>{p.label}</b> in one click.
+                          <Trans k="channels.integrations.setUpHint" values={{ name: <b>{p.label}</b> }} />
                         </span>
                       </div>
                     ) : (
@@ -527,7 +532,9 @@ export function IntegrationsSettings() {
                         ) : (
                           <Link2 size={13} aria-hidden />
                         )}
-                        {status === 'connected' ? `Reconnect ${p.label}` : `Connect ${p.label}`}
+                        {status === 'connected'
+                          ? t('channels.integrations.reconnectNamed', { name: p.label })
+                          : t('channels.integrations.connectNamed', { name: p.label })}
                       </Button>
                     )
                   ) : (
@@ -542,7 +549,8 @@ export function IntegrationsSettings() {
                         })
                       }
                     >
-                      <Plug size={13} aria-hidden /> {status === 'connected' ? 'Add another' : 'Add account'}
+                      <Plug size={13} aria-hidden />{' '}
+                      {status === 'connected' ? t('channels.drawer.footer.addAnother') : t('channels.integrations.addAccount')}
                     </Button>
                   )}
                 </div>
@@ -556,14 +564,16 @@ export function IntegrationsSettings() {
       {/* ---- connected accounts (across every provider) ---- */}
       {accounts.length > 0 && (
         <section className="flex flex-col gap-2">
-          <h2 className="text-[14px] font-extrabold tracking-[-0.3px] text-text-heading">Connected accounts</h2>
+          <h2 className="text-[14px] font-extrabold tracking-[-0.3px] text-text-heading">
+            {t('channels.integrations.connectedAccounts')}
+          </h2>
           <DataTable
             columns={accountColumns}
             rows={accounts}
             rowKey={(a) => a.id}
             searchKeys={['provider', 'name']}
-            searchPlaceholder="Search connected accounts…"
-            empty="No accounts connected yet."
+            searchPlaceholder={t('channels.integrations.search')}
+            empty={t('channels.integrations.empty')}
           />
         </section>
       )}
@@ -573,13 +583,13 @@ export function IntegrationsSettings() {
         <Modal
           open
           onClose={() => setDraft(null)}
-          title={`New ${draftProvider.label} account`}
-          subtitle="Paste this provider's token — the manual fallback for token-only integrations."
+          title={t('channels.integrations.newAccount', { name: draftProvider.label })}
+          subtitle={t('channels.integrations.newAccountHint')}
           size="md"
           footer={
             <>
               <Button variant="ghost" onClick={() => setDraft(null)} disabled={busy === 'draft'}>
-                Cancel
+                {t('common.actions.cancel')}
               </Button>
               <Button onClick={submitDraft} disabled={busy === 'draft'}>
                 {busy === 'draft' ? (
@@ -587,13 +597,13 @@ export function IntegrationsSettings() {
                 ) : (
                   <CheckCircle size={13} aria-hidden />
                 )}
-                Save
+                {t('common.actions.save')}
               </Button>
             </>
           }
         >
           <label className="mb-3 block">
-            <span className="mb-1 block text-[10.5px] font-bold text-text-high">Name</span>
+            <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('common.fields.name')}</span>
             <input
               value={draft.name}
               onChange={(e) => setDraft({ ...draft, name: e.target.value })}

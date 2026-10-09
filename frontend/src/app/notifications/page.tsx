@@ -3,6 +3,7 @@
 import { Bell } from 'lucide-react'
 import { AreaPage } from '@/components/shell/AreaPage'
 import { NotificationsInbox } from '@/components/notifications/NotificationsInbox'
+import { useT } from '@/i18n'
 
 /**
  * Everyone's notification inbox — the full history behind the header bell.
@@ -10,12 +11,13 @@ import { NotificationsInbox } from '@/components/notifications/NotificationsInbo
  * Settings → Organization → Notification defaults.)
  */
 export default function NotificationsPage() {
+  const t = useT()
   return (
     <AreaPage
-      title="Notifications"
-      subtitle="Everything that needed your attention — filter, open, tidy up."
+      title={t('shell.nav.notifications')}
+      subtitle={t('notifications.page.subtitle')}
       Icon={Bell}
-      eyebrow="Inbox"
+      eyebrow={t('notifications.page.eyebrow')}
     >
       <NotificationsInbox />
     </AreaPage>

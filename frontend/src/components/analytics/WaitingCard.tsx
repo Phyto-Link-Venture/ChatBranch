@@ -4,7 +4,18 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { ChannelLogo, channelLabel } from '@/components/ui/ChannelLogo'
-import { secondsSince, shortAge, useLive } from '@/components/shell/liveStore'
+import { secondsSince, useLive } from '@/components/shell/liveStore'
+import { useFormat, useT, type TFunction } from '@/i18n'
+
+/** "just now" / "12 min" / "3 h" / "2 d" — how long someone has waited. */
+function waitAge(seconds: number, t: TFunction): string {
+  if (!Number.isFinite(seconds) || seconds < 60) return t('analytics.units.justNow')
+  const m = Math.floor(seconds / 60)
+  if (m < 60) return t('analytics.units.ageMinutes', { n: m })
+  const h = Math.floor(m / 60)
+  if (h < 24) return t('analytics.units.ageHours', { n: h })
+  return t('analytics.units.ageDays', { n: Math.floor(h / 24) })
+}
 
 const initials = (name: string) =>
   name
@@ -20,6 +31,8 @@ const initials = (name: string) =>
  * shared poll + the inbox stream), so the two always agree.
  */
 export function WaitingCard({ entityQ, className = '' }: { entityQ: string; className?: string }) {
+  const t = useT()
+  const f = useFormat()
   const router = useRouter()
   const { data, failed } = useLive(entityQ)
   const rows = (data?.waiting ?? []).slice(0, 6)
@@ -30,20 +43,24 @@ export function WaitingCard({ entityQ, className = '' }: { entityQ: string; clas
         className="mb-2"
         right={
           <Link href="/chats" className="font-semibold text-[color:var(--brand-ink)] hover:underline">
-            Open chats
+            {t('analytics.waiting.open')}
           </Link>
         }
       >
-        Waiting for a reply
+        {t('analytics.waiting.title')}
         {!!data?.waiting_count && (
-          <span className="ml-2 font-sans text-[13px] font-semibold tabular-nums text-text-muted">{data.waiting_count}</span>
+          <span className="ml-2 font-sans text-[13px] font-semibold tabular-nums text-text-muted">
+            {f.number(data.waiting_count)}
+          </span>
         )}
       </CardTitle>
 
       {!data ? (
-        <p className="py-3 text-[13px] text-text-muted">{failed ? 'Live data is unavailable right now.' : 'Loading…'}</p>
+        <p className="py-3 text-[13px] text-text-muted">
+          {failed ? t('analytics.waiting.unavailable') : t('common.status.loading')}
+        </p>
       ) : rows.length === 0 ? (
-        <p className="py-3 text-[13px] text-text-muted">Nobody is waiting — every conversation has an answer.</p>
+        <p className="py-3 text-[13px] text-text-muted">{t('analytics.waiting.nobody')}</p>
       ) : (
         <ul className="flex flex-col">
           {rows.map((w) => {
@@ -71,7 +88,7 @@ export function WaitingCard({ entityQ, className = '' }: { entityQ: string; clas
                       secs >= 600 ? 'text-[color:var(--brand-ink)]' : 'text-text-muted'
                     }`}
                   >
-                    {shortAge(secs)}
+                    {waitAge(secs, t)}
                   </span>
                 </button>
               </li>

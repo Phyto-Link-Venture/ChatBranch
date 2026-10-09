@@ -6,6 +6,7 @@ import { CALL_LOGS } from '@/lib/mocks'
 import { authHeaders } from '@/lib/auth'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { tint } from '@/lib/color'
+import { useFormat, useT, type MessageKey } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -23,20 +24,17 @@ interface CallLogRow {
   wa_id?: string
 }
 
-const TABS = [
-  { id: 'all', lbl: 'All calls' },
-  { id: 'ai-call', lbl: 'Phone (SIP)' },
-  { id: 'wa-call', lbl: 'WhatsApp' },
+const TABS: { id: string; lbl?: MessageKey; brand?: string }[] = [
+  { id: 'all', lbl: 'review.callLogs.all' },
+  { id: 'ai-call', lbl: 'review.callLogs.sip' },
+  { id: 'wa-call', brand: 'WhatsApp' },
 ]
 const TYPE_COLORS: Record<string, string> = { 'ai-call': 'rgb(var(--c-brand))', 'wa-call': '#25D366' }
 
-const fmtWhen = (iso: string) => {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
-}
-
 export default function CallLogsPage() {
+  const t = useT()
+  const f = useFormat()
+  const fmtWhen = (iso: string) => (!iso ? '—' : f.dateTime(iso) || iso)
   const [logs, setLogs] = useState<CallLogRow[] | null>(null)
   const [tab, setTab] = useState('all')
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -69,13 +67,13 @@ export default function CallLogsPage() {
     <div className="flex flex-col gap-3.5">
       {/* Tabs */}
       <div className="flex items-center gap-1.5">
-        {TABS.map((t) => {
-          const active = tab === t.id
-          const n = t.id === 'all' ? rows.length : rows.filter((l) => l.type === t.id).length
+        {TABS.map((tb) => {
+          const active = tab === tb.id
+          const n = tb.id === 'all' ? rows.length : rows.filter((l) => l.type === tb.id).length
           return (
             <div
-              key={t.id}
-              onClick={() => setTab(t.id)}
+              key={tb.id}
+              onClick={() => setTab(tb.id)}
               className="cursor-pointer rounded-[7px] px-3.5 py-1.5 text-[12px] font-semibold transition-all"
               style={{
                 background: active ? 'rgba(255,90,31,0.12)' : 'var(--fill)',
@@ -83,7 +81,7 @@ export default function CallLogsPage() {
                 border: `1px solid ${active ? 'rgba(255,90,31,0.25)' : 'var(--line)'}`,
               }}
             >
-              {t.lbl} {n > 0 && <span className="opacity-70">{n}</span>}
+              {tb.lbl ? t(tb.lbl) : tb.brand} {n > 0 && <span className="opacity-70">{f.number(n)}</span>}
             </div>
           )
         })}
@@ -93,12 +91,12 @@ export default function CallLogsPage() {
       <div className="flex flex-col gap-2">
         {logs === null && (
           <div className="rounded-2xl border border-line bg-card px-4 py-8 text-center text-[12.5px] text-text-muted">
-            Loading call history…
+            {t('review.callLogs.loading')}
           </div>
         )}
         {logs !== null && filtered.length === 0 && (
           <div className="rounded-2xl border border-line bg-card px-4 py-8 text-center text-[12.5px] text-text-muted">
-            No calls logged yet — place one from Chats.
+            {t('review.callLogs.empty')}
           </div>
         )}
         {filtered.map((log) => {
@@ -142,7 +140,9 @@ export default function CallLogsPage() {
                 </div>
                 <div className="flex shrink-0 items-center gap-2.5">
                   {log.transcript.length > 0 && (
-                    <span className="text-[11px] font-medium text-text-muted">{log.transcript.length} turns</span>
+                    <span className="text-[11px] font-medium text-text-muted">
+                      {t('review.callLogs.turns', { count: log.transcript.length })}
+                    </span>
                   )}
                   {isExp ? (
                     <X size={14} strokeWidth={1.75} color="#8A8177" />
@@ -156,7 +156,7 @@ export default function CallLogsPage() {
                   {log.summary && (
                     <>
                       <div className="my-2 mt-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-text-muted">
-                        AI Summary
+                        {t('review.callLogs.aiSummary')}
                       </div>
                       {/* the summary is the row's most important read — big and bold */}
                       <div className="rounded-lg bg-fill-subtle p-3 text-[13.5px] font-semibold leading-[1.65] text-text-high">
@@ -167,20 +167,22 @@ export default function CallLogsPage() {
                   {log.transcript.length > 0 && (
                     <>
                       <div className="my-2 mt-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-text-muted">
-                        Transcript
+                        {t('review.callLogs.transcript')}
                       </div>
                       <div className="max-h-64 space-y-0.5 overflow-y-auto rounded-lg bg-fill-subtle p-3 text-[12.5px] leading-snug">
-                        {log.transcript.map((t, i) => (
-                          <div key={i} className={t.role === 'assistant' ? 'text-brand-200' : 'text-text-mid'}>
-                            <span className="font-semibold">{t.role === 'assistant' ? 'AI' : 'Customer'}:</span>{' '}
-                            {t.text}
+                        {log.transcript.map((line, i) => (
+                          <div key={i} className={line.role === 'assistant' ? 'text-brand-200' : 'text-text-mid'}>
+                            {t('review.callLogs.line', {
+                              who: line.role === 'assistant' ? t('review.callLogs.ai') : t('review.callLogs.customer'),
+                              text: line.text,
+                            })}
                           </div>
                         ))}
                       </div>
                     </>
                   )}
                   {!log.summary && log.transcript.length === 0 && (
-                    <div className="mt-3 text-[12px] text-text-muted">No transcript captured for this call.</div>
+                    <div className="mt-3 text-[12px] text-text-muted">{t('review.callLogs.noTranscript')}</div>
                   )}
                 </div>
               )}

@@ -23,6 +23,7 @@ import { Toggle } from '@/components/ui/Toggle'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { accountRole, type AccountRole } from '@/components/ui/Badges'
+import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
 import {
   BaileysPairPanel,
   CopyRow,
@@ -50,6 +51,7 @@ import {
   fromVoice,
   fromWa,
   fromWidget,
+  inboxName,
   isMoreKind,
   kindMeta,
   testInbox,
@@ -75,11 +77,11 @@ export interface DrawerTarget {
   step: Step
 }
 
-const STEPS: { n: 1 | 2 | 3 | 4; title: (k: InboxKind | null) => string }[] = [
-  { n: 1, title: () => 'Choose channel' },
-  { n: 2, title: (k) => (k ? kindMeta(k).connectTitle : 'Connect') },
-  { n: 3, title: () => 'Who answers it' },
-  { n: 4, title: () => 'Test and finish' },
+const STEPS: { n: 1 | 2 | 3 | 4; title: (k: InboxKind | null, t: TFunction) => string }[] = [
+  { n: 1, title: (_k, t) => t('channels.drawer.steps.choose') },
+  { n: 2, title: (k, t) => (k ? t(kindMeta(k).connectTitle) : t('channels.drawer.steps.connect')) },
+  { n: 3, title: (_k, t) => t('channels.drawer.steps.who') },
+  { n: 4, title: (_k, t) => t('channels.drawer.steps.test') },
 ]
 
 const SOCIAL_CHANNEL: Partial<Record<InboxKind, 'facebook' | 'instagram' | 'telegram'>> = {
@@ -154,10 +156,11 @@ function Segmented<T extends string>({
 }
 
 function Label({ children, optional }: { children: ReactNode; optional?: boolean }) {
+  const t = useT()
   return (
     <span className="mb-1 block text-[12px] font-semibold text-text-high">
       {children}
-      {optional && <span className="ml-1 font-normal text-text-muted">(optional)</span>}
+      {optional && <span className="ml-1 font-normal text-text-muted">({t('common.status.optional').toLowerCase()})</span>}
     </span>
   )
 }
@@ -221,6 +224,7 @@ export function InboxSetupDrawer({
   /** Something was saved — refresh the inbox list. */
   onChanged: () => void
 }) {
+  const t = useT()
   const [kind, setKind] = useState<InboxKind | null>(target.kind)
   const [step, setStep] = useState<Step>(target.step)
   /** The persisted inbox (opened for edit, or created in this drawer). */
@@ -291,6 +295,7 @@ export function InboxSetupDrawer({
             greeting: inbox.widget.greeting,
             accent: inbox.widget.accent || WIDGET_DEFAULTS.accent,
             placeholder: inbox.widget.placeholder,
+            language: inbox.widget.language || WIDGET_DEFAULTS.language,
           }
         : WIDGET_DEFAULTS,
     )
@@ -318,9 +323,9 @@ export function InboxSetupDrawer({
     const restore = document.activeElement as HTMLElement | null
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    const t = window.setTimeout(() => panelRef.current?.focus(), 0)
+    const timer = window.setTimeout(() => panelRef.current?.focus(), 0)
     return () => {
-      window.clearTimeout(t)
+      window.clearTimeout(timer)
       document.body.style.overflow = prev
       restore?.focus?.()
     }
@@ -375,26 +380,26 @@ export function InboxSetupDrawer({
         // secrets may stay blank once stored (blank = keep the current one)
         if (f.secret && editing) return null
         if (kind === 'telegram' && f.key === 'external_id') return null
-        return `${f.label} is required.`
+        return t('channels.drawer.required', { field: t(f.label) })
       }
-      return f.check ? f.check(value) : null
+      return f.check ? f.check(value, t) : null
     },
-    [editing, kind],
+    [editing, kind, t],
   )
 
   const validateConnect = (): boolean => {
     const next: Record<string, string> = {}
-    if (kind === 'wa_qr' && !ack) next.ack = 'Tick the box to confirm you understand the risk.'
-    if (kind === 'website') Object.assign(next, widgetLookErrors(look))
+    if (kind === 'wa_qr' && !ack) next.ack = t('channels.drawer.ackRequired')
+    if (kind === 'website') Object.assign(next, widgetLookErrors(look, t))
     if (kind === 'voice' && editing && !creds.sip_password?.trim() && !saved?.voice?.sip_password_masked)
-      next.sip_password = 'SIP password is required.'
+      next.sip_password = t('channels.drawer.required', { field: t('channels.setup.labels.sipPassword') })
     for (const f of fields) {
       const msg = fieldError(f, creds[f.key] ?? '')
       if (msg) next[f.key] = msg
     }
     const oneOf = kind ? ONE_OF[kind] : undefined
     if (oneOf && !oneOf.keys.some((k) => (creds[k] ?? '').trim()))
-      for (const k of oneOf.keys) next[k] = next[k] || oneOf.message
+      for (const k of oneOf.keys) next[k] = next[k] || t(oneOf.message)
     setErrors(next)
     setTouched(Object.fromEntries(Object.keys(next).map((k) => [k, true])))
     return Object.keys(next).length === 0
@@ -402,7 +407,7 @@ export function InboxSetupDrawer({
 
   const validateWho = (): boolean => {
     const next: Record<string, string> = {}
-    if (kind !== 'voice' && !name.trim()) next.name = 'Give the inbox a name your team will recognise.'
+    if (kind !== 'voice' && !name.trim()) next.name = t('channels.drawer.nameRequired')
     setErrors(next)
     return Object.keys(next).length === 0
   }
@@ -418,7 +423,7 @@ export function InboxSetupDrawer({
 
   /** Persist everything the drawer holds; returns the refreshed inbox. */
   const persist = async (): Promise<Inbox> => {
-    if (!kind) throw new Error('Choose a channel first.')
+    if (!kind) throw new Error(t('channels.drawer.chooseFirst'))
     const c = (k: string) => (creds[k] ?? '').trim()
     const id = saved?.id
 
@@ -427,12 +432,12 @@ export function InboxSetupDrawer({
       if (c('sip_password')) body.sip_password = c('sip_password')
       const v = await api<VoiceSettings>('whatsapp/voice-settings', { method: 'PUT', body: JSON.stringify(body) })
       const inbox = fromVoice(v)
-      if (!inbox) throw new Error('The trunk did not save — check the fields.')
+      if (!inbox) throw new Error(t('channels.drawer.trunkNotSaved'))
       return inbox
     }
 
     if (kind === 'wa_cloud' || kind === 'wa_qr') {
-      const body: Record<string, string> = { name: name.trim(), role, ...who(), ...deliveryPatch(delivery) }
+      const body: Record<string, string> = { name: name.trim(), role, ...who(), ...deliveryPatch(delivery, t) }
       if (kind === 'wa_cloud') {
         if (c('phone_number_id')) body.phone_number_id = c('phone_number_id')
         body.waba_id = c('waba_id')
@@ -508,11 +513,11 @@ export function InboxSetupDrawer({
         for (const f of fields) if (f.secret) next[f.key] = ''
         return next
       })
-      setNotice(wasNew ? `${inbox.name} is connected.` : 'Changes saved.')
+      setNotice(wasNew ? t('channels.drawer.connectedNotice', { name: inboxName(inbox, t) }) : t('channels.drawer.changesSaved'))
       onChanged()
       setStep(then)
     } catch (e) {
-      setFormError(errText(e))
+      setFormError(errText(e, t))
     } finally {
       setBusy(false)
     }
@@ -549,7 +554,8 @@ export function InboxSetupDrawer({
         void save(4)
         return
       }
-      if (!name.trim() && kind) setName(kind === 'email' && creds.from_email?.trim() ? creds.from_email.trim() : DEFAULT_NAME[kind])
+      if (!name.trim() && kind)
+        setName(kind === 'email' && creds.from_email?.trim() ? creds.from_email.trim() : t(DEFAULT_NAME[kind]))
       setStep(3)
       return
     }
@@ -596,12 +602,12 @@ export function InboxSetupDrawer({
             method: 'POST',
             body: JSON.stringify({ to: testTo.trim() }),
           })
-          setTest({ tone: 'ok', text: r.detail || `Test email sent to ${testTo.trim()}.` })
+          setTest({ tone: 'ok', text: r.detail || t('channels.drawer.testEmailSent', { to: testTo.trim() }) })
         } catch (e) {
           const status = (e as { status?: number }).status
-          setTest({ tone: status === 501 ? 'info' : 'error', text: errText(e) })
+          setTest({ tone: status === 501 ? 'info' : 'error', text: errText(e, t) })
         }
-      } else setTest(await testInbox(saved))
+      } else setTest(await testInbox(saved, t))
     } finally {
       setTesting(false)
     }
@@ -611,7 +617,7 @@ export function InboxSetupDrawer({
     if (!saved) return
     const base = tgBase.trim().replace(/\/+$/, '')
     if (!/^https:\/\/\S+$/.test(base)) {
-      setTgResult({ tone: 'error', text: 'Use the public https:// address that reaches this API (e.g. your tunnel URL).' })
+      setTgResult({ tone: 'error', text: t('channels.drawer.httpsRequired') })
       return
     }
     // Telegram, LINE and Viber register through the same endpoint
@@ -621,26 +627,28 @@ export function InboxSetupDrawer({
         method: 'POST',
         body: JSON.stringify({ base_url: base }),
       })
-      setTgResult({ tone: 'ok', text: r.url ? `Webhook registered: ${r.url}` : r.detail || 'Webhook registered.' })
+      setTgResult({
+        tone: 'ok',
+        text: r.url ? t('channels.drawer.webhookRegisteredAt', { url: r.url }) : r.detail || t('channels.drawer.webhookRegistered'),
+      })
     } catch (e) {
       const status = (e as { status?: number }).status
-      setTgResult({ tone: status === 501 ? 'info' : 'error', text: errText(e) })
+      setTgResult({ tone: status === 501 ? 'info' : 'error', text: errText(e, t) })
     }
   }
 
   const rotateToken = async () => {
     if (!saved?.widget) return
-    if (!window.confirm('Rotate the widget token? Every page still using the old snippet stops working until you update it.'))
-      return
+    if (!window.confirm(t('channels.drawer.rotateConfirm'))) return
     setBusy(true)
     setFormError(null)
     try {
       const w = await api<Widget>(`widgets/${saved.id}`, { method: 'PATCH', body: JSON.stringify({ rotate_token: true }) })
       setSaved(fromWidget(w))
-      setNotice('Token rotated — update the snippet on your site.')
+      setNotice(t('channels.drawer.tokenRotated'))
       onChanged()
     } catch (e) {
-      setFormError(errText(e))
+      setFormError(errText(e, t))
     } finally {
       setBusy(false)
     }
@@ -648,7 +656,7 @@ export function InboxSetupDrawer({
 
   // ── render helpers ─────────────────────────────────────────────────────
   const meta = kind ? kindMeta(kind) : null
-  const teamName = (id: number | null) => teams.find((t) => t.id === id)?.name
+  const teamName = (id: number | null) => teams.find((tm) => tm.id === id)?.name
   const voiceLocked = kind === 'voice' && !isSuper
 
   const renderField = (f: FieldSpec) => {
@@ -670,8 +678,10 @@ export function InboxSetupDrawer({
     return (
       <label key={f.key} className={`block ${f.half ? '' : 'sm:col-span-2'}`}>
         <Label optional={f.optional}>
-          {f.label}
-          {current ? <span className="ml-1.5 font-normal text-text-muted">· current {current}</span> : null}
+          {t(f.label)}
+          {current ? (
+            <span className="ml-1.5 font-normal text-text-muted">· {t('channels.drawer.current', { value: current })}</span>
+          ) : null}
         </Label>
         <input
           className={`${inputCls} ${err ? '!border-[color:var(--red-ink)]' : ''}`}
@@ -680,7 +690,9 @@ export function InboxSetupDrawer({
           inputMode={f.inputMode}
           value={v}
           disabled={voiceLocked}
-          placeholder={f.secret && saved ? 'Leave blank to keep the current one' : f.placeholder}
+          placeholder={
+            f.secret && saved ? t('channels.drawer.keepCurrent') : f.placeholderKey ? t(f.placeholderKey) : f.placeholder
+          }
           aria-invalid={!!err}
           onChange={(e) => {
             setCreds((p) => ({ ...p, [f.key]: e.target.value }))
@@ -693,7 +705,7 @@ export function InboxSetupDrawer({
           }}
         />
         <FieldError text={err} />
-        <Help>{f.help}</Help>
+        <Help>{t(f.help)}</Help>
       </label>
     )
   }
@@ -701,7 +713,7 @@ export function InboxSetupDrawer({
   // ── step bodies ────────────────────────────────────────────────────────
   const chooseStep = (
     <div className="flex flex-col gap-2">
-      <p className="text-[12.5px] text-text-muted">Which channel should this inbox answer?</p>
+      <p className="text-[12.5px] text-text-muted">{t('channels.drawer.chooseIntro')}</p>
       {KINDS.map((k) => (
         <button
           key={k.kind}
@@ -714,11 +726,11 @@ export function InboxSetupDrawer({
           <ChannelLogo channel={k.logo} variant="tile" size={32} title="" />
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1.5 text-[13.5px] font-bold text-text-heading">
-              {k.label}
+              {t(k.label)}
               {k.badge && <KindBadge badge={k.badge} />}
               {k.approval && <ApprovalChip compact />}
             </span>
-            <span className="block truncate text-[12px] text-text-muted">{k.blurb}</span>
+            <span className="block truncate text-[12px] text-text-muted">{t(k.blurb)}</span>
           </span>
         </button>
       ))}
@@ -735,15 +747,18 @@ export function InboxSetupDrawer({
           >
             <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden />
             <span>
-              <b>For demos only.</b> WhatsApp by QR uses the unofficial WhatsApp Web protocol. It needs no Meta
-              approval, but it breaks WhatsApp&apos;s terms of service and the number can be banned. Use a spare
-              number — never your main business line.
+              <Trans k="channels.drawer.qr.warning" values={{ b: <b>{t('channels.drawer.qr.demoOnly')}</b> }} />
             </span>
           </div>
           <ul className="flex list-disc flex-col gap-1 pl-5 text-[12.5px] leading-relaxed text-text-mid">
-            <li>Needs the WhatsApp gateway running alongside the API (<code className="rounded bg-fill px-1">npm run dev:baileys</code>).</li>
-            <li>Text messages and voice calls; Meta templates stay on WhatsApp Business numbers.</li>
-            <li>No 24-hour window — and no Meta compliance either.</li>
+            <li>
+              <Trans
+                k="channels.drawer.qr.needsGateway"
+                values={{ cmd: <code className="rounded bg-fill px-1">npm run dev:baileys</code> }}
+              />
+            </li>
+            <li>{t('channels.drawer.qr.textAndCalls')}</li>
+            <li>{t('channels.drawer.qr.noWindow')}</li>
           </ul>
           <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line bg-well px-3 py-2.5">
             <input
@@ -756,7 +771,7 @@ export function InboxSetupDrawer({
               className="mt-0.5 h-4 w-4 shrink-0"
               style={{ accentColor: 'var(--primary)' }}
             />
-            <span className="text-[12.5px] text-text-high">I understand the risk and will pair a spare number.</span>
+            <span className="text-[12.5px] text-text-high">{t('channels.drawer.qr.ack')}</span>
           </label>
           <FieldError text={errors.ack} />
         </>
@@ -764,10 +779,7 @@ export function InboxSetupDrawer({
 
       {kind === 'website' && (
         <>
-          <p className="text-[12.5px] leading-relaxed text-text-mid">
-            A chat bubble for your site: one script tag, no build step. Visitor conversations land in the same inbox
-            as WhatsApp and email, with the same AI, teams and automations.
-          </p>
+          <p className="text-[12.5px] leading-relaxed text-text-mid">{t('channels.drawer.websiteIntro')}</p>
           <WidgetLookFields value={look} onChange={setLook} errors={errors as Partial<Record<keyof WidgetLook, string>>} />
         </>
       )}
@@ -779,15 +791,17 @@ export function InboxSetupDrawer({
         >
           <BadgeCheck size={16} className="mt-0.5 shrink-0" aria-hidden />
           <span>
-            <b>Requires platform approval.</b> {meta.label} only opens its messaging API to approved apps — the
-            credentials below exist once the platform has approved yours. Until then the inbox stays in sandbox.
+            <Trans
+              k="channels.drawer.approvalNote"
+              values={{ b: <b>{t('channels.drawer.approvalTitle')}</b>, platform: t(meta.label) }}
+            />
           </span>
         </div>
       )}
 
       {voiceLocked && (
         <div className="rounded-lg border border-line bg-well px-3 py-2 text-[12.5px] text-text-mid">
-          Voice trunk credentials are managed by the super admin — you can review them here.
+          {t('channels.drawer.voiceLocked')}
         </div>
       )}
 
@@ -796,10 +810,10 @@ export function InboxSetupDrawer({
       {kind === 'email' && (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5">
           <span>
-            <span className="block text-[12.5px] font-semibold text-text-high">Use TLS</span>
-            <span className="block text-[11.5px] text-text-muted">Leave on unless your provider says otherwise.</span>
+            <span className="block text-[12.5px] font-semibold text-text-high">{t('channels.drawer.useTls')}</span>
+            <span className="block text-[11.5px] text-text-muted">{t('channels.drawer.useTlsHint')}</span>
           </span>
-          <Toggle on={tls} onChange={setTls} label="Use TLS" />
+          <Toggle on={tls} onChange={setTls} label={t('channels.drawer.useTls')} />
         </div>
       )}
 
@@ -817,12 +831,12 @@ export function InboxSetupDrawer({
               className="shrink-0 text-text-muted transition-transform"
               style={{ transform: showGuide ? 'none' : 'rotate(-90deg)' }}
             />
-            Where do I find these?
+            {t('channels.drawer.whereToFind')}
           </button>
           {showGuide && (
             <ol className="flex list-decimal flex-col gap-1 px-3 pb-3 pl-9 text-[12px] leading-relaxed text-text-mid">
               {GUIDES[kind]!.map((s) => (
-                <li key={s}>{s}</li>
+                <li key={s}>{t(s)}</li>
               ))}
             </ol>
           )}
@@ -835,16 +849,13 @@ export function InboxSetupDrawer({
 
   const whoStep = !kind ? null : kind === 'voice' ? (
     <div className="flex flex-col gap-3 text-[12.5px] leading-relaxed text-text-mid">
-      <p>
-        Calls on the SIP trunk are answered by the AI voice agent. Which contact is dialled — and with which voice
-        and script — is chosen per call from a conversation, a campaign or a flow step.
-      </p>
-      <p className="text-text-muted">Nothing to set here. Continue to check the configuration.</p>
+      <p>{t('channels.drawer.who.voiceIntro')}</p>
+      <p className="text-text-muted">{t('channels.drawer.who.voiceNothing')}</p>
     </div>
   ) : (
     <div className="flex flex-col gap-5">
       <label className="block">
-        <Label>{kind === 'website' ? 'Internal name' : 'Inbox name'}</Label>
+        <Label>{kind === 'website' ? t('channels.drawer.who.internalName') : t('channels.drawer.who.inboxName')}</Label>
         <input
           className={`${inputCls} ${errors.name ? '!border-[color:var(--red-ink)]' : ''}`}
           value={name}
@@ -852,103 +863,94 @@ export function InboxSetupDrawer({
             setName(e.target.value)
             if (errors.name && e.target.value.trim()) setErrors((p) => ({ ...p, name: '' }))
           }}
-          placeholder={DEFAULT_NAME[kind]}
+          placeholder={t(DEFAULT_NAME[kind])}
           aria-invalid={!!errors.name}
         />
-        {errors.name ? <FieldError text={errors.name} /> : <Help>What your team sees in the inbox and on reports.</Help>}
+        {errors.name ? <FieldError text={errors.name} /> : <Help>{t('channels.drawer.who.nameHelp')}</Help>}
       </label>
 
       <label className="block">
-        <Label>Entity</Label>
-        <EntityPicker value={entity} onChange={setEntity} ariaLabel="Entity that owns this inbox" />
-        <Help>
-          The entity that owns this inbox — conversations arriving here are filed under it. Organization-wide
-          inboxes are the fallback every entity shares.
-        </Help>
+        <Label>{t('common.fields.entity')}</Label>
+        <EntityPicker value={entity} onChange={setEntity} ariaLabel={t('channels.drawer.who.entityAria')} />
+        <Help>{t('channels.drawer.who.entityHelp')}</Help>
       </label>
 
       <label className="block">
-        <Label optional>Team</Label>
+        <Label optional>{t('channels.drawer.who.team')}</Label>
         <Select
           value={teamId}
           onChange={setTeamId}
           size="md"
-          ariaLabel="Team that answers this inbox"
+          ariaLabel={t('channels.drawer.who.teamAria')}
           options={[
-            { value: '', label: 'No team', hint: '— the entity’s auto-assign team applies' },
-            ...teams.map((t) => ({
-              value: String(t.id),
-              label: t.name,
-              hint: t.auto_assign === false ? '(no round-robin)' : undefined,
+            { value: '', label: t('channels.drawer.who.noTeam'), hint: t('channels.drawer.who.noTeamHint') },
+            ...teams.map((tm) => ({
+              value: String(tm.id),
+              label: tm.name,
+              hint: tm.auto_assign === false ? t('channels.drawer.who.noRoundRobin') : undefined,
             })),
           ]}
         />
-        <Help>
-          {teams.length === 0
-            ? 'No teams yet — create them under Teams to route this inbox’s conversations to a group.'
-            : 'New conversations here go to this team first, round-robin across its members.'}
-        </Help>
+        <Help>{teams.length === 0 ? t('channels.drawer.who.noTeams') : t('channels.drawer.who.teamHelp')}</Help>
       </label>
 
       {isWa && (
         <div>
-          <Label>Account role</Label>
+          <Label>{t('channels.drawer.who.accountRole')}</Label>
           <Segmented
             value={role}
             onChange={setRole}
-            ariaLabel="Account role"
+            ariaLabel={t('channels.drawer.who.accountRole')}
             options={[
-              { value: 'reminder', label: 'Reminder (business)' },
-              { value: 'conversation', label: 'Conversation (personal)' },
+              { value: 'reminder', label: t('channels.drawer.who.roleReminder') },
+              { value: 'conversation', label: t('channels.drawer.who.roleConversation') },
             ]}
           />
           <Help>
-            {role === 'reminder'
-              ? 'Sends approved templates straight away and hands contacts to a conversation number. The chatbot is off by default.'
-              : 'Holds the AI conversations, customer-initiated. Sends are human-paced to protect the number.'}
+            {role === 'reminder' ? t('channels.drawer.who.roleReminderHelp') : t('channels.drawer.who.roleConversationHelp')}
           </Help>
         </div>
       )}
 
       <div>
-        <Label>AI replies</Label>
+        <Label>{t('channels.drawer.who.aiReplies')}</Label>
         <Segmented
           value={aiDefault}
           onChange={setAiDefault}
-          ariaLabel="AI reply default"
+          ariaLabel={t('channels.drawer.who.aiRepliesAria')}
           options={[
-            { value: '', label: isWa ? 'By role' : 'Default' },
-            { value: 'on', label: 'On' },
-            { value: 'off', label: 'Off' },
+            { value: '', label: isWa ? t('channels.drawer.who.byRole') : t('channels.drawer.who.default') },
+            { value: 'on', label: t('common.status.on') },
+            { value: 'off', label: t('common.status.off') },
           ]}
         />
         <Help>
-          Whether the assistant answers new conversations here
-          {isWa
-            ? ` — “By role” means ${role === 'reminder' ? 'off on reminder numbers (unless the routing rules turn it on)' : 'on for conversation numbers'}`
-            : ' — “Default” means on'}
-          . An agent can still switch it per chat; their choice always wins.
+          {t(
+            !isWa
+              ? 'channels.drawer.who.aiHelpDefault'
+              : role === 'reminder'
+                ? 'channels.drawer.who.aiHelpReminder'
+                : 'channels.drawer.who.aiHelpConversation',
+          )}
         </Help>
       </div>
 
       <div>
-        <Label>Check the AI before it sends</Label>
+        <Label>{t('channels.drawer.who.review')}</Label>
         <Select
           size="md"
           value={reviewMode}
           onChange={(v) => setReviewMode(v as ReviewMode)}
-          ariaLabel="AI review mode for this inbox"
+          ariaLabel={t('channels.drawer.who.reviewAria')}
           options={[
-            { value: '', label: 'Use the AI monitor setting', hint: '(inherit)' },
-            { value: 'auto', label: 'Send automatically' },
-            { value: 'review_flagged', label: 'Hold risky replies for review' },
-            { value: 'review_all', label: 'Hold every AI reply for review' },
-            { value: 'shadow', label: 'Shadow — draft only, never send' },
+            { value: '', label: t('channels.drawer.who.reviewInherit'), hint: t('channels.drawer.who.reviewInheritHint') },
+            { value: 'auto', label: t('channels.drawer.who.reviewAuto') },
+            { value: 'review_flagged', label: t('channels.drawer.who.reviewFlagged') },
+            { value: 'review_all', label: t('channels.drawer.who.reviewAll') },
+            { value: 'shadow', label: t('channels.drawer.who.reviewShadow') },
           ]}
         />
-        <Help>
-          Held replies wait in the AI monitor (and on the chat) until someone approves, edits or rejects them.
-        </Help>
+        <Help>{t('channels.drawer.who.reviewHelp')}</Help>
       </div>
 
       <UnknownCustomersField
@@ -972,8 +974,8 @@ export function InboxSetupDrawer({
               className="shrink-0 text-text-muted transition-transform"
               style={{ transform: showDelivery ? 'none' : 'rotate(-90deg)' }}
             />
-            <span className="text-[12.5px] font-semibold text-text-high">Delivery &amp; AI</span>
-            <span className="truncate text-[11.5px] text-text-muted">quiet hours · pacing · voice LLM &amp; STT</span>
+            <span className="text-[12.5px] font-semibold text-text-high">{t('channels.drawer.who.delivery')}</span>
+            <span className="truncate text-[11.5px] text-text-muted">{t('channels.drawer.who.deliveryHint')}</span>
           </button>
           {showDelivery && (
             <div className="border-t border-line px-3 py-3">
@@ -990,66 +992,84 @@ export function InboxSetupDrawer({
     <div className="flex flex-col gap-6">
       {!saved ? (
         <p className="text-[12.5px] text-text-muted">
-          {voiceLocked ? 'The voice trunk is not set up yet — ask the super admin to add its credentials.' : 'Save the inbox first.'}
+          {voiceLocked ? t('channels.drawer.test.voiceNotSet') : t('channels.drawer.test.saveFirst')}
         </p>
       ) : (
         <>
           {kind === 'wa_qr' && (
-            <Section title="Pair the phone">
+            <Section title={t('channels.drawer.test.pair')}>
               <BaileysPairPanel accountId={saved.id} onConnected={onChanged} />
               <VcfTip />
             </Section>
           )}
 
-          <Section title="Run a test">
+          <Section title={t('channels.drawer.test.runTest')}>
             {kind === 'email' && (
               <label className="block">
-                <Label optional>Send a test email to</Label>
+                <Label optional>{t('channels.drawer.test.sendTo')}</Label>
                 <input
                   className={inputCls}
                   inputMode="email"
                   value={testTo}
                   onChange={(e) => setTestTo(e.target.value)}
-                  placeholder="you@company.com — blank checks the connection only"
+                  placeholder={t('channels.drawer.test.sendToPlaceholder')}
                 />
               </label>
             )}
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="secondary" onClick={runTest} disabled={testing}>
                 {testing ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Plug size={13} aria-hidden />}
-                {kind === 'voice' ? 'Check configuration' : kind === 'website' ? 'Check the widget answers' : 'Test connection'}
+                {kind === 'voice'
+                  ? t('channels.drawer.test.checkConfig')
+                  : kind === 'website'
+                    ? t('channels.drawer.test.checkWidget')
+                    : t('channels.drawer.test.testConnection')}
               </Button>
             </div>
             {test && <ResultLine result={test} />}
           </Section>
 
           {kind === 'wa_cloud' && (
-            <Section title="Point Meta at ChatBranch">
+            <Section title={t('channels.drawer.test.pointMeta')}>
               <p className="text-[12.5px] leading-relaxed text-text-mid">
-                Paste these in Meta App Dashboard → WhatsApp → Configuration → Webhook and subscribe to the{' '}
-                <code className="rounded bg-fill px-1">messages</code> field. One webhook serves every number.
+                <Trans
+                  k="channels.drawer.test.metaWa"
+                  values={{ field: <code className="rounded bg-fill px-1">messages</code> }}
+                />
               </p>
               <MetaWebhookRows verifyToken={verifyToken} />
             </Section>
           )}
 
           {(kind === 'messenger' || kind === 'instagram') && (
-            <Section title="Point Meta at ChatBranch">
+            <Section title={t('channels.drawer.test.pointMeta')}>
               <p className="text-[12.5px] leading-relaxed text-text-mid">
-                In your Meta app, subscribe {kind === 'messenger' ? 'Messenger' : 'Instagram'} to the{' '}
-                <code className="rounded bg-fill px-1">messages</code> field with this callback — same verify token
-                as WhatsApp.
+                <Trans
+                  k="channels.drawer.test.metaSocial"
+                  values={{
+                    product: kind === 'messenger' ? 'Messenger' : 'Instagram',
+                    field: <code className="rounded bg-fill px-1">messages</code>,
+                  }}
+                />
               </p>
-              <CopyRow label="Callback URL" value={webhookUrl} />
-              <CopyRow label="Verify token" value={verifyToken} />
+              <CopyRow label={t('channels.whatsapp.callbackUrl')} value={webhookUrl} />
+              <CopyRow label={t('channels.whatsapp.verifyToken')} value={verifyToken} />
             </Section>
           )}
 
           {kind === 'telegram' && (
-            <Section title="Register the webhook">
+            <Section title={t('channels.drawer.test.registerWebhook')}>
               <p className="text-[12.5px] leading-relaxed text-text-mid">
-                Telegram delivers updates to <code className="rounded bg-fill px-1">…/api/messaging/webhook/telegram/&lt;bot token&gt;</code>.
-                Enter the public https address that reaches this API.
+                <Trans
+                  k="channels.drawer.test.telegramIntro"
+                  values={{
+                    path: (
+                      <code className="rounded bg-fill px-1">
+                        …/api/messaging/webhook/telegram/&lt;{t('channels.drawer.test.botToken')}&gt;
+                      </code>
+                    ),
+                  }}
+                />
               </p>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
@@ -1058,10 +1078,10 @@ export function InboxSetupDrawer({
                   value={tgBase}
                   onChange={(e) => setTgBase(e.target.value)}
                   placeholder="https://your-tunnel.example.com"
-                  aria-label="Public base URL"
+                  aria-label={t('channels.drawer.test.publicBaseUrl')}
                 />
                 <Button variant="secondary" onClick={registerTelegram} className="shrink-0">
-                  <Webhook size={13} aria-hidden /> Register
+                  <Webhook size={13} aria-hidden /> {t('channels.drawer.test.register')}
                 </Button>
               </div>
               {tgResult && <ResultLine result={tgResult} />}
@@ -1069,14 +1089,13 @@ export function InboxSetupDrawer({
           )}
 
           {isMoreKind(kind) && saved.msg && (
-            <Section title={`Point ${meta?.label ?? 'the platform'} at ChatBranch`}>
-              <p className="text-[12.5px] leading-relaxed text-text-mid">{WEBHOOK_HELP[kind]}</p>
-              <CopyRow label="Webhook URL" value={`${API_ORIGIN}${saved.msg.webhook_path ?? ''}`} />
+            <Section title={t('channels.drawer.test.pointPlatform', { platform: meta ? t(meta.label) : '' })}>
+              {WEBHOOK_HELP[kind] && (
+                <p className="text-[12.5px] leading-relaxed text-text-mid">{t(WEBHOOK_HELP[kind]!)}</p>
+              )}
+              <CopyRow label={t('channels.drawer.test.webhookUrl')} value={`${API_ORIGIN}${saved.msg.webhook_path ?? ''}`} />
               {kind === 'wechat' && (
-                <p className="text-[11.5px] leading-relaxed text-text-muted">
-                  Use the same Token you entered here. Plaintext and safe mode both work — safe mode needs the
-                  EncodingAESKey above.
-                </p>
+                <p className="text-[11.5px] leading-relaxed text-text-muted">{t('channels.drawer.test.wechatNote')}</p>
               )}
               {saved.msg.can_set_webhook && (
                 <>
@@ -1087,10 +1106,10 @@ export function InboxSetupDrawer({
                       value={tgBase}
                       onChange={(e) => setTgBase(e.target.value)}
                       placeholder="https://your-tunnel.example.com"
-                      aria-label="Public base URL"
+                      aria-label={t('channels.drawer.test.publicBaseUrl')}
                     />
                     <Button variant="secondary" onClick={registerTelegram} className="shrink-0">
-                      <Webhook size={13} aria-hidden /> Register
+                      <Webhook size={13} aria-hidden /> {t('channels.drawer.test.register')}
                     </Button>
                   </div>
                   {tgResult && <ResultLine result={tgResult} />}
@@ -1098,9 +1117,12 @@ export function InboxSetupDrawer({
               )}
               {saved.msg.window_hours ? (
                 <p className="text-[11.5px] leading-relaxed text-text-muted">
-                  Replies are allowed for {saved.msg.window_hours >= 72 ? `${saved.msg.window_hours / 24} days` : `${saved.msg.window_hours} hours`}{' '}
-                  after the customer&apos;s last message — after that the composer, the AI and flows are refused until
-                  they write again.
+                  {t('channels.drawer.test.windowNote', {
+                    window:
+                      saved.msg.window_hours >= 72
+                        ? t('channels.drawer.test.days', { count: saved.msg.window_hours / 24 })
+                        : t('channels.drawer.test.hours', { count: saved.msg.window_hours }),
+                  })}
                 </p>
               ) : null}
             </Section>
@@ -1108,7 +1130,7 @@ export function InboxSetupDrawer({
 
           {kind === 'website' && saved.widget && (
             <Section
-              title="Put it on your site"
+              title={t('channels.drawer.test.putOnSite')}
               aside={
                 <button
                   type="button"
@@ -1116,44 +1138,47 @@ export function InboxSetupDrawer({
                   disabled={busy}
                   className="inline-flex cursor-pointer items-center gap-1 text-[12px] font-semibold text-text-mid hover:text-text-high disabled:opacity-50"
                 >
-                  <RefreshCw size={12} aria-hidden /> Rotate token
+                  <RefreshCw size={12} aria-hidden /> {t('channels.drawer.test.rotateToken')}
                 </button>
               }
             >
               <EmbedSnippet value={saved.widget.embed} />
-              <p className="text-[11.5px] leading-relaxed text-text-muted">
-                The token is public by design — it only lets a visitor start a conversation. Rotate it if the snippet
-                ends up somewhere it shouldn&apos;t.
-              </p>
+              <p className="text-[11.5px] leading-relaxed text-text-muted">{t('channels.drawer.test.tokenPublic')}</p>
             </Section>
           )}
 
           {kind === 'email' && (
-            <p className="text-[12px] leading-relaxed text-text-muted">
-              Customer replies are pulled in over IMAP using the shared mail settings under Advanced on the Inboxes
-              page.
-            </p>
+            <p className="text-[12px] leading-relaxed text-text-muted">{t('channels.drawer.test.emailImap')}</p>
           )}
 
           {kind === 'voice' && (
-            <Section title="Run the voice agent">
+            <Section title={t('channels.drawer.test.runAgent')}>
               <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-[12.5px] leading-relaxed text-text-mid">
                 <li>
-                  Put the LiveKit project in <code className="rounded bg-fill px-1">backend/.env</code>:{' '}
-                  <code className="rounded bg-fill px-1">LIVEKIT_URL</code>,{' '}
-                  <code className="rounded bg-fill px-1">LIVEKIT_API_KEY</code>,{' '}
-                  <code className="rounded bg-fill px-1">LIVEKIT_API_SECRET</code>.
+                  <Trans
+                    k="channels.drawer.test.agentStep1"
+                    values={{
+                      file: <code className="rounded bg-fill px-1">backend/.env</code>,
+                      keys: (
+                        <>
+                          <code className="rounded bg-fill px-1">LIVEKIT_URL</code>,{' '}
+                          <code className="rounded bg-fill px-1">LIVEKIT_API_KEY</code>,{' '}
+                          <code className="rounded bg-fill px-1">LIVEKIT_API_SECRET</code>
+                        </>
+                      ),
+                    }}
+                  />
                 </li>
                 <li>
-                  Once, create the outbound SIP trunk and copy the printed{' '}
-                  <code className="rounded bg-fill px-1">SIP_OUTBOUND_TRUNK_ID</code> into the same file:
+                  <Trans
+                    k="channels.drawer.test.agentStep2"
+                    values={{ id: <code className="rounded bg-fill px-1">SIP_OUTBOUND_TRUNK_ID</code> }}
+                  />
                 </li>
               </ol>
-              <CopyRow label="One-time trunk setup" value="npm --prefix backend/voice_agent run setup-trunk" />
-              <p className="text-[12.5px] leading-relaxed text-text-mid">
-                Then start the worker alongside the API — it answers every AI call, SIP and WhatsApp:
-              </p>
-              <CopyRow label="Run the worker" value="npm run dev:agent" />
+              <CopyRow label={t('channels.drawer.test.trunkSetup')} value="npm --prefix backend/voice_agent run setup-trunk" />
+              <p className="text-[12.5px] leading-relaxed text-text-mid">{t('channels.drawer.test.agentThen')}</p>
+              <CopyRow label={t('channels.drawer.test.runWorker')} value="npm run dev:agent" />
             </Section>
           )}
         </>
@@ -1166,19 +1191,21 @@ export function InboxSetupDrawer({
       <span className="grid h-14 w-14 place-items-center rounded-full bg-primary text-on-primary">
         <Check size={28} strokeWidth={2.4} aria-hidden />
       </span>
-      <h3 className="display text-[24px] text-text-heading">{target.inbox ? 'All set' : 'Inbox ready'}</h3>
+      <h3 className="display text-[24px] text-text-heading">
+        {target.inbox ? t('channels.drawer.done.allSet') : t('channels.drawer.done.ready')}
+      </h3>
       {saved && (
         <dl className="mt-1 grid w-full max-w-[340px] grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-left text-[12.5px]">
-          <dt className="text-text-muted">Inbox</dt>
-          <dd className="truncate font-semibold text-text-high">{saved.name}</dd>
-          <dt className="text-text-muted">Channel</dt>
-          <dd className="truncate text-text-high">{kindMeta(saved.kind).channelLabel}</dd>
+          <dt className="text-text-muted">{t('channels.drawer.done.inbox')}</dt>
+          <dd className="truncate font-semibold text-text-high">{inboxName(saved, t)}</dd>
+          <dt className="text-text-muted">{t('common.fields.channel')}</dt>
+          <dd className="truncate text-text-high">{t(kindMeta(saved.kind).channelLabel)}</dd>
           {saved.kind !== 'voice' && (
             <>
-              <dt className="text-text-muted">Entity</dt>
-              <dd className="truncate text-text-high">{saved.entityName || 'Organization-wide'}</dd>
-              <dt className="text-text-muted">Team</dt>
-              <dd className="truncate text-text-high">{teamName(saved.teamId) || 'Entity auto-assign'}</dd>
+              <dt className="text-text-muted">{t('common.fields.entity')}</dt>
+              <dd className="truncate text-text-high">{saved.entityName || t('channels.drawer.done.orgWide')}</dd>
+              <dt className="text-text-muted">{t('channels.drawer.who.team')}</dt>
+              <dd className="truncate text-text-high">{teamName(saved.teamId) || t('channels.drawer.done.autoAssign')}</dd>
             </>
           )}
         </dl>
@@ -1187,20 +1214,19 @@ export function InboxSetupDrawer({
   )
 
   // ── footer ─────────────────────────────────────────────────────────────
-  const primaryLabel =
+  const primaryKey: MessageKey =
     step === 2
-      ? kind === 'voice'
-        ? isSuper
-          ? 'Save & continue'
-          : 'Continue'
-        : 'Continue'
+      ? kind === 'voice' && isSuper
+        ? 'channels.drawer.footer.saveContinue'
+        : 'common.actions.continue'
       : step === 3
         ? kind === 'voice'
-          ? 'Continue'
+          ? 'common.actions.continue'
           : editing
-            ? 'Save & continue'
-            : 'Create inbox'
-        : 'Finish'
+            ? 'channels.drawer.footer.saveContinue'
+            : 'channels.drawer.footer.create'
+        : 'channels.drawer.footer.finish'
+  const primaryLabel = t(primaryKey)
 
   const footer =
     step === 5 ? (
@@ -1215,26 +1241,26 @@ export function InboxSetupDrawer({
               setNotice(null)
             }}
           >
-            Add another
+            {t('channels.drawer.footer.addAnother')}
           </Button>
         )}
         <Button className="ml-auto" onClick={onClose}>
-          Close
+          {t('common.actions.close')}
         </Button>
       </>
     ) : step === 1 ? (
       <>
         <Button variant="secondary" onClick={onClose}>
-          Cancel
+          {t('common.actions.cancel')}
         </Button>
         <Button className="ml-auto" onClick={() => kind && choose(kind)} disabled={!kind}>
-          Continue
+          {t('common.actions.continue')}
         </Button>
       </>
     ) : (
       <>
         <Button variant="secondary" onClick={back} disabled={busy || (step === 2 && editing && !!target.inbox)}>
-          Back
+          {t('common.actions.back')}
         </Button>
         <Button className="ml-auto" onClick={next} disabled={busy}>
           {busy && <Loader2 size={13} className="animate-spin" aria-hidden />}
@@ -1243,8 +1269,8 @@ export function InboxSetupDrawer({
       </>
     )
 
-  const title = saved ? saved.name : meta ? meta.label : 'Add an inbox'
-  const eyebrow = target.inbox ? 'Inbox settings' : 'New inbox'
+  const title = saved ? inboxName(saved, t) : meta ? t(meta.label) : t('channels.drawer.addInbox')
+  const eyebrow = target.inbox ? t('channels.drawer.inboxSettings') : t('channels.drawer.newInbox')
 
   return createPortal(
     <div
@@ -1271,12 +1297,12 @@ export function InboxSetupDrawer({
             <h2 id="inbox-drawer-title" className="display mt-0.5 truncate text-[24px] leading-tight text-text-heading">
               {title}
             </h2>
-            {saved && meta && <div className="truncate text-[12px] text-text-muted">{meta.channelLabel}</div>}
+            {saved && meta && <div className="truncate text-[12px] text-text-muted">{t(meta.channelLabel)}</div>}
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t('common.actions.close')}
             className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
           >
             <X size={16} aria-hidden />
@@ -1284,7 +1310,7 @@ export function InboxSetupDrawer({
         </div>
 
         {/* stepper — a vertical list on wider screens, a compact row on phones */}
-        <nav aria-label="Setup steps" className="border-b border-line px-5 py-3 sm:px-6">
+        <nav aria-label={t('channels.drawer.steps.aria')} className="border-b border-line px-5 py-3 sm:px-6">
           <ol className="hidden flex-col sm:flex">
             {STEPS.map((s) => {
               const state = step === 5 || s.n < step ? 'done' : s.n === step ? 'current' : 'todo'
@@ -1308,7 +1334,7 @@ export function InboxSetupDrawer({
                             : 'text-text-mid'
                       }`}
                     >
-                      {s.title(kind)}
+                      {s.title(kind, t)}
                     </span>
                   </button>
                 </li>
@@ -1325,7 +1351,7 @@ export function InboxSetupDrawer({
                     type="button"
                     disabled={!canJump(s.n)}
                     onClick={() => setStep(s.n)}
-                    aria-label={`Step ${s.n}: ${s.title(kind)}`}
+                    aria-label={t('channels.drawer.steps.stepAria', { n: s.n, title: s.title(kind, t) })}
                     aria-current={state === 'current' ? 'step' : undefined}
                   >
                     <StepCircle state={state} n={s.n} />
@@ -1334,7 +1360,7 @@ export function InboxSetupDrawer({
               )
             })}
             <span className="ml-1 min-w-0 truncate text-[13px] font-bold text-text-heading">
-              {step === 5 ? 'Done' : STEPS[step - 1].title(kind)}
+              {step === 5 ? t('common.actions.done') : STEPS[step - 1].title(kind, t)}
             </span>
           </div>
         </nav>
@@ -1376,28 +1402,30 @@ export function InboxSetupDrawer({
 
 /** "Requires platform approval" — TikTok / Douyin only open their messaging APIs to approved apps. */
 export function ApprovalChip({ compact = false }: { compact?: boolean }) {
+  const t = useT()
   return (
     <span
       className="inline-flex items-center gap-1 rounded-full bg-amber/15 px-1.5 py-px text-[9.5px] font-bold uppercase tracking-[0.06em]"
       style={{ color: 'var(--amber-ink)' }}
-      title="The platform must approve your app before its messaging API works"
+      title={t('channels.chips.approvalTitle')}
     >
       <BadgeCheck size={10} aria-hidden />
-      {compact ? 'Approval' : 'Requires approval'}
+      {compact ? t('channels.chips.approval') : t('channels.chips.requiresApproval')}
     </span>
   )
 }
 
 export function KindBadge({ badge }: { badge: 'Beta' | 'Demo' }) {
+  const t = useT()
   return (
     <span
       className={`rounded-full px-1.5 py-px text-[9.5px] font-bold uppercase tracking-[0.06em] ${
         badge === 'Demo' ? 'bg-amber/15' : 'bg-fill text-text-mid'
       }`}
       style={badge === 'Demo' ? { color: 'var(--amber-ink)' } : undefined}
-      title={badge === 'Demo' ? 'Unofficial transport — demo use only' : 'Not yet validated against the live provider'}
+      title={badge === 'Demo' ? t('channels.chips.demoTitle') : t('channels.chips.betaTitle')}
     >
-      {badge}
+      {badge === 'Demo' ? t('channels.chips.demo') : t('channels.chips.beta')}
     </span>
   )
 }

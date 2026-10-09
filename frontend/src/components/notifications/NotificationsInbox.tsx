@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { refreshNotifications } from '@/components/shell/notificationsStore'
 import { tint } from '@/lib/color'
+import { intlTag, useFormat, useI18n, useT, type TFunction } from '@/i18n'
 import {
   NOTIF_CATEGORIES,
   categoryMeta,
@@ -31,17 +32,15 @@ const PAGE_SIZE = 30
 
 type ReadFilter = 'all' | 'unread' | 'read'
 
-/** Day bucket label: Today / Yesterday / weekday (this week) / 12 Mar 2026. */
-function dayLabel(d: Date, now: Date): string {
+/** Day bucket label: Today / Yesterday / weekday (this week) / 12 Mar 2026 — in the UI language. */
+function dayLabel(d: Date, now: Date, t: TFunction, tag: string, fullDate: (d: Date) => string): string {
   const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
   const days = Math.round((start(now) - start(d)) / 86_400_000)
-  if (days === 0) return 'Today'
-  if (days === 1) return 'Yesterday'
-  if (days > 1 && days < 7) return d.toLocaleDateString([], { weekday: 'long' })
-  return d.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })
+  if (days === 0) return t('common.time.today')
+  if (days === 1) return t('common.time.yesterday')
+  if (days > 1 && days < 7) return new Intl.DateTimeFormat(tag, { weekday: 'long' }).format(d)
+  return fullDate(d)
 }
-
-const timeOf = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 /** Local calendar date → ISO instant at its local midnight (+days). */
 function localMidnightIso(date: string, plusDays = 0): string {
@@ -58,6 +57,9 @@ function localMidnightIso(date: string, plusDays = 0): string {
  * 30 (with a Load more fallback).
  */
 export function NotificationsInbox() {
+  const t = useT()
+  const f = useFormat()
+  const { locale } = useI18n()
   const router = useRouter()
   const [items, setItems] = useState<NotificationItem[]>([])
   const [page, setPage] = useState(1)
@@ -141,15 +143,16 @@ export function NotificationsInbox() {
 
   const groups = useMemo(() => {
     const now = new Date()
+    const tag = intlTag(locale)
     const out: { label: string; items: NotificationItem[] }[] = []
     for (const n of items) {
-      const label = dayLabel(new Date(n.created_at), now)
+      const label = dayLabel(new Date(n.created_at), now, t, tag, f.date)
       const last = out[out.length - 1]
       if (last && last.label === label) last.items.push(n)
       else out.push({ label, items: [n] })
     }
     return out
-  }, [items])
+  }, [items, t, f, locale])
 
   // ---- mutations (optimistic where safe) ----------------------------------
 
@@ -260,14 +263,19 @@ export function NotificationsInbox() {
   return (
     <div className="flex flex-col gap-4">
       {/* Category filter */}
-      <div className="-mx-1 flex flex-wrap gap-1.5 px-1" role="tablist" aria-label="Category">
-        <CategoryChip active={category === ''} onClick={() => setCategory('')} label="All" count={totalUnread} />
+      <div className="-mx-1 flex flex-wrap gap-1.5 px-1" role="tablist" aria-label={t('notifications.inbox.category')}>
+        <CategoryChip
+          active={category === ''}
+          onClick={() => setCategory('')}
+          label={t('common.status.all')}
+          count={totalUnread}
+        />
         {NOTIF_CATEGORIES.map((c) => (
           <CategoryChip
             key={c.key}
             active={category === c.key}
             onClick={() => setCategory(c.key)}
-            label={c.label}
+            label={t(c.labelKey)}
             count={byCat[c.key] ?? 0}
             ink={c.ink}
           />
@@ -281,17 +289,26 @@ export function NotificationsInbox() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search notifications…"
-            aria-label="Search notifications"
+            placeholder={t('notifications.inbox.searchPlaceholder')}
+            aria-label={t('notifications.inbox.search')}
             className="min-w-0 flex-1 bg-transparent text-[13px] text-text-primary outline-none"
           />
           {query && (
-            <button type="button" onClick={() => setQuery('')} aria-label="Clear search" className="text-text-muted hover:text-text-high">
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              aria-label={t('notifications.inbox.clearSearch')}
+              className="text-text-muted hover:text-text-high"
+            >
               <X size={13} />
             </button>
           )}
         </label>
-        <div role="radiogroup" aria-label="Read state" className="inline-flex rounded-lg border border-line-strong bg-card p-0.5">
+        <div
+          role="radiogroup"
+          aria-label={t('notifications.inbox.readState')}
+          className="inline-flex rounded-lg border border-line-strong bg-card p-0.5"
+        >
           {(['all', 'unread', 'read'] as ReadFilter[]).map((v) => (
             <button
               key={v}
@@ -299,11 +316,15 @@ export function NotificationsInbox() {
               role="radio"
               aria-checked={readFilter === v}
               onClick={() => setReadFilter(v)}
-              className={`h-8 rounded-md px-3 text-[12.5px] font-semibold capitalize transition-colors ${
+              className={`h-8 rounded-md px-3 text-[12.5px] font-semibold transition-colors ${
                 readFilter === v ? 'bg-primary text-on-primary' : 'text-text-mid hover:bg-fill-hover hover:text-text-high'
               }`}
             >
-              {v}
+              {v === 'all'
+                ? t('common.status.all')
+                : v === 'unread'
+                  ? t('notifications.inbox.unread')
+                  : t('notifications.inbox.read')}
             </button>
           ))}
         </div>
@@ -313,16 +334,16 @@ export function NotificationsInbox() {
             value={from}
             max={to || undefined}
             onChange={(e) => setFrom(e.target.value)}
-            aria-label="From date"
+            aria-label={t('notifications.inbox.fromDate')}
             className="h-9 rounded-lg border border-line-strong bg-card px-2 text-[12.5px] text-text-primary outline-none"
           />
-          <span className="text-[12px] text-text-faint">to</span>
+          <span className="text-[12px] text-text-faint">{t('notifications.inbox.to')}</span>
           <input
             type="date"
             value={to}
             min={from || undefined}
             onChange={(e) => setTo(e.target.value)}
-            aria-label="To date"
+            aria-label={t('notifications.inbox.toDate')}
             className="h-9 rounded-lg border border-line-strong bg-card px-2 text-[12.5px] text-text-primary outline-none"
           />
         </div>
@@ -338,24 +359,30 @@ export function NotificationsInbox() {
               setTo('')
             }}
           >
-            Clear filters
+            {t('notifications.inbox.clearFilters')}
           </Button>
         )}
         <span className="flex flex-wrap items-center gap-1.5 sm:ml-auto">
-          <Button variant="ghost" size="sm" onClick={() => void load(1)} aria-label="Refresh" title="Refresh">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void load(1)}
+            aria-label={t('common.actions.refresh')}
+            title={t('common.actions.refresh')}
+          >
             <RefreshCw size={13} aria-hidden />
           </Button>
           <Button variant="secondary" size="sm" onClick={() => void markAll()} disabled={busy || unread === 0}>
-            <CheckCheck size={13} aria-hidden /> Mark all read
+            <CheckCheck size={13} aria-hidden /> {t('notifications.inbox.markAllRead')}
           </Button>
           <Button variant="ghost" size="sm" onClick={() => setConfirm('read')} disabled={busy}>
-            <Trash2 size={13} aria-hidden /> Delete read
+            <Trash2 size={13} aria-hidden /> {t('notifications.inbox.deleteRead')}
           </Button>
           <Link
             href="/settings/my-notifications"
             className="grid h-8 w-8 place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
-            aria-label="Notification settings"
-            title="Notification settings"
+            aria-label={t('notifications.inbox.settings')}
+            title={t('notifications.inbox.settings')}
           >
             <Settings2 size={15} aria-hidden />
           </Link>
@@ -375,23 +402,30 @@ export function NotificationsInbox() {
               checked={allSelected}
               onChange={() => setSelected(allSelected ? new Set() : new Set(items.map((n) => n.id)))}
               className="h-4 w-4 cursor-pointer accent-[color:var(--primary)]"
-              aria-label="Select all loaded notifications"
+              aria-label={t('notifications.inbox.selectAll')}
             />
-            {selected.size ? `${selected.size} selected` : `${total} notification${total === 1 ? '' : 's'}${unread ? ` · ${unread} unread` : ''}`}
+            {selected.size
+              ? t('common.counts.selected', { count: selected.size })
+              : unread
+                ? t('notifications.inbox.totalUnread', {
+                    total: t('notifications.inbox.total', { count: total }),
+                    unread: f.number(unread),
+                  })
+                : t('notifications.inbox.total', { count: total })}
           </label>
           {selected.size > 0 && (
             <span className="ml-auto flex flex-wrap gap-1.5">
               <Button variant="secondary" size="sm" disabled={busy} onClick={() => void bulk('read')}>
-                Mark read
+                {t('notifications.inbox.markRead')}
               </Button>
               <Button variant="secondary" size="sm" disabled={busy} onClick={() => void bulk('unread')}>
-                Mark unread
+                {t('notifications.inbox.markUnread')}
               </Button>
               <Button variant="danger" size="sm" disabled={busy} onClick={() => setConfirm('selected')}>
-                <Trash2 size={13} aria-hidden /> Delete
+                <Trash2 size={13} aria-hidden /> {t('common.actions.delete')}
               </Button>
               <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
-                Cancel
+                {t('common.actions.cancel')}
               </Button>
             </span>
           )}
@@ -407,11 +441,11 @@ export function NotificationsInbox() {
       {/* The list */}
       {items.length === 0 && !loading ? (
         <div className="rounded-xl border border-dashed border-line-strong px-6 py-14 text-center">
-          <div className="display text-[20px] text-text-heading">{filtered ? 'Nothing matches' : 'All quiet'}</div>
+          <div className="display text-[20px] text-text-heading">
+            {filtered ? t('notifications.inbox.noMatchTitle') : t('notifications.inbox.emptyTitle')}
+          </div>
           <p className="mx-auto mt-1 max-w-[380px] text-[12.5px] text-text-muted">
-            {filtered
-              ? 'No notifications match these filters. Clear them to see everything.'
-              : 'Customer messages, channel alerts and flow handovers will collect here.'}
+            {filtered ? t('notifications.inbox.noMatchBody') : t('notifications.inbox.emptyBody')}
           </p>
         </div>
       ) : (
@@ -420,7 +454,7 @@ export function NotificationsInbox() {
             <section key={g.label}>
               <div className="mb-1.5 flex items-baseline gap-2 border-b border-line pb-1">
                 <span className="eyebrow">{g.label}</span>
-                <span className="text-[11.5px] text-text-faint">{g.items.length}</span>
+                <span className="text-[11.5px] text-text-faint">{f.number(g.items.length)}</span>
               </div>
               <ul className="flex flex-col">
                 {g.items.map((n) => (
@@ -443,14 +477,14 @@ export function NotificationsInbox() {
       <div ref={sentinel} className="flex justify-center py-2">
         {loading ? (
           <span className="flex items-center gap-2 text-[12.5px] text-text-muted">
-            <Loader2 size={14} className="animate-spin" aria-hidden /> Loading…
+            <Loader2 size={14} className="animate-spin" aria-hidden /> {t('common.status.loading')}
           </span>
         ) : hasMore ? (
           <Button variant="secondary" size="sm" onClick={() => void load(page + 1)}>
-            Load more
+            {t('notifications.inbox.loadMore')}
           </Button>
         ) : items.length > 0 ? (
-          <span className="text-[11.5px] text-text-faint">That&rsquo;s everything.</span>
+          <span className="text-[11.5px] text-text-faint">{t('notifications.inbox.everything')}</span>
         ) : null}
       </div>
 
@@ -458,12 +492,16 @@ export function NotificationsInbox() {
         open={confirm !== null}
         onClose={() => setConfirm(null)}
         size="sm"
-        title={confirm === 'read' ? 'Delete read notifications?' : `Delete ${selected.size} notification${selected.size === 1 ? '' : 's'}?`}
-        subtitle="Deleted notifications are gone for good. The conversations and records they point to are not touched."
+        title={
+          confirm === 'read'
+            ? t('notifications.inbox.deleteReadTitle')
+            : t('notifications.inbox.deleteSelectedTitle', { count: selected.size })
+        }
+        subtitle={t('notifications.inbox.deleteSubtitle')}
         footer={
           <>
             <Button variant="ghost" onClick={() => setConfirm(null)}>
-              Cancel
+              {t('common.actions.cancel')}
             </Button>
             <Button
               variant="danger"
@@ -471,15 +509,13 @@ export function NotificationsInbox() {
               onClick={() => void (confirm === 'read' ? deleteRead() : bulk('delete'))}
             >
               {busy && <Loader2 size={13} className="animate-spin" aria-hidden />}
-              Delete
+              {t('common.actions.delete')}
             </Button>
           </>
         }
       >
         <p className="text-[13px] text-text-mid">
-          {confirm === 'read'
-            ? 'Every notification you have already read will be removed from your inbox. Unread ones stay.'
-            : 'The selected notifications will be removed from your inbox.'}
+          {confirm === 'read' ? t('notifications.inbox.deleteReadBody') : t('notifications.inbox.deleteSelectedBody')}
         </p>
       </Modal>
     </div>
@@ -499,6 +535,7 @@ function CategoryChip({
   count: number
   ink?: string
 }) {
+  const f = useFormat()
   return (
     <button
       type="button"
@@ -520,7 +557,7 @@ function CategoryChip({
           }`}
           style={active ? { background: tint('var(--on-primary)', 0.2) } : undefined}
         >
-          {count > 99 ? '99+' : count}
+          {count > 99 ? `${f.number(99)}+` : f.number(count)}
         </span>
       )}
     </button>
@@ -542,6 +579,8 @@ function Row({
   onToggleRead: () => void
   onDelete: () => void
 }) {
+  const t = useT()
+  const f = useFormat()
   const meta = categoryMeta(n.category)
   return (
     <li
@@ -559,13 +598,13 @@ function Row({
         type="checkbox"
         checked={selected}
         onChange={onSelect}
-        aria-label={`Select “${n.title}”`}
+        aria-label={t('notifications.inbox.selectOne', { title: n.title })}
         className="mt-1.5 h-4 w-4 shrink-0 cursor-pointer accent-[color:var(--primary)]"
       />
       <span
         className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg"
         style={{ background: tint(meta.ink, 0.12), color: meta.ink }}
-        title={meta.label}
+        title={t(meta.labelKey)}
       >
         <meta.Icon size={15} aria-hidden />
       </span>
@@ -576,7 +615,7 @@ function Row({
           >
             {n.title}
           </span>
-          <span className="ml-auto shrink-0 text-[11.5px] tabular-nums text-text-faint">{timeOf(n.created_at)}</span>
+          <span className="ml-auto shrink-0 text-[11.5px] tabular-nums text-text-faint">{f.time(n.created_at)}</span>
         </span>
         {n.body && (
           <span className={`mt-0.5 line-clamp-2 block text-[12.5px] leading-snug ${n.read ? 'text-text-muted' : 'text-text-mid'}`}>
@@ -584,16 +623,16 @@ function Row({
           </span>
         )}
         <span className="mt-1 block text-[11px] text-text-faint">
-          {meta.label}
-          {n.link ? ' · Open' : ''}
+          {t(meta.labelKey)}
+          {n.link ? ` · ${t('common.actions.open')}` : ''}
         </span>
       </button>
       <span className="flex shrink-0 flex-col gap-0.5 sm:flex-row sm:opacity-60 sm:group-hover:opacity-100">
         <button
           type="button"
           onClick={onToggleRead}
-          aria-label={n.read ? 'Mark as unread' : 'Mark as read'}
-          title={n.read ? 'Mark as unread' : 'Mark as read'}
+          aria-label={n.read ? t('notifications.inbox.markAsUnread') : t('notifications.inbox.markAsRead')}
+          title={n.read ? t('notifications.inbox.markAsUnread') : t('notifications.inbox.markAsRead')}
           className="grid h-8 w-8 place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
         >
           {n.read ? <Mail size={14} aria-hidden /> : <MailOpen size={14} aria-hidden />}
@@ -601,8 +640,8 @@ function Row({
         <button
           type="button"
           onClick={onDelete}
-          aria-label="Delete notification"
-          title="Delete"
+          aria-label={t('notifications.inbox.deleteOne')}
+          title={t('common.actions.delete')}
           className="grid h-8 w-8 place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-[color:var(--red-ink)]"
         >
           <Trash2 size={14} aria-hidden />

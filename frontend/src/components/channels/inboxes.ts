@@ -12,15 +12,29 @@
  *
  * "Who answers it" (owning team + AI reply default) rides on every account
  * write as top-level `team_id` / `ai_default` keys.
+ *
+ * Display texts are translation keys (`channels.*`), resolved by the
+ * components with `t()` — nothing here knows the language.
  */
 
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import { accountRole, type AccountRole } from '@/components/ui/Badges'
 import type { HealthStatus } from '@/lib/channelHealth'
+import type { MessageKey, TFunction, Vars } from '@/i18n'
+import type { channels as channelsEn } from '@/i18n/messages/en/channels'
 
 export const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 /** The API's own origin — webhook URLs and the widget script live there. */
 export const API_ORIGIN = API.replace(/\/api\/?$/, '')
+
+/** A translatable text built outside a component: a key and its placeholders. */
+export interface Msg {
+  k: MessageKey
+  v?: Vars
+}
+
+/** Resolve plain text (data) or a `Msg` (UI copy) in the current language. */
+export const txt = (m: string | Msg, t: TFunction): string => (typeof m === 'string' ? m : t(m.k, m.v))
 
 // ── kinds (the "Add a channel" blocks) ────────────────────────────────────────
 
@@ -62,129 +76,97 @@ export type ChannelFilter =
 /** How the "Add a channel" blocks are grouped. */
 export type KindGroup = 'messaging' | 'social' | 'sms_voice' | 'china'
 
-export const KIND_GROUPS: { id: KindGroup; label: string; hint: string }[] = [
-  { id: 'messaging', label: 'Messaging apps', hint: 'Chat apps your customers already use' },
-  { id: 'social', label: 'Social', hint: 'Direct messages on social networks' },
-  { id: 'sms_voice', label: 'SMS, email & voice', hint: 'Phone numbers, mailboxes and calls' },
-  { id: 'china', label: 'China', hint: 'WeChat and Douyin (抖音)' },
+/** `label` / `hint` are translation keys. */
+export const KIND_GROUPS: { id: KindGroup; label: MessageKey; hint: MessageKey }[] = [
+  { id: 'messaging', label: 'channels.groups.messaging', hint: 'channels.groups.messagingHint' },
+  { id: 'social', label: 'channels.groups.social', hint: 'channels.groups.socialHint' },
+  { id: 'sms_voice', label: 'channels.groups.smsVoice', hint: 'channels.groups.smsVoiceHint' },
+  { id: 'china', label: 'channels.groups.china', hint: 'channels.groups.chinaHint' },
 ]
 
 export interface KindMeta {
   kind: InboxKind
   /** ChannelLogo id. */
   logo: string
-  label: string
-  /** One-line description on the block. */
-  blurb: string
-  /** Shown on cards: "WhatsApp Cloud API", "Email (SMTP)"… */
-  channelLabel: string
+  /** Translation keys: the block's name… */
+  label: MessageKey
+  /** …its one-line description… */
+  blurb: MessageKey
+  /** …what cards call it ("WhatsApp Cloud API", "Email (SMTP)"…)… */
+  channelLabel: MessageKey
   filter: Exclude<ChannelFilter, 'all'>
   badge?: 'Beta' | 'Demo'
-  /** Step 2's title — what "connect" means for this channel. */
-  connectTitle: string
+  /** …and step 2's title — what "connect" means for this channel. */
+  connectTitle: MessageKey
   /** Which "Add a channel" group the block sits in. */
   group: KindGroup
   /** The platform must approve the app before its API works (TikTok, Douyin). */
   approval?: boolean
 }
 
+type KindId = keyof (typeof channelsEn)['kinds']
+
+/** The four texts of one kind, under `channels.kinds.<id>`. */
+const texts = (id: KindId): Pick<KindMeta, 'label' | 'blurb' | 'channelLabel' | 'connectTitle'> => ({
+  label: `channels.kinds.${id}.label`,
+  blurb: `channels.kinds.${id}.blurb`,
+  channelLabel: `channels.kinds.${id}.channelLabel`,
+  connectTitle: `channels.kinds.${id}.connectTitle`,
+})
+
 export const KINDS: KindMeta[] = [
+  { kind: 'wa_cloud', logo: 'whatsapp', ...texts('waCloud'), filter: 'whatsapp', group: 'messaging' },
+  { kind: 'wa_qr', logo: 'whatsapp', ...texts('waQr'), filter: 'whatsapp', badge: 'Demo', group: 'messaging' },
+  { kind: 'email', logo: 'email', ...texts('email'), filter: 'email', group: 'sms_voice' },
+  { kind: 'telegram', logo: 'telegram', ...texts('telegram'), filter: 'telegram', group: 'messaging' },
+  { kind: 'line', logo: 'line', ...texts('line'), filter: 'line', group: 'messaging' },
+  { kind: 'viber', logo: 'viber', ...texts('viber'), filter: 'viber', group: 'messaging' },
+  { kind: 'zalo', logo: 'zalo', ...texts('zalo'), filter: 'zalo', group: 'messaging' },
+  { kind: 'messenger', logo: 'messenger', ...texts('messenger'), filter: 'messenger', badge: 'Beta', group: 'social' },
+  { kind: 'instagram', logo: 'instagram', ...texts('instagram'), filter: 'instagram', badge: 'Beta', group: 'social' },
   {
-    kind: 'wa_cloud', logo: 'whatsapp', label: 'WhatsApp Business',
-    blurb: 'Official Cloud API · templates · compliant', channelLabel: 'WhatsApp Cloud API',
-    filter: 'whatsapp', connectTitle: 'Connect the number', group: 'messaging',
+    kind: 'tiktok', logo: 'tiktok', ...texts('tiktok'),
+    filter: 'tiktok', badge: 'Beta', group: 'social', approval: true,
   },
+  { kind: 'website', logo: 'website', ...texts('website'), filter: 'website', group: 'messaging' },
+  { kind: 'sms', logo: 'sms', ...texts('sms'), filter: 'sms', group: 'sms_voice' },
+  { kind: 'voice', logo: 'voice', ...texts('voice'), filter: 'voice', group: 'sms_voice' },
+  { kind: 'wechat', logo: 'wechat', ...texts('wechat'), filter: 'wechat', group: 'china' },
   {
-    kind: 'wa_qr', logo: 'whatsapp', label: 'WhatsApp by QR',
-    blurb: 'Pair a personal number · demo only', channelLabel: 'WhatsApp by QR',
-    filter: 'whatsapp', badge: 'Demo', connectTitle: 'Before you pair', group: 'messaging',
-  },
-  {
-    kind: 'email', logo: 'email', label: 'Email',
-    blurb: 'A mailbox · SMTP out, IMAP in', channelLabel: 'Email',
-    filter: 'email', connectTitle: 'Connect the mailbox', group: 'sms_voice',
-  },
-  {
-    kind: 'telegram', logo: 'telegram', label: 'Telegram',
-    blurb: 'A bot from @BotFather', channelLabel: 'Telegram bot',
-    filter: 'telegram', connectTitle: 'Connect the bot', group: 'messaging',
-  },
-  {
-    kind: 'line', logo: 'line', label: 'LINE',
-    blurb: 'A LINE Official Account bot', channelLabel: 'LINE Official Account',
-    filter: 'line', connectTitle: 'Connect the channel', group: 'messaging',
-  },
-  {
-    kind: 'viber', logo: 'viber', label: 'Viber',
-    blurb: 'A Viber bot · subscribers and invite links', channelLabel: 'Viber bot',
-    filter: 'viber', connectTitle: 'Connect the bot', group: 'messaging',
-  },
-  {
-    kind: 'zalo', logo: 'zalo', label: 'Zalo',
-    blurb: 'A Zalo Official Account · 7-day reply window', channelLabel: 'Zalo Official Account',
-    filter: 'zalo', connectTitle: 'Connect the OA', group: 'messaging',
-  },
-  {
-    kind: 'messenger', logo: 'messenger', label: 'Messenger',
-    blurb: 'Facebook page messages', channelLabel: 'Messenger',
-    filter: 'messenger', badge: 'Beta', connectTitle: 'Connect the page', group: 'social',
-  },
-  {
-    kind: 'instagram', logo: 'instagram', label: 'Instagram',
-    blurb: 'Business account DMs', channelLabel: 'Instagram',
-    filter: 'instagram', badge: 'Beta', connectTitle: 'Connect the account', group: 'social',
-  },
-  {
-    kind: 'tiktok', logo: 'tiktok', label: 'TikTok',
-    blurb: 'Business Messaging DMs · 48-hour replies', channelLabel: 'TikTok Business Messaging',
-    filter: 'tiktok', badge: 'Beta', connectTitle: 'Connect the business account', group: 'social', approval: true,
-  },
-  {
-    kind: 'website', logo: 'website', label: 'Website chat',
-    blurb: 'A chat bubble you paste into your site', channelLabel: 'Website chat',
-    filter: 'website', connectTitle: 'Design the widget', group: 'messaging',
-  },
-  {
-    kind: 'sms', logo: 'sms', label: 'SMS',
-    blurb: 'Text messages through Twilio · STOP handled', channelLabel: 'SMS (Twilio)',
-    filter: 'sms', connectTitle: 'Connect Twilio', group: 'sms_voice',
-  },
-  {
-    kind: 'voice', logo: 'voice', label: 'Voice (SIP)',
-    blurb: 'AI phone calls over a Twilio SIP trunk', channelLabel: 'Voice (SIP trunk)',
-    filter: 'voice', connectTitle: 'Connect the trunk', group: 'sms_voice',
-  },
-  {
-    kind: 'wechat', logo: 'wechat', label: 'WeChat',
-    blurb: 'Official Account (公众号) · 48-hour replies', channelLabel: 'WeChat Official Account',
-    filter: 'wechat', connectTitle: 'Connect the account', group: 'china',
-  },
-  {
-    kind: 'douyin', logo: 'douyin', label: 'Douyin 抖音',
-    blurb: 'Enterprise account DMs (企业号私信)', channelLabel: 'Douyin enterprise account',
-    filter: 'douyin', badge: 'Beta', connectTitle: 'Connect the account', group: 'china', approval: true,
+    kind: 'douyin', logo: 'douyin', ...texts('douyin'),
+    filter: 'douyin', badge: 'Beta', group: 'china', approval: true,
   },
 ]
 
 export const kindMeta = (k: InboxKind): KindMeta => KINDS.find((x) => x.kind === k) ?? KINDS[0]
 
-export const FILTERS: { id: ChannelFilter; label: string; logo?: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'whatsapp', label: 'WhatsApp', logo: 'whatsapp' },
-  { id: 'email', label: 'Email', logo: 'email' },
-  { id: 'telegram', label: 'Telegram', logo: 'telegram' },
-  { id: 'messenger', label: 'Messenger', logo: 'messenger' },
-  { id: 'instagram', label: 'Instagram', logo: 'instagram' },
-  { id: 'website', label: 'Website', logo: 'website' },
-  { id: 'voice', label: 'Voice', logo: 'voice' },
-  { id: 'line', label: 'LINE', logo: 'line' },
-  { id: 'viber', label: 'Viber', logo: 'viber' },
-  { id: 'zalo', label: 'Zalo', logo: 'zalo' },
-  { id: 'sms', label: 'SMS', logo: 'sms' },
-  { id: 'tiktok', label: 'TikTok', logo: 'tiktok' },
-  { id: 'wechat', label: 'WeChat', logo: 'wechat' },
-  { id: 'douyin', label: 'Douyin', logo: 'douyin' },
+/** A filter chip: `label` is a translation key; a brand name stays as it is. */
+export interface FilterDef {
+  id: ChannelFilter
+  label?: MessageKey
+  brand?: string
+  logo?: string
+}
+
+export const FILTERS: FilterDef[] = [
+  { id: 'all', label: 'common.status.all' },
+  { id: 'whatsapp', brand: 'WhatsApp', logo: 'whatsapp' },
+  { id: 'email', label: 'common.fields.email', logo: 'email' },
+  { id: 'telegram', brand: 'Telegram', logo: 'telegram' },
+  { id: 'messenger', brand: 'Messenger', logo: 'messenger' },
+  { id: 'instagram', brand: 'Instagram', logo: 'instagram' },
+  { id: 'website', label: 'channels.filters.website', logo: 'website' },
+  { id: 'voice', label: 'channels.filters.voice', logo: 'voice' },
+  { id: 'line', brand: 'LINE', logo: 'line' },
+  { id: 'viber', brand: 'Viber', logo: 'viber' },
+  { id: 'zalo', brand: 'Zalo', logo: 'zalo' },
+  { id: 'sms', brand: 'SMS', logo: 'sms' },
+  { id: 'tiktok', brand: 'TikTok', logo: 'tiktok' },
+  { id: 'wechat', brand: 'WeChat', logo: 'wechat' },
+  { id: 'douyin', brand: 'Douyin', logo: 'douyin' },
 ]
+
+export const filterLabel = (f: FilterDef, t: TFunction): string => (f.label ? t(f.label) : f.brand ?? f.id)
 
 // ── wire types (exactly what the endpoints return) ───────────────────────────
 
@@ -275,6 +257,9 @@ export interface MessagingAccount {
   }
 }
 
+/** The website widget's language: auto = the visitor's browser, else a fixed one. */
+export type WidgetLanguage = 'auto' | 'en' | 'ms' | 'zh'
+
 export interface Widget {
   id: number
   name: string
@@ -285,6 +270,7 @@ export interface Widget {
   greeting: string
   accent: string
   placeholder: string
+  language?: WidgetLanguage
   conversations: number
   embed: string
   script_url: string
@@ -322,7 +308,10 @@ export interface Inbox {
   /** The id the account endpoints take ("voice" for the trunk singleton). */
   id: string
   name: string
-  address: string
+  /** Set when the name is the product's own (the SIP trunk): show `t(nameKey)`. */
+  nameKey?: MessageKey
+  /** The card's second line — data (an address) or a translatable text. */
+  address: string | Msg
   entity: string | null
   entityName: string
   teamId: number | null
@@ -340,6 +329,9 @@ export interface Inbox {
   voice?: VoiceSettings
 }
 
+/** The name to show for an inbox in the current language. */
+export const inboxName = (inbox: Inbox, t: TFunction): string => (inbox.nameKey ? t(inbox.nameKey) : inbox.name)
+
 const SOCIAL_KIND: Record<string, InboxKind> = {
   facebook: 'messenger',
   instagram: 'instagram',
@@ -354,23 +346,38 @@ const SOCIAL_KIND: Record<string, InboxKind> = {
   zalo: 'zalo',
 }
 
+const msg = (k: MessageKey, v?: Vars): Msg => ({ k, v })
+
 /** The address line of a newer channel's card. */
-function moreAddress(a: MessagingAccount): string {
+function moreAddress(a: MessagingAccount): string | Msg {
   const cfg = a.config ?? {}
   const str = (k: string) => (cfg[k] != null ? String(cfg[k]) : '')
   switch (a.channel) {
     case 'sms':
-      return str('from_number') || (str('messaging_service_sid') ? `Service ${str('messaging_service_sid')}` : 'Number not set')
+      return (
+        str('from_number') ||
+        (str('messaging_service_sid')
+          ? msg('channels.address.smsService', { id: str('messaging_service_sid') })
+          : msg('channels.address.numberNotSet'))
+      )
     case 'wechat':
-      return a.external_id ? `Account ${a.external_id}` : str('app_id') ? `AppID ${str('app_id')}` : 'AppID not set'
+      return a.external_id
+        ? msg('channels.address.account', { id: a.external_id })
+        : str('app_id')
+          ? msg('channels.address.appId', { id: str('app_id') })
+          : msg('channels.address.appIdNotSet')
     case 'tiktok':
-      return a.external_id ? `Business ${a.external_id}` : 'Business ID not set'
+      return a.external_id ? msg('channels.address.business', { id: a.external_id }) : msg('channels.address.businessIdNotSet')
     case 'douyin':
-      return a.external_id ? `Account ${a.external_id}` : 'open_id not set'
+      return a.external_id ? msg('channels.address.account', { id: a.external_id }) : msg('channels.address.openIdNotSet')
     case 'zalo':
-      return a.external_id ? `OA ${a.external_id}` : str('app_id') ? `App ${str('app_id')}` : 'OA linked'
+      return a.external_id
+        ? msg('channels.address.oa', { id: a.external_id })
+        : str('app_id')
+          ? msg('channels.address.app', { id: str('app_id') })
+          : msg('channels.address.oaLinked')
     default:
-      return a.external_id ? `Bot ${a.external_id}` : 'Token linked'
+      return a.external_id ? msg('channels.address.bot', { id: a.external_id }) : msg('channels.address.tokenLinked')
   }
 }
 
@@ -382,12 +389,10 @@ export function fromWa(a: WaAccount): Inbox {
     id: a.id,
     name: a.name,
     address: qr
-      ? a.configured
-        ? 'QR-paired personal number'
-        : 'Not paired yet'
+      ? msg(a.configured ? 'channels.address.qrPaired' : 'channels.address.notPaired')
       : a.phone_number_id
-        ? `Number ID ${a.phone_number_id}`
-        : 'Number ID not set',
+        ? msg('channels.address.numberId', { id: a.phone_number_id })
+        : msg('channels.address.numberIdNotSet'),
     entity: a.entity ?? null,
     entityName: a.entity_name ?? '',
     teamId: a.team_id ?? null,
@@ -403,17 +408,17 @@ export function fromWa(a: WaAccount): Inbox {
 
 export function fromMessaging(a: MessagingAccount): Inbox {
   const kind = SOCIAL_KIND[a.channel] ?? 'telegram'
-  const address = isMoreKind(kind)
+  const address: string | Msg = isMoreKind(kind)
     ? moreAddress(a)
     : kind === 'email'
-      ? a.config?.from_email || a.external_id || 'From address not set'
+      ? a.config?.from_email || a.external_id || msg('channels.address.fromNotSet')
       : kind === 'telegram'
         ? a.external_id
-          ? `Bot ${a.external_id}`
-          : 'Bot token linked'
+          ? msg('channels.address.bot', { id: a.external_id })
+          : msg('channels.address.botTokenLinked')
         : a.external_id
-          ? `${kind === 'messenger' ? 'Page' : 'Account'} ${a.external_id}`
-          : 'ID not set'
+          ? msg(kind === 'messenger' ? 'channels.address.page' : 'channels.address.account', { id: a.external_id })
+          : msg('channels.address.idNotSet')
   return {
     key: `msg:${a.id}`,
     kind,
@@ -437,7 +442,7 @@ export function fromWidget(w: Widget): Inbox {
     kind: 'website',
     id: String(w.id),
     name: w.name,
-    address: `${w.conversations} conversation${w.conversations === 1 ? '' : 's'} · token ${w.token.slice(0, 8)}…`,
+    address: msg('channels.address.widget', { count: w.conversations, token: `${w.token.slice(0, 8)}…` }),
     entity: w.entity ?? null,
     entityName: w.entity_name ?? '',
     teamId: w.team_id ?? null,
@@ -457,7 +462,8 @@ export function fromVoice(v: VoiceSettings): Inbox | null {
     kind: 'voice',
     id: 'voice',
     name: 'Voice trunk',
-    address: v.termination_uri || 'Termination URI not set',
+    nameKey: 'channels.voiceTrunk',
+    address: v.termination_uri || msg('channels.address.terminationNotSet'),
     entity: null,
     entityName: '',
     teamId: null,
@@ -494,7 +500,11 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T
 }
 
-export const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
+/** An error for display: the server's own detail as it is; our session notice translated. */
+export const errText = (e: unknown, t?: TFunction): string => {
+  if (t && e instanceof ApiError && e.status === 401) return t('common.errors.sessionExpired')
+  return e instanceof Error ? e.message : String(e)
+}
 
 /** Outcome of a Test run — `info` = honest "can't prove it from here". */
 export interface TestResult {
@@ -503,7 +513,7 @@ export interface TestResult {
 }
 
 /** Run the channel's own test endpoint and phrase the answer for a human. */
-export async function testInbox(inbox: Inbox): Promise<TestResult> {
+export async function testInbox(inbox: Inbox, t: TFunction): Promise<TestResult> {
   try {
     if (inbox.kind === 'wa_cloud' || inbox.kind === 'wa_qr') {
       const r = await api<{ ok: boolean; display_phone_number: string; verified_name: string; quality_rating: string }>(
@@ -512,39 +522,47 @@ export async function testInbox(inbox: Inbox): Promise<TestResult> {
       )
       if (inbox.kind === 'wa_qr')
         return r.ok
-          ? { tone: 'ok', text: `Paired and connected${r.display_phone_number ? ` · ${r.display_phone_number}` : ''}.` }
-          : { tone: 'error', text: `Not connected (${r.quality_rating}) — pair it by scanning the QR.` }
+          ? {
+              tone: 'ok',
+              text: r.display_phone_number
+                ? t('channels.test.pairedAs', { number: r.display_phone_number })
+                : t('channels.test.paired'),
+            }
+          : { tone: 'error', text: t('channels.test.notPaired', { state: r.quality_rating }) }
       return r.ok
         ? {
             tone: 'ok',
-            text: `Credentials present for ${r.verified_name || inbox.name}${
-              r.display_phone_number ? ` · ${r.display_phone_number}` : ''
-            }.`,
+            text: r.display_phone_number
+              ? t('channels.test.credentialsFor', { name: r.verified_name || inbox.name, number: r.display_phone_number })
+              : t('channels.test.credentials', { name: r.verified_name || inbox.name }),
           }
-        : { tone: 'error', text: `Account is ${r.quality_rating} — check the token.` }
+        : { tone: 'error', text: t('channels.test.accountState', { state: r.quality_rating }) }
     }
     if (inbox.kind === 'website') {
       // The public config endpoint is exactly what the embed calls first.
       const res = await fetch(`${API}/widget/${encodeURIComponent(inbox.widget?.token ?? '')}/config`)
-      if (!res.ok) return { tone: 'error', text: `The widget did not answer (HTTP ${res.status}).` }
+      if (!res.ok) return { tone: 'error', text: t('channels.test.widgetSilent', { status: res.status }) }
       const cfg = (await res.json()) as { title?: string }
-      return { tone: 'ok', text: `Widget answers — it opens as “${cfg.title || inbox.name}”.` }
+      return { tone: 'ok', text: t('channels.test.widgetAnswers', { title: cfg.title || inbox.name }) }
     }
     if (inbox.kind === 'voice') {
       const r = await api<{ ok?: boolean; detail?: string }>('whatsapp/voice-settings/test', { method: 'POST' })
-      return { tone: r.ok ? 'ok' : 'info', text: r.detail || 'SIP trunk creds are set.' }
+      return { tone: r.ok ? 'ok' : 'info', text: r.detail || t('channels.test.sipSet') }
     }
     const r = await api<{ ok?: boolean; warning?: boolean; name?: string; id?: string; detail?: string }>(
       `messaging/accounts/${inbox.id}/test`,
       { method: 'POST', body: JSON.stringify({}) },
     )
     // a degraded verdict (e.g. "webhook not active") is a warning, not a pass
-    return { tone: r.warning ? 'info' : 'ok', text: r.detail || `Connected${r.name ? ` as ${r.name}` : ''}.` }
+    return {
+      tone: r.warning ? 'info' : 'ok',
+      text: r.detail || (r.name ? t('channels.test.connectedAs', { name: r.name }) : t('channels.test.connected')),
+    }
   } catch (e) {
     // 501 = the backend can't place a live probe for this provider yet; it
     // still says whether the stored config looks complete.
     if (e instanceof ApiError && e.status === 501) return { tone: 'info', text: e.message }
-    return { tone: 'error', text: errText(e) }
+    return { tone: 'error', text: errText(e, t) }
   }
 }
 
@@ -553,13 +571,13 @@ export interface InboxesSnapshot {
   teams: Team[]
   voice: VoiceSettings | null
   verifyToken: string
-  /** Which sources failed to load (the rest still render). */
-  failed: string[]
+  /** Which sources failed to load (translation keys; the rest still render). */
+  failed: MessageKey[]
 }
 
 /** Load every inbox source independently — one being down never blanks the page. */
 export async function loadInboxes(): Promise<InboxesSnapshot> {
-  const [wa, msg, widgets, voice, teams, settings] = await Promise.allSettled([
+  const [wa, msgs, widgets, voice, teams, settings] = await Promise.allSettled([
     api<{ accounts: WaAccount[] }>('whatsapp/accounts'),
     api<{ accounts: MessagingAccount[] }>('messaging/accounts'),
     api<{ widgets: Widget[] }>('widgets'),
@@ -567,20 +585,20 @@ export async function loadInboxes(): Promise<InboxesSnapshot> {
     api<{ teams: Team[] }>('teams'),
     api<{ verify_token: string }>('whatsapp/settings'),
   ])
-  const failed: string[] = []
+  const failed: MessageKey[] = []
   const inboxes: Inbox[] = []
   if (wa.status === 'fulfilled') inboxes.push(...(wa.value.accounts ?? []).map(fromWa))
-  else failed.push('WhatsApp')
-  if (msg.status === 'fulfilled')
-    inboxes.push(...(msg.value.accounts ?? []).filter((a) => SOCIAL_KIND[a.channel]).map(fromMessaging))
-  else failed.push('Email & social')
+  else failed.push('channels.sources.whatsapp')
+  if (msgs.status === 'fulfilled')
+    inboxes.push(...(msgs.value.accounts ?? []).filter((a) => SOCIAL_KIND[a.channel]).map(fromMessaging))
+  else failed.push('channels.sources.emailSocial')
   if (widgets.status === 'fulfilled') inboxes.push(...(widgets.value.widgets ?? []).map(fromWidget))
-  else failed.push('Website chat')
+  else failed.push('channels.sources.website')
   const v = voice.status === 'fulfilled' ? voice.value : null
   if (v) {
     const vi = fromVoice(v)
     if (vi) inboxes.push(vi)
-  } else failed.push('Voice')
+  } else failed.push('channels.sources.voice')
   return {
     inboxes,
     teams: teams.status === 'fulfilled' ? teams.value.teams ?? [] : [],

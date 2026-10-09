@@ -1,4 +1,68 @@
 import type { assistant as source } from '../en/assistant'
 import type { Dict } from '../../types'
 
-export const assistant: Dict<typeof source> = {}
+export const assistant: Dict<typeof source> = {
+  dock: {
+    name: 'Tanya ChatBranch',
+    tagline: 'Bertindak sebagai anda · perubahan menunggu kelulusan anda',
+    sandbox: 'Kotak pasir',
+    sandboxHint: 'Tiada model AI disambungkan, jadi saya hanya memahami permintaan ringkas dan panduan produk.',
+    history: 'Sejarah',
+    historySub: 'Sembang anda — hanya anda yang boleh melihatnya',
+    backToChat: 'Kembali ke sembang',
+    newChat: 'Sembang baharu',
+    close: 'Tutup pembantu',
+    opening: 'Membuka sembang anda…',
+    openFailed: 'Tidak dapat membuka sembang itu — {error}',
+    unreachable: 'Saya tidak dapat menghubungi pembantu — {error}',
+    expiredAskAgain: 'Ini telah tamat tempoh — tanya sekali lagi.',
+    helpTitle: 'Apa yang boleh saya bantu?',
+    helpBody:
+      'Tanya cara melakukan sesuatu, cari kenalan atau perbualan, atau minta saya menyediakan perubahan — saya akan tunjukkannya kepada anda sebelum apa-apa berlaku.',
+    pastChats: 'Sembang lepas anda',
+    thinking: 'Sedang berfikir',
+    placeholder: 'Tanya apa sahaja tentang ChatBranch…',
+    messageAria: 'Hantar mesej kepada pembantu',
+    keys: 'Enter untuk hantar · Shift+Enter untuk baris baharu · Esc untuk tutup',
+    hints: {
+      waiting: 'Berapa banyak sembang yang menunggu balasan?',
+      findContact: 'Cari kenalan…',
+      activity: 'Tunjukkan aktiviti terkini',
+      connectWhatsapp: 'Bagaimana saya menyambungkan WhatsApp?',
+      analytics: 'Pergi ke analitik',
+    },
+  },
+  action: {
+    needsConfirm: 'Perlukan pengesahan anda',
+    details: 'Butiran',
+    done: 'Selesai',
+    failed: 'Tidak berlaku',
+    cancelled: 'Dibatalkan',
+    expired: 'Tamat tempoh',
+  },
+  history: {
+    yourChats: 'Sembang anda',
+    yourChatsCount: 'Sembang anda · {n}',
+    clearAll: 'Kosongkan semua',
+    loading: 'Memuatkan sembang anda…',
+    loadFailed: 'Tidak dapat memuatkan sembang anda — {error}',
+    deleteFailed: 'Tidak dapat memadam sembang itu — {error}',
+    renameFailed: 'Tidak dapat menamakan semula sembang itu — {error}',
+    clearFailed: 'Tidak dapat mengosongkan sembang anda — {error}',
+    emptyTitle: 'Belum ada sembang',
+    emptyBody: 'Soalan yang anda tanya disimpan di sini, untuk anda sahaja, supaya anda boleh menyambung sembang kemudian.',
+    titleAria: 'Tajuk sembang',
+    saveTitle: 'Simpan tajuk',
+    cancelRename: 'Batal namakan semula',
+    keep: 'Simpan',
+    rename: 'Namakan semula',
+    renameAria: 'Namakan semula “{title}”',
+    deleteAria: 'Padam “{title}”',
+    older: 'Tunjukkan sembang lebih lama',
+    clearTitle: 'Kosongkan semua sembang?',
+    clearBody_one:
+      'Ini memadam sembang anda dengan Tanya ChatBranch. Ia tidak boleh dibuat asal, dan sebarang perubahan yang masih menunggu pengesahan anda akan dibatalkan. Sembang orang lain tidak terjejas.',
+    clearBody_other:
+      'Ini memadam kesemua {count} sembang anda dengan Tanya ChatBranch. Ia tidak boleh dibuat asal, dan sebarang perubahan yang masih menunggu pengesahan anda akan dibatalkan. Sembang orang lain tidak terjejas.',
+  },
+}
