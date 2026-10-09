@@ -275,6 +275,8 @@ public class IdentityRequestTests : IdentityApiBase, IClassFixture<IdentityFacto
         var contact = InScope((_, db) => db.Contacts.AsNoTracking().Single(c => c.Id == thread.ContactId));
         Assert.Equal("Wong Wei", contact.Name);
         Assert.Equal("+" + key, contact.Phone);
+        // an org-wide inbox in a single-tenant install: the contact still belongs to the tenant
+        Assert.NotNull(contact.TenantId);
     }
 
     [Fact]

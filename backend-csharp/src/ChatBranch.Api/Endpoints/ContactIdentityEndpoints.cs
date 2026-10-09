@@ -126,10 +126,10 @@ public static class ContactIdentityEndpoints
 
         // ---- per-inbox "unknown customers" setting ---------------------------
         app.MapGet("/api/inboxes/{accountId:int}/identify", async (int accountId, AppDbContext db,
-            ScopingService sc) =>
+            ScopingService sc, ClaimsPrincipal me) =>
         {
             var a = await db.ChannelAccounts.AsNoTracking().FirstOrDefaultAsync(x => x.Id == accountId);
-            if (a == null) return NotFound("Inbox not found.");
+            if (a == null || !await InboxInScopeAsync(db, sc, me, a)) return NotFound("Inbox not found.");
             return Results.Ok(IdentifyPayload(a, sc));
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.view");
 
@@ -137,7 +137,7 @@ public static class ContactIdentityEndpoints
             AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var a = await db.ChannelAccounts.FirstOrDefaultAsync(x => x.Id == accountId);
-            if (a == null) return NotFound("Inbox not found.");
+            if (a == null || !await InboxInScopeAsync(db, sc, me, a)) return NotFound("Inbox not found.");
             var err = IdentifySettings.Apply(a, Str(body, IdentifySettings.ModeKey), Str(body, IdentifySettings.MessageKey));
             if (err != null) return Bad(err);
             ChatBranch.Data.Audit.AuditTrail.Add(db, "inbox.identify", $"account:{a.Id}",
@@ -305,6 +305,15 @@ public static class ContactIdentityEndpoints
             return user;
         }
         catch { return null; }
+    }
+
+    /// <summary>An organization-wide inbox, or one inside the caller's entities.</summary>
+    private static async Task<bool> InboxInScopeAsync(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
+        ChannelAccount a)
+    {
+        if (a.EntityId is not int eid) return true;
+        var allowed = await AllowedEntityIdsAsync(db, sc, me);
+        return allowed == null || allowed.Contains(eid);
     }
 
     /// <summary>A conversation the caller may see (the inbox rule), or null.</summary>

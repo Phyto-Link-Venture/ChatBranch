@@ -129,6 +129,8 @@ public class ApiFactory : WebApplicationFactory<Program>
         // No periodic channel-health probes (nor post-save re-checks) against real
         // providers; TransportFactory opts back in with fake transports.
         Environment.SetEnvironmentVariable("HEALTH_WORKER", "0");
+        // no background WhatsApp number lookups (POST /api/contacts/identity-checks/run drives them)
+        Environment.SetEnvironmentVariable("IDENTITY_CHECK_WORKER", "0");
         Environment.SetEnvironmentVariable("AI_HUMANIZE", "0");
         // Production seeds clean (no admin/agent logins) since the deploy pass,
         // but the suite signs in as those users on nearly every test. A test

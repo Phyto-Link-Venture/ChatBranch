@@ -473,11 +473,18 @@ public class IdentityRequestService
         return outv;
     }
 
+    /// <summary>
+    /// The tenant a conversation belongs to: its (or its inbox's) entity's
+    /// tenant; an organization-wide inbox in a single-tenant install belongs to
+    /// that one tenant (a tenant-less contact would be invisible to its admins).
+    /// </summary>
     private int? TenantOf(Thread thread, ChannelAccount? account)
     {
         var entityId = thread.EntityId ?? account?.EntityId;
-        if (entityId is not int eid) return null;
-        return _db.Entities.AsNoTracking().Where(e => e.Id == eid).Select(e => (int?)e.TenantId).FirstOrDefault();
+        if (entityId is int eid)
+            return _db.Entities.AsNoTracking().Where(e => e.Id == eid).Select(e => (int?)e.TenantId).FirstOrDefault();
+        var tenants = _db.Tenants.AsNoTracking().Select(t => t.Id).Take(2).ToList();
+        return tenants.Count == 1 ? tenants[0] : null;
     }
 
     private void LinkThread(Thread thread, Contact contact)
