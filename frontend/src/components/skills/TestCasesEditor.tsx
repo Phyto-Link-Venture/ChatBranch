@@ -4,6 +4,7 @@ import { CheckCircle2, Plus, Trash2, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import type { TestResult } from './skillsApi'
+import { useT, type TFunction } from '@/i18n'
 
 /**
  * Editable test cases for a code skill. Tool cases take JSON arguments and a
@@ -48,41 +49,41 @@ export function testsToRows(kind: 'tool' | 'check', tests: unknown[]): TestRow[]
   })
 }
 
-/** Rows → the JSON the API stores. Returns an error naming the bad row. */
-export function rowsToTests(kind: 'tool' | 'check', rows: TestRow[]): { tests: unknown[]; error: string | null } {
+/** Rows → the JSON the API stores. Returns an error naming the bad row (in the dashboard's language). */
+export function rowsToTests(kind: 'tool' | 'check', rows: TestRow[], t: TFunction): { tests: unknown[]; error: string | null } {
   const tests: unknown[] = []
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i]
-    const label = r.name.trim() || `Test ${i + 1}`
-    const t: Record<string, unknown> = { ...r.rest, name: label }
+    const label = r.name.trim() || t('ai.tests.testN', { n: i + 1 })
+    const tc: Record<string, unknown> = { ...r.rest, name: label }
     if (kind === 'check') {
-      t.input = r.input
-      if (r.expect === 'pass') t.expect = true
-      else if (r.expect === 'fail') t.expect = false
+      tc.input = r.input
+      if (r.expect === 'pass') tc.expect = true
+      else if (r.expect === 'fail') tc.expect = false
       else if (r.expect.trim()) {
         try {
-          t.expect = JSON.parse(r.expect)
+          tc.expect = JSON.parse(r.expect)
         } catch {
-          return { tests: [], error: `“${label}”: the expectation is not valid JSON.` }
+          return { tests: [], error: t('ai.tests.errExpectJson', { label }) }
         }
       }
     } else {
       try {
-        t.args = r.input.trim() ? JSON.parse(r.input) : {}
+        tc.args = r.input.trim() ? JSON.parse(r.input) : {}
       } catch {
-        return { tests: [], error: `“${label}”: the arguments are not valid JSON.` }
+        return { tests: [], error: t('ai.tests.errArgsJson', { label }) }
       }
-      if (!isObj(t.args)) return { tests: [], error: `“${label}”: arguments must be a JSON object, like {"days": 3}.` }
+      if (!isObj(tc.args)) return { tests: [], error: t('ai.tests.errArgsObject', { label }) }
       if (r.expect.trim()) {
         try {
-          t.expect = JSON.parse(r.expect)
+          tc.expect = JSON.parse(r.expect)
         } catch {
-          return { tests: [], error: `“${label}”: the expected result is not valid JSON.` }
+          return { tests: [], error: t('ai.tests.errExpectedJson', { label }) }
         }
       }
     }
-    if (r.now.trim()) t.now = r.now.trim()
-    tests.push(t)
+    if (r.now.trim()) tc.now = r.now.trim()
+    tests.push(tc)
   }
   return { tests, error: null }
 }
@@ -104,6 +105,7 @@ export function TestCasesEditor({
   results?: TestResult[] | null
   readOnly?: boolean
 }) {
+  const t = useT()
   const edit = (i: number, patch: Partial<TestRow>) => onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
   const add = () =>
     onChange([
@@ -116,19 +118,19 @@ export function TestCasesEditor({
         <table className="w-full min-w-[720px] border-collapse text-left">
           <thead>
             <tr className="border-b border-line bg-fill-subtle text-[10.5px] font-bold uppercase tracking-[0.06em] text-text-muted">
-              <th className="w-7 px-2 py-2" aria-label="Result" />
-              <th className="w-[22%] px-2 py-2">Test</th>
-              <th className="px-2 py-2">{kind === 'tool' ? 'Arguments (JSON)' : 'Reply to check'}</th>
-              <th className="w-[26%] px-2 py-2">{kind === 'tool' ? 'Expected (keys to compare)' : 'Should'}</th>
-              <th className="w-[17%] px-2 py-2">Fixed time</th>
-              <th className="w-9 px-2 py-2" aria-label="Remove" />
+              <th className="w-7 px-2 py-2" aria-label={t('ai.tests.result')} />
+              <th className="w-[22%] px-2 py-2">{t('ai.tests.test')}</th>
+              <th className="px-2 py-2">{kind === 'tool' ? t('ai.tests.argsJson') : t('ai.tests.replyToCheck')}</th>
+              <th className="w-[26%] px-2 py-2">{kind === 'tool' ? t('ai.tests.expectedKeys') : t('ai.tests.should')}</th>
+              <th className="w-[17%] px-2 py-2">{t('ai.tests.fixedTime')}</th>
+              <th className="w-9 px-2 py-2" aria-label={t('common.actions.remove')} />
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-3 py-4 text-center text-[12px] text-text-muted">
-                  No test cases yet — add at least one so the skill can be switched on.
+                  {t('ai.tests.empty')}
                 </td>
               </tr>
             )}
@@ -139,9 +141,9 @@ export function TestCasesEditor({
                   <td className="px-2 pt-3">
                     {res ? (
                       res.pass ? (
-                        <CheckCircle2 size={14} className="text-green-300" aria-label="Passed" />
+                        <CheckCircle2 size={14} className="text-green-300" aria-label={t('ai.wizard.passed')} />
                       ) : (
-                        <XCircle size={14} className="text-red-300" aria-label="Failed" />
+                        <XCircle size={14} className="text-red-300" aria-label={t('ai.wizard.failed')} />
                       )
                     ) : (
                       <span className="mt-1 block h-2 w-2 rounded-full bg-fill-hover" aria-hidden />
@@ -151,8 +153,8 @@ export function TestCasesEditor({
                     <input
                       value={r.name}
                       disabled={readOnly}
-                      placeholder={`Test ${i + 1}`}
-                      aria-label={`Test ${i + 1} name`}
+                      placeholder={t('ai.tests.testN', { n: i + 1 })}
+                      aria-label={t('ai.tests.nameAria', { n: i + 1 })}
                       onChange={(e) => edit(i, { name: e.target.value })}
                       className={cell}
                     />
@@ -163,7 +165,7 @@ export function TestCasesEditor({
                         value={r.input}
                         disabled={readOnly}
                         spellCheck={false}
-                        aria-label={`Test ${i + 1} arguments`}
+                        aria-label={t('ai.tests.argsAria', { n: i + 1 })}
                         onChange={(e) => edit(i, { input: e.target.value })}
                         className={`${cell} font-mono`}
                       />
@@ -172,8 +174,8 @@ export function TestCasesEditor({
                         value={r.input}
                         disabled={readOnly}
                         rows={2}
-                        aria-label={`Test ${i + 1} reply`}
-                        placeholder="A reply the AI might write…"
+                        aria-label={t('ai.tests.replyAria', { n: i + 1 })}
+                        placeholder={t('ai.tests.replyPlaceholder')}
                         onChange={(e) => edit(i, { input: e.target.value })}
                         className={`${cell} resize-y leading-[1.5]`}
                       />
@@ -185,10 +187,10 @@ export function TestCasesEditor({
                         value={r.expect || 'pass'}
                         onChange={(v) => edit(i, { expect: v })}
                         disabled={readOnly}
-                        ariaLabel={`Test ${i + 1} expectation`}
+                        ariaLabel={t('ai.tests.expectAria', { n: i + 1 })}
                         options={[
-                          { value: 'pass', label: 'Pass (send it)' },
-                          { value: 'fail', label: 'Fail (stop it)' },
+                          { value: 'pass', label: t('ai.tests.pass') },
+                          { value: 'fail', label: t('ai.tests.fail') },
                         ]}
                       />
                     ) : (
@@ -197,14 +199,14 @@ export function TestCasesEditor({
                         disabled={readOnly}
                         spellCheck={false}
                         placeholder={kind === 'tool' ? '{"open": true}' : '{"ok": false}'}
-                        aria-label={`Test ${i + 1} expected result`}
+                        aria-label={t('ai.tests.expectedAria', { n: i + 1 })}
                         onChange={(e) => edit(i, { expect: e.target.value })}
                         className={`${cell} font-mono`}
                       />
                     )}
                     {res && !res.pass && (
                       <div className="mt-1.5 break-words font-mono text-[11px] leading-[1.45] text-[color:var(--red-ink)]">
-                        {res.error ? res.error : `got ${JSON.stringify(res.got)}`}
+                        {res.error ? res.error : t('ai.tests.gotValue', { value: JSON.stringify(res.got) })}
                       </div>
                     )}
                   </td>
@@ -213,9 +215,9 @@ export function TestCasesEditor({
                       value={r.now}
                       disabled={readOnly}
                       spellCheck={false}
-                      placeholder="now"
-                      title="Pin the clock, e.g. 2026-10-05T10:00 (business timezone)"
-                      aria-label={`Test ${i + 1} fixed time`}
+                      placeholder={t('ai.tests.nowPlaceholder')}
+                      title={t('ai.tests.nowTitle')}
+                      aria-label={t('ai.tests.fixedAria', { n: i + 1 })}
                       onChange={(e) => edit(i, { now: e.target.value })}
                       className={`${cell} font-mono`}
                     />
@@ -225,7 +227,7 @@ export function TestCasesEditor({
                       <button
                         type="button"
                         onClick={() => onChange(rows.filter((_, j) => j !== i))}
-                        aria-label={`Remove test ${i + 1}`}
+                        aria-label={t('ai.tests.removeAria', { n: i + 1 })}
                         className="grid h-7 w-7 place-items-center rounded-md text-text-muted transition-colors hover:bg-red/10 hover:text-[color:var(--red-ink)]"
                       >
                         <Trash2 size={13} aria-hidden />
@@ -240,7 +242,7 @@ export function TestCasesEditor({
       </div>
       {!readOnly && (
         <Button variant="ghost" size="sm" onClick={add} className="mt-2">
-          <Plus size={13} aria-hidden /> Add test case
+          <Plus size={13} aria-hidden /> {t('ai.tests.addCase')}
         </Button>
       )}
     </div>

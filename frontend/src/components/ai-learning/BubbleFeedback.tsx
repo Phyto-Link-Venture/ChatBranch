@@ -20,6 +20,7 @@ import { ThumbsDown, ThumbsUp } from 'lucide-react'
 import { useAccess } from '@/lib/useAccess'
 import { feedbackApi, messagePk, type MyFeedback } from '@/lib/aiLearning'
 import { ThumbButtons, useFeedbackController } from './FeedbackThumbs'
+import { useT } from '@/i18n'
 
 interface MsgLike {
   id: string
@@ -96,12 +97,14 @@ export function useAiFeedback(messages: MsgLike[]): AiFeedbackStore {
 
 /** Drop-in for the bubble's "AI assistant" source label. */
 export function AiBubbleFeedback({ m, store }: { m: MsgLike; store: AiFeedbackStore }) {
+  const t = useT()
   const pk = messagePk(m as MsgLike & { pk?: unknown })
-  if (!store.enabled || pk == null) return <span className="cb-bubble-source">AI assistant</span>
+  if (!store.enabled || pk == null) return <span className="cb-bubble-source">{t('ai.feedback.aiAssistant')}</span>
   return <Rated pk={pk} m={m} store={store} />
 }
 
 function Rated({ pk, m, store }: { pk: number; m: MsgLike; store: AiFeedbackStore }) {
+  const t = useT()
   const value = store.ratings[pk] ?? null
   const onChange = useCallback((v: MyFeedback | null) => store.set(pk, v), [store, pk])
   const target = useMemo(() => ({ message_id: pk }), [pk])
@@ -116,10 +119,16 @@ function Rated({ pk, m, store }: { pk: number; m: MsgLike; store: AiFeedbackStor
           type="button"
           onClick={() => store.toggleReveal(pk)}
           aria-expanded={revealed}
-          aria-label={`AI assistant${value ? (value.rating === 1 ? ' — you rated this helpful' : ' — you rated this not helpful') : ''}. Rate this reply`}
+          aria-label={
+            value
+              ? value.rating === 1
+                ? t('ai.feedback.rateAriaHelpful')
+                : t('ai.feedback.rateAriaNotHelpful')
+              : t('ai.feedback.rateAria')
+          }
           className="inline-flex cursor-pointer items-center gap-1 uppercase underline-offset-2 hover:underline"
         >
-          AI assistant
+          {t('ai.feedback.aiAssistant')}
           {value?.rating === 1 && <ThumbsUp size={9} strokeWidth={2.4} fill="currentColor" aria-hidden />}
           {value?.rating === -1 && <ThumbsDown size={9} strokeWidth={2.4} fill="currentColor" aria-hidden />}
         </button>
@@ -140,7 +149,7 @@ function Rated({ pk, m, store }: { pk: number; m: MsgLike; store: AiFeedbackStor
       {/* phones: tap the label, the buttons appear inside the bubble */}
       {revealed && (
         <span className="mb-1 mt-0.5 flex items-center gap-2 sm:hidden" style={{ whiteSpace: 'normal' }}>
-          <span className="text-[11px] opacity-75">Rate this reply</span>
+          <span className="text-[11px] opacity-75">{t('ai.feedback.rateThisReply')}</span>
           <ThumbButtons c={c} tone="bubble" />
         </span>
       )}

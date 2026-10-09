@@ -3,6 +3,7 @@
 import { BookOpen } from 'lucide-react'
 import { AreaPage } from '@/components/shell/AreaPage'
 import { KnowledgeSettings } from '@/components/settings/KnowledgeSettings'
+import { useT } from '@/i18n'
 
 /**
  * Knowledge Base is a CONTENT library the operator maintains (opening hours,
@@ -10,10 +11,12 @@ import { KnowledgeSettings } from '@/components/settings/KnowledgeSettings'
  * next to the other libraries rather than under Settings.
  */
 export default function KnowledgePage() {
+  const t = useT()
   return (
     <AreaPage
-      title="Knowledge Base"
-      subtitle="What the AI knows about your business — facts, policies, FAQs and notices"
+      title={t('shell.nav.knowledge')}
+      eyebrow={t('shell.groups.library')}
+      subtitle={t('ai.pages.knowledgeSubtitle')}
       Icon={BookOpen}
     >
       <KnowledgeSettings />

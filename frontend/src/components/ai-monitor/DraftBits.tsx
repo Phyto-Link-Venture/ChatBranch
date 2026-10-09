@@ -25,11 +25,12 @@ import {
 } from 'lucide-react'
 import { ChannelLogo, channelLabel } from '@/components/ui/ChannelLogo'
 import { tint } from '@/lib/color'
+import { useFormat, useT } from '@/i18n'
 import {
   KIND_LABEL,
   STATUS_META,
-  ago,
   draftBookingVerb,
+  parseUtc,
   type Draft,
   type DraftStatus,
   type RecentMessage,
@@ -45,10 +46,11 @@ const TONE: Record<string, string> = {
 }
 
 export function StatusBadge({ status }: { status: DraftStatus }) {
+  const t = useT()
   const m = STATUS_META[status] ?? STATUS_META.pending
   return (
     <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${TONE[m.tone]}`}>
-      {m.label}
+      {t(m.label)}
     </span>
   )
 }
@@ -63,6 +65,9 @@ export function chatHref(d: Draft): string {
 
 /** Contact · channel logo · account · entity · kind · age */
 export function DraftHeader({ d, right }: { d: Draft; right?: React.ReactNode }) {
+  const t = useT()
+  const f = useFormat()
+  const created = parseUtc(d.created_at)
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
       <ChannelLogo channel={d.channel} size={16} />
@@ -73,10 +78,10 @@ export function DraftHeader({ d, right }: { d: Draft; right?: React.ReactNode })
         {d.entity ? ` · ${d.entity.name}` : ''}
       </span>
       <span className="rounded-md border border-line px-1.5 py-px text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">
-        {KIND_LABEL[d.kind] ?? d.kind}
+        {KIND_LABEL[d.kind] ? t(KIND_LABEL[d.kind]) : d.kind}
       </span>
-      <span className="text-[11.5px] text-text-faint" title={d.created_at}>
-        {ago(d.created_at)} ago
+      <span className="text-[11.5px] text-text-faint" title={f.dateTime(created)}>
+        {f.relative(created)}
       </span>
       {right && <span className="ml-auto flex items-center gap-2">{right}</span>}
     </div>
@@ -112,20 +117,26 @@ function asText(v: unknown): string {
 
 /** Tools called, checks run, model + tokens, retries, flow refs — compact, details on hover. */
 export function ContextChips({ d }: { d: Draft }) {
+  const t = useT()
   const c = d.context || {}
   const tools = Array.isArray(c.tools) ? c.tools : []
   const checks = Array.isArray(c.checks) ? c.checks : []
   const tokens = (c.prompt_tokens ?? 0) + (c.completion_tokens ?? 0)
   const chips: React.ReactNode[] = []
-  tools.forEach((t, i) =>
+  tools.forEach((tool, i) =>
     chips.push(
       <Chip
         key={`t${i}`}
         Icon={Wrench}
-        tone={t.ok === false ? 'red' : 'muted'}
-        title={`Tool ${t.name ?? ''}${t.ok === false ? ' failed' : ''}${t.result ? `\nResult: ${asText(t.result).slice(0, 400)}` : ''}`}
+        tone={tool.ok === false ? 'red' : 'muted'}
+        title={[
+          t(tool.ok === false ? 'ai.draft.toolFailedTitle' : 'ai.draft.toolTitle', { name: tool.name ?? '' }),
+          tool.result ? t('ai.draft.resultLine', { result: asText(tool.result).slice(0, 400) }) : '',
+        ]
+          .filter(Boolean)
+          .join('\n')}
       >
-        {t.name ?? 'tool'}
+        {tool.name ?? t('ai.draft.tool')}
       </Chip>,
     ),
   )
@@ -141,9 +152,11 @@ export function ContextChips({ d }: { d: Draft }) {
           key={`c${i}`}
           Icon={failed ? X : Check}
           tone={failed ? 'red' : 'green'}
-          title={`Check ${k.name ?? ''}: ${failed ? 'failed' : 'passed'}${why ? `\n${why}` : ''}`}
+          title={[t(failed ? 'ai.draft.checkFailedTitle' : 'ai.draft.checkPassedTitle', { name: k.name ?? '' }), why ?? '']
+            .filter(Boolean)
+            .join('\n')}
         >
-          {k.name ?? 'check'}
+          {k.name ?? t('ai.draft.check')}
         </Chip>,
       )
     })
@@ -153,21 +166,29 @@ export function ContextChips({ d }: { d: Draft }) {
         key="act"
         Icon={AlertTriangle}
         tone="red"
-        title={`The assistant ${c.action === 'block' ? 'blocked this reply' : 'asked for a person'}${c.reason ? `: ${String(c.reason)}` : ''}`}
+        title={
+          c.action === 'block'
+            ? c.reason
+              ? t('ai.draft.blockedReasonTitle', { reason: String(c.reason) })
+              : t('ai.draft.blockedTitle')
+            : c.reason
+              ? t('ai.draft.handoverAskReasonTitle', { reason: String(c.reason) })
+              : t('ai.draft.handoverAskTitle')
+        }
       >
-        {c.action === 'block' ? 'blocked by a check' : 'asked for a person'}
+        {c.action === 'block' ? t('ai.draft.blockedChip') : t('ai.draft.askedChip')}
       </Chip>,
     )
   if (typeof c.retries === 'number' && c.retries > 0)
     chips.push(
-      <Chip key="r" Icon={RotateCcw} tone="amber" title="The AI rewrote its answer after a check">
-        {c.retries} retr{c.retries === 1 ? 'y' : 'ies'}
+      <Chip key="r" Icon={RotateCcw} tone="amber" title={t('ai.draft.retriesTitle')}>
+        {t('ai.draft.retries', { count: c.retries })}
       </Chip>,
     )
   if (c.handover && c.action !== 'handover')
     chips.push(
-      <Chip key="h" Icon={UserRound} tone="amber" title="The AI asked for a person to take over">
-        handover
+      <Chip key="h" Icon={UserRound} tone="amber" title={t('ai.draft.handoverTitle')}>
+        {t('ai.draft.handoverChip')}
       </Chip>,
     )
   if (c.model)
@@ -175,28 +196,43 @@ export function ContextChips({ d }: { d: Draft }) {
       <Chip
         key="m"
         Icon={Cpu}
-        title={`Model ${c.model}${c.provider ? ` (${c.provider})` : ''}${tokens ? `\n${c.prompt_tokens ?? 0} prompt + ${c.completion_tokens ?? 0} completion tokens` : ''}`}
+        title={[
+          c.provider
+            ? t('ai.draft.modelProviderTitle', { model: String(c.model), provider: String(c.provider) })
+            : t('ai.draft.modelTitle', { model: String(c.model) }),
+          tokens ? t('ai.draft.tokensLine', { prompt: c.prompt_tokens ?? 0, completion: c.completion_tokens ?? 0 }) : '',
+        ]
+          .filter(Boolean)
+          .join('\n')}
       >
         {c.model}
-        {tokens ? ` · ${tokens} tok` : ''}
+        {tokens ? ` · ${t('ai.draft.tokensShort', { count: tokens })}` : ''}
       </Chip>,
     )
   if (c.flow_run_id)
     chips.push(
-      <Chip key="f" Icon={GitBranch} title={`Flow run #${c.flow_run_id}${c.flow_node ? `, step ${c.flow_node}` : ''}`}>
-        flow #{String(c.flow_run_id)}
+      <Chip
+        key="f"
+        Icon={GitBranch}
+        title={
+          c.flow_node
+            ? t('ai.draft.flowStepTitle', { id: String(c.flow_run_id), step: String(c.flow_node) })
+            : t('ai.draft.flowTitle', { id: String(c.flow_run_id) })
+        }
+      >
+        {t('ai.draft.flowChip', { id: String(c.flow_run_id) })}
       </Chip>,
     )
   if (c.template)
     chips.push(
-      <Chip key="tpl" title="Sent as an approved WhatsApp template (the 24-hour window had closed)">
-        template {String(c.template)}
+      <Chip key="tpl" title={t('ai.draft.templateTitle')}>
+        {t('ai.draft.templateChip', { name: String(c.template) })}
       </Chip>,
     )
   if (c.acknowledgement)
     chips.push(
-      <Chip key="ack" Icon={Bot} title="The customer only acknowledged — this is the short acknowledgement text">
-        acknowledgement
+      <Chip key="ack" Icon={Bot} title={t('ai.draft.ackTitle')}>
+        {t('ai.draft.ackChip')}
       </Chip>,
     )
   if (chips.length === 0) return null
@@ -228,6 +264,7 @@ export function DraftBookings({
   /** Phrasing content only (inside a <button> row): one muted line. */
   inline?: boolean
 }) {
+  const t = useT()
   const list = Array.isArray(d.bookings) ? d.bookings : []
   if (!list.length) return null
   const held = d.status === 'pending'
@@ -240,14 +277,15 @@ export function DraftBookings({
           return (
             <span key={`${b.type}:${b.booking_id}`} className="inline-flex items-center gap-1 text-text-muted">
               <Icon size={11} className={BOOKING_INK[v.tone]} aria-hidden />
-              <span className={`font-semibold ${BOOKING_INK[v.tone]}`}>{v.verb}:</span> {b.label || `#${b.booking_id}`}
+              <span className={`font-semibold ${BOOKING_INK[v.tone]}`}>{t('ai.draft.bookingVerb', { verb: t(v.verb) })}</span>{' '}
+              {b.label || `#${b.booking_id}`}
             </span>
           )
         })}
       </span>
     )
   return (
-    <ul aria-label="Calendar actions in this reply" className="flex flex-col gap-1">
+    <ul aria-label={t('ai.draft.calendarActionsLabel')} className="flex flex-col gap-1">
       {list.map((b) => {
         const v = draftBookingVerb(b)
         const Icon = b.type === 'cancel' ? CalendarX : CalendarPlus
@@ -260,12 +298,13 @@ export function DraftBookings({
           >
             <Icon size={13} className={`mt-px shrink-0 ${BOOKING_INK[v.tone]}`} aria-hidden />
             <span className="min-w-0 text-text-high">
-              <b className={`font-semibold ${BOOKING_INK[v.tone]}`}>{v.verb}:</b> {b.label || `booking #${b.booking_id}`}
+              <b className={`font-semibold ${BOOKING_INK[v.tone]}`}>{t('ai.draft.bookingVerb', { verb: t(v.verb) })}</b>{' '}
+              {b.label || t('ai.draft.bookingFallback', { id: String(b.booking_id) })}
               {b.calendar_label && <span className="text-text-muted"> · {b.calendar_label}</span>}
               {held && v.tone === 'pending' && (
                 <span className="text-text-muted">
                   {' '}
-                  — {b.type === 'cancel' ? 'approving cancels it' : 'approving books it'}
+                  {b.type === 'cancel' ? t('ai.draft.approvingCancels') : t('ai.draft.approvingBooks')}
                 </span>
               )}
             </span>
@@ -278,9 +317,11 @@ export function DraftBookings({
 
 /** "Why it was held" — the gate's reasons, plain language. */
 export function HoldReasons({ reasons }: { reasons: string[] }) {
+  const t = useT()
   if (!reasons.length) return null
+  // the reasons themselves are the server's words (stored with the draft)
   return (
-    <ul className="flex flex-wrap gap-1" aria-label="Why this was held">
+    <ul className="flex flex-wrap gap-1" aria-label={t('ai.draft.holdLabel')}>
       {reasons.map((r) => (
         <li key={r}>
           <Chip Icon={AlertTriangle} tone="amber">
@@ -294,6 +335,7 @@ export function HoldReasons({ reasons }: { reasons: string[] }) {
 
 /** The recent conversation, oldest first — customer left, the business right. */
 export function ConversationSnippet({ messages, highlight }: { messages: RecentMessage[]; highlight?: Set<number> }) {
+  const t = useT()
   if (!messages.length) return null
   return (
     <ol className="flex flex-col gap-1.5">
@@ -308,7 +350,7 @@ export function ConversationSnippet({ messages, highlight }: { messages: RecentM
             >
               {mine && (
                 <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-text-faint">
-                  {m.source === 'ai' ? 'AI' : m.source === 'agent' ? 'Team' : m.source}
+                  {m.source === 'ai' ? t('ai.common.ai') : m.source === 'agent' ? t('ai.common.team') : m.source}
                 </span>
               )}
               {m.text}
@@ -323,10 +365,11 @@ export function ConversationSnippet({ messages, highlight }: { messages: RecentM
 /** Live countdown to the auto-send deadline. Counts down from the server's own
  *  seconds_left at fetch time, so a skewed client clock can't misreport it. */
 export function Countdown({ secondsLeft, fetchedAt }: { secondsLeft: number | null; fetchedAt: number }) {
+  const t = useT()
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    const t = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(t)
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
   }, [])
   if (secondsLeft == null) return null
   const left = Math.max(0, Math.round(secondsLeft - (now - fetchedAt) / 1000))
@@ -335,10 +378,10 @@ export function Countdown({ secondsLeft, fetchedAt }: { secondsLeft: number | nu
   return (
     <span
       className="inline-flex items-center gap-1 rounded-md bg-amber/15 px-1.5 py-0.5 text-[11px] font-semibold text-amber-300"
-      title="Nobody has acted yet — it will be sent automatically at the deadline"
+      title={t('ai.draft.countdownTitle')}
     >
       <Clock size={11} strokeWidth={2.2} aria-hidden />
-      {left === 0 ? 'Sending…' : `Sends itself in ${m}:${String(s).padStart(2, '0')}`}
+      {left === 0 ? t('ai.draft.sending') : t('ai.draft.sendsIn', { time: `${m}:${String(s).padStart(2, '0')}` })}
     </span>
   )
 }

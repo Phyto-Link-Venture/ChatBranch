@@ -15,15 +15,10 @@ import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { UPLOAD_ACCEPT, uploadKnowledge, uploadProblem, type UploadResult } from '@/lib/aiLearning'
+import { Trans, useFormat, useT } from '@/i18n'
 
 const fieldCls =
   'w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none transition-colors placeholder:text-text-faint focus:border-brand-400'
-
-function size(n: number): string {
-  if (n < 1024) return `${n} B`
-  if (n < 1048576) return `${Math.round(n / 1024)} KB`
-  return `${(n / 1048576).toFixed(1)} MB`
-}
 
 /** The "Upload document" button + its modal. */
 export function KnowledgeUploadButton({
@@ -35,11 +30,12 @@ export function KnowledgeUploadButton({
   defaultEntity: string | null
   onUploaded: (r: UploadResult) => void
 }) {
+  const t = useT()
   const [open, setOpen] = useState(false)
   return (
     <>
       <Button variant="secondary" onClick={() => setOpen(true)}>
-        <Upload size={13} aria-hidden /> Upload document
+        <Upload size={13} aria-hidden /> {t('ai.upload.button')}
       </Button>
       <UploadModal open={open} onClose={() => setOpen(false)} kinds={kinds} defaultEntity={defaultEntity} onUploaded={onUploaded} />
     </>
@@ -59,6 +55,15 @@ function UploadModal({
   defaultEntity: string | null
   onUploaded: (r: UploadResult) => void
 }) {
+  const t = useT()
+  const f = useFormat()
+  const mb = (n: number) => f.number(n, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+  const size = (n: number) =>
+    n < 1024
+      ? t('ai.units.bytes', { n })
+      : n < 1048576
+        ? t('ai.units.kb', { n: Math.round(n / 1024) })
+        : t('ai.units.mb', { n: mb(n / 1048576) })
   const [file, setFile] = useState<File | null>(null)
   const [kind, setKind] = useState('fact')
   const [title, setTitle] = useState('')
@@ -93,12 +98,12 @@ function UploadModal({
 
   const busy = progress !== null
 
-  const pick = (f: File | null | undefined) => {
-    if (!f) return
+  const pick = (picked: File | null | undefined) => {
+    if (!picked) return
     setDone(null)
-    const problem = uploadProblem(f)
+    const problem = uploadProblem(picked, t, mb)
     setError(problem)
-    setFile(problem ? null : f)
+    setFile(problem ? null : picked)
   }
 
   const close = () => {
@@ -111,7 +116,7 @@ function UploadModal({
     if (!file || busy) return
     setError(null)
     setProgress(0)
-    const { promise, abort } = uploadKnowledge(file, { kind, title: title.trim(), entity }, (f) => setProgress(f))
+    const { promise, abort } = uploadKnowledge(file, { kind, title: title.trim(), entity }, t, (p) => setProgress(p))
     abortRef.current = abort
     try {
       const r = await promise
@@ -133,27 +138,28 @@ function UploadModal({
     <Modal
       open={open}
       onClose={close}
-      title="Upload a document"
-      subtitle="The AI reads the text — price lists, policies, a product manual. The file itself isn’t kept."
+      title={t('ai.upload.title')}
+      subtitle={t('ai.upload.subtitle')}
       labelledById="kb-upload-title"
       closeOnScrim={!busy}
       footer={
         done ? (
           <>
             <Button size="sm" variant="secondary" onClick={reset}>
-              Upload another
+              {t('ai.upload.uploadAnother')}
             </Button>
             <Button size="sm" variant="primary" onClick={close} autoFocus>
-              Done
+              {t('common.actions.done')}
             </Button>
           </>
         ) : (
           <>
             <Button size="sm" variant="secondary" onClick={close}>
-              {busy ? 'Cancel upload' : 'Cancel'}
+              {busy ? t('ai.upload.cancelUpload') : t('common.actions.cancel')}
             </Button>
             <Button size="sm" variant="primary" disabled={!file || busy} onClick={() => void upload()}>
-              {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Upload size={13} aria-hidden />} Upload
+              {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Upload size={13} aria-hidden />}{' '}
+              {t('common.actions.upload')}
             </Button>
           </>
         )
@@ -169,11 +175,15 @@ function UploadModal({
         <div role="status" className="flex items-start gap-3 rounded-xl border border-line bg-well px-4 py-4">
           <CheckCircle size={18} className="mt-0.5 shrink-0 text-[color:var(--green-ink)]" aria-hidden />
           <div className="min-w-0 text-[13px] leading-relaxed text-text-high">
-            <div className="font-semibold text-text-heading">Added “{done.item?.title || done.item?.source_file || 'document'}”</div>
+            <div className="font-semibold text-text-heading">
+              {t('ai.upload.added', {
+                title: done.item?.title || done.item?.source_file || t('ai.upload.documentFallback'),
+              })}
+            </div>
             <div className="text-text-mid">
-              {(done.chars ?? 0).toLocaleString()} characters of text
-              {typeof done.chunks === 'number' ? `, split into ${done.chunks} piece${done.chunks === 1 ? '' : 's'} for search` : ''}. The AI
-              can use it from the next message.
+              {typeof done.chunks === 'number'
+                ? t('ai.upload.charsSplit', { chars: done.chars ?? 0, count: done.chunks })
+                : t('ai.upload.charsOnly', { chars: done.chars ?? 0 })}
             </div>
           </div>
         </div>
@@ -196,24 +206,30 @@ function UploadModal({
           >
             <Upload size={22} className="text-text-muted" aria-hidden />
             <div className="text-[13px] text-text-high">
-              Drag a file here, or{' '}
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => inputRef.current?.click()}
-                className="font-semibold text-text-heading underline underline-offset-2"
-              >
-                choose one
-              </button>
+              <Trans
+                k="ai.upload.dragHere"
+                values={{
+                  choose: (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => inputRef.current?.click()}
+                      className="font-semibold text-text-heading underline underline-offset-2"
+                    >
+                      {t('ai.upload.chooseOne')}
+                    </button>
+                  ),
+                }}
+              />
             </div>
-            <div className="text-[11.5px] text-text-muted">PDF, text, Markdown or CSV · up to 10 MB</div>
+            <div className="text-[11.5px] text-text-muted">{t('ai.upload.formats')}</div>
             <input
               ref={inputRef}
               type="file"
               accept={UPLOAD_ACCEPT}
               className="sr-only"
               tabIndex={-1}
-              aria-label="Choose a document"
+              aria-label={t('ai.upload.chooseDoc')}
               onChange={(e) => {
                 pick(e.target.files?.[0])
                 e.target.value = ''
@@ -230,7 +246,7 @@ function UploadModal({
                 <button
                   type="button"
                   onClick={() => setFile(null)}
-                  aria-label={`Remove ${file.name}`}
+                  aria-label={t('ai.upload.remove', { name: file.name })}
                   className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-text-muted hover:bg-fill-hover hover:text-text-high"
                 >
                   <X size={13} aria-hidden />
@@ -242,10 +258,17 @@ function UploadModal({
           {busy && (
             <div>
               <div className="mb-1 flex justify-between text-[12px] text-text-mid">
-                <span>{pct < 100 ? 'Uploading…' : 'Reading the document…'}</span>
-                <span className="tabular-nums text-text-faint">{pct}%</span>
+                <span>{pct < 100 ? t('ai.upload.uploading') : t('ai.upload.reading')}</span>
+                <span className="tabular-nums text-text-faint">{f.percent(pct / 100)}</span>
               </div>
-              <div className="h-1.5 w-full rounded-full bg-fill" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Upload progress">
+              <div
+                className="h-1.5 w-full rounded-full bg-fill"
+                role="progressbar"
+                aria-valuenow={pct}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label={t('ai.upload.progressAria')}
+              >
                 <div className="h-1.5 rounded-full bg-primary transition-[width]" style={{ width: `${pct}%` }} />
               </div>
             </div>
@@ -253,35 +276,43 @@ function UploadModal({
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block min-w-0">
-              <span className="mb-1 block text-[12px] font-semibold text-text-high">Type</span>
+              <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('common.fields.type')}</span>
               <Select
                 value={kind}
                 onChange={setKind}
                 disabled={busy}
-                options={(kinds.length ? kinds : [{ id: 'fact', label: 'Business fact' }]).map((k) => ({ value: k.id, label: k.label }))}
+                options={(kinds.length ? kinds : [{ id: 'fact', label: t('ai.knowledge.kinds.fact') }]).map((k) => ({
+                  value: k.id,
+                  label: k.label,
+                }))}
                 size="md"
-                ariaLabel="Type"
+                ariaLabel={t('common.fields.type')}
                 className="w-full"
               />
             </label>
             <label className="block min-w-0">
-              <span className="mb-1 block text-[12px] font-semibold text-text-high">Title (optional)</span>
+              <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('ai.common.titleOptional')}</span>
               <input
                 value={title}
                 disabled={busy}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder={file?.name ?? 'The file name'}
+                placeholder={file?.name ?? t('ai.upload.fileName')}
                 className={fieldCls}
               />
             </label>
           </div>
           <label className="block">
-            <span className="mb-1 block text-[12px] font-semibold text-text-high">Applies to</span>
-            <EntityPicker ariaLabel="Applies to" value={entity} onChange={setEntity} disabled={busy} globalLabel="All entities (organization-wide)" className="w-full" />
+            <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('ai.common.appliesTo')}</span>
+            <EntityPicker
+              ariaLabel={t('ai.common.appliesTo')}
+              value={entity}
+              onChange={setEntity}
+              disabled={busy}
+              globalLabel={t('ai.common.allEntitiesOrg')}
+              className="w-full"
+            />
           </label>
-          <p className="text-[11.5px] leading-relaxed text-text-muted">
-            Scanned PDFs (pictures of pages) have no text to read — export a text PDF or paste the content into a new entry instead.
-          </p>
+          <p className="text-[11.5px] leading-relaxed text-text-muted">{t('ai.upload.scanned')}</p>
         </div>
       )}
     </Modal>

@@ -15,15 +15,17 @@ import { useEffect, useState } from 'react'
 import { AlertCircle, Loader2, Sparkles } from 'lucide-react'
 import { Select } from '@/components/ui/Select'
 import { embeddingProviderLabel, learningApi, type LearningStatus } from '@/lib/aiLearning'
+import { useT, type TFunction } from '@/i18n'
 
 export const EMBEDDING_KEYS = ['embedding_provider', 'embedding_model']
 
-const PROVIDERS: { value: string; label: string; hint: string }[] = [
-  { value: '', label: 'Automatic', hint: 'OpenAI → Gemini → local' },
-  { value: 'openai', label: 'OpenAI', hint: 'uses the OpenAI key' },
-  { value: 'google', label: 'Google Gemini', hint: 'uses the Google key' },
-  { value: 'local', label: 'Local server', hint: 'OpenAI-compatible /embeddings at the local base URL' },
-  { value: 'none', label: 'Off', hint: 'keyword search only' },
+/** Provider choices (OpenAI / Google Gemini are brand names and stay as they are). */
+const providers = (t: TFunction): { value: string; label: string; hint: string }[] => [
+  { value: '', label: t('ai.embeddings.providers.auto'), hint: t('ai.embeddings.providers.autoHint') },
+  { value: 'openai', label: 'OpenAI', hint: t('ai.embeddings.providers.openaiHint') },
+  { value: 'google', label: 'Google Gemini', hint: t('ai.embeddings.providers.googleHint') },
+  { value: 'local', label: t('ai.embeddings.providers.local'), hint: t('ai.embeddings.providers.localHint') },
+  { value: 'none', label: t('ai.embeddings.providers.off'), hint: t('ai.embeddings.providers.offHint') },
 ]
 
 const DEFAULT_MODEL: Record<string, string> = {
@@ -46,6 +48,7 @@ export function EmbeddingsSection({
   disabled: boolean
   onChange: (key: string, value: string) => void
 }) {
+  const t = useT()
   const [status, setStatus] = useState<LearningStatus | null | undefined>(undefined)
 
   useEffect(() => {
@@ -61,9 +64,11 @@ export function EmbeddingsSection({
   const e = status?.embedding
   const placeholder =
     provider === 'none'
-      ? 'not used'
+      ? t('ai.embeddings.notUsed')
       : DEFAULT_MODEL[provider] ??
-        (e?.provider && DEFAULT_MODEL[e.provider] ? `${DEFAULT_MODEL[e.provider]} (provider default)` : 'Provider default')
+        (e?.provider && DEFAULT_MODEL[e.provider]
+          ? t('ai.embeddings.providerDefaultFor', { model: DEFAULT_MODEL[e.provider] })
+          : t('ai.embeddings.providerDefault'))
 
   return (
     <div className="rounded-xl border border-line bg-card p-4">
@@ -71,32 +76,26 @@ export function EmbeddingsSection({
         <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-fill">
           <Sparkles size={14} className="text-brand-300" aria-hidden />
         </span>
-        <span className="text-[12.5px] font-bold text-text-high">Embeddings (semantic search)</span>
+        <span className="text-[12.5px] font-bold text-text-high">{t('ai.embeddings.title')}</span>
       </div>
-      <p className="mb-3 mt-1 max-w-[680px] text-[11px] leading-relaxed text-text-muted">
-        Lets the AI find the right knowledge and lessons by meaning, so “can I get my money back?” still finds your refund
-        policy. Without a provider it matches by keywords. Changing the provider or model re-indexes everything in the
-        background.
-      </p>
+      <p className="mb-3 mt-1 max-w-[680px] text-[11px] leading-relaxed text-text-muted">{t('ai.embeddings.body')}</p>
 
       <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
         <label className="block min-w-0">
-          <span className="mb-1 block text-[11px] font-bold text-text-high">Provider</span>
+          <span className="mb-1 block text-[11px] font-bold text-text-high">{t('ai.embeddings.provider')}</span>
           <Select
             value={provider}
             disabled={disabled}
             onChange={(v) => onChange('embedding_provider', v)}
-            options={PROVIDERS.map((p) => ({ value: p.value, label: p.label, hint: p.hint }))}
+            options={providers(t)}
             size="md"
-            ariaLabel="Embedding provider"
+            ariaLabel={t('ai.embeddings.providerAria')}
             className="w-full"
           />
-          <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">
-            OpenAI and Gemini use the keys above; Local uses the local base URL.
-          </span>
+          <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">{t('ai.embeddings.providerHelp')}</span>
         </label>
         <label className="block min-w-0">
-          <span className="mb-1 block text-[11px] font-bold text-text-high">Model</span>
+          <span className="mb-1 block text-[11px] font-bold text-text-high">{t('ai.embeddings.model')}</span>
           <input
             value={model}
             readOnly={disabled}
@@ -106,28 +105,32 @@ export function EmbeddingsSection({
             onChange={(ev) => onChange('embedding_model', ev.target.value)}
             className={`${inputCls} ${disabled || provider === 'none' ? 'cursor-default bg-fill-subtle' : ''}`}
           />
-          <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">Optional — leave empty for the provider’s default.</span>
+          <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">{t('ai.embeddings.modelHelp')}</span>
         </label>
       </div>
 
       <div className="mt-3 rounded-lg border border-line bg-fill-subtle px-3 py-2.5 text-[11.5px] text-text-mid">
         {status === undefined ? (
           <span className="flex items-center gap-1.5 text-text-muted">
-            <Loader2 size={12} className="animate-spin" aria-hidden /> Checking the index…
+            <Loader2 size={12} className="animate-spin" aria-hidden /> {t('ai.embeddings.checkingIndex')}
           </span>
         ) : status === null ? (
-          <span className="text-text-muted">Indexing status isn’t available on this server yet.</span>
+          <span className="text-text-muted">{t('ai.embeddings.statusUnavailable')}</span>
         ) : (
           <div className="flex flex-col gap-1">
             <span>
               <span className="font-semibold text-text-high">
-                {e?.configured ? `In use: ${embeddingProviderLabel(e.provider)}${e.model ? ` · ${e.model}` : ''}` : 'Keyword search — no embedding provider is configured'}
+                {e?.configured
+                  ? e.model
+                    ? t('ai.embeddings.inUseModel', { provider: embeddingProviderLabel(e.provider, t), model: e.model })
+                    : t('ai.embeddings.inUse', { provider: embeddingProviderLabel(e.provider, t) })
+                  : t('ai.embeddings.keywordNoProvider')}
               </span>
               {e?.configured && (
                 <>
                   {' · '}
-                  {(e.indexed ?? 0).toLocaleString()} pieces indexed
-                  {(e.pending ?? 0) > 0 ? `, ${(e.pending ?? 0).toLocaleString()} waiting` : ''}
+                  {t('ai.learning.piecesIndexed', { count: e.indexed ?? 0 })}
+                  {(e.pending ?? 0) > 0 ? ` · ${t('ai.learning.piecesWaiting', { count: e.pending ?? 0 })}` : ''}
                 </>
               )}
             </span>
@@ -137,7 +140,7 @@ export function EmbeddingsSection({
               </span>
             )}
             <Link href="/ai-monitor?tab=learning" className="w-fit font-semibold text-text-mid underline-offset-2 hover:text-text-high hover:underline">
-              Re-index or see what the AI learned → AI monitor
+              {t('ai.embeddings.reindexLink')}
             </Link>
           </div>
         )}

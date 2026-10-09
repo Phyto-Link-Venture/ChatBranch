@@ -9,8 +9,10 @@ import { Select, type SelectOption } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
 import {
   WEEKDAYS,
+  actionLabel,
   calendarTargetLabel,
   previewAvailability,
+  sourceLabel,
   type AppAction,
   type AppCatalogEntry,
   type AppTestResponse,
@@ -18,6 +20,7 @@ import {
   type HoursWindow,
   type Weekday,
 } from './skillsApi'
+import { Trans, useFormat, useT, type MessageKey, type TFunction } from '@/i18n'
 
 /**
  * The "Connected app" skill's settings — Calendar booking. Configured directly
@@ -38,13 +41,19 @@ const input = `w-full ${field}`
 /** Short numbers — a fixed width so the unit stays beside the box. */
 const numInput = `w-[88px] shrink-0 ${field}`
 
-const ACTION_HELP: Record<AppAction, string> = {
-  availability: 'Read the free times inside your working hours.',
-  book: 'Reserve the time the customer picked — made when the reply is sent.',
-  cancel: 'Only this customer’s own bookings made through ChatBranch. Rescheduling = cancel + book.',
+const ACTION_HELP: Record<AppAction, MessageKey> = {
+  availability: 'ai.app.actionHelp.availability',
+  book: 'ai.app.actionHelp.book',
+  cancel: 'ai.app.actionHelp.cancel',
 }
 
 const EVENT_VARIABLES = ['name', 'phone', 'email', 'company'] as const
+const EVENT_VARIABLE_LABEL: Record<(typeof EVENT_VARIABLES)[number], MessageKey> = {
+  name: 'ai.app.vars.name',
+  phone: 'ai.app.vars.phone',
+  email: 'ai.app.vars.email',
+  company: 'ai.app.vars.company',
+}
 
 // ---- time helpers --------------------------------------------------------------
 
@@ -78,38 +87,34 @@ function addBreak(wins: HoursWindow[]): HoursWindow[] {
   return s < e ? [...wins, [fmt(s), fmt(e)]] : wins
 }
 
-/** One weekday's problem, in words — or null when its windows are fine. */
-export function dayProblem(wins: HoursWindow[]): string | null {
-  const spans = wins.map(([f, t]) => [toMin(f), toMin(t)] as const)
-  if (spans.some(([f, t]) => !Number.isFinite(f) || !Number.isFinite(t))) return 'use HH:MM times'
-  if (spans.some(([f, t]) => f >= t)) return 'each window must end after it starts'
+/** One weekday's problem (a message key) — or null when its windows are fine. */
+export function dayProblem(wins: HoursWindow[]): MessageKey | null {
+  const spans = wins.map(([from, to]) => [toMin(from), toMin(to)] as const)
+  if (spans.some(([from, to]) => !Number.isFinite(from) || !Number.isFinite(to))) return 'ai.app.problems.hhmm'
+  if (spans.some(([from, to]) => from >= to)) return 'ai.app.problems.endAfterStart'
   const sorted = [...spans].sort((x, y) => x[0] - y[0])
-  for (let i = 1; i < sorted.length; i++) if (sorted[i][0] < sorted[i - 1][1]) return 'windows overlap'
+  for (let i = 1; i < sorted.length; i++) if (sorted[i][0] < sorted[i - 1][1]) return 'ai.app.problems.overlap'
   return null
 }
 
 /** The whole config's first problem (shown in the wizard's alert), or null. */
-export function calendarConfigProblem(c: CalendarAppConfig): string | null {
-  if (!c.actions.length) return 'Pick at least one thing the AI may do with the calendar.'
+export function calendarConfigProblem(c: CalendarAppConfig, t: TFunction): string | null {
+  if (!c.actions.length) return t('ai.app.problems.pickAction')
   for (const d of WEEKDAYS) {
     const p = dayProblem(c.hours[d.key] ?? [])
-    if (p) return `Working hours — ${d.label}: ${p}.`
+    if (p) return t('ai.app.problems.day', { day: t(d.label), problem: t(p) })
   }
-  if (!WEEKDAYS.some((d) => (c.hours[d.key] ?? []).length > 0)) return 'Open at least one day in the working hours.'
+  if (!WEEKDAYS.some((d) => (c.hours[d.key] ?? []).length > 0)) return t('ai.app.problems.openDay')
   const int = (v: number) => Number.isInteger(v)
-  if (!int(c.duration_minutes) || c.duration_minutes < 5 || c.duration_minutes > 480)
-    return 'The appointment length must be between 5 and 480 minutes.'
-  if (!int(c.slot_step_minutes) || c.slot_step_minutes < 5 || c.slot_step_minutes > 480)
-    return 'Start times must be between 5 and 480 minutes apart.'
-  if (!int(c.buffer_minutes) || c.buffer_minutes < 0 || c.buffer_minutes > 240)
-    return 'The buffer must be between 0 and 240 minutes.'
+  if (!int(c.duration_minutes) || c.duration_minutes < 5 || c.duration_minutes > 480) return t('ai.app.problems.length')
+  if (!int(c.slot_step_minutes) || c.slot_step_minutes < 5 || c.slot_step_minutes > 480) return t('ai.app.problems.step')
+  if (!int(c.buffer_minutes) || c.buffer_minutes < 0 || c.buffer_minutes > 240) return t('ai.app.problems.buffer')
   if (!int(c.min_notice_minutes) || c.min_notice_minutes < 0 || c.min_notice_minutes > 60 * 24 * 30)
-    return 'The minimum notice must be between 0 minutes and 30 days.'
-  if (!int(c.max_days_ahead) || c.max_days_ahead < 1 || c.max_days_ahead > 90)
-    return 'Bookings can be made 1 to 90 days ahead.'
+    return t('ai.app.problems.notice')
+  if (!int(c.max_days_ahead) || c.max_days_ahead < 1 || c.max_days_ahead > 90) return t('ai.app.problems.ahead')
   if (!int(c.max_active_per_contact) || c.max_active_per_contact < 1 || c.max_active_per_contact > 20)
-    return 'Active bookings per customer must be between 1 and 20.'
-  if (!c.event_title.trim()) return 'Give the calendar event a title.'
+    return t('ai.app.problems.perCustomer')
+  if (!c.event_title.trim()) return t('ai.app.problems.eventTitle')
   return null
 }
 
@@ -131,6 +136,7 @@ export function AppSkillForm({
   orgTimezone?: string
   readOnly?: boolean
 }) {
+  const t = useT()
   const set = (p: Partial<CalendarAppConfig>) => onChange({ ...c, ...p })
   const google = app.sources.find((s) => s.source === 'google')
   const connections = google?.connections ?? []
@@ -146,68 +152,90 @@ export function AppSkillForm({
   const toggleAction = (a: AppAction, on: boolean) =>
     set({ actions: (['availability', 'book', 'cancel'] as AppAction[]).filter((x) => (x === a ? on : c.actions.includes(x))) })
 
+  const followsGroup = t('ai.app.calendarOptions.followsGroup')
+  const specificGroup = t('ai.app.calendarOptions.specificGroup')
   const calendarOptions: SelectOption[] = [
     {
       value: 'assignee',
-      label: 'Conversation’s assigned agent',
-      hint: '— their own Google grant, else the shared one',
-      group: 'Follows the conversation',
+      label: t('ai.app.calendarOptions.assignee'),
+      hint: t('ai.app.calendarOptions.assigneeHint'),
+      group: followsGroup,
     },
     {
       value: 'shared',
-      label: 'This outlet’s shared calendar',
-      hint: '— else the organisation’s',
-      group: 'Follows the conversation',
+      label: t('ai.app.calendarOptions.shared'),
+      hint: t('ai.app.calendarOptions.sharedHint'),
+      group: followsGroup,
     },
     ...connections.map((x) => {
-      const owner = x.owner === 'user' ? 'personal' : x.owner === 'entity' ? 'outlet' : 'organisation'
-      const name = x.owner_name && !/^organi[sz]ation$/i.test(x.owner_name) ? ` · ${x.owner_name}` : ''
+      const owner = t(
+        x.owner === 'user'
+          ? 'ai.app.calendarOptions.ownerUser'
+          : x.owner === 'entity'
+            ? 'ai.app.calendarOptions.ownerEntity'
+            : 'ai.app.calendarOptions.ownerOrg',
+      )
+      const named = x.owner_name && !/^organi[sz]ation$/i.test(x.owner_name)
       return {
         value: String(x.id),
-        label: x.label || `Connection #${x.id}`,
-        hint: `— ${owner}${name}`,
-        group: 'A specific connection',
+        label: x.label || t('ai.app.connectionN', { id: String(x.id) }),
+        hint: named
+          ? t('ai.app.calendarOptions.ownerNameHint', { owner, name: x.owner_name })
+          : t('ai.app.calendarOptions.ownerHint', { owner }),
+        group: specificGroup,
       }
     }),
     // a stored id that is no longer offered stays visible (the server re-validates it)
     ...(!['assignee', 'shared'].includes(c.calendar) && !connections.some((x) => String(x.id) === c.calendar)
-      ? [{ value: c.calendar, label: calendarTargetLabel(c.calendar, connections), hint: '— not available', group: 'A specific connection' }]
+      ? [
+          {
+            value: c.calendar,
+            label: calendarTargetLabel(c.calendar, connections, t),
+            hint: t('ai.app.calendarOptions.notAvailable'),
+            group: specificGroup,
+          },
+        ]
       : []),
   ]
 
   return (
     <div className="flex flex-col gap-6">
       {/* ---- calendar source ---------------------------------------------------- */}
-      <Section title="Calendar" hint="Where the AI reads free times and puts bookings.">
-        <div role="radiogroup" aria-label="Calendar source" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <Section title={t('ai.app.calendar')} hint={t('ai.app.calendarHint')}>
+        <div role="radiogroup" aria-label={t('ai.app.sourceAria')} className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <SourceCard
             on={c.source === 'google'}
             disabled={readOnly}
             onPick={() => set({ source: 'google' })}
             icon={<ChannelLogo channel="google_calendar" size={18} title="" />}
-            title={google?.label ?? 'Google Calendar'}
+            title={sourceLabel('google', t, google?.label)}
             body={
               appsState === 'loading' ? (
                 <span className="inline-flex items-center gap-1 text-text-muted">
-                  <Loader2 size={11} className="animate-spin" aria-hidden /> Checking the connection…
+                  <Loader2 size={11} className="animate-spin" aria-hidden /> {t('ai.app.checkingConnection')}
                 </span>
               ) : appsState === 'offline' ? (
-                <span className="text-text-muted">Couldn’t check the connection right now.</span>
+                <span className="text-text-muted">{t('ai.app.couldntCheck')}</span>
               ) : google?.connected ? (
                 <span className="inline-flex items-center gap-1.5 text-[color:var(--green-ink)]">
-                  <span className="h-1.5 w-1.5 rounded-full bg-green" aria-hidden /> Connected
+                  <span className="h-1.5 w-1.5 rounded-full bg-green" aria-hidden /> {t('common.status.connected')}
                   {connections.length > 0 && (
-                    <span className="text-text-muted">
-                      · {connections.length} calendar{connections.length === 1 ? '' : 's'}
-                    </span>
+                    <span className="text-text-muted">{t('ai.app.calendars', { count: connections.length })}</span>
                   )}
                 </span>
               ) : (
                 <span className="inline-flex flex-wrap items-center gap-1 text-[color:var(--amber-ink)]">
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber" aria-hidden /> Not connected —
-                  <Link href="/integrations" className="font-semibold underline-offset-2 hover:underline">
-                    connect it in Integrations
-                  </Link>
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber" aria-hidden />
+                  <Trans
+                    k="ai.app.notConnected"
+                    values={{
+                      link: (
+                        <Link href="/integrations" className="font-semibold underline-offset-2 hover:underline">
+                          {t('ai.app.connectInIntegrations')}
+                        </Link>
+                      ),
+                    }}
+                  />
                 </span>
               )
             }
@@ -217,24 +245,24 @@ export function AppSkillForm({
             disabled={readOnly}
             onPick={() => set({ source: 'chatbranch' })}
             icon={<CalendarCheck size={17} className="text-text-high" aria-hidden />}
-            title={app.sources.find((s) => s.source === 'chatbranch')?.label ?? 'ChatBranch bookings'}
-            body={<span className="text-text-muted">Works without Google — bookings live on the Bookings page.</span>}
+            title={sourceLabel('chatbranch', t)}
+            body={<span className="text-text-muted">{t('ai.app.chatbranchBody')}</span>}
           />
         </div>
 
         {c.source === 'google' && (
           <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_200px]">
-            <Field label="Whose calendar">
+            <Field label={t('ai.app.whoseCalendar')}>
               <Select
                 value={c.calendar}
                 disabled={readOnly}
                 onChange={(v) => set({ calendar: v })}
                 options={calendarOptions}
                 size="md"
-                ariaLabel="Whose calendar"
+                ariaLabel={t('ai.app.whoseCalendar')}
               />
             </Field>
-            <Field label="Calendar ID" hint="primary = the account’s main calendar">
+            <Field label={t('ai.app.calendarId')} hint={t('ai.app.calendarIdHint')}>
               <input
                 value={c.calendar_id}
                 disabled={readOnly}
@@ -247,23 +275,25 @@ export function AppSkillForm({
         )}
         {c.source === 'google' && c.calendar === 'assignee' && (
           <p className="mt-2 text-[11.5px] leading-snug text-text-muted">
-            Each agent connects their own calendar at{' '}
-            <Link href="/settings/connections" className="font-semibold text-text-high hover:underline">
-              Settings → My connections
-            </Link>
-            ; conversations assigned to someone who hasn&rsquo;t use the shared calendar.
+            <Trans
+              k="ai.app.assigneeNote"
+              values={{
+                link: (
+                  <Link href="/settings/connections" className="font-semibold text-text-high hover:underline">
+                    {t('ai.app.myConnections')}
+                  </Link>
+                ),
+              }}
+            />
           </p>
         )}
         {c.source === 'google' && appsState !== 'loading' && !google?.connected && (
-          <Note tone="amber">
-            Until Google Calendar is connected, the AI is told the calendar is unavailable and offers a teammate — it
-            never quietly books into ChatBranch instead.
-          </Note>
+          <Note tone="amber">{t('ai.app.untilConnected')}</Note>
         )}
       </Section>
 
       {/* ---- actions ---------------------------------------------------------- */}
-      <Section title="What the AI may do">
+      <Section title={t('ai.app.mayDo')}>
         <ul className="flex flex-col divide-y divide-line rounded-lg border border-line">
           {app.actions.map((a) => {
             const on = c.actions.includes(a.id)
@@ -279,34 +309,33 @@ export function AppSkillForm({
                     style={{ accentColor: 'var(--primary)' }}
                   />
                   <span className="min-w-0">
-                    <span className="block text-[12.5px] font-semibold text-text-high">{a.label}</span>
-                    <span className="block text-[11.5px] leading-snug text-text-muted">{ACTION_HELP[a.id]}</span>
+                    <span className="block text-[12.5px] font-semibold text-text-high">{actionLabel(a, t)}</span>
+                    <span className="block text-[11.5px] leading-snug text-text-muted">
+                      {ACTION_HELP[a.id] ? t(ACTION_HELP[a.id]) : ''}
+                    </span>
                   </span>
                 </label>
               </li>
             )
           })}
         </ul>
-        <p className="mt-2 text-[11.5px] leading-relaxed text-text-muted">
-          At most one booking and one cancellation per reply, only for the customer in the conversation. A booking
-          reserved while the AI writes is made when the reply is sent — a reply held for review books on approval.
-        </p>
+        <p className="mt-2 text-[11.5px] leading-relaxed text-text-muted">{t('ai.app.perReply')}</p>
       </Section>
 
       {/* ---- working hours ------------------------------------------------------ */}
       <Section
-        title="Working hours"
-        hint="The AI only offers times inside these windows."
+        title={t('ai.app.workingHours')}
+        hint={t('ai.app.workingHoursHint')}
         right={
           <Select
             value={c.timezone}
             disabled={readOnly}
             onChange={(v) => set({ timezone: v })}
             searchable
-            ariaLabel="Timezone"
+            ariaLabel={t('ai.app.timezoneAria')}
             className="w-full min-w-[220px] sm:w-auto"
             options={[
-              { value: '', label: 'Organisation’s timezone', hint: orgTimezone ? `(${orgTimezone})` : undefined },
+              { value: '', label: t('ai.app.orgTimezone'), hint: orgTimezone ? `(${orgTimezone})` : undefined },
               ...(c.timezone && !zones.includes(c.timezone) ? [{ value: c.timezone, label: c.timezone }] : []),
               ...zones.map((z) => ({ value: z, label: z })),
             ]}
@@ -318,6 +347,7 @@ export function AppSkillForm({
             const wins = c.hours[d.key] ?? []
             const open = wins.length > 0
             const problem = open ? dayProblem(wins) : null
+            const day = t(d.label)
             return (
               <div
                 key={d.key}
@@ -331,12 +361,14 @@ export function AppSkillForm({
                     on={open}
                     disabled={readOnly}
                     onChange={(v) => setDay(d.key, v ? [['09:00', '17:00']] : [])}
-                    label={`${d.label} ${open ? 'open' : 'closed'}`}
+                    label={open ? t('ai.app.dayOpen', { day }) : t('ai.app.dayClosed', { day })}
                   />
-                  <span className={`text-[12.5px] font-semibold ${open ? 'text-text-high' : 'text-text-muted'}`}>{d.label}</span>
+                  <span className={`min-w-0 truncate text-[12.5px] font-semibold ${open ? 'text-text-high' : 'text-text-muted'}`}>
+                    {day}
+                  </span>
                 </div>
                 {!open ? (
-                  <span className="flex h-8 items-center text-[12px] text-text-muted">Closed</span>
+                  <span className="flex h-8 items-center text-[12px] text-text-muted">{t('ai.app.closed')}</span>
                 ) : (
                   <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -348,7 +380,7 @@ export function AppSkillForm({
                             onChange={(v) => setDay(d.key, wins.map((x, j) => (j === wi ? [v, x[1]] : x)))}
                             options={timeOptions(w[0])}
                             searchable
-                            ariaLabel={`${d.label} window ${wi + 1} from`}
+                            ariaLabel={t('ai.app.windowFrom', { day, n: wi + 1 })}
                             className="w-[92px]"
                           />
                           <span className="text-[11.5px] text-text-muted">–</span>
@@ -358,15 +390,15 @@ export function AppSkillForm({
                             onChange={(v) => setDay(d.key, wins.map((x, j) => (j === wi ? [x[0], v] : x)))}
                             options={timeOptions(w[1])}
                             searchable
-                            ariaLabel={`${d.label} window ${wi + 1} to`}
+                            ariaLabel={t('ai.app.windowTo', { day, n: wi + 1 })}
                             className="w-[92px]"
                           />
                           {wins.length > 1 && !readOnly && (
                             <button
                               type="button"
                               onClick={() => setDay(d.key, wins.filter((_, j) => j !== wi))}
-                              aria-label={`Remove ${d.label} window ${wi + 1}`}
-                              title="Remove this window"
+                              aria-label={t('ai.app.removeWindow', { day, n: wi + 1 })}
+                              title={t('ai.app.removeWindowTitle')}
                               className="grid h-7 w-7 place-items-center rounded-md text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
                             >
                               <X size={12} aria-hidden />
@@ -380,30 +412,26 @@ export function AppSkillForm({
                           onClick={() => setDay(d.key, addBreak(wins))}
                           className="inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-[11.5px] font-semibold text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
                         >
-                          <Plus size={12} aria-hidden /> Add break
+                          <Plus size={12} aria-hidden /> {t('ai.app.addBreak')}
                         </button>
                       )}
                     </div>
-                    {problem && (
-                      <span className="text-[11.5px] text-[color:var(--red-ink)]">
-                        {problem.charAt(0).toUpperCase() + problem.slice(1)}.
-                      </span>
-                    )}
+                    {problem && <span className="text-[11.5px] text-[color:var(--red-ink)]">{t(problem)}</span>}
                   </div>
                 )}
               </div>
             )
           })}
         </div>
-        <p className="mt-1.5 text-[11px] text-text-muted">24-hour times, in the timezone above.</p>
+        <p className="mt-1.5 text-[11px] text-text-muted">{t('ai.app.hours24')}</p>
       </Section>
 
       {/* ---- appointment rules --------------------------------------------------- */}
-      <Section title="Appointments">
+      <Section title={t('ai.app.appointments')}>
         <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
           <NumField
-            label="Appointment length"
-            suffix="min"
+            label={t('ai.app.length')}
+            suffix={t('ai.units.min')}
             value={c.duration_minutes}
             min={5}
             max={480}
@@ -417,18 +445,18 @@ export function AppSkillForm({
             }
           />
           <NumField
-            label="Start times every"
-            suffix="min"
+            label={t('ai.app.startEvery')}
+            suffix={t('ai.units.min')}
             value={c.slot_step_minutes}
             min={5}
             max={480}
             disabled={readOnly}
-            hint="Usually the same as the length."
+            hint={t('ai.app.startHint')}
             onChange={(v) => set({ slot_step_minutes: v })}
           />
           <NumField
-            label="Buffer around busy times"
-            suffix="min"
+            label={t('ai.app.buffer')}
+            suffix={t('ai.units.min')}
             value={c.buffer_minutes}
             min={0}
             max={240}
@@ -437,8 +465,8 @@ export function AppSkillForm({
           />
           <NoticeField value={c.min_notice_minutes} disabled={readOnly} onChange={(v) => set({ min_notice_minutes: v })} />
           <NumField
-            label="Book up to"
-            suffix="days ahead"
+            label={t('ai.app.bookUpTo')}
+            suffix={t('ai.app.daysAhead')}
             value={c.max_days_ahead}
             min={1}
             max={90}
@@ -446,28 +474,28 @@ export function AppSkillForm({
             onChange={(v) => set({ max_days_ahead: v })}
           />
           <NumField
-            label="Active bookings per customer"
+            label={t('ai.app.perCustomer')}
             value={c.max_active_per_contact}
             min={1}
             max={20}
             disabled={readOnly}
-            hint="More are refused — the AI offers to reschedule."
+            hint={t('ai.app.perCustomerHint')}
             onChange={(v) => set({ max_active_per_contact: v })}
           />
         </div>
       </Section>
 
       {/* ---- the event ------------------------------------------------------------- */}
-      <Section title="Calendar event">
+      <Section title={t('ai.app.event')}>
         <EventTitleField value={c.event_title} disabled={readOnly} onChange={(v) => set({ event_title: v })} />
         <div className="mt-3">
-          <Field label="Event notes" hint="Optional — the same {{variables}} work here.">
+          <Field label={t('ai.app.eventNotes')} hint={t('ai.app.eventNotesHint')}>
             <textarea
               rows={2}
               value={c.event_description}
               disabled={readOnly}
               onChange={(e) => set({ event_description: e.target.value })}
-              placeholder="Booked by the ChatBranch assistant."
+              placeholder={t('ai.app.eventNotesPlaceholder')}
               className={`${input} resize-y leading-[1.55]`}
             />
           </Field>
@@ -625,12 +653,13 @@ function NumField({
 
 /** Minimum notice, typed in hours or minutes, stored in minutes. */
 function NoticeField({ value, onChange, disabled }: { value: number; onChange: (v: number) => void; disabled?: boolean }) {
+  const t = useT()
   const [unit, setUnit] = useState<'hours' | 'minutes'>(value % 60 === 0 && value > 0 ? 'hours' : 'minutes')
   const shown = unit === 'hours' ? value / 60 : value
   const [text, setText] = useState(String(shown))
   useEffect(() => setText(String(unit === 'hours' ? value / 60 : value)), [value, unit])
   return (
-    <Field label="Minimum notice" hint="No same-moment bookings — the earliest time offered.">
+    <Field label={t('ai.app.notice')} hint={t('ai.app.noticeHint')}>
       <div className="flex items-center gap-2">
         <input
           type="number"
@@ -645,17 +674,17 @@ function NoticeField({ value, onChange, disabled }: { value: number; onChange: (
           }}
           onBlur={() => setText(String(shown))}
           className={numInput}
-          aria-label="Minimum notice"
+          aria-label={t('ai.app.notice')}
         />
         <Select
           value={unit}
           disabled={disabled}
           onChange={(u) => setUnit(u as 'hours' | 'minutes')}
           options={[
-            { value: 'minutes', label: 'minutes' },
-            { value: 'hours', label: 'hours' },
+            { value: 'minutes', label: t('ai.app.minutes') },
+            { value: 'hours', label: t('ai.app.hours') },
           ]}
-          ariaLabel="Notice unit"
+          ariaLabel={t('ai.app.noticeUnit')}
           size="md"
           className="w-[116px]"
         />
@@ -666,6 +695,7 @@ function NoticeField({ value, onChange, disabled }: { value: number; onChange: (
 
 /** The event title with {{variable}} chips that insert at the cursor. */
 function EventTitleField({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  const t = useT()
   const ref = useRef<HTMLInputElement>(null)
   const insert = (token: string) => {
     const el = ref.current
@@ -679,27 +709,27 @@ function EventTitleField({ value, onChange, disabled }: { value: string; onChang
     })
   }
   return (
-    <Field label="Event title">
+    <Field label={t('ai.app.eventTitle')}>
       <input
         ref={ref}
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="{{name}} — appointment"
+        placeholder={t('ai.app.eventTitlePlaceholder')}
         className={input}
       />
       {!disabled && (
         <div className="mt-1.5 flex flex-wrap items-center gap-1">
-          <span className="mr-0.5 text-[10.5px] text-text-muted">Insert:</span>
-          {EVENT_VARIABLES.map((t) => (
+          <span className="mr-0.5 text-[10.5px] text-text-muted">{t('ai.app.insert')}</span>
+          {EVENT_VARIABLES.map((v) => (
             <button
-              key={t}
+              key={v}
               type="button"
-              onClick={() => insert(t)}
-              title={`Insert {{${t}}} — the customer’s ${t}`}
+              onClick={() => insert(v)}
+              title={t('ai.app.insertTitle', { token: `{{${v}}}`, field: t(EVENT_VARIABLE_LABEL[v]) })}
               className="inline-flex cursor-pointer items-center rounded-full border border-line bg-fill px-2 py-0.5 font-mono text-[10.5px] text-text-mid transition-colors hover:border-line-strong hover:text-text-high"
             >
-              {`{{${t}}}`}
+              {`{{${v}}}`}
             </button>
           ))}
         </div>
@@ -710,6 +740,8 @@ function EventTitleField({ value, onChange, disabled }: { value: string; onChang
 
 /** The dry run: the free times the AI would offer with these (unsaved) settings. */
 function AvailabilityPreview({ config }: { config: CalendarAppConfig }) {
+  const t = useT()
+  const f = useFormat()
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<AppTestResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -747,14 +779,12 @@ function AvailabilityPreview({ config }: { config: CalendarAppConfig }) {
     <section className="min-w-0 rounded-lg border border-line bg-well p-3.5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="min-w-0 flex-1 basis-[240px]">
-          <h3 className="eyebrow">Preview availability</h3>
-          <p className="mt-0.5 text-[11.5px] text-text-muted">
-            The free times the AI would offer right now with these settings — a dry run, nothing is booked.
-          </p>
+          <h3 className="eyebrow">{t('ai.app.previewTitle')}</h3>
+          <p className="mt-0.5 text-[11.5px] text-text-muted">{t('ai.app.previewBody')}</p>
         </div>
         <Button variant="secondary" size="sm" onClick={run} disabled={busy}>
           {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <CalendarSearch size={13} aria-hidden />}
-          {result ? 'Check again' : 'Preview availability'}
+          {result ? t('ai.app.checkAgain') : t('ai.app.previewTitle')}
         </Button>
       </div>
 
@@ -769,26 +799,28 @@ function AvailabilityPreview({ config }: { config: CalendarAppConfig }) {
           <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-text-muted">
             <Clock size={11} aria-hidden />
             {result.timezone && <span className="font-semibold text-text-high">{result.timezone}</span>}
-            {result.source && <span>· {result.source === 'google' ? 'Google Calendar' : result.source === 'chatbranch' ? 'ChatBranch bookings' : result.source}</span>}
-            {stale && <span className="text-[color:var(--amber-ink)]">· settings changed — check again</span>}
+            {result.source && <span>· {sourceLabel(result.source, t)}</span>}
+            {stale && <span className="text-[color:var(--amber-ink)]">{t('ai.app.settingsChanged')}</span>}
           </div>
           {!result.ok ? (
-            <p className="text-[12.5px] text-[color:var(--amber-ink)]">{result.detail || 'The calendar could not be read.'}</p>
+            <p className="text-[12.5px] text-[color:var(--amber-ink)]">{result.detail || t('ai.app.couldNotRead')}</p>
           ) : days.length === 0 ? (
-            <p className="text-[12.5px] text-text-muted">{result.detail || 'No free times in the next few days with these settings.'}</p>
+            <p className="text-[12.5px] text-text-muted">{result.detail || t('ai.app.noFree')}</p>
           ) : (
             <ul className="flex flex-col gap-2">
               {days.map((d) => (
                 <li key={d.date} className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                  <span className="w-[92px] shrink-0 text-[12px] font-semibold text-text-high">{dayLabel(d.date, d.slots[0]?.label)}</span>
+                  <span className="w-[150px] shrink-0 text-[12px] font-semibold text-text-high">
+                    {dayLabel(d.date, d.slots[0]?.label, t, f)}
+                  </span>
                   <span className="flex min-w-0 flex-1 flex-wrap gap-1">
                     {d.slots.map((s) => (
                       <span
                         key={s.start}
-                        title={s.label}
+                        title={slotDate(s.start) ? f.dateTime(slotDate(s.start)) : s.label}
                         className="rounded-full border border-line-strong bg-card px-2 py-0.5 text-[11.5px] font-medium text-text-high"
                       >
-                        {timeLabel(s)}
+                        {timeLabel(s, f)}
                       </span>
                     ))}
                   </span>
@@ -803,19 +835,28 @@ function AvailabilityPreview({ config }: { config: CalendarAppConfig }) {
   )
 }
 
-/** "Tue 14 Oct" from the date key (falls back to the label's own day part). */
-function dayLabel(date: string, label?: string): string {
+type Fmt = ReturnType<typeof useFormat>
+
+/** "Tue, 14 Oct 2026" from the date key (falls back to the label's own day part). */
+function dayLabel(date: string, label: string | undefined, t: TFunction, f: Fmt): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
   if (m) {
     const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
-    return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+    return t('ai.app.dayLabel', { weekday: f.weekday(d), date: f.date(d) })
   }
   return label?.split(',')[0] ?? date
 }
 
-/** "3:00 PM" — the label's time part ("Tue 14 Oct, 3:00 PM"), else HH:MM from start. */
-function timeLabel(s: { start: string; label: string }): string {
+/** A slot's local wall time ("2026-10-14T15:00", no offset) as a Date at that wall time, or null. */
+function slotDate(start: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(start || '')
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5])) : null
+}
+
+/** "15:00" — the slot's time in the reader's format (the server label's time part when start can't be read). */
+function timeLabel(s: { start: string; label: string }, f: Fmt): string {
+  const d = slotDate(s.start)
+  if (d) return f.time(d)
   const i = s.label?.lastIndexOf(', ') ?? -1
-  if (i >= 0) return s.label.slice(i + 2)
-  return s.start.slice(11, 16) || s.label
+  return i >= 0 ? s.label.slice(i + 2) : s.label
 }

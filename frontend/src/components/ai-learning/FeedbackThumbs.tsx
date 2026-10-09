@@ -16,6 +16,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertCircle, Loader2, ThumbsDown, ThumbsUp } from 'lucide-react'
 import { feedbackApi, type FeedbackTarget, type LessonStatus, type MyFeedback } from '@/lib/aiLearning'
 import { FeedbackPopover, type DownFields } from './FeedbackPopover'
+import { useT, type MessageKey } from '@/i18n'
 
 export interface FeedbackController {
   value: MyFeedback | null
@@ -30,10 +31,10 @@ export interface FeedbackController {
   popover: React.ReactNode
 }
 
-function savedLine(status: LessonStatus | null | undefined): string {
-  if (status === 'active') return 'Thanks — the AI uses this from now on.'
-  if (status === 'suggested') return 'Thanks — a lesson is waiting for review.'
-  return 'Thanks for the feedback.'
+function savedLine(status: LessonStatus | null | undefined): MessageKey {
+  if (status === 'active') return 'ai.feedback.savedActive'
+  if (status === 'suggested') return 'ai.feedback.savedSuggested'
+  return 'ai.feedback.savedPlain'
 }
 
 export function useFeedbackController({
@@ -47,6 +48,7 @@ export function useFeedbackController({
   onChange: (v: MyFeedback | null) => void
   aiText?: string
 }): FeedbackController {
+  const t = useT()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState<string | null>(null)
@@ -85,14 +87,14 @@ export function useFeedbackController({
       .submit(target, { rating: 1 })
       .then((r) => {
         onChange({ id: r.id, rating: 1, reasons: r.reasons ?? [], note: r.note ?? '', correction: r.correction ?? '' })
-        flash(savedLine(r.lesson_status))
+        flash(t(savedLine(r.lesson_status)))
       })
       .catch((e) => {
         onChange(prev)
         setError(e instanceof Error ? e.message : String(e))
       })
       .finally(() => setBusy(false))
-  }, [target, busy, value, onChange, flash])
+  }, [target, busy, value, onChange, flash, t])
 
   const down = useCallback((el: HTMLElement) => {
     setError(null)
@@ -110,9 +112,9 @@ export function useFeedbackController({
         note: r.note ?? f.note,
         correction: r.correction ?? f.correction,
       })
-      flash(savedLine(r.lesson_status))
+      flash(t(savedLine(r.lesson_status)))
     },
-    [target, onChange, flash],
+    [target, onChange, flash, t],
   )
 
   const removeDown = useCallback(async () => {
@@ -142,13 +144,16 @@ export function ThumbButtons({
   c,
   size = 'md',
   tone = 'card',
-  label = 'this reply',
+  label,
 }: {
   c: FeedbackController
   size?: 'sm' | 'md'
   tone?: 'card' | 'bubble'
+  /** What is being rated, as a phrase ("the AI's reply"); default "this reply". */
   label?: string
 }) {
+  const t = useT()
+  const target = label ?? t('ai.feedback.targetThisReply')
   const rated = c.value?.rating
   const box = size === 'sm' ? 'h-7 w-7' : 'h-8 w-8'
   const icon = size === 'sm' ? 13 : 14
@@ -167,8 +172,8 @@ export function ThumbButtons({
         onClick={c.up}
         disabled={c.busy}
         aria-pressed={rated === 1}
-        aria-label={rated === 1 ? `You rated ${label} helpful — click to take it back` : `Rate ${label} helpful`}
-        title={rated === 1 ? 'You said this was a good reply' : 'Good reply'}
+        aria-label={rated === 1 ? t('ai.feedback.upRatedAria', { target }) : t('ai.feedback.upAria', { target })}
+        title={rated === 1 ? t('ai.feedback.upRatedTitle') : t('ai.feedback.upTitle')}
         className={`${base} ${box} ${rated === 1 ? on : idle}`}
         style={bubbleBg(rated === 1)}
       >
@@ -181,16 +186,21 @@ export function ThumbButtons({
         aria-pressed={rated === -1}
         aria-haspopup="dialog"
         aria-expanded={c.popoverOpen}
-        aria-label={rated === -1 ? `You rated ${label} not helpful — edit your feedback` : `Rate ${label} not helpful`}
-        title={rated === -1 ? 'You said this reply was wrong — click to edit' : 'Bad reply — tell the AI why'}
+        aria-label={rated === -1 ? t('ai.feedback.downRatedAria', { target }) : t('ai.feedback.downAria', { target })}
+        title={rated === -1 ? t('ai.feedback.downRatedTitle') : t('ai.feedback.downTitle')}
         className={`${base} ${box} ${rated === -1 || c.popoverOpen ? on : idle}`}
         style={bubbleBg(rated === -1 || c.popoverOpen)}
       >
         <ThumbsDown size={icon} strokeWidth={2} fill={rated === -1 ? 'currentColor' : 'none'} aria-hidden />
       </button>
-      {c.busy && <Loader2 size={12} className="animate-spin opacity-60" aria-label="Saving" />}
+      {c.busy && <Loader2 size={12} className="animate-spin opacity-60" aria-label={t('common.status.saving')} />}
       {c.error && !c.busy && (
-        <span title={c.error} role="alert" aria-label={`Feedback not saved: ${c.error}`} className="text-[color:var(--red-ink)]">
+        <span
+          title={c.error}
+          role="alert"
+          aria-label={t('ai.feedback.notSaved', { error: c.error })}
+          className="text-[color:var(--red-ink)]"
+        >
           <AlertCircle size={13} aria-hidden />
         </span>
       )}

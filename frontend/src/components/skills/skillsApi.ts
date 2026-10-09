@@ -1,3 +1,4 @@
+import type { MessageKey, TFunction } from '@/i18n'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 
 /**
@@ -51,14 +52,14 @@ export interface CalendarAppConfig {
 
 export type AppConfig = CalendarAppConfig
 
-export const WEEKDAYS: { key: Weekday; short: string; label: string }[] = [
-  { key: 'mon', short: 'Mon', label: 'Monday' },
-  { key: 'tue', short: 'Tue', label: 'Tuesday' },
-  { key: 'wed', short: 'Wed', label: 'Wednesday' },
-  { key: 'thu', short: 'Thu', label: 'Thursday' },
-  { key: 'fri', short: 'Fri', label: 'Friday' },
-  { key: 'sat', short: 'Sat', label: 'Saturday' },
-  { key: 'sun', short: 'Sun', label: 'Sunday' },
+export const WEEKDAYS: { key: Weekday; label: MessageKey }[] = [
+  { key: 'mon', label: 'ai.weekdays.mon' },
+  { key: 'tue', label: 'ai.weekdays.tue' },
+  { key: 'wed', label: 'ai.weekdays.wed' },
+  { key: 'thu', label: 'ai.weekdays.thu' },
+  { key: 'fri', label: 'ai.weekdays.fri' },
+  { key: 'sat', label: 'ai.weekdays.sat' },
+  { key: 'sun', label: 'ai.weekdays.sun' },
 ]
 
 /** The spec's defaults — used when `/skills/apps` is unreachable, and to fill
@@ -88,14 +89,6 @@ export const CALENDAR_DEFAULTS: CalendarAppConfig = {
   event_title: '{{name}} — appointment',
   event_description: '',
 }
-
-/** Prefilled "Use when" + "Instructions" of a new calendar skill. */
-export const APP_USE_WHEN = 'The customer wants to book, reschedule or cancel an appointment'
-export const APP_INSTRUCTIONS =
-  'Offer two or three free times from the calendar — never invent one. Book only after the customer picks a ' +
-  'specific time, then confirm it. Always restate the weekday, date, time and timezone. To reschedule, cancel the ' +
-  'old booking and book the new time in the same reply. If the calendar is unavailable, say a teammate will ' +
-  'confirm the appointment.'
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 
@@ -176,7 +169,9 @@ export interface AppsPayload {
 }
 
 /** What the page shows when /skills/apps can't be reached: Google's status is
- *  unknown (reported as not connected); ChatBranch bookings always work. */
+ *  unknown (reported as not connected); ChatBranch bookings always work. The
+ *  labels mirror the server's English; the UI shows them through the
+ *  `appLabel` / `sourceLabel` / `actionLabel` helpers below (by id). */
 export const FALLBACK_CALENDAR_APP: AppCatalogEntry = {
   app: 'calendar',
   label: 'Calendar booking',
@@ -190,6 +185,29 @@ export const FALLBACK_CALENDAR_APP: AppCatalogEntry = {
     { id: 'cancel', label: 'Cancel / reschedule' },
   ],
   defaults: {},
+}
+
+/** The catalog's app name, translated by id (the server's text for an unknown app). */
+export function appLabel(app: Pick<AppCatalogEntry, 'app' | 'label'>, t: TFunction): string {
+  return app.app === 'calendar' ? t('ai.app.catalogLabel') : app.label
+}
+
+/** A calendar source's name: Google Calendar is a brand; ChatBranch bookings is translated. */
+export function sourceLabel(source: string, t: TFunction, fallback?: string): string {
+  if (source === 'google') return 'Google Calendar'
+  if (source === 'chatbranch') return t('ai.app.sourceChatbranch')
+  return fallback ?? source
+}
+
+const ACTION_LABEL: Record<AppAction, MessageKey> = {
+  availability: 'ai.app.actions.availability',
+  book: 'ai.app.actions.book',
+  cancel: 'ai.app.actions.cancel',
+}
+
+/** A calendar action's name, translated by id (the server's text for an unknown one). */
+export function actionLabel(a: { id: string; label: string }, t: TFunction): string {
+  return a.id in ACTION_LABEL ? t(ACTION_LABEL[a.id as AppAction]) : a.label
 }
 
 /** The calendar app from a catalog payload (or the offline fallback). */
@@ -214,21 +232,23 @@ export interface AppTestResponse {
 }
 
 /** "Assignee's calendar" / "Shared calendar" / the named connection's label. */
-export function calendarTargetLabel(calendar: string, connections: AppConnection[] = []): string {
-  if (calendar === 'assignee') return 'Assignee’s calendar'
-  if (calendar === 'shared') return 'Shared calendar'
+export function calendarTargetLabel(calendar: string, connections: AppConnection[], t: TFunction): string {
+  if (calendar === 'assignee') return t('ai.app.assigneeCalendar')
+  if (calendar === 'shared') return t('ai.app.sharedCalendar')
   const c = connections.find((x) => String(x.id) === String(calendar))
-  return c ? c.label || c.owner_name || `Connection #${c.id}` : `Connection #${calendar}`
+  return c
+    ? c.label || c.owner_name || t('ai.app.connectionN', { id: String(c.id) })
+    : t('ai.app.connectionN', { id: calendar })
 }
 
 /** The skills list's subtitle: "Connected app · Google Calendar (Assignee's calendar)". */
-export function appSkillSubtitle(config: unknown, apps: AppCatalogEntry[] | null): string {
+export function appSkillSubtitle(config: unknown, apps: AppCatalogEntry[] | null, t: TFunction): string {
   const cfg = calendarConfig(config)
   const src = calendarApp(apps).sources.find((s) => s.source === cfg.source)
-  const srcLabel = src?.label ?? (cfg.source === 'google' ? 'Google Calendar' : 'ChatBranch bookings')
+  const srcLabel = sourceLabel(cfg.source, t, src?.label)
   return cfg.source === 'google'
-    ? `Connected app · ${srcLabel} (${calendarTargetLabel(cfg.calendar, src?.connections)})`
-    : `Connected app · ${srcLabel}`
+    ? t('ai.app.subtitleTarget', { source: srcLabel, target: calendarTargetLabel(cfg.calendar, src?.connections ?? [], t) })
+    : t('ai.app.subtitle', { source: srcLabel })
 }
 
 export interface Skill {
@@ -390,42 +410,50 @@ export async function deleteSkill(id: string, scope: string | null) {
 
 export const newSkillId = () => `as-${Math.random().toString(36).slice(2, 9)}`
 
-export const CHANNEL_OPTIONS = [
-  { value: 'whatsapp', label: 'WhatsApp' },
-  { value: 'email', label: 'Email' },
-  { value: 'telegram', label: 'Telegram' },
-  { value: 'facebook', label: 'Messenger' },
-  { value: 'instagram', label: 'Instagram' },
-  { value: 'website', label: 'Website widget' },
-]
+/** The channels a skill can be limited to (brand names stay as they are). */
+export function channelOptions(t: TFunction) {
+  return [
+    { value: 'whatsapp', label: 'WhatsApp' },
+    { value: 'email', label: t('ai.channels.email') },
+    { value: 'telegram', label: 'Telegram' },
+    { value: 'facebook', label: 'Messenger' },
+    { value: 'instagram', label: 'Instagram' },
+    { value: 'website', label: t('ai.channels.website') },
+  ]
+}
 
-export const KIND_META: Record<SkillKind, { label: string; plural: string; blurb: string }> = {
+/** Per kind: message keys of its name, plural, one-line blurb and "{count} …" plural pair. */
+export const KIND_META: Record<SkillKind, { label: MessageKey; plural: MessageKey; blurb: MessageKey; count: MessageKey }> = {
   prompt: {
-    label: 'Instruction',
-    plural: 'Instructions',
-    blurb: 'Plain-language guidance the AI follows when its trigger applies.',
+    label: 'ai.skills.kinds.prompt.label',
+    plural: 'ai.skills.kinds.prompt.plural',
+    blurb: 'ai.skills.kinds.prompt.blurb',
+    count: 'ai.skills.kinds.prompt.count',
   },
   tool: {
-    label: 'Tool',
-    plural: 'Tools',
-    blurb: 'JavaScript the AI calls for an exact answer — hours, dates, lookups, validations.',
+    label: 'ai.skills.kinds.tool.label',
+    plural: 'ai.skills.kinds.tool.plural',
+    blurb: 'ai.skills.kinds.tool.blurb',
+    count: 'ai.skills.kinds.tool.count',
   },
   check: {
-    label: 'Reply check',
-    plural: 'Reply checks',
-    blurb: 'JavaScript that validates every AI reply before it is sent.',
+    label: 'ai.skills.kinds.check.label',
+    plural: 'ai.skills.kinds.check.plural',
+    blurb: 'ai.skills.kinds.check.blurb',
+    count: 'ai.skills.kinds.check.count',
   },
   app: {
-    label: 'Connected app',
-    plural: 'Connected apps',
-    blurb: 'Let the AI use a connected app — e.g. check your calendar and book appointments.',
+    label: 'ai.skills.kinds.app.label',
+    plural: 'ai.skills.kinds.app.plural',
+    blurb: 'ai.skills.kinds.app.blurb',
+    count: 'ai.skills.kinds.app.count',
   },
 }
 
-export const ON_FAIL_OPTIONS: { value: OnFail; label: string; hint: string }[] = [
-  { value: 'retry', label: 'Rewrite, then hand over', hint: 'the AI rewrites up to 2×; still failing → a human answers' },
-  { value: 'handover', label: 'Hand over at once', hint: 'no rewrite — the chat is marked pending for a human' },
-  { value: 'block', label: 'Rewrite, then send nothing', hint: 'the AI rewrites up to 2×; still failing → nothing is sent' },
+export const ON_FAIL_OPTIONS: { value: OnFail; label: MessageKey; hint: MessageKey }[] = [
+  { value: 'retry', label: 'ai.skills.onFail.retry', hint: 'ai.skills.onFail.retryHint' },
+  { value: 'handover', label: 'ai.skills.onFail.handover', hint: 'ai.skills.onFail.handoverHint' },
+  { value: 'block', label: 'ai.skills.onFail.block', hint: 'ai.skills.onFail.blockHint' },
 ]
 
 export const pretty = (v: unknown) => {

@@ -38,6 +38,7 @@ import {
 } from '@/lib/aiLearning'
 import { LessonCard, type LessonAction } from './LessonCard'
 import { AddLessonModal } from './AddLessonModal'
+import { useFormat, useT, type MessageKey } from '@/i18n'
 
 const STATUSES: LessonStatus[] = ['suggested', 'active', 'archived', 'dismissed']
 
@@ -57,6 +58,7 @@ function ModeCard({
   canManage: boolean
   statusMode: string | null
 }) {
+  const t = useT()
   const [field, setField] = useState<BehaviourField | null>(null)
   const [canWrite, setCanWrite] = useState(false)
   const [saving, setSaving] = useState<string | null>(null)
@@ -90,7 +92,7 @@ function ModeCard({
         body: JSON.stringify({ values: { ai_learning_mode: next } }),
       })
       setField(p.fields.find((f) => f.key === 'ai_learning_mode') ?? null)
-      setMsg({ ok: true, text: entityName ? `Saved for ${entityName}.` : 'Saved for the whole organization.' })
+      setMsg({ ok: true, text: entityName ? t('ai.common.savedFor', { name: entityName }) : t('ai.learning.savedOrgWide') })
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
     } finally {
@@ -101,14 +103,11 @@ function ModeCard({
   const current = LEARNING_MODES.find((m) => m.id === mode)
   return (
     <Card className="px-5 py-4">
-      <CardTitle className="mb-1">How the AI learns</CardTitle>
-      <p className="mb-3 text-[12.5px] leading-relaxed text-text-muted">
-        Every thumbs-up, thumbs-down, edit and rejection is recorded. Lessons drawn from them are added to the AI’s instructions as examples
-        from past conversations — your hard rules still win.
-      </p>
+      <CardTitle className="mb-1">{t('ai.learning.howLearns')}</CardTitle>
+      <p className="mb-3 text-[12.5px] leading-relaxed text-text-muted">{t('ai.learning.howLearnsBody')}</p>
       <div
         role="radiogroup"
-        aria-label="Learning mode"
+        aria-label={t('ai.learning.modeLabel')}
         className="grid grid-cols-3 gap-0.5 rounded-lg border border-line-strong bg-card p-0.5"
       >
         {LEARNING_MODES.map((m) => {
@@ -126,27 +125,29 @@ function ModeCard({
               }`}
             >
               {saving === m.id && <Loader2 size={12} className="animate-spin" aria-hidden />}
-              {m.label}
+              <span className="min-w-0 text-center leading-tight">{t(m.label)}</span>
             </button>
           )
         })}
       </div>
       <p className="mt-2 min-h-[36px] text-[12.5px] leading-relaxed text-text-mid">
-        {current ? current.help : 'The learning mode isn’t available on this server yet.'}
+        {current ? t(current.help) : t('ai.learning.modeUnavailable')}
       </p>
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-text-muted">
         {field && (
           <span>
             {field.scope === 'entity'
-              ? `Set for ${entityName ?? 'this entity'}`
+              ? entityName
+                ? t('ai.learning.setFor', { name: entityName })
+                : t('ai.learning.setForThis')
               : field.scope === 'global'
                 ? entityName
-                  ? 'Inherited from the organization'
-                  : 'Organization default'
-                : 'Built-in default'}
+                  ? t('ai.learning.inheritedOrg')
+                  : t('ai.learning.orgDefault')
+                : t('ai.learning.builtIn')}
           </span>
         )}
-        {!editable && field && <span>Changing it needs the “Edit AI behaviour settings” permission.</span>}
+        {!editable && field && <span>{t('ai.common.needsBehaviourPermission')}</span>}
         {msg && (
           <span role={msg.ok ? 'status' : 'alert'} className={msg.ok ? 'text-[color:var(--green-ink)]' : 'text-[color:var(--red-ink)]'}>
             {msg.text}
@@ -168,6 +169,8 @@ function RetrievalCard({
   canManage: boolean
   onReindexed: () => void
 }) {
+  const t = useT()
+  const f = useFormat()
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const e = status?.embedding
@@ -179,7 +182,11 @@ function RetrievalCard({
       const r = await learningApi.reindex()
       setMsg({
         ok: true,
-        text: r.detail || (typeof r.queued === 'number' ? `Re-indexing ${r.queued} item${r.queued === 1 ? '' : 's'} in the background.` : 'Re-indexing in the background.'),
+        text:
+          r.detail ||
+          (typeof r.queued === 'number'
+            ? t('ai.learning.reindexing', { count: r.queued })
+            : t('ai.learning.reindexingBg')),
       })
       onReindexed()
     } catch (err) {
@@ -199,20 +206,18 @@ function RetrievalCard({
         className="mb-1"
         right={
           <Link href="/settings/ai-providers" className="font-semibold text-text-mid hover:text-text-high hover:underline">
-            Change provider
+            {t('ai.learning.changeProvider')}
           </Link>
         }
       >
-        Finding answers
+        {t('ai.learning.findingAnswers')}
       </CardTitle>
       {status === undefined ? (
         <div className="flex items-center gap-2 py-3 text-[12.5px] text-text-muted">
-          <Loader2 size={13} className="animate-spin" aria-hidden /> Checking…
+          <Loader2 size={13} className="animate-spin" aria-hidden /> {t('ai.learning.checking')}
         </div>
       ) : status === null ? (
-        <p className="text-[12.5px] leading-relaxed text-text-muted">
-          Retrieval status isn’t available on this server yet. The AI matches knowledge by keywords.
-        </p>
+        <p className="text-[12.5px] leading-relaxed text-text-muted">{t('ai.learning.retrievalUnavailable')}</p>
       ) : (
         <>
           <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -222,50 +227,54 @@ function RetrievalCard({
               }`}
             >
               {semantic ? <Sparkles size={11} aria-hidden /> : <Search size={11} aria-hidden />}
-              {semantic ? 'Semantic + keyword search' : 'Keyword search only'}
+              {semantic ? t('ai.learning.semanticKeyword') : t('ai.learning.keywordOnly')}
             </span>
             {semantic && (
               <span className="text-[12px] text-text-muted">
-                {embeddingProviderLabel(e?.provider ?? '')}
+                {embeddingProviderLabel(e?.provider ?? '', t)}
                 {e?.model ? ` · ${e.model}` : ''}
               </span>
             )}
           </div>
           <p className="text-[12.5px] leading-relaxed text-text-muted">
-            {semantic
-              ? 'Knowledge and lessons are matched by meaning, so a reworded question still finds the right answer.'
-              : 'Add an OpenAI, Gemini or local embedding provider in Settings → AI keys & models to match by meaning, not just words.'}
+            {semantic ? t('ai.learning.semanticBody') : t('ai.learning.keywordBody')}
           </p>
           {semantic && (
             <div className="mt-3">
               <div className="mb-1 flex items-baseline justify-between gap-2 text-[12px]">
                 <span className="text-text-mid">
-                  <span className="font-semibold tabular-nums text-text-heading">{(e?.indexed ?? 0).toLocaleString()}</span> pieces
-                  indexed
+                  <span className="tabular-nums">{t('ai.learning.piecesIndexed', { count: e?.indexed ?? 0 })}</span>
                   {(e?.pending ?? 0) > 0 && (
                     <>
                       {' · '}
-                      <span className="font-semibold tabular-nums text-text-heading">{(e?.pending ?? 0).toLocaleString()}</span> waiting
+                      <span className="tabular-nums">{t('ai.learning.piecesWaiting', { count: e?.pending ?? 0 })}</span>
                     </>
                   )}
                 </span>
-                <span className="tabular-nums text-text-faint">{pctDone}%</span>
+                <span className="tabular-nums text-text-faint">{f.percent(pctDone / 100)}</span>
               </div>
-              <div className="h-1.5 w-full rounded-full bg-fill" role="progressbar" aria-valuenow={pctDone} aria-valuemin={0} aria-valuemax={100} aria-label="Indexed">
+              <div
+                className="h-1.5 w-full rounded-full bg-fill"
+                role="progressbar"
+                aria-valuenow={pctDone}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label={t('ai.learning.indexedAria')}
+              >
                 <div className="h-1.5 rounded-full bg-primary" style={{ width: `${pctDone}%` }} />
               </div>
             </div>
           )}
           {e?.last_error && (
             <p role="alert" className="mt-2 flex items-start gap-1.5 text-[12px] text-[color:var(--red-ink)]">
-              <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden /> Last indexing error: {e.last_error}
+              <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden /> {t('ai.learning.lastError', { error: e.last_error })}
             </p>
           )}
           {canManage && semantic && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <Button size="sm" variant="secondary" disabled={busy} onClick={() => void reindex()}>
-                {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <RefreshCw size={13} aria-hidden />} Re-index
-                everything
+                {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <RefreshCw size={13} aria-hidden />}{' '}
+                {t('ai.learning.reindexAll')}
               </Button>
               {msg && (
                 <span role={msg.ok ? 'status' : 'alert'} className={`text-[12px] ${msg.ok ? 'text-text-mid' : 'text-[color:var(--red-ink)]'}`}>
@@ -291,6 +300,7 @@ export function LearningPanel({
   entitySlug: string | null
   entityName: string | null
 }) {
+  const t = useT()
   const { ready, can, role } = useAccess()
   const canManage = ready && can('ai.behaviour.manage')
   const canDelete = canManage && (role === 'admin' || role === 'superadmin')
@@ -320,8 +330,8 @@ export function LearningPanel({
   }, [])
 
   useEffect(() => {
-    const t = window.setTimeout(() => setQuery(q.trim()), 300)
-    return () => window.clearTimeout(t)
+    const timer = window.setTimeout(() => setQuery(q.trim()), 300)
+    return () => window.clearTimeout(timer)
   }, [q])
 
   const loadStatus = useCallback(async () => {
@@ -366,7 +376,7 @@ export function LearningPanel({
 
   const act = async (l: Lesson, a: LessonAction) => {
     if (busy) return
-    if (a === 'delete' && !window.confirm(`Delete lesson #${l.id} for good? This can’t be undone.`)) return
+    if (a === 'delete' && !window.confirm(t('ai.learning.deleteConfirm', { id: String(l.id) }))) return
     setBusy(l.id)
     setNotice(null)
     try {
@@ -374,13 +384,15 @@ export function LearningPanel({
         const r = await lessonsApi.toKnowledge(l.id)
         setNotice({
           ok: true,
-          text: `Lesson #${l.id} is now a knowledge base FAQ${r.knowledge_id ? ` (#${r.knowledge_id})` : ''}.`,
+          text: r.knowledge_id
+            ? t('ai.learning.toKnowledgeId', { id: String(l.id), kid: String(r.knowledge_id) })
+            : t('ai.learning.toKnowledge', { id: String(l.id) }),
           href: '/knowledge',
-          hrefLabel: 'Open the knowledge base',
+          hrefLabel: t('ai.learning.openKb'),
         })
       } else if (a === 'delete') {
         await lessonsApi.remove(l.id)
-        setNotice({ ok: true, text: `Deleted lesson #${l.id}.` })
+        setNotice({ ok: true, text: t('ai.learning.deleted', { id: String(l.id) }) })
       } else {
         const next: Record<Exclude<LessonAction, 'knowledge' | 'delete'>, LessonStatus> = {
           approve: 'active',
@@ -393,10 +405,10 @@ export function LearningPanel({
           ok: true,
           text:
             a === 'approve' || a === 'restore'
-              ? `Lesson #${l.id} is live — the AI uses it from the next reply.`
+              ? t('ai.learning.live', { id: String(l.id) })
               : a === 'dismiss'
-                ? `Dismissed lesson #${l.id}.`
-                : `Archived lesson #${l.id} — the AI no longer uses it.`,
+                ? t('ai.learning.dismissed', { id: String(l.id) })
+                : t('ai.learning.archived', { id: String(l.id) }),
         })
       }
       await load()
@@ -411,15 +423,24 @@ export function LearningPanel({
     await lessonsApi.update(l.id, patch)
     setNotice({
       ok: true,
-      text: patch.status === 'active' ? `Lesson #${l.id} saved and live.` : `Lesson #${l.id} saved.`,
+      text:
+        patch.status === 'active'
+          ? t('ai.learning.savedLive', { id: String(l.id) })
+          : t('ai.learning.saved', { id: String(l.id) }),
     })
     await load()
   }
 
   const kindOptions = [
-    { value: '', label: 'Any kind' },
-    ...(Object.keys(LESSON_KIND_LABEL) as LessonKind[]).map((k) => ({ value: k, label: LESSON_KIND_LABEL[k] })),
+    { value: '', label: t('ai.common.anyKind') },
+    ...(Object.keys(LESSON_KIND_LABEL) as LessonKind[]).map((k) => ({ value: k, label: t(LESSON_KIND_LABEL[k]) })),
   ]
+  const EMPTY_TITLE: Record<LessonStatus, MessageKey> = {
+    suggested: 'ai.learning.emptySuggested',
+    active: 'ai.learning.emptyActive',
+    archived: 'ai.learning.emptyArchived',
+    dismissed: 'ai.learning.emptyDismissed',
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -431,17 +452,18 @@ export function LearningPanel({
       {unavailable ? (
         <Card className="flex flex-col items-start gap-2 px-5 py-8">
           <GraduationCap size={22} className="text-text-faint" aria-hidden />
-          <h3 className="display text-[19px] text-text-heading">Learning isn’t switched on here yet</h3>
-          <p className="max-w-[560px] text-[13px] leading-relaxed text-text-muted">
-            This server doesn’t keep lessons yet. Once it does, ratings on AI replies and the edits reviewers make turn into
-            lessons that show up here.
-          </p>
+          <h3 className="display text-[19px] text-text-heading">{t('ai.learning.unavailableTitle')}</h3>
+          <p className="max-w-[560px] text-[13px] leading-relaxed text-text-muted">{t('ai.learning.unavailableBody')}</p>
         </Card>
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2">
             <div className="-mx-1 max-w-full overflow-x-auto px-1">
-              <div className="inline-flex min-w-max rounded-lg border border-line-strong bg-card p-0.5" role="tablist" aria-label="Lesson status">
+              <div
+                className="inline-flex min-w-max rounded-lg border border-line-strong bg-card p-0.5"
+                role="tablist"
+                aria-label={t('ai.learning.lessonStatusLabel')}
+              >
                 {STATUSES.map((s) => (
                   <button
                     key={s}
@@ -453,7 +475,7 @@ export function LearningPanel({
                       status === s ? 'bg-primary text-on-primary' : 'text-text-mid hover:bg-fill-hover'
                     }`}
                   >
-                    {LESSON_STATUS_LABEL[s]}
+                    {t(LESSON_STATUS_LABEL[s])}
                     {counts && counts[s] != null && (
                       <span
                         className={`rounded-full px-1.5 text-[11px] leading-[17px] tabular-nums ${
@@ -471,10 +493,22 @@ export function LearningPanel({
             </div>
             <div className="relative min-w-[180px] flex-1 basis-[200px]">
               <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-faint" aria-hidden />
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search lessons" className={searchCls} aria-label="Search lessons" />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder={t('ai.learning.searchLessons')}
+                className={searchCls}
+                aria-label={t('ai.learning.searchLessons')}
+              />
             </div>
-            <Select value={kind} onChange={setKind} options={kindOptions} ariaLabel="Kind of lesson" className="w-[150px]" />
-            {loading && <Loader2 size={14} className="animate-spin text-text-faint" aria-label="Loading" />}
+            <Select
+              value={kind}
+              onChange={setKind}
+              options={kindOptions}
+              ariaLabel={t('ai.learning.kindOfLesson')}
+              className="w-[150px]"
+            />
+            {loading && <Loader2 size={14} className="animate-spin text-text-faint" aria-label={t('common.status.loading')} />}
             {canManage && (
               <Button
                 size="sm"
@@ -485,7 +519,7 @@ export function LearningPanel({
                   setAdding(true)
                 }}
               >
-                <Plus size={13} aria-hidden /> Add a rule
+                <Plus size={13} aria-hidden /> {t('ai.learning.addRule')}
               </Button>
             )}
           </div>
@@ -507,16 +541,16 @@ export function LearningPanel({
           )}
           {error && (
             <div role="alert" className="flex flex-wrap items-center gap-2 text-[12.5px] text-[color:var(--red-ink)]">
-              Couldn’t load the lessons: {error}
+              {t('ai.learning.loadError', { error })}
               <Button size="sm" variant="ghost" onClick={() => void load()}>
-                <RefreshCw size={13} aria-hidden /> Retry
+                <RefreshCw size={13} aria-hidden /> {t('common.actions.retry')}
               </Button>
             </div>
           )}
 
           {!data && !error && (
             <div className="flex items-center gap-2 p-4 text-[13px] text-text-muted">
-              <Loader2 size={15} className="animate-spin" aria-hidden /> Loading lessons…
+              <Loader2 size={15} className="animate-spin" aria-hidden /> {t('ai.learning.loadingLessons')}
             </div>
           )}
 
@@ -524,26 +558,20 @@ export function LearningPanel({
             <Card className="flex flex-col items-start gap-2 px-5 py-8">
               <Brain size={22} className="text-text-faint" aria-hidden />
               <h3 className="display text-[19px] text-text-heading">
-                {query || kind
-                  ? 'No lessons match'
-                  : status === 'suggested'
-                    ? 'No suggestions waiting'
-                    : status === 'active'
-                      ? 'The AI hasn’t learned anything yet'
-                      : `Nothing ${LESSON_STATUS_LABEL[status].toLowerCase()}`}
+                {query || kind ? t('ai.learning.emptyNoMatch') : t(EMPTY_TITLE[status])}
               </h3>
               <p className="max-w-[560px] text-[13px] leading-relaxed text-text-muted">
                 {query || kind
-                  ? 'Try another word or kind.'
+                  ? t('ai.learning.tryAnother')
                   : status === 'suggested'
-                    ? 'Rate AI replies with the thumbs in Chats or here in the AI monitor — a thumbs-down with a correction, a reply a reviewer edited, or a thumbs-up on a good answer becomes a suggested lesson.'
+                    ? t('ai.learning.suggestedBody')
                     : status === 'active'
-                      ? 'Approve a suggestion or add a rule by hand. Active lessons are added to the AI’s instructions when a customer asks something similar.'
-                      : 'Lessons you archive or dismiss stay here so you can bring them back.'}
+                      ? t('ai.learning.activeBody')
+                      : t('ai.learning.archivedBody')}
               </p>
               {status === 'suggested' && !query && !kind && (counts?.active ?? 0) > 0 && (
                 <Button size="sm" variant="secondary" onClick={() => setStatus('active')}>
-                  See {counts?.active} active lesson{counts?.active === 1 ? '' : 's'}
+                  {t('ai.learning.seeActive', { count: counts?.active ?? 0 })}
                 </Button>
               )}
             </Card>

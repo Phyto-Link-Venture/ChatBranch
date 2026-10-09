@@ -18,15 +18,11 @@ import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { Loader2, Table2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardTitle } from '@/components/ui/Card'
-import { KIND_LABEL, aiApi, duration, type DraftKind, type MonitorStats } from '@/lib/aiMonitor'
+import { KIND_COUNT, aiApi, duration, rejectReasonLabel, type DraftKind, type MonitorStats } from '@/lib/aiMonitor'
 import { LearningStats } from '@/components/ai-learning/LearningStats'
+import { useFormat, useT } from '@/i18n'
 
 const DAY_OPTIONS = [7, 30, 90]
-const KIND_PLURAL: Record<DraftKind, string> = {
-  reply: 'replies',
-  follow_up: 'follow-ups',
-  flow_message: 'flow messages',
-}
 
 const VIZ_CSS = `
 .aim-viz{--aim-held:rgb(var(--c-brand));--aim-auto:var(--text-faint);}
@@ -50,12 +46,16 @@ function niceMax(v: number): number {
   return 10 * pow
 }
 
-function shortDate(iso: string): string {
-  const [y, m, d] = iso.split('-').map(Number)
-  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })
+/** "2026-10-09" → a local Date at that calendar day (so formatting never shifts it a day). */
+function dayDate(iso: string): Date {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
+  return new Date(y, m - 1, d)
 }
 
 function DailyChart({ daily }: { daily: MonitorStats['daily'] }) {
+  const t = useT()
+  const f = useFormat()
+  const shortDate = (iso: string) => f.date(dayDate(iso))
   const [hover, setHover] = useState<number | null>(null)
   const [table, setTable] = useState(false)
   const tipId = useId()
@@ -69,14 +69,14 @@ function DailyChart({ daily }: { daily: MonitorStats['daily'] }) {
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-text-mid">
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: 'var(--aim-held)' }} aria-hidden />
-          Held for review
+          {t('ai.stats.heldForReview')}
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: 'var(--aim-auto)' }} aria-hidden />
-          Sent automatically
+          {t('ai.draftStatus.autoSent')}
         </span>
-        <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setTable((t) => !t)} aria-pressed={table}>
-          <Table2 size={13} aria-hidden /> {table ? 'Show chart' : 'Show table'}
+        <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setTable((v) => !v)} aria-pressed={table}>
+          <Table2 size={13} aria-hidden /> {table ? t('ai.common.showChart') : t('ai.common.showTable')}
         </Button>
       </div>
 
@@ -85,10 +85,10 @@ function DailyChart({ daily }: { daily: MonitorStats['daily'] }) {
           <table className="w-full text-left text-[12.5px]">
             <thead className="sticky top-0 bg-card text-text-muted">
               <tr>
-                <th className="px-3 py-2 font-semibold">Day</th>
-                <th className="px-3 py-2 text-right font-semibold">Held</th>
-                <th className="px-3 py-2 text-right font-semibold">Sent automatically</th>
-                <th className="px-3 py-2 text-right font-semibold">Rejected</th>
+                <th className="px-3 py-2 font-semibold">{t('ai.common.day')}</th>
+                <th className="px-3 py-2 text-right font-semibold">{t('ai.stats.held')}</th>
+                <th className="px-3 py-2 text-right font-semibold">{t('ai.draftStatus.autoSent')}</th>
+                <th className="px-3 py-2 text-right font-semibold">{t('ai.draftStatus.rejected')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line tabular-nums text-text-high">
@@ -124,7 +124,7 @@ function DailyChart({ daily }: { daily: MonitorStats['daily'] }) {
                   aria-hidden
                 />
               ))}
-              <div className="relative flex items-end" style={{ height: H }} role="list" aria-label="AI messages per day">
+              <div className="relative flex items-end" style={{ height: H }} role="list" aria-label={t('ai.stats.chartLabel')}>
                 {daily.map((d, i) => {
                   const total = d.auto_sent + d.held
                   const autoH = (d.auto_sent / max) * H
@@ -139,7 +139,7 @@ function DailyChart({ daily }: { daily: MonitorStats['daily'] }) {
                       onPointerLeave={() => setHover((h) => (h === i ? null : h))}
                       onFocus={() => setHover(i)}
                       onBlur={() => setHover((h) => (h === i ? null : h))}
-                      aria-label={`${shortDate(d.date)}: ${d.held} held, ${d.auto_sent} sent automatically`}
+                      aria-label={t('ai.stats.barLabel', { date: shortDate(d.date), held: d.held, sent: d.auto_sent })}
                       aria-describedby={hover === i ? tipId : undefined}
                     >
                       <span
@@ -179,13 +179,13 @@ function DailyChart({ daily }: { daily: MonitorStats['daily'] }) {
                 >
                   <div className="mb-1 text-[11px] text-text-muted">{shortDate(daily[hover].date)}</div>
                   {[
-                    { k: 'Held for review', v: daily[hover].held, c: 'var(--aim-held)' },
-                    { k: 'Sent automatically', v: daily[hover].auto_sent, c: 'var(--aim-auto)' },
-                    { k: 'Rejected', v: daily[hover].rejected, c: '' },
+                    { k: t('ai.stats.heldForReview'), v: daily[hover].held, c: 'var(--aim-held)' },
+                    { k: t('ai.draftStatus.autoSent'), v: daily[hover].auto_sent, c: 'var(--aim-auto)' },
+                    { k: t('ai.draftStatus.rejected'), v: daily[hover].rejected, c: '' },
                   ].map((row) => (
                     <div key={row.k} className="flex items-center gap-2">
                       <span className="inline-block h-[2px] w-3" style={{ background: row.c || 'transparent' }} aria-hidden />
-                      <span className="font-semibold tabular-nums text-text-heading">{row.v}</span>
+                      <span className="font-semibold tabular-nums text-text-heading">{f.number(row.v)}</span>
                       <span className="text-text-muted">{row.k}</span>
                     </div>
                   ))}
@@ -216,7 +216,16 @@ function DailyChart({ daily }: { daily: MonitorStats['daily'] }) {
   )
 }
 
-function ReasonBars({ rows, empty }: { rows: { reason: string; count: number }[]; empty: string }) {
+function ReasonBars({
+  rows,
+  empty,
+  label = (r) => r,
+}: {
+  rows: { reason: string; count: number }[]
+  empty: string
+  label?: (reason: string) => string
+}) {
+  const f = useFormat()
   if (!rows.length) return <p className="text-[12.5px] text-text-muted">{empty}</p>
   const max = Math.max(...rows.map((r) => r.count))
   return (
@@ -224,8 +233,8 @@ function ReasonBars({ rows, empty }: { rows: { reason: string; count: number }[]
       {rows.map((r) => (
         <li key={r.reason}>
           <div className="mb-1 flex items-baseline justify-between gap-3 text-[12.5px]">
-            <span className="min-w-0 break-words text-text-high">{r.reason}</span>
-            <span className="shrink-0 font-semibold tabular-nums text-text-heading">{r.count}</span>
+            <span className="min-w-0 break-words text-text-high">{label(r.reason)}</span>
+            <span className="shrink-0 font-semibold tabular-nums text-text-heading">{f.number(r.count)}</span>
           </div>
           <div className="h-1.5 w-full rounded-full bg-fill">
             <div
@@ -240,6 +249,9 @@ function ReasonBars({ rows, empty }: { rows: { reason: string; count: number }[]
 }
 
 export function StatsPanel({ entityQuery }: { entityQuery: string }) {
+  const t = useT()
+  const f = useFormat()
+  const pct = (v: number | null) => (v == null ? '—' : f.percent(v / 100))
   const [days, setDays] = useState(30)
   const [stats, setStats] = useState<MonitorStats | null>(null)
   const [loading, setLoading] = useState(false)
@@ -268,7 +280,7 @@ export function StatsPanel({ entityQuery }: { entityQuery: string }) {
       <style>{VIZ_CSS}</style>
       {/* one filter row above everything it scopes */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded-lg border border-line-strong bg-card p-0.5" role="group" aria-label="Time range">
+        <div className="inline-flex rounded-lg border border-line-strong bg-card p-0.5" role="group" aria-label={t('ai.common.timeRange')}>
           {DAY_OPTIONS.map((d) => (
             <button
               key={d}
@@ -279,11 +291,11 @@ export function StatsPanel({ entityQuery }: { entityQuery: string }) {
                 days === d ? 'bg-primary text-on-primary' : 'text-text-mid hover:bg-fill-hover'
               }`}
             >
-              Last {d} days
+              {t('ai.common.lastDays', { count: d })}
             </button>
           ))}
         </div>
-        {loading && <Loader2 size={14} className="animate-spin text-text-faint" aria-label="Loading" />}
+        {loading && <Loader2 size={14} className="animate-spin text-text-faint" aria-label={t('common.status.loading')} />}
       </div>
 
       {error && (
@@ -295,49 +307,72 @@ export function StatsPanel({ entityQuery }: { entityQuery: string }) {
       {stats && (
         <div className={`flex flex-col gap-4 transition-opacity ${loading ? 'opacity-70' : ''}`}>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-            <Tile label="AI messages" value={stats.total.toLocaleString()} sub={Object.entries(stats.by_kind)
-              .filter(([, n]) => n > 0)
-              .map(([k, n]) => `${n} ${n === 1 ? KIND_LABEL[k as DraftKind].toLowerCase() : KIND_PLURAL[k as DraftKind]}`)
-              .join(' · ') || 'none yet'} />
-            <Tile label="Held for review" value={stats.held.toLocaleString()} sub={`${stats.pending} waiting now`} />
             <Tile
-              label="Approval rate"
-              value={stats.approval_rate == null ? '—' : `${stats.approval_rate}%`}
-              sub={decided ? `${stats.approved + stats.edited} of ${decided} decisions` : 'no decisions yet'}
+              label={t('ai.stats.aiMessages')}
+              value={f.number(stats.total)}
+              sub={
+                Object.entries(stats.by_kind)
+                  .filter(([k, n]) => n > 0 && k in KIND_COUNT)
+                  .map(([k, n]) => t(KIND_COUNT[k as DraftKind], { count: n }))
+                  .join(' · ') || t('ai.stats.noneYet')
+              }
             />
             <Tile
-              label="Edited before sending"
-              value={stats.edit_rate == null ? '—' : `${stats.edit_rate}%`}
-              sub={`${stats.edited} edited`}
+              label={t('ai.stats.heldForReview')}
+              value={f.number(stats.held)}
+              sub={t('ai.stats.waitingNow', { count: stats.pending })}
             />
-            <Tile label="Rejected" value={stats.rejected.toLocaleString()} sub={`${stats.expired} superseded · ${stats.failed} not sent`} />
             <Tile
-              label="Median review time"
-              value={duration(stats.median_review_seconds)}
-              sub={stats.sent_after_deadline ? `${stats.sent_after_deadline} sent at the deadline` : 'from draft to decision'}
+              label={t('ai.stats.approvalRate')}
+              value={pct(stats.approval_rate)}
+              sub={
+                decided
+                  ? t('ai.stats.decisionsOf', { approved: stats.approved + stats.edited, count: decided })
+                  : t('ai.stats.noDecisions')
+              }
+            />
+            <Tile
+              label={t('ai.stats.editedBefore')}
+              value={pct(stats.edit_rate)}
+              sub={t('ai.stats.editedCount', { count: stats.edited })}
+            />
+            <Tile
+              label={t('ai.draftStatus.rejected')}
+              value={f.number(stats.rejected)}
+              sub={t('ai.stats.supersededNotSent', { superseded: stats.expired, failed: stats.failed })}
+            />
+            <Tile
+              label={t('ai.stats.medianReview')}
+              value={duration(stats.median_review_seconds, t)}
+              sub={
+                stats.sent_after_deadline
+                  ? t('ai.stats.sentAtDeadline', { count: stats.sent_after_deadline })
+                  : t('ai.stats.draftToDecision')
+              }
             />
           </div>
 
           <Card className="px-5 py-4">
-            <CardTitle className="mb-3">AI messages per day</CardTitle>
+            <CardTitle className="mb-3">{t('ai.stats.chartLabel')}</CardTitle>
             <DailyChart daily={stats.daily} />
           </Card>
 
           <div className="grid gap-4 lg:grid-cols-2">
             <Card className="px-5 py-4">
-              <CardTitle className="mb-3">Why replies were held</CardTitle>
-              <ReasonBars rows={stats.top_hold_reasons} empty="Nothing was held in this period." />
+              <CardTitle className="mb-3">{t('ai.stats.whyHeld')}</CardTitle>
+              <ReasonBars rows={stats.top_hold_reasons} empty={t('ai.stats.nothingHeld')} />
             </Card>
             <Card className="px-5 py-4">
-              <CardTitle className="mb-3">Why reviewers said no</CardTitle>
+              <CardTitle className="mb-3">{t('ai.stats.whyRejected')}</CardTitle>
               <ReasonBars
                 rows={stats.top_reject_reasons}
-                empty="No rejections in this period. Reasons given when rejecting show up here as feedback."
+                empty={t('ai.stats.noRejections')}
+                label={(r) => rejectReasonLabel(r, t)}
               />
             </Card>
           </div>
           {stats.shadow > 0 && (
-            <p className="text-[12px] text-text-muted">{stats.shadow} shadow drafts were written and not sent in this period.</p>
+            <p className="text-[12px] text-text-muted">{t('ai.stats.shadowNote', { count: stats.shadow })}</p>
           )}
         </div>
       )}

@@ -31,12 +31,12 @@ import { DEFAULT_AGENT_SKILLS } from '@/lib/flow/defaultAgentSkills'
 import { ScopeBadge } from './EntityScopeSelect'
 import { SkillWizard, type WizardInit } from '@/components/skills/SkillWizard'
 import {
-  CHANNEL_OPTIONS,
   KIND_META,
   ON_FAIL_OPTIONS,
   aicore,
   appSkillSubtitle,
   calendarConfig,
+  channelOptions,
   deleteSkill,
   fetchApps,
   pretty,
@@ -44,10 +44,12 @@ import {
   toWire,
   writeScope,
   type AppCatalogEntry,
+  type Builtin,
   type BuiltinsPayload,
   type Skill,
   type SkillKind,
 } from '@/components/skills/skillsApi'
+import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -61,7 +63,21 @@ const KIND_ICON: Record<SkillKind, typeof BookOpen> = {
 /** Section order on the page — connected apps sit right under instructions. */
 const KIND_ORDER: SkillKind[] = ['prompt', 'app', 'tool', 'check']
 
-const channelLabel = (c: string) => CHANNEL_OPTIONS.find((o) => o.value === c)?.label ?? c
+const channelLabel = (c: string, t: TFunction) => channelOptions(t).find((o) => o.value === c)?.label ?? c
+
+/** The built-in tools by name — the server's English label/description for one this build doesn't know. */
+const BUILTIN_TEXT: Record<string, { label: MessageKey; description: MessageKey }> = {
+  current_time: { label: 'ai.builtins.currentTime.label', description: 'ai.builtins.currentTime.description' },
+  current_week: { label: 'ai.builtins.currentWeek.label', description: 'ai.builtins.currentWeek.description' },
+  date_add: { label: 'ai.builtins.dateAdd.label', description: 'ai.builtins.dateAdd.description' },
+  days_between: { label: 'ai.builtins.daysBetween.label', description: 'ai.builtins.daysBetween.description' },
+  convert_timezone: { label: 'ai.builtins.convertTimezone.label', description: 'ai.builtins.convertTimezone.description' },
+}
+
+const builtinText = (b: Builtin, t: TFunction) => {
+  const k = BUILTIN_TEXT[b.name]
+  return k ? { label: t(k.label), description: t(k.description) } : { label: b.label, description: b.description }
+}
 
 /**
  * AI skills — what the assistant can do, in four kinds:
@@ -85,6 +101,7 @@ const channelLabel = (c: string) => CHANNEL_OPTIONS.find((o) => o.value === c)?.
  * The flow builder reads this list for its step picker.
  */
 export function SkillsSettings() {
+  const t = useT()
   const entityQ = useEntityQuery()
   const { activeEntity } = useEntity()
   const { role, ready } = useRole()
@@ -145,7 +162,7 @@ export function SkillsSettings() {
     setNotice(null)
     try {
       await saveSkill({ ...toWire(s), enabled }, s.entity ?? null)
-      setNotice(enabled ? `“${s.name}” is on.` : `“${s.name}” is off — the AI ignores it.`)
+      setNotice(enabled ? t('ai.skills.toggledOn', { name: s.name }) : t('ai.skills.toggledOff', { name: s.name }))
       await load()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -159,7 +176,7 @@ export function SkillsSettings() {
     setError(null)
     try {
       await deleteSkill(s.id, s.entity ?? null)
-      setNotice(`“${s.name}” deleted.`)
+      setNotice(t('ai.skills.deleted', { name: s.name }))
       setConfirm(null)
       await load()
     } catch (e) {
@@ -191,7 +208,7 @@ export function SkillsSettings() {
           onFail: 'retry' as const,
         })),
       ])
-      setNotice('Starter instructions added.')
+      setNotice(t('ai.skills.startersAdded'))
       await load()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -201,7 +218,7 @@ export function SkillsSettings() {
   if (!ready || (skills === null && !loadError)) {
     return (
       <div className="flex items-center gap-1.5 py-6 text-[12.5px] text-text-muted">
-        <Loader2 size={13} className="animate-spin" aria-hidden /> Loading skills…
+        <Loader2 size={13} className="animate-spin" aria-hidden /> {t('ai.skills.loading')}
       </div>
     )
   }
@@ -209,9 +226,9 @@ export function SkillsSettings() {
   if (skills === null) {
     return (
       <div className="py-6 text-[12.5px]">
-        <Banner tone="error">Couldn&apos;t load skills — {loadError}</Banner>
+        <Banner tone="error">{t('ai.skills.loadError', { error: loadError ?? '' })}</Banner>
         <Button variant="ghost" onClick={load} className="mt-2.5">
-          <RefreshCw size={13} aria-hidden /> Retry
+          <RefreshCw size={13} aria-hidden /> {t('common.actions.retry')}
         </Button>
       </div>
     )
@@ -231,24 +248,26 @@ export function SkillsSettings() {
     <div className="flex flex-col gap-7 pb-10 pt-4">
       <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
         <p className="min-w-0 max-w-[720px] flex-1 text-[13px] leading-relaxed text-text-mid">
-          Describe what the assistant should be able to do. Plain guidance becomes an{' '}
-          <b className="font-semibold text-text-high">instruction</b>; anything that must be exact — opening hours,
-          dates, ID formats — becomes a <b className="font-semibold text-text-high">tool</b> it calls or a{' '}
-          <b className="font-semibold text-text-high">reply check</b> every answer must pass. Code skills are written
-          for you, tested in a sandbox, and only switched on when their tests pass. A{' '}
-          <b className="font-semibold text-text-high">connected app</b> lets the AI use your calendar — check free
-          times and book.
+          <Trans
+            k="ai.skills.intro"
+            values={{
+              instruction: <b className="font-semibold text-text-high">{t('ai.skills.introInstruction')}</b>,
+              tool: <b className="font-semibold text-text-high">{t('ai.skills.introTool')}</b>,
+              check: <b className="font-semibold text-text-high">{t('ai.skills.introCheck')}</b>,
+              app: <b className="font-semibold text-text-high">{t('ai.skills.introApp')}</b>,
+            }}
+          />
         </p>
         {canManage && (
           <Button onClick={() => open({ mode: 'new' })}>
-            <Plus size={14} aria-hidden /> New skill
+            <Plus size={14} aria-hidden /> {t('ai.skills.newSkill')}
           </Button>
         )}
       </div>
 
       {!canManage && (
         <div className="flex items-center gap-1.5 text-[12px] font-semibold text-text-muted">
-          <Lock size={12} aria-hidden /> Read-only — only an admin can change skills.
+          <Lock size={12} aria-hidden /> {t('ai.skills.readOnly')}
         </div>
       )}
       {error && <Banner tone="error">{error}</Banner>}
@@ -264,8 +283,7 @@ export function SkillsSettings() {
           action={
             canManage && (
               <Button variant="secondary" size="sm" onClick={() => open({ mode: 'new', kindHint: kind })}>
-                <Plus size={13} aria-hidden />{' '}
-                {kind === 'prompt' ? 'Instruction' : kind === 'tool' ? 'Tool' : kind === 'check' ? 'Reply check' : 'Connected app'}
+                <Plus size={13} aria-hidden /> {t(KIND_META[kind].label)}
               </Button>
             )
           }
@@ -299,23 +317,28 @@ export function SkillsSettings() {
       <Modal
         open={!!confirm}
         onClose={() => setConfirm(null)}
-        title="Delete skill?"
+        title={t('ai.skills.deleteTitle')}
         size="sm"
         footer={
           <>
             <Button variant="ghost" onClick={() => setConfirm(null)}>
-              Cancel
+              {t('common.actions.cancel')}
             </Button>
             <Button variant="danger" onClick={() => confirm && remove(confirm)} disabled={busyId === confirm?.id}>
-              {busyId === confirm?.id && <Loader2 size={13} className="animate-spin" aria-hidden />} Delete
+              {busyId === confirm?.id && <Loader2 size={13} className="animate-spin" aria-hidden />}{' '}
+              {t('common.actions.delete')}
             </Button>
           </>
         }
       >
         <p className="text-[13px] leading-relaxed text-text-mid">
-          <b className="font-semibold text-text-high">{confirm?.name}</b> stops applying to every conversation
-          {confirm?.entity ? ` in ${confirm.entity_name || confirm.entity}` : ''} straight away. Flow steps that use it
-          fall back to their own script.
+          <Trans
+            k={confirm?.entity ? 'ai.skills.deleteBodyEntity' : 'ai.skills.deleteBody'}
+            values={{
+              name: <b className="font-semibold text-text-high">{confirm?.name}</b>,
+              entity: confirm?.entity_name || confirm?.entity || '',
+            }}
+          />
         </p>
       </Modal>
     </div>
@@ -335,18 +358,19 @@ function Section({
   action?: ReactNode
   children: ReactNode
 }) {
+  const t = useT()
   const Icon = KIND_ICON[kind]
   return (
     <section aria-labelledby={`skills-${kind}`}>
       <div className="mb-3 flex flex-wrap items-end gap-x-4 gap-y-2 border-b border-line pb-2">
         <div className="min-w-0">
           <div className="eyebrow flex items-center gap-1.5">
-            <Icon size={11} strokeWidth={2.2} aria-hidden /> {count} {count === 1 ? KIND_META[kind].label.toLowerCase() : KIND_META[kind].plural.toLowerCase()}
+            <Icon size={11} strokeWidth={2.2} aria-hidden /> {t(KIND_META[kind].count, { count })}
           </div>
           <h2 id={`skills-${kind}`} className="display mt-0.5 text-[21px] leading-tight text-text-heading">
-            {KIND_META[kind].plural}
+            {t(KIND_META[kind].plural)}
           </h2>
-          <p className="mt-0.5 text-[12.5px] text-text-muted">{KIND_META[kind].blurb}</p>
+          <p className="mt-0.5 text-[12.5px] text-text-muted">{t(KIND_META[kind].blurb)}</p>
         </div>
         {action && <div className="ml-auto">{action}</div>}
       </div>
@@ -366,23 +390,24 @@ function Empty({
   onNew: () => void
   onStarters: () => void
 }) {
-  const text: Record<SkillKind, string> = {
-    prompt: 'No instructions yet — the AI runs on its persona alone.',
-    tool: 'No tools yet. The built-ins above still answer time and date questions exactly.',
-    check: 'No reply checks yet — replies go out as the AI writes them.',
-    app: 'No connected apps yet — let the AI check free times and book appointments, on Google Calendar or in ChatBranch.',
+  const t = useT()
+  const text: Record<SkillKind, MessageKey> = {
+    prompt: 'ai.skills.empty.prompt',
+    tool: 'ai.skills.empty.tool',
+    check: 'ai.skills.empty.check',
+    app: 'ai.skills.empty.app',
   }
   return (
     <div className="rounded-xl border border-dashed border-line-strong px-4 py-6 text-center">
-      <p className="text-[12.5px] text-text-muted">{text[kind]}</p>
+      <p className="text-[12.5px] text-text-muted">{t(text[kind])}</p>
       {canManage && (
         <div className="mt-3 flex flex-wrap justify-center gap-2">
           <Button variant="secondary" size="sm" onClick={onNew}>
-            <Plus size={13} aria-hidden /> {kind === 'app' ? 'Set up calendar booking' : 'Describe one'}
+            <Plus size={13} aria-hidden /> {kind === 'app' ? t('ai.skills.setupCalendar') : t('ai.skills.describeOne')}
           </Button>
           {kind === 'prompt' && (
             <Button variant="ghost" size="sm" onClick={onStarters}>
-              <BookOpen size={13} aria-hidden /> Load starter instructions
+              <BookOpen size={13} aria-hidden /> {t('ai.skills.loadStarters')}
             </Button>
           )}
         </div>
@@ -410,9 +435,10 @@ function SkillRow({
   onEdit: (s: Skill) => void
   onDelete: (s: Skill) => void
 }) {
+  const t = useT()
   const Icon = KIND_ICON[s.kind] ?? BookOpen
   const appCfg = s.kind === 'app' ? calendarConfig(s.config) : null
-  const summary = s.useWhen || s.description || s.instructions || 'No trigger set — the AI decides when it applies.'
+  const summary = s.useWhen || s.description || s.instructions || t('ai.skills.noTrigger')
   const tests = Array.isArray(s.tests) ? s.tests.length : 0
   const onFail = ON_FAIL_OPTIONS.find((o) => o.value === s.onFail)
   const busy = busyId === s.id
@@ -440,7 +466,7 @@ function SkillRow({
           )}
           {!s.enabled && (
             <span className="rounded-md border border-line-strong px-1.5 py-0.5 text-[10.5px] font-semibold text-text-muted">
-              Off
+              {t('common.status.off')}
             </span>
           )}
           {activeEntityName ? (
@@ -460,7 +486,7 @@ function SkillRow({
             ) : (
               <CalendarClock size={12} className="mt-[2px] shrink-0 text-text-muted" aria-hidden />
             )}
-            <span className="min-w-0">{appSkillSubtitle(s.config, apps)}</span>
+            <span className="min-w-0">{appSkillSubtitle(s.config, apps, t)}</span>
           </p>
         )}
         <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-relaxed text-text-muted">{summary}</p>
@@ -469,30 +495,36 @@ function SkillRow({
             <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
               {s.channels.map((c) => (
                 <span key={c} className="inline-flex items-center gap-1">
-                  <ChannelLogo channel={c} size={12} title="" /> {channelLabel(c)}
+                  <ChannelLogo channel={c} size={12} title="" /> {channelLabel(c, t)}
                 </span>
               ))}
             </span>
           ) : (
             <span className="inline-flex items-center gap-1">
-              <Globe size={11} aria-hidden /> All channels
+              <Globe size={11} aria-hidden /> {t('ai.common.allChannels')}
             </span>
           )}
           {(s.kind === 'tool' || s.kind === 'check') && (
             <span className="inline-flex items-center gap-1">
-              <CheckCircle size={11} aria-hidden /> {tests} test{tests === 1 ? '' : 's'}
+              <CheckCircle size={11} aria-hidden /> {t('ai.skills.tests', { count: tests })}
             </span>
           )}
           {appCfg && (
             <span>
               {appCfg.actions.length
                 ? appCfg.actions
-                    .map((a) => (a === 'availability' ? 'Check availability' : a === 'book' ? 'Book' : 'Cancel'))
+                    .map((a) =>
+                      a === 'availability'
+                        ? t('ai.skills.actionAvailability')
+                        : a === 'book'
+                          ? t('ai.skills.actionBook')
+                          : t('ai.skills.actionCancel'),
+                    )
                     .join(' · ')
-                : 'No actions on'}
+                : t('ai.skills.noActions')}
             </span>
           )}
-          {s.kind === 'check' && onFail && <span>On fail: {onFail.label.toLowerCase()}</span>}
+          {s.kind === 'check' && onFail && <span>{t('ai.skills.onFailLine', { action: t(onFail.label) })}</span>}
         </div>
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-1">
@@ -503,14 +535,17 @@ function SkillRow({
             on={s.enabled}
             disabled={!canManage}
             onChange={(on) => onToggle(s, on)}
-            label={`${s.enabled ? 'Switch off' : 'Switch on'} ${s.name}`}
+            label={s.enabled ? t('ai.skills.switchOff', { name: s.name }) : t('ai.skills.switchOn', { name: s.name })}
           />
         )}
-        <IconButton label={canManage ? `Edit ${s.name}` : `View ${s.name}`} onClick={() => onEdit(s)}>
+        <IconButton
+          label={canManage ? t('ai.skills.editName', { name: s.name }) : t('ai.skills.viewName', { name: s.name })}
+          onClick={() => onEdit(s)}
+        >
           {canManage ? <Pencil size={13} aria-hidden /> : <Eye size={13} aria-hidden />}
         </IconButton>
         {canManage && (
-          <IconButton label={`Delete ${s.name}`} onClick={() => onDelete(s)} danger>
+          <IconButton label={t('ai.skills.deleteName', { name: s.name })} onClick={() => onDelete(s)} danger>
             <Trash2 size={13} aria-hidden />
           </IconButton>
         )}
@@ -556,40 +591,39 @@ function BuiltinsSection({
   canEditTimezone: boolean
   onTimezoneSaved: () => void
 }) {
+  const t = useT()
   return (
     <section aria-labelledby="skills-builtin">
       <div className="mb-3 flex flex-wrap items-end gap-x-4 gap-y-2 border-b border-line pb-2">
         <div className="min-w-0">
           <div className="eyebrow flex items-center gap-1.5">
-            <Lock size={11} strokeWidth={2.2} aria-hidden /> Always on
+            <Lock size={11} strokeWidth={2.2} aria-hidden /> {t('ai.skills.alwaysOn')}
           </div>
           <h2 id="skills-builtin" className="display mt-0.5 text-[21px] leading-tight text-text-heading">
-            Built-in tools
+            {t('ai.skills.builtinsTitle')}
           </h2>
-          <p className="mt-0.5 text-[12.5px] text-text-muted">
-            Exact date and time answers on every channel — the AI calls these instead of guessing.
-          </p>
+          <p className="mt-0.5 text-[12.5px] text-text-muted">{t('ai.skills.builtinsBody')}</p>
         </div>
         {data && <TimezoneControl data={data} canEdit={canEditTimezone} onSaved={onTimezoneSaved} />}
       </div>
       {!data ? (
-        <p className="text-[12.5px] text-text-muted">Built-ins are unavailable right now.</p>
+        <p className="text-[12.5px] text-text-muted">{t('ai.skills.builtinsUnavailable')}</p>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {data.builtins.map((b) => (
             <Card key={b.name} className="flex flex-col p-4">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="display text-[16px] leading-tight text-text-heading">{b.label}</div>
+                  <div className="display text-[16px] leading-tight text-text-heading">{builtinText(b, t).label}</div>
                   <code className="mt-0.5 block font-mono text-[11px] text-text-muted">{b.name}()</code>
                 </div>
                 <CalendarClock size={15} className="shrink-0 text-text-faint" aria-hidden />
               </div>
-              <p className="mt-2 flex-1 text-[12.5px] leading-relaxed text-text-mid">{b.description}</p>
+              <p className="mt-2 flex-1 text-[12.5px] leading-relaxed text-text-mid">{builtinText(b, t).description}</p>
               <details className="group mt-3 border-t border-line pt-2">
                 <summary className="cursor-pointer list-none text-[11.5px] font-semibold text-text-muted hover:text-text-high">
-                  <span className="group-open:hidden">Show example</span>
-                  <span className="hidden group-open:inline">Hide example</span>
+                  <span className="group-open:hidden">{t('ai.skills.showExample')}</span>
+                  <span className="hidden group-open:inline">{t('ai.skills.hideExample')}</span>
                 </summary>
                 <pre className="mt-2 max-h-48 overflow-auto rounded-md bg-well p-2.5 font-mono text-[11px] leading-[1.5] text-text-mid">
                   {`${b.name}(${JSON.stringify(b.example_args)})\n→ ${pretty(b.example)}`}
@@ -613,6 +647,7 @@ function TimezoneControl({
   canEdit: boolean
   onSaved: () => void
 }) {
+  const t = useT()
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(data.timezone)
   const [zones, setZones] = useState<string[]>([])
@@ -651,15 +686,15 @@ function TimezoneControl({
           value={value}
           onChange={setValue}
           searchable
-          ariaLabel="Business timezone"
+          ariaLabel={t('ai.skills.timezoneAria')}
           className="min-w-[220px]"
           options={(zones.includes(value) ? zones : [value, ...zones]).map((z) => ({ value: z, label: z }))}
         />
         <Button size="sm" onClick={save} disabled={busy}>
-          {busy && <Loader2 size={12} className="animate-spin" aria-hidden />} Save
+          {busy && <Loader2 size={12} className="animate-spin" aria-hidden />} {t('common.actions.save')}
         </Button>
         <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
-          Cancel
+          {t('common.actions.cancel')}
         </Button>
         {err && <span className="text-[11.5px] text-[color:var(--red-ink)]">{err}</span>}
       </div>
@@ -668,7 +703,7 @@ function TimezoneControl({
     <div className="ml-auto flex items-center gap-2 text-[12px] text-text-muted">
       <Clock size={12} aria-hidden />
       <span>
-        <span className="font-semibold text-text-high">{data.timezone}</span> · now {local}
+        <span className="font-semibold text-text-high">{data.timezone}</span> {t('ai.skills.nowAt', { time: local })}
       </span>
       {canEdit && (
         <button
@@ -679,7 +714,7 @@ function TimezoneControl({
           }}
           className="font-semibold text-[color:var(--brand-ink)] hover:underline"
         >
-          Change
+          {t('ai.skills.change')}
         </button>
       )}
     </div>

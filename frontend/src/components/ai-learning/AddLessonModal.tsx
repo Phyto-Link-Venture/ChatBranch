@@ -12,9 +12,9 @@ import { useEffect, useState } from 'react'
 import { Loader2, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
-import { channelLabel } from '@/components/ui/ChannelLogo'
 import { EntityPicker } from '@/components/ui/EntityPicker'
-import { lessonsApi, type LessonKind } from '@/lib/aiLearning'
+import { aiChannelLabel, lessonsApi, type LessonKind } from '@/lib/aiLearning'
+import { useT } from '@/i18n'
 
 const CHANNELS = ['whatsapp', 'telegram', 'facebook', 'instagram', 'email', 'website']
 
@@ -32,6 +32,7 @@ export function AddLessonModal({
   defaultEntity: string | null
   onCreated: (text: string) => void
 }) {
+  const t = useT()
   const [kind, setKind] = useState<Extract<LessonKind, 'rule' | 'example'>>('rule')
   const [question, setQuestion] = useState('')
   const [answer, setAnswer] = useState('')
@@ -68,7 +69,7 @@ export function AddLessonModal({
         channels,
         entity,
       })
-      onCreated(kind === 'rule' ? 'Rule added — the AI follows it from the next reply.' : 'Example added — the AI uses it from the next reply.')
+      onCreated(kind === 'rule' ? t('ai.addLesson.ruleAdded') : t('ai.addLesson.exampleAdded'))
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -81,17 +82,17 @@ export function AddLessonModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="Teach the AI"
-      subtitle="Rules are always in the AI’s instructions. Examples are used when a customer asks something similar."
+      title={t('ai.addLesson.title')}
+      subtitle={t('ai.addLesson.subtitle')}
       labelledById="add-lesson-title"
       footer={
         <>
           <Button size="sm" variant="secondary" onClick={onClose} disabled={busy}>
-            Cancel
+            {t('common.actions.cancel')}
           </Button>
           <Button size="sm" variant="primary" onClick={() => void create()} disabled={!valid || busy}>
             {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Plus size={13} aria-hidden />}
-            {kind === 'rule' ? 'Add rule' : 'Add example'}
+            {kind === 'rule' ? t('ai.addLesson.addRule') : t('ai.addLesson.addExample')}
           </Button>
         </>
       }
@@ -102,11 +103,15 @@ export function AddLessonModal({
         </div>
       )}
       <div className="flex flex-col gap-3.5">
-        <div className="inline-flex w-fit rounded-lg border border-line-strong bg-card p-0.5" role="radiogroup" aria-label="Kind of lesson">
+        <div
+          className="inline-flex w-fit rounded-lg border border-line-strong bg-card p-0.5"
+          role="radiogroup"
+          aria-label={t('ai.learning.kindOfLesson')}
+        >
           {(
             [
-              { id: 'rule', label: 'A rule' },
-              { id: 'example', label: 'A good answer' },
+              { id: 'rule', label: t('ai.addLesson.kindRule') },
+              { id: 'example', label: t('ai.addLesson.kindExample') },
             ] as const
           ).map((k) => (
             <button
@@ -126,41 +131,45 @@ export function AddLessonModal({
 
         {kind === 'example' && (
           <label className="block">
-            <span className="mb-1 block text-[12px] font-semibold text-text-high">When a customer asks something like</span>
+            <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('ai.lesson.whenAsksLike')}</span>
             <textarea
               rows={2}
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
-              placeholder="Can I change my delivery address after ordering?"
+              placeholder={t('ai.addLesson.questionPlaceholder')}
               className={`${fieldCls} resize-y`}
             />
           </label>
         )}
         <label className="block">
-          <span className="mb-1 block text-[12px] font-semibold text-text-high">{kind === 'rule' ? 'The rule' : 'Answer like this'}</span>
+          <span className="mb-1 block text-[12px] font-semibold text-text-high">
+            {kind === 'rule' ? t('ai.lesson.theRule') : t('ai.addLesson.answerLikeThis')}
+          </span>
           <textarea
             rows={3}
             value={answer}
             onChange={(e) => setAnswer(e.target.value)}
-            placeholder={
-              kind === 'rule'
-                ? 'Never promise same-day delivery — say “we’ll confirm the delivery date shortly”.'
-                : 'Yes — reply with the new address within 2 hours of ordering and we’ll update it.'
-            }
+            placeholder={kind === 'rule' ? t('ai.addLesson.rulePlaceholder') : t('ai.addLesson.examplePlaceholder')}
             className={`${fieldCls} resize-y`}
           />
         </label>
 
         <label className="block">
-          <span className="mb-1 block text-[12px] font-semibold text-text-high">Applies to</span>
-          <EntityPicker ariaLabel="Applies to" value={entity} onChange={setEntity} globalLabel="All entities (organization-wide)" className="w-full" />
+          <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('ai.common.appliesTo')}</span>
+          <EntityPicker
+            ariaLabel={t('ai.common.appliesTo')}
+            value={entity}
+            onChange={setEntity}
+            globalLabel={t('ai.common.allEntitiesOrg')}
+            className="w-full"
+          />
           <span className="mt-1 block text-[11.5px] text-text-muted">
-            {entity ? 'Only this entity’s conversations use it.' : 'Every entity inherits it.'}
+            {entity ? t('ai.addLesson.onlyThisEntity') : t('ai.addLesson.everyInherits')}
           </span>
         </label>
 
         <div>
-          <span className="mb-1 block text-[12px] font-semibold text-text-high">Channels (none selected = every channel)</span>
+          <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('ai.common.channelsNoneEvery')}</span>
           <div className="flex flex-wrap gap-1.5">
             {CHANNELS.map((c) => {
               const on = channels.includes(c)
@@ -174,7 +183,7 @@ export function AddLessonModal({
                     on ? 'border-text-primary bg-fill-hover font-semibold text-text-heading' : 'border-line text-text-mid hover:bg-fill'
                   }`}
                 >
-                  {channelLabel(c)}
+                  {aiChannelLabel(c, t)}
                 </button>
               )
             })}
@@ -182,8 +191,8 @@ export function AddLessonModal({
         </div>
 
         <label className="block">
-          <span className="mb-1 block text-[12px] font-semibold text-text-high">Note (only your team sees it)</span>
-          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why this rule exists" className={fieldCls} />
+          <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('ai.common.noteTeamOnly')}</span>
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('ai.addLesson.whyRule')} className={fieldCls} />
         </label>
       </div>
     </Modal>
