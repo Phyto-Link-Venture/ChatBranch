@@ -186,7 +186,11 @@ When you fix one of these, update this table, `README.md` and
   legacy fallback) — `Auth/TokenAuthenticationHandler.cs`. **API keys**
   (`cbk_<prefix>_<secret>`, Bearer or `X-Api-Key`, `Auth/ApiKeyAuth.cs`) act as
   their owning user, optionally narrowed by scopes (a scoped key with no
-  `.manage`/`.send` capability is read-only). Roles: superadmin / admin /
+  `.manage`/`.send` capability is read-only). A key's scopes bind EVERY
+  capability check — the route filters and the in-handler
+  `AdminEndpoints.HasCapabilityAsync` calls alike, superadmin's keys included —
+  because `ApiKeyAuth.UseKeyScopes` (right after `UseAuthentication`) makes them
+  ambient for the request (`ApiKeyAuth.CurrentScopes`). Roles: superadmin / admin /
   agent / custom (`Role` + `RolePermission`). Capabilities are data-driven:
   the catalog is `AdminEndpoints.Catalog` (34 entries — keep it in step with
   `CAPABILITY_CATALOG` in `frontend/src/lib/auth.ts`); **superadmin is always
@@ -209,7 +213,13 @@ When you fix one of these, update this table, `README.md` and
   carry `.RequireThreadAccess("chats.view"|"chats.send")`
   (`Auth/ThreadAccessFilter.cs`): the capability AND the inbox's entity scope
   (`ShellScope.ThreadEntityIds`), out of scope = 404 (the multipart
-  `…/{channel}/{key}/send-media` in `MessagingTransportEndpoints` included). Linking needs a contact in
+  `…/{channel}/{key}/send-media` in `MessagingTransportEndpoints` included).
+  Routes that name the conversation in the BODY apply the same rule with
+  `ThreadAccessFilter.InScope` (`POST /api/aicore/reply`, and starting a chat —
+  `POST /api/messaging/threads` / `POST /api/whatsapp/threads`, `chats.send`:
+  an existing out-of-scope conversation is a 404, a new one never links a
+  contact or a number from outside the caller's scope, and moving an existing
+  conversation to another number stays an admin's per-chat switch). Linking needs a contact in
   the caller's scope, the contact lookups / timeline are scoped, both thread
   lists need `chats.view` (details in `docs/RBAC_AND_BRANDS.md`). Frontend gating
   (`lib/useAccess.ts`, `nav.ts canSee`) is not the control — the server is — but
@@ -425,7 +435,10 @@ When you fix one of these, update this table, `README.md` and
   special-casing. The script renders into a SHADOW ROOT. Public endpoints are
   anonymous with their own permissive CORS policy (`widget`) — safe because they
   carry no credentials and expose one visitor's own conversation, keyed by a
-  server-minted 128-bit session id. Admin CRUD at `/api/widgets`.
+  server-minted 128-bit session id. Admin CRUD at `/api/widgets`. A widget's
+  `language` (auto | en | ms | zh, validated, handed to the public `/config`)
+  picks the words `/widget.js` uses — the script carries its own en / ms / zh
+  dictionary; auto follows the visitor's browser (`WidgetLanguageTests`).
 - **Teams + automations.** Assignment is TWO-LEVEL: a thread belongs to a `Team`
   and optionally one agent in it (`Thread.Assignee`). Round-robin uses a stored
   cursor (`Team.LastAssignee`) and runs on inbound AND `/simulate`.
@@ -461,15 +474,26 @@ When you fix one of these, update this table, `README.md` and
   `/api/audit/facets` (`activity.view`) → the `/activity` page.
 - **Developer platform.** API keys at `/api/developers/keys`
   (`api_keys.manage`; token shown once, SHA-256 stored). **`POST /mcp`** =
-  ChatBranch as an MCP server (Streamable HTTP, JSON-RPC, stateless) over
-  `Api/Tools/ToolRegistry` (`BuiltinTools.cs`: search/get/create/update contact,
-  list/get conversation, send message, add note, set status, assign, templates,
-  knowledge, flows, analytics, activity, tags) — authenticated by an API key,
-  acting as its owner. Tool writes call the dashboard's OWN endpoints
-  in-process (`Tools/InternalApi.cs`) so every guard applies — a renamed route
-  breaks the tool (tests catch it). External MCP servers the assistant may use:
+  ChatBranch as an MCP server (Streamable HTTP, JSON-RPC, stateless;
+  `tools/list` cursor paging, one page by default, `MCP_TOOLS_PAGE_SIZE`) over
+  `Api/Tools/ToolRegistry`: the original 16 (`BuiltinTools.cs`) plus ~230
+  declarative tools (`ToolCatalog.*.cs`, `EndpointTool`) covering EVERY
+  operator feature, named `domain_verb_object`, authenticated by an API key and
+  acting as its owner. A tool IS a dashboard endpoint run in-process
+  (`Tools/InternalApi.cs`, JSON or multipart), so every guard applies. The
+  registry adds: any-of capability, the endpoint's role policy, read-only keys
+  refused for writes, the entity check on `entity` args, the conversation scope
+  check on thread tools, and `"confirm": true` for destructive tools over MCP
+  (tool annotations carry read-only / destructive / idempotent hints). Results
+  are compacted, deep-linked and redacted (`ToolResults`). What is NOT a tool
+  is in `Tools/McpExclusions.cs` with its reason (credentials, RBAC, key
+  minting, binary streams, legacy twins, `/simulate`, the Test lab);
+  **`McpCoverageTests` fails on any signed-in `/api` route that is neither**
+  and keeps `docs/mcp.md`'s tables generated (`UPDATE_MCP_DOCS=1`). A new
+  endpoint = one `T(...)` line or an exclusion; a renamed route breaks its tool
+  (the tests catch it). External MCP servers the assistant may use:
   `/api/integrations/mcp` (Setting `mcp_servers`, real initialize + tools/list
-  probe, masked auth). The page is `/developers`.
+  probe, masked auth). The page is `/developers`; the guide is `docs/mcp.md`.
 - **Ask ChatBranch** (operator assistant, `Api/Assistant/OperatorAssistant.cs`,
   `/api/assistant/chat|confirm|cancel`, `components/assistant/AssistantDock.tsx`
   docked on every signed-in page). Acts AS the signed-in user over the same tool
@@ -484,8 +508,11 @@ When you fix one of these, update this table, `README.md` and
   the model's context is rebuilt from the conversation's last 12 STORED turns
   (with each confirm card's outcome), never from client-sent history;
   confirm/cancel/expiry update the stored card, and deleting a chat cancels
-  writes still waiting in it. With no LLM it falls back to a deterministic
-  helper (find contacts, counts, "go to …", how-to answers from
+  writes still waiting in it. Each model call gets a bounded tool list
+  (`Api/Assistant/ToolRouter.cs`: a core set + deterministic keyword/domain
+  picks + a `find_tools` meta-tool that loads more mid-loop); the confirm button
+  stands in for MCP's `confirm` argument. With no LLM it falls back to a
+  deterministic helper (find contacts, counts, "go to …", how-to answers from
   `AssistantGuide.cs` + the knowledge base).
 - **Help Center** (`/help`, `/api/help/articles`) — published `KnowledgeItem`s,
   readable by anyone. `Published` (public readability) is NOT `Active` (whether
@@ -783,12 +810,24 @@ When you fix one of these, update this table, `README.md` and
   disconnected and returns "" rather than throwing) and Shopify / Stripe (API
   keys). Google Calendar HTTP (free/busy, insert / delete an event) is ONE
   client, `Integrations/GoogleCalendarClient.cs`, shared by the flow actions and
-  the AI's booking tools. **Per user, per entity, or global:**
-  `Integration.OwnerUserId` — a connect flow writes the CALLER's own row
-  (`IntegrationResolver.OwnRowAsync`); resolution at call time is the acting
-  user's grant → the entity's shared grant (then its subtree) → the
-  organization-wide one (`IntegrationResolver.Active`). **Settings → My
-  connections** (`/settings/connections`, `MyConnectionsSettings.tsx`) is where
+  the AI's booking tools. **Personal, entity or organization — every payload
+  says which** (`scope` personal | entity | organization + `entity_name` /
+  `entity_slug`; the page's "Used by" column): `Integration.OwnerUserId` set =
+  personal (its owner only); ownerless with an `EntityId` = that entity AND its
+  branches; ownerless without one = the whole organization. Resolution at call
+  time (`IntegrationResolver.Active`) = the acting user's own grant → the
+  entity's shared grant → its PARENT entities' (`AncestorChain`, walking UP) →
+  the organization's: a branch inherits head office's connection, head office
+  never borrows a branch's, siblings never share. Automated work (journeys,
+  the AI with a shared calendar) has no acting user, so it only ever sees
+  shared rows. **The Integrations page is for SHARED connections**: "Connect
+  for…" (`EntityPicker`, the organization-wide choice first) →
+  `GET /api/integrations/oauth/{provider}/start?for=shared[&entity=slug]`
+  (admin+ with `integrations.manage`; `IntegrationResolver.SharedRowAsync`,
+  reconnecting the same scope reuses its row; an unknown entity = 404); API-key
+  accounts take `entity` the same way. Without `for=shared` the start writes
+  the CALLER's own row (`OwnRowAsync`). Google Contacts is personal only.
+  **Settings → My connections** (`/settings/connections`, `MyConnectionsSettings.tsx`) is where
   anyone connects their own: `GET /api/integrations/mine` (any signed-in user, no
   capability) lists the Google products a person connects for themselves + their
   own grant of each; connect = `GET
@@ -807,6 +846,22 @@ When you fix one of these, update this table, `README.md` and
   300 s replay window) and **no secret configured ⇒ 503, never "accept
   unsigned"**. Sandbox is mandatory: with zero credentials every endpoint
   answers and every action skips cleanly.
+- **Test lab** (`/test-lab`, Review; `/api/testlab/*`, superadmin;
+  `Api/TestLab/`) — ~40 scripted use cases (AI, review, handover, identity,
+  compliance, routing, access, automation, contacts, booking, platform) run
+  INSIDE the API through the real pipelines (`InboundProcessor`, the AI gate,
+  the queue, routing, flows, automations, the dashboard's endpoints via
+  `InternalApi` as a given user), each with named checks and links to what it
+  made; runs are stored (`crm_testlabrun`, last 50). Everything it creates is
+  FENCED under one top-level entity `test-lab` (sandbox inboxes with no
+  credentials, `@testlab.invalid` contacts, `testlab_*` users, its own entity
+  Settings) and `POST /api/testlab/reset` deletes exactly the fence. "Load demo
+  data" fills the fence with a clickable dataset. With no AI key a deterministic
+  test brain writes the AI's words. CLI: `npm run test:scenarios`
+  (`scripts/test-lab.mjs`, exit 1 on a failure); `TestLabTests` runs it in the
+  suite. Lab runs drive the shared queue / flow / monitor ticks, so set
+  `TEST_LAB=0` (routes not mapped) on a production server. Guide:
+  `docs/testing.md`.
 - **Docs:** `docs/vertical-guide.md` (configure the template for an industry:
   hard rules → persona → skills → knowledge → lessons → memory, plus tags, the
   AI monitor, follow-ups and teaching the AI) · `docs/DATABASE_SCHEMA.md` (the real schema) ·
@@ -892,6 +947,14 @@ When you fix one of these, update this table, `README.md` and
   `/channels`), Chat Persona and Escalation Rules tabs are gone — don't re-add
   them. Pages that stage edits use `SettingsDirtyContext` (Discard / Save in the
   masthead).
+- **Crashes never blank the app.** `app/error.tsx` (route segments) and
+  `app/global-error.tsx` (the root layout, inline styles only) render
+  `components/ui/CrashPanel.tsx`; `components/ui/ErrorBoundary.tsx` isolates the
+  shell's floating pieces (command palette, campaign modal, Ask ChatBranch) so
+  one of them failing leaves the page usable. `lib/clientErrors.ts` reports
+  each crash to `POST /api/client-errors` (signed-in, logged as a warning under
+  `ChatBranch.ClientErrors`, no audit row) and turns a stale-deploy
+  `ChunkLoadError` into one reload onto the new build.
 - **A modal's errors render INSIDE the modal.** `Modal` portals over a scrim,
   so a page-level `{msg && …}` under an open dialog is invisible. Pattern: a
   `role="alert"` div as the first child of the modal body, the page-level copy

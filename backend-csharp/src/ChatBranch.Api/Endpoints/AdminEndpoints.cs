@@ -541,11 +541,13 @@ public static class AdminEndpoints
     internal static bool IsPrivilegedRole(string? role) =>
         role is Roles.Admin or Roles.SuperAdmin;
 
-    /// The one gate the server-side checks consult. superadmin → always true;
-    /// unknown capability → false; a stored row wins, else the code default.
+    /// The one gate the server-side checks consult. A request on a SCOPED API
+    /// key holds only its scopes (superadmin included); then superadmin → always
+    /// true; unknown capability → false; a stored row wins, else the code default.
     internal static async Task<bool> HasCapabilityAsync(AppDbContext db, string role, string capability)
     {
         if (string.IsNullOrWhiteSpace(role)) return false;
+        if (ApiKeyAuth.CurrentScopes is { } scopes && !scopes.Contains(capability)) return false;
         if (role == Roles.SuperAdmin) return true;
         if (!CapabilitySet.Contains(capability)) return false;
         RolePermission? row = null;

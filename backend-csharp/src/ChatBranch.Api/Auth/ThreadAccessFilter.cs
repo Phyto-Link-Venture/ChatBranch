@@ -35,6 +35,17 @@ public static class ThreadAccessFilter
             return await next(ctx);
         });
 
+    /// <summary>
+    /// The same rule for a conversation an endpoint found itself (a body that
+    /// names it, a get-or-create): inside the caller's entity scope, or unassigned.
+    /// </summary>
+    public static bool InScope(AppDbContext db, ScopingService sc, ClaimsPrincipal me, int? threadEntityId)
+    {
+        if (threadEntityId == null) return true;
+        var allowed = ShellScope.ThreadEntityIds(db, sc, me, null);
+        return allowed == null || allowed.Contains(threadEntityId.Value);
+    }
+
     /// <summary>True unless a conversation the route names lies outside the caller's scope.</summary>
     private static async Task<bool> VisibleAsync(HttpContext http, AppDbContext db)
     {

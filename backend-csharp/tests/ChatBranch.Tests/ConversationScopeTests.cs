@@ -167,6 +167,55 @@ public class ConversationScopeTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Drafting_or_starting_a_conversation_respects_the_same_scope()
+    {
+        var agent = await Authed("agent", "agent123");
+        // an AI draft names its conversation in the body — still scoped
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await agent.PostAsJsonAsync("/api/aicore/reply", new { channel = "telegram", key = "cs-west" })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK,
+            (await agent.PostAsJsonAsync("/api/aicore/reply", new { channel = "telegram", key = "cs-east" })).StatusCode);
+
+        // "start a chat" with an existing out-of-scope conversation doesn't open (or move) it
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await agent.PostAsJsonAsync("/api/messaging/threads", new { channel = "telegram", to = "cs-west" })).StatusCode);
+        var before = ThreadOf("whatsapp", "60111000222");
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await agent.PostAsJsonAsync("/api/whatsapp/threads", new { phone = "+60111000222" })).StatusCode);
+        Assert.Equal(before.AccountId, ThreadOf("whatsapp", "60111000222").AccountId);
+
+        // a new chat never links a contact from another outlet's book
+        (await agent.PostAsJsonAsync("/api/messaging/threads", new { channel = "sms", to = "+60111000222" }))
+            .EnsureSuccessStatusCode();
+        Assert.Null(ThreadOf("sms", "60111000222").ContactId);
+
+        // starting a conversation is a send capability (a key scoped without it)
+        var key = Platform.MintKey(_factory, "admin", "chats.view", "contacts.manage");
+        var viewer = Platform.Client(_factory, key);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await viewer.PostAsJsonAsync("/api/messaging/threads", new { channel = "telegram", to = "cs-new" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_scoped_key_holds_only_its_scopes_inside_handlers_too()
+    {
+        // admin's ROLE may manage entities, but this key was scoped to contacts only:
+        // the in-handler check (not just the route filter) must say no
+        var key = Platform.Client(_factory, Platform.MintKey(_factory, "admin", "contacts.view", "contacts.manage"));
+        var refused = await key.PostAsJsonAsync("/api/v1/entities", new { name = "Key Made", slug = "cs-key-made" });
+        Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+        using (var scope = _factory.Services.CreateScope())
+            Assert.False(scope.ServiceProvider.GetRequiredService<AppDbContext>().Entities.Any(e => e.Slug == "cs-key-made"));
+        // … and what it was scoped to still works
+        Assert.Equal(HttpStatusCode.OK, (await key.GetAsync("/api/v1/contacts")).StatusCode);
+
+        // an unscoped key acts as its owner
+        var full = Platform.Client(_factory, Platform.MintKey(_factory, "admin"));
+        var made = await full.PostAsJsonAsync("/api/v1/entities", new { name = "Key Made", slug = "cs-key-made" });
+        Assert.True(made.IsSuccessStatusCode, await made.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task Contact_lists_conversations_and_timelines_are_bounded_by_scope()
     {
         var agent = await Authed("agent", "agent123");

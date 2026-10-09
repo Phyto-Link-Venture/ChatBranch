@@ -141,7 +141,7 @@ public static class WhatsAppThreadsEndpoints
         // also accepts {key}/{channel} so the same endpoint opens a thread the
         // unified inbox already knows by key.
         app.MapPost("/api/whatsapp/threads", async (CreateThreadRequest body, AppDbContext db,
-            ScopingService sc, ThreadStore store, IWhatsAppCloudClient wa) =>
+            ScopingService sc, ThreadStore store, IWhatsAppCloudClient wa, ClaimsPrincipal me) =>
         {
             var raw = (body.Phone ?? body.Key ?? "").Trim();
             if (raw.Length == 0)
@@ -152,7 +152,35 @@ public static class WhatsAppThreadsEndpoints
 
             var channel = string.IsNullOrWhiteSpace(body.Channel)
                 ? ChatBranch.Domain.Channels.WhatsApp : body.Channel!.Trim();
-            var accountId = await ResolveNewThreadAccount(db, wa, waId, body.AccountId);
+            // an existing conversation outside the caller's scope is not theirs to open
+            var existing = await db.Threads.AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Channel == channel && t.Key == waId);
+            if (existing != null && !ThreadAccessFilter.InScope(db, sc, me, existing.EntityId))
+                return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
+            var explicitAccount = !string.IsNullOrWhiteSpace(body.AccountId);
+            // moving a conversation that already has a number is the per-chat
+            // switch (POST …/{key}/account), an admin's call — never a side effect
+            if (existing?.AccountId is int current && explicitAccount && !IsAdminPlus(me)
+                && int.TryParse(body.AccountId!.Trim(), out var asked) && asked != current)
+                return Results.Json(new { detail = "Only an admin can move an existing conversation to another number." },
+                    statusCode: 403);
+            var accountId = existing?.AccountId != null && !explicitAccount
+                ? existing.AccountId
+                : await ResolveNewThreadAccount(db, wa, waId, body.AccountId);
+            // a number that would put the conversation in another outlet: refused when
+            // asked for by name, otherwise left for send-time routing to decide
+            if (accountId is int picked)
+            {
+                var pickedEntity = await db.ChannelAccounts.AsNoTracking()
+                    .Where(a => a.Id == picked).Select(a => a.EntityId).FirstOrDefaultAsync();
+                if (!ThreadAccessFilter.InScope(db, sc, me, pickedEntity))
+                {
+                    if (explicitAccount)
+                        return Results.Json(new { detail = "That number belongs to an outlet outside your scope." },
+                            statusCode: 403);
+                    accountId = null;
+                }
+            }
             // Same store path as InboxEndpoints /simulate, so a chat started here
             // and one created by an inbound webhook are the same row.
             var thread = store.GetOrCreateThread(channel, waId, body.Name);
@@ -165,7 +193,7 @@ public static class WhatsAppThreadsEndpoints
                 await db.Entry(thread).Reference(t => t.Account).LoadAsync();
             }
             return Results.Ok(await ThreadPayload(db, sc, wa, thread, DefaultLimit, null));
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.send");
 
         // ---- send: free text -------------------------------------------------
         // views.send_message. Compliance order matters and mirrors Django:

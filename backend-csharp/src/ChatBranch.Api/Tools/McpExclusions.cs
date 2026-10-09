@@ -82,6 +82,7 @@ public static class McpExclusions
         new("POST", "/api/developers/keys", "mints an API key: the secret is shown once, to a person — an AI never creates keys"),
         new("POST", "/api/developers/mcp/test", "the dashboard's self-probe of this very MCP endpoint"),
         new("POST", "/api/auth/logout", "ends a dashboard session; an API key has no session to end"),
+        new("POST", "/api/client-errors", "the dashboard's own crash reporter (a browser telling the server it broke) — not an operator action"),
 
         // ---- the assistant itself -------------------------------------------
         new("POST", "/api/assistant/chat", Assistant),

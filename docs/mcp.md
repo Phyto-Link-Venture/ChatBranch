@@ -568,6 +568,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `POST /api/developers/keys` | mints an API key: the secret is shown once, to a person — an AI never creates keys |
 | `POST /api/developers/mcp/test` | the dashboard's self-probe of this very MCP endpoint |
 | `POST /api/auth/logout` | ends a dashboard session; an API key has no session to end |
+| `POST /api/client-errors` | the dashboard's own crash reporter (a browser telling the server it broke) — not an operator action |
 | `POST /api/assistant/chat` | Ask ChatBranch itself (chat / confirm / cancel) — a tool calling the assistant would recurse |
 | `POST /api/assistant/confirm` | Ask ChatBranch itself (chat / confirm / cancel) — a tool calling the assistant would recurse |
 | `POST /api/assistant/cancel` | Ask ChatBranch itself (chat / confirm / cancel) — a tool calling the assistant would recurse |

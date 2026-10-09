@@ -512,7 +512,7 @@ public static class MessagingEndpoints
 
         // POST /api/messaging/threads {channel, to, name?} — open a conversation.
         app.MapPost("/api/messaging/threads", async (Dictionary<string, JsonElement>? body,
-            AppDbContext db, ThreadStore store, ScopingService sc) =>
+            AppDbContext db, ThreadStore store, ScopingService sc, ClaimsPrincipal me) =>
         {
             var channel = (Str(body, "channel") ?? "").Trim().ToLowerInvariant();
             var to = (Str(body, "to") ?? "").Trim();
@@ -527,12 +527,19 @@ public static class MessagingEndpoints
                 return Results.Json(new { detail = "Valid recipient ('to') required." }, statusCode: 400);
 
             var existing = GetThread(db, channel, to);
+            // an existing conversation outside the caller's scope is not theirs to
+            // open (or read through this route) — the same 404 as the thread routes
+            if (existing != null && !ThreadAccessFilter.InScope(db, sc, me, existing.EntityId))
+                return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
             // store._match_contact: email keys match Contact.email. Social ids
             // (PSID/IGSID/TG chat id) have no CRM counterpart — those threads
-            // are linked by hand from the chat's Contact panel.
+            // are linked by hand from the chat's Contact panel. Only a contact the
+            // caller may see is linked: starting a chat never reaches into another
+            // outlet's contact book.
+            var visible = ContactsEndpoints.ScopeContacts(db.Contacts, me, db, sc);
             var matched = channel == Channels.Email
-                ? await db.Contacts.FirstOrDefaultAsync(c => c.Email.ToLower() == to.ToLower())
-                : channel == Channels.Sms ? PhoneMatch.Find(db.Contacts.AsNoTracking().AsEnumerable(), to)
+                ? await visible.FirstOrDefaultAsync(c => c.Email.ToLower() == to.ToLower())
+                : channel == Channels.Sms ? PhoneMatch.Find(visible.AsNoTracking().AsEnumerable(), to)
                 : null;
 
             var thread = store.GetOrCreateThread(channel, to, Str(body, "name"),
@@ -552,7 +559,7 @@ public static class MessagingEndpoints
             }
             await db.Entry(thread).Reference(t => t.Contact).LoadAsync();
             return Results.Ok(ThreadPayload(db, thread, MessagesOf(db, thread.Id)));
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.send");
 
         // GET /api/messaging/threads/{channel}/{key} — the full thread.
         app.MapGet("/api/messaging/threads/{channel}/{key}", (string channel, string key,

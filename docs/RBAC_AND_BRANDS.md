@@ -133,7 +133,7 @@ where a write reads its body first. Notable gates:
 | Channel accounts, widgets, teams, automations, external MCP servers, recovery, record sync, analytics usage | admin+ |
 | Knowledge base and AI skills writes (`/api/aicore/knowledge*`, `PUT /api/aicore/skills`, skill draft/test) | `settings.ai.manage` |
 | Integrations — read (`GET /api/integrations`, `/providers`, `/accounts`, `/settings`) | `integrations.view` (settings also `app_keys.manage`); without it a person still lists **their own** connections |
-| Integrations — add / delete / shared connect (`POST/DELETE /api/integrations/accounts*`, `POST /api/integrations/{provider}/connect`) | admin+ (connect: superadmin) AND `integrations.manage` |
+| Integrations — add / delete / shared connect (`POST/DELETE /api/integrations/accounts*` — `entity` = that entity and its branches, none = the whole organization —, `GET /api/integrations/oauth/{provider}/start?for=shared[&entity=slug]`, `POST /api/integrations/{provider}/connect`) | admin+ (`{provider}/connect`: superadmin) AND `integrations.manage`; an unknown entity is a 404 |
 | Integrations — connect / disconnect your **own** Google account (`GET /api/integrations/mine`, `GET /api/integrations/oauth/{provider}/start` — `?return=connections` brings the callback back to Settings → My connections —, `POST …/accounts/{id}/disconnect`) | any signed-in user for their own row, no capability; someone else's personal row is invisible to non-admins; a shared row needs admin+ AND `integrations.manage` |
 | Integrations — run an action (`POST /api/integrations/action`: mail, charge, book…) | `integrations.manage` OR `flows.manage`, and the contact must be in the caller's scope |
 | WhatsApp global settings incl. the verify token (`POST/PUT /api/whatsapp/settings`) | `app_keys.manage` |
@@ -174,9 +174,21 @@ conversation must be inside their entity scope (`ShellScope.ThreadEntityIds`:
 admins see all, agents and custom roles their assigned outlets' subtrees;
 unassigned conversations stay visible to everyone). A conversation outside it
 answers **404**, the same as one that does not exist; a key with no
-conversation yet passes (a first send creates it). Not yet covered: the
-multipart `POST /api/messaging/threads/{channel}/{key}/send-media`
-(`MessagingTransportEndpoints`), which only requires a sign-in.
+conversation yet passes (a first send creates it). The multipart
+`POST /api/messaging/threads/{channel}/{key}/send-media`
+(`MessagingTransportEndpoints`) carries the same filter.
+
+Routes that name the conversation in the BODY apply the same rule with
+`ThreadAccessFilter.InScope`:
+
+- `POST /api/aicore/reply` (an AI draft for the operator) — out of scope = 404.
+- Starting a chat, `POST /api/messaging/threads` and `POST /api/whatsapp/threads`
+  (`chats.send`): an existing conversation outside the caller's scope is a 404
+  and is left untouched; a new one only links a contact the caller can see
+  (`ContactsEndpoints.ScopeContacts`) and never takes a number from another
+  outlet (named explicitly = 403, picked automatically = left to send-time
+  routing); moving an existing conversation to another number is the admin's
+  per-chat switch, not a side effect (403 for others).
 
 Around it:
 
@@ -276,7 +288,11 @@ The anonymous GETs are the documented list in `API_CONVENTIONS.md`.
 An API key (`crm_apikey`) acts as its owning user: same role, capabilities and
 entity scope. It may carry **scopes** — a capability subset; the effective set
 is role capabilities ∩ scopes (`ApiKeyAuth.EffectiveCapabilitiesAsync`), and a
-scoped key that holds no `.manage`/`.send` capability is read-only. Keys are
+scoped key that holds no `.manage`/`.send` capability is read-only. The scopes
+bind **every** capability check of the request — the route filters and the
+checks inside handlers (`AdminEndpoints.HasCapabilityAsync`) alike, a
+superadmin's key included — because `ApiKeyAuth.UseKeyScopes` publishes them
+for the request right after authentication (`ApiKeyAuth.CurrentScopes`). Keys are
 used for the REST API and the MCP server (`POST /mcp`); everything they do is
 logged with source `api` / `mcp`.
 

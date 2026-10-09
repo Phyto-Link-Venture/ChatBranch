@@ -297,10 +297,13 @@ public static class AiEndpoints
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         app.MapPost("/api/aicore/reply", async (ReplyRequest body, ThreadStore store,
-            AssistantService assistant) =>
+            AssistantService assistant, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var thread = store.GetThread(body.Channel, body.Key);
-            if (thread == null) return Results.NotFound(new { detail = "thread not found" });
+            // the conversation names come in the body, so the route filter can't see
+            // them: the inbox's scope rule is applied here (out of scope = not found)
+            if (thread == null || !ThreadAccessFilter.InScope(db, sc, me, thread.EntityId))
+                return Results.NotFound(new { detail = "thread not found" });
             // An operator-requested draft: no handover side effects. `reply` is
             // what may be sent ("" when a reply check held it back); `draft` is
             // what the model wrote either way, `meta` the audit trail.

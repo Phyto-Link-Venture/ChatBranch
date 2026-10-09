@@ -147,6 +147,7 @@ using (var scope = app.Services.CreateScope())
 
 app.UseCors(CorsPolicy);
 app.UseAuthentication();
+app.UseKeyScopes(); // a scoped API key narrows every capability check below
 app.UseMiddleware<ChatBranch.Api.Audit.RequestAuditMiddleware>(); // activity log (sees authz refusals too)
 app.UseAuthorization();
 

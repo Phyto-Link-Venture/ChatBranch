@@ -129,6 +129,25 @@ public static class ApiKeyAuth
             .ToHashSet();
     }
 
+    private static readonly AsyncLocal<HashSet<string>?> RequestScopes = new();
+
+    /// <summary>
+    /// The scopes of the key THIS request came in on (null = a session or an
+    /// unscoped key), made ambient by <see cref="UseKeyScopes"/> so every
+    /// capability check — the route filters AND the in-handler
+    /// <c>AdminEndpoints.HasCapabilityAsync</c> calls — narrows to them, on REST
+    /// as on MCP. Without it a scoped key passed any check its owner's ROLE passed.
+    /// </summary>
+    public static HashSet<string>? CurrentScopes => RequestScopes.Value;
+
+    /// <summary>After UseAuthentication: publish the request's key scopes to the async flow.</summary>
+    public static IApplicationBuilder UseKeyScopes(this IApplicationBuilder app) =>
+        app.Use(async (ctx, next) =>
+        {
+            RequestScopes.Value = Scopes(ctx.User);
+            await next(ctx);
+        });
+
     /// <summary>A capability that changes something (as opposed to viewing).</summary>
     public static bool IsWriteCapability(string cap) =>
         cap.EndsWith(".manage", StringComparison.Ordinal) || cap.EndsWith(".send", StringComparison.Ordinal);
