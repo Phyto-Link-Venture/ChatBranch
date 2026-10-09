@@ -1241,7 +1241,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **654 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **655 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /
@@ -1262,7 +1262,9 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   `AI_FOLLOWUP_WORKER=0`, `HEALTH_WORKER=0`, `EMBEDDING_WORKER=0`,
   `IDENTITY_CHECK_WORKER=0` (drains, probes, indexing and lookups are driven
   explicitly — no timing races),
-  `AI_HUMANIZE=0` (sandbox answers inline), `SEED_DEMO=1` (the suite signs in as
+  `AI_HUMANIZE=0` (sandbox answers inline), `PASSWORD_HASH_ITERATIONS=1000` (fast
+  hashes for the seeded logins — 600 000 rounds per sign-in saturated a 2-vCPU
+  runner; production keeps Django's default), `SEED_DEMO=1` (the suite signs in as
   admin/agent), a throwaway `CHATBRANCH_DATA_DIR` and SQLite file, and a LiveKit
   client that is never configured (a developer's `backend/.env` can't place real
   calls). `HEALTH_WORKER=0` keeps the channel-health prober (and post-save
