@@ -40,10 +40,12 @@ public static class AiSkillsEndpoints
 
     public static void MapSkillEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/aicore/skills", async (string? entity, AppDbContext db, ScopingService sc) =>
+        app.MapGet("/api/aicore/skills", async (string? entity, AppDbContext db, ScopingService sc,
+            ClaimsPrincipal me) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
-            return Results.Ok(new { skills = List(db, sc, entityId) });
+            // bounded by the caller's assigned outlets (ShellScope.ScopeLibrary)
+            return Results.Ok(new { skills = List(ShellScope.ScopeLibrary(db.AgentSkills.AsNoTracking(), db, sc, me, entityId)) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         app.MapPut("/api/aicore/skills", async (SkillsWrite body, AppDbContext db, ScopingService sc,
@@ -242,7 +244,10 @@ public static class AiSkillsEndpoints
     // ---- helpers ------------------------------------------------------------------
 
     private static List<object> List(AppDbContext db, ScopingService sc, int? entityId) =>
-        sc.ScopeInherited(db.AgentSkills.AsNoTracking(), entityId)
+        List(sc.ScopeInherited(db.AgentSkills.AsNoTracking(), entityId));
+
+    private static List<object> List(IQueryable<AgentSkill> scoped) =>
+        scoped
             .Include(s => s.Entity)
             .OrderBy(s => s.EntityId == null ? 0 : 1).ThenBy(s => s.Position).ThenBy(s => s.Id)
             .ToList()

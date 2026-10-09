@@ -368,10 +368,11 @@ public static class ContactsEndpoints
 
         // ---- script templates --------------------------------------------------
         app.MapGet("/api/calls/script-templates", async (string? entity, int? contact_id,
-            AppDbContext db, ScopingService sc, FlowEngine flows) =>
+            AppDbContext db, ScopingService sc, FlowEngine flows, ClaimsPrincipal me) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
-            var rows = await sc.ScopeInherited(db.ScriptTemplates.AsNoTracking().Include(s => s.Entity), entityId)
+            var rows = await ShellScope.ScopeLibrary(db.ScriptTemplates.AsNoTracking(), db, sc, me, entityId)
+                .Include(s => s.Entity)
                 .OrderBy(s => s.Name).ToListAsync();
 
             // ?contact_id=<pk> personalizes `rendered` with that contact's CRM
@@ -380,7 +381,9 @@ public static class ContactsEndpoints
             Dictionary<string, string>? variables = null;
             if (contact_id is int cid)
             {
-                var contact = await db.Contacts.AsNoTracking().FirstOrDefaultAsync(c => c.Id == cid);
+                // only a contact the caller may see (no other outlet's customer data)
+                var contact = await ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
+                    .FirstOrDefaultAsync(c => c.Id == cid);
                 if (contact != null)
                     try { variables = flows.VariablesFor(contact); } catch { variables = null; }
             }

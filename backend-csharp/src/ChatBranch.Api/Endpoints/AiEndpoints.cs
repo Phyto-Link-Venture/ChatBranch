@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
@@ -70,13 +71,15 @@ public static class AiEndpoints
         }).RequireAuthorization(AuthPolicies.SuperAdmin);
 
         // ---- knowledge base ----------------------------------------------------
-        app.MapGet("/api/aicore/knowledge", async (string? entity, AppDbContext db, ScopingService sc) =>
+        app.MapGet("/api/aicore/knowledge", async (string? entity, AppDbContext db, ScopingService sc,
+            ClaimsPrincipal me) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
             var ent = await EntityRow(db, entityId);
             // Include(Entity) so each item can report its OWNING outlet (which is
             // not the outlet being viewed — inherited global rows carry null).
-            var rows = sc.ScopeInherited(db.KnowledgeItems.AsNoTracking(), entityId)
+            // bounded by the caller's assigned outlets (ShellScope.ScopeLibrary)
+            var rows = ShellScope.ScopeLibrary(db.KnowledgeItems.AsNoTracking(), db, sc, me, entityId)
                 .Include(k => k.Entity)
                 .OrderByDescending(k => k.Priority).ThenByDescending(k => k.UpdatedAt).ToList();
             // Django-contract shape: the KnowledgeSettings page reads items/counts/

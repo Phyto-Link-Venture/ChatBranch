@@ -183,7 +183,13 @@ When you fix one of these, update this table, `README.md` and
   agents there. A login may be bound to a Contact (`Profile.ContactId`,
   "customer login"). The `X-Role` header only works while NO Profile rows exist
   (pre-seed bootstrap). Frontend gating (`lib/useAccess.ts`, `nav.ts canSee`)
-  is cosmetic.
+  is cosmetic. **Libraries** (skills, knowledge, quick replies, call scripts,
+  integrations) are read through `ShellScope.ScopeLibrary` — the org-wide rows
+  plus the caller's assigned outlets for agents/custom roles, never another
+  outlet's. Integrations honour `integrations.view` / `integrations.manage`;
+  a personal connection (`Integration.OwnerUserId`) is always its owner's to
+  see and disconnect, and running an action needs `integrations.manage` or
+  `flows.manage`. The full gate table is in `docs/RBAC_AND_BRANDS.md`.
 - **Voice: the API is the control plane, the agent is a file-IPC sidecar.**
   `POST /api/calls/dial` and WhatsApp `call/start` build the dispatch metadata
   in `Sidecars/VoiceDispatch.cs` (contact, primary record, memory, knowledge,
@@ -809,7 +815,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **329 tests** covering auth/RBAC, scoping, the inbox + server-side filters +
+  **332 tests** covering auth/RBAC, scoping, the inbox + server-side filters +
   saved views, webhooks (wamid dedup, the queued ai_reply), the transports
   against fake providers (Meta Graph/Send API, SMTP/IMAP, the Bot API, media,
   recordings, the health prober), routing + failover + STOP/START, contacts, tags,
