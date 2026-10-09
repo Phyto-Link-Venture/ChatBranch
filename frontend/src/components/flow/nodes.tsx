@@ -13,7 +13,7 @@ import {
 import { AlertCircle, Plus } from 'lucide-react'
 import { useT } from '@/i18n'
 import { describeStep } from '@/lib/flow/describe'
-import { branchLabelKeys, edgeLabelText, isBranchKind } from '@/lib/flow/nodeConfig'
+import { branchOutcomes, edgeLabelText, isBranchKind } from '@/lib/flow/nodeConfig'
 import { timingText } from '@/lib/flow/steps'
 import type { FlowEdge, FlowNode } from '@/lib/flow/types'
 import { useFlowView } from './FlowViewContext'
@@ -23,9 +23,9 @@ import { StepIcon } from './stepIcons'
  * The Advanced canvas's node + edge renderers (Paper & Ink): every step is a
  * card with an eyebrow naming its type, an ink border, the same plain-language
  * summary the Steps view prints, and the selected period's count. The trigger
- * carries the tangerine accent. Branch steps (Ask & branch, Follow up) have
- * two outputs, YES / NO (Replied / No reply). Every line has a "+" to insert
- * a step into it.
+ * carries the tangerine accent. Branch steps have one output per outcome:
+ * YES / NO (Replied / No reply), or one per AI option + "None of these".
+ * Every line has a "+" to insert a step into it.
  */
 
 type FlowNodeProps = NodeProps<FlowNode>
@@ -52,7 +52,7 @@ function StepNodeCard({ id, data, type, selected }: FlowNodeProps) {
   const text = describeStep(t, node, describeCtx)
   const isTrigger = type === 'trigger'
   const branch = isBranchKind(type)
-  const labels = branchLabelKeys(String(type))
+  const outcomes = branch ? branchOutcomes(node) : []
   const warn = (issues[id] ?? []).length > 0
   return (
     <div className={`fb-node${isTrigger ? ' is-trigger' : ''}${selected ? ' is-selected' : ''}`}>
@@ -74,13 +74,38 @@ function StepNodeCard({ id, data, type, selected }: FlowNodeProps) {
           </div>
         </div>
       </div>
-      {branch ? (
+      {branch && outcomes.length === 2 && outcomes[0].tone === 'yes' ? (
         <>
           <Handle id="yes" type="source" position={Position.Bottom} className="fb-handle-yes" style={{ left: '28%' }} />
           <Handle id="no" type="source" position={Position.Bottom} className="fb-handle-no" style={{ left: '72%' }} />
           <div className="fb-branch-legend">
-            <span>{t(labels.yes)}</span>
-            <span>{t(labels.no)}</span>
+            <span>{outcomes[0].key ? t(outcomes[0].key) : outcomes[0].text}</span>
+            <span>{outcomes[1].key ? t(outcomes[1].key) : outcomes[1].text}</span>
+          </div>
+        </>
+      ) : branch ? (
+        <>
+          {outcomes.map((o, i) => (
+            <Handle
+              key={o.handle}
+              id={o.handle}
+              type="source"
+              position={Position.Bottom}
+              className={`fb-handle-${o.tone}`}
+              style={{ left: `${((i + 1) / (outcomes.length + 1)) * 100}%` }}
+            />
+          ))}
+          <div className="fb-branch-legend-n" aria-hidden>
+            {outcomes.map((o, i) => (
+              <span
+                key={o.handle}
+                className={o.tone === 'none' ? 'is-none' : ''}
+                style={{ left: `${((i + 1) / (outcomes.length + 1)) * 100}%`, maxWidth: `${100 / (outcomes.length + 1)}%` }}
+                title={o.text ?? (o.key ? t(o.key, o.vars) : o.handle)}
+              >
+                {o.text ?? (o.key ? t(o.key, o.vars) : o.handle)}
+              </span>
+            ))}
           </div>
         </>
       ) : (

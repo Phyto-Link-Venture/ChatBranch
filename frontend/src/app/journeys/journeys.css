@@ -1,4 +1,4 @@
-/* ── Flow Builder — Advanced canvas ─────────────────────────────────────────
+/* ── Journeys (the flow builder) — Advanced canvas ─────────────────────────────────────────
    Paper & Ink: cards on paper, hairline ink rules, an eyebrow naming each
    step's type, tangerine (the theme accent) only on the trigger. Everything
    is scoped under .flow-studio and resolves to theme tokens (globals.css), so
@@ -101,6 +101,27 @@
 .flow-studio .fb-branch-legend span:last-child {
   color: var(--red-ink);
 }
+/* a multi-way branch (AI picks a path): one label under each handle */
+.flow-studio .fb-branch-legend-n {
+  position: relative;
+  height: 14px;
+  margin: 8px 0 -2px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.flow-studio .fb-branch-legend-n span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  color: var(--blue-ink);
+}
+.flow-studio .fb-branch-legend-n span.is-none {
+  color: var(--text-muted);
+}
 
 /* legacy day-range section — a quiet box, runs pass straight through */
 .flow-studio .fb-section {
@@ -138,6 +159,12 @@
 }
 .flow-studio .react-flow__handle.fb-handle-no {
   border-color: var(--red-ink);
+}
+.flow-studio .react-flow__handle.fb-handle-option {
+  border-color: var(--blue-ink);
+}
+.flow-studio .react-flow__handle.fb-handle-none {
+  border-color: var(--text-muted);
 }
 
 /* ---- lines + their "+" ----------------------------------------------------- */

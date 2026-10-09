@@ -1,9 +1,16 @@
 import type { MessageKey, TFunction } from '@/i18n'
-import type { AgentSkill, FlowConfig, FlowNode } from './types'
+import type { AgentSkill, FlowCondition, FlowConfig, FlowNode } from './types'
+import {
+  aiOptionsOf,
+  conditionsOf,
+  decisionKind,
+  historyOf,
+  matchOf,
+} from './conditions'
 import {
   AI_MESSAGE,
   CHATBOT_CHANNELS,
-  DECISIONS,
+  LEGACY_DECISIONS,
   INTEGRATION_ACTION_LABELS,
   LEGACY_TRIGGERS,
   MESSAGE_CHANNELS,
@@ -145,6 +152,131 @@ function messageTitle(t: TFunction, ctx: DescribeContext, cfg: FlowConfig, chann
   return t('flows.describe.channelMessage', { channels: words })
 }
 
+const COND_FIELD_KEYS: Record<string, MessageKey> = {
+  equals: 'flows.describe.cond.equals',
+  not_equals: 'flows.describe.cond.notEquals',
+  contains: 'flows.describe.cond.contains',
+  any_of: 'flows.describe.cond.anyOf',
+  is_empty: 'flows.describe.cond.isEmpty',
+  not_empty: 'flows.describe.cond.notEmpty',
+  gt: 'flows.describe.cond.gt',
+  lt: 'flows.describe.cond.lt',
+  before: 'flows.describe.cond.before',
+  after: 'flows.describe.cond.after',
+  within_last_days: 'flows.describe.cond.withinLast',
+  within_next_days: 'flows.describe.cond.withinNext',
+  is_true: 'flows.describe.cond.isTrue',
+  is_false: 'flows.describe.cond.isFalse',
+}
+
+const COND_KEYS: Record<string, MessageKey> = {
+  'tag:has': 'flows.describe.cond.tagHas',
+  'tag:not_has': 'flows.describe.cond.tagNotHas',
+  'contact:language_is': 'flows.describe.cond.languageIs',
+  'contact:has_phone': 'flows.cond.contact.hasPhone',
+  'contact:has_email': 'flows.cond.contact.hasEmail',
+  'contact:in_entity': 'flows.describe.cond.inEntity',
+  'conversation:status_is': 'flows.describe.cond.statusIs',
+  'conversation:assigned': 'flows.cond.conversation.assigned',
+  'conversation:unassigned': 'flows.cond.conversation.unassigned',
+  'conversation:team_is': 'flows.describe.cond.teamIs',
+  'conversation:open_handover': 'flows.cond.conversation.openHandover',
+  'conversation:ai_on': 'flows.cond.conversation.aiOn',
+  'conversation:channel_is': 'flows.describe.cond.channelIs',
+  'conversation:last_message_within_hours': 'flows.describe.cond.lastMessageWithin',
+  'conversation:messages_at_least': 'flows.describe.cond.messagesAtLeast',
+  'reply:replied': 'flows.decision.replied',
+  'reply:contains_any': 'flows.describe.cond.replyContainsAny',
+  'reply:contains_all': 'flows.describe.cond.replyContainsAll',
+  'reply:said_yes': 'flows.decision.saidYes',
+  'reply:said_no': 'flows.cond.reply.saidNo',
+  'booking:upcoming': 'flows.cond.booking.upcoming',
+  'booking:booked_within_days': 'flows.describe.cond.bookedWithin',
+}
+
+const STATUS_KEYS: Record<string, MessageKey> = {
+  open: 'chats.status.open',
+  pending: 'chats.status.pending',
+  snoozed: 'chats.status.snoozed',
+  resolved: 'chats.status.resolved',
+}
+
+const LANGUAGE_NAMES: Record<string, string> = { en: 'English', ms: 'Bahasa Melayu', zh: '简体中文' }
+
+/** One condition in plain words ("tag VIP", "Plan = Gold", "wrote in the last 24 hours"). */
+export function conditionText(t: TFunction, c: FlowCondition, ctx: DescribeContext = {}): string {
+  const value = str(c.value)
+  const values = Array.isArray(c.values) && c.values.length ? c.values.map(String) : value ? value.split(',').map((x) => x.trim()).filter(Boolean) : []
+  const count = Math.abs(Number(c.amount) || 0)
+  const blank = '…'
+  if (c.subject === 'field') {
+    const field = fieldLabel(c.field, ctx) || t('flows.describe.aField')
+    const key = COND_FIELD_KEYS[c.op]
+    if (!key) return `${field} ${c.op}`
+    return t(key, { field, value: value || blank, values: values.join(', ') || blank, count })
+  }
+  if (c.subject === 'contact' && c.op === 'opted_out')
+    return t(str(c.value) === 'this' ? 'flows.describe.cond.optedOutThis' : 'flows.describe.cond.optedOutAny')
+  const key = COND_KEYS[`${c.subject}:${c.op}`]
+  if (!key) return `${c.subject} ${c.op}`
+  let shown = value || blank
+  if (c.subject === 'conversation' && c.op === 'status_is' && STATUS_KEYS[value]) shown = t(STATUS_KEYS[value])
+  if (c.subject === 'conversation' && c.op === 'team_is') shown = ctx.teams?.find((x) => String(x.id) === value)?.name ?? (value || blank)
+  if (c.subject === 'conversation' && c.op === 'channel_is') {
+    const ch = MESSAGE_CHANNELS.find((x) => x.value === value)
+    shown = ch && ch.value ? choiceLabel(t, ch) : value || blank
+  }
+  if (c.subject === 'contact' && c.op === 'language_is') shown = LANGUAGE_NAMES[value] ?? (value || blank)
+  return t(key, { tag: value || blank, value: shown, words: values.join(', ') || blank, count })
+}
+
+function describeDecision(t: TFunction, cfg: FlowConfig, ctx: DescribeContext): StepText {
+  const kind = decisionKind(cfg)
+  if (kind === 'ai_yes_no' || kind === 'ai_pick') {
+    const h = historyOf(cfg)
+    const scope = t(
+      h.scope === 'channel'
+        ? 'flows.describe.historyChannel'
+        : h.scope === 'conversation'
+          ? 'flows.describe.historyConversation'
+          : 'flows.describe.historyAll',
+    )
+    const history = [t('flows.describe.historyLast', { count: h.messages }), scope, h.sinceEntered ? t('flows.describe.historySince') : '']
+      .filter(Boolean)
+      .join(' · ')
+    const question = str(cfg.question)
+    if (kind === 'ai_pick') {
+      const labels = aiOptionsOf(cfg).map((o, i) => str(o.label) || t('flows.branch.option', { n: i + 1 }))
+      return {
+        eyebrow: t('flows.describe.eyebrowAi'),
+        title: t('flows.describe.aiPicks', { options: [...labels, t('flows.branch.none')].join(' / ') }),
+        detail: [question && clip(question, 90), history].filter(Boolean).join(' · '),
+      }
+    }
+    return {
+      eyebrow: t('flows.describe.eyebrowAi'),
+      title: question ? t('flows.describe.aiAsks', { question: clip(question, 100) }) : t('flows.describe.aiAsksNothing'),
+      detail: history,
+    }
+  }
+  if (kind === 'conditions') {
+    const conds = conditionsOf(cfg)
+    if (!conds.length) return { eyebrow: t('flows.describe.eyebrowIf'), title: t('flows.describe.noConditions') }
+    const parts = conds.map((c) => conditionText(t, c, ctx))
+    const title =
+      parts.length === 1
+        ? parts[0]
+        : t(matchOf(cfg) === 'any' ? 'flows.describe.anyOf' : 'flows.describe.allOf', { list: parts.join(' · ') })
+    return { eyebrow: t('flows.describe.eyebrowIf'), title: clip(title, 140) }
+  }
+  // the legacy checks that still park / read a record
+  const basis = str(cfg.basedOn) || "Contact's answer"
+  if (basis === 'Record status')
+    return { eyebrow: t('flows.describe.eyebrowIf'), title: t('flows.describe.recordStatusLegacy', { status: str(cfg.status) }) }
+  if (basis === "Contact's answer") return { eyebrow: t('flows.describe.eyebrowIf'), title: t('flows.describe.answerIsYes') }
+  return { eyebrow: t('flows.describe.eyebrowIf'), title: LEGACY_DECISIONS[basis] ? t(LEGACY_DECISIONS[basis]) : basis }
+}
+
 export function describeStep(t: TFunction, node: FlowNode, ctx: DescribeContext = {}): StepText {
   const cfg = node.data?.config ?? {}
   switch (node.type) {
@@ -244,39 +376,8 @@ export function describeStep(t: TFunction, node: FlowNode, ctx: DescribeContext 
                 : undefined,
       }
     }
-    case 'decision': {
-      const basis = str(cfg.basedOn) || "Contact's answer"
-      const field = fieldLabel(cfg.field, ctx) || t('flows.describe.aField')
-      let title: string
-      switch (basis) {
-        case 'They replied':
-          title = t('flows.decision.replied')
-          break
-        case 'Reply contains':
-          title = t('flows.describe.replyContains', { keyword: str(cfg.keyword) })
-          break
-        case 'They said yes':
-          title = t('flows.decision.saidYes')
-          break
-        case 'Has tag':
-        case 'Contact tag':
-          title = t('flows.describe.hasTheTag', { tag: str(cfg.tag) })
-          break
-        case 'Custom field equals':
-          title = str(cfg.value)
-            ? t('flows.describe.fieldIs', { field, value: str(cfg.value) })
-            : t('flows.describe.fieldFilled', { field })
-          break
-        case 'Record status':
-          title = t('flows.describe.recordStatusLegacy', { status: str(cfg.status) })
-          break
-        default: {
-          const d = DECISIONS.find((x) => x.value === basis)
-          title = d ? choiceLabel(t, d) : t('flows.describe.answerIsYes')
-        }
-      }
-      return { eyebrow: t('flows.describe.eyebrowIf'), title }
-    }
+    case 'decision':
+      return describeDecision(t, cfg, ctx)
     case 'handover': {
       const priority = str(cfg.priority) || 'Normal'
       const team = teamLabel(t, cfg.team, ctx)

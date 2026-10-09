@@ -192,7 +192,7 @@ Northwind's skills:
 | No refunds promised | check (`handover`) | fail any reply that says "refund approved" — a person decides refunds |
 
 Skills can be limited to channels (empty = all). **`/skills` is the only place
-skills are edited**; the flow builder's step picker only selects them.
+skills are edited**; the Journeys step picker only selects them.
 
 ### 2.4 Fill the knowledge base
 
@@ -349,11 +349,12 @@ AI couldn't answer — your next knowledge items.
 is no dedicated screen yet: a superadmin sets them with
 `PUT /api/settings {"key": "business_name", "value": "Northwind Trading"}`.
 
-### 2.9 Build the flows
+### 2.9 Build the journeys
 
-**Flow builder** (`/flow-builder`). Start from a template (welcome series,
-appointment reminder, re-engage, lead qualification, feedback request) or a
-blank flow. The **Steps** view edits the flow as a list; **Advanced** shows the
+**Journeys** (`/journeys` — the old `/flow-builder` link redirects; inside the
+API a journey is still a *flow*: `/api/flows/*`, `FlowEngine`). Start from a
+template (welcome series, appointment reminder, re-engage, lead qualification,
+lead qualification with AI, feedback request) or a blank journey. The **Steps** view edits the flow as a list; **Advanced** shows the
 same graph as a canvas. Toggle **Live** and the engine runs it; "Contact
 created" and "Scheduled" triggers only act on what happens *after* the flow
 went live, so arming a flow never back-fires on the whole contact book.
@@ -368,9 +369,14 @@ offered.
 Steps: **Send message** (your words or a WhatsApp template) · **AI message**
 (the AI writes it, guided by a prompt skill, and it passes the AI monitor) ·
 **Wait** (a time, or until they reply) · **Follow up if no reply** (nudge up to 5
-times until they answer; *yes* = replied, *no* = never did) · **Ask & branch**
-(they replied / their reply contains… / they said yes — English + Malay keyword
-lists / they have a tag / a field equals) · **Call** (AI voice call or a script
+times until they answer; *yes* = replied, *no* = never did) · **Check
+conditions** (YES / NO on all or any of: a custom field — typed by the field:
+equals, contains, empty, greater/less than, before/after a date, within the
+last/next N days, yes/no, any of — a tag, the contact's language / phone / email
+/ entity / opt-out, the conversation's status / assignee / team / open handover /
+AI on / channel / last customer message / message count, the reply that came in
+during the last wait — replied, contains any/all words, said yes / no in English
+or Malay — and bookings) · **Let AI decide** (see below) · **Call** (AI voice call or a script
 call, over the phone line or WhatsApp) · **Hand over** (to a team, with a
 priority and reason) · **Update contact** (add/remove a tag, set a field) ·
 **App action** (calendar, Sheets, Drive, Gmail, Shopify, Stripe) · **End**
@@ -384,13 +390,34 @@ Northwind's three:
   `PUT /api/contacts/{id}/tags` and the flow triggers on the tag) → Send
   WhatsApp template `order_confirmation` with `{{first_name}}`,
   `{{record_title}}`, `{{due_date}}` → End.
-- **Payment chase.** Trigger: tagged `awaiting-payment` → Wait 2 days → Ask &
-  branch "has tag `awaiting-payment`" (still unpaid?) → App action *Create
+- **Payment chase.** Trigger: tagged `awaiting-payment` → Wait 2 days → Check
+  conditions "has tag `awaiting-payment`" (still unpaid?) → App action *Create
   Stripe payment link* (writes the URL to `record.data.link`) → Send "Hi
   {{first_name}}, here's the link for {{record_title}}: {{link}}" → Follow up if
   no reply (1 day, 2 nudges) → no → Hand over to Billing.
 - **Delivery reminder.** Trigger: a date comes round — 1 day before
   `next_delivery` → AI message using the "Order status" skill → End.
+
+**Journeys: deciding with AI.** A *Let AI decide* step reads the conversation
+and either answers a yes/no question you write in plain words ("Is the customer
+ready to book a viewing?") or picks one of 2–6 paths you name ("Wants to buy",
+"Has a complaint", "Just asking"), plus an automatic "None of these". It reads
+the contact (name, language, tags, custom fields) and the last N messages (20 by
+default, 5–100) — of all channels, of this journey's channel, or only the
+conversation that started the run — optionally only since the contact entered
+the journey; private notes never. It only classifies: it never writes to the
+customer, and the customer's words are treated as data, not instructions. Below
+the **minimum confidence** (60% by default) the answer counts as *unsure*, and
+you choose what happens then: go YES / NO (or "None of these"), **wait for the
+next reply and ask again** (up to N times, then NO), or end the journey. The
+same path is taken when the AI is switched off for the outlet (the AI master
+switch) or the model cannot be reached. Every verdict lands on the run — "AI
+decided YES (82%): asked about viewing times" — in the Runs panel, and each
+call is metered as `flow_decision` usage. With no AI model configured the step
+makes a deterministic keyword guess, labelled "sandbox guess". Northwind could
+replace the payment chase's tag check with *AI yes/no: "Has the customer said
+they already paid?"* over the last 10 WhatsApp messages, waiting for the next
+reply when unsure.
 
 **Sends are queued, not inline.** Every message becomes an `OutboundJob`
 drained with jitter, caps and quiet hours; calls are queued too, and `sent` on a

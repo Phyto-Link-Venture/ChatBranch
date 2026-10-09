@@ -7,7 +7,7 @@ export const shell = {
     contacts: 'Contacts',
     bookings: 'Bookings',
     assignments: 'Account assignment',
-    flowBuilder: 'Flow builder',
+    flowBuilder: 'Journeys',
     aiMonitor: 'AI monitor',
     automations: 'Automations',
     voice: 'Voice & calls',

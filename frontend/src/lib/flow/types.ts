@@ -7,7 +7,8 @@ import type { Edge, Node } from '@xyflow/react'
  *   action    Send message · AI message · Call · App action (by its channels)
  *   wait      a set time, or until the contact replies (with a timeout)
  *   followup  "Follow up if no reply" — N follow-ups, two outcomes
- *   decision  "Ask & branch" — YES / NO outcomes
+ *   decision  "Ask & branch" — check conditions (YES / NO), let the AI answer
+ *             a yes/no question, or let the AI pick one of 2–6 paths (+ none)
  *   handover  hand the conversation to a team
  *   update    update the contact (tag / field)
  *   end       finish with an outcome code
@@ -41,8 +42,28 @@ export type NodeKind =
  * templateVariables is the reason for the object member in the union. */
 export type FlowConfig = Record<
   string,
-  string | number | boolean | string[] | Record<string, string> | undefined
+  string | number | boolean | string[] | Record<string, string> | FlowCondition[] | DecisionOption[] | undefined
 >
+
+/** One check of a "Check conditions" decision (lib/flow/conditions.ts holds the
+ * vocabulary; FlowEngine.Conditions.cs evaluates it). */
+export interface FlowCondition {
+  subject: string
+  op: string
+  /** custom field key (subject "field") */
+  field?: string
+  value?: string
+  values?: string[]
+  /** N days / hours / messages */
+  amount?: number
+}
+
+/** One path of an "AI picks a path" decision — `id` is its handle (opt-1…opt-6). */
+export interface DecisionOption {
+  id: string
+  label: string
+  description?: string
+}
 
 /** Must stay a type alias (not interface) so it satisfies Node's data constraint. */
 export type FlowNodeData = {

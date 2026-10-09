@@ -249,7 +249,7 @@ public static class SearchEndpoints
         return rows.Select(w => new SearchHit("flow", w.FlowId.Length > 0 ? w.FlowId : w.Id.ToString(),
             w.Name.Length > 0 ? w.Name : "Untitled flow",
             (w.Active ? "Live" : "Draft") + (w.Hint.Length > 0 ? " · " + ShellScope.Snip(w.Hint, 70) : ""),
-            "/flow-builder")).ToList();
+            "/journeys")).ToList();
     }
 
     // ---- admin -----------------------------------------------------------------

@@ -1,6 +1,7 @@
 import type { MessageKey } from '@/i18n'
 import type { FlowEdge, FlowNode } from './types'
 import { AI_MESSAGE, actionType, channelsOf, isChatbotStep } from './nodeConfig'
+import { aiOptionsOf, conditionComplete, conditionsOf, decisionKind } from './conditions'
 
 /**
  * Things that would make a step do nothing when the flow runs — shown as a
@@ -8,7 +9,12 @@ import { AI_MESSAGE, actionType, channelsOf, isChatbotStep } from './nodeConfig'
  * Never blocks saving: a draft is allowed to be unfinished. Returns
  * translation keys (`flows.issues.*`), translated where they are shown.
  */
-export function flowIssues(nodes: FlowNode[], edges: FlowEdge[]): Record<string, MessageKey[]> {
+export function flowIssues(
+  nodes: FlowNode[],
+  edges: FlowEdge[],
+  /** custom field key → kind (field conditions need a value only for some operators) */
+  fieldKinds?: Record<string, string>,
+): Record<string, MessageKey[]> {
   const out: Record<string, MessageKey[]> = {}
   const add = (id: string, msg: MessageKey) => (out[id] ??= []).push(msg)
   const s = (v: unknown) => (v === undefined || v === null ? '' : String(v)).trim()
@@ -45,10 +51,14 @@ export function flowIssues(nodes: FlowNode[], edges: FlowEdge[]): Record<string,
         break
       }
       case 'decision': {
-        const b = s(c.basedOn)
-        if (b === 'Reply contains' && !s(c.keyword)) add(n.id, 'flows.issues.listWords')
-        if ((b === 'Has tag' || b === 'Contact tag') && !s(c.tag)) add(n.id, 'flows.issues.chooseTag')
-        if (b === 'Custom field equals' && !s(c.field)) add(n.id, 'flows.issues.chooseField')
+        const kind = decisionKind(c)
+        if (kind === 'conditions') {
+          const conds = conditionsOf(c)
+          if (!conds.length) add(n.id, 'flows.issues.addCondition')
+          else if (conds.some((x) => !conditionComplete(x, fieldKinds?.[s(x.field)]))) add(n.id, 'flows.issues.finishCondition')
+        }
+        if ((kind === 'ai_yes_no' || kind === 'ai_pick') && !s(c.question)) add(n.id, 'flows.issues.writeQuestion')
+        if (kind === 'ai_pick' && aiOptionsOf(c).filter((o) => s(o.label)).length < 2) add(n.id, 'flows.issues.addOptions')
         break
       }
       case 'update': {

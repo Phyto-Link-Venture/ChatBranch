@@ -13,14 +13,15 @@ import { StepIcon } from './stepIcons'
 /**
  * The Steps view — the default way to read and build a flow: a vertical list
  * of plain-language cards with a "+" between every two steps, branch steps
- * splitting into side-by-side columns (YES / NO, Replied / No reply). It is
+ * splitting into side-by-side columns (YES / NO, Replied / No reply, or one
+ * per AI option + "None of these"). It is
  * a projection of the same nodes/edges graph the canvas draws; structural
  * edits go through lib/flow/steps and re-lay the canvas out.
  */
 
 export interface InsertAt {
   source: string
-  handle?: 'yes' | 'no'
+  handle?: string
   edgeId?: string | null
   hasContinuation: boolean
 }
@@ -196,18 +197,25 @@ function Branches({ branches, ctx }: { branches: BranchTree[]; ctx: Ctx }) {
 function BranchPill({ branch }: { branch: BranchTree }) {
   const t = useT()
   const tone =
-    branch.key === 'yes'
+    branch.tone === 'yes'
       ? 'border-green/40 text-[color:var(--green-ink)]'
-      : branch.key === 'no'
+      : branch.tone === 'no'
         ? 'border-red/40 text-[color:var(--red-ink)]'
-        : branch.key === 'timeout'
+        : branch.tone === 'timeout'
           ? 'border-amber/40 text-[color:var(--amber-ink)]'
-          : 'border-line-strong text-text-mid'
+          : branch.tone === 'option'
+            ? 'border-blue/40 text-[color:var(--blue-ink)]'
+            : 'border-line-strong text-text-mid'
+  // an operator's own option label reads as written (no shouting caps)
+  const own = branch.labelText !== undefined
   return (
     <span
-      className={`rounded-full border bg-card px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-[0.06em] ${tone}`}
+      className={`max-w-[260px] truncate rounded-full border bg-card px-2.5 py-0.5 text-[11px] font-bold ${
+        own ? '' : 'uppercase tracking-[0.06em]'
+      } ${tone}`}
+      title={own ? branch.labelText : undefined}
     >
-      {t(branch.labelKey, branch.labelVars)}
+      {own ? branch.labelText : branch.labelKey ? t(branch.labelKey, branch.labelVars) : branch.key}
     </span>
   )
 }

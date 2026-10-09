@@ -1,19 +1,21 @@
 import { translate, type MessageKey, type TFunction } from '@/i18n'
 import { en } from '@/i18n/messages/en'
-import type { FlowConfig, FlowEdge, FlowNode, NodeKind, WorkflowDef } from './types'
+import type { FlowCondition, FlowConfig, FlowEdge, FlowNode, NodeKind, WorkflowDef } from './types'
 import { AI_MESSAGE } from './nodeConfig'
+import { AI_DEFAULTS, KIND_AI_PICK, KIND_CONDITIONS } from './conditions'
 import { autoLayout } from './steps'
 
 /**
- * "Start from a template" — industry-neutral starter flows. Each is a plain
+ * "Start from a template" — industry-neutral starter journeys. Each is a plain
  * graph built from the same step types the builder offers, laid out by the
  * same auto-layout, and shipped PAUSED: the operator reads it, adjusts the
  * words, and goes live. Node ids only need to be unique within a flow.
  *
  * Names, descriptions and the starter WORDING (messages, AI briefs, handover
- * notes, reply keywords) come from `flows.starters.*`, so a flow started in
- * Malay or Chinese reads in that language. Config VALUES (trigger names,
- * channels, decision kinds), tags and outcome codes stay English — the engine
+ * notes, reply keywords, AI questions and options) come from
+ * `flows.starters.*`, so a journey started in Malay or Chinese reads in that
+ * language. Config VALUES (trigger names, channels, decision kinds, condition
+ * subjects/operators), tags and outcome codes stay English — the engine
  * matches them. Keyword lists keep ASCII commas: the engine splits on them.
  */
 
@@ -35,16 +37,19 @@ const n = (id: string, type: NodeKind, config: FlowConfig, label = ''): FlowNode
 })
 
 let k = 0
-const e = (source: string, target: string, handle?: 'yes' | 'no', followup = false): FlowEdge => ({
+/** A line; on a branch it carries its handle and stored label (English yes/no
+ * words — the engine reads them, the dashboard translates them — or an AI
+ * option's own label). */
+const e = (source: string, target: string, handle?: string, label?: string): FlowEdge => ({
   id: `e${++k}-${source}-${target}`,
   source,
   target,
-  // stored branch words — English, the engine reads them (shown translated)
-  ...(handle
-    ? { sourceHandle: handle, label: followup ? (handle === 'yes' ? 'Replied' : 'No reply') : handle === 'yes' ? 'Yes' : 'No' }
-    : {}),
+  ...(handle ? { sourceHandle: handle, label: label ?? (handle === 'yes' ? 'Yes' : handle === 'no' ? 'No' : handle) } : {}),
   data: { config: { timing: 'Immediately' } },
 })
+
+/** A "Check conditions" decision (all of). */
+const check = (...conditions: FlowCondition[]): FlowConfig => ({ basedOn: KIND_CONDITIONS, match: 'all', conditions })
 
 const laidOut = (nodes: FlowNode[], edges: FlowEdge[]) => autoLayout({ nodes, edges })
 
@@ -96,7 +101,7 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
             script: t('flows.starters.appointment.reminder'),
           }),
           n('w1', 'wait', { mode: 'reply', timeoutAmount: 12, timeoutUnit: 'hours' }),
-          n('d1', 'decision', { basedOn: 'They said yes' }),
+          n('d1', 'decision', check({ subject: 'reply', op: 'said_yes' })),
           n('u1', 'update', { op: 'add_tag', tag: 'confirmed' }),
           n('e1', 'end', { logCode: 'CONFIRMED', updateMemory: 'Yes' }),
           n('h1', 'handover', { team: '', priority: 'High', reason: t('flows.starters.appointment.handoverReason') }),
@@ -130,7 +135,7 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
           n('e1', 'end', { logCode: 'RE_ENGAGED', updateMemory: 'Yes' }),
           n('e2', 'end', { logCode: 'STILL_QUIET', updateMemory: 'No' }),
         ],
-        [e('t1', 'a1'), e('a1', 'f1'), e('f1', 'u1', 'yes', true), e('u1', 'e1'), e('f1', 'e2', 'no', true)],
+        [e('t1', 'a1'), e('a1', 'f1'), e('f1', 'u1', 'yes', 'Replied'), e('u1', 'e1'), e('f1', 'e2', 'no', 'No reply')],
       ),
   },
   {
@@ -152,8 +157,8 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
             script: t('flows.starters.lead.aiBrief'),
           }),
           n('w1', 'wait', { mode: 'reply', timeoutAmount: 1, timeoutUnit: 'days' }),
-          n('d1', 'decision', { basedOn: 'They replied' }),
-          n('d2', 'decision', { basedOn: 'Reply contains', keyword: t('flows.starters.lead.buyingWords') }),
+          n('d1', 'decision', check({ subject: 'reply', op: 'replied' })),
+          n('d2', 'decision', check({ subject: 'reply', op: 'contains_any', value: t('flows.starters.lead.buyingWords') })),
           n('h1', 'handover', { team: '', priority: 'High', reason: t('flows.starters.lead.handoverReason') }),
           n('e1', 'end', { logCode: 'QUALIFIED', updateMemory: 'Yes' }),
           n('u1', 'update', { op: 'add_tag', tag: 'nurture' }),
@@ -167,6 +172,55 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
           e('d1', 'u2', 'no'), e('u2', 'e3'),
         ],
       ),
+  },
+  {
+    id: 'ai-lead-qualification',
+    name: 'flows.starters.aiLead.name',
+    hint: 'flows.starters.aiLead.hint',
+    outline: [
+      'flows.trigger.messageReceived',
+      'flows.starters.outline.aiPicksPath',
+      'flows.starters.outline.buyerQuestionComplaint',
+    ],
+    build: (t) => {
+      const options = [
+        { id: 'opt-1', label: t('flows.starters.aiLead.buyer'), description: t('flows.starters.aiLead.buyerHint') },
+        { id: 'opt-2', label: t('flows.starters.aiLead.question'), description: t('flows.starters.aiLead.questionHint') },
+        { id: 'opt-3', label: t('flows.starters.aiLead.complaint'), description: t('flows.starters.aiLead.complaintHint') },
+      ]
+      return laidOut(
+        [
+          n('t1', 'trigger', { when: 'Message received', channel: '', keyword: '', repeat: 'Once a day' }),
+          n('d1', 'decision', {
+            basedOn: KIND_AI_PICK,
+            ...AI_DEFAULTS,
+            question: t('flows.starters.aiLead.aiQuestion'),
+            options,
+            historyMessages: 20,
+            historyScope: 'conversation',
+            unsure: 'none',
+          }),
+          n('u1', 'update', { op: 'add_tag', tag: 'hot-lead' }),
+          n('h1', 'handover', { team: '', priority: 'High', reason: t('flows.starters.aiLead.buyerHandover') }),
+          n('e1', 'end', { logCode: 'BUYER', updateMemory: 'Yes' }),
+          n('a2', 'action', {
+            channels: [AI_MESSAGE, 'WhatsApp'], skill: '', waMode: 'text', humanize: true,
+            script: t('flows.starters.aiLead.answerBrief'),
+          }),
+          n('e2', 'end', { logCode: 'QUESTION', updateMemory: 'Yes' }),
+          n('h2', 'handover', { team: '', priority: 'Urgent', reason: t('flows.starters.aiLead.complaintHandover') }),
+          n('e3', 'end', { logCode: 'COMPLAINT', updateMemory: 'Yes' }),
+          n('e4', 'end', { logCode: 'OTHER', updateMemory: 'No' }),
+        ],
+        [
+          e('t1', 'd1'),
+          e('d1', 'u1', 'opt-1', options[0].label), e('u1', 'h1'), e('h1', 'e1'),
+          e('d1', 'a2', 'opt-2', options[1].label), e('a2', 'e2'),
+          e('d1', 'h2', 'opt-3', options[2].label), e('h2', 'e3'),
+          e('d1', 'e4', 'none', 'None of these'),
+        ],
+      )
+    },
   },
   {
     id: 'feedback-request',
@@ -188,7 +242,7 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
             script: t('flows.starters.feedback.ask'),
           }),
           n('w1', 'wait', { mode: 'reply', timeoutAmount: 3, timeoutUnit: 'days' }),
-          n('d1', 'decision', { basedOn: 'Reply contains', keyword: t('flows.starters.feedback.happyWords') }),
+          n('d1', 'decision', check({ subject: 'reply', op: 'contains_any', value: t('flows.starters.feedback.happyWords') })),
           n('a2', 'action', {
             channels: ['WhatsApp'], waMode: 'text',
             script: t('flows.starters.feedback.reviewAsk'),

@@ -9,7 +9,7 @@ export const shell: Dict<typeof source> = {
     contacts: '联系人',
     bookings: '预约',
     assignments: '账号分配',
-    flowBuilder: '流程编辑器',
+    flowBuilder: '客户旅程',
     aiMonitor: 'AI 监控',
     automations: '自动化规则',
     voice: '语音与通话',

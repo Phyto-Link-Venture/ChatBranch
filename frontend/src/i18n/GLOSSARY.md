@@ -21,7 +21,8 @@ full-width punctuation (，。：？！“”).
 | template | templat | 模板 |
 | quick reply (canned response) | balasan pantas | 快捷回复 |
 | call script | skrip panggilan | 通话脚本 |
-| flow | aliran | 流程 |
+| journey (the flow builder; one automated sequence) | perjalanan | 客户旅程 |
+| flow (internal: the engine, the API) | aliran | 流程 |
 | trigger | pencetus | 触发条件 |
 | step | langkah | 步骤 |
 | automation (rule) | automasi (peraturan) | 自动化规则 |

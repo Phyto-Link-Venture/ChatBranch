@@ -15,13 +15,13 @@ namespace ChatBranch.Data.Flows;
 /// never inline, so pacing + account resolution happen at send time.
 ///
 /// Step types: trigger · action (send message / AI message / call / app
-/// action) · wait · decision ("Ask &amp; branch") · followup ("Follow up if no
+/// action) · wait · decision ("Check conditions" / "Let AI decide") · followup ("Follow up if no
 /// reply") · handover · update ("Update contact") · end — plus the legacy
 /// "stage" section, executed as a pass-through. Every arrival, completion,
 /// park and failure is appended to <see cref="FlowStepEvent"/> (per flow, per
 /// org-local day) so the builder can show how many people reached each step.
 /// </summary>
-public class FlowEngine
+public partial class FlowEngine
 {
     private const int MaxSteps = 60;
     private const int LogCap = 200;
@@ -37,15 +37,19 @@ public class FlowEngine
     /// (a branch verdict, an outcome) — set by the step handler.</summary>
     private string _completeDetail = "";
     private readonly Ai.AssistantService? _assistant;
+    /// <summary>The model behind the "Let AI decide" steps (null or unconfigured = the sandbox guess).</summary>
+    private readonly Ai.ILlmClient? _llm;
 
     public FlowEngine(AppDbContext db, ScopingService scoping, QueueService queue,
-        Integrations.IntegrationActions? actions = null, Ai.AssistantService? assistant = null)
+        Integrations.IntegrationActions? actions = null, Ai.AssistantService? assistant = null,
+        Ai.ILlmClient? llm = null)
     {
         _db = db;
         _scoping = scoping;
         _queue = queue;
         _actions = actions;
         _assistant = assistant;
+        _llm = llm;
     }
 
     internal static readonly string[] ClosedStatuses =
@@ -177,25 +181,26 @@ public class FlowEngine
     /// <summary>The customer custom-field schema as (key, kind) pairs, read
     /// straight from the `custom_fields` Setting row (the API layer owns the
     /// write side; this only needs the shape).</summary>
-    private List<(string key, string kind)> CustomFieldSchema()
+    private List<(string key, string kind)> CustomFieldSchema() =>
+        CustomFieldDefs().Select(f => (f.key, f.kind)).ToList();
+
+    /// <summary>The customer custom fields with their labels (key, label, kind).</summary>
+    private List<(string key, string label, string kind)> CustomFieldDefs()
     {
-        var customer = new List<(string, string)>();
+        var customer = new List<(string, string, string)>();
         var raw = _scoping.SettingValue("custom_fields");
         if (string.IsNullOrWhiteSpace(raw)) return customer;
         using var doc = JsonDocument.Parse(raw);
-        void Read(string target, List<(string, string)> into)
+        if (!doc.RootElement.TryGetProperty("customer", out var arr)
+            || arr.ValueKind != JsonValueKind.Array) return customer;
+        foreach (var f in arr.EnumerateArray())
         {
-            if (!doc.RootElement.TryGetProperty(target, out var arr)
-                || arr.ValueKind != JsonValueKind.Array) return;
-            foreach (var f in arr.EnumerateArray())
-            {
-                var key = f.TryGetProperty("key", out var k) ? k.GetString() ?? "" : "";
-                if (key.Length == 0) continue;
-                var kind = f.TryGetProperty("kind", out var kd) ? kd.GetString() ?? "text" : "text";
-                into.Add((key, kind));
-            }
+            var key = f.TryGetProperty("key", out var k) ? k.GetString() ?? "" : "";
+            if (key.Length == 0) continue;
+            var label = f.TryGetProperty("label", out var l) && l.ValueKind == JsonValueKind.String ? l.GetString() ?? "" : "";
+            var kind = f.TryGetProperty("kind", out var kd) ? kd.GetString() ?? "text" : "text";
+            customer.Add((key, label.Length > 0 ? label : key, kind));
         }
-        Read("customer", customer);
         return customer;
     }
 
@@ -497,7 +502,7 @@ public class FlowEngine
     /// starts a run. The message itself seeds the run as its first reply, so an
     /// "Ask &amp; branch: reply contains…" step right after the trigger reads it.
     /// </summary>
-    private List<int> StartMessageTriggers(Contact contact, string channel, string text)
+    private List<int> StartMessageTriggers(Contact contact, string channel, string text, string key = "")
     {
         var startedIds = new List<int>();
         foreach (var wf in _db.Workflows.Where(w => w.Active).ToList())
@@ -523,6 +528,9 @@ public class FlowEngine
                     ["reply_consumed"] = false,
                     ["answered"] = true,
                     ["trigger_message"] = Trim(text ?? "", 500),
+                    // the conversation that started the run: AI decisions read its history
+                    ["trigger_channel"] = channel,
+                    ["trigger_key"] = key,
                 });
                 startedIds.Add(run.Id);
             }
@@ -571,10 +579,10 @@ public class FlowEngine
 
     // ---- decisions ----------------------------------------------------------
 
-    private static readonly Regex YesRe = new(
+    internal static readonly Regex YesRe = new(
         @"\b(yes|ya|yeah|yup|ok|okay|sure|can|will|paid|done|sudah|boleh|setuju|bayar|alright|noted)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex NoRe = new(
+    internal static readonly Regex NoRe = new(
         @"\b(no|not|nope|cannot|can't|cant|tak|tidak|later|busy|belum|tunggu)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
@@ -587,10 +595,23 @@ public class FlowEngine
     }
 
     /// <summary>
-    /// "Ask &amp; branch". The new checks never park: they read what the run
-    /// already knows (did a reply arrive during the last wait, what did it say,
-    /// the contact's tags and fields). The legacy "Contact's answer" still parks
-    /// until a reply arrives, exactly as before.
+    /// The decision step ("Check conditions" / "Let AI decide") — three kinds (<c>basedOn</c>):
+    /// <list type="bullet">
+    /// <item><c>Conditions</c> — a group of checks joined by all/any, evaluated
+    /// deterministically (FlowEngine.Conditions.cs); never parks.</item>
+    /// <item><c>AI yes/no</c> and <c>AI picks a path</c> — the model reads the
+    /// conversation history and answers (FlowEngine.AiDecisions.cs); when it is
+    /// unsure the step's "when unsure" choice decides, which may park the run
+    /// until the next reply.</item>
+    /// </list>
+    /// Flows saved before the condition builder keep their single-check
+    /// <c>basedOn</c> (They replied · Reply contains · They said yes · Has tag ·
+    /// Custom field equals): each is read as the equivalent one-condition group
+    /// and behaves exactly as before. The legacy "Record status" check and
+    /// "Contact's answer" (which parks until a reply) run as they always did.
+    /// Returns the branch (yes / no / an option handle), <see cref="EndBranch"/>,
+    /// <see cref="ParkedBranch"/> when the step parked the run itself, or null =
+    /// park on the contact's answer (legacy).
     /// </summary>
     private string? Decide(FlowRun run, JsonElement node)
     {
@@ -600,41 +621,31 @@ public class FlowEngine
             ? _db.Contacts.Include(c => c.EntityLinks).FirstOrDefault(c => c.Id == cid)
             : null;
         var nodeId = Str(node, "id");
-        var answered = CtxBool(run, "answered");
+        if (basis is DecideAiYesNo or DecideAiPick)
+            return DecideWithAi(run, nodeId, cfg, contact, basis == DecideAiPick);
+
         var reply = Ctx(run, "last_reply");
         string Yn(bool b) => b ? "yes" : "no";
         string? answer = null;
-        switch (basis)
+        if (basis == DecideConditions)
         {
-            case "They replied":
-                answer = Yn(answered);
-                break;
-            case "Reply contains":
-                var kws = Keywords(CfgStr(cfg, "keyword"));
-                answer = Yn(answered && kws.Any(k => reply.Contains(k, StringComparison.OrdinalIgnoreCase)));
-                break;
-            case "They said yes":
-                answer = Yn(answered && ClassifyReply(reply) == "yes");
-                break;
-            case "Has tag":
-            case "Contact tag":
-                answer = Yn(HasTag(contact, CfgStr(cfg, "tag")));
-                break;
-            case "Custom field equals":
-                var field = CfgStr(cfg, "field").Trim();
-                var value = FormatAttribute(contact?.Attributes ?? new(), field, "text").Trim();
-                var wantedValue = CfgStr(cfg, "value").Trim();
-                answer = Yn(field != "" && (wantedValue == ""
-                    ? value != ""
-                    : string.Equals(value, wantedValue, StringComparison.OrdinalIgnoreCase)));
-                break;
-            case "Record status":
-                var record = PrimaryRecord(contact);
-                var wanted = CfgStr(cfg, "status").Trim().ToLowerInvariant();
-                answer = wanted != ""
-                    ? Yn(record != null && record.Status.Trim().ToLowerInvariant() == wanted)
-                    : Yn(record != null && ClosedStatuses.Contains(record.Status.Trim().ToLowerInvariant()));
-                break;
+            var (ok, summary) = EvaluateGroup(run, contact, ParseConditions(cfg), CfgStr(cfg, "match"));
+            answer = Yn(ok);
+            Log(run, nodeId, $"decision ({summary}): {answer}");
+            _completeDetail = answer;
+            return answer;
+        }
+        if (LegacyCondition(basis, cfg) is FlowCondition legacy)
+        {
+            answer = Yn(Evaluate(run, contact, legacy, new ConditionFacts()));
+        }
+        else if (basis == "Record status")
+        {
+            var record = PrimaryRecord(contact);
+            var wanted = CfgStr(cfg, "status").Trim().ToLowerInvariant();
+            answer = wanted != ""
+                ? Yn(record != null && record.Status.Trim().ToLowerInvariant() == wanted)
+                : Yn(record != null && ClosedStatuses.Contains(record.Status.Trim().ToLowerInvariant()));
         }
         if (answer != null)
         {
@@ -1512,6 +1523,13 @@ public class FlowEngine
                     break;
                 case "decision":
                     branch = Decide(run, node);
+                    if (branch == ParkedBranch) return; // "wait for the next reply and ask again"
+                    if (branch == EndBranch)
+                    {
+                        Track(run, nodeId, FlowStepKind.Completed, _completeDetail);
+                        Finish(run, FlowRunStatus.Done, "AI unsure — the journey ends here");
+                        return;
+                    }
                     if (branch == null)
                     {
                         var te = TimeoutEdgeFrom(wf, nodeId);
@@ -1640,7 +1658,7 @@ public class FlowEngine
         var contact = ContactFor(channel, key);
         if (contact == null) return 0;
         var started = new List<int>();
-        try { started = StartMessageTriggers(contact, channel, text); }
+        try { started = StartMessageTriggers(contact, channel, text, key); }
         catch { /* a broken trigger must never block resuming parked runs */ }
         var resumed = 0;
         foreach (var run in _db.FlowRuns.Where(r => r.ContactId == contact.Id
@@ -1648,6 +1666,8 @@ public class FlowEngine
         {
             if (started.Contains(run.Id)) continue;
             SetCtx(run, "last_reply", Trim(text, 500));
+            SetCtx(run, "last_reply_channel", channel);
+            SetCtx(run, "last_reply_key", key);
             SetCtx(run, "reply_consumed", false);
             SetCtx(run, "answered", true);
             if (run.Status != FlowRunStatus.Waiting || run.WaitFor != "reply") { _db.SaveChanges(); continue; }

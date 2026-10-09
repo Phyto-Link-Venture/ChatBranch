@@ -37,7 +37,7 @@ import { AssistantDock } from '@/components/assistant/AssistantDock'
  * Auth guard: every non-public route requires a signed-in user.
  */
 
-const FULL_BLEED: string[] = ['/chats', '/flow-builder', '/settings']
+const FULL_BLEED: string[] = ['/chats', '/journeys', '/flow-builder', '/settings']
 
 /** Routes anyone may read, signed in or not, outside the operator shell. */
 const PUBLIC_ROUTES = ['/help', '/offline']

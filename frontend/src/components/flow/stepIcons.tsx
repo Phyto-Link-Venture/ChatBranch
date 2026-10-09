@@ -2,6 +2,7 @@
 
 import {
   Bot,
+  BrainCircuit,
   Flag,
   Hourglass,
   Layers,
@@ -16,6 +17,7 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react'
+import { isAiDecision } from '@/lib/flow/conditions'
 import { actionType, isChatbotStep } from '@/lib/flow/nodeConfig'
 import type { FlowConfig } from '@/lib/flow/types'
 
@@ -28,6 +30,7 @@ const BY_CHOICE: Record<string, LucideIcon> = {
   wait: Hourglass,
   followup: Repeat,
   branch: Split,
+  aiDecide: BrainCircuit,
   decision: Split,
   handover: UserRound,
   update: UserCog,
@@ -40,6 +43,7 @@ const BY_CHOICE: Record<string, LucideIcon> = {
 export function iconFor(kindOrChoice: string, cfg?: FlowConfig): LucideIcon {
   if (kindOrChoice === 'action') return BY_CHOICE[actionType(cfg)] ?? Send
   if (kindOrChoice === 'update' && isChatbotStep(cfg)) return Bot
+  if (kindOrChoice === 'decision' && isAiDecision(cfg)) return BrainCircuit
   return BY_CHOICE[kindOrChoice] ?? Send
 }
 
