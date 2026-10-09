@@ -277,7 +277,9 @@ When you fix one of these, update this table, `README.md` and
   team, entity, labels, contact tags, AI on/off, 24h window, opt-out, waiting,
   live call, linked, handover (`open`/`any`/`none` + `handover_kind`), date
   ranges, sorts, cursor paging; `count_only=1` powers the filter pop-up's live
-  "Show N chats"). The filter UI is `ChatFilterModal.tsx`; the filter tabs are
+  "Show N chats"). A conversation with NO messages (a chat opened from a contact
+  and left) is not listed — only `thread=<channel>:<key>` still finds it, so the
+  open chat's scope check keeps a freshly started chat open. The filter UI is `ChatFilterModal.tsx`; the filter tabs are
   per-user `SavedView` rows (`/api/views?scope=chats`, `lib/savedViews.ts`) next
   to a built-in "Needs human" tab. **Select mode** (`BulkBar.tsx`) drives `POST
   /api/inbox/threads/bulk` (`chats.manage`; picked conversations or everything a

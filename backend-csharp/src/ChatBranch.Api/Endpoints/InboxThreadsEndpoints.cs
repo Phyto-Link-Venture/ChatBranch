@@ -304,6 +304,12 @@ public static class InboxThreadsEndpoints
 
         if (f.Thread is (string tch, string tkey))
             q = q.Where(t => t.Channel == tch && t.Key == tkey);
+        else
+            // A conversation nothing was ever said in (a chat opened from a contact
+            // and left, a number registered by hand) is not a conversation yet: keep
+            // it out of the list. Asked for by name (the open chat's scope check)
+            // it still counts, so a freshly started chat isn't closed under you.
+            q = q.Where(t => db.Messages.Any(m => m.ThreadId == t.Id));
 
         if (scope.Ids is List<int> ids)
             q = q.Where(t => t.EntityId == null || ids.Contains(t.EntityId.Value));

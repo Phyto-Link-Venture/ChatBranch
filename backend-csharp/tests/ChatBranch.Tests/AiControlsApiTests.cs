@@ -266,9 +266,18 @@ public class AiControlsApiTests : IClassFixture<ApiFactory>
         WithDb(db =>
         {
             var now = DateTime.UtcNow;
-            for (var i = 0; i < 1001; i++)
-                db.Threads.Add(new Domain.Thread { Channel = "website", Key = $"bulkcap-{i:D4}", Name = "bulkcap visitor",
-                    Status = "open", CreatedAt = now, UpdatedAt = now });
+            var rows = Enumerable.Range(0, 1001).Select(i => new Domain.Thread
+            {
+                Channel = "website", Key = $"bulkcap-{i:D4}", Name = "bulkcap visitor",
+                Status = "open", CreatedAt = now, UpdatedAt = now,
+            }).ToList();
+            db.Threads.AddRange(rows);
+            db.SaveChanges();
+            // the list only holds conversations something was said in
+            db.Messages.AddRange(rows.Select(t => new Domain.Message
+            {
+                ThreadId = t.Id, Direction = Domain.MessageDirection.In, Text = "hi", CreatedAt = now,
+            }));
             return db.SaveChanges();
         });
         var res = await admin.PostAsJsonAsync("/api/inbox/threads/bulk",
