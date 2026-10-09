@@ -159,7 +159,7 @@ public class IdentityRequestTests : IdentityApiBase, IClassFixture<IdentityFacto
     }
 
     [Fact]
-    public async Task No_match_with_ask_and_create_creates_the_contact_in_the_inbox_entity()
+    public void No_match_with_ask_and_create_creates_the_contact_in_the_inbox_entity()
     {
         var mainId = InScope((_, db) => db.Entities.Single(e => e.Slug == "main").Id);
         var inbox = Inbox(IdentifyModes.AskAndCreate, entityId: mainId);
