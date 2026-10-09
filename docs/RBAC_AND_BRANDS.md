@@ -118,7 +118,12 @@ capability check in the handler (`AdminEndpoints.HasCapabilityAsync`,
 | Org notification defaults (`PUT /api/auth/notification-prefs`) | `notifications.manage` |
 | Org appearance default (`PUT /api/settings/appearance`) | `settings.appearance.org` |
 | Account assignments, rebalance, routing rules (`/api/whatsapp/assignments*`, `PUT /api/whatsapp/routing-rules`) | `account_assignment.manage` |
-| Channel/integration accounts, widgets, teams, automations, knowledge, skills, external MCP servers, recovery, record sync, analytics usage | admin+ |
+| Channel accounts, widgets, teams, automations, external MCP servers, recovery, record sync, analytics usage | admin+ |
+| Knowledge base and AI skills writes (`/api/aicore/knowledge*`, `PUT /api/aicore/skills`, skill draft/test) | `settings.ai.manage` |
+| Integrations — read (`GET /api/integrations`, `/providers`, `/accounts`, `/settings`) | `integrations.view` (settings also `app_keys.manage`); without it a person still lists **their own** connections |
+| Integrations — add / delete / shared connect (`POST/DELETE /api/integrations/accounts*`, `POST /api/integrations/{provider}/connect`) | admin+ (connect: superadmin) AND `integrations.manage` |
+| Integrations — connect / disconnect your **own** Google account (`GET /api/integrations/oauth/{provider}/start`, `POST …/accounts/{id}/disconnect`) | any signed-in user for their own row; someone else's personal row is invisible to non-admins; a shared row needs admin+ AND `integrations.manage` |
+| Integrations — run an action (`POST /api/integrations/action`: mail, charge, book…) | `integrations.manage` OR `flows.manage`, and the contact must be in the caller's scope |
 | WhatsApp global settings incl. the verify token (`POST/PUT /api/whatsapp/settings`) | `app_keys.manage` |
 | Flow library | GET `flows.view`, PUT `flows.manage` |
 | Tags | read `tags.view`, write `tags.manage` |
@@ -131,6 +136,14 @@ capability check in the handler (`AdminEndpoints.HasCapabilityAsync`,
 
 The command palette's `GET /api/search` gates each result type by the
 capability of the page it opens and scopes it like that page's list endpoint.
+
+**Shared libraries** (skills, knowledge, quick replies, call scripts,
+integrations) are read through `ShellScope.ScopeLibrary`: admins and
+superadmins see any outlet's rows (narrowed by `?entity=`); agents and custom
+roles with assigned entities see the organization-wide rows plus their assigned
+entities' subtrees — an out-of-scope `?entity=` narrows to their own scope, it
+never widens; an agent with no assignment keeps the tenant-wide view. Rendering
+a template for a `?contact_id=` only fills in a contact the caller may see.
 
 ## API keys and scopes
 

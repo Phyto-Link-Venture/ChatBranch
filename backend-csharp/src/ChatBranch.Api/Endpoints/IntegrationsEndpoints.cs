@@ -137,10 +137,11 @@ public static class IntegrationsEndpoints
 
     public static void MapIntegrationsEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/integrations", async (string? entity, AppDbContext db, ScopingService sc) =>
+        app.MapGet("/api/integrations", async (string? entity, AppDbContext db, ScopingService sc,
+            ClaimsPrincipal me) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
-            var connected = sc.ScopeInherited(db.Integrations.AsNoTracking(), entityId).ToList();
+            var connected = (await Visible(db, sc, me, entityId)).ToList();
             var cards = Providers.Select(p =>
             {
                 var row = connected.FirstOrDefault(i => i.Provider == p);
@@ -154,7 +155,7 @@ public static class IntegrationsEndpoints
                 };
             });
             return Results.Ok(new { integrations = cards, actions = Actions });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("integrations.view");
 
         // Connect: superadmin. Sandbox → 400 with a reason, no socket opened.
         app.MapPost("/api/integrations/{provider}/connect",
@@ -181,16 +182,16 @@ public static class IntegrationsEndpoints
             row.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
             return Results.Ok(new { provider, status = row.Status });
-        }).RequireAuthorization(AuthPolicies.SuperAdmin);
+        }).RequireAuthorization(AuthPolicies.SuperAdmin).RequireCapability("integrations.manage");
 
         // ---- provider catalog (views.providers) ----------------------------
         // Works with an empty database and zero credentials — that is the
         // template's shipping state, so it must never 500.
         app.MapGet("/api/integrations/providers", async (string? entity,
-            AppDbContext db, ScopingService sc) =>
+            AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
-            var rows = await sc.ScopeInherited(db.Integrations.AsNoTracking().Include(i => i.Owner), entityId).ToListAsync();
+            var rows = await (await Visible(db, sc, me, entityId)).Include(i => i.Owner).ToListAsync();
             var googleReady = GoogleOauthConfigured(sc);
 
             var providers = Catalog.Select(meta =>
@@ -220,14 +221,20 @@ public static class IntegrationsEndpoints
                 google_oauth_configured = googleReady,
                 sandbox = !rows.Any(Connected),
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("integrations.view");
 
         // ---- integration rows (views.accounts) ------------------------------
         app.MapGet("/api/integrations/accounts", async (string? provider, string? entity,
-            AppDbContext db, ScopingService sc) =>
+            AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
-            var qs = sc.ScopeInherited(db.Integrations.AsNoTracking().Include(i => i.Owner), entityId);
+            // without integrations.view a person still sees their OWN connections
+            // (their personal Google Calendar), never anyone else's
+            var uid = await UserIdAsync(db, me);
+            var qs = await ShellScope.HasCapAsync(db, me, "integrations.view")
+                ? (await Visible(db, sc, me, entityId)).Include(i => i.Owner)
+                : db.Integrations.AsNoTracking().Include(i => i.Owner)
+                    .Where(i => uid != null && i.OwnerUserId == uid);
             var wanted = (provider ?? "").Trim();
             if (wanted.Length > 0) qs = qs.Where(i => i.Provider == wanted);
             var rows = await qs.OrderBy(i => i.Provider).ThenBy(i => i.Id).ToListAsync();
@@ -280,7 +287,7 @@ public static class IntegrationsEndpoints
             await NotifyAdmins(db, $"Integration added: {Name(row)}",
                                $"{meta.Label} — by {me.Identity?.Name ?? "system"}");
             return Results.Ok(Payload(row));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.AdminPlus).RequireCapability("integrations.manage");
 
         // Delete a row entirely (views.account_detail DELETE). admin+.
         app.MapDelete("/api/integrations/accounts/{id:int}", async (int id, HttpContext ctx,
@@ -294,15 +301,16 @@ public static class IntegrationsEndpoints
             await db.SaveChangesAsync();
             await Audit(db, ctx, me, "integration.delete", label);
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.AdminPlus).RequireCapability("integrations.manage");
 
         // One probe (views.account_test). Any authenticated role, like Django.
         // NOTE: the live provider probes are not ported yet — a stored-credential
         // row reports a clean SKIP rather than pretending it reached Google.
-        app.MapPost("/api/integrations/accounts/{id:int}/test", async (int id, AppDbContext db) =>
+        app.MapPost("/api/integrations/accounts/{id:int}/test", async (int id, AppDbContext db,
+            ClaimsPrincipal me) =>
         {
             var row = await db.Integrations.FirstOrDefaultAsync(i => i.Id == id);
-            if (row == null)
+            if (row == null || !await CanSeeRowAsync(db, me, row))
                 return Results.Json(new { detail = "Integration not found." }, statusCode: 404);
 
             var meta = Meta(row.Provider);
@@ -326,8 +334,15 @@ public static class IntegrationsEndpoints
             HttpContext ctx, AppDbContext db, ClaimsPrincipal me) =>
         {
             var row = await db.Integrations.FirstOrDefaultAsync(i => i.Id == id);
-            if (row == null)
+            if (row == null || !await CanSeeRowAsync(db, me, row))
                 return Results.Json(new { detail = "Integration not found." }, statusCode: 404);
+            // anyone may disconnect their OWN connection; shared ones need admin+
+            // with integrations.manage (the policy this route used to carry)
+            var own = row.OwnerUserId is int owner && owner == await UserIdAsync(db, me);
+            if (!own && !(ShellScope.RoleOf(me) is Roles.SuperAdmin or Roles.Admin
+                          && await ShellScope.HasCapAsync(db, me, "integrations.manage")))
+                return Results.Json(new { detail = "Only an admin with integrations.manage can disconnect a shared connection." },
+                    statusCode: 403);
             // oauth.revoke_local: drop the stored credentials only — name/config
             // survive so reconnecting is one click. Google's own revoke endpoint
             // is deliberately NOT called (a shared client holds other grants).
@@ -338,14 +353,15 @@ public static class IntegrationsEndpoints
             await db.SaveChangesAsync();
             await Audit(db, ctx, me, "integration.disconnect", $"{row.Provider}:{Name(row)}");
             return Results.Ok(Payload(row));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- global settings (views.settings_view) ---------------------------
         // GET = any authenticated role, secrets masked. PUT = SUPER ADMIN, the
         // same rule as every other organization-wide credential.
         app.MapGet("/api/integrations/settings", (HttpContext ctx, ScopingService sc) =>
             Results.Ok(SettingsPayload(ctx, sc)))
-            .RequireAuthorization(AuthPolicies.Authenticated);
+            .RequireAuthorization(AuthPolicies.Authenticated)
+            .RequireAnyCapability("integrations.view", "app_keys.manage");
 
         app.MapPut("/api/integrations/settings", async (HttpContext ctx, AppDbContext db,
             ScopingService sc, ClaimsPrincipal me) =>
@@ -461,14 +477,17 @@ public static class IntegrationsEndpoints
         // own → the entity's → the organization's). A missing connection SKIPS
         // so the flow run continues; a provider error is reported honestly.
         app.MapPost("/api/integrations/action", async (ActionRequest body, AppDbContext db,
-            IntegrationActions actions, ClaimsPrincipal me, string? entity) =>
+            IntegrationActions actions, ClaimsPrincipal me, string? entity, ScopingService sc) =>
         {
             var args = new Dictionary<string, string>();
             foreach (var (k, v) in body.Args ?? new()) args[k] = v?.ToString() ?? "";
             var contactId = int.TryParse(args.GetValueOrDefault("contact_id"), out var cid) ? cid : (int?)null;
+            // only a contact the caller may see — an action can mail or charge them
             var contact = contactId is int id
-                ? await db.Contacts.FirstOrDefaultAsync(c => c.Id == id)
+                ? await ContactsEndpoints.ScopeContacts(db.Contacts, me, db, sc).FirstOrDefaultAsync(c => c.Id == id)
                 : null;
+            if (contactId != null && contact == null)
+                return Results.Json(new { detail = "Contact not found." }, statusCode: 404);
             var entityId = await InboxEndpoints.EntityId(db, entity);
             var userId = await UserIdAsync(db, me);
             var result = await actions.RunAsync(body.Action, contact, args,
@@ -480,7 +499,9 @@ public static class IntegrationsEndpoints
                 detail = result.Detail,
                 data = result.Data,
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+            // runs a real action (mail, charge, book) with a shared connection
+            .RequireAnyCapability("integrations.manage", "flows.manage");
 
         // ---- webhooks: verify HMAC; no secret ⇒ 503 (never accept unsigned) ----
         app.MapPost("/api/integrations/webhooks/shopify",
@@ -659,6 +680,30 @@ public static class IntegrationsEndpoints
     }
 
     /// <summary>The signed-in user's pk — the owner of any grant they create.</summary>
+    /// <summary>
+    /// The integration rows a caller may see: the library rule (org-wide + the
+    /// caller's outlets, <see cref="ShellScope.ScopeLibrary"/>), minus other
+    /// people's PERSONAL connections unless the caller is an admin.
+    /// </summary>
+    private static async Task<IQueryable<Integration>> Visible(AppDbContext db, ScopingService sc,
+        ClaimsPrincipal me, int? entityId)
+    {
+        var qs = ShellScope.ScopeLibrary(db.Integrations.AsNoTracking(), db, sc, me, entityId);
+        if (ShellScope.RoleOf(me) is Roles.SuperAdmin or Roles.Admin) return qs;
+        var uid = await UserIdAsync(db, me);
+        return qs.Where(i => i.OwnerUserId == null || i.OwnerUserId == uid);
+    }
+
+    /// <summary>One row: its owner always; otherwise integrations.view, and a
+    /// personal row of someone else only for admins.</summary>
+    private static async Task<bool> CanSeeRowAsync(AppDbContext db, ClaimsPrincipal me, Integration row)
+    {
+        var uid = await UserIdAsync(db, me);
+        if (row.OwnerUserId is int owner && owner == uid) return true;
+        if (!await ShellScope.HasCapAsync(db, me, "integrations.view")) return false;
+        return row.OwnerUserId == null || ShellScope.RoleOf(me) is Roles.SuperAdmin or Roles.Admin;
+    }
+
     private static async Task<int?> UserIdAsync(AppDbContext db, ClaimsPrincipal me)
     {
         var username = me.Identity?.Name;

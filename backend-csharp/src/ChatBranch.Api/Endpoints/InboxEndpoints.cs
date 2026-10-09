@@ -248,10 +248,11 @@ public static class InboxEndpoints
         // second one here made every call an AmbiguousMatchException 500.
 
         app.MapGet("/api/messaging/canned", async (string? entity, int? contact_id, string? channel,
-            AppDbContext db, ScopingService sc, FlowEngine flows) =>
+            AppDbContext db, ScopingService sc, FlowEngine flows, ClaimsPrincipal me) =>
         {
             var entityId = await EntityId(db, entity);
-            var rows = sc.ScopeInherited(db.CannedResponses.AsNoTracking().Include(c => c.Entity), entityId)
+            var rows = ShellScope.ScopeLibrary(db.CannedResponses.AsNoTracking(), db, sc, me, entityId)
+                .Include(c => c.Entity)
                 .OrderBy(c => c.ShortCode).ToList();
             // ?channel=<thread channel> — only the replies offered there. An
             // empty channel list means "every channel"; a channel this build does
@@ -263,7 +264,10 @@ public static class InboxEndpoints
             Dictionary<string, string>? variables = null;
             if (contact_id is int cid)
             {
-                var contact = await db.Contacts.AsNoTracking().FirstOrDefaultAsync(c => c.Id == cid);
+                // only a contact the caller may see — otherwise the rendered
+                // variables would leak another outlet's customer data
+                var contact = await ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
+                    .FirstOrDefaultAsync(c => c.Id == cid);
                 // A rendering hiccup must never cost the operator their replies.
                 if (contact != null)
                     try { variables = flows.VariablesFor(contact); } catch { }
