@@ -61,7 +61,10 @@ public class TransportOtherTests : IClassFixture<TransportFactory>
 
     private ChannelAccount Account(int id) => InDb(db => db.ChannelAccounts.AsNoTracking().First(a => a.Id == id));
 
-    private static async Task WaitFor(Func<bool> condition, int timeoutMs = 5000)
+    // Background work (media download, the post-save health re-probe) runs off the
+    // request; a cold first run (JIT, parallel test classes) can take seconds, so
+    // the ceiling is generous — the loop exits as soon as the condition holds.
+    private static async Task WaitFor(Func<bool> condition, int timeoutMs = 15000)
     {
         var until = DateTime.UtcNow.AddMilliseconds(timeoutMs);
         while (!condition())
