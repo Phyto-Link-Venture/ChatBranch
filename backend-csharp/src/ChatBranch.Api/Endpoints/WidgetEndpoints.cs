@@ -156,13 +156,17 @@ public static class WidgetEndpoints
         // ---- the embeddable script -------------------------------------------
         // Served from the API so a site owner adds ONE tag and nothing else, and
         // so the script and the endpoints it calls share an origin.
-        app.MapGet("/widget.js", (HttpContext ctx) =>
-        {
-            ctx.Response.Headers.CacheControl = "public, max-age=300";
-            // UTF-8 declared: the dictionary carries Malay and Chinese, and a
-            // host page in another encoding must not garble them.
-            return Results.Text(WidgetScript, "application/javascript", Encoding.UTF8);
-        }).AllowAnonymous().RequireCors("widget");
+        // Also under /api/: a single-origin deployment proxies only /api/ to the
+        // API, so the embed hands out /api/widget.js; /widget.js stays for the
+        // snippets already pasted into sites (and API-origin deployments).
+        foreach (var path in new[] { "/api/widget.js", "/widget.js" })
+            app.MapGet(path, (HttpContext ctx) =>
+            {
+                ctx.Response.Headers.CacheControl = "public, max-age=300";
+                // UTF-8 declared: the dictionary carries Malay and Chinese, and a
+                // host page in another encoding must not garble them.
+                return Results.Text(WidgetScript, "application/javascript", Encoding.UTF8);
+            }).AllowAnonymous().RequireCors("widget");
     }
 
     // ---- helpers ------------------------------------------------------------

@@ -46,6 +46,7 @@ public sealed class RequestAuditMiddleware
         "/api/assistant/chat",            // tool calls write their own rows
         "/api/widget/",                   // anonymous visitor traffic on customer sites
         "/mcp",                           // tools/call writes per-tool rows
+        "/api/mcp",                       // (the same endpoint behind an /api/-only proxy)
     };
 
     private static readonly Regex SecretSegment =
@@ -60,8 +61,7 @@ public sealed class RequestAuditMiddleware
     public async Task InvokeAsync(HttpContext ctx)
     {
         var path = ctx.Request.Path.Value ?? "";
-        var isMcp = path.Equals("/mcp", StringComparison.OrdinalIgnoreCase)
-                    || path.StartsWith("/mcp/", StringComparison.OrdinalIgnoreCase);
+        var isMcp = ChatBranch.Api.Endpoints.McpServerEndpoints.IsMcpPath(path);
         var isApi = path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase);
         if (!isApi && !isMcp)
         {

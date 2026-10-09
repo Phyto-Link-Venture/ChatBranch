@@ -174,8 +174,8 @@ public static class WidgetAdminEndpoints
             ai_default = InboxSettings.AiDefaultWire(a),
             ai_review_mode = InboxSettings.ReviewModeWire(a),
             // Paste-ready: one tag, no build step, no npm package.
-            embed = $"<script src=\"{origin}/widget.js\" data-token=\"{a.ExternalId}\" async></script>",
-            script_url = $"{origin}/widget.js",
+            embed = $"<script src=\"{origin}/api/widget.js\" data-token=\"{a.ExternalId}\" async></script>",
+            script_url = $"{origin}/api/widget.js",
         };
     }
 

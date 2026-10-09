@@ -135,7 +135,7 @@ public static class DevelopersEndpoints
             var tools = await ToolContext.CreateAsync(ctx, me, AuditSources.Mcp);
             return Results.Ok(new
             {
-                path = "/mcp",
+                path = McpServerEndpoints.Paths[0],
                 transport = "streamable-http",
                 server = new { name = "ChatBranch", title = "ChatBranch", version = McpServerEndpoints.ServerVersion },
                 protocol_versions = McpServerEndpoints.SupportedVersions,
@@ -159,7 +159,7 @@ public static class DevelopersEndpoints
         {
             if (AuditContext.Current is { } audit) audit.SkipRequestRow = true; // a probe, not an action
             var mapped = endpoints.Endpoints.OfType<RouteEndpoint>()
-                .Any(e => string.Equals(e.RoutePattern.RawText, "/mcp", StringComparison.OrdinalIgnoreCase));
+                .Any(e => McpServerEndpoints.Paths.Contains(e.RoutePattern.RawText ?? "", StringComparer.OrdinalIgnoreCase));
             var tools = await ToolContext.CreateAsync(ctx, me, AuditSources.Mcp);
             var allowed = ToolRegistry.AllowedFor(tools).Select(t => t.Name).ToList();
             return Results.Ok(new

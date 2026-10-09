@@ -360,6 +360,9 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         "/api/widget/{token}/config", "/api/widget/{token}/messages",
         "/api/help/articles", "/api/help/articles/{slug}",
         "/api/pronunciation", "/api/voices", "/api/voice/stt-settings", "/api/voice/llm-settings",
+        // /mcp and /widget.js under /api/ for /api/-only proxies (GET /api/mcp is a 405;
+        // the MCP POST demands an API key inside the handler)
+        "/api/mcp", "/api/widget.js",
     };
 
     private static readonly HashSet<string> RolePolicies = new() { AuthPolicies.AdminPlus, AuthPolicies.SuperAdmin };

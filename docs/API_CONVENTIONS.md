@@ -8,8 +8,14 @@ ASP.NET Core minimal APIs, one `Endpoints/*Endpoints.cs` file per area, wired in
 |---|---|
 | `/api/v1/…` | the "versioned" surface kept from the Django DRF days: whoami, contacts, entities ("brands"), users, record sync. Errors use an envelope (below) |
 | `/api/…` | everything else — the inbox, channels, flows, AI, analytics, settings, integrations, platform. Plain JSON in / JSON out |
-| `/mcp` | ChatBranch as an MCP server (JSON-RPC 2.0 over HTTP POST) |
-| `/widget.js` | the website widget script |
+| `/api/mcp` (also `/mcp`) | ChatBranch as an MCP server (JSON-RPC 2.0 over HTTP POST) |
+| `/api/widget.js` (also `/widget.js`) | the website widget script |
+
+`/api/mcp` and `/api/widget.js` are the addresses the dashboard hands out: a
+single-origin deployment usually proxies only `/api/` to the API
+(`deploy/nginx-chatbranch.conf`), where a bare `/mcp` or `/widget.js` would
+reach the dashboard and 404. The root paths stay for API-origin deployments
+and for widget tags already pasted into sites.
 
 There is no OpenAPI document and no `/api/v1/docs` page; each endpoint file
 opens with a doc comment describing its routes, and that is the reference.
@@ -74,10 +80,10 @@ outside the caller's scope answers **404**, exactly like one that does not exist
 | `POST /api/whatsapp/baileys/{inbound,status-event,message-status,media,call-event}` | Baileys gateway pushes | `X-Baileys-Secret` shared secret (401 without) |
 | `POST /api/integrations/webhooks/{shopify,stripe}` | commerce webhooks | HMAC (Shopify base64, Stripe `t=…,v1=…` + 300 s replay window). Bad signature → 401; **secret never configured → 503**, never "accept unsigned" |
 | `GET /api/integrations/oauth/google/callback` | the browser returns from Google with no bearer token | the HMAC-signed, 600 s `state` (PKCE S256) |
-| `GET /widget.js`, `GET /api/widget/{token}/config`, `POST /api/widget/{token}/session`, `GET/POST /api/widget/{token}/messages` | the website widget runs on other people's sites | permissive `widget` CORS policy; no credentials; each visitor sees only their own conversation, keyed by a server-minted 128-bit session id |
+| `GET /api/widget.js` (and `GET /widget.js`), `GET /api/widget/{token}/config`, `POST /api/widget/{token}/session`, `GET/POST /api/widget/{token}/messages` | the website widget runs on other people's sites | permissive `widget` CORS policy; no credentials; each visitor sees only their own conversation, keyed by a server-minted 128-bit session id |
 | `GET /api/help/articles`, `GET /api/help/articles/{slug}` | the public Help Center | only `Published` knowledge items |
 | `GET /api/pronunciation`, `GET /api/voices`, `GET /api/voice/stt-settings`, `GET /api/voice/llm-settings` | read by the voice tooling | non-secret configuration |
-| `POST /mcp` (and `GET`/`DELETE /mcp` → 405) | MCP clients authenticate inside the handler | **an API key is required** (Bearer `cbk_…` or `X-Api-Key`); anything else gets a JSON-RPC auth error |
+| `POST /api/mcp` and `POST /mcp` (and `GET`/`DELETE` on either → 405) | MCP clients authenticate inside the handler | **an API key is required** (Bearer `cbk_…` or `X-Api-Key`); anything else gets a JSON-RPC auth error |
 
 Everything else — including every call-control route (`/api/calls/*`,
 `/api/whatsapp/threads/{key}/call/*`) — needs a signed-in user or an API key.
@@ -155,7 +161,7 @@ Not every route — the endpoint files are authoritative — but every area.
 | Activity | `/api/audit`, `/api/audit.csv`, `/api/audit/facets` (`activity.view`); legacy `/api/auth/audit` | `AuditEndpoints`, `NotificationEndpoints` |
 | Developers | `/api/developers/keys[/{id}]`, `/api/developers/mcp` (+ `/test`) | `DevelopersEndpoints` |
 | Assistant | `POST /api/assistant/chat`, `/confirm`, `/cancel`; per-user history `GET/DELETE /api/assistant/conversations`, `GET/PATCH/DELETE /api/assistant/conversations/{id}` | `AssistantEndpoints` |
-| Public | `/api/help/articles[/{slug}]`, `/api/widget/{token}/*`, `/widget.js` | `HelpCenterEndpoints`, `WidgetEndpoints` |
+| Public | `/api/help/articles[/{slug}]`, `/api/widget/{token}/*`, `/api/widget.js` (+ `/widget.js`) | `HelpCenterEndpoints`, `WidgetEndpoints` |
 | Webhooks | `/api/whatsapp/webhook`, `/api/messaging/webhook` (Messenger/Instagram), `/api/whatsapp/baileys/*` | `WebhooksEndpoints`, `MetaWebhookEndpoints` |
 | Telegram inbound | `/api/messaging/webhook/telegram/{token}` | `TelegramWebhookEndpoints` |
 | Newer channels inbound | `/api/messaging/webhook/{line\|viber\|sms\|wechat\|tiktok\|douyin\|zalo}/{account_id}` (WeChat also `GET` for URL verification) | `MoreChannelWebhookEndpoints` |
@@ -167,7 +173,7 @@ Not every route — the endpoint files are authoritative — but every area.
 
 ---
 
-## MCP server (`POST /mcp`)
+## MCP server (`POST /api/mcp`, also `/mcp`)
 
 ChatBranch speaks the Model Context Protocol over **Streamable HTTP**, answered
 as plain JSON (no server push, stateless sessions — an `Mcp-Session-Id` is

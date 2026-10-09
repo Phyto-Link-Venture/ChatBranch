@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "chatbranch": {
+      "type": "http",
+      "url": "${CHATBRANCH_MCP_URL:-https://chatbranch.phytolink-venture.com/api/mcp}",
+      "headers": {
+        "Authorization": "Bearer ${CHATBRANCH_API_KEY:-}"
+      }
+    }
+  }
+}

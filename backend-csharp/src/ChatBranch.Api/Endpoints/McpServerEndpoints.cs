@@ -48,22 +48,36 @@ public static class McpServerEndpoints
         "Everything you do is recorded in the ChatBranch activity log under source mcp.";
 
 
+    /// <summary>Where the MCP endpoint answers — the first is the one to hand out.</summary>
+    public static readonly string[] Paths = { "/api/mcp", "/mcp" };
+
+    /// <summary>True for a request to the MCP endpoint (either path).</summary>
+    public static bool IsMcpPath(string? path) =>
+        Paths.Any(p => string.Equals(path, p, StringComparison.OrdinalIgnoreCase)
+                       || (path ?? "").StartsWith(p + "/", StringComparison.OrdinalIgnoreCase));
+
     public static void MapMcpServerEndpoints(this IEndpointRouteBuilder app)
     {
         // (two parameters, so this binds as a minimal-API handler whose IResult is
         // executed — a bare (HttpContext) => Task<IResult> would bind as a
         // RequestDelegate and silently drop the result)
-        app.MapPost("/mcp", HandleAsync).AllowAnonymous();
-        app.MapMethods("/mcp", new[] { "GET", "DELETE" }, (HttpContext ctx) =>
+        // Served at /mcp AND /api/mcp: a single-origin deployment usually proxies
+        // only /api/ to the API (deploy/nginx-chatbranch.conf), where a bare /mcp
+        // reaches the dashboard and 404s. /api/mcp is the URL the dashboard shows.
+        foreach (var path in Paths)
         {
-            ctx.Response.Headers.Allow = "POST";
-            return Results.Json(new
+            app.MapPost(path, HandleAsync).AllowAnonymous();
+            app.MapMethods(path, new[] { "GET", "DELETE" }, (HttpContext ctx) =>
             {
-                jsonrpc = "2.0",
-                id = (object?)null,
-                error = new { code = -32000, message = "Method not allowed: ChatBranch's MCP endpoint accepts POST only." },
-            }, statusCode: StatusCodes.Status405MethodNotAllowed);
-        }).AllowAnonymous();
+                ctx.Response.Headers.Allow = "POST";
+                return Results.Json(new
+                {
+                    jsonrpc = "2.0",
+                    id = (object?)null,
+                    error = new { code = -32000, message = "Method not allowed: ChatBranch's MCP endpoint accepts POST only." },
+                }, statusCode: StatusCodes.Status405MethodNotAllowed);
+            }).AllowAnonymous();
+        }
     }
 
     private static async Task<IResult> HandleAsync(HttpContext ctx, CancellationToken ct)

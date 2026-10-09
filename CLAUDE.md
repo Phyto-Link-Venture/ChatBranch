@@ -428,7 +428,9 @@ When you fix one of these, update this table, `README.md` and
   SIP voice health is config-presence only (`/api/whatsapp/voice-settings`, PUT
   superadmin, masked round-trip, Setting `voice_twilio_settings` with
   `TWILIO_*` env fallback).
-- **Website widget** (`/widget.js` + `/api/widget/{token}/*`) — the one channel
+- **Website widget** (`/api/widget.js` — also `/widget.js` for tags already
+  pasted; the embed hands out the `/api/` one because a single-origin proxy
+  forwards only `/api/` — + `/api/widget/{token}/*`) — the one channel
   a customer can start with no phone number. A widget IS a `ChannelAccount` with
   channel `website` (its ExternalId is the PUBLIC token in the script tag), so
   the inbox, teams, automations, AI replies and entity scoping work with no
@@ -473,8 +475,9 @@ When you fix one of these, update this table, `README.md` and
   or secret path segments. Read API: `/api/audit`, `/api/audit.csv`,
   `/api/audit/facets` (`activity.view`) → the `/activity` page.
 - **Developer platform.** API keys at `/api/developers/keys`
-  (`api_keys.manage`; token shown once, SHA-256 stored). **`POST /mcp`** =
-  ChatBranch as an MCP server (Streamable HTTP, JSON-RPC, stateless;
+  (`api_keys.manage`; token shown once, SHA-256 stored). **`POST /api/mcp`**
+  (also `/mcp` — but a single-origin deployment proxies only `/api/`, so
+  `/api/mcp` is what the dashboard and docs hand out) = ChatBranch as an MCP server (Streamable HTTP, JSON-RPC, stateless;
   `tools/list` cursor paging, one page by default, `MCP_TOOLS_PAGE_SIZE`) over
   `Api/Tools/ToolRegistry`: the original 16 (`BuiltinTools.cs`) plus ~230
   declarative tools (`ToolCatalog.*.cs`, `EndpointTool`) covering EVERY
@@ -494,6 +497,9 @@ When you fix one of these, update this table, `README.md` and
   (the tests catch it). External MCP servers the assistant may use:
   `/api/integrations/mcp` (Setting `mcp_servers`, real initialize + tools/list
   probe, masked auth). The page is `/developers`; the guide is `docs/mcp.md`.
+  The repo's `.mcp.json` registers `chatbranch` for Claude Code from env vars
+  (`CHATBRANCH_API_KEY`, optional `CHATBRANCH_MCP_URL`, default production) —
+  never commit a key there.
 - **Ask ChatBranch** (operator assistant, `Api/Assistant/OperatorAssistant.cs`,
   `/api/assistant/chat|confirm|cancel`, `components/assistant/AssistantDock.tsx`,
   a side panel on every signed-in page). It uses the SAME model settings as the

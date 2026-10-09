@@ -43,6 +43,9 @@ public class WidgetLanguageTests : IClassFixture<ApiFactory>
         Assert.Equal("auto", widget.GetProperty("language").GetString());
         var id = widget.GetProperty("id").GetInt32();
         var token = widget.GetProperty("token").GetString()!;
+        // the paste-ready tag loads the script through /api/ (proxied on a single origin)
+        Assert.Contains("/api/widget.js\" data-token=\"" + token + "\"", widget.GetProperty("embed").GetString());
+        Assert.EndsWith("/api/widget.js", widget.GetProperty("script_url").GetString());
 
         var cfg = await PublicConfig(token);
         Assert.Equal("auto", cfg.GetProperty("language").GetString());
@@ -85,6 +88,11 @@ public class WidgetLanguageTests : IClassFixture<ApiFactory>
     {
         var res = await _factory.CreateClient().GetAsync("/widget.js");
         res.EnsureSuccessStatusCode();
+        // the same script under /api/ — what the embed hands out, because a
+        // single-origin deployment proxies only /api/ to the API
+        var viaApi = await _factory.CreateClient().GetAsync("/api/widget.js");
+        viaApi.EnsureSuccessStatusCode();
+        Assert.Equal(await res.Content.ReadAsStringAsync(), await viaApi.Content.ReadAsStringAsync());
         Assert.Equal("utf-8", res.Content.Headers.ContentType?.CharSet?.ToLowerInvariant());
         var js = await res.Content.ReadAsStringAsync();
 

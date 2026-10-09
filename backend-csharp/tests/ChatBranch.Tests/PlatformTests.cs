@@ -364,6 +364,14 @@ public class McpServerTests : IClassFixture<ApiFactory>
 
         var keyed = Platform.Client(_f, Platform.MintKey(_f, "admin"));
         Assert.Equal(HttpStatusCode.MethodNotAllowed, (await keyed.GetAsync("/mcp")).StatusCode);
+        // the same endpoint behind an /api/-only proxy (what /developers hands out)
+        var viaApi = await (await keyed.PostAsJsonAsync("/api/mcp", new { jsonrpc = "2.0", id = 7, method = "ping" }))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(7, viaApi.GetProperty("id").GetInt32());
+        Assert.True(viaApi.TryGetProperty("result", out _));
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await anon.PostAsJsonAsync("/api/mcp", new { jsonrpc = "2.0", id = 1, method = "ping" })).StatusCode);
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, (await keyed.GetAsync("/api/mcp")).StatusCode);
     }
 
     [Fact]

@@ -17,15 +17,25 @@ source `mcp`.
 
 | | |
 |---|---|
-| URL | `https://<your-api-host>/mcp` (local dev: `http://localhost:8090/mcp`) |
+| URL | `https://<your-host>/api/mcp` (local dev: `http://localhost:8090/api/mcp`). The API also answers at `/mcp`, but a single-origin deployment usually proxies only `/api/` to the API, so `/api/mcp` is the address to hand out. |
 | Transport | Streamable HTTP — JSON-RPC 2.0 over `POST`, answered as plain JSON; stateless (an `Mcp-Session-Id` is issued on `initialize`, never required). `GET`/`DELETE` → 405. |
 | Auth | `Authorization: Bearer cbk_…` (or `X-Api-Key: cbk_…`). A dashboard session token is refused — create a key under **Developers → API keys** (`/developers`). |
 | Methods | `initialize`, `notifications/initialized`, `ping`, `tools/list` (cursor paging), `tools/call`; batches accepted |
 
-**Claude Code**
+**Claude Code** — this repo ships a project `.mcp.json` that registers
+`chatbranch` for anyone who opens it in Claude Code; it reads two environment
+variables, so no key is ever committed:
 
 ```bash
-claude mcp add --transport http chatbranch https://<your-api-host>/mcp \
+export CHATBRANCH_API_KEY=cbk_xxxxxxxx_yyyyyyyyyyyyyyyy   # Developers → API keys
+export CHATBRANCH_MCP_URL=http://localhost:8090/api/mcp     # optional; default = production
+claude                                                       # approve the project server once; /mcp shows it
+```
+
+Or add it to your own Claude Code config for every project:
+
+```bash
+claude mcp add --transport http --scope user chatbranch https://<your-host>/api/mcp \
   --header "Authorization: Bearer cbk_xxxxxxxx_yyyyyyyyyyyyyyyy"
 ```
 
@@ -36,7 +46,7 @@ claude mcp add --transport http chatbranch https://<your-api-host>/mcp \
   "mcpServers": {
     "chatbranch": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://<your-api-host>/mcp",
+      "args": ["-y", "mcp-remote", "https://<your-host>/api/mcp",
                "--header", "Authorization: Bearer ${CHATBRANCH_KEY}"],
       "env": { "CHATBRANCH_KEY": "cbk_xxxxxxxx_yyyyyyyyyyyyyyyy" }
     }
@@ -48,9 +58,9 @@ claude mcp add --transport http chatbranch https://<your-api-host>/mcp \
 
 ```bash
 KEY=cbk_xxxxxxxx_yyyyyyyyyyyyyyyy
-curl -s http://localhost:8090/mcp -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+curl -s http://localhost:8090/api/mcp -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq '.result.tools | length'
-curl -s http://localhost:8090/mcp -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+curl -s http://localhost:8090/api/mcp -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"conversations_search","arguments":{"waiting":true,"limit":5}}}'
 ```
 

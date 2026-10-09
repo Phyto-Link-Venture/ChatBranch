@@ -22,15 +22,19 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T
 }
 
-/** The MCP endpoint, derived from the API base (…/api → …/mcp). Call after mount. */
+/**
+ * The MCP endpoint, beside the API base (…/api → …/api/mcp): a single-origin
+ * deployment proxies only /api/ to the API, where a bare /mcp would reach the
+ * dashboard. (The API also answers at /mcp.) Call after mount.
+ */
 export function mcpEndpoint(): string {
   try {
     const base = new URL(API, window.location.origin)
-    base.pathname = base.pathname.replace(/\/api\/?$/, '') + '/mcp'
+    base.pathname = base.pathname.replace(/\/+$/, '') + '/mcp'
     base.search = ''
-    return base.toString().replace(/\/mcp\/$/, '/mcp')
+    return base.toString()
   } catch {
-    return '/mcp'
+    return '/api/mcp'
   }
 }
 
