@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace ChatBranch.Tests;
@@ -143,6 +144,13 @@ public class ApiFactory : WebApplicationFactory<Program>
         Environment.SetEnvironmentVariable("CHATBRANCH_DATA_DIR", DataDir);
         builder.ConfigureHostConfiguration(cfg => cfg.AddInMemoryCollection(
             new Dictionary<string, string?> { ["ConnectionStrings:Default"] = $"Data Source={_dbPath}" }));
+        // Every SQL statement at Information level buried the one failing test
+        // in hundreds of thousands of CI log lines; warnings and errors still show.
+        builder.ConfigureLogging(l =>
+        {
+            l.AddFilter("Microsoft.EntityFrameworkCore", LogLevel.Warning);
+            l.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
+        });
         return base.CreateHost(builder);
     }
 

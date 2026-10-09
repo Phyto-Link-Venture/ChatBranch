@@ -30,7 +30,28 @@ jobs:
         # QUEUE_WORKER=0 stops the outbound-queue drain thread racing assertions
         env:
           QUEUE_WORKER: '0'
-        run: dotnet test backend-csharp/tests/ChatBranch.Tests -c Release --no-build --verbosity normal
+        run: >-
+          dotnet test backend-csharp/tests/ChatBranch.Tests -c Release --no-build
+          --logger "trx;LogFileName=results.trx" --logger "console;verbosity=normal"
+      - name: Failed tests
+        # one readable block naming each failure, its message and the top of its stack
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import glob, re
+          for f in glob.glob('backend-csharp/tests/ChatBranch.Tests/TestResults/*.trx'):
+              s = open(f, encoding='utf-8').read()
+              for m in re.finditer(r'<UnitTestResult [^>]*testName="([^"]+)"[^>]*outcome="Failed"[\s\S]*?<Message>([\s\S]*?)</Message>(?:[\s\S]*?<StackTrace>([\s\S]*?)</StackTrace>)?', s):
+                  print('::error title=Failed test::' + m.group(1))
+                  print(m.group(1)); print(m.group(2)[:2000]); print((m.group(3) or '')[:1500]); print('-' * 60)
+          PY
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-test-results
+          path: backend-csharp/tests/ChatBranch.Tests/TestResults/*.trx
+          if-no-files-found: ignore
 
   web:
     name: Dashboard
