@@ -1,3 +1,5 @@
+import type { TFunction } from '@/i18n'
+
 /**
  * Shared types + pure helpers for the two-level Permissions redesign
  * (upgrade §B). The page owns the network + working matrix; these keep the
@@ -29,16 +31,10 @@ export interface RoleRow {
 
 export const BUILTIN_ROLES = ['superadmin', 'admin', 'agent']
 
-const FALLBACK_ROLE_LABEL: Record<string, string> = {
-  superadmin: 'Super admin',
-  admin: 'Admin',
-  agent: 'Agent',
-}
-
 /** Title-case a slug for a readable label when the roles endpoint (which
- *  carries the real label + user_count) is unavailable. */
+ *  carries the real label + user_count) is unavailable. Built-in roles are
+ *  translated by `roleDisplayName` (lib/auth) before this is reached. */
 export const humanize = (slug: string) =>
-  FALLBACK_ROLE_LABEL[slug] ||
   slug.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 
 /** rbac.manage can never be turned off for superadmin (anti-lockout, spec §3). */
@@ -103,22 +99,22 @@ export function areaSummary(
  *  the card's left border tints to match (spec §B). */
 export const STATUS_STYLE: Record<
   AreaStatus,
-  { label: (s: AreaSummary) => string; ink: string; pillBg: string; border: string }
+  { label: (t: TFunction, s: AreaSummary) => string; ink: string; pillBg: string; border: string }
 > = {
   none: {
-    label: () => 'No access',
+    label: (t) => t('admin.permissions.status.none'),
     ink: 'var(--text-muted)',
     pillBg: 'var(--fill)',
     border: 'var(--line-strong)',
   },
   partial: {
-    label: (s) => `Partial (${s.granted}/${s.total})`,
+    label: (t, s) => t('admin.permissions.status.partial', { granted: s.granted, total: s.total }),
     ink: 'var(--amber-ink)',
     pillBg: 'rgba(200,137,26,0.14)',
     border: 'var(--amber-ink)',
   },
   full: {
-    label: (s) => `Full access (${s.total}/${s.total})`,
+    label: (t, s) => t('admin.permissions.status.full', { total: s.total }),
     ink: 'var(--green-ink)',
     pillBg: 'rgba(47,125,79,0.14)',
     border: 'var(--green-ink)',

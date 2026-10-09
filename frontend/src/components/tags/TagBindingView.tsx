@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/Card'
 import { entityTreeGroups, idDiff, itemsByEntityGroups, sameSet, type TreeEntity } from '@/components/bindings/groups'
 import { authHeaders } from '@/lib/auth'
 import { APPLIES_TO_META, applyTagTargets, fetchTagTargets, type TagDef } from '@/lib/tags'
+import { Trans, useT } from '@/i18n'
 import { TagChip } from './TagChip'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
@@ -34,6 +35,7 @@ export function TagBindingView({
   onBack: () => void
   onChanged: () => void
 }) {
+  const t = useT()
   const [pools, setPools] = useState<CatalogPools | null>(null)
   const [saved, setSaved] = useState<Set<string>>(new Set())
   const [draft, setDraft] = useState<Set<string>>(new Set())
@@ -71,13 +73,13 @@ export function TagBindingView({
 
   const groups: BindingGroup[] = useMemo(() => {
     if (!pools) return []
-    if (tag.applies_to === 'entity') return entityTreeGroups(entities)
+    if (tag.applies_to === 'entity') return entityTreeGroups(t, entities)
     return itemsByEntityGroups(
+      t,
       entities,
       pools.contacts.map((c) => ({ id: c.id, label: c.label, hint: c.sub, entity_ids: c.entity_ids })),
-      'contact',
     )
-  }, [pools, entities, tag.applies_to])
+  }, [pools, entities, tag.applies_to, t])
 
   const dirty = !sameSet(saved, draft)
   const { add, remove } = idDiff(saved, draft)
@@ -93,7 +95,7 @@ export function TagBindingView({
       const ids = new Set(d.target_ids.map(String))
       setSaved(ids)
       setDraft(new Set(ids))
-      setNotice(`Saved — ${d.added} tagged, ${d.removed} untagged.`)
+      setNotice(t('admin.tags.binding.saved', { added: d.added, removed: d.removed }))
       onChanged()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -110,9 +112,9 @@ export function TagBindingView({
           onClick={onBack}
           className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-card px-2.5 py-1.5 text-[12px] font-semibold text-text-mid hover:bg-fill-hover hover:text-text-high"
         >
-          <ArrowLeft size={13} aria-hidden /> All tags
+          <ArrowLeft size={13} aria-hidden /> {t('admin.tags.binding.allTags')}
         </button>
-        <span className="eyebrow">Tagged {meta.plural}</span>
+        <span className="eyebrow">{t('admin.tags.binding.tagged', { things: t(meta.plural) })}</span>
       </div>
 
       <Card className="p-4">
@@ -120,15 +122,18 @@ export function TagBindingView({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <TagChip name={tag.name} color={tag.color} />
-              {tag.group && <span className="text-[12px] text-text-muted">Group: {tag.group}</span>}
-              {tag.entity_name && <span className="text-[12px] text-text-muted">· {tag.entity_name} only</span>}
+              {tag.group && <span className="text-[12px] text-text-muted">{t('admin.tags.binding.group', { group: tag.group })}</span>}
+              {tag.entity_name && (
+                <span className="text-[12px] text-text-muted">· {t('admin.tags.binding.entityOnly', { entity: tag.entity_name })}</span>
+              )}
             </div>
             {tag.description && <p className="mt-1.5 text-[13px] text-text-mid">{tag.description}</p>}
           </div>
           <div className="text-right">
             <div className="display text-[26px] leading-none text-text-heading">{draft.size}</div>
             <div className="text-[11.5px] text-text-muted">
-              {meta.plural} tagged{dirty && <span className="text-[color:var(--amber-ink)]"> · unsaved</span>}
+              {t('admin.tags.binding.taggedCount', { things: t(meta.plural) })}
+              {dirty && <span className="text-[color:var(--amber-ink)]"> · {t('admin.tags.binding.unsaved')}</span>}
             </div>
           </div>
         </div>
@@ -137,14 +142,18 @@ export function TagBindingView({
             {tag.group && (
               <li className="flex items-start gap-1.5">
                 <Info size={12} className="mt-[3px] shrink-0" aria-hidden />
-                Tagging here replaces each {meta.noun}&apos;s other “{tag.group}” tag.
+                {t('admin.tags.binding.replacesGroup', { noun: t(meta.noun), group: tag.group })}
               </li>
             )}
             {required.length > 0 && (
               <li className="flex items-start gap-1.5">
                 <Info size={12} className="mt-[3px] shrink-0" aria-hidden />
-                Newly tagged {meta.plural} start without {required.map((a) => a.label).join(', ')} — fill{' '}
-                {required.length === 1 ? 'it' : 'them'} in on each {meta.noun}.
+                {t('admin.tags.binding.requiredHint', {
+                  things: t(meta.plural),
+                  noun: t(meta.noun),
+                  fields: required.map((a) => a.label).join(', '),
+                  count: required.length,
+                })}
               </li>
             )}
           </ul>
@@ -161,7 +170,7 @@ export function TagBindingView({
       {!pools ? (
         !error && (
           <div className="flex items-center gap-2 py-6 text-[12.5px] text-text-muted">
-            <Loader2 size={14} className="animate-spin" aria-hidden /> Loading…
+            <Loader2 size={14} className="animate-spin" aria-hidden /> {t('common.status.loading')}
           </div>
         )
       ) : (
@@ -173,17 +182,23 @@ export function TagBindingView({
             setNotice(null)
           }}
           disabled={!canManage || saving}
-          itemNoun={meta.noun}
-          searchPlaceholder={`Search ${meta.plural}…`}
+          itemNoun={tag.applies_to}
+          searchPlaceholder={t('admin.bindings.searchThings', { things: t(meta.plural) })}
           manageTitle={(g) => `${tag.name} — ${g.label}`}
           emptyText={
             tag.applies_to === 'contact' ? (
-              <>
-                No contacts yet. <Link href="/contacts" className="font-semibold text-text-high hover:underline">Add contacts</Link>{' '}
-                first.
-              </>
+              <Trans
+                k="admin.tags.binding.noContacts"
+                values={{
+                  link: (
+                    <Link href="/contacts" className="font-semibold text-text-high hover:underline">
+                      {t('admin.tags.binding.addContacts')}
+                    </Link>
+                  ),
+                }}
+              />
             ) : (
-              'No entities yet.'
+              t('admin.tags.binding.noEntities')
             )
           }
         />

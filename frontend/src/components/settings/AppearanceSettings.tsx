@@ -9,6 +9,10 @@ import { authHeaders } from '@/lib/auth'
 import {
   ACCENT_PRESETS,
   DEFAULT_APPEARANCE,
+  HEADING_FONT_LABELS,
+  MODE_LABELS,
+  RADIUS_LABELS,
+  TEXT_SIZE_LABELS,
   THEMES,
   accentVars,
   applyAppearance,
@@ -25,6 +29,7 @@ import {
   type ThemeName,
 } from '@/lib/theme'
 import { useAccess } from '@/lib/useAccess'
+import { Trans, useT } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -45,6 +50,7 @@ const HEX = /^#[0-9a-f]{6}$/i
  * organization default — what everyone who never chose sees.
  */
 export function AppearanceSettings() {
+  const t = useT()
   const { can } = useAccess()
   const [a, setA] = useState<Appearance>(DEFAULT_APPEARANCE)
   const [dark, setDark] = useState(false)
@@ -94,13 +100,13 @@ export function AppearanceSettings() {
     if (saveTimer.current) window.clearTimeout(saveTimer.current)
     const persist = () =>
       void saveAppearance(next).then((ok) => {
-        if (!ok) setNote({ ok: false, text: 'Applied on this device — could not save it to your profile.' })
+        if (!ok) setNote({ ok: false, text: t('settings.appearance.notSavedToProfile') })
       })
     if (debounce) {
       applyAppearance(next) // instant; the profile save waits for the drag to settle
       saveTimer.current = window.setTimeout(persist, 450)
     } else persist()
-  }, [])
+  }, [t])
 
   useEffect(() => () => {
     if (saveTimer.current) window.clearTimeout(saveTimer.current)
@@ -108,7 +114,7 @@ export function AppearanceSettings() {
 
   const set = <K extends keyof Appearance>(k: K, v: Appearance[K], debounce = false) => commit({ ...a, [k]: v }, debounce)
 
-  const themeAccent = THEMES.find((t) => t.id === a.theme)?.swatch[2] ?? '#FF5A1F'
+  const themeAccent = THEMES.find((th) => th.id === a.theme)?.swatch[2] ?? '#FF5A1F'
   const effectiveAccent = a.accent ?? themeAccent
   const derived = useMemo(() => accentVars(effectiveAccent, a.theme, dark), [effectiveAccent, a.theme, dark])
 
@@ -125,11 +131,11 @@ export function AppearanceSettings() {
       })
       setNote(
         res.ok
-          ? { ok: true, text: orgDefault ? 'Back on the organization default.' : 'Back to the default look.' }
-          : { ok: false, text: `Reset here, but the profile did not update (HTTP ${res.status}).` },
+          ? { ok: true, text: orgDefault ? t('settings.appearance.backToOrg') : t('settings.appearance.backToDefault') }
+          : { ok: false, text: t('settings.appearance.resetNotSaved', { status: res.status }) },
       )
     } catch {
-      setNote({ ok: false, text: 'Reset here, but the server could not be reached.' })
+      setNote({ ok: false, text: t('settings.appearance.resetOffline') })
     }
   }
 
@@ -145,12 +151,12 @@ export function AppearanceSettings() {
         })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         setOrgDefault(null)
-        setNote({ ok: true, text: 'Organization default cleared — new users start on Paper & Ink, light.' })
+        setNote({ ok: true, text: t('settings.appearance.orgCleared') })
       } else {
         const r = await saveOrgDefaultAppearance(a)
-        if (!r.ok) throw new Error(r.error || 'Could not save')
+        if (!r.ok) throw new Error(r.error || t('common.errors.network'))
         setOrgDefault(a)
-        setNote({ ok: true, text: 'Saved as the organization default for everyone who has not chosen their own look.' })
+        setNote({ ok: true, text: t('settings.appearance.orgSaved') })
       }
     } catch (e) {
       setNote({ ok: false, text: e instanceof Error ? e.message : String(e) })
@@ -159,8 +165,11 @@ export function AppearanceSettings() {
     }
   }
 
-  const themeName = (t: ThemeName) => THEMES.find((x) => x.id === t)?.name ?? t
-  const describe = (x: Appearance) => `${themeName(x.theme)} · ${x.mode}${x.accent ? ` · ${x.accent}` : ''}`
+  const themeName = (id: ThemeName) => {
+    const th = THEMES.find((x) => x.id === id)
+    return th ? t(th.name) : id
+  }
+  const describe = (x: Appearance) => `${themeName(x.theme)} · ${t(MODE_LABELS[x.mode])}${x.accent ? ` · ${x.accent}` : ''}`
 
   return (
     <div className="flex flex-col gap-5">
@@ -168,40 +177,47 @@ export function AppearanceSettings() {
       {/* Live sample in the real tokens — the whole app re-themes with it. */}
       <Card className="flex flex-wrap items-center gap-x-6 gap-y-3 p-4 sm:p-5">
         <div className="min-w-0 flex-1 basis-[260px]">
-          <div className="eyebrow">Preview</div>
-          <div className="display mt-0.5 text-[22px] leading-tight text-text-heading">The quick brown fox</div>
+          <div className="eyebrow">{t('admin.tags.editor.preview')}</div>
+          <div className="display mt-0.5 text-[22px] leading-tight text-text-heading">{t('settings.appearance.sampleHeading')}</div>
           <p className="mt-1 text-[13px] text-text-mid">
-            Body text reads like this, with a{' '}
-            <span className="font-semibold" style={{ color: 'var(--brand-ink)' }}>
-              highlighted link
-            </span>{' '}
-            in the accent ink.
+            <Trans
+              k="settings.appearance.sampleBody"
+              values={{
+                link: (
+                  <span className="font-semibold" style={{ color: 'var(--brand-ink)' }}>
+                    {t('settings.appearance.sampleLink')}
+                  </span>
+                ),
+              }}
+            />
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="primary" size="sm" type="button">
-            Primary
+            {t('settings.appearance.samplePrimary')}
           </Button>
           <Button variant="secondary" size="sm" type="button">
-            Secondary
+            {t('settings.appearance.sampleSecondary')}
           </Button>
-          <span className="rounded-full bg-accent px-2.5 py-1 text-[11.5px] font-semibold text-[color:var(--on-accent)]">Accent</span>
+          <span className="rounded-full bg-accent px-2.5 py-1 text-[11.5px] font-semibold text-[color:var(--on-accent)]">
+            {t('settings.appearance.sampleAccent')}
+          </span>
         </div>
       </Card>
 
-      <Section title="Theme" hint="Three looks, each in light and dark">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Theme">
-          {THEMES.map((t) => {
-            const active = a.theme === t.id
-            const [ground, ink, accent] = t.swatch
-            const geo = PREVIEW[t.id]
+      <Section title={t('settings.appearance.theme')} hint={t('settings.appearance.themeHint')}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3" role="radiogroup" aria-label={t('settings.appearance.theme')}>
+          {THEMES.map((th) => {
+            const active = a.theme === th.id
+            const [ground, ink, accent] = th.swatch
+            const geo = PREVIEW[th.id]
             return (
               <button
-                key={t.id}
+                key={th.id}
                 type="button"
                 role="radio"
                 aria-checked={active}
-                onClick={() => set('theme', t.id)}
+                onClick={() => set('theme', th.id)}
                 className={`group relative flex flex-col overflow-hidden rounded-xl border bg-card text-left transition-colors ${
                   active ? 'border-text-heading ring-1 ring-text-heading' : 'border-line hover:border-line-strong'
                 }`}
@@ -209,7 +225,7 @@ export function AppearanceSettings() {
                 {/* mini preview, drawn with the theme's own swatches */}
                 <div className="flex h-[104px] flex-col gap-1.5 p-3" style={{ background: ground }} aria-hidden>
                   <div className="flex items-center justify-between">
-                    <span style={{ fontFamily: geo.font, color: ink, fontSize: 19, lineHeight: 1, fontWeight: t.id === 'paper' ? 500 : 700 }}>
+                    <span style={{ fontFamily: geo.font, color: ink, fontSize: 19, lineHeight: 1, fontWeight: th.id === 'paper' ? 500 : 700 }}>
                       Aa
                     </span>
                     <span className="h-3 w-3 rounded-full" style={{ background: accent }} />
@@ -224,10 +240,10 @@ export function AppearanceSettings() {
                 </div>
                 <div className="border-t border-line px-3 py-2.5">
                   <div className="flex items-center gap-1.5 text-[13px] font-semibold text-text-high">
-                    {t.name}
+                    {t(th.name)}
                     {active && <Check size={14} aria-hidden className="ml-auto text-text-heading" />}
                   </div>
-                  <div className="mt-0.5 text-[11.5px] leading-snug text-text-muted">{t.blurb}</div>
+                  <div className="mt-0.5 text-[11.5px] leading-snug text-text-muted">{t(th.blurb)}</div>
                 </div>
               </button>
             )
@@ -235,24 +251,26 @@ export function AppearanceSettings() {
         </div>
       </Section>
 
-      <Section title="Mode" hint="System follows your device">
+      <Section title={t('settings.appearance.mode')} hint={t('settings.appearance.modeHint')}>
         <Segmented<Mode>
-          label="Colour mode"
+          label={t('settings.appearance.colourMode')}
           value={a.mode}
           onChange={(v) => set('mode', v)}
           options={[
-            { value: 'light', label: 'Light', Icon: Sun },
-            { value: 'dark', label: 'Dark', Icon: Moon },
-            { value: 'system', label: 'System', Icon: Monitor },
+            { value: 'light', label: t(MODE_LABELS.light), Icon: Sun },
+            { value: 'dark', label: t(MODE_LABELS.dark), Icon: Moon },
+            { value: 'system', label: t(MODE_LABELS.system), Icon: Monitor },
           ]}
         />
         {a.mode === 'system' && (
-          <p className="mt-2 text-[12px] text-text-muted">Your device currently prefers {resolveDark('system') ? 'dark' : 'light'}.</p>
+          <p className="mt-2 text-[12px] text-text-muted">
+            {resolveDark('system') ? t('settings.appearance.devicePrefersDark') : t('settings.appearance.devicePrefersLight')}
+          </p>
         )}
       </Section>
 
-      <Section title="Accent colour" hint="Inks are adjusted so text stays readable">
-        <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Accent colour">
+      <Section title={t('settings.appearance.accent')} hint={t('settings.appearance.accentHint')}>
+        <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label={t('settings.appearance.accent')}>
           <button
             type="button"
             role="radio"
@@ -266,7 +284,7 @@ export function AppearanceSettings() {
             }`}
           >
             <span className="h-4 w-4 rounded-full" style={{ background: themeAccent }} aria-hidden />
-            Theme default
+            {t('settings.appearance.themeDefault')}
           </button>
           {ACCENT_PRESETS.map((hex) => {
             const active = (a.accent ?? '').toLowerCase() === hex.toLowerCase()
@@ -276,7 +294,7 @@ export function AppearanceSettings() {
                 type="button"
                 role="radio"
                 aria-checked={active}
-                aria-label={`Accent ${hex}`}
+                aria-label={t('settings.appearance.accentAria', { hex })}
                 title={hex}
                 onClick={() => {
                   setHexDraft(hex)
@@ -298,7 +316,7 @@ export function AppearanceSettings() {
                 setHexDraft(e.target.value)
                 set('accent', e.target.value, true)
               }}
-              aria-label="Custom accent colour"
+              aria-label={t('settings.appearance.customAccent')}
               className="h-6 w-6 cursor-pointer rounded-full border-0 bg-transparent p-0"
             />
             <input
@@ -311,7 +329,7 @@ export function AppearanceSettings() {
               }}
               placeholder="#RRGGBB"
               maxLength={7}
-              aria-label="Accent hex code"
+              aria-label={t('settings.appearance.hexAria')}
               className="w-[74px] bg-transparent font-mono text-[12.5px] text-text-primary outline-none"
             />
           </label>
@@ -321,56 +339,48 @@ export function AppearanceSettings() {
         <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-line bg-well px-3 py-2.5 text-[12px]">
           <span className="flex items-center gap-2">
             <span className="h-4 w-4 rounded" style={{ background: derived['--c-brand'] ? `rgb(${derived['--c-brand']})` : effectiveAccent }} aria-hidden />
-            <span className="text-text-muted">Fill</span>
+            <span className="text-text-muted">{t('settings.appearance.fill')}</span>
           </span>
           <span className="flex items-center gap-2">
             <span className="font-semibold" style={{ color: derived['--brand-ink'] ?? 'var(--brand-ink)' }}>
-              Readable ink {derived['--brand-ink']?.toUpperCase()}
+              {t('settings.appearance.readableInk', { hex: derived['--brand-ink']?.toUpperCase() ?? '' })}
             </span>
           </span>
           <span className="text-text-faint">
-            {a.accent ? 'Your colour' : 'The theme’s own accent'}, darkened or lightened for {dark ? 'dark' : 'light'} mode so text keeps 4.5:1
-            contrast.
+            {a.accent
+              ? dark
+                ? t('settings.appearance.adjustedOwnDark')
+                : t('settings.appearance.adjustedOwnLight')
+              : dark
+                ? t('settings.appearance.adjustedThemeDark')
+                : t('settings.appearance.adjustedThemeLight')}
           </span>
         </div>
       </Section>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <Section title="Text size">
+        <Section title={t('settings.appearance.textSize')}>
           <Segmented<TextSize>
-            label="Text size"
+            label={t('settings.appearance.textSize')}
             value={a.textSize}
             onChange={(v) => set('textSize', v)}
-            options={[
-              { value: 'sm', label: 'S' },
-              { value: 'md', label: 'M' },
-              { value: 'lg', label: 'L' },
-              { value: 'xl', label: 'XL' },
-            ]}
+            options={(['sm', 'md', 'lg', 'xl'] as TextSize[]).map((v) => ({ value: v, label: t(TEXT_SIZE_LABELS[v]) }))}
           />
         </Section>
-        <Section title="Corners">
+        <Section title={t('settings.appearance.corners')}>
           <Segmented<RadiusStyle>
-            label="Corner style"
+            label={t('settings.appearance.cornerStyle')}
             value={a.radius}
             onChange={(v) => set('radius', v)}
-            options={[
-              { value: 'theme', label: 'Theme' },
-              { value: 'sharp', label: 'Sharp' },
-              { value: 'round', label: 'Round' },
-            ]}
+            options={(['theme', 'sharp', 'round'] as RadiusStyle[]).map((v) => ({ value: v, label: t(RADIUS_LABELS[v]) }))}
           />
         </Section>
-        <Section title="Heading font">
+        <Section title={t('settings.appearance.headingFont')}>
           <Segmented<HeadingFont>
-            label="Heading font"
+            label={t('settings.appearance.headingFont')}
             value={a.headingFont}
             onChange={(v) => set('headingFont', v)}
-            options={[
-              { value: 'theme', label: 'Theme' },
-              { value: 'serif', label: 'Serif' },
-              { value: 'sans', label: 'Sans' },
-            ]}
+            options={(['theme', 'serif', 'sans'] as HeadingFont[]).map((v) => ({ value: v, label: t(HEADING_FONT_LABELS[v]) }))}
           />
         </Section>
       </div>
@@ -390,20 +400,22 @@ export function AppearanceSettings() {
 
       <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
         <Button variant="secondary" size="sm" type="button" onClick={() => void reset()}>
-          <RotateCcw size={13} aria-hidden /> Reset to default
+          <RotateCcw size={13} aria-hidden /> {t('settings.appearance.reset')}
         </Button>
         <span className="text-[12px] text-text-muted">
-          {orgDefault ? `Organization default: ${describe(orgDefault)}` : 'No organization default — Paper & Ink, light.'}
+          {orgDefault
+            ? t('settings.appearance.orgDefaultIs', { look: describe(orgDefault) })
+            : t('settings.appearance.noOrgDefault')}
         </span>
         {(canOrg || can('settings.appearance.org')) && (
           <span className="flex flex-wrap items-center gap-2 sm:ml-auto">
             {orgDefault && (
               <Button variant="ghost" size="sm" type="button" disabled={orgBusy} onClick={() => void publishOrg(true)}>
-                Clear organization default
+                {t('settings.appearance.clearOrg')}
               </Button>
             )}
             <Button variant="primary" size="sm" type="button" disabled={orgBusy} onClick={() => void publishOrg()}>
-              <Building2 size={13} aria-hidden /> Use as organization default
+              <Building2 size={13} aria-hidden /> {t('settings.appearance.useAsOrg')}
             </Button>
           </span>
         )}

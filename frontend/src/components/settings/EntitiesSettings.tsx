@@ -14,6 +14,7 @@ import { authHeaders, hasCap } from '@/lib/auth'
 import { useRole } from '@/lib/useRole'
 import { useEntity, type Entity } from '@/lib/EntityContext'
 import { fetchTagAssignments, fetchTags, saveEntityTags, type TagDef } from '@/lib/tags'
+import { Trans, useFormat, useT } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -79,14 +80,17 @@ const inputCls =
   'h-9 w-full rounded-lg border border-line-strong bg-card px-3 text-[13px] text-text-primary outline-none transition-colors placeholder:text-text-faint focus:border-text-primary'
 
 function MainBadge() {
+  const t = useT()
   return (
     <span className="shrink-0 rounded-sm bg-primary px-1 py-px text-[9px] font-bold uppercase tracking-[0.05em] text-on-primary">
-      Main
+      {t('admin.bindings.groups.main')}
     </span>
   )
 }
 
 export function EntitiesSettings() {
+  const t = useT()
+  const f = useFormat()
   const { role, ready } = useRole()
   const { reload: reloadGlobalEntities } = useEntity()
   const [entities, setEntities] = useState<EntityRow[] | null>(null)
@@ -144,7 +148,7 @@ export function EntitiesSettings() {
 
   const ordered = useMemo(() => orderEntityTree(entities ?? []), [entities])
   const depthOf = useMemo(() => new Map(ordered.map((r) => [r.row.id, r.depth])), [ordered])
-  const tagById = useMemo(() => new Map((entityTags ?? []).map((t) => [t.id, t])), [entityTags])
+  const tagById = useMemo(() => new Map((entityTags ?? []).map((tg) => [tg.id, tg])), [entityTags])
 
   if (!ready) return null // role resolves after mount — don't flash the denial
 
@@ -152,13 +156,13 @@ export function EntitiesSettings() {
     return (
       <div className="flex items-center gap-2 py-6 text-[13px] text-text-muted">
         <ShieldAlert size={15} className="text-[color:var(--amber-ink)]" aria-hidden />
-        Entities are managed by admins.
+        {t('admin.entities.adminsOnly')}
       </div>
     )
   }
 
   if (entities === null) {
-    return <div className="py-6 text-[13px] text-text-muted">Entity management unavailable — is the backend API running?</div>
+    return <div className="py-6 text-[13px] text-text-muted">{t('admin.entities.unavailable')}</div>
   }
 
   // the parent picker: the shared tree picker over THIS page's rows, minus the
@@ -234,7 +238,7 @@ export function EntitiesSettings() {
           await saveEntityTags(id, tagDraft)
         } catch (e) {
           // the entity itself saved — say so, and keep the modal for the tags
-          setMsg({ ok: false, text: `Saved the entity, but not its tags: ${e instanceof Error ? e.message : String(e)}` })
+          setMsg({ ok: false, text: t('admin.entities.tagsNotSaved', { error: e instanceof Error ? e.message : String(e) }) })
           // the entity exists now — keep the modal open on it, in edit mode
           setEditing({
             id,
@@ -249,7 +253,12 @@ export function EntitiesSettings() {
           return
         }
       }
-      setMsg({ ok: true, text: `Entity ${name.trim()} ${editing ? 'updated' : 'created'}.` })
+      setMsg({
+        ok: true,
+        text: editing
+          ? t('admin.entities.updated', { name: name.trim() })
+          : t('admin.entities.created', { name: name.trim() }),
+      })
       setEditing(null)
       setOpen(false)
       await refresh()
@@ -261,13 +270,13 @@ export function EntitiesSettings() {
   }
 
   const deleteEntity = async (b: EntityRow) => {
-    if (!window.confirm(`Delete entity "${b.name}"? Contacts and assignments tied to it may be affected.`)) return
+    if (!window.confirm(t('admin.entities.confirmDelete', { name: b.name }))) return
     setBusy(true)
     setMsg(null)
     try {
       // a 409 (entity still in use) carries the reason in the v1 error envelope
       await v1(`entities/${b.id}`, { method: 'DELETE' })
-      setMsg({ ok: true, text: `Entity ${b.name} deleted.` })
+      setMsg({ ok: true, text: t('admin.entities.deleted', { name: b.name }) })
       await refresh()
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
@@ -279,7 +288,7 @@ export function EntitiesSettings() {
   const columns: Column<EntityRow>[] = [
     {
       key: 'name',
-      header: 'Entity',
+      header: t('common.fields.entity'),
       sortable: true,
       value: (b) => `${b.name} ${b.slug}`,
       render: (b) => {
@@ -297,7 +306,7 @@ export function EntitiesSettings() {
             <code className="shrink-0 rounded bg-fill px-1.5 py-px text-[11px] text-text-muted">{b.slug}</code>
             {!b.is_active && (
               <span className="shrink-0 rounded-full bg-red/10 px-2 py-px text-[10.5px] font-semibold text-[color:var(--red-ink)]">
-                Inactive
+                {t('common.status.inactive')}
               </span>
             )}
           </div>
@@ -306,13 +315,13 @@ export function EntitiesSettings() {
     },
     {
       key: 'parent',
-      header: 'Parent',
+      header: t('admin.entities.parent'),
       sortable: true,
       width: 200,
       value: (b) => b.parent_name || b.parent || '',
       render: (b) =>
         b.parent_id === null ? (
-          <span className="text-[12.5px] text-text-muted">— main entity</span>
+          <span className="text-[12.5px] text-text-muted">{t('admin.entities.isMain')}</span>
         ) : (
           <span className="text-[12.5px] text-text-mid">{b.parent_name || b.parent}</span>
         ),
@@ -321,7 +330,7 @@ export function EntitiesSettings() {
       ? [
           {
             key: 'tags',
-            header: 'Tags',
+            header: t('common.fields.tags'),
             width: 230,
             value: (b: EntityRow) =>
               (assigned.get(b.id) ?? []).map((a) => tagById.get(a.tag_id)?.name ?? '').join(' '),
@@ -332,8 +341,8 @@ export function EntitiesSettings() {
               ) : (
                 <div className="flex flex-wrap gap-1">
                   {items.map((a) => {
-                    const t = tagById.get(a.tag_id)!
-                    return <TagChip key={a.tag_id} name={t.name} color={t.color} size="sm" />
+                    const tg = tagById.get(a.tag_id)!
+                    return <TagChip key={a.tag_id} name={tg.name} color={tg.color} size="sm" />
                   })}
                 </div>
               )
@@ -343,17 +352,17 @@ export function EntitiesSettings() {
       : []),
     {
       key: 'created_at',
-      header: 'Created',
+      header: t('common.fields.created'),
       sortable: true,
       width: 120,
       value: (b) => b.created_at,
-      render: (b) => <span className="text-[12px] text-text-muted">{new Date(b.created_at).toLocaleDateString()}</span>,
+      render: (b) => <span className="text-[12px] text-text-muted">{f.date(b.created_at)}</span>,
     },
     ...(canManage
       ? [
           {
             key: 'actions',
-            header: 'Actions',
+            header: t('admin.users.col.actions'),
             srHeader: true,
             align: 'right' as const,
             width: 90,
@@ -362,8 +371,8 @@ export function EntitiesSettings() {
                 <button
                   onClick={() => openEdit(b)}
                   disabled={busy}
-                  title={`Edit ${b.name}`}
-                  aria-label={`Edit entity ${b.name}`}
+                  title={t('admin.entities.editTitle', { name: b.name })}
+                  aria-label={t('admin.entities.editAria', { name: b.name })}
                   className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Pencil size={14} aria-hidden />
@@ -371,8 +380,8 @@ export function EntitiesSettings() {
                 <button
                   onClick={() => deleteEntity(b)}
                   disabled={busy}
-                  title={`Delete ${b.name}`}
-                  aria-label={`Delete entity ${b.name}`}
+                  title={t('admin.entities.deleteTitle', { name: b.name })}
+                  aria-label={t('admin.entities.deleteAria', { name: b.name })}
                   className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/10 hover:text-[color:var(--red-ink)] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Trash2 size={14} aria-hidden />
@@ -389,17 +398,22 @@ export function EntitiesSettings() {
   return (
     <div className="flex flex-col gap-5 pt-4">
       <p className="max-w-[760px] text-[13px] leading-relaxed text-text-mid">
-        Entities form a tree. A <b>main entity</b> (your organization, or a company in your group) sits at the top;
-        branches, outlets and units sit <b>beneath</b> it as sub-entities. A main entity sees everything beneath it —
-        never the other way round. Agents see only the entities assigned to them under Users &amp; Roles.
+        <Trans
+          k="admin.entities.intro"
+          values={{
+            main: <b>{t('admin.entities.introMain')}</b>,
+            beneath: <b>{t('admin.entities.introBeneath')}</b>,
+          }}
+        />
       </p>
 
       <div className="flex flex-wrap gap-x-6 gap-y-1 text-[12.5px] text-text-muted">
         <span>
-          <b className="text-text-heading">{mains}</b> main entit{mains === 1 ? 'y' : 'ies'}
+          <b className="text-text-heading">{f.number(mains)}</b> {t('admin.entities.mainCount', { count: mains })}
         </span>
         <span>
-          <b className="text-text-heading">{entities.length - mains}</b> sub-entit{entities.length - mains === 1 ? 'y' : 'ies'}
+          <b className="text-text-heading">{f.number(entities.length - mains)}</b>{' '}
+          {t('admin.entities.subCount', { count: entities.length - mains })}
         </span>
       </div>
 
@@ -419,13 +433,13 @@ export function EntitiesSettings() {
         rows={ordered.map((o) => o.row)}
         rowKey={(b) => b.id}
         searchKeys={['name', 'parent', 'tags']}
-        searchPlaceholder="Search entities…"
-        empty="No entities yet — add the first one."
+        searchPlaceholder={t('admin.bindings.entityGrid.search')}
+        empty={t('admin.entities.empty')}
         pageSize={25}
         toolbarRight={
           canManage ? (
             <Button onClick={openCreate}>
-              <Plus size={14} aria-hidden /> Add entity
+              <Plus size={14} aria-hidden /> {t('admin.entities.add')}
             </Button>
           ) : undefined
         }
@@ -434,13 +448,13 @@ export function EntitiesSettings() {
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title={editing ? `Edit ${editing.name}` : 'Add entity'}
-        subtitle="A main entity, or a branch, outlet or unit beneath one. Pick where it sits in the tree."
+        title={editing ? t('admin.entities.editTitle', { name: editing.name }) : t('admin.entities.add')}
+        subtitle={t('admin.entities.modalSubtitle')}
         size="lg"
         footer={
           <>
             <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
-              Cancel
+              {t('common.actions.cancel')}
             </Button>
             <Button variant="primary" onClick={saveEntity} disabled={busy || !name.trim()}>
               {busy ? (
@@ -450,7 +464,7 @@ export function EntitiesSettings() {
               ) : (
                 <Plus size={13} aria-hidden />
               )}{' '}
-              {editing ? 'Save changes' : 'Add entity'}
+              {editing ? t('settings.common.saveChanges') : t('admin.entities.add')}
             </Button>
           </>
         }
@@ -466,7 +480,7 @@ export function EntitiesSettings() {
           )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block">
-              <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">Entity name</span>
+              <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">{t('admin.entities.name')}</span>
               <input
                 type="text"
                 value={name}
@@ -474,12 +488,12 @@ export function EntitiesSettings() {
                   setName(e.target.value)
                   if (!slugTouched) setSlug(slugify(e.target.value))
                 }}
-                placeholder="e.g. Northwind Trading"
+                placeholder={t('admin.entities.namePlaceholder')}
                 className={inputCls}
               />
             </label>
             <label className="block">
-              <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">Slug</span>
+              <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">{t('admin.entities.slug')}</span>
               <input
                 type="text"
                 value={slug}
@@ -487,47 +501,41 @@ export function EntitiesSettings() {
                   setSlugTouched(true)
                   setSlug(slugify(e.target.value))
                 }}
-                placeholder="auto-generated from the name"
+                placeholder={t('admin.entities.slugPlaceholder')}
                 className={inputCls}
               />
-              <span className="mt-1 block text-[11px] leading-relaxed text-text-muted">
-                Short unique id used in APIs and reports.
-              </span>
+              <span className="mt-1 block text-[11px] leading-relaxed text-text-muted">{t('admin.entities.slugHint')}</span>
             </label>
             <div className="sm:col-span-2">
-              <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">Sits under</span>
+              <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">{t('admin.entities.sitsUnder')}</span>
               <EntityPicker
                 value={parentId === null ? null : (bySlugOf.get(parentId) ?? null)}
                 onChange={(s) => setParentId(s ? (entities.find((e) => e.slug === s)?.id ?? null) : null)}
                 entities={parentChoices}
-                globalLabel="Nothing — make it a main entity"
-                ariaLabel="Parent entity"
+                globalLabel={t('admin.entities.noParent')}
+                ariaLabel={t('admin.entities.parentAria')}
               />
-              <span className="mt-1 block text-[11px] leading-relaxed text-text-muted">
-                A sub-entity inherits its organization from the entity it sits under. Main entities carry the MAIN
-                badge in the list.
-              </span>
+              <span className="mt-1 block text-[11px] leading-relaxed text-text-muted">{t('admin.entities.parentHint')}</span>
             </div>
             {editing && (
               <div className="flex items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5 sm:col-span-2">
                 <div>
-                  <div className="text-[13px] font-semibold text-text-high">Active</div>
-                  <div className="text-[11.5px] text-text-muted">Inactive entities stay on record but drop out of routing.</div>
+                  <div className="text-[13px] font-semibold text-text-high">{t('common.status.active')}</div>
+                  <div className="text-[11.5px] text-text-muted">{t('admin.entities.activeHint')}</div>
                 </div>
-                <Toggle on={active} onChange={setActive} label="Active" />
+                <Toggle on={active} onChange={setActive} label={t('common.status.active')} />
               </div>
             )}
           </div>
 
           {entityTags && (
             <div className="border-t border-line pt-4">
-              <span className="block text-[11.5px] font-bold text-text-high">Tags</span>
+              <span className="block text-[11.5px] font-bold text-text-high">{t('common.fields.tags')}</span>
               <span className="mb-2.5 mt-0.5 block text-[11px] leading-relaxed text-text-muted">
-                What kind of entity this is — e.g. inner company or outside company. Manage the list under Library →
-                Tags.
+                {t('admin.entities.tagsHint')}
               </span>
               {entityTags.length === 0 ? (
-                <p className="text-[12px] text-text-muted">No entity tags exist yet.</p>
+                <p className="text-[12px] text-text-muted">{t('admin.entities.noTags')}</p>
               ) : (
                 <TagAssignEditor
                   available={entityTags}

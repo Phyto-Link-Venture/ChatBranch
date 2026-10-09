@@ -6,7 +6,8 @@ import { BindingGrid, SaveBar, type BindingGroup } from '@/components/ui/Binding
 import { Select, type SelectOption } from '@/components/ui/Select'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
-import { authHeaders, hasCap } from '@/lib/auth'
+import { authHeaders, hasCap, rolePluralName } from '@/lib/auth'
+import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
 import type { Entity } from '@/lib/EntityContext'
 import {
   accountsByChannelGroups,
@@ -57,19 +58,33 @@ const KIND_ICON: Record<string, LucideIcon> = {
   'entity-accounts': Radio,
 }
 
-const SIDE: Record<string, { one: string; many: string }> = {
-  entity: { one: 'entity', many: 'entities' },
-  team: { one: 'team', many: 'teams' },
-  user: { one: 'user', many: 'users' },
-  contact: { one: 'contact', many: 'contacts' },
-  tag: { one: 'tag', many: 'tags' },
-  account: { one: 'channel account', many: 'channel accounts' },
+/** Each side of a binding: the singular / plural word (translation keys), and
+ *  `noun` = the English singular BindingGrid builds its own copy from. */
+const SIDE: Record<string, { one: MessageKey; many: MessageKey; noun: string }> = {
+  entity: { one: 'admin.bindings.side.entity.one', many: 'admin.bindings.side.entity.many', noun: 'entity' },
+  team: { one: 'admin.bindings.side.team.one', many: 'admin.bindings.side.team.many', noun: 'team' },
+  user: { one: 'admin.bindings.side.user.one', many: 'admin.bindings.side.user.many', noun: 'user' },
+  contact: { one: 'admin.bindings.side.contact.one', many: 'admin.bindings.side.contact.many', noun: 'contact' },
+  tag: { one: 'admin.bindings.side.tag.one', many: 'admin.bindings.side.tag.many', noun: 'tag' },
+  account: { one: 'admin.bindings.side.account.one', many: 'admin.bindings.side.account.many', noun: 'channel account' },
 }
 
-const ROLE_LABELS: Record<string, string> = { superadmin: 'Super admins', admin: 'Admins', agent: 'Agents' }
-const roleLabel = (role: string) =>
-  ROLE_LABELS[role] ??
-  role.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+/** The binding kinds' names and explanations, by kind id (the API's own
+ *  English copy is the fallback for a kind this client does not know). */
+const KIND_TEXT: Record<string, { label: MessageKey; hint: MessageKey }> = {
+  'user-entities': { label: 'admin.bindings.kinds.userEntities.label', hint: 'admin.bindings.kinds.userEntities.hint' },
+  'team-users': { label: 'admin.bindings.kinds.teamUsers.label', hint: 'admin.bindings.kinds.teamUsers.hint' },
+  'contact-entities': { label: 'admin.bindings.kinds.contactEntities.label', hint: 'admin.bindings.kinds.contactEntities.hint' },
+  'tag-contacts': { label: 'admin.bindings.kinds.tagContacts.label', hint: 'admin.bindings.kinds.tagContacts.hint' },
+  'tag-entities': { label: 'admin.bindings.kinds.tagEntities.label', hint: 'admin.bindings.kinds.tagEntities.hint' },
+  'entity-accounts': { label: 'admin.bindings.kinds.entityAccounts.label', hint: 'admin.bindings.kinds.entityAccounts.hint' },
+}
+const kindLabel = (t: TFunction, k: Kind) => (KIND_TEXT[k.id] ? t(KIND_TEXT[k.id].label) : k.label)
+const kindHint = (t: TFunction, k: Kind) => (KIND_TEXT[k.id] ? t(KIND_TEXT[k.id].hint) : k.hint)
+
+/** The API's sentinel for "no entity" in a pool row's `sub`. */
+const subText = (t: TFunction, sub: string | undefined) =>
+  sub === 'Organization-wide' ? t('admin.bindings.orgWide') : sub === 'Main entity' ? t('admin.bindings.mainEntity') : sub
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}/${path}`, {
@@ -85,6 +100,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function BindingsWorkbench() {
+  const t = useT()
   const [kinds, setKinds] = useState<Kind[]>([])
   const [pools, setPools] = useState<Pools | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -172,36 +188,42 @@ export function BindingsWorkbench() {
     void loadMembers()
   }, [loadMembers])
 
-  const guard = () => !dirty || window.confirm('Discard your unsaved changes?')
+  const guard = () => !dirty || window.confirm(t('admin.bindings.confirmDiscard'))
 
   // ---- candidate cards -------------------------------------------------------
   const groups = useMemo<BindingGroup[]>(() => {
     if (!pools || !kind) return []
     switch (kind.candidate) {
       case 'entity':
-        return entityTreeGroups(treeEntities)
+        return entityTreeGroups(t, treeEntities)
       case 'user':
-        return usersByRoleGroups(pools.users.map((u) => ({ id: u.id, label: u.label, role: u.sub })))
+        return usersByRoleGroups(t, pools.users.map((u) => ({ id: u.id, label: u.label, role: u.sub })))
       case 'contact':
         return itemsByEntityGroups(
+          t,
           treeEntities,
           pools.contacts.map((c) => ({ id: c.id, label: c.label, hint: c.sub, entity_ids: c.entity_ids })),
-          'contact',
         )
       case 'account':
         return accountsByChannelGroups(
+          t,
           pools.accounts.map((a) => ({
             id: a.id,
             label: a.label,
             channel: a.channel,
-            sub: a.entity_id === null ? 'Organization-wide' : a.entity_id === targetId ? undefined : `Now on ${a.sub}`,
+            sub:
+              a.entity_id === null
+                ? t('admin.bindings.orgWide')
+                : a.entity_id === targetId
+                  ? undefined
+                  : t('admin.bindings.nowOn', { entity: a.sub }),
           })),
           (ch) => <ChannelLogo channel={ch} size={16} title="" />,
         )
       default:
         return []
     }
-  }, [pools, kind, treeEntities, targetId])
+  }, [pools, kind, treeEntities, targetId, t])
 
   const save = async () => {
     if (!kind || targetId == null) return
@@ -215,7 +237,7 @@ export function BindingsWorkbench() {
       const ids = new Set(d.member_ids.map(String))
       setSaved(ids)
       setDraft(new Set(ids))
-      setMsg({ ok: true, text: `Saved — ${d.added} bound, ${d.removed} unbound.` })
+      setMsg({ ok: true, text: t('admin.bindings.saved', { added: d.added, removed: d.removed }) })
       // an account moving entity changes the pool's "now on" hints
       if (kind.id === 'entity-accounts') void loadCatalog()
     } catch (e) {
@@ -226,18 +248,20 @@ export function BindingsWorkbench() {
   }
 
   if (loadError) {
-    return <div className="py-6 text-[13px] text-text-muted">Bindings unavailable — {loadError}</div>
+    return <div className="py-6 text-[13px] text-text-muted">{t('admin.bindings.unavailable', { error: loadError })}</div>
   }
   if (!pools || !kind) {
     return (
       <div className="flex items-center gap-2 py-6 text-[13px] text-text-muted">
-        <Loader2 size={14} className="animate-spin" aria-hidden /> Loading…
+        <Loader2 size={14} className="animate-spin" aria-hidden /> {t('common.status.loading')}
       </div>
     )
   }
 
-  const side = SIDE[kind.target] ?? { one: kind.target, many: `${kind.target}s` }
-  const cand = SIDE[kind.candidate] ?? { one: kind.candidate, many: `${kind.candidate}s` }
+  const sideOf = (id: string) =>
+    SIDE[id] ? { one: t(SIDE[id].one), many: t(SIDE[id].many), noun: SIDE[id].noun } : { one: id, many: id, noun: id }
+  const side = sideOf(kind.target)
+  const cand = sideOf(kind.candidate)
   const targetLabel = targets.find((t) => t.id === targetId)?.label ?? ''
 
   // entity targets use the tree picker (MAIN badge + indented sub-entities)
@@ -250,29 +274,27 @@ export function BindingsWorkbench() {
 
   const targetOptions: SelectOption[] =
     kind.target === 'user'
-      ? targets.map((u) => ({ value: String(u.id), label: u.label, group: roleLabel((u as { sub?: string }).sub ?? '') }))
+      ? targets.map((u) => ({ value: String(u.id), label: u.label, group: rolePluralName(t, (u as { sub?: string }).sub ?? '') }))
       : kind.target === 'tag'
         ? pools.tags
-            .filter((t) => targets.some((x) => x.id === t.id))
-            .map((t) => ({ value: String(t.id), label: t.label, group: t.group || 'Ungrouped' }))
-        : targets.map((t) => ({
-            value: String(t.id),
-            label: t.label,
-            hint: 'sub' in t ? String((t as { sub?: string }).sub ?? '') : undefined,
+            .filter((tg) => targets.some((x) => x.id === tg.id))
+            .map((tg) => ({ value: String(tg.id), label: tg.label, group: tg.group || t('admin.bindings.ungrouped') }))
+        : targets.map((tg) => ({
+            value: String(tg.id),
+            label: tg.label,
+            hint: 'sub' in tg ? String(subText(t, (tg as { sub?: string }).sub) ?? '') : undefined,
           }))
 
   return (
     <div className="flex flex-col gap-6 pt-4">
       <p className="max-w-[760px] text-[13px] leading-relaxed text-text-mid">
-        Choose what you are binding, pick the one thing on the left, then switch the other side on or off — a whole
-        card at a time with its checkbox, or one by one under <b>Manage</b>. Nothing changes until you save, and saving
-        sends only what you changed.
+        <Trans k="admin.bindings.intro" values={{ manage: <b>{t('admin.permissions.area.manage')}</b> }} />
       </p>
 
       {/* 1 · kind */}
       <section className="flex flex-col gap-2.5">
-        <span className="eyebrow">1 · What to bind</span>
-        <div role="radiogroup" aria-label="What to bind" className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        <span className="eyebrow">{t('admin.bindings.step1')}</span>
+        <div role="radiogroup" aria-label={t('admin.bindings.whatToBind')} className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
           {kinds.map((k) => {
             const Icon = KIND_ICON[k.id] ?? Tag
             const on = k.id === kindId
@@ -297,8 +319,8 @@ export function BindingsWorkbench() {
                   <Icon size={15} aria-hidden />
                 </span>
                 <span className="min-w-0">
-                  <span className="block text-[13.5px] font-bold text-text-heading">{k.label}</span>
-                  <span className="mt-0.5 line-clamp-2 text-[11.5px] leading-snug text-text-muted">{k.hint}</span>
+                  <span className="block text-[13.5px] font-bold text-text-heading">{kindLabel(t, k)}</span>
+                  <span className="mt-0.5 line-clamp-2 text-[11.5px] leading-snug text-text-muted">{kindHint(t, k)}</span>
                 </span>
               </button>
             )
@@ -308,11 +330,15 @@ export function BindingsWorkbench() {
 
       {/* 2 · target */}
       <section className="flex flex-col gap-2.5">
-        <span className="eyebrow">2 · Pick the {side.one}</span>
+        <span className="eyebrow">{t('admin.bindings.step2', { thing: side.one })}</span>
         <div className="max-w-[460px]">
           {targets.length === 0 ? (
             <p className="text-[13px] text-text-muted">
-              No {side.many} yet{kind.target === 'tag' ? ` — create a ${kind.id === 'tag-contacts' ? 'contact' : 'entity'} tag under Library → Tags` : ''}.
+              {kind.target === 'tag'
+                ? kind.id === 'tag-contacts'
+                  ? t('admin.bindings.noContactTags')
+                  : t('admin.bindings.noEntityTags')
+                : t('admin.bindings.noTargets', { things: side.many })}
             </p>
           ) : kind.target === 'entity' ? (
             <EntityPicker
@@ -323,7 +349,7 @@ export function BindingsWorkbench() {
               }}
               allowGlobal={false}
               entities={pickerEntities}
-              ariaLabel="Entity"
+              ariaLabel={t('common.fields.entity')}
             />
           ) : (
             <Select
@@ -345,11 +371,11 @@ export function BindingsWorkbench() {
       {targetId != null && (
         <section className="flex flex-col gap-2.5">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <span className="eyebrow">
-              3 · {cand.many} for {targetLabel}
-            </span>
+            <span className="eyebrow">{t('admin.bindings.step3', { things: cand.many, target: targetLabel })}</span>
             <span className="text-[12px] text-text-muted">
-              {draft.size} bound{!canManage && ' · read-only'}
+              {canManage
+                ? t('admin.bindings.bound', { count: draft.size })
+                : t('admin.bindings.boundReadOnly', { count: draft.size })}
             </span>
           </div>
           {msg && (
@@ -362,7 +388,7 @@ export function BindingsWorkbench() {
           )}
           {loadingMembers ? (
             <div className="flex items-center gap-2 py-6 text-[13px] text-text-muted">
-              <Loader2 size={14} className="animate-spin" aria-hidden /> Loading…
+              <Loader2 size={14} className="animate-spin" aria-hidden /> {t('common.status.loading')}
             </div>
           ) : (
             <BindingGrid
@@ -373,10 +399,10 @@ export function BindingsWorkbench() {
                 setMsg(null)
               }}
               disabled={!canManage || saving}
-              itemNoun={cand.one}
-              searchPlaceholder={`Search ${cand.many}…`}
+              itemNoun={cand.noun}
+              searchPlaceholder={t('admin.bindings.searchThings', { things: cand.many })}
               manageTitle={(g) => `${targetLabel} — ${g.label}`}
-              emptyText={`No ${cand.many} to bind yet.`}
+              emptyText={t('admin.bindings.nothingToBind', { things: cand.many })}
             />
           )}
           <SaveBar

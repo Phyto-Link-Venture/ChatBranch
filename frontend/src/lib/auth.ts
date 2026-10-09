@@ -16,6 +16,7 @@
  * role→capability default that mirrors the server seed.
  */
 import { clearAssistantCache } from './assistantCache'
+import type { MessageKey, TFunction } from '@/i18n'
 
 export type Role = 'superadmin' | 'admin' | 'agent'
 
@@ -32,45 +33,109 @@ export interface AuthUser {
 /**
  * The full capability catalog (spec §3). Kept in sync with the backend seed so
  * the role fallback and the Permissions matrix render sensibly even before the
- * API answers. `area`/`label` drive the Permissions page grouping + copy.
+ * API answers. `area`/`label` are the English copy (and the fallback for an id
+ * this client does not know); `lbl` is the translation key the UI renders —
+ * see `capabilityLabel` / `capabilityArea`.
  */
-export const CAPABILITY_CATALOG: { capability: string; area: string; label: string }[] = [
-  { capability: 'contacts.view', area: 'Contacts', label: 'View contacts' },
-  { capability: 'contacts.manage', area: 'Contacts', label: 'Create & edit contacts' },
-  { capability: 'chats.view', area: 'Chats', label: 'View chats' },
-  { capability: 'chats.send', area: 'Chats', label: 'Send messages' },
-  { capability: 'chats.manage', area: 'Chats', label: 'Manage chats (assign, close)' },
-  { capability: 'flows.view', area: 'Flows', label: 'View flows' },
-  { capability: 'flows.manage', area: 'Flows', label: 'Build & edit flows' },
-  { capability: 'channels.view', area: 'Channels', label: 'View channel accounts' },
-  { capability: 'channels.manage', area: 'Channels', label: 'Manage channel accounts' },
-  { capability: 'integrations.view', area: 'Integrations', label: 'View integrations' },
-  { capability: 'integrations.manage', area: 'Integrations', label: 'Manage integrations' },
-  { capability: 'users.view', area: 'Users', label: 'View users' },
-  { capability: 'users.manage', area: 'Users', label: 'Create & manage users' },
-  { capability: 'entities.view', area: 'Entities', label: 'View entities & tenants' },
-  { capability: 'entities.manage', area: 'Entities', label: 'Manage entities & tenants' },
-  { capability: 'templates.manage', area: 'Library', label: 'Manage message templates' },
-  { capability: 'script_templates.manage', area: 'Library', label: 'Manage script templates' },
-  { capability: 'notifications.manage', area: 'Settings', label: 'Manage organization notification defaults' },
-  { capability: 'analytics.view', area: 'Review', label: 'View analytics' },
-  { capability: 'call_logs.view', area: 'Review', label: 'View call logs' },
-  { capability: 'activity.view', area: 'Review', label: 'View activity log' },
-  { capability: 'settings.ai.manage', area: 'Settings', label: 'Manage AI configuration' },
-  { capability: 'account_assignment.manage', area: 'Settings', label: 'Manage account assignment' },
-  { capability: 'app_keys.manage', area: 'Settings', label: 'Manage app & provider keys' },
-  { capability: 'pronunciation.manage', area: 'Settings', label: 'Manage pronunciation' },
+export const CAPABILITY_CATALOG: { capability: string; area: string; label: string; lbl: MessageKey }[] = [
+  { capability: 'contacts.view', area: 'Contacts', label: 'View contacts', lbl: 'admin.caps.contactsView' },
+  { capability: 'contacts.manage', area: 'Contacts', label: 'Create & edit contacts', lbl: 'admin.caps.contactsManage' },
+  { capability: 'chats.view', area: 'Chats', label: 'View chats', lbl: 'admin.caps.chatsView' },
+  { capability: 'chats.send', area: 'Chats', label: 'Send messages', lbl: 'admin.caps.chatsSend' },
+  { capability: 'chats.manage', area: 'Chats', label: 'Manage chats (assign, close)', lbl: 'admin.caps.chatsManage' },
+  { capability: 'flows.view', area: 'Flows', label: 'View flows', lbl: 'admin.caps.flowsView' },
+  { capability: 'flows.manage', area: 'Flows', label: 'Build & edit flows', lbl: 'admin.caps.flowsManage' },
+  { capability: 'channels.view', area: 'Channels', label: 'View channel accounts', lbl: 'admin.caps.channelsView' },
+  { capability: 'channels.manage', area: 'Channels', label: 'Manage channel accounts', lbl: 'admin.caps.channelsManage' },
+  { capability: 'integrations.view', area: 'Integrations', label: 'View integrations', lbl: 'admin.caps.integrationsView' },
+  { capability: 'integrations.manage', area: 'Integrations', label: 'Manage integrations', lbl: 'admin.caps.integrationsManage' },
+  { capability: 'users.view', area: 'Users', label: 'View users', lbl: 'admin.caps.usersView' },
+  { capability: 'users.manage', area: 'Users', label: 'Create & manage users', lbl: 'admin.caps.usersManage' },
+  { capability: 'entities.view', area: 'Entities', label: 'View entities & tenants', lbl: 'admin.caps.entitiesView' },
+  { capability: 'entities.manage', area: 'Entities', label: 'Manage entities & tenants', lbl: 'admin.caps.entitiesManage' },
+  { capability: 'templates.manage', area: 'Library', label: 'Manage message templates', lbl: 'admin.caps.templatesManage' },
+  { capability: 'script_templates.manage', area: 'Library', label: 'Manage script templates', lbl: 'admin.caps.scriptTemplatesManage' },
+  { capability: 'notifications.manage', area: 'Settings', label: 'Manage organization notification defaults', lbl: 'admin.caps.notificationsManage' },
+  { capability: 'analytics.view', area: 'Review', label: 'View analytics', lbl: 'admin.caps.analyticsView' },
+  { capability: 'call_logs.view', area: 'Review', label: 'View call logs', lbl: 'admin.caps.callLogsView' },
+  { capability: 'activity.view', area: 'Review', label: 'View activity log', lbl: 'admin.caps.activityView' },
+  { capability: 'settings.ai.manage', area: 'Settings', label: 'Manage AI configuration', lbl: 'admin.caps.settingsAiManage' },
+  { capability: 'account_assignment.manage', area: 'Settings', label: 'Manage account assignment', lbl: 'admin.caps.accountAssignmentManage' },
+  { capability: 'app_keys.manage', area: 'Settings', label: 'Manage app & provider keys', lbl: 'admin.caps.appKeysManage' },
+  { capability: 'pronunciation.manage', area: 'Settings', label: 'Manage pronunciation', lbl: 'admin.caps.pronunciationManage' },
   // Settings sub-pages — one capability each (Personal pages need none).
-  { capability: 'settings.appearance.org', area: 'Settings', label: 'Set the organization default appearance' },
-  { capability: 'settings.custom_fields.manage', area: 'Settings', label: 'Manage custom fields' },
-  { capability: 'settings.ai_keys.manage', area: 'Settings', label: 'Manage AI keys & models' },
-  { capability: 'rbac.manage', area: 'Admin', label: 'Edit the permission matrix' },
-  { capability: 'tags.view', area: 'Library', label: 'View tags' },
-  { capability: 'tags.manage', area: 'Library', label: 'Create & edit tags' },
-  { capability: 'api_keys.manage', area: 'Admin', label: 'Manage API keys & MCP' },
-  { capability: 'ai.monitor', area: 'AI', label: 'See & approve AI drafts' },
-  { capability: 'ai.behaviour.manage', area: 'AI', label: 'Edit AI behaviour settings' },
+  { capability: 'settings.appearance.org', area: 'Settings', label: 'Set the organization default appearance', lbl: 'admin.caps.settingsAppearanceOrg' },
+  { capability: 'settings.custom_fields.manage', area: 'Settings', label: 'Manage custom fields', lbl: 'admin.caps.settingsCustomFieldsManage' },
+  { capability: 'settings.ai_keys.manage', area: 'Settings', label: 'Manage AI keys & models', lbl: 'admin.caps.settingsAiKeysManage' },
+  { capability: 'rbac.manage', area: 'Admin', label: 'Edit the permission matrix', lbl: 'admin.caps.rbacManage' },
+  { capability: 'tags.view', area: 'Library', label: 'View tags', lbl: 'admin.caps.tagsView' },
+  { capability: 'tags.manage', area: 'Library', label: 'Create & edit tags', lbl: 'admin.caps.tagsManage' },
+  { capability: 'api_keys.manage', area: 'Admin', label: 'Manage API keys & MCP', lbl: 'admin.caps.apiKeysManage' },
+  { capability: 'ai.monitor', area: 'AI', label: 'See & approve AI drafts', lbl: 'admin.caps.aiMonitor' },
+  { capability: 'ai.behaviour.manage', area: 'AI', label: 'Edit AI behaviour settings', lbl: 'admin.caps.aiBehaviourManage' },
 ]
+
+const CAP_KEY = new Map<string, MessageKey>(CAPABILITY_CATALOG.map((c) => [c.capability, c.lbl]))
+
+/** Area names as the API and this catalog spell them → translation keys. */
+const AREA_KEY: Record<string, MessageKey> = {
+  Contacts: 'admin.areas.contacts',
+  Chats: 'admin.areas.chats',
+  Flows: 'admin.areas.flows',
+  Channels: 'admin.areas.channels',
+  Integrations: 'admin.areas.integrations',
+  Users: 'admin.areas.users',
+  'Users & Roles': 'admin.areas.users',
+  Entities: 'admin.areas.entities',
+  'Entities & Tenants': 'admin.areas.entities',
+  Library: 'admin.areas.library',
+  Settings: 'admin.areas.settings',
+  Review: 'admin.areas.review',
+  Admin: 'admin.areas.admin',
+  AI: 'admin.areas.ai',
+}
+
+/** A capability's display label in the current language — translated by id;
+ *  an id this client does not know shows the server's own label. */
+export function capabilityLabel(t: TFunction, c: { capability: string; label?: string }): string {
+  const key = CAP_KEY.get(c.capability)
+  return key ? t(key) : c.label || c.capability
+}
+
+/** A capability area's display name in the current language. */
+export function capabilityArea(t: TFunction, area: string): string {
+  const key = AREA_KEY[area]
+  return key ? t(key) : area
+}
+
+/** The built-in roles' display names (built-ins cannot be renamed server-side). */
+export const ROLE_LABEL_KEYS: Record<Role, MessageKey> = {
+  superadmin: 'admin.roles.superadmin',
+  admin: 'admin.roles.admin',
+  agent: 'admin.roles.agent',
+}
+
+/** Plural group headings ("Admins") for lists grouped by role. */
+export const ROLE_PLURAL_KEYS: Record<Role, MessageKey> = {
+  superadmin: 'admin.roles.superadminPlural',
+  admin: 'admin.roles.adminPlural',
+  agent: 'admin.roles.agentPlural',
+}
+
+const titleCase = (slug: string) => slug.replace(/[-_]+/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase())
+
+/** A role's display name: built-ins translated, a custom role shows the label
+ *  it was given (else its title-cased slug). */
+export function roleDisplayName(t: TFunction, slug: string, label?: string | null): string {
+  const key = ROLE_LABEL_KEYS[slug as Role]
+  return key ? t(key) : label || titleCase(slug)
+}
+
+/** Plural form for group headings: "Admins"; custom roles keep their label. */
+export function rolePluralName(t: TFunction, slug: string, label?: string | null): string {
+  const key = ROLE_PLURAL_KEYS[slug as Role]
+  return key ? t(key) : label || titleCase(slug)
+}
 
 const ALL_CAPS = CAPABILITY_CATALOG.map((c) => c.capability)
 

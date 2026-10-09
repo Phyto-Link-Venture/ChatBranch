@@ -9,8 +9,8 @@ import { Toggle } from '@/components/ui/Toggle'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { HealthBadge, RoleChip, accountRole } from '@/components/ui/Badges'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
-import { relTime } from '@/lib/channelHealth'
 import { useAccess } from '@/lib/useAccess'
+import { Trans, useFormat, useT, type MessageKey, type TFunction } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -47,14 +47,15 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T
 }
 
-/** Display names for the channel selector — same wording as the /chats inbox. */
-const CHANNEL_LABELS: Record<string, string> = {
+/** Display names for the channel selector — same wording as the /chats inbox.
+ *  Brand names stay as they are; generic ones are translation keys. */
+const CHANNEL_LABELS: Record<string, string | MessageKey> = {
   whatsapp: 'WhatsApp',
   facebook: 'Messenger',
   instagram: 'Instagram',
   telegram: 'Telegram',
-  email: 'Email',
-  website: 'Website widget',
+  email: 'common.fields.email',
+  website: 'admin.assignments.websiteWidget',
   sms: 'SMS',
   line: 'LINE',
   viber: 'Viber',
@@ -63,9 +64,13 @@ const CHANNEL_LABELS: Record<string, string> = {
   tiktok: 'TikTok',
   douyin: 'Douyin',
 }
-const channelLabel = (c: string) => CHANNEL_LABELS[c] || c.charAt(0).toUpperCase() + c.slice(1)
-const providerLabel = (p: string, channel: string) =>
-  p === 'baileys' ? 'Baileys' : p === 'cloud' ? 'Cloud API' : p || channelLabel(channel)
+const channelLabel = (t: TFunction, c: string) => {
+  const l = CHANNEL_LABELS[c]
+  if (!l) return c.charAt(0).toUpperCase() + c.slice(1)
+  return l.includes('.') ? t(l as MessageKey) : l
+}
+const providerLabel = (t: TFunction, p: string, channel: string) =>
+  p === 'baileys' ? 'Baileys' : p === 'cloud' ? 'Cloud API' : p || channelLabel(t, channel)
 
 const key = (r: Assignment) => String(r.contact_id)
 
@@ -78,6 +83,8 @@ const key = (r: Assignment) => String(r.contact_id)
  * never move. Writes need the account_assignment.manage capability.
  */
 export function AssignmentsSettings() {
+  const t = useT()
+  const f = useFormat()
   const { ready, can } = useAccess()
   const canManage = ready && can('account_assignment.manage')
   const [channel, setChannel] = useState('whatsapp')
@@ -132,9 +139,7 @@ export function AssignmentsSettings() {
     try {
       const r = await api<{ moved: number }>('assignments/rebalance', { method: 'POST', body: JSON.stringify({ channel }) })
       setNotice(
-        r.moved === 0
-          ? 'Already balanced — no contacts moved.'
-          : `Rebalanced — ${r.moved} contact${r.moved === 1 ? '' : 's'} moved. Pinned contacts stayed put.`,
+        r.moved === 0 ? t('admin.assignments.alreadyBalanced') : t('admin.assignments.rebalanced', { count: r.moved }),
       )
       await load()
     } catch (e) {
@@ -148,7 +153,7 @@ export function AssignmentsSettings() {
   if (accounts === null) {
     return (
       <div className="rounded-xl border border-dashed border-line-strong px-4 py-8 text-center text-[12.5px] text-text-muted">
-        {loadError ? `Account assignment is unavailable — ${loadError}` : 'Loading…'}
+        {loadError ? t('admin.assignments.unavailable', { error: loadError }) : t('common.status.loading')}
       </div>
     )
   }
@@ -157,7 +162,7 @@ export function AssignmentsSettings() {
   const pinnedTotal = assignments.filter((r) => r.pinned).length
   const channelOptions = [...new Set(channels.includes(channel) ? channels : [channel, ...channels])].map((c) => ({
     value: c,
-    label: channelLabel(c),
+    label: channelLabel(t, c),
   }))
 
   return (
@@ -174,20 +179,26 @@ export function AssignmentsSettings() {
           options={channelOptions}
           className="w-[170px] shrink-0"
           size="md"
-          ariaLabel="Channel"
+          ariaLabel={t('common.fields.channel')}
         />
         <label className="flex h-[38px] min-w-[200px] flex-1 items-center gap-2 rounded-lg border border-line-strong bg-card px-2.5 sm:max-w-[300px]">
           <Search size={14} className="shrink-0 text-text-muted" aria-hidden />
           <input
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder="Find a contact by name or phone…"
-            aria-label="Find a contact"
+            placeholder={t('admin.assignments.findPlaceholder')}
+            aria-label={t('admin.assignments.findAria')}
             className="min-w-0 flex-1 bg-transparent text-[13px] text-text-primary outline-none"
           />
         </label>
         <span className="flex items-center gap-1.5 sm:ml-auto">
-          <Button variant="ghost" size="sm" onClick={() => void load()} title="Refresh" aria-label="Refresh assignments">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void load()}
+            title={t('common.actions.refresh')}
+            aria-label={t('admin.assignments.refreshAria')}
+          >
             <RefreshCw size={13} aria-hidden />
           </Button>
           {canManage && (
@@ -198,17 +209,21 @@ export function AssignmentsSettings() {
               disabled={busy || accounts.length === 0 || total === 0}
             >
               {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Shuffle size={13} aria-hidden />}
-              Rebalance evenly
+              {t('admin.assignments.rebalanceEvenly')}
             </Button>
           )}
         </span>
       </div>
 
       <p className="max-w-[760px] text-[12.5px] leading-relaxed text-text-muted">
-        Every contact is <span className="font-semibold text-text-high">stickily routed</span> to one sending account per channel,
-        so a conversation stays on the same number. {total} contact{total === 1 ? '' : 's'} on {channelLabel(channel)}
-        {pinnedTotal ? `, ${pinnedTotal} pinned` : ''}. Pinned contacts never move when you rebalance; failover still applies
-        when an account goes down.
+        <Trans
+          k="admin.assignments.intro"
+          values={{ sticky: <span className="font-semibold text-text-high">{t('admin.assignments.introSticky')}</span> }}
+        />{' '}
+        {pinnedTotal
+          ? t('admin.assignments.summaryPinned', { count: total, channel: channelLabel(t, channel), pinned: pinnedTotal })
+          : t('admin.assignments.summary', { count: total, channel: channelLabel(t, channel) })}{' '}
+        {t('admin.assignments.introPins')}
       </p>
 
       {error && (
@@ -225,7 +240,7 @@ export function AssignmentsSettings() {
       {/* one card per sending account */}
       {accounts.length === 0 ? (
         <div className="rounded-xl border border-dashed border-line-strong px-4 py-8 text-center text-[12.5px] text-text-muted">
-          No {channelLabel(channel)} accounts yet — link one under Channels.
+          {t('admin.assignments.noAccounts', { channel: channelLabel(t, channel) })}
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -242,7 +257,7 @@ export function AssignmentsSettings() {
                     <div className="truncate text-[14px] font-bold text-text-heading">{a.name}</div>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       <span className="rounded-full border border-line-strong px-1.5 py-px text-[10px] font-semibold uppercase tracking-[0.04em] text-text-muted">
-                        {providerLabel(a.provider, channel)}
+                        {providerLabel(t, a.provider, channel)}
                       </span>
                       {channel === 'whatsapp' && <RoleChip role={accountRole(a)} />}
                     </div>
@@ -251,14 +266,14 @@ export function AssignmentsSettings() {
                 </div>
 
                 <div className="flex items-baseline gap-2">
-                  <span className="display text-[30px] leading-none text-text-heading">{rows.length}</span>
+                  <span className="display text-[30px] leading-none text-text-heading">{f.number(rows.length)}</span>
                   <span className="text-[12px] text-text-muted">
-                    contact{rows.length === 1 ? '' : 's'}
-                    {pinned ? ` · ${pinned} pinned` : ''}
+                    {t('admin.assignments.contactsLabel', { count: rows.length })}
+                    {pinned ? ` · ${t('admin.assignments.pinnedCount', { count: pinned })}` : ''}
                   </span>
                   {q && (
                     <span className={`ml-auto text-[11.5px] font-semibold ${hits ? 'text-text-high' : 'text-text-faint'}`}>
-                      {hits} match{hits === 1 ? '' : 'es'}
+                      {t('admin.assignments.matches', { count: hits })}
                     </span>
                   )}
                 </div>
@@ -267,7 +282,8 @@ export function AssignmentsSettings() {
                 </div>
 
                 <Button variant="secondary" size="sm" className="self-start" onClick={() => setManaging(a)}>
-                  <SlidersHorizontal size={13} aria-hidden /> {canManage ? 'Manage' : 'View'} contacts
+                  <SlidersHorizontal size={13} aria-hidden />{' '}
+                  {canManage ? t('admin.assignments.manageContacts') : t('admin.assignments.viewContacts')}
                 </Button>
               </div>
             )
@@ -284,7 +300,7 @@ export function AssignmentsSettings() {
         canManage={canManage}
         onClose={() => setManaging(null)}
         onSaved={async (n) => {
-          setNotice(`${n} assignment${n === 1 ? '' : 's'} updated.`)
+          setNotice(t('admin.assignments.updated', { count: n }))
           await load()
         }}
       />
@@ -293,16 +309,16 @@ export function AssignmentsSettings() {
         open={confirmRebalance}
         onClose={() => setConfirmRebalance(false)}
         size="sm"
-        title="Rebalance evenly?"
-        subtitle={`Spreads every unpinned ${channelLabel(channel)} contact across the healthy accounts. Pinned contacts stay where they are.`}
+        title={t('admin.assignments.confirmTitle')}
+        subtitle={t('admin.assignments.confirmSubtitle', { channel: channelLabel(t, channel) })}
         footer={
           <>
             <Button variant="ghost" onClick={() => setConfirmRebalance(false)}>
-              Cancel
+              {t('common.actions.cancel')}
             </Button>
             <Button variant="primary" onClick={() => void rebalance()} disabled={busy}>
               {busy && <Loader2 size={13} className="animate-spin" aria-hidden />}
-              Rebalance
+              {t('admin.assignments.rebalance')}
             </Button>
           </>
         }
@@ -313,8 +329,7 @@ export function AssignmentsSettings() {
           </div>
         )}
         <p className="text-[13px] leading-relaxed text-text-mid">
-          {total - pinnedTotal} unpinned contact{total - pinnedTotal === 1 ? '' : 's'} may move. Contacts already on an account
-          with room stay put, so only the overflow changes number.
+          {t('admin.assignments.mayMove', { count: total - pinnedTotal })}
         </p>
       </Modal>
     </div>
@@ -347,6 +362,8 @@ function ManageModal({
   onClose: () => void
   onSaved: (changed: number) => Promise<void>
 }) {
+  const t = useT()
+  const f = useFormat()
   const [draft, setDraft] = useState<Record<string, Draft>>({})
   const [query, setQuery] = useState('')
   const [saving, setSaving] = useState(false)
@@ -371,7 +388,7 @@ function ManageModal({
   const qq = query.trim().toLowerCase()
   const shown = qq ? rows.filter((r) => `${r.contact_name} ${r.phone}`.toLowerCase().includes(qq)) : rows
   const options = [
-    { value: '', label: 'Automatic', hint: '(even distribution)' },
+    { value: '', label: t('admin.assignments.automatic'), hint: t('admin.assignments.automaticHint') },
     ...accounts.map((a) => ({ value: a.id, label: a.name })),
   ]
 
@@ -394,7 +411,8 @@ function ManageModal({
       await onSaved(done)
       onClose()
     } catch (e) {
-      setError(`${done ? `${done} saved, then: ` : ''}${e instanceof Error ? e.message : String(e)}`)
+      const reason = e instanceof Error ? e.message : String(e)
+      setError(done ? t('admin.assignments.partialSave', { count: done, error: reason }) : reason)
       if (done) await onSaved(done)
     } finally {
       setSaving(false)
@@ -407,19 +425,19 @@ function ManageModal({
       onClose={onClose}
       size="lg"
       title={account.name}
-      subtitle={`${rows.length} contact${rows.length === 1 ? '' : 's'} routed through this account. Move a contact to another account, or pin it so rebalancing never moves it.`}
+      subtitle={t('admin.assignments.manageSubtitle', { count: rows.length })}
       footer={
         <>
           <span className="mr-auto text-[12px] text-text-muted">
-            {changed.length ? `${changed.length} unsaved change${changed.length === 1 ? '' : 's'}` : 'No changes'}
+            {changed.length ? t('admin.assignments.unsavedCount', { count: changed.length }) : t('admin.assignments.noChanges')}
           </span>
           <Button variant="ghost" onClick={onClose}>
-            {canManage ? 'Cancel' : 'Close'}
+            {canManage ? t('common.actions.cancel') : t('common.actions.close')}
           </Button>
           {canManage && (
             <Button variant="primary" onClick={() => void save()} disabled={saving || changed.length === 0}>
               {saving && <Loader2 size={13} className="animate-spin" aria-hidden />}
-              Save changes
+              {t('settings.common.saveChanges')}
             </Button>
           )}
         </>
@@ -436,16 +454,16 @@ function ManageModal({
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search contacts…"
-            aria-label="Search contacts"
+            placeholder={t('admin.assignments.searchContacts')}
+            aria-label={t('admin.assignments.searchContacts')}
             className="min-w-0 flex-1 bg-transparent text-[13px] text-text-primary outline-none"
           />
         </label>
       )}
       {rows.length === 0 ? (
-        <p className="py-6 text-center text-[12.5px] text-text-muted">No contacts are routed through this account yet.</p>
+        <p className="py-6 text-center text-[12.5px] text-text-muted">{t('admin.assignments.noneRouted')}</p>
       ) : shown.length === 0 ? (
-        <p className="py-6 text-center text-[12.5px] text-text-muted">No contacts match “{query.trim()}”.</p>
+        <p className="py-6 text-center text-[12.5px] text-text-muted">{t('admin.assignments.noMatch', { query: query.trim() })}</p>
       ) : (
         <ul className="flex flex-col divide-y divide-line rounded-lg border border-line">
           {shown.map((r) => {
@@ -455,29 +473,36 @@ function ManageModal({
               <li key={key(r)} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5">
                 <div className="min-w-[160px] flex-1">
                   <div className="flex items-center gap-1.5 truncate text-[13px] font-semibold text-text-high">
-                    {r.contact_name || 'Unnamed contact'}
-                    {dirty && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-label="changed" />}
+                    {r.contact_name || t('admin.assignments.unnamed')}
+                    {dirty && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-label={t('admin.assignments.changedAria')} />}
                   </div>
                   <div className="font-mono text-[11px] text-text-muted">
                     {r.phone}
-                    {r.updated_at && <span className="ml-2 font-sans text-text-faint">changed {relTime(r.updated_at)}</span>}
+                    {r.updated_at && (
+                      <span className="ml-2 font-sans text-text-faint">
+                        {t('admin.assignments.changedAgo', { when: f.relative(r.updated_at) })}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <Select
                   value={d.account_id}
                   onChange={(v) => setRow(r, { account_id: v })}
                   options={options}
-                  className="w-[200px]"
+                  className="w-[200px] max-w-full"
                   disabled={!canManage || saving}
-                  ariaLabel={`Account for ${r.contact_name}`}
+                  ariaLabel={t('admin.assignments.accountFor', { name: r.contact_name })}
                 />
-                <span className="flex items-center gap-2" title={d.pinned ? 'Pinned — rebalancing never moves it' : 'Not pinned'}>
+                <span
+                  className="flex items-center gap-2"
+                  title={d.pinned ? t('admin.assignments.pinnedHint') : t('admin.assignments.notPinned')}
+                >
                   <Pin size={13} aria-hidden className={d.pinned ? 'text-text-heading' : 'text-text-faint'} />
                   <Toggle
                     on={d.pinned}
                     disabled={!canManage || saving || !d.account_id}
                     onChange={(v) => setRow(r, { pinned: v })}
-                    label={`Pin ${r.contact_name}`}
+                    label={t('admin.assignments.pinAria', { name: r.contact_name })}
                   />
                 </span>
               </li>

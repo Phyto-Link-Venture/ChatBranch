@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react'
 import { BindingGrid } from '@/components/ui/BindingGrid'
+import { useT } from '@/i18n'
 import { entityTreeGroups, type TreeEntity } from './groups'
 
 /**
@@ -14,7 +15,7 @@ export function EntityAccessGrid({
   value,
   onChange,
   disabled,
-  emptyText = 'No entities yet — create one under Entities.',
+  emptyText,
 }: {
   entities: TreeEntity[]
   value: number[]
@@ -22,7 +23,8 @@ export function EntityAccessGrid({
   disabled?: boolean
   emptyText?: string
 }) {
-  const groups = useMemo(() => entityTreeGroups(entities), [entities])
+  const t = useT()
+  const groups = useMemo(() => entityTreeGroups(t, entities), [t, entities])
   const set = useMemo(() => new Set(value.map(String)), [value])
   return (
     <BindingGrid
@@ -31,9 +33,9 @@ export function EntityAccessGrid({
       onChange={(next) => onChange([...next].map(Number))}
       disabled={disabled}
       itemNoun="entity"
-      searchPlaceholder="Search entities…"
+      searchPlaceholder={t('admin.bindings.entityGrid.search')}
       columns={2}
-      emptyText={emptyText}
+      emptyText={emptyText ?? t('admin.bindings.entityGrid.empty')}
     />
   )
 }

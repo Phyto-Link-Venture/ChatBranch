@@ -9,6 +9,7 @@ import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { expireSessionOn401 } from '@/lib/auth'
 import { roleHeaders } from '@/lib/role'
 import { useAccess } from '@/lib/useAccess'
+import { Trans, useT } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -70,6 +71,7 @@ function ProductLogo({ id }: { id: string }) {
  * Integrations. Connect is a full-page Google consent that returns here.
  */
 export function MyConnectionsSettings() {
+  const t = useT()
   const [mine, setMine] = useState<Mine | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -80,9 +82,9 @@ export function MyConnectionsSettings() {
     try {
       setMine(await api<Mine>('mine'))
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Your connections are unavailable — is the API running?')
+      setError(e instanceof Error ? e.message : t('settings.connections.unavailable'))
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     void load()
@@ -95,10 +97,10 @@ export function MyConnectionsSettings() {
     const q = new URLSearchParams(window.location.search)
     const ok = q.get('connected')
     const bad = q.get('error')
-    if (ok) setNotice(`Connected your ${ok}.`)
-    if (bad) setError(bad === 'access_denied' ? 'Google sign-in was cancelled — nothing was connected.' : bad)
+    if (ok) setNotice(t('settings.connections.connected', { product: ok }))
+    if (bad) setError(bad === 'access_denied' ? t('settings.connections.cancelled') : bad)
     if (ok || bad) window.history.replaceState({}, '', window.location.pathname)
-  }, [])
+  }, [t])
 
   const connect = async (p: Product) => {
     setError('')
@@ -109,7 +111,7 @@ export function MyConnectionsSettings() {
         `oauth/${p.provider}/start?return=connections`,
       )
       if (d.configured === false || !d.authorize_url) {
-        setError(d.reason || `${p.label} isn't available yet — ask an admin to register the Google client.`)
+        setError(d.reason || t('settings.connections.notAvailable', { product: p.label }))
         return
       }
       window.location.href = d.authorize_url
@@ -127,7 +129,7 @@ export function MyConnectionsSettings() {
     setBusy(`disconnect-${p.provider}`)
     try {
       await api(`accounts/${p.account.id}/disconnect`, { method: 'POST' })
-      setNotice(`Disconnected your ${p.label}.`)
+      setNotice(t('settings.connections.disconnected', { product: p.label }))
       await load()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -152,21 +154,17 @@ export function MyConnectionsSettings() {
       )}
 
       <Card className="p-4 sm:p-5">
-        <CardTitle right={<span className="text-text-muted">Only you</span>}>My Google account</CardTitle>
-        <p className="mt-1 text-[12.5px] text-text-muted">
-          Connect your own Google products. Each grant is yours alone — other people keep using their own or the shared
-          connection, and you can disconnect at any time.
-        </p>
+        <CardTitle right={<span className="text-text-muted">{t('settings.connections.onlyYou')}</span>}>
+          {t('settings.connections.title')}
+        </CardTitle>
+        <p className="mt-1 text-[12.5px] text-text-muted">{t('settings.connections.intro')}</p>
         {mine && !mine.google_configured && (
-          <p className="mt-3 rounded-lg bg-fill px-3 py-2 text-[12.5px] text-text-mid">
-            Google sign-in isn&rsquo;t set up for this workspace yet. A super admin registers the Google client once
-            (Settings → App &amp; provider keys); then everyone connects their own account in one click.
-          </p>
+          <p className="mt-3 rounded-lg bg-fill px-3 py-2 text-[12.5px] text-text-mid">{t('settings.connections.notConfigured')}</p>
         )}
         <div className="mt-3 divide-y divide-line border-t border-line">
           {mine === null ? (
             <div className="flex items-center gap-2 py-4 text-[12.5px] text-text-muted">
-              <Loader2 size={14} className="animate-spin" aria-hidden /> Loading…
+              <Loader2 size={14} className="animate-spin" aria-hidden /> {t('common.status.loading')}
             </div>
           ) : (
             mine.connections.map((p) => {
@@ -180,7 +178,7 @@ export function MyConnectionsSettings() {
                       <span className="text-[13.5px] font-semibold text-text-high">{p.label}</span>
                       {on && (
                         <span className="rounded-full bg-green/10 px-2 py-px text-[10px] font-bold text-green-300">
-                          Connected
+                          {t('common.status.connected')}
                         </span>
                       )}
                       {lapsed && (
@@ -188,7 +186,9 @@ export function MyConnectionsSettings() {
                           className="rounded-full bg-amber/10 px-2 py-px text-[10px] font-bold text-amber-300"
                           title={p.account?.status_detail || undefined}
                         >
-                          {p.account?.status === 'revoked' ? 'Disconnected' : 'Needs reconnecting'}
+                          {p.account?.status === 'revoked'
+                            ? t('settings.connections.statusDisconnected')
+                            : t('settings.connections.needsReconnect')}
                         </span>
                       )}
                     </div>
@@ -202,13 +202,13 @@ export function MyConnectionsSettings() {
                           size="sm"
                           disabled={!!busy || !mine.google_configured}
                           onClick={() => void connect(p)}
-                          title="Sign in again (e.g. to switch Google account)"
+                          title={t('settings.connections.reconnectHint')}
                         >
-                          Reconnect
+                          {t('common.actions.reconnect')}
                         </Button>
                         <Button variant="ghost" size="sm" disabled={!!busy} onClick={() => void disconnect(p)}>
                           {busy === `disconnect-${p.provider}` && <Loader2 size={13} className="animate-spin" aria-hidden />}
-                          Disconnect
+                          {t('common.actions.disconnect')}
                         </Button>
                       </>
                     ) : (
@@ -219,7 +219,7 @@ export function MyConnectionsSettings() {
                         onClick={() => void connect(p)}
                       >
                         {busy === `connect-${p.provider}` && <Loader2 size={13} className="animate-spin" aria-hidden />}
-                        Connect
+                        {t('common.actions.connect')}
                       </Button>
                     )}
                   </div>
@@ -231,15 +231,19 @@ export function MyConnectionsSettings() {
       </Card>
 
       <p className="text-[12.5px] text-text-muted">
-        Shared connections for the whole organization or an outlet are managed by admins on{' '}
-        {ready && can('integrations.view') ? (
-          <Link href="/integrations" className="font-semibold text-text-high hover:underline">
-            Integrations
-          </Link>
-        ) : (
-          'Integrations'
-        )}
-        .
+        <Trans
+          k="settings.connections.shared"
+          values={{
+            link:
+              ready && can('integrations.view') ? (
+                <Link href="/integrations" className="font-semibold text-text-high hover:underline">
+                  {t('shell.nav.integrations')}
+                </Link>
+              ) : (
+                t('shell.nav.integrations')
+              ),
+          }}
+        />
       </p>
     </div>
   )

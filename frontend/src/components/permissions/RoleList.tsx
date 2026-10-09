@@ -1,7 +1,8 @@
 'use client'
 
 import { ChevronRight, Pencil, Plus, Trash2, Users } from 'lucide-react'
-import { areaSummary, groupByArea, humanize, type CatalogEntry, type Matrix, type RoleRow } from './types'
+import { useT } from '@/i18n'
+import { areaSummary, groupByArea, type CatalogEntry, type Matrix, type RoleRow } from './types'
 
 /**
  * Level 1 (spec §B): the roles grid. Each card shows label, a system/custom
@@ -33,6 +34,7 @@ export function RoleList({
   onRename: (slug: string) => void
   onDelete: (slug: string) => void
 }) {
+  const t = useT()
   const groups = groupByArea(catalog)
   const areaCount = groups.length
 
@@ -44,14 +46,14 @@ export function RoleList({
     <div className="flex min-h-0 flex-1 flex-col gap-3.5">
       <div className="flex items-center justify-between gap-2">
         <div className="text-[12px] text-text-muted">
-          {roles.length} role{roles.length === 1 ? '' : 's'} · select one to manage its access
+          {t('admin.permissions.list.summary', { count: roles.length })}
         </div>
         <button
           type="button"
           onClick={onAdd}
           className="inline-flex items-center gap-1.5 rounded-xl border border-line-strong bg-fill px-3 py-2 text-[12px] font-semibold text-text-high transition-colors hover:bg-fill-hover"
         >
-          <Plus size={13} strokeWidth={2.25} aria-hidden /> Add role
+          <Plus size={13} strokeWidth={2.25} aria-hidden /> {t('admin.permissions.list.addRole')}
         </button>
       </div>
 
@@ -81,7 +83,7 @@ export function RoleList({
                         system ? 'bg-fill text-text-muted' : 'bg-brand-400/10 text-brand-300'
                       }`}
                     >
-                      {system ? 'System' : 'Custom'}
+                      {system ? t('admin.permissions.system') : t('admin.permissions.custom')}
                     </span>
                   </div>
                   <code className="mt-0.5 block text-[10.5px] text-text-faint">{slug}</code>
@@ -92,8 +94,8 @@ export function RoleList({
                     <button
                       type="button"
                       onClick={() => onRename(slug)}
-                      title={`Rename “${labelFor(slug)}”`}
-                      aria-label={`Rename role ${labelFor(slug)}`}
+                      title={t('admin.permissions.list.renameTitle', { name: labelFor(slug) })}
+                      aria-label={t('admin.permissions.list.renameAria', { name: labelFor(slug) })}
                       className="grid h-7 w-7 place-items-center rounded-lg text-text-faint transition-colors hover:bg-fill-hover hover:text-text-high"
                     >
                       <Pencil size={13} aria-hidden />
@@ -104,10 +106,10 @@ export function RoleList({
                       disabled={assigned}
                       title={
                         assigned
-                          ? `Assigned to ${count} user${count === 1 ? '' : 's'} — reassign before deleting`
-                          : `Delete “${labelFor(slug)}”`
+                          ? t('admin.permissions.list.deleteBlocked', { count })
+                          : t('admin.permissions.list.deleteTitle', { name: labelFor(slug) })
                       }
-                      aria-label={`Delete role ${labelFor(slug)}`}
+                      aria-label={t('admin.permissions.list.deleteAria', { name: labelFor(slug) })}
                       className="grid h-7 w-7 place-items-center rounded-lg text-text-faint transition-colors hover:bg-red/15 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-faint"
                     >
                       <Trash2 size={13} aria-hidden />
@@ -119,12 +121,10 @@ export function RoleList({
               <div className="flex items-center gap-3 text-[11px] text-text-muted">
                 <span className="inline-flex items-center gap-1">
                   <Users size={12} aria-hidden />
-                  {typeof count === 'number' ? `${count} user${count === 1 ? '' : 's'}` : '—'}
+                  {typeof count === 'number' ? t('admin.permissions.list.users', { count }) : '—'}
                 </span>
                 <span aria-hidden>·</span>
-                <span>
-                  {grantedAreas(slug)}/{areaCount} areas
-                </span>
+                <span>{t('admin.permissions.list.areasGranted', { granted: grantedAreas(slug), total: areaCount })}</span>
               </div>
 
               <button
@@ -132,7 +132,7 @@ export function RoleList({
                 onClick={() => onSelect(slug)}
                 className="mt-auto inline-flex items-center justify-center gap-1.5 rounded-xl border border-line bg-fill px-3 py-1.5 text-[12px] font-semibold text-text-high transition-colors hover:bg-fill-hover"
               >
-                Manage access <ChevronRight size={14} strokeWidth={2} aria-hidden />
+                {t('admin.permissions.list.manageAccess')} <ChevronRight size={14} strokeWidth={2} aria-hidden />
               </button>
             </div>
           )

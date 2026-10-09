@@ -7,6 +7,8 @@
 import type { ReactNode } from 'react'
 import type { BindingGroup, BindingItem } from '@/components/ui/BindingGrid'
 import { channelLabel } from '@/components/ui/ChannelLogo'
+import type { TFunction } from '@/i18n'
+import { rolePluralName } from '@/lib/auth'
 
 export interface TreeEntity {
   id: number
@@ -45,32 +47,36 @@ export function orderEntityTree<T extends TreeEntity>(rows: T[]): { row: T; dept
 }
 
 /** Groups = main entities; items = the main entity itself and every entity under it. */
-export function entityTreeGroups(entities: TreeEntity[], hint?: (e: TreeEntity) => string | undefined): BindingGroup[] {
+export function entityTreeGroups(
+  t: TFunction,
+  entities: TreeEntity[],
+  hint?: (e: TreeEntity) => string | undefined,
+): BindingGroup[] {
   const ordered = orderEntityTree(entities)
   const groups = new Map<number, BindingGroup>()
   for (const { row, depth, root } of ordered) {
     let g = groups.get(root.id)
     if (!g) {
-      g = { id: `e${root.id}`, label: root.name, badge: 'Main', items: [] }
+      g = { id: `e${root.id}`, label: root.name, badge: t('admin.bindings.groups.main'), items: [] }
       groups.set(root.id, g)
     }
     g.items.push({
       id: String(row.id),
       label: row.name,
       depth,
-      hint: hint?.(row) ?? (depth === 0 ? 'Main entity — includes everything beneath it' : undefined),
+      hint: hint?.(row) ?? (depth === 0 ? t('admin.bindings.groups.mainHint') : undefined),
     })
   }
   for (const g of groups.values()) {
     const subs = g.items.length - 1
-    g.sub = subs === 0 ? 'No sub-entities' : `Main + ${subs} sub-entit${subs === 1 ? 'y' : 'ies'}`
+    g.sub = subs === 0 ? t('admin.bindings.groups.noSubs') : t('admin.bindings.groups.mainPlusSubs', { count: subs })
   }
   return [...groups.values()]
 }
 
 /** "Aina, Ben" for a couple of members (so a one-item card still says who), else "5 contacts". */
-const count = (members: { label: string }[], noun: string) =>
-  members.length <= 2 ? members.map((m) => m.label).join(', ') : `${members.length} ${noun}s`
+const count = (t: TFunction, members: { label: string }[]) =>
+  members.length <= 2 ? members.map((m) => m.label).join(', ') : t('admin.bindings.groups.contacts', { count: members.length })
 
 /**
  * Groups = every entity in tree order (main entities badged, sub-entities
@@ -80,9 +86,9 @@ const count = (members: { label: string }[], noun: string) =>
  * set of ids, so ticking it in one ticks it in both.
  */
 export function itemsByEntityGroups(
+  t: TFunction,
   entities: TreeEntity[],
   items: { id: number; label: string; hint?: string; entity_ids: number[] }[],
-  noun = 'contact',
 ): BindingGroup[] {
   const ordered = orderEntityTree(entities)
   const byId = new Map(entities.map((e) => [e.id, e]))
@@ -96,8 +102,11 @@ export function itemsByEntityGroups(
     out.push({
       id: `e${row.id}`,
       label: row.name,
-      badge: depth === 0 ? 'Main' : undefined,
-      sub: `${depth > 0 && parent ? `Under ${parent.name} · ` : ''}${count(members, noun)}`,
+      badge: depth === 0 ? t('admin.bindings.groups.main') : undefined,
+      sub:
+        depth > 0 && parent
+          ? t('admin.bindings.groups.underParent', { parent: parent.name, members: count(t, members) })
+          : count(t, members),
       items: members,
     })
   }
@@ -105,18 +114,17 @@ export function itemsByEntityGroups(
   if (loose.length > 0)
     out.push({
       id: 'none',
-      label: 'No entity',
-      sub: `Not linked to an entity · ${count(loose, noun)}`,
+      label: t('admin.bindings.groups.noEntity'),
+      sub: t('admin.bindings.groups.notLinked', { members: count(t, loose) }),
       items: loose.map((i) => ({ id: String(i.id), label: i.label, hint: i.hint })),
     })
   return out
 }
 
-const ROLE_LABEL: Record<string, string> = { superadmin: 'Super admins', admin: 'Admins', agent: 'Agents' }
 const ROLE_ORDER = ['superadmin', 'admin', 'agent']
 
 /** Users grouped by role (built-ins first, then custom roles). */
-export function usersByRoleGroups(users: { id: number; label: string; role: string }[]): BindingGroup[] {
+export function usersByRoleGroups(t: TFunction, users: { id: number; label: string; role: string }[]): BindingGroup[] {
   const roles = [...new Set(users.map((u) => u.role))].sort(
     (a, b) => (ROLE_ORDER.indexOf(a) + 1 || 99) - (ROLE_ORDER.indexOf(b) + 1 || 99) || a.localeCompare(b),
   )
@@ -124,8 +132,8 @@ export function usersByRoleGroups(users: { id: number; label: string; role: stri
     const members = users.filter((u) => u.role === role)
     return {
       id: `r-${role}`,
-      label: ROLE_LABEL[role] ?? role.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-      sub: `${members.length} user${members.length === 1 ? '' : 's'}`,
+      label: rolePluralName(t, role),
+      sub: t('admin.bindings.groups.users', { count: members.length }),
       items: members.map((u) => ({ id: String(u.id), label: u.label })),
     }
   })
@@ -133,6 +141,7 @@ export function usersByRoleGroups(users: { id: number; label: string; role: stri
 
 /** Channel accounts grouped by channel (label + optional logo per channel). */
 export function accountsByChannelGroups(
+  t: TFunction,
   accounts: { id: number; label: string; channel: string; sub?: string }[],
   icon?: (channel: string) => ReactNode,
 ): BindingGroup[] {
@@ -143,7 +152,7 @@ export function accountsByChannelGroups(
       id: `c-${ch}`,
       label: channelLabel(ch),
       icon: icon?.(ch),
-      sub: `${members.length} account${members.length === 1 ? '' : 's'}`,
+      sub: t('admin.bindings.groups.accounts', { count: members.length }),
       items: members.map((a) => ({ id: String(a.id), label: a.label, hint: a.sub })),
     }
   })

@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, KeyRound, Loader2, Lock, Plus, Trash2 } from 'lucide-react'
-import { CAPABILITY_CATALOG } from '@/lib/auth'
+import { CAPABILITY_CATALOG, capabilityArea, capabilityLabel } from '@/lib/auth'
+import { Trans, useFormat, useT, type MessageKey } from '@/i18n'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
-import { CopyField, Notice, Section, Segmented, api, fmtAgo, fmtDate, inputCls } from './shared'
+import { CopyField, Notice, Section, Segmented, api, inputCls, useAgo } from './shared'
 
 /**
  * API keys — personal credentials for scripts and AI apps. A key acts as its
@@ -37,12 +38,18 @@ interface KeysResponse {
   capabilities: string[]
 }
 
-const EXPIRY = [
-  { value: '0', label: 'Never expires' },
-  { value: '30', label: '30 days' },
-  { value: '90', label: '90 days' },
-  { value: '365', label: '1 year' },
+const EXPIRY: { value: string; label: MessageKey }[] = [
+  { value: '0', label: 'admin.developers.keys.expiry.never' },
+  { value: '30', label: 'admin.developers.keys.expiry.days30' },
+  { value: '90', label: 'admin.developers.keys.expiry.days90' },
+  { value: '365', label: 'admin.developers.keys.expiry.year1' },
 ]
+
+const STATUS_LABEL: Record<ApiKeyRow['status'], MessageKey> = {
+  active: 'admin.developers.keys.status.active',
+  revoked: 'admin.developers.keys.status.revoked',
+  expired: 'admin.developers.keys.status.expired',
+}
 
 const STATUS_CLS: Record<ApiKeyRow['status'], string> = {
   active: 'bg-green/10 text-green-300',
@@ -51,6 +58,9 @@ const STATUS_CLS: Record<ApiKeyRow['status'], string> = {
 }
 
 export function ApiKeysCard({ onCreated }: { onCreated: (token: string) => void }) {
+  const t = useT()
+  const f = useFormat()
+  const ago = useAgo()
   const [data, setData] = useState<KeysResponse | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [view, setView] = useState<'mine' | 'tenant'>('mine')
@@ -81,7 +91,7 @@ export function ApiKeysCard({ onCreated }: { onCreated: (token: string) => void 
 
   const grouped = useMemo(() => {
     const held = new Set(data?.capabilities ?? [])
-    const groups = new Map<string, { capability: string; label: string }[]>()
+    const groups = new Map<string, { capability: string; label: string; lbl: MessageKey }[]>()
     for (const c of CAPABILITY_CATALOG) {
       if (!held.has(c.capability)) continue
       const arr = groups.get(c.area) ?? []
@@ -125,11 +135,13 @@ export function ApiKeysCard({ onCreated }: { onCreated: (token: string) => void 
   }
 
   const revoke = async (k: ApiKeyRow) => {
-    const whose = k.mine ? '' : ` (owned by ${k.owner})`
-    if (!window.confirm(`Revoke "${k.name}"${whose}? Anything using it stops working immediately.`)) return
+    const question = k.mine
+      ? t('admin.developers.keys.confirmRevoke', { name: k.name })
+      : t('admin.developers.keys.confirmRevokeOther', { name: k.name, owner: k.owner })
+    if (!window.confirm(question)) return
     try {
       await api(`developers/keys/${k.id}`, { method: 'DELETE' })
-      setMsg({ ok: true, text: `"${k.name}" revoked.` })
+      setMsg({ ok: true, text: t('admin.developers.keys.revoked', { name: k.name }) })
       await load()
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
@@ -142,13 +154,15 @@ export function ApiKeysCard({ onCreated }: { onCreated: (token: string) => void 
 
   return (
     <Section
-      title="API keys"
+      title={t('admin.developers.keys.title')}
       description={
-        <>
-          Personal keys for scripts and AI apps. A key acts as you — your role, your permissions, your entities —
-          and everything it does is recorded in Activity under <span className="font-semibold text-text-high">API</span> or{' '}
-          <span className="font-semibold text-text-high">MCP</span>.
-        </>
+        <Trans
+          k="admin.developers.keys.description"
+          values={{
+            api: <span className="font-semibold text-text-high">API</span>,
+            mcp: <span className="font-semibold text-text-high">MCP</span>,
+          }}
+        />
       }
       actions={
         <>
@@ -156,16 +170,16 @@ export function ApiKeysCard({ onCreated }: { onCreated: (token: string) => void 
             <Segmented
               value={view}
               onChange={setView}
-              ariaLabel="Whose keys"
+              ariaLabel={t('admin.developers.keys.whose')}
               options={[
-                { value: 'mine', label: 'My keys' },
-                { value: 'tenant', label: 'Everyone’s' },
+                { value: 'mine', label: t('admin.developers.keys.mine') },
+                { value: 'tenant', label: t('admin.developers.keys.everyone') },
               ]}
             />
           )}
           {data?.can_create && (
             <Button size="sm" onClick={openCreate}>
-              <Plus size={13} aria-hidden /> Create key
+              <Plus size={13} aria-hidden /> {t('admin.developers.keys.create')}
             </Button>
           )}
         </>
@@ -175,20 +189,20 @@ export function ApiKeysCard({ onCreated }: { onCreated: (token: string) => void 
         {msg && !open && <Notice ok={msg.ok}>{msg.text}</Notice>}
         {data && !data.can_create && (
           <div className="flex items-center gap-1.5 text-[12px] text-text-muted">
-            <Lock size={12} aria-hidden /> Creating keys needs the “Manage API keys” permission — ask an admin.
+            <Lock size={12} aria-hidden /> {t('admin.developers.keys.needsPermission')}
           </div>
         )}
-        {loadError && !data && <Notice ok={false}>Couldn’t load keys — {loadError}</Notice>}
+        {loadError && !data && <Notice ok={false}>{t('admin.developers.keys.loadError', { error: loadError })}</Notice>}
         {!data && !loadError && (
           <div className="flex items-center gap-2 py-4 text-[12.5px] text-text-muted">
-            <Loader2 size={13} className="animate-spin" aria-hidden /> Loading keys…
+            <Loader2 size={13} className="animate-spin" aria-hidden /> {t('admin.developers.keys.loading')}
           </div>
         )}
         {data && keys.length === 0 && (
           <div className="rounded-lg border border-dashed border-line-strong px-4 py-8 text-center">
             <KeyRound size={18} className="mx-auto text-text-faint" aria-hidden />
             <p className="mt-2 text-[13px] text-text-muted">
-              {view === 'tenant' ? 'Nobody in your tenant has a key yet.' : 'You have no API keys yet.'}
+              {view === 'tenant' ? t('admin.developers.keys.emptyTenant') : t('admin.developers.keys.emptyMine')}
             </p>
           </div>
         )}
@@ -199,7 +213,9 @@ export function ApiKeysCard({ onCreated }: { onCreated: (token: string) => void 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="truncate text-[13.5px] font-semibold text-text-high">{k.name}</span>
-                    <span className={`rounded-full px-2 py-px text-[10.5px] font-semibold capitalize ${STATUS_CLS[k.status]}`}>{k.status}</span>
+                    <span className={`rounded-full px-2 py-px text-[10.5px] font-semibold ${STATUS_CLS[k.status]}`}>
+                      {STATUS_LABEL[k.status] ? t(STATUS_LABEL[k.status]) : k.status}
+                    </span>
                     {!k.mine && (
                       <span className="rounded-full bg-fill px-2 py-px text-[10.5px] font-semibold text-text-mid">{k.owner}</span>
                     )}
@@ -207,16 +223,29 @@ export function ApiKeysCard({ onCreated }: { onCreated: (token: string) => void 
                   <div className="mt-0.5 font-mono text-[11.5px] text-text-muted">{k.display}</div>
                   <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11.5px] text-text-muted">
                     <span title={k.scopes.join(', ')}>
-                      {k.scopes.length === 0 ? 'Full access' : `${k.scopes.length} permission${k.scopes.length === 1 ? '' : 's'}`}
+                      {k.scopes.length === 0
+                        ? t('admin.developers.keys.fullAccess')
+                        : t('admin.developers.keys.permissionCount', { count: k.scopes.length })}
                     </span>
-                    <span>Created {fmtDate(k.created_at)}</span>
-                    <span>Last used {fmtAgo(k.last_used_at)}</span>
-                    <span>{k.expires_at ? `${k.status === 'expired' ? 'Expired' : 'Expires'} ${fmtDate(k.expires_at)}` : 'No expiry'}</span>
+                    <span>{t('admin.developers.keys.createdOn', { date: f.date(k.created_at) })}</span>
+                    <span>{t('admin.developers.keys.lastUsed', { when: ago(k.last_used_at) })}</span>
+                    <span>
+                      {k.expires_at
+                        ? k.status === 'expired'
+                          ? t('admin.developers.keys.expiredOn', { date: f.date(k.expires_at) })
+                          : t('admin.developers.keys.expiresOn', { date: f.date(k.expires_at) })
+                        : t('admin.developers.keys.noExpiry')}
+                    </span>
                   </div>
                 </div>
                 {k.status === 'active' && (
-                  <Button variant="danger" size="sm" onClick={() => revoke(k)} aria-label={`Revoke ${k.name}`}>
-                    <Trash2 size={13} aria-hidden /> Revoke
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => revoke(k)}
+                    aria-label={t('admin.developers.keys.revokeAria', { name: k.name })}
+                  >
+                    <Trash2 size={13} aria-hidden /> {t('admin.developers.keys.revoke')}
                   </Button>
                 )}
               </li>
@@ -228,19 +257,19 @@ export function ApiKeysCard({ onCreated }: { onCreated: (token: string) => void 
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title={revealed ? 'Copy your new key' : 'Create an API key'}
-        subtitle={revealed ? undefined : 'Use it from scripts (Authorization: Bearer …) or to connect an AI app over MCP.'}
+        title={revealed ? t('admin.developers.keys.copyTitle') : t('admin.developers.keys.createTitle')}
+        subtitle={revealed ? undefined : t('admin.developers.keys.createSubtitle')}
         size="md"
         footer={
           revealed ? (
-            <Button onClick={() => setOpen(false)}>Done</Button>
+            <Button onClick={() => setOpen(false)}>{t('common.actions.done')}</Button>
           ) : (
             <>
               <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
-                Cancel
+                {t('common.actions.cancel')}
               </Button>
               <Button onClick={create} disabled={busy || !name.trim() || (access === 'limited' && scopes.length === 0)}>
-                {busy && <Loader2 size={13} className="animate-spin" aria-hidden />} Create key
+                {busy && <Loader2 size={13} className="animate-spin" aria-hidden />} {t('admin.developers.keys.create')}
               </Button>
             </>
           )
@@ -254,13 +283,11 @@ export function ApiKeysCard({ onCreated }: { onCreated: (token: string) => void 
               style={{ color: 'var(--amber-ink)' }}
             >
               <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-hidden />
-              <span>This is the only time the key is shown. Copy it somewhere safe — if it’s lost, revoke it and create another.</span>
+              <span>{t('admin.developers.keys.onlyOnce')}</span>
             </div>
             <div className="eyebrow">{revealed.name}</div>
-            <CopyField value={revealed.token} ariaLabel="New API key" />
-            <p className="text-[12px] text-text-muted">
-              It’s also filled into “Connect an AI app” below for this visit, so you can copy a ready-made config.
-            </p>
+            <CopyField value={revealed.token} ariaLabel={t('admin.developers.keys.newKeyAria')} />
+            <p className="text-[12px] text-text-muted">{t('admin.developers.keys.filledBelow')}</p>
           </div>
         ) : (
           <div className="flex flex-col gap-4">
@@ -270,31 +297,31 @@ export function ApiKeysCard({ onCreated }: { onCreated: (token: string) => void 
               </div>
             )}
             <label className="block">
-              <span className="mb-1 block text-[12px] font-semibold text-text-high">Name</span>
+              <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('common.fields.name')}</span>
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Claude Desktop on my laptop"
+                placeholder={t('admin.developers.keys.namePlaceholder')}
                 maxLength={80}
                 className={inputCls}
               />
             </label>
             <div>
-              <span className="mb-1.5 block text-[12px] font-semibold text-text-high">Access</span>
+              <span className="mb-1.5 block text-[12px] font-semibold text-text-high">{t('admin.developers.keys.access')}</span>
               <Segmented
                 value={access}
                 onChange={setAccess}
-                ariaLabel="Access"
+                ariaLabel={t('admin.developers.keys.access')}
                 options={[
-                  { value: 'full', label: 'Everything I can do' },
-                  { value: 'limited', label: 'Only what I pick' },
+                  { value: 'full', label: t('admin.developers.keys.accessFull') },
+                  { value: 'limited', label: t('admin.developers.keys.accessLimited') },
                 ]}
               />
               {access === 'limited' && (
                 <div className="mt-3 flex max-h-[280px] flex-col gap-3 overflow-y-auto rounded-lg border border-line p-3">
                   {grouped.map(([area, caps]) => (
                     <div key={area}>
-                      <div className="eyebrow mb-1.5">{area}</div>
+                      <div className="eyebrow mb-1.5">{capabilityArea(t, area)}</div>
                       <div className="flex flex-wrap gap-1.5">
                         {caps.map((c) => {
                           const on = scopes.includes(c.capability)
@@ -311,7 +338,7 @@ export function ApiKeysCard({ onCreated }: { onCreated: (token: string) => void 
                                   : 'border-line-strong text-text-mid hover:bg-fill-hover hover:text-text-high'
                               }`}
                             >
-                              {c.label}
+                              {capabilityLabel(t, c)}
                             </button>
                           )
                         })}
@@ -319,15 +346,21 @@ export function ApiKeysCard({ onCreated }: { onCreated: (token: string) => void 
                     </div>
                   ))}
                   <p className="text-[11.5px] text-text-muted">
-                    A key without any “manage” or “send” permission is read-only on the REST API.
+                    {t('admin.developers.keys.readOnlyNote')}
                   </p>
                 </div>
               )}
             </div>
             <div>
-              <span className="mb-1 block text-[12px] font-semibold text-text-high">Expiry</span>
-              <div className="w-[200px]">
-                <Select value={expiry} onChange={setExpiry} options={EXPIRY} size="md" ariaLabel="Expiry" />
+              <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('admin.developers.keys.expiryLabel')}</span>
+              <div className="w-[200px] max-w-full">
+                <Select
+                  value={expiry}
+                  onChange={setExpiry}
+                  options={EXPIRY.map((o) => ({ value: o.value, label: t(o.label) }))}
+                  size="md"
+                  ariaLabel={t('admin.developers.keys.expiryLabel')}
+                />
               </div>
             </div>
           </div>

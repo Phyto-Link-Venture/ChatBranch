@@ -16,6 +16,7 @@
  */
 
 import { authHeaders, getAuth } from './auth'
+import type { MessageKey } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -44,11 +45,35 @@ export const DEFAULT_APPEARANCE: Appearance = {
   headingFont: 'theme',
 }
 
-export const THEMES: { id: ThemeName; name: string; blurb: string; swatch: string[] }[] = [
-  { id: 'paper', name: 'Paper & Ink', blurb: 'Warm paper, ink type, serif headings, one tangerine accent.', swatch: ['#FAF7F2', '#1A1A1A', '#FF5A1F'] },
-  { id: 'graphite', name: 'Graphite Pro', blurb: 'Crisp neutral surfaces, violet accent, compact and focused.', swatch: ['#FFFFFF', '#18181B', '#6D5DFC'] },
-  { id: 'soft', name: 'Soft Blocks', blurb: 'Airy pastel blocks, rounded corners, friendly type.', swatch: ['#F6F4FD', '#5B47D6', '#8AD9B5'] },
+/** `name` / `blurb` are translation keys — render with `t(theme.name)`. */
+export const THEMES: { id: ThemeName; name: MessageKey; blurb: MessageKey; swatch: string[] }[] = [
+  { id: 'paper', name: 'settings.appearance.themes.paper.name', blurb: 'settings.appearance.themes.paper.blurb', swatch: ['#FAF7F2', '#1A1A1A', '#FF5A1F'] },
+  { id: 'graphite', name: 'settings.appearance.themes.graphite.name', blurb: 'settings.appearance.themes.graphite.blurb', swatch: ['#FFFFFF', '#18181B', '#6D5DFC'] },
+  { id: 'soft', name: 'settings.appearance.themes.soft.name', blurb: 'settings.appearance.themes.soft.blurb', swatch: ['#F6F4FD', '#5B47D6', '#8AD9B5'] },
 ]
+
+/** Option names shown in Settings → Appearance (translation keys; the stored values stay the ids). */
+export const MODE_LABELS: Record<Mode, MessageKey> = {
+  light: 'settings.appearance.modes.light',
+  dark: 'settings.appearance.modes.dark',
+  system: 'settings.appearance.modes.system',
+}
+export const TEXT_SIZE_LABELS: Record<TextSize, MessageKey> = {
+  sm: 'settings.appearance.textSizes.sm',
+  md: 'settings.appearance.textSizes.md',
+  lg: 'settings.appearance.textSizes.lg',
+  xl: 'settings.appearance.textSizes.xl',
+}
+export const RADIUS_LABELS: Record<RadiusStyle, MessageKey> = {
+  theme: 'settings.appearance.radii.theme',
+  sharp: 'settings.appearance.radii.sharp',
+  round: 'settings.appearance.radii.round',
+}
+export const HEADING_FONT_LABELS: Record<HeadingFont, MessageKey> = {
+  theme: 'settings.appearance.fonts.theme',
+  serif: 'settings.appearance.fonts.serif',
+  sans: 'settings.appearance.fonts.sans',
+}
 
 export const ACCENT_PRESETS = ['#FF5A1F', '#6D5DFC', '#2F7D4F', '#1F6FD1', '#D6336C', '#C8891A', '#0F8C83', '#1A1A1A']
 
@@ -293,6 +318,7 @@ export async function saveOrgDefaultAppearance(a: Appearance): Promise<{ ok: boo
     const body = await res.json().catch(() => ({}))
     return { ok: false, error: (body as { error?: string }).error || `HTTP ${res.status}` }
   } catch {
-    return { ok: false, error: 'Could not reach the server' }
+    // no `error`: the caller shows its own (translated) "server unreachable" copy
+    return { ok: false }
   }
 }

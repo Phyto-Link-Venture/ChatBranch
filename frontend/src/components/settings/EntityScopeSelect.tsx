@@ -12,6 +12,7 @@
  */
 
 import { EntityPicker } from '@/components/ui/EntityPicker'
+import { useT } from '@/i18n'
 
 /** Thin alias kept for the existing call sites; the tree-aware picker lives
  *  in components/ui/EntityPicker. */
@@ -19,7 +20,7 @@ export function EntityScopeSelect({
   value,
   onChange,
   disabled,
-  globalLabel = 'Organization-wide (shared by all entities)',
+  globalLabel,
   className = '',
 }: {
   /** Entity slug, or null for organization-wide. */
@@ -29,12 +30,13 @@ export function EntityScopeSelect({
   globalLabel?: string
   className?: string
 }) {
+  const t = useT()
   return (
     <EntityPicker
       value={value}
       onChange={onChange}
       disabled={disabled}
-      globalLabel={globalLabel}
+      globalLabel={globalLabel ?? t('settings.scope.globalLabel')}
       size="sm"
       className={className || 'min-w-[200px]'}
     />
@@ -49,6 +51,7 @@ export function ScopeBadge({
   scope: 'global' | 'entity' | string
   entityName?: string
 }) {
+  const t = useT()
   const own = scope === 'entity'
   return (
     <span
@@ -59,11 +62,13 @@ export function ScopeBadge({
       }`}
       title={
         own
-          ? `Belongs to ${entityName || 'this entity'} only`
-          : 'Set organization-wide — every entity inherits this'
+          ? entityName
+            ? t('settings.scope.ownTitle', { entity: entityName })
+            : t('settings.scope.ownTitleThis')
+          : t('settings.scope.inheritedTitle')
       }
     >
-      {own ? entityName || 'This entity' : 'Inherited'}
+      {own ? entityName || t('settings.scope.thisEntity') : t('settings.scope.inherited')}
     </span>
   )
 }

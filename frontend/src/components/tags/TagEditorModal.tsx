@@ -8,6 +8,7 @@ import { Select } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
 import { TagListInput } from '@/components/ui/TagListInput'
 import { EntityPicker } from '@/components/ui/EntityPicker'
+import { Trans, useT } from '@/i18n'
 import {
   APPLIES_TO_META,
   ATTR_TYPE_LABELS,
@@ -66,6 +67,7 @@ export function TagEditorModal({
   onClose: () => void
   onSaved: (tag: TagDef) => void
 }) {
+  const t = useT()
   const [name, setName] = useState('')
   const [color, setColor] = useState('ink')
   const [appliesTo, setAppliesTo] = useState<TagAppliesTo>('contact')
@@ -110,13 +112,13 @@ export function TagEditorModal({
   const save = async () => {
     setError(null)
     if (!name.trim()) {
-      setError('Give the tag a name.')
+      setError(t('admin.tags.editor.needName'))
       return
     }
     const cleaned = appliesTo === 'conversation' ? [] : attrs.map((a) => ({ ...a, label: a.label.trim(), key: a.key || attributeKey(a.label) }))
     const blank = cleaned.findIndex((a) => !a.label)
     if (blank >= 0) {
-      setError(`Field #${blank + 1} needs a label.`)
+      setError(t('admin.tags.editor.fieldNeedsLabel', { n: blank + 1 }))
       return
     }
     setBusy(true)
@@ -143,17 +145,17 @@ export function TagEditorModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={tag ? `Edit ${tag.name}` : 'New tag'}
-      subtitle="A tag says what something is. Give it fields when each use needs details of its own."
+      title={tag ? t('admin.tags.editor.editTitle', { name: tag.name }) : t('admin.tags.manager.newTag')}
+      subtitle={t('admin.tags.editor.subtitle')}
       size="lg"
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={busy}>
-            Cancel
+            {t('common.actions.cancel')}
           </Button>
           <Button variant="primary" onClick={save} disabled={busy}>
             {busy && <Loader2 size={13} className="animate-spin" aria-hidden />}
-            {tag ? 'Save tag' : 'Create tag'}
+            {tag ? t('admin.tags.editor.saveTag') : t('admin.tags.editor.createTag')}
           </Button>
         </>
       }
@@ -167,28 +169,30 @@ export function TagEditorModal({
 
         {/* preview */}
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-line-strong bg-well px-3.5 py-3">
-          <span className="eyebrow">Preview</span>
-          <TagChip name={name.trim() || 'Tag name'} color={color} />
-          {group.trim() && <span className="text-[11.5px] text-text-muted">in group “{group.trim()}”</span>}
+          <span className="eyebrow">{t('admin.tags.editor.preview')}</span>
+          <TagChip name={name.trim() || t('admin.tags.editor.namePlaceholderChip')} color={color} />
+          {group.trim() && (
+            <span className="text-[11.5px] text-text-muted">{t('admin.tags.editor.inGroup', { group: group.trim() })}</span>
+          )}
           {slug && <code className="ml-auto rounded bg-fill px-1.5 py-0.5 text-[11px] text-text-muted">{slug}</code>}
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <label className="block">
-            <FieldLabel>Name</FieldLabel>
+            <FieldLabel>{t('common.fields.name')}</FieldLabel>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Driver"
+              placeholder={t('admin.tags.editor.namePlaceholder')}
               maxLength={80}
               className={inputCls}
             />
           </label>
           <div>
-            <FieldLabel hint={locked ? `In use on ${tag!.usage} — remove it from them to change this.` : undefined}>
-              Applies to
+            <FieldLabel hint={locked ? t('admin.tags.editor.lockedHint', { count: tag!.usage }) : undefined}>
+              {t('admin.tags.editor.appliesTo')}
             </FieldLabel>
-            <div role="radiogroup" aria-label="Applies to" className="flex rounded-lg border border-line-strong bg-card p-0.5">
+            <div role="radiogroup" aria-label={t('admin.tags.editor.appliesTo')} className="flex rounded-lg border border-line-strong bg-card p-0.5">
               {(Object.keys(APPLIES_TO_META) as TagAppliesTo[]).map((k) => (
                 <button
                   key={k}
@@ -201,7 +205,7 @@ export function TagEditorModal({
                     appliesTo === k ? 'bg-primary text-on-primary' : 'text-text-mid hover:bg-fill-hover disabled:opacity-50'
                   }`}
                 >
-                  {APPLIES_TO_META[k].label}
+                  {t(APPLIES_TO_META[k].label)}
                 </button>
               ))}
             </div>
@@ -209,8 +213,8 @@ export function TagEditorModal({
         </div>
 
         <div>
-          <FieldLabel>Colour</FieldLabel>
-          <div role="radiogroup" aria-label="Colour" className="flex flex-wrap gap-2">
+          <FieldLabel>{t('admin.tags.editor.colour')}</FieldLabel>
+          <div role="radiogroup" aria-label={t('admin.tags.editor.colour')} className="flex flex-wrap gap-2">
             {TAG_PALETTE.map((p) => {
               const on = color === p.key
               return (
@@ -219,15 +223,15 @@ export function TagEditorModal({
                   type="button"
                   role="radio"
                   aria-checked={on}
-                  aria-label={p.label}
-                  title={p.label}
+                  aria-label={t(p.label)}
+                  title={t(p.label)}
                   onClick={() => setColor(p.key)}
                   className={`flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-[11.5px] font-semibold transition-colors ${
                     on ? 'border-text-primary bg-fill-hover text-text-high' : 'border-line text-text-muted hover:border-line-strong'
                   }`}
                 >
                   <span className="h-3 w-3 rounded-full" style={{ background: tagColor(p.key).dot }} aria-hidden />
-                  {p.label}
+                  {t(p.label)}
                 </button>
               )
             })}
@@ -236,13 +240,14 @@ export function TagEditorModal({
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <FieldLabel hint="Tags in one group are exclusive: a target holds one of them (e.g. “Company type”: Inner / Outside).">
-              Group <span className="font-normal text-text-muted">(optional)</span>
+            <FieldLabel hint={t('admin.tags.editor.groupHint')}>
+              {t('admin.tags.editor.group')}{' '}
+              <span className="font-normal text-text-muted">{t('admin.tags.editor.optionalParen')}</span>
             </FieldLabel>
             <input
               value={group}
               onChange={(e) => setGroup(e.target.value)}
-              placeholder="e.g. Role"
+              placeholder={t('admin.tags.editor.groupPlaceholder')}
               maxLength={60}
               className={inputCls}
             />
@@ -262,20 +267,23 @@ export function TagEditorModal({
             )}
           </div>
           <div>
-            <FieldLabel hint="An entity's own tag is offered only there; organization-wide tags are offered everywhere.">
-              Belongs to
-            </FieldLabel>
-            <EntityPicker value={entity} onChange={setEntity} globalLabel="Organization-wide" ariaLabel="Tag scope" />
+            <FieldLabel hint={t('admin.tags.editor.belongsHint')}>{t('admin.tags.editor.belongsTo')}</FieldLabel>
+            <EntityPicker
+              value={entity}
+              onChange={setEntity}
+              globalLabel={t('admin.bindings.orgWide')}
+              ariaLabel={t('admin.tags.editor.scopeAria')}
+            />
           </div>
         </div>
 
         <label className="block">
-          <FieldLabel>Description</FieldLabel>
+          <FieldLabel>{t('common.fields.description')}</FieldLabel>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={2}
-            placeholder="When to use this tag"
+            placeholder={t('admin.tags.editor.descriptionPlaceholder')}
             className="w-full resize-y rounded-lg border border-line-strong bg-card px-3 py-2 text-[13px] text-text-primary outline-none placeholder:text-text-faint focus:border-text-primary"
           />
         </label>
@@ -284,10 +292,15 @@ export function TagEditorModal({
           <section className="border-t border-line pt-4">
             <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
               <div>
-                <h3 className="display text-[17px] leading-tight text-text-heading">Fields</h3>
+                <h3 className="display text-[17px] leading-tight text-text-heading">{t('admin.tags.editor.fields')}</h3>
                 <p className="mt-0.5 text-[11.5px] text-text-muted">
-                  Details each {APPLIES_TO_META[appliesTo].noun} with this tag carries — usable in templates as{' '}
-                  <code className="text-text-mid">{`{{${varPrefix}<field>}}`}</code>.
+                  <Trans
+                    k="admin.tags.editor.fieldsHint"
+                    values={{
+                      noun: t(APPLIES_TO_META[appliesTo].noun),
+                      variable: <code className="text-text-mid">{`{{${varPrefix}<field>}}`}</code>,
+                    }}
+                  />
                 </p>
               </div>
               <Button
@@ -295,12 +308,12 @@ export function TagEditorModal({
                 size="sm"
                 onClick={() => setAttrs((cur) => [...cur, { key: '', label: '', type: 'text', options: [], required: false }])}
               >
-                <Plus size={13} aria-hidden /> Add field
+                <Plus size={13} aria-hidden /> {t('admin.tags.editor.addField')}
               </Button>
             </div>
             {attrs.length === 0 ? (
               <p className="rounded-lg border border-dashed border-line px-3 py-4 text-center text-[12px] text-text-muted">
-                No fields — the tag is just a label.
+                {t('admin.tags.editor.noFields')}
               </p>
             ) : (
               <ol className="flex flex-col gap-2">
@@ -308,35 +321,39 @@ export function TagEditorModal({
                   <li key={i} className="rounded-lg border border-line bg-card p-2.5">
                     <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_150px_auto]">
                       <label className="block">
-                        <span className="mb-1 block text-[11px] font-semibold text-text-mid">Label</span>
+                        <span className="mb-1 block text-[11px] font-semibold text-text-mid">{t('admin.tags.editor.fieldLabel')}</span>
                         <input
                           value={a.label}
                           onChange={(e) => patchAttr(i, { label: e.target.value, key: tag?.attributes.some((x) => x.key === a.key) ? a.key : '' })}
-                          placeholder="e.g. Licence no."
+                          placeholder={t('admin.tags.editor.fieldLabelPlaceholder')}
                           className={inputCls}
                         />
                       </label>
                       <label className="block">
-                        <span className="mb-1 block text-[11px] font-semibold text-text-mid">Type</span>
+                        <span className="mb-1 block text-[11px] font-semibold text-text-mid">{t('common.fields.type')}</span>
                         <Select
                           value={a.type}
                           onChange={(v) => patchAttr(i, { type: v as TagAttrType })}
                           size="md"
-                          ariaLabel={`Type of ${a.label || `field ${i + 1}`}`}
-                          options={(Object.keys(ATTR_TYPE_LABELS) as TagAttrType[]).map((t) => ({ value: t, label: ATTR_TYPE_LABELS[t] }))}
+                          ariaLabel={t('admin.tags.editor.typeOf', { field: a.label || t('admin.tags.editor.fieldN', { n: i + 1 }) })}
+                          options={(Object.keys(ATTR_TYPE_LABELS) as TagAttrType[]).map((ty) => ({ value: ty, label: t(ATTR_TYPE_LABELS[ty]) }))}
                         />
                       </label>
                       <div className="flex items-center gap-1 pb-0.5">
                         <span className="mr-1 flex items-center gap-1.5 text-[11.5px] text-text-mid">
-                          <Toggle on={a.required} onChange={(v) => patchAttr(i, { required: v })} label={`${a.label || 'Field'} required`} />
-                          Required
+                          <Toggle
+                            on={a.required}
+                            onChange={(v) => patchAttr(i, { required: v })}
+                            label={t('admin.tags.editor.requiredAria', { field: a.label || t('admin.tags.editor.field') })}
+                          />
+                          {t('common.status.required')}
                         </span>
                         <button
                           type="button"
                           onClick={() => move(i, -1)}
                           disabled={i === 0}
-                          aria-label="Move up"
-                          title="Move up"
+                          aria-label={t('admin.tags.editor.moveUp')}
+                          title={t('admin.tags.editor.moveUp')}
                           className="grid h-8 w-8 place-items-center rounded-md text-text-muted hover:bg-fill-hover hover:text-text-high disabled:opacity-30"
                         >
                           <ArrowUp size={14} aria-hidden />
@@ -345,8 +362,8 @@ export function TagEditorModal({
                           type="button"
                           onClick={() => move(i, 1)}
                           disabled={i === attrs.length - 1}
-                          aria-label="Move down"
-                          title="Move down"
+                          aria-label={t('admin.tags.editor.moveDown')}
+                          title={t('admin.tags.editor.moveDown')}
                           className="grid h-8 w-8 place-items-center rounded-md text-text-muted hover:bg-fill-hover hover:text-text-high disabled:opacity-30"
                         >
                           <ArrowDown size={14} aria-hidden />
@@ -354,8 +371,8 @@ export function TagEditorModal({
                         <button
                           type="button"
                           onClick={() => setAttrs((cur) => cur.filter((_, idx) => idx !== i))}
-                          aria-label="Remove field"
-                          title="Remove field"
+                          aria-label={t('admin.tags.editor.removeField')}
+                          title={t('admin.tags.editor.removeField')}
                           className="grid h-8 w-8 place-items-center rounded-md text-text-muted hover:bg-red/10 hover:text-[color:var(--red-ink)]"
                         >
                           <Trash2 size={14} aria-hidden />
@@ -364,12 +381,12 @@ export function TagEditorModal({
                     </div>
                     {a.type === 'select' && (
                       <div className="mt-2">
-                        <span className="mb-1 block text-[11px] font-semibold text-text-mid">Options</span>
+                        <span className="mb-1 block text-[11px] font-semibold text-text-mid">{t('admin.tags.editor.options')}</span>
                         <TagListInput
                           value={a.options}
                           onChange={(options) => patchAttr(i, { options })}
-                          placeholder="Type an option, press Enter"
-                          addLabel="Add option"
+                          placeholder={t('admin.tags.editor.optionPlaceholder')}
+                          addLabel={t('admin.tags.editor.addOption')}
                         />
                       </div>
                     )}

@@ -9,8 +9,9 @@ import { DataTable, type Column } from '@/components/ui/DataTable'
 import { EntityAccessGrid } from '@/components/bindings/EntityAccessGrid'
 import { orderEntityTree } from '@/components/bindings/groups'
 import { roleHeaders } from '@/lib/role'
-import { expireSessionOn401, getAuth, authHeaders } from '@/lib/auth'
+import { expireSessionOn401, getAuth, authHeaders, roleDisplayName } from '@/lib/auth'
 import { useRole } from '@/lib/useRole'
+import { useFormat, useT, type MessageKey } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -77,12 +78,6 @@ const inputCls =
 
 const BUILTIN_ROLES = ['superadmin', 'admin', 'agent']
 
-const FALLBACK_ROLE_LABEL: Record<string, string> = {
-  superadmin: 'Super admin',
-  admin: 'Admin',
-  agent: 'Agent',
-}
-
 // superadmin = ink, admin = neutral, agent = ochre, custom = plum
 const ROLE_CHIP: Record<string, string> = {
   superadmin: 'bg-primary text-on-primary',
@@ -91,9 +86,23 @@ const ROLE_CHIP: Record<string, string> = {
 }
 const CUSTOM_ROLE_CHIP = 'bg-purple/15 text-[color:var(--purple-ink)]'
 
-const humanize = (slug: string) =>
-  FALLBACK_ROLE_LABEL[slug] ||
-  slug.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+/** What each built-in role can do — the three cards above the table. */
+const ROLE_CARDS: { slug: string; items: MessageKey[] }[] = [
+  {
+    slug: 'superadmin',
+    items: ['admin.users.cards.superadmin1', 'admin.users.cards.superadmin2', 'admin.users.cards.superadmin3'],
+  },
+  {
+    slug: 'admin',
+    items: ['admin.users.cards.admin1', 'admin.users.cards.admin2', 'admin.users.cards.admin3'],
+  },
+  {
+    slug: 'agent',
+    items: ['admin.users.cards.agent1', 'admin.users.cards.agent2', 'admin.users.cards.agent3'],
+  },
+]
+
+const builtinRows = (): RoleRow[] => BUILTIN_ROLES.map((slug) => ({ slug, label: '', is_system: true, user_count: 0 }))
 
 function Field({
   label,
@@ -156,15 +165,15 @@ function ErrorBox({ text }: { text: string }) {
  * entity holding it and its sub-entities.
  */
 export function UsersSettings() {
+  const t = useT()
+  const f = useFormat()
   const { role: myRole, ready } = useRole()
   const [me, setMe] = useState<string | undefined>(undefined)
   useEffect(() => setMe(getAuth()?.username), [])
   const [users, setUsers] = useState<ManagedUser[] | null>(null)
   // Seed with the built-ins so the role selectors never flash empty before the
   // /api/auth/roles fetch (which adds any custom roles) resolves.
-  const [roleOptions, setRoleOptions] = useState<RoleRow[]>(() =>
-    BUILTIN_ROLES.map((slug) => ({ slug, label: humanize(slug), is_system: true, user_count: 0 })),
-  )
+  const [roleOptions, setRoleOptions] = useState<RoleRow[]>(builtinRows)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   // reset-password modal (one row at a time)
@@ -211,18 +220,12 @@ export function UsersSettings() {
       .then((r) => (r.ok ? r.json() : { roles: [] }))
       .then((d) => {
         const rows: RoleRow[] = Array.isArray(d.roles) ? d.roles : []
-        setRoleOptions(
-          rows.length > 0
-            ? rows
-            : BUILTIN_ROLES.map((slug) => ({ slug, label: humanize(slug), is_system: true, user_count: 0 })),
-        )
+        setRoleOptions(rows.length > 0 ? rows : builtinRows())
       })
-      .catch(() =>
-        setRoleOptions(BUILTIN_ROLES.map((slug) => ({ slug, label: humanize(slug), is_system: true, user_count: 0 }))),
-      )
+      .catch(() => setRoleOptions(builtinRows()))
   }, [refresh])
 
-  const roleLabel = (slug: string) => roleOptions.find((r) => r.slug === slug)?.label || humanize(slug)
+  const roleLabel = (slug: string) => roleDisplayName(t, slug, roleOptions.find((r) => r.slug === slug)?.label)
   const roleChip = (slug: string) => ROLE_CHIP[slug] || CUSTOM_ROLE_CHIP
   /** Roles the CURRENT operator may assign. Superadmin: all. Admin: agent-level
    *  only (agent + any custom) — never admin/superadmin. */
@@ -231,16 +234,16 @@ export function UsersSettings() {
 
   const roleSelectOptions: SelectOption[] = roleOptions.map((r) => ({
     value: r.slug,
-    label: r.label,
-    group: r.is_system ? 'Built-in roles' : 'Custom roles',
+    label: roleLabel(r.slug),
+    group: r.is_system ? t('admin.users.builtinRoles') : t('admin.users.customRoles'),
   }))
 
   const contactOptions = useMemo<SelectOption[]>(
     () => [
-      { value: '', label: '— none —' },
+      { value: '', label: t('admin.users.noContact') },
       ...contactPool.map((c) => ({ value: String(c.id), label: c.name, hint: c.phone })),
     ],
-    [contactPool],
+    [contactPool, t],
   )
 
   const run = async (fn: () => Promise<unknown>, okText?: string) => {
@@ -265,7 +268,7 @@ export function UsersSettings() {
   const setRole = (u: ManagedUser, role: string) =>
     run(
       () => api(`users/${u.id}`, { method: 'POST', body: JSON.stringify({ role }) }),
-      `Role updated — ${u.username} is now ${roleLabel(role).toLowerCase()}.`,
+      t('admin.users.roleUpdated', { user: u.username, role: roleLabel(role) }),
     )
 
   /** Bind (or unbind, with '') this login to a CONTACT — the customer whose
@@ -277,14 +280,17 @@ export function UsersSettings() {
     run(
       () => api(`users/${u.id}`, { method: 'POST', body: JSON.stringify({ contact_id: contactId }) }),
       contactId === null
-        ? `Unbound — ${u.username} is no longer linked to a contact.`
-        : `Bound to ${target?.name ?? `contact #${contactId}`} — ${u.username} signs in as that customer.`,
+        ? t('admin.users.unbound', { user: u.username })
+        : t('admin.users.bound', {
+            contact: target?.name ?? t('admin.users.contactN', { id: contactId }),
+            user: u.username,
+          }),
     )
   }
 
   const resetPassword = (u: ManagedUser) => {
     if (pwDraft.length < 8) {
-      setMsg({ ok: false, text: 'Password must be at least 8 characters.' })
+      setMsg({ ok: false, text: t('admin.users.passwordTooShort') })
       return
     }
     const password = pwDraft
@@ -292,18 +298,17 @@ export function UsersSettings() {
       await api(`users/${u.id}`, { method: 'POST', body: JSON.stringify({ password }) })
       setPwFor(null)
       setPwDraft('')
-    }, `Password reset — ${u.username} has been signed out everywhere.`)
+    }, t('admin.users.passwordReset', { user: u.username }))
   }
 
   const toggleActive = (u: ManagedUser) => {
     if (u.active) {
-      if (!window.confirm(`Deactivate ${u.username}? They will be signed out everywhere and unable to log in.`))
-        return
-      run(() => api(`users/${u.id}`, { method: 'DELETE' }), `${u.username} deactivated.`)
+      if (!window.confirm(t('admin.users.confirmDeactivate', { user: u.username }))) return
+      run(() => api(`users/${u.id}`, { method: 'DELETE' }), t('admin.users.deactivatedMsg', { user: u.username }))
     } else {
       run(
         () => api(`users/${u.id}`, { method: 'POST', body: JSON.stringify({ active: true }) }),
-        `${u.username} reactivated — they can log in again.`,
+        t('admin.users.reactivatedMsg', { user: u.username }),
       )
     }
   }
@@ -313,11 +318,11 @@ export function UsersSettings() {
     // reads as "broken", especially when browser autofill ghost-fills the form
     const username = newUsername.trim()
     if (!username) {
-      setMsg({ ok: false, text: 'Username is required — type it in (autofilled text does not count).' })
+      setMsg({ ok: false, text: t('admin.users.usernameRequired') })
       return
     }
     if (newPassword.length < 8) {
-      setMsg({ ok: false, text: 'Password must be at least 8 characters.' })
+      setMsg({ ok: false, text: t('admin.users.passwordTooShort') })
       return
     }
     run(async () => {
@@ -337,7 +342,7 @@ export function UsersSettings() {
       setNewRole('agent')
       setNewEntityIds([])
       setShowAdd(false)
-    }, `User ${username} created.`)
+    }, t('admin.users.created', { user: username }))
   }
 
   const saveEntities = (u: ManagedUser) =>
@@ -347,7 +352,7 @@ export function UsersSettings() {
         body: JSON.stringify({ entity_ids: entitiesDraft }),
       })
       setEntitiesFor(null)
-    }, `Entity access updated for ${u.username}.`)
+    }, t('admin.users.entityAccessUpdated', { user: u.username }))
 
   // entity name lookup with the tree's main/sub knowledge, for the table chips
   const entityDepth = useMemo(
@@ -361,28 +366,28 @@ export function UsersSettings() {
     return (
       <div className="flex items-center gap-2 py-6 text-[13px] text-text-muted">
         <ShieldAlert size={15} className="text-[color:var(--amber-ink)]" aria-hidden />
-        Users are managed by admins.
+        {t('admin.users.adminsOnly')}
       </div>
     )
   }
 
   if (users === null) {
     return (
-      <div className="py-6 text-[13px] text-text-muted">User management unavailable — is the backend API running?</div>
+      <div className="py-6 text-[13px] text-text-muted">{t('admin.users.unavailable')}</div>
     )
   }
 
   const columns: Column<ManagedUser>[] = [
     {
       key: 'user',
-      header: 'User',
+      header: t('admin.users.col.user'),
       sortable: true,
       value: (u) => `${u.username} ${u.name} ${u.tenant ?? ''}`,
       render: (u) => (
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-[13.5px] font-semibold text-text-heading">{u.username}</span>
-            {u.username === me && <span className="text-[11px] font-semibold text-text-muted">(you)</span>}
+            {u.username === me && <span className="text-[11px] font-semibold text-text-muted">{t('admin.users.you')}</span>}
           </div>
           {u.name && u.name !== u.username && <div className="mt-0.5 text-[11.5px] text-text-muted">{u.name}</div>}
         </div>
@@ -390,7 +395,7 @@ export function UsersSettings() {
     },
     {
       key: 'role',
-      header: 'Role',
+      header: t('admin.users.col.role'),
       sortable: true,
       width: 170,
       value: (u) => roleLabel(u.role),
@@ -401,7 +406,7 @@ export function UsersSettings() {
             disabled={busy}
             onChange={(v) => v !== u.role && setRole(u, v)}
             options={roleSelectOptions}
-            ariaLabel={`Role for ${u.username}`}
+            ariaLabel={t('admin.users.roleFor', { user: u.username })}
             className="w-[150px]"
           />
         ) : (
@@ -412,31 +417,31 @@ export function UsersSettings() {
     },
     {
       key: 'status',
-      header: 'Status',
+      header: t('common.fields.status'),
       sortable: true,
       width: 110,
-      value: (u) => (u.active ? 'active' : 'deactivated'),
+      value: (u) => (u.active ? t('common.status.active') : t('admin.users.deactivated')),
       render: (u) =>
         u.active ? (
           <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[color:var(--green-ink)]">
-            <span className="h-1.5 w-1.5 rounded-full bg-green" aria-hidden /> Active
+            <span className="h-1.5 w-1.5 rounded-full bg-green" aria-hidden /> {t('common.status.active')}
           </span>
         ) : (
           <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[color:var(--red-ink)]">
-            <span className="h-1.5 w-1.5 rounded-full bg-red" aria-hidden /> Deactivated
+            <span className="h-1.5 w-1.5 rounded-full bg-red" aria-hidden /> {t('admin.users.deactivated')}
           </span>
         ),
     },
     {
       key: 'entities',
-      header: 'Entity access',
+      header: t('admin.users.entityAccess'),
       width: 220,
       value: (u) => u.entities.map((e) => e.name).join(' '),
       render: (u) =>
         u.role === 'admin' || u.role === 'superadmin' ? (
-          <span className="text-[12px] text-text-muted">All entities</span>
+          <span className="text-[12px] text-text-muted">{t('admin.users.allEntities')}</span>
         ) : u.entities.length === 0 ? (
-          <span className="text-[12px] text-text-muted">Whole organization</span>
+          <span className="text-[12px] text-text-muted">{t('admin.users.wholeOrg')}</span>
         ) : (
           <div className="flex flex-wrap items-center gap-1">
             {u.entities.slice(0, 3).map((b) => (
@@ -446,7 +451,7 @@ export function UsersSettings() {
               >
                 {entityDepth.get(b.id) === 0 && (
                   <span className="rounded-sm bg-primary px-1 text-[8.5px] font-bold uppercase tracking-[0.05em] text-on-primary">
-                    Main
+                    {t('admin.bindings.groups.main')}
                   </span>
                 )}
                 {b.name}
@@ -458,7 +463,7 @@ export function UsersSettings() {
     },
     {
       key: 'contact',
-      header: 'Signs in as contact',
+      header: t('admin.users.col.contact'),
       width: 220,
       value: (u) => u.contact_name ?? '',
       render: (u) =>
@@ -480,7 +485,7 @@ export function UsersSettings() {
                 ? [...contactOptions, { value: String(u.contact_id), label: u.contact_name || `#${u.contact_id}` }]
                 : contactOptions
             }
-            ariaLabel={`Contact for ${u.username}`}
+            ariaLabel={t('admin.users.contactFor', { user: u.username })}
             searchable
             className="w-[200px]"
           />
@@ -488,19 +493,19 @@ export function UsersSettings() {
     },
     {
       key: 'last_login',
-      header: 'Last login',
+      header: t('admin.users.col.lastLogin'),
       sortable: true,
       width: 150,
       value: (u) => u.last_login ?? '',
       render: (u) => (
         <span className="text-[12px] text-text-muted">
-          {u.last_login ? new Date(u.last_login).toLocaleString() : 'Never'}
+          {u.last_login ? f.dateTime(u.last_login) : t('common.status.never')}
         </span>
       ),
     },
     {
       key: 'actions',
-      header: 'Actions',
+      header: t('admin.users.col.actions'),
       srHeader: true,
       align: 'right',
       render: (u) => (
@@ -515,8 +520,8 @@ export function UsersSettings() {
                 setEntitiesDraft(u.entities.map((b) => b.id))
                 setEntitiesFor(u.id)
               }}
-              title="Entity access"
-              aria-label={`Entity access for ${u.username}`}
+              title={t('admin.users.entityAccess')}
+              aria-label={t('admin.users.entityAccessFor', { user: u.username })}
               className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:opacity-50"
             >
               <Building2 size={14} aria-hidden />
@@ -531,8 +536,8 @@ export function UsersSettings() {
                   setPwDraft('')
                   setPwFor(u.id)
                 }}
-                title="Reset password"
-                aria-label={`Reset password for ${u.username}`}
+                title={t('admin.users.resetPassword')}
+                aria-label={t('admin.users.resetPasswordFor', { user: u.username })}
                 className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:opacity-50"
               >
                 <KeyRound size={14} aria-hidden />
@@ -540,8 +545,12 @@ export function UsersSettings() {
               <button
                 disabled={busy}
                 onClick={() => toggleActive(u)}
-                title={u.active ? 'Deactivate' : 'Reactivate'}
-                aria-label={`${u.active ? 'Deactivate' : 'Reactivate'} ${u.username}`}
+                title={u.active ? t('admin.users.deactivate') : t('admin.users.reactivate')}
+                aria-label={
+                  u.active
+                    ? t('admin.users.deactivateUser', { user: u.username })
+                    : t('admin.users.reactivateUser', { user: u.username })
+                }
                 className={`grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover disabled:opacity-50 ${
                   u.active ? 'hover:text-[color:var(--red-ink)]' : 'hover:text-[color:var(--green-ink)]'
                 }`}
@@ -562,38 +571,22 @@ export function UsersSettings() {
   return (
     <div className="flex flex-col gap-5 pt-4">
       <p className="max-w-[760px] text-[13px] leading-relaxed text-text-mid">
-        Operator logins for this dashboard. A password reset or deactivation signs that user out everywhere
-        immediately, and the last active super admin can never be demoted or deactivated.
-        {!isSuper && ' As an admin you can create and manage agent-level users in your own organization.'}
+        {t('admin.users.intro')}
+        {!isSuper && ` ${t('admin.users.introAdmin')}`}
       </p>
 
       {/* what each built-in role can do */}
       <div className="grid gap-3 sm:grid-cols-3">
-        {(
-          [
-            {
-              slug: 'superadmin',
-              items: ['Everything, across every organization', 'App keys & global settings', 'Creates admins & agents'],
-            },
-            {
-              slug: 'admin',
-              items: ['Own organization, every entity', 'Channels, routing, flows, templates, tags', 'Creates agent-level users'],
-            },
-            {
-              slug: 'agent',
-              items: ['Chats, calls and contacts', 'Only the entities assigned to them (and beneath)', 'No settings'],
-            },
-          ] as { slug: string; items: string[] }[]
-        ).map((c) => (
+        {ROLE_CARDS.map((c) => (
           <div key={c.slug} className="rounded-xl border border-line bg-card p-3.5">
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${ROLE_CHIP[c.slug]}`}>
-              {humanize(c.slug)}
+              {roleDisplayName(t, c.slug)}
             </span>
             <ul className="mt-2.5 flex flex-col gap-1 text-[12px] leading-relaxed text-text-mid">
               {c.items.map((i) => (
                 <li key={i} className="flex gap-1.5">
                   <span className="text-text-faint">—</span>
-                  {i}
+                  {t(i)}
                 </li>
               ))}
             </ul>
@@ -601,8 +594,7 @@ export function UsersSettings() {
         ))}
       </div>
       <p className="-mt-2 text-[11.5px] leading-relaxed text-text-muted">
-        Custom roles (managed under Permissions) are agent-level for assignment and use whatever capabilities the
-        permission matrix grants them.
+        {t('admin.users.customRolesNote')}
       </p>
 
       {/* Failures raised while a modal is open render inside that modal; the
@@ -621,8 +613,8 @@ export function UsersSettings() {
         rows={users}
         rowKey={(u) => u.id}
         searchKeys={['user', 'role', 'entities', 'contact']}
-        searchPlaceholder="Search users…"
-        empty="No users yet."
+        searchPlaceholder={t('admin.users.searchPlaceholder')}
+        empty={t('admin.users.empty')}
         pageSize={15}
         toolbarRight={
           <Button
@@ -631,7 +623,7 @@ export function UsersSettings() {
               setShowAdd(true)
             }}
           >
-            <UserPlus size={14} aria-hidden /> Add user
+            <UserPlus size={14} aria-hidden /> {t('admin.users.addUser')}
           </Button>
         }
       />
@@ -640,17 +632,17 @@ export function UsersSettings() {
       <Modal
         open={showAdd}
         onClose={() => setShowAdd(false)}
-        title="Add user"
-        subtitle="Create an operator login for this dashboard."
+        title={t('admin.users.addUser')}
+        subtitle={t('admin.users.addSubtitle')}
         size="lg"
         footer={
           <>
             <Button variant="ghost" onClick={() => setShowAdd(false)} disabled={busy}>
-              Cancel
+              {t('common.actions.cancel')}
             </Button>
             <Button variant="primary" onClick={addUser} disabled={busy}>
               {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <UserPlus size={13} aria-hidden />}{' '}
-              Add user
+              {t('admin.users.addUser')}
             </Button>
           </>
         }
@@ -659,45 +651,47 @@ export function UsersSettings() {
           {msg && !msg.ok && <ErrorBox text={msg.text} />}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field
-              label="Username"
+              label={t('admin.users.username')}
               value={newUsername}
               onChange={setNewUsername}
-              placeholder="e.g. agent2"
-              hint="Login name — must be unique."
+              placeholder={t('admin.users.usernamePlaceholder')}
+              hint={t('admin.users.usernameHint')}
             />
-            <Field label="Display name" value={newName} onChange={setNewName} placeholder="e.g. Aina Rahman" />
             <Field
-              label="Password"
+              label={t('admin.users.displayName')}
+              value={newName}
+              onChange={setNewName}
+              placeholder={t('admin.users.displayNamePlaceholder')}
+            />
+            <Field
+              label={t('admin.users.password')}
               value={newPassword}
               onChange={setNewPassword}
-              placeholder="min 8 characters"
-              hint="Share it with the user out-of-band; you can reset it here any time."
+              placeholder={t('admin.users.passwordPlaceholder')}
+              hint={t('admin.users.passwordHint')}
               secret
             />
             <div>
-              <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">Role</span>
+              <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">{t('admin.users.col.role')}</span>
               <Select
                 value={newRole}
                 onChange={setNewRole}
                 size="md"
-                ariaLabel="Role"
+                ariaLabel={t('admin.users.col.role')}
                 options={assignableRoles().map((r) => ({
                   value: r.slug,
-                  label: r.label,
-                  group: r.is_system ? 'Built-in roles' : 'Custom roles',
+                  label: roleLabel(r.slug),
+                  group: r.is_system ? t('admin.users.builtinRoles') : t('admin.users.customRoles'),
                 }))}
               />
-              <span className="mt-1 block text-[11px] leading-relaxed text-text-muted">
-                Super admin: everything · Admin: own organization · Agent &amp; custom: assigned entities only.
-              </span>
+              <span className="mt-1 block text-[11px] leading-relaxed text-text-muted">{t('admin.users.roleHint')}</span>
             </div>
           </div>
           {newRole === 'agent' && (
             <div className="border-t border-line pt-4">
-              <span className="block text-[11.5px] font-bold text-text-high">Entity access</span>
+              <span className="block text-[11.5px] font-bold text-text-high">{t('admin.users.entityAccess')}</span>
               <span className="mb-2.5 mt-0.5 block text-[11px] leading-relaxed text-text-muted">
-                An agent sees only the contacts and chats of the entities ticked here — and everything beneath them.
-                None ticked = the whole organization. Change it later with the entity button on their row.
+                {t('admin.users.entityAccessHint')}
               </span>
               <EntityAccessGrid entities={entityPool} value={newEntityIds} onChange={setNewEntityIds} disabled={busy} />
             </div>
@@ -716,16 +710,16 @@ export function UsersSettings() {
           <Modal
             open={!!pwUser}
             onClose={close}
-            title={pwUser ? `Reset password — ${pwUser.username}` : 'Reset password'}
-            subtitle="Setting a new password signs the user out everywhere immediately."
+            title={pwUser ? t('admin.users.resetPasswordTitle', { user: pwUser.username }) : t('admin.users.resetPassword')}
+            subtitle={t('admin.users.resetSubtitle')}
             size="sm"
             footer={
               <>
                 <Button variant="ghost" onClick={close}>
-                  Cancel
+                  {t('common.actions.cancel')}
                 </Button>
                 <Button variant="primary" disabled={busy || pwDraft.length < 8} onClick={() => pwUser && resetPassword(pwUser)}>
-                  {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null} Set password
+                  {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null} {t('admin.users.setPassword')}
                 </Button>
               </>
             }
@@ -734,15 +728,15 @@ export function UsersSettings() {
               {msg && !msg.ok && <ErrorBox text={msg.text} />}
               {pwUser && (
                 <label className="block">
-                  <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">New password</span>
+                  <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">{t('admin.users.newPassword')}</span>
                   <input
                     type="password"
                     value={pwDraft}
                     onChange={(e) => setPwDraft(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && resetPassword(pwUser)}
-                    placeholder="At least 8 characters"
+                    placeholder={t('admin.users.newPasswordPlaceholder')}
                     autoComplete="new-password"
-                    aria-label={`New password for ${pwUser.username}`}
+                    aria-label={t('admin.users.newPasswordFor', { user: pwUser.username })}
                     className={inputCls}
                   />
                 </label>
@@ -759,17 +753,23 @@ export function UsersSettings() {
           <Modal
             open={!!entitiesUser}
             onClose={() => setEntitiesFor(null)}
-            title={entitiesUser ? `Entity access — ${entitiesUser.username}` : 'Entity access'}
-            subtitle="Tick a main entity to grant everything under it, or open Manage to pick sub-entities one by one. None ticked = the whole organization."
+            title={
+              entitiesUser
+                ? t('admin.users.entityAccessTitle', { user: entitiesUser.username })
+                : t('admin.users.entityAccess')
+            }
+            subtitle={t('admin.users.entityModalSubtitle')}
             size="lg"
             footer={
               <>
-                <span className="mr-auto text-[12px] text-text-muted">{entitiesDraft.length} selected</span>
+                <span className="mr-auto text-[12px] text-text-muted">
+                  {t('common.counts.selected', { count: entitiesDraft.length })}
+                </span>
                 <Button variant="ghost" onClick={() => setEntitiesFor(null)}>
-                  Cancel
+                  {t('common.actions.cancel')}
                 </Button>
                 <Button variant="primary" disabled={busy} onClick={() => entitiesUser && saveEntities(entitiesUser)}>
-                  {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null} Save entity access
+                  {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null} {t('admin.users.saveEntityAccess')}
                 </Button>
               </>
             }

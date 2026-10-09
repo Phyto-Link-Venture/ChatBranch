@@ -10,6 +10,7 @@ import { TagListInput } from '@/components/ui/TagListInput'
 import { roleHeaders, getRole } from '@/lib/role'
 import { expireSessionOn401 } from '@/lib/auth'
 import { useAccess } from '@/lib/useAccess'
+import { Trans, useT } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -44,6 +45,7 @@ interface RecoveryAccount {
  * Routing Rules card.
  */
 export function RecoveryBanner({ className = '' }: { className?: string }) {
+  const t = useT()
   const [downs, setDowns] = useState<RecoveryAccount[]>([])
   const [canManage, setCanManage] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -64,8 +66,8 @@ export function RecoveryBanner({ className = '' }: { className?: string }) {
 
   useEffect(() => {
     load()
-    const t = setInterval(load, 60_000)
-    return () => clearInterval(t)
+    const timer = setInterval(load, 60_000)
+    return () => clearInterval(timer)
   }, [load])
 
   const send = async (a: RecoveryAccount) => {
@@ -80,7 +82,7 @@ export function RecoveryBanner({ className = '' }: { className?: string }) {
       const data = (await res.json().catch(() => ({}))) as { queued?: number; detail?: string }
       if (res.ok) {
         const n = data.queued ?? 0
-        setResults((m) => ({ ...m, [a.account_id]: { ok: true, text: `${n} queued` } }))
+        setResults((m) => ({ ...m, [a.account_id]: { ok: true, text: t('admin.routing.recovery.queued', { count: n }) } }))
       } else {
         setResults((m) => ({
           ...m,
@@ -122,17 +124,15 @@ export function RecoveryBanner({ className = '' }: { className?: string }) {
             <AlertTriangle size={16} className="shrink-0 text-[color:var(--red-ink)]" aria-hidden />
             <div className="min-w-0 flex-1 text-[12.5px] leading-relaxed">
               <span className="font-bold" style={{ color: 'var(--red-ink)' }}>
-                「{a.name}」 is down
+                {t('admin.routing.recovery.isDown', { name: a.name })}
               </span>{' '}
-              <span className="text-text-mid">
-                — {a.affected} contact{a.affected === 1 ? '' : 's'} affected.
-              </span>
+              <span className="text-text-mid">{t('admin.routing.recovery.affected', { count: a.affected })}</span>
               {r && (
                 <span
                   className="ml-2 font-semibold"
                   style={{ color: r.ok ? 'var(--green-ink)' : 'var(--red-ink)' }}
                 >
-                  {r.ok ? `${r.text} — recovery templates on the way.` : r.text}
+                  {r.ok ? t('admin.routing.recovery.onTheWay', { queued: r.text }) : r.text}
                   {!r.ok && r.needsTemplate && (
                     <>
                       {' '}
@@ -141,7 +141,7 @@ export function RecoveryBanner({ className = '' }: { className?: string }) {
                         className="cursor-pointer font-semibold underline underline-offset-2"
                         style={{ color: 'var(--red-ink)' }}
                       >
-                        Configure in Routing Rules
+                        {t('admin.routing.recovery.configure')}
                       </button>
                     </>
                   )}
@@ -155,7 +155,7 @@ export function RecoveryBanner({ className = '' }: { className?: string }) {
                 ) : (
                   <Send size={13} aria-hidden />
                 )}{' '}
-                Send recovery templates
+                {t('admin.routing.recovery.send')}
               </Button>
             )}
           </div>
@@ -215,6 +215,7 @@ function RuleRow({ label, sub, control }: { label: string; sub: ReactNode; contr
  * backend lands in parallel — a 404 just means "defaults, save retries live".
  */
 export function RoutingRulesSettings() {
+  const t = useT()
   const [rules, setRules] = useState<RoutingRules | null>(null)
   const [endpointUp, setEndpointUp] = useState(true)
   const [templates, setTemplates] = useState<string[]>([])
@@ -247,9 +248,9 @@ export function RoutingRulesSettings() {
           cloud.find((x) => x.waba_id) ||
           cloud[0]
         const qs = src ? `?account_id=${encodeURIComponent(src.id)}` : ''
-        const t = await api<{ templates: { name: string; status: string }[] }>(`templates${qs}`)
+        const tpl = await api<{ templates: { name: string; status: string }[] }>(`templates${qs}`)
         setTemplates([
-          ...new Set(t.templates.filter((x) => x.status === 'APPROVED').map((x) => x.name)),
+          ...new Set(tpl.templates.filter((x) => x.status === 'APPROVED').map((x) => x.name)),
         ])
       } catch {
         setTemplates([]) // picker still works — the saved value stays selectable
@@ -272,7 +273,7 @@ export function RoutingRulesSettings() {
       })
       setRules({ ...DEFAULTS, ...rules, ...next })
       setEndpointUp(true)
-      setMsg({ ok: true, text: 'Routing rules saved — live immediately.' })
+      setMsg({ ok: true, text: t('admin.routing.saved') })
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
     } finally {
@@ -281,10 +282,10 @@ export function RoutingRulesSettings() {
   }
 
   const templateOptions = [
-    { value: '', label: 'None', hint: '(recovery sends disabled)' },
+    { value: '', label: t('common.status.none'), hint: t('admin.routing.recoveryDisabledHint') },
     ...templates.map((n) => ({ value: n, label: n })),
     ...(rules.recovery_template && !templates.includes(rules.recovery_template)
-      ? [{ value: rules.recovery_template, label: rules.recovery_template, hint: '(not in the approved list)' }]
+      ? [{ value: rules.recovery_template, label: rules.recovery_template, hint: t('admin.routing.notApprovedHint') }]
       : []),
   ]
 
@@ -296,89 +297,84 @@ export function RoutingRulesSettings() {
             <Route size={15} aria-hidden />
           </span>
           <div className="min-w-0">
-            <h2 className="display text-[19px] leading-tight text-text-heading">Routing rules</h2>
-            <p className="mt-0.5 text-[12.5px] leading-relaxed text-text-muted">
-              How reminder (business) and conversation (personal) numbers cooperate: AI reply pacing, the
-              reminder-number redirect, ban recovery and the cold-text guard.
-            </p>
+            <h2 className="display text-[19px] leading-tight text-text-heading">{t('admin.routing.title')}</h2>
+            <p className="mt-0.5 text-[12.5px] leading-relaxed text-text-muted">{t('admin.routing.subtitle')}</p>
           </div>
         </div>
 
         <RuleRow
-          label="AI reply pacing"
+          label={t('admin.routing.pacing.label')}
           sub={
-            <>
-              <span className="font-semibold text-text-mid">Queued</span> sends one message at a
-              time per account with human-like delays (recommended). During an account&rsquo;s quiet
-              hours (Channels → edit account → Delivery &amp; AI) queued replies wait for the working
-              window.{' '}
-              <span className="font-semibold text-text-mid">Instant</span> replies immediately.
-            </>
+            <Trans
+              k="admin.routing.pacing.sub"
+              values={{
+                queued: <span className="font-semibold text-text-mid">{t('admin.routing.pacing.queued')}</span>,
+                instant: <span className="font-semibold text-text-mid">{t('admin.routing.pacing.instant')}</span>,
+              }}
+            />
           }
           control={
             <Select
               value={rules.ai_reply_mode}
               onChange={(v) => set('ai_reply_mode', v as RoutingRules['ai_reply_mode'])}
               options={[
-                { value: 'queued', label: 'Queued', hint: '(recommended)' },
-                { value: 'instant', label: 'Instant' },
+                { value: 'queued', label: t('admin.routing.pacing.queued'), hint: t('admin.routing.recommended') },
+                { value: 'instant', label: t('admin.routing.pacing.instant') },
               ]}
-              className="w-[200px]"
+              className="w-[200px] max-w-full"
               size="md"
               disabled={!canManage}
-              ariaLabel="AI reply pacing"
+              ariaLabel={t('admin.routing.pacing.label')}
             />
           }
         />
 
         <RuleRow
-          label="Business-number chatbot"
+          label={t('admin.routing.bot.label')}
           sub={
-            <>
-              Default Chatbot state for reminder (business) numbers.{' '}
-              <span className="font-semibold text-text-mid">Off</span>: the business number stays a
-              template/notification channel — inbound replies get the redirect below, and the bot
-              only answers chats where you tick Chatbot on.{' '}
-              <span className="font-semibold text-text-mid">On</span>: the bot converses on the
-              business number by default (replies are instant — queued pacing only protects
-              personal numbers). Per-chat Chatbot ticks always win over this default.
-            </>
+            <Trans
+              k="admin.routing.bot.sub"
+              values={{
+                off: <span className="font-semibold text-text-mid">{t('common.status.off')}</span>,
+                on: <span className="font-semibold text-text-mid">{t('common.status.on')}</span>,
+              }}
+            />
           }
           control={
             <Toggle
               on={rules.reminder_ai_default === 'on'}
               onChange={(v) => set('reminder_ai_default', v ? 'on' : 'off')}
               disabled={!canManage}
-              label="Business-number chatbot default"
+              label={t('admin.routing.bot.aria')}
             />
           }
         />
 
         <RuleRow
-          label="Business-number redirect"
-          sub="When a contact replies to a reminder (business) number and the chatbot is off for that chat, auto-send one message per 24h pointing them somewhere a conversation can happen."
+          label={t('admin.routing.redirect.label')}
+          sub={t('admin.routing.redirect.sub')}
           control={
             <Toggle
               on={rules.business_redirect}
               onChange={(v) => set('business_redirect', v)}
               disabled={!canManage}
-              label="Business-number redirect"
+              label={t('admin.routing.redirect.label')}
             />
           }
         />
 
         {rules.business_redirect && (
           <RuleRow
-            label="Redirect to"
+            label={t('admin.routing.target.label')}
             sub={
-              <>
-                <span className="font-semibold text-text-mid">Conversation number</span> sends a
-                wa.me link to the contact&rsquo;s assigned conversation (personal) number.{' '}
-                <span className="font-semibold text-text-mid">Customer support</span> tells them
-                this line is automated and to contact your human support instead.{' '}
-                <span className="font-semibold text-text-mid">Your template</span> answers with an
-                approved template you pick below.
-              </>
+              <Trans
+                k="admin.routing.target.sub"
+                values={{
+                  conversation: <span className="font-semibold text-text-mid">{t('admin.routing.target.conversation')}</span>,
+                  support: <span className="font-semibold text-text-mid">{t('admin.routing.target.support')}</span>,
+                  template: <span className="font-semibold text-text-mid">{t('admin.routing.target.template')}</span>,
+                }}
+              />
             }
             control={
               <Select
@@ -387,14 +383,14 @@ export function RoutingRulesSettings() {
                   set('business_redirect_target', v as RoutingRules['business_redirect_target'])
                 }
                 options={[
-                  { value: 'conversation', label: 'Conversation number', hint: '(recommended)' },
-                  { value: 'support', label: 'Customer support' },
-                  { value: 'template', label: 'Your template' },
+                  { value: 'conversation', label: t('admin.routing.target.conversation'), hint: t('admin.routing.recommended') },
+                  { value: 'support', label: t('admin.routing.target.support') },
+                  { value: 'template', label: t('admin.routing.target.template') },
                 ]}
-                className="w-[240px]"
+                className="w-[240px] max-w-full"
                 size="md"
                 disabled={!canManage}
-                ariaLabel="Redirect target"
+                ariaLabel={t('admin.routing.target.aria')}
               />
             }
           />
@@ -402,28 +398,28 @@ export function RoutingRulesSettings() {
 
         {rules.business_redirect && rules.business_redirect_target === 'template' && (
           <RuleRow
-            label="Auto-reply template"
-            sub="Sent from the business number itself when a contact replies to it (once per 24h). Leave on None and the redirect falls back to the wa.me conversation-number handoff."
+            label={t('admin.routing.autoReply.label')}
+            sub={t('admin.routing.autoReply.sub')}
             control={
               <Select
                 value={rules.business_redirect_template}
                 onChange={(v) => set('business_redirect_template', v)}
                 options={[
-                  { value: '', label: 'None', hint: '(falls back to wa.me handoff)' },
+                  { value: '', label: t('common.status.none'), hint: t('admin.routing.autoReply.noneHint') },
                   ...templates.map((n) => ({ value: n, label: n })),
                   ...(rules.business_redirect_template &&
                   !templates.includes(rules.business_redirect_template)
                     ? [{
                         value: rules.business_redirect_template,
                         label: rules.business_redirect_template,
-                        hint: '(not in the approved list)',
+                        hint: t('admin.routing.notApprovedHint'),
                       }]
                     : []),
                 ]}
-                className="w-[280px]"
+                className="w-[280px] max-w-full"
                 size="md"
                 disabled={!canManage}
-                ariaLabel="Business auto-reply template"
+                ariaLabel={t('admin.routing.autoReply.aria')}
               />
             }
           />
@@ -431,92 +427,87 @@ export function RoutingRulesSettings() {
 
         {rules.business_redirect && rules.business_redirect_target === 'support' && (
           <RuleRow
-            label="Support contact"
-            sub="Included in the auto-reply so the contact knows where a human answers — a phone number, email or link. Empty sends generic wording."
+            label={t('admin.routing.support.label')}
+            sub={t('admin.routing.support.sub')}
             control={
               <input
                 value={rules.support_contact}
                 onChange={(e) => set('support_contact', e.target.value)}
                 maxLength={200}
-                placeholder="e.g. +60 3-1234 5678"
+                placeholder={t('admin.routing.support.placeholder')}
                 disabled={!canManage}
-                aria-label="Support contact"
-                className="h-9 w-[240px] rounded-lg border border-line bg-fill px-3 text-[12.5px] text-text-high outline-none placeholder:text-text-faint focus:border-brand-400/50 disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label={t('admin.routing.support.label')}
+                className="h-9 w-[240px] max-w-full rounded-lg border border-line bg-fill px-3 text-[12.5px] text-text-high outline-none placeholder:text-text-faint focus:border-brand-400/50 disabled:cursor-not-allowed disabled:opacity-50"
               />
             }
           />
         )}
 
         <RuleRow
-          label="Ban recovery"
-          sub="How recovery starts when a conversation number goes down with contacts assigned: one click from the alert/notification, or fully automatic."
+          label={t('admin.routing.ban.label')}
+          sub={t('admin.routing.ban.sub')}
           control={
             <Select
               value={rules.recovery_mode}
               onChange={(v) => set('recovery_mode', v as RoutingRules['recovery_mode'])}
               options={[
-                { value: 'one_click', label: 'One-click from notification', hint: '(recommended)' },
-                { value: 'auto', label: 'Automatic' },
+                { value: 'one_click', label: t('admin.routing.ban.oneClick'), hint: t('admin.routing.recommended') },
+                { value: 'auto', label: t('admin.routing.ban.auto') },
               ]}
-              className="w-[280px]"
+              className="w-[280px] max-w-full"
               size="md"
               disabled={!canManage}
-              ariaLabel="Ban recovery mode"
+              ariaLabel={t('admin.routing.ban.aria')}
             />
           }
         />
 
         <RuleRow
-          label="Recovery template"
-          sub="Sent via the business number to affected contacts when a conversation number goes down, pointing them to the replacement number. Approved templates only."
+          label={t('admin.routing.recoveryTemplate.label')}
+          sub={t('admin.routing.recoveryTemplate.sub')}
           control={
             <Select
               value={rules.recovery_template}
               onChange={(v) => set('recovery_template', v)}
               options={templateOptions}
-              className="w-[280px]"
+              className="w-[280px] max-w-full"
               size="md"
               disabled={!canManage}
-              ariaLabel="Recovery template"
+              ariaLabel={t('admin.routing.recoveryTemplate.label')}
             />
           }
         />
 
         <RuleRow
-          label="Cold-text guard"
-          sub="First-contact messages to contacts who never wrote in are WhatsApp's top ban trigger for conversation numbers. Block stops them (recommended), Warn flags them for confirmation, Allow sends anyway — at your own ban risk."
+          label={t('admin.routing.cold.label')}
+          sub={t('admin.routing.cold.sub')}
           control={
             <Select
               value={rules.cold_text_guard}
               onChange={(v) => set('cold_text_guard', v as RoutingRules['cold_text_guard'])}
               options={[
-                { value: 'block', label: 'Block', hint: '(recommended)' },
-                { value: 'warn', label: 'Warn' },
-                { value: 'allow', label: 'Allow' },
+                { value: 'block', label: t('admin.routing.cold.block'), hint: t('admin.routing.recommended') },
+                { value: 'warn', label: t('admin.routing.cold.warn') },
+                { value: 'allow', label: t('admin.routing.cold.allow') },
               ]}
-              className="w-[200px]"
+              className="w-[200px] max-w-full"
               size="md"
               disabled={!canManage}
-              ariaLabel="Cold-text guard"
+              ariaLabel={t('admin.routing.cold.label')}
             />
           }
         />
 
         <RuleRow
-          label="Opt-out keywords"
-          sub={
-            <>
-              A customer message that is exactly one of these opts the conversation out of AI replies,
-              templates and queued messages (any channel). STOP, UNSUBSCRIBE and BERHENTI always apply;
-              add your own here. Organization-wide.
-            </>
-          }
+          label={t('admin.routing.optOut.label')}
+          sub={t('admin.routing.optOut.sub')}
           control={
-            <div className="w-[280px]">
+            <div className="w-[280px] max-w-full">
               <TagListInput
                 value={rules.opt_out_keywords}
                 onChange={(v) => set('opt_out_keywords', v)}
-                placeholder="e.g. BATAL"
+                placeholder={t('admin.routing.optOut.placeholder')}
+                addLabel={t('common.actions.add')}
                 disabled={!canManage}
               />
             </div>
@@ -524,14 +515,15 @@ export function RoutingRulesSettings() {
         />
 
         <RuleRow
-          label="Opt-in keywords"
-          sub="Words that opt a conversation back in. START, UNSTOP and MULA always apply."
+          label={t('admin.routing.optIn.label')}
+          sub={t('admin.routing.optIn.sub')}
           control={
-            <div className="w-[280px]">
+            <div className="w-[280px] max-w-full">
               <TagListInput
                 value={rules.opt_in_keywords}
                 onChange={(v) => set('opt_in_keywords', v)}
-                placeholder="e.g. SAMBUNG"
+                placeholder={t('admin.routing.optIn.placeholder')}
+                addLabel={t('common.actions.add')}
                 disabled={!canManage}
               />
             </div>
@@ -542,11 +534,11 @@ export function RoutingRulesSettings() {
           {canManage ? (
             <Button variant="primary" onClick={save} disabled={busy}>
               {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <CheckCircle size={13} aria-hidden />}{' '}
-              Save routing rules
+              {t('admin.routing.save')}
             </Button>
           ) : (
             <span className="text-[12px] text-text-muted">
-              Routing rules need the account assignment permission.
+              {t('admin.routing.needsPermission')}
             </span>
           )}
           {msg && (
@@ -561,7 +553,7 @@ export function RoutingRulesSettings() {
         </div>
         {!endpointUp && (
           <p className="border-t border-line px-4 py-2 text-[11.5px] text-text-muted sm:px-5">
-            Routing-rules endpoint not reachable — showing defaults; saving retries against the live API.
+            {t('admin.routing.endpointDown')}
           </p>
         )}
       </Card>

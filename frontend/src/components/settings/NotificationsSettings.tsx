@@ -8,8 +8,27 @@ import { Toggle } from '@/components/ui/Toggle'
 import { tint } from '@/lib/color'
 import { NOTIF_CATEGORIES, notifApi } from '@/lib/notifications'
 import { useAccess } from '@/lib/useAccess'
+import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
 
 type Prefs = Record<string, boolean>
+
+/** The notification categories' names and descriptions, by category key
+ *  (shared with My notifications; an unknown key shows the lib's own copy). */
+const CATEGORY_TEXT: Record<string, { label: MessageKey; description: MessageKey }> = {
+  messages: { label: 'settings.notifCategories.messages.label', description: 'settings.notifCategories.messages.description' },
+  account_health: {
+    label: 'settings.notifCategories.accountHealth.label',
+    description: 'settings.notifCategories.accountHealth.description',
+  },
+  flows: { label: 'settings.notifCategories.flows.label', description: 'settings.notifCategories.flows.description' },
+  admin: { label: 'settings.notifCategories.admin.label', description: 'settings.notifCategories.admin.description' },
+  system: { label: 'settings.notifCategories.system.label', description: 'settings.notifCategories.system.description' },
+}
+
+export const categoryLabel = (t: TFunction, c: { key: string; label: string }) =>
+  CATEGORY_TEXT[c.key] ? t(CATEGORY_TEXT[c.key].label) : c.label
+export const categoryDescription = (t: TFunction, c: { key: string; description: string }) =>
+  CATEGORY_TEXT[c.key] ? t(CATEGORY_TEXT[c.key].description) : c.description
 
 /**
  * Settings → Organization → Notification defaults: the organization-wide mute
@@ -18,6 +37,7 @@ type Prefs = Record<string, boolean>
  * their personal choice. Writes need the notifications.manage capability.
  */
 export function NotificationsSettings() {
+  const t = useT()
   const { ready, can } = useAccess()
   const canEdit = ready && can('notifications.manage')
   const [prefs, setPrefs] = useState<Prefs | null>(null)
@@ -27,8 +47,8 @@ export function NotificationsSettings() {
   useEffect(() => {
     notifApi<Prefs>('auth/notification-prefs')
       .then(setPrefs)
-      .catch(() => setError('Notification defaults are unavailable — is the API running?'))
-  }, [])
+      .catch(() => setError(t('settings.notifications.unavailable')))
+  }, [t])
 
   const save = async (key: string, value: boolean) => {
     if (!prefs) return
@@ -64,17 +84,17 @@ export function NotificationsSettings() {
                 <c.Icon size={15} aria-hidden />
               </span>
               <div className="min-w-0 flex-1">
-                <div className="text-[13.5px] font-semibold text-text-high">{c.label}</div>
-                <div className="text-[12px] leading-snug text-text-muted">{c.description}</div>
+                <div className="text-[13.5px] font-semibold text-text-high">{categoryLabel(t, c)}</div>
+                <div className="text-[12px] leading-snug text-text-muted">{categoryDescription(t, c)}</div>
               </div>
               <span className={`hidden text-[11.5px] font-semibold sm:inline ${on ? 'text-text-muted' : 'text-[color:var(--amber-ink)]'}`}>
-                {on ? 'On for everyone' : 'Muted for everyone'}
+                {on ? t('settings.notifications.onForEveryone') : t('settings.notifications.mutedForEveryone')}
               </span>
               <Toggle
                 on={on}
                 disabled={prefs === null || !canEdit || busy === c.key}
                 onChange={(v) => void save(c.key, v)}
-                label={`${c.label} for the whole organization`}
+                label={t('settings.notifications.toggleAria', { category: categoryLabel(t, c) })}
               />
             </div>
           )
@@ -88,15 +108,17 @@ export function NotificationsSettings() {
       )}
 
       <p className="text-[12px] leading-relaxed text-text-muted">
-        {muted > 0
-          ? `${muted} categor${muted === 1 ? 'y is' : 'ies are'} muted for the whole organization. `
-          : 'Every category is on. '}
-        Each person can still turn categories off for themselves under{' '}
-        <Link href="/settings/my-notifications" className="font-semibold text-text-high underline underline-offset-2">
-          My notifications
-        </Link>
-        ; a muted category stays silent for everyone. Changes apply to new alerts immediately — alerts already delivered stay
-        in each inbox.
+        {muted > 0 ? t('settings.notifications.mutedCount', { count: muted }) : t('settings.notifications.allOn')}{' '}
+        <Trans
+          k="settings.notifications.footer"
+          values={{
+            link: (
+              <Link href="/settings/my-notifications" className="font-semibold text-text-high underline underline-offset-2">
+                {t('settings.nav.pages.myNotifications.lbl')}
+              </Link>
+            ),
+          }}
+        />
       </p>
     </div>
   )

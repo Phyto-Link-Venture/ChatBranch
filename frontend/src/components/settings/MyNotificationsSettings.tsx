@@ -7,6 +7,8 @@ import { Card, CardTitle } from '@/components/ui/Card'
 import { Toggle } from '@/components/ui/Toggle'
 import { tint } from '@/lib/color'
 import { NOTIF_CATEGORIES, notifApi, type NotificationPrefs } from '@/lib/notifications'
+import { useT } from '@/i18n'
+import { categoryDescription, categoryLabel } from './NotificationsSettings'
 
 /**
  * Settings → Personal → My notifications: the caller's own in-app switch per
@@ -15,6 +17,7 @@ import { NOTIF_CATEGORIES, notifApi, type NotificationPrefs } from '@/lib/notifi
  * after the organization-wide defaults (a category muted there stays muted).
  */
 export function MyNotificationsSettings() {
+  const t = useT()
   const [prefs, setPrefs] = useState<NotificationPrefs | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -22,8 +25,8 @@ export function MyNotificationsSettings() {
   useEffect(() => {
     notifApi<NotificationPrefs>('notifications/preferences')
       .then(setPrefs)
-      .catch(() => setError('Your notification preferences are unavailable — is the API running?'))
-  }, [])
+      .catch(() => setError(t('settings.myNotifications.unavailable')))
+  }, [t])
 
   const save = async (patch: { user?: Record<string, boolean>; only_assigned?: boolean }) => {
     if (!prefs) return
@@ -50,8 +53,10 @@ export function MyNotificationsSettings() {
   return (
     <div className="flex flex-col gap-5">
       <Card className="p-4 sm:p-5">
-        <CardTitle right={<span className="text-text-muted">Bell + inbox</span>}>Alerts I receive</CardTitle>
-        <p className="mt-1 text-[12.5px] text-text-muted">Turn off what you never need to see. Nothing here affects anyone else.</p>
+        <CardTitle right={<span className="text-text-muted">{t('settings.myNotifications.bellInbox')}</span>}>
+          {t('settings.myNotifications.title')}
+        </CardTitle>
+        <p className="mt-1 text-[12.5px] text-text-muted">{t('settings.myNotifications.hint')}</p>
         <div className="mt-3 divide-y divide-line border-t border-line">
           {NOTIF_CATEGORIES.map((c) => {
             const orgOn = prefs?.org?.[c.key] !== false
@@ -65,16 +70,16 @@ export function MyNotificationsSettings() {
                   <c.Icon size={15} aria-hidden />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="text-[13.5px] font-semibold text-text-high">{c.label}</div>
+                  <div className="text-[13.5px] font-semibold text-text-high">{categoryLabel(t, c)}</div>
                   <div className="text-[12px] leading-snug text-text-muted">
-                    {orgOn ? c.description : 'Muted for the whole organization by an admin.'}
+                    {orgOn ? categoryDescription(t, c) : t('settings.myNotifications.orgMuted')}
                   </div>
                 </div>
                 <Toggle
                   on={on}
                   disabled={!prefs || busy || !orgOn}
                   onChange={(v) => void save({ user: { [c.key]: v } })}
-                  label={c.label}
+                  label={categoryLabel(t, c)}
                 />
               </div>
             )
@@ -83,20 +88,17 @@ export function MyNotificationsSettings() {
       </Card>
 
       <Card className="p-4 sm:p-5">
-        <CardTitle>Customer messages scope</CardTitle>
+        <CardTitle>{t('settings.myNotifications.scopeTitle')}</CardTitle>
         <div className="mt-3 flex items-center gap-3 border-t border-line pt-3">
           <div className="min-w-0 flex-1">
-            <div className="text-[13.5px] font-semibold text-text-high">Only conversations assigned to me or my teams</div>
-            <div className="text-[12px] leading-snug text-text-muted">
-              New-message alerts go to the conversation&rsquo;s assignee, else its team, else the admins. Switch this on to skip
-              unassigned conversations that land on you only because you are an admin.
-            </div>
+            <div className="text-[13.5px] font-semibold text-text-high">{t('settings.myNotifications.onlyAssigned')}</div>
+            <div className="text-[12px] leading-snug text-text-muted">{t('settings.myNotifications.onlyAssignedHint')}</div>
           </div>
           <Toggle
             on={prefs?.only_assigned ?? false}
             disabled={!prefs || busy || prefs.user?.messages === false || prefs.org?.messages === false}
             onChange={(v) => void save({ only_assigned: v })}
-            label="Only conversations assigned to me or my teams"
+            label={t('settings.myNotifications.onlyAssigned')}
           />
         </div>
       </Card>
@@ -109,11 +111,11 @@ export function MyNotificationsSettings() {
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[12.5px]">
         <Link href="/notifications" className="inline-flex items-center gap-1.5 font-semibold text-text-high hover:underline">
-          <Inbox size={14} aria-hidden /> Open my notification inbox <ArrowRight size={13} aria-hidden />
+          <Inbox size={14} aria-hidden /> {t('settings.myNotifications.openInbox')} <ArrowRight size={13} aria-hidden />
         </Link>
         {prefs?.can_manage_org && (
           <Link href="/settings/notifications" className="text-text-muted hover:text-text-high hover:underline">
-            Organization defaults
+            {t('settings.myNotifications.orgDefaults')}
           </Link>
         )}
       </div>

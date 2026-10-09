@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from 'react'
 import { AlertCircle, Check, CheckCircle, Copy } from 'lucide-react'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
+import { useFormat, useT } from '@/i18n'
 
 export const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -36,8 +37,10 @@ export function mcpEndpoint(): string {
 export const inputCls =
   'h-9 w-full rounded-lg border border-line-strong bg-card px-3 text-[13px] text-text-primary outline-none transition-colors placeholder:text-text-faint focus:border-text-muted'
 
-export function CopyButton({ value, label = 'Copy', className = '' }: { value: string; label?: string; className?: string }) {
+export function CopyButton({ value, label, className = '' }: { value: string; label?: string; className?: string }) {
+  const t = useT()
   const [done, setDone] = useState(false)
+  const text = label ?? t('common.actions.copy')
   return (
     <button
       type="button"
@@ -50,12 +53,12 @@ export function CopyButton({ value, label = 'Copy', className = '' }: { value: s
           /* clipboard blocked — the text is selectable */
         }
       }}
-      aria-label={label}
-      title={label}
+      aria-label={text}
+      title={text}
       className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-line-strong bg-card px-2.5 text-[12px] font-semibold text-text-mid transition-colors hover:bg-fill-hover hover:text-text-high ${className}`}
     >
       {done ? <Check size={13} className="text-green-300" aria-hidden /> : <Copy size={13} aria-hidden />}
-      {done ? 'Copied' : label}
+      {done ? t('common.actions.copied') : text}
     </button>
   )
 }
@@ -163,15 +166,13 @@ export function Section({
   )
 }
 
-export const fmtDate = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }) : ''
-
-export function fmtAgo(iso: string | null): string {
-  if (!iso) return 'never'
-  const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000)
-  if (s < 60) return 'just now'
-  if (s < 3600) return `${Math.round(s / 60)}m ago`
-  if (s < 86400) return `${Math.round(s / 3600)}h ago`
-  if (s < 30 * 86400) return `${Math.round(s / 86400)}d ago`
-  return fmtDate(iso)
+/** "5 minutes ago" for the last month, then the date; "Never" when empty. */
+export function useAgo(): (iso: string | null) => string {
+  const t = useT()
+  const f = useFormat()
+  return (iso) => {
+    if (!iso) return t('common.status.never')
+    const age = Date.now() - new Date(iso).getTime()
+    return age < 30 * 86400 * 1000 ? f.relative(iso) : f.date(iso)
+  }
 }

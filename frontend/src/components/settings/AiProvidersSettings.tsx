@@ -19,6 +19,7 @@ import { useAccess } from '@/lib/useAccess'
 import { expireSessionOn401 } from '@/lib/auth'
 import { useSettingsDirty } from './SettingsDirtyContext'
 import { EMBEDDING_KEYS, EmbeddingsSection } from '@/components/ai-learning/EmbeddingsSection'
+import { useT, type MessageKey, type TFunction } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -69,38 +70,69 @@ async function api<T>(init?: RequestInit): Promise<T> {
 const inputCls =
   'w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400'
 
-const GROUP_META: Record<string, { title: string; blurb: string; Icon: typeof KeyRound }> = {
+const GROUP_META: Record<string, { title: MessageKey; blurb: MessageKey; Icon: typeof KeyRound }> = {
   providers: {
-    title: 'Provider keys, chat provider & model',
-    blurb:
-      'The keys, provider and model behind text auto-replies and summaries. Provider = which AI service handles replies; Model = optional — the specific model within that provider (leave empty for the provider default). A dashboard value wins over backend/.env; clear one to fall back to the env default.',
+    title: 'settings.aiProviders.groups.providers.title',
+    blurb: 'settings.aiProviders.groups.providers.blurb',
     Icon: KeyRound,
   },
   tunables: {
-    title: 'Background & ticker tunables',
-    blurb:
-      'Timings for the flow engine, channel-health checker and the idle-chat summariser. Some are read when a thread starts, so a change applies on the next restart.',
+    title: 'settings.aiProviders.groups.tunables.title',
+    blurb: 'settings.aiProviders.groups.tunables.blurb',
     Icon: SlidersHorizontal,
   },
 }
 
-function providerLabel(o: string): string {
-  if (!o) return 'Automatic (priority order)'
+/** The schema's field labels / help, translated by field key (the API's own
+ *  English is the fallback for a field this client does not know). */
+const FIELD_TEXT: Record<string, { label: MessageKey; help?: MessageKey }> = {
+  openai_api_key: { label: 'settings.aiProviders.fields.openaiKey' },
+  openrouter_api_key: { label: 'settings.aiProviders.fields.openrouterKey' },
+  google_api_key: { label: 'settings.aiProviders.fields.googleKey' },
+  ilmu_api_key: { label: 'settings.aiProviders.fields.ilmuKey', help: 'settings.aiProviders.fields.ilmuKeyHelp' },
+  elevenlabs_api_key: {
+    label: 'settings.aiProviders.fields.elevenlabsKey',
+    help: 'settings.aiProviders.fields.elevenlabsKeyHelp',
+  },
+  chat_provider_pref: { label: 'settings.aiProviders.fields.chatProvider' },
+  chat_provider_order: { label: 'settings.aiProviders.fields.order', help: 'settings.aiProviders.fields.orderHelp' },
+  chat_model: { label: 'settings.aiProviders.fields.chatModel', help: 'settings.aiProviders.fields.chatModelHelp' },
+  local_base_url: { label: 'settings.aiProviders.fields.localUrl', help: 'settings.aiProviders.fields.localUrlHelp' },
+  local_api_key: { label: 'settings.aiProviders.fields.localKey', help: 'settings.aiProviders.fields.localKeyHelp' },
+  email_subject: { label: 'settings.aiProviders.fields.emailSubject' },
+  flows_tick_seconds: { label: 'settings.aiProviders.fields.flowsTick' },
+  whatsapp_health_interval: { label: 'settings.aiProviders.fields.healthInterval' },
+  aicore_summary_interval: {
+    label: 'settings.aiProviders.fields.summaryInterval',
+    help: 'settings.aiProviders.fields.summaryIntervalHelp',
+  },
+  aicore_summary_idle_min: { label: 'settings.aiProviders.fields.summaryIdle' },
+}
+const fieldLabel = (t: TFunction, f: FieldMeta) => (FIELD_TEXT[f.key] ? t(FIELD_TEXT[f.key].label) : f.label)
+const fieldHelp = (t: TFunction, f: FieldMeta) => {
+  const k = FIELD_TEXT[f.key]?.help
+  return k ? t(k) : f.help
+}
+
+function providerLabel(t: TFunction, o: string): string {
+  if (!o) return t('settings.aiProviders.automatic')
   const names: Record<string, string> = {
     openai: 'OpenAI',
     openrouter: 'OpenRouter',
     google: 'Google Gemini',
     ilmu: 'ILMU',
+    local: t('settings.aiProviders.local'),
   }
   return names[o] || o
 }
 
 /** Where the current value comes from — mirrors app_settings.sources(). */
 function SourceChip({ src }: { src?: string }) {
-  const map: Record<string, { lbl: string; bg: string; fg: string }> = {
-    settings: { lbl: 'from Settings', bg: 'rgba(47,125,79,0.12)', fg: 'var(--green-ink)' },
-    env: { lbl: 'from .env', bg: 'rgba(200,137,26,0.12)', fg: 'var(--amber-ink)' },
-    '': { lbl: 'not set', bg: 'var(--fill)', fg: 'var(--text-muted)' },
+  const t = useT()
+  const map: Record<string, { lbl: MessageKey; bg: string; fg: string }> = {
+    settings: { lbl: 'settings.aiProviders.source.settings', bg: 'rgba(47,125,79,0.12)', fg: 'var(--green-ink)' },
+    env: { lbl: 'settings.aiProviders.source.env', bg: 'rgba(200,137,26,0.12)', fg: 'var(--amber-ink)' },
+    '': { lbl: 'settings.aiProviders.source.none', bg: 'var(--fill)', fg: 'var(--text-muted)' },
   }
   const s = map[src || ''] || map['']
   return (
@@ -108,7 +140,7 @@ function SourceChip({ src }: { src?: string }) {
       className="shrink-0 rounded-full px-2 py-px text-[10px] font-bold"
       style={{ background: s.bg, color: s.fg }}
     >
-      {s.lbl}
+      {t(s.lbl)}
     </span>
   )
 }
@@ -132,6 +164,7 @@ function ModelPicker({
   disabled: boolean
   onChange: (v: string) => void
 }) {
+  const t = useT()
   const known = useMemo(() => catalog.flatMap((g) => g.models), [catalog])
   // "Custom" when the user explicitly forced it, or the stored value isn't in
   // the catalog (a previously-saved custom id) — derived so re-seeds stay right.
@@ -151,20 +184,21 @@ function ModelPicker({
           }
         }}
         options={[
-          { value: '', label: 'Provider default' },
+          { value: '', label: t('settings.aiProviders.providerDefault') },
           ...catalog.flatMap((g): SelectOption[] => g.models.map((m) => ({ value: m, label: m, group: g.label }))),
-          { value: CUSTOM, label: 'Custom…', group: 'Other' },
+          { value: CUSTOM, label: t('settings.aiProviders.custom'), group: t('settings.aiProviders.other') },
         ]}
         size="md"
         searchable
         className="w-full"
+        ariaLabel={t('settings.aiProviders.fields.chatModel')}
       />
       {isCustom && (
         <input
           value={value}
           readOnly={disabled}
           autoComplete="off"
-          placeholder="e.g. openai/gpt-4o-mini"
+          placeholder={t('settings.aiProviders.customPlaceholder')}
           onChange={(e) => onChange(e.target.value)}
           className={`${inputCls} mt-1.5 ${disabled ? 'cursor-default bg-fill-subtle' : ''}`}
         />
@@ -191,6 +225,7 @@ function OrderList({
   active: boolean
   onChange: (v: string) => void
 }) {
+  const t = useT()
   let order: string[] = []
   try {
     const parsed = JSON.parse(value || '[]')
@@ -218,13 +253,13 @@ function OrderList({
           <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-card text-[10px] font-bold text-text-muted">
             {i + 1}
           </span>
-          <span className="flex-1 text-[12px] font-semibold text-text-high">{providerLabel(p)}</span>
+          <span className="flex-1 text-[12px] font-semibold text-text-high">{providerLabel(t, p)}</span>
           <button
             type="button"
             disabled={!canEdit || i === 0}
             onClick={() => move(i, -1)}
-            title="Move up"
-            aria-label={`Move ${providerLabel(p)} up`}
+            title={t('admin.tags.editor.moveUp')}
+            aria-label={t('settings.aiProviders.moveUpAria', { provider: providerLabel(t, p) })}
             className="grid h-6 w-6 shrink-0 cursor-pointer place-items-center rounded-md text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:cursor-default disabled:opacity-30"
           >
             <ChevronUp size={14} aria-hidden />
@@ -233,8 +268,8 @@ function OrderList({
             type="button"
             disabled={!canEdit || i === order.length - 1}
             onClick={() => move(i, 1)}
-            title="Move down"
-            aria-label={`Move ${providerLabel(p)} down`}
+            title={t('admin.tags.editor.moveDown')}
+            aria-label={t('settings.aiProviders.moveDownAria', { provider: providerLabel(t, p) })}
             className="grid h-6 w-6 shrink-0 cursor-pointer place-items-center rounded-md text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:cursor-default disabled:opacity-30"
           >
             <ChevronDown size={14} aria-hidden />
@@ -259,6 +294,7 @@ function OrderList({
  * source from .env to Settings).
  */
 export function AiProvidersSettings() {
+  const t = useT()
   // Editing = the settings.ai_keys.manage capability (superadmin by default).
   const { ready, can } = useAccess()
   const isSuper = can('settings.ai_keys.manage')
@@ -362,7 +398,7 @@ export function AiProvidersSettings() {
   if (!ready || (meta === null && !loadError)) {
     return (
       <div className="flex items-center gap-1.5 py-6 text-[12px] text-text-muted">
-        <Loader2 size={13} className="animate-spin" aria-hidden /> Loading AI &amp; provider settings…
+        <Loader2 size={13} className="animate-spin" aria-hidden /> {t('settings.aiProviders.loading')}
       </div>
     )
   }
@@ -375,10 +411,10 @@ export function AiProvidersSettings() {
           style={{ color: 'var(--red-ink)' }}
         >
           <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden />
-          <span>Couldn&apos;t load AI &amp; provider settings — {loadError}</span>
+          <span>{t('settings.aiProviders.loadError', { error: loadError ?? '' })}</span>
         </div>
         <Button variant="ghost" onClick={load} style={{ marginTop: 10 }}>
-          <RefreshCw size={13} aria-hidden /> Retry
+          <RefreshCw size={13} aria-hidden /> {t('common.actions.retry')}
         </Button>
       </div>
     )
@@ -397,11 +433,11 @@ export function AiProvidersSettings() {
             aiAvailable ? 'bg-green/15 text-green-300' : 'bg-fill text-text-muted'
           }`}
         >
-          AI replies {aiAvailable ? 'ready' : 'off — no provider key'}
+          {aiAvailable ? t('settings.appKeys.aiReady') : t('settings.appKeys.aiOff')}
         </span>
         {!isSuper && (
           <span className="flex items-center gap-1 text-[10.5px] font-semibold text-text-muted">
-            <Lock size={11} aria-hidden /> read-only — needs the AI keys permission
+            <Lock size={11} aria-hidden /> {t('settings.aiProviders.readOnly')}
           </span>
         )}
       </div>
@@ -410,7 +446,7 @@ export function AiProvidersSettings() {
       {note && (
         <div className="flex items-start gap-2 rounded-lg border border-brand-400/20 bg-brand-400/10 px-3 py-2.5 text-[11.5px] leading-relaxed text-text-mid">
           <Info size={14} className="mt-0.5 shrink-0" color="#D9480F" aria-hidden />
-          <span>{note}</span>
+          <span>{t('settings.aiProviders.envNote')}</span>
         </div>
       )}
 
@@ -424,7 +460,8 @@ export function AiProvidersSettings() {
       )}
 
       {groups.map((g) => {
-        const gm = GROUP_META[g] || { title: g, blurb: '', Icon: KeyRound }
+        const gmeta = GROUP_META[g]
+        const gm = gmeta ? { title: t(gmeta.title), blurb: t(gmeta.blurb), Icon: gmeta.Icon } : { title: g, blurb: '', Icon: KeyRound }
         const Icon = gm.Icon
         const fields = meta.filter((f) => f.group === g && !EMBEDDING_KEYS.includes(f.key))
         return (
@@ -451,7 +488,7 @@ export function AiProvidersSettings() {
                   return (
                     <div key={f.key} className="md:col-span-2">
                       <span className="mb-1 flex items-center justify-between gap-2">
-                        <span className="text-[11px] font-bold text-text-high">{f.label}</span>
+                        <span className="text-[11px] font-bold text-text-high">{fieldLabel(t, f)}</span>
                         <SourceChip src={source[f.key]} />
                       </span>
                       <OrderList
@@ -462,8 +499,8 @@ export function AiProvidersSettings() {
                       />
                       {f.help && (
                         <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">
-                          {f.help}
-                          {!isAuto && ' Choose “Automatic (priority order)” above to edit this.'}
+                          {fieldHelp(t, f)}
+                          {!isAuto && ` ${t('settings.aiProviders.chooseAutomatic')}`}
                         </span>
                       )}
                     </div>
@@ -473,7 +510,7 @@ export function AiProvidersSettings() {
                 return (
                   <label key={f.key} className="block">
                     <span className="mb-1 flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-bold text-text-high">{f.label}</span>
+                      <span className="text-[11px] font-bold text-text-high">{fieldLabel(t, f)}</span>
                       <SourceChip src={source[f.key]} />
                     </span>
 
@@ -482,9 +519,9 @@ export function AiProvidersSettings() {
                         value={val}
                         disabled={!isSuper}
                         onChange={(v) => edit(f.key, v)}
-                        options={options.map((o) => ({ value: o, label: providerLabel(o) }))}
+                        options={options.map((o) => ({ value: o, label: providerLabel(t, o) }))}
                         size="md"
-                        ariaLabel={f.label}
+                        ariaLabel={fieldLabel(t, f)}
                         className="w-full"
                       />
                     ) : f.kind === 'model' ? (
@@ -508,8 +545,8 @@ export function AiProvidersSettings() {
                       />
                     )}
 
-                    {f.help && (
-                      <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">{f.help}</span>
+                    {fieldHelp(t, f) && (
+                      <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">{fieldHelp(t, f)}</span>
                     )}
                   </label>
                 )
