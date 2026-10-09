@@ -96,6 +96,16 @@ export const common: Dict<typeof source> = {
     description: '描述',
     type: '类型',
   },
+  crash: {
+    title: '此页面出现问题',
+    body: '此页面的部分内容加载失败。你可以重试——应用的其他部分仍可正常使用。',
+    tryAgain: '重试',
+    reload: '重新加载页面',
+    copy: '复制详情',
+    copied: '已复制——请发送给你的管理员',
+    updating: '刚刚部署了新版本——正在重新加载…',
+    widget: '页面的这一部分加载失败。',
+  },
   counts: {
     items_one: '{count} 项',
     items_other: '{count} 项',

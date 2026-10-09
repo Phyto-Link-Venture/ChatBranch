@@ -95,6 +95,16 @@ export const common = {
     description: 'Description',
     type: 'Type',
   },
+  crash: {
+    title: 'This page hit a problem',
+    body: 'Something on this page failed to load. You can try again — the rest of the app still works.',
+    tryAgain: 'Try again',
+    reload: 'Reload page',
+    copy: 'Copy details',
+    copied: 'Copied — send it to your administrator',
+    updating: 'A new version was just deployed — reloading…',
+    widget: 'This part of the page failed to load.',
+  },
   counts: {
     items_one: '{count} item',
     items_other: '{count} items',

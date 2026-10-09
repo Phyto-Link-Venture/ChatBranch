@@ -12,6 +12,7 @@ import { TopBar } from './TopBar'
 import { CommandPalette } from './CommandPalette'
 import { HOME, canSee, firstVisibleHref, isActive, NAV_GROUPS, routeDef } from './nav'
 import { RouteGuard } from './RouteGuard'
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { syncLocaleFromServer, useT, type MessageKey } from '@/i18n'
 import { resetNotifications } from './notificationsStore'
 import { useLive } from './liveStore'
@@ -194,9 +195,15 @@ export function Shell({ children }: { children: ReactNode }) {
         <BottomTabs user={user} pathname={pathname} onMore={() => setMobileNavOpen(true)} />
       </div>
 
-      <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} user={user} />
-      <CampaignModal />
-      <AssistantDock />
+      <ErrorBoundary name="command-palette">
+        <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} user={user} />
+      </ErrorBoundary>
+      <ErrorBoundary name="campaign-modal">
+        <CampaignModal />
+      </ErrorBoundary>
+      <ErrorBoundary name="assistant-dock">
+        <AssistantDock />
+      </ErrorBoundary>
     </div>
   )
 }

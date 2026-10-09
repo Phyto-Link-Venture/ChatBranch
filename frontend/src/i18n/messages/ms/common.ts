@@ -96,6 +96,16 @@ export const common: Dict<typeof source> = {
     description: 'Penerangan',
     type: 'Jenis',
   },
+  crash: {
+    title: 'Halaman ini menghadapi masalah',
+    body: 'Sesuatu pada halaman ini gagal dimuatkan. Anda boleh cuba lagi — bahagian lain aplikasi masih berfungsi.',
+    tryAgain: 'Cuba lagi',
+    reload: 'Muat semula halaman',
+    copy: 'Salin butiran',
+    copied: 'Disalin — hantar kepada pentadbir anda',
+    updating: 'Versi baharu baru sahaja dikeluarkan — memuat semula…',
+    widget: 'Bahagian halaman ini gagal dimuatkan.',
+  },
   counts: {
     items_one: '{count} item',
     items_other: '{count} item',
