@@ -20,7 +20,7 @@ header); the gateway pushes back to the API's `/api/whatsapp/baileys/*` routes.
 
 ## Processes & files
 
-- `index.js` — pairing, text send/receive, HTTP control API (port
+- `index.js` — pairing, text + media send/receive, HTTP control API (port
   `BAILEYS_PORT`, default 3020). One WhatsApp Web session per
   `crm.ChannelAccount` row with `provider="baileys"`; auth state persists in
   `backend/data/whatsapp/baileys/<account_id>/`.
@@ -60,6 +60,7 @@ groups, no video.
 | `GET  /accounts/:id/status` | `{state, qr?, me?, error?}` — pairing state |
 | `POST /accounts/:id/start` | begin/refresh pairing (QR as data URL) |
 | `POST /accounts/:id/send` | `{to, text}` → `{id}` |
+| `POST /accounts/:id/send-media` | `{to, media_type: image\|video\|audio\|document, file_b64, mime?, filename?, caption?}` → `{id}` (≤16 MB, base64 in the body; paths/URLs refused) |
 | `POST /accounts/:id/check` | `{to}` → `{exists, jid}` |
 | `POST /accounts/:id/logout` | unpair + wipe auth state (ends any live call) |
 | `POST /accounts/:id/call` | `{to, room, livekit_url, token, max_seconds}` → call snapshot |

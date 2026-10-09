@@ -68,6 +68,8 @@ jobs:
       # The gateway has no test suite; its own offline self-check is the gate.
       - name: Call-engine self-test
         run: node calls.js --selftest
+      - name: Outbound-media self-test
+        run: node media.js --selftest
 
   agent:
     name: Voice agent

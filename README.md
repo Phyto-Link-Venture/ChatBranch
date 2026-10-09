@@ -194,11 +194,11 @@ requires a restart.
 | Channel | What you need | Status in the C# API |
 |---|---|---|
 | **WhatsApp (Cloud API)** | A Meta app, phone number ID, access token, app secret, WABA id, and a public webhook (`/api/whatsapp/webhook`) | live: inbound (incl. media), delivery statuses, text, real template messages, media send, the WABA's template registry |
-| **WhatsApp (Baileys)** | A spare phone. Add a "QR" WhatsApp inbox and scan. ⚠ Read the ToS warning below | inbound text + media, send, calls + recordings live; outbound media stored locally |
+| **WhatsApp (Baileys)** | A spare phone. Add a "QR" WhatsApp inbox and scan. ⚠ Read the ToS warning below | inbound text + media, text + media send, calls + recordings live |
 | **Website widget** | Nothing — paste the snippet the inbox gives you | live |
-| **Telegram** | A BotFather token, then "Register webhook" in the inbox (needs a public https URL — `PUBLIC_BASE_URL` or the one you type) | live: inbound text + media, replies and attachments via the Bot API |
+| **Telegram** | A BotFather token, then "Register webhook" in the inbox (needs a public https URL — `PUBLIC_BASE_URL` or the one you type) | live: inbound text + media, replies and attachments via the Bot API, typing indicator |
 | **Email** | Per-mailbox SMTP credentials (+ an IMAP host, per mailbox or the default under Channels → Advanced) | live: SMTP send (text + escaped HTML alternative, threaded replies, mailboxes routed and failed over like WhatsApp numbers), IMAP pull from known senders (HTML-only mail flattened to text) |
-| **Messenger / Instagram** | A page token, the page / IG account id, the Meta app secret, and a public webhook (`/api/messaging/webhook`) | live: signed inbound (incl. attachments), Send API text, receipts |
+| **Messenger / Instagram** | A page token, the page / IG account id, the Meta app secret, and a public webhook (`/api/messaging/webhook`) | live: signed inbound (incl. attachments), Send API text + files (URL or upload) inside Meta's 24h / 7-day human-agent window, receipts |
 | **Voice (SIP)** | LiveKit + a SIP trunk: `npm --prefix backend/voice_agent run setup-trunk`, then Channels → Voice | live |
 
 Inbound webhooks need a public HTTPS URL; for local development tunnel port 8090
@@ -255,7 +255,7 @@ ChatBranch/
 
 ```bash
 cd backend-csharp && dotnet build src/ChatBranch.Api -c Release
-cd backend-csharp && dotnet test tests/ChatBranch.Tests    # 312 tests
+cd backend-csharp && dotnet test tests/ChatBranch.Tests    # 326 tests
 cd frontend && npx tsc --noEmit && npx eslint src && npx next build
 cd backend/voice_agent && npx tsc --noEmit && npm run selftest
 node backend/baileys_service/calls.js --selftest
@@ -272,12 +272,12 @@ every pull request.
 ## Honest limitations
 
 - **Every channel transport is wired, with a few edges left.**
-  Baileys numbers can't send media (the gateway has no media route) and send
-  templates as rendered text; WhatsApp Cloud has no voice calls; Messenger's
-  24-hour window isn't modelled (Meta's refusal shows as a failed send); email
-  is composed as plain text (an escaped HTML alternative is rendered from it);
-  the opt-out flag lives on the conversation, not the contact. Nothing has been exercised against the live providers from
-  this repo's CI — expect field debugging on a first real account. The full table is
+  Baileys numbers send templates as rendered text; WhatsApp Cloud has no voice
+  calls (Meta's calling API is a gated beta); Messenger / Instagram have no
+  typing indicator; email is composed as plain text (an escaped HTML alternative
+  is rendered from it); the opt-out flag lives on the conversation, not the
+  contact. Nothing has been exercised against the live providers from this
+  repo's CI — expect field debugging on a first real account. The full table is
   in [CLAUDE.md](CLAUDE.md#port-status--what-is-real-what-is-sandbox).
 - **WhatsApp via Baileys violates WhatsApp's Terms of Service.** It speaks the
   unofficial WhatsApp Web protocol; automated messaging — and *especially*

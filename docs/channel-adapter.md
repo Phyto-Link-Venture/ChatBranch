@@ -24,11 +24,11 @@ another.
 | Receive text | ✅ webhook | ✅ gateway push | ✅ widget API | ✅ webhook | ✅ webhook | ✅ IMAP pull (`/email/sync`) |
 | Send text | ✅ Graph API | ✅ gateway | ✅ (stored; the widget polls them) | ✅ Bot API | ✅ Send API (page token) | ✅ SMTP (threaded replies; text + escaped HTML alternative) |
 | Templates | ✅ real template messages; live registry (list/create/edit/delete) with a `waba_id` | rendered as free text | — | — | — | — |
-| Send media | ✅ upload → send by id | ❌ stored locally (no gateway route) | — | ✅ sendPhoto / sendDocument | ✅ by public URL | ✅ attachment |
+| Send media | ✅ upload → send by id | ✅ gateway `send-media` (base64, ≤16 MB) | — | ✅ sendPhoto / sendDocument | ✅ uploaded file (multipart) or public URL | ✅ attachment |
 | Receive media | ✅ downloaded off the ack | ✅ `/baileys/media` (two-phase) | — | ✅ getFile, off the ack | ✅ CDN url, downloaded off the ack | ✅ attachments (≤5, 10 MB) |
 | Delivery receipts | ✅ `statuses` (forward-only; failed + error code) | ✅ `/baileys/message-status` | — | — | ✅ delivery / read | — |
-| Typing / read | ✅ Graph `typing_indicator` | ✅ gateway presence | — | — | — | — |
-| 24h window | ✅ enforced (409 → use a template); 131047 closes it | none | none | none | not modelled (refusal = failed send) | — |
+| Typing / read | ✅ Graph `typing_indicator` | ✅ gateway presence | — | ✅ `sendChatAction` (typing) | — | — |
+| 24h window | ✅ enforced (409 → use a template); 131047 closes it | none | none | none | ✅ ≤24h anything; 24h–7d a person only (`HUMAN_AGENT` tag), AI/automation refused; >7d refused | — |
 | Opt-out | ✅ STOP/UNSUBSCRIBE/BERHENTI → opted out, START/UNSTOP/MULA → back in | same | same | same | same | same |
 | Health | ✅ Graph token ping (prober) + send / status / test results (`MetaErrors`), inbound heal | ✅ lifecycle pushes + inbound heal | — | ✅ getMe + getWebhookInfo, inbound heal | ✅ `GET /me` (prober, test), send results, inbound heal | ✅ SMTP login (prober), send outcomes |
 | Voice calls | ❌ (Cloud bridge removed; `call/start` → 501) | ✅ (ToS-violating) + recordings | — | — | — | — |
@@ -46,7 +46,8 @@ Where the code is (`backend-csharp/src/`):
 | Meta webhook parsing + delivery statuses, error classification, templates | `Channels/MetaWebhook.cs`, `Channels/MetaErrors.cs`, `Channels/MetaTemplates.cs` |
 | Media + call recordings on disk, inbound downloads | `Channels/WhatsAppMediaStore.cs`, `Channels/WhatsAppMediaRecordings.cs`, `Channels/WhatsAppMediaFetcher.cs` |
 | Media / recording routes | `ChatBranch.Api/Endpoints/WhatsAppMediaEndpoints.cs` |
-| Baileys gateway client | `ChatBranch.Data/Sidecars/IBaileysGateway.cs` (+ the Node gateway `backend/baileys_service/`) |
+| Baileys gateway client | `ChatBranch.Data/Sidecars/IBaileysGateway.cs` (+ the Node gateway `backend/baileys_service/`; outbound-media checks in `media.js`) |
+| Messenger / Instagram messaging window | `ChatBranch.Data/Channels/SocialWindow.cs` (enforced in `OutboundSender`, `AiGate.SendTimeBlock`, `QueueService`, the messaging send routes) |
 | Webhooks (Meta Cloud, Baileys) | `ChatBranch.Api/Endpoints/WebhooksEndpoints.cs` |
 | Messenger / Instagram webhook + the shared Meta verify/signature rules | `ChatBranch.Api/Endpoints/MetaWebhookEndpoints.cs` |
 | Telegram (webhook, Bot API client, send) | `TelegramWebhookEndpoints.cs`, `ChatBranch.Data/Channels/TelegramClient.cs` |
@@ -58,7 +59,7 @@ Where the code is (`backend-csharp/src/`):
 | Per-account delivery (quiet hours, pacing, voice brain/STT) | `ChatBranch.Data/Channels/AccountDelivery.cs` |
 | Health writer | `ChatBranch.Data/Channels/AccountHealth.cs` |
 | Health prober (periodic + "Check now") | `ChatBranch.Data/Channels/HealthProber.cs`, `GraphHealthProbe.cs`, `ChatBranch.Api/Workers/HealthProbeWorker.cs` |
-| Typing indicator | `ChatBranch.Data/Ai/TypingIndicator.cs` |
+| Typing indicator | `ChatBranch.Data/Ai/TypingIndicator.cs` (`ChannelTypingIndicator` → `LiveTypingIndicator` / `TelegramTypingIndicator`) |
 
 All channels write to the **same** `crm_thread` / `crm_message` tables, so the
 inbox, the SSE stream, the AI, teams, automations, the flow engine and the
@@ -118,6 +119,11 @@ outbound queue are already channel-blind.
   `file` — attached to the placeholder message, 20 MB cap). All require
   `X-Baileys-Secret` (Setting `baileys_secret` → env `BAILEYS_SECRET` →
   `baileys-local-dev` — change it).
+- Outbound media: the gateway's `POST /accounts/{id}/send-media` (`{to,
+  media_type, file_b64, mime, filename, caption}`, ≤16 MB, base64 in the body —
+  the gateway never reads a path or fetches a URL; `media.js` checks the payload
+  and is self-tested). A refusal is a failed row with the gateway's reason. The
+  cold-text guard covers files as well as text.
 - Call recordings: `GET /api/whatsapp/threads/{key}/call/recordings` lists the
   gateway's `data/whatsapp/calls/recordings/{wa_id}-{ms}.wav` (else the voice
   agent's `data/recordings/{room}.wav`) with the transcript and who started /
@@ -149,7 +155,9 @@ outbound queue are already channel-blind.
   recipient's problem and leaves health alone. "Test" = getMe (+ webhook state).
   The bot is the thread's own — a Telegram chat only works with the bot the
   customer started, so there is no failover; a bot-less thread takes the
-  contact's sticky / least-loaded / sole bot (`Routing.ForThread`).
+  contact's sticky / least-loaded / sole bot (`Routing.ForThread`). The AI's
+  typing pause shows "typing…" (`sendChatAction`, fire-and-forget,
+  `TelegramTypingIndicator`).
 - No phone number, so CRM linking is manual (the `/chats` contact picker or
   `POST /api/messaging/threads/telegram/{key}/link`). Auto-replies only fire on
   linked threads.
@@ -163,12 +171,25 @@ outbound queue are already channel-blind.
   PSID / IGSID (name fetched once). Redelivered mids are skipped; attachments
   download from the CDN off the ack (one media per message row); delivery / read
   receipts tick our outbound messages; echoes are ignored.
-- Sends go through the Send API (`POST /me/messages`, page token, `RESPONSE`),
-  text or an attachment by public URL (`media_url` on the messaging send route).
-  "Test" calls `GET /me` and moves health (ok → healthy, refused → disconnected).
-- The dashboard's Messenger/Instagram setup has no app-secret field yet: set it
-  with `PATCH /api/messaging/accounts/{id}` (`app_secret`), Setting
-  `meta_app_secret`, or reuse the WhatsApp account's app secret (one Meta app).
+- Sends go through the Send API (`POST /me/messages`, page token): text, an
+  attachment by public URL (`media_url` on the messaging send route) or an
+  uploaded file (`POST /api/messaging/threads/{facebook|instagram}/{key}/send-media`
+  → multipart `recipient` / `messaging_type` / `message` / `filedata`; a caption
+  goes out as the next text message). "Test" calls `GET /me` and moves health
+  (ok → healthy, refused → disconnected).
+- **Messaging window** (`Channels/SocialWindow.cs`, from the newest inbound row,
+  live pages only): within 24h anything (`RESPONSE`); 24h–7 days only a person —
+  the inbox routes send `MESSAGE_TAG` + `HUMAN_AGENT` for a signed-in user, while
+  AI replies, follow-ups, flow/automation jobs, API keys and MCP clients are
+  refused (409 / failed job / blocked AI draft); beyond 7 days, or before the
+  customer ever wrote, nothing goes out. The thread payload carries
+  `window_open`, `window_expires_at`, `human_window_open`,
+  `human_window_expires_at`; the inbox `window=open|closed` filter and the
+  channel hub use the same rule. A HUMAN_AGENT send refused for permissions (the
+  app lacks Meta's Human Agent feature) fails without touching health.
+- The app secret is set in the setup drawer (or `PATCH
+  /api/messaging/accounts/{id}` `app_secret`, Setting `meta_app_secret`, or the
+  WhatsApp account's app secret when it is the same Meta app).
 
 ### Email
 - Accounts: per-mailbox SMTP creds in `Config` (`host port username password
