@@ -18,6 +18,7 @@ import { roleHeaders } from '@/lib/role'
 import { useAccess } from '@/lib/useAccess'
 import { expireSessionOn401 } from '@/lib/auth'
 import { useSettingsDirty } from './SettingsDirtyContext'
+import { EMBEDDING_KEYS, EmbeddingsSection } from '@/components/ai-learning/EmbeddingsSection'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -295,6 +296,7 @@ export function AiProvidersSettings() {
       else raw = rec[f.key]
       vals[f.key] = raw == null ? '' : String(raw)
     }
+    for (const k of EMBEDDING_KEYS) if (!(k in vals)) vals[k] = rec[k] == null ? '' : String(rec[k])
     setMeta(p.fields)
     setOptions(p.chat_provider_options || [])
     setCatalog(p.chat_model_options || [])
@@ -325,6 +327,9 @@ export function AiProvidersSettings() {
     const cur = valuesRef.current
     const init = initialRef.current
     const body: Record<string, string> = {}
+    for (const k of EMBEDDING_KEYS) {
+      if (!fields.some((f) => f.key === k) && (cur[k] ?? '') !== (init[k] ?? '')) body[k] = cur[k] ?? ''
+    }
     for (const f of fields) {
       const v = cur[f.key] ?? ''
       if (v === (init[f.key] ?? '')) continue // unchanged
@@ -380,8 +385,9 @@ export function AiProvidersSettings() {
   }
 
   // group order preserved from the schema (providers, then tunables)
+  // the embedding fields render in their own section (provider list ≠ chat providers)
   const groups: string[] = []
-  for (const f of meta) if (!groups.includes(f.group)) groups.push(f.group)
+  for (const f of meta) if (!EMBEDDING_KEYS.includes(f.key) && !groups.includes(f.group)) groups.push(f.group)
 
   return (
     <div className="flex flex-col gap-5 pt-3.5">
@@ -420,9 +426,9 @@ export function AiProvidersSettings() {
       {groups.map((g) => {
         const gm = GROUP_META[g] || { title: g, blurb: '', Icon: KeyRound }
         const Icon = gm.Icon
-        const fields = meta.filter((f) => f.group === g)
+        const fields = meta.filter((f) => f.group === g && !EMBEDDING_KEYS.includes(f.key))
         return (
-          <div key={g} className="rounded-xl border border-line bg-card p-4">
+          <div key={g} className={`rounded-xl border border-line bg-card p-4 ${g === 'tunables' ? 'order-last' : ''}`}>
             <div className="flex items-center gap-2">
               <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-fill">
                 <Icon size={14} color="#D9480F" aria-hidden />
@@ -512,6 +518,13 @@ export function AiProvidersSettings() {
           </div>
         )
       })}
+
+      <EmbeddingsSection
+        provider={values.embedding_provider ?? ''}
+        model={values.embedding_model ?? ''}
+        disabled={!isSuper}
+        onChange={edit}
+      />
     </div>
   )
 }

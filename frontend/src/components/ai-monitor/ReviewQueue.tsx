@@ -35,6 +35,7 @@ import {
   chatHref,
   displayName,
 } from './DraftBits'
+import { DraftFeedback, GroundingLine } from '@/components/ai-learning/DraftLearning'
 
 const QUICK_REASONS = [
   'Wrong or made-up information',
@@ -391,6 +392,10 @@ export function ReviewQueue({
                 )}
                 <div className="mt-2">
                   <ContextChips d={d} />
+                </div>
+                <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
+                  <GroundingLine d={d} />
+                  <DraftFeedback d={d} className="ml-auto" />
                 </div>
               </section>
             </div>

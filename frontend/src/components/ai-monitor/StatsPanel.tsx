@@ -19,6 +19,7 @@ import { Loader2, Table2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { KIND_LABEL, aiApi, duration, type DraftKind, type MonitorStats } from '@/lib/aiMonitor'
+import { LearningStats } from '@/components/ai-learning/LearningStats'
 
 const DAY_OPTIONS = [7, 30, 90]
 const KIND_PLURAL: Record<DraftKind, string> = {
@@ -340,6 +341,7 @@ export function StatsPanel({ entityQuery }: { entityQuery: string }) {
           )}
         </div>
       )}
+      <LearningStats entityQuery={entityQuery} days={days} />
     </div>
   )
 }

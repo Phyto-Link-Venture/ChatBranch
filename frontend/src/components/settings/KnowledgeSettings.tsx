@@ -1,11 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   BookOpen,
   CheckCircle,
-  Eye,
+  FileText,
   Loader2,
   Lock,
   Plus,
@@ -21,6 +21,8 @@ import { useRole } from '@/lib/useRole'
 import { useEntity, useEntityQuery } from '@/lib/EntityContext'
 import { EntityScopeSelect, ScopeBadge } from './EntityScopeSelect'
 import { expireSessionOn401 } from '@/lib/auth'
+import { KnowledgeUploadButton } from '@/components/ai-learning/KnowledgeUpload'
+import { RetrievalTester } from '@/components/ai-learning/RetrievalTester'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -51,6 +53,8 @@ interface Item {
   scheduled: boolean
   created_by: string
   updated_at: string | null
+  /** Set when the item was created by uploading a document (its file name). */
+  source_file?: string
 }
 
 interface ListPayload {
@@ -138,8 +142,12 @@ const fromLocalInput = (v: string) => (v ? new Date(v).toISOString() : '')
  *
  * The block this produces is injected at the same two seams as contact memory
  * (chat system prompt + voice dispatch metadata), so it reaches all six
- * channels and live phone calls with no per-channel code. Retrieval is
- * keyword + recency + priority — no embeddings, on purpose.
+ * channels and live phone calls with no per-channel code. Standing notices,
+ * events and facts always go in; FAQs, policies and uploaded documents are
+ * retrieved per message (by meaning when an embedding provider is set in
+ * Settings → AI keys & models, else by keywords). "Upload document" turns a
+ * PDF / text / Markdown / CSV file into an item; "Test retrieval" shows what
+ * the AI would be handed for a given customer message.
  */
 export function KnowledgeSettings() {
   // Entity scope. With an outlet selected the list shows the organization's
@@ -158,8 +166,6 @@ export function KnowledgeSettings() {
   const [draft, setDraft] = useState<Draft | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const [previewText, setPreviewText] = useState('')
-  const [preview, setPreview] = useState<{ block: string; chars: number; budget: number } | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -244,17 +250,24 @@ export function KnowledgeSettings() {
     }
   }
 
-  const runPreview = async () => {
-    try {
-      const d = await api<{ block: string; chars: number; budget: number }>('knowledge/preview', {
-        method: 'POST',
-        body: JSON.stringify({ text: previewText, channel: '' }),
-      })
-      setPreview(d)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    }
-  }
+  // ?add=faq&question=… (a knowledge gap's "Add answer" → the full editor) opens a prefilled draft once
+  const deepLinked = useRef(false)
+  useEffect(() => {
+    if (deepLinked.current || !ready || !canManage || !data) return
+    deepLinked.current = true
+    const sp = new URLSearchParams(window.location.search)
+    const add = sp.get('add')
+    if (!add) return
+    const question = sp.get('question') ?? ''
+    setDraft({
+      kind: data.kinds.some((k) => k.id === add) ? add : 'faq',
+      question,
+      title: question.slice(0, 80),
+      active: true,
+      priority: 0,
+      entity: activeEntity?.slug ?? null,
+    })
+  }, [ready, canManage, data, activeEntity])
 
   if (!ready || (data === null && !loadError)) {
     return (
@@ -283,7 +296,7 @@ export function KnowledgeSettings() {
 
   return (
     <div className="flex flex-col gap-4 pt-3.5">
-      <div className="flex items-start gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
         <p className="min-w-0 max-w-[720px] flex-1 text-[11.5px] leading-relaxed text-text-mid">
           Everything the AI should know about your business, typed by you — no code, no redeploy. Facts and policies
           are always available; <span className="font-bold text-text-high">events</span> and{' '}
@@ -292,7 +305,13 @@ export function KnowledgeSettings() {
           reaches every channel and every voice call at once.
         </p>
         {canManage && (
-          <div className="shrink-0">
+          <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+            <KnowledgeUploadButton
+              kinds={data.kinds}
+              defaultEntity={activeEntity?.slug ?? null}
+              // the modal itself confirms the upload; the list just refreshes underneath
+              onUploaded={() => void load()}
+            />
             <Button onClick={() => setDraft({ kind: kind || 'fact', active: true, priority: 0, entity: activeEntity?.slug ?? null })}>
               <Plus size={13} aria-hidden /> New entry
             </Button>
@@ -586,11 +605,26 @@ export function KnowledgeSettings() {
               <span className="block truncate text-[11px] text-text-muted">
                 {item.question || item.content}
               </span>
+              {item.source_file && (
+                <span className="mt-0.5 flex min-w-0 items-center gap-1 text-[10px] font-semibold text-text-muted sm:hidden">
+                  <FileText size={10} className="shrink-0" aria-hidden />
+                  <span className="truncate">Source: {item.source_file}</span>
+                </span>
+              )}
             </button>
             {/* Only meaningful while viewing one outlet: says whether this row
                 is inherited from the organization or belongs to this outlet. */}
             {activeEntity && (
               <ScopeBadge scope={item.scope} entityName={item.entity_name || activeEntity.name} />
+            )}
+            {item.source_file && (
+              <span
+                className="hidden min-w-0 max-w-[180px] shrink items-center gap-1 rounded-full bg-fill px-2 py-px text-[9.5px] font-bold text-text-muted sm:inline-flex"
+                title={`Uploaded from ${item.source_file}`}
+              >
+                <FileText size={10} className="shrink-0" aria-hidden />
+                <span className="truncate">Source: {item.source_file}</span>
+              </span>
             )}
             {item.published && (
               <span
@@ -625,36 +659,7 @@ export function KnowledgeSettings() {
         ))}
       </div>
 
-      {/* preview */}
-      <div className="rounded-xl border border-line bg-card p-4">
-        <div className="mb-1 text-[12.5px] font-bold text-text-high">Preview context</div>
-        <p className="mb-3 max-w-[640px] text-[11px] leading-relaxed text-text-muted">
-          The exact block the AI is handed before it answers. Type a message a contact might send — FAQs and policies
-          only appear when their keywords match, which is why &ldquo;why did the bot say that?&rdquo; is a button here
-          rather than a code investigation.
-        </p>
-        <div className="flex gap-2">
-          <input
-            value={previewText}
-            placeholder="how long does a refund take?"
-            onChange={(e) => setPreviewText(e.target.value)}
-            className={inputCls}
-          />
-          <Button variant="secondary" onClick={runPreview}>
-            <Eye size={13} aria-hidden /> Preview
-          </Button>
-        </div>
-        {preview && (
-          <div className="mt-3">
-            <pre className="max-h-[260px] overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-fill-subtle p-3 text-[11.5px] leading-[1.6] text-text-mid">
-              {preview.block || '(nothing — the AI answers with no company knowledge for this message)'}
-            </pre>
-            <div className="mt-1 text-[10.5px] text-text-muted">
-              {preview.chars.toLocaleString()} / {preview.budget.toLocaleString()} characters of the budget used
-            </div>
-          </div>
-        )}
-      </div>
+      <RetrievalTester entity={activeEntity?.slug ?? null} />
     </div>
   )
 }
