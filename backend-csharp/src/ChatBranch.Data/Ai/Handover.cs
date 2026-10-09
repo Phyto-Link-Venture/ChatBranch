@@ -102,7 +102,7 @@ public static class Handover
                 {
                     ThreadId = row.Id, Direction = MessageDirection.Out, Source = MessageSource.System,
                     Private = true, Status = "note", AccountId = row.AccountId, CreatedAt = now,
-                    Text = Cap($"{Who(by)} handed this conversation to a person — {why}"
+                    Text = Cap($"{Who(by)} handed this conversation to a person — {Sentence(why)}"
                                + (standDown ? " The AI stands down until someone lets it continue." : ""), 1000),
                 });
             AuditTrail.Add(db, AuditAction, $"{row.Channel}:{row.Key}", $"{kind}: {why}",
@@ -271,4 +271,11 @@ public static class Handover
     }
 
     private static string Cap(string s, int n) => s.Length <= n ? s : s[..n];
+
+    /// <summary>The reason as a sentence, so the note's next sentence doesn't run on.</summary>
+    private static string Sentence(string text)
+    {
+        var t = (text ?? "").TrimEnd();
+        return t.Length == 0 || ".!?…".Contains(t[^1]) ? t : t + ".";
+    }
 }
