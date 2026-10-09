@@ -86,7 +86,7 @@ public class GoogleOAuth
         return Encoding.UTF8.GetBytes(stored);
     }
 
-    private string SignState(int integrationId, string provider)
+    private string SignState(int integrationId, string provider, string returnTo = "")
     {
         var payload = JsonSerializer.Serialize(new
         {
@@ -94,13 +94,16 @@ public class GoogleOAuth
             p = provider,
             n = Base64Url(RandomNumberGenerator.GetBytes(9)),
             t = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            r = returnTo,
         });
         var body = Base64Url(Encoding.UTF8.GetBytes(payload));
         var sig = Base64Url(HMACSHA256.HashData(StateSecret(), Encoding.ASCII.GetBytes(body)));
         return $"{body}.{sig}";
     }
 
-    public record StateData(int IntegrationId, string Provider);
+    /// <summary><paramref name="ReturnTo"/> = which dashboard page the callback
+    /// lands on (a key the caller allowlists, "" = the default).</summary>
+    public record StateData(int IntegrationId, string Provider, string ReturnTo = "");
 
     /// <summary>Throws <see cref="OAuthException"/> on a tampered or expired state.</summary>
     public StateData VerifyState(string? state)
@@ -122,7 +125,9 @@ public class GoogleOAuth
             if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - issued > StateMaxAgeSeconds)
                 throw new OAuthException("This connect link expired — start the connection again.");
             return new StateData(root.GetProperty("i").GetInt32(),
-                                 root.GetProperty("p").GetString() ?? "");
+                                 root.GetProperty("p").GetString() ?? "",
+                                 root.TryGetProperty("r", out var r) && r.ValueKind == JsonValueKind.String
+                                     ? r.GetString() ?? "" : "");
         }
         catch (OAuthException) { throw; }
         catch { throw new OAuthException("Invalid OAuth state payload."); }
@@ -141,7 +146,7 @@ public class GoogleOAuth
     /// Google client is registered — the sandbox case the caller turns into a
     /// 400 with an operator-facing reason, attempting no network call.
     /// </summary>
-    public string AuthorizeUrl(Integration integration, string[] scopes, string redirectUri)
+    public string AuthorizeUrl(Integration integration, string[] scopes, string redirectUri, string returnTo = "")
     {
         var clientId = IntegrationSettings.Value(_scoping, "google_client_id");
         var clientSecret = IntegrationSettings.Value(_scoping, "google_client_secret");
@@ -170,7 +175,7 @@ public class GoogleOAuth
             ["include_granted_scopes"] = "true",  // incremental authorization
             ["code_challenge"] = ChallengeFor(verifier),
             ["code_challenge_method"] = "S256",
-            ["state"] = SignState(integration.Id, integration.Provider),
+            ["state"] = SignState(integration.Id, integration.Provider, returnTo),
         };
         var qs = string.Join("&", query.Select(kv =>
             $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value)}"));

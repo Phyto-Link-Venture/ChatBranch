@@ -396,16 +396,52 @@ public static class IntegrationsEndpoints
             return Results.Ok(SettingsPayload(ctx, sc));
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
-        // ---- OAuth start (views.oauth_start) ---------------------------------
-        // The dashboard's Connect button calls this before navigating. The PKCE
-        // round-trip itself is not ported yet, so this answers with the honest
-        // "needs one-time setup" shape (HTTP 200, {configured:false, reason})
-        // that the card already renders — never a 404 and never a socket opened.
+        // ---- My connections (Settings → Personal) ----------------------------
+        // Every signed-in person, no capability: the Google products a person
+        // connects for THEMSELVES (their own calendar for "the assigned agent's
+        // calendar" bookings, their contact book for imports) and their own
+        // grant of each. Connect = /oauth/{provider}/start?return=connections;
+        // disconnect = /accounts/{id}/disconnect (own rows need no capability).
+        app.MapGet("/api/integrations/mine", async (AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
+        {
+            var uid = await UserIdAsync(db, me);
+            var own = uid == null ? new List<Integration>()
+                : await db.Integrations.AsNoTracking().Include(i => i.Owner)
+                    .Where(i => i.OwnerUserId == uid).ToListAsync();
+            // the two a personal grant matters most for first
+            var products = Catalog.Where(p => p.Kind == "oauth")
+                .OrderBy(p => p.Id switch { "google_calendar" => 0, "google_contacts" => 1, _ => 2 })
+                .Select(p =>
+            {
+                // the row the resolver would use for this person: the organization-level
+                // personal row first, then one in any entity; connected rows win
+                var rows = own.Where(i => i.Provider == p.Id)
+                    .OrderByDescending(i => Connected(i)).ThenBy(i => i.EntityId == null ? 0 : 1).ThenBy(i => i.Id).ToList();
+                var row = rows.FirstOrDefault();
+                return new
+                {
+                    provider = p.Id,
+                    label = p.Label,
+                    blurb = p.Blurb,
+                    used_for = PersonalUse.GetValueOrDefault(p.Id, ""),
+                    account = row == null || (!Connected(row) && row.Status is "unknown" or "")
+                        ? null : Payload(row),
+                };
+            }).ToList();
+            return Results.Ok(new
+            {
+                google_configured = GoogleOauthConfigured(sc),
+                username = me.Identity?.Name,
+                connections = products,
+            });
+        }).RequireAuthorization(AuthPolicies.Authenticated);
+
         // ---- OAuth: start ------------------------------------------------
         // Returns a ready Google consent URL for THIS caller's own connection
         // (PKCE + signed state). Each user gets their own row, so two people in
         // one entity connect two different calendars instead of overwriting one.
         app.MapGet("/api/integrations/oauth/{provider}/start", async (string provider, string? entity,
+            [Microsoft.AspNetCore.Mvc.FromQuery(Name = "return")] string? returnTo,
             HttpContext ctx, AppDbContext db, ScopingService sc, ClaimsPrincipal me,
             IntegrationResolver resolver, GoogleOAuth oauth) =>
         {
@@ -433,7 +469,7 @@ public static class IntegrationsEndpoints
             var row = await resolver.OwnRowAsync(provider, entityId, userId);
             try
             {
-                var url = oauth.AuthorizeUrl(row, meta.Scopes, RedirectUri(ctx, sc));
+                var url = oauth.AuthorizeUrl(row, meta.Scopes, RedirectUri(ctx, sc), ReturnKey(returnTo));
                 return Results.Ok(new { configured = true, authorize_url = url });
             }
             catch (GoogleOAuth.OAuthException e)
@@ -449,7 +485,10 @@ public static class IntegrationsEndpoints
         app.MapGet(GoogleCallbackPath, async (string? code, string? state, string? error,
             HttpContext ctx, AppDbContext db, ScopingService sc, GoogleOAuth oauth) =>
         {
-            var dashboard = DashboardUrl();
+            // Google hands the state back on a refusal too: land where the connect started
+            string landing;
+            try { landing = oauth.VerifyState(state).ReturnTo; } catch { landing = ""; }
+            var dashboard = DashboardUrl(landing);
             if (!string.IsNullOrEmpty(error))
                 return Results.Redirect($"{dashboard}?error={Uri.EscapeDataString(error!)}");
             try
@@ -681,11 +720,32 @@ public static class IntegrationsEndpoints
     }
 
     /// <summary>Where the OAuth callback bounces the operator back to.</summary>
-    private static string DashboardUrl()
+    /// <summary>What a PERSONAL grant of each Google product is used for (My connections).</summary>
+    private static readonly Dictionary<string, string> PersonalUse = new()
+    {
+        ["google_calendar"] = "Booking skills set to \"the assigned agent's calendar\" check your free time "
+                              + "and book into this calendar for conversations assigned to you.",
+        ["google_contacts"] = "Contacts → Import → Google Contacts reads your address book (read-only).",
+        ["gmail"] = "Actions you run yourself send from your own Gmail; automated flows use the shared connection.",
+        ["google_drive"] = "Actions you run yourself save to your own Drive; automated flows use the shared connection.",
+        ["google_sheets"] = "Actions you run yourself write to your own spreadsheets; automated flows use the shared connection.",
+    };
+
+    /// <summary>The dashboard pages an OAuth connect may return to (state key → path).</summary>
+    private static readonly Dictionary<string, string> ReturnPages = new()
+    {
+        ["connections"] = "/settings/connections",
+    };
+
+    /// <summary>An allowlisted return key, else "" (the Integrations page).</summary>
+    private static string ReturnKey(string? key) =>
+        key is { Length: > 0 } k && ReturnPages.ContainsKey(k.Trim().ToLowerInvariant()) ? k.Trim().ToLowerInvariant() : "";
+
+    private static string DashboardUrl(string? returnTo = null)
     {
         var basis = (Environment.GetEnvironmentVariable("FRONTEND_URL") ?? "http://localhost:3000")
             .TrimEnd('/');
-        return $"{basis}/integrations";
+        return basis + (ReturnPages.TryGetValue(ReturnKey(returnTo), out var path) ? path : "/integrations");
     }
 
     /// <summary>The signed-in user's pk — the owner of any grant they create.</summary>

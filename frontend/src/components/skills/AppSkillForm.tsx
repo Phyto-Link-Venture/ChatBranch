@@ -245,6 +245,15 @@ export function AppSkillForm({
             </Field>
           </div>
         )}
+        {c.source === 'google' && c.calendar === 'assignee' && (
+          <p className="mt-2 text-[11.5px] leading-snug text-text-muted">
+            Each agent connects their own calendar at{' '}
+            <Link href="/settings/connections" className="font-semibold text-text-high hover:underline">
+              Settings → My connections
+            </Link>
+            ; conversations assigned to someone who hasn&rsquo;t use the shared calendar.
+          </p>
+        )}
         {c.source === 'google' && appsState !== 'loading' && !google?.connected && (
           <Note tone="amber">
             Until Google Calendar is connected, the AI is told the calendar is unavailable and offers a teammate — it
