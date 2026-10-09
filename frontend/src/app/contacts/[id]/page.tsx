@@ -16,6 +16,7 @@ import ChannelHub from '@/components/ChannelHub'
 import ContactEntitiesCard from '@/components/ContactEntitiesCard'
 import ContactTagsCard from '@/components/contacts/ContactTagsCard'
 import { BookingsCard } from '@/components/bookings/BookingsCard'
+import ContactAiModeCard from '@/components/contacts/ContactAiModeCard'
 import { TagChip } from '@/components/tags/TagChip'
 import { useTags } from '@/lib/tags'
 import { fetchCustomFields, formatFieldValue, type FieldDef } from '@/lib/customFields'
@@ -321,6 +322,9 @@ export default function ContactDetailPage() {
 
           {/* Registry tags (boss / employee / driver…) with their attribute values */}
           <ContactTagsCard contactId={d.id} />
+
+          {/* AI for this contact: follow the chat · never · always */}
+          <ContactAiModeCard contactId={d.id} />
         </div>
 
         {/* main column — the real communications timeline */}

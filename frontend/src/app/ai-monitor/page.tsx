@@ -18,6 +18,8 @@ import { ActivityList } from '@/components/ai-monitor/ActivityList'
 import { StatsPanel } from '@/components/ai-monitor/StatsPanel'
 import { AiBehaviourSettings } from '@/components/ai-monitor/AiBehaviourSettings'
 import { LearningPanel } from '@/components/ai-learning/LearningPanel'
+import { AiMasterSwitch } from '@/components/ai-controls/AiMasterSwitch'
+import { HandoverStats } from '@/components/ai-controls/HandoverStats'
 import { hasCap } from '@/lib/auth'
 import { useEntity, useEntityQuery } from '@/lib/EntityContext'
 import { subscribeChatStream } from '@/lib/chatStream'
@@ -118,6 +120,7 @@ export default function AiMonitorPage() {
         </Card>
       ) : (
         <div className="flex flex-col gap-4">
+          {access.ready && <AiMasterSwitch />}
           <div className="-mx-1 overflow-x-auto px-1">
             <div role="tablist" aria-label="AI monitor sections" className="flex min-w-max gap-5 border-b border-line">
               {TABS.map((t) => {
@@ -160,6 +163,7 @@ export default function AiMonitorPage() {
               <LearningPanel entityQuery={entityQ} entitySlug={activeEntity?.slug ?? null} entityName={activeEntity?.name ?? null} />
             )}
             {access.ready && tab === 'stats' && <StatsPanel entityQuery={entityQ} />}
+            {access.ready && tab === 'stats' && <div className="mt-4"><HandoverStats entityQuery={entityQ} /></div>}
             {access.ready && tab === 'settings' && <AiBehaviourSettings initialEntity={activeEntity?.slug ?? null} />}
           </div>
         </div>
