@@ -15,6 +15,7 @@
     "dev:baileys": "npm --prefix backend/baileys_service start",
     "test:api": "dotnet test backend-csharp/tests/ChatBranch.Tests",
     "test:agent": "npm --prefix backend/voice_agent run selftest",
+    "test:scenarios": "node scripts/test-lab.mjs",
     "typecheck:web": "npm --prefix frontend exec tsc -- --noEmit",
     "typecheck:agent": "npm --prefix backend/voice_agent run typecheck"
   },

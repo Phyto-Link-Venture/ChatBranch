@@ -25,6 +25,7 @@ export const shell = {
     developers: 'API keys & MCP',
     activity: 'Activity',
     callLogs: 'Call logs',
+    testLab: 'Test lab',
     settings: 'Settings',
     home: 'Home',
     more: 'More',

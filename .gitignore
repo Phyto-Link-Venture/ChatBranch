@@ -267,3 +267,6 @@ presentation
 
 # dotnet test --logger trx output
 TestResults/
+
+# Test lab CLI report (npm run test:scenarios)
+test-lab-report.json

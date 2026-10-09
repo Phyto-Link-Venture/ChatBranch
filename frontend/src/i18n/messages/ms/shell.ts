@@ -27,6 +27,7 @@ export const shell: Dict<typeof source> = {
     developers: 'Kunci API & MCP',
     activity: 'Aktiviti',
     callLogs: 'Log panggilan',
+    testLab: 'Makmal ujian',
     settings: 'Tetapan',
     home: 'Utama',
     more: 'Lagi',

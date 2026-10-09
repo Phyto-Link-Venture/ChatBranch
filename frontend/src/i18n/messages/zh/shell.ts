@@ -27,6 +27,7 @@ export const shell: Dict<typeof source> = {
     developers: 'API 密钥与 MCP',
     activity: '活动记录',
     callLogs: '通话记录',
+    testLab: '测试实验室',
     settings: '设置',
     home: '首页',
     more: '更多',

@@ -206,6 +206,8 @@ app.MapMoreChannelWebhookEndpoints();
 app.MapMessagingTransportEndpoints();
 app.MapMetaWebhookEndpoints();
 app.MapWhatsAppMediaEndpoints();
+// the Test lab: scripted end-to-end scenarios + a fenced demo dataset (superadmin; TEST_LAB=0 = not mapped)
+ChatBranch.Api.TestLab.TestLabEndpoints.MapTestLabEndpoints(app);
 
 app.Run();
 
