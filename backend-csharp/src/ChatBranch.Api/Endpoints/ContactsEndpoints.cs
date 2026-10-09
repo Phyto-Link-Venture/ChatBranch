@@ -210,6 +210,13 @@ public static class ContactsEndpoints
                         usable = row != null && AccountConfigured(row) &&
                                  !DownHealth.Contains(row.HealthStatus);
                     }
+                    else if (ChatBranch.Data.Channels.SocialWindow.Applies(t.Channel))
+                    {
+                        // Messenger / Instagram: Meta's 24h window on a live page
+                        windowOpen = ChatBranch.Data.Channels.SocialWindow.ListWindow(
+                            ChatBranch.Data.Channels.SocialWindow.Live(row, t.Channel), agg?.LastIn,
+                            DateTime.UtcNow).Open;
+                    }
 
                     var payload = new Dictionary<string, object?>
                     {

@@ -18,15 +18,27 @@ namespace ChatBranch.Api.Endpoints;
 ///  * <c>POST /api/messaging/email/sync</c> — IMAP pull (<see cref="EmailSyncService"/>);
 ///  * <c>GET /api/messaging/media/{pk}</c> — a non-WhatsApp message's attachment,
 ///    auth-gated and scoped like the inbox;
-///  * <c>POST /api/messaging/threads/{email|telegram}/{key}/send-media</c> — an
-///    attachment out through <see cref="OutboundSender"/>;
+///  * <c>POST /api/messaging/threads/{email|telegram|facebook|instagram}/{key}/send-media</c>
+///    — an attachment out through <see cref="OutboundSender"/> (Messenger /
+///    Instagram upload the file to the Send API, inside Meta's messaging window);
 /// plus the account actions the accounts API delegates here
 /// (<see cref="MessagingAccountTransport"/>): Test, Register webhook, the
 /// default-SMTP test mail, and the reconnect reset after a credential save.
 /// </summary>
 public static class MessagingTransportEndpoints
 {
-    private static readonly string[] AttachChannels = { ChannelIds.Email, ChannelIds.Telegram };
+    private static readonly string[] AttachChannels =
+        { ChannelIds.Email, ChannelIds.Telegram, ChannelIds.Facebook, ChannelIds.Instagram };
+
+    /// <summary>
+    /// True when a PERSON is sending (a signed-in dashboard user, or the operator
+    /// assistant acting on their confirmation) — false for an API key or an MCP
+    /// client, which are automation. Decides whether a Messenger / Instagram reply
+    /// may use Meta's HUMAN_AGENT tag after the 24h window.
+    /// </summary>
+    public static bool IsHumanSender(ClaimsPrincipal me) =>
+        me.Identity?.IsAuthenticated == true && !ApiKeyAuth.IsApiKey(me)
+        && AuditContext.Current?.Source is not (AuditSources.Api or AuditSources.Mcp);
 
     public static void MapMessagingTransportEndpoints(this IEndpointRouteBuilder app)
     {
@@ -71,8 +83,8 @@ public static class MessagingTransportEndpoints
         // attachment download: GET /api/messaging/media/{id} is served by
         // WhatsAppMediaEndpoints (one implementation for every channel).
 
-        // ---- attachment send (email / Telegram) ----
-        app.MapPost("/api/messaging/threads/{channel:regex(^(email|telegram)$)}/{key}/send-media",
+        // ---- attachment send (email / Telegram / Messenger / Instagram) ----
+        app.MapPost("/api/messaging/threads/{channel:regex(^(email|telegram|facebook|instagram)$)}/{key}/send-media",
             async (string channel, string key, HttpContext ctx, AppDbContext db, OutboundSender sender,
                 VoiceAgentBridge bridge, ClaimsPrincipal me) =>
         {
@@ -86,10 +98,20 @@ public static class MessagingTransportEndpoints
                 return Results.BadRequest(new { detail = "File too large (max 20 MB)." });
             var caption = form["caption"].ToString().Trim();
             var subject = form["subject"].ToString().Trim();
+            var force = form["force"].ToString().ToLowerInvariant() is "1" or "true" or "yes";
 
             var thread = await db.Threads.Include(t => t.Account).Include(t => t.Contact)
                 .FirstOrDefaultAsync(t => t.Channel == channel && t.Key == key.Trim());
             if (thread == null) return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
+            // STOP is honoured on every channel: a manual exception must say so
+            if (thread.OptedOut && !force)
+                return Results.Json(new
+                {
+                    detail = "Contact opted out (STOP). Resend with force=true to override as a manual exception.",
+                }, statusCode: 409);
+            var human = IsHumanSender(me);
+            if (sender.SocialWindowBlock(thread, thread.AccountId, human) is { } windowClosed)
+                return Results.Json(new { detail = windowClosed, window_open = false }, statusCode: 409);
 
             using var ms = new MemoryStream();
             await upload.CopyToAsync(ms);
@@ -99,8 +121,13 @@ public static class MessagingTransportEndpoints
             var media = new OutboundMedia(MessagingMedia.Resolve(bridge.DataDir, rel)!, rel, type, fileName);
             var text = caption.Length > 0 ? caption : $"[{type}]";
 
-            var msg = sender.Send(thread, text, MessageSource.Agent, null,
-                subject: subject.Length > 0 ? subject : null, media: media);
+            // Messenger / Instagram upload the stored file (multipart) through the
+            // window-aware path; email and Telegram attach it to their own send
+            var msg = SocialWindow.Applies(channel)
+                ? sender.SendMedia(thread, rel, type, MessagingMedia.ContentTypeFor(fileName),
+                    caption.Length > 0 ? caption : null, fileName, MessageSource.Agent, null, humanAgent: human)
+                : sender.Send(thread, text, MessageSource.Agent, null,
+                    subject: subject.Length > 0 ? subject : null, media: media);
             AuditTrail.Write(db, "message.send", $"{channel}:{thread.Key}", $"media:{type} {Cap(text, 150)}",
                 actor: me.Identity?.Name);
             return Results.Ok(new

@@ -6,21 +6,35 @@ namespace ChatBranch.Data.Channels;
 
 /// <summary>
 /// Messenger + Instagram over Meta's Send API (port of the messaging app's
-/// Meta client): <c>POST /me/messages</c> with the PAGE access token for text and
-/// URL attachments, <c>GET /me</c> for the account test, the sender's profile
-/// for a new conversation's name, and inbound attachment downloads from Meta's
-/// CDN. Instagram messaging through a Facebook page uses the same endpoint and
-/// the page's token. The token rides in the Authorization header; nothing is
-/// logged. Unconfigured (no token) = the caller stores a sandbox message.
+/// Meta client): <c>POST /me/messages</c> with the PAGE access token for text,
+/// URL attachments and uploaded files (multipart <c>filedata</c>), <c>GET /me</c>
+/// for the account test, the sender's profile for a new conversation's name,
+/// and inbound attachment downloads from Meta's CDN. Instagram messaging
+/// through a Facebook page uses the same endpoint and the page's token. The
+/// token rides in the Authorization header; nothing is logged. Unconfigured (no
+/// token) = the caller stores a sandbox message.
+///
+/// <c>tag</c>: null sends <c>messaging_type: RESPONSE</c> (inside the 24h
+/// window); a tag (only <see cref="SocialWindow.HumanAgentTag"/> is used) sends
+/// <c>messaging_type: MESSAGE_TAG</c> + that tag. The window decision is the
+/// caller's (<see cref="SocialWindow"/>, <see cref="OutboundSender"/>).
 /// </summary>
 public interface IMetaMessagingClient
 {
     bool IsConfigured(ChannelAccount account);
     Task<SendOutcome> SendTextAsync(ChannelAccount account, string recipientId, string text,
-        CancellationToken ct = default);
+        string? tag = null, CancellationToken ct = default);
     /// <summary>image | video | audio | file, by public URL.</summary>
     Task<SendOutcome> SendAttachmentAsync(ChannelAccount account, string recipientId, string type, string url,
-        CancellationToken ct = default);
+        string? tag = null, CancellationToken ct = default);
+    /// <summary>
+    /// image | video | audio | file UPLOADED with the message (multipart
+    /// <c>recipient</c> / <c>messaging_type</c> / <c>message</c> /
+    /// <c>filedata</c>) — for a file we hold, not one at a public URL.
+    /// </summary>
+    Task<SendOutcome> SendFileAsync(ChannelAccount account, string recipientId, string type, byte[] content,
+        string mime, string fileName, string? tag = null, CancellationToken ct = default) =>
+        Task.FromResult(new SendOutcome(false, "", "file upload is not supported by this client"));
     /// <summary>GET /me — proves the token (and names the page / IG account).</summary>
     Task<GraphRead> GetMeAsync(ChannelAccount account, CancellationToken ct = default);
     /// <summary>Best-effort display name of a PSID / IGSID ("" when Meta won't say).</summary>
@@ -51,29 +65,65 @@ public class MetaMessagingClient : IMetaMessagingClient
         return new SendOutcome(true, MetaGraph.Str(r.Body, "message_id"), "");
     }
 
-    public Task<SendOutcome> SendTextAsync(ChannelAccount account, string recipientId, string text,
-        CancellationToken ct = default) =>
-        PostAsync(account, new
+    /// <summary>The Send API's attachment type for our bubble type (document → file).</summary>
+    public static string AttachmentType(string type) => type switch
+    {
+        "image" or "video" or "audio" => type,
+        _ => "file",
+    };
+
+    /// <summary>recipient + messaging_type (+ tag) — the envelope of every send.</summary>
+    private static Dictionary<string, object?> Envelope(string recipientId, string? tag)
+    {
+        var body = new Dictionary<string, object?> { ["recipient"] = new { id = recipientId } };
+        if (string.IsNullOrEmpty(tag)) body["messaging_type"] = "RESPONSE";
+        else
         {
-            recipient = new { id = recipientId },
-            messaging_type = "RESPONSE",
-            message = new { text },
-        }, ct);
+            body["messaging_type"] = "MESSAGE_TAG";
+            body["tag"] = tag;
+        }
+        return body;
+    }
+
+    public Task<SendOutcome> SendTextAsync(ChannelAccount account, string recipientId, string text,
+        string? tag = null, CancellationToken ct = default)
+    {
+        var body = Envelope(recipientId, tag);
+        body["message"] = new { text };
+        return PostAsync(account, body, ct);
+    }
 
     public Task<SendOutcome> SendAttachmentAsync(ChannelAccount account, string recipientId, string type,
-        string url, CancellationToken ct = default)
+        string url, string? tag = null, CancellationToken ct = default)
     {
-        var kind = type switch
+        var body = Envelope(recipientId, tag);
+        body["message"] = new
         {
-            "image" or "video" or "audio" => type,
-            _ => "file",
+            attachment = new { type = AttachmentType(type), payload = new { url, is_reusable = false } },
         };
-        return PostAsync(account, new
+        return PostAsync(account, body, ct);
+    }
+
+    public async Task<SendOutcome> SendFileAsync(ChannelAccount account, string recipientId, string type,
+        byte[] content, string mime, string fileName, string? tag = null, CancellationToken ct = default)
+    {
+        if (!IsConfigured(account)) return new SendOutcome(false, "", "account not configured");
+        if (content.Length == 0) return new SendOutcome(false, "", "the file is empty");
+        var form = new MultipartFormDataContent();
+        foreach (var (key, value) in Envelope(recipientId, tag))
+            form.Add(new StringContent(value is string str ? str : JsonSerializer.Serialize(value)), key);
+        form.Add(new StringContent(JsonSerializer.Serialize(new
         {
-            recipient = new { id = recipientId },
-            messaging_type = "RESPONSE",
-            message = new { attachment = new { type = kind, payload = new { url, is_reusable = false } } },
-        }, ct);
+            attachment = new { type = AttachmentType(type), payload = new { is_reusable = false } },
+        })), "message");
+        var file = new ByteArrayContent(content);
+        file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
+            string.IsNullOrWhiteSpace(mime) ? "application/octet-stream" : mime.Split(';')[0].Trim());
+        form.Add(file, "filedata", string.IsNullOrWhiteSpace(fileName) ? "file.bin" : fileName);
+        var r = await MetaGraph.SendAsync(Client(), MetaGraph.Request(HttpMethod.Post,
+            MetaGraph.Url(account, "me", "messages"), account.AccessToken, form), ct);
+        if (!r.Ok) return new SendOutcome(false, "", r.Detail, r.ErrorCode, r.ErrorSubcode);
+        return new SendOutcome(true, MetaGraph.Str(r.Body, "message_id"), "");
     }
 
     public Task<GraphRead> GetMeAsync(ChannelAccount account, CancellationToken ct = default)

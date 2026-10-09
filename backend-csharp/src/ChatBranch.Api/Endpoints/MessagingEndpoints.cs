@@ -172,7 +172,21 @@ public static class MessagingEndpoints
     }
 
     /// <summary>store._serialize — the full thread the chat pane renders.</summary>
-    private static Dictionary<string, object?> ThreadPayload(AppDbContext db, Thread t, List<Message> messages) =>
+    private static Dictionary<string, object?> ThreadPayload(AppDbContext db, Thread t, List<Message> messages)
+    {
+        var payload = ThreadFields(db, t, messages);
+        // Meta's messaging window on a LIVE Messenger / Instagram page (every
+        // other messaging channel, and a sandbox page, reads as open)
+        var lastIn = messages.Where(m => m.Direction == MessageDirection.In)
+            .Select(m => (DateTime?)m.CreatedAt).Max();
+        var account = t.Account ?? (t.AccountId is int aid ? db.ChannelAccounts.Find(aid) : null);
+        foreach (var (k, v) in ChatBranch.Data.Channels.SocialWindow.Fields(
+                     ChatBranch.Data.Channels.SocialWindow.Live(account, t.Channel), lastIn, DateTime.UtcNow))
+            payload[k] = v;
+        return payload;
+    }
+
+    private static Dictionary<string, object?> ThreadFields(AppDbContext db, Thread t, List<Message> messages) =>
         new()
         {
             ["key"] = t.Key,
@@ -548,14 +562,22 @@ public static class MessagingEndpoints
                     detail = "Contact opted out (STOP). Resend with force=true to override as a manual exception.",
                 }, statusCode: 409);
 
+            // Messenger / Instagram: Meta's window. A person may answer for 7 days
+            // (HUMAN_AGENT tag after 24h); an API key / MCP client is automation
+            var human = MessagingTransportEndpoints.IsHumanSender(me);
+            if (sender.SocialWindowBlock(thread, thread.AccountId, human) is { } windowClosed)
+                return Results.Json(new { detail = windowClosed, window_open = false }, statusCode: 409);
+
             var subject = (Str(body, "subject") ?? "").Trim();
             Message msg = null!;
             if (mediaUrl.Length > 0)
                 msg = sender.SendMediaUrl(thread, (Str(body, "media_type") ?? "image").Trim().ToLowerInvariant(),
-                    mediaUrl, MessageSource.Agent, thread.AccountId);
+                    mediaUrl, MessageSource.Agent, thread.AccountId, humanAgent: human);
             if (text.Length > 0)
-                msg = sender.Send(thread, text, MessageSource.Agent, null,
-                    subject: subject.Length > 0 ? subject : null);
+                msg = ChatBranch.Data.Channels.SocialWindow.Applies(thread.Channel)
+                    ? sender.SendSocialText(thread, text, MessageSource.Agent, null, human)
+                    : sender.Send(thread, text, MessageSource.Agent, null,
+                        subject: subject.Length > 0 ? subject : null);
             Audit(db, me, ctx, "message.send", $"{channel}:{key}", text);
             return Results.Ok(new { message = MessagePayload(msg, thread.Channel, thread.Account?.Name) });
         }).RequireAuthorization(AuthPolicies.Authenticated);

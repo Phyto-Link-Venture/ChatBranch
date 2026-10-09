@@ -124,13 +124,15 @@ public class MetaApiTests : IClassFixture<MetaApiFactory>
         Assert.Contains("••", account.GetProperty("app_secret_masked").GetString()); // never in clear
         Graph.Json("GET", @"/v23\.0/PSID-55\?fields", new { first_name = "Nora", last_name = "Lee" });
         Graph.Bytes(@"cdn\.fbsbx\.test/pic\.jpg", new byte[] { 0xFF, 0xD8, 0xFF, 0x01 }, "image/jpeg");
+        // Meta stamps the message itself; recent, so the messaging window is open for the reply below
+        var sentAt = DateTimeOffset.UtcNow.AddMinutes(-5).ToUnixTimeMilliseconds();
 
         var payload = new
         {
             @object = "page",
             entry = new[] { new { id = "PAGE-55", time = 1, messaging = new object[]
             {
-                new { sender = new { id = "PSID-55" }, recipient = new { id = "PAGE-55" }, timestamp = 1700000000000,
+                new { sender = new { id = "PSID-55" }, recipient = new { id = "PAGE-55" }, timestamp = sentAt,
                       message = new { mid = "mid.55", text = "Do you ship to Penang?", attachments = new[]
                       { new { type = "image", payload = new { url = "https://cdn.fbsbx.test/pic.jpg" } } } } },
             } } },
@@ -156,7 +158,7 @@ public class MetaApiTests : IClassFixture<MetaApiFactory>
         Assert.Equal("Nora Lee", thread.Name);                 // profile learnt off the ack
         var inbound = Assert.Single(msgs);                     // mid dedup: one row
         Assert.Equal("Do you ship to Penang?", inbound.Text);
-        Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(1700000000000).UtcDateTime, inbound.CreatedAt);
+        Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(sentAt).UtcDateTime, inbound.CreatedAt);
         Assert.Equal("image", inbound.MediaType);
 
         // the attachment is served auth-gated from /api/messaging/media/{pk}

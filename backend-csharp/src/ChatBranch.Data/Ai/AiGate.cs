@@ -494,7 +494,8 @@ public class AiGate
             return "AI is turned off for this conversation.";
         if (!isTemplate && WindowClosed(thread, accountId))
             return "WhatsApp's 24-hour window has closed — only a template can be sent now.";
-        return null;
+        // Messenger / Instagram: an AI-written message never uses the HUMAN_AGENT tag
+        return _sender.SocialWindowBlock(thread, accountId, humanAgent: false, Now);
     }
 
     /// <summary>

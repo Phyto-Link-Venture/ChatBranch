@@ -13,8 +13,12 @@ namespace ChatBranch.Data.Channels;
 ///
 ///   * WhatsApp Cloud — text, real TEMPLATE messages (<see cref="SendTemplate"/>)
 ///     and media (upload → send by id, <see cref="SendMedia"/>);
-///   * WhatsApp Baileys — text through the Node gateway (templates render as text);
-///   * Messenger / Instagram — the Send API with the page token;
+///   * WhatsApp Baileys — text and media through the Node gateway (templates
+///     render as text);
+///   * Messenger / Instagram — the Send API with the page token (text, URL
+///     attachments, uploaded files), inside Meta's messaging window
+///     (<see cref="SocialWindow"/>: 24h for anything, up to 7 days for a person
+///     with the HUMAN_AGENT tag, nothing after that);
 ///   * Email (SMTP, <see cref="EmailChannel"/>) and Telegram (Bot API,
 ///     <see cref="TelegramChannel"/>) — they resolve their own mailbox / bot.
 ///
@@ -111,8 +115,8 @@ public class OutboundSender
                 _whatsapp.SendTextAsync(account!, thread.Key, text).GetAwaiter().GetResult());
 
         if (SocialLive(thread, account))
-            return Record(thread, account!, source, text,
-                _meta!.SendTextAsync(account!, thread.Key, text).GetAwaiter().GetResult());
+            return SocialSend(thread, account!, source, text, humanAgent: false,
+                tag => _meta!.SendTextAsync(account!, thread.Key, text, tag).GetAwaiter().GetResult());
 
         // sandbox (no configured account)
         return _threads.AppendMessage(thread, MessageDirection.Out, source, text,
@@ -148,13 +152,17 @@ public class OutboundSender
 
     /// <summary>
     /// A media message whose file is already stored (<see cref="MediaStore"/>,
-    /// <paramref name="relPath"/>). A configured Cloud number uploads it to
-    /// /{phone_number_id}/media and sends it by id; anything else keeps the file
-    /// locally and stores the bubble as sandbox (no media path on Baileys or the
-    /// social channels in this build).
+    /// <paramref name="relPath"/> under the channel's media root). Live paths:
+    ///   * WhatsApp Cloud — upload to /{phone_number_id}/media, send by id;
+    ///   * WhatsApp Baileys — the gateway's <c>send-media</c> (base64 body, ≤16 MB);
+    ///   * Messenger / Instagram — the Send API's multipart upload, inside the
+    ///     messaging window (<paramref name="humanAgent"/> = a person sent it, so
+    ///     24h–7d goes out tagged HUMAN_AGENT). Messenger attachments carry no
+    ///     caption, so a caption follows as its own text message.
+    /// Anything else keeps the file locally and stores the bubble as sandbox.
     /// </summary>
     public Message SendMedia(Thread thread, string relPath, string mediaType, string mime, string? caption,
-        string? filename, string source, int? accountId = null)
+        string? filename, string source, int? accountId = null, bool humanAgent = false)
     {
         var acctId = accountId ?? thread.AccountId;
         var account = Account(acctId);
@@ -162,6 +170,7 @@ public class OutboundSender
 
         Message msg;
         var full = _media?.Resolve(thread.Channel, relPath);
+        var name = string.IsNullOrWhiteSpace(filename) ? Path.GetFileName(full ?? relPath) : filename!;
         if (CloudLive(thread, account) && full != null)
         {
             var bytes = File.ReadAllBytes(full);
@@ -173,30 +182,118 @@ public class OutboundSender
                 : up;
             msg = Record(thread, account!, source, text, outcome);
         }
+        else if (BaileysLive(thread, account) && full != null)
+        {
+            // same recording as a Baileys text send: the WhatsApp id, or a failed row with the reason
+            var bytes = File.ReadAllBytes(full);
+            var r = _baileys.SendMediaAsync(account!.ExternalId, thread.Key, mediaType, bytes, mime, name, caption)
+                .GetAwaiter().GetResult();
+            msg = r.Ok
+                ? _threads.AppendMessage(thread, MessageDirection.Out, source, text,
+                    status: "sent", externalId: r.ExternalId, accountId: account.Id)
+                : _threads.AppendMessage(thread, MessageDirection.Out, MessageSource.System,
+                    $"[send failed: {r.Detail}] {text}", status: "failed", accountId: account.Id);
+        }
+        else if (SocialLive(thread, account) && full != null)
+        {
+            var bytes = File.ReadAllBytes(full);
+            var withCaption = !string.IsNullOrWhiteSpace(caption);
+            msg = SocialSend(thread, account!, source, withCaption ? $"[{mediaType}]" : text, humanAgent,
+                tag => _meta!.SendFileAsync(account!, thread.Key, mediaType, bytes, mime, name, tag)
+                    .GetAwaiter().GetResult());
+            if (withCaption && msg.Status == "sent")
+            {
+                AttachMedia(msg, mediaType, relPath);
+                var said = caption!.Trim();
+                return SocialSend(thread, account!, source, said, humanAgent,
+                    tag => _meta!.SendTextAsync(account!, thread.Key, said, tag).GetAwaiter().GetResult());
+            }
+        }
         else
         {
             msg = _threads.AppendMessage(thread, MessageDirection.Out, source, text,
                 status: "sandbox", accountId: acctId);
         }
-        msg.MediaType = mediaType;
-        msg.MediaPath = relPath;
-        _db.SaveChanges();
+        AttachMedia(msg, mediaType, relPath);
         return msg;
     }
 
+    private void AttachMedia(Message msg, string mediaType, string relPath)
+    {
+        msg.MediaType = mediaType;
+        msg.MediaPath = relPath;
+        _db.SaveChanges();
+    }
+
     /// <summary>
-    /// Messenger / Instagram attachment by public URL (the Send API fetches it).
-    /// Sandbox stores the bubble text only.
+    /// Messenger / Instagram attachment by public URL (the Send API fetches it),
+    /// inside the messaging window like every social send. Sandbox stores the
+    /// bubble text only.
     /// </summary>
-    public Message SendMediaUrl(Thread thread, string mediaType, string url, string source, int? accountId = null)
+    public Message SendMediaUrl(Thread thread, string mediaType, string url, string source, int? accountId = null,
+        bool humanAgent = false)
     {
         var acctId = accountId ?? thread.AccountId;
         var account = Account(acctId);
         var text = $"[{mediaType}] {url}";
         if (SocialLive(thread, account))
-            return Record(thread, account!, source, text,
-                _meta!.SendAttachmentAsync(account!, thread.Key, mediaType, url).GetAwaiter().GetResult());
+            return SocialSend(thread, account!, source, text, humanAgent,
+                tag => _meta!.SendAttachmentAsync(account!, thread.Key, mediaType, url, tag).GetAwaiter().GetResult());
         return _threads.AppendMessage(thread, MessageDirection.Out, source, text, status: "sandbox", accountId: acctId);
+    }
+
+    // ---- Messenger / Instagram: the messaging window --------------------------------
+
+    /// <summary>
+    /// A text reply on Messenger / Instagram where the caller knows who wrote it:
+    /// <paramref name="humanAgent"/> = typed by a signed-in person, so between 24h
+    /// and 7 days it goes out tagged HUMAN_AGENT. Any other channel (or a sandbox
+    /// thread) goes through <see cref="Send"/> unchanged.
+    /// </summary>
+    public Message SendSocialText(Thread thread, string text, string source, int? accountId, bool humanAgent)
+    {
+        var account = Account(accountId ?? thread.AccountId);
+        if (!SocialLive(thread, account)) return Send(thread, text, source, accountId);
+        return SocialSend(thread, account!, source, text, humanAgent,
+            tag => _meta!.SendTextAsync(account!, thread.Key, text, tag).GetAwaiter().GetResult());
+    }
+
+    /// <summary>
+    /// Why a send on this thread may not go out right now because of Meta's
+    /// Messenger / Instagram window — null when it may, or when the thread is not
+    /// a LIVE social conversation (sandbox never dead-ends). The send endpoints
+    /// (409), the AI gate and the queue (failed job) ask this BEFORE sending; the
+    /// send path enforces it again.
+    /// </summary>
+    public string? SocialWindowBlock(Thread thread, int? accountId, bool humanAgent, DateTime? nowUtc = null)
+    {
+        if (!SocialWindow.Applies(thread.Channel)) return null;
+        var account = Account(accountId ?? thread.AccountId);
+        if (!SocialLive(thread, account)) return null;
+        var last = SocialWindow.LastInbound(_db, thread);
+        var state = SocialWindow.StateAt(last, nowUtc ?? DateTime.UtcNow);
+        return SocialWindow.Refusal(thread.Channel, state, humanAgent, everWrote: last != null);
+    }
+
+    /// <summary>
+    /// One live social send: refused (a failed row; Meta is never called) when the
+    /// window forbids it, else sent with the right messaging_type / tag and the
+    /// round-trip recorded.
+    /// </summary>
+    private Message SocialSend(Thread thread, ChannelAccount account, string source, string text, bool humanAgent,
+        Func<string?, SendOutcome> send)
+    {
+        var last = SocialWindow.LastInbound(_db, thread);
+        var state = SocialWindow.StateAt(last, DateTime.UtcNow);
+        var refusal = SocialWindow.Refusal(thread.Channel, state, humanAgent, everWrote: last != null);
+        if (refusal == null) return Record(thread, account, source, text, send(SocialWindow.Tag(state, humanAgent)));
+
+        var refused = _threads.AppendMessage(thread, MessageDirection.Out, MessageSource.System,
+            $"[send failed: {refusal}] {text}", status: "failed", accountId: account.Id);
+        var error = $"window_closed: {refusal}";
+        refused.Error = error.Length > 300 ? error[..300] : error;
+        _db.SaveChanges();
+        return refused;
     }
 
     /// <summary>

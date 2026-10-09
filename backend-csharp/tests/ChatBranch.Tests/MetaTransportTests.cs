@@ -536,6 +536,9 @@ public class MetaTransportTests : IDisposable
         _t.Db.ChannelAccounts.Add(page);
         _t.Db.SaveChanges();
         var thread = MakeThread("facebook", "PSID-7", page);
+        // the customer wrote first — Meta's messaging window is open
+        _threads.AppendMessage(thread, MessageDirection.In, MessageSource.Customer, "hi", externalId: "mid.in.7",
+            accountId: page.Id);
         _graph.Json("POST", @"/me/messages$", new { recipient_id = "PSID-7", message_id = "m_out_1" });
 
         Assert.True(_sender.WouldSendLive(thread));

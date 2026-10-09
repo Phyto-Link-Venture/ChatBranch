@@ -440,6 +440,8 @@ public static class InboxThreadsEndpoints
     internal sealed class WaContext
     {
         private Dictionary<int, ChannelAccount> _byId = new();
+        /// <summary>Messenger / Instagram pages, for their messaging window.</summary>
+        private Dictionary<int, ChannelAccount> _social = new();
         private ChannelAccount? _fallback;
         private bool _envIsSoleFallback;
         private ScopingService? _sc;
@@ -461,9 +463,13 @@ public static class InboxThreadsEndpoints
                 .Where(a => a.Channel == ChatBranch.Domain.Channels.WhatsApp).ToListAsync();
             var configured = wa.Where(WhatsAppSettingsEndpoints.IsConfigured).ToList();
             var env = WhatsAppSettingsEndpoints.EnvAccountConfigured();
+            var social = await db.ChannelAccounts.AsNoTracking()
+                .Where(a => a.Channel == ChatBranch.Domain.Channels.Facebook
+                            || a.Channel == ChatBranch.Domain.Channels.Instagram).ToListAsync();
             return new WaContext
             {
                 _byId = wa.ToDictionary(a => a.Id),
+                _social = social.ToDictionary(a => a.Id),
                 // an unknown/missing account falls back to the SOLE configured
                 // one — never a guess between several (wa_config.get_account)
                 _fallback = configured.Count == 1 && !env ? configured[0] : null,
@@ -476,12 +482,18 @@ public static class InboxThreadsEndpoints
             accountId is int id && _byId.TryGetValue(id, out var own) ? own : _fallback;
 
         /// <summary>
-        /// Meta's 24h customer-service window. Only a LIVE Cloud number has one:
+        /// Meta's 24h customer-service window. Only a LIVE Cloud number or a live
+        /// Messenger / Instagram page has one (<see cref="ChatBranch.Data.Channels.SocialWindow"/>):
         /// Baileys rides WhatsApp Web, a sandbox thread never dead-ends, and
         /// other channels have no window at all (always "open").
         /// </summary>
         public (bool Open, string? ExpiresAt) Window(Candidate c)
         {
+            if (ChatBranch.Data.Channels.SocialWindow.Applies(c.Channel))
+                return ChatBranch.Data.Channels.SocialWindow.ListWindow(
+                    ChatBranch.Data.Channels.SocialWindow.Live(
+                        c.AccountId is int sid && _social.TryGetValue(sid, out var page) ? page : null, c.Channel),
+                    c.LastInTs, DateTime.UtcNow);
             if (c.Channel != ChatBranch.Domain.Channels.WhatsApp) return (true, null);
             var account = Account(c.AccountId);
             var live = account != null ? WhatsAppSettingsEndpoints.IsConfigured(account) : _envIsSoleFallback;
