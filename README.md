@@ -52,8 +52,8 @@ is a settings exercise, not a fork — see
 - **Paper & Ink** design system — three themes × light/dark, per-user accent,
   text size and corners; installable PWA with a phone tab bar.
 
-Not every transport is live yet in the C# backend (email and Telegram sends
-are sandbox-only today) — read
+Every channel has a live transport, tested against fakes of the providers'
+documented APIs but not yet against the live services — read
 [Honest limitations](#honest-limitations) before you plan a launch.
 
 ## Screenshots
