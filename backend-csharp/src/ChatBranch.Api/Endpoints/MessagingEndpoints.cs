@@ -150,6 +150,7 @@ public static class MessagingEndpoints
         var outv = new Dictionary<string, object?>
         {
             ["id"] = string.IsNullOrEmpty(m.ExternalId) ? $"db-{m.Id}" : m.ExternalId,
+            ["pk"] = m.Id, // the database id (AI feedback thumbs key on it, like the WhatsApp payload)
             ["dir"] = m.Direction,
             ["text"] = m.Text,
             ["ts"] = Iso(m.CreatedAt),
@@ -933,6 +934,7 @@ public static class MessagingEndpoints
                     var e = new Dictionary<string, object?>
                     {
                         ["channel"] = thread.Channel,
+                        ["pk"] = m.Id, // the database id (AI feedback thumbs key on it)
                         ["dir"] = m.Direction,
                         ["source"] = m.Source,
                         ["text"] = m.Text,

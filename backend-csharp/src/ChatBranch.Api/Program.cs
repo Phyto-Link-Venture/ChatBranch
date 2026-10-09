@@ -91,6 +91,14 @@ builder.Services.AddSingleton(sp => new ChatBranch.Api.Workers.HealthRecheck(
     sp.GetRequiredService<ILogger<ChatBranch.Api.Workers.HealthRecheck>>(),
     enabled: ChatBranch.Api.Workers.HealthProbeWorker.Enabled));
 builder.Services.AddHostedService<ChatBranch.Api.Workers.HealthProbeWorker>();
+// AI learning: retrieval (BM25 + embeddings when a provider is configured),
+// feedback → lessons, and the embedding indexer (EMBEDDING_WORKER=0 disables it)
+builder.Services.AddHttpClient("embeddings").RemoveAllLoggers();
+builder.Services.AddScoped<ChatBranch.Data.Ai.Learning.IEmbeddingClient, ChatBranch.Data.Ai.Learning.OpenAiEmbeddingClient>();
+builder.Services.AddScoped<ChatBranch.Data.Ai.Learning.RetrievalService>();
+builder.Services.AddScoped<ChatBranch.Data.Ai.Learning.LearningService>();
+builder.Services.AddScoped<ChatBranch.Data.Ai.Learning.EmbeddingIndexer>();
+builder.Services.AddHostedService<ChatBranch.Api.Workers.EmbeddingWorker>();
 
 // ---- auth: bearer token handler + RBAC policies -----------------------------
 builder.Services.AddAuthentication(TokenAuthenticationHandler.SchemeName)
@@ -173,6 +181,7 @@ app.MapAssistantEndpoints();
 app.MapSearchEndpoints();
 app.MapLiveEndpoints();
 app.MapAiMonitorEndpoints();
+app.MapLearningEndpoints();
 
 // Inbound conversations route themselves to a team. The hook lives here so the
 // data layer never has to reference the API assembly.

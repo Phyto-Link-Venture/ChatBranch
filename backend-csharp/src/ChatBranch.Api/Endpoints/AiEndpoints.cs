@@ -3,6 +3,7 @@ using System.Text.Json;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
 using ChatBranch.Data.Ai;
+using ChatBranch.Data.Ai.Learning;
 using ChatBranch.Data.Stores;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -123,6 +124,7 @@ public static class AiEndpoints
             };
             db.KnowledgeItems.Add(row);
             await db.SaveChangesAsync();
+            Workers.EmbeddingWorker.Kick(); // semantic index catches up off the request
             return Results.Ok(KnowledgeDto(row, DateTime.UtcNow, await EntityRow(db, row.EntityId)));
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
@@ -149,34 +151,112 @@ public static class AiEndpoints
             if (KHas(b, "ends_at")) row.EndsAt = KDate(b, "ends_at");
             row.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
+            Workers.EmbeddingWorker.Kick();
             return Results.Ok(KnowledgeDto(row, DateTime.UtcNow, await EntityRow(db, row.EntityId)));
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
         app.MapDelete("/api/aicore/knowledge/{id:int}", async (int id, AppDbContext db) =>
         {
             await db.KnowledgeItems.Where(k => k.Id == id).ExecuteDeleteAsync();
+            await db.AiEmbeddings.Where(e => e.OwnerType == EmbeddingOwner.Knowledge && e.OwnerId == id).ExecuteDeleteAsync();
             return Results.Ok(new { ok = true });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
-        // The exact block the AI receives — "why did the bot say that?" as a button.
+        // The exact blocks the AI receives — "why did the bot say that?" as a button —
+        // plus every scored retrieval candidate (the "Test retrieval" debug view).
         app.MapPost("/api/aicore/knowledge/preview", async (PreviewRequest b, AppDbContext db,
             KnowledgeService knowledge) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, b.Entity);
             var query = !string.IsNullOrWhiteSpace(b.Query) ? b.Query : b.Text;
-            var block = knowledge.BuildContext(query, entityId, b.Channel);
+            var c = knowledge.Compose(query, entityId, b.Channel, withLessons: true);
+            var block = c.Knowledge;
             // Django-contract shape (aicore/views.py knowledge_preview): the page
             // renders `chars` / `budget` — omitting budget crashed it on
             // `preview.budget.toLocaleString`.
             return Results.Ok(new
             {
                 block,
-                full_prompt_block = block,
+                full_prompt_block = c.Learned.Length == 0 ? block : (block.Length == 0 ? c.Learned : block + "\n\n" + c.Learned),
                 chars = block.Length,
-                budget = 1800,
+                budget = KnowledgeService.Budget,
                 items = block.Split('\n').Count(ln => !string.IsNullOrWhiteSpace(ln)),
+                learned_block = c.Learned,
+                learned_chars = c.Learned.Length,
+                learned_budget = KnowledgeService.LearnedBudget,
+                semantic = c.Semantic,
+                provider = c.Provider,
+                model = c.Model,
+                hits = c.Hits.Select(h => new
+                {
+                    type = h.Type, id = h.Id,
+                    title = h.ChunkCount > 1 ? $"{h.Title} (part {h.ChunkIndex + 1}/{h.ChunkCount})" : h.Title,
+                    chunk = TextAnalysis.Clip(h.Chunk, 400),
+                    score = Math.Round(h.Score, 3), semantic = Math.Round(h.Semantic, 3),
+                    keyword = Math.Round(h.Keyword, 3),
+                }),
+                grounding = c.Grounding.Select(g => g.ToMeta()),
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
+
+        // ---- document upload: PDF / .txt / .md / .csv → one knowledge item ---------
+        // The text is extracted and kept; the file itself never is. Read with
+        // ReadFormAsync (no IFormFile binding → no antiforgery metadata).
+        app.MapPost("/api/aicore/knowledge/upload", async (HttpContext ctx, AppDbContext db, ClaimsPrincipal me) =>
+        {
+            if (!ctx.Request.HasFormContentType)
+                return Results.BadRequest(new { detail = "Upload a file (multipart/form-data, field 'file')." });
+            if (ctx.Request.ContentLength is long len && len > DocumentExtractor.MaxBytes + 256 * 1024)
+                return Results.Json(new { detail = "That file is too large — the limit is 10 MB." }, statusCode: 413);
+            IFormCollection form;
+            try { form = await ctx.Request.ReadFormAsync(); }
+            catch (Exception) { return Results.BadRequest(new { detail = "The upload could not be read." }); }
+            var file = form.Files["file"] ?? form.Files.FirstOrDefault();
+            if (file == null || file.Length == 0)
+                return Results.BadRequest(new { detail = "Choose a file to upload." });
+            if (file.Length > DocumentExtractor.MaxBytes)
+                return Results.Json(new { detail = "That file is too large — the limit is 10 MB." }, statusCode: 413);
+            var name = Path.GetFileName(file.FileName ?? "").Trim();
+            if (name.Length == 0) name = "document.txt";
+            if (!DocumentExtractor.Supported(name))
+                return Results.Json(new { detail = "Upload a PDF, .txt, .md or .csv file." }, statusCode: 415);
+            byte[] bytes;
+            using (var ms = new MemoryStream())
+            {
+                await file.CopyToAsync(ms);
+                bytes = ms.ToArray();
+            }
+            var doc = DocumentExtractor.Extract(name, bytes);
+            if (!doc.Ok) return Results.BadRequest(new { detail = doc.Error });
+
+            var kinds = new[] { "fact", "policy", "faq", "event", "notice" };
+            var kind = form["kind"].ToString().Trim().ToLowerInvariant();
+            if (!kinds.Contains(kind)) kind = "fact";
+            var title = form["title"].ToString().Trim();
+            var entityId = await InboxEndpoints.EntityId(db, form["entity"].ToString());
+            var channels = form["channels"].ToString()
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct().ToList();
+            var now = DateTime.UtcNow;
+            var row = new KnowledgeItem
+            {
+                EntityId = entityId, Kind = kind, Title = title.Length > 0 ? title : name, Content = doc.Text,
+                Channels = channels, Active = true, Published = false, SourceFile = name,
+                CreatedBy = me.Identity?.Name ?? "", CreatedAt = now, UpdatedAt = now,
+            };
+            db.KnowledgeItems.Add(row);
+            await db.SaveChangesAsync();
+            ChatBranch.Data.Audit.AuditTrail.Write(db, "knowledge.upload", $"knowledge:{row.Id}",
+                $"{name} ({doc.Text.Length} chars)", entityId: entityId);
+            Workers.EmbeddingWorker.Kick();
+            return Results.Ok(new
+            {
+                item = KnowledgeDto(row, now, await EntityRow(db, row.EntityId)),
+                chunks = RetrievalService.ChunksFor(row).Count,
+                chars = doc.Text.Length,
+                pages = doc.Pages,
+                truncated = doc.Truncated,
+            });
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage").DisableAntiforgery();
 
         // ---- skills (sole writer of crm.AgentSkill) + code-skill authoring ----
         app.MapSkillEndpoints();
@@ -294,6 +374,8 @@ public static class AiEndpoints
             scheduled = !started,
             created_by = k.CreatedBy,
             updated_at = k.UpdatedAt,
+            // the uploaded document the text came from ("" = typed in)
+            source_file = k.SourceFile,
         };
     }
 

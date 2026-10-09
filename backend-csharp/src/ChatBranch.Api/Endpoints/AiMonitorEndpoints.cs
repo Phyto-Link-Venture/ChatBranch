@@ -46,6 +46,8 @@ public static class AiMonitorEndpoints
             "Long answers arrive as a few shorter messages, like a person would send them."),
         ("followup", "Follow up when the customer goes quiet",
             "A gentle nudge after the AI asked something and heard nothing back."),
+        ("learning", "Learn from feedback",
+            "Turn thumbs up/down, approvals and edits into lessons the AI uses in later replies."),
     };
 
     public static void MapAiMonitorEndpoints(this IEndpointRouteBuilder app)
@@ -90,7 +92,7 @@ public static class AiMonitorEndpoints
                 : filtered.OrderByDescending(d => d.CreatedAt).ThenByDescending(d => d.Id);
             var rows = await ordered.Skip((pageNo - 1) * size).Take(size).ToListAsync();
 
-            var payload = await Payloads(db, rows, clock, withRecent: rows.Any(r => r.Status == AiDraftStatus.Pending));
+            var payload = await Payloads(db, rows, clock, withRecent: rows.Any(r => r.Status == AiDraftStatus.Pending), me: me);
             return Results.Ok(new
             {
                 drafts = payload,
@@ -233,7 +235,7 @@ public static class AiMonitorEndpoints
             if (!await Can(db, me, MonitorCap)) return Forbidden(MonitorCap);
             var draft = await Visible(db, sc, me, id);
             if (draft == null) return Results.NotFound(new { detail = "Draft not found." });
-            var payload = (await Payloads(db, new List<AiDraft> { draft }, clock, withRecent: true, recentCount: 12))[0];
+            var payload = (await Payloads(db, new List<AiDraft> { draft }, clock, withRecent: true, recentCount: 12, me: me))[0];
             var state = draft.ThreadId is int tid ? followUps.StateFor(tid) : null;
             return Results.Ok(new
             {
@@ -357,8 +359,9 @@ public static class AiMonitorEndpoints
     // ---- payloads ---------------------------------------------------------------
 
     private static async Task<List<object>> Payloads(AppDbContext db, List<AiDraft> rows, TimeProvider clock,
-        bool withRecent, int recentCount = 6)
+        bool withRecent, int recentCount = 6, ClaimsPrincipal? me = null)
     {
+        var myFeedback = await AiMonitorLearning.MyFeedbackAsync(db, rows, me); // AI learning: the caller's 👍/👎
         var threadIds = rows.Where(r => r.ThreadId != null).Select(r => r.ThreadId!.Value).Distinct().ToList();
         var threads = await db.Threads.AsNoTracking().Where(t => threadIds.Contains(t.Id)).ToListAsync();
         var contactIds = rows.Where(r => r.ContactId != null).Select(r => r.ContactId!.Value).Distinct().ToList();
@@ -427,6 +430,8 @@ public static class AiMonitorEndpoints
                     : d.HoldReason.Split("; ", StringSplitOptions.RemoveEmptyEntries).ToList(),
                 flags = AiGate.Items(d.Context, "flags").Select(x => x is JsonElement j ? j.ToString() : x?.ToString() ?? "").ToList(),
                 context = d.Context,
+                my_feedback = myFeedback.GetValueOrDefault(d.Id),
+                grounding = AiMonitorLearning.Grounding(d.Context),
                 created_at = d.CreatedAt,
                 updated_at = d.UpdatedAt,
                 send_after = d.SendAfter,
