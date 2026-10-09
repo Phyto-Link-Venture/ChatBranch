@@ -2,7 +2,13 @@
 
 The access model. Everything here is enforced server-side in the C# API; the
 dashboard's gates (`frontend/src/components/shell/nav.ts`, `lib/useAccess.ts`)
-are cosmetic and must never be treated as the control. For the concepts
+must never be treated as the control. They do keep the screen honest: the
+shell's route guard (`components/shell/RouteGuard.tsx`) renders a "You don't
+have access" panel instead of any page whose sidebar entry (`nav.ts routeDef`,
+detail routes and `alsoActive` aliases included) the caller can't see, so the
+page never mounts or fetches; nothing renders until the session has been read,
+and someone without Analytics lands on the first page they can open
+(`firstVisibleHref`). Settings gates its own sub-pages. For the concepts
 themselves see [DOMAIN_MODEL.md](DOMAIN_MODEL.md).
 
 > The file name is historical: "brands" were the Django-era name for what are
@@ -122,7 +128,7 @@ capability check in the handler (`AdminEndpoints.HasCapabilityAsync`,
 | Knowledge base and AI skills writes (`/api/aicore/knowledge*`, `PUT /api/aicore/skills`, skill draft/test) | `settings.ai.manage` |
 | Integrations — read (`GET /api/integrations`, `/providers`, `/accounts`, `/settings`) | `integrations.view` (settings also `app_keys.manage`); without it a person still lists **their own** connections |
 | Integrations — add / delete / shared connect (`POST/DELETE /api/integrations/accounts*`, `POST /api/integrations/{provider}/connect`) | admin+ (connect: superadmin) AND `integrations.manage` |
-| Integrations — connect / disconnect your **own** Google account (`GET /api/integrations/oauth/{provider}/start`, `POST …/accounts/{id}/disconnect`) | any signed-in user for their own row; someone else's personal row is invisible to non-admins; a shared row needs admin+ AND `integrations.manage` |
+| Integrations — connect / disconnect your **own** Google account (`GET /api/integrations/mine`, `GET /api/integrations/oauth/{provider}/start` — `?return=connections` brings the callback back to Settings → My connections —, `POST …/accounts/{id}/disconnect`) | any signed-in user for their own row, no capability; someone else's personal row is invisible to non-admins; a shared row needs admin+ AND `integrations.manage` |
 | Integrations — run an action (`POST /api/integrations/action`: mail, charge, book…) | `integrations.manage` OR `flows.manage`, and the contact must be in the caller's scope |
 | WhatsApp global settings incl. the verify token (`POST/PUT /api/whatsapp/settings`) | `app_keys.manage` |
 | Flow library | GET `flows.view`, PUT `flows.manage` |
@@ -130,12 +136,56 @@ capability check in the handler (`AdminEndpoints.HasCapabilityAsync`,
 | Bindings (`POST /api/bindings/{kind}`) | admin+ AND the kind's own capability (`users.manage`, `contacts.manage`, `tags.manage`, `channels.manage`) |
 | Message templates / call scripts | `templates.manage` / `script_templates.manage` |
 | AI monitor / behaviour | `ai.monitor` / `ai.behaviour.manage` |
+| AI controls — master switch, schedule, never-AI tags (`/api/ai/controls`) | GET `ai.monitor`, `ai.behaviour.manage` or `chats.view`; PUT `ai.behaviour.manage` — the organization-wide value needs admin+, an outlet must sit in the caller's assigned subtree (an unassigned agent-level user keeps the tenant-wide view) |
+| A contact's AI mode (`/api/contacts/{id}/ai-mode`) | GET `contacts.view`, PUT `contacts.manage` |
+| Bulk conversation actions (`POST /api/inbox/threads/bulk`) | `chats.manage`, scoped like the list, ≤1000 |
+| Take / hand back / flag a conversation (`POST /api/inbox/threads/{channel}/{key}/handover`) | `chats.send` + the per-conversation scope (below) |
+| Handover stats (`GET /api/ai/handovers/stats`) | `ai.monitor` or `chats.view` |
+| Bookings (`GET /api/bookings`, `POST /api/bookings/{id}/cancel`) | `chats.view` / `chats.send`, rows scoped like conversations |
+| AI learning (`/api/ai/feedback`, `/api/ai/lessons`, `/api/ai/learning/*`) | reads and rating `ai.monitor` (feedback follows the conversation scope, lessons the library scope); lesson writes and re-indexing `ai.behaviour.manage`; deleting a lesson admin+ too |
+| Contact identities (`/api/contacts/{id}/channels/discover`, `/{id}/invites`, `/identify/{channel}/{key}/contact`) | `contacts.manage` (reading invites `contacts.view`, the chat's identify banner `chats.view`); the import and `/identity-checks/run` admin+ AND `contacts.manage` |
+| Per-inbox unknown-customer mode (`/api/inboxes/{id}/identify`) | GET `channels.view`, PUT `channels.manage` |
 | Activity log (`/api/audit*`) | `activity.view` |
 | API keys | `api_keys.manage` (admins can see and revoke their tenant's keys) |
 | Inbox, sending, dialling, contacts reads, search, live | authenticated + the matching `chats.*` / `contacts.*` capability where checked, bounded by entity scope |
 
 The command palette's `GET /api/search` gates each result type by the
 capability of the page it opens and scopes it like that page's list endpoint.
+
+### Per-conversation routes
+
+The conversation list hides another outlet's chats; every route that acts on
+ONE conversation enforces the same rule itself.
+`.RequireThreadAccess("chats.view" | "chats.send")`
+(`Auth/ThreadAccessFilter.cs`) sits on every `/api/whatsapp/threads/{key}/…`,
+`/api/messaging/threads/{channel}/{key}/…` and inbox
+`/api/whatsapp/threads/{channel}/{key}/…` route and on
+`/api/inbox/threads/{channel}/{key}/handover`: `chats.view` to read (open,
+messages, summary, call live/recordings), `chats.send` to act (send, template,
+media, note, status, labels, assign, link, AI tick, calls, handover; switching
+the sending account is also admin+). The caller needs the capability AND the
+conversation must be inside their entity scope (`ShellScope.ThreadEntityIds`:
+admins see all, agents and custom roles their assigned outlets' subtrees;
+unassigned conversations stay visible to everyone). A conversation outside it
+answers **404**, the same as one that does not exist; a key with no
+conversation yet passes (a first send creates it). Not yet covered: the
+multipart `POST /api/messaging/threads/{channel}/{key}/send-media`
+(`MessagingTransportEndpoints`), which only requires a sign-in.
+
+Around it:
+
+- **Linking** a chat (`…/link`) accepts only a contact in the caller's scope
+  (`ContactsEndpoints.ScopeContacts`).
+- The link picker `GET /api/messaging/contacts`, `GET /api/messaging/timeline`
+  and `POST /api/messaging/timeline/summary` need `chats.view` or
+  `contacts.view` and are scoped (contact + threads);
+  `GET /api/messaging/contacts/{id}/conversation` is scoped the same way.
+- The vCard export (`GET /api/messaging/contacts/vcard`) needs
+  `contacts.manage` or `channels.manage`.
+- Both thread lists — `GET /api/whatsapp/threads` and
+  `GET /api/messaging/threads` — need `chats.view`, and `/api/messaging/threads`
+  is bounded by the inbox rule (it used to list every outlet's chats to an
+  assigned agent).
 
 **Shared libraries** (skills, knowledge, quick replies, call scripts,
 integrations) are read through `ShellScope.ScopeLibrary`: admins and

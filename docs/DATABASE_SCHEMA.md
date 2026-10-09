@@ -28,17 +28,21 @@ names, JSON columns, indexes).
 ```
 Tenant ──── Entity (tree: parent_id) ──┬── ChannelAccount ── Thread ── Message
   │            │                       │        │              │  ▲
-  │            │                       │        │              │  └ AiDraft, AiConversationState
+  │            │                       │        │              │  └ AiDraft, AiConversationState,
+  │            │                       │        │              │    AiFeedback, IdentityRequest
   │            │                       │        └ AccountAssignment (contact × channel)
   │            │                       ├── Setting (entity override) · Team ── TeamMember
   │            │                       ├── libraries: CannedResponse, ScriptTemplate,
   │            │                       │   KnowledgeItem, AgentSkill, Workflow, Tag,
-  │            │                       │   AutomationRule, Integration  (null = org-wide)
+  │            │                       │   AutomationRule, Integration, AiLesson
+  │            │                       │   (null = org-wide) ── Embedding (vectors)
   │            └── Profile (role, M2M → Entity) ── AuthToken, ApiKey, SavedView
   │
   └── Contact ──┬── ContactEntity ──▶ Entity
+                ├── ContactIdentity, ContactInvite
                 ├── TagAssignment ──▶ Tag   (entity targets too)
                 ├── Record ── RecordEvent
+                ├── Booking (calendar app skills)
                 ├── FlowRun ── OutboundJob, FlowStepEvent
                 ├── CallRecord, ConversationSummary, LlmUsage
                 └── Thread (contact_id)
@@ -52,7 +56,8 @@ Two naming notes:
 - **Entities scope almost everything**, but by two different rules (see
   `ScopingService`): *libraries* with a nullable `entity_id` are inherited (an
   outlet sees its own rows plus the org-wide `null` ones); *records* (threads,
-  contacts via `crm_contactentity`, AI drafts) belong to exactly one subtree.
+  contacts via `crm_contactentity`, AI drafts, bookings, AI feedback) belong to
+  exactly one subtree.
 
 ---
 
@@ -119,6 +124,7 @@ minute) · `expires_at` · `revoked_at` · `created_at`. The token
 | `language` | `auto` \| `en` \| `ms` \| `zh` — the voice agent opens calls in it |
 | `status`, `method`, `company_name`, `notes` | `notes` renders as `{{situation}}` |
 | `do_not_call` | hard gate on dialling |
+| `ai_mode` | `""` (follow the rules) \| `never` \| `always` — "AI for this contact" (`AiEligibility.Decide`) |
 | `external_id` | id in your system of record |
 | `tags` | JSON list — **a write-through cache of the contact's registry tag NAMES** (`TagService`); writing it directly is reconciled into `crm_tagassignment` |
 | `attributes` | JSON dict — custom-field values (`{{cf_<key>}}`); not part of the AI prompt |
@@ -128,6 +134,33 @@ minute) · `expires_at` · `revoked_at` · `created_at`. The token
 ### `crm_contactentity`
 `contact_id` · `entity_id` · `external_ref` · `created_at`. Which entities a
 contact belongs to (a contact on a sub-entity is visible to its parent).
+
+### `crm_contactidentity` — where a contact can be reached
+`contact_id` (FK, cascade) · `channel` (`whatsapp` \| `voice` \| `sms` \|
+`email`, any thread channel id) · `address` (digits for whatsapp/sms, E.164 for
+voice, lower-cased email) · `source` (`auto` \| `import` \| `manual` \| `invite`
+\| `self`) · `verification` (WhatsApp only: `pending` \| `verified` \|
+`not_on_whatsapp` \| `unknown`) · `verification_detail` · `checked_at` (the
+lookup verdict is cached 30 days) · `checked_account_id` · timestamps. **Unique**
+`(contact_id, channel, address)` (`uniq_contactidentity`); index
+`(channel, address)`. Registered from the contact's own phone/email
+(`Contacts/ContactIdentities.cs`); a row never creates a conversation.
+
+### `crm_contactinvite` — invite links
+`code` (**unique**, 8 characters) · `contact_id` (FK, cascade) · `entity_id` ·
+`channel` (`""` = any channel) · `account_id` · `created_by` · `created_at` ·
+`expires_at` (30 days) · `used_at` · `used_thread_id` · `used_channels` (comma
+list — an any-channel code binds once per channel). Bound by the inbound path
+before contact matching (`Contacts/ContactInvites.cs`).
+
+### `crm_identityrequest` — "who are you?" with an unknown customer
+`thread_id` (FK, cascade; **unique** — one per conversation) · `state` (`armed`
+\| `asking` \| `linked` \| `created` \| `needs_contact` \| `ambiguous` \|
+`gave_up` \| `cancelled`) · `mode` (`ask` \| `ask_and_create`) · `attempts`
+(max 2 asks) · `language` (`en` \| `ms`) · `collected` (JSON `{name, phone,
+email}`) · `original_message_id` (the customer's real question) · `contact_id` ·
+`pending_job_id` (the queued ask) · `note` · `started_at` · `last_asked_at` ·
+`resolved_at` · `updated_at`. Driven by `Contacts/IdentityRequests.cs`.
 
 ### `crm_record` — what a conversation is about
 `contact_id` · `tenant_id` · `type` (`order` \| `shipment` \| `invoice` \|
@@ -175,11 +208,11 @@ cache) live in `ChatBranch.Data/Tags/TagService.cs`.
 | Column | Notes |
 |---|---|
 | `entity_id` | null = org-wide. **Decides which outlet a conversation belongs to** |
-| `channel` | `whatsapp` \| `facebook` \| `instagram` \| `telegram` \| `email` \| `website` |
+| `channel` | `whatsapp` \| `facebook` \| `instagram` \| `telegram` \| `email` \| `website` \| `line` \| `viber` \| `sms` \| `wechat` \| `tiktok` \| `douyin` \| `zalo` |
 | `provider` | `cloud` \| `baileys` (WhatsApp) |
-| `name`, `external_id` | external_id = phone_number_id / page id / bot id / from-address / the widget's PUBLIC token / the Baileys gateway account key |
-| `waba_id`, `access_token`, `app_secret`, `api_version`, `owner` | secrets never leave the API unmasked |
-| `config` | JSON: `role` (`reminder`\|`conversation`), delivery (`quiet_start`, `quiet_end`, `quiet_schedule`, `queue_min_gap_s`, `queue_max_gap_s`, `llm_provider`, `stt_provider`), inbox ("who answers it": `team_id`, `ai_default`, `ai_review_mode`, any AI-behaviour override), email SMTP creds, widget look |
+| `name`, `external_id` | external_id = phone_number_id / page id / bot id / from-address / the widget's PUBLIC token / the Baileys gateway account key / the LINE or Viber bot id, SMS from number, WeChat original id, TikTok business id, Douyin open_id, Zalo OA id |
+| `waba_id`, `access_token`, `app_secret`, `api_version`, `owner` | secrets never leave the API unmasked (the newer channels' mapping is in `Channels/More/MoreChannels.cs`) |
+| `config` | JSON: `role` (`reminder`\|`conversation`), delivery (`quiet_start`, `quiet_end`, `quiet_schedule`, `queue_min_gap_s`, `queue_max_gap_s`, `llm_provider`, `stt_provider`), inbox ("who answers it": `team_id`, `ai_default`, `ai_review_mode`, any AI-behaviour override; unknown customers: `identify_unknown` off\|ask\|ask_and_create, `identify_message`), email SMTP creds, widget look, the newer channels' non-secret ids and secrets (`account_sid`, `from_number`, `messaging_service_sid`, WeChat `app_id` / `token` / `encoding_aes_key`, Zalo `app_id` / `refresh_token` / `oa_secret_key`, Douyin `client_key` / `refresh_token`…) |
 | `health_status` | `unknown` \| `healthy` \| `degraded` \| `disconnected` \| `banned` — written only by `AccountHealth.SetStatus` |
 | `health_detail`, `last_ok_at`, `last_inbound_at`, `fail_streak`, `health_changed_at`, `created_at` | |
 
@@ -194,9 +227,10 @@ cache) live in `ChatBranch.Data/Tags/TagService.cs`.
 | `contact_id` | the CRM link. **AI auto-replies only fire on linked threads** |
 | `account_id` | current sending account |
 | `entity_id` | denormalized attribution, re-synced by `ScopingService.SyncThreadEntity` |
-| `ai_enabled` | the account-less fallback tick — and what the inbound coverage gate reads |
-| `ai_overrides` | JSON `{account_pk: bool}` — the per-sending-account Chatbot tick |
+| `ai_enabled` | the account-less fallback tick (legacy column, kept in step by `AiEligibility.Set`) — every reader goes through `AiEligibility.Decide`, never this column |
+| `ai_overrides` | JSON `{account_pk: bool}` — the per-sending-account Chatbot tick; key `"thread"` marks an operator's decision on an account-less thread |
 | `opted_out` | blocks AI, templates and calls |
+| `handover_at`, `handover_reason`, `handover_by` (`ai` \| `rule:<id>` \| `flow` \| `agent:<username>` \| `identity`), `handover_kind` (`check_failed` \| `asked_for_human` \| `send_blocked` \| `booking_failed` \| `low_confidence` \| `rule` \| `manual` \| `unknown_customer`), `handover_resolved_at`, `handover_count` | human handover, written only by `Ai/Handover.cs`; open = `handover_at` set and `handover_resolved_at` null. Index `ix_thread_handover (handover_at, handover_resolved_at)` |
 | `call_permission`, `call_id`, `call_status`, `call_room` | WhatsApp voice-call state |
 | `created_at`, `updated_at` | **`updated_at` + message count is the SSE change token** — bump it on every write |
 
@@ -242,13 +276,17 @@ The text a one-way "Script call" reads verbatim.
 `title` · `question` · `content` · `tags` (JSON) · `channels` (JSON; empty =
 all) · `priority` · **`published`** (public on `/help`) · **`slug`** ·
 **`category`** · `active` (the AI may use it) · `starts_at` / `ends_at`
-(self-expiry) · `created_by` · timestamps.
+(self-expiry) · **`source_file`** (the uploaded document's name — `""` for a
+typed item; an uploaded or long fact is chunked and retrieved rather than always
+included) ·
+`created_by` · timestamps.
 
 ### `crm_agentskill`
 | Column | Notes |
 |---|---|
 | `entity_id`, `skill_id` (the unique key), `name`, `use_when`, `instructions`, `position` | the original prompt-skill fields |
-| **`kind`** | `prompt` (default) \| `tool` (JS `run(args, ctx)`) \| `check` (JS `check(reply, ctx)`) |
+| **`kind`** | `prompt` (default) \| `tool` (JS `run(args, ctx)`) \| `check` (JS `check(reply, ctx)`) \| `app` (a connected app — `config`) |
+| **`config`** | JSON (default `{}`), app skills only: `{app: "calendar", source google\|chatbranch, calendar assignee\|shared\|<integration id>, calendar_id, actions [availability, book, cancel], timezone, hours {mon: [["09:00","17:00"]], …}, duration_minutes, slot_step_minutes, buffer_minutes, min_notice_minutes, max_days_ahead, max_active_per_contact, event_title, event_description}` — validated by `Bookings/CalendarAppConfig.cs` |
 | **`description`** | what the operator described, in their words |
 | **`code`** | JavaScript for tool/check skills (Jint sandbox) |
 | **`parameters`** | JSON-schema text of a tool's arguments |
@@ -307,7 +345,8 @@ waiting in the monitor)) · `attempts` · `not_before` · `last_error` ·
 `thread_id` · `thread_key` (`<channel>:<key>`) · `channel` · `contact_id` ·
 `entity_id` · `account_id` · `kind` (`reply` \| `follow_up` \| `flow_message`) ·
 `content` · `original_content` (the AI's text when a person edited it) ·
-`context` (JSON: the messages answered, tools, checks, model, tokens, why held)
+`context` (JSON: the messages answered, tools, checks, model, tokens, why held,
+`pending_actions` — the calendar reservations delivery makes —, `grounding`)
 · `status` (`pending` \| `approved` \| `edited` \| `rejected` \| `sent` \|
 `auto_sent` \| `expired` \| `failed` \| `shadow`) · `hold_reason` ·
 `decided_by` / `decided_at` · `reject_reason` · `send_after` (auto-send
@@ -320,6 +359,48 @@ AI-written outbound, sent or held.
 `next_follow_up_at` · `anchor_message_id` (the inbound the count belongs to) ·
 `note` (why follow-ups stopped/postponed) · `updated_at`.
 
+### `crm_booking` — calendar bookings (connected-app skills)
+| Column | Notes |
+|---|---|
+| `entity_id`, `contact_id`, `thread_id` | the conversation's outlet (owned, scoped like threads), the contact it is for, the conversation it was made in |
+| `skill_id` | the app skill (`crm_agentskill.skill_id`) that made it; `""` for none |
+| `source`, `integration_id` | `google` (through that `integrations_integration` row) \| `chatbranch` |
+| `calendar_key` | the calendar a slot belongs to, for overlap checks: `google:<integration id>:<calendar id>` \| `chatbranch:<skill entity id \| global>` |
+| `calendar_label`, `external_event_id`, `event_link`, `title`, `note` | `note` = what the customer asked to note (the book tool's argument) |
+| `start_utc`, `end_utc`, `timezone` | UTC instants + the IANA zone the times were offered in |
+| `status` | `pending` (reserved by an undelivered reply) \| `booked` \| `cancelling` (an undelivered reply cancels it) \| `cancelled` \| `released` (the reply never went out) \| `failed`; pending / booked / cancelling hold the slot |
+| `created_by` | `ai` \| `agent:<username>` |
+| `draft_id`, `cancel_draft_id` | the AI drafts whose delivery makes / cancels it |
+| `detail`, `created_at`, `updated_at` | why it failed / was released / who cancelled it |
+
+Indexes `(contact_id, status)`, `(calendar_key, start_utc)`; no foreign keys.
+Every rule lives in `Bookings/BookingService.cs`.
+
+### `crm_aifeedback` — judgements of AI replies
+`entity_id` · `thread_id` · `message_id` · `draft_id` · `contact_id` · `channel`
+· `rating` (+1 \| −1) · `weight` (explicit 1.0, approved / edited 0.5) · `kind`
+(`explicit` \| `approved` \| `edited` \| `rejected`) · `reasons` (JSON list:
+`wrong_info` \| `didnt_answer` \| `tone` \| `too_long` \| `should_handover` \|
+`other`) · `note` · `question` / `answer` (snapshots, so a lesson survives
+message edits) · `correction` · `user_id` (null = the system) · `lesson_id` ·
+timestamps. Partial **unique** indexes: one explicit rating per user per message
+(`uniq_aifeedback_user_message`) and per draft (`uniq_aifeedback_user_draft`).
+
+### `crm_ailesson` — what the AI learned (a library: `entity_id` null = org-wide)
+`entity_id` · `kind` (`example` \| `correction` \| `rule`) · `status`
+(`suggested` \| `active` \| `archived` \| `dismissed`; only active lessons reach
+the prompt) · `question` · `answer` (the good answer, or the rule text) ·
+`avoid` (corrections) · `note` · `channels` (JSON; empty = every channel) ·
+`source_count` (feedback merged into it) · `uses` · `last_used_at` ·
+`created_by` · `approved_by` · timestamps. Index `(status, entity_id)`.
+
+### `crm_embedding` — retrieval vectors
+`owner_type` (`knowledge` \| `lesson`) · `owner_id` · `chunk_index` · `text` ·
+`content_hash` · `model` · `dims` · `vector` (BLOB: float32 little-endian,
+L2-normalised) · `updated_at`. Index `(owner_type, owner_id, chunk_index)`.
+Written ONLY by the embedding worker (`EmbeddingIndexer`); a row whose hash or
+model no longer matches is re-embedded.
+
 ### `crm_conversationsummary`
 `contact_id` · `source` (`chat`\|`call`) · `channel` · `ref` (thread key / call
 id) · `summary` · `facts` (JSON) · `sentiment` · `created_at`. On-demand case
@@ -327,7 +408,7 @@ summaries.
 
 ### `crm_llmusage` — metering ledger
 `feature` (`chat_reply` \| `summary` \| `timeline` \| `playground` \|
-`voice_call` …) · `provider` · `model` · `channel` · `contact_id` · `ref` ·
+`voice_call` \| `embedding` …) · `provider` · `model` · `channel` · `contact_id` · `ref` ·
 `prompt_tokens` · `completion_tokens` · `audio_prompt_tokens` ·
 `audio_completion_tokens` · `detail` (JSON) · `created_at`. Costs are NOT
 stored — estimated at read time from Setting `llm_prices`.
@@ -384,8 +465,11 @@ Notable keys:
 |---|---|
 | AI providers | `openrouter_api_key`, `openai_api_key`, `google_api_key`, `ilmu_api_key` (+ optional `ilmu_base_url`, `ilmu_chat_model`), `elevenlabs_api_key`, `local_base_url`, `local_api_key`, `chat_model`, `chat_provider_pref` (mirrored to `chat_provider`), `chat_provider_order`, `llm_prices` |
 | Compliance | `opt_out_keywords`, `opt_in_keywords` (org-wide JSON lists that ADD to STOP/UNSUBSCRIBE/BERHENTI and START/UNSTOP/MULA) |
-| AI content | `aicore_persona`, `org_timezone` (built-in date tools), `booking_hours` |
+| AI content | `aicore_persona`, `org_timezone` (built-in date tools and booking skills), `booking_hours` (legacy: edited at `/api/aicore/booking-hours`, read by nothing — booking skills carry their own hours) |
+| AI controls (entity-scoped, resolved up the tree) | `ai_enabled` (`on` \| `off` \| `schedule`), `ai_schedule` (JSON per-weekday windows), `ai_schedule_mode` (`inside` \| `outside`), `ai_never_tags` (comma list; levels add up) |
 | AI monitor + behaviour | `ai_review_mode`, `ai_review_autosend_minutes`, `ai_review_first_n`, `ai_review_keywords`, `ai_review_notify`, `ai_wait_seconds`, `ai_wait_max_seconds`, `ai_typing*`, `ai_split*`, `ai_ack_skip`, `ai_ack_text`, `ai_followup*` |
+| AI learning + retrieval | `ai_learning_mode` (`review` \| `auto` \| `off`, entity-scoped), `embedding_provider` (`""` automatic \| `openai` \| `google` \| `local` \| `none`; env `EMBEDDING_PROVIDER`), `embedding_model` (env `EMBEDDING_MODEL`), `embedding_last_error` (written by the indexer) |
+| Contacts | `identify_unknown` (the default for inboxes without their own `identify_unknown`), `default_country_code` (E.164 normalisation on import, default `60`) |
 | Queue + routing | `quiet_start`, `quiet_end`, `queue_min_gap_s`, `queue_max_gap_s`, `queue_daily_cap`, `queue_active_cap`, `queue_active_window_h`, `queue_call_gap_s`, `queue_call_daily_cap`, `ai_reply_mode`, `reminder_ai_default`, `business_redirect*`, `recovery_mode`, `recovery_template`, `cold_text_guard`, `cold_call_guard`, `flow_call_voice` |
 | Channels | `whatsapp_verify_token` (+ legacy `verify_token`), `whatsapp_custom_templates`, `whatsapp_template_bindings`, `voice_twilio_settings`, `baileys_url`, `baileys_secret`, SMTP defaults |
 | Organization | `custom_fields` (seeded `{"customer":[]}`), `appearance_default`, `notif_<category>`, `timezone` (flow statistics' day boundary), business variables (`business_name`, `agent_name`, `support_number`, `support_email`, `website`) |
@@ -396,7 +480,7 @@ Notable keys:
 ### `integrations_integration`
 `entity_id` · **`owner_user_id`** (null = a shared connection; `SetNull` when
 the login is deleted) · `provider` (`google_calendar` \| `google_drive` \|
-`gmail` \| `google_sheets` \| `shopify` \| `stripe`) · `status` (`unknown` \|
+`gmail` \| `google_sheets` \| `google_contacts` \| `shopify` \| `stripe`) · `status` (`unknown` \|
 `connected` \| `disconnected` \| `revoked`) · `status_detail` · `credentials`
 (JSON, **never leaves the server unmasked**) · `config` (JSON) · **`scopes`**
 (JSON, what Google actually granted) · timestamps.
@@ -423,5 +507,5 @@ them; they are safe to leave in place.
   plain text in the database and under the data dir (`backend/data/` is
   gitignored for that reason). Consent capture, retention windows,
   right-to-erasure and recording consent are **yours to add**.
-- **Retention is manual.** Messages, AI drafts, flow step events, audit rows,
-  notifications and LLM usage grow without bound.
+- **Retention is manual.** Messages, AI drafts, AI feedback, bookings, flow step
+  events, audit rows, notifications and LLM usage grow without bound.

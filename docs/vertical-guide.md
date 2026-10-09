@@ -9,16 +9,16 @@ none of it is code — it is skills, knowledge, tags, a flow and a data mapping,
 all edited in the dashboard. **If you find yourself editing C# to add a
 vertical, stop: something belongs in one of the layers below instead.**
 
-Before you start, read the **Port status** table in `CLAUDE.md`: in the current
-C# backend WhatsApp (Cloud + Baileys), the website widget and SIP calls are
-live, while email, Telegram replies and Messenger/Instagram are still
-sandbox-only.
+Before you start, read the **Port status** table in `CLAUDE.md`: every channel
+has a live transport, but none has been exercised against the live provider from
+this repo, a few edges remain per channel, and TikTok / Douyin are
+approval-gated and unverified.
 
 ---
 
-## 1. The five layers (read this first)
+## 1. The six layers (read this first)
 
-Everything the AI knows arrives through one of five layers. They differ in who
+Everything the AI knows arrives through one of six layers. They differ in who
 owns them and how often they change. Getting a fact into the *right* layer is
 the whole skill.
 
@@ -26,8 +26,9 @@ the whole skill.
 |---|---|---|---|
 | **Hard rules** | `PersonaService.HardRules` (`backend-csharp/src/ChatBranch.Data/Ai/PersonaService.cs`) — code, **not overridable** | nobody, by design | ~never |
 | **Persona** | Setting `aicore_persona` (per entity, else org-wide; default `DefaultPersona`) — `PUT /api/aicore/persona`, superadmin. There is deliberately no persona screen | superadmin | rarely |
-| **Skills** | **AI skills** (`/skills`, `AgentSkill`) — prompt, tool and check skills | admin+ | occasionally |
-| **Knowledge** | **Knowledge base** (`/knowledge`, `KnowledgeItem`) | admin+ | constantly |
+| **Skills** | **AI skills** (`/skills`, `AgentSkill`) — prompt, tool, check and connected-app skills | `settings.ai.manage` (admins) | occasionally |
+| **Knowledge** | **Knowledge base** (`/knowledge`, `KnowledgeItem`) — typed items and uploaded documents | `settings.ai.manage` (admins) | constantly |
+| **Lessons** | **AI monitor → Learning** (`AiLesson`) — examples, corrections and rules drawn from your team's 👍/👎 and review decisions | suggested by everyone's feedback, approved by `ai.behaviour.manage` | as you go |
 | **Contact memory** | contact fields + case summaries (`ConversationSummary`) | the system | per conversation |
 
 Read that table as a decision tree:
@@ -50,26 +51,38 @@ Read that table as a decision tree:
   number"* → **a tool skill** — sandboxed JavaScript the model calls.
 - *"Never promise a delivery date; never quote a price below RM50"* → **a check
   skill** — JavaScript that inspects EVERY reply before it is sent.
+- *"Let customers book a 30-minute fitting, weekdays 10–6, on Aisha's
+  calendar"* → **a connected-app skill** (Calendar booking).
 - *"We close at 7pm. Returns within 14 days. Raya sale runs 1–15 Aug. The
   warehouse flooded, deliveries are 2 days late until Friday."* →
-  **knowledge.**
+  **knowledge.** A 40-page product manual or price list → **upload it** to the
+  knowledge base.
+- *"When someone asks if we deliver on Sunday, the answer is no — the AI said
+  yes last week."* → a **lesson**: 👎 that reply with the correction and approve
+  the suggested lesson in the AI monitor.
 - *"This customer prefers evenings and gets annoyed by follow-ups."* →
   **memory.** You don't write this; summaries do, and durable facts land on the
   contact.
 
-All five reach **every channel and both call transports** through the same
-seams (`AssistantService` for chat, `VoiceDispatch` metadata for calls). You
-never wire a fact into WhatsApp and then again into email.
+Hard rules, persona, skills, knowledge and memory reach **every channel and
+both call transports** through the same seams (`AssistantService` for chat,
+`VoiceDispatch` metadata for calls); lessons and connected-app skills shape chat
+replies only. You never wire a fact into WhatsApp and then again into email.
 
 Two guardrails worth knowing before you start typing:
 
-- **Knowledge retrieval is keyword + recency + priority, not embeddings.**
-  Deterministic, debuggable, no vector store. Write titles, questions and tags
-  the way customers actually phrase things, or the FAQ tier won't match.
-- **The knowledge block is hard-capped at 1800 characters.** Urgent tiers
-  (notices → events → facts) are assembled first and win the budget; FAQs and
-  policies get the rest, top-4 by keyword match. 300 rambling rows make the AI
-  *worse*, not better.
+- **Knowledge retrieval is keyword-first, semantic with a key.** Out of the box
+  the AI searches the knowledge base with BM25 keyword scoring (English + Malay
+  stopwords, light stemming) for the customer's latest messages — deterministic,
+  debuggable, no vector store. Configure an embeddings provider (Settings → AI
+  keys & models) and it adds semantic search on top (0.7 meaning + 0.3
+  keywords), falling back to keywords whenever the provider fails. Either way,
+  write titles, questions and tags the way customers actually phrase things.
+- **The knowledge block is hard-capped at 1800 characters.** Standing knowledge
+  (live notices → events → short facts) is assembled first and wins the budget;
+  the rest goes to the best-scoring FAQs, policies and chunks of long items or
+  uploaded documents for THIS message — nothing that doesn't match is included.
+  300 rambling rows make the AI *worse*, not better.
 
 ---
 
@@ -137,13 +150,21 @@ those are knowledge, and they change weekly.
 
 ### 2.3 Write the skills
 
-**AI skills** (`/skills`). Three kinds:
+**AI skills** (`/skills`). Four kinds:
 
 | Kind | What it is | Runs |
 |---|---|---|
 | **Prompt** | `use_when` + `instructions` in the prompt's SKILLS section | every reply, every call |
 | **Tool** | JavaScript `run(args, ctx)` with a JSON-schema of arguments; the model decides to call it | when the model calls it |
 | **Check** | JavaScript `check(reply, ctx)` returning `{ok:true}` or `{ok:false, reason, fix?}` | on EVERY draft before it is sent |
+| **Connected app** | a configured app instead of code — today **Calendar booking**: which calendar (the assigned agent's own Google Calendar, an outlet's, the organization's, or ChatBranch's built-in bookings with no Google account), working hours per weekday, appointment length, buffer, notice, how far ahead, a per-customer cap, and which actions (check availability, book, cancel / reschedule) | when the model checks or books — chat only |
+
+A booking skill offers two or three real free times, waits for the customer to
+pick one, holds it while the reply is reviewed and only **books when the reply
+is actually sent** — a reply held, rejected or never sent books nothing, and a
+booking that fails at that moment blocks the reply and hands the chat to a
+person. Every booking is on `/bookings` and on the contact. The skill form's
+preview shows the free times it would offer without booking anything.
 
 Code runs in a sandbox (Jint: no network, no files, no host objects; 250 ms,
 8 MB). Every code skill carries **test cases**; saving an enabled skill whose
@@ -181,9 +202,9 @@ skills are edited**; the flow builder's step picker only selects them.
 |---|---|---|
 | **`notice`** | Tier 1 — always included while live | "Warehouse flooded, deliveries +2 days" |
 | **`event`** | Tier 2 — always included while live | "Raya sale, 15% off, 1–15 Aug" |
-| **`fact`** | Tier 3 — always included | hours, address, support number, shipping fees |
-| **`faq`** | Tier 4 — only on a keyword match | "Do you ship to East Malaysia?" |
-| **`policy`** | Tier 4 — only on a keyword match | returns, warranty, exchanges |
+| **`fact`** | Tier 3 — a short typed fact (≤800 characters) is always included; a long or uploaded one is split into chunks and retrieved like an FAQ | hours, address, support number, shipping fees |
+| **`faq`** | Tier 4 — only when retrieval matches the customer's message | "Do you ship to East Malaysia?" |
+| **`policy`** | Tier 4 — only when retrieval matches | returns, warranty, exchanges |
 
 Every item takes a title, content, `question` (FAQ), tags (matching hints),
 channels, priority, `active` and a `starts_at` / `ends_at` window — **the date
@@ -191,16 +212,31 @@ window is what makes a sudden notice self-expire**. Tick **Published** to show
 an item on the public Help Center (`/help`); `active` (the AI may use it) and
 `published` (the public may read it) are independent.
 
-Then use **Preview** (`POST /api/aicore/knowledge/preview`): type a real
-customer message and see the exact `COMPANY KNOWLEDGE` block the AI receives and
-how much of the budget it used.
+**Upload documents** you already have — a PDF (with a text layer; scanned,
+image-only PDFs are refused), .txt, .md or .csv up to 10 MB becomes one
+knowledge item of the kind you pick (`POST /api/aicore/knowledge/upload`). Only
+the extracted text is kept; CSV rows become "header: value" lines so a price
+list can be matched row by row. A long document is chunked, so only the parts
+that match a customer's question reach the prompt.
+
+Then use **Test retrieval** (`POST /api/aicore/knowledge/preview` with a
+`query`): type a real customer message and see the exact `COMPANY KNOWLEDGE` and
+`LEARNED FROM PAST CONVERSATIONS` blocks the AI receives, how much of the budget
+they used, and every scored candidate (keyword and, with embeddings, semantic
+score) — the answer to "why did the bot say that?".
 
 ### 2.5 Load contacts and records
 
 - **By hand** — `/contacts` → Add, or `POST /api/v1/contacts`. A phone sharing
   its last 8 digits with an existing contact is refused (409).
-- **CSV import** — `/contacts` → Import (`POST /api/contacts/import`, with a
-  `?preview=1` dry run that shows created/updated/skipped before you commit).
+- **Import** — `/contacts` → Import: a .csv, .xlsx or phone .vcf file, or your
+  own Google Contacts (connected at Settings → My connections). Map each column
+  to a contact field, custom field, tags or entity; choose what happens to
+  duplicates (skip, fill empty fields, overwrite); optionally tag them, put them
+  in an entity and look up their channels. Up to 20 000 rows / 10 MB; phone
+  numbers are normalised to E.164 with Setting `default_country_code` (default
+  `60`). The API is `POST /api/contacts/import` with a `?preview=1` dry run that
+  shows created / updated / skipped before you commit.
 - **Bulk sync** — `POST /api/v1/sync/records` (admin role or an API key), one
   object per record with an optional contact; contacts match by phone, records
   by `(type, external_id)`. See [record-sync.md](record-sync.md).
@@ -223,8 +259,15 @@ widget with the setup drawer. Northwind adds:
 Step 3 of the drawer, **who answers it**, sets per inbox: the owning **team**
 (new conversations go there and round-robin across its members), the **AI
 default** (on/off for new conversations; an operator's per-chat tick always
-wins) and the **AI review mode** (below). Teams live at `/teams`; event rules
-("label refund requests and route them to Billing") at `/automations`.
+wins), the **AI review mode** (below) and **unknown customers** — off, ask who
+they are, or ask and create the contact. Asking is a short, deterministic
+English / Malay exchange (name + phone or email); a match links the chat so the
+AI can answer, several matches or no answer hand the chat to a person. On a
+channel without phone numbers (Telegram, Messenger, LINE…) it is the easiest
+way to link customers — that, or an **invite link** from the contact's channel
+hub ("Invite to another app"), which binds the chat the moment they write.
+Teams live at `/teams`; event rules ("label refund requests and route them to
+Billing") at `/automations`.
 
 Per-account **delivery** settings (edit account → Delivery & AI): quiet hours
 (one window or per weekday), send pacing (min/max gap between messages), and for
@@ -257,6 +300,32 @@ needs `ai.behaviour.manage`.
 
 Northwind starts in `review_all` for a week, reads the trail, adds a check skill
 for the mistakes it sees, then moves to `review_flagged`.
+
+**When the AI may answer at all** (the master-switch card on the AI monitor,
+per outlet or organization-wide): on, off, or on a weekly **schedule** (only
+inside — or only outside — the windows, e.g. "evenings and weekends, when the
+shop is closed"). Contacts can be set to "never" or "always" AI, and **never-AI
+tags** (`vip`, `legal-hold`…) keep the AI away from everyone carrying them. A
+branch inherits its head office's switch unless it sets its own. Whenever the
+AI passes a conversation to a person — a failed check, "a colleague will help
+you", a reply that couldn't be sent, a failed booking — it shows up under
+**Needs human** in `/chats`; a person's reply or resolving it closes it.
+
+**Teach it as you go.** Everyone holding `ai.monitor` can rate any AI reply 👍
+or 👎 (in the chat or the monitor), with a reason and, ideally, what it should
+have said. Approving, editing or rejecting a held draft counts too. Each rating
+becomes a suggested **lesson** — an example of a good answer, or a correction —
+and managers can write **rules** directly. In the default `review` learning
+mode (`ai_learning_mode`, per outlet) nothing reaches the AI until someone with
+`ai.behaviour.manage` approves it on the AI monitor's **Learning** tab; `auto`
+lets an admin's own feedback go live at once; `off` only counts. Similar
+suggestions merge, so one fix covers the twenty ways customers ask. Active
+lessons are given to the AI as examples from past conversations (rules always,
+then the three most relevant), never as instructions that outrank the hard
+rules, and never across outlets. A lesson that is really company knowledge can
+be turned into an FAQ (or a rule into a policy) in one click. The monitor's
+Stats tab shows the 👍 rate, the most common 👎 reasons and the questions the
+AI couldn't answer — your next knowledge items.
 
 **Human-like behaviour** (AI monitor → settings; defaults on):
 
@@ -346,9 +415,11 @@ A missing value renders empty; an unknown `{{key}}` is left visible on purpose.
 
 **Integrations** (`/integrations`): Shopify (orders in), Stripe (payments in,
 payment links out), Google Sheets (an exceptions log via *Append row to Sheet*),
-Google Calendar (*Find free slot* / *Create calendar event*). A Google
-connection can belong to one user, an entity, or the whole organization; the
-acting user's own connection wins. These mappings are fixture-tested against
+Google Calendar (*Find free slot* / *Create calendar event*, and the AI's
+booking skills). A Google connection can belong to one user, an entity, or the
+whole organization; the acting user's own connection wins. Agents connect their
+own calendar at Settings → My connections — that is the calendar a booking skill
+set to "the assigned agent's calendar" books into. These mappings are fixture-tested against
 documented payloads, never against a live provider — treat your first real
 connection as an integration test and watch the flow's Runs panel.
 
@@ -404,7 +475,9 @@ any code.
       alone.
 - [ ] One prompt skill per repeatable situation; check skills for the mistakes
       you can't afford; tests passing.
-- [ ] Knowledge base seeded and **Preview** run against five real messages.
+- [ ] Knowledge base seeded (documents uploaded where they exist) and **Test
+      retrieval** run against five real messages.
+- [ ] Learning mode chosen, and someone owns the AI monitor's Learning tab.
 - [ ] Business variables set.
 - [ ] Inboxes connected (or deliberately left in sandbox), each with a team, an
       AI default and a review mode.

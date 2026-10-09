@@ -7,13 +7,17 @@ another.
 > ## ⚠ Read this first: live, but not field-tested
 >
 > **Every channel has a live transport in the C# API** — WhatsApp (Cloud +
-> Baileys), Messenger/Instagram, Telegram, email, the website widget and SIP
-> calls — and each falls back to sandbox (stored locally, `status="sandbox"`)
-> when it isn't configured. The provider clients are tested against fakes built
-> from the providers' documented payloads, not against the live services, so
-> expect field debugging on a first real account. The Messenger/Instagram
-> webhook (`/api/messaging/webhook`) **requires** `X-Hub-Signature-256` — the
-> old "no signature check" gap is closed.
+> Baileys), Messenger/Instagram, Telegram, email, the website widget, SIP
+> calls, and the newer LINE, Viber, SMS (Twilio), WeChat Official Account,
+> TikTok, Douyin and Zalo OA — and each falls back to sandbox (stored locally,
+> `status="sandbox"`) when it isn't configured. The provider clients are tested
+> against fakes built from the providers' documented payloads, not against the
+> live services, so expect field debugging on a first real account. **TikTok
+> and Douyin are partner / approval-gated**: built to the documented shapes, no
+> one has verified them live. The Messenger/Instagram webhook
+> (`/api/messaging/webhook`) **requires** `X-Hub-Signature-256` — the old "no
+> signature check" gap is closed — and every newer channel's webhook refuses
+> unsigned traffic.
 
 ---
 
@@ -33,6 +37,23 @@ another.
 | Health | ✅ Graph token ping (prober) + send / status / test results (`MetaErrors`), inbound heal | ✅ lifecycle pushes + inbound heal | — | ✅ getMe + getWebhookInfo, inbound heal | ✅ `GET /me` (prober, test), send results, inbound heal | ✅ SMTP login (prober), send outcomes |
 | Voice calls | ❌ (Cloud bridge removed; `call/start` → 501) | ✅ (ToS-violating) + recordings | — | — | — | — |
 | Auth on inbound | `X-Hub-Signature-256`, **required once any Cloud account is configured** | `X-Baileys-Secret` | anonymous by design (session id) | bot token in path (constant time) + `X-Telegram-Bot-Api-Secret-Token` once registered from the dashboard | `X-Hub-Signature-256`, **always required** | n/a (we pull over IMAP) |
+
+**Newer channels** — one webhook per ACCOUNT,
+`/api/messaging/webhook/{channel}/{account_id}`; no secret configured ⇒ 503,
+bad signature ⇒ 401, unknown account ⇒ 404:
+
+| | LINE | Viber | SMS (Twilio) | WeChat OA | TikTok ⚠ | Douyin ⚠ | Zalo OA |
+|---|---|---|---|---|---|---|---|
+| Receive text | ✅ | ✅ | ✅ | ✅ (plaintext or AES safe mode) | ✅ (unverified) | ✅ (unverified) | ✅ |
+| Send text | ✅ reply token (≤50 s) else push | ✅ `send_message` | ✅ ≤1600 chars | ✅ Customer Service message | ✅ (unverified) | ✅ reply to the latest message (unverified) | ✅ consultation message |
+| Send media | ❌ public URL only — refused | ❌ public URL only — refused | ❌ MMS needs a public URL — refused | ✅ images | ❌ | ❌ | ✅ images |
+| Receive media | ✅ off the ack | ✅ Viber CDN | ✅ MMS (Basic auth) | ✅ `media/get` | ❌ | ❌ | ✅ https URL |
+| Delivery receipts | — | ✅ delivered / seen / failed | — (no status callbacks yet) | — | — | — | — |
+| Reply window | none | none | none | 48 h (45015) | 48 h | 48 h | 7 days (-230) |
+| Opt-out | STOP words + unfollow | STOP words + unsubscribed | STOP words + Twilio `OptOutType` / 21610 | STOP words + unsubscribe | STOP words | STOP words | STOP words + unfollow |
+| Health (Test + prober) | `/v2/bot/info` | `get_account_info` | the Twilio account | the token fetch | `business/get` | client-credential token | `getoa` |
+| "Register webhook" | ✅ one click | ✅ one click | paste in Twilio | paste in the WeChat console | paste | paste | paste |
+| Auth on inbound | `X-Line-Signature` | `X-Viber-Content-Signature` | `X-Twilio-Signature` | sha1 signature + 5-min freshness + single-use nonce (+ AES `msg_signature`) | `TikTok-Signature` (5-min window) | `X-Douyin-Signature` | `X-ZEvent-Signature` |
 
 Where the code is (`backend-csharp/src/`):
 
@@ -60,6 +81,9 @@ Where the code is (`backend-csharp/src/`):
 | Health writer | `ChatBranch.Data/Channels/AccountHealth.cs` |
 | Health prober (periodic + "Check now") | `ChatBranch.Data/Channels/HealthProber.cs`, `GraphHealthProbe.cs`, `ChatBranch.Api/Workers/HealthProbeWorker.cs` |
 | Typing indicator | `ChatBranch.Data/Ai/TypingIndicator.cs` (`ChannelTypingIndicator` → `LiveTypingIndicator` / `TelegramTypingIndicator` / `MetaTypingIndicator`) |
+| Newer channels: registry, transports, send seam, reply windows | `ChatBranch.Data/Channels/More/` — `MoreChannels.cs` (which channels, configured?, account-bound?, phone-keyed?, `IChannelTransport`, `ChannelOptOut`), `LineTransport.cs`, `ViberTransport.cs`, `TwilioSmsTransport.cs`, `WeChatTransport.cs`, `TikTokTransport.cs`, `DouyinTransport.cs`, `ZaloTransport.cs`, `MoreChannelSender.cs`, `ChannelWindow.cs` |
+| Newer channels: webhooks + DI, account fields | `ChatBranch.Api/Endpoints/MoreChannelWebhookEndpoints.cs`, `MoreChannelAccounts.cs` |
+| Invite links, unknown customers, identities | `ChatBranch.Data/Contacts/ContactInvites.cs`, `InviteReferrals.cs`, `IdentityRequests.cs`, `ContactIdentities.cs`; endpoints `ContactIdentityEndpoints.cs` |
 
 All channels write to the **same** `crm_thread` / `crm_message` tables, so the
 inbox, the SSE stream, the AI, teams, automations, the flow engine and the
@@ -130,6 +154,11 @@ outbound queue are already channel-blind.
   ended the call; `GET /api/whatsapp/calls/recording/{name}` streams the WAV
   (Range supported, name-validated).
 - One call at a time per number; outbound only.
+- **Number lookups:** the contact identity checker asks a connected QR number
+  whether a contact's phone is on WhatsApp (`IBaileysGateway.CheckNumberAsync` →
+  the gateway's `POST /accounts/{id}/check` → `{exists, jid}`; nothing is ever
+  sent). `Workers/IdentityCheckWorker` paces it at ≤1 lookup per 2 s per gateway
+  and caches the verdict 30 days; Cloud numbers have no lookup.
 
 ### Website widget
 - A widget IS a `ChannelAccount` (channel `website`) whose `external_id` is the
@@ -158,9 +187,12 @@ outbound queue are already channel-blind.
   contact's sticky / least-loaded / sole bot (`Routing.ForThread`). The AI's
   typing pause shows "typing…" (`sendChatAction`, fire-and-forget,
   `TelegramTypingIndicator`).
-- No phone number, so CRM linking is manual (the `/chats` contact picker or
-  `POST /api/messaging/threads/telegram/{key}/link`). Auto-replies only fire on
-  linked threads.
+- No phone number, so a Telegram chat links to a contact by hand (the `/chats`
+  contact picker or `POST /api/messaging/threads/telegram/{key}/link`, a contact
+  in the caller's scope), through an **invite link** (`t.me/<bot>?start=CODE`
+  from the contact's "Invite to another app" — the `/start CODE` binds it), or
+  through the **unknown-customer exchange** when the inbox asks who they are.
+  Auto-replies only fire on linked threads.
 
 ### Messenger / Instagram
 - Webhook `GET/POST /api/messaging/webhook` (objects `page` / `instagram`),
@@ -170,7 +202,11 @@ outbound queue are already channel-blind.
   whose `external_id` is that page / Instagram account id; the thread key is the
   PSID / IGSID (name fetched once). Redelivered mids are skipped; attachments
   download from the CDN off the ack (one media per message row); delivery / read
-  receipts tick our outbound messages; echoes are ignored.
+  receipts tick our outbound messages; echoes are ignored. An invite link
+  `m.me/<page>?ref=CODE` arrives as a referral (`messaging_referrals`,
+  `postback.referral` or `message.referral`) and binds the conversation to the
+  invited contact (`Contacts/InviteReferrals.cs`); Instagram has no referral, so
+  its invite asks the customer to type `ref CODE`.
 - Sends go through the Send API (`POST /me/messages`, page token): text, an
   attachment by public URL (`media_url` on the messaging send route) or an
   uploaded file (`POST /api/messaging/threads/{facebook|instagram}/{key}/send-media`
@@ -223,6 +259,42 @@ outbound queue are already channel-blind.
   the normal inbound pipeline. A new email thread starts with the chatbot off.
 - "Test" = SMTP connect + login (+ a test mail when `to` is given).
 
+### Newer channels (LINE, Viber, SMS, WeChat, TikTok, Douyin, Zalo)
+- **One shape.** Each is an `IChannelTransport` (`Channels/More/`: send text,
+  send media, probe, download) registered in
+  `MoreChannelWebhookEndpoints.AddMoreChannels`; `MoreChannelSender` (called by
+  `OutboundSender`) picks the account with the shared routing, checks the reply
+  window (`ChannelWindow`), calls the provider and records the outcome honestly
+  — `sent` + the provider id, or a failed system row; health moves only for
+  account-level failures (a refused token, a suspension, repeated outages),
+  never a recipient's. No configured account ⇒ `status="sandbox"`.
+- **Webhooks are per account** (`/api/messaging/webhook/{channel}/{account_id}`)
+  so each request is verified with exactly that account's secret; garbage and
+  events the inbox doesn't use are acked 200. Verified traffic runs the one
+  inbound path, dedups on the provider's message id, heals health and downloads
+  media off the ack. The setup drawer's test step shows the URL; LINE and Viber
+  can register it in one click (`POST /api/messaging/accounts/{id}/set-webhook`).
+- **Who the conversation belongs to.** LINE, Viber, WeChat, TikTok, Douyin and
+  Zalo identities are minted by the receiving account, so those conversations
+  are account-bound (no failover, no spreading). SMS is phone-keyed: the thread
+  key is the E.164 digits, contacts link by last-8 digits like WhatsApp, and any
+  of our numbers can carry it (spread like email mailboxes).
+- **Opt-out** follows the platform too (`ChannelOptOut`): Viber `unsubscribed`,
+  LINE / WeChat / Zalo unfollow (a re-follow, re-subscribe or Viber `subscribed`
+  opts back in), Twilio's `OptOutType` STOP/START, and a Twilio 21610 on send.
+- **Referral payloads** that platforms pass on a first contact (a Viber
+  `conversation_started` context, a WeChat parametric-QR scene) ride on the
+  first message as a `[ref:CODE] ` prefix, which the invite binder reads.
+- **Per-channel edges.** LINE replies with the webhook's reply token while it is
+  fresh (≤50 s, free) and falls back to push (may cost quota). Viber ids are
+  base64, so the thread key is their URL-safe form. Twilio texts are capped at
+  1600 chars per message. WeChat caches its access_token ~7000 s and refetches
+  once on expiry; a wrong AppSecret or a server IP missing from the whitelist
+  disconnects the account. Zalo refreshes an expired access token ONCE with the
+  refresh token and stores the rotated pair. TikTok and Douyin are text-only and
+  unverified; Douyin replies quote the customer's latest message id and has no
+  token refresh yet.
+
 ---
 
 ## 3. The cross-channel machinery
@@ -232,17 +304,30 @@ These are channel-blind; a new channel gets them for free if it goes through
 
 **Inbound** — `InboundProcessor.ProcessInbound(channel, key, text, name,
 accountId, externalId, providerTs)`: get-or-create the thread (entity
-attribution), link a contact (email exact, else last-8-digit phone), move the
-conversation onto the account that received it, apply the inbox's AI default to
-a brand-new thread, store the message (dedup on external id), apply STOP/START
+attribution), run the **invite binder** (`Contacts/ContactInvites.cs`: a valid,
+unexpired code in `[ref:CODE]`, `(ref:CODE)`, `(ref CODE)`, a loose `ref CODE`
+or Telegram's `/start CODE` links the invited contact BEFORE any matching; the
+marker is
+stripped from the stored text, the original kept in the note, the use audited as
+`contact.invite_used`; unknown / expired / spent codes are ignored silently —
+**a channel whose platform passes a referral payload should prefix the first
+message with `[ref:<payload>] `**, as Viber and WeChat do, and Messenger binds
+`referral.ref` in its webhook), link a contact (email exact, else last-8-digit
+phone on the phone-keyed channels, WhatsApp and SMS), move the conversation
+onto the account that received it, apply the inbox's AI default to a brand-new
+thread, store the message (dedup on external id), apply STOP/START
 (`Channels/OptOut.cs`: the whole message is the keyword; org Settings
 `opt_out_keywords` / `opt_in_keywords` add words; opting out cancels the
 conversation's queued jobs, writes a private note and an audit row, and sends
-nothing back), resume flow runs parked on a reply, route to a team, run
-automations, notify (assignee → team → admins), expire stale AI drafts, then —
-behind the **coverage gate** (linked contact, the effective chatbot tick from
-`Ai/AiEligibility` — the same rule every `ai_enabled` payload shows — and not
-opted out) — the AI reply, debounced through the queue or instant
+nothing back; the newer channels' platform signals do the same through
+`ChannelOptOut`), resume flow runs parked on a reply, route to a team, run
+automations, notify (assignee → team → admins), the **unknown-customer step**
+(`Contacts/IdentityRequests.cs`, when the inbox's `identify_unknown` or an
+`ask_identity` automation asks: a deterministic EN/BM "who are you?" exchange
+that links, creates or hands over), expire stale AI drafts, then —
+behind the **coverage gate** (linked contact, the effective chatbot verdict from
+`Ai/AiEligibility.Decide` — the same rule every `ai_enabled` payload shows — and
+not opted out) — the AI reply, debounced through the queue or instant
 (`ai_reply_mode` + the AI behaviour settings); with the chatbot off on a
 WhatsApp reminder (business) number, the business redirect instead. It never
 throws into the webhook. Manual sends to an opted-out conversation need
@@ -250,7 +335,8 @@ throws into the webhook. Manual sends to an opted-out conversation need
 
 **Outbound** — `OutboundSender.Send(thread, text, source, accountId)` is the one
 live-or-sandbox seam (with `SendTemplate` / `SendMedia` beside it): a configured
-Cloud, Baileys, Messenger or Instagram account sends for real
+Cloud, Baileys, Messenger, Instagram, Telegram, email or newer-channel account
+(through `MoreChannelSender`) sends for real
 (recording a provider failure honestly as a `failed` system message); anything
 else stores `status="sandbox"`. Flows and AI never send inline — they enqueue
 `OutboundJob`s that `QueueService` drains with per-account pacing, daily caps,
@@ -285,9 +371,10 @@ need a Cloud number (reminder first), are carried per send without moving the
 sticky row and never fall back to Baileys — nothing eligible fails the job / 409s
 the endpoint. With no configured account nothing is routed (sandbox). Roles,
 providers and templates are WhatsApp-only (`RouteNeed.For`); Telegram,
-Messenger/Instagram and widget conversations stay on the account that received
-them (account-bound — no failover or spreading); email spreads even a
-contactless conversation to the least-loaded mailbox. A
+Messenger/Instagram, widget, LINE, Viber, WeChat, TikTok, Douyin and Zalo
+conversations stay on the account that received them (account-bound — no
+failover or spreading); email and SMS spread even a contactless conversation to
+the least-loaded mailbox / number. A
 conversation number going INTO banned/disconnected notifies admins and, with
 `recovery_mode=auto`, queues `recovery_template` for its contacts
 (`Channels/Recovery.cs`, hooked in `AccountHealth.SetStatus`).
@@ -297,8 +384,8 @@ its change token is thread `updated_at` + message count, so **any write that
 bypasses `ThreadStore` must bump `Thread.UpdatedAt`**.
 
 **The AI** — `AssistantService` is channel-agnostic and every AI-written message
-passes `AiGate` (the AI monitor). Skills and knowledge items can be limited to
-channels; quick replies (`CannedResponse.Channels`) too.
+passes `AiGate` (the AI monitor). Skills, knowledge items and lessons can be
+limited to channels; quick replies (`CannedResponse.Channels`) too.
 
 ---
 
@@ -332,10 +419,26 @@ work, in order:
 8. **Docs.** Update the Port status table in `CLAUDE.md`, this file and the
    README's channel table.
 
+**The shortcut for a token-and-webhook messaging app** is the shape the seven
+newer channels share (`Channels/More/`): implement `IChannelTransport` (send
+text, send media — or refuse it honestly —, probe, download), register it in
+`MoreChannelWebhookEndpoints.AddMoreChannels`, add the id to `MoreChannels.All`
+(and to `Configured` / `AccountBound` / `PhoneKeyed`), its field table to
+`MoreChannelAccounts.Fields`, a per-account webhook handler in
+`MoreChannelWebhookEndpoints` (503 without a secret, 401 on a bad signature,
+404 for an unknown account) and, if the platform has a reply window, a
+`ChannelWindow` rule. Routing, the health prober, the accounts API, the send
+seam (`MoreChannelSender`) and the window checks then pick it up without
+enumerating channel ids. Steps 1, 6, 7 and 8 above still apply.
+
 ## 5. Deliberately out of scope
 
 - **Voice calls stay transport-specific.** SIP (LiveKit SIP participant) and
   Baileys (`backend/baileys_service/calls.js`) each terminate a different media
   stack into a LiveKit room; the API's `VoiceDispatch` + `LiveKitClient` and the
   voice agent are shared. There is no WhatsApp Cloud call bridge any more.
-- **SMS has no provider.** The flow engine's SMS channel logs and skips.
+- **TikTok and Douyin are partner / approval-gated.** Their APIs only work once
+  the platform approves the app, so they were built to the documented shapes
+  (every endpoint path in one class each) and have never run against the live
+  services; the inbox marks them "Requires approval". Treat a first account as
+  the integration test.
