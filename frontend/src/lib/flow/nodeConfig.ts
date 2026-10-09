@@ -62,6 +62,13 @@ export const MESSAGE_CHANNELS = [
   { value: 'facebook', label: 'Messenger' },
   { value: 'instagram', label: 'Instagram' },
   { value: 'website', label: 'Website chat' },
+  { value: 'sms', label: 'SMS' },
+  { value: 'line', label: 'LINE' },
+  { value: 'viber', label: 'Viber' },
+  { value: 'wechat', label: 'WeChat' },
+  { value: 'zalo', label: 'Zalo' },
+  { value: 'tiktok', label: 'TikTok' },
+  { value: 'douyin', label: 'Douyin' },
 ]
 
 export const WEEKDAYS = [
@@ -85,7 +92,7 @@ export const SEND_CHANNELS = [
   { value: 'WhatsApp', label: 'WhatsApp' },
   { value: 'Email', label: 'Email' },
   { value: 'Telegram', label: 'Telegram' },
-  { value: 'SMS', label: 'SMS (logged only — no SMS provider yet)' },
+  { value: 'SMS', label: 'SMS (Twilio — sandbox until an SMS inbox is connected)' },
 ]
 
 /** Team-facing channel (an in-app notification to staff). */

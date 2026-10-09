@@ -55,6 +55,13 @@ const CHANNEL_LABELS: Record<string, string> = {
   telegram: 'Telegram',
   email: 'Email',
   website: 'Website widget',
+  sms: 'SMS',
+  line: 'LINE',
+  viber: 'Viber',
+  wechat: 'WeChat',
+  zalo: 'Zalo',
+  tiktok: 'TikTok',
+  douyin: 'Douyin',
 }
 const channelLabel = (c: string) => CHANNEL_LABELS[c] || c.charAt(0).toUpperCase() + c.slice(1)
 const providerLabel = (p: string, channel: string) =>

@@ -8,10 +8,40 @@ import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 
 export const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
-export type Channel = 'whatsapp' | 'facebook' | 'instagram' | 'telegram' | 'email' | 'website'
+export type Channel =
+  | 'whatsapp'
+  | 'facebook'
+  | 'instagram'
+  | 'telegram'
+  | 'email'
+  | 'website'
+  | 'line'
+  | 'viber'
+  | 'sms'
+  | 'wechat'
+  | 'tiktok'
+  | 'douyin'
+  | 'zalo'
 export type ThreadStatus = 'open' | 'pending' | 'snoozed' | 'resolved'
 
-export const CHANNELS: Channel[] = ['whatsapp', 'facebook', 'instagram', 'telegram', 'email', 'website']
+export const CHANNELS: Channel[] = [
+  'whatsapp',
+  'facebook',
+  'instagram',
+  'telegram',
+  'email',
+  'website',
+  'line',
+  'viber',
+  'sms',
+  'wechat',
+  'tiktok',
+  'douyin',
+  'zalo',
+]
+
+/** Channels with a platform reply window enforced server-side (WeChat 48 h, Zalo 7 d, TikTok / Douyin 48 h). */
+export const WINDOWED_CHANNELS: Channel[] = ['wechat', 'zalo', 'tiktok', 'douyin']
 export const THREAD_STATUSES: ThreadStatus[] = ['open', 'pending', 'snoozed', 'resolved']
 
 export const CHANNEL_META: Record<Channel, { lbl: string; placeholder: string; beta?: boolean }> = {
@@ -23,6 +53,13 @@ export const CHANNEL_META: Record<Channel, { lbl: string; placeholder: string; b
   // The site widget: the visitor's browser is the transport, so there is no
   // address to start a conversation FROM our side — they always begin it.
   website: { lbl: 'Website', placeholder: 'started by the visitor' },
+  line: { lbl: 'LINE', placeholder: 'LINE user ID (U…)' },
+  viber: { lbl: 'Viber', placeholder: 'started by the subscriber' },
+  sms: { lbl: 'SMS', placeholder: '+60 phone number' },
+  wechat: { lbl: 'WeChat', placeholder: 'follower OpenID' },
+  tiktok: { lbl: 'TikTok', placeholder: 'started by the customer', beta: true },
+  douyin: { lbl: 'Douyin', placeholder: 'started by the customer', beta: true },
+  zalo: { lbl: 'Zalo', placeholder: 'Zalo user ID' },
 }
 
 /** Our `facebook` channel is Messenger — show Messenger's mark, not Facebook's. */

@@ -54,6 +54,13 @@ export const TEMPLATE_CHANNELS: { id: string; label: string; logo: string }[] = 
   { id: 'facebook', label: 'Messenger', logo: 'messenger' },
   { id: 'instagram', label: 'Instagram', logo: 'instagram' },
   { id: 'website', label: 'Website', logo: 'website' },
+  { id: 'sms', label: 'SMS', logo: 'sms' },
+  { id: 'line', label: 'LINE', logo: 'line' },
+  { id: 'viber', label: 'Viber', logo: 'viber' },
+  { id: 'wechat', label: 'WeChat', logo: 'wechat' },
+  { id: 'zalo', label: 'Zalo', logo: 'zalo' },
+  { id: 'tiktok', label: 'TikTok', logo: 'tiktok' },
+  { id: 'douyin', label: 'Douyin', logo: 'douyin' },
 ]
 
 const channelMeta = (id: string) => TEMPLATE_CHANNELS.find((c) => c.id === id)
