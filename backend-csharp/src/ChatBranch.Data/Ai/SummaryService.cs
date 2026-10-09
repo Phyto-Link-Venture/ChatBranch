@@ -176,8 +176,10 @@ public class SummaryService
         var lines = transcript.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         var fromCustomer = lines.Where(l => l.StartsWith("Customer")).ToList();
         var last = fromCustomer.LastOrDefault() ?? lines.LastOrDefault() ?? "";
-        var name = contact?.Name ?? "The customer";
-        var opener = $"{lines.Length} message(s) exchanged with {name}.";
+        var name = string.IsNullOrWhiteSpace(contact?.Name) ? "the customer" : contact!.Name;
+        var opener = lines.Length == 1
+            ? $"1 message exchanged with {name}."
+            : $"{lines.Length} messages exchanged with {name}.";
         if (last.Length == 0) return opener;
         var idx = last.IndexOf(':');
         var lastText = idx >= 0 && idx + 1 < last.Length ? last[(idx + 1)..].Trim() : last;
