@@ -140,6 +140,7 @@ export type HandoverKind =
   | 'low_confidence'
   | 'rule'
   | 'manual'
+  | 'unknown_customer'
 
 export const HANDOVER_KINDS: { value: HandoverKind; label: string }[] = [
   { value: 'check_failed', label: 'A reply check failed' },
@@ -149,6 +150,7 @@ export const HANDOVER_KINDS: { value: HandoverKind; label: string }[] = [
   { value: 'low_confidence', label: 'Low confidence' },
   { value: 'rule', label: 'A rule or flow' },
   { value: 'manual', label: 'Flagged by a person' },
+  { value: 'unknown_customer', label: 'Unknown customer' },
 ]
 
 /** The `handover` object on every thread payload (null = never handed over). */

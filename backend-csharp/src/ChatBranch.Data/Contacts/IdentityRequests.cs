@@ -620,11 +620,16 @@ public class IdentityRequestService
         req.PendingJobId = null;
     }
 
-    /// <summary>Hand the chat to a person: pending + an admin notification.</summary>
+    /// <summary>Hand the chat to a person: a tracked handover ("Needs human"),
+    /// pending + an admin notification. The identity exchange writes its own
+    /// note, and the chatbot stays as it was — once a person links the contact
+    /// the AI may answer.</summary>
     private void Handover(Thread thread, string title, string detail)
     {
         if (thread.Status != ThreadStatus.Resolved) thread.Status = ThreadStatus.Pending;
         thread.UpdatedAt = Now;
+        ChatBranch.Data.Ai.Handover.Mark(_db, thread, ChatBranch.Data.Ai.HandoverKinds.UnknownCustomer,
+            $"{title}: {detail}", "identity", note: false, notify: false, save: false, standDown: false);
         try
         {
             NotificationService.Notify(_db, NotificationCategories.Messages, "identity", title,
@@ -682,6 +687,8 @@ public class IdentityRequestService
         }
         NoteOn(thread, note);
         if (thread.Status == ThreadStatus.Pending && waiting) thread.Status = ThreadStatus.Open;
+        if (thread.HandoverKind == ChatBranch.Data.Ai.HandoverKinds.UnknownCustomer)
+            ChatBranch.Data.Ai.Handover.Clear(_db, thread, "identity", "The contact was linked", save: false);
         _db.SaveChanges();
         return waiting;
     }

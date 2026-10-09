@@ -22,9 +22,11 @@ public static class HandoverKinds
     public const string Rule = "rule";
     /// <summary>A person flagged it for a human.</summary>
     public const string Manual = "manual";
+    /// <summary>An unknown customer could not be matched to one contact (the identity exchange).</summary>
+    public const string UnknownCustomer = "unknown_customer";
 
     public static readonly string[] All =
-        { CheckFailed, AskedForHuman, SendBlocked, BookingFailed, LowConfidence, Rule, Manual };
+        { CheckFailed, AskedForHuman, SendBlocked, BookingFailed, LowConfidence, Rule, Manual, UnknownCustomer };
 
     public static string Label(string? kind) => kind switch
     {
@@ -35,6 +37,7 @@ public static class HandoverKinds
         LowConfidence => "Low confidence",
         Rule => "A rule or flow handed it over",
         Manual => "Flagged by a person",
+        UnknownCustomer => "Unknown customer",
         _ => "Handed over",
     };
 }

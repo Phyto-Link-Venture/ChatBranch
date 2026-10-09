@@ -34,9 +34,15 @@ public static class ContactsEndpoints
     /// `attributes` (e.g. a custom-fields-only save) assigned null over the
     /// contact's name and 500'd on the NOT NULL column.
     /// </remarks>
+    /// The company binds as <c>companyName</c> (the MCP tools) or
+    /// <c>company_name</c> (the dashboard, as on /api/v1/contacts).
     public record ContactWrite(string? Name, string? Phone, string? Email, string? Language,
         string? CompanyName, List<string>? Tags,
-        Dictionary<string, object?>? Attributes = null);
+        Dictionary<string, object?>? Attributes = null,
+        [property: System.Text.Json.Serialization.JsonPropertyName("company_name")] string? CompanySnake = null)
+    {
+        public string? Company => CompanyName ?? CompanySnake;
+    }
     public record IdentityWrite(string Channel, string Address);
 
     /// <summary>contacts.py _HISTORY_LIMIT — recent touchpoints, not a full feed.</summary>
@@ -92,7 +98,7 @@ public static class ContactsEndpoints
             var row = new Contact
             {
                 Name = name, Phone = phone, Email = b.Email ?? "", Language = b.Language ?? "en",
-                CompanyName = b.CompanyName ?? "", Tags = b.Tags ?? new(),
+                CompanyName = b.Company ?? "", Tags = b.Tags ?? new(),
                 Attributes = b.Attributes ?? new(),
                 TenantId = TenantId(me),
                 CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
@@ -125,7 +131,7 @@ public static class ContactsEndpoints
             if (b.Phone != null) c.Phone = b.Phone;
             if (b.Email != null) c.Email = b.Email;
             if (b.Language != null) c.Language = b.Language;
-            if (b.CompanyName != null) c.CompanyName = b.CompanyName;
+            if (b.Company != null) c.CompanyName = b.Company;
             if (b.Tags != null) c.Tags = b.Tags;
             if (b.Attributes != null)
             {

@@ -152,6 +152,10 @@ public class IdentityRequestTests : IdentityApiBase, IClassFixture<IdentityFacto
         Assert.Null(thread.ContactId);
         Assert.Equal(ThreadStatus.Pending, thread.Status);
         Assert.Equal(IdentityStates.Ambiguous, Request("telegram", key).State);
+        // a tracked handover: it shows in the inbox's "Needs human" view
+        Assert.Equal(ChatBranch.Data.Ai.HandoverKinds.UnknownCustomer, thread.HandoverKind);
+        Assert.NotNull(thread.HandoverAt);
+        Assert.Null(thread.HandoverResolvedAt);
         var note = Messages("telegram", key).Last(m => m.Private).Text;
         Assert.Contains("Twin One", note);
         Assert.Contains("Twin Two", note);
@@ -197,6 +201,11 @@ public class IdentityRequestTests : IdentityApiBase, IClassFixture<IdentityFacto
         Assert.Equal(ThreadStatus.Pending, thread.Status);
         Assert.Equal(IdentityStates.NeedsContact, Request("telegram", key).State);
         Assert.Contains(Messages("telegram", key), m => m.Private && m.Text.Contains("farah@example.org"));
+        Assert.Equal(ChatBranch.Data.Ai.HandoverKinds.UnknownCustomer, thread.HandoverKind);
+        Assert.Null(thread.HandoverResolvedAt);
+        var needsHuman = await admin.GetFromJsonAsync<JsonElement>(
+            "/api/inbox/threads?handover=open&handover_kind=unknown_customer&count_only=1");
+        Assert.True(needsHuman.GetProperty("count").GetInt32() >= 1);
 
         // the chat banner's state + prefill
         var state = await admin.GetFromJsonAsync<JsonElement>($"/api/contacts/identify/telegram/{key}");
@@ -215,6 +224,7 @@ public class IdentityRequestTests : IdentityApiBase, IClassFixture<IdentityFacto
         Assert.Equal(newId, ThreadOf("telegram", key).ContactId);
         Assert.Equal(IdentityStates.Created, Request("telegram", key).State);
         Assert.Single(Messages("telegram", key), m => m.Source == MessageSource.Ai);   // the waiting customer is answered
+        Assert.NotNull(ThreadOf("telegram", key).HandoverResolvedAt);                  // the handover is closed
 
         // already linked now → 409; agents can read the state but not create
         Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync(

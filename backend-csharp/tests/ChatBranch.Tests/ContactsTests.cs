@@ -46,6 +46,27 @@ public class ContactsTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task The_company_binds_from_either_spelling()
+    {
+        var c = await Authed("admin", "admin123");
+        // the dashboard sends company_name (as /api/v1 does); the MCP tools send companyName
+        var create = await c.PostAsJsonAsync("/api/contacts",
+            new { name = "Ben", phone = "60123000222", company_name = "Kedai Ben" });
+        create.EnsureSuccessStatusCode();
+        var id = (await create.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
+        var got = await c.GetFromJsonAsync<JsonElement>($"/api/contacts/{id}");
+        Assert.Equal("Kedai Ben", got.GetProperty("company").GetString());
+
+        (await c.PatchAsJsonAsync($"/api/contacts/{id}", new { companyName = "Ben & Co" })).EnsureSuccessStatusCode();
+        got = await c.GetFromJsonAsync<JsonElement>($"/api/contacts/{id}");
+        Assert.Equal("Ben & Co", got.GetProperty("company").GetString());
+
+        (await c.PatchAsJsonAsync($"/api/contacts/{id}", new { company_name = "Ben Sdn Bhd" })).EnsureSuccessStatusCode();
+        got = await c.GetFromJsonAsync<JsonElement>($"/api/contacts/{id}");
+        Assert.Equal("Ben Sdn Bhd", got.GetProperty("company").GetString());
+    }
+
+    [Fact]
     public async Task Analytics_summary_and_usage_return_shape()
     {
         var admin = await Authed("admin", "admin123");

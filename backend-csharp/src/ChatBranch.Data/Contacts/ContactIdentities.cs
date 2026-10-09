@@ -29,11 +29,10 @@ public record DiscoveryResult(List<ContactIdentity> Identities, int Added, int R
 public class ContactIdentityService
 {
     /// <summary>
-    /// The SMS channel id. A string literal on purpose: the channels work adds
-    /// <c>Channels.Sms</c> in parallel — swap this for it once both are merged.
-    /// SMS identities are only registered while an <c>sms</c> account exists.
+    /// The SMS channel id (<c>Channels.Sms</c>). SMS identities are only
+    /// registered while an <c>sms</c> account exists.
     /// </summary>
-    public const string SmsChannel = "sms";
+    public const string SmsChannel = ChatBranch.Domain.Channels.Sms;
     public const string VoiceChannel = "voice";
     public const int CacheDays = 30;
     /// <summary>A lookup that failed (gateway down…) is retried after this long.</summary>
