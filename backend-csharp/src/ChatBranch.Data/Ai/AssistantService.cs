@@ -71,7 +71,7 @@ public partial class AssistantService
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine(parts.Persona is { } persona
-            ? PersonaService.HardRules + "\n\n" + persona.Trim()
+            ? _persona.Preamble(entityId, persona)
             : _persona.SystemPreamble(entityId));
 
         if (parts.Skills)

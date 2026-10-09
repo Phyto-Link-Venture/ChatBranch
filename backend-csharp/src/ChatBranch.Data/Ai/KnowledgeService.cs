@@ -78,17 +78,18 @@ public class KnowledgeService
     }
 
     /// <summary>
-    /// Active lessons a prompt for this entity/channel may use: the entity's own
-    /// plus the organization-wide ones — and ONLY the organization-wide ones when
-    /// the conversation has no entity, so one outlet's lessons never reach
-    /// another outlet's (or an unassigned) conversation.
+    /// Active lessons a prompt for this entity/channel may use: the entity's own,
+    /// its ancestors' (a branch learns what head office taught) and the
+    /// organization-wide ones — and ONLY the organization-wide ones when the
+    /// conversation has no entity, so one outlet's lessons never reach a sibling's,
+    /// a parent's or an unassigned conversation.
     /// </summary>
     public List<AiLesson> ActiveLessons(int? entityId, string? channel)
     {
         try
         {
             var q = _db.AiLessons.AsNoTracking().Where(l => l.Status == AiLessonStatus.Active);
-            q = entityId is int eid ? q.Where(l => l.EntityId == null || l.EntityId == eid) : q.Where(l => l.EntityId == null);
+            q = entityId is int ? _scoping.ScopeInherited(q, entityId) : q.Where(l => l.EntityId == null);
             var rows = q.OrderByDescending(l => l.UpdatedAt).ThenByDescending(l => l.Id).Take(2000).ToList();
             if (!string.IsNullOrEmpty(channel))
                 rows = rows.Where(l => l.Channels.Count == 0

@@ -314,8 +314,8 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `ai_reset_behaviour` | Reset an AI behaviour override | write · **destructive** | `ai.behaviour.manage` |
 | `ai_get_controls` | Read the AI master switch | read | `ai.monitor` or `ai.behaviour.manage` or `chats.view` |
 | `ai_set_controls` | Set the AI master switch | write | `ai.behaviour.manage` |
-| `ai_get_persona` | Read the AI persona | read | `settings.ai.manage` |
-| `ai_set_persona` | Set the AI persona | write | `settings.ai.manage` |
+| `ai_get_persona` | Read the AI persona and house rules | read | `settings.ai.manage` |
+| `ai_set_persona` | Set the AI persona or house rules | write | `settings.ai.manage` |
 | `ai_rate_reply` | Rate an AI reply | write | `ai.monitor` |
 | `ai_list_my_feedback` | Read my AI ratings | read | `ai.monitor` |
 | `ai_withdraw_feedback` | Withdraw an AI rating | write · **destructive** | `ai.monitor` |

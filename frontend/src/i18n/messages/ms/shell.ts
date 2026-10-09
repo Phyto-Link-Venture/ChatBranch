@@ -17,6 +17,7 @@ export const shell: Dict<typeof source> = {
     templates: 'Templat',
     knowledge: 'Pangkalan pengetahuan',
     skills: 'Kemahiran AI',
+    aiPersona: 'Persona & peraturan',
     tags: 'Tag',
     channels: 'Saluran',
     integrations: 'Integrasi',

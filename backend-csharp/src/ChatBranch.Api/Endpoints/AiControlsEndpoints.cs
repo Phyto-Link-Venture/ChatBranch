@@ -524,7 +524,7 @@ public static class AiControlsEndpoints
 
     // ---- small helpers ------------------------------------------------------------------
 
-    private static async Task<(int? Id, IResult? Error)> EntityArg(AppDbContext db, string? slug)
+    internal static async Task<(int? Id, IResult? Error)> EntityArg(AppDbContext db, string? slug)
     {
         if (string.IsNullOrWhiteSpace(slug) || slug is "all" or "__all__") return (null, null);
         var id = await InboxEndpoints.EntityId(db, slug);
@@ -532,7 +532,7 @@ public static class AiControlsEndpoints
     }
 
     /// <summary>Org-wide: admins; an outlet: inside the caller's assigned subtree (admins: any).</summary>
-    private static bool MayEdit(AppDbContext db, ScopingService sc, ClaimsPrincipal me, int? entityId)
+    internal static bool MayEdit(AppDbContext db, ScopingService sc, ClaimsPrincipal me, int? entityId)
     {
         var role = ShellScope.RoleOf(me);
         if (role is Roles.SuperAdmin or Roles.Admin) return true;

@@ -35,12 +35,18 @@ ChannelAccount (an inbox)  one entity, or org-wide — decides where conversatio
   agent with NO assignment keeps the tenant-wide view (not a lockout). An
   out-of-scope `?entity=` narrows to the caller's own scope — it never widens.
 - **Libraries are inherited** (knowledge, skills, templates, workflows, tags,
-  teams, automations, channel accounts, integrations): an outlet sees its own
-  rows plus the organization-wide (`entity_id` null) ones. **Records are owned**
+  teams, automations, channel accounts, integrations, AI lessons): an outlet sees
+  its own rows, its ancestors' (a branch uses head office's) and the
+  organization-wide (`entity_id` null) ones — never a sibling's or a child's.
+  **Records are owned**
   (contacts, conversations, AI drafts, analytics): they belong to one subtree.
-- **Settings** resolve entity override → organization value, but only for the
-  keys listed in `ScopingService.EntityScopedSettings`; credentials are
-  organization-wide by design.
+- **Settings** resolve to the NEAREST level that sets them — the outlet's own
+  value → its parent's → … → the organization value — but only for the keys
+  listed in `ScopingService.EntityScopedSettings`; credentials are
+  organization-wide by design. House rules (`ai_house_rules`) are the additive
+  exception: every level's rules apply. The persona + house rules editor
+  (`/ai-persona`, `GET/PUT /api/aicore/persona`) needs `settings.ai.manage`;
+  org-wide writes are admin+, an outlet must be in the caller's scope.
 
 ## Roles
 
@@ -123,7 +129,7 @@ where a write reads its body first. Notable gates:
 
 | Surface | Gate |
 |---|---|
-| Global settings key/value (`PUT /api/settings`), persona (`PUT /api/aicore/persona`), voice SIP creds (`PUT /api/whatsapp/voice-settings`), Google connect (`POST /api/integrations/{provider}/connect`) | superadmin |
+| Global settings key/value (`PUT /api/settings`), voice SIP creds (`PUT /api/whatsapp/voice-settings`), Google connect (`POST /api/integrations/{provider}/connect`) | superadmin |
 | AI keys & models (`PUT /api/settings/ai-providers`) | `settings.ai_keys.manage` |
 | Integration provider keys (`PUT /api/integrations/settings`) | `app_keys.manage` |
 | Custom fields schema (`PUT /api/settings/custom-fields`) | `settings.custom_fields.manage` |

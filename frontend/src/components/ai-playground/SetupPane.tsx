@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { GitCompare, History, Loader2, RotateCcw, Search, UserRound, X } from 'lucide-react'
+import { GitCompare, History, Loader2, RotateCcw, Save, Search, UserRound, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { ChannelLogo, channelLabelFor } from '@/components/ui/ChannelLogo'
 import { EntityPicker } from '@/components/ui/EntityPicker'
@@ -221,13 +221,39 @@ export function VariantEditor({
   variant,
   onChange,
   idPrefix,
+  entity,
+  onPersonaSaved,
 }: {
   options: PlaygroundOptions
   variant: Variant
   onChange: (v: Variant) => void
   idPrefix: string
+  /** The outlet the set-up speaks for (null = the organization) — where "Save as persona" writes. */
+  entity?: string | null
+  /** The draft was saved as the stored persona. */
+  onPersonaSaved?: (persona: string) => void
 }) {
   const t = useT()
+  const [saving, setSaving] = useState(false)
+  const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const savePersona = async () => {
+    if (variant.persona == null) return
+    setSaving(true)
+    setSaveMsg(null)
+    try {
+      await aiApi('aicore/persona', {
+        method: 'PUT',
+        body: JSON.stringify({ persona: variant.persona, entity: entity || null }),
+      })
+      onPersonaSaved?.(variant.persona)
+      onChange({ ...variant, persona: null })
+      setSaveMsg({ ok: true, text: t('playground.changes.personaSavedOk') })
+    } catch (e) {
+      setSaveMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setSaving(false)
+    }
+  }
   const route = options.default_route
   const providerOptions = useMemo<SelectOption[]>(
     () => [
@@ -299,6 +325,17 @@ export function VariantEditor({
         <p className={`mt-1 text-[11.5px] ${variant.persona != null ? 'text-amber-300' : 'text-text-muted'}`}>
           {variant.persona != null ? t('playground.changes.personaUnsaved') : t('playground.changes.personaSaved')}
         </p>
+        {variant.persona != null && (
+          <Button size="sm" variant="secondary" className="mt-1.5" onClick={savePersona} disabled={saving}>
+            {saving ? <Loader2 size={12} className="animate-spin" aria-hidden /> : <Save size={12} aria-hidden />}
+            {t('playground.changes.personaSave')}
+          </Button>
+        )}
+        {saveMsg && (
+          <p role={saveMsg.ok ? 'status' : 'alert'} className={`mt-1 text-[11.5px] ${saveMsg.ok ? 'text-[var(--green-ink)]' : 'text-[var(--red-ink)]'}`}>
+            {saveMsg.text}
+          </p>
+        )}
       </div>
 
       <div>
@@ -331,6 +368,7 @@ export function SetupPane({
   variants,
   onVariants,
   onImport,
+  onPersonaSaved,
   failed = false,
 }: {
   options: PlaygroundOptions | null
@@ -339,6 +377,8 @@ export function SetupPane({
   variants: Variant[]
   onVariants: (v: Variant[]) => void
   onImport: () => void
+  /** A persona draft was saved as the stored persona of the set-up's outlet. */
+  onPersonaSaved?: (persona: string) => void
   /** The options could not be loaded (the page shows why). */
   failed?: boolean
 }) {
@@ -530,6 +570,8 @@ export function SetupPane({
                 options={options}
                 variant={v}
                 idPrefix={`pg-v${i}`}
+                entity={setup.entity}
+                onPersonaSaved={onPersonaSaved}
                 onChange={(next) => onVariants(variants.map((x, j) => (j === i ? next : x)))}
               />
             </div>

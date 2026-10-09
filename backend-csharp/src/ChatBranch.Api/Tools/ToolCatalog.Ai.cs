@@ -114,15 +114,24 @@ public static partial class ToolCatalog
                 A.StrList("never_tags", "Contact tags the AI never answers (they add up across levels)."),
             });
 
-        yield return T(g, "ai_get_persona", "Read the AI persona",
-            "The chat persona (voice, tone, what the business is) for the organisation or an entity. The safety " +
-            "rules above it are fixed.", "GET", "/api/aicore/persona", C("settings.ai.manage"),
+        yield return T(g, "ai_get_persona", "Read the AI persona and house rules",
+            "The chat persona (voice, tone, what the business is) for the organisation or an entity — the nearest " +
+            "level of the entity tree that sets one wins, and the answer says where it comes from — plus the house " +
+            "rules, which add up from the organisation down (inherited + this level's own). The safety rules above " +
+            "them are fixed.", "GET", "/api/aicore/persona", C("settings.ai.manage"),
             new[] { A.Entity("Entity slug; omit for the organisation.") });
 
-        yield return T(g, "ai_set_persona", "Set the AI persona",
-            "Replace the chat persona for the organisation or one entity. Superadmin only.",
+        yield return T(g, "ai_set_persona", "Set the AI persona or house rules",
+            "Set the chat persona and/or this level's own house rules for the organisation or one entity. An " +
+            "entity's empty persona drops its override so it inherits again; house_rules replaces this level's own " +
+            "rules (one per line) and never touches the inherited ones.",
             "PUT", "/api/aicore/persona", C("settings.ai.manage"),
-            new[] { A.Str("persona", "The full persona text.", req: true), A.Entity("Entity slug; omit for the organisation.", ArgIn.Body) });
+            new[]
+            {
+                A.Str("persona", "The full persona text (\"\" on an entity = inherit from the level above)."),
+                A.Str("house_rules", "This level's own house rules, one per line (\"\" = none)."),
+                A.Entity("Entity slug; omit for the organisation.", ArgIn.Body),
+            });
 
         // ---- learning -------------------------------------------------------
         yield return T(g, "ai_rate_reply", "Rate an AI reply",

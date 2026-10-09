@@ -67,6 +67,8 @@ export const playground = {
     persona: 'Persona',
     personaUnsaved: 'Unsaved — only this playground uses it. The safety rules always stay on top.',
     personaSaved: 'The saved persona.',
+    personaSave: 'Save as persona',
+    personaSavedOk: 'Saved — every conversation for this outlet now uses this persona.',
     personaReset: 'Reset',
     parts: 'What the AI may use',
     knowledge: 'Knowledge base',

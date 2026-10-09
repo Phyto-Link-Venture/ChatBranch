@@ -87,7 +87,7 @@ public class TagsTests : IClassFixture<ApiFactory>
         var ids = forBranch.GetProperty("tags").EnumerateArray().Select(t => t.GetProperty("id").GetInt32()).ToList();
         Assert.Contains(global, ids);       // inherited
         Assert.Contains(branchOnly, ids);   // its own
-        Assert.DoesNotContain(mainOnly, ids); // a sibling scope's library is not inherited
+        Assert.Contains(mainOnly, ids);     // its parent's library is inherited down the tree
 
         // bad colour / duplicate name / bad attribute
         Assert.Equal(HttpStatusCode.BadRequest,

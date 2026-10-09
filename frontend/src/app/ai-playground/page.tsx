@@ -362,6 +362,7 @@ export default function AiPlaygroundPage() {
                 variants={variants}
                 onVariants={setVariants}
                 onImport={() => setImportOpen(true)}
+                onPersonaSaved={(persona) => setOptions((o) => (o ? { ...o, persona, persona_is_default: false } : o))}
                 failed={!!optionsError}
               />
             )}

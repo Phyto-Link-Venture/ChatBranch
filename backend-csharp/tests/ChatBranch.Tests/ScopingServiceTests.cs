@@ -31,9 +31,9 @@ public class ScopingServiceTests : IDisposable
         _sibling = AddEntity("sibling");
     }
 
-    private int AddEntity(string slug)
+    private int AddEntity(string slug, int? parentId = null)
     {
-        var e = new Entity { TenantId = _tenantId, Name = slug, Slug = slug };
+        var e = new Entity { TenantId = _tenantId, Name = slug, Slug = slug, ParentId = parentId };
         _t.Db.Entities.Add(e);
         _t.Db.SaveChanges();
         return e.Id;
@@ -74,6 +74,65 @@ public class ScopingServiceTests : IDisposable
         s.SetSetting("quiet_start", "22:00");        // global
         s.SetSetting("quiet_start", "", _rimbayu);   // blank override = "no opinion"
         Assert.Equal("22:00", s.SettingValue("quiet_start", _rimbayu));
+    }
+
+    [Fact]
+    public void Settings_resolve_up_the_tree_and_the_nearest_level_wins()
+    {
+        var s = Svc();
+        var branch = AddEntity("rimbayu-branch", _rimbayu);
+        var outlet = AddEntity("rimbayu-outlet", branch);
+        s.SetSetting("aicore_persona", "Org persona");
+        s.SetSetting("aicore_persona", "Head office persona", _rimbayu);
+
+        // no override of its own: the nearest ancestor's value, not the org's
+        Assert.Equal("Head office persona", s.SettingValue("aicore_persona", outlet));
+        Assert.Equal(("Head office persona", (int?)_rimbayu), s.SettingSource("aicore_persona", outlet));
+        Assert.Equal("parent", s.SettingScope("aicore_persona", outlet));
+        Assert.Equal("Head office persona", s.SettingValues(new[] { "aicore_persona" }, outlet)["aicore_persona"]);
+        // a sibling of the head office still gets the org's
+        Assert.Equal("Org persona", s.SettingValue("aicore_persona", _botanic));
+
+        // an outlet's own value replaces everything above it
+        s.SetSetting("aicore_persona", "Outlet persona", outlet);
+        Assert.Equal("Outlet persona", s.SettingValue("aicore_persona", outlet));
+        Assert.Equal("Outlet persona", s.SettingValues(new[] { "aicore_persona" }, outlet)["aicore_persona"]);
+        Assert.Equal("Head office persona", s.SettingValue("aicore_persona", branch));
+    }
+
+    [Fact]
+    public void Additive_settings_list_every_level_organization_first()
+    {
+        var s = Svc();
+        var branch = AddEntity("botanic-branch", _botanic);
+        s.SetSetting("ai_house_rules", "Be polite");
+        s.SetSetting("ai_house_rules", "Quote list prices only", _botanic);
+        s.SetSetting("ai_house_rules", "Mention the Sunday hours", branch);
+        s.SetSetting("ai_house_rules", "Sibling rule", _sibling);
+
+        Assert.Equal(new (int?, string)[]
+        {
+            (null, "Be polite"), (_botanic, "Quote list prices only"), (branch, "Mention the Sunday hours"),
+        }, s.SettingValuesDownTree("ai_house_rules", branch));
+        Assert.Equal(new (int?, string)[] { (null, "Be polite") }, s.SettingValuesDownTree("ai_house_rules", null));
+    }
+
+    [Fact]
+    public void Inherited_libraries_include_ancestors_but_never_siblings_or_children()
+    {
+        var branch = AddEntity("rimbayu-kl", _rimbayu);
+        var child = AddEntity("rimbayu-kl-kiosk", branch);
+        _t.Db.CannedResponses.AddRange(
+            new CannedResponse { ShortCode = "g", Content = "g" },
+            new CannedResponse { ShortCode = "head", Content = "h", EntityId = _rimbayu },
+            new CannedResponse { ShortCode = "branch", Content = "b", EntityId = branch },
+            new CannedResponse { ShortCode = "kiosk", Content = "k", EntityId = child },
+            new CannedResponse { ShortCode = "sib", Content = "s", EntityId = _sibling });
+        _t.Db.SaveChanges();
+
+        var codes = Svc().ScopeInherited(_t.Db.CannedResponses.AsNoTracking(), branch)
+            .Select(c => c.ShortCode).OrderBy(c => c).ToList();
+        Assert.Equal(new[] { "branch", "g", "head" }, codes);
     }
 
     [Fact]

@@ -150,21 +150,27 @@ When you fix one of these, update this table, `README.md` and
   `Endpoints/ShellScope.cs`) — an out-of-scope `?entity=` narrows to their own
   scope instead of widening; an agent with NO assignment keeps the tenant-wide
   view (not a lockout).
-- **Entity scoping = global default → entity override.**
-  `ChatBranch.Data/ScopingService.cs` is the ONE place the rule lives: *an
-  entity-specific binding wins; the global one is the fallback*. Three verbs,
-  and picking the wrong one is the bug the class exists to prevent:
-  `SettingValue(key, entityId)` (config: entity row → global row → ""),
+- **Entity scoping = global default → entity override, resolved DOWN the tree.**
+  `ChatBranch.Data/ScopingService.cs` is the ONE place the rule lives: *the
+  nearest level that sets something wins; the global one is the fallback*.
+  Three verbs, and picking the wrong one is the bug the class exists to prevent:
+  `SettingValue(key, entityId)` (config, ONE value: the entity's own row → its
+  parent's → … → the top-level entity's → global row → ""; `SettingSource`
+  also says which level answered, `SettingScope` = entity | parent | global;
+  `EntityChain` = the entity + its ancestors, nearest first),
   `ScopeInherited(q, entityId)` (libraries an outlet INHERITS — knowledge,
   canned/script templates, skills, workflows, tags, teams, channel accounts,
-  integrations: its own PLUS the global ones) and `ScopeOwned(q, entityId)`
+  lessons: its own PLUS every ancestor's PLUS the global ones; never a
+  sibling's or a child's) and `ScopeOwned(q, entityId)`
   (records that belong to exactly ONE outlet — contacts, threads, AI drafts,
   analytics). `entityId == null` means "All entities" for the Scope* helpers and
   "the global value" for the setting helpers.
   **`Setting` is not key-unique**: a nullable `EntityId` with two partial unique
   indexes (one global row per key; one override per `(key, entity)`), so a raw
   read MUST say `EntityId == null` or another outlet's override leaks into the
-  org-wide value. Only keys in `ScopingService.EntityScopedSettings` may be
+  org-wide value. ADDITIVE keys (house rules `ai_house_rules`) read every level
+  with `SettingValuesDownTree` (organization first). Only keys in
+  `ScopingService.EntityScopedSettings` may be
   overridden (persona, quiet hours, pacing, routing rules, AI review/behaviour,
   the AI switch/schedule/never-tags, the learning mode…);
   credentials and webhook secrets are organization-wide BY DESIGN.
@@ -533,9 +539,18 @@ When you fix one of these, update this table, `README.md` and
   reported rather than dropped; CSV fields are quoted.
 - **The AI brain** (`ChatBranch.Data/Ai/`). `AssistantService` is the
   channel-agnostic generator: system prompt = `PersonaService.HardRules` (safety
-  floor, never overridable) + persona (Setting `aicore_persona`, entity-scoped,
-  else `DefaultPersona`; `GET/PUT /api/aicore/persona`, PUT superadmin — there
-  is no persona UI) + SKILLS block (prompt skills in scope, plus how to use each
+  floor, never overridable) + HOUSE RULES (Setting `ai_house_rules`, one rule
+  per line, ADDED UP from the organization down the entity tree —
+  `PersonaService.HouseRules` / `HouseRulesBlock`; an outlet can add, never
+  drop) + persona (Setting `aicore_persona`, the nearest level of the tree wins,
+  else `DefaultPersona`; `PersonaService.Preamble` builds the three) —
+  `GET/PUT /api/aicore/persona` (`settings.ai.manage`; PUT `{persona?,
+  house_rules?, entity?}`, org-wide admin+, an outlet in the caller's scope, an
+  outlet's empty persona drops its override; GET says where the persona comes
+  from, what it would inherit, inherited + own house rules and the composed
+  `preamble`). UI: `/ai-persona` "Persona & rules" (Library,
+  `components/persona/PersonaRules.tsx`) and the playground's "Save as persona"
+  + SKILLS block (prompt skills in scope, plus how to use each
   connected-app skill's tools) + `COMPANY KNOWLEDGE` (`KnowledgeService.Compose`:
   kind fact/policy/faq/event/notice, `StartsAt/EndsAt` self-expiry; STANDING
   knowledge first — live notices, events and short typed facts ≤800 chars — then
@@ -548,7 +563,7 @@ When you fix one of these, update this table, `README.md` and
   query (voice dispatch) the old top-4 faq/policy by priority) + `LEARNED FROM
   PAST CONVERSATIONS` (active lessons — rules first, at most 5, then the top 3
   relevant examples/corrections, 1200 chars, the conversation's own entity +
-  org-wide only; chat replies only, see AI learning) + `CONTACT` (name, company,
+  its ancestors + org-wide only; chat replies only, see AI learning) + `CONTACT` (name, company,
   language, tag NAMES, profile summary — not custom fields, tag attributes or
   records) + `CONTACT MEMORY` (durable contact fields + the last 3 summaries,
   1500 chars) + the current org-local date/time. It is a **PURE GENERATOR
@@ -712,7 +727,8 @@ When you fix one of these, update this table, `README.md` and
   MERGES (normalized text at once, cosine ≥0.95 in the indexer; the latest
   correction wins and sends a live lesson back to review unless an admin gave it
   in auto mode); `/{id}/to-knowledge` turns one into a FAQ (a rule → a policy).
-  Lessons are DATA: `HardRules` win and they never cross entities.
+  Lessons are DATA: `HardRules` win and they never cross to a sibling, a parent
+  or an unassigned conversation (a branch DOES use its ancestors' lessons).
   **Retrieval** (`RetrievalService`):
   `embedding_provider` openai | google | local, "" = the first configured, `none`
   = keywords only; `embedding_model` overrides the model (env `EMBEDDING_PROVIDER`
