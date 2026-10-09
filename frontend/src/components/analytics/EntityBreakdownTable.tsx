@@ -12,11 +12,22 @@
  * totals above.
  */
 
+import { useFormat, useT, type MessageKey } from '@/i18n'
 import type { EntityBreakdown } from './types'
 
-const num = (n: number) => n.toLocaleString('en-US')
+const HEAD: MessageKey[] = [
+  'common.fields.entity',
+  'analytics.entities.messages',
+  'analytics.entities.sent',
+  'analytics.entities.received',
+  'analytics.entities.contacts',
+  'analytics.entities.calls',
+]
 
 export function EntityBreakdownTable({ rows }: { rows: EntityBreakdown[] }) {
+  const t = useT()
+  const f = useFormat()
+  const num = (n: number) => f.number(n)
   if (!rows.length) return null
 
   // Scale the inline bars against the busiest outlet, so the comparison is
@@ -28,14 +39,14 @@ export function EntityBreakdownTable({ rows }: { rows: EntityBreakdown[] }) {
       <table className="w-full min-w-[520px] border-collapse">
         <thead>
           <tr className="border-b border-line text-left">
-            {['Entity', 'Messages', 'Sent', 'Received', 'Contacts', 'Calls'].map((h, i) => (
+            {HEAD.map((h, i) => (
               <th
                 key={h}
                 className={`pb-2 text-[11px] font-semibold uppercase tracking-wide text-text-muted ${
                   i === 0 ? '' : 'text-right'
                 }`}
               >
-                {h}
+                {t(h)}
               </th>
             ))}
           </tr>
@@ -54,9 +65,7 @@ export function EntityBreakdownTable({ rows }: { rows: EntityBreakdown[] }) {
                     {r.name}
                   </span>
                   {!r.entity && (
-                    <span className="ml-2 text-[10.5px] text-text-faint">
-                      shared number, not yet tagged
-                    </span>
+                    <span className="ml-2 text-[10.5px] text-text-faint">{t('analytics.entities.untagged')}</span>
                   )}
                 </td>
                 <td className="py-2.5 pl-3">

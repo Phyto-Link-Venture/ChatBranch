@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { authHeaders } from '@/lib/auth'
 import type { FlowsOverview } from '@/lib/flow/api'
+import { Trans, useFormat, useT } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -16,6 +17,8 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
  * is bounded by the caller's contact scope and the entity switcher.
  */
 export function FlowsCard({ days = 30, entityQ = '' }: { days?: number; entityQ?: string }) {
+  const t = useT()
+  const f = useFormat()
   const [today, setToday] = useState<FlowsOverview | null>(null)
   const [period, setPeriod] = useState<FlowsOverview | null>(null)
   const [failed, setFailed] = useState(false)
@@ -37,8 +40,8 @@ export function FlowsCard({ days = 30, entityQ = '' }: { days?: number; entityQ?
     }
   }, [days, entityQ])
 
-  const live = (today?.flows ?? []).filter((f) => f.active)
-  const inPeriod = new Map((period?.flows ?? []).map((f) => [f.flowId, f]))
+  const live = (today?.flows ?? []).filter((fl) => fl.active)
+  const inPeriod = new Map((period?.flows ?? []).map((fl) => [fl.flowId, fl]))
 
   return (
     <Card className="flex min-w-0 flex-col gap-1 px-5 py-[18px]">
@@ -46,52 +49,90 @@ export function FlowsCard({ days = 30, entityQ = '' }: { days?: number; entityQ?
         className="mb-2"
         right={
           <Link href="/flow-builder" className="font-semibold text-[color:var(--brand-ink)] hover:underline">
-            Open flows
+            {t('analytics.flows.open')}
           </Link>
         }
       >
-        Flows today
+        {t('analytics.flows.title')}
         {live.length > 0 && (
-          <span className="ml-2 font-sans text-[13px] font-semibold tabular-nums text-text-muted">{live.length} live</span>
+          <span className="ml-2 font-sans text-[13px] font-semibold tabular-nums text-text-muted">
+            {t('analytics.flows.live', { count: live.length })}
+          </span>
         )}
       </CardTitle>
 
       {!today ? (
-        <p className="py-3 text-[13px] text-text-muted">{failed ? 'Flow numbers are unavailable right now.' : 'Loading…'}</p>
+        <p className="py-3 text-[13px] text-text-muted">
+          {failed ? t('analytics.flows.unavailable') : t('common.status.loading')}
+        </p>
       ) : live.length === 0 ? (
         <p className="py-3 text-[13px] text-text-muted">
-          No flow is live. Flows send follow-ups for you —{' '}
-          <Link href="/flow-builder" className="font-semibold text-text-high hover:underline">
-            start one from a template
-          </Link>
-          .
+          <Trans
+            k="analytics.flows.none"
+            values={{
+              link: (
+                <Link href="/flow-builder" className="font-semibold text-text-high hover:underline">
+                  {t('analytics.flows.startOne')}
+                </Link>
+              ),
+            }}
+          />
         </p>
       ) : (
         <ul className="flex flex-col gap-3.5">
-          {live.slice(0, 6).map((f) => {
-            const share = f.entered ? f.reachedEnd / f.entered : 0
-            const p = inPeriod.get(f.flowId)
+          {live.slice(0, 6).map((fl) => {
+            const share = fl.entered ? fl.reachedEnd / fl.entered : 0
+            const p = inPeriod.get(fl.flowId)
             return (
-              <li key={f.flowId}>
-                <Link href="/flow-builder" className="group block" title={`${f.name}: ${f.reachedEnd} of ${f.entered} reached the end today`}>
+              <li key={fl.flowId}>
+                <Link
+                  href="/flow-builder"
+                  className="group block"
+                  title={t('analytics.flows.tooltip', {
+                    name: fl.name,
+                    reached: f.number(fl.reachedEnd),
+                    entered: f.number(fl.entered),
+                  })}
+                >
                   <div className="mb-1 flex items-baseline justify-between gap-2">
-                    <span className="truncate text-[13px] font-semibold text-text-high group-hover:underline">{f.name}</span>
+                    <span className="truncate text-[13px] font-semibold text-text-high group-hover:underline">{fl.name}</span>
                     <span className="shrink-0 text-[12px] text-text-muted">
-                      <span className="font-semibold tabular-nums text-text-high">{f.reachedEnd.toLocaleString()}</span>
-                      {' of '}
-                      <span className="tabular-nums">{f.entered.toLocaleString()}</span> reached the end
+                      <Trans
+                        k="analytics.flows.reached"
+                        values={{
+                          reached: (
+                            <span className="font-semibold tabular-nums text-text-high">{f.number(fl.reachedEnd)}</span>
+                          ),
+                          entered: <span className="tabular-nums">{f.number(fl.entered)}</span>,
+                        }}
+                      />
                     </span>
                   </div>
-                  <div className="h-[10px] overflow-hidden rounded-[3px] bg-fill-hover" role="meter" aria-valuemin={0} aria-valuemax={f.entered} aria-valuenow={f.reachedEnd} aria-label={`${f.name} completion today`}>
+                  <div
+                    className="h-[10px] overflow-hidden rounded-[3px] bg-fill-hover"
+                    role="meter"
+                    aria-valuemin={0}
+                    aria-valuemax={fl.entered}
+                    aria-valuenow={fl.reachedEnd}
+                    aria-label={t('analytics.flows.meterAria', { name: fl.name })}
+                  >
                     <div
                       className="h-full rounded-r-[3px]"
-                      style={{ width: `${share * 100}%`, minWidth: f.reachedEnd ? 4 : 0, background: 'var(--text-primary)' }}
+                      style={{ width: `${share * 100}%`, minWidth: fl.reachedEnd ? 4 : 0, background: 'var(--text-primary)' }}
                     />
                   </div>
                   <div className="mt-1 flex flex-wrap gap-x-3 text-[11.5px] text-text-muted">
-                    <span className="tabular-nums">{f.inProgress.toLocaleString()} in progress</span>
-                    {f.failed > 0 && <span className="tabular-nums text-[color:var(--red-ink)]">{f.failed} failed today</span>}
-                    {p && <span className="tabular-nums">{p.entered.toLocaleString()} entered in {days} days</span>}
+                    <span className="tabular-nums">{t('analytics.flows.inProgress', { count: fl.inProgress })}</span>
+                    {fl.failed > 0 && (
+                      <span className="tabular-nums text-[color:var(--red-ink)]">
+                        {t('analytics.flows.failedToday', { count: fl.failed })}
+                      </span>
+                    )}
+                    {p && (
+                      <span className="tabular-nums">
+                        {t('analytics.flows.enteredIn', { count: days, n: f.number(p.entered) })}
+                      </span>
+                    )}
                   </div>
                 </Link>
               </li>

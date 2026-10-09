@@ -5,7 +5,7 @@ import { Download } from 'lucide-react'
 import { authHeaders, expireSessionOn401, hasCap } from '@/lib/auth'
 import { useEntity, useEntityQuery } from '@/lib/EntityContext'
 import { useRole } from '@/lib/useRole'
-import { relTime } from '@/lib/channelHealth'
+import { useFormat, useT } from '@/i18n'
 import { Button } from '@/components/ui/Button'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { KpiStrip } from '@/components/analytics/KpiStrip'
@@ -40,8 +40,6 @@ const VIZ_VARS = `
   --viz-s1: var(--text-primary);
   --viz-s2: var(--text-primary);
 }`
-
-const pct = (rate: number) => `${Math.round(rate * 1000) / 10}%`
 
 /*
  * FLOWS CARD SLOT — the flows agent ships components/analytics/FlowsCard.tsx
@@ -102,6 +100,9 @@ function exportCsv(data: AnalyticsSummary, scope: string) {
  * previous outlet's figures.
  */
 export default function AnalyticsPage() {
+  const t = useT()
+  const fmt = useFormat()
+  const pct = (rate: number) => fmt.percent(rate, 1)
   const entityQ = useEntityQuery()
   const { activeEntity } = useEntity()
   const { role, ready } = useRole()
@@ -134,7 +135,7 @@ export default function AnalyticsPage() {
     }
   }, [days, entityQ])
 
-  const scope = activeEntity ? activeEntity.name : 'All entities'
+  const scope = activeEntity ? activeEntity.name : t('analytics.page.allEntities')
   const f = data?.funnel
   const noSends = !f || f.sent === 0
   const flows = FLOWS_SLOT(days, entityQ)
@@ -146,16 +147,16 @@ export default function AnalyticsPage() {
       {/* Masthead */}
       <header className="flex flex-wrap items-end gap-x-4 gap-y-3 border-b border-text-primary/80 pb-4">
         <div className="min-w-0">
-          <div className="eyebrow">Overview</div>
-          <h1 className="display mt-1 text-[36px] leading-none text-text-heading sm:text-[44px]">Analytics</h1>
+          <div className="eyebrow">{t('analytics.page.eyebrow')}</div>
+          <h1 className="display mt-1 text-[36px] leading-none text-text-heading sm:text-[44px]">{t('shell.nav.analytics')}</h1>
           <div className="mt-2 text-[12.5px] text-text-muted">
-            {scope} · last {days} days
-            {data?.generated_at && <> · updated {relTime(data.generated_at)}</>}
-            {error && data && <span className="text-[color:var(--red-ink)]"> · refresh failed, showing previous data</span>}
+            {scope} · {t('analytics.kpi.lastDays', { count: days })}
+            {data?.generated_at && <> · {t('analytics.page.updated', { when: fmt.relative(data.generated_at) })}</>}
+            {error && data && <span className="text-[color:var(--red-ink)]"> · {t('analytics.page.refreshFailed')}</span>}
           </div>
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <div role="group" aria-label="Period" className="flex overflow-hidden rounded-lg border border-line-strong">
+          <div role="group" aria-label={t('analytics.page.period')} className="flex overflow-hidden rounded-lg border border-line-strong">
             {PERIODS.map((d) => (
               <button
                 key={d}
@@ -165,12 +166,12 @@ export default function AnalyticsPage() {
                   days === d ? 'bg-primary font-semibold text-on-primary' : 'text-text-mid hover:bg-fill-hover'
                 }`}
               >
-                {d}d
+                {t('analytics.page.periodShort', { count: d })}
               </button>
             ))}
           </div>
           <Button variant="secondary" onClick={() => data && exportCsv(data, scope)} disabled={!data}>
-            <Download size={14} aria-hidden /> Export CSV
+            <Download size={14} aria-hidden /> {t('analytics.page.exportCsv')}
           </Button>
         </div>
       </header>
@@ -178,13 +179,13 @@ export default function AnalyticsPage() {
       {error && !data ? (
         <Card className="grid h-[260px] place-items-center px-5">
           <div className="text-center">
-            <div className="display text-[20px] text-text-heading">Analytics unavailable</div>
-            <div className="mt-1 text-[13px] text-text-muted">Could not reach the API — is the backend running?</div>
+            <div className="display text-[20px] text-text-heading">{t('analytics.page.unavailable')}</div>
+            <div className="mt-1 text-[13px] text-text-muted">{t('analytics.page.unavailableBody')}</div>
           </div>
         </Card>
       ) : !data ? (
         <Card className="grid h-[260px] place-items-center">
-          <span className="text-[13px] text-text-muted">Loading analytics…</span>
+          <span className="text-[13px] text-text-muted">{t('analytics.page.loading')}</span>
         </Card>
       ) : (
         <div className={`flex flex-col gap-6 transition-opacity ${refreshing ? 'opacity-60' : 'opacity-100'}`}>
@@ -194,8 +195,8 @@ export default function AnalyticsPage() {
           <div className="grid gap-5 lg:grid-cols-3">
             <Card className="min-w-0 px-5 py-[18px] lg:col-span-2">
               <div className="mb-4 flex flex-wrap items-baseline gap-x-3">
-                <h2 className="display text-[19px] leading-tight text-text-heading">Daily volume</h2>
-                <span className="text-[12px] text-text-muted">inbound · outbound messages per day</span>
+                <h2 className="display text-[19px] leading-tight text-text-heading">{t('analytics.page.dailyVolume')}</h2>
+                <span className="text-[12px] text-text-muted">{t('analytics.page.dailyVolumeSub')}</span>
               </div>
               <DailyVolumeChart daily={data.daily} />
             </Card>
@@ -208,7 +209,7 @@ export default function AnalyticsPage() {
           </div>
 
           {!!data.by_entity?.length && (
-            <Panel title="By entity" sub="Every outlet side by side — pick one in the top bar to drill in">
+            <Panel title={t('analytics.page.byEntity')} sub={t('analytics.page.byEntitySub')}>
               <EntityBreakdownTable rows={data.by_entity} />
             </Panel>
           )}
@@ -216,42 +217,46 @@ export default function AnalyticsPage() {
           <BreakdownReports days={days} entityQ={entityQ} />
 
           <div className="grid gap-5 lg:grid-cols-2">
-            <Panel title="Message funnel" sub="Outbound messages: sent → delivered → read → replied">
+            <Panel title={t('analytics.funnel.title')} sub={t('analytics.funnel.sub')}>
               <HBarList
                 stages={[
-                  { label: 'Sent', value: f!.sent },
-                  { label: 'Delivered', value: f!.delivered, note: noSends ? undefined : pct(f!.delivered_rate) },
-                  { label: 'Read', value: f!.read, note: noSends ? undefined : pct(f!.read_rate) },
-                  { label: 'Replied', value: f!.replied, note: noSends ? undefined : pct(f!.reply_rate) },
+                  { label: t('analytics.funnel.sent'), value: f!.sent },
+                  {
+                    label: t('analytics.funnel.delivered'),
+                    value: f!.delivered,
+                    note: noSends ? undefined : pct(f!.delivered_rate),
+                  },
+                  { label: t('analytics.funnel.read'), value: f!.read, note: noSends ? undefined : pct(f!.read_rate) },
+                  { label: t('analytics.funnel.replied'), value: f!.replied, note: noSends ? undefined : pct(f!.reply_rate) },
                 ]}
                 colors={['var(--viz-ink)', 'var(--viz-ink)', 'var(--viz-ink)', 'var(--viz-accent)']}
-                empty="No outbound messages in this window yet — the funnel fills as you send."
+                empty={t('analytics.funnel.empty')}
               />
             </Panel>
-            <Panel title="Records by status" sub="Orders, bookings, tickets… linked to contacts, by status">
+            <Panel title={t('analytics.records.title')} sub={t('analytics.records.sub')}>
               <HBarList
                 stages={(data.records_by_status ?? []).map((r) => ({
                   label: r.status,
                   value: r.count,
-                  note: r.amount > 0 ? r.amount.toLocaleString('en-US') : undefined,
+                  note: r.amount > 0 ? fmt.number(r.amount) : undefined,
                 }))}
                 colors={['var(--viz-ink)']}
-                empty="No records linked to contacts in this window yet."
+                empty={t('analytics.records.empty')}
               />
             </Panel>
           </div>
 
           <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-3">
-            <Panel title="Per-account volume" sub="Messages carried by each channel account">
+            <Panel title={t('analytics.accounts.title')} sub={t('analytics.accounts.sub')}>
               <AccountsTable accounts={data.accounts} />
             </Panel>
             <Panel
-              title="Call outcomes"
-              sub={`${data.call_outcomes.total.toLocaleString('en-US')} completed call${data.call_outcomes.total === 1 ? '' : 's'} in this window`}
+              title={t('analytics.outcomes.title')}
+              sub={t('analytics.outcomes.sub', { count: data.call_outcomes.total })}
             >
               <OutcomeBars callOutcomes={data.call_outcomes} />
             </Panel>
-            <Panel title="Account health events" sub="Every status change the channel monitor recorded">
+            <Panel title={t('analytics.healthEvents.title')} sub={t('analytics.healthEvents.sub')}>
               <HealthEvents events={data.health_events} />
             </Panel>
           </div>

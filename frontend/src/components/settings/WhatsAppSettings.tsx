@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import { LLM_PROVIDER_LABELS, STT_PROVIDER_LABELS } from '@/lib/voiceProviders'
+import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
 import { API, API_ORIGIN, EMPTY_DELIVERY, type AccountDelivery } from '@/components/channels/inboxes'
 
 // ── shared bits ──────────────────────────────────────────────────────────────
@@ -25,6 +26,7 @@ export const inputCls =
 
 /** A read-only value with a copy button (webhook URLs, verify tokens, snippets). */
 export function CopyRow({ label, value, multiline = false }: { label: string; value: string; multiline?: boolean }) {
+  const t = useT()
   const [copied, setCopied] = useState(false)
   const copy = async () => {
     try {
@@ -51,8 +53,8 @@ export function CopyRow({ label, value, multiline = false }: { label: string; va
         type="button"
         onClick={copy}
         disabled={!value}
-        title={`Copy ${label}`}
-        aria-label={`Copy ${label}`}
+        title={t('channels.whatsapp.copyLabel', { label })}
+        aria-label={t('channels.whatsapp.copyLabel', { label })}
         className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-md text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:opacity-40"
       >
         {copied ? <CheckCircle size={13} className="text-green-300" aria-hidden /> : <Copy size={13} aria-hidden />}
@@ -63,10 +65,11 @@ export function CopyRow({ label, value, multiline = false }: { label: string; va
 
 /** One webhook serves every Cloud number (routed by the receiving number). */
 export function MetaWebhookRows({ verifyToken, path = '/api/whatsapp/webhook' }: { verifyToken: string; path?: string }) {
+  const t = useT()
   return (
     <div className="grid grid-cols-1 gap-2">
-      <CopyRow label="Callback URL" value={`${API_ORIGIN}${path}`} />
-      <CopyRow label="Verify token" value={verifyToken} />
+      <CopyRow label={t('channels.whatsapp.callbackUrl')} value={`${API_ORIGIN}${path}`} />
+      <CopyRow label={t('channels.whatsapp.verifyToken')} value={verifyToken} />
     </div>
   )
 }
@@ -86,15 +89,17 @@ export async function exportContactsVcf(): Promise<void> {
 }
 
 export function VcfTip() {
+  const t = useT()
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-line bg-well px-3 py-2.5">
       <div className="flex items-start gap-2 text-[12px] leading-relaxed text-text-mid">
         <Contact size={14} className="mt-0.5 shrink-0 text-text-muted" aria-hidden />
         <span>
-          <b className="text-text-high">Messaging new numbers?</b> WhatsApp limits first-contact messages from
-          QR-paired numbers (error 463). Import your contacts into the paired phone — numbers in its address book
-          are exempt.
+          <Trans
+            k="channels.whatsapp.vcfTip"
+            values={{ b: <b className="text-text-high">{t('channels.whatsapp.vcfTipTitle')}</b> }}
+          />
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
@@ -103,11 +108,11 @@ export function VcfTip() {
           size="sm"
           onClick={() =>
             exportContactsVcf()
-              .then(() => setMsg({ ok: true, text: 'contacts.vcf downloaded — import it on the phone.' }))
+              .then(() => setMsg({ ok: true, text: t('channels.whatsapp.vcfDownloaded') }))
               .catch((e) => setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) }))
           }
         >
-          <Contact size={13} aria-hidden /> Export contacts (.vcf)
+          <Contact size={13} aria-hidden /> {t('channels.whatsapp.vcfExport')}
         </Button>
         {msg && (
           <span className="text-[11.5px] font-semibold" style={{ color: msg.ok ? 'var(--green-ink)' : 'var(--red-ink)' }}>
@@ -128,13 +133,13 @@ interface BaileysState {
   error: string | null
 }
 
-async function waApi<T>(path: string, init?: RequestInit): Promise<T> {
+async function waApi<T>(path: string, t: TFunction, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}/whatsapp/${path}`, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
   })
   const data = await res.json().catch(() => ({}))
-  if (expireSessionOn401(res)) throw new Error('Session expired — redirecting to login…')
+  if (expireSessionOn401(res)) throw new Error(t('common.errors.sessionExpired'))
   if (!res.ok) throw new Error((data as { detail?: string }).detail || `HTTP ${res.status}`)
   return data as T
 }
@@ -146,28 +151,29 @@ async function waApi<T>(path: string, init?: RequestInit): Promise<T> {
  * sidecar running) and on unmount — so closing the drawer stops it.
  */
 export function BaileysPairPanel({ accountId, onConnected }: { accountId: string; onConnected?: () => void }) {
+  const t = useT()
   const [state, setState] = useState<BaileysState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     let cancelled = false
-    let t: ReturnType<typeof setInterval> | null = null
+    let timer: ReturnType<typeof setInterval> | null = null
     const stop = () => {
-      if (t) clearInterval(t)
-      t = null
+      if (timer) clearInterval(timer)
+      timer = null
     }
     setError(null)
     setState(null)
-    waApi(`accounts/${accountId}/baileys/start`, { method: 'POST' }).catch((e) => {
+    waApi(`accounts/${accountId}/baileys/start`, t, { method: 'POST' }).catch((e) => {
       if (!cancelled) setError(e instanceof Error ? e.message : String(e))
     })
     const tick = async () => {
       try {
-        const s = await waApi<BaileysState>(`accounts/${accountId}/baileys/status`)
+        const s = await waApi<BaileysState>(`accounts/${accountId}/baileys/status`, t)
         if (cancelled) return
         setState(s)
-        const gatewayError = s.error || (s.state === 'error' ? 'The WhatsApp gateway reported an error.' : null)
+        const gatewayError = s.error || (s.state === 'error' ? t('channels.whatsapp.gatewayError') : null)
         if (gatewayError && s.state !== 'qr' && s.state !== 'connected') {
           setError(gatewayError)
           stop()
@@ -186,7 +192,7 @@ export function BaileysPairPanel({ accountId, onConnected }: { accountId: string
       }
     }
     tick()
-    t = setInterval(tick, 2000)
+    timer = setInterval(tick, 2000)
     return () => {
       cancelled = true
       stop()
@@ -204,37 +210,38 @@ export function BaileysPairPanel({ accountId, onConnected }: { accountId: string
             {error}
           </div>
           <p className="max-w-[340px] text-[12px] leading-relaxed text-text-muted">
-            QR pairing runs in the WhatsApp gateway sidecar (<code className="rounded bg-fill px-1">npm run dev:baileys</code>).
-            Start it and retry — or use WhatsApp Business (Cloud API), which needs no gateway.
+            <Trans
+              k="channels.whatsapp.pairNeedsGateway"
+              values={{ cmd: <code className="rounded bg-fill px-1">npm run dev:baileys</code> }}
+            />
           </p>
           <Button variant="secondary" size="sm" onClick={() => setAttempt((n) => n + 1)}>
-            <RefreshCw size={13} aria-hidden /> Try again
+            <RefreshCw size={13} aria-hidden /> {t('common.actions.retry')}
           </Button>
         </>
       ) : state?.state === 'connected' ? (
         <>
           <CheckCircle size={36} className="text-green-300" aria-hidden />
-          <div className="text-[14px] font-bold text-text-heading">Connected{state.me ? ` as +${state.me}` : ''}</div>
-          <p className="text-[12px] text-text-muted">This number now sends and receives through the inbox.</p>
+          <div className="text-[14px] font-bold text-text-heading">
+            {state.me ? t('channels.whatsapp.connectedAs', { number: `+${state.me}` }) : t('common.status.connected')}
+          </div>
+          <p className="text-[12px] text-text-muted">{t('channels.whatsapp.connectedBody')}</p>
         </>
       ) : state?.qr && state.state === 'qr' ? (
         <>
           {/* data-URL QR from the gateway — white box for scan contrast in every theme */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={state.qr} alt="WhatsApp pairing QR code" className="h-56 w-56 rounded-lg bg-white p-2" />
-          <p className="max-w-[320px] text-[12px] leading-relaxed text-text-muted">
-            On the phone: WhatsApp → Settings → Linked devices → Link a device, then scan. The code refreshes on its
-            own.
-          </p>
+          <img src={state.qr} alt={t('channels.whatsapp.qrAlt')} className="h-56 w-56 rounded-lg bg-white p-2" />
+          <p className="max-w-[320px] text-[12px] leading-relaxed text-text-muted">{t('channels.whatsapp.scanHelp')}</p>
         </>
       ) : (
         <div className="flex items-center gap-2 py-8 text-[12.5px] text-text-muted">
           <Loader2 size={14} className="animate-spin" aria-hidden />
-          {state?.state === 'logged_out' ? 'Session was logged out — generating a fresh QR…' : 'Contacting the WhatsApp gateway…'}
+          {state?.state === 'logged_out' ? t('channels.whatsapp.loggedOut') : t('channels.whatsapp.contacting')}
         </div>
       )}
       <span className="flex items-center gap-1 text-[11px] text-text-faint">
-        <QrCode size={11} aria-hidden /> Pairing session for this inbox only
+        <QrCode size={11} aria-hidden /> {t('channels.whatsapp.pairingScope')}
       </span>
     </div>
   )
@@ -243,15 +250,15 @@ export function BaileysPairPanel({ accountId, onConnected }: { accountId: string
 // ── Delivery & AI (per account) ──────────────────────────────────────────────
 
 /** Weekdays, Monday first — mirrors AccountDelivery.Days on the server. */
-const DAYS = [
-  { key: 'mon', label: 'Monday' },
-  { key: 'tue', label: 'Tuesday' },
-  { key: 'wed', label: 'Wednesday' },
-  { key: 'thu', label: 'Thursday' },
-  { key: 'fri', label: 'Friday' },
-  { key: 'sat', label: 'Saturday' },
-  { key: 'sun', label: 'Sunday' },
-] as const
+const DAYS: readonly { key: string; label: MessageKey }[] = [
+  { key: 'mon', label: 'channels.whatsapp.days.mon' },
+  { key: 'tue', label: 'channels.whatsapp.days.tue' },
+  { key: 'wed', label: 'channels.whatsapp.days.wed' },
+  { key: 'thu', label: 'channels.whatsapp.days.thu' },
+  { key: 'fri', label: 'channels.whatsapp.days.fri' },
+  { key: 'sat', label: 'channels.whatsapp.days.sat' },
+  { key: 'sun', label: 'channels.whatsapp.days.sun' },
+]
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
 
@@ -301,16 +308,16 @@ export function deliveryStateFrom(d?: Partial<AccountDelivery> | null): Delivery
 }
 
 /** Validate and flatten into the account write keys ("" = inherit). Throws a readable message. */
-export function deliveryPatch(s: DeliveryState): Record<string, string> {
+export function deliveryPatch(s: DeliveryState, t: TFunction): Record<string, string> {
   const d = s.delivery
   const lo = d.queue_min_gap_s.trim()
   const hi = d.queue_max_gap_s.trim()
   if ((lo && !/^\d+$/.test(lo)) || (hi && !/^\d+$/.test(hi)))
-    throw new Error('Send pacing gaps must be whole seconds (0 or more).')
-  if (lo && hi && Number(lo) > Number(hi)) throw new Error('The minimum send gap cannot exceed the maximum.')
+    throw new Error(t('channels.whatsapp.errors.pacingWhole'))
+  if (lo && hi && Number(lo) > Number(hi)) throw new Error(t('channels.whatsapp.errors.pacingOrder'))
   for (const k of ['quiet_start', 'quiet_end'] as const) {
     const v = d[k].trim()
-    if (!s.perDay && v && !HHMM.test(v)) throw new Error('Quiet hours must be HH:MM (24h), or blank to inherit.')
+    if (!s.perDay && v && !HHMM.test(v)) throw new Error(t('channels.whatsapp.errors.quietFormat'))
   }
   const patch: Record<string, string> = {}
   for (const [k, v] of Object.entries(d)) patch[k] = v.trim()
@@ -318,7 +325,7 @@ export function deliveryPatch(s: DeliveryState): Record<string, string> {
     for (const day of DAYS) {
       const r = s.days[day.key]
       if (r.on && (!HHMM.test(r.start) || !HHMM.test(r.end)))
-        throw new Error(`${day.label} quiet hours must be HH:MM (24h).`)
+        throw new Error(t('channels.whatsapp.errors.dayFormat', { day: t(day.label) }))
     }
     patch.quiet_schedule = JSON.stringify(Object.fromEntries(DAYS.map((d2) => [d2.key, s.days[d2.key]])))
   } else {
@@ -385,6 +392,7 @@ export function DeliveryEditor({
   onChange: (next: DeliveryState) => void
   disabled?: boolean
 }) {
+  const t = useT()
   const defaults = useDeliveryDefaults()
   const d = value.delivery
   const set = (patch: Partial<AccountDelivery>) => onChange({ ...value, delivery: { ...d, ...patch } })
@@ -395,7 +403,7 @@ export function DeliveryEditor({
     <div className="flex flex-col gap-4">
       <div>
         <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[12px] font-semibold text-text-high">Quiet hours</span>
+          <span className="text-[12px] font-semibold text-text-high">{t('channels.whatsapp.quietHours')}</span>
           <label className="flex cursor-pointer items-center gap-1.5 text-[11.5px] text-text-muted">
             <input
               type="checkbox"
@@ -405,7 +413,7 @@ export function DeliveryEditor({
               className="h-3.5 w-3.5"
               style={{ accentColor: 'var(--primary)' }}
             />
-            Different hours per day
+            {t('channels.whatsapp.perDay')}
           </label>
         </div>
         {!value.perDay ? (
@@ -417,21 +425,22 @@ export function DeliveryEditor({
                 disabled={disabled}
                 onChange={(e) => set({ quiet_start: e.target.value })}
                 placeholder={defaults?.quiet_start || '21:00'}
-                aria-label="Quiet hours start"
+                aria-label={t('channels.whatsapp.quietStart')}
               />
-              <span className="text-[12px] text-text-muted">to</span>
+              <span className="text-[12px] text-text-muted">{t('channels.whatsapp.to')}</span>
               <input
                 className={`${inputCls} max-w-[110px] text-center`}
                 value={d.quiet_end}
                 disabled={disabled}
                 onChange={(e) => set({ quiet_end: e.target.value })}
                 placeholder={defaults?.quiet_end || '09:00'}
-                aria-label="Quiet hours end"
+                aria-label={t('channels.whatsapp.quietEnd')}
               />
             </div>
             <Hint>
-              Sends from this number wait out this window (HH:MM, server time). A window ending before it starts runs
-              past midnight. Blank inherits{defaults && !defaults.quiet_start && !defaults.quiet_end ? ' (none set)' : ''}.
+              {defaults && !defaults.quiet_start && !defaults.quiet_end
+                ? t('channels.whatsapp.quietHintNone')
+                : t('channels.whatsapp.quietHint')}
             </Hint>
           </>
         ) : (
@@ -449,9 +458,9 @@ export function DeliveryEditor({
                         onChange={(e) => setDay(day.key, { on: e.target.checked })}
                         className="h-3.5 w-3.5"
                         style={{ accentColor: 'var(--primary)' }}
-                        aria-label={`Quiet hours on ${day.label}`}
+                        aria-label={t('channels.whatsapp.quietOnDay', { day: t(day.label) })}
                       />
-                      <span className="text-[12px] font-semibold text-text-high">{day.label}</span>
+                      <span className="text-[12px] font-semibold text-text-high">{t(day.label)}</span>
                     </label>
                     <input
                       className={`${inputCls} !w-[84px] text-center`}
@@ -459,28 +468,28 @@ export function DeliveryEditor({
                       disabled={disabled || !r.on}
                       onChange={(e) => setDay(day.key, { start: e.target.value })}
                       placeholder="21:00"
-                      aria-label={`${day.label} quiet start`}
+                      aria-label={t('channels.whatsapp.dayStart', { day: t(day.label) })}
                     />
-                    <span className="text-[12px] text-text-muted">to</span>
+                    <span className="text-[12px] text-text-muted">{t('channels.whatsapp.to')}</span>
                     <input
                       className={`${inputCls} !w-[84px] text-center`}
                       value={r.end}
                       disabled={disabled || !r.on}
                       onChange={(e) => setDay(day.key, { end: e.target.value })}
                       placeholder="09:00"
-                      aria-label={`${day.label} quiet end`}
+                      aria-label={t('channels.whatsapp.dayEnd', { day: t(day.label) })}
                     />
                   </div>
                 )
               })}
             </div>
-            <Hint>Unticked days never go quiet. The same start and end means the whole day is quiet.</Hint>
+            <Hint>{t('channels.whatsapp.perDayHint')}</Hint>
           </>
         )}
       </div>
 
       <div>
-        <FieldLabel>Send pacing (seconds between sends)</FieldLabel>
+        <FieldLabel>{t('channels.whatsapp.pacing')}</FieldLabel>
         <div className="flex items-center gap-1.5">
           <input
             className={`${inputCls} max-w-[110px] text-center`}
@@ -489,9 +498,9 @@ export function DeliveryEditor({
             disabled={disabled}
             onChange={(e) => set({ queue_min_gap_s: e.target.value })}
             placeholder={defaults?.queue_min_gap_s || '10'}
-            aria-label="Send pacing minimum gap"
+            aria-label={t('channels.whatsapp.pacingMin')}
           />
-          <span className="text-[12px] text-text-muted">to</span>
+          <span className="text-[12px] text-text-muted">{t('channels.whatsapp.to')}</span>
           <input
             className={`${inputCls} max-w-[110px] text-center`}
             inputMode="numeric"
@@ -499,49 +508,57 @@ export function DeliveryEditor({
             disabled={disabled}
             onChange={(e) => set({ queue_max_gap_s: e.target.value })}
             placeholder={defaults?.queue_max_gap_s || '30'}
-            aria-label="Send pacing maximum gap"
+            aria-label={t('channels.whatsapp.pacingMax')}
           />
         </div>
-        <Hint>A jittered gap between queued sends — keeps personal numbers human-paced.</Hint>
+        <Hint>{t('channels.whatsapp.pacingHint')}</Hint>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <label className="block">
-          <FieldLabel>Voice call brain (LLM)</FieldLabel>
+          <FieldLabel>{t('channels.whatsapp.llm')}</FieldLabel>
           <Select
             value={d.llm_provider}
             onChange={(v) => set({ llm_provider: v })}
             size="md"
             disabled={disabled}
-            ariaLabel="Voice call LLM provider"
+            ariaLabel={t('channels.whatsapp.llmAria')}
             options={[
               {
                 value: '',
-                label: `Inherit${defaults ? ` (${LLM_PROVIDER_LABELS[defaults.llm_provider] ?? defaults.llm_provider})` : ''}`,
+                label: defaults
+                  ? t('channels.whatsapp.inheritValue', {
+                      value: LLM_PROVIDER_LABELS[defaults.llm_provider] ?? defaults.llm_provider,
+                    })
+                  : t('channels.whatsapp.inherit'),
               },
               ...Object.entries(LLM_PROVIDER_LABELS).map(([v, label]) => ({ value: v, label })),
             ]}
           />
         </label>
         <label className="block">
-          <FieldLabel>Call speech-to-text</FieldLabel>
+          <FieldLabel>{t('channels.whatsapp.stt')}</FieldLabel>
           <Select
             value={d.stt_provider}
             onChange={(v) => set({ stt_provider: v })}
             size="md"
             disabled={disabled}
-            ariaLabel="Voice call STT provider"
+            ariaLabel={t('channels.whatsapp.sttAria')}
             options={[
               {
                 value: '',
-                label: `Inherit${defaults ? ` (${STT_PROVIDER_LABELS[defaults.stt_provider] ?? defaults.stt_provider})` : ''}`,
+                label: defaults
+                  ? t('channels.whatsapp.inheritValue', {
+                      value: STT_PROVIDER_LABELS[defaults.stt_provider] ?? defaults.stt_provider,
+                    })
+                  : t('channels.whatsapp.inherit'),
               },
               ...Object.entries(STT_PROVIDER_LABELS).map(([v, label]) => ({ value: v, label })),
             ]}
           />
         </label>
       </div>
-      <Hint>The LLM and STT apply to ElevenLabs-voice calls placed from this number, from the next call on.</Hint>
+      <Hint>{t('channels.whatsapp.voiceHint')}</Hint>
     </div>
   )
 }

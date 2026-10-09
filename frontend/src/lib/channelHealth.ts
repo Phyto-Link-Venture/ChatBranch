@@ -7,6 +7,7 @@
  * use the *-ink vars so they flip with light/dark.
  */
 import { authHeaders } from './auth'
+import type { MessageKey } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -52,18 +53,21 @@ export interface ChannelHealthPayload {
   checked_at: string
 }
 
-export const HEALTH_META: Record<HealthStatus, { lbl: string; dot: string; ink: string; bg: string }> = {
-  healthy: { lbl: 'Healthy', dot: 'rgb(var(--c-green))', ink: 'var(--green-ink)', bg: 'rgba(47,125,79,0.12)' },
-  degraded: { lbl: 'Degraded', dot: 'rgb(var(--c-amber))', ink: 'var(--amber-ink)', bg: 'rgba(200,137,26,0.12)' },
-  unknown: { lbl: 'Unknown', dot: 'rgb(var(--c-amber))', ink: 'var(--amber-ink)', bg: 'rgba(200,137,26,0.12)' },
-  disconnected: { lbl: 'Disconnected', dot: 'rgb(var(--c-red))', ink: 'var(--red-ink)', bg: 'rgba(192,57,43,0.13)' },
-  banned: { lbl: 'Banned', dot: 'rgb(var(--c-red))', ink: 'var(--red-ink)', bg: 'rgba(192,57,43,0.13)' },
+/** `key` is the translated label — render `t(HEALTH_META[s].key)`. `lbl` is the
+ *  English word, kept for callers not yet localised. */
+export const HEALTH_META: Record<HealthStatus, { key: MessageKey; lbl: string; dot: string; ink: string; bg: string }> = {
+  healthy: { key: 'channels.health.healthy', lbl: 'Healthy', dot: 'rgb(var(--c-green))', ink: 'var(--green-ink)', bg: 'rgba(47,125,79,0.12)' },
+  degraded: { key: 'channels.health.degraded', lbl: 'Degraded', dot: 'rgb(var(--c-amber))', ink: 'var(--amber-ink)', bg: 'rgba(200,137,26,0.12)' },
+  unknown: { key: 'channels.health.unknown', lbl: 'Unknown', dot: 'rgb(var(--c-amber))', ink: 'var(--amber-ink)', bg: 'rgba(200,137,26,0.12)' },
+  disconnected: { key: 'channels.health.disconnected', lbl: 'Disconnected', dot: 'rgb(var(--c-red))', ink: 'var(--red-ink)', bg: 'rgba(192,57,43,0.13)' },
+  banned: { key: 'channels.health.banned', lbl: 'Banned', dot: 'rgb(var(--c-red))', ink: 'var(--red-ink)', bg: 'rgba(192,57,43,0.13)' },
 }
 
 /** An account in this state can no longer send — treat as an alarm. */
 export const isDown = (health: string) => health === 'disconnected' || health === 'banned'
 
-/** "just now" / "5m ago" / "3h ago" / "2d ago" — for last-OK style stamps. */
+/** "just now" / "5m ago" / "3h ago" / "2d ago" — for last-OK style stamps.
+ *  English only: localised screens use `useFormat().relative(iso)` instead. */
 export function relTime(iso: string | null): string {
   if (!iso) return 'never'
   const ms = Date.now() - new Date(iso).getTime()

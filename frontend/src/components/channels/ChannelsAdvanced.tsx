@@ -14,6 +14,7 @@ import { ChevronDown, Loader2, Plug } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Toggle } from '@/components/ui/Toggle'
 import { CopyRow, MetaWebhookRows, inputCls } from '@/components/settings/WhatsAppSettings'
+import { Trans, useT } from '@/i18n'
 import { API_ORIGIN, ApiError, api, errText } from './inboxes'
 
 interface EmailSettings {
@@ -64,8 +65,10 @@ function Field({
 }
 
 function EmailFallbackForm({ isSuper }: { isSuper: boolean }) {
+  const t = useT()
   const [data, setData] = useState<EmailSettings | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  /** The load failure as thrown — phrased at render, in the current language. */
+  const [loadError, setLoadError] = useState<unknown>(null)
   const [f, setF] = useState<Record<string, string>>({})
   const [tls, setTls] = useState(true)
   const [testTo, setTestTo] = useState('')
@@ -90,7 +93,7 @@ function EmailFallbackForm({ isSuper }: { isSuper: boolean }) {
   useEffect(() => {
     api<EmailSettings>('messaging/settings')
       .then(seed)
-      .catch((e) => setLoadError(errText(e)))
+      .catch((e) => setLoadError(e ?? new Error('load failed')))
   }, [])
 
   const set = (k: string) => (v: string) => setF((p) => ({ ...p, [k]: v }))
@@ -105,9 +108,9 @@ function EmailFallbackForm({ isSuper }: { isSuper: boolean }) {
           body: JSON.stringify({ ...f, smtp_tls: tls ? 'true' : 'false' }),
         }),
       )
-      setMsg({ tone: 'ok', text: 'Default mail settings saved.' })
+      setMsg({ tone: 'ok', text: t('channels.advanced.saved') })
     } catch (e) {
-      setMsg({ tone: 'error', text: errText(e) })
+      setMsg({ tone: 'error', text: errText(e, t) })
     } finally {
       setBusy(false)
     }
@@ -118,19 +121,24 @@ function EmailFallbackForm({ isSuper }: { isSuper: boolean }) {
     setMsg(null)
     try {
       await api('messaging/settings/test', { method: 'POST', body: JSON.stringify({ to: testTo.trim() }) })
-      setMsg({ tone: 'ok', text: `Test email sent to ${testTo.trim()}.` })
+      setMsg({ tone: 'ok', text: t('channels.drawer.testEmailSent', { to: testTo.trim() }) })
     } catch (e) {
-      setMsg({ tone: e instanceof ApiError && e.status === 501 ? 'info' : 'error', text: errText(e) })
+      setMsg({ tone: e instanceof ApiError && e.status === 501 ? 'info' : 'error', text: errText(e, t) })
     } finally {
       setBusy(false)
     }
   }
 
-  if (loadError) return <p className="text-[12.5px] text-text-muted">Mail settings unavailable — {loadError}</p>
+  if (loadError)
+    return (
+      <p className="text-[12.5px] text-text-muted">
+        {t('channels.advanced.unavailable', { error: errText(loadError, t) })}
+      </p>
+    )
   if (!data)
     return (
       <p className="flex items-center gap-2 text-[12.5px] text-text-muted">
-        <Loader2 size={13} className="animate-spin" aria-hidden /> Loading…
+        <Loader2 size={13} className="animate-spin" aria-hidden /> {t('common.status.loading')}
       </p>
     )
 
@@ -138,71 +146,97 @@ function EmailFallbackForm({ isSuper }: { isSuper: boolean }) {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-[12.5px] leading-relaxed text-text-mid">
-        Used to send when no email inbox exists, and to pull customer replies in over IMAP. Seeded from{' '}
-        <code className="rounded bg-fill px-1">.env</code>
-        {ro && ' — only the super admin can change it'}.{' '}
+        <Trans
+          k={ro ? 'channels.advanced.introReadOnly' : 'channels.advanced.intro'}
+          values={{ env: <code className="rounded bg-fill px-1">.env</code> }}
+        />{' '}
         <span
           className="ml-1 rounded-full px-2 py-px text-[11px] font-semibold"
           style={data.configured ? { color: 'var(--green-ink)' } : { color: 'var(--text-muted)' }}
         >
-          {data.configured ? 'Configured' : 'Sandbox'}
+          {data.configured ? t('channels.advanced.configured') : t('channels.advanced.sandbox')}
         </span>
       </p>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Field label="SMTP host" value={f.smtp_host} onChange={set('smtp_host')} placeholder="smtp.gmail.com" disabled={ro} />
         <Field
-          label="Port"
+          label={t('channels.setup.labels.smtpHost')}
+          value={f.smtp_host}
+          onChange={set('smtp_host')}
+          placeholder="smtp.gmail.com"
+          disabled={ro}
+        />
+        <Field
+          label={t('channels.setup.labels.port')}
           value={f.smtp_port}
           onChange={set('smtp_port')}
           placeholder="587"
-          hint="465 = implicit TLS, 587 = STARTTLS"
+          hint={t('channels.advanced.portHint')}
           disabled={ro}
         />
-        <Field label="From address" value={f.smtp_from} onChange={set('smtp_from')} placeholder="support@yourco.com" disabled={ro} />
         <Field
-          label="Username"
+          label={t('channels.setup.labels.fromAddress')}
+          value={f.smtp_from}
+          onChange={set('smtp_from')}
+          placeholder="support@yourco.com"
+          disabled={ro}
+        />
+        <Field
+          label={t('channels.setup.labels.username')}
           value={f.smtp_username}
           onChange={set('smtp_username')}
-          placeholder="usually the from address"
+          placeholder={t('channels.advanced.usernamePlaceholder')}
           disabled={ro}
         />
-        <Field label="Password" value={f.smtp_password} onChange={set('smtp_password')} secret placeholder="app password" disabled={ro} />
         <Field
-          label="Default subject"
+          label={t('channels.setup.labels.password')}
+          value={f.smtp_password}
+          onChange={set('smtp_password')}
+          secret
+          placeholder={t('channels.setup.placeholders.appPassword')}
+          disabled={ro}
+        />
+        <Field
+          label={t('channels.advanced.subject')}
           value={f.email_subject}
           onChange={set('email_subject')}
-          placeholder="Regarding your enquiry"
+          placeholder={t('channels.advanced.subjectPlaceholder')}
           disabled={ro}
         />
         <Field
-          label="IMAP host (inbound)"
+          label={t('channels.advanced.imapHost')}
           value={f.imap_host}
           onChange={set('imap_host')}
           placeholder="imap.gmail.com"
-          hint="Same login as SMTP. Leave empty for outbound-only."
+          hint={t('channels.advanced.imapHint')}
           disabled={ro}
         />
-        <Field label="IMAP port" value={f.imap_port} onChange={set('imap_port')} placeholder="993" disabled={ro} />
+        <Field
+          label={t('channels.setup.labels.imapPort')}
+          value={f.imap_port}
+          onChange={set('imap_port')}
+          placeholder="993"
+          disabled={ro}
+        />
         <div className="flex items-center justify-between gap-3 self-start rounded-lg border border-line px-3 py-2.5 sm:mt-5">
-          <span className="text-[12.5px] font-semibold text-text-high">Use TLS</span>
-          <Toggle on={tls} onChange={setTls} label="Use TLS" disabled={ro} />
+          <span className="text-[12.5px] font-semibold text-text-high">{t('channels.drawer.useTls')}</span>
+          <Toggle on={tls} onChange={setTls} label={t('channels.drawer.useTls')} disabled={ro} />
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {isSuper && (
           <Button onClick={save} disabled={busy}>
-            {busy && <Loader2 size={13} className="animate-spin" aria-hidden />} Save mail settings
+            {busy && <Loader2 size={13} className="animate-spin" aria-hidden />} {t('channels.advanced.save')}
           </Button>
         )}
         <input
-          className={`${inputCls} !w-[230px]`}
+          className={`${inputCls} !w-[230px] max-w-full`}
           value={testTo}
           onChange={(e) => setTestTo(e.target.value)}
           placeholder="you@company.com"
-          aria-label="Test email recipient"
+          aria-label={t('channels.advanced.testRecipient')}
         />
         <Button variant="secondary" onClick={test} disabled={busy || !data.configured || !testTo.includes('@')}>
-          <Plug size={13} aria-hidden /> Send test email
+          <Plug size={13} aria-hidden /> {t('channels.advanced.sendTest')}
         </Button>
       </div>
       {msg && (
@@ -221,6 +255,7 @@ function EmailFallbackForm({ isSuper }: { isSuper: boolean }) {
 }
 
 export function ChannelsAdvanced({ verifyToken, isSuper }: { verifyToken: string; isSuper: boolean }) {
+  const t = useT()
   const [open, setOpen] = useState(false)
   return (
     <section className="rounded-xl border border-line bg-card">
@@ -236,26 +271,26 @@ export function ChannelsAdvanced({ verifyToken, isSuper }: { verifyToken: string
           className="shrink-0 text-text-muted transition-transform"
           style={{ transform: open ? 'none' : 'rotate(-90deg)' }}
         />
-        <span className="display text-[18px] leading-tight text-text-heading">Advanced</span>
-        <span className="text-[12.5px] text-text-muted">Meta webhook · default mail settings</span>
+        <span className="display text-[18px] leading-tight text-text-heading">{t('channels.advanced.title')}</span>
+        <span className="text-[12.5px] text-text-muted">{t('channels.advanced.subtitle')}</span>
       </button>
       {open && (
         <div className="flex flex-col gap-7 border-t border-line px-4 py-5 sm:px-5">
           <div className="flex flex-col gap-3">
-            <h3 className="eyebrow">Meta webhook</h3>
+            <h3 className="eyebrow">{t('channels.advanced.metaWebhook')}</h3>
             <p className="text-[12.5px] leading-relaxed text-text-mid">
-              One-time setup, shared by every WhatsApp Business number: paste these in Meta App Dashboard → WhatsApp
-              → Configuration → Webhook and subscribe to <code className="rounded bg-fill px-1">messages</code>.
-              Inbound traffic is routed to the right inbox by the receiving number. Local development needs a public
-              https tunnel to the API.
+              <Trans
+                k="channels.advanced.metaIntro"
+                values={{ field: <code className="rounded bg-fill px-1">messages</code> }}
+              />
             </p>
             <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
               <MetaWebhookRows verifyToken={verifyToken} />
-              <CopyRow label="Messenger & Instagram callback URL" value={`${API_ORIGIN}/api/messaging/webhook`} />
+              <CopyRow label={t('channels.advanced.socialCallback')} value={`${API_ORIGIN}/api/messaging/webhook`} />
             </div>
           </div>
           <div className="flex flex-col gap-3">
-            <h3 className="eyebrow">Default mail settings (SMTP + IMAP)</h3>
+            <h3 className="eyebrow">{t('channels.advanced.mailTitle')}</h3>
             <EmailFallbackForm isSuper={isSuper} />
           </div>
         </div>

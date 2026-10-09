@@ -2,395 +2,350 @@
  * Per-channel setup content for the Inboxes drawer: the credential fields of
  * step 2 (with "where do I find this?" help and inline validation) and the
  * short step-by-step guide shown under them. Pure data — the drawer renders it.
+ *
+ * Every text is a translation key under `channels.setup.*`. Example values in
+ * placeholders (IDs, host names, token shapes) are not words and stay as they
+ * are; a placeholder that IS words uses `placeholderKey`.
  */
 
+import type { MessageKey, TFunction } from '@/i18n'
 import type { InboxKind } from './inboxes'
 
 export interface FieldSpec {
   key: string
-  label: string
+  label: MessageKey
+  /** A literal example (an ID, a host, a token shape). */
   placeholder?: string
+  /** A placeholder made of words. */
+  placeholderKey?: MessageKey
   /** Where to find the value — always shown under the field. */
-  help: string
+  help: MessageKey
   secret?: boolean
   optional?: boolean
   inputMode?: 'numeric' | 'email' | 'url' | 'text'
   /** Format check; return a message, or null when fine. Only runs on non-empty values. */
-  check?: (v: string) => string | null
+  check?: (v: string, t: TFunction) => string | null
   /** Narrow fields pair up two-per-row on wider screens. */
   half?: boolean
 }
 
-const digits = (what: string) => (v: string) => (/^\d{5,}$/.test(v) ? null : `${what} is a long number — digits only.`)
+type Check = NonNullable<FieldSpec['check']>
 
-const email = (v: string) => (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? null : 'That does not look like an email address.')
+const digits =
+  (field: MessageKey): Check =>
+  (v, t) =>
+    /^\d{5,}$/.test(v) ? null : t('channels.setup.checks.digits', { field: t(field) })
 
-const pattern = (re: RegExp, hint: string) => (v: string) => (re.test(v) ? null : hint)
+const email: Check = (v, t) => (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? null : t('channels.setup.checks.email'))
 
-const e164 = pattern(/^\+[1-9]\d{6,14}$/, 'An E.164 number with the country code, like +60123456789.')
+const pattern =
+  (re: RegExp, hint: MessageKey): Check =>
+  (v, t) =>
+    re.test(v) ? null : t(hint)
 
-const host = (v: string) =>
-  /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(v)
-    ? null
-    : 'Just the host name, e.g. smtp.gmail.com — no https:// or spaces.'
+const e164 = pattern(/^\+[1-9]\d{6,14}$/, 'channels.setup.checks.e164')
+
+const host = pattern(
+  /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i,
+  'channels.setup.checks.host',
+)
+
+const port =
+  (example: string): Check =>
+  (v, t) =>
+    /^\d+$/.test(v) && Number(v) > 0 && Number(v) < 65536 ? null : t('channels.setup.checks.port', { example })
+
+const L = 'channels.setup.labels' as const
+const H = 'channels.setup.help' as const
+const P = 'channels.setup.placeholders' as const
 
 export const CRED_FIELDS: Partial<Record<InboxKind, FieldSpec[]>> = {
   wa_cloud: [
     {
-      key: 'phone_number_id', label: 'Phone number ID', placeholder: '123456789012345', inputMode: 'numeric',
-      help: 'Meta App Dashboard → WhatsApp → API Setup. The long ID under the phone number — not the number itself.',
-      check: digits('The phone number ID'),
+      key: 'phone_number_id', label: `${L}.phoneNumberId`, placeholder: '123456789012345', inputMode: 'numeric',
+      help: `${H}.waCloud.phoneNumberId`, check: digits(`${L}.phoneNumberId`),
     },
     {
-      key: 'waba_id', label: 'WhatsApp Business Account ID', placeholder: '102938475610293', inputMode: 'numeric',
-      optional: true,
-      help: 'Same API Setup page, above the number. Needed to list and send Meta-approved templates.',
-      check: digits('The WABA ID'),
+      key: 'waba_id', label: `${L}.wabaId`, placeholder: '102938475610293', inputMode: 'numeric',
+      optional: true, help: `${H}.waCloud.wabaId`, check: digits(`${L}.wabaIdShort`),
     },
     {
-      key: 'access_token', label: 'Access token', placeholder: 'EAAG…', secret: true,
-      help: 'Business Settings → Users → System users → Generate token. Dashboard tokens expire after 24 hours.',
+      key: 'access_token', label: `${L}.accessToken`, placeholder: 'EAAG…', secret: true,
+      help: `${H}.waCloud.accessToken`,
     },
     {
-      key: 'app_secret', label: 'App secret', placeholder: 'Enables webhook signature checks', secret: true,
-      optional: true,
-      help: 'App Dashboard → App settings → Basic → App secret. Required before you go live.',
+      key: 'app_secret', label: `${L}.appSecret`, placeholderKey: `${P}.signatureChecks`, secret: true,
+      optional: true, help: `${H}.waCloud.appSecret`,
     },
   ],
   email: [
     {
-      key: 'from_email', label: 'From address', placeholder: 'support@yourco.com', inputMode: 'email',
-      help: 'The address customers see and reply to.', check: email,
+      key: 'from_email', label: `${L}.fromAddress`, placeholder: 'support@yourco.com', inputMode: 'email',
+      help: `${H}.email.fromEmail`, check: email,
     },
     {
-      key: 'host', label: 'SMTP host', placeholder: 'smtp.gmail.com', half: true,
-      help: 'Your provider’s outgoing server — Gmail smtp.gmail.com, Outlook smtp.office365.com.', check: host,
+      key: 'host', label: `${L}.smtpHost`, placeholder: 'smtp.gmail.com', half: true,
+      help: `${H}.email.host`, check: host,
     },
     {
-      key: 'port', label: 'Port', placeholder: '587', inputMode: 'numeric', half: true, optional: true,
-      help: '587 = STARTTLS (most providers), 465 = implicit TLS.',
-      check: (v) => (/^\d+$/.test(v) && Number(v) > 0 && Number(v) < 65536 ? null : 'A port number, like 587.'),
+      key: 'port', label: `${L}.port`, placeholder: '587', inputMode: 'numeric', half: true, optional: true,
+      help: `${H}.email.port`, check: port('587'),
     },
     {
-      key: 'username', label: 'Username', placeholder: 'support@yourco.com',
-      help: 'Usually the full email address — Gmail needs name@domain, not just the name.',
+      key: 'username', label: `${L}.username`, placeholder: 'support@yourco.com',
+      help: `${H}.email.username`,
     },
     {
-      key: 'password', label: 'Password', placeholder: 'App password', secret: true,
-      help: 'An app password, not your login — Google Account → Security → App passwords.',
+      key: 'password', label: `${L}.password`, placeholderKey: `${P}.appPassword`, secret: true,
+      help: `${H}.email.password`,
     },
     {
-      key: 'imap_host', label: 'IMAP host (replies)', placeholder: 'imap.gmail.com', half: true, optional: true,
-      help: 'Where customer replies are read from, with the same login. Blank = the default under Advanced.',
-      check: host,
+      key: 'imap_host', label: `${L}.imapHostReplies`, placeholder: 'imap.gmail.com', half: true, optional: true,
+      help: `${H}.email.imapHost`, check: host,
     },
     {
-      key: 'imap_port', label: 'IMAP port', placeholder: '993', inputMode: 'numeric', half: true, optional: true,
-      help: '993 = implicit TLS (most providers), 143 = STARTTLS.',
-      check: (v) => (/^\d+$/.test(v) && Number(v) > 0 && Number(v) < 65536 ? null : 'A port number, like 993.'),
+      key: 'imap_port', label: `${L}.imapPort`, placeholder: '993', inputMode: 'numeric', half: true, optional: true,
+      help: `${H}.email.imapPort`, check: port('993'),
     },
   ],
   telegram: [
     {
-      key: 'access_token', label: 'Bot token', placeholder: '123456789:AAH…', secret: true,
-      help: 'In Telegram, message @BotFather → /newbot (or /token for an existing bot) and paste what it sends.',
-      check: (v) => (/^\d+:[\w-]{10,}$/.test(v) ? null : 'A bot token looks like 123456789:AAH… (digits, colon, key).'),
+      key: 'access_token', label: `${L}.botToken`, placeholder: '123456789:AAH…', secret: true,
+      help: `${H}.telegram.accessToken`,
+      check: pattern(/^\d+:[\w-]{10,}$/, 'channels.setup.checks.botToken'),
     },
   ],
   messenger: [
     {
-      key: 'external_id', label: 'Facebook Page ID', placeholder: '1029384756', inputMode: 'numeric',
-      help: 'Your page → About → Page transparency, or Meta Business Suite → Settings → Page info.',
-      check: digits('The Page ID'),
+      key: 'external_id', label: `${L}.pageId`, placeholder: '1029384756', inputMode: 'numeric',
+      help: `${H}.messenger.externalId`, check: digits(`${L}.pageId`),
     },
     {
-      key: 'access_token', label: 'Page access token', placeholder: 'EAAG…', secret: true,
-      help: 'Meta App Dashboard → Messenger → Settings → Access tokens → Generate for this page.',
+      key: 'access_token', label: `${L}.pageAccessToken`, placeholder: 'EAAG…', secret: true,
+      help: `${H}.messenger.accessToken`,
     },
     {
-      key: 'app_secret', label: 'App secret', placeholder: 'From App settings → Basic', secret: true,
-      optional: true,
-      help: 'Meta App Dashboard → App settings → Basic → App secret. Inbound messages are only accepted when Meta signs them with it, so set it before you go live.',
+      key: 'app_secret', label: `${L}.appSecret`, placeholderKey: `${P}.fromAppSettings`, secret: true,
+      optional: true, help: `${H}.meta.appSecret`,
     },
   ],
   instagram: [
     {
-      key: 'external_id', label: 'Instagram account ID', placeholder: '17841400000000000', inputMode: 'numeric',
-      help: 'Meta App Dashboard → Instagram → API setup — the professional account linked to your page.',
-      check: digits('The Instagram account ID'),
+      key: 'external_id', label: `${L}.igAccountId`, placeholder: '17841400000000000', inputMode: 'numeric',
+      help: `${H}.instagram.externalId`, check: digits(`${L}.igAccountId`),
     },
     {
-      key: 'access_token', label: 'Page access token', placeholder: 'EAAG…', secret: true,
-      help: 'The token of the Facebook page the Instagram account is linked to.',
+      key: 'access_token', label: `${L}.pageAccessToken`, placeholder: 'EAAG…', secret: true,
+      help: `${H}.instagram.accessToken`,
     },
     {
-      key: 'app_secret', label: 'App secret', placeholder: 'From App settings → Basic', secret: true,
-      optional: true,
-      help: 'Meta App Dashboard → App settings → Basic → App secret. Inbound messages are only accepted when Meta signs them with it, so set it before you go live.',
+      key: 'app_secret', label: `${L}.appSecret`, placeholderKey: `${P}.fromAppSettings`, secret: true,
+      optional: true, help: `${H}.meta.appSecret`,
     },
   ],
   line: [
     {
-      key: 'access_token', label: 'Channel access token', placeholder: 'Long-lived token', secret: true,
-      help: 'LINE Developers console → your provider → the Messaging API channel → Messaging API tab → Channel access token (long-lived) → Issue.',
+      key: 'access_token', label: `${L}.channelAccessToken`, placeholderKey: `${P}.longLivedToken`, secret: true,
+      help: `${H}.line.accessToken`,
     },
     {
-      key: 'channel_secret', label: 'Channel secret', placeholder: '32 hex characters', secret: true,
-      help: 'Same channel → Basic settings tab → Channel secret. Every webhook is checked against it, so inbound is refused until it is set.',
-      check: pattern(/^[0-9a-f]{32}$/i, 'A LINE channel secret is 32 hexadecimal characters.'),
+      key: 'channel_secret', label: `${L}.channelSecret`, placeholderKey: `${P}.hex32`, secret: true,
+      help: `${H}.line.channelSecret`,
+      check: pattern(/^[0-9a-f]{32}$/i, 'channels.setup.checks.lineSecret'),
     },
   ],
   viber: [
     {
-      key: 'access_token', label: 'Authentication token', placeholder: '4453b6ac12345678-…', secret: true,
-      help: 'Viber Partners → your bot → Info → Token. It also signs every webhook Viber sends.',
+      key: 'access_token', label: `${L}.authenticationToken`, placeholder: '4453b6ac12345678-…', secret: true,
+      help: `${H}.viber.accessToken`,
     },
     {
-      key: 'sender_name', label: 'Sender name', placeholder: 'Your shop', optional: true,
-      help: 'The name your messages show in Viber (28 characters at most). Blank = the inbox name.',
-      check: (v) => (v.length <= 28 ? null : 'Viber allows 28 characters at most.'),
+      key: 'sender_name', label: `${L}.senderName`, placeholderKey: `${P}.yourShop`, optional: true,
+      help: `${H}.viber.senderName`,
+      check: (v, t) => (v.length <= 28 ? null : t('channels.setup.checks.viberName')),
     },
   ],
   sms: [
     {
-      key: 'account_sid', label: 'Account SID', placeholder: 'AC…', inputMode: 'text',
-      help: 'Twilio Console → Account info (home page) → Account SID.',
-      check: pattern(/^AC[0-9a-f]{32}$/i, 'An Account SID is AC followed by 32 hexadecimal characters.'),
+      key: 'account_sid', label: `${L}.accountSid`, placeholder: 'AC…', inputMode: 'text',
+      help: `${H}.sms.accountSid`,
+      check: pattern(/^AC[0-9a-f]{32}$/i, 'channels.setup.checks.accountSid'),
     },
     {
-      key: 'access_token', label: 'Auth token', placeholder: 'From the Twilio Console', secret: true,
-      help: 'Same page → Auth token. It also verifies every incoming-message webhook (X-Twilio-Signature).',
+      key: 'access_token', label: `${L}.authToken`, placeholderKey: `${P}.fromTwilio`, secret: true,
+      help: `${H}.sms.accessToken`,
     },
     {
-      key: 'from_number', label: 'From number', placeholder: '+60123456789', half: true, optional: true,
-      help: 'A Twilio number with SMS — Phone numbers → Manage → Active numbers.', check: e164,
+      key: 'from_number', label: `${L}.fromNumber`, placeholder: '+60123456789', half: true, optional: true,
+      help: `${H}.sms.fromNumber`, check: e164,
     },
     {
-      key: 'messaging_service_sid', label: 'Messaging Service SID', placeholder: 'MG…', half: true, optional: true,
-      help: 'Or send through a Messaging Service (sender pools, A2P 10DLC). Set this or a From number.',
-      check: pattern(/^MG[0-9a-f]{32}$/i, 'A Messaging Service SID is MG followed by 32 hexadecimal characters.'),
+      key: 'messaging_service_sid', label: `${L}.messagingServiceSid`, placeholder: 'MG…', half: true, optional: true,
+      help: `${H}.sms.messagingServiceSid`,
+      check: pattern(/^MG[0-9a-f]{32}$/i, 'channels.setup.checks.messagingServiceSid'),
     },
   ],
   wechat: [
     {
-      key: 'app_id', label: 'AppID', placeholder: 'wx…', half: true,
-      help: 'WeChat Official Account platform → Settings and development → Basic configuration → AppID.',
-      check: pattern(/^wx[0-9A-Za-z]{6,32}$/, 'An AppID starts with wx.'),
+      key: 'app_id', label: `${L}.wechatAppId`, placeholder: 'wx…', half: true,
+      help: `${H}.wechat.appId`,
+      check: pattern(/^wx[0-9A-Za-z]{6,32}$/, 'channels.setup.checks.wechatAppId'),
     },
     {
-      key: 'app_secret', label: 'AppSecret', placeholder: 'Reset to view', secret: true, half: true,
-      help: 'Same page → AppSecret (reset it to see it once). Add this server’s IP to the IP whitelist there too.',
+      key: 'app_secret', label: `${L}.wechatAppSecret`, placeholderKey: `${P}.resetToView`, secret: true, half: true,
+      help: `${H}.wechat.appSecret`,
     },
     {
-      key: 'token', label: 'Server token', placeholder: '3–32 letters and digits', secret: true,
-      help: 'Basic configuration → Server configuration → Token: make one up and enter the same value in both places.',
-      check: pattern(/^[A-Za-z0-9]{3,32}$/, 'The Token is 3–32 letters and digits.'),
+      key: 'token', label: `${L}.serverToken`, placeholderKey: `${P}.token3to32`, secret: true,
+      help: `${H}.wechat.token`,
+      check: pattern(/^[A-Za-z0-9]{3,32}$/, 'channels.setup.checks.wechatToken'),
     },
     {
-      key: 'encoding_aes_key', label: 'EncodingAESKey', placeholder: '43 characters (safe mode)', secret: true,
-      optional: true,
-      help: 'Server configuration → EncodingAESKey. Needed for “Safe mode” (recommended) — messages are encrypted and signed.',
-      check: pattern(/^[A-Za-z0-9]{43}$/, 'The EncodingAESKey is exactly 43 letters and digits.'),
+      key: 'encoding_aes_key', label: `${L}.encodingAesKey`, placeholderKey: `${P}.aes43`, secret: true,
+      optional: true, help: `${H}.wechat.encodingAesKey`,
+      check: pattern(/^[A-Za-z0-9]{43}$/, 'channels.setup.checks.encodingAesKey'),
     },
     {
-      key: 'external_id', label: 'Original ID', placeholder: 'gh_…', optional: true,
-      help: 'Account info → Original ID. Optional — it is learned from the first message.',
+      key: 'external_id', label: `${L}.originalId`, placeholder: 'gh_…', optional: true,
+      help: `${H}.wechat.externalId`,
     },
   ],
   tiktok: [
     {
-      key: 'external_id', label: 'Business ID', placeholder: '7000000000000000000',
-      help: 'TikTok for Business → your business account. Shown once TikTok approves your app for Business Messaging.',
+      key: 'external_id', label: `${L}.businessId`, placeholder: '7000000000000000000',
+      help: `${H}.tiktok.externalId`,
     },
     {
-      key: 'access_token', label: 'Business access token', placeholder: 'act.…', secret: true,
-      help: 'Issued when the business account authorises your app (TikTok API for Business → Authorization).',
+      key: 'access_token', label: `${L}.businessAccessToken`, placeholder: 'act.…', secret: true,
+      help: `${H}.tiktok.accessToken`,
     },
     {
-      key: 'app_id', label: 'App ID', placeholder: 'Your app’s ID', optional: true, half: true,
-      help: 'TikTok API for Business → My apps → your app.',
+      key: 'app_id', label: `${L}.appId`, placeholderKey: `${P}.yourAppId`, optional: true, half: true,
+      help: `${H}.tiktok.appId`,
     },
     {
-      key: 'app_secret', label: 'App secret', placeholder: 'Signs the webhooks', secret: true, half: true,
-      help: 'Same app → Secret. Webhooks are only accepted when TikTok signs them with it.',
+      key: 'app_secret', label: `${L}.appSecret`, placeholderKey: `${P}.signsWebhooks`, secret: true, half: true,
+      help: `${H}.tiktok.appSecret`,
     },
   ],
   douyin: [
     {
-      key: 'client_key', label: 'Client key', placeholder: 'aw…', half: true,
-      help: '抖音开放平台 → 管理中心 → your app → Client Key.',
+      key: 'client_key', label: `${L}.clientKey`, placeholder: 'aw…', half: true,
+      help: `${H}.douyin.clientKey`,
     },
     {
-      key: 'client_secret', label: 'Client secret', placeholder: 'Signs the webhooks', secret: true, half: true,
-      help: 'Same app → Client Secret. Every webhook is signed with it (X-Douyin-Signature).',
+      key: 'client_secret', label: `${L}.clientSecret`, placeholderKey: `${P}.signsWebhooks`, secret: true, half: true,
+      help: `${H}.douyin.clientSecret`,
     },
     {
-      key: 'external_id', label: 'Enterprise account open_id', placeholder: 'open_id of the 企业号',
-      help: 'The open_id of the enterprise account (企业号) that authorised your app.',
+      key: 'external_id', label: `${L}.enterpriseOpenId`, placeholderKey: `${P}.openIdOfEnterprise`,
+      help: `${H}.douyin.externalId`,
     },
     {
-      key: 'access_token', label: 'Access token', placeholder: 'act.…', secret: true,
-      help: 'The enterprise account’s access_token from the OAuth authorisation (needs the 私信 scopes).',
+      key: 'access_token', label: `${L}.accessToken`, placeholder: 'act.…', secret: true,
+      help: `${H}.douyin.accessToken`,
     },
     {
-      key: 'refresh_token', label: 'Refresh token', placeholder: 'rft.…', secret: true, optional: true,
-      help: 'Kept for renewing the access token.',
+      key: 'refresh_token', label: `${L}.refreshToken`, placeholder: 'rft.…', secret: true, optional: true,
+      help: `${H}.douyin.refreshToken`,
     },
   ],
   zalo: [
     {
-      key: 'app_id', label: 'App ID', placeholder: '1234567890123456789', inputMode: 'numeric', half: true,
-      help: 'developers.zalo.me → your app → App ID.', check: digits('The App ID'),
+      key: 'app_id', label: `${L}.appId`, placeholder: '1234567890123456789', inputMode: 'numeric', half: true,
+      help: `${H}.zalo.appId`, check: digits(`${L}.appId`),
     },
     {
-      key: 'oa_secret_key', label: 'OA secret key', placeholder: 'Signs the webhooks', secret: true, half: true,
-      help: 'Your app → Webhook → OA Secret Key. Every webhook is checked against it (X-ZEvent-Signature).',
+      key: 'oa_secret_key', label: `${L}.oaSecretKey`, placeholderKey: `${P}.signsWebhooks`, secret: true, half: true,
+      help: `${H}.zalo.oaSecretKey`,
     },
     {
-      key: 'access_token', label: 'OA access token', placeholder: 'From the API explorer or OAuth', secret: true,
-      help: 'Your app → Official Account → OA access token (it lasts about 25 hours — add the refresh token below).',
+      key: 'access_token', label: `${L}.oaAccessToken`, placeholderKey: `${P}.fromExplorer`, secret: true,
+      help: `${H}.zalo.accessToken`,
     },
     {
-      key: 'refresh_token', label: 'Refresh token', placeholder: 'Renews the access token', secret: true,
-      optional: true, half: true,
-      help: 'Issued with the access token. With the app secret key, ChatBranch renews the token itself.',
+      key: 'refresh_token', label: `${L}.refreshToken`, placeholderKey: `${P}.renewsToken`, secret: true,
+      optional: true, half: true, help: `${H}.zalo.refreshToken`,
     },
     {
-      key: 'app_secret', label: 'App secret key', placeholder: 'For token renewal', secret: true, optional: true,
-      half: true, help: 'Your app → Settings → App secret key.',
+      key: 'app_secret', label: `${L}.appSecretKey`, placeholderKey: `${P}.forRenewal`, secret: true, optional: true,
+      half: true, help: `${H}.zalo.appSecret`,
     },
     {
-      key: 'external_id', label: 'OA ID', placeholder: 'Learned on Test', optional: true,
-      help: 'Optional — filled in when you run Test.',
+      key: 'external_id', label: `${L}.oaId`, placeholderKey: `${P}.learnedOnTest`, optional: true,
+      help: `${H}.zalo.externalId`,
     },
   ],
   voice: [
     {
-      key: 'sip_username', label: 'SIP username', placeholder: 'your Twilio SIP username',
-      help: 'Twilio Console → Elastic SIP Trunking → your trunk → Termination → Credential lists.',
+      key: 'sip_username', label: `${L}.sipUsername`, placeholderKey: `${P}.sipUsername`,
+      help: `${H}.voice.sipUsername`,
     },
     {
-      key: 'sip_password', label: 'SIP password', placeholder: 'your Twilio SIP password', secret: true,
-      help: 'The password of that credential list entry.',
+      key: 'sip_password', label: `${L}.sipPassword`, placeholderKey: `${P}.sipPassword`, secret: true,
+      help: `${H}.voice.sipPassword`,
     },
     {
-      key: 'termination_uri', label: 'Termination URI', placeholder: 'your-trunk.pstn.twilio.com',
-      help: 'Twilio Console → Elastic SIP Trunking → Termination → Termination SIP URI.', check: host,
+      key: 'termination_uri', label: `${L}.terminationUri`, placeholder: 'your-trunk.pstn.twilio.com',
+      help: `${H}.voice.terminationUri`, check: host,
     },
   ],
 }
 
-/** "Where do I find these?" — the short walk-through per channel. */
-export const GUIDES: Partial<Record<InboxKind, string[]>> = {
-  wa_cloud: [
-    'Open developers.facebook.com → My Apps → your app → WhatsApp → API Setup.',
-    'Copy the Phone number ID and the WhatsApp Business Account ID shown there.',
-    'In Business Settings → System users, generate a permanent token with whatsapp_business_messaging.',
-    'After setup, paste the callback URL and verify token from the last step into WhatsApp → Configuration.',
-  ],
-  email: [
-    'Use a mailbox your team already reads (support@, hello@…).',
-    'Find the SMTP server in your provider’s help pages (“SMTP settings”).',
-    'Create an app password if the account has two-step sign-in.',
-    'Replies from known contacts are pulled in over IMAP — this mailbox’s IMAP host, or the default under Advanced.',
-  ],
-  telegram: [
-    'Open a chat with @BotFather in Telegram.',
-    'Send /newbot, pick a name and a username ending in “bot”.',
-    'Paste the token BotFather replies with.',
-    'After setup, register the webhook from the last step.',
-  ],
-  messenger: [
-    'Your Facebook page must be connected to a Meta app with the Messenger product.',
-    'Generate a page access token in Messenger → Settings.',
-    'Subscribe the app to the page’s messages webhook (URL in the last step).',
-  ],
-  instagram: [
-    'The Instagram account must be a professional account linked to a Facebook page.',
-    'Add the Instagram product to your Meta app and find the account ID under API setup.',
-    'Use the linked page’s access token; subscribe to messages (URL in the last step).',
-  ],
-  line: [
-    'Create a Messaging API channel for your LINE Official Account in the LINE Developers console.',
-    'Copy the channel secret (Basic settings) and issue a long-lived channel access token (Messaging API).',
-    'Turn off “Auto-reply messages” in the LINE Official Account Manager so replies come from here.',
-    'After setup, register the webhook from the last step (or paste the URL and switch on “Use webhook”).',
-  ],
-  viber: [
-    'Create a bot at partners.viber.com (a commercial Viber bot).',
-    'Copy its authentication token.',
-    'After setup, register the webhook from the last step — Viber checks it straight away.',
-    'Invite links like viber://pa?chatURI=yourbot&context=CODE pass the code to the first message.',
-  ],
-  sms: [
-    'Buy or port an SMS-capable number in the Twilio Console (or create a Messaging Service).',
-    'Copy the Account SID and Auth token from the Console home page.',
-    'After setup, paste the webhook URL into the number’s Messaging → “A message comes in” (HTTP POST).',
-    'Twilio answers STOP / START itself — the conversation’s opt-out follows it here.',
-  ],
-  wechat: [
-    'Use a verified Service Account (服务号) — customer-service messages need it.',
-    'Basic configuration: copy the AppID, reset the AppSecret, and add this server’s IP to the whitelist.',
-    'Server configuration: choose a Token (and EncodingAESKey for safe mode), paste the URL from the last step, then Enable.',
-    'Parametric QR codes (qrscene_CODE) pass the code to the first message.',
-  ],
-  tiktok: [
-    'Business Messaging is a gated TikTok API — apply in TikTok API for Business and wait for approval.',
-    'Have the business account authorise your app to get its access token and Business ID.',
-    'Paste the webhook URL from the last step in your app’s webhook settings.',
-    'Replies are allowed within 48 hours of the customer’s last message.',
-  ],
-  douyin: [
-    'Private messages need an approved enterprise account (企业号) and the 私信 permission on your app.',
-    'Copy the Client Key / Client Secret, and authorise the enterprise account to get its open_id and access token.',
-    'Paste the webhook URL from the last step in 开放平台 → 开发 → Webhooks (the challenge is answered automatically).',
-    'Replies quote the customer’s latest message, within 48 hours.',
-  ],
-  zalo: [
-    'Link your Official Account to an app at developers.zalo.me.',
-    'Copy the App ID, the OA secret key (Webhook page) and an OA access token + refresh token.',
-    'Paste the webhook URL from the last step and subscribe to the user_send_* and follow events.',
-    'Consultation replies are allowed within 7 days of the user’s last interaction.',
-  ],
-  voice: [
-    'Create an Elastic SIP trunk in the Twilio Console.',
-    'Add a credential list under Termination and note the username and password.',
-    'Copy the termination SIP URI.',
-    'Run `npm --prefix backend/voice_agent run setup-trunk` once and put the printed SIP_OUTBOUND_TRUNK_ID in backend/.env (with LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET); start the worker with `npm run dev:agent`.',
-  ],
+const G = 'channels.setup.guides' as const
+
+/** "Where do I find these?" — the short walk-through per channel (translation keys). */
+export const GUIDES: Partial<Record<InboxKind, MessageKey[]>> = {
+  wa_cloud: [`${G}.waCloud.s1`, `${G}.waCloud.s2`, `${G}.waCloud.s3`, `${G}.waCloud.s4`],
+  email: [`${G}.email.s1`, `${G}.email.s2`, `${G}.email.s3`, `${G}.email.s4`],
+  telegram: [`${G}.telegram.s1`, `${G}.telegram.s2`, `${G}.telegram.s3`, `${G}.telegram.s4`],
+  messenger: [`${G}.messenger.s1`, `${G}.messenger.s2`, `${G}.messenger.s3`],
+  instagram: [`${G}.instagram.s1`, `${G}.instagram.s2`, `${G}.instagram.s3`],
+  line: [`${G}.line.s1`, `${G}.line.s2`, `${G}.line.s3`, `${G}.line.s4`],
+  viber: [`${G}.viber.s1`, `${G}.viber.s2`, `${G}.viber.s3`, `${G}.viber.s4`],
+  sms: [`${G}.sms.s1`, `${G}.sms.s2`, `${G}.sms.s3`, `${G}.sms.s4`],
+  wechat: [`${G}.wechat.s1`, `${G}.wechat.s2`, `${G}.wechat.s3`, `${G}.wechat.s4`],
+  tiktok: [`${G}.tiktok.s1`, `${G}.tiktok.s2`, `${G}.tiktok.s3`, `${G}.tiktok.s4`],
+  douyin: [`${G}.douyin.s1`, `${G}.douyin.s2`, `${G}.douyin.s3`, `${G}.douyin.s4`],
+  zalo: [`${G}.zalo.s1`, `${G}.zalo.s2`, `${G}.zalo.s3`, `${G}.zalo.s4`],
+  voice: [`${G}.voice.s1`, `${G}.voice.s2`, `${G}.voice.s3`, `${G}.voice.s4`],
 }
 
-/** A sensible starting name for a new inbox (editable in step 3). */
-export const DEFAULT_NAME: Record<InboxKind, string> = {
-  wa_cloud: 'WhatsApp Business',
-  wa_qr: 'WhatsApp (QR)',
-  email: 'Support mailbox',
-  telegram: 'Telegram bot',
-  messenger: 'Facebook page',
-  instagram: 'Instagram',
-  website: 'Website chat',
-  voice: 'Voice trunk',
-  line: 'LINE Official Account',
-  viber: 'Viber bot',
-  sms: 'SMS',
-  wechat: 'WeChat Official Account',
-  tiktok: 'TikTok',
-  douyin: 'Douyin',
-  zalo: 'Zalo OA',
+const N = 'channels.setup.defaultNames' as const
+
+/** A sensible starting name for a new inbox (editable in step 3), as a key. */
+export const DEFAULT_NAME: Record<InboxKind, MessageKey> = {
+  wa_cloud: `${N}.waCloud`,
+  wa_qr: `${N}.waQr`,
+  email: `${N}.email`,
+  telegram: `${N}.telegram`,
+  messenger: `${N}.messenger`,
+  instagram: `${N}.instagram`,
+  website: `${N}.website`,
+  voice: `${N}.voice`,
+  line: `${N}.line`,
+  viber: `${N}.viber`,
+  sms: `${N}.sms`,
+  wechat: `${N}.wechat`,
+  tiktok: `${N}.tiktok`,
+  douyin: `${N}.douyin`,
+  zalo: `${N}.zalo`,
 }
 
 /** Channel-wide rules on top of the per-field checks (step 2). */
-export const ONE_OF: Partial<Record<InboxKind, { keys: string[]; message: string }>> = {
-  sms: { keys: ['from_number', 'messaging_service_sid'], message: 'Set a From number or a Messaging Service SID.' },
+export const ONE_OF: Partial<Record<InboxKind, { keys: string[]; message: MessageKey }>> = {
+  sms: { keys: ['from_number', 'messaging_service_sid'], message: 'channels.setup.checks.smsOneOf' },
 }
 
+const W = 'channels.setup.webhookHelp' as const
+
 /** Where the webhook URL goes on each platform (the test step shows it with a copy button). */
-export const WEBHOOK_HELP: Partial<Record<InboxKind, string>> = {
-  line: 'LINE Developers → the channel → Messaging API → Webhook URL, then switch on “Use webhook”. Or register it from here.',
-  viber: 'Viber needs the webhook set through its API — register it from here (it checks the URL straight away).',
-  sms: 'Twilio Console → Phone numbers → your number → Messaging configuration → “A message comes in”: Webhook, HTTP POST.',
-  wechat: 'Official Account platform → Basic configuration → Server configuration → URL, with the same Token (and EncodingAESKey for safe mode).',
-  tiktok: 'TikTok API for Business → your app → Webhooks (Business Messaging events).',
-  douyin: '抖音开放平台 → your app → Webhooks. The verify_webhook challenge is answered automatically.',
-  zalo: 'developers.zalo.me → your app → Webhook → URL, and enable the user_send_* and follow / unfollow events.',
+export const WEBHOOK_HELP: Partial<Record<InboxKind, MessageKey>> = {
+  line: `${W}.line`,
+  viber: `${W}.viber`,
+  sms: `${W}.sms`,
+  wechat: `${W}.wechat`,
+  tiktok: `${W}.tiktok`,
+  douyin: `${W}.douyin`,
+  zalo: `${W}.zalo`,
 }

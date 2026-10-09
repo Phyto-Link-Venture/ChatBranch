@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Select } from '@/components/ui/Select'
 import { cApi, type IdentifyMode, type InboxIdentify } from '@/lib/contactIdentity'
+import { useI18n, useT, type MessageKey } from '@/i18n'
 
 export interface IdentifyDraft {
   mode: '' | IdentifyMode
@@ -68,10 +69,10 @@ export function useInboxIdentify(accountId: string | null) {
   return { value, setValue, defaults, inherited, save }
 }
 
-const MODE_LABEL: Record<IdentifyMode, string> = {
-  off: 'Do nothing',
-  ask: 'Ask who they are',
-  ask_and_create: 'Ask and create the contact',
+const MODE_LABEL: Record<IdentifyMode, MessageKey> = {
+  off: 'channels.unknown.off',
+  ask: 'channels.unknown.ask',
+  ask_and_create: 'channels.unknown.askAndCreate',
 }
 
 export function UnknownCustomersField({
@@ -88,46 +89,50 @@ export function UnknownCustomersField({
   inherited?: IdentifyMode
   disabled?: boolean
 }) {
+  const t = useT()
+  const { locale } = useI18n()
   const showInherit = inherited !== 'off'
   const selected = value.mode || (showInherit ? '' : 'off')
   const mode: IdentifyMode = value.mode || inherited
   return (
     <div>
-      <span className="mb-1 block text-[12px] font-semibold text-text-high">Unknown customers</span>
+      <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('channels.unknown.title')}</span>
       <Select
         size="md"
         value={selected}
         onChange={(v) => onChange({ ...value, mode: v as '' | IdentifyMode })}
-        ariaLabel="When an unknown customer writes in"
+        ariaLabel={t('channels.unknown.aria')}
         disabled={disabled}
         options={[
           ...(showInherit
-            ? [{ value: '', label: 'Organization default', hint: `— ${MODE_LABEL[inherited].toLowerCase()}` }]
+            ? [
+                {
+                  value: '',
+                  label: t('channels.unknown.orgDefault'),
+                  hint: t('channels.unknown.orgDefaultHint', { mode: t(MODE_LABEL[inherited]) }),
+                },
+              ]
             : []),
-          { value: 'off', label: 'Do nothing', hint: '— a person links or creates the contact' },
-          { value: 'ask', label: 'Ask who they are', hint: '— then link them, or leave a note' },
-          { value: 'ask_and_create', label: 'Ask and create the contact' },
+          { value: 'off', label: t(MODE_LABEL.off), hint: t('channels.unknown.offHint') },
+          { value: 'ask', label: t(MODE_LABEL.ask), hint: t('channels.unknown.askHint') },
+          { value: 'ask_and_create', label: t(MODE_LABEL.ask_and_create) },
         ]}
       />
       <p className="mt-1 text-[11.5px] leading-relaxed text-text-muted">
         {mode === 'off'
-          ? 'A message from someone not in your contacts waits for a person to link it.'
-          : 'The first message from someone not in your contacts gets a short question for their name and phone or email (in Malay when they write in Malay). A match links the chat and the AI carries on; ' +
-            (mode === 'ask_and_create'
-              ? 'no match creates the contact.'
-              : 'no match leaves a note and a “Create contact” button on the chat.') +
-            ' At most two asks; people who opted out are never asked.'}
+          ? t('channels.unknown.offHelp')
+          : t(mode === 'ask_and_create' ? 'channels.unknown.askCreateHelp' : 'channels.unknown.askHelp')}
       </p>
       {mode !== 'off' && (
         <label className="mt-2 flex flex-col gap-1">
-          <span className="text-[11.5px] font-semibold text-text-mid">Your own wording (optional)</span>
+          <span className="text-[11.5px] font-semibold text-text-mid">{t('channels.unknown.wording')}</span>
           <textarea
             value={value.message}
             onChange={(e) => onChange({ ...value, message: e.target.value })}
             rows={2}
             maxLength={600}
             disabled={disabled}
-            placeholder={defaults?.en ?? 'Hi! Thanks for getting in touch. Could you tell us your name and your phone number or email address?'}
+            placeholder={(locale === 'ms' ? defaults?.ms : defaults?.en) ?? t('channels.unknown.wordingPlaceholder')}
             className="w-full resize-y rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-high placeholder:text-text-faint focus:border-text-primary focus:outline-none"
           />
         </label>

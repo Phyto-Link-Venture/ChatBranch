@@ -23,6 +23,7 @@ import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { RoleChip } from '@/components/ui/Badges'
 import { getRole, hasCap } from '@/lib/auth'
 import { fetchChannelHealth, HEALTH_META, type ChannelHealthPayload, type HealthStatus } from '@/lib/channelHealth'
+import { useFormat, useT, type MessageKey } from '@/i18n'
 import {
   ApprovalChip,
   InboxSetupDrawer,
@@ -37,9 +38,12 @@ import {
   KIND_GROUPS,
   deleteInbox,
   errText,
+  filterLabel,
+  inboxName,
   kindMeta,
   loadInboxes,
   testInbox,
+  txt,
   type ChannelFilter,
   type Inbox,
   type InboxKind,
@@ -56,12 +60,13 @@ function healthOf(inbox: Inbox, health: ChannelHealthPayload | null): { status: 
 }
 
 function HealthDot({ status, detail }: { status: HealthStatus; detail?: string }) {
+  const t = useT()
   const m = HEALTH_META[status] ?? HEALTH_META.unknown
   return (
-    <span className="inline-flex items-center gap-1.5" title={detail || m.lbl}>
+    <span className="inline-flex items-center gap-1.5" title={detail || t(m.key)}>
       <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: m.dot }} aria-hidden />
       <span style={{ color: m.ink }} className="font-semibold">
-        {m.lbl}
+        {t(m.key)}
       </span>
     </span>
   )
@@ -90,7 +95,9 @@ function InboxCard({
   onPair: () => void
   onDelete: () => void
 }) {
+  const t = useT()
   const meta = kindMeta(inbox.kind)
+  const name = inboxName(inbox, t)
   const editable = canManage && !inbox.envManaged && (inbox.kind !== 'voice' || isSuper)
   const btn =
     'inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-line-strong bg-card px-3 text-[12.5px] font-semibold text-text-high transition-colors hover:bg-fill-hover disabled:cursor-not-allowed disabled:opacity-50'
@@ -100,28 +107,28 @@ function InboxCard({
         <ChannelLogo channel={meta.logo} variant="tile" size={36} title="" />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            <span className="truncate text-[14px] font-bold text-text-heading">{inbox.name}</span>
+            <span className="truncate text-[14px] font-bold text-text-heading">{name}</span>
             {inbox.role && <RoleChip role={inbox.role} />}
             {meta.badge && <KindBadge badge={meta.badge} />}
             {meta.approval && <ApprovalChip compact />}
             {inbox.envManaged && (
               <span className="rounded-full bg-fill px-1.5 py-px text-[9.5px] font-bold uppercase text-text-muted">
-                from .env
+                {t('channels.card.fromEnv')}
               </span>
             )}
           </div>
           <div className="truncate text-[12px] text-text-muted">
-            {meta.channelLabel} · {inbox.address}
+            {t(meta.channelLabel)} · {txt(inbox.address, t)}
           </div>
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-text-muted">
-        {health ? <HealthDot status={health.status} detail={health.detail} /> : <span>Not monitored</span>}
+        {health ? <HealthDot status={health.status} detail={health.detail} /> : <span>{t('channels.card.notMonitored')}</span>}
         {inbox.kind !== 'voice' && (
           <>
             <span aria-hidden>·</span>
-            <span className="truncate">{inbox.entityName || 'All entities'}</span>
+            <span className="truncate">{inbox.entityName || t('channels.card.allEntities')}</span>
             {teamName && (
               <>
                 <span aria-hidden>·</span>
@@ -131,7 +138,7 @@ function InboxCard({
             {inbox.aiDefault && (
               <>
                 <span aria-hidden>·</span>
-                <span>AI {inbox.aiDefault}</span>
+                <span>{t(inbox.aiDefault === 'on' ? 'channels.card.aiOn' : 'channels.card.aiOff')}</span>
               </>
             )}
           </>
@@ -155,7 +162,7 @@ function InboxCard({
         >
           {test === 'running' ? (
             <span className="inline-flex items-center gap-1.5">
-              <Loader2 size={12} className="animate-spin" aria-hidden /> Testing…
+              <Loader2 size={12} className="animate-spin" aria-hidden /> {t('channels.card.testing')}
             </span>
           ) : (
             test.text
@@ -166,15 +173,15 @@ function InboxCard({
       <div className="mt-auto flex flex-wrap items-center gap-2 pt-0.5">
         {editable && (
           <button type="button" className={btn} onClick={onSettings}>
-            <Settings2 size={13} aria-hidden /> Settings
+            <Settings2 size={13} aria-hidden /> {t('channels.card.settings')}
           </button>
         )}
         <button type="button" className={btn} onClick={onTest} disabled={test === 'running'}>
-          <Plug size={13} aria-hidden /> Test
+          <Plug size={13} aria-hidden /> {t('channels.card.test')}
         </button>
         {editable && inbox.kind === 'wa_qr' && (
           <button type="button" className={btn} onClick={onPair}>
-            <QrCode size={13} aria-hidden /> Pair
+            <QrCode size={13} aria-hidden /> {t('channels.card.pair')}
           </button>
         )}
         {editable && (
@@ -183,9 +190,9 @@ function InboxCard({
             onClick={onDelete}
             className="ml-auto inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] font-semibold transition-colors hover:bg-red/10"
             style={{ color: 'var(--red-ink)' }}
-            aria-label={`Delete ${inbox.name}`}
+            aria-label={t('channels.card.deleteNamed', { name })}
           >
-            <Trash2 size={13} aria-hidden /> Delete
+            <Trash2 size={13} aria-hidden /> {t('common.actions.delete')}
           </button>
         )}
       </div>
@@ -193,7 +200,15 @@ function InboxCard({
   )
 }
 
+const DELETE_NOTE: Partial<Record<InboxKind, MessageKey>> = {
+  voice: 'channels.page.deleteVoice',
+  website: 'channels.page.deleteWebsite',
+  wa_qr: 'channels.page.deleteQr',
+}
+
 export function ChannelsSettings() {
+  const t = useT()
+  const f = useFormat()
   const [snap, setSnap] = useState<InboxesSnapshot | null>(null)
   const [health, setHealth] = useState<ChannelHealthPayload | null>(null)
   const [filter, setFilter] = useState<ChannelFilter>('all')
@@ -225,14 +240,15 @@ export function ChannelsSettings() {
   const counts = useMemo(() => {
     const c: Partial<Record<ChannelFilter, number>> = { all: inboxes.length }
     for (const i of inboxes) {
-      const f = kindMeta(i.kind).filter
-      c[f] = (c[f] ?? 0) + 1
+      const k = kindMeta(i.kind).filter
+      c[k] = (c[k] ?? 0) + 1
     }
     return c
   }, [inboxes])
   const visible = filter === 'all' ? inboxes : inboxes.filter((i) => kindMeta(i.kind).filter === filter)
   const voiceInbox = inboxes.find((i) => i.kind === 'voice') ?? null
-  const teamName = (id: number | null) => (id == null ? undefined : snap?.teams.find((t) => t.id === id)?.name)
+  const teamName = (id: number | null) => (id == null ? undefined : snap?.teams.find((tm) => tm.id === id)?.name)
+  const activeFilter = FILTERS.find((x) => x.id === filter)
 
   const open = (kind: InboxKind | null, inbox: Inbox | null, step: Step) =>
     setDrawer({ kind, inbox, step, id: Date.now() })
@@ -243,9 +259,9 @@ export function ChannelsSettings() {
   }
 
   const runTest = async (inbox: Inbox) => {
-    setTests((t) => ({ ...t, [inbox.key]: 'running' }))
-    const r = await testInbox(inbox)
-    setTests((t) => ({ ...t, [inbox.key]: r }))
+    setTests((x) => ({ ...x, [inbox.key]: 'running' }))
+    const r = await testInbox(inbox, t)
+    setTests((x) => ({ ...x, [inbox.key]: r }))
   }
 
   const confirmDelete = async () => {
@@ -254,11 +270,11 @@ export function ChannelsSettings() {
     setDeleteError(null)
     try {
       await deleteInbox(toDelete)
-      setPageMsg(`${toDelete.name} was removed.`)
+      setPageMsg(t('channels.page.removed', { name: inboxName(toDelete, t) }))
       setToDelete(null)
       await reload()
     } catch (e) {
-      setDeleteError(errText(e))
+      setDeleteError(errText(e, t))
     } finally {
       setDeleting(false)
     }
@@ -274,13 +290,13 @@ export function ChannelsSettings() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <PageHeader
-        eyebrow="Channels"
-        title="Inboxes"
-        subtitle="Every number, mailbox and widget your team answers from."
+        eyebrow={t('shell.groups.channels')}
+        title={t('channels.page.title')}
+        subtitle={t('channels.page.subtitle')}
         actions={
           canManage ? (
             <Button onClick={() => open(null, null, 1)}>
-              <Plus size={14} aria-hidden /> Add inbox
+              <Plus size={14} aria-hidden /> {t('channels.page.addInbox')}
             </Button>
           ) : undefined
         }
@@ -294,7 +310,7 @@ export function ChannelsSettings() {
         )}
         {snap && snap.failed.length > 0 && (
           <div className="rounded-lg border border-amber/40 bg-amber/10 px-3 py-2 text-[12.5px]" style={{ color: 'var(--amber-ink)' }}>
-            Couldn&apos;t load {snap.failed.join(', ')} — is the API running? The rest is shown below.
+            {t('channels.page.loadFailed', { sources: f.list(snap.failed.map((k) => t(k))) })}
           </div>
         )}
 
@@ -302,28 +318,28 @@ export function ChannelsSettings() {
         <section className="flex flex-col gap-3" aria-labelledby="connected-h">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h2 id="connected-h" className="display text-[22px] leading-tight text-text-heading">
-              Connected
+              {t('channels.page.connected')}
             </h2>
             {snap && (
               <span className="text-[12.5px] text-text-muted">
-                {inboxes.length} inbox{inboxes.length === 1 ? '' : 'es'}
+                {t('channels.page.inboxCount', { count: inboxes.length })}
               </span>
             )}
           </div>
 
           {inboxes.length > 0 && (
-            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by channel">
-              {FILTERS.filter((f) => f.id === 'all' || counts[f.id]).map((f) => (
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label={t('channels.page.filterByChannel')}>
+              {FILTERS.filter((x) => x.id === 'all' || counts[x.id]).map((x) => (
                 <button
-                  key={f.id}
+                  key={x.id}
                   type="button"
-                  aria-pressed={filter === f.id}
-                  onClick={() => setFilter(f.id)}
-                  className={chip(filter === f.id)}
+                  aria-pressed={filter === x.id}
+                  onClick={() => setFilter(x.id)}
+                  className={chip(filter === x.id)}
                 >
-                  {f.logo && <ChannelLogo channel={f.logo} size={13} variant={filter === f.id ? 'mono' : 'mark'} title="" />}
-                  {f.label}
-                  <span className={filter === f.id ? 'opacity-70' : 'text-text-faint'}>{counts[f.id] ?? 0}</span>
+                  {x.logo && <ChannelLogo channel={x.logo} size={13} variant={filter === x.id ? 'mono' : 'mark'} title="" />}
+                  {filterLabel(x, t)}
+                  <span className={filter === x.id ? 'opacity-70' : 'text-text-faint'}>{f.number(counts[x.id] ?? 0)}</span>
                 </button>
               ))}
             </div>
@@ -331,15 +347,12 @@ export function ChannelsSettings() {
 
           {!snap ? (
             <div className="flex items-center gap-2 py-8 text-[12.5px] text-text-muted">
-              <Loader2 size={14} className="animate-spin" aria-hidden /> Loading inboxes…
+              <Loader2 size={14} className="animate-spin" aria-hidden /> {t('channels.page.loading')}
             </div>
           ) : inboxes.length === 0 ? (
             <div className="flex flex-col items-start gap-2 rounded-xl border border-dashed border-line-strong px-5 py-7">
-              <span className="display text-[19px] text-text-heading">No inboxes yet</span>
-              <p className="max-w-[560px] text-[12.5px] leading-relaxed text-text-muted">
-                Pick a channel below to connect your first number, mailbox or website chat. Until then every channel
-                runs in sandbox — messages are stored locally and nothing is sent.
-              </p>
+              <span className="display text-[19px] text-text-heading">{t('channels.page.emptyTitle')}</span>
+              <p className="max-w-[560px] text-[12.5px] leading-relaxed text-text-muted">{t('channels.page.emptyBody')}</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2 min-[1360px]:grid-cols-3">
@@ -364,16 +377,16 @@ export function ChannelsSettings() {
               ))}
               {visible.length === 0 && (
                 <div className="rounded-xl border border-dashed border-line-strong px-4 py-6 text-[12.5px] text-text-muted">
-                  No {FILTERS.find((f) => f.id === filter)?.label} inboxes.
+                  {t('channels.page.noneOfKind', { channel: activeFilter ? filterLabel(activeFilter, t) : filter })}
                 </div>
               )}
               {canManage && filter === 'all' && (
                 <button
                   type="button"
                   onClick={() => document.getElementById('add-channel-h')?.scrollIntoView({ behavior: 'smooth' })}
-                  className="flex min-h-[120px] cursor-pointer items-center justify-center rounded-xl border border-dashed border-line-strong px-4 text-[12.5px] text-text-muted transition-colors hover:bg-fill-subtle hover:text-text-high"
+                  className="flex min-h-[120px] cursor-pointer items-center justify-center rounded-xl border border-dashed border-line-strong px-4 text-center text-[12.5px] text-text-muted transition-colors hover:bg-fill-subtle hover:text-text-high"
                 >
-                  Pick a block below to add an inbox
+                  {t('channels.page.pickBlock')}
                 </button>
               )}
             </div>
@@ -384,21 +397,19 @@ export function ChannelsSettings() {
         <section className="flex flex-col gap-3" aria-labelledby="add-channel-h">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h2 id="add-channel-h" className="display text-[22px] leading-tight text-text-heading">
-              Add a channel
+              {t('channels.page.addChannel')}
             </h2>
             <span className="text-[12.5px] text-text-muted">
-              {canManage
-                ? 'Pick a block — setup walks you through it.'
-                : 'You need the “Manage channel accounts” permission to add inboxes.'}
+              {canManage ? t('channels.page.addHint') : t('channels.page.addNeedsPermission')}
             </span>
           </div>
           {KIND_GROUPS.map((g) => (
             <div key={g.id} className="flex flex-col gap-2" role="group" aria-labelledby={`add-group-${g.id}`}>
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                 <h3 id={`add-group-${g.id}`} className="eyebrow">
-                  {g.label}
+                  {t(g.label)}
                 </h3>
-                <span className="text-[11.5px] text-text-faint">{g.hint}</span>
+                <span className="text-[11.5px] text-text-faint">{t(g.hint)}</span>
               </div>
               <div className="grid grid-cols-1 gap-3.5 min-[460px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {KINDS.filter((k) => k.group === g.id).map((k) => {
@@ -422,16 +433,16 @@ export function ChannelsSettings() {
                           {k.approval && <ApprovalChip />}
                         </span>
                       </span>
-                      <span className="mt-1 text-[14px] font-bold text-text-heading">{k.label}</span>
-                      <span className="text-[12px] leading-snug text-text-mid">{k.blurb}</span>
+                      <span className="mt-1 text-[14px] font-bold text-text-heading">{t(k.label)}</span>
+                      <span className="text-[12px] leading-snug text-text-mid">{t(k.blurb)}</span>
                       {k.kind === 'wa_qr' && (
                         <span className="text-[11.5px] leading-snug" style={{ color: 'var(--amber-ink)' }}>
-                          Unofficial — breaks WhatsApp&apos;s terms. Use a spare number.
+                          {t('channels.page.qrWarning')}
                         </span>
                       )}
                       {k.kind === 'voice' && (voiceInbox || voiceLocked) && (
                         <span className="text-[11.5px] text-text-muted">
-                          {voiceInbox ? 'Already connected — opens its settings' : 'Super admin only'}
+                          {voiceInbox ? t('channels.page.voiceConnected') : t('channels.page.superOnly')}
                         </span>
                       )}
                     </button>
@@ -463,15 +474,15 @@ export function ChannelsSettings() {
       <Modal
         open={!!toDelete}
         onClose={() => !deleting && setToDelete(null)}
-        title={toDelete ? `Delete ${toDelete.name}?` : 'Delete inbox?'}
+        title={toDelete ? t('channels.page.deleteTitle', { name: inboxName(toDelete, t) }) : t('channels.page.deleteTitleGeneric')}
         size="sm"
         footer={
           <>
             <Button variant="secondary" onClick={() => setToDelete(null)} disabled={deleting}>
-              Cancel
+              {t('common.actions.cancel')}
             </Button>
             <Button variant="danger" onClick={confirmDelete} disabled={deleting}>
-              {deleting && <Loader2 size={13} className="animate-spin" aria-hidden />} Delete inbox
+              {deleting && <Loader2 size={13} className="animate-spin" aria-hidden />} {t('channels.page.deleteConfirm')}
             </Button>
           </>
         }
@@ -487,13 +498,7 @@ export function ChannelsSettings() {
         )}
         {toDelete && (
           <p className="text-[13px] leading-relaxed text-text-mid">
-            {toDelete.kind === 'voice'
-              ? 'This clears the SIP credentials saved here. Any values in backend/.env stay in force.'
-              : toDelete.kind === 'website'
-                ? 'The embed stops working on your site. Its conversations are kept in the inbox.'
-                : toDelete.kind === 'wa_qr'
-                  ? 'The phone is unpaired and the inbox removed. Its conversations stay, back in sandbox.'
-                  : 'The inbox is removed. Its conversations stay, back in sandbox.'}
+            {t(DELETE_NOTE[toDelete.kind] ?? 'channels.page.deleteDefault')}
           </p>
         )}
       </Modal>

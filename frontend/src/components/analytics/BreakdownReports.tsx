@@ -5,6 +5,7 @@ import { Download } from 'lucide-react'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { channelLabel } from '@/components/ui/ChannelLogo'
 import { authHeaders } from '@/lib/auth'
+import { useFormat, useT } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -50,6 +51,8 @@ interface ReportPayload {
 }
 
 export function BreakdownReports({ days, entityQ }: { days: number; entityQ: string }) {
+  const t = useT()
+  const f = useFormat()
   const [data, setData] = useState<ReportPayload | null>(null)
   const [failed, setFailed] = useState(false)
 
@@ -115,8 +118,8 @@ export function BreakdownReports({ days, entityQ }: { days: number; entityQ: str
         right={
           <button
             onClick={() => download(report)}
-            title={`Download ${title} as CSV`}
-            aria-label={`Download ${title} as CSV`}
+            title={t('analytics.reports.downloadCsv', { title })}
+            aria-label={t('analytics.reports.downloadCsv', { title })}
             className="inline-flex cursor-pointer items-center gap-1 font-semibold text-text-mid transition-colors hover:text-text-high"
           >
             <Download size={12} aria-hidden /> CSV
@@ -154,7 +157,7 @@ export function BreakdownReports({ days, entityQ }: { days: number; entityQ: str
                         ci === 0 ? 'text-left font-semibold text-text-high' : 'text-right tabular-nums text-text-mid'
                       }`}
                     >
-                      {cell}
+                      {typeof cell === 'number' ? f.number(cell) : cell}
                     </td>
                   ))}
                 </tr>
@@ -169,40 +172,53 @@ export function BreakdownReports({ days, entityQ }: { days: number; entityQ: str
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line pb-2">
-        <h2 className="display text-[22px] leading-tight text-text-heading">Breakdowns</h2>
-        <span className="text-[12.5px] text-text-muted">
-          Who handled what — conversations touched in the last {data.days} days
-        </span>
+        <h2 className="display text-[22px] leading-tight text-text-heading">{t('analytics.reports.title')}</h2>
+        <span className="text-[12.5px] text-text-muted">{t('analytics.reports.subtitle', { count: data.days })}</span>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
         <Section
-          title="By agent"
+          title={t('analytics.reports.byAgent')}
           report="agents"
-          head={['Agent', 'Conversations', 'Resolved', 'Sent']}
+          head={[
+            t('analytics.reports.agent'),
+            t('analytics.reports.conversations'),
+            t('analytics.reports.resolved'),
+            t('analytics.reports.sent'),
+          ]}
           rows={data.agents.map((a) => [a.name, a.conversations, a.resolved, a.messagesSent])}
-          empty="No conversations in this window."
+          empty={t('analytics.reports.empty')}
         />
         <Section
-          title="By team"
+          title={t('analytics.reports.byTeam')}
           report="teams"
-          head={['Team', 'Conversations', 'Open', 'Resolved']}
-          rows={data.teams.map((t) => [t.name, t.conversations, t.open, t.resolved])}
-          empty="No conversations in this window."
+          head={[
+            t('analytics.reports.team'),
+            t('analytics.reports.conversations'),
+            t('analytics.reports.open'),
+            t('analytics.reports.resolved'),
+          ]}
+          rows={data.teams.map((tm) => [tm.name, tm.conversations, tm.open, tm.resolved])}
+          empty={t('analytics.reports.empty')}
         />
         <Section
-          title="By label"
+          title={t('analytics.reports.byLabel')}
           report="labels"
-          head={['Label', 'Conversations']}
+          head={[t('analytics.reports.label'), t('analytics.reports.conversations')]}
           rows={data.labels.map((l) => [l.name, l.conversations])}
-          empty="Nothing labelled yet."
+          empty={t('analytics.reports.emptyLabels')}
         />
         <Section
-          title="By channel"
+          title={t('analytics.reports.byChannel')}
           report="channels"
-          head={['Channel', 'Conversations', 'Received', 'Sent']}
+          head={[
+            t('common.fields.channel'),
+            t('analytics.reports.conversations'),
+            t('analytics.reports.received'),
+            t('analytics.reports.sent'),
+          ]}
           rows={data.channels.map((c) => [channelLabel(c.name), c.conversations, c.in, c.out])}
-          empty="No conversations in this window."
+          empty={t('analytics.reports.empty')}
         />
       </div>
     </div>
