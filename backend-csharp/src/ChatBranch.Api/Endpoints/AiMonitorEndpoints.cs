@@ -181,12 +181,14 @@ public static class AiMonitorEndpoints
 
         // ---- manual worker pass (tests / live checks) ---------------------------
         app.MapPost("/api/ai/monitor/tick", async (AppDbContext db, ClaimsPrincipal me,
-            AiGate gate, AiFollowUpService followUps) =>
+            AiGate gate, AiFollowUpService followUps, ChatBranch.Data.Bookings.BookingService bookings) =>
         {
             if (!await Can(db, me, BehaviourCap)) return Forbidden(BehaviourCap);
             var autosent = gate.ProcessDue();
             var f = followUps.Tick();
-            return Results.Ok(new { autosent, followups = f.Submitted, considered = f.Considered });
+            var released = bookings.Housekeep();
+            return Results.Ok(new { autosent, followups = f.Submitted, considered = f.Considered,
+                bookings_released = released });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- bulk decisions -------------------------------------------------------
@@ -394,6 +396,13 @@ public static class AiMonitorEndpoints
                 }).ToList();
             }
 
+        // calendar bookings the draft's tools reserved (approving makes them)
+        var actionsByDraft = rows.ToDictionary(r => r.Id, r => AiPendingAction.From(r.Context));
+        var bookingIds = actionsByDraft.Values.SelectMany(a => a).Select(a => a.BookingId).Distinct().ToList();
+        var bookingRows = bookingIds.Count == 0
+            ? new Dictionary<int, Booking>()
+            : await db.Bookings.AsNoTracking().Where(b => bookingIds.Contains(b.Id)).ToDictionaryAsync(b => b.Id);
+
         var now = clock.GetUtcNow().UtcDateTime;
         var scoping = new ScopingService(db);
         return rows.Select(d =>
@@ -439,6 +448,7 @@ public static class AiMonitorEndpoints
                 error = d.Error,
                 superseded = d.Status == AiDraftStatus.Pending && lastHuman is DateTime lh && lh > d.CreatedAt,
                 recent = d.ThreadId is int rt && recentByThread.TryGetValue(rt, out var rec) ? rec : null,
+                bookings = BookingsEndpoints.MonitorItems(actionsByDraft[d.Id], bookingRows),
             };
         }).ToList();
     }

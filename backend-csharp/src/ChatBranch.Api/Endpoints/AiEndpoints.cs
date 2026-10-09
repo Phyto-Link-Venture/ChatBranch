@@ -221,6 +221,9 @@ public static class AiEndpoints
             // what may be sent ("" when a reply check held it back); `draft` is
             // what the model wrote either way, `meta` the audit trail.
             var r = await assistant.GenerateReplyAsync(thread, applyOutcome: false);
+            // a preview is never delivered through the AI gate, so it books nothing:
+            // give back whatever its calendar tools reserved
+            assistant.ReleasePending(r, "Operator preview — not sent through the AI, nothing was booked.");
             return Results.Ok(new { reply = r.Text, draft = r.Draft, action = r.Action, reason = r.Reason,
                 meta = r.ToMeta() });
         }).RequireAuthorization(AuthPolicies.Authenticated);
