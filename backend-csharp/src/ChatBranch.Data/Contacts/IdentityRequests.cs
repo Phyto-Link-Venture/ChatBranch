@@ -560,6 +560,36 @@ public class IdentityRequestService
         if (thread != null) NoteOn(thread, note);
     }
 
+    /// <summary>
+    /// The customer never answered: a request still asking 24 hours after its
+    /// last ask stops — note, chat pending, people notified. Driven by the
+    /// lookup worker (and safe to call any time). Returns how many it closed.
+    /// </summary>
+    public int SweepStale()
+    {
+        var cutoff = Now.AddHours(-StaleHours);
+        var stale = _db.IdentityRequests
+            .Where(r => r.State == IdentityStates.Asking && r.LastAskedAt != null && r.LastAskedAt < cutoff)
+            .OrderBy(r => r.Id).Take(200).ToList();
+        var closed = 0;
+        foreach (var req in stale)
+        {
+            try
+            {
+                var thread = _db.Threads.FirstOrDefault(t => t.Id == req.ThreadId);
+                if (thread == null || thread.ContactId != null)
+                {
+                    Close(req, IdentityStates.Cancelled, null);
+                    continue;
+                }
+                GiveUp(req, thread, $"The customer didn't say who they are within {StaleHours} hours.");
+                closed++;
+            }
+            catch { /* one bad row never stops the sweep */ }
+        }
+        return closed;
+    }
+
     /// <summary>Close an open request without an outcome (opt-out, linked by hand).</summary>
     public void Close(IdentityRequest req, string state, string? note)
     {

@@ -263,6 +263,32 @@ public class IdentityRequestTests : IdentityApiBase, IClassFixture<IdentityFacto
     }
 
     [Fact]
+    public void A_customer_who_never_answers_is_left_for_a_person_after_a_day()
+    {
+        using var t = new TestDb();
+        var clock = new ManualClock(DateTimeOffset.UtcNow);
+        var sc = new ChatBranch.Data.ScopingService(t.Db);
+        var threads = new ChatBranch.Data.Stores.ThreadStore(t.Db, sc);
+        var thread = threads.GetOrCreateThread("telegram", "TG-silent");
+        var msg = threads.AppendMessage(thread, MessageDirection.In, MessageSource.Customer, "hello", status: "received");
+        var svc = new IdentityRequestService(t.Db, sc, threads, sender: null, clock);
+        Assert.True(IdentityRequestService.Arm(t.Db, thread, "ask"));
+        t.Db.SaveChanges();
+        Assert.Equal(IdentityStates.Asking, svc.OnInbound(thread, msg)!.State);   // queued ask (no sender)
+
+        clock.Advance(TimeSpan.FromHours(23));
+        Assert.Equal(0, svc.SweepStale());
+        clock.Advance(TimeSpan.FromHours(2));
+        Assert.Equal(1, svc.SweepStale());
+        var req = t.Db.IdentityRequests.Single();
+        Assert.Equal(IdentityStates.GaveUp, req.State);
+        Assert.Contains("within 24 hours", req.Note);
+        Assert.Equal(ThreadStatus.Pending, t.Db.Threads.Single().Status);
+        // the queued ask that never went out is cancelled
+        Assert.Equal(JobStatus.Cancelled, t.Db.OutboundJobs.Single().Status);
+    }
+
+    [Fact]
     public async Task On_WhatsApp_a_name_is_enough_because_the_number_is_known()
     {
         await Authed();

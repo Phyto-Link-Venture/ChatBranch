@@ -72,13 +72,16 @@ public static class ContactIdentityEndpoints
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("contacts.manage");
 
         // one pass of the WhatsApp lookup queue (the worker's manual seam)
-        app.MapPost("/api/contacts/identity-checks/run", async (WhatsAppNumberChecker checker, CancellationToken ct) =>
+        app.MapPost("/api/contacts/identity-checks/run", async (WhatsAppNumberChecker checker,
+            IdentityRequestService identity, CancellationToken ct) =>
         {
             var p = await checker.RunOnceAsync(ct);
             return Results.Ok(new
             {
                 @checked = p.Checked, cached = p.Cached, unknown = p.Unknown,
                 rate_limited = p.RateLimited, remaining = p.Remaining,
+                // "who are you?" requests nobody answered for 24 hours, closed
+                stale_requests_closed = identity.SweepStale(),
             });
         }).RequireAuthorization(AuthPolicies.AdminPlus).RequireCapability("contacts.manage");
 
