@@ -1,4 +1,6 @@
+using ChatBranch.Data.Audit;
 using ChatBranch.Data.Flows;
+using ChatBranch.Domain;
 
 namespace ChatBranch.Api.Workers;
 
@@ -28,6 +30,9 @@ public class FlowEngineWorker : BackgroundService
             try
             {
                 using var scope = _scopes.CreateScope();
+                // Everything a tick writes to the activity log is the flow
+                // engine's doing, not "system".
+                using var audit = AuditContext.Begin(new AuditContext { Source = AuditSources.Flow, Actor = "flow" });
                 var engine = scope.ServiceProvider.GetRequiredService<FlowEngine>();
                 engine.ResumeDueRuns();
                 engine.EvaluateTriggers();

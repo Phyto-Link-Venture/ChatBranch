@@ -98,6 +98,9 @@ public class Message
     public string Status { get; set; } = "sent";
     public string MediaType { get; set; } = "";
     public string MediaPath { get; set; } = "";
+    /// <summary>Provider failure detail for a failed delivery ("131047: Re-engagement
+    /// message"), written by the WhatsApp Cloud status webhook. "" = none.</summary>
+    public string Error { get; set; } = "";
     public DateTime CreatedAt { get; set; }
 }
 

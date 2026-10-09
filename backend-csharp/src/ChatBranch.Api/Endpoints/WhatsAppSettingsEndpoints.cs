@@ -187,6 +187,8 @@ public static class WhatsAppSettingsEndpoints
         Func<HttpContext, AppDbContext, ScopingService, ClaimsPrincipal, Task<IResult>> saveSettings =
             async (ctx, db, sc, me) =>
         {
+            // Settings → App & provider keys: capability-gated (superadmin always).
+            if (await SettingsEndpoints.RequireCapability(db, me, "app_keys.manage") is { } denied) return denied;
             var body = await ReadBody(ctx);
             var patch = new Dictionary<string, string>();
             foreach (var key in GlobalKeys)
@@ -225,8 +227,8 @@ public static class WhatsAppSettingsEndpoints
                         $"keys: {string.Join(", ", patch.Keys.OrderBy(k => k))}");
             return Results.Ok(await GlobalPayload(db, sc));
         };
-        app.MapPost("/api/whatsapp/settings", saveSettings).RequireAuthorization(AuthPolicies.SuperAdmin);
-        app.MapPut("/api/whatsapp/settings", saveSettings).RequireAuthorization(AuthPolicies.SuperAdmin);
+        app.MapPost("/api/whatsapp/settings", saveSettings).RequireAuthorization(AuthPolicies.Authenticated);
+        app.MapPut("/api/whatsapp/settings", saveSettings).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- routing rules (client operating model) ------------------------
         app.MapGet("/api/whatsapp/routing-rules", async (string? entity, AppDbContext db,
@@ -236,10 +238,12 @@ public static class WhatsAppSettingsEndpoints
             return Results.Ok(RulesPayload(sc, entityId));
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
-        // PUT = admin+ (matches the assignments gating).
+        // PUT = the account_assignment.manage capability (matches the assignments gating).
         app.MapPut("/api/whatsapp/routing-rules", async (string? entity, HttpContext ctx,
             AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
+            if (await SettingsEndpoints.RequireCapability(db, me, AssignmentsEndpoints.Capability) is { } denied)
+                return denied;
             var entityId = await InboxEndpoints.EntityId(db, entity);
             var body = await ReadBody(ctx);
             var patch = new Dictionary<string, string>();
@@ -290,6 +294,44 @@ public static class WhatsAppSettingsEndpoints
                 patch["support_contact"] = trimmed.Length > 200 ? trimmed[..200] : trimmed;
             }
 
+            // STOP / START keywords (organization-wide — compliance words are not
+            // per-outlet): the built-ins always apply, these ADD to them. A list
+            // or a comma/newline string; stored as a JSON list of the extras.
+            var keywordPatch = new Dictionary<string, string>();
+            foreach (var (key, builtins) in new[]
+                     {
+                         (OptOut.OutKey, OptOut.DefaultOutWords), (OptOut.InKey, OptOut.DefaultInWords),
+                     })
+            {
+                if (!Has(body, key)) continue;
+                var el = body.GetProperty(key);
+                var raw = el.ValueKind switch
+                {
+                    JsonValueKind.Array => el.GetRawText(),
+                    JsonValueKind.String => el.GetString() ?? "",
+                    JsonValueKind.Null => "",
+                    _ => null,
+                };
+                if (raw == null)
+                    return Results.Json(new { detail = $"{key} must be a list of words (or a comma-separated string)." },
+                                        statusCode: 400);
+                var extras = OptOut.ParseList(raw).Where(w => !builtins.Contains(w)).ToList();
+                if (extras.Any(w => w.Length > 40))
+                    return Results.Json(new { detail = $"{key}: keywords are single short words or phrases (40 characters max)." },
+                                        statusCode: 400);
+                keywordPatch[key] = extras.Count == 0 ? "" : JsonSerializer.Serialize(extras);
+            }
+            if (keywordPatch.Count > 0)
+            {
+                string Words(string key) => keywordPatch.TryGetValue(key, out var v) ? v : sc.SettingValue(key);
+                var outs = OptOut.ParseList(Words(OptOut.OutKey)).Concat(OptOut.DefaultOutWords);
+                var clash = OptOut.ParseList(Words(OptOut.InKey)).Concat(OptOut.DefaultInWords)
+                    .Intersect(outs).ToList();
+                if (clash.Count > 0)
+                    return Results.Json(new { detail = $"A keyword can't both opt out and opt in: {string.Join(", ", clash)}." },
+                                        statusCode: 400);
+            }
+
             var queuePatch = new Dictionary<string, int>();
             foreach (var key in new[] { "queue_min_gap_s", "queue_max_gap_s" })
             {
@@ -320,17 +362,18 @@ public static class WhatsAppSettingsEndpoints
                 foreach (var (key, value) in patch) sc.SetSetting(key, value, entityId);
                 foreach (var (key, value) in queuePatch)
                     sc.SetSetting(key, value.ToString(), entityId);
+                foreach (var (key, value) in keywordPatch) sc.SetSetting(key, value);   // org-wide
             }
             catch (InvalidOperationException ex)
             {
                 return Results.Json(new { detail = ex.Message }, statusCode: 400);
             }
 
-            var touched = patch.Keys.Concat(queuePatch.Keys).OrderBy(k => k);
+            var touched = patch.Keys.Concat(queuePatch.Keys).Concat(keywordPatch.Keys).OrderBy(k => k);
             await Audit(db, ctx, me, "settings.update", "routing-rules",
                         $"keys: {string.Join(", ", touched)}");
             return Results.Ok(RulesPayload(sc, entityId));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- voice (Twilio SIP trunk) settings -----------------------------
         // Read = any authenticated role, password masked. The trunk id itself
@@ -342,7 +385,7 @@ public static class WhatsAppSettingsEndpoints
 
         // ---- approved templates --------------------------------------------
         app.MapGet("/api/whatsapp/templates", async (string? account_id, string? wa_id,
-            AppDbContext db, ScopingService sc, FlowEngine flows) =>
+            AppDbContext db, ScopingService sc, FlowEngine flows, WhatsAppTemplateCatalog catalog) =>
         {
             var account = await TemplateAccount(db, account_id);
             var bindings = TemplateBindings(sc, BindingsScope(account));
@@ -359,17 +402,14 @@ public static class WhatsAppSettingsEndpoints
                 if (contact != null) resolvedVars = SafeVariables(flows, contact);
             }
 
-            var templates = new List<object>();
-            foreach (var t in DemoTemplates)
-                templates.Add(TemplateDto(t.Name, t.Language, t.Category, t.Status, t.Body,
-                                          new List<object>(), custom: false, bindings, resolvedVars));
-            foreach (var t in CustomTemplates(sc))
-                templates.Add(TemplateDto(t.Name, t.Language, t.Category, t.Status, t.Body,
-                                          t.Buttons, custom: true, bindings, resolvedVars));
-
-            // NOTE: live listing from Meta's registry is not ported yet — a linked
-            // WABA reports sandbox=false but still serves the locally known set.
-            return Results.Ok(new { templates, sandbox = account == null });
+            // A live WABA lists Meta's registry (GET /{waba_id}/message_templates,
+            // paged — always fresh here, which also refreshes the send-path cache)
+            // merged with the operator's custom ones; sandbox = demo + custom.
+            var (defs, _, error) = await catalog.ListAsync(account, fresh: true);
+            var templates = defs.Select(t => TemplateDto(t, bindings, resolvedVars)).ToList();
+            return error == null
+                ? Results.Ok(new { templates, sandbox = account == null })
+                : Results.Ok(new { templates, sandbox = account == null, error = $"Meta template listing failed: {error}" });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- contact → account assignments ---------------------------------
@@ -423,17 +463,17 @@ public static class WhatsAppSettingsEndpoints
             Results.Ok(await ChannelsHealthPayload(db, sc, await InboxEndpoints.EntityId(db, entity))))
             .RequireAuthorization(AuthPolicies.Authenticated);
 
-        // POST = the dashboard card's "Check now" (admin+). There is no live
-        // prober in this port — the Cloud/SMTP/Telegram probes live in the
-        // Django checker thread — so this stamps the check time and re-reads
-        // the monitor state instead of opening sockets. Same payload as the
-        // GET, which is what lib/channelHealth.ts expects back.
+        // POST = the dashboard card's "Check now" (admin+): probe the accounts
+        // this caller's card shows RIGHT NOW (ChannelHealthProber — Graph ping,
+        // getMe/getWebhookInfo, SMTP login; the periodic HealthProbeWorker runs
+        // the same pass every WHATSAPP_HEALTH_INTERVAL s), then answer with the
+        // GET payload, which is what lib/channelHealth.ts expects back.
         app.MapPost("/api/whatsapp/channels/health", async (string? entity, HttpContext ctx,
-            AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
+            AppDbContext db, ScopingService sc, ClaimsPrincipal me, ChannelHealthProber prober) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
-            try { sc.SetSetting(CheckedAtKey, Iso(DateTime.UtcNow)); }
-            catch { /* read-only DB: still answer with the current state */ }
+            try { await prober.RunAsync(await HealthScopeIds(db, entityId), includeGlobalEmail: true, ctx.RequestAborted); }
+            catch { /* a failed probe pass still answers with the current state */ }
             await Audit(db, ctx, me, "account.health_check", "channels",
                         "manual run from dashboard");
             return Results.Ok(await ChannelsHealthPayload(db, sc, entityId));
@@ -442,7 +482,7 @@ public static class WhatsAppSettingsEndpoints
         // ---- conversation-account recovery funnel --------------------------
         // Conversation-role accounts currently banned/disconnected with at least
         // one assigned contact — the dashboard's one-click recovery list.
-        app.MapGet("/api/whatsapp/recovery", async (AppDbContext db) =>
+        app.MapGet("/api/whatsapp/recovery", async (AppDbContext db, ScopingService sc) =>
         {
             var assigned = await db.AccountAssignments.AsNoTracking()
                 .Where(a => a.Channel == Channels.WhatsApp)
@@ -454,6 +494,7 @@ public static class WhatsAppSettingsEndpoints
                 .Where(a => a.Channel == Channels.WhatsApp && IneligibleStatuses.Contains(a.HealthStatus))
                 .OrderBy(a => a.Id).ToListAsync();
 
+            var routing = new Routing(db, sc);
             var accounts = down
                 .Where(a => AccountRole(a) == "conversation")
                 .Select(a => new
@@ -462,6 +503,11 @@ public static class WhatsAppSettingsEndpoints
                     name = a.Name,
                     health = a.HealthStatus,
                     affected = assigned.GetValueOrDefault(a.Id, 0),
+                    // what the one-click button will do for THIS account's outlet
+                    recovery_mode = Recovery.Mode(sc, a.EntityId),
+                    recovery_template = Recovery.Template(sc, a.EntityId),
+                    can_recover = Recovery.Template(sc, a.EntityId) != ""
+                        && routing.Eligible(Channels.WhatsApp, RouteNeed.Template, a.EntityId).Count > 0,
                 })
                 .Where(a => a.affected >= 1)
                 .ToList();
@@ -474,57 +520,24 @@ public static class WhatsAppSettingsEndpoints
         // recovery_mode="auto" (health.enqueue_recovery). The jobs ride the
         // outbound queue, which routes them through a reminder/Cloud account.
         app.MapPost("/api/whatsapp/recovery/{accountId:int}", async (int accountId, HttpContext ctx,
-            AppDbContext db, ScopingService sc, QueueService queue, ClaimsPrincipal me) =>
+            AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var row = await db.ChannelAccounts
                 .FirstOrDefaultAsync(a => a.Id == accountId && a.Channel == Channels.WhatsApp);
             if (row == null) return Results.NotFound(new { detail = "Account not found." });
 
-            var template = sc.SettingValue("recovery_template", row.EntityId);
-            if (template == "")
-                return Results.Json(new
-                {
-                    detail = "No recovery template configured — set 'recovery_template' " +
-                             "under Settings → Routing rules first.",
-                }, statusCode: 409);
-
-            // Templates NEVER fail over to Baileys: the carrier has to be a
-            // healthy Cloud number (routing.eligible_accounts provider="cloud").
-            var carriers = (await db.ChannelAccounts.AsNoTracking()
-                    .Where(a => a.Channel == Channels.WhatsApp && a.Provider == Providers.Cloud)
-                    .ToListAsync())
-                .Where(a => IsConfigured(a) && !IneligibleStatuses.Contains(a.HealthStatus))
-                .ToList();
-            if (carriers.Count == 0)
-                return Results.Json(new
-                {
-                    detail = "No healthy reminder (Cloud API) account to carry the " +
-                             "recovery template — reconnect one under Settings → Channels.",
-                }, statusCode: 409);
-
-            var affected = await db.AccountAssignments.AsNoTracking().Include(a => a.Contact)
-                .Where(a => a.AccountId == accountId && a.Channel == Channels.WhatsApp)
-                .ToListAsync();
-            var queued = 0;
-            foreach (var asg in affected)
-            {
-                var phone = asg.Contact?.Phone ?? "";
-                if (phone == "") continue; // nothing to address the template to
-                // Account resolved AT SEND TIME by the queue (health failover),
-                // so the job carries no pinned account.
-                queue.Enqueue(Channels.WhatsApp, JobKind.Template, phone,
-                    new Dictionary<string, object?>
-                    {
-                        ["name"] = template,
-                        ["language"] = "en",
-                        ["variables"] = new Dictionary<string, string>(),
-                    }, contactId: asg.ContactId);
-                queued++;
-            }
+            // Same path as recovery_mode = auto (Recovery.Enqueue): one template
+            // job per assigned contact (wa_id-keyed, deduped per 24h, opted-out
+            // skipped). Jobs carry no account — the queue routes each one AT SEND
+            // TIME to a healthy Cloud number; templates never go out on Baileys.
+            var result = Recovery.Enqueue(db, sc, row);
+            if (result.Error != null)
+                return Results.Json(new { detail = result.Error }, statusCode: 409);
 
             await Audit(db, ctx, me, "recovery.start", $"whatsapp:{row.Name}",
-                        $"queued {queued} recovery template(s)");
-            return Results.Ok(new { queued });
+                        $"queued {result.Queued} recovery template(s)"
+                        + (result.Skipped > 0 ? $", skipped {result.Skipped}" : ""));
+            return Results.Ok(new { queued = result.Queued, skipped = result.Skipped, affected = result.Affected });
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         // ---- account registry (create / edit / delete / test) ---------------
@@ -579,8 +592,15 @@ public static class WhatsAppSettingsEndpoints
                 CreatedAt = DateTime.UtcNow,
             };
             if (ApplyDelivery(row, body) is IResult deliveryErr) return deliveryErr;
+            // inbox "who answers it" keys: owning team + AI reply default
+            if (InboxSettings.Apply(db, row, AsString(body, InboxSettings.TeamKey),
+                    AsString(body, InboxSettings.AiDefaultKey),
+                    AsString(body, InboxSettings.ReviewModeKey)) is string inboxErr)
+                return Results.Json(new { detail = inboxErr }, statusCode: 400);
             db.ChannelAccounts.Add(row);
             await db.SaveChangesAsync();
+            // a first real verdict within seconds (Cloud: Graph token ping; Baileys: no-op)
+            _ = ctx.RequestServices.GetRequiredService<ChatBranch.Api.Workers.HealthRecheck>().Schedule(row.Id);
 
             await Audit(db, ctx, me, "account.create", $"whatsapp:{row.Name}");
             await NotifyManagers(db, $"WhatsApp account linked: {row.Name}",
@@ -634,6 +654,10 @@ public static class WhatsAppSettingsEndpoints
             // per-account delivery + AI knobs (quiet hours, send pacing, voice-call
             // brain/STT) — same config JSON, no health reset either
             if (ApplyDelivery(row, body) is IResult deliveryErr) return deliveryErr;
+            if (InboxSettings.Apply(db, row, AsString(body, InboxSettings.TeamKey),
+                    AsString(body, InboxSettings.AiDefaultKey),
+                    AsString(body, InboxSettings.ReviewModeKey)) is string inboxErr)
+                return Results.Json(new { detail = inboxErr }, statusCode: 400);
 
             var entityChanged = false;
             if (Has(body, "entity"))
@@ -657,6 +681,8 @@ public static class WhatsAppSettingsEndpoints
                 row.HealthChangedAt = DateTime.UtcNow;
             }
             await db.SaveChangesAsync();
+            // …and re-probe it now, off the request, instead of at the next checker pass
+            if (credsChanged) _ = ctx.RequestServices.GetRequiredService<ChatBranch.Api.Workers.HealthRecheck>().Schedule(row.Id);
 
             if (entityChanged)
                 // Re-file this number's existing conversations under the new
@@ -723,25 +749,52 @@ public static class WhatsAppSettingsEndpoints
             return Results.Ok(new { ok = true });
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
-        // Credential check. Django proves the keys by fetching the number
-        // profile off Graph; no Graph client is ported here, so this reports
-        // the CONFIGURED + monitor state instead of opening a socket — it can
-        // say "these fields are filled in", never "Meta accepted them".
-        app.MapPost("/api/whatsapp/accounts/{id:int}/test", async (int id, AppDbContext db) =>
+        // Credential check (views.test_account): a Cloud number is proven by
+        // fetching its profile off Graph (GET /{phone_number_id}); the result
+        // moves the account's health through AccountHealth.SetStatus (success
+        // heals, an account-level Meta error degrades / disconnects / bans it).
+        // A Baileys number reports its monitor state — the gateway owns it.
+        app.MapPost("/api/whatsapp/accounts/{id:int}/test", async (int id, AppDbContext db,
+            IWhatsAppCloudClient wa, CancellationToken ct) =>
         {
-            var row = await db.ChannelAccounts.AsNoTracking()
-                .FirstOrDefaultAsync(a => a.Id == id && a.Channel == Channels.WhatsApp);
+            var row = await db.ChannelAccounts
+                .FirstOrDefaultAsync(a => a.Id == id && a.Channel == Channels.WhatsApp, ct);
             if (row == null || !IsConfigured(row))
                 return Results.Json(new { detail = "Account not configured." }, statusCode: 400);
-            var number = Cfg(row, "number");
-            return Results.Ok(new
+            if (row.Provider == Providers.Baileys || !wa.IsConfigured(row))
             {
-                ok = row.HealthStatus != Health.Disconnected && row.HealthStatus != Health.Banned,
-                display_phone_number = number != "" ? number : "",
-                verified_name = row.Name,
-                quality_rating = row.HealthStatus,
-                detail = "Credentials are present (no live provider probe in this build).",
-            });
+                var number = Cfg(row, "number");
+                return Results.Ok(new
+                {
+                    ok = row.HealthStatus != Health.Disconnected && row.HealthStatus != Health.Banned,
+                    display_phone_number = number,
+                    verified_name = row.Name,
+                    quality_rating = row.HealthStatus,
+                    detail = "Paired over WhatsApp Web — the gateway reports this number's state.",
+                });
+            }
+            var r = await wa.GetPhoneNumberAsync(row, ct);
+            if (r.Ok)
+            {
+                MetaErrors.MarkHealthy(db, row, "account test passed", actor: "user");
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(new
+                {
+                    ok = true,
+                    display_phone_number = MetaGraph.Str(r.Body, "display_phone_number"),
+                    verified_name = MetaGraph.Str(r.Body, "verified_name"),
+                    quality_rating = MetaGraph.Str(r.Body, "quality_rating"),
+                    detail = "Meta accepted the credentials.",
+                });
+            }
+            MetaErrors.ApplyToAccount(db, row, r.ErrorCode, r.ErrorSubcode, r.Detail, actor: "user");
+            await db.SaveChangesAsync(ct);
+            return Results.Json(new
+            {
+                ok = false,
+                detail = $"Meta refused the credentials: {r.Detail}",
+                health_status = row.HealthStatus,
+            }, statusCode: r.ErrorCode != null ? 400 : 502);
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- Baileys pairing control (proxied to the Node gateway) ---------
@@ -783,11 +836,14 @@ public static class WhatsAppSettingsEndpoints
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         // ---- template authoring --------------------------------------------
-        // Live templates belong to Meta's registry, which this port does not
-        // talk to yet (see the GET's note) — so writes always land in the local
-        // Setting row and `sandbox` reports whether a live WABA is linked.
+        // A live WABA (configured Cloud account with a waba_id) writes to Meta's
+        // registry: create = POST /{waba_id}/message_templates (submitted for
+        // review, status PENDING), edit = POST /{template_id}, delete = DELETE
+        // /{waba_id}/message_templates?name=…. Without one — or for an
+        // operator-made local template — writes land in the local Setting row.
+        // Variable bindings always stay local (per account scope).
         app.MapPost("/api/whatsapp/templates", async (string? account_id, HttpContext ctx,
-            AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
+            AppDbContext db, ScopingService sc, IWhatsAppCloudClient wa, ClaimsPrincipal me) =>
         {
             var body = await ReadBody(ctx);
             var name = (AsString(body, "name") ?? "").Trim().ToLowerInvariant();
@@ -822,6 +878,27 @@ public static class WhatsAppSettingsEndpoints
             var buttons = ValidButtons(body);
             if (buttons == null) return Results.Json(new { detail = ButtonsError }, statusCode: 400);
 
+            var account = await TemplateAccount(db, account_id ?? AsString(body, "account_id"));
+            if (account != null)
+            {
+                // live: submit to Meta for review
+                var created = await wa.CreateTemplateAsync(account,
+                    MetaTemplatePayload(name, language, category, templateBody, buttons, Examples(body)));
+                if (!created.Ok)
+                    return Results.Json(new { detail = $"Meta rejected the template: {created.Detail}" },
+                                        statusCode: created.ErrorCode != null ? 400 : 502);
+                WhatsAppTemplateCatalog.Invalidate(account.Id);
+                SaveBindings(sc, BindingsScope(account), name, bindings);
+                var status = MetaGraph.Str(created.Body, "status") is { Length: > 0 } st ? st.ToUpperInvariant() : "PENDING";
+                await Audit(db, ctx, me, "template.create", $"whatsapp:{name}", "meta");
+                return Results.Ok(new
+                {
+                    template = TemplateDto(name, language, category, status, templateBody, buttons, true,
+                                           new Dictionary<string, List<string>> { [name] = bindings }, null),
+                    sandbox = false,
+                });
+            }
+
             if (DemoTemplates.Any(t => t.Name == name))
                 return Results.Json(new { detail = $"A template named '{name}' already exists." },
                                     statusCode: 400);
@@ -830,7 +907,6 @@ public static class WhatsAppSettingsEndpoints
                 return Results.Json(new { detail = $"A template named '{name}' already exists." },
                                     statusCode: 400);
 
-            var account = await TemplateAccount(db, account_id ?? AsString(body, "account_id"));
             existing.Add(new CustomTemplate(name, language, category, "APPROVED", templateBody, buttons));
             SaveCustomTemplates(sc, existing);
             SaveBindings(sc, BindingsScope(account), name, bindings);
@@ -850,7 +926,8 @@ public static class WhatsAppSettingsEndpoints
         // which is what keeps an APPROVED template out of re-review.
         app.MapMethods("/api/whatsapp/templates/{name}", new[] { "PATCH" },
             async (string name, string? account_id, HttpContext ctx, AppDbContext db,
-                   ScopingService sc, ClaimsPrincipal me) =>
+                   ScopingService sc, IWhatsAppCloudClient wa, WhatsAppTemplateCatalog catalog,
+                   ClaimsPrincipal me) =>
         {
             var body = await ReadBody(ctx);
             var account = await TemplateAccount(db, account_id ?? AsString(body, "account_id"));
@@ -880,12 +957,36 @@ public static class WhatsAppSettingsEndpoints
                                         statusCode: 400);
                 var existing = CustomTemplates(sc);
                 var idx = existing.FindIndex(t => t.Name == name);
-                if (idx < 0) return Results.NotFound(new { detail = "Template not found." });
-                existing[idx] = existing[idx] with
+                if (idx >= 0)
                 {
-                    Body = templateBody, Category = category, Buttons = buttons,
-                };
-                SaveCustomTemplates(sc, existing);
+                    existing[idx] = existing[idx] with
+                    {
+                        Body = templateBody, Category = category, Buttons = buttons,
+                    };
+                    SaveCustomTemplates(sc, existing);
+                }
+                else if (account != null)
+                {
+                    // live: edit at Meta (re-enters review) — by the id the page
+                    // sent, else the registry's id for that name
+                    var templateId = AsString(body, "id") ?? "";
+                    if (templateId.Trim().Length == 0)
+                    {
+                        var (live, _) = await catalog.LiveAsync(account, fresh: true);
+                        templateId = live.FirstOrDefault(t => t.Name == name)?.Id ?? "";
+                    }
+                    if (templateId.Trim().Length == 0)
+                        return Results.NotFound(new { detail = "Template not found." });
+                    var payload = MetaTemplatePayload(name, null, category, templateBody, buttons, Examples(body));
+                    payload.Remove("name");
+                    payload.Remove("language");
+                    var edited = await wa.EditTemplateAsync(account, templateId.Trim(), payload);
+                    if (!edited.Ok)
+                        return Results.Json(new { detail = $"Meta rejected the edit: {edited.Detail}" },
+                                            statusCode: edited.ErrorCode != null ? 400 : 502);
+                    WhatsAppTemplateCatalog.Invalidate(account.Id);
+                }
+                else return Results.NotFound(new { detail = "Template not found." });
             }
 
             if (Has(body, "bindings"))
@@ -904,21 +1005,32 @@ public static class WhatsAppSettingsEndpoints
             return Results.Ok(new { ok = true });
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
-        app.MapDelete("/api/whatsapp/templates/{name}", async (string name, string? account_id,
-            HttpContext ctx, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
+        app.MapDelete("/api/whatsapp/templates/{name}", async (string name, string? account_id, string? id,
+            HttpContext ctx, AppDbContext db, ScopingService sc, IWhatsAppCloudClient wa, ClaimsPrincipal me) =>
         {
             if (DemoTemplates.Any(t => t.Name == name))
                 return Results.Json(new { detail = "Built-in demo templates can't be deleted." },
                                     statusCode: 400);
+            var account = await TemplateAccount(db, account_id);
             var existing = CustomTemplates(sc);
             var remaining = existing.Where(t => t.Name != name).ToList();
-            if (remaining.Count == existing.Count)
-                return Results.NotFound(new { detail = "Template not found." });
-            SaveCustomTemplates(sc, remaining);
-            SaveBindings(sc, BindingsScope(await TemplateAccount(db, account_id)), name,
-                         new List<string>());
+            var where = "local";
+            if (remaining.Count != existing.Count)
+                SaveCustomTemplates(sc, remaining);
+            else if (account != null)
+            {
+                // live: remove it from the WABA (every language of that name)
+                var deleted = await wa.DeleteTemplateAsync(account, name, id);
+                if (!deleted.Ok)
+                    return Results.Json(new { detail = $"Meta refused the delete: {deleted.Detail}" },
+                                        statusCode: deleted.ErrorCode != null ? 400 : 502);
+                WhatsAppTemplateCatalog.Invalidate(account.Id);
+                where = "meta";
+            }
+            else return Results.NotFound(new { detail = "Template not found." });
+            SaveBindings(sc, BindingsScope(account), name, new List<string>());
 
-            await Audit(db, ctx, me, "template.delete", $"whatsapp:{name}", "local");
+            await Audit(db, ctx, me, "template.delete", $"whatsapp:{name}", where);
             return Results.Ok(new { ok = true });
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
@@ -927,6 +1039,8 @@ public static class WhatsAppSettingsEndpoints
         app.MapPut("/api/whatsapp/assignments", async (HttpContext ctx, AppDbContext db,
             ClaimsPrincipal me) =>
         {
+            if (await SettingsEndpoints.RequireCapability(db, me, AssignmentsEndpoints.Capability) is { } denied)
+                return denied;
             var body = await ReadBody(ctx);
             var channel = (AsString(body, "channel") ?? "").Trim();
             if (channel == "") channel = Channels.WhatsApp;
@@ -989,7 +1103,7 @@ public static class WhatsAppSettingsEndpoints
                 pinned,
                 updated_at = Iso(asg.UpdatedAt),
             });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- voice (Twilio SIP trunk) writes -------------------------------
         // PUT = SUPER ADMIN, same rule as the other credential surfaces.
@@ -1030,6 +1144,19 @@ public static class WhatsAppSettingsEndpoints
                 }, statusCode: 400);
             return Results.Ok(new { ok = true, health, detail = "SIP trunk creds are set." });
         }).RequireAuthorization(AuthPolicies.Authenticated);
+    }
+
+    /// <summary>
+    /// The account ids the health card shows for this scope (the same
+    /// own-else-shared preference as <see cref="ChannelsHealthPayload"/>), so
+    /// "Check now" probes exactly what the caller sees.
+    /// </summary>
+    private static async Task<List<int>> HealthScopeIds(AppDbContext db, int? entityId)
+    {
+        var all = await db.ChannelAccounts.AsNoTracking().Select(a => new { a.Id, a.EntityId }).ToListAsync();
+        if (entityId is not int eid) return all.Select(a => a.Id).ToList();
+        var own = all.Where(a => a.EntityId == eid).Select(a => a.Id).ToList();
+        return own.Count > 0 ? own : all.Where(a => a.EntityId == null).Select(a => a.Id).ToList();
     }
 
     /// <summary>GET/POST /channels/health — views.channels_health().</summary>
@@ -1164,6 +1291,12 @@ public static class WhatsAppSettingsEndpoints
             // Settings → AI Configuration → Send Pacing
             queue_min_gap_s = IntSetting(sc, "queue_min_gap_s", QueueMinGapDefault, entityId),
             queue_max_gap_s = IntSetting(sc, "queue_max_gap_s", QueueMaxGapDefault, entityId),
+            // STOP / START (organization-wide): the effective lists, and the
+            // operator's own additions to the built-ins (what PUT takes)
+            opt_out_keywords = OptOut.ParseList(sc.SettingValue(OptOut.OutKey)),
+            opt_in_keywords = OptOut.ParseList(sc.SettingValue(OptOut.InKey)),
+            opt_out_keywords_effective = OptOut.OutWords(sc),
+            opt_in_keywords_effective = OptOut.InWords(sc),
         };
     }
 
@@ -1376,6 +1509,78 @@ public static class WhatsAppSettingsEndpoints
         };
     }
 
+    /// <summary>The picker / settings row for one catalog template (demo, custom or live).</summary>
+    private static object TemplateDto(WaTemplateDef t, Dictionary<string, List<string>> bindings,
+        Dictionary<string, string>? resolvedVars)
+    {
+        var slots = bindings.GetValueOrDefault(t.Name) ?? new List<string>();
+        List<string>? resolved = null;
+        if (resolvedVars is Dictionary<string, string> vars && slots.Any(s => s != ""))
+            resolved = slots.Select(s => s == "" ? "" : vars.GetValueOrDefault(s, "")).ToList();
+        return new
+        {
+            id = t.Id.Length > 0 ? t.Id : null,
+            name = t.Name,
+            language = t.Language,
+            category = t.Category,
+            status = t.Status,
+            body = t.Body,
+            buttons = t.Buttons.Select(b =>
+            {
+                var d = new Dictionary<string, string> { ["type"] = b.Type, ["text"] = b.Text };
+                if (b.Url.Length > 0) d["url"] = b.Url;
+                if (b.PhoneNumber.Length > 0) d["phone_number"] = b.PhoneNumber;
+                return d;
+            }).ToList(),
+            header = t.HeaderFormat.Length > 0 ? new { format = t.HeaderFormat, text = t.HeaderText } : null,
+            footer = t.Footer.Length > 0 ? t.Footer : null,
+            variables = WhatsAppTemplateCatalog.VariableCount(t.Body),
+            // demo templates are built in; custom + live ones are editable
+            custom = t.Source != "demo",
+            source = t.Source,
+            bindings = slots,
+            resolved,
+        };
+    }
+
+    /// <summary>The example values the editor sends (a list, or one comma-separated string).</summary>
+    private static List<string> Examples(JsonElement body)
+    {
+        if (!body.TryGetProperty("example", out var raw)) return new();
+        if (raw.ValueKind == JsonValueKind.Array)
+            return raw.EnumerateArray().Select(e => e.ValueKind == JsonValueKind.String ? e.GetString() ?? "" : e.ToString())
+                .Where(e => e.Trim().Length > 0).ToList();
+        if (raw.ValueKind == JsonValueKind.String)
+            return (raw.GetString() ?? "").Split(',').Select(e => e.Trim()).Where(e => e.Length > 0).ToList();
+        return new();
+    }
+
+    /// <summary>
+    /// The Graph body for a new / edited template: BODY (+ the example values Meta
+    /// requires for every {{n}}, padded when the editor gave fewer) and BUTTONS.
+    /// </summary>
+    private static Dictionary<string, object?> MetaTemplatePayload(string name, string? language, string category,
+        string body, List<object> buttons, List<string> examples)
+    {
+        var bodyComponent = new Dictionary<string, object?> { ["type"] = "BODY", ["text"] = body };
+        var count = VariableCount(body);
+        if (count > 0)
+        {
+            var values = Enumerable.Range(0, count)
+                .Select(i => i < examples.Count ? examples[i] : $"example {i + 1}").ToList();
+            bodyComponent["example"] = new { body_text = new[] { values } };
+        }
+        var components = new List<object> { bodyComponent };
+        if (buttons.Count > 0) components.Add(new { type = "BUTTONS", buttons });
+        return new Dictionary<string, object?>
+        {
+            ["name"] = name,
+            ["language"] = language ?? "en",
+            ["category"] = category,
+            ["components"] = components,
+        };
+    }
+
     /// <summary>Highest {{n}} placeholder index in a template body (0 = none).</summary>
     private static int VariableCount(string body)
     {
@@ -1498,6 +1703,10 @@ public static class WhatsAppSettingsEndpoints
         // Per-account overrides ("" = inherit the organization-wide value).
         // Edited from Settings → Channels → edit account → Delivery & AI.
         delivery = DeliveryPayload(a),
+        // "Who answers it": owning team (null = none) + AI default ("" = role decides)
+        team_id = InboxSettings.TeamId(a),
+        ai_default = InboxSettings.AiDefaultWire(a),
+        ai_review_mode = InboxSettings.ReviewModeWire(a),
     };
 
     internal static Dictionary<string, string> DeliveryPayload(ChannelAccount a) =>
@@ -1618,26 +1827,13 @@ public static class WhatsAppSettingsEndpoints
     /// needs token + phone_number_id, baileys is gateway-enforced, email needs
     /// SMTP host+login in config, other channels need an access_token.
     /// </summary>
-    internal static bool IsConfigured(ChannelAccount a)
-    {
-        if (a.Channel == Channels.WhatsApp)
-            return a.Provider == Providers.Baileys
-                   || (a.AccessToken != "" && a.ExternalId != "");
-        if (a.Channel == Channels.Email)
-            return Cfg(a, "host") != "" && Cfg(a, "username") != "" && Cfg(a, "password") != "";
-        return a.AccessToken != "";
-    }
+    internal static bool IsConfigured(ChannelAccount a) => Routing.IsConfigured(a);
 
     /// <summary>
     /// wa_config.account_role — "reminder" | "conversation". Unset/invalid values
     /// default by provider: cloud → reminder, baileys → conversation.
     /// </summary>
-    internal static string AccountRole(ChannelAccount a)
-    {
-        var role = Cfg(a, "role").Trim().ToLowerInvariant();
-        if (role is "reminder" or "conversation") return role;
-        return a.Provider == Providers.Baileys ? "conversation" : "reminder";
-    }
+    internal static string AccountRole(ChannelAccount a) => ChatBranch.Data.Channels.AccountRoles.Of(a);
 
     internal static string Cfg(ChannelAccount a, string key) =>
         a.Config.TryGetValue(key, out var v) ? v?.ToString() ?? "" : "";
@@ -1657,36 +1853,18 @@ public static class WhatsAppSettingsEndpoints
     /// This account's explicit per-chat chatbot tick on a thread, or null when
     /// the thread has none and the account's ROLE decides (store._effective_ai).
     /// </summary>
-    internal static bool? AiOverride(ChatBranch.Domain.Thread t, int accountId)
-    {
-        if (!t.AiOverrides.TryGetValue(accountId.ToString(), out var raw) || raw is null) return null;
-        if (raw is bool b) return b;
-        if (raw is JsonElement el)
-            return el.ValueKind switch
-            {
-                JsonValueKind.True => true,
-                JsonValueKind.False => false,
-                _ => null,
-            };
-        return bool.TryParse(raw.ToString(), out var parsed) ? parsed : null;
-    }
+    internal static bool? AiOverride(ChatBranch.Domain.Thread t, int accountId) =>
+        ChatBranch.Data.Ai.AiEligibility.Override(t, accountId);
 
     /// <summary>
     /// store._effective_ai — the Chatbot tick for the thread's CURRENT sending
-    /// account. Each account keeps its own per-chat override; with none, the
-    /// account's ROLE decides (reminder off unless reminder_ai_default flips it,
-    /// conversation on), so switching the sender shows that number's own
-    /// setting. Account-less threads (sandbox, env pseudo-account) fall back to
-    /// the legacy column.
+    /// account. ONE rule (<see cref="ChatBranch.Data.Ai.AiEligibility"/>) shared
+    /// with the inbound auto-reply gate, the queue and the AI monitor, so what
+    /// the dashboard shows is what the AI does.
     /// </summary>
     internal static bool EffectiveAi(ChatBranch.Domain.Thread t, ChannelAccount? account,
-        bool reminderDefaultOn)
-    {
-        if (t.AccountId is not int accountId) return t.AiEnabled;
-        if (AiOverride(t, accountId) is bool tick) return tick;
-        if (account == null) return t.AiEnabled;
-        return AccountRole(account) == "reminder" ? reminderDefaultOn : true;
-    }
+        bool reminderDefaultOn) =>
+        ChatBranch.Data.Ai.AiEligibility.Effective(t, account, reminderDefaultOn);
 
     // ---- Baileys pairing (sandbox stub) --------------------------------------
 
@@ -1945,24 +2123,8 @@ public static class WhatsAppSettingsEndpoints
     /// <summary>rbac.notify(("superadmin","admin"), …) — never breaks the write.</summary>
     private static async Task NotifyManagers(AppDbContext db, string title, string body)
     {
-        try
-        {
-            var uids = await db.Profiles.AsNoTracking()
-                .Where(p => p.Role == Roles.Admin || p.Role == Roles.SuperAdmin)
-                .Select(p => p.UserId).ToListAsync();
-            foreach (var uid in uids)
-                db.Notifications.Add(new Notification
-                {
-                    UserId = uid,
-                    Kind = "system",
-                    Title = Cap(title, 160),
-                    Body = Cap(body, 400),
-                    Link = "/settings/channels",
-                    CreatedAt = DateTime.UtcNow,
-                });
-            if (uids.Count > 0) await db.SaveChangesAsync();
-        }
-        catch { }
+        await NotificationService.NotifyAsync(db, NotificationCategories.Admin, "system",
+            title, body, "/channels", NotificationAudience.Admins());
     }
 
     private static string Cap(string s, int n) => s.Length <= n ? s : s[..n];

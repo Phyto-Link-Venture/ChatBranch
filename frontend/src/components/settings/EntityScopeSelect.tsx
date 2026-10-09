@@ -11,8 +11,10 @@
  * choice, and it is labelled that way.
  */
 
-import { useEntity } from '@/lib/EntityContext'
+import { EntityPicker } from '@/components/ui/EntityPicker'
 
+/** Thin alias kept for the existing call sites; the tree-aware picker lives
+ *  in components/ui/EntityPicker. */
 export function EntityScopeSelect({
   value,
   onChange,
@@ -27,22 +29,15 @@ export function EntityScopeSelect({
   globalLabel?: string
   className?: string
 }) {
-  const { entities } = useEntity()
-
   return (
-    <select
-      value={value ?? ''}
+    <EntityPicker
+      value={value}
+      onChange={onChange}
       disabled={disabled}
-      onChange={(e) => onChange(e.target.value || null)}
-      className={`rounded-lg border border-line bg-fill-subtle px-2.5 py-1.5 text-[12px] text-text-high outline-none disabled:opacity-50 ${className}`}
-    >
-      <option value="">{globalLabel}</option>
-      {entities.map((b) => (
-        <option key={b.slug} value={b.slug}>
-          {b.name}
-        </option>
-      ))}
-    </select>
+      globalLabel={globalLabel}
+      size="sm"
+      className={className || 'min-w-[200px]'}
+    />
   )
 }
 

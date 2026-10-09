@@ -213,11 +213,13 @@ public class AutomationService
                 case "assign_agent":
                     thread.Assignee = value;
                     break;
+                // the current number's own tick + the legacy column (AiEligibility),
+                // so the switch reaches the auto-reply gate on a WhatsApp number too
                 case "disable_ai":
-                    thread.AiEnabled = false;
+                    ChatBranch.Data.Ai.AiEligibility.Set(thread, false);
                     break;
                 case "enable_ai":
-                    thread.AiEnabled = true;
+                    ChatBranch.Data.Ai.AiEligibility.Set(thread, true);
                     break;
                 case "add_note":
                     // A private note is a message the customer never sees.
@@ -249,6 +251,7 @@ public class AutomationService
         _db.AuditLogs.Add(new AuditLog
         {
             Actor = "automation", Action = "automation.fired",
+            Source = AuditSources.Automation, EntityId = thread.EntityId,
             Target = $"{thread.Channel}:{thread.Key}",
             Detail = $"{rule.Name} → {string.Join(", ", applied)}",
             CreatedAt = DateTime.UtcNow,
@@ -257,17 +260,11 @@ public class AutomationService
 
     private void Notify(AutomationRule rule, Thread thread, string text)
     {
-        var users = _db.Profiles.AsNoTracking()
-            .Where(p => p.Role == Roles.SuperAdmin || p.Role == Roles.Admin)
-            .Select(p => p.UserId).ToList();
-        foreach (var uid in users)
-            _db.Notifications.Add(new Notification
-            {
-                UserId = uid, Kind = "system",
-                Title = Trim($"Automation · {rule.Name}", 160),
-                Body = Trim($"{thread.Name} ({thread.Channel}) — {text}", 400),
-                CreatedAt = DateTime.UtcNow,
-            });
+        // Through the one notifier (org mutes + personal prefs); Run() saves.
+        NotificationService.Notify(_db, NotificationCategories.Flows, "system",
+            $"Automation · {rule.Name}", $"{thread.Name} ({thread.Channel}) — {text}",
+            $"/chats?channel={Uri.EscapeDataString(thread.Channel)}&key={Uri.EscapeDataString(thread.Key)}",
+            NotificationAudience.Admins(), new NotifyOptions { Thread = thread, Save = false });
     }
 
     // ---- helpers ------------------------------------------------------------

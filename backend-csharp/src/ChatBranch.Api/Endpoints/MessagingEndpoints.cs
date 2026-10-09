@@ -172,16 +172,33 @@ public static class MessagingEndpoints
     }
 
     /// <summary>store._serialize — the full thread the chat pane renders.</summary>
-    private static Dictionary<string, object?> ThreadPayload(Thread t, List<Message> messages) =>
+    private static Dictionary<string, object?> ThreadPayload(AppDbContext db, Thread t, List<Message> messages)
+    {
+        var payload = ThreadFields(db, t, messages);
+        // Meta's messaging window on a LIVE Messenger / Instagram page (every
+        // other messaging channel, and a sandbox page, reads as open)
+        var lastIn = messages.Where(m => m.Direction == MessageDirection.In)
+            .Select(m => (DateTime?)m.CreatedAt).Max();
+        var account = t.Account ?? (t.AccountId is int aid ? db.ChannelAccounts.Find(aid) : null);
+        foreach (var (k, v) in ChatBranch.Data.Channels.SocialWindow.Fields(
+                     ChatBranch.Data.Channels.SocialWindow.Live(account, t.Channel), lastIn, DateTime.UtcNow))
+            payload[k] = v;
+        return payload;
+    }
+
+    private static Dictionary<string, object?> ThreadFields(AppDbContext db, Thread t, List<Message> messages) =>
         new()
         {
             ["key"] = t.Key,
             ["channel"] = t.Channel,
             ["address"] = string.IsNullOrEmpty(t.Address) ? t.Key : t.Address,
             ["name"] = string.IsNullOrEmpty(t.Name) ? t.Key : t.Name,
-            ["ai_enabled"] = t.AiEnabled,
+            // the EFFECTIVE tick — the same rule the auto-reply gate applies
+            ["ai_enabled"] = ChatBranch.Data.Ai.AiEligibility.Effective(db, new ScopingService(db), t),
+            ["opted_out"] = t.OptedOut,
             ["status"] = t.Status,
             ["assignee"] = t.Assignee,
+            ["team_id"] = t.TeamId,
             ["labels"] = t.Labels ?? new List<string>(),
             ["contact_id"] = t.ContactId,
             ["contact_name"] = t.ContactId != null ? t.Contact?.Name ?? "" : "",
@@ -236,7 +253,10 @@ public static class MessagingEndpoints
                 return Results.Ok(new Dictionary<string, object?>
                 {
                     ["email_configured"] = (smtpHost.Length > 0 && smtpFrom.Length > 0) || anyMailbox,
-                    ["imap_configured"] = imapHost.Length > 0 && smtpUser.Length > 0 && smtpPass.Length > 0,
+                    // the default mailbox, or any account mailbox with IMAP (its own or the default host)
+                    ["imap_configured"] = (imapHost.Length > 0 && smtpUser.Length > 0 && smtpPass.Length > 0)
+                        || emailAccounts.Any(a => EmailAccountConfigured(a.Config)
+                            && ChatBranch.Data.Channels.EmailConfig.ForAccount(a, sc).ImapConfigured),
                     ["facebook_configured"] = socialTokens.Contains(Channels.Facebook),
                     ["instagram_configured"] = socialTokens.Contains(Channels.Instagram),
                     ["telegram_configured"] = socialTokens.Contains(Channels.Telegram),
@@ -411,8 +431,6 @@ public static class MessagingEndpoints
             var entityId = await InboxEndpoints.EntityId(db, entity);
             IQueryable<Thread> q = db.Threads.AsNoTracking().Include(t => t.Contact)
                 .Where(t => t.Channel != Channels.WhatsApp);
-            // Provider login: only conversations with THEIR bound customers.
-            q = ProviderScope.Threads(q, me, db);
             var rows = await sc.ScopeOwned(q, entityId, includeUnassigned: true).ToListAsync();
 
             var ids = rows.Select(t => t.Id).ToList();
@@ -495,7 +513,7 @@ public static class MessagingEndpoints
                 await db.SaveChangesAsync();
             }
             await db.Entry(thread).Reference(t => t.Contact).LoadAsync();
-            return Results.Ok(ThreadPayload(thread, MessagesOf(db, thread.Id)));
+            return Results.Ok(ThreadPayload(db, thread, MessagesOf(db, thread.Id)));
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // GET /api/messaging/threads/{channel}/{key} — the full thread.
@@ -505,7 +523,7 @@ public static class MessagingEndpoints
             var thread = GetThread(db, channel, key);
             if (thread == null)
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
-            return Results.Ok(ThreadPayload(thread, MessagesOf(db, thread.Id)));
+            return Results.Ok(ThreadPayload(db, thread, MessagesOf(db, thread.Id)));
         }).RequireAuthorization(AuthPolicies.Authenticated);
     }
 
@@ -515,24 +533,51 @@ public static class MessagingEndpoints
 
     private static void MapThreadActions(IEndpointRouteBuilder app)
     {
-        // POST …/send {text} — SANDBOX: no SMTP/Meta/Telegram transport is
-        // ported yet, so the message is stored locally with status "sandbox"
-        // (what Django does for an unconfigured channel). It shows in the
-        // thread, in the timeline and in analytics — it is simply not claimed
-        // to have left the building.
+        // POST …/send {text, subject?, media_url?, media_type?} — through
+        // OutboundSender, the one live-or-sandbox seam: a configured mailbox (SMTP),
+        // Telegram bot or Messenger / Instagram page sends for real (a public
+        // https media_url sends an attachment via the Send API); an unconfigured
+        // channel stores the message locally with status "sandbox" — it shows in
+        // the thread, the timeline and analytics, it is simply not claimed to have
+        // left the building. A provider refusal comes back as a "failed" row.
         app.MapPost("/api/messaging/threads/{channel}/{key}/send",
             (string channel, string key, Dictionary<string, JsonElement>? body,
-             AppDbContext db, ThreadStore store, ClaimsPrincipal me, HttpContext ctx) =>
+             AppDbContext db, ChatBranch.Data.Channels.OutboundSender sender, ClaimsPrincipal me,
+             HttpContext ctx) =>
         {
             var text = (Str(body, "text") ?? "").Trim();
-            if (text.Length == 0)
+            var mediaUrl = (Str(body, "media_url") ?? "").Trim();
+            if (text.Length == 0 && mediaUrl.Length == 0)
                 return Results.Json(new { detail = "text is required." }, statusCode: 400);
+            if (mediaUrl.Length > 0 && !mediaUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                return Results.Json(new { detail = "media_url must be a public https:// URL." }, statusCode: 400);
             var thread = GetThread(db, channel, key);
             if (thread == null)
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
+            // STOP is honoured on every channel: an opted-out conversation takes a
+            // manual send only as an explicit, audited exception
+            if (thread.OptedOut && !BoolOf(body, "force", false))
+                return Results.Json(new
+                {
+                    detail = "Contact opted out (STOP). Resend with force=true to override as a manual exception.",
+                }, statusCode: 409);
 
-            var msg = store.AppendMessage(thread, MessageDirection.Out, MessageSource.Agent, text,
-                status: "sandbox", accountId: thread.AccountId);
+            // Messenger / Instagram: Meta's window. A person may answer for 7 days
+            // (HUMAN_AGENT tag after 24h); an API key / MCP client is automation
+            var human = MessagingTransportEndpoints.IsHumanSender(me);
+            if (sender.SocialWindowBlock(thread, thread.AccountId, human) is { } windowClosed)
+                return Results.Json(new { detail = windowClosed, window_open = false }, statusCode: 409);
+
+            var subject = (Str(body, "subject") ?? "").Trim();
+            Message msg = null!;
+            if (mediaUrl.Length > 0)
+                msg = sender.SendMediaUrl(thread, (Str(body, "media_type") ?? "image").Trim().ToLowerInvariant(),
+                    mediaUrl, MessageSource.Agent, thread.AccountId, humanAgent: human);
+            if (text.Length > 0)
+                msg = ChatBranch.Data.Channels.SocialWindow.Applies(thread.Channel)
+                    ? sender.SendSocialText(thread, text, MessageSource.Agent, null, human)
+                    : sender.Send(thread, text, MessageSource.Agent, null,
+                        subject: subject.Length > 0 ? subject : null);
             Audit(db, me, ctx, "message.send", $"{channel}:{key}", text);
             return Results.Ok(new { message = MessagePayload(msg, thread.Channel, thread.Account?.Name) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
@@ -546,8 +591,10 @@ public static class MessagingEndpoints
             var thread = GetThread(db, channel, key);
             if (thread == null)
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
-            thread.AiEnabled = BoolOf(body, "enabled", false);
-            thread.UpdatedAt = DateTime.UtcNow; // the SSE change token watches this
+            // the current sending account's tick + the legacy column, so the gate
+            // and every payload read the same answer (AiEligibility); bumps UpdatedAt
+            // for the SSE change token
+            ChatBranch.Data.Ai.AiEligibility.Set(thread, BoolOf(body, "enabled", false));
             await db.SaveChangesAsync();
             return Results.Ok(new { ai_enabled = thread.AiEnabled });
         }).RequireAuthorization(AuthPolicies.Authenticated);
@@ -853,7 +900,7 @@ public static class MessagingEndpoints
             void Consider(Thread? t)
             {
                 if (t == null) return;
-                if (!seen.Add($"{t.Channel} {t.Key}")) return;
+                if (!seen.Add($"{t.Channel}\0{t.Key}")) return;
                 threads.Add(t);
             }
 

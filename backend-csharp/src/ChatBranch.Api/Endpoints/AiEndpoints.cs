@@ -10,8 +10,9 @@ namespace ChatBranch.Api.Endpoints;
 
 /// <summary>
 /// aicore surface (/api/aicore/*): persona (superadmin), knowledge base CRUD +
-/// preview (admin+), skills (admin+, the SOLE writer of crm.AgentSkill), and a
-/// manual reply endpoint that runs the channel-agnostic assistant.
+/// preview (admin+), skills (admin+, the SOLE writer of crm.AgentSkill — see
+/// AiSkillsEndpoints), and a manual reply endpoint that runs the
+/// channel-agnostic assistant.
 /// </summary>
 public static class AiEndpoints
 {
@@ -32,10 +33,6 @@ public static class AiEndpoints
     /// Django name. Accept both — binding only `query` made the preview silently
     /// ignore the message you typed and always return the whole block.</summary>
     public record PreviewRequest(string? Query, string? Text, string? Channel, string? Entity);
-    /// <summary>Wire shape of a skill: `id` is the string skill_id, and `useWhen`
-    /// stays camelCase on purpose — Django's _skill_payload does the same.</summary>
-    public record SkillDto(string? Id, string? Name, string? UseWhen, string? Instructions, int Position);
-    public record SkillsWrite(string? Entity, List<SkillDto>? Skills);
     public record ReplyRequest(string Channel, string Key);
 
     public static void MapAiEndpoints(this IEndpointRouteBuilder app)
@@ -124,7 +121,7 @@ public static class AiEndpoints
             db.KnowledgeItems.Add(row);
             await db.SaveChangesAsync();
             return Results.Ok(KnowledgeDto(row, DateTime.UtcNow, await EntityRow(db, row.EntityId)));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
         // Bound as raw JSON, not a DTO: a PATCH must tell "field absent" (leave
         // it) from "field null/empty" (clear it) — the date window is cleared by
@@ -150,13 +147,13 @@ public static class AiEndpoints
             row.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
             return Results.Ok(KnowledgeDto(row, DateTime.UtcNow, await EntityRow(db, row.EntityId)));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
         app.MapDelete("/api/aicore/knowledge/{id:int}", async (int id, AppDbContext db) =>
         {
             await db.KnowledgeItems.Where(k => k.Id == id).ExecuteDeleteAsync();
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
         // The exact block the AI receives — "why did the bot say that?" as a button.
         app.MapPost("/api/aicore/knowledge/preview", async (PreviewRequest b, AppDbContext db,
@@ -178,50 +175,8 @@ public static class AiEndpoints
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
-        // ---- skills (sole writer of crm.AgentSkill) ----------------------------
-        app.MapGet("/api/aicore/skills", async (string? entity, AppDbContext db, ScopingService sc) =>
-        {
-            var entityId = await InboxEndpoints.EntityId(db, entity);
-            var rows = sc.ScopeInherited(db.AgentSkills.AsNoTracking(), entityId)
-                .OrderBy(s => s.Position).ToList();
-            return Results.Ok(new { skills = rows.Select(SkillDtoOut) });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
-
-        app.MapPut("/api/aicore/skills", async (SkillsWrite body, AppDbContext db, ScopingService sc) =>
-        {
-            if (body.Skills == null) return Results.Json(new { detail = "Body must carry skills[]." }, statusCode: 400);
-            var entityId = await InboxEndpoints.EntityId(db, body.Entity);
-            // Upsert within THIS scope, prune scope rows not in the payload
-            // (the "sole writer" contract — only touches its own scope).
-            var existing = await db.AgentSkills.Where(s => s.EntityId == entityId).ToListAsync();
-            var keep = new HashSet<string>();
-            var pos = 0;
-            foreach (var s in body.Skills)
-            {
-                // `id` on the wire is the STRING skill_id the browser mints
-                // ("as-xxxxx"), never the numeric pk. Blank ones are dropped
-                // rather than creating an unaddressable row (mirrors Django).
-                var skillId = (s.Id ?? "").Trim();
-                if (skillId.Length == 0) continue;
-                if (skillId.Length > 64) skillId = skillId[..64];
-                keep.Add(skillId);
-                var row = existing.FirstOrDefault(e => e.SkillId == skillId)
-                          ?? Add(db, new AgentSkill { SkillId = skillId, EntityId = entityId });
-                row.Name = string.IsNullOrWhiteSpace(s.Name) ? "Agent skill" : s.Name;
-                row.UseWhen = s.UseWhen ?? "";
-                row.Instructions = s.Instructions ?? "";
-                // Position comes from LIST ORDER, not the payload field — the
-                // settings page reorders by dragging rows and never sends one.
-                row.Position = pos++;
-            }
-            db.AgentSkills.RemoveRange(existing.Where(e => !keep.Contains(e.SkillId)));
-            await db.SaveChangesAsync();
-            // Echo the saved library in the GET shape — the page swaps its draft
-            // for this response, so a `{count}` reply blanked the editor.
-            var rows = sc.ScopeInherited(db.AgentSkills.AsNoTracking(), entityId)
-                .OrderBy(s => s.Position).ToList();
-            return Results.Ok(new { skills = rows.Select(SkillDtoOut) });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        // ---- skills (sole writer of crm.AgentSkill) + code-skill authoring ----
+        app.MapSkillEndpoints();
 
         // ---- manual reply (playground / operator "AI draft") -------------------
         // ---- booking hours (per-day appointment schedule; Setting booking_hours,
@@ -259,12 +214,14 @@ public static class AiEndpoints
         {
             var thread = store.GetThread(body.Channel, body.Key);
             if (thread == null) return Results.NotFound(new { detail = "thread not found" });
-            var reply = await assistant.GenerateReplyAsync(thread);
-            return Results.Ok(new { reply });
+            // An operator-requested draft: no handover side effects. `reply` is
+            // what may be sent ("" when a reply check held it back); `draft` is
+            // what the model wrote either way, `meta` the audit trail.
+            var r = await assistant.GenerateReplyAsync(thread, applyOutcome: false);
+            return Results.Ok(new { reply = r.Text, draft = r.Draft, action = r.Action, reason = r.Reason,
+                meta = r.ToMeta() });
         }).RequireAuthorization(AuthPolicies.Authenticated);
     }
-
-    private static AgentSkill Add(AppDbContext db, AgentSkill s) { db.AgentSkills.Add(s); return s; }
 
     private static Dictionary<string, int[]> DefaultBookingHours() => new()
     {
@@ -336,15 +293,6 @@ public static class AiEndpoints
             updated_at = k.UpdatedAt,
         };
     }
-
-    /// <summary>Port of aicore/views.py <c>_skill_payload</c>: `id` is the STRING
-    /// skill_id (the flow builder and the settings page both key on it), and
-    /// `useWhen` is deliberately camelCase.</summary>
-    private static object SkillDtoOut(AgentSkill s) => new
-    {
-        id = s.SkillId, name = s.Name, useWhen = s.UseWhen,
-        instructions = s.Instructions, position = s.Position,
-    };
 
     // ---- knowledge PATCH readers (presence-aware) ---------------------------
     private static bool KHas(JsonElement b, string key) =>

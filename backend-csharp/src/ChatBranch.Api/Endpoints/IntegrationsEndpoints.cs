@@ -350,6 +350,8 @@ public static class IntegrationsEndpoints
         app.MapPut("/api/integrations/settings", async (HttpContext ctx, AppDbContext db,
             ScopingService sc, ClaimsPrincipal me) =>
         {
+            // Settings → App & provider keys: capability-gated (superadmin always).
+            if (await SettingsEndpoints.RequireCapability(db, me, "app_keys.manage") is { } denied) return denied;
             var body = await ReadJsonBody(ctx);
             var stored = StoredGlobals(sc);
             var touched = new List<string>();
@@ -367,7 +369,7 @@ public static class IntegrationsEndpoints
             await Audit(db, ctx, me, "settings.update", "integrations",
                         $"keys: {string.Join(", ", touched.OrderBy(k => k))}");
             return Results.Ok(SettingsPayload(ctx, sc));
-        }).RequireAuthorization(AuthPolicies.SuperAdmin);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- OAuth start (views.oauth_start) ---------------------------------
         // The dashboard's Connect button calls this before navigating. The PKCE
@@ -436,6 +438,12 @@ public static class IntegrationsEndpoints
                     return Results.Redirect($"{dashboard}?error={Uri.EscapeDataString("Google returned no authorization code.")}");
                 await oauth.ExchangeCodeAsync(row, code!, RedirectUri(ctx, sc));
                 var label = Meta(row.Provider)?.Label ?? row.Provider;
+                // The browser carries no token here: attribute the connect to the row's owner.
+                var owner = row.OwnerUserId is int ou
+                    ? await db.Users.Where(u => u.Id == ou).Select(u => u.Username).FirstOrDefaultAsync() : null;
+                ChatBranch.Data.Audit.AuditTrail.Write(db, "integration.connect", $"{row.Provider}", label,
+                    actor: owner ?? "oauth", source: AuditSources.User, entityId: row.EntityId,
+                    userId: row.OwnerUserId);
                 return Results.Redirect($"{dashboard}?connected={Uri.EscapeDataString(label)}");
             }
             catch (GoogleOAuth.OAuthException e)
@@ -776,23 +784,7 @@ public static class IntegrationsEndpoints
     /// <summary>rbac.notify(("superadmin","admin"), …) — never breaks the write.</summary>
     private static async Task NotifyAdmins(AppDbContext db, string title, string body)
     {
-        try
-        {
-            var uids = await db.Profiles.AsNoTracking()
-                .Where(p => p.Role == Roles.Admin || p.Role == Roles.SuperAdmin)
-                .Select(p => p.UserId).ToListAsync();
-            foreach (var uid in uids)
-                db.Notifications.Add(new Notification
-                {
-                    UserId = uid,
-                    Kind = "system",
-                    Title = Cap(title, 160),
-                    Body = Cap(body, 400),
-                    Link = SettingsLink,
-                    CreatedAt = DateTime.UtcNow,
-                });
-            if (uids.Count > 0) await db.SaveChangesAsync();
-        }
-        catch { }
+        await NotificationService.NotifyAsync(db, NotificationCategories.Admin, "system",
+            title, body, SettingsLink, NotificationAudience.Admins());
     }
 }

@@ -213,7 +213,7 @@ export function ProviderKeysSettings() {
       {/* Google group */}
       <div className="rounded-xl border border-line bg-card p-4">
         <div className="mb-3 flex items-center gap-2">
-          <FolderOpen size={14} color="#3B82F6" aria-hidden />
+          <FolderOpen size={14} color="#D9480F" aria-hidden />
           <span className="text-[12px] font-bold text-text-high">Google OAuth client</span>
           <span className="rounded-full bg-fill px-2 py-px text-[9.5px] font-semibold text-text-muted">
             Calendar · Drive · Gmail · Sheets
@@ -248,7 +248,7 @@ export function ProviderKeysSettings() {
       <div className="grid gap-3 md:grid-cols-2">
         <div className="rounded-xl border border-line bg-card p-4">
           <div className="mb-3 flex items-center gap-2">
-            <ShoppingBag size={14} color="#3B82F6" aria-hidden />
+            <ShoppingBag size={14} color="#D9480F" aria-hidden />
             <span className="text-[12px] font-bold text-text-high">Shopify webhooks</span>
           </div>
           <div className="flex flex-col gap-3">
@@ -263,7 +263,7 @@ export function ProviderKeysSettings() {
 
         <div className="rounded-xl border border-line bg-card p-4">
           <div className="mb-3 flex items-center gap-2">
-            <CreditCard size={14} color="#3B82F6" aria-hidden />
+            <CreditCard size={14} color="#D9480F" aria-hidden />
             <span className="text-[12px] font-bold text-text-high">Stripe webhooks</span>
           </div>
           <div className="flex flex-col gap-3">

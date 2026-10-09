@@ -28,8 +28,29 @@ public interface IBaileysGateway
     string BaseUrl { get; }
     Task<BaileysResult> SendTextAsync(string accountExternalId, string toWaId, string text,
         CancellationToken ct = default);
+    /// <summary>
+    /// An image / video / audio / document (POST /accounts/{id}/send-media: the
+    /// file travels base64 in the body — never a path — capped at
+    /// <see cref="BaileysMedia.MaxBytes"/>). ExternalId = the WhatsApp message id.
+    /// The default answers "not supported" so a gateway double without media
+    /// support still compiles and degrades to a clean failed send.
+    /// </summary>
+    Task<BaileysResult> SendMediaAsync(string accountExternalId, string toWaId, string mediaType, byte[] content,
+        string mime, string fileName, string? caption, CancellationToken ct = default) =>
+        Task.FromResult(new BaileysResult(false, "this Baileys gateway does not support sending media"));
+    /// <summary>Place a WhatsApp voice call bridged into a LiveKit room; ExternalId = the gateway's call id.</summary>
     Task<BaileysResult> StartCallAsync(string accountExternalId, string toWaId,
         Dictionary<string, object?> dispatch, CancellationToken ct = default);
+    /// <summary>Hang up the account's active call (a no-op when none is live).</summary>
+    Task<BaileysResult> EndCallAsync(string accountExternalId, CancellationToken ct = default);
+    /// <summary>
+    /// The gateway's own view of the account's call: idle | connecting | ringing |
+    /// in_call (GET /accounts/{id}/call-status). Null = unknown (no gateway, or it
+    /// didn't answer) — the caller falls back to the thread rows. Authoritative
+    /// because thread rows are not reliably attributed to the calling account.
+    /// </summary>
+    Task<string?> CallStatusAsync(string accountExternalId, CancellationToken ct = default) =>
+        Task.FromResult<string?>(null);
     // ---- pairing (Settings → Channels → WhatsApp → Pair) ----
     Task<BaileysStatus> StatusAsync(string accountExternalId, CancellationToken ct = default);
     Task<BaileysStatus> StartAsync(string accountExternalId, CancellationToken ct = default);
@@ -49,8 +70,15 @@ public class SandboxBaileysGateway : IBaileysGateway
         CancellationToken ct = default) =>
         Task.FromResult(new BaileysResult(false, "baileys gateway not configured (sandbox)"));
 
+    public Task<BaileysResult> SendMediaAsync(string accountExternalId, string toWaId, string mediaType,
+        byte[] content, string mime, string fileName, string? caption, CancellationToken ct = default) =>
+        Task.FromResult(new BaileysResult(false, "baileys gateway not configured (sandbox)"));
+
     public Task<BaileysResult> StartCallAsync(string accountExternalId, string toWaId,
         Dictionary<string, object?> dispatch, CancellationToken ct = default) =>
+        Task.FromResult(new BaileysResult(false, "baileys gateway not configured (sandbox)"));
+
+    public Task<BaileysResult> EndCallAsync(string accountExternalId, CancellationToken ct = default) =>
         Task.FromResult(new BaileysResult(false, "baileys gateway not configured (sandbox)"));
 
     public Task<BaileysStatus> StatusAsync(string a, CancellationToken ct = default) => Task.FromResult(NotAttached);
@@ -96,13 +124,13 @@ public class HttpBaileysGateway : IBaileysGateway
     public string BaseUrl => Config().Url;
 
     private async Task<(bool Ok, JsonElement Body, string Error)> CallAsync(HttpMethod method, string path,
-        object? payload, CancellationToken ct)
+        object? payload, CancellationToken ct, int timeoutSeconds = 30)
     {
         var (url, secret) = Config();
         try
         {
             var client = _http.CreateClient("baileys");
-            client.Timeout = TimeSpan.FromSeconds(30);
+            client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
             using var req = new HttpRequestMessage(method, url + path);
             req.Headers.TryAddWithoutValidation("X-Baileys-Secret", secret);
             if (payload != null) req.Content = JsonContent.Create(payload);
@@ -113,7 +141,10 @@ public class HttpBaileysGateway : IBaileysGateway
             catch { body = default; }
             if (!resp.IsSuccessStatusCode)
             {
-                var detail = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("error", out var e)
+                // the gateway answers {detail}; older builds {error}
+                var detail = body.ValueKind == JsonValueKind.Object
+                             && (body.TryGetProperty("detail", out var e) || body.TryGetProperty("error", out e))
+                             && e.ValueKind == JsonValueKind.String
                     ? e.GetString() ?? "" : text;
                 return (false, body, $"gateway {(int)resp.StatusCode}: {detail}".Trim());
             }
@@ -163,11 +194,79 @@ public class HttpBaileysGateway : IBaileysGateway
         return new BaileysResult(true, "sent", id);
     }
 
+    public async Task<BaileysResult> SendMediaAsync(string a, string toWaId, string mediaType, byte[] content,
+        string mime, string fileName, string? caption, CancellationToken ct = default)
+    {
+        var refused = BaileysMedia.Refusal(mediaType, content);
+        if (refused != null) return new BaileysResult(false, refused);
+        // the gateway uploads to WhatsApp's CDN before it answers — allow for a slow link
+        var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/send-media",
+            BaileysMedia.Payload(toWaId, mediaType, content, mime, fileName, caption), ct, timeoutSeconds: 120);
+        if (!ok) return new BaileysResult(false, err);
+        var id = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("id", out var i) ? i.ToString() : "";
+        return new BaileysResult(true, "sent", id);
+    }
+
     public async Task<BaileysResult> StartCallAsync(string a, string toWaId, Dictionary<string, object?> dispatch,
         CancellationToken ct = default)
     {
         var payload = new Dictionary<string, object?>(dispatch) { ["to"] = toWaId };
-        var (ok, _, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/call", payload, ct);
-        return ok ? new BaileysResult(true, "dialled") : new BaileysResult(false, err);
+        var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/call", payload, ct);
+        if (!ok) return new BaileysResult(false, err);
+        var callId = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("call_id", out var id)
+            ? id.ToString() : "";
+        return new BaileysResult(true, "dialled", callId);
+    }
+
+    public async Task<BaileysResult> EndCallAsync(string a, CancellationToken ct = default)
+    {
+        var (ok, _, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/call-end", new { }, ct);
+        return ok ? new BaileysResult(true, "ended") : new BaileysResult(false, err);
+    }
+
+    public async Task<string?> CallStatusAsync(string a, CancellationToken ct = default)
+    {
+        var (ok, body, _) = await CallAsync(HttpMethod.Get, $"/accounts/{Uri.EscapeDataString(a)}/call-status", null, ct);
+        return ok && body.ValueKind == JsonValueKind.Object && body.TryGetProperty("status", out var st)
+               && st.ValueKind == JsonValueKind.String
+            ? st.GetString()
+            : null;
+    }
+}
+
+/// <summary>
+/// The send-media contract with the gateway (<c>backend/baileys_service/media.js</c>
+/// validates the same rules on its side): the file is base64 IN the body, the
+/// gateway never reads a path or fetches a URL, and WhatsApp's 16 MB ceiling is
+/// checked here first so an oversized file fails without a round-trip.
+/// </summary>
+public static class BaileysMedia
+{
+    public const long MaxBytes = 16L * 1024 * 1024;
+    public static readonly string[] Types = { "image", "video", "audio", "document" };
+
+    /// <summary>Why this file cannot go out over Baileys (null = it can).</summary>
+    public static string? Refusal(string mediaType, byte[] content)
+    {
+        if (!Types.Contains(mediaType)) return $"media type '{mediaType}' cannot be sent over WhatsApp";
+        if (content.Length == 0) return "the file is empty";
+        if (content.Length > MaxBytes) return "file too large for WhatsApp (max 16 MB)";
+        return null;
+    }
+
+    /// <summary>The JSON body of POST /accounts/{id}/send-media.</summary>
+    public static Dictionary<string, object?> Payload(string toWaId, string mediaType, byte[] content, string mime,
+        string fileName, string? caption)
+    {
+        var body = new Dictionary<string, object?>
+        {
+            ["to"] = toWaId,
+            ["media_type"] = mediaType,
+            ["file_b64"] = Convert.ToBase64String(content),
+            ["mime"] = (mime ?? "").Split(';')[0].Trim(),
+            ["filename"] = Path.GetFileName(fileName ?? ""),
+        };
+        if (!string.IsNullOrWhiteSpace(caption) && mediaType != "audio") body["caption"] = caption.Trim();
+        return body;
     }
 }

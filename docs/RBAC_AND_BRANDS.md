@@ -1,153 +1,186 @@
-# Roles, tenants and brands
+# Roles, capabilities and entities
 
-The access model. Everything here is enforced server-side; the frontend gates
-are cosmetic and must never be treated as the control. For the entities
-themselves (Entity / Resource / Customer / Admin) and how they bind together,
-see `docs/DOMAIN_MODEL.md`; this doc is the access layer on top.
+The access model. Everything here is enforced server-side in the C# API; the
+dashboard's gates (`frontend/src/components/shell/nav.ts`, `lib/useAccess.ts`)
+are cosmetic and must never be treated as the control. For the concepts
+themselves see [DOMAIN_MODEL.md](DOMAIN_MODEL.md).
+
+> The file name is historical: "brands" were the Django-era name for what are
+> now **entities**. `/api/v1/brands` still exists and reads/writes entity rows.
 
 ## Hierarchy
 
 ```
-Tenant                (the organization using ChatBranch)
- └── Brand            (a brand it operates — users get access at THIS level)
-      └── DataSource  (an external system feeding that brand's records)
+Tenant                     the organization using ChatBranch
+ └── Entity                a main entity (parent null)…
+      └── Entity           …with branches/outlets under it (any depth)
 
-Contact               (the CUSTOMER — belongs to the TENANT, shared across its
-                       brands via crm.ContactBrand)
- ├── Record           (the order / booking / invoice the conversation is about)
- └── ResourceLink ──▶ Resource   (the service PROVIDER — teacher/coach/supplier;
-                       belongs to the tenant, bound to customers)
+Profile (a login)          role + tenant + (agents/custom roles) ASSIGNED entities
+Contact (a customer)       tenant + the entities it belongs to (crm_contactentity)
+ChannelAccount (an inbox)  one entity, or org-wide — decides where conversations land
 ```
 
-- **A tenant owns many brands.**
-- **Contacts are shared across a tenant's brands.** One profile per phone per
-  tenant (`uniq_contact_tenant_phone`); `crm.ContactBrand` records which brands
-  a contact is active on. A profile established under one brand can be linked to
-  a sibling brand without re-creating it.
-- `Contact.phone` is unique **per tenant, not globally** — two tenants may share
-  a phone number. Code that looks a contact up by phone must scope by tenant.
+- **Scope flows UP the tree.** A user who can see an entity sees its whole
+  subtree: head office reads a branch's contacts and conversations; a branch
+  never reads head office's (`ScopingService.EntitySubtreeIds`).
+- **Admins and superadmins** see their tenant (superadmin: everything).
+  **Agents and custom roles** are bounded by their ASSIGNED entities
+  (`crm_profile_entities`, edited at Users or Bindings → User ↔ entities); an
+  agent with NO assignment keeps the tenant-wide view (not a lockout). An
+  out-of-scope `?entity=` narrows to the caller's own scope — it never widens.
+- **Libraries are inherited** (knowledge, skills, templates, workflows, tags,
+  teams, automations, channel accounts, integrations): an outlet sees its own
+  rows plus the organization-wide (`entity_id` null) ones. **Records are owned**
+  (contacts, conversations, AI drafts, analytics): they belong to one subtree.
+- **Settings** resolve entity override → organization value, but only for the
+  keys listed in `ScopingService.EntityScopedSettings`; credentials are
+  organization-wide by design.
 
-## Roles (`crm.Profile.role`)
+## Roles
 
-The **three built-in roles** below are seeds, not a closed set — `Profile.role`
-holds any `crm.Role.slug` (see "Dynamic roles & capabilities"). The tiers still
-define the entity-scoping baseline:
+`crm_profile.role` holds a `crm_role.slug`. Three built-ins are seeded
+(`is_system`); operators add **custom roles** at `/permissions`
+(`POST /api/auth/roles {label}` — the slug is derived and immutable; a new role
+starts with every capability OFF).
 
-| Role | Sees | Can create |
+| Role | Sees | Manages |
 |---|---|---|
-| **superadmin** | everything, all tenants | admins + agents in any tenant, brands in any tenant |
-| **admin** | all brands in **their** tenant | agents in their tenant (+ assign brands), brands in their tenant |
-| **agent** | only the brands assigned to them (`Profile.brands`) | nothing |
+| **superadmin** | everything, every tenant | everyone and everything; always passes every capability check in code (anti-lockout) |
+| **admin** | their tenant | agent-level users (agents + custom roles) in their own tenant; never assigns admin/superadmin |
+| **agent** | their assigned entities' subtrees (or the tenant when unassigned) | nothing in the user list |
+| custom roles | like agents (bounded by assigned entities) | whatever the matrix grants |
 
-Resolution lives in `backend/api/rbac.py`:
+Role hygiene: `Message.source = "agent"` is a message origin, not a role, and
+`lib/auth.ts` maps a cached legacy `'collector'` session to `'agent'`.
 
-- `accessible_brands(user)` → superadmin: all · admin: `Brand.filter(tenant=…)` ·
-  agent: `profile.brands` **constrained to their own tenant** as defence in depth.
-- Contact visibility follows the same rule: agents see only contacts linked (via
-  `ContactBrand`) to their brands.
+## Capabilities
 
-**`Message.source = 'agent'` is a message origin, not a role.** So is the
-transcript speaker label `"customer"`. Neither is affected by role naming.
+The permission matrix is data (`crm_rolepermission`, edited at `/permissions`,
+`GET/PUT /api/auth/permissions`, PUT needs `rbac.manage`). The catalog is
+`AdminEndpoints.Catalog` and is mirrored for the UI in `CAPABILITY_CATALOG`
+(`frontend/src/lib/auth.ts`) — **change both together**. Rules:
 
-## Dynamic roles & capabilities
+- superadmin is always allowed in code, and its `rbac.manage` can't be switched
+  off;
+- a missing matrix row falls back to the code default below;
+- no caching — a matrix edit applies on the next request;
+- capabilities gate the ACTION; tenancy/entity scope gates the ROWS.
 
-RBAC is **data-driven** — no longer hard-coded to the three roles above.
+| Capability | Area | Default holders |
+|---|---|---|
+| `contacts.view` | Contacts | admin, agent |
+| `contacts.manage` | Contacts | admin |
+| `chats.view` | Chats | admin, agent |
+| `chats.send` | Chats | admin, agent |
+| `chats.manage` | Chats | admin |
+| `flows.view` | Flows | admin, agent |
+| `flows.manage` | Flows | admin |
+| `channels.view` · `channels.manage` | Channels | admin |
+| `integrations.view` · `integrations.manage` | Integrations | admin |
+| `users.view` · `users.manage` | Users & Roles | admin |
+| `entities.view` · `entities.manage` | Entities | admin |
+| `templates.manage` | Library — message templates | admin |
+| `script_templates.manage` | Library — call scripts | admin |
+| `tags.view` | Library — tags | admin, agent |
+| `tags.manage` | Library — tags | admin |
+| `analytics.view` | Review | admin, agent |
+| `call_logs.view` | Review | admin, agent |
+| `activity.view` | Review | admin, agent |
+| `ai.monitor` | AI — see & approve AI drafts | admin, agent |
+| `ai.behaviour.manage` | AI — edit review/behaviour settings | admin |
+| `settings.ai.manage` | Settings — AI configuration (knowledge, skills, voice pages in the nav) | admin |
+| `notifications.manage` | Settings — organization notification defaults | admin |
+| `account_assignment.manage` | Settings — account assignment + rebalance | admin |
+| `pronunciation.manage` | Settings — pronunciation | admin |
+| `settings.appearance.org` | Settings — the organization's default appearance | admin |
+| `settings.custom_fields.manage` | Settings — custom fields | admin |
+| `settings.ai_keys.manage` | Settings — AI keys & models | **superadmin only** |
+| `app_keys.manage` | Settings — app & provider keys | **superadmin only** |
+| `api_keys.manage` | Admin — API keys & MCP | admin |
+| `rbac.manage` | Admin — the permission matrix | **superadmin only** |
 
-- **`crm.Role`** (slug / label / `is_system`) — the built-ins are seeded
-  `is_system=True`; operators create additive **custom roles**. CRUD:
-  `GET/POST /api/auth/roles`, `PATCH/DELETE /api/auth/roles/<slug>` (a role in
-  use cannot be deleted).
-- **`crm.RolePermission`** (role / capability / allowed, `unique_together`) — the
-  per-role capability matrix, edited via `GET/PUT /api/auth/permissions`.
-- **`crm/permissions_store.py`** is the engine: a ~26-entry capability catalog
-  (`CAPABILITIES`, e.g. `contacts.view`, `contacts.manage`, `integrations.manage`,
-  `rbac.manage`), a `DEFAULT_MATRIX`, and the single gate
-  **`has_capability(role, cap)`**. Properties that matter:
-  - **superadmin is always allowed in code** (anti-lockout), regardless of the
-    matrix;
-  - a missing matrix row falls back to the code default;
-  - `rbac.manage` for superadmin is **locked** (cannot be disabled);
-  - no caching — a matrix edit takes effect on the next request.
-- **Server enforcement** uses `has_capability` directly (function views) or the
-  `HasCapability.for_(cap)` DRF permission factory (`backend/api/permissions.py`).
-  The frontend mirrors the catalog in `src/lib/auth.ts` (`capabilities[]` +
-  `hasCap()`) for **cosmetic** gating only.
-- UI: `/permissions` (role list + capability matrix), Settings → Users & Roles.
+(34 capabilities. The service-provider capabilities and the `provider` role are
+gone with Service Providers — see [DOMAIN_MODEL.md](DOMAIN_MODEL.md).)
 
-Custom roles are treated as **agent-level** for the admin management tier (an
-admin may assign them but not privileged roles); assignment is validated against
-`crm.Role` rows, not the built-in enum.
+### How endpoints enforce it
 
-## Server-side gates, by surface
+Every route carries a coarse policy — `authenticated`, `admin+` or
+`superadmin` (`Auth/AuthPolicies.cs`) — and, where the matrix applies, a
+capability check in the handler (`AdminEndpoints.HasCapabilityAsync`,
+`SettingsEndpoints.RequireCapability`). Notable gates:
 
-| Surface | Minimum role |
+| Surface | Gate |
 |---|---|
-| Global app keys / settings (`POST /api/whatsapp/settings`, `PUT /api/aicore/persona`, `PUT /api/integrations/settings`, `PUT /api/whatsapp/voice-settings`) | superadmin |
-| Channel + integration account management (incl. MCP servers), routing rules, assignments, rebalance, recovery, knowledge, skills, flow library PUT, notification prefs | admin+ |
-| Service Provider (`crm.Resource`) + binding management (`/api/resources`) | `contacts.manage` (admin+); read = `contacts.view` |
-| Audit log | admin+ (superadmin sees all actors) |
-| Everything else (inbox, sending, dialling, reading analytics) | any authenticated role |
+| Global settings key/value (`PUT /api/settings`), persona (`PUT /api/aicore/persona`), voice SIP creds (`PUT /api/whatsapp/voice-settings`), Google connect (`POST /api/integrations/{provider}/connect`) | superadmin |
+| AI keys & models (`PUT /api/settings/ai-providers`) | `settings.ai_keys.manage` |
+| Integration provider keys (`PUT /api/integrations/settings`) | `app_keys.manage` |
+| Custom fields schema (`PUT /api/settings/custom-fields`) | `settings.custom_fields.manage` |
+| Org notification defaults (`PUT /api/auth/notification-prefs`) | `notifications.manage` |
+| Org appearance default (`PUT /api/settings/appearance`) | `settings.appearance.org` |
+| Account assignments, rebalance, routing rules (`/api/whatsapp/assignments*`, `PUT /api/whatsapp/routing-rules`) | `account_assignment.manage` |
+| Channel/integration accounts, widgets, teams, automations, knowledge, skills, external MCP servers, recovery, record sync, analytics usage | admin+ |
+| WhatsApp global settings incl. the verify token (`POST/PUT /api/whatsapp/settings`) | `app_keys.manage` |
+| Flow library | GET `flows.view`, PUT `flows.manage` |
+| Tags | read `tags.view`, write `tags.manage` |
+| Bindings (`POST /api/bindings/{kind}`) | admin+ AND the kind's own capability (`users.manage`, `contacts.manage`, `tags.manage`, `channels.manage`) |
+| Message templates / call scripts | `templates.manage` / `script_templates.manage` |
+| AI monitor / behaviour | `ai.monitor` / `ai.behaviour.manage` |
+| Activity log (`/api/audit*`) | `activity.view` |
+| API keys | `api_keys.manage` (admins can see and revoke their tenant's keys) |
+| Inbox, sending, dialling, contacts reads, search, live | authenticated + the matching `chats.*` / `contacts.*` capability where checked, bounded by entity scope |
+
+The command palette's `GET /api/search` gates each result type by the
+capability of the page it opens and scopes it like that page's list endpoint.
+
+## API keys and scopes
+
+An API key (`crm_apikey`) acts as its owning user: same role, capabilities and
+entity scope. It may carry **scopes** — a capability subset; the effective set
+is role capabilities ∩ scopes (`ApiKeyAuth.EffectiveCapabilitiesAsync`), and a
+scoped key that holds no `.manage`/`.send` capability is read-only. Keys are
+used for the REST API and the MCP server (`POST /mcp`); everything they do is
+logged with source `api` / `mcp`.
 
 ## User management
 
-Both `/api/v1/users` (canonical, DRF) and `/api/auth/users` (legacy alias) call
-the single source of truth `backend/crm/user_service.py`, so the tiered rules
-exist in exactly one place:
+`/api/v1/users` (+ `/{id}`, DELETE = deactivate) holds the tiered rules:
 
-- **superadmin** — manage everyone, any role, any tenant. Must pass `tenant`
-  (slug) when creating.
-- **admin** — may create and manage **only agents in their own tenant**. May
-  assign `brand_ids` within that tenant. May not change roles, and may not touch
-  admins or superadmins (403). An agent created without brands inherits the
-  creating admin's tenant.
-- **agent** — 403; no access to the users endpoint at all.
+- **superadmin** — any user, any role, any tenant (`tenant` slug on create).
+- **admin** — only agent-level users (agents and custom roles) in their own
+  tenant; may not change roles to/from admin/superadmin or touch
+  admins/superadmins (403). A custom role granted `users.manage` is tiered the
+  same way.
+- everyone else — 403 on `users.manage`.
 
-Other rules the service enforces:
+Other rules: passwords ≥ 8 characters; `entity_ids` (create and update) applies
+to agent-level users — agents AND custom roles — and must sit in one tenant,
+bounded by the creator's scope (their tenant; a custom-role manager who is
+itself bound to entities only within those subtrees); switching agent ↔ custom
+role keeps the binding, promotion to admin drops it; an agent-level user
+created without entities inherits the creating manager's tenant; a login can be
+bound to a Contact (`contact_id` — a **customer login**). Deactivation kills the
+user's sessions. UI: `/users` (Users & roles), `/teams`, `/entities`,
+`/bindings`, `/permissions`.
 
-- `brand_ids` is agents-only, must all belong to one tenant, and is validated
-  before the user is created.
-- Changing a user's role **away from** agent clears their brand access.
-- New users get a freshly rotated bearer token on their `Profile`.
-- Django's `is_staff` / `is_superuser` flags are kept coherent with the app role.
+## Seeded users
 
-UI: Settings → **Users & Roles** (admin+, with a role-capability matrix; agent
-rows carry tenant/brand chips and a Brands editor) and Settings → **Brands &
-Tenants** (admin+ create).
-
-## Demo users
-
-`manage.py seed_demo` creates two tenants (`default` = "Northwind Trading",
-`acme` = "Acme Services"), three brands, and three logins:
-
-| Username | Password | Role | Access |
+| Username | Password | Role | When |
 |---|---|---|---|
-| `superadmin` | `super123` | superadmin | all tenants, all brands |
-| `admin` | `admin123` | admin | tenant `default`: brands `northwind`, `northwind-pro` |
-| `agent` | `agent123` | agent | brand `northwind` only |
+| `superadmin` | `SUPERADMIN_PASSWORD`, else `super123` | superadmin | always |
+| `admin` | `admin123` | admin | only with `SEED_DEMO=1` |
+| `agent` | `agent123` | agent | only with `SEED_DEMO=1` |
 
-**These are POC credentials committed to a public template. Rotate them before
-any deployment.** `manage.py seed_production` is the fixture-free variant for a
-real deployment (real tenant/brand, no demo contacts, optional contact-book
-import, `.env` readiness report) — but it still seeds **default passwords**
-unless you pass `--admin-password` / set `SEED_ADMIN_PASSWORD`, and admin/agent
-always get defaults. Its readiness report warns while any user is still on one.
-
-The second tenant exists so isolation is testable: its data must never appear in
-the default tenant's endpoints.
+All in the `demo` tenant with one `main` entity. **POC credentials committed to
+a public template — set `SUPERADMIN_PASSWORD`, leave `SEED_DEMO` unset in
+production, and rotate anything that was ever seeded.**
 
 ## Limits you should know about
 
-- **Enforcement is application-layer only.** SQLite has no row-level security,
-  and none has been added for Postgres either. A queryset that forgets its
-  tenant filter is a cross-tenant data leak; the test suite covers the current
+- **Enforcement is application-layer only.** SQLite has no row-level security.
+  A query that forgets its scope is a data leak; the tests cover the current
   query paths, not future ones.
-- **Messaging and call models are not brand-scoped.** `Thread`,
-  `ChannelAccount`, `Message` and `CallRecord` carry no tenant or brand FK, so
-  the inbox is effectively installation-wide. A single-tenant deployment is the
-  well-tested path.
-- **The `X-Role` header bypasses auth entirely — but only while zero `Profile`
-  rows exist.** It is a pre-seed bootstrap affordance; running `seed_demo` (or
-  creating any user) closes it.
+- **The `X-Role` header bypasses auth — but only while zero `crm_profile` rows
+  exist.** The seed always creates one, which closes it.
 - **Frontend role reads must happen after mount.** `getRole()` / `getAuth()`
-  read `localStorage`, which does not exist during SSR. Calling them during
-  render breaks hydration. Use `useRole()` from `src/lib/useRole.ts`.
+  read `localStorage`; calling them during render breaks hydration. Use
+  `useAccess()` or `useRole()`.

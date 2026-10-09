@@ -3,142 +3,319 @@
 @tailwind utilities;
 
 /* ── Theme tokens ──────────────────────────────────────────────────────────
-   :root is the dark theme (default). the `.light` class on <html> overrides the same
-   vars for light. Every semantic Tailwind color (app/surface/card/text-*) and
-   the neutral line/fill tokens resolve to these — so the whole UI flips by
-   swapping one attribute on <html>. Entity accents stay identical in both. */
-/* Palette: "Navy + Ocean Blue" console (design_handoff_full_app/design.md).
-   Dark = navy ground (#080D18) with layered panels; OCEAN BLUE is the single
-   entity accent (was emerald). Surface layers, lightest→deepest:
-     --app   page ground            (#080D18)
-     --surface topbar / sidebar / outer shell panels (#101A2E)
-     --panel main content panel + wells inside cards  (#0D1526)
-     --card  nested cards           (#111C33)
-     --well  recessed well inside a card (same as --panel) */
+   Three looks × two modes, all driven by CSS variables on <html>:
+     theme  : (none) / .theme-paper = Paper & Ink (default)
+              .theme-graphite      = Graphite Pro
+              .theme-soft          = Soft Blocks
+     mode   : .light (default) / .dark
+   lib/theme.ts applies the classes plus any per-user overrides (accent
+   colour, text size, corner style, heading font) as inline vars on <html>.
+   Every semantic Tailwind colour (app, surface, card, text-*, line, fill) AND the
+   accent scales (brand, green, amber, red, purple, cyan, blue) resolve here,
+   so no component carries per-theme overrides.
+
+   Accent scales are bare "R G B" triplets so Tailwind's opacity modifiers
+   (bg-brand-400/10) keep working: see tailwind.config.js. Shade convention:
+   DEFAULT = fills/dots/borders, 400 = stronger fill/border, 300/200 = TEXT
+   ink (readable on the page). */
+
+/* Paper & Ink — light */
 :root {
-  /* Glass tuning (shared) — one blur radius reused everywhere so the GPU
-     cost stays predictable. Bump --glass-blur if you want frostier panels. */
-  --glass-blur: 16px;
-  --glass-sat: 135%;
-  /* Opaque root fallback painted behind the fixed gradient backdrop. */
-  --bg-base: #06090f;
-  /* Top sheen (glass edge highlight) layered as a background-image on the
-     surface tiers — it never clobbers component box-shadows. */
-  --glass-sheen: rgba(255, 255, 255, 0.09);
-  /* Frosted-edge hairline sitting just inside the border of each glass tier. */
-  --glass-edge: rgba(255, 255, 255, 0.10);
+  --font-sans: 'Schibsted Grotesk Variable', 'Schibsted Grotesk', system-ui, sans-serif;
+  --font-display: 'Fraunces Variable', 'Fraunces', Georgia, serif;
+  --display-weight: 500;
+  --display-tracking: -0.02em;
+  --r-md: 5px;
+  --r-lg: 6px;
+  --r-xl: 8px;
+  --r-2xl: 10px;
+  --r-3xl: 14px;
+  --ui-zoom: 1;
 
-  /* Surfaces are lightly TRANSLUCENT so the backdrop tints them and glows in the
-     gutters — but kept fairly OPAQUE (no live backdrop-filter on scrolling
-     surfaces; that was the source of the jank). The glass read comes from the
-     ambient backdrop + tint + edge sheen, not a per-surface blur. */
-  --app: rgba(9, 14, 26, 0.30);
-  --surface: rgba(19, 28, 48, 0.85);
-  --panel: rgba(13, 20, 37, 0.74);
-  --card: rgba(24, 35, 60, 0.66);
-  --well: rgba(8, 13, 25, 0.50);
+  --app: #faf7f2; /* paper — page ground */
+  --surface: #f6f1e9; /* rail — sidebar, top bar, sticky chrome */
+  --panel: #faf7f2; /* main content panel */
+  --card: #fffdf9; /* cards and popovers */
+  --well: #f3eee6; /* recessed well inside a card */
 
-  --text-primary: #e7ecf5;
+  --text-primary: #1a1a1a; /* ink */
+  --text-heading: #141210;
+  --text-high: #2a2622;
+  --text-mid: #4a4540;
+  --text-muted: #6f685f;
+  --text-faint: #9a9187; /* placeholders and decoration only — not body text */
+
+  --line: #e4ddd1; /* hairline rule */
+  --line-strong: #cfc6b8;
+  --fill: rgba(70, 52, 24, 0.05);
+  --fill-hover: rgba(70, 52, 24, 0.09);
+  --fill-subtle: rgba(70, 52, 24, 0.03);
+
+  --nav-active-bg: #ece5d9;
+  --nav-active-text: #1a1a1a;
+
+  /* Primary action + its foreground. */
+  --primary: #1a1a1a;
+  --on-primary: #faf7f2;
+  /* The accent: decorative fills only — text uses --brand-ink. */
+  --accent: #ff5a1f;
+  --on-accent: #1a1a1a;
+  --focus: #ff5a1f;
+  --shadow-pop: 0 12px 32px rgba(26, 26, 26, 0.12);
+  --scrim: rgba(26, 20, 12, 0.38);
+
+  --brand-ink: #c2410c;
+  --amber-ink: #8a5a12;
+  --green-ink: #1f6b3e;
+  --red-ink: #b42318;
+  --blue-ink: #1f5fa8;
+  --purple-ink: #6b3f7d;
+  --cyan-ink: #1d6b66;
+
+  --c-brand: 224 72 15;
+  --c-brand-400: 194 65 12;
+  --c-brand-300: 194 65 12;
+  --c-brand-200: 154 52 18;
+  --c-green: 47 125 79;
+  --c-green-600: 31 107 62;
+  --c-green-300: 31 107 62;
+  --c-amber: 200 137 26;
+  --c-amber-600: 160 104 10;
+  --c-amber-400: 138 90 18;
+  --c-amber-300: 138 90 18;
+  --c-red: 192 57 43;
+  --c-red-400: 180 35 24;
+  --c-red-300: 180 35 24;
+  --c-purple: 122 78 140;
+  --c-purple-600: 107 63 125;
+  --c-purple-700: 90 50 110;
+  --c-purple-400: 107 63 125;
+  --c-purple-300: 107 63 125;
+  --c-cyan: 46 125 116;
+  --c-cyan-600: 29 107 102;
+  --c-cyan-300: 29 107 102;
+  --c-blue: 31 95 168;
+  --c-blue-400: 31 95 168;
+  --c-blue-300: 31 95 168;
+}
+
+/* Paper & Ink — dark (warm charcoal) */
+:root.dark {
+  --app: #1c1a17;
+  --surface: #211e1a;
+  --panel: #1c1a17;
+  --card: #26231e;
+  --well: #191714;
+
+  --text-primary: #f2ede4;
+  --text-heading: #fbf8f2;
+  --text-high: #e6dfd3;
+  --text-mid: #c2b9ab;
+  --text-muted: #a39b8f;
+  --text-faint: #746c61;
+
+  --line: #38332c;
+  --line-strong: #4a443b;
+  --fill: rgba(255, 244, 228, 0.05);
+  --fill-hover: rgba(255, 244, 228, 0.09);
+  --fill-subtle: rgba(255, 244, 228, 0.03);
+
+  --nav-active-bg: #2e2a24;
+  --nav-active-text: #fbf8f2;
+
+  --primary: #f2ede4;
+  --on-primary: #1a1a1a;
+  --accent: #ff7a45;
+  --on-accent: #1a1a1a;
+  --focus: #ff7a45;
+  --shadow-pop: 0 14px 36px rgba(0, 0, 0, 0.45);
+  --scrim: rgba(0, 0, 0, 0.55);
+
+  --brand-ink: #ff9466;
+  --amber-ink: #e3b25a;
+  --green-ink: #6bc58f;
+  --red-ink: #f08a7e;
+  --blue-ink: #8db8ec;
+  --purple-ink: #c9a2da;
+  --cyan-ink: #7cc9c0;
+
+  --c-brand: 255 122 69;
+  --c-brand-400: 255 138 92;
+  --c-brand-300: 255 160 120;
+  --c-brand-200: 255 196 168;
+  --c-green: 107 197 143;
+  --c-green-600: 84 172 120;
+  --c-green-300: 140 214 168;
+  --c-amber: 227 178 90;
+  --c-amber-600: 205 156 70;
+  --c-amber-400: 233 192 115;
+  --c-amber-300: 238 205 140;
+  --c-red: 240 138 126;
+  --c-red-400: 244 158 148;
+  --c-red-300: 247 180 172;
+  --c-purple: 201 162 218;
+  --c-purple-600: 186 142 206;
+  --c-purple-700: 170 125 192;
+  --c-purple-400: 211 178 225;
+  --c-purple-300: 222 196 233;
+  --c-cyan: 124 201 192;
+  --c-cyan-600: 104 186 176;
+  --c-cyan-300: 150 214 206;
+  --c-blue: 141 184 236;
+  --c-blue-400: 160 196 240;
+  --c-blue-300: 182 210 244;
+}
+
+/* Graphite Pro — light: crisp neutral, violet accent, sans headings */
+:root.theme-graphite {
+  --font-sans: 'Geist Variable', 'Geist', system-ui, sans-serif;
+  --font-display: 'Geist Variable', 'Geist', system-ui, sans-serif;
+  --display-weight: 650;
+  --display-tracking: -0.03em;
+  --r-md: 5px;
+  --r-lg: 6px;
+  --r-xl: 7px;
+  --r-2xl: 9px;
+  --r-3xl: 12px;
+
+  --app: #f7f7f8;
+  --surface: #ffffff;
+  --panel: #f7f7f8;
+  --card: #ffffff;
+  --well: #f2f2f4;
+  --text-primary: #18181b;
+  --text-heading: #0f0f11;
+  --text-high: #27272a;
+  --text-mid: #52525b;
+  --text-muted: #6b6b76;
+  --text-faint: #a1a1aa;
+  --line: #e6e6ea;
+  --line-strong: #d4d4da;
+  --fill: rgba(24, 24, 27, 0.04);
+  --fill-hover: rgba(24, 24, 27, 0.07);
+  --fill-subtle: rgba(24, 24, 27, 0.025);
+  --nav-active-bg: #efedff;
+  --nav-active-text: #4b3fd1;
+  --primary: #6d5dfc;
+  --on-primary: #ffffff;
+  --accent: #6d5dfc;
+  --on-accent: #ffffff;
+  --focus: #6d5dfc;
+  --shadow-pop: 0 12px 32px rgba(15, 15, 17, 0.12);
+  --scrim: rgba(15, 15, 17, 0.4);
+  --brand-ink: #4b3fd1;
+  --c-brand: 109 93 252;
+  --c-brand-400: 88 72 235;
+  --c-brand-300: 75 63 209;
+  --c-brand-200: 60 50 170;
+}
+:root.theme-graphite.dark {
+  --app: #0e0e10;
+  --surface: #141417;
+  --panel: #0e0e10;
+  --card: #18181b;
+  --well: #111113;
+  --text-primary: #ededef;
   --text-heading: #ffffff;
-  --text-high: #dce6fa;
-  --text-mid: #9aa8c2;
-  --text-muted: #7c8aa6;
-  --text-faint: #5b6b87;
-
-  --line: rgba(255, 255, 255, 0.08);
-  --line-strong: rgba(255, 255, 255, 0.13);
+  --text-high: #e4e4e7;
+  --text-mid: #b4b4bc;
+  --text-muted: #9b9ba6;
+  --text-faint: #63636c;
+  --line: #26262b;
+  --line-strong: #34343b;
   --fill: rgba(255, 255, 255, 0.04);
   --fill-hover: rgba(255, 255, 255, 0.07);
   --fill-subtle: rgba(255, 255, 255, 0.025);
-
-  /* Selected/active nav = blue tint fill + light-blue text. */
-  --nav-active-bg: rgba(59, 130, 246, 0.15);
-  --nav-active-text: #93c5fd;
-
-  /* Accent "ink" — readable accent TEXT color per theme. */
-  --brand-ink: #93c5fd;
-  --amber-ink: #fbbf24;
-  --green-ink: #34d399;
-  --red-ink: #f87171;
-  --blue-ink: #60a5fa;
-  --purple-ink: #a78bfa;
+  --nav-active-bg: #221f3d;
+  --nav-active-text: #c4bdff;
+  --primary: #7c6dff;
+  --on-primary: #ffffff;
+  --accent: #8b7dff;
+  --on-accent: #0e0e10;
+  --focus: #8b7dff;
+  --shadow-pop: 0 14px 36px rgba(0, 0, 0, 0.5);
+  --scrim: rgba(0, 0, 0, 0.6);
+  --brand-ink: #b3a9ff;
+  --c-brand: 139 125 255;
+  --c-brand-400: 155 143 255;
+  --c-brand-300: 179 169 255;
+  --c-brand-200: 205 199 255;
 }
 
-/* Light variant — a cohesive cool-grey / navy-tinted light theme that pairs
-   with the navy dark (design.md specs dark only). Layering is intentional:
-   a soft cool-grey desk (--app), white chrome (--surface), an off-white main
-   panel (--panel) so white cards pop on it, and cooler recessed wells. */
-:root.light {
-  --bg-base: #e7ebf3;
-  /* A glossier white edge reads better on the pale desk. */
-  --glass-sheen: rgba(255, 255, 255, 0.5);
+/* Soft Blocks — light: airy pastel blocks, rounded, friendly */
+:root.theme-soft {
+  --font-sans: 'Nunito Variable', 'Nunito', system-ui, sans-serif;
+  --font-display: 'Nunito Variable', 'Nunito', system-ui, sans-serif;
+  --display-weight: 800;
+  --display-tracking: -0.015em;
+  --r-md: 9px;
+  --r-lg: 11px;
+  --r-xl: 14px;
+  --r-2xl: 18px;
+  --r-3xl: 24px;
 
-  /* Translucent white glass over the cool-grey backdrop. Alphas raised (glass
-     refinement pass) so stacked panels separate instead of washing to one flat
-     white — surface (white chrome) and card (white) sit brighter than the
-     off-white panel between them, and every tier carries a visible edge via the
-     bumped line tokens. Dark text stays crisp because higher alpha = lighter,
-     higher-contrast surfaces. Tune these four alphas to taste. */
-  /* Lightly translucent so the pastel backdrop tints the surfaces and glows in
-     the gutters — a frosted-glass read WITHOUT backdrop-filter (kept off for
-     perf). Dark text stays AA-legible: even at these alphas the surfaces
-     composite to a light bluish white. Tune to taste. */
-  --app: rgba(228, 233, 242, 0.28);
-  --surface: rgba(255, 255, 255, 0.60);
-  --panel: rgba(244, 247, 252, 0.50);
-  --card: rgba(255, 255, 255, 0.62);
-  --well: rgba(233, 238, 246, 0.52);
-
-  --text-primary: #1c2536;
-  --text-heading: #0b1220;
-  --text-high: #2b364f;
-  --text-mid: #566085;
-  --text-muted: #737e9c;
-  --text-faint: #9aa4bb;
-
-  --line: rgba(16, 24, 40, 0.14);
-  --line-strong: rgba(16, 24, 40, 0.22);
-  --fill: rgba(16, 24, 40, 0.06);
-  --fill-hover: rgba(16, 24, 40, 0.095);
-  --fill-subtle: rgba(16, 24, 40, 0.042);
-
-  --nav-active-bg: rgba(59, 130, 246, 0.14);
-  --nav-active-text: #2563eb;
-
-  --brand-ink: #2563eb;
-  --amber-ink: #b45309;
-  --green-ink: #059669;
-  --red-ink: #dc2626;
-  --blue-ink: #2563eb;
-  --purple-ink: #7c3aed;
+  --app: #f6f4fd;
+  --surface: #ffffff;
+  --panel: #f6f4fd;
+  --card: #ffffff;
+  --well: #f1eefc;
+  --text-primary: #24213a;
+  --text-heading: #1b1830;
+  --text-high: #2f2b4a;
+  --text-mid: #4e4a6b;
+  --text-muted: #6e6a85;
+  --text-faint: #a8a4bf;
+  --line: #e7e3f4;
+  --line-strong: #d6d0ec;
+  --fill: rgba(91, 71, 214, 0.05);
+  --fill-hover: rgba(91, 71, 214, 0.09);
+  --fill-subtle: rgba(91, 71, 214, 0.03);
+  --nav-active-bg: #e9e3ff;
+  --nav-active-text: #3f2fb0;
+  --primary: #5b47d6;
+  --on-primary: #ffffff;
+  --accent: #8ad9b5;
+  --on-accent: #173326;
+  --focus: #5b47d6;
+  --shadow-pop: 0 16px 40px rgba(60, 45, 140, 0.14);
+  --scrim: rgba(36, 33, 58, 0.35);
+  --brand-ink: #4a37c4;
+  --c-brand: 91 71 214;
+  --c-brand-400: 80 60 200;
+  --c-brand-300: 74 55 196;
+  --c-brand-200: 60 44 160;
 }
-
-/* Light-mode contrast fixes. The accent scales' pale shades (200/300/400) are
-   tuned for dark surfaces; on white they wash out. Darken them for TEXT only
-   in light mode — translucent background tints stay pale and are left alone.
-   Scoped to :root.light so specificity beats the Tailwind utility
-   and dark mode is untouched. */
-:root.light .text-brand-200,
-:root.light .text-brand-300 {
-  color: #2563eb;
-}
-:root.light .text-brand-400 {
-  color: #2563eb;
-}
-:root.light .text-cyan-300 {
-  color: #0891b2;
-}
-:root.light .text-green-300 {
-  color: #059669;
-}
-:root.light .text-amber-300 {
-  color: #b45309;
-}
-:root.light .text-red-300 {
-  color: #dc2626;
-}
-:root.light .text-purple-300 {
-  color: #7c3aed;
+:root.theme-soft.dark {
+  --app: #17152a;
+  --surface: #1e1b35;
+  --panel: #17152a;
+  --card: #23203d;
+  --well: #1a1830;
+  --text-primary: #f0eeff;
+  --text-heading: #ffffff;
+  --text-high: #e4e0fb;
+  --text-mid: #bdb7df;
+  --text-muted: #a29cc6;
+  --text-faint: #6b6690;
+  --line: #312d52;
+  --line-strong: #403b66;
+  --fill: rgba(200, 190, 255, 0.06);
+  --fill-hover: rgba(200, 190, 255, 0.1);
+  --fill-subtle: rgba(200, 190, 255, 0.035);
+  --nav-active-bg: #2d2852;
+  --nav-active-text: #e2dcff;
+  --primary: #a99bff;
+  --on-primary: #17152a;
+  --accent: #8ad9b5;
+  --on-accent: #173326;
+  --focus: #a99bff;
+  --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.5);
+  --scrim: rgba(0, 0, 0, 0.55);
+  --brand-ink: #c3b9ff;
+  --c-brand: 169 155 255;
+  --c-brand-400: 181 169 255;
+  --c-brand-300: 195 185 255;
+  --c-brand-200: 215 208 255;
 }
 
 @layer base {
@@ -147,72 +324,37 @@
     height: 100%;
   }
   body {
-    background: var(--bg-base);
+    background: var(--app);
+    font-family: var(--font-sans);
     color: var(--text-primary);
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
+    font-feature-settings: 'ss01' on;
   }
-  /* Fixed, full-viewport glass backdrop the frosted panels blur OVER. It sits
-     behind every route (shell, login, settings, flow-builder all render a
-     translucent bg-app over it) and never scrolls. Dark = navy gradient with
-     two diffuse ocean-blue glow blobs; light = cool-grey with a paler tint. */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
-    background:
-      radial-gradient(58% 52% at 82% 6%, rgba(56, 132, 255, 0.45), transparent 60%),
-      radial-gradient(50% 46% at 12% 28%, rgba(99, 102, 241, 0.34), transparent 62%),
-      radial-gradient(46% 44% at 24% 74%, rgba(37, 99, 235, 0.26), transparent 64%),
-      radial-gradient(44% 40% at 96% 70%, rgba(34, 211, 238, 0.16), transparent 64%),
-      linear-gradient(158deg, #060b18 0%, #0b1730 46%, #070c1a 100%);
+  ::selection {
+    background: rgba(255, 90, 31, 0.25);
   }
-  :root.light body::before {
-    background:
-      radial-gradient(58% 52% at 82% 8%, rgba(59, 130, 246, 0.34), transparent 60%),
-      radial-gradient(50% 46% at 10% 28%, rgba(99, 102, 241, 0.26), transparent 62%),
-      radial-gradient(46% 44% at 22% 74%, rgba(56, 132, 255, 0.22), transparent 64%),
-      radial-gradient(44% 40% at 96% 70%, rgba(34, 211, 238, 0.18), transparent 64%),
-      linear-gradient(158deg, #e6ecf7 0%, #d7e1f2 50%, #e3eaf6 100%);
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--text-faint);
   }
 }
 
-/* ── Glassmorphism: frost the surface tiers ────────────────────────────────
-   backdrop-filter blurs whatever is painted behind each surface (the backdrop
-   through the translucent desk, and nested panels through each other). One
-   reused blur radius. The top sheen is a background-IMAGE (not box-shadow) so
-   it never overrides a component's own shadow. --app (the desk) is left
-   unblurred on purpose so the gutters show the crisp glow. */
-@layer utilities {
-  /* PERF: NO live backdrop-filter on persistent/scrolling surfaces — blurring the
-     backdrop under the sidebar and the big scrolling content panel on every
-     repaint was the source of the lag (the pre-glass version had none and was
-     smooth). The glass look now comes from translucency (the backdrop tints the
-     surfaces and glows in the gutters) plus a cheap edge sheen + rim — all of
-     which are paint-once, GPU-free. backdrop-filter is reserved for transient
-     overlays only (modal scrims use Tailwind's backdrop-blur-sm). */
-  .bg-surface,
-  .bg-panel,
-  .bg-card,
-  .bg-well {
-    background-image: linear-gradient(180deg, var(--glass-sheen), transparent 44%);
-    box-shadow: inset 0 1px 0 var(--glass-edge);
-  }
-}
-
-/* Thin entity scrollbar (matches prototype) */
+/* Thin, quiet scrollbars */
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(59, 130, 246, 0.4);
-  border-radius: 4px;
+  background: var(--line-strong);
+  border-radius: 6px;
 }
 
 /* Hide scrollbar for horizontal nav */
@@ -262,24 +404,24 @@
 }
 @keyframes pulseRing {
   0% {
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5);
+    box-shadow: 0 0 0 0 rgba(255, 90, 31, 0.45);
   }
   70% {
-    box-shadow: 0 0 0 7px rgba(59, 130, 246, 0);
+    box-shadow: 0 0 0 7px rgba(255, 90, 31, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    box-shadow: 0 0 0 0 rgba(255, 90, 31, 0);
   }
 }
 @keyframes pulseGreen {
   0% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
+    box-shadow: 0 0 0 0 rgba(47, 125, 79, 0.45);
   }
   70% {
-    box-shadow: 0 0 0 7px rgba(16, 185, 129, 0);
+    box-shadow: 0 0 0 7px rgba(47, 125, 79, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+    box-shadow: 0 0 0 0 rgba(47, 125, 79, 0);
   }
 }
 @keyframes slideDown {
@@ -327,32 +469,26 @@
 }
 .nav-row:hover {
   background: var(--fill-hover) !important;
-  color: var(--text-high) !important;
+  color: var(--text-heading) !important;
 }
 
-/* ── Navy-redesign helpers ─────────────────────────────────────────────────
-   Channel-Health "folder tab" fan: the active tab lifts with a soft top
-   shadow and merges into the panel below (no bottom border, square-ish top). */
-.fan-tab {
-  border: 1px solid var(--line);
-  border-bottom: none;
-  border-radius: 10px 10px 0 0;
-  background: rgba(24, 34, 56, 0.5);
-  transition: background 0.12s, color 0.12s;
-}
-:root.light .fan-tab {
-  background: rgba(230, 235, 243, 0.6);
-}
-.fan-tab.active {
-  background: var(--panel);
-  box-shadow: 0 -3px 8px rgba(0, 0, 0, 0.3);
-}
-:root.light .fan-tab.active {
-  box-shadow: 0 -3px 8px rgba(16, 24, 40, 0.08);
+/* Display headings: the theme decides family, weight and tracking. */
+.display {
+  font-family: var(--font-display);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
 }
 
-/* Placeholder/demo-data marker — 5px amber dot next to a stat sub-line.
-   title="Placeholder data — not wired to live figures" */
+/* Section eyebrow above a page title */
+.eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Placeholder/demo-data marker — 5px amber dot next to a stat sub-line. */
 .demo-dot {
   display: inline-block;
   width: 5px;

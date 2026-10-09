@@ -25,9 +25,6 @@ export interface AuthUser {
   /** Fine-grained permissions for the current role (dynamic RBAC). Optional so
    *  older cached sessions still parse — absence triggers the role fallback. */
   capabilities?: string[]
-  /** Provider login: this user IS a Service Provider (teacher / supplier) and
-   *  sees only their own customers/chats. Null/undefined = operator login. */
-  resource_id?: number | null
 }
 
 /**
@@ -53,15 +50,24 @@ export const CAPABILITY_CATALOG: { capability: string; area: string; label: stri
   { capability: 'entities.manage', area: 'Entities', label: 'Manage entities & tenants' },
   { capability: 'templates.manage', area: 'Library', label: 'Manage message templates' },
   { capability: 'script_templates.manage', area: 'Library', label: 'Manage script templates' },
-  { capability: 'notifications.manage', area: 'Review', label: 'Manage notification prefs' },
+  { capability: 'notifications.manage', area: 'Settings', label: 'Manage organization notification defaults' },
   { capability: 'analytics.view', area: 'Review', label: 'View analytics' },
   { capability: 'call_logs.view', area: 'Review', label: 'View call logs' },
   { capability: 'activity.view', area: 'Review', label: 'View activity log' },
   { capability: 'settings.ai.manage', area: 'Settings', label: 'Manage AI configuration' },
   { capability: 'account_assignment.manage', area: 'Settings', label: 'Manage account assignment' },
-  { capability: 'app_keys.manage', area: 'Settings', label: 'Manage app keys' },
+  { capability: 'app_keys.manage', area: 'Settings', label: 'Manage app & provider keys' },
   { capability: 'pronunciation.manage', area: 'Settings', label: 'Manage pronunciation' },
+  // Settings sub-pages — one capability each (Personal pages need none).
+  { capability: 'settings.appearance.org', area: 'Settings', label: 'Set the organization default appearance' },
+  { capability: 'settings.custom_fields.manage', area: 'Settings', label: 'Manage custom fields' },
+  { capability: 'settings.ai_keys.manage', area: 'Settings', label: 'Manage AI keys & models' },
   { capability: 'rbac.manage', area: 'Admin', label: 'Edit the permission matrix' },
+  { capability: 'tags.view', area: 'Library', label: 'View tags' },
+  { capability: 'tags.manage', area: 'Library', label: 'Create & edit tags' },
+  { capability: 'api_keys.manage', area: 'Admin', label: 'Manage API keys & MCP' },
+  { capability: 'ai.monitor', area: 'AI', label: 'See & approve AI drafts' },
+  { capability: 'ai.behaviour.manage', area: 'AI', label: 'Edit AI behaviour settings' },
 ]
 
 const ALL_CAPS = CAPABILITY_CATALOG.map((c) => c.capability)
@@ -74,7 +80,7 @@ const ALL_CAPS = CAPABILITY_CATALOG.map((c) => c.capability)
  */
 export const DEFAULT_ROLE_CAPS: Record<Role, string[]> = {
   superadmin: ALL_CAPS,
-  admin: ALL_CAPS.filter((c) => c !== 'rbac.manage' && c !== 'app_keys.manage'),
+  admin: ALL_CAPS.filter((c) => c !== 'rbac.manage' && c !== 'app_keys.manage' && c !== 'settings.ai_keys.manage'),
   agent: [
     'contacts.view',
     'chats.view',
@@ -83,6 +89,8 @@ export const DEFAULT_ROLE_CAPS: Record<Role, string[]> = {
     'analytics.view',
     'call_logs.view',
     'activity.view',
+    'tags.view',
+    'ai.monitor',
   ],
 }
 
@@ -104,6 +112,8 @@ export function getAuth(): AuthUser | null {
     if (!raw) return null
     const u = JSON.parse(raw) as AuthUser
     if ((u.role as string) === 'collector') u.role = 'agent' // pre-revert cached session
+    // a session cached while Service Providers existed may still carry one
+    delete (u as { resource_id?: unknown }).resource_id
     return u.token ? u : null
   } catch {
     return null
@@ -178,24 +188,18 @@ export function expireSessionOn401(res: Response): boolean {
  * Never throws — a backend that predates the matrix just leaves capabilities
  * undefined and the role fallback takes over.
  */
-async function fetchIdentity(
-  token: string,
-): Promise<{ capabilities?: string[]; resource_id?: number | null }> {
+async function fetchIdentity(token: string): Promise<{ capabilities?: string[] }> {
   for (const path of ['auth/whoami', 'v1/whoami']) {
     try {
       const res = await fetch(`${API}/${path}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok) continue
-      const data = (await res.json().catch(() => ({}))) as {
-        capabilities?: unknown
-        resource_id?: unknown
-      }
+      const data = (await res.json().catch(() => ({}))) as { capabilities?: unknown }
       const caps = Array.isArray(data.capabilities)
         ? data.capabilities.filter((c): c is string => typeof c === 'string')
         : undefined
-      const rid = typeof data.resource_id === 'number' ? data.resource_id : null
-      if (caps) return { capabilities: caps, resource_id: rid }
+      if (caps) return { capabilities: caps }
     } catch {
       /* try the next endpoint */
     }
@@ -220,9 +224,25 @@ export async function login(username: string, password: string): Promise<AuthUse
     undefined
   const ident = await fetchIdentity(user.token)
   user.capabilities = inline || ident.capabilities
-  user.resource_id = ident.resource_id ?? null
   setAuth(user)
   return user
+}
+
+/**
+ * Re-read the signed-in user's capabilities from whoami and update the cached
+ * session, so a session cached before the capability catalog changed (or
+ * before an admin edited the matrix) still gates the UI correctly. The shell
+ * calls it once per sign-in; listeners hear an 'auth-change' window event.
+ */
+export async function refreshIdentity(): Promise<AuthUser | null> {
+  const user = getAuth()
+  if (!user) return null
+  const ident = await fetchIdentity(user.token)
+  if (!ident.capabilities) return user
+  const next: AuthUser = { ...user, capabilities: ident.capabilities }
+  setAuth(next)
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('auth-change'))
+  return next
 }
 
 export async function logout(): Promise<void> {

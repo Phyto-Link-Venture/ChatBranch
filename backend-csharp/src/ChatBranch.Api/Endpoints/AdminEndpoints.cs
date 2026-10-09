@@ -52,15 +52,24 @@ public static class AdminEndpoints
         ("entities.manage", "Entities & Tenants", "Manage entities & tenants"),
         ("templates.manage", "Library", "Manage message templates"),
         ("script_templates.manage", "Library", "Manage script templates"),
-        ("notifications.manage", "Notifications", "Manage notification settings"),
+        ("notifications.manage", "Settings", "Manage organization notification defaults"),
         ("analytics.view", "Review", "View analytics"),
         ("call_logs.view", "Review", "View call logs"),
         ("activity.view", "Review", "View activity log"),
         ("settings.ai.manage", "Settings", "Manage AI configuration"),
         ("account_assignment.manage", "Settings", "Manage account assignment"),
-        ("app_keys.manage", "Settings", "Manage app keys"),
+        ("app_keys.manage", "Settings", "Manage app & provider keys"),
         ("pronunciation.manage", "Settings", "Manage pronunciation"),
+        // Settings sub-pages — one capability each (Personal pages need none).
+        ("settings.appearance.org", "Settings", "Set the organization default appearance"),
+        ("settings.custom_fields.manage", "Settings", "Manage custom fields"),
+        ("settings.ai_keys.manage", "Settings", "Manage AI keys & models"),
         ("rbac.manage", "Admin", "Edit the permission matrix"),
+        ("tags.view", "Library", "View tags"),
+        ("tags.manage", "Library", "Create & edit tags"),
+        ("api_keys.manage", "Admin", "Manage API keys & MCP"),
+        ("ai.monitor", "AI", "See & approve AI drafts"),
+        ("ai.behaviour.manage", "AI", "Edit AI behaviour settings"),
     };
 
     private static readonly string[] CapabilityIds =
@@ -82,13 +91,14 @@ public static class AdminEndpoints
 
     /// admin gets everything EXCEPT these (kept superadmin-only).
     private static readonly HashSet<string> AdminExclude = new()
-        { "rbac.manage", "app_keys.manage" };
+        { "rbac.manage", "app_keys.manage", "settings.ai_keys.manage" };
 
     /// agent's read-mostly work surface.
     private static readonly HashSet<string> AgentAllow = new()
     {
         "contacts.view", "chats.view", "chats.send", "flows.view",
         "analytics.view", "call_logs.view", "activity.view",
+        "tags.view", "ai.monitor",
     };
 
     /// rbac.manage for superadmin is never toggleable off (anti-lockout).
@@ -417,7 +427,6 @@ public static class AdminEndpoints
             var q = db.Users.AsNoTracking()
                 .Include(u => u.Profile!).ThenInclude(p => p.Tenant)
                 .Include(u => u.Profile!).ThenInclude(p => p.Entities)
-                .Include(u => u.Profile!).ThenInclude(p => p.Resource)
                 .Include(u => u.Profile!).ThenInclude(p => p.Contact)
                 .AsQueryable();
             if (role == Roles.Admin)
@@ -446,14 +455,10 @@ public static class AdminEndpoints
         tenant = u.Profile?.Tenant?.Slug,
         entities = (u.Profile?.Entities ?? new List<Entity>())
             .Select(e => new { id = e.Id, name = e.Name, slug = e.Slug }),
-        // Provider login: this user IS this Service Provider (scoped to their
-        // own customers/chats). Null for operator logins.
-        resource_id = u.Profile?.ResourceId,
         // Customer login: the Contact this user signs in as (integrations are
         // connected per registered user, against their own contact record).
         contact_id = u.Profile?.ContactId,
         contact_name = u.Profile?.Contact?.Name,
-        resource_name = u.Profile?.Resource?.Name,
     };
 
     /// A Django superuser with no Profile row still counts as superadmin.

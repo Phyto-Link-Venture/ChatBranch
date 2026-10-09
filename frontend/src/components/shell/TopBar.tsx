@@ -1,87 +1,86 @@
 'use client'
 
-import { Menu, PanelLeft, Search } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { usePathname } from 'next/navigation'
+import { Menu, Search } from 'lucide-react'
 import type { AuthUser } from '@/lib/auth'
 import { EntitySwitcher } from './EntitySwitcher'
 import { NotificationsBell } from './NotificationsBell'
+import { LiveChip } from './LiveChip'
+import { NAV_GROUPS, SETTINGS_NAV, isActive } from './nav'
+
+/** The page's name for the phone header (the rail is hidden there). */
+function pageTitle(pathname: string): string {
+  for (const g of NAV_GROUPS) for (const n of g.items) if (isActive(pathname, n)) return n.lbl
+  if (isActive(pathname, SETTINGS_NAV)) return 'Settings'
+  return 'ChatBranch'
+}
 
 /**
- * Full-width topbar (design.md): collapse toggle · entity mark + wordmark ·
- * search · quick-action icon buttons · notifications + Live · brand/tenant
- * switcher · tenant avatar. Rounded 18px surface panel.
+ * Top bar, flush on the paper with a hairline under it: the search field
+ * (opens the command palette — so does Ctrl/⌘+K anywhere), the Live chip, the
+ * entity switcher and the notification bell. On a phone: menu button, the
+ * page title in the display face, Live, a search button and the bell.
  */
 export function TopBar({
-  user,
-  onToggleNav,
   onOpenMobileNav,
+  onOpenSearch,
 }: {
-  user: AuthUser | null
-  onToggleNav: () => void
+  user?: AuthUser | null
   onOpenMobileNav?: () => void
+  onOpenSearch: () => void
 }) {
+  const pathname = usePathname() || '/'
+  // ⌘ on Apple keyboards, Ctrl elsewhere — resolved after mount (SSR-safe).
+  const [mod, setMod] = useState('Ctrl')
+  useEffect(() => {
+    if (/Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent)) setMod('⌘')
+  }, [])
+
   return (
-    <header className="flex h-[56px] shrink-0 items-center gap-2 rounded-[18px] border border-line bg-surface px-2.5 sm:gap-3 sm:px-3">
-      {/* Mobile: open the off-canvas drawer. */}
+    <header className="flex h-[60px] shrink-0 items-center gap-2 border-b border-line px-3 sm:gap-3 sm:px-5 lg:px-7">
       <button
         onClick={onOpenMobileNav}
         aria-label="Open menu"
-        title="Open menu"
-        className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-xl text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high lg:hidden"
+        className="-ml-1 grid h-10 w-10 shrink-0 place-items-center rounded-lg text-text-high transition-colors hover:bg-fill-hover lg:hidden"
       >
-        <Menu size={18} strokeWidth={1.9} />
+        <Menu size={20} strokeWidth={1.6} />
       </button>
-      {/* Desktop: collapse/expand the icon rail. */}
+      <span className="display min-w-0 truncate text-[22px] leading-none text-text-heading md:hidden">
+        {pageTitle(pathname)}
+      </span>
+
+      {/* Search: a button that looks like a field — typing happens in the palette. */}
       <button
-        onClick={onToggleNav}
-        aria-label="Toggle sidebar"
-        title="Toggle sidebar"
-        className="hidden h-[34px] w-[34px] shrink-0 place-items-center rounded-xl text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high lg:grid"
+        type="button"
+        onClick={onOpenSearch}
+        aria-label="Search"
+        aria-keyshortcuts="Control+K Meta+K"
+        className="hidden h-[38px] min-w-0 max-w-[520px] flex-1 cursor-text items-center gap-2.5 rounded-lg border border-line-strong bg-card px-3 text-left transition-colors hover:border-text-faint md:flex"
       >
-        <PanelLeft size={17} strokeWidth={1.9} />
+        <Search size={16} strokeWidth={1.6} className="shrink-0 text-text-muted" aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-[13.5px] text-text-faint">
+          Search contacts, chats, flows, templates…
+        </span>
+        <kbd className="shrink-0 rounded border border-line px-1.5 py-px font-sans text-[11px] font-semibold text-text-muted">
+          {mod} K
+        </kbd>
       </button>
 
-      <div className="flex shrink-0 items-center gap-2">
-        <div
-          className="grid h-[30px] w-[30px] place-items-center rounded-[9px]"
-          style={{
-            background: 'linear-gradient(135deg,#3B82F6,#2563EB)',
-            boxShadow: '0 4px 14px rgba(59,130,246,0.35)',
-          }}
+      <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2.5">
+        <LiveChip />
+        <button
+          type="button"
+          onClick={onOpenSearch}
+          aria-label="Search"
+          className="grid h-10 w-10 place-items-center rounded-lg text-text-high transition-colors hover:bg-fill-hover md:hidden"
         >
-          <span className="text-[11px] font-extrabold tracking-[-0.5px] text-white">CB</span>
-        </div>
-        <span className="hidden text-[15px] font-extrabold tracking-[-0.5px] text-text-heading sm:block">
-          ChatBranch
-        </span>
-      </div>
-
-      {/* Search */}
-      <div className="relative mx-1 hidden min-w-0 flex-1 md:block">
-        <Search
-          size={15}
-          strokeWidth={1.9}
-          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-faint"
-        />
-        <input
-          placeholder="Search contacts, calls, chats…"
-          className="h-[34px] w-full rounded-xl border border-line bg-fill pl-9 pr-3 text-[12.5px] text-text-primary outline-none transition-colors placeholder:text-text-faint focus:border-brand-400"
-        />
-      </div>
-
-      <div className="ml-auto flex shrink-0 items-center gap-2.5">
-        <div className="hidden items-center gap-1.5 rounded-xl border border-brand-400/20 bg-brand/10 px-2 py-1.5 lg:flex">
-          <span className="h-[7px] w-[7px] shrink-0 animate-pulseRing rounded-full bg-brand-400" />
-          <span className="text-[9px] font-bold uppercase tracking-[0.06em] text-brand-300">Live</span>
+          <Search size={18} strokeWidth={1.6} />
+        </button>
+        <div className="hidden sm:block">
+          <EntitySwitcher />
         </div>
         <NotificationsBell />
-        <EntitySwitcher />
-        <div
-          className="grid h-[32px] w-[32px] shrink-0 place-items-center rounded-xl text-[11px] font-extrabold tracking-[-0.5px] text-white"
-          style={{ background: 'linear-gradient(135deg,#4F46E5,#7C3AED)' }}
-          title={user?.name || 'Not signed in'}
-        >
-          {(user?.name || 'CB').slice(0, 2).toUpperCase()}
-        </div>
       </div>
     </header>
   )

@@ -1,17 +1,18 @@
 # API conventions
 
-ChatBranch has **two REST surfaces**, and that is worth knowing up front:
+Everything is served by the C# API (`backend-csharp/src/ChatBranch.Api/`,
+ASP.NET Core minimal APIs, one `Endpoints/*Endpoints.cs` file per area, wired in
+`Program.cs`). The dashboard and every external caller use the same routes.
 
-| Surface | Style | Where |
-|---|---|---|
-| `/api/v1/…` | DRF class-based views, paginated, typed error envelope, OpenAPI schema | `backend/api/`, `backend/ingest/` |
-| `/api/…` | plain Django function views, JSON in / JSON out | `backend/calls/`, `whatsapp/`, `messaging/`, `flows/`, `aicore/`, `integrations/`, `crm/` |
+| Prefix | What it is |
+|---|---|
+| `/api/v1/…` | the "versioned" surface kept from the Django DRF days: whoami, contacts, entities ("brands"), users, record sync. Errors use an envelope (below) |
+| `/api/…` | everything else — the inbox, channels, flows, AI, analytics, settings, integrations, platform. Plain JSON in / JSON out |
+| `/mcp` | ChatBranch as an MCP server (JSON-RPC 2.0 over HTTP POST) |
+| `/widget.js` | the website widget script |
 
-Both accept the **same bearer token**. The function views carry the bulk of the
-product (the inbox, channels, flows, AI config, integrations) and are what the
-dashboard talks to; `/api/v1` is the versioned, self-describing surface for
-external callers. If you are adding an endpoint a third party will call, add it
-under `/api/v1`.
+There is no OpenAPI document and no `/api/v1/docs` page; each endpoint file
+opens with a doc comment describing its routes, and that is the reference.
 
 ---
 
@@ -21,141 +22,163 @@ under `/api/v1`.
 Authorization: Bearer <token>
 ```
 
-The token comes from `POST /api/auth/login` `{username, password}` and is stored
-on `crm.Profile.token`. **It is rotated on every login** — logging in
-invalidates the previous token. Session auth also works for the DRF browsable
-API and Django admin.
+Two kinds of credential are accepted on every authenticated route:
 
-Roles are `superadmin` / `admin` / `agent`, read from `crm.Profile.role`.
-`/api/v1` enforces them with DRF permission classes (`api/permissions.py`); the
-function views use a shared `_auth_required` + role-gate pattern.
+- **Session tokens** — from `POST /api/auth/login` `{username, password}`. One
+  `crm_authtoken` row per login (concurrent sessions are fine);
+  `POST /api/auth/logout` revokes it. `GET /api/auth/whoami` /
+  `GET /api/v1/whoami` return the user, role, tenant, accessible entity slugs
+  and resolved **capabilities**.
+- **API keys** — `cbk_<prefix>_<secret>`, created at **API keys & MCP**
+  (`/developers`, `POST /api/developers/keys`, capability `api_keys.manage`) and
+  shown once. Send as `Authorization: Bearer cbk_…` or `X-Api-Key: cbk_…`. A key
+  acts as its owning user — same role, capabilities and entity scope — optionally
+  narrowed to a list of capabilities; a scoped key holding no `.manage`/`.send`
+  capability is read-only. Everything a key does is recorded in the activity log
+  with source `api` (or `mcp`).
 
-**Open endpoints** (no bearer token), and only these:
+Authorization is two layers:
 
-| Path | Why |
-|---|---|
-| `GET /api/v1/ping` | liveness |
-| `GET /api/v1/schema`, `GET /api/v1/docs` | discovery |
-| `POST /api/auth/login` | obviously |
-| `GET/POST /api/whatsapp/webhook` | Meta signs it (`X-Hub-Signature-256`, required once any account is configured) |
-| `GET/POST /api/messaging/webhook` | Meta Messenger/IG — ⚠ **not signature-verified**, see [channel-adapter.md](channel-adapter.md) |
-| `POST /api/messaging/webhook/telegram/<token>` | the bot token in the path is the auth |
-| `POST /api/whatsapp/baileys/*` | `X-Baileys-Secret` shared header |
-| `POST /api/integrations/webhook/{shopify,stripe}` | HMAC-verified. Missing/bad signature → 401; secret never configured → **503**. It never falls back to accepting unsigned traffic |
-| `GET /api/integrations/oauth/<provider>/callback` | a browser arriving from Google carries no token — the signed, 600s-expiring `state` is the CSRF control |
-| `GET /api/whatsapp/status`, `GET /api/messaging/status` | sandbox/configured flags for the pre-login banner |
-| `POST /api/v1/sync/records` | `X-API-Key` (hashed, constant-time compared) |
+1. A coarse **policy** on every route: `authenticated`, `admin+` or
+   `superadmin`. **There is no fallback policy** — a route without
+   `RequireAuthorization(...)` would be public, so every route carries one or an
+   explicit `AllowAnonymous()`.
+2. A **capability** check inside the handler where the permission matrix
+   applies (`AdminEndpoints.HasCapabilityAsync`,
+   `SettingsEndpoints.RequireCapability`) — e.g. `tags.manage`, `flows.manage`,
+   `ai.monitor`, `settings.custom_fields.manage`. Superadmin always passes.
+   Catalog: [RBAC_AND_BRANDS.md](RBAC_AND_BRANDS.md).
+
+On top, **entity scope** bounds the ROWS: list endpoints accept `?entity=<slug>`
+and narrow to that entity's subtree, but never beyond what the caller may see.
 
 > `X-Role` is a bootstrap-only header: it is honoured **only while zero
-> `crm.Profile` rows exist**, so a fresh clone can be poked before `seed_demo`
-> runs. Once any profile exists it is ignored.
+> `crm_profile` rows exist**, so a database can be poked before the seed runs.
 
----
+### Anonymous endpoints — the complete list
 
-## `/api/v1` responses
-
-**Lists** are paginated (`api/pagination.py`, `PAGE_SIZE = 50`):
-
-```json
-{"count": 120, "page": 1, "num_pages": 3, "page_size": 50,
- "next": "…", "previous": null, "results": [ … ]}
-```
-
-`?page=` + `?page_size=` (max 200). A cursor paginator exists in the same module
-for append-only lists.
-
-**Errors** always use the envelope (`api/exceptions.py`):
-
-```json
-{"error": {"code": "not_found", "message": "…", "detail": {}}}
-```
-
-`code` is a stable slug: `unauthorized`, `forbidden`, `not_found`,
-`method_not_allowed`, `rate_limited`, `bad_request`, `conflict`, …
-
-**The function-view surface does not use either convention.** It returns bare
-objects and `{"error": "…"}` or `{"detail": "…"}` with an appropriate status.
-Do not assume one client can parse both.
-
-## Discoverability
-
-- OpenAPI 3 schema: `GET /api/v1/schema`
-- Swagger UI: `GET /api/v1/docs`
-
-Only `/api/v1` appears in the schema. The function views are documented by their
-module docstrings — `backend/whatsapp/views.py` and `backend/messaging/views.py`
-each open with a complete endpoint list.
-
----
-
-## `/api/v1` endpoints
-
-| Method | Path | Auth | Purpose |
-|---|---|---|---|
-| GET | `/api/v1/ping` | none | liveness |
-| GET | `/api/v1/whoami` | bearer | current user + role + tenant + accessible brand slugs |
-| GET | `/api/v1/contacts` | bearer | contacts, brand/tenant-scoped by role. `?search=` (name/phone/email/external_id), `?ordering=` (updated_at/name/status) |
-| POST | `/api/v1/contacts` | admin+ | create a contact. 409 if the phone already exists in-tenant |
-| GET | `/api/v1/contacts/<id>` | bearer | one contact |
-| PATCH | `/api/v1/contacts/<id>` | admin+ | update |
-| GET | `/api/v1/brands` | bearer | brands the caller can access |
-| POST | `/api/v1/brands` | admin+ | create a brand |
-| GET | `/api/v1/users` | admin+ | users (admin sees only their own tenant) |
-| POST | `/api/v1/users` | admin+ | create a user (creation hierarchy — see [RBAC_AND_BRANDS.md](RBAC_AND_BRANDS.md)) |
-| POST | `/api/v1/users/<id>` | admin+ | update a user |
-| DELETE | `/api/v1/users/<id>` | admin+ | deactivate a user |
-| GET | `/api/v1/schema` · `/api/v1/docs` | none | OpenAPI schema · Swagger UI |
-| POST | `/api/v1/sync/records` | `X-API-Key` | external-system sync intake → 202 + batch id |
-| GET | `/api/v1/sync/health` | bearer | sync pipeline health |
-| GET | `/api/v1/sync/batches/<id>` | bearer | one batch's status + row errors |
-
-### User management is consolidated
-
-`/api/v1/users` (+ `/<id>`) is the **canonical** endpoint. The legacy
-`/api/auth/users` (+ `/<id>`) still works as a backward-compatible alias — both
-call the single source of truth `crm/user_service.py`, so the RBAC/brand rules
-live in one place. They differ only in error shape: v1 uses
-`{error:{code,message}}`; the alias keeps the legacy `{detail}`.
-
----
-
-## The function-view surface, by app
-
-Not exhaustive — the authoritative list is each app's `urls.py`. This is the map.
-
-| Prefix | App | What lives there |
+| Path | Why it is open | What protects it |
 |---|---|---|
-| `/api/contacts…` | `calls` | contact list, per-contact channel hub, per-contact calls |
-| `/api/calls/…` | `calls` | dial, live transcript, say, hangup, escalate, summary, recordings, script templates |
-| `/api/voices`, `/api/voice/…` | `calls` | voice library, preview, clone, playground, STT/LLM settings |
-| `/api/analytics/summary` | `calls` | the `/analytics` page payload |
-| `/api/whatsapp/…` | `whatsapp` | webhook, accounts, templates, threads, send, media, SSE stream, channel health, assignments, routing rules, recovery, voice settings, WhatsApp calls, Baileys gateway callbacks |
-| `/api/messaging/…` | `messaging` | Meta + Telegram webhooks, email sync, accounts, threads, canned responses, timeline, engagement |
-| `/api/flows/…` | `flows` | library (GET/PUT), runs, queue, tick, status |
-| `/api/aicore/…` | `aicore` | persona, knowledge (+ preview), skills |
-| `/api/integrations/…` | `integrations` | providers, settings, accounts, test, disconnect, OAuth start/callback, Shopify + Stripe webhooks |
-| `/api/auth/…` | `crm` | login, logout, me, notifications, notification-prefs, audit, users |
+| `POST /api/auth/login` | obviously | credentials |
+| `GET /api/whatsapp/status`, `GET /api/messaging/status` | pre-login sandbox/configured banner | exposes flags only |
+| `GET /api/whatsapp/webhook`, `GET /api/messaging/webhook` | Meta's verification handshake | the verify token (Setting `whatsapp_verify_token`; the shipped default is never accepted) |
+| `POST /api/whatsapp/webhook` | Meta Cloud inbound + delivery statuses | `X-Hub-Signature-256` HMAC, **required once any Cloud account is configured** (sandbox accepts unsigned) |
+| `POST /api/messaging/webhook` | Messenger / Instagram inbound + receipts | `X-Hub-Signature-256` HMAC, **always required**; no Meta app secret configured → 401 |
+| `POST /api/messaging/webhook/telegram/{token}` | Telegram inbound | the bot token in the path (constant-time match, unknown → 404) + `X-Telegram-Bot-Api-Secret-Token` once the webhook was registered from the dashboard (401 without) |
+| `POST /api/whatsapp/baileys/{inbound,status-event,message-status,media,call-event}` | Baileys gateway pushes | `X-Baileys-Secret` shared secret (401 without) |
+| `POST /api/integrations/webhooks/{shopify,stripe}` | commerce webhooks | HMAC (Shopify base64, Stripe `t=…,v1=…` + 300 s replay window). Bad signature → 401; **secret never configured → 503**, never "accept unsigned" |
+| `GET /api/integrations/oauth/google/callback` | the browser returns from Google with no bearer token | the HMAC-signed, 600 s `state` (PKCE S256) |
+| `GET /widget.js`, `GET /api/widget/{token}/config`, `POST /api/widget/{token}/session`, `GET/POST /api/widget/{token}/messages` | the website widget runs on other people's sites | permissive `widget` CORS policy; no credentials; each visitor sees only their own conversation, keyed by a server-minted 128-bit session id |
+| `GET /api/help/articles`, `GET /api/help/articles/{slug}` | the public Help Center | only `Published` knowledge items |
+| `GET /api/pronunciation`, `GET /api/voices`, `GET /api/voice/stt-settings`, `GET /api/voice/llm-settings` | read by the voice tooling | non-secret configuration |
+| `POST /mcp` (and `GET`/`DELETE /mcp` → 405) | MCP clients authenticate inside the handler | **an API key is required** (Bearer `cbk_…` or `X-Api-Key`); anything else gets a JSON-RPC auth error |
 
-Three conventions hold across all of them:
+Everything else — including every call-control route (`/api/calls/*`,
+`/api/whatsapp/threads/{key}/call/*`) — needs a signed-in user or an API key.
 
-1. **Masked secrets round-trip.** Any endpoint returning a credential emits a
-   masked form (`••••1234`). A value containing `••` sent back is treated as
-   "unchanged" and the stored secret is kept. This applies to WhatsApp account
-   tokens, email SMTP passwords, Twilio voice settings and integration
-   credentials alike.
-2. **Mutations are audited.** They write a `crm.AuditLog` row and, where
-   relevant, fan out a `crm.Notification` by role.
-3. **Sandbox never fails loudly.** With no provider configured, sends store
-   locally with `status="sandbox"` and integration actions return
-   `{ok: false, skipped: true, detail: …}`. An unconfigured install answers
-   every read endpoint with a 200.
+---
 
-## The one live channel that is not HTTP request/response
+## Responses
+
+- **`/api/v1` errors** use an envelope:
+  ```json
+  {"error": {"code": "not_found", "message": "No such contact (or not visible to you)."}}
+  ```
+  `code` is a stable slug (`bad_request`, `forbidden`, `not_found`, `conflict`,
+  …); `message` is operator-facing text the dashboard shows verbatim.
+- **Everything else** returns bare objects and errors as `{"detail": "…"}` (some
+  older routes `{"error": "…"}`) with an appropriate status. Do not assume one
+  client parses both.
+- **Lists** are bare arrays inside a named key (`{"contacts": [...]}`,
+  `{"tags": [...]}`). Paged lists use a cursor or `before`/`limit`:
+  `GET /api/inbox/threads` (`limit`, `cursor` → `next_cursor`, `count_only=1`),
+  `GET /api/flows/runs` (`page`/`page_size`), `GET /api/audit`, message history
+  (`?limit=&before=`).
+- **Wire format is snake_case** on the newer surfaces and wherever the frontend
+  consumed Django's exact keys; a few older DTOs (`Dtos.cs`) are camelCase.
+  Follow the file you are in.
+- **Timestamps** are ISO-8601 UTC with a `Z`.
+
+## Conventions that hold everywhere
+
+1. **Masked secrets round-trip.** A credential is returned as `••••1234`; a
+   value containing `••` sent back means "unchanged" and the stored secret is
+   kept. Applies to channel tokens, SMTP passwords, AI provider keys, Twilio
+   voice settings, integration credentials, MCP server tokens.
+2. **Mutations are audited.** Domain writes add a `crm_auditlog` row with
+   provenance (source, entity, method, path, status); `RequestAuditMiddleware`
+   adds one generic row for any mutating request that wrote none of its own.
+   Never log bodies, query strings or secrets.
+3. **Sandbox never fails loudly.** With no provider configured, sends store with
+   `status="sandbox"`, integration actions return `{ok:false, skipped:true,
+   detail}`, and every read endpoint answers 200.
+4. **Webhooks never 500 a batch.** Garbage is acked; side effects never throw
+   into the response.
+5. **Scope is bounded server-side.** `?entity=` can narrow but never widen what
+   the caller's role and assigned entities allow.
+
+---
+
+## The surface, by area
+
+Not every route — the endpoint files are authoritative — but every area.
+
+| Area | Routes | File |
+|---|---|---|
+| Auth | `/api/auth/login`, `logout`, `whoami`, `preferences` (per-user appearance + notification prefs) | `AuthEndpoints`, `SettingsEndpoints.Appearance` |
+| RBAC | `/api/auth/roles[/{slug}]`, `/api/auth/permissions` (matrix; PUT needs `rbac.manage`) | `AdminEndpoints` |
+| v1 | `/api/v1/whoami`, `/api/v1/contacts[/{id}][/entities]`, `/api/v1/entities[/{id}]`, `/api/v1/brands`, `/api/v1/users[/{id}]`, `POST /api/v1/sync/records` | `ApiV1Endpoints`, `AdminEndpoints` |
+| Contacts | `/api/contacts[/{id}]`, `/import`, `/{id}/channels` (channel hub), `/{id}/calls`, `/{id}/tags` | `ContactsEndpoints`, `TagsEndpoints` |
+| Inbox | `GET /api/inbox/threads` (server-filtered list), `/api/views` (saved views), `GET /api/whatsapp/stream` (SSE, all channels), `POST /api/whatsapp/simulate`, `/api/whatsapp/threads/{key}/…` (send, send-template, send-media, ai, status, labels, account, call/*), `/api/messaging/threads/{channel}/{key}/…` (send, ai, status, assign, labels, note, link, summary), `/api/messaging/canned`, `/api/messaging/timeline`, `/api/messaging/engagement` | `InboxThreadsEndpoints`, `SavedViewsEndpoints`, `InboxEndpoints`, `WhatsAppThreadsEndpoints`, `MessagingEndpoints` |
+| Teams + automations | `/api/teams`, `/api/teams/assign`, `/api/automations[/{id}]`, `/api/automations/catalog`, `/{id}/test` | `TeamsEndpoints`, `AutomationsEndpoints` |
+| Channels | `/api/whatsapp/accounts[/{id}]` (+ `/test`, `/baileys/start|status|logout`), `/api/messaging/accounts[/{id}]`, `/api/widgets[/{id}]`, `/api/whatsapp/templates`, `/api/whatsapp/settings`, `/api/whatsapp/routing-rules`, `/api/whatsapp/voice-settings`, `/api/whatsapp/channels/health`, `/api/whatsapp/recovery`, `/api/whatsapp/assignments` + `/rebalance` | `WhatsAppSettingsEndpoints`, `VoiceMessagingEndpoints`, `WidgetAdminEndpoints`, `AssignmentsEndpoints` |
+| Calls + voice | `/api/calls/dial`, `/api/calls/{room}[/live|say|hangup|escalate]`, `/api/call-logs`, `/api/voices`, `/api/voice/*` (preview, clone, import, STT/LLM settings), `/api/pronunciation`, `/api/calls/script-templates` | `CallsVoiceEndpoints`, `VoiceMessagingEndpoints`, `PronunciationEndpoints`, `ContactsEndpoints` |
+| Flows | `/api/flows/library`, `/api/flows/runs[/{id}]`, `/api/flows/{flowId}/stats`, `/api/flows/{flowId}/start`, `/api/flows/queue`, `/api/flows/enqueue`, `/api/flows/tick` | `FlowsEndpoints` |
+| AI | `/api/aicore/persona`, `/api/aicore/knowledge[/{id}]` + `/preview`, `/api/aicore/skills` + `/draft`, `/test`, `/builtins`, `/api/aicore/reply`, `/api/aicore/booking-hours` | `AiEndpoints`, `AiSkillsEndpoints` |
+| AI monitor | `/api/ai/monitor` (list, `/{id}`, `/{id}/approve|send|reject`, `/bulk`, `/stats`, `/tick`), `/api/ai/behaviour` (GET/PUT/DELETE an entity override) | `AiMonitorEndpoints` |
+| Tags + bindings | `/api/tags[/{id}]`, `/{id}/targets`, `/api/tags/assignments`, `/api/entities/{slug}/tags`, `/api/bindings/catalog`, `/api/bindings/{kind}` | `TagsEndpoints`, `BindingsEndpoints` |
+| Analytics | `/api/analytics/summary`, `/usage` (admin+), `/reports[.csv]`, `/flows`, `/api/live` | `AnalyticsEndpoints`, `ReportsEndpoints`, `FlowsEndpoints`, `LiveEndpoints` |
+| Shell | `GET /api/search` (command palette; each result type gated + scoped like its page) | `SearchEndpoints` |
+| Notifications | `/api/notifications` (inbox: list, read/unread, read-all, mark, delete, preferences), `/api/auth/notifications` (bell), `/api/auth/notification-prefs` (org mute switches) | `NotificationEndpoints*` |
+| Settings | `/api/settings` (entity-scoped key/value, PUT superadmin), `/api/settings/appearance` (org default), `/api/settings/custom-fields`, `/api/settings/ai-providers` | `SettingsEndpoints*`, `CustomFieldsEndpoints`, `VoiceMessagingEndpoints` |
+| Integrations | `/api/integrations`, `/providers`, `/accounts[/{id}]` (+ `/test`, `/disconnect`), `/settings`, `/oauth/{provider}/start`, `/oauth/google/callback`, `/{provider}/connect`, `/action`, `/webhooks/{shopify,stripe}`, `/api/integrations/mcp[/{id}]` (external MCP servers, + `/test`) | `IntegrationsEndpoints`, `McpEndpoints` |
+| Activity | `/api/audit`, `/api/audit.csv`, `/api/audit/facets` (`activity.view`); legacy `/api/auth/audit` | `AuditEndpoints`, `NotificationEndpoints` |
+| Developers | `/api/developers/keys[/{id}]`, `/api/developers/mcp` (+ `/test`) | `DevelopersEndpoints` |
+| Assistant | `POST /api/assistant/chat`, `/confirm`, `/cancel` | `AssistantEndpoints` |
+| Public | `/api/help/articles[/{slug}]`, `/api/widget/{token}/*`, `/widget.js` | `HelpCenterEndpoints`, `WidgetEndpoints` |
+| Webhooks | `/api/whatsapp/webhook`, `/api/messaging/webhook` (Messenger/Instagram), `/api/whatsapp/baileys/*` | `WebhooksEndpoints`, `MetaWebhookEndpoints` |
+| Telegram inbound | `/api/messaging/webhook/telegram/{token}` | `TelegramWebhookEndpoints` |
+| Email + messaging attachments | `POST /api/messaging/email/sync` (IMAP pull), `POST /api/messaging/threads/{email\|telegram}/{key}/send-media` | `MessagingTransportEndpoints` |
+| Media + recordings | `GET /api/whatsapp/media/{id}`, `GET /api/messaging/media/{id}` (the attachment of message `id`, every channel), `GET /api/whatsapp/threads/{key}/call/recordings`, `GET /api/whatsapp/calls/recording/{name}`, `GET /api/calls/recording/{call_id}` — signed-in + `chats.view` / `call_logs.view` + entity scope, Range supported | `WhatsAppMediaEndpoints`, `WhatsAppThreadsEndpoints` |
+
+**Not present in the C# API** (despite older docs and some UI text):
+`/api/auth/users` (use `/api/v1/users`), `/api/v1/ping`, OpenAPI.
+
+---
+
+## MCP server (`POST /mcp`)
+
+ChatBranch speaks the Model Context Protocol over **Streamable HTTP**, answered
+as plain JSON (no server push, stateless sessions — an `Mcp-Session-Id` is
+issued on `initialize` and accepted, never required). Methods: `initialize`,
+`notifications/initialized`, `ping`, `tools/list`, `tools/call`; batches are
+accepted. Authenticate with an **API key**. The tools
+(`Api/Tools/BuiltinTools.cs`) act as the key's user with the same capabilities
+and entity scope: `search_contacts`, `get_contact`, `create_contact`,
+`update_contact`, `list_conversations`, `get_conversation`, `send_message`,
+`add_note`, `set_conversation_status`, `assign_conversation`, `list_templates`,
+`search_knowledge`, `list_flows`, `get_analytics_summary`, `list_activity`,
+`list_tags`. Write tools call the dashboard's own endpoints in-process, so every
+guard (opt-out, 24h window, capability, scope) applies. `/developers` shows a
+ready-made client config.
+
+## The live channel that is not request/response
 
 `GET /api/whatsapp/stream` is a **Server-Sent Events** stream covering *all*
-chat channels (it lives in the whatsapp app for historical reasons). The
-dashboard's `/chats` page subscribes to it and re-fetches only on a `change`
-event; it does not poll the thread endpoints. The change token is derived from
-`Thread.updated_at` + message count, so **any store write path using a queryset
-`.update()` must also bump the thread's `updated_at`** or the dashboard will not
-refresh.
+chat channels (it lives under `whatsapp` for historical reasons). It sends
+`event: change` whenever the change token moves (thread `updated_at` + message
+count, polled every 2 s, keep-alive comments in between) and closes after ~10
+quiet minutes; clients reconnect. The
+dashboard holds ONE connection per tab (`frontend/src/lib/chatStream.ts`) and
+re-fetches only on `change`. **Any write path that bypasses `ThreadStore` must
+bump `Thread.UpdatedAt`** or the dashboard will not refresh.

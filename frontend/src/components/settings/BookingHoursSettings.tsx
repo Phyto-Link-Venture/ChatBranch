@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AlertCircle, CheckCircle, Loader2, Lock, RefreshCw, Save } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { Select } from '@/components/ui/Select'
 import { roleHeaders, getRole } from '@/lib/role'
 import { expireSessionOn401 } from '@/lib/auth'
 import { useEntity, useEntityQuery } from '@/lib/EntityContext'
@@ -306,31 +307,23 @@ export function BookingHoursSettings() {
                     </span>
                   ) : (
                     <div className="flex items-center gap-1.5 text-[11.5px] text-text-muted">
-                      <select
-                        value={v?.[0] ?? 9}
+                      <Select
+                        value={String(v?.[0] ?? 9)}
                         disabled={!canEdit}
-                        onChange={(e) => setBound(key, 0, Number(e.target.value))}
-                        className="rounded-lg border border-line-strong bg-card px-2 py-1 text-[11.5px] text-text-high outline-none focus:border-brand-400 disabled:cursor-default disabled:bg-fill-subtle"
-                      >
-                        {Array.from({ length: 24 }, (_, h) => (
-                          <option key={h} value={h}>
-                            {hourLabel(h)}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(x) => setBound(key, 0, Number(x))}
+                        options={Array.from({ length: 24 }, (_, h) => ({ value: String(h), label: hourLabel(h) }))}
+                        ariaLabel={`${lbl} opens`}
+                        className="w-[104px]"
+                      />
                       <span>to</span>
-                      <select
-                        value={v?.[1] ?? 18}
+                      <Select
+                        value={String(v?.[1] ?? 18)}
                         disabled={!canEdit}
-                        onChange={(e) => setBound(key, 1, Number(e.target.value))}
-                        className="rounded-lg border border-line-strong bg-card px-2 py-1 text-[11.5px] text-text-high outline-none focus:border-brand-400 disabled:cursor-default disabled:bg-fill-subtle"
-                      >
-                        {Array.from({ length: 24 }, (_, h) => h + 1).map((h) => (
-                          <option key={h} value={h}>
-                            {hourLabel(h)}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(x) => setBound(key, 1, Number(x))}
+                        options={Array.from({ length: 24 }, (_, h) => h + 1).map((h) => ({ value: String(h), label: hourLabel(h) }))}
+                        ariaLabel={`${lbl} closes`}
+                        className="w-[104px]"
+                      />
                     </div>
                   )}
                 </div>

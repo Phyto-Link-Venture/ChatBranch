@@ -1,6 +1,7 @@
 'use client'
 
 import { HEALTH_META, type HealthStatus } from '@/lib/channelHealth'
+import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import type { AccountVolume } from './types'
 
 const PROVIDER_LBL: Record<string, string> = {
@@ -15,7 +16,7 @@ const PROVIDER_LBL: Record<string, string> = {
 export function AccountsTable({ accounts }: { accounts: AccountVolume[] }) {
   if (accounts.length === 0) {
     return (
-      <div className="py-8 text-center text-[12px] text-text-faint">
+      <div className="py-8 text-center text-[12.5px] text-text-muted">
         No messages in this window yet — send something from the inbox to see per-account volume.
       </div>
     )
@@ -38,9 +39,10 @@ export function AccountsTable({ accounts }: { accounts: AccountVolume[] }) {
             <tr key={a.account_id ?? 'unattributed'} className="border-b border-line last:border-0">
               <td className="max-w-0 py-2 pr-2" style={{ width: '46%' }}>
                 <div
-                  className={`truncate text-[12px] font-semibold ${a.account_id === null ? 'text-text-muted' : 'text-text-high'}`}
+                  className={`flex items-center gap-1.5 truncate text-[12px] font-semibold ${a.account_id === null ? 'text-text-muted' : 'text-text-high'}`}
                 >
-                  {a.name}
+                  {a.channel && <ChannelLogo channel={a.channel} size={13} title="" />}
+                  <span className="truncate">{a.name}</span>
                 </div>
                 <div className="truncate text-[10px] text-text-faint">
                   {a.account_id === null

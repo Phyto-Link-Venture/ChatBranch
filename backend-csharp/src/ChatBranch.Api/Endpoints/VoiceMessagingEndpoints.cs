@@ -244,8 +244,8 @@ public static class VoiceMessagingEndpoints
             sc.SetSetting("stt_provider", provider);
             return Results.Ok(new { stt_provider = provider });
         };
-        app.MapPost("/api/voice/stt-settings", saveStt).AllowAnonymous();
-        app.MapPut("/api/voice/stt-settings", saveStt).AllowAnonymous();
+        app.MapPost("/api/voice/stt-settings", saveStt).RequireAuthorization(AuthPolicies.AdminPlus);
+        app.MapPut("/api/voice/stt-settings", saveStt).RequireAuthorization(AuthPolicies.AdminPlus);
 
         app.MapGet("/api/voice/llm-settings", (ScopingService sc) =>
         {
@@ -267,8 +267,8 @@ public static class VoiceMessagingEndpoints
             sc.SetSetting("llm_provider", provider);
             return Results.Ok(new { llm_provider = provider });
         };
-        app.MapPost("/api/voice/llm-settings", saveLlm).AllowAnonymous();
-        app.MapPut("/api/voice/llm-settings", saveLlm).AllowAnonymous();
+        app.MapPost("/api/voice/llm-settings", saveLlm).RequireAuthorization(AuthPolicies.AdminPlus);
+        app.MapPut("/api/voice/llm-settings", saveLlm).RequireAuthorization(AuthPolicies.AdminPlus);
     }
 
     // =========================================================================
@@ -515,10 +515,13 @@ public static class VoiceMessagingEndpoints
             Results.Ok(AiProvidersPayload(sc)))
             .RequireAuthorization(AuthPolicies.Authenticated);
 
-        // PUT: SUPER ADMIN — the same gate every organization-wide credential has.
-        app.MapPut("/api/settings/ai-providers", (Dictionary<string, JsonElement>? body,
+        // PUT: the settings.ai_keys.manage capability (Settings → AI → AI keys &
+        // models) — superadmin-only by default, like every org-wide credential.
+        app.MapPut("/api/settings/ai-providers", async (Dictionary<string, JsonElement>? body,
             AppDbContext db, ScopingService sc, ClaimsPrincipal me, HttpContext ctx) =>
         {
+            if (await SettingsEndpoints.RequireCapability(db, me, "settings.ai_keys.manage") is { } denied)
+                return denied;
             var patch = new Dictionary<string, object?>();
 
             // secrets + free-text/select/model strings: honour the masked round-trip
@@ -588,7 +591,7 @@ public static class VoiceMessagingEndpoints
             Audit(db, me, ctx, "settings.update", "ai-providers",
                 $"keys: {string.Join(", ", patch.Keys.OrderBy(k => k))}");
             return Results.Ok(AiProvidersPayload(sc));
-        }).RequireAuthorization(AuthPolicies.SuperAdmin);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
     }
 
     /// <summary>Raw JSON text for a key — lets an ARRAY body value reach the CSV/JSON parser.</summary>
@@ -648,6 +651,10 @@ public static class VoiceMessagingEndpoints
                 : DateTime.SpecifyKind(a.CreatedAt, DateTimeKind.Utc).ToString("o"),
             ["entity"] = a.Entity?.Slug,
             ["entity_name"] = a.Entity?.Name ?? "",
+            // "Who answers it": owning team (null = none) + AI default ("" = inherit)
+            ["team_id"] = ChatBranch.Data.Channels.InboxSettings.TeamId(a),
+            ["ai_default"] = ChatBranch.Data.Channels.InboxSettings.AiDefaultWire(a),
+            ["ai_review_mode"] = ChatBranch.Data.Channels.InboxSettings.ReviewModeWire(a),
         };
         var cfg = a.Config ?? new Dictionary<string, object?>();
         if (a.Channel == "email")
@@ -664,6 +671,11 @@ public static class VoiceMessagingEndpoints
                 // verbatim (ChannelsSettings.tsx), so the mask has to live under
                 // that key too — Untouched() then keeps the stored secret.
                 ["password"] = Mask(CfgStr(cfg, "password")),
+                // inbound (IMAP) — blank = the default IMAP host + this mailbox's SMTP login
+                ["imap_host"] = CfgStr(cfg, "imap_host"),
+                ["imap_port"] = CfgStr(cfg, "imap_port"),
+                ["imap_username"] = CfgStr(cfg, "imap_username"),
+                ["imap_password_masked"] = Mask(CfgStr(cfg, "imap_password")),
             };
             outv["configured"] = EmailAccountConfigured(cfg);
         }
@@ -671,6 +683,8 @@ public static class VoiceMessagingEndpoints
         {
             outv["access_token_masked"] = Mask(a.AccessToken);
             outv["configured"] = !string.IsNullOrEmpty(a.AccessToken);
+            // Messenger / Instagram: the Meta app secret that verifies the webhook
+            if (a.Channel is "facebook" or "instagram") outv["app_secret_masked"] = Mask(a.AppSecret);
         }
         return outv;
     }
@@ -757,11 +771,14 @@ public static class VoiceMessagingEndpoints
                         ["from_email"] = fromEmail,
                     },
                 };
+                if (MessagingAccountTransport.ApplyImap(account.Config, body) is IResult imapErr) return imapErr;
                 account.EntityId = await InboxEndpoints.EntityId(db, body.Str("entity"));
+                if (ApplyInbox(db, account, body) is IResult inboxErr) return inboxErr;
                 db.ChannelAccounts.Add(account);
                 await db.SaveChangesAsync();
                 await db.Entry(account).Reference(a => a.Entity).LoadAsync();
                 Audit(db, me, ctx, "account.create", $"email:{account.Name}", "");
+                MessagingAccountTransport.Created(account, ctx);
                 return Results.Ok(AccountPayload(account));
             }
 
@@ -784,14 +801,18 @@ public static class VoiceMessagingEndpoints
                 Name = (body.Str("name") ?? "").Trim() is { Length: > 0 } sn ? sn : channel,
                 ExternalId = (body.Str("external_id") ?? "").Trim(),
                 AccessToken = token,
+                // Messenger / Instagram: verifies X-Hub-Signature-256 on /api/messaging/webhook
+                AppSecret = channel is "facebook" or "instagram" ? (body.Str("app_secret") ?? "").Trim() : "",
                 Owner = owner,
                 CreatedAt = DateTime.UtcNow,
             };
             social.EntityId = await InboxEndpoints.EntityId(db, body.Str("entity"));
+            if (ApplyInbox(db, social, body) is IResult socialInboxErr) return socialInboxErr;
             db.ChannelAccounts.Add(social);
             await db.SaveChangesAsync();
             await db.Entry(social).Reference(a => a.Entity).LoadAsync();
             Audit(db, me, ctx, "account.create", $"{social.Channel}:{social.Name}", "");
+            MessagingAccountTransport.Created(social, ctx);
             return Results.Ok(AccountPayload(social));
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
@@ -819,12 +840,55 @@ public static class VoiceMessagingEndpoints
                 if (body!.Count == 1) return Results.Ok(AccountPayload(account));
             }
 
+            // Inbox settings (owning team, AI default) — editable on every channel.
+            var inboxTouched = body.Has(ChatBranch.Data.Channels.InboxSettings.TeamKey)
+                               || body.Has(ChatBranch.Data.Channels.InboxSettings.AiDefaultKey);
+            if (inboxTouched && ApplyInbox(db, account, body) is IResult inboxErr) return inboxErr;
+
             if (account.Channel != "email")
-                return Results.Json(new
+            {
+                // Social accounts: rename, re-point the page/IG id, or re-token
+                // (a masked placeholder round-trips as "keep the stored token").
+                var socialTouched = new List<string>();
+                var newName = (body.Str("name") ?? "").Trim();
+                if (newName.Length > 0)
                 {
-                    detail = "PATCH is supported for email accounts only — " +
-                             "delete and re-link other channels.",
-                }, statusCode: 400);
+                    account.Name = newName.Length > 120 ? newName[..120] : newName;
+                    socialTouched.Add("name");
+                }
+                if (body.Has("external_id"))
+                {
+                    account.ExternalId = (body.Str("external_id") ?? "").Trim();
+                    socialTouched.Add("external_id");
+                }
+                var newToken = body.Str("access_token") ?? "";
+                if (newToken.Trim().Length > 0 && !Untouched(newToken))
+                {
+                    account.AccessToken = newToken.Trim();
+                    // a re-tokened account must become routable again now
+                    account.HealthStatus = Health.Unknown;
+                    account.HealthDetail = "";
+                    account.FailStreak = 0;
+                    account.HealthChangedAt = DateTime.UtcNow;
+                    socialTouched.Add("access_token");
+                }
+                var newSecret = body.Str("app_secret") ?? "";
+                if (account.Channel is "facebook" or "instagram" && body.Has("app_secret")
+                    && !Untouched(newSecret))
+                {
+                    account.AppSecret = newSecret.Trim();
+                    socialTouched.Add("app_secret");
+                }
+                if (socialTouched.Count == 0 && !inboxTouched)
+                    return Results.Json(new { detail = "Nothing to update." }, statusCode: 400);
+                await db.SaveChangesAsync();
+                if (socialTouched.Contains("access_token"))
+                    await MessagingAccountTransport.CredentialsChangedAsync(account, ctx);
+                if (inboxTouched) socialTouched.Add("inbox");
+                Audit(db, me, ctx, "account.update", $"{account.Channel}:{account.Name}",
+                    $"keys: {string.Join(", ", socialTouched.OrderBy(k => k))}");
+                return Results.Ok(AccountPayload(account));
+            }
 
             var cfg = new Dictionary<string, object?>(account.Config ?? new());
             var touched = new List<string>();
@@ -860,16 +924,23 @@ public static class VoiceMessagingEndpoints
                 account.ExternalId = value; // the from-address doubles as the external id
                 touched.Add("from_email");
             }
+            if (MessagingAccountTransport.ApplyImap(cfg, body, touched) is IResult imapErr) return imapErr;
             var name = (body.Str("name") ?? "").Trim();
-            if (touched.Count == 0 && name.Length == 0)
+            if (touched.Count == 0 && name.Length == 0 && !inboxTouched)
                 return Results.Json(new { detail = "Nothing to update." }, statusCode: 400);
             if (name.Length > 0)
             {
                 account.Name = name.Length > 120 ? name[..120] : name;
                 touched.Add("name");
             }
+            if (inboxTouched) touched.Add("inbox");
+            // the edit form re-sends every field — only a real change is a reconnect
+            var credsChanged = MessagingAccountTransport.EmailCredentialKeys.Any(k =>
+                ChatBranch.Data.Channels.EmailConfig.Cfg(account.Config ?? new(), k, trim: false)
+                != ChatBranch.Data.Channels.EmailConfig.Cfg(cfg, k, trim: false));
             account.Config = cfg;
             await db.SaveChangesAsync();
+            if (credsChanged) await MessagingAccountTransport.CredentialsChangedAsync(account, ctx);
             Audit(db, me, ctx, "account.update", $"email:{account.Name}",
                 $"keys: {string.Join(", ", touched.OrderBy(k => k))}");
             return Results.Ok(AccountPayload(account));
@@ -883,6 +954,8 @@ public static class VoiceMessagingEndpoints
             if (account == null)
                 return Results.Json(new { detail = "Account not found." }, statusCode: 404);
             var label = $"{account.Channel}:{account.Name}";
+            // conversations stay (back in sandbox) — unlink them first
+            await ChatBranch.Data.Channels.InboxSettings.DetachAccountAsync(db, account.Id);
             db.ChannelAccounts.Remove(account);
             await db.SaveChangesAsync();
             Audit(db, me, ctx, "account.delete", label, "");
@@ -890,15 +963,20 @@ public static class VoiceMessagingEndpoints
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         // ---- POST /api/messaging/accounts/{id}/test ----
-        // The live SMTP/Meta/Telegram probes live in the Python clients that are
-        // not ported yet. Rather than claim a connection we never opened, report
-        // honestly (501) while still telling the operator whether the stored
+        // Every channel is live: Messenger / Instagram (GET /me with the page
+        // token), email (SMTP connect + login, optional test mail) and Telegram
+        // (getMe) — MessagingAccountTransport. Anything else reports honestly
+        // (501) while still telling the operator whether the stored
         // configuration LOOKS complete.
-        app.MapPost("/api/messaging/accounts/{id}/test", async (string id, AppDbContext db) =>
+        app.MapPost("/api/messaging/accounts/{id}/test", async (string id, AppDbContext db,
+            ChatBranch.Data.Channels.IMetaMessagingClient meta, HttpContext ctx) =>
         {
             var account = await ManagedAccount(db, id);
             if (account == null)
                 return Results.Json(new { detail = "Account not found." }, statusCode: 404);
+            if (account.Channel is "facebook" or "instagram")
+                return await MetaAccountTest(db, meta, account);
+            if (await MessagingAccountTransport.TestAsync(account, ctx) is IResult live) return live;
             var configured = account.Channel == "email"
                 ? EmailAccountConfigured(account.Config ?? new())
                 : !string.IsNullOrEmpty(account.AccessToken);
@@ -914,7 +992,7 @@ public static class VoiceMessagingEndpoints
 
         // ---- POST /api/messaging/accounts/{id}/set-webhook ----
         app.MapPost("/api/messaging/accounts/{id}/set-webhook", async (string id,
-            Dictionary<string, JsonElement>? body, AppDbContext db) =>
+            Dictionary<string, JsonElement>? body, AppDbContext db, HttpContext ctx) =>
         {
             var account = await ManagedAccount(db, id);
             if (account == null)
@@ -924,23 +1002,73 @@ public static class VoiceMessagingEndpoints
                 {
                     detail = "Webhook registration is for Telegram bots only.",
                 }, statusCode: 400);
-            var baseUrl = (body.Str("base_url") ?? "").Trim().TrimEnd('/');
-            if (!baseUrl.StartsWith("https://"))
-                return Results.Json(new
-                {
-                    detail = "base_url must be a public https:// origin.",
-                }, statusCode: 400);
-            // The bot token is the webhook path secret — it must never be echoed
-            // back to the browser, so we do not return the composed URL.
-            return Results.Json(new
-            {
-                ok = false,
-                detail = "Telegram setWebhook is not wired up in this backend yet — register " +
-                         $"{baseUrl}/api/messaging/webhook/telegram/<bot-token> with Telegram directly.",
-            }, statusCode: 501);
+            // setWebhook with a secret_token; the bot token (the path secret) is never echoed back
+            return await MessagingAccountTransport.SetWebhookAsync(account, body, ctx);
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         MapEmailSettings(app);
+    }
+
+    /// <summary>
+    /// Messenger / Instagram "Test connection": GET /me with the page token. A
+    /// success heals the account, a refused token disconnects it — both through
+    /// AccountHealth.SetStatus (via MetaErrors), one audit row per transition.
+    /// </summary>
+    private static async Task<IResult> MetaAccountTest(AppDbContext db,
+        ChatBranch.Data.Channels.IMetaMessagingClient meta, ChannelAccount account)
+    {
+        if (!meta.IsConfigured(account))
+            return Results.Json(new { ok = false, detail = $"This {account.Channel} account has no page token yet." },
+                statusCode: 400);
+        var r = await meta.GetMeAsync(account);
+        if (r.Ok)
+        {
+            ChatBranch.Data.Channels.MetaErrors.MarkHealthy(db, account, "account test passed", actor: "user");
+            await db.SaveChangesAsync();
+            var name = ChatBranch.Data.Channels.MetaGraph.Str(r.Body, "name");
+            return Results.Ok(new
+            {
+                ok = true,
+                detail = $"Connected{(name.Length > 0 ? $" as {name}" : "")}.",
+                name,
+                id = ChatBranch.Data.Channels.MetaGraph.Str(r.Body, "id"),
+                health_status = account.HealthStatus,
+            });
+        }
+        // a token Meta refuses is a dead connection (a classified code — rate
+        // limit, policy block — keeps its own verdict); an unreachable Graph is
+        // not the account's fault — health stays put
+        if (r.ErrorCode != null)
+        {
+            if (ChatBranch.Data.Channels.MetaErrors.Classify(r.ErrorCode, r.ErrorSubcode).Health != null)
+                ChatBranch.Data.Channels.MetaErrors.ApplyToAccount(db, account, r.ErrorCode, r.ErrorSubcode,
+                    r.Detail, actor: "user");
+            else
+                ChatBranch.Data.Channels.AccountHealth.SetStatus(db, account, Health.Disconnected,
+                    $"account test failed: {r.Detail}", actor: "user");
+        }
+        await db.SaveChangesAsync();
+        return Results.Json(new
+        {
+            ok = false,
+            detail = $"Meta refused the page token: {r.Detail}",
+            health_status = account.HealthStatus,
+        }, statusCode: r.ErrorCode != null ? 400 : 502);
+    }
+
+    /// <summary>
+    /// Apply the inbox keys (team_id, ai_default) a write body carries; absent
+    /// keys stay untouched, a blank/null value clears back to inherit.
+    /// </summary>
+    private static IResult? ApplyInbox(AppDbContext db, ChannelAccount account,
+        Dictionary<string, JsonElement>? body)
+    {
+        string? Raw(string key) => body.Has(key) ? body.Str(key) ?? "" : null;
+        var err = ChatBranch.Data.Channels.InboxSettings.Apply(db, account,
+            Raw(ChatBranch.Data.Channels.InboxSettings.TeamKey),
+            Raw(ChatBranch.Data.Channels.InboxSettings.AiDefaultKey),
+            Raw(ChatBranch.Data.Channels.InboxSettings.ReviewModeKey));
+        return err == null ? null : Results.Json(new { detail = err }, statusCode: 400);
     }
 
     private static (int Port, IResult? Error) ParsePort(string? raw)
@@ -1012,18 +1140,13 @@ public static class VoiceMessagingEndpoints
         app.MapPost("/api/messaging/settings", save).RequireAuthorization(AuthPolicies.SuperAdmin);
         app.MapPut("/api/messaging/settings", save).RequireAuthorization(AuthPolicies.SuperAdmin);
 
-        app.MapPost("/api/messaging/settings/test", (Dictionary<string, JsonElement>? body,
-            ScopingService sc) =>
+        app.MapPost("/api/messaging/settings/test", async (Dictionary<string, JsonElement>? body,
+            HttpContext ctx) =>
         {
             var to = (body.Str("to") ?? "").Trim();
             if (!to.Contains('@'))
                 return Results.Json(new { detail = "Valid 'to' email required." }, statusCode: 400);
-            return Results.Json(new
-            {
-                ok = false,
-                detail = "SMTP sending is not wired up in this backend yet — the stored settings " +
-                         "were not used to send a test message.",
-            }, statusCode: 501);
+            return await MessagingAccountTransport.DefaultSmtpTestAsync(to, ctx);
         }).RequireAuthorization(AuthPolicies.Authenticated);
     }
 }

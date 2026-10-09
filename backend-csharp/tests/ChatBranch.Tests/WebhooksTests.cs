@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace ChatBranch.Tests;
@@ -12,6 +13,20 @@ public class WebhooksTests : IClassFixture<ApiFactory>
 {
     private readonly ApiFactory _factory;
     public WebhooksTests(ApiFactory factory) => _factory = factory;
+
+    /// <summary>The Meta app secret of the configured account below. Every post is
+    /// signed with it: once a live account exists the webhook refuses unsigned posts,
+    /// and xUnit does not promise test order inside a class.</summary>
+    private const string AppSecret = "wh-test-app-secret";
+
+    private static StringContent Signed(string json)
+    {
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+        using var h = new System.Security.Cryptography.HMACSHA256(Encoding.UTF8.GetBytes(AppSecret));
+        content.Headers.Add("X-Hub-Signature-256",
+            "sha256=" + Convert.ToHexString(h.ComputeHash(Encoding.UTF8.GetBytes(json))).ToLowerInvariant());
+        return content;
+    }
 
     private async Task<HttpClient> Authed(string user, string pass)
     {
@@ -72,8 +87,7 @@ public class WebhooksTests : IClassFixture<ApiFactory>
         };
 
         var c = _factory.CreateClient();
-        var res = await c.PostAsync("/api/whatsapp/webhook",
-            new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"));
+        var res = await c.PostAsync("/api/whatsapp/webhook", Signed(JsonSerializer.Serialize(payload)));
         res.EnsureSuccessStatusCode();
 
         // thread now has the inbound + a sandbox AI reply
@@ -96,10 +110,14 @@ public class WebhooksTests : IClassFixture<ApiFactory>
     {
         var admin = await Authed("admin", "admin123");
         await admin.PostAsJsonAsync("/api/contacts", new { name = "Paced", phone = "60129990111" });
-        // a real (configured) Cloud account carries this number
+        // a real (configured) Cloud account carries this number — as a
+        // CONVERSATION number: a business (reminder) number has the chatbot off
+        // by default and would answer with the business redirect instead
         await admin.PostAsJsonAsync("/api/whatsapp/accounts", new
         {
             name = "Paced Number", phone_number_id = "PN-PACED", access_token = "tok-live",
+            app_secret = AppSecret,
+            role = "conversation",
         });
 
         var payload = JsonSerializer.Serialize(new
@@ -112,8 +130,10 @@ public class WebhooksTests : IClassFixture<ApiFactory>
             } } } } },
         });
         var c = _factory.CreateClient();
-        (await c.PostAsync("/api/whatsapp/webhook",
-            new StringContent(payload, Encoding.UTF8, "application/json"))).EnsureSuccessStatusCode();
+        // a live account now exists: an unsigned (or wrongly signed) post is refused
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.PostAsync("/api/whatsapp/webhook",
+            new StringContent(payload, Encoding.UTF8, "application/json"))).StatusCode);
+        (await c.PostAsync("/api/whatsapp/webhook", Signed(payload))).EnsureSuccessStatusCode();
 
         // nothing sent inline …
         var msgs = await admin.GetFromJsonAsync<JsonElement>(
@@ -142,8 +162,8 @@ public class WebhooksTests : IClassFixture<ApiFactory>
                     type = "text", text = new { body = "dup" } } },
             } } } } },
         });
-        await c.PostAsync("/api/whatsapp/webhook", new StringContent(Body(), Encoding.UTF8, "application/json"));
-        await c.PostAsync("/api/whatsapp/webhook", new StringContent(Body(), Encoding.UTF8, "application/json"));
+        await c.PostAsync("/api/whatsapp/webhook", Signed(Body()));
+        await c.PostAsync("/api/whatsapp/webhook", Signed(Body()));
 
         var msgs = await admin.GetFromJsonAsync<JsonElement>(
             "/api/whatsapp/threads/whatsapp/60111000222/messages");
@@ -156,6 +176,19 @@ public class WebhooksTests : IClassFixture<ApiFactory>
     public async Task Telegram_inbound_stores_message()
     {
         var admin = await Authed("admin", "admin123");
+        // the token in the path must belong to a linked bot (an unknown one is a 404)
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ChatBranch.Data.AppDbContext>();
+            if (!db.ChannelAccounts.Any(a => a.Channel == "telegram" && a.AccessToken == "sometoken"))
+            {
+                db.ChannelAccounts.Add(new ChatBranch.Domain.ChannelAccount
+                {
+                    Channel = "telegram", Name = "Webhook bot", AccessToken = "sometoken", CreatedAt = DateTime.UtcNow,
+                });
+                db.SaveChanges();
+            }
+        }
         var c = _factory.CreateClient();
         var update = JsonSerializer.Serialize(new
         {

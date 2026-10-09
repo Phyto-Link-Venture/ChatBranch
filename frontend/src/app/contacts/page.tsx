@@ -1,16 +1,19 @@
 'use client'
 
-import { useMemo, useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { LayoutGrid, List, Loader2, Pencil, Plus, Trash2, Upload } from 'lucide-react'
+import { Suspense, useCallback, useMemo, useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Loader2, Pencil, Plus, Trash2, Upload } from 'lucide-react'
 import { useApp } from '@/lib/AppContext'
 import { useEntity } from '@/lib/EntityContext'
-import { authHeaders, hasCap } from '@/lib/auth'
-import { initials, methodLabel, primaryRecord, type ContactStatus } from '@/lib/mocks'
+import { authHeaders, expireSessionOn401, hasCap } from '@/lib/auth'
+import { initials, primaryRecord } from '@/lib/mocks'
 import { StatusBadge } from '@/components/ui/Badges'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
+import { PageHeader } from '@/components/ui/PageHeader'
 import { PhoneInput } from '@/components/ui/PhoneInput'
+import { Select } from '@/components/ui/Select'
+import { EntityPicker } from '@/components/ui/EntityPicker'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { LANGUAGES } from '@/lib/languages'
 import { ContactImportModal } from '@/components/contacts/ContactImportModal'
@@ -19,25 +22,8 @@ import { fetchCustomFields, type FieldDef } from '@/lib/customFields'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
-/* Kanban columns — one per contact status, in workflow order. */
-const KANBAN: { key: ContactStatus; lbl: string; color: string }[] = [
-  { key: 'active', lbl: 'Active', color: '#60A5FA' },
-  { key: 'pending', lbl: 'Pending', color: '#FBBF24' },
-  { key: 'message-sent', lbl: 'Msg Sent', color: '#A78BFA' },
-  { key: 'resolved', lbl: 'Resolved', color: '#34D399' },
-  { key: 'failed', lbl: 'Failed', color: '#F87171' },
-]
-
-const STATUS_OPTS = [
-  { value: '', label: 'All statuses' },
-  { value: 'active', label: 'Active' },
-  { value: 'pending', label: 'Pending' },
-  { value: 'message-sent', label: 'Msg Sent' },
-  { value: 'resolved', label: 'Resolved' },
-  { value: 'failed', label: 'Failed' },
-]
 const RECORD_TYPE_OPTS = [
-  { value: '', label: 'Any record type' },
+  { value: '', label: 'Any record' },
   { value: 'order', label: 'Order' },
   { value: 'shipment', label: 'Shipment' },
   { value: 'invoice', label: 'Invoice' },
@@ -45,30 +31,6 @@ const RECORD_TYPE_OPTS = [
   { value: 'ticket', label: 'Ticket' },
   { value: 'custom', label: 'Custom' },
 ]
-
-function FilterSelect({
-  value,
-  onChange,
-  opts,
-}: {
-  value: string
-  onChange: (v: string) => void
-  opts: { value: string; label: string }[]
-}) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="cursor-pointer rounded-lg border border-line-strong bg-well px-2.5 py-1.5 text-[12px] font-semibold text-text-high outline-none"
-    >
-      {opts.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  )
-}
 
 function AddField({
   label, value, onChange, placeholder, type = 'text', required = false,
@@ -91,7 +53,7 @@ function AddField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full rounded-lg border border-line-strong bg-well px-3 py-2 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400"
+        className="h-9 w-full rounded-lg border border-line-strong bg-card px-3 text-[13px] text-text-primary outline-none transition-colors focus:border-text-primary"
       />
     </label>
   )
@@ -101,10 +63,12 @@ function ContactModal({
   open,
   editing,
   onClose,
+  onSaved,
 }: {
   open: boolean
   editing: Contact | null
   onClose: () => void
+  onSaved: () => void
 }) {
   const { reloadContacts } = useApp()
   const { activeEntity, entities } = useEntity()
@@ -197,6 +161,7 @@ function ContactModal({
         )
       }
       await reloadContacts()
+      onSaved()
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -214,21 +179,20 @@ function ContactModal({
       size="lg"
       footer={
         <>
-          {error && <span className="mr-auto text-[12px] font-semibold text-red-300">{error}</span>}
-          <Button variant="secondary" onClick={onClose} style={{ padding: '8px 14px', fontSize: 12.5 }}>
+          <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            variant="primary"
-            onClick={save}
-            disabled={busy || !name.trim() || !phone.trim()}
-            style={{ padding: '8px 14px', fontSize: 12.5 }}
-          >
+          <Button variant="primary" onClick={save} disabled={busy || !name.trim() || !phone.trim()}>
             {busy && <Loader2 size={13} className="animate-spin" aria-hidden />} {editing ? 'Save changes' : 'Add contact'}
           </Button>
         </>
       }
     >
+      {error && (
+        <div role="alert" className="mb-3 rounded-lg border border-red/30 bg-red/10 px-3 py-2 text-[12.5px] font-semibold text-red-300">
+          {error}
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <AddField label="Name" value={name} onChange={setName} placeholder="Ahmad Fauzi" required />
         <label className="block">
@@ -240,17 +204,13 @@ function ContactModal({
         </label>
         <label className="block">
           <span className="mb-1 block text-[11px] font-bold text-text-high">Language</span>
-          <select
+          <Select
             value={language}
-            onChange={(e) => setLanguage(e.target.value)}
-            className="w-full cursor-pointer rounded-lg border border-line-strong bg-well px-3 py-2 text-[12.5px] text-text-primary outline-none"
-          >
-            {LANGUAGES.map((l) => (
-              <option key={l.value} value={l.value}>
-                {l.label}
-              </option>
-            ))}
-          </select>
+            onChange={setLanguage}
+            options={LANGUAGES.map((l) => ({ value: l.value, label: l.label }))}
+            size="md"
+            ariaLabel="Language"
+          />
         </label>
         <AddField label="Email (optional)" value={email} onChange={setEmail} placeholder="contact@example.com" />
         <AddField label="Company (optional)" value={company} onChange={setCompany} placeholder="Acme Sdn Bhd" />
@@ -281,7 +241,7 @@ function ContactModal({
               <button
                 type="button"
                 onClick={() => setSelectedEntities(entities.map((e) => e.slug))}
-                className="text-brand-300 hover:underline"
+                className="text-text-high hover:underline"
               >
                 All
               </button>
@@ -315,10 +275,11 @@ function ContactModal({
                       cur.includes(e.slug) ? cur.filter((s) => s !== e.slug) : [...cur, e.slug],
                     )
                   }
-                  className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                  aria-pressed={on}
+                  className={`rounded-full border px-2.5 py-1 text-[11.5px] font-medium transition-colors ${
                     on
-                      ? 'border-brand-400/40 bg-brand-400/15 text-brand-200'
-                      : 'border-line-strong bg-card text-text-muted hover:bg-fill-hover'
+                      ? 'border-primary bg-primary text-on-primary'
+                      : 'border-line-strong bg-card text-text-mid hover:bg-fill-hover'
                   }`}
                 >
                   {e.name}
@@ -337,15 +298,13 @@ function ContactModal({
 
 type Contact = ReturnType<typeof useApp>['contacts'][number]
 
-/** Small "type · status" chip for the contact's primary record, or nothing
- *  when the contact has no linked records yet. */
+/** Small "type · status" chip for the contact's primary record. */
 function RecordChip({ d }: { d: Contact }) {
   const r = primaryRecord(d)
-  if (!r) return <span className="text-[10.5px] text-text-faint">No records</span>
+  if (!r) return <span className="text-[11.5px] text-text-muted">—</span>
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-fill px-2 py-0.5 text-[10.5px] font-semibold text-text-mid">
-      {r.type} · {r.status}
-      {r.due_date && <span className="text-text-faint">· {r.due_date}</span>}
+    <span className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-[11px] text-text-mid">
+      <span className="capitalize">{r.type}</span> · {r.status}
     </span>
   )
 }
@@ -365,56 +324,39 @@ function contactEntityRefs(
 }
 
 function TagChips({ tags }: { tags: string[] }) {
-  if (!tags.length) return <span className="text-[10.5px] text-text-faint">—</span>
+  if (!tags.length) return <span className="text-[11.5px] text-text-muted">—</span>
   return (
     <div className="flex flex-wrap gap-1">
       {tags.slice(0, 3).map((t) => (
-        <span key={t} className="rounded-full bg-brand-400/10 px-2 py-0.5 text-[10px] font-semibold text-brand-300">
+        <span key={t} className="rounded-full border border-line-strong px-2 py-0.5 text-[11px] text-text-mid">
           {t}
         </span>
       ))}
-      {tags.length > 3 && <span className="text-[10px] text-text-faint">+{tags.length - 3}</span>}
+      {tags.length > 3 && <span className="text-[11px] text-text-muted">+{tags.length - 3}</span>}
     </div>
   )
 }
 
-/* One kanban card. */
-function KanbanCard({ d, onOpen }: { d: Contact; onOpen: () => void }) {
-  return (
-    <div
-      onClick={onOpen}
-      className="lcard cursor-pointer rounded-xl border border-line bg-well px-3 py-2.5 transition-colors hover:border-line-strong"
-    >
-      <div className="flex items-center gap-2.5">
-        <div
-          className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full text-[11px] font-bold text-brand-200"
-          style={{ background: 'linear-gradient(135deg,#1E3A5F,#2563EB)' }}
-        >
-          {initials(d.name)}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[12.5px] font-semibold text-text-high">{d.name}</div>
-          <div className="text-[10.5px] text-text-muted">{d.phone}</div>
-        </div>
-      </div>
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <RecordChip d={d} />
-      </div>
-      <div className="mt-2">
-        <TagChips tags={d.tags} />
-      </div>
-    </div>
-  )
-}
-
-export default function ContactsPage() {
+function ContactsList() {
   const router = useRouter()
-  const { contacts, reloadContacts } = useApp()
+  const searchParams = useSearchParams()
+  const { reloadContacts } = useApp()
   const { activeEntity, entities: entityList } = useEntity()
 
-  const [view, setView] = useState<'board' | 'list'>('board')
-  const [status, setStatus] = useState('')
+  // Filters: entity (defaults to the top-bar entity), contact tag, record type.
+  // Search is the table's own box, seeded by a `?q=` deep link ("Search all").
+  const [entityFilter, setEntityFilter] = useState<string | null>(activeEntity?.slug ?? null)
+  const [tag, setTag] = useState(searchParams.get('tag') ?? '')
   const [recordType, setRecordType] = useState('')
+  const q = searchParams.get('q') ?? undefined
+  useEffect(() => setEntityFilter(activeEntity?.slug ?? null), [activeEntity?.slug])
+  useEffect(() => {
+    const t = searchParams.get('tag')
+    if (t !== null) setTag(t)
+  }, [searchParams])
+
+  const [rows, setRows] = useState<Contact[]>([])
+  const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Contact | null>(null)
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
@@ -422,6 +364,38 @@ export default function ContactsPage() {
   // contacts.manage gates add/edit/delete (read after mount — localStorage)
   const [canManage, setCanManage] = useState(false)
   useEffect(() => setCanManage(hasCap('contacts.manage')), [])
+
+  // Server-side narrowing: ?entity= (the entity and its branches) and ?tag=.
+  // The tag is ALSO applied here, so the list is right before the API knows it.
+  const load = useCallback(async () => {
+    const p = new URLSearchParams({ limit: '2000' })
+    if (entityFilter) p.set('entity', entityFilter)
+    if (tag) p.set('tag', tag)
+    try {
+      const res = await fetch(`${API}/contacts?${p}`, { headers: authHeaders() })
+      if (expireSessionOn401(res) || !res.ok) return
+      const d = await res.json()
+      if (Array.isArray(d.contacts)) setRows(d.contacts)
+    } catch {
+      /* API down — keep the last list */
+    } finally {
+      setLoading(false)
+    }
+  }, [entityFilter, tag])
+  useEffect(() => {
+    load()
+  }, [load])
+
+  // Tag choices: every tag in use across the caller's contacts.
+  const [allTags, setAllTags] = useState<string[]>([])
+  useEffect(() => {
+    fetch(`${API}/contacts?limit=2000`, { headers: authHeaders() })
+      .then((r) => (r.ok ? r.json() : { contacts: [] }))
+      .then((d: { contacts?: { tags?: string[] }[] }) =>
+        setAllTags(Array.from(new Set((d.contacts ?? []).flatMap((c) => c.tags ?? []))).sort((a, b) => a.localeCompare(b))),
+      )
+      .catch(() => setAllTags([]))
+  }, [rows.length])
 
   const openCreate = () => {
     setEditing(null)
@@ -444,44 +418,28 @@ export default function ContactsPage() {
         const data = await res.json().catch(() => ({}))
         throw new Error((data as { error?: { message?: string } }).error?.message || `HTTP ${res.status}`)
       }
-      await reloadContacts()
+      await Promise.all([load(), reloadContacts()])
       setNotice({ ok: true, text: `Contact ${d.name} deleted.` })
     } catch (e) {
       setNotice({ ok: false, text: e instanceof Error ? e.message : String(e) })
     }
   }
 
-  useEffect(() => {
-    try {
-      const v = localStorage.getItem('contacts-view')
-      if (v === 'list' || v === 'board') setView(v)
-    } catch {
-      /* ignore */
-    }
-  }, [])
-  const setViewPersist = (v: 'board' | 'list') => {
-    setView(v)
-    try {
-      localStorage.setItem('contacts-view', v)
-    } catch {
-      /* ignore */
-    }
-  }
-
   const filtered = useMemo(
     () =>
-      contacts.filter(
+      rows.filter(
         (d) =>
-          (!status || d.status === status) &&
+          (!tag || (d.tags ?? []).some((t) => t.toLowerCase() === tag.toLowerCase())) &&
           (!recordType || primaryRecord(d)?.type === recordType),
       ),
-    [contacts, status, recordType],
+    [rows, tag, recordType],
   )
 
-  const hasFilters = Boolean(status || recordType)
+  const hasFilters = Boolean(tag || recordType || entityFilter !== (activeEntity?.slug ?? null))
   const clear = () => {
-    setStatus('')
+    setTag('')
     setRecordType('')
+    setEntityFilter(activeEntity?.slug ?? null)
   }
 
   const contactColumns: Column<Contact>[] = [
@@ -492,15 +450,12 @@ export default function ContactsPage() {
       value: (d) => d.name,
       render: (d) => (
         <div className="flex items-center gap-2.5">
-          <div
-            className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full text-[11px] font-bold text-brand-200"
-            style={{ background: 'linear-gradient(135deg,#1E3A5F,#2563EB)' }}
-          >
+          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--nav-active-bg)] text-[11px] font-semibold text-text-high">
             {initials(d.name)}
           </div>
-          <div>
-            <div className="text-[13px] font-semibold text-text-high">{d.name}</div>
-            {d.method && <span className="text-[10px] font-semibold text-text-muted">{methodLabel(d.method)}</span>}
+          <div className="min-w-0">
+            <div className="truncate text-[13px] font-semibold text-text-heading">{d.name}</div>
+            {d.email && <div className="truncate text-[11.5px] text-text-muted">{d.email}</div>}
           </div>
         </div>
       ),
@@ -509,14 +464,45 @@ export default function ContactsPage() {
       key: 'phone',
       header: 'Phone',
       sortable: true,
-      width: 140,
+      width: 150,
       value: (d) => d.phone,
-      render: (d) => <span className="font-mono text-[12px] text-text-muted">{d.phone}</span>,
+      render: (d) => <span className="font-mono text-[12px] text-text-mid">{d.phone}</span>,
+    },
+    {
+      key: 'tags',
+      header: 'Tags',
+      width: 170,
+      value: (d) => d.tags.join(' '),
+      render: (d) => <TagChips tags={d.tags} />,
+    },
+    {
+      // Entity membership at a glance.
+      key: 'entities',
+      header: 'Entities',
+      width: 170,
+      value: (d) =>
+        contactEntityRefs(d, entityList)
+          .map((e) => e.name)
+          .join(' '),
+      render: (d) => {
+        const list = contactEntityRefs(d, entityList)
+        if (list.length === 0) return <span className="text-[11.5px] text-text-muted">—</span>
+        return (
+          <div className="flex flex-wrap gap-1">
+            {list.slice(0, 2).map((e) => (
+              <span key={e.slug} className="rounded-full bg-fill px-2 py-0.5 text-[11px] text-text-mid">
+                {e.name}
+              </span>
+            ))}
+            {list.length > 2 && <span className="text-[11px] text-text-muted">+{list.length - 2}</span>}
+          </div>
+        )
+      },
     },
     {
       key: 'record',
       header: 'Record',
-      width: 200,
+      width: 170,
       value: (d) => primaryRecord(d)?.type ?? '',
       render: (d) => <RecordChip d={d} />,
     },
@@ -529,57 +515,23 @@ export default function ContactsPage() {
       render: (d) => <StatusBadge status={d.status} />,
     },
     {
-      key: 'tags',
-      header: 'Tags',
-      width: 150,
-      value: (d) => d.tags.join(' '),
-      render: (d) => <TagChips tags={d.tags} />,
-    },
-    {
-      // Entity membership at a glance — otherwise the only way to see it was to
-      // open the contact and scroll to the bottom of the detail page.
-      key: 'entities',
-      header: 'Entities',
-      width: 170,
-      value: (d) => contactEntityRefs(d, entityList).map((e) => e.name).join(' '),
-      render: (d) => {
-        const list = contactEntityRefs(d, entityList)
-        if (list.length === 0)
-          return <span className="text-[10.5px] text-text-faint">None</span>
-        return (
-          <div className="flex flex-wrap gap-1">
-            {list.slice(0, 2).map((e) => (
-              <span
-                key={e.slug}
-                className="rounded-full bg-fill px-2 py-0.5 text-[10px] font-semibold text-text-mid"
-              >
-                {e.name}
-              </span>
-            ))}
-            {list.length > 2 && (
-              <span className="text-[10px] text-text-faint">+{list.length - 2}</span>
-            )}
-          </div>
-        )
-      },
-    },
-    {
       key: 'actions',
       header: 'Actions',
+      srHeader: true,
       align: 'right',
-      width: canManage ? 160 : 90,
+      width: canManage ? 150 : 80,
       render: (d) => (
         <div className="flex items-center justify-end gap-1">
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={(ev) => {
               ev.stopPropagation()
               router.push(`/contacts/${d.id}`)
             }}
-            className="cursor-pointer rounded-md border border-brand-400/20 bg-brand-400/[0.12] px-2 py-[5px] text-[11px] font-semibold transition-colors hover:bg-brand-400/20"
-            style={{ color: 'var(--brand-ink)' }}
           >
             View
-          </button>
+          </Button>
           {canManage && (
             <>
               <button
@@ -589,7 +541,7 @@ export default function ContactsPage() {
                 }}
                 title={`Edit ${d.name}`}
                 aria-label={`Edit contact ${d.name}`}
-                className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
               >
                 <Pencil size={13} aria-hidden />
               </button>
@@ -600,7 +552,7 @@ export default function ContactsPage() {
                 }}
                 title={`Delete ${d.name}`}
                 aria-label={`Delete contact ${d.name}`}
-                className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/15 hover:text-red-300"
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/10 hover:text-red-300"
               >
                 <Trash2 size={13} aria-hidden />
               </button>
@@ -611,119 +563,113 @@ export default function ContactsPage() {
     },
   ]
 
+  const entityName = entityList.find((e) => e.slug === entityFilter)?.name
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3.5">
-      {/* Header: title + count + view toggle */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div>
-          <h1 className="text-[20px] font-extrabold tracking-[-0.5px] text-text-heading">Contacts</h1>
-          <div className="mt-0.5 text-[12px] text-text-muted">
-            {contacts.length} {contacts.length === 1 ? 'contact' : 'contacts'}
-            {activeEntity && <span className="text-text-faint"> · {activeEntity.name}</span>}
-          </div>
-        </div>
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <PageHeader
+        eyebrow="Work"
+        title="Contacts"
+        subtitle={
+          loading
+            ? 'Loading…'
+            : `${filtered.length} ${filtered.length === 1 ? 'contact' : 'contacts'}${entityName ? ` · ${entityName}` : ' · all entities'}`
+        }
+        actions={
+          canManage && (
+            <>
+              <Button variant="secondary" onClick={() => setImportOpen(true)}>
+                <Upload size={14} aria-hidden /> Import
+              </Button>
+              <Button variant="primary" onClick={openCreate}>
+                <Plus size={14} aria-hidden /> Add contact
+              </Button>
+            </>
+          )
+        }
+      />
 
-        {/* Board/List segmented toggle */}
-        <div className="flex items-center gap-0.5 rounded-xl border border-line bg-well p-0.5">
-          {(
-            [
-              { key: 'board', lbl: 'Board', Icon: LayoutGrid },
-              { key: 'list', lbl: 'List', Icon: List },
-            ] as const
-          ).map((v) => {
-            const on = view === v.key
-            return (
-              <button
-                key={v.key}
-                onClick={() => setViewPersist(v.key)}
-                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors"
-                style={{
-                  background: on ? 'var(--nav-active-bg)' : 'transparent',
-                  color: on ? 'var(--nav-active-text)' : 'var(--text-muted)',
-                }}
-              >
-                <v.Icon size={14} strokeWidth={1.9} />
-                {v.lbl}
-              </button>
-            )
-          })}
-        </div>
+      <ContactImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onDone={async () => {
+          await Promise.all([load(), reloadContacts()])
+        }}
+      />
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <FilterSelect value={status} onChange={setStatus} opts={STATUS_OPTS} />
-          <FilterSelect value={recordType} onChange={setRecordType} opts={RECORD_TYPE_OPTS} />
-          {hasFilters && (
-            <button
-              onClick={clear}
-              className="rounded-lg border border-line-strong bg-well px-2.5 py-1.5 text-[12px] font-semibold text-text-muted transition-colors hover:bg-fill-hover"
-            >
-              Clear
-            </button>
-          )}
-          {canManage && (
-            <Button variant="secondary" onClick={() => setImportOpen(true)} style={{ padding: '6px 12px', fontSize: 12 }}>
-              <Upload size={13} strokeWidth={2} aria-hidden /> Import
-            </Button>
-          )}
-          {canManage && (
-            <Button variant="primary" onClick={openCreate} style={{ padding: '6px 12px', fontSize: 12 }}>
-              <Plus size={13} strokeWidth={2} aria-hidden /> Add contact
-            </Button>
-          )}
-        </div>
-      </div>
-
-      <ContactImportModal open={importOpen} onClose={() => setImportOpen(false)} onDone={reloadContacts} />
-
-      {notice && (
-        <div className={`text-[12px] font-semibold ${notice.ok ? 'text-green-300' : 'text-red-300'}`}>
+      {notice && !modalOpen && (
+        <div
+          role={notice.ok ? 'status' : 'alert'}
+          className={`rounded-lg border px-3 py-2 text-[12.5px] font-semibold ${
+            notice.ok ? 'border-green/30 bg-green/10 text-green-300' : 'border-red/30 bg-red/10 text-red-300'
+          }`}
+        >
           {notice.text}
         </div>
       )}
 
-      <ContactModal open={modalOpen} editing={editing} onClose={() => setModalOpen(false)} />
+      <ContactModal open={modalOpen} editing={editing} onClose={() => setModalOpen(false)} onSaved={load} />
 
-      {view === 'board' ? (
-        /* Kanban — horizontally scrolling columns, one per status */
-        <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto pb-2">
-          {KANBAN.map((col) => {
-            const cards = filtered.filter((d) => d.status === col.key)
-            return (
-              <div key={col.key} className="flex w-[260px] shrink-0 flex-col rounded-2xl border border-line bg-card">
-                <div className="flex items-center gap-2 border-b border-line px-3.5 py-3">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: col.color }} />
-                  <span className="text-[12.5px] font-bold text-text-high">{col.lbl}</span>
-                  <span className="ml-auto rounded-full bg-fill px-2 py-px text-[11px] font-bold text-text-muted">
-                    {cards.length}
-                  </span>
-                </div>
-                <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2.5">
-                  {cards.length === 0 ? (
-                    <div className="px-2 py-6 text-center text-[11px] text-text-faint">None</div>
-                  ) : (
-                    cards.map((d) => (
-                      <KanbanCard key={d.id} d={d} onOpen={() => router.push(`/contacts/${d.id}`)} />
-                    ))
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      ) : (
-        /* List — searchable / sortable / paginated table */
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <DataTable
-            columns={contactColumns}
-            rows={filtered}
-            rowKey={(d) => d.id}
-            searchKeys={['name', 'phone', 'record', 'tags']}
-            searchPlaceholder="Search contacts…"
-            empty="No contacts match these filters."
-            onRowClick={(d) => router.push(`/contacts/${d.id}`)}
-          />
-        </div>
-      )}
+      <div className="min-h-0 flex-1">
+        <DataTable
+          columns={contactColumns}
+          rows={filtered}
+          rowKey={(d) => d.id}
+          searchKeys={['name', 'phone', 'tags', 'entities', 'record']}
+          searchPlaceholder="Search name, phone, email or tag…"
+          initialQuery={q}
+          pageSize={25}
+          empty={
+            hasFilters
+              ? 'No contacts match these filters.'
+              : entityName
+                ? `No contacts in ${entityName} yet — add one, import a CSV, or switch the entity filter to All entities.`
+                : 'No contacts yet — add one or import a CSV.'
+          }
+          onRowClick={(d) => router.push(`/contacts/${d.id}`)}
+          toolbarRight={
+            <div className="flex flex-wrap items-center gap-2">
+              <EntityPicker
+                value={entityFilter}
+                onChange={setEntityFilter}
+                globalLabel="All entities"
+                size="sm"
+                ariaLabel="Filter by entity"
+                className="w-[170px]"
+              />
+              <Select
+                value={tag}
+                onChange={setTag}
+                options={[{ value: '', label: 'Any tag' }, ...allTags.map((t) => ({ value: t, label: t }))]}
+                ariaLabel="Filter by tag"
+                className="w-[140px]"
+                searchable={allTags.length > 8}
+              />
+              <Select
+                value={recordType}
+                onChange={setRecordType}
+                options={RECORD_TYPE_OPTS}
+                ariaLabel="Filter by record type"
+                className="w-[140px]"
+              />
+              {hasFilters && (
+                <Button variant="ghost" size="sm" onClick={clear}>
+                  Clear
+                </Button>
+              )}
+            </div>
+          }
+        />
+      </div>
     </div>
+  )
+}
+
+/** useSearchParams (the ?q= / ?tag= deep links) needs a Suspense boundary. */
+export default function ContactsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ContactsList />
+    </Suspense>
   )
 }

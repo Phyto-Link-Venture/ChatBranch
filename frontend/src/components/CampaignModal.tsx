@@ -5,11 +5,13 @@ import { Mic, Phone, MessageSquare, X, Check, Zap } from 'lucide-react'
 import { useApp } from '@/lib/AppContext'
 import { primaryRecord } from '@/lib/mocks'
 import { Button } from '@/components/ui/Button'
+import { Select } from '@/components/ui/Select'
+import { tint } from '@/lib/color'
 
 const METHODS = [
-  { id: 'ai-call', label: 'AI Responsive Call', sub: 'Real-time AI conversation', color: '#3B82F6', Icon: Mic },
-  { id: 'bot-call', label: 'Automated Bot Call', sub: 'Interactive IVR flow', color: '#06B6D4', Icon: Phone },
-  { id: 'message', label: 'AI Message', sub: 'WhatsApp / SMS', color: '#8B5CF6', Icon: MessageSquare },
+  { id: 'ai-call', label: 'AI Responsive Call', sub: 'Real-time AI conversation', color: 'rgb(var(--c-brand))', Icon: Mic },
+  { id: 'bot-call', label: 'Automated Bot Call', sub: 'Interactive IVR flow', color: 'rgb(var(--c-cyan))', Icon: Phone },
+  { id: 'message', label: 'AI Message', sub: 'WhatsApp / SMS', color: 'rgb(var(--c-purple))', Icon: MessageSquare },
 ]
 const TONES = ['Professional', 'Firm', 'Empathetic', 'Urgent']
 
@@ -89,14 +91,14 @@ export function CampaignModal() {
                 <div
                   key={d.id}
                   className="trow flex cursor-pointer items-center gap-3 px-[22px] py-[11px]"
-                  style={{ background: sel ? 'rgba(59,130,246,0.06)' : 'transparent' }}
+                  style={{ background: sel ? 'rgba(255,90,31,0.06)' : 'transparent' }}
                   onClick={() => toggleCampaign(d.id)}
                 >
                   <div
                     className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px]"
                     style={{
-                      border: `1.5px solid ${sel ? '#3B82F6' : 'var(--line-strong)'}`,
-                      background: sel ? '#3B82F6' : 'transparent',
+                      border: `1.5px solid ${sel ? 'rgb(var(--c-brand))' : 'var(--line-strong)'}`,
+                      background: sel ? 'rgb(var(--c-brand))' : 'transparent',
                     }}
                   >
                     {sel && <Check size={11} strokeWidth={1.75} color="white" />}
@@ -131,15 +133,15 @@ export function CampaignModal() {
                       onClick={() => setLaunchMethod(m.id)}
                       className="flex cursor-pointer items-center gap-3 rounded-[10px] px-[13px] py-[11px]"
                       style={{
-                        border: `1.5px solid ${sel ? m.color + '55' : 'var(--line)'}`,
-                        background: sel ? m.color + '0D' : 'transparent',
+                        border: `1.5px solid ${sel ? tint(m.color, '55') : 'var(--line)'}`,
+                        background: sel ? tint(m.color, '0D') : 'transparent',
                       }}
                     >
                       <div
                         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-                        style={{ background: m.color + '18' }}
+                        style={{ background: tint(m.color, '18') }}
                       >
-                        <m.Icon size={15} strokeWidth={1.75} color={m.color} />
+                        <m.Icon size={15} strokeWidth={1.75} style={{ color: m.color }} />
                       </div>
                       <div className="flex-1">
                         <div className="text-[13px] font-bold text-text-high">
@@ -169,19 +171,17 @@ export function CampaignModal() {
             {launchMethod === 'ai-call' && (
               <div>
                 {label('Voice')}
-                <select
+                <Select
                   value={selectedVoice}
-                  onChange={(e) => setSelectedVoice(e.target.value)}
-                  className="w-full cursor-pointer rounded-lg border border-line-strong bg-card px-3 py-[9px] text-[12px] font-semibold text-text-high outline-none"
-                >
-                  {voices
+                  onChange={setSelectedVoice}
+                  options={voices
                     .filter((v) => v.status === 'ready')
-                    .map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.name} — {v.gender}
-                      </option>
-                    ))}
-                </select>
+                    .map((v) => ({ value: v.id, label: v.name, hint: v.gender }))}
+                  size="md"
+                  ariaLabel="Voice"
+                  placeholder="Pick a voice…"
+                  className="w-full"
+                />
               </div>
             )}
 
@@ -196,9 +196,9 @@ export function CampaignModal() {
                       onClick={() => setLaunchTone(t.toLowerCase())}
                       className="cursor-pointer rounded-lg px-3.5 py-[7px] text-[12px] font-semibold"
                       style={{
-                        border: `1.5px solid ${sel ? 'rgba(59,130,246,0.5)' : 'var(--line)'}`,
-                        background: sel ? 'rgba(59,130,246,0.12)' : 'transparent',
-                        color: sel ? '#93C5FD' : 'var(--text-muted)',
+                        border: `1.5px solid ${sel ? 'rgba(255,90,31,0.5)' : 'var(--line)'}`,
+                        background: sel ? 'rgba(255,90,31,0.12)' : 'transparent',
+                        color: sel ? 'var(--brand-ink)' : 'var(--text-muted)',
                       }}
                     >
                       {t}
@@ -237,7 +237,7 @@ export function CampaignModal() {
               <button
                 onClick={doLaunch}
                 className="flex cursor-pointer items-center gap-[7px] rounded-lg px-[18px] py-[9px] text-[13px] font-bold text-white"
-                style={{ background: 'linear-gradient(135deg,#2563EB,#3B82F6)' }}
+                style={{ background: 'var(--primary)' }}
               >
                 <Zap size={15} strokeWidth={1.75} color="white" />
                 Launch &amp; Go Live

@@ -6,6 +6,7 @@ using ChatBranch.Api.Auth;
 using ChatBranch.Data;
 using ChatBranch.Data.Flows;
 using ChatBranch.Data.Stores;
+using ChatBranch.Data.Tags;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 using Thread = ChatBranch.Domain.Thread;
@@ -51,7 +52,7 @@ public static class ContactsEndpoints
     public static void MapContactsEndpoints(this IEndpointRouteBuilder app)
     {
         // ---- contact list / detail --------------------------------------------
-        app.MapGet("/api/contacts", async (string? q, int? limit, string? entity,
+        app.MapGet("/api/contacts", async (string? q, int? limit, string? entity, string? tag,
             AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var query = ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc);
@@ -66,6 +67,13 @@ public static class ContactsEndpoints
             }
             if (!string.IsNullOrWhiteSpace(q))
                 query = query.Where(c => c.Name.Contains(q) || c.Phone.Contains(q) || c.Email.Contains(q));
+            if (!string.IsNullOrWhiteSpace(tag))
+            {
+                // ?tag=<slug> — contacts carrying that registry tag
+                var tagSlug = tag.Trim().ToLowerInvariant();
+                query = query.Where(c => db.TagAssignments.Any(a => a.TargetType == TagService.ContactTarget
+                                                                  && a.TargetId == c.Id && a.Tag!.Slug == tagSlug));
+            }
 
             var rows = await query.OrderByDescending(c => c.UpdatedAt).Take(limit ?? 200).ToListAsync();
             return Results.Ok(new { contacts = await ContactItemsAsync(db, rows) });
@@ -88,6 +96,8 @@ public static class ContactsEndpoints
             };
             db.Contacts.Add(row);
             await db.SaveChangesAsync();
+            // tag names → registry tags (Contact.Tags is the registry's cache)
+            if (row.Tags.Count > 0) TagService.ApplyContactNames(db, row.Id, row.Tags, me.Identity?.Name ?? "");
             return Results.Ok((await ContactItemsAsync(db, new List<Contact> { row })).First());
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
@@ -117,6 +127,7 @@ public static class ContactsEndpoints
             }
             c.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
+            if (b.Tags != null) TagService.ApplyContactNames(db, c.Id, b.Tags, me.Identity?.Name ?? "");
             return Results.Ok((await ContactItemsAsync(db, new List<Contact> { c })).First());
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
@@ -198,6 +209,13 @@ public static class ContactsEndpoints
                         // Sandbox threads resolve no account → not connected.
                         usable = row != null && AccountConfigured(row) &&
                                  !DownHealth.Contains(row.HealthStatus);
+                    }
+                    else if (ChatBranch.Data.Channels.SocialWindow.Applies(t.Channel))
+                    {
+                        // Messenger / Instagram: Meta's 24h window on a live page
+                        windowOpen = ChatBranch.Data.Channels.SocialWindow.ListWindow(
+                            ChatBranch.Data.Channels.SocialWindow.Live(row, t.Channel), agg?.LastIn,
+                            DateTime.UtcNow).Open;
                     }
 
                     var payload = new Dictionary<string, object?>
@@ -310,7 +328,8 @@ public static class ContactsEndpoints
         // Read-only: the transcript + outcome per AI voice call, rendered inline in
         // the /chats message stream and on the contact detail page. Kept cheap so
         // it stays pollable (no LiveKit/agent plumbing on this path).
-        app.MapGet("/api/contacts/{id:int}/calls", async (int id, AppDbContext db, ClaimsPrincipal me) =>
+        app.MapGet("/api/contacts/{id:int}/calls", async (int id, AppDbContext db, ClaimsPrincipal me,
+            ChatBranch.Data.Channels.CallRecordings recordings) =>
         {
             var contact = await ScopeContacts(db.Contacts.AsNoTracking(), me, db)
                 .FirstOrDefaultAsync(c => c.Id == id);
@@ -326,9 +345,9 @@ public static class ContactsEndpoints
                     outcome = r.Outcome.Length > 0 ? r.Outcome : "unclear",
                     followup_date = r.FollowupDate,
                     needs_human = r.NeedsHuman,
-                    // CallRecord carries no recording path (the recorders write
-                    // WAVs next to the WhatsApp call transcripts, not here).
-                    recording = (string?)null,
+                    // the voice agent's WAV of this call (data/recordings/{call_id}.wav),
+                    // streamed auth-gated by GET /api/calls/recording/{call_id}
+                    recording = recordings.ResolveAgentCall(r.CallId) != null ? $"{r.CallId}.wav" : null,
                     transcript = ParseTranscript(r.Transcript),
                 })
                 .OrderByDescending(x => x.ended_at.Length > 0 ? x.ended_at : x.started_at)
@@ -352,7 +371,7 @@ public static class ContactsEndpoints
             AppDbContext db, ScopingService sc, FlowEngine flows) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
-            var rows = await sc.ScopeInherited(db.ScriptTemplates.AsNoTracking(), entityId)
+            var rows = await sc.ScopeInherited(db.ScriptTemplates.AsNoTracking().Include(s => s.Entity), entityId)
                 .OrderBy(s => s.Name).ToListAsync();
 
             // ?contact_id=<pk> personalizes `rendered` with that contact's CRM
@@ -373,6 +392,7 @@ public static class ContactsEndpoints
         app.MapPost("/api/calls/script-templates", async (JsonElement body, AppDbContext db,
             ClaimsPrincipal me, HttpContext ctx) =>
         {
+            if (!await CanManageScripts(db, me)) return ScriptsForbidden();
             var name = (AsString(body, "name") ?? "").Trim();
             var content = (AsString(body, "content") ?? "").Trim();
             if (name.Length == 0) return Bad("name is required.");
@@ -389,13 +409,15 @@ public static class ContactsEndpoints
             };
             db.ScriptTemplates.Add(row);
             await db.SaveChangesAsync();
+            await db.Entry(row).Reference(s => s.Entity).LoadAsync();
             Audit(db, me, ctx, "script_template.create", name, "");
             return Results.Ok(ScriptItem(row, null));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         app.MapMethods("/api/calls/script-templates/{id:int}", new[] { "PATCH" },
             async (int id, JsonElement body, AppDbContext db, ClaimsPrincipal me, HttpContext ctx) =>
         {
+            if (!await CanManageScripts(db, me)) return ScriptsForbidden();
             var row = await db.ScriptTemplates.FirstOrDefaultAsync(s => s.Id == id);
             if (row == null) return NotFound("Script template not found.");
 
@@ -413,15 +435,20 @@ public static class ContactsEndpoints
                 if (content.Length == 0) return Bad("content is required.");
                 row.Content = content;
             }
+            if (Has(body, "entity"))
+                // "" / null moves the script back to organization-wide.
+                row.EntityId = await InboxEndpoints.EntityId(db, AsString(body, "entity"));
             row.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
+            await db.Entry(row).Reference(s => s.Entity).LoadAsync();
             Audit(db, me, ctx, "script_template.update", row.Name, "");
             return Results.Ok(ScriptItem(row, null));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         app.MapDelete("/api/calls/script-templates/{id:int}", async (int id, AppDbContext db,
             ClaimsPrincipal me, HttpContext ctx) =>
         {
+            if (!await CanManageScripts(db, me)) return ScriptsForbidden();
             var row = await db.ScriptTemplates.FirstOrDefaultAsync(s => s.Id == id);
             if (row == null) return NotFound("Script template not found.");
             var name = row.Name;
@@ -429,7 +456,7 @@ public static class ContactsEndpoints
             await db.SaveChangesAsync();
             Audit(db, me, ctx, "script_template.delete", name, "");
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
     }
 
     // ======================= contact payload (to_contact) ====================
@@ -784,6 +811,10 @@ public static class ContactsEndpoints
                     await db.SaveChangesAsync();
                     created++;
                 }
+                // registry write-through: the CSV's tag names become registry tags
+                if (tags.Count > 0)
+                    try { TagService.ApplyContactNames(db, written.Id, tags, "import"); }
+                    catch { /* tagging never fails an imported row */ }
             }
             catch (Exception e)
             {
@@ -891,9 +922,21 @@ public static class ContactsEndpoints
         content = t.Content,
         created_by = t.CreatedBy,
         entity_id = t.EntityId,
+        entity = t.Entity?.Slug,
+        entity_name = t.Entity?.Name ?? "",
+        updated_at = DateTime.SpecifyKind(t.UpdatedAt == default ? t.CreatedAt : t.UpdatedAt,
+            DateTimeKind.Utc),
         // Contact-bound preview: {{name}}/{{record_title}}/… filled from the CRM.
         rendered = variables != null ? FlowEngine.Render(t.Content, variables) : t.Content,
     };
+
+    /// <summary>Script writes follow the permission matrix (script_templates.manage).</summary>
+    private static async Task<bool> CanManageScripts(AppDbContext db, ClaimsPrincipal me) =>
+        await AdminEndpoints.HasCapabilityAsync(db, me.FindFirstValue(ClaimTypes.Role) ?? "",
+            "script_templates.manage");
+
+    private static IResult ScriptsForbidden() =>
+        Results.Json(new { detail = "You need the \"Manage script templates\" permission." }, statusCode: 403);
 
     // ======================= helpers =========================================
 
@@ -901,13 +944,9 @@ public static class ContactsEndpoints
     /// Tenant-scope a Contact queryset the way <c>tenant_from_request</c> does:
     /// superadmin is unscoped, everyone else sees only their own tenant's rows.
     /// </summary>
-    private static IQueryable<Contact> ScopeContacts(IQueryable<Contact> qs, ClaimsPrincipal me,
+    internal static IQueryable<Contact> ScopeContacts(IQueryable<Contact> qs, ClaimsPrincipal me,
         AppDbContext db, ScopingService? sc = null)
     {
-        // Provider login ("their own world"): only the customers bound to them.
-        // Applied FIRST and unconditionally — a provider who is also superadmin
-        // is still a provider here.
-        qs = ProviderScope.Contacts(qs, me, db);
         var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
         if (role == Roles.SuperAdmin) return qs;
         if (TenantId(me) is not int tid) return qs;

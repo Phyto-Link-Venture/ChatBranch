@@ -2,17 +2,19 @@
 
 import { useEffect, useState } from 'react'
 import { fetchCustomFields, type CustomFieldsSchema, type FieldDef } from '@/lib/customFields'
+import { fetchTags, tagColor, type TagDef } from '@/lib/tags'
 
 /**
  * The {{variable}} chip row shared by Message Templates and Script Templates.
  *
- * Two groups: the built-in CRM variables, and the operator's own **Custom
- * Fields** (Settings → Custom Fields), which is what makes a template fit a
- * vertical without a code change. Custom fields are namespaced —
- * `{{cf_<key>}}` for a customer field, `{{provider_<key>}}` for the service
- * provider bound to the contact — because a field labelled "Company" or
- * "Email" would otherwise shadow a built-in of the same name. The backend
- * renders both in `FlowEngine.VariablesFor`.
+ * Three groups: the built-in CRM variables, the operator's own **Custom
+ * Fields** (Settings → Custom Fields) and the **attributes of registry tags**
+ * (Library → Tags), which is what makes a template fit a vertical without a
+ * code change. Both operator groups are namespaced — `{{cf_<key>}}` for a
+ * customer field, `{{tag_<tagslug>_<key>}}` for a tag attribute (dashes in the
+ * slug become underscores) — because a field labelled "Company" or "Email"
+ * would otherwise shadow a built-in of the same name. The backend renders all
+ * of them in `FlowEngine.VariablesFor`; a contact without the tag renders "".
  */
 
 /** Built-in CRM variables the backend's VariablesFor always produces. */
@@ -24,7 +26,6 @@ export const BUILTIN_VARIABLES = [
   'record_status',
   'record_id',
   'due_date',
-  'days_overdue',
   'amount',
   'link',
   'best_contact_time',
@@ -33,10 +34,12 @@ export const BUILTIN_VARIABLES = [
 function Chip({
   token,
   label,
+  dot,
   onInsert,
 }: {
   token: string
   label?: string
+  dot?: string
   onInsert: (token: string) => void
 }) {
   return (
@@ -44,8 +47,9 @@ function Chip({
       type="button"
       onClick={() => onInsert(token)}
       title={label ? `${label} — inserts {{${token}}}` : `Insert {{${token}}}`}
-      className="cursor-pointer rounded-full border border-line bg-fill px-2 py-0.5 font-mono text-[10.5px] text-text-mid transition-colors hover:border-brand-400/40 hover:text-text-high"
+      className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-line bg-fill px-2 py-0.5 font-mono text-[10.5px] text-text-mid transition-colors hover:border-line-strong hover:text-text-high"
     >
+      {dot && <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: dot }} aria-hidden />}
       {`{{${token}}}`}
     </button>
   )
@@ -53,19 +57,22 @@ function Chip({
 
 export function TemplateVariablePicker({ onInsert }: { onInsert: (token: string) => void }) {
   const [schema, setSchema] = useState<CustomFieldsSchema | null>(null)
+  const [tags, setTags] = useState<TagDef[]>([])
 
   useEffect(() => {
-    // best-effort — the built-in chips still work if custom fields are
+    // best-effort — the built-in chips still work if either source is
     // unreachable, so a failure is silent rather than an error banner
     fetchCustomFields()
       .then(setSchema)
       .catch(() => setSchema(null))
+    fetchTags()
+      .then((d) => setTags(d.tags.filter((t) => t.applies_to !== 'conversation' && t.attributes.length > 0)))
+      .catch(() => setTags([]))
   }, [])
 
-  const custom: { token: string; def: FieldDef }[] = [
-    ...(schema?.customer ?? []).map((def) => ({ token: `cf_${def.key}`, def })),
-    ...(schema?.provider ?? []).map((def) => ({ token: `provider_${def.key}`, def })),
-  ].filter((c) => c.def.key)
+  const custom: { token: string; def: FieldDef }[] = (schema?.customer ?? [])
+    .map((def) => ({ token: `cf_${def.key}`, def }))
+    .filter((c) => c.def.key)
 
   return (
     <div className="flex flex-col gap-2">
@@ -82,12 +89,37 @@ export function TemplateVariablePicker({ onInsert }: { onInsert: (token: string)
       {custom.length > 0 && (
         <div>
           <span className="mb-1 block text-[10.5px] text-text-muted">
-            Your custom fields (Settings → Custom Fields) — <span className="font-mono">cf_</span> is a customer field,{' '}
-            <span className="font-mono">provider_</span> the bound service provider&apos;s:
+            Your custom fields (Settings → Custom Fields):
           </span>
           <div className="flex flex-wrap gap-1.5">
             {custom.map(({ token, def }) => (
               <Chip key={token} token={token} label={def.label || def.key} onInsert={onInsert} />
+            ))}
+          </div>
+        </div>
+      )}
+      {tags.length > 0 && (
+        <div>
+          <span className="mb-1 block text-[10.5px] text-text-muted">
+            Tags (Library → Tags) — a tag&apos;s fields, empty when the contact or its entity doesn&apos;t carry
+            the tag:
+          </span>
+          <div className="flex flex-col gap-1.5">
+            {tags.map((t) => (
+              <div key={t.id} className="flex flex-wrap items-center gap-1.5">
+                <span className="mr-0.5 text-[10.5px] font-semibold" style={{ color: tagColor(t.color).ink }}>
+                  {t.name}
+                </span>
+                {t.attributes.map((a) => (
+                  <Chip
+                    key={a.key}
+                    token={`${t.variable_prefix || `tag_${t.slug.replace(/-/g, '_')}_`}${a.key}`}
+                    label={`${t.name} · ${a.label}`}
+                    dot={tagColor(t.color).dot}
+                    onInsert={onInsert}
+                  />
+                ))}
+              </div>
             ))}
           </div>
         </div>

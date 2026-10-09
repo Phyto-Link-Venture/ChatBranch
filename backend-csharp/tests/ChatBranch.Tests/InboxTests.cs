@@ -22,6 +22,20 @@ public class InboxTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Summary_of_a_conversation_with_no_linked_contact_is_returned_not_a_500()
+    {
+        var c = await AuthedClient();
+        var key = "60199990001"; // no CRM contact has this number
+        (await c.PostAsJsonAsync("/api/whatsapp/simulate",
+            new { channel = "whatsapp", key, text = "is anyone there?", name = "Stranger" })).EnsureSuccessStatusCode();
+
+        var res = await c.PostAsync($"/api/messaging/threads/whatsapp/{key}/summary", null);
+        Assert.Equal(System.Net.HttpStatusCode.OK, res.StatusCode);
+        var body = await res.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(JsonValueKind.Object, body.GetProperty("summary").ValueKind);
+    }
+
+    [Fact]
     public async Task Simulate_inbound_then_list_read_and_reply()
     {
         var c = await AuthedClient();

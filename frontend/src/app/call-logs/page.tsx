@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
 import { Mic, Eye, X } from 'lucide-react'
 import { CALL_LOGS } from '@/lib/mocks'
 import { authHeaders } from '@/lib/auth'
-import WhatsAppIcon from '@/components/chats/WhatsAppIcon'
+import { ChannelLogo } from '@/components/ui/ChannelLogo'
+import { tint } from '@/lib/color'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -27,7 +28,7 @@ const TABS = [
   { id: 'ai-call', lbl: 'Phone (SIP)' },
   { id: 'wa-call', lbl: 'WhatsApp' },
 ]
-const TYPE_COLORS: Record<string, string> = { 'ai-call': '#3B82F6', 'wa-call': '#25D366' }
+const TYPE_COLORS: Record<string, string> = { 'ai-call': 'rgb(var(--c-brand))', 'wa-call': '#25D366' }
 
 const fmtWhen = (iso: string) => {
   if (!iso) return '—'
@@ -77,9 +78,9 @@ export default function CallLogsPage() {
               onClick={() => setTab(t.id)}
               className="cursor-pointer rounded-[7px] px-3.5 py-1.5 text-[12px] font-semibold transition-all"
               style={{
-                background: active ? 'rgba(59,130,246,0.12)' : 'var(--fill)',
+                background: active ? 'rgba(255,90,31,0.12)' : 'var(--fill)',
                 color: active ? 'var(--brand-ink)' : 'var(--text-muted)',
-                border: `1px solid ${active ? 'rgba(59,130,246,0.25)' : 'var(--line)'}`,
+                border: `1px solid ${active ? 'rgba(255,90,31,0.25)' : 'var(--line)'}`,
               }}
             >
               {t.lbl} {n > 0 && <span className="opacity-70">{n}</span>}
@@ -102,13 +103,13 @@ export default function CallLogsPage() {
         )}
         {filtered.map((log) => {
           const isExp = expanded === log.id
-          const color = TYPE_COLORS[log.type] || '#64748B'
+          const color = TYPE_COLORS[log.type] || 'var(--text-muted)'
           return (
             <div
               key={log.id}
               className="lcard overflow-hidden rounded-2xl bg-card"
               style={{
-                border: `1px solid ${isExp ? color + '33' : 'var(--line)'}`,
+                border: `1px solid ${isExp ? tint(color, '33') : 'var(--line)'}`,
                 transition: 'border-color 0.2s, background 0.1s',
               }}
             >
@@ -118,12 +119,12 @@ export default function CallLogsPage() {
               >
                 <div
                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px]"
-                  style={{ background: color + '18' }}
+                  style={{ background: tint(color, '18') }}
                 >
                   {log.type === 'wa-call' ? (
-                    <WhatsAppIcon size={16} />
+                    <ChannelLogo channel="whatsapp" size={16} />
                   ) : (
-                    <Mic size={16} strokeWidth={1.75} color={color} />
+                    <Mic size={16} strokeWidth={1.75} style={{ color: color }} />
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -144,9 +145,9 @@ export default function CallLogsPage() {
                     <span className="text-[11px] font-medium text-text-muted">{log.transcript.length} turns</span>
                   )}
                   {isExp ? (
-                    <X size={14} strokeWidth={1.75} color="#475569" />
+                    <X size={14} strokeWidth={1.75} color="#8A8177" />
                   ) : (
-                    <Eye size={14} strokeWidth={1.75} color="#475569" />
+                    <Eye size={14} strokeWidth={1.75} color="#8A8177" />
                   )}
                 </div>
               </div>

@@ -1,5 +1,7 @@
 # ChatBranch — AI tool-calling (the assistant can DO things)
 
+> **Historical.** The Django-era plan for AI tool calling. Today's C# implementation is skills of kind `tool`/`check` plus built-in date tools (`ChatBranch.Data/Ai/Skills/`) — see [`CLAUDE.md`](../CLAUDE.md) and [`vertical-guide.md`](vertical-guide.md).
+
 Turn the chat brain from "talks" into "acts": mid-conversation it can check the
 calendar, offer real open slots, and book — and the framework generalizes to
 order lookups, payment links, etc.

@@ -261,3 +261,6 @@ backend/data/
 presentation
 # Next.js build output anywhere (guards against stray builds run in the wrong dir)
 .next/
+
+# Claude Code agent worktrees (local only)
+.claude/worktrees/

@@ -1,81 +1,52 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Bell, CheckCheck, MessageSquare, Phone, Settings2 } from 'lucide-react'
-import { authHeaders } from '@/lib/auth'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
-
-interface Notif {
-  id: number
-  kind: 'message' | 'call' | 'system'
-  title: string
-  body: string
-  link: string
-  read: boolean
-  created_at: string
-}
+import {
+  markAllNotificationsRead,
+  markNotificationRead,
+  useNotifications,
+  type Notif,
+} from './notificationsStore'
 
 const KIND_ICON = { message: MessageSquare, call: Phone, system: Settings2 }
+const KIND_TINT = {
+  message: 'bg-green/15 text-[color:var(--green-ink)]',
+  call: 'bg-brand/15 text-[color:var(--brand-ink)]',
+  system: 'bg-fill text-text-mid',
+}
 
 const timeShort = (ts: string) =>
   new Date(ts).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
-/** Per-user notification bell: unread badge + dropdown, polled every 20 s. */
+/** Per-user notification bell: a tangerine dot when something is unread, a
+ *  dropdown of the latest, and "View all" into /notifications. Shares its data
+ *  with the sidebar's Notifications counter (notificationsStore). */
 export function NotificationsBell() {
   const router = useRouter()
+  const { unread, items } = useNotifications()
   const [open, setOpen] = useState(false)
-  const [unread, setUnread] = useState(0)
-  const [items, setItems] = useState<Notif[]>([])
   const wrapRef = useRef<HTMLDivElement>(null)
 
-  const refresh = useCallback(async () => {
-    try {
-      const res = await fetch(`${API}/auth/notifications`, { headers: authHeaders() })
-      if (!res.ok) return
-      const data = await res.json()
-      setUnread(data.unread ?? 0)
-      setItems(data.notifications ?? [])
-    } catch {
-      /* API down — badge just stays stale */
-    }
-  }, [])
-
-  useEffect(() => {
-    refresh()
-    const t = setInterval(refresh, 20000)
-    return () => clearInterval(t)
-  }, [refresh])
-
-  // close on outside click
   useEffect(() => {
     if (!open) return
     const onClick = (e: MouseEvent) => {
       if (!wrapRef.current?.contains(e.target as Node)) setOpen(false)
     }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
     document.addEventListener('mousedown', onClick)
-    return () => document.removeEventListener('mousedown', onClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onClick)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [open])
 
-  const markAll = async () => {
-    await fetch(`${API}/auth/notifications`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ id: 'all' }),
-    }).catch(() => {})
-    refresh()
-  }
-
-  const openItem = async (n: Notif) => {
+  const openItem = (n: Notif) => {
     setOpen(false)
-    fetch(`${API}/auth/notifications`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ id: n.id }),
-    }).catch(() => {})
-    setItems((xs) => xs.map((x) => (x.id === n.id ? { ...x, read: true } : x)))
-    setUnread((u) => Math.max(0, u - (n.read ? 0 : 1)))
+    markNotificationRead(n)
     if (n.link) router.push(n.link)
   }
 
@@ -85,34 +56,40 @@ export function NotificationsBell() {
         onClick={() => setOpen(!open)}
         aria-label={`Notifications${unread ? ` (${unread} unread)` : ''}`}
         aria-expanded={open}
-        className="relative flex h-[34px] w-[34px] cursor-pointer items-center justify-center rounded-lg border border-line bg-fill text-text-muted transition-colors hover:text-text-high"
+        aria-haspopup="dialog"
+        className="relative grid h-10 w-10 cursor-pointer place-items-center rounded-lg text-text-high transition-colors hover:bg-fill-hover"
       >
-        <Bell size={15} strokeWidth={1.75} />
+        <Bell size={18} strokeWidth={1.5} />
         {unread > 0 && (
           <span
-            className="absolute -right-1 -top-1 flex h-[16px] min-w-[16px] items-center justify-center rounded-full px-1 text-[9px] font-bold text-white"
-            style={{ background: '#EF4444', border: '1.5px solid var(--surface)' }}
-          >
-            {unread > 9 ? '9+' : unread}
-          </span>
+            className="absolute right-[9px] top-[9px] h-2 w-2 rounded-full bg-accent ring-2 ring-[var(--app)]"
+            aria-hidden
+          />
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 top-[42px] z-50 w-[340px] overflow-hidden rounded-xl border border-line bg-card shadow-2xl">
-          <div className="flex items-center justify-between border-b border-line px-3.5 py-2.5">
-            <span className="text-[12.5px] font-bold text-text-high">Notifications</span>
+        <div
+          role="dialog"
+          aria-label="Notifications"
+          className="fixed inset-x-3 top-[64px] z-50 animate-slideDown overflow-hidden rounded-xl border border-line bg-card shadow-pop sm:absolute sm:inset-x-auto sm:right-0 sm:top-[46px] sm:w-[360px]"
+        >
+          <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+            <span className="display text-[18px] text-text-heading">
+              Notifications
+              {unread > 0 && <span className="ml-2 font-sans text-[12px] font-semibold text-text-muted">{unread} unread</span>}
+            </span>
             <button
-              onClick={markAll}
+              onClick={() => void markAllNotificationsRead()}
               disabled={!unread}
-              className="flex cursor-pointer items-center gap-1 text-[11px] font-semibold text-text-muted transition-colors hover:text-brand-300 disabled:opacity-40"
+              className="flex cursor-pointer items-center gap-1 text-[12px] font-semibold text-text-muted transition-colors hover:text-text-high disabled:cursor-default disabled:opacity-40"
             >
-              <CheckCheck size={12} aria-hidden /> Mark all read
+              <CheckCheck size={13} aria-hidden /> Mark all read
             </button>
           </div>
-          <div className="max-h-[380px] overflow-y-auto">
+          <div className="max-h-[min(380px,60vh)] overflow-y-auto">
             {items.length === 0 && (
-              <div className="px-4 py-8 text-center text-[12px] text-text-muted">
+              <div className="px-4 py-8 text-center text-[12.5px] text-text-muted">
                 Nothing yet — customer replies and system events land here.
               </div>
             )}
@@ -122,31 +99,32 @@ export function NotificationsBell() {
                 <button
                   key={n.id}
                   onClick={() => openItem(n)}
-                  className={`flex w-full cursor-pointer items-start gap-2.5 border-b border-line px-3.5 py-2.5 text-left transition-colors hover:bg-fill ${
-                    n.read ? 'opacity-60' : ''
-                  }`}
+                  className="flex w-full cursor-pointer items-start gap-3 border-b border-line px-4 py-2.5 text-left transition-colors last:border-b-0 hover:bg-fill-hover"
                 >
-                  <span
-                    className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg ${
-                      n.kind === 'message' ? 'bg-green/15 text-green-300'
-                      : n.kind === 'call' ? 'bg-brand/15 text-brand-300'
-                      : 'bg-purple/15 text-purple-300'
-                    }`}
-                  >
+                  <span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full ${KIND_TINT[n.kind] ?? KIND_TINT.system}`}>
                     <Icon size={13} aria-hidden />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-baseline justify-between gap-2">
-                      <span className="truncate text-[12px] font-semibold text-text-high">{n.title}</span>
-                      {!n.read && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand-400" />}
+                      <span className={`truncate text-[13px] ${n.read ? 'text-text-mid' : 'font-semibold text-text-high'}`}>
+                        {n.title}
+                      </span>
+                      {!n.read && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-label="unread" />}
                     </span>
-                    {n.body && <span className="block truncate text-[11px] text-text-muted">{n.body}</span>}
-                    <span className="block text-[10px] text-text-faint">{timeShort(n.created_at)}</span>
+                    {n.body && <span className="block truncate text-[12px] text-text-muted">{n.body}</span>}
+                    <span className="block text-[11px] text-text-faint">{timeShort(n.created_at)}</span>
                   </span>
                 </button>
               )
             })}
           </div>
+          <Link
+            href="/notifications"
+            onClick={() => setOpen(false)}
+            className="block border-t border-line px-4 py-2.5 text-center text-[12.5px] font-semibold text-[color:var(--brand-ink)] transition-colors hover:bg-fill-hover"
+          >
+            View all
+          </Link>
         </div>
       )}
     </div>

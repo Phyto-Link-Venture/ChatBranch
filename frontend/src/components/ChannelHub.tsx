@@ -8,27 +8,17 @@
  * a live feed). Rendered in the /chats info panel and on the contact detail
  * page; parents supply their own section header / card chrome.
  *
- * Theming: semantic tokens only; icon/dot colors are static hex (never
- * `var()` in a lucide color prop); health text uses the *-ink vars via
- * HEALTH_META so it flips with light/dark.
+ * Theming: semantic tokens only; each channel shows its real brand mark
+ * (ChannelLogo); health text uses the *-ink vars via HEALTH_META so it flips
+ * with light/dark.
  */
 
 import { useEffect, useState } from 'react'
-import {
-  ChevronDown,
-  ChevronRight,
-  Facebook,
-  Instagram,
-  Mail,
-  MessageCircle,
-  Mic,
-  Plus,
-  Send,
-  type LucideIcon,
-} from 'lucide-react'
+import { ChevronDown, ChevronRight, Plus } from 'lucide-react'
 import { authHeaders } from '@/lib/auth'
 import { HEALTH_META, relTime, type HealthStatus } from '@/lib/channelHealth'
 import { Select, type SelectOption } from '@/components/ui/Select'
+import { ChannelLogo } from '@/components/ui/ChannelLogo'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -70,21 +60,23 @@ export interface HubPayload {
   channels: HubChannel[]
 }
 
-const CH_META: Record<string, { lbl: string; color: string; Icon: LucideIcon }> = {
-  whatsapp: { lbl: 'WhatsApp', color: '#10B981', Icon: MessageCircle },
-  email: { lbl: 'Email', color: '#F59E0B', Icon: Mail },
-  facebook: { lbl: 'Messenger', color: '#3B82F6', Icon: Facebook },
-  instagram: { lbl: 'Instagram', color: '#E1306C', Icon: Instagram },
-  telegram: { lbl: 'Telegram', color: '#229ED9', Icon: Send },
-  voice: { lbl: 'AI Voice', color: '#3B82F6', Icon: Mic },
+/** Display name + the brand mark to show (our `facebook` channel is Messenger). */
+const CH_META: Record<string, { lbl: string; logo: string }> = {
+  whatsapp: { lbl: 'WhatsApp', logo: 'whatsapp' },
+  email: { lbl: 'Email', logo: 'email' },
+  facebook: { lbl: 'Messenger', logo: 'messenger' },
+  instagram: { lbl: 'Instagram', logo: 'instagram' },
+  telegram: { lbl: 'Telegram', logo: 'telegram' },
+  website: { lbl: 'Website', logo: 'website' },
+  voice: { lbl: 'AI Voice', logo: 'voice' },
 }
 
 /** Connection dot: emerald = connected via a healthy account, amber =
  * connected but degraded/unknown health, red = not currently reachable. */
 function dotColor(ch: HubChannel): string {
-  if (!ch.connected) return '#EF4444'
-  if (ch.channel === 'voice') return '#10B981'
-  return (ch.identities ?? []).some((i) => i.account_health === 'healthy') ? '#10B981' : '#F59E0B'
+  if (!ch.connected) return 'rgb(var(--c-red))'
+  if (ch.channel === 'voice') return 'rgb(var(--c-green))'
+  return (ch.identities ?? []).some((i) => i.account_health === 'healthy') ? 'rgb(var(--c-green))' : 'rgb(var(--c-amber))'
 }
 
 function IdentityRow({ ident }: { ident: ChannelIdentity }) {
@@ -92,27 +84,27 @@ function IdentityRow({ ident }: { ident: ChannelIdentity }) {
   return (
     <div className="border-t border-line px-2.5 py-2">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="min-w-0 truncate text-[11.5px] font-semibold text-text-high">
+        <span className="min-w-0 truncate text-[12px] font-semibold text-text-high">
           {ident.address || ident.key}
         </span>
-        <span className="shrink-0 text-[10px] text-text-faint">{relTime(ident.last_active)}</span>
+        <span className="shrink-0 text-[10.5px] text-text-muted">{relTime(ident.last_active)}</span>
       </div>
-      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10.5px] text-text-muted">
+      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-text-muted">
         <span>
           {ident.message_count} msgs · {ident.inbound_count} in / {ident.outbound_count} out
         </span>
         {ident.opted_out && (
-          <span className="rounded bg-red/15 px-1 py-px text-[9px] font-bold uppercase text-red-300">
+          <span className="rounded-full bg-red/10 px-1.5 text-[10px] font-semibold text-red-300">
             Opted out
           </span>
         )}
         {ident.window_open === false && (
-          <span className="rounded bg-amber/15 px-1 py-px text-[9px] font-bold uppercase text-amber-300">
+          <span className="rounded-full bg-amber/10 px-1.5 text-[10px] font-semibold text-amber-300">
             24h window closed
           </span>
         )}
       </div>
-      <div className="mt-0.5 flex items-center justify-between gap-2 text-[10.5px]">
+      <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px]">
         <span className="min-w-0 truncate text-text-muted">
           {ident.account_name
             ? `via ${ident.account_name}${ident.account_provider ? ` (${ident.account_provider})` : ''}`
@@ -136,37 +128,32 @@ function ChannelRow({ ch }: { ch: HubChannel }) {
   const lastActive = isVoice ? (ch.last_call ?? null) : (ch.last_active ?? null)
 
   return (
-    <div className="rounded-lg border border-line bg-fill">
+    <div className="rounded-lg border border-line bg-card">
       <button
         type="button"
         onClick={() => expandable && setOpen(!open)}
         aria-expanded={open}
         aria-label={`${meta.lbl} channel details`}
-        className={`flex w-full items-center gap-2 px-2.5 py-2 text-left ${
-          expandable ? 'cursor-pointer' : 'cursor-default'
+        className={`flex w-full items-center gap-2.5 px-2.5 py-2 text-left ${
+          expandable ? 'cursor-pointer hover:bg-fill' : 'cursor-default'
         }`}
       >
-        <span
-          className="grid h-6 w-6 shrink-0 place-items-center rounded-md"
-          style={{ background: meta.color + '1F' }}
-        >
-          <meta.Icon size={13} strokeWidth={1.75} color={meta.color} />
-        </span>
+        <ChannelLogo channel={meta.logo} size={24} variant="tile" title="" />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
+            <span className="truncate text-[12.5px] font-semibold text-text-high">{meta.lbl}</span>
             <span
               className="h-1.5 w-1.5 shrink-0 rounded-full"
               style={{ background: dotColor(ch) }}
               title={ch.connected ? 'Connected' : 'Not connected'}
             />
-            <span className="truncate text-[12px] font-semibold text-text-high">{meta.lbl}</span>
             {!isVoice && idents.length > 1 && (
-              <span className="shrink-0 rounded bg-fill-hover px-1 py-px text-[9.5px] font-bold text-text-muted">
+              <span className="shrink-0 rounded-full border border-line px-1.5 text-[10px] text-text-muted">
                 {idents.length} ids
               </span>
             )}
           </span>
-          <span className="mt-px block truncate text-[10.5px] text-text-muted">
+          <span className="mt-px block truncate text-[11px] text-text-muted">
             {isVoice
               ? `${count} call${count === 1 ? '' : 's'}`
               : `${count} msg${count === 1 ? '' : 's'}`}
@@ -176,14 +163,14 @@ function ChannelRow({ ch }: { ch: HubChannel }) {
         </span>
         {expandable &&
           (open ? (
-            <ChevronDown size={12} className="shrink-0 text-text-faint" aria-hidden />
+            <ChevronDown size={12} className="shrink-0 text-text-muted" aria-hidden />
           ) : (
-            <ChevronRight size={12} className="shrink-0 text-text-faint" aria-hidden />
+            <ChevronRight size={12} className="shrink-0 text-text-muted" aria-hidden />
           ))}
       </button>
       {open && !isVoice && idents.map((i) => <IdentityRow key={`${ch.channel}-${i.key}`} ident={i} />)}
       {open && isVoice && ch.last_outcome && (
-        <div className="border-t border-line px-2.5 py-2 text-[10.5px] text-text-muted">
+        <div className="border-t border-line px-2.5 py-2 text-[11px] text-text-muted">
           Last outcome: <span className="font-semibold text-text-mid">{ch.last_outcome}</span>
           {ch.last_call && <> · {relTime(ch.last_call)}</>}
         </div>
@@ -240,10 +227,8 @@ function AddIdentity({ contactId, onAdded }: { contactId: number; onAdded: () =>
   }
 
   return (
-    <div className="rounded-lg border border-dashed border-line p-2">
-      <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted">
-        Add channel
-      </div>
+    <div className="rounded-lg border border-dashed border-line-strong p-2.5">
+      <div className="eyebrow mb-1.5">Add channel</div>
       <div className="flex items-center gap-1.5">
         <Select
           value={channel}
@@ -259,7 +244,7 @@ function AddIdentity({ contactId, onAdded }: { contactId: number; onAdded: () =>
           onKeyDown={(e) => e.key === 'Enter' && submit()}
           placeholder={ADD_PLACEHOLDER[channel]}
           aria-label="Channel address"
-          className="h-8 min-w-0 flex-1 rounded-lg border border-line bg-fill px-2 text-[12px] text-text-high placeholder:text-text-faint focus:border-line-strong focus:outline-none"
+          className="h-8 min-w-0 flex-1 rounded-lg border border-line-strong bg-card px-2 text-[12.5px] text-text-high placeholder:text-text-faint focus:border-text-primary focus:outline-none"
         />
         <button
           type="button"
@@ -267,13 +252,13 @@ function AddIdentity({ contactId, onAdded }: { contactId: number; onAdded: () =>
           disabled={busy || !address.trim()}
           title="Add channel identity"
           aria-label="Add channel identity"
-          className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg border border-line bg-fill text-text-muted transition-colors hover:text-text-high disabled:cursor-not-allowed disabled:opacity-35"
+          className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg bg-primary text-on-primary transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35"
         >
           <Plus size={13} aria-hidden />
         </button>
       </div>
-      {error && <div className="mt-1 text-[10.5px] text-red-300">{error}</div>}
-      <p className="mt-1 text-[10px] leading-relaxed text-text-faint">
+      {error && <div role="alert" className="mt-1 text-[11px] text-red-300">{error}</div>}
+      <p className="mt-1.5 text-[11px] leading-relaxed text-text-muted">
         WhatsApp numbers and emails are ready to message right away. Telegram / Messenger /
         Instagram IDs come from the platform — the customer must have messaged the bot or page
         once.
@@ -321,15 +306,15 @@ export default function ChannelHub({
 
   if (contactId == null) return null
   if (failed) {
-    return <div className="text-[10.5px] text-text-faint">Couldn’t load channel info.</div>
+    return <div className="text-[11.5px] text-text-muted">Couldn’t load channel info.</div>
   }
   if (!hub) {
-    return <div className="text-[10.5px] text-text-faint">Loading channels…</div>
+    return <div className="text-[11.5px] text-text-muted">Loading channels…</div>
   }
   return (
     <div className="space-y-1.5">
       {hub.channels.length === 0 && (
-        <div className="text-[10.5px] text-text-faint">No channels on record yet.</div>
+        <div className="text-[11.5px] text-text-muted">No channels on record yet.</div>
       )}
       {hub.channels.map((ch) => (
         <ChannelRow key={ch.channel} ch={ch} />

@@ -1,62 +1,115 @@
 'use client'
 
+import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useEffect, useState, type ReactNode } from 'react'
-import { getAuth, type AuthUser } from '@/lib/auth'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { Menu, MessageSquare, TrendingUp, Users } from 'lucide-react'
+import { getAuth, logout, refreshIdentity, type AuthUser } from '@/lib/auth'
+import { syncAppearanceFromServer } from '@/lib/theme'
+import { useEntityQuery } from '@/lib/EntityContext'
 import { SideNav } from './SideNav'
 import { TopBar } from './TopBar'
+import { CommandPalette } from './CommandPalette'
+import { HOME, canSee, isActive, NAV_GROUPS } from './nav'
+import { resetNotifications } from './notificationsStore'
+import { useLive } from './liveStore'
 import { CampaignModal } from '@/components/CampaignModal'
+import { AssistantDock } from '@/components/assistant/AssistantDock'
 
 /**
- * App chrome (design.md "Navy + Emerald"): a full-width topbar over a row of
- * [collapsible sidebar | main panel]. EVERY signed-in route keeps the sidebar +
- * topbar. A few routes render full-bleed inside the main panel (they own the
- * whole panel height rather than the padded content well): Chats, Flow Builder
- * and Settings. Login is the only shell-less screen.
+ * App chrome, Paper & Ink: a flush layout — the sidebar rail (surface, hairline
+ * on its right), the top bar (hairline under it) and the content straight on
+ * the paper. No floating panels, no gaps.
  *
- * Auth guard: every route except /login requires a signed-in user; otherwise
- * redirect to /login.
+ * The root applies the user's text-size setting: `zoom: var(--ui-zoom)` (set
+ * by lib/theme.ts) with the height divided by the same factor, so the shell
+ * still fills exactly one viewport at any size.
+ *
+ * Below lg the rail becomes an off-canvas drawer and a bottom tab bar (Home ·
+ * Chats · Contacts · More) takes over primary navigation, as on the phone
+ * board. A few routes render full-bleed (they own the whole content height):
+ * Chats, Flow Builder and Settings. Login, the Help Center and the offline
+ * page render bare.
+ *
+ * Auth guard: every non-public route requires a signed-in user.
  */
 
-// Routes that fill the whole main panel (no content padding) rather than the
-// standard padded content well.
 const FULL_BLEED: string[] = ['/chats', '/flow-builder', '/settings']
 
-/** Routes anyone may read, signed in or not. */
-const PUBLIC_ROUTES = ['/help']
+/** Routes anyone may read, signed in or not, outside the operator shell. */
+const PUBLIC_ROUTES = ['/help', '/offline']
+
+/** Token the appearance/identity sync last ran for — once per sign-in. */
+let syncedToken: string | null = null
 
 export function Shell({ children }: { children: ReactNode }) {
-  const pathname = usePathname() || '/dashboard'
+  const pathname = usePathname() || HOME
   const router = useRouter()
   const isLogin = pathname === '/login'
-  // Public routes render without the operator shell and without the auth
-  // guard — the Help Center is read by customers, not staff.
   const isPublic = PUBLIC_ROUTES.some((p) => pathname === p || pathname.startsWith(p + '/'))
   const isFullBleed = FULL_BLEED.some((p) => pathname === p || pathname.startsWith(p + '/'))
 
   const [user, setUser] = useState<AuthUser | null>(null)
   const [collapsed, setCollapsed] = useState(false)
-  // Mobile-only off-canvas drawer (separate from the desktop icon-rail collapse).
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
 
   useEffect(() => {
-    setUser(getAuth())
     try {
       setCollapsed(localStorage.getItem('nav-collapsed') === '1')
     } catch {
       /* ignore */
     }
+    const onAuth = () => setUser(getAuth())
+    // The browser chrome (installed app title bar, mobile address bar) takes
+    // the paper colour of the theme the user actually chose, not the OS mode.
+    const tintChrome = () => {
+      const paper = getComputedStyle(document.documentElement).getPropertyValue('--app').trim()
+      if (paper) document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', paper))
+    }
+    tintChrome()
+    window.addEventListener('auth-change', onAuth)
+    window.addEventListener('appearance-change', tintChrome)
+    return () => {
+      window.removeEventListener('auth-change', onAuth)
+      window.removeEventListener('appearance-change', tintChrome)
+    }
   }, [])
 
-  // Close the mobile drawer whenever the route changes.
+  // Re-read the session on every navigation (login → home lands here with a
+  // fresh token) and, once per sign-in, pull the user's saved look and their
+  // current capabilities from the server.
   useEffect(() => {
-    setMobileNavOpen(false)
+    const u = getAuth()
+    setUser(u)
+    if (u && u.token !== syncedToken) {
+      syncedToken = u.token
+      void syncAppearanceFromServer() // a 404 on an older API is harmless
+      void refreshIdentity()
+    }
   }, [pathname])
 
-  // Auth guard — client-side redirect (POC; server APIs enforce roles too).
+  useEffect(() => {
+    setMobileNavOpen(false)
+    setSearchOpen(false)
+  }, [pathname])
+
   useEffect(() => {
     if (!isLogin && !isPublic && !getAuth()) router.replace('/login')
   }, [isLogin, isPublic, pathname, router])
+
+  // Ctrl/⌘+K anywhere opens the command palette.
+  useEffect(() => {
+    if (isLogin || isPublic) return
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setSearchOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [isLogin, isPublic])
 
   const toggleNav = () => {
     setCollapsed((c) => {
@@ -70,46 +123,113 @@ export function Shell({ children }: { children: ReactNode }) {
     })
   }
 
-  // Login and public pages render bare — no sidebar, no topbar.
+  const signOut = useCallback(async () => {
+    await logout()
+    syncedToken = null
+    resetNotifications()
+    setUser(null)
+    router.replace('/login')
+  }, [router])
+
   if (isLogin || isPublic) return <>{children}</>
 
   return (
-    <div className="flex h-[100dvh] flex-col gap-2.5 overflow-hidden bg-app p-2.5">
-      <TopBar
+    <div
+      className="shell-root flex overflow-hidden bg-app text-text-primary"
+      style={{ zoom: 'var(--ui-zoom)', height: 'calc(100dvh / var(--ui-zoom))' } as React.CSSProperties}
+    >
+      {mobileNavOpen && (
+        <div
+          className="fixed inset-0 z-40 animate-fadeIn lg:hidden"
+          style={{ background: 'var(--scrim)' }}
+          onClick={() => setMobileNavOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      <SideNav
         user={user}
-        onToggleNav={toggleNav}
-        onOpenMobileNav={() => setMobileNavOpen(true)}
+        collapsed={collapsed}
+        onToggle={toggleNav}
+        mobileOpen={mobileNavOpen}
+        onCloseMobile={() => setMobileNavOpen(false)}
+        onSignOut={() => void signOut()}
       />
 
-      <div className="flex min-h-0 flex-1 gap-2.5">
-        {/* Backdrop for the mobile drawer (below lg only). */}
-        {mobileNavOpen && (
-          <div
-            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden"
-            onClick={() => setMobileNavOpen(false)}
-            aria-hidden="true"
-          />
-        )}
-        <SideNav
-          collapsed={collapsed}
-          onToggle={toggleNav}
-          mobileOpen={mobileNavOpen}
-          onCloseMobile={() => setMobileNavOpen(false)}
-        />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <TopBar user={user} onOpenMobileNav={() => setMobileNavOpen(true)} onOpenSearch={() => setSearchOpen(true)} />
 
-        <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[20px] border border-line bg-panel">
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {isFullBleed ? (
-            // Chats / Flow Builder / Settings fill the whole panel height.
             <div className="min-h-0 flex-1">{children}</div>
           ) : (
-            <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 py-4 sm:px-6 sm:py-[22px]">
+            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-5 sm:px-7 sm:py-7">
               {children}
             </div>
           )}
         </main>
+
+        <BottomTabs user={user} pathname={pathname} onMore={() => setMobileNavOpen(true)} />
       </div>
 
+      <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} user={user} />
       <CampaignModal />
+      <AssistantDock />
     </div>
+  )
+}
+
+/** Phone tab bar (below lg): Home · Chats · Contacts · More (the drawer). */
+function BottomTabs({ user, pathname, onMore }: { user: AuthUser | null; pathname: string; onMore: () => void }) {
+  const entityQ = useEntityQuery()
+  const { data: live } = useLive(entityQ)
+  const byHref = (href: string) => NAV_GROUPS.flatMap((g) => g.items).find((n) => n.href === href)
+  const tabs = [
+    { href: HOME, lbl: 'Home', Icon: TrendingUp },
+    { href: '/chats', lbl: 'Chats', Icon: MessageSquare, badge: live?.waiting_count ?? 0 },
+    { href: '/contacts', lbl: 'Contacts', Icon: Users },
+  ].filter((t) => {
+    const def = byHref(t.href)
+    return !def || canSee(user, def)
+  })
+
+  return (
+    <nav
+      aria-label="Primary"
+      className="grid shrink-0 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden"
+      style={{ gridTemplateColumns: `repeat(${tabs.length + 1}, minmax(0, 1fr))` }}
+    >
+      {tabs.map((t) => {
+        const def = byHref(t.href)
+        const active = def ? isActive(pathname, def) : pathname === t.href
+        return (
+          <Link
+            key={t.href}
+            href={t.href}
+            aria-current={active ? 'page' : undefined}
+            className={`relative flex flex-col items-center gap-1 border-t-2 pb-2.5 pt-2 text-[11px] ${
+              active ? 'border-accent font-bold text-text-heading' : 'border-transparent text-text-mid'
+            }`}
+          >
+            <span className="relative">
+              <t.Icon size={19} strokeWidth={active ? 1.9 : 1.6} aria-hidden />
+              {!!t.badge && (
+                <span className="absolute -right-2.5 -top-1.5 min-w-[16px] rounded-full bg-primary px-1 text-center text-[9.5px] font-bold leading-[15px] text-on-primary">
+                  {t.badge > 99 ? '99+' : t.badge}
+                </span>
+              )}
+            </span>
+            {t.lbl}
+          </Link>
+        )
+      })}
+      <button
+        type="button"
+        onClick={onMore}
+        className="flex flex-col items-center gap-1 border-t-2 border-transparent pb-2.5 pt-2 text-[11px] text-text-mid"
+      >
+        <Menu size={19} strokeWidth={1.6} aria-hidden />
+        More
+      </button>
+    </nav>
   )
 }

@@ -3,8 +3,9 @@
 A small Node sidecar that gives ChatBranch a second WhatsApp transport:
 a **normal WhatsApp account paired by QR** (via
 [@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys)) instead
-of a Meta Cloud API business number. Django is its only client
-(`whatsapp/client.py: baileys_request`, shared `X-Baileys-Secret` header).
+of a Meta Cloud API business number. The C# API is its only client
+(`ChatBranch.Data/Sidecars/IBaileysGateway.cs`, shared `X-Baileys-Secret`
+header); the gateway pushes back to the API's `/api/whatsapp/baileys/*` routes.
 
 > ⚠ **ToS warning.** Baileys speaks WhatsApp's unofficial Web protocol.
 > Automated messaging — and *especially* automated calling — violates
@@ -19,7 +20,7 @@ of a Meta Cloud API business number. Django is its only client
 
 ## Processes & files
 
-- `index.js` — pairing, text send/receive, HTTP control API (port
+- `index.js` — pairing, text + media send/receive, HTTP control API (port
   `BAILEYS_PORT`, default 3020). One WhatsApp Web session per
   `crm.ChannelAccount` row with `provider="baileys"`; auth state persists in
   `backend/data/whatsapp/baileys/<account_id>/`.
@@ -33,9 +34,10 @@ of a Meta Cloud API business number. Django is its only client
 ## Voice call flow
 
 ```
-operator (/chats)  →  Django wa_calls.start_call
-                       └ provider=="baileys" → baileys_calls.start_call
-                          1. dispatch voice agent into a fresh LiveKit room
+operator (/chats)  →  C# API POST /api/whatsapp/threads/{key}/call/start
+or a queued flow call  (QueueCallPlacer, transport "baileys")
+                          1. dispatch the voice agent into a fresh LiveKit room
+                             (VoiceDispatch metadata + LiveKitClient)
                           2. POST /accounts/:id/call  {to, room, livekit_url, token}
 gateway calls.js       3. resolveLid → discover devices → signal sessions → startCall
                        4. joins the room as "whatsapp_contact":
@@ -43,7 +45,7 @@ gateway calls.js       3. resolveLid → discover devices → signal sessions �
                             agent audio     = LiveKit track → paced sendAudioData
                        5. pushes ringing/connected/ended to
                           POST /api/whatsapp/baileys/call-event  (X-Baileys-Secret)
-Django                 6. mirrors events onto the thread → /chats updates via SSE
+C# API                 6. mirrors events onto the thread → /chats updates via SSE
 ```
 
 No per-call bridge process, no ffmpeg, no signal files — the audio loop runs
@@ -58,11 +60,13 @@ groups, no video.
 | `GET  /accounts/:id/status` | `{state, qr?, me?, error?}` — pairing state |
 | `POST /accounts/:id/start` | begin/refresh pairing (QR as data URL) |
 | `POST /accounts/:id/send` | `{to, text}` → `{id}` |
+| `POST /accounts/:id/send-media` | `{to, media_type: image\|video\|audio\|document, file_b64, mime?, filename?, caption?}` → `{id}` (≤16 MB, base64 in the body; paths/URLs refused) |
 | `POST /accounts/:id/check` | `{to}` → `{exists, jid}` |
 | `POST /accounts/:id/logout` | unpair + wipe auth state (ends any live call) |
 | `POST /accounts/:id/call` | `{to, room, livekit_url, token, max_seconds}` → call snapshot |
 | `POST /accounts/:id/call-end` | hang up the active call |
-| `GET  /accounts/:id/call-status` | `{status, call_id, room?}` — Django's stale-state probe |
+| `POST /accounts/:id/presence` | typing/online presence before an AI reply (best-effort) |
+| `GET  /accounts/:id/call-status` | `{status, call_id, room?}` — the API's busy/stale-state probe |
 
 ## Setup / run
 
@@ -72,14 +76,16 @@ npm start              # or `npm run dev:baileys` / `npm run dev:all` at repo ro
 node calls.js --selftest   # offline: proves the WASM engine + LiveKit bindings load
 ```
 
-Pair a number from **Settings → Channels → WhatsApp → Add account →
-provider "baileys" → Pair** (QR modal). Calls need `LIVEKIT_URL` /
+Pair a number from **Channels → Add a channel → WhatsApp (QR)** (the setup
+drawer shows the QR). Calls need `LIVEKIT_URL` /
 `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` in `backend/.env` and the voice
 agent worker running — same requirements as every other call path.
 
-Env: `BAILEYS_PORT` (3020), `BAILEYS_SECRET` (shared with Django),
-`DJANGO_URL` (push target), `BAILEYS_LOG_LEVEL`. Call length is capped by
-`MAX_CALL_SECONDS` (Django passes it through, default 300).
+Env (loaded from `backend/.env`; shell variables win): `BAILEYS_PORT` (3020),
+`BAILEYS_SECRET` (shared with the API — Setting `baileys_secret` or env on the
+API side; change the default), `API_URL` (push target; legacy `DJANGO_URL` still
+accepted), `BAILEYS_LOG_LEVEL`, `BAILEYS_RECORD_CALLS`. Call length is capped by
+`max_seconds` on the `/call` request (default 300).
 
 ## Debugging
 

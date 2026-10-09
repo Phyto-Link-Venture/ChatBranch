@@ -1,26 +1,24 @@
 'use client'
 
+/**
+ * Templates → WhatsApp (Meta-approved): each WhatsApp Business (Cloud API)
+ * account's message templates — approval status, create/edit (body, buttons)
+ * and binding {{n}} slots to CRM fields so sends auto-fill from the contact.
+ * Required to message outside the 24-hour window. Live accounts (with a WABA)
+ * go through Meta review; without one everything stores locally (sandbox).
+ * The account is picked here and mirrored in the URL (?account_id=), and
+ * every call carries it as ?account_id= exactly as before.
+ */
+
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  AlertCircle,
-  CheckCircle,
-  ExternalLink,
-  Loader2,
-  MessageSquareReply,
-  Pencil,
-  Phone,
-  Plus,
-  RefreshCw,
-  Trash2,
-  X,
-} from 'lucide-react'
+import Link from 'next/link'
+import { CheckCircle, ExternalLink, Loader2, MessageSquareReply, Phone, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
 import { accountRole } from '@/components/ui/Badges'
-import { roleHeaders, getRole } from '@/lib/role'
-import { expireSessionOn401 } from '@/lib/auth'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
+import { useRole } from '@/lib/useRole'
+import { Notice, TemplateTable, api, errText, inputCls, type TemplateRow } from '@/components/templates/shared'
 
 interface WaButton {
   type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER'
@@ -49,26 +47,10 @@ interface WaAccount {
   phone_number_id: string
   waba_id?: string
   configured: boolean
-  /** reminder | conversation — optional while the backend contract lands. */
   role?: string
-  /** Number fields when the backend knows them (e.g. a paired Baileys row). */
   number?: string
   external_id?: string
 }
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API}/whatsapp/${path}`, {
-    headers: { 'Content-Type': 'application/json', ...roleHeaders() },
-    ...init,
-  })
-  const data = await res.json().catch(() => ({}))
-  if (expireSessionOn401(res)) throw new Error('Session expired — redirecting to login…')
-  if (!res.ok) throw new Error((data as { detail?: string }).detail || `HTTP ${res.status}`)
-  return data as T
-}
-
-const inputCls =
-  'w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400'
 
 const LANGUAGES = [
   { value: 'en', label: 'English (en)' },
@@ -78,52 +60,44 @@ const LANGUAGES = [
 ]
 
 const CATEGORIES = [
-  { value: 'UTILITY', label: 'Utility', hint: 'reminders, confirmations' },
+  { value: 'UTILITY', label: 'Utility', hint: 'updates, confirmations' },
   { value: 'MARKETING', label: 'Marketing', hint: 'offers, promos' },
-  { value: 'AUTHENTICATION', label: 'Authentication', hint: 'OTP codes' },
+  { value: 'AUTHENTICATION', label: 'Authentication', hint: 'one-time codes' },
 ]
 
-/** CRM fields a {{n}} slot can auto-fill from — mirrors the backend's
- *  TEMPLATE_BINDING_KEYS (the flows-engine variable catalog). */
+/** CRM fields a {{n}} slot can auto-fill from — mirrors the backend's TemplateBindingKeys. */
 const BINDING_OPTIONS = [
-  { value: '', label: 'Manual input' },
-  // Contact
-  { value: 'name', label: 'Contact name' },
-  { value: 'first_name', label: 'Contact first name' },
-  { value: 'phone', label: 'Contact phone' },
-  { value: 'email', label: 'Contact email' },
-  { value: 'language', label: 'Preferred language' },
-  { value: 'company', label: 'Company name' },
-  // Record
-  { value: 'record_id', label: 'Record ID' },
-  { value: 'record_type', label: 'Record type' },
-  { value: 'record_status', label: 'Record status' },
-  { value: 'record_title', label: 'Record title' },
-  { value: 'amount', label: 'Amount' },
-  { value: 'currency', label: 'Currency' },
-  { value: 'due_date', label: 'Due date' },
-  { value: 'days_until_due', label: 'Days until due' },
-  { value: 'days_overdue', label: 'Days past due' },
-  { value: 'tracking_url', label: 'Tracking URL' },
-  { value: 'link', label: 'Record link' },
-  // Business
-  { value: 'business_name', label: 'Business name' },
-  { value: 'agent_name', label: 'AI agent display name' },
-  { value: 'support_number', label: 'Support number' },
-  { value: 'support_email', label: 'Support email' },
-  { value: 'website', label: 'Website' },
-  // Memory
-  { value: 'best_contact_time', label: 'Best contact time' },
-  { value: 'preferred_channel', label: 'Preferred channel' },
-  { value: 'last_contact_date', label: 'Last contact date' },
-  { value: 'situation', label: 'Situation notes' },
-  // Resolved at send time from the contact's assigned conversation number, not
-  // from the CRM row — lets a template sent by the business number quote the
-  // personal number the contact should actually reply to.
-  { value: 'account_number', label: 'Assigned sending number' },
-  { value: 'account_name', label: 'Assigned sending account name' },
-  { value: 'whatsapp_assignment_account_number', label: 'Assigned WhatsApp number' },
-  { value: 'whatsapp_assignment_account_name', label: 'Assigned WhatsApp account name' },
+  { value: '', label: 'Typed by the agent' },
+  { value: 'name', label: 'Contact name', group: 'Contact' },
+  { value: 'first_name', label: 'Contact first name', group: 'Contact' },
+  { value: 'phone', label: 'Contact phone', group: 'Contact' },
+  { value: 'email', label: 'Contact email', group: 'Contact' },
+  { value: 'language', label: 'Preferred language', group: 'Contact' },
+  { value: 'company', label: 'Company name', group: 'Contact' },
+  { value: 'record_id', label: 'Record ID', group: 'Record' },
+  { value: 'record_type', label: 'Record type', group: 'Record' },
+  { value: 'record_status', label: 'Record status', group: 'Record' },
+  { value: 'record_title', label: 'Record title', group: 'Record' },
+  { value: 'amount', label: 'Amount', group: 'Record' },
+  { value: 'currency', label: 'Currency', group: 'Record' },
+  { value: 'due_date', label: 'Due date', group: 'Record' },
+  { value: 'days_until_due', label: 'Days until due', group: 'Record' },
+  { value: 'tracking_url', label: 'Tracking URL', group: 'Record' },
+  { value: 'link', label: 'Record link', group: 'Record' },
+  { value: 'business_name', label: 'Business name', group: 'Business' },
+  { value: 'agent_name', label: 'AI agent display name', group: 'Business' },
+  { value: 'support_number', label: 'Support number', group: 'Business' },
+  { value: 'support_email', label: 'Support email', group: 'Business' },
+  { value: 'website', label: 'Website', group: 'Business' },
+  { value: 'best_contact_time', label: 'Best contact time', group: 'Memory' },
+  { value: 'preferred_channel', label: 'Preferred channel', group: 'Memory' },
+  { value: 'last_contact_date', label: 'Last contact date', group: 'Memory' },
+  { value: 'situation', label: 'Situation notes', group: 'Memory' },
+  // resolved at send time from the contact's assigned conversation number
+  { value: 'account_number', label: 'Assigned sending number', group: 'Sending account' },
+  { value: 'account_name', label: 'Assigned sending account name', group: 'Sending account' },
+  { value: 'whatsapp_assignment_account_number', label: 'Assigned WhatsApp number', group: 'Sending account' },
+  { value: 'whatsapp_assignment_account_name', label: 'Assigned WhatsApp account name', group: 'Sending account' },
 ]
 
 const BUTTON_TYPES = [
@@ -132,23 +106,19 @@ const BUTTON_TYPES = [
   { value: 'PHONE_NUMBER', label: 'Call number' },
 ]
 
-const STATUS_STYLE: Record<string, { color: string; background: string }> = {
-  APPROVED: { color: 'var(--green-ink)', background: 'rgba(16,185,129,0.12)' },
-  PENDING: { color: 'var(--amber-ink)', background: 'rgba(245,158,11,0.12)' },
-  REJECTED: { color: 'var(--red-ink)', background: 'rgba(239,68,68,0.12)' },
-}
+const BUTTON_ICON = { QUICK_REPLY: MessageSquareReply, URL: ExternalLink, PHONE_NUMBER: Phone }
 
-const BUTTON_ICON = {
-  QUICK_REPLY: MessageSquareReply,
-  URL: ExternalLink,
-  PHONE_NUMBER: Phone,
+const STATUS_CLS: Record<string, { cls: string; ink: string }> = {
+  APPROVED: { cls: 'bg-green/15', ink: 'var(--green-ink)' },
+  PENDING: { cls: 'bg-amber/15', ink: 'var(--amber-ink)' },
+  REJECTED: { cls: 'bg-red/10', ink: 'var(--red-ink)' },
 }
 
 const variableCount = (body: string) =>
   Math.max(0, ...[...body.matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map((m) => parseInt(m[1], 10)))
 
 interface FormState {
-  editing: WaTemplate | null // null = create
+  editing: WaTemplate | null
   name: string
   language: string
   category: string
@@ -169,19 +139,8 @@ const emptyForm = (): FormState => ({
   buttons: [],
 })
 
-/** Quick-insert for URL buttons: builds a https://wa.me/<number> "Chat with
- *  us" link from a conversation-role account — the client's operating model
- *  is reminder (business) templates pushing contacts toward a conversation
- *  (personal) number. Numbers come from the account row when the backend
- *  knows them; unknown (e.g. an unpaired Baileys row) falls back to manual
- *  entry. Pure convenience — it only writes into the normal URL field. */
-function WaMeQuickInsert({
-  accounts,
-  onInsert,
-}: {
-  accounts: WaAccount[]
-  onInsert: (url: string) => void
-}) {
+/** Builds a https://wa.me/<number> "Chat with us" link to a conversation-role number. */
+function WaMeQuickInsert({ accounts, onInsert }: { accounts: WaAccount[]; onInsert: (url: string) => void }) {
   const [sel, setSel] = useState('')
   const [manual, setManual] = useState('')
   const digitsOf = (s?: string) => (s || '').replace(/\D/g, '')
@@ -195,11 +154,10 @@ function WaMeQuickInsert({
       const num = numberOf(conv.find((a) => a.id === v))
       if (num) {
         onInsert(`https://wa.me/${num}`)
-        setSel('') // inserted — reset so the picker reads as an action, not a value
+        setSel('')
       }
     }
   }
-
   const selected = conv.find((a) => a.id === sel)
   const needManual = sel === '__manual' || (!!selected && !numberOf(selected))
   const insertManual = () => {
@@ -212,12 +170,7 @@ function WaMeQuickInsert({
 
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-2">
-      <span
-        className="text-[10.5px] font-semibold text-text-muted"
-        title="Builds a https://wa.me/<number> link so the button opens a chat with one of your conversation (personal) numbers"
-      >
-        “Chat with us” link:
-      </span>
+      <span className="text-[11.5px] font-semibold text-text-muted">“Chat with us” link:</span>
       <Select
         value={sel}
         onChange={pick}
@@ -225,12 +178,12 @@ function WaMeQuickInsert({
           ...conv.map((a) => ({
             value: a.id,
             label: a.name,
-            hint: numberOf(a) ? `(+${numberOf(a)})` : '(number unknown — enter it below)',
+            hint: numberOf(a) ? `(+${numberOf(a)})` : '(number unknown — type it)',
           })),
-          { value: '__manual', label: 'Enter a number manually…' },
+          { value: '__manual', label: 'Enter a number…' },
         ]}
-        placeholder="Insert wa.me link to a conversation number…"
-        className="w-[300px]"
+        placeholder="Insert a wa.me link…"
+        className="w-full sm:w-[260px]"
         ariaLabel="Conversation number for the wa.me link"
       />
       {needManual && (
@@ -242,12 +195,7 @@ function WaMeQuickInsert({
             aria-label="WhatsApp number for the wa.me link"
             className={`${inputCls} !w-[160px]`}
           />
-          <Button
-            variant="secondary"
-            onClick={insertManual}
-            disabled={!digitsOf(manual)}
-            style={{ padding: '6px 12px', fontSize: 12 }}
-          >
+          <Button variant="secondary" size="sm" onClick={insertManual} disabled={!digitsOf(manual)}>
             Insert link
           </Button>
         </>
@@ -256,35 +204,39 @@ function WaMeQuickInsert({
   )
 }
 
-/** Settings → Message Templates: manage each WhatsApp account's templates —
- *  list with approval status, create/edit (body, buttons) and bind {{n}}
- *  slots to CRM fields so sends auto-fill from customer data. Live accounts
- *  go through Meta review; without a linked WABA everything stores locally. */
-export function TemplatesSettings() {
-  const [accounts, setAccounts] = useState<WaAccount[]>([])
-  /** All providers (incl. Baileys) — the wa.me helper needs conversation rows. */
+export function TemplatesSettings({
+  accountId: wanted,
+  onAccountChange,
+}: {
+  /** Account id from the URL (?account_id=); "" = pick the first Cloud account. */
+  accountId?: string
+  onAccountChange?: (id: string) => void
+}) {
+  const { role } = useRole()
+  const canManage = role === 'admin' || role === 'superadmin'
+  const [accounts, setAccounts] = useState<WaAccount[] | null>(null)
   const [allAccounts, setAllAccounts] = useState<WaAccount[]>([])
-  const [accountId, setAccountId] = useState<string>('')
+  const [accountId, setAccountId] = useState<string>(wanted ?? '')
   const [templates, setTemplates] = useState<WaTemplate[] | null>(null)
   const [sandbox, setSandbox] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [form, setForm] = useState<FormState | null>(null)
-  const [canManage, setCanManage] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [toDelete, setToDelete] = useState<WaTemplate | null>(null)
 
-  useEffect(() => setCanManage(getRole() !== 'agent'), [])
-
-  // Cloud accounts with a WABA can hold live templates; anything else lands in
-  // the shared sandbox space.
+  // Cloud accounts with a WABA hold live templates; the rest is the sandbox set.
   useEffect(() => {
-    api<{ accounts: WaAccount[] }>('accounts')
+    api<{ accounts: WaAccount[] }>('whatsapp/accounts')
       .then((d) => {
         setAllAccounts(d.accounts)
         const cloud = d.accounts.filter((a) => a.provider === 'cloud')
         setAccounts(cloud)
-        const first = cloud.find((a) => a.configured && a.waba_id) || cloud[0]
-        if (first) setAccountId(first.id)
+        setAccountId((cur) => {
+          if (cur && cloud.some((a) => a.id === cur)) return cur
+          return (cloud.find((a) => a.configured && a.waba_id) || cloud[0])?.id ?? ''
+        })
       })
       .catch(() => {
         setAccounts([])
@@ -292,33 +244,35 @@ export function TemplatesSettings() {
       })
   }, [])
 
+  const chooseAccount = (id: string) => {
+    setAccountId(id)
+    onAccountChange?.(id)
+  }
+
   const qs = accountId ? `?account_id=${encodeURIComponent(accountId)}` : ''
 
   const load = useCallback(async () => {
     setError(null)
     try {
-      const data = await api<{ templates: WaTemplate[]; sandbox: boolean }>(`templates${qs}`)
+      const data = await api<{ templates: WaTemplate[]; sandbox: boolean }>(`whatsapp/templates${qs}`)
       setTemplates(data.templates)
       setSandbox(data.sandbox)
     } catch (e) {
       setTemplates([])
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errText(e))
     }
   }, [qs])
 
   useEffect(() => {
-    load()
-  }, [load])
+    // wait for the account list so the first fetch already carries ?account_id=
+    if (accounts !== null) load()
+  }, [load, accounts])
 
   const vars = useMemo(() => (form ? variableCount(form.body) : 0), [form])
 
-  const openCreate = () => {
-    setNotice(null)
-    setForm(emptyForm())
-  }
-
   const openEdit = (t: WaTemplate) => {
     setNotice(null)
+    setFormError(null)
     setForm({
       editing: t,
       name: t.name,
@@ -340,14 +294,22 @@ export function TemplatesSettings() {
 
   const setButton = (i: number, patch: Partial<WaButton>) => {
     if (!form) return
-    const next = form.buttons.map((b, n) => (n === i ? { ...b, ...patch } : b))
-    setForm({ ...form, buttons: next })
+    setForm({ ...form, buttons: form.buttons.map((b, n) => (n === i ? { ...b, ...patch } : b)) })
   }
 
   const submit = async () => {
     if (!form) return
+    const name = form.name.trim().toLowerCase().replace(/[\s-]+/g, '_')
+    if (!form.editing && !/^[a-z0-9_]{1,120}$/.test(name)) {
+      setFormError('Template names use lowercase letters, digits and underscores only.')
+      return
+    }
+    if (!form.body.trim()) {
+      setFormError('Write the template body.')
+      return
+    }
     setBusy(true)
-    setError(null)
+    setFormError(null)
     setNotice(null)
     try {
       const bindings = Array.from({ length: vars }, (_, n) => form.bindings[n] || '')
@@ -357,13 +319,10 @@ export function TemplatesSettings() {
         ...(b.type === 'URL' ? { url: (b.url || '').trim() } : {}),
         ...(b.type === 'PHONE_NUMBER' ? { phone_number: (b.phone_number || '').trim() } : {}),
       }))
-      const example = form.example
-        ? form.example.split(',').map((s) => s.trim()).filter(Boolean)
-        : []
+      const example = form.example ? form.example.split(',').map((s) => s.trim()).filter(Boolean) : []
       if (form.editing) {
-        // Bindings live locally — only send content fields when they actually
-        // changed, so a bindings-only edit never knocks an APPROVED live
-        // template back into Meta review.
+        // bindings live locally — only send content when it changed, so a
+        // bindings-only edit never knocks an APPROVED template back into review
         const orig = form.editing
         const origButtons = (orig.buttons || []).map((b) => ({
           type: b.type,
@@ -375,384 +334,395 @@ export function TemplatesSettings() {
           form.body.trim() !== orig.body ||
           form.category !== (orig.category || 'UTILITY') ||
           JSON.stringify(buttons) !== JSON.stringify(origButtons)
-        await api(`templates/${encodeURIComponent(orig.name)}${qs}`, {
+        await api(`whatsapp/templates/${encodeURIComponent(orig.name)}${qs}`, {
           method: 'PATCH',
           body: JSON.stringify({
             account_id: accountId || undefined,
             bindings,
-            ...(contentChanged
-              ? { id: orig.id, body: form.body.trim(), category: form.category, example, buttons }
-              : {}),
+            ...(contentChanged ? { id: orig.id, body: form.body.trim(), category: form.category, example, buttons } : {}),
           }),
         })
         setNotice(
           !contentChanged
-            ? `Template "${orig.name}" bindings updated — no Meta re-review needed.`
+            ? `“${orig.name}” bindings updated — no Meta re-review needed.`
             : sandbox
-              ? `Template "${orig.name}" updated.`
-              : `Template "${orig.name}" updated — Meta re-reviews edits before they go live.`,
+              ? `“${orig.name}” updated.`
+              : `“${orig.name}” updated — Meta re-reviews edits before they go live.`,
         )
       } else {
-        const payload = {
-          account_id: accountId || undefined,
-          name: form.name.trim().toLowerCase().replace(/[\s-]+/g, '_'),
-          language: form.language,
-          category: form.category,
-          body: form.body.trim(),
-          example,
-          buttons,
-          bindings,
-        }
-        const data = await api<{ template: WaTemplate; sandbox: boolean }>('templates', {
+        const data = await api<{ template: WaTemplate; sandbox: boolean }>('whatsapp/templates', {
           method: 'POST',
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            account_id: accountId || undefined,
+            name,
+            language: form.language,
+            category: form.category,
+            body: form.body.trim(),
+            example,
+            buttons,
+            bindings,
+          }),
         })
         setNotice(
           data.sandbox
-            ? `Template "${data.template.name}" saved (sandbox — usable immediately).`
-            : `Template "${data.template.name}" submitted to Meta for review — status ${data.template.status}.`,
+            ? `“${data.template.name}” saved (sandbox — usable immediately).`
+            : `“${data.template.name}” submitted to Meta for review — status ${data.template.status}.`,
         )
       }
       setForm(null)
       await load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setFormError(errText(e))
     } finally {
       setBusy(false)
     }
   }
 
-  const remove = async (t: WaTemplate) => {
-    if (!window.confirm(`Delete template "${t.name}"? This removes every language variant.`)) return
-    setError(null)
-    setNotice(null)
-    try {
-      await api(`templates/${encodeURIComponent(t.name)}${qs}`, { method: 'DELETE' })
-      setNotice(`Template "${t.name}" deleted.`)
-      await load()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    }
-  }
+  const bindingLabel = (key: string) => BINDING_OPTIONS.find((o) => o.value === key)?.label || key
 
-  const bindingLabel = (key: string) =>
-    BINDING_OPTIONS.find((o) => o.value === key)?.label || key
+  const rows: TemplateRow[] = (templates ?? []).map((t) => {
+    const st = STATUS_CLS[t.status]
+    return {
+      key: `${t.name}:${t.language}`,
+      name: t.name,
+      mono: true,
+      preview: t.body,
+      badges: (
+        <>
+          <span
+            className={`rounded-full px-2 py-px text-[10.5px] font-bold ${st ? st.cls : 'bg-fill text-text-muted'}`}
+            style={st ? { color: st.ink } : undefined}
+          >
+            {t.status || '—'}
+          </span>
+          <span className="rounded-full bg-fill px-2 py-px text-[10.5px] font-semibold text-text-muted">{t.language}</span>
+          {(t.bindings || []).some(Boolean) && (
+            <span
+              className="rounded-full bg-fill px-2 py-px text-[10.5px] font-semibold text-text-mid"
+              title={(t.bindings || []).map((b, i) => `{{${i + 1}}} → ${b ? bindingLabel(b) : 'typed'}`).join(', ')}
+            >
+              auto-filled
+            </span>
+          )}
+          {(t.buttons || []).map((b, i) => {
+            const Icon = BUTTON_ICON[b.type] || MessageSquareReply
+            return (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1 rounded-full border border-line px-1.5 py-px text-[10.5px] text-text-mid"
+                title={b.url || b.phone_number || ''}
+              >
+                <Icon size={10} aria-hidden /> {b.text}
+              </span>
+            )
+          })}
+        </>
+      ),
+      type: CATEGORIES.find((c) => c.value === t.category)?.label ?? t.category,
+      channels: ['whatsapp'],
+      entityName: null,
+      updated: null,
+      onEdit: canManage && t.custom ? () => openEdit(t) : undefined,
+      onDelete: canManage && t.custom ? () => setToDelete(t) : undefined,
+    }
+  })
+
+  const account = accounts?.find((a) => a.id === accountId)
 
   return (
-    <div className="pt-3">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2.5">
-          {accounts.length > 0 && (
-            <Select
-              value={accountId}
-              onChange={setAccountId}
-              options={accounts.map((a) => ({
-                value: a.id,
-                label: a.name,
-                hint: a.waba_id ? '' : '(no WABA — sandbox)',
-              }))}
-              className="w-[210px] shrink-0"
-              ariaLabel="WhatsApp account"
-            />
-          )}
-          <div className="truncate text-[11.5px] leading-[1.5] text-text-muted">
-            {sandbox
-              ? 'Sandbox — templates stored locally, usable immediately.'
-              : 'Live — templates belong to this account’s WABA and need Meta approval.'}
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button variant="ghost" onClick={load} title="Refresh" aria-label="Refresh templates">
-            <RefreshCw size={13} aria-hidden />
-          </Button>
-          {canManage && (
-            <Button onClick={openCreate}>
-              <Plus size={13} aria-hidden /> New template
-            </Button>
-          )}
-        </div>
+    <div className="flex flex-col gap-4">
+      <p className="max-w-[760px] text-[12.5px] leading-relaxed text-text-mid">
+        Meta-approved templates are the only way to message a WhatsApp contact outside the 24-hour window. They belong
+        to a WhatsApp Business account: live ones go through Meta review, sandbox ones work immediately. Bind{' '}
+        <code className="rounded bg-fill px-1">{'{{1}}'}</code> slots to contact fields so sends fill themselves.
+      </p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {accounts && accounts.length > 0 ? (
+          <Select
+            value={accountId}
+            onChange={chooseAccount}
+            size="md"
+            options={accounts.map((a) => ({ value: a.id, label: a.name, hint: a.waba_id ? '' : '(no WABA — sandbox)' }))}
+            className="w-full sm:w-[260px]"
+            ariaLabel="WhatsApp Business account"
+          />
+        ) : accounts ? (
+          <span className="text-[12.5px] text-text-muted">
+            No WhatsApp Business account yet — showing the sandbox set.{' '}
+            <Link href="/channels" className="font-semibold text-text-high underline underline-offset-2">
+              Connect one
+            </Link>
+          </span>
+        ) : null}
+        <span
+          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${sandbox ? 'bg-amber/15' : 'bg-green/15'}`}
+          style={{ color: sandbox ? 'var(--amber-ink)' : 'var(--green-ink)' }}
+        >
+          {sandbox ? 'Sandbox' : `Live${account?.waba_id ? ` · WABA ${account.waba_id}` : ''}`}
+        </span>
       </div>
 
-      {error && (
-        <div className="mb-3 flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-[12px]" style={{ color: 'var(--red-ink)' }}>
-          <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden /> {error}
+      {error && <Notice tone="error">{error}</Notice>}
+      {notice && <Notice tone="ok">{notice}</Notice>}
+
+      {templates === null ? (
+        <div className="flex items-center gap-2 py-8 text-[12.5px] text-text-muted">
+          <Loader2 size={14} className="animate-spin" aria-hidden /> Loading templates…
         </div>
-      )}
-      {notice && (
-        <div className="mb-3 flex items-start gap-2 rounded-lg border border-brand-400/20 bg-brand-400/10 px-3 py-2 text-[12px]" style={{ color: 'var(--green-ink)' }}>
-          <CheckCircle size={13} className="mt-0.5 shrink-0" aria-hidden /> {notice}
-        </div>
+      ) : (
+        <TemplateTable
+          rows={rows}
+          searchPlaceholder="Search WhatsApp templates…"
+          empty={`No templates yet${sandbox ? '' : ' — new ones go through Meta review'}.`}
+          toolbarRight={
+            <>
+              <Button variant="secondary" onClick={load} aria-label="Refresh templates" title="Refresh">
+                <RefreshCw size={14} aria-hidden />
+              </Button>
+              {canManage && (
+                <Button
+                  onClick={() => {
+                    setNotice(null)
+                    setFormError(null)
+                    setForm(emptyForm())
+                  }}
+                >
+                  <Plus size={14} aria-hidden /> New template
+                </Button>
+              )}
+            </>
+          }
+        />
       )}
 
       {form && (
-        <div className="mb-4 rounded-xl border border-line bg-fill-subtle p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-[12.5px] font-bold text-text-high">
-              {form.editing ? `Edit "${form.editing.name}"` : 'New template'}
-            </span>
-            <button
-              onClick={() => setForm(null)}
-              aria-label="Close form"
-              className="grid h-7 w-7 cursor-pointer place-items-center rounded-md text-text-muted hover:bg-fill-hover"
-            >
-              <X size={14} aria-hidden />
-            </button>
-          </div>
-          <div className="mb-3 grid grid-cols-3 gap-3">
-            <label className="block">
-              <span className="mb-1 block text-[11px] font-bold text-text-high">Name</span>
-              <input
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="appointment_reminder_2"
-                disabled={!!form.editing}
-                className={`${inputCls} disabled:opacity-60`}
-              />
-              {!form.editing && (
-                <span className="mt-1 block text-[10.5px] text-text-muted">
-                  Lowercase letters, digits and underscores.
-                </span>
-              )}
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-[11px] font-bold text-text-high">Language</span>
-              <Select
-                value={form.language}
-                onChange={(v) => setForm({ ...form, language: v })}
-                options={LANGUAGES}
-                size="md"
-                disabled={!!form.editing}
-                ariaLabel="Template language"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-[11px] font-bold text-text-high">Category</span>
-              <Select
-                value={form.category}
-                onChange={(v) => setForm({ ...form, category: v })}
-                options={CATEGORIES}
-                size="md"
-                ariaLabel="Template category"
-              />
-            </label>
-          </div>
-          <label className="mb-3 block">
-            <span className="mb-1 block text-[11px] font-bold text-text-high">Body</span>
-            <textarea
-              value={form.body}
-              onChange={(e) => setForm({ ...form, body: e.target.value })}
-              rows={4}
-              maxLength={1024}
-              placeholder={'Hi {{1}}, your appointment is confirmed for {{2}} at {{3}}. Reply here if you have any questions.'}
-              className={`${inputCls} resize-y leading-[1.6]`}
-            />
-            <span className="mt-1 block text-[10.5px] text-text-muted">
-              Use {'{{1}}'}, {'{{2}}'}… as placeholders. {form.body.length}/1024
-            </span>
-          </label>
-
-          {vars > 0 && (
-            <div className="mb-3">
-              <span className="mb-1 block text-[11px] font-bold text-text-high">
-                Variable bindings — auto-fill from the customer record
-              </span>
-              <div className="grid grid-cols-3 gap-2">
-                {Array.from({ length: vars }, (_, i) => (
-                  <label key={i} className="block">
-                    <span className="mb-1 block font-mono text-[10.5px] text-text-muted">{`{{${i + 1}}}`}</span>
-                    <Select
-                      value={form.bindings[i] || ''}
-                      onChange={(v) => setSlotBinding(i, v)}
-                      options={BINDING_OPTIONS}
-                      ariaLabel={`Binding for placeholder ${i + 1}`}
-                    />
-                  </label>
-                ))}
-              </div>
-              <span className="mt-1 block text-[10.5px] text-text-muted">
-                Bound values are filled from the thread&apos;s CRM customer when sending — no manual typing.
-              </span>
+        <Modal
+          open
+          onClose={() => !busy && setForm(null)}
+          title={form.editing ? `Edit ${form.editing.name}` : 'New WhatsApp template'}
+          subtitle={
+            sandbox ? 'Sandbox — stored locally and usable straight away.' : 'Submitted to Meta for review before use.'
+          }
+          size="lg"
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setForm(null)} disabled={busy}>
+                Cancel
+              </Button>
+              <Button onClick={submit} disabled={busy}>
+                {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <CheckCircle size={13} aria-hidden />}
+                {form.editing
+                  ? sandbox
+                    ? 'Save changes'
+                    : 'Submit edit for review'
+                  : sandbox
+                    ? 'Save template'
+                    : 'Submit for review'}
+              </Button>
+            </>
+          }
+        >
+          <div className="flex flex-col gap-5">
+            {formError && <Notice tone="error">{formError}</Notice>}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <label className="block">
+                <span className="mb-1 block text-[12px] font-semibold text-text-high">Name</span>
+                <input
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  placeholder="appointment_reminder"
+                  disabled={!!form.editing}
+                  className={`${inputCls} font-mono`}
+                />
+                {!form.editing && (
+                  <span className="mt-1 block text-[11.5px] text-text-muted">Lowercase, digits, underscores.</span>
+                )}
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[12px] font-semibold text-text-high">Language</span>
+                <Select
+                  value={form.language}
+                  onChange={(v) => setForm({ ...form, language: v })}
+                  options={LANGUAGES}
+                  size="md"
+                  disabled={!!form.editing}
+                  ariaLabel="Template language"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[12px] font-semibold text-text-high">Category</span>
+                <Select
+                  value={form.category}
+                  onChange={(v) => setForm({ ...form, category: v })}
+                  options={CATEGORIES}
+                  size="md"
+                  ariaLabel="Template category"
+                />
+              </label>
             </div>
-          )}
 
-          {vars > 0 && !sandbox && (
-            <label className="mb-3 block">
-              <span className="mb-1 block text-[11px] font-bold text-text-high">
-                Example values ({vars} placeholder{vars > 1 ? 's' : ''})
+            <label className="block">
+              <span className="mb-1 flex items-baseline justify-between gap-2">
+                <span className="text-[12px] font-semibold text-text-high">Body</span>
+                <span className="text-[11px] text-text-faint">{form.body.length}/1024</span>
               </span>
-              <input
-                value={form.example}
-                onChange={(e) => setForm({ ...form, example: e.target.value })}
-                placeholder="Ahmad, RM 500, 20 July"
-                className={inputCls}
+              <textarea
+                value={form.body}
+                onChange={(e) => setForm({ ...form, body: e.target.value })}
+                rows={4}
+                maxLength={1024}
+                placeholder={'Hi {{1}}, your appointment is confirmed for {{2}} at {{3}}. Reply here with any questions.'}
+                className={`${inputCls} resize-y leading-[1.6]`}
               />
-              <span className="mt-1 block text-[10.5px] text-text-muted">
-                Comma-separated samples shown to Meta&apos;s reviewers.
+              <span className="mt-1 block text-[11.5px] text-text-muted">
+                Use {'{{1}}'}, {'{{2}}'}… as placeholders — Meta templates are positional.
               </span>
             </label>
-          )}
 
-          <div className="mb-3">
-            <span className="mb-1 block text-[11px] font-bold text-text-high">Buttons (up to 3)</span>
-            {form.buttons.map((b, i) => (
-              <div key={i} className="mb-2">
-                <div className="flex items-start gap-2">
-                  <Select
-                    value={b.type}
-                    onChange={(v) => setButton(i, { type: v as WaButton['type'] })}
-                    options={BUTTON_TYPES}
-                    className="w-[140px] shrink-0"
-                    ariaLabel={`Button ${i + 1} type`}
-                  />
-                  <input
-                    value={b.text}
-                    onChange={(e) => setButton(i, { text: e.target.value })}
-                    placeholder="Button label (max 25 chars)"
-                    maxLength={25}
-                    className={`${inputCls} !w-[190px] shrink-0`}
-                  />
-                  {b.type === 'URL' && (
-                    <input
-                      value={b.url || ''}
-                      onChange={(e) => setButton(i, { url: e.target.value })}
-                      placeholder="https://pay.example.com"
-                      className={inputCls}
-                    />
-                  )}
-                  {b.type === 'PHONE_NUMBER' && (
-                    <input
-                      value={b.phone_number || ''}
-                      onChange={(e) => setButton(i, { phone_number: e.target.value })}
-                      placeholder="+60123456789"
-                      className={inputCls}
-                    />
-                  )}
-                  <button
-                    onClick={() => setForm({ ...form, buttons: form.buttons.filter((_, n) => n !== i) })}
-                    aria-label={`Remove button ${i + 1}`}
-                    className="mt-1.5 grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-md text-text-muted hover:bg-red-500/10"
-                  >
-                    <Trash2 size={13} aria-hidden />
-                  </button>
+            {vars > 0 && (
+              <div>
+                <span className="mb-1 block text-[12px] font-semibold text-text-high">
+                  Fill the placeholders from the contact
+                </span>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  {Array.from({ length: vars }, (_, i) => (
+                    <label key={i} className="block">
+                      <span className="mb-1 block font-mono text-[11px] text-text-muted">{`{{${i + 1}}}`}</span>
+                      <Select
+                        value={form.bindings[i] || ''}
+                        onChange={(v) => setSlotBinding(i, v)}
+                        options={BINDING_OPTIONS}
+                        searchable
+                        ariaLabel={`Value for placeholder ${i + 1}`}
+                      />
+                    </label>
+                  ))}
                 </div>
-                {b.type === 'URL' && (
-                  <WaMeQuickInsert
-                    accounts={allAccounts}
-                    onInsert={(url) => setButton(i, { url })}
-                  />
+              </div>
+            )}
+
+            {vars > 0 && !sandbox && (
+              <label className="block">
+                <span className="mb-1 block text-[12px] font-semibold text-text-high">
+                  Example values ({vars} placeholder{vars > 1 ? 's' : ''})
+                </span>
+                <input
+                  value={form.example}
+                  onChange={(e) => setForm({ ...form, example: e.target.value })}
+                  placeholder="Aisyah, 12 Oct, 3pm"
+                  className={inputCls}
+                />
+                <span className="mt-1 block text-[11.5px] text-text-muted">Comma-separated samples for Meta’s reviewers.</span>
+              </label>
+            )}
+
+            <div>
+              <span className="mb-1.5 block text-[12px] font-semibold text-text-high">Buttons (up to 3)</span>
+              <div className="flex flex-col gap-3">
+                {form.buttons.map((b, i) => (
+                  <div key={i} className="rounded-lg border border-line p-2.5">
+                    <div className="flex flex-wrap items-start gap-2">
+                      <Select
+                        value={b.type}
+                        onChange={(v) => setButton(i, { type: v as WaButton['type'] })}
+                        options={BUTTON_TYPES}
+                        className="w-[140px] shrink-0"
+                        ariaLabel={`Button ${i + 1} type`}
+                      />
+                      <input
+                        value={b.text}
+                        onChange={(e) => setButton(i, { text: e.target.value })}
+                        placeholder="Label (max 25)"
+                        maxLength={25}
+                        className={`${inputCls} min-w-[140px] flex-1 !py-1.5`}
+                        aria-label={`Button ${i + 1} label`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, buttons: form.buttons.filter((_, n) => n !== i) })}
+                        aria-label={`Remove button ${i + 1}`}
+                        className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted hover:bg-red/10 hover:text-red-300"
+                      >
+                        <Trash2 size={14} aria-hidden />
+                      </button>
+                    </div>
+                    {b.type === 'URL' && (
+                      <>
+                        <input
+                          value={b.url || ''}
+                          onChange={(e) => setButton(i, { url: e.target.value })}
+                          placeholder="https://example.com/track"
+                          className={`${inputCls} mt-2`}
+                          aria-label={`Button ${i + 1} link`}
+                        />
+                        <WaMeQuickInsert accounts={allAccounts} onInsert={(url) => setButton(i, { url })} />
+                      </>
+                    )}
+                    {b.type === 'PHONE_NUMBER' && (
+                      <input
+                        value={b.phone_number || ''}
+                        onChange={(e) => setButton(i, { phone_number: e.target.value })}
+                        placeholder="+60123456789"
+                        className={`${inputCls} mt-2`}
+                        aria-label={`Button ${i + 1} phone number`}
+                      />
+                    )}
+                  </div>
+                ))}
+                {form.buttons.length < 3 && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="self-start"
+                    onClick={() => setForm({ ...form, buttons: [...form.buttons, { type: 'QUICK_REPLY', text: '' }] })}
+                  >
+                    <Plus size={13} aria-hidden /> Add button
+                  </Button>
                 )}
               </div>
-            ))}
-            {form.buttons.length < 3 && (
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  setForm({ ...form, buttons: [...form.buttons, { type: 'QUICK_REPLY', text: '' }] })
-                }
-              >
-                <Plus size={12} aria-hidden /> Add button
-              </Button>
-            )}
+            </div>
           </div>
-
-          <div className="flex items-center gap-2">
-            <Button
-              onClick={submit}
-              disabled={busy || (!form.editing && !form.name.trim()) || !form.body.trim()}
-            >
-              {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <CheckCircle size={13} aria-hidden />}
-              {form.editing
-                ? sandbox ? 'Save changes' : 'Submit edit for review'
-                : sandbox ? 'Save template' : 'Submit for review'}
-            </Button>
-            <Button variant="ghost" onClick={() => setForm(null)} disabled={busy}>
-              Cancel
-            </Button>
-          </div>
-        </div>
+        </Modal>
       )}
 
-      {templates === null ? (
-        <div className="flex items-center gap-2 py-6 text-[12px] text-text-muted">
-          <Loader2 size={14} className="animate-spin" aria-hidden /> Loading templates…
-        </div>
-      ) : templates.length === 0 ? (
-        <div className="py-6 text-[12px] text-text-muted">
-          No templates yet — create one above{sandbox ? '' : ' (it will go through Meta review)'}.
-        </div>
-      ) : (
-        templates.map((t) => {
-          const chip = STATUS_STYLE[t.status] || { color: 'var(--text-muted)', background: 'var(--fill)' }
-          return (
-            <div key={`${t.name}:${t.language}`} className="border-b border-line py-3.5">
-              <div className="mb-2 flex items-center gap-2">
-                <span className="font-mono text-[12.5px] font-semibold text-text-high">{t.name}</span>
-                <span className="rounded-full px-2 py-px text-[10px] font-bold" style={chip}>
-                  {t.status || '—'}
-                </span>
-                <span className="rounded-full bg-fill px-2 py-px text-[10px] font-semibold text-text-muted">
-                  {t.language}
-                </span>
-                <span className="rounded-full bg-fill px-2 py-px text-[10px] font-semibold text-text-muted">
-                  {t.category}
-                </span>
-                {(t.bindings || []).some(Boolean) && (
-                  <span
-                    className="rounded-full px-2 py-px text-[10px] font-semibold"
-                    style={{ color: 'var(--brand-ink)', background: 'rgba(59,130,246,0.1)' }}
-                    title={(t.bindings || [])
-                      .map((b, i) => `{{${i + 1}}} → ${b ? bindingLabel(b) : 'manual'}`)
-                      .join(', ')}
-                  >
-                    auto-filled
-                  </span>
-                )}
-                <span className="flex-1" />
-                {canManage && t.custom && (
-                  <>
-                    <button
-                      onClick={() => openEdit(t)}
-                      title={`Edit ${t.name}`}
-                      aria-label={`Edit template ${t.name}`}
-                      className="grid h-7 w-7 cursor-pointer place-items-center rounded-md text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
-                    >
-                      <Pencil size={13} aria-hidden />
-                    </button>
-                    <button
-                      onClick={() => remove(t)}
-                      title={`Delete ${t.name}`}
-                      aria-label={`Delete template ${t.name}`}
-                      className="grid h-7 w-7 cursor-pointer place-items-center rounded-md text-text-muted transition-colors hover:bg-red-500/10"
-                    >
-                      <Trash2 size={13} aria-hidden />
-                    </button>
-                  </>
-                )}
-              </div>
-              {t.body && (
-                <div className="rounded-[7px] bg-fill-subtle px-2.5 py-2 text-[11px] leading-[1.6] text-text-muted">
-                  {t.body}
-                </div>
-              )}
-              {(t.buttons || []).length > 0 && (
-                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {t.buttons.map((b, i) => {
-                    const Icon = BUTTON_ICON[b.type] || MessageSquareReply
-                    return (
-                      <span
-                        key={i}
-                        className="inline-flex items-center gap-1 rounded-full border border-line bg-fill px-2 py-0.5 text-[10.5px] font-semibold text-text-mid"
-                        title={b.url || b.phone_number || ''}
-                      >
-                        <Icon size={10} aria-hidden /> {b.text}
-                      </span>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )
-        })
+      {toDelete && (
+        <Modal
+          open
+          onClose={() => !busy && setToDelete(null)}
+          title={`Delete ${toDelete.name}?`}
+          size="sm"
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setToDelete(null)} disabled={busy}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true)
+                  setError(null)
+                  try {
+                    await api(`whatsapp/templates/${encodeURIComponent(toDelete.name)}${qs}`, { method: 'DELETE' })
+                    setNotice(`“${toDelete.name}” deleted.`)
+                    setToDelete(null)
+                    await load()
+                  } catch (e) {
+                    setError(errText(e))
+                    setToDelete(null)
+                  } finally {
+                    setBusy(false)
+                  }
+                }}
+              >
+                {busy && <Loader2 size={13} className="animate-spin" aria-hidden />} Delete
+              </Button>
+            </>
+          }
+        >
+          <p className="text-[13px] leading-relaxed text-text-mid">This removes every language variant of the template.</p>
+        </Modal>
       )}
     </div>
   )

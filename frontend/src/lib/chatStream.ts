@@ -23,12 +23,26 @@ const listeners = new Set<Listener>()
 let ctrl: AbortController | null = null
 let running = false
 
+/** Connection state for the top bar's Live dot: connected (green),
+ *  reconnecting (amber — retrying after a drop or still dialling), offline
+ *  (grey — no subscriber, browser offline, or several failures in a row). */
+export type StreamStatus = 'connected' | 'reconnecting' | 'offline'
+let status: StreamStatus = 'offline'
+let failures = 0
+const statusListeners = new Set<(s: StreamStatus) => void>()
+function setStatus(s: StreamStatus) {
+  if (s === status) return
+  status = s
+  statusListeners.forEach((fn) => fn(s))
+}
+
 function notify() {
   listeners.forEach((fn) => fn())
 }
 
 async function run() {
   running = true
+  setStatus('reconnecting') // dialling
   while (listeners.size) {
     ctrl = new AbortController()
     try {
@@ -42,6 +56,8 @@ async function run() {
         return // stale token — bouncing to /login, don't retry
       }
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+      failures = 0
+      setStatus('connected')
       // The server sends an initial `change` frame on connect, so listeners
       // refresh once per (re)connect without an extra nudge here.
       const reader = res.body.getReader()
@@ -60,21 +76,57 @@ async function run() {
       }
     } catch {
       /* aborted or API down — retry below keeps working as the fallback */
+      failures++
     }
-    if (listeners.size) await new Promise((r) => setTimeout(r, RETRY_MS))
+    if (listeners.size) {
+      const offline = typeof navigator !== 'undefined' && navigator.onLine === false
+      setStatus(offline || failures >= 3 ? 'offline' : 'reconnecting')
+      await new Promise((r) => setTimeout(r, RETRY_MS))
+    }
   }
   running = false
+  setStatus('offline')
   // a subscriber may have arrived between the loop's last check and here
   // (StrictMode's unmount/remount does this) — restart for them
   if (listeners.size) void run()
 }
 
+// Grace period before the last unsubscribe closes the connection. Pages
+// mount and unmount their subscribers on navigation (and effects re-run when
+// their deps change); closing on every momentary zero dropped the stream and
+// showed "reconnecting" for a whole retry interval on each page load.
+const CLOSE_GRACE_MS = 2000
+let closeTimer: ReturnType<typeof setTimeout> | null = null
+
 /** Subscribe to inbox change events. Returns the unsubscribe function. */
 export function subscribeChatStream(listener: Listener): () => void {
   listeners.add(listener)
+  if (closeTimer) {
+    clearTimeout(closeTimer)
+    closeTimer = null
+  }
   if (!running) void run()
   return () => {
     listeners.delete(listener)
-    if (!listeners.size) ctrl?.abort()
+    if (listeners.size || closeTimer) return
+    closeTimer = setTimeout(() => {
+      closeTimer = null
+      if (!listeners.size) ctrl?.abort()
+    }, CLOSE_GRACE_MS)
+  }
+}
+
+/** Current connection state (see StreamStatus). */
+export function getStreamStatus(): StreamStatus {
+  return status
+}
+
+/** Watch the connection state. Does NOT open the stream by itself — pair it
+ *  with subscribeChatStream. Returns the unsubscribe function. */
+export function subscribeStreamStatus(fn: (s: StreamStatus) => void): () => void {
+  statusListeners.add(fn)
+  fn(status)
+  return () => {
+    statusListeners.delete(fn)
   }
 }

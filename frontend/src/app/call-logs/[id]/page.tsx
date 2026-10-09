@@ -17,8 +17,9 @@ import { useApp } from '@/lib/AppContext'
 import { CALL_LOGS, CALL_TRANSCRIPTS, primaryRecord } from '@/lib/mocks'
 import { StatusBadge, LogStatusBadge } from '@/components/ui/Badges'
 import { Button } from '@/components/ui/Button'
+import { tint } from '@/lib/color'
 
-const TYPE_COLORS: Record<string, string> = { 'ai-call': '#3B82F6', 'bot-call': '#06B6D4', message: '#8B5CF6' }
+const TYPE_COLORS: Record<string, string> = { 'ai-call': 'rgb(var(--c-brand))', 'bot-call': 'rgb(var(--c-cyan))', message: 'rgb(var(--c-purple))' }
 const TYPE_ICONS: Record<string, LucideIcon> = { 'ai-call': Mic, 'bot-call': Phone, message: MessageSquare }
 const TYPE_LABELS: Record<string, string> = {
   'ai-call': 'AI Responsive Call',
@@ -60,7 +61,7 @@ function Metric({ k, v, c }: { k: string; v: string; c?: string }) {
 function CardTitle({ Icon, t }: { Icon: LucideIcon; t: string }) {
   return (
     <div className="mb-3.5 flex items-center gap-2">
-      <Icon size={15} strokeWidth={1.75} color="#93C5FD" />
+      <Icon size={15} strokeWidth={1.75} color="#D9480F" />
       <div className="text-[13px] font-bold text-text-high">{t}</div>
     </div>
   )
@@ -77,16 +78,16 @@ export default function CallDetailPage() {
 
   const d = contacts.find((x) => x.name === log.contact)
   const record = d ? primaryRecord(d) : null
-  const color = TYPE_COLORS[log.type] || '#64748B'
+  const color = TYPE_COLORS[log.type] || 'var(--text-muted)'
   const Icon = TYPE_ICONS[log.type] || Phone
 
   const sentiment = SENTIMENT[log.status] || 'Neutral'
   const sentColor =
     sentiment === 'Cooperative' || sentiment === 'Engaged'
-      ? '#6EE7B7'
+      ? 'var(--green-ink)'
       : sentiment === 'Hesitant' || sentiment === 'Neutral'
-      ? '#FCD34D'
-      : '#FCA5A5'
+      ? 'var(--amber-ink)'
+      : 'var(--red-ink)'
   const tags = BEHAVIOR[log.id] || ['Contacted']
   const followup = FOLLOWUP[log.id] || 'None recorded'
   const resolutionRate = RESOLUTION_RATE[log.id] ?? 55
@@ -100,10 +101,10 @@ export default function CallDetailPage() {
           onClick={() => router.push('/call-logs')}
           className="flex items-center gap-1.5 rounded-[7px] border border-line bg-fill px-2.5 py-1.5 text-[12px] font-semibold text-text-muted"
         >
-          <ArrowLeft size={14} strokeWidth={1.75} color="#64748B" />
+          <ArrowLeft size={14} strokeWidth={1.75} color="#8A8177" />
           Call Logs
         </button>
-        <ChevronRight size={12} strokeWidth={1.75} color="#374151" />
+        <ChevronRight size={12} strokeWidth={1.75} color="#8A8177" />
         <span className="text-[12px] text-text-muted">{log.contact}</span>
       </div>
 
@@ -111,9 +112,9 @@ export default function CallDetailPage() {
       <div className="flex flex-wrap items-center gap-4 rounded-xl border border-line bg-card px-6 py-5">
         <div
           className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[13px]"
-          style={{ background: color + '18' }}
+          style={{ background: tint(color, '18') }}
         >
-          <Icon size={22} strokeWidth={1.75} color={color} />
+          <Icon size={22} strokeWidth={1.75} style={{ color: color }} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex flex-wrap items-center gap-2.5">
@@ -146,7 +147,7 @@ export default function CallDetailPage() {
               <span className="text-[11px] text-text-muted">Follow-up</span>
               <span
                 className="text-[12px] font-bold"
-                style={{ color: followup === 'None recorded' ? 'var(--text-muted)' : '#6EE7B7' }}
+                style={{ color: followup === 'None recorded' ? 'var(--text-muted)' : 'var(--green-ink)' }}
               >
                 {followup}
               </span>
@@ -166,8 +167,8 @@ export default function CallDetailPage() {
                     <div
                       className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full text-[9px] font-extrabold"
                       style={{
-                        color: ai ? '#93C5FD' : 'var(--text-high)',
-                        background: ai ? 'rgba(59,130,246,0.18)' : 'var(--fill)',
+                        color: ai ? 'var(--brand-ink)' : 'var(--text-high)',
+                        background: ai ? 'rgba(255,90,31,0.18)' : 'var(--fill)',
                       }}
                     >
                       {ai ? 'AI' : 'CT'}
@@ -178,15 +179,15 @@ export default function CallDetailPage() {
                         style={{
                           padding: '10px 13px',
                           borderRadius: ai ? '4px 12px 12px 12px' : '12px 4px 12px 12px',
-                          background: ai ? 'rgba(59,130,246,0.12)' : 'var(--fill)',
-                          border: `1px solid ${ai ? 'rgba(59,130,246,0.2)' : 'var(--line)'}`,
+                          background: ai ? 'rgba(255,90,31,0.12)' : 'var(--fill)',
+                          border: `1px solid ${ai ? 'rgba(255,90,31,0.2)' : 'var(--line)'}`,
                         }}
                       >
                         {l.t}
                       </div>
                       {l.kb && (
                         <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-semibold text-green-300">
-                          <Shield size={11} strokeWidth={1.75} color="#6EE7B7" />
+                          <Shield size={11} strokeWidth={1.75} color="#2F7D4F" />
                           Answered from KB: {l.kb}
                         </div>
                       )}
@@ -263,7 +264,7 @@ export default function CallDetailPage() {
             <div className="mb-4 h-[7px] overflow-hidden rounded-[10px] bg-fill">
               <div
                 className="h-full rounded-[10px]"
-                style={{ width: resolutionRate + '%', background: 'linear-gradient(90deg,#2563EB,#10B981)' }}
+                style={{ width: resolutionRate + '%', background: 'linear-gradient(90deg,rgb(var(--c-brand-400)),rgb(var(--c-green)))' }}
               />
             </div>
             <div className="grid grid-cols-2 gap-3">

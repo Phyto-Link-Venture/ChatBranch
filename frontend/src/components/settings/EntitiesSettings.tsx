@@ -1,24 +1,30 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { Building2, CornerDownRight, Loader2, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { CornerDownRight, Loader2, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
-import { Select } from '@/components/ui/Select'
+import { Toggle } from '@/components/ui/Toggle'
 import { DataTable, type Column } from '@/components/ui/DataTable'
+import { EntityPicker } from '@/components/ui/EntityPicker'
+import { TagChip } from '@/components/tags/TagChip'
+import { TagAssignEditor, type TagValueItem } from '@/components/tags/TagAssignEditor'
+import { orderEntityTree } from '@/components/bindings/groups'
 import { authHeaders, hasCap } from '@/lib/auth'
 import { useRole } from '@/lib/useRole'
-import { useEntity } from '@/lib/EntityContext'
+import { useEntity, type Entity } from '@/lib/EntityContext'
+import { fetchTagAssignments, fetchTags, saveEntityTags, type TagDef } from '@/lib/tags'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /**
  * Entities (RBAC entities model, /api/v1/entities + /api/v1/whoami).
- * Entities form a TREE: a top-level entity (e.g. "Main") with child entities
- * under it. Creating one asks only for its parent — the tenant is inherited
- * from the parent (or the caller's own), never typed in by hand.
- * Access: admins see every entity in their tenant, agents only their assigned
- * entities (managed in Users & Roles).
+ * Entities form a TREE: a main (top-level) entity with sub-entities under it.
+ * Creating one asks only for its parent — the tenant is inherited from the
+ * parent (or the caller's own), never typed in by hand. The table reads as the
+ * tree: main entities carry a MAIN badge, sub-entities are indented under
+ * their parent. Entity tags (inner company / outside company…) show as chips
+ * and are edited in the entity modal.
  */
 
 interface EntityRow {
@@ -26,19 +32,12 @@ interface EntityRow {
   name: string
   slug: string
   tenant: string
-  /** null = a top-level entity; otherwise the entity it sits under. */
+  /** null = a main (top-level) entity; otherwise the entity it sits under. */
   parent_id: number | null
   parent?: string | null
   parent_name?: string
   is_active: boolean
   created_at: string
-}
-
-interface WhoAmI {
-  username: string
-  role: string
-  tenant: string | null
-  entities: string[]
 }
 
 const slugify = (s: string) =>
@@ -47,34 +46,6 @@ const slugify = (s: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 80)
-
-/**
- * Depth-first tree order (parents immediately followed by their children) with
- * a depth per row. Rows whose parent is missing from the visible set — an agent
- * or admin may only see part of the tree — are treated as roots so they never
- * vanish from the table.
- */
-function orderTree(rows: EntityRow[]): { row: EntityRow; depth: number }[] {
-  const visible = new Set(rows.map((r) => r.id))
-  const byParent = new Map<number | null, EntityRow[]>()
-  for (const r of rows) {
-    const key = r.parent_id !== null && visible.has(r.parent_id) ? r.parent_id : null
-    byParent.set(key, [...(byParent.get(key) ?? []), r])
-  }
-  for (const list of byParent.values()) list.sort((a, b) => a.name.localeCompare(b.name))
-  const out: { row: EntityRow; depth: number }[] = []
-  const walk = (parent: number | null, depth: number) => {
-    for (const row of byParent.get(parent) ?? []) {
-      if (out.some((o) => o.row.id === row.id)) continue // cyclic data guard
-      out.push({ row, depth })
-      walk(row.id, depth + 1)
-    }
-  }
-  walk(null, 0)
-  // anything unreachable (a cycle) still gets listed
-  for (const r of rows) if (!out.some((o) => o.row.id === r.id)) out.push({ row: r, depth: 0 })
-  return out
-}
 
 /** The id itself plus every entity beneath it — invalid parents when re-parenting. */
 function descendantIds(rows: EntityRow[], id: number): Set<number> {
@@ -104,13 +75,26 @@ async function v1<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T
 }
 
+const inputCls =
+  'h-9 w-full rounded-lg border border-line-strong bg-card px-3 text-[13px] text-text-primary outline-none transition-colors placeholder:text-text-faint focus:border-text-primary'
+
+function MainBadge() {
+  return (
+    <span className="shrink-0 rounded-sm bg-primary px-1 py-px text-[9px] font-bold uppercase tracking-[0.05em] text-on-primary">
+      Main
+    </span>
+  )
+}
+
 export function EntitiesSettings() {
   const { role, ready } = useRole()
   const { reload: reloadGlobalEntities } = useEntity()
   const [entities, setEntities] = useState<EntityRow[] | null>(null)
-  const [me, setMe] = useState<WhoAmI | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  // entity tags (registry) + who carries them
+  const [entityTags, setEntityTags] = useState<TagDef[] | null>(null)
+  const [assigned, setAssigned] = useState<Map<number, TagValueItem[]>>(new Map())
   // create/edit modal — `editing` null = create, a row = edit
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<EntityRow | null>(null)
@@ -119,62 +103,86 @@ export function EntitiesSettings() {
   const [slugTouched, setSlugTouched] = useState(false)
   const [parentId, setParentId] = useState<number | null>(null)
   const [active, setActive] = useState(true)
-  // entities.manage gates create/edit/delete (read after mount — localStorage)
+  const [tagDraft, setTagDraft] = useState<TagValueItem[]>([])
+  // entities.manage gates create/edit/delete; tags.manage the tag editor
   const [canManage, setCanManage] = useState(false)
-  useEffect(() => setCanManage(hasCap('entities.manage')), [])
+  const [canTag, setCanTag] = useState(false)
+  useEffect(() => {
+    setCanManage(hasCap('entities.manage'))
+    setCanTag(hasCap('tags.manage'))
+  }, [])
+
+  const loadTags = useCallback(async () => {
+    try {
+      const [defs, rows] = await Promise.all([fetchTags('entity'), fetchTagAssignments('entity')])
+      setEntityTags(defs.tags)
+      const map = new Map<number, TagValueItem[]>()
+      for (const a of rows.assignments)
+        map.set(a.target_id, [...(map.get(a.target_id) ?? []), { tag_id: a.tag_id, values: a.values ?? {} }])
+      setAssigned(map)
+    } catch {
+      setEntityTags(null) // no tags.view — the column and editor simply hide
+    }
+  }, [])
 
   const refresh = useCallback(async () => {
     try {
-      const [b, w] = await Promise.all([
-        v1<{ entities: EntityRow[] }>('entities'),
-        v1<WhoAmI>('whoami'),
-      ])
+      const b = await v1<{ entities: EntityRow[] }>('entities')
       setEntities(b.entities)
-      setMe(w)
       // keep the global topbar switcher in step — a newly created/deleted
-      // entity shows up there without a page refresh (#4).
+      // entity shows up there without a page refresh
       reloadGlobalEntities()
     } catch {
       setEntities(null)
     }
-  }, [reloadGlobalEntities])
+    void loadTags()
+  }, [reloadGlobalEntities, loadTags])
 
   useEffect(() => {
     refresh()
   }, [refresh])
 
+  const ordered = useMemo(() => orderEntityTree(entities ?? []), [entities])
+  const depthOf = useMemo(() => new Map(ordered.map((r) => [r.row.id, r.depth])), [ordered])
+  const tagById = useMemo(() => new Map((entityTags ?? []).map((t) => [t.id, t])), [entityTags])
+
   if (!ready) return null // role resolves after mount — don't flash the denial
 
   if (role === 'agent') {
     return (
-      <div className="flex items-center gap-2 py-6 text-[12.5px] text-text-muted">
-        <ShieldAlert size={15} className="text-amber-300" aria-hidden />
+      <div className="flex items-center gap-2 py-6 text-[13px] text-text-muted">
+        <ShieldAlert size={15} className="text-[color:var(--amber-ink)]" aria-hidden />
         Entities are managed by admins.
       </div>
     )
   }
 
   if (entities === null) {
-    return (
-      <div className="py-6 text-[12px] text-text-muted">
-        Entity management unavailable — is the backend API running?
-      </div>
-    )
+    return <div className="py-6 text-[13px] text-text-muted">Entity management unavailable — is the backend API running?</div>
   }
 
-  // Depth-first order with a depth per row, so the table reads as a tree.
-  const ordered = orderTree(entities)
-  const depthOf = new Map(ordered.map((r) => [r.row.id, r.depth]))
+  // the parent picker: the shared tree picker over THIS page's rows, minus the
+  // entity being edited and everything beneath it (no loops)
+  const blocked = editing ? descendantIds(entities, editing.id) : new Set<number>()
+  const bySlugOf = new Map(entities.map((e) => [e.id, e.slug]))
+  const parentChoices: Entity[] = entities
+    .filter((e) => !blocked.has(e.id))
+    .map((e) => ({
+      slug: e.slug,
+      name: e.name,
+      tenant: e.tenant,
+      parent: e.parent_id !== null ? bySlugOf.get(e.parent_id) ?? null : null,
+    }))
 
   const openCreate = () => {
     setEditing(null)
     setName('')
     setSlug('')
     setSlugTouched(false)
-    // default under the first top-level entity (usually "Main") — the common
-    // case is adding a branch under the organization's root
+    // default under the first main entity — the common case is adding a branch
     setParentId(entities.find((e) => e.parent_id === null)?.id ?? null)
     setActive(true)
+    setTagDraft([])
     setMsg(null)
     setOpen(true)
   }
@@ -186,6 +194,7 @@ export function EntitiesSettings() {
     setSlugTouched(true)
     setParentId(b.parent_id)
     setActive(b.is_active)
+    setTagDraft(assigned.get(b.id) ?? [])
     setMsg(null)
     setOpen(true)
   }
@@ -194,35 +203,53 @@ export function EntitiesSettings() {
     setBusy(true)
     setMsg(null)
     try {
+      let id: number
       if (editing) {
-        // PATCH /api/v1/entities/<id> — name / slug / is_active (backend landing
-        // in parallel; a 404/405 surfaces as a clear message).
         await v1(`entities/${editing.id}`, {
           method: 'PATCH',
           body: JSON.stringify({
             name: name.trim(),
             slug: slug.trim() || slugify(name),
-            parent_id: parentId ?? 0, // 0 = promote to top level
+            parent_id: parentId ?? 0, // 0 = promote to a main entity
             is_active: active,
           }),
         })
-        setMsg({ ok: true, text: `Entity ${name.trim()} updated.` })
+        id = editing.id
       } else {
-        await v1('entities', {
+        const created = await v1<EntityRow>('entities', {
           method: 'POST',
           body: JSON.stringify({
             name: name.trim(),
             slug: slug.trim() || slugify(name),
             // The tenant comes from the parent server-side (or the caller's own
-            // for a top-level entity) — it is never chosen here.
+            // for a main entity) — it is never chosen here.
             parent_id: parentId ?? 0,
           }),
         })
-        setMsg({ ok: true, text: `Entity ${name.trim()} created.` })
+        id = created.id
       }
-      setName('')
-      setSlug('')
-      setSlugTouched(false)
+      const before = JSON.stringify(editing ? assigned.get(editing.id) ?? [] : [])
+      if (canTag && entityTags && JSON.stringify(tagDraft) !== before) {
+        try {
+          await saveEntityTags(id, tagDraft)
+        } catch (e) {
+          // the entity itself saved — say so, and keep the modal for the tags
+          setMsg({ ok: false, text: `Saved the entity, but not its tags: ${e instanceof Error ? e.message : String(e)}` })
+          // the entity exists now — keep the modal open on it, in edit mode
+          setEditing({
+            id,
+            name: name.trim(),
+            slug: slug.trim() || slugify(name),
+            tenant: editing?.tenant ?? '',
+            parent_id: parentId,
+            is_active: active,
+            created_at: editing?.created_at ?? new Date().toISOString(),
+          })
+          await refresh()
+          return
+        }
+      }
+      setMsg({ ok: true, text: `Entity ${name.trim()} ${editing ? 'updated' : 'created'}.` })
       setEditing(null)
       setOpen(false)
       await refresh()
@@ -238,8 +265,7 @@ export function EntitiesSettings() {
     setBusy(true)
     setMsg(null)
     try {
-      // DELETE /api/v1/entities/<id> — a 409 (entity still in use) carries the
-      // reason in the v1 error envelope, surfaced verbatim below.
+      // a 409 (entity still in use) carries the reason in the v1 error envelope
       await v1(`entities/${b.id}`, { method: 'DELETE' })
       setMsg({ ok: true, text: `Entity ${b.name} deleted.` })
       await refresh()
@@ -256,54 +282,81 @@ export function EntitiesSettings() {
       header: 'Entity',
       sortable: true,
       value: (b) => `${b.name} ${b.slug}`,
-      render: (b) => (
-        <div className="flex items-center gap-2" style={{ paddingLeft: (depthOf.get(b.id) ?? 0) * 18 }}>
-          {(depthOf.get(b.id) ?? 0) > 0 && (
-            <CornerDownRight size={12} className="shrink-0 text-text-faint" aria-hidden />
-          )}
-          <span className="text-[13px] font-semibold text-text-high">{b.name}</span>
-          <code className="rounded bg-fill-hover px-1.5 py-px text-[10.5px] text-text-muted">{b.slug}</code>
-          {!b.is_active && (
-            <span className="rounded-full bg-red/15 px-2 py-px text-[10px] font-bold text-red-300">Inactive</span>
-          )}
-        </div>
-      ),
+      render: (b) => {
+        const depth = depthOf.get(b.id) ?? 0
+        return (
+          <div className="flex min-w-0 items-center gap-2" style={{ paddingLeft: depth * 20 }}>
+            {depth > 0 ? (
+              <CornerDownRight size={13} className="shrink-0 text-text-faint" aria-hidden />
+            ) : (
+              <MainBadge />
+            )}
+            <span className={`truncate text-[13.5px] ${depth === 0 ? 'font-bold text-text-heading' : 'font-semibold text-text-high'}`}>
+              {b.name}
+            </span>
+            <code className="shrink-0 rounded bg-fill px-1.5 py-px text-[11px] text-text-muted">{b.slug}</code>
+            {!b.is_active && (
+              <span className="shrink-0 rounded-full bg-red/10 px-2 py-px text-[10.5px] font-semibold text-[color:var(--red-ink)]">
+                Inactive
+              </span>
+            )}
+          </div>
+        )
+      },
     },
     {
       key: 'parent',
       header: 'Parent',
       sortable: true,
-      width: 220,
+      width: 200,
       value: (b) => b.parent_name || b.parent || '',
       render: (b) =>
         b.parent_id === null ? (
-          <span className="flex items-center gap-1.5 text-[12px] text-text-muted">
-            <Building2 size={12} aria-hidden /> Top level
-          </span>
+          <span className="text-[12.5px] text-text-muted">— main entity</span>
         ) : (
-          <span className="flex items-center gap-1.5 text-[12px] text-text-mid">
-            <CornerDownRight size={12} className="text-text-muted" aria-hidden />
-            {b.parent_name || b.parent}
-          </span>
+          <span className="text-[12.5px] text-text-mid">{b.parent_name || b.parent}</span>
         ),
     },
+    ...(entityTags
+      ? [
+          {
+            key: 'tags',
+            header: 'Tags',
+            width: 230,
+            value: (b: EntityRow) =>
+              (assigned.get(b.id) ?? []).map((a) => tagById.get(a.tag_id)?.name ?? '').join(' '),
+            render: (b: EntityRow) => {
+              const items = (assigned.get(b.id) ?? []).filter((a) => tagById.has(a.tag_id))
+              return items.length === 0 ? (
+                <span className="text-[12px] text-text-faint">—</span>
+              ) : (
+                <div className="flex flex-wrap gap-1">
+                  {items.map((a) => {
+                    const t = tagById.get(a.tag_id)!
+                    return <TagChip key={a.tag_id} name={t.name} color={t.color} size="sm" />
+                  })}
+                </div>
+              )
+            },
+          },
+        ]
+      : []),
     {
       key: 'created_at',
       header: 'Created',
       sortable: true,
-      width: 140,
+      width: 120,
       value: (b) => b.created_at,
-      render: (b) => (
-        <span className="text-[10.5px] text-text-faint">{new Date(b.created_at).toLocaleDateString()}</span>
-      ),
+      render: (b) => <span className="text-[12px] text-text-muted">{new Date(b.created_at).toLocaleDateString()}</span>,
     },
     ...(canManage
       ? [
           {
             key: 'actions',
             header: 'Actions',
+            srHeader: true,
             align: 'right' as const,
-            width: 100,
+            width: 90,
             render: (b: EntityRow) => (
               <div className="flex items-center justify-end gap-1">
                 <button
@@ -311,18 +364,18 @@ export function EntitiesSettings() {
                   disabled={busy}
                   title={`Edit ${b.name}`}
                   aria-label={`Edit entity ${b.name}`}
-                  className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:cursor-not-allowed disabled:opacity-40"
+                  className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  <Pencil size={13} aria-hidden />
+                  <Pencil size={14} aria-hidden />
                 </button>
                 <button
                   onClick={() => deleteEntity(b)}
                   disabled={busy}
                   title={`Delete ${b.name}`}
                   aria-label={`Delete entity ${b.name}`}
-                  className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/15 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/10 hover:text-[color:var(--red-ink)] disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  <Trash2 size={13} aria-hidden />
+                  <Trash2 size={14} aria-hidden />
                 </button>
               </div>
             ),
@@ -331,32 +384,48 @@ export function EntitiesSettings() {
       : []),
   ]
 
+  const mains = entities.filter((e) => e.parent_id === null).length
+
   return (
-    <div className="flex flex-col gap-4 pt-3.5">
-      <p className="text-[11.5px] leading-relaxed text-text-mid">
-        Entities form a tree: a <b>top-level</b> entity (your organization) with branches, outlets or client units
-        underneath it. A child inherits everything from its parent — contacts are shared across the tree, and a new
-        entity only needs a name and a parent. Admins see every entity in their organization; agents only the entities
-        assigned to them (set per user under Users &amp; Roles).
+    <div className="flex flex-col gap-5 pt-4">
+      <p className="max-w-[760px] text-[13px] leading-relaxed text-text-mid">
+        Entities form a tree. A <b>main entity</b> (your organization, or a company in your group) sits at the top;
+        branches, outlets and units sit <b>beneath</b> it as sub-entities. A main entity sees everything beneath it —
+        never the other way round. Agents see only the entities assigned to them under Users &amp; Roles.
       </p>
 
-      {/* Success (and any failure raised outside the modal, e.g. delete) — the
-          modal renders its own copy of failures so they aren't lost behind it. */}
+      <div className="flex flex-wrap gap-x-6 gap-y-1 text-[12.5px] text-text-muted">
+        <span>
+          <b className="text-text-heading">{mains}</b> main entit{mains === 1 ? 'y' : 'ies'}
+        </span>
+        <span>
+          <b className="text-text-heading">{entities.length - mains}</b> sub-entit{entities.length - mains === 1 ? 'y' : 'ies'}
+        </span>
+      </div>
+
+      {/* Success (and failures raised outside the modal) — the modal renders
+          its own copy of failures so they aren't lost behind the scrim. */}
       {msg && (!open || msg.ok) && (
-        <div className={`text-[12px] font-semibold ${msg.ok ? 'text-green-300' : 'text-red-300'}`}>{msg.text}</div>
+        <div
+          role={msg.ok ? 'status' : 'alert'}
+          className={`text-[12.5px] font-semibold ${msg.ok ? 'text-[color:var(--green-ink)]' : 'text-[color:var(--red-ink)]'}`}
+        >
+          {msg.text}
+        </div>
       )}
 
       <DataTable
         columns={columns}
         rows={ordered.map((o) => o.row)}
         rowKey={(b) => b.id}
-        searchKeys={['name', 'slug']}
+        searchKeys={['name', 'parent', 'tags']}
         searchPlaceholder="Search entities…"
         empty="No entities yet — add the first one."
+        pageSize={25}
         toolbarRight={
           canManage ? (
             <Button onClick={openCreate}>
-              <Plus size={13} aria-hidden /> Add entity
+              <Plus size={14} aria-hidden /> Add entity
             </Button>
           ) : undefined
         }
@@ -366,18 +435,14 @@ export function EntitiesSettings() {
         open={open}
         onClose={() => setOpen(false)}
         title={editing ? `Edit ${editing.name}` : 'Add entity'}
-        subtitle="An entity is a branch, outlet or client unit. Pick where it sits in the tree."
-        size="md"
+        subtitle="A main entity, or a branch, outlet or unit beneath one. Pick where it sits in the tree."
+        size="lg"
         footer={
           <>
             <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
               Cancel
             </Button>
-            <Button
-              variant="primary"
-              onClick={saveEntity}
-              disabled={busy || !name.trim()}
-            >
+            <Button variant="primary" onClick={saveEntity} disabled={busy || !name.trim()}>
               {busy ? (
                 <Loader2 size={13} className="animate-spin" aria-hidden />
               ) : editing ? (
@@ -390,83 +455,89 @@ export function EntitiesSettings() {
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-4">
           {msg && !msg.ok && (
             <div
               role="alert"
-              className="sm:col-span-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] font-semibold text-red-300"
+              className="rounded-lg border border-red/30 bg-red/10 px-3 py-2 text-[12.5px] font-semibold text-[color:var(--red-ink)]"
             >
               {msg.text}
             </div>
           )}
-          <label className="block">
-            <span className="mb-1 block text-[11px] font-bold text-text-high">Entity name</span>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value)
-                if (!slugTouched) setSlug(slugify(e.target.value))
-              }}
-              placeholder="e.g. Northwind Trading"
-              className="w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400"
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-[11px] font-bold text-text-high">Slug</span>
-            <input
-              type="text"
-              value={slug}
-              onChange={(e) => {
-                setSlugTouched(true)
-                setSlug(slugify(e.target.value))
-              }}
-              placeholder="auto-generated from the name"
-              className="w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400"
-            />
-            <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">
-              Short unique id, used in APIs and reports. Unique across the organization.
-            </span>
-          </label>
-          <label className="block sm:col-span-2">
-            <span className="mb-1 block text-[11px] font-bold text-text-high">Parent entity</span>
-            <Select
-              value={parentId === null ? '' : String(parentId)}
-              onChange={(v) => setParentId(v === '' ? null : Number(v))}
-              size="md"
-              ariaLabel="Parent entity"
-              options={[
-                { value: '', label: 'Top level (no parent)' },
-                ...ordered
-                  // an entity can't sit under itself or its own descendants
-                  .filter((o) => !editing || !descendantIds(entities, editing.id).has(o.row.id))
-                  .map((o) => ({
-                    value: String(o.row.id),
-                    label: `${'\u2007'.repeat(o.depth * 2)}${o.depth > 0 ? '\u21b3 ' : ''}${o.row.name}`,
-                    hint: o.row.slug,
-                  })),
-              ]}
-            />
-            <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">
-              Everything is inherited from the parent, including which organization it belongs to. Leave this at
-              &ldquo;Top level&rdquo; for the root of your tree.
-            </span>
-          </label>
-          {editing && (
-            <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">Entity name</span>
               <input
-                type="checkbox"
-                checked={active}
-                onChange={(e) => setActive(e.target.checked)}
-                style={{ accentColor: '#3B82F6' }}
+                type="text"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value)
+                  if (!slugTouched) setSlug(slugify(e.target.value))
+                }}
+                placeholder="e.g. Northwind Trading"
+                className={inputCls}
               />
-              <span className="text-[12px] text-text-primary">
-                Active
-                <span className="ml-1 text-[10.5px] text-text-muted">
-                  — inactive entities stay on record but drop out of routing.
-                </span>
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">Slug</span>
+              <input
+                type="text"
+                value={slug}
+                onChange={(e) => {
+                  setSlugTouched(true)
+                  setSlug(slugify(e.target.value))
+                }}
+                placeholder="auto-generated from the name"
+                className={inputCls}
+              />
+              <span className="mt-1 block text-[11px] leading-relaxed text-text-muted">
+                Short unique id used in APIs and reports.
               </span>
             </label>
+            <div className="sm:col-span-2">
+              <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">Sits under</span>
+              <EntityPicker
+                value={parentId === null ? null : (bySlugOf.get(parentId) ?? null)}
+                onChange={(s) => setParentId(s ? (entities.find((e) => e.slug === s)?.id ?? null) : null)}
+                entities={parentChoices}
+                globalLabel="Nothing — make it a main entity"
+                ariaLabel="Parent entity"
+              />
+              <span className="mt-1 block text-[11px] leading-relaxed text-text-muted">
+                A sub-entity inherits its organization from the entity it sits under. Main entities carry the MAIN
+                badge in the list.
+              </span>
+            </div>
+            {editing && (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5 sm:col-span-2">
+                <div>
+                  <div className="text-[13px] font-semibold text-text-high">Active</div>
+                  <div className="text-[11.5px] text-text-muted">Inactive entities stay on record but drop out of routing.</div>
+                </div>
+                <Toggle on={active} onChange={setActive} label="Active" />
+              </div>
+            )}
+          </div>
+
+          {entityTags && (
+            <div className="border-t border-line pt-4">
+              <span className="block text-[11.5px] font-bold text-text-high">Tags</span>
+              <span className="mb-2.5 mt-0.5 block text-[11px] leading-relaxed text-text-muted">
+                What kind of entity this is — e.g. inner company or outside company. Manage the list under Library →
+                Tags.
+              </span>
+              {entityTags.length === 0 ? (
+                <p className="text-[12px] text-text-muted">No entity tags exist yet.</p>
+              ) : (
+                <TagAssignEditor
+                  available={entityTags}
+                  value={tagDraft}
+                  onChange={setTagDraft}
+                  disabled={!canTag || busy}
+                  noun="entity"
+                />
+              )}
+            </div>
           )}
         </div>
       </Modal>

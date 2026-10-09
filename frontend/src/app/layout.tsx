@@ -1,29 +1,48 @@
 import type { Metadata, Viewport } from 'next'
-import { Plus_Jakarta_Sans } from 'next/font/google'
+import '@fontsource-variable/fraunces/opsz.css'
+import '@fontsource-variable/schibsted-grotesk/index.css'
+import '@fontsource-variable/geist/index.css'
+import '@fontsource-variable/nunito/index.css'
 import './globals.css'
 import { AppProvider } from '@/lib/AppContext'
 import { EntityProvider } from '@/lib/EntityContext'
 import { Shell } from '@/components/shell/Shell'
-
-const jakarta = Plus_Jakarta_Sans({
-  subsets: ['latin'],
-  weight: ['300', '400', '500', '600', '700', '800'],
-  variable: '--font-jakarta',
-  display: 'swap',
-})
+import { ServiceWorkerRegistrar } from '@/components/shell/pwa'
+import { PREPAINT_SCRIPT } from '@/lib/themeScript'
 
 export const metadata: Metadata = {
   title: 'ChatBranch',
   description: 'ChatBranch — multi-channel conversation platform',
+  applicationName: 'ChatBranch',
+  // app/manifest.ts is linked automatically; these cover the icon tags the
+  // manifest doesn't (browser tab, iOS home screen).
+  icons: {
+    icon: [
+      { url: '/icons/favicon.svg', type: 'image/svg+xml' },
+      { url: '/icons/favicon-32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/icons/favicon-16.png', sizes: '16x16', type: 'image/png' },
+    ],
+    apple: [{ url: '/icons/apple-touch-icon.png', sizes: '180x180' }],
+  },
+  appleWebApp: {
+    capable: true,
+    title: 'ChatBranch',
+    statusBarStyle: 'default',
+  },
+  formatDetection: { telephone: false },
 }
 
-// Mobile-first: render at device width (no more desktop-width zoom-out on
-// phones/tablets). `viewport-fit=cover` lets full-bleed panels reach the edges
-// on notched devices.
+// Mobile-first: render at device width. `viewport-fit=cover` lets full-bleed
+// panels reach the edges on notched devices. theme-color follows the paper in
+// each mode (the shell retints it to the chosen theme at runtime).
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#FAF7F2' },
+    { media: '(prefers-color-scheme: dark)', color: '#1C1A17' },
+  ],
 }
 
 export default function RootLayout({
@@ -32,21 +51,16 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" className="theme-paper light" suppressHydrationWarning>
       <head>
-        {/* Set the theme class before first paint so there's no flash. Class
-            strategy (html.dark / html.light) — matches Tailwind's
-            darkMode:'class'. Reads the persisted choice; defaults to dark
-            (the navy design is the showcase look). suppressHydrationWarning
-            on <html>: the script legitimately swaps the class before React
-            hydrates when a 'light' choice is stored. */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('theme');var c=document.documentElement.classList;if(t==='light'){c.remove('dark');c.add('light');}else{c.remove('light');c.add('dark');}}catch(e){}})();`,
-          }}
-        />
+        {/* Apply the saved look (theme, mode, accent, text size…) before first
+            paint so there's no flash; lib/theme.ts owns the format. The class
+            swap is an intentional pre-hydration mutation, hence
+            suppressHydrationWarning on <html>. */}
+        <script dangerouslySetInnerHTML={{ __html: PREPAINT_SCRIPT }} />
       </head>
-      <body className={`${jakarta.variable} font-sans`}>
+      <body className="font-sans">
+        <ServiceWorkerRegistrar />
         <EntityProvider>
           <AppProvider>
             <Shell>{children}</Shell>

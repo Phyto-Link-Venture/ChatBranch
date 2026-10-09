@@ -37,16 +37,18 @@ public class AppDbContext : DbContext
     // crm — contacts
     public DbSet<Contact> Contacts => Set<Contact>();
     public DbSet<ContactEntity> ContactEntities => Set<ContactEntity>();
-    public DbSet<Resource> Resources => Set<Resource>();
-    public DbSet<ResourceLink> ResourceLinks => Set<ResourceLink>();
     public DbSet<Record> Records => Set<Record>();
     public DbSet<RecordEvent> RecordEvents => Set<RecordEvent>();
+    // crm — tag registry (contacts / entities / conversations)
+    public DbSet<Tag> Tags => Set<Tag>();
+    public DbSet<TagAssignment> TagAssignments => Set<TagAssignment>();
     // crm — channels
     public DbSet<ChannelAccount> ChannelAccounts => Set<ChannelAccount>();
     public DbSet<Setting> Settings => Set<Setting>();
     public DbSet<Thread> Threads => Set<Thread>();
     public DbSet<Message> Messages => Set<Message>();
     public DbSet<AccountAssignment> AccountAssignments => Set<AccountAssignment>();
+    public DbSet<EmailHeader> EmailHeaders => Set<EmailHeader>();
     // crm — content libraries
     public DbSet<CannedResponse> CannedResponses => Set<CannedResponse>();
     public DbSet<ScriptTemplate> ScriptTemplates => Set<ScriptTemplate>();
@@ -56,13 +58,28 @@ public class AppDbContext : DbContext
     // crm — flows
     public DbSet<FlowRun> FlowRuns => Set<FlowRun>();
     public DbSet<OutboundJob> OutboundJobs => Set<OutboundJob>();
+    public DbSet<FlowStepEvent> FlowStepEvents => Set<FlowStepEvent>();
     // crm — ai
     public DbSet<CallRecord> CallRecords => Set<CallRecord>();
     public DbSet<LlmUsage> LlmUsage => Set<LlmUsage>();
     public DbSet<PendingToolAction> PendingToolActions => Set<PendingToolAction>();
     public DbSet<ConversationSummary> ConversationSummaries => Set<ConversationSummary>();
+    // crm — ai ops (monitor + follow-ups)
+    public DbSet<AiDraft> AiDrafts => Set<AiDraft>();
+    public DbSet<AiConversationState> AiConversationStates => Set<AiConversationState>();
     // integrations
     public DbSet<Integration> Integrations => Set<Integration>();
+    // crm — per-user saved list views (the inbox's saved filter tabs)
+    public DbSet<SavedView> SavedViews => Set<SavedView>();
+    // developer platform: API keys + the operator assistant's pending writes
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+    public DbSet<AssistantAction> AssistantActions => Set<AssistantAction>();
+
+    /// <summary>Every AuditLog row is stamped with its request/source provenance
+    /// on save (Audit/AuditStampInterceptor), so the per-file audit helpers carry
+    /// source, method, path and user without each being edited.</summary>
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) =>
+        optionsBuilder.AddInterceptors(ChatBranch.Data.Audit.AuditStampInterceptor.Instance);
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -101,15 +118,21 @@ public class AppDbContext : DbContext
         b.Entity<Notification>().ToTable("crm_notification");
         b.Entity<Contact>().ToTable("crm_contact");
         b.Entity<ContactEntity>().ToTable("crm_contactentity");
-        b.Entity<Resource>().ToTable("crm_resource");
-        b.Entity<ResourceLink>().ToTable("crm_resourcelink");
         b.Entity<Record>().ToTable("crm_record");
         b.Entity<RecordEvent>().ToTable("crm_recordevent");
+        b.Entity<Tag>().ToTable("crm_tag");
+        b.Entity<TagAssignment>().ToTable("crm_tagassignment");
+        b.Entity<TagAssignment>()
+            .HasIndex(a => new { a.TagId, a.TargetType, a.TargetId })
+            .IsUnique().HasDatabaseName("uniq_tag_assignment");
         b.Entity<ChannelAccount>().ToTable("crm_channelaccount");
         b.Entity<Setting>().ToTable("crm_setting");
         b.Entity<Thread>().ToTable("crm_thread");
         b.Entity<Message>().ToTable("crm_message");
         b.Entity<AccountAssignment>().ToTable("crm_accountassignment");
+        b.Entity<EmailHeader>().ToTable("crm_emailheader");
+        b.Entity<EmailHeader>().HasIndex(h => h.ThreadId).HasDatabaseName("ix_emailheader_thread");
+        b.Entity<EmailHeader>().HasIndex(h => h.MessageId).HasDatabaseName("ix_emailheader_message");
         b.Entity<CannedResponse>().ToTable("crm_cannedresponse");
         b.Entity<ScriptTemplate>().ToTable("crm_scripttemplate");
         b.Entity<Workflow>().ToTable("crm_workflow");
@@ -117,11 +140,22 @@ public class AppDbContext : DbContext
         b.Entity<KnowledgeItem>().ToTable("crm_knowledgeitem");
         b.Entity<FlowRun>().ToTable("crm_flowrun");
         b.Entity<OutboundJob>().ToTable("crm_outboundjob");
+        b.Entity<FlowStepEvent>().ToTable("crm_flowstepevent");
+        b.Entity<FlowStepEvent>().HasIndex(e => new { e.WorkflowId, e.Day })
+            .HasDatabaseName("ix_flowstepevent_workflow_day");
+        b.Entity<FlowStepEvent>().HasIndex(e => e.RunId)
+            .HasDatabaseName("ix_flowstepevent_run");
         b.Entity<CallRecord>().ToTable("crm_callrecord");
         b.Entity<LlmUsage>().ToTable("crm_llmusage");
         b.Entity<PendingToolAction>().ToTable("crm_pendingtoolaction");
         b.Entity<ConversationSummary>().ToTable("crm_conversationsummary");
+        b.Entity<AiDraft>().ToTable("crm_aidraft");
+        b.Entity<AiDraft>().HasIndex(d => new { d.Status, d.CreatedAt });
+        b.Entity<AiDraft>().HasIndex(d => d.ThreadId);
+        b.Entity<AiConversationState>().ToTable("crm_aiconversationstate");
+        b.Entity<AiConversationState>().HasIndex(s => s.ThreadId).IsUnique();
         b.Entity<Integration>().ToTable("integrations_integration");
+        b.Entity<SavedView>().ToTable("crm_savedview");
         // Per-user grants: deleting a login must not delete the connection row
         // (an admin can re-own it) — null the owner instead.
         b.Entity<Integration>()
@@ -129,6 +163,9 @@ public class AppDbContext : DbContext
             .WithMany()
             .HasForeignKey(i => i.OwnerUserId)
             .OnDelete(DeleteBehavior.SetNull);
+        b.Entity<ApiKey>().ToTable("crm_apikey");
+        b.Entity<ApiKey>().HasIndex(k => k.Prefix).IsUnique().HasDatabaseName("uniq_apikey_prefix");
+        b.Entity<AssistantAction>().ToTable("crm_assistantaction");
 
         // ---- Profile <-> Entity many-to-many (Django crm_profile_entities) -----
         b.Entity<Profile>()
@@ -165,6 +202,8 @@ public class AppDbContext : DbContext
             .IsUnique()
             .HasFilter("[external_id] <> ''")
             .HasDatabaseName("uniq_message_thread_external_id");
+        // receipts look a message up by its provider id alone (statuses carry no thread)
+        b.Entity<Message>().HasIndex(m => m.ExternalId).HasDatabaseName("ix_message_external_id");
         b.Entity<Thread>()
             .HasIndex(t => new { t.Channel, t.Key })
             .IsUnique()
@@ -180,8 +219,6 @@ public class AppDbContext : DbContext
         // ---- JSON columns ------------------------------------------------------
         Json<Contact, List<string>>(b, x => x.Tags);
         Json<Contact, Dictionary<string, object?>>(b, x => x.Attributes);
-        Json<Resource, Dictionary<string, object?>>(b, x => x.Config);
-        Json<Resource, Dictionary<string, object?>>(b, x => x.Attributes);
         Json<Record, Dictionary<string, object?>>(b, x => x.Data);
         Json<RecordEvent, Dictionary<string, object?>>(b, x => x.Data);
         Json<ChannelAccount, Dictionary<string, object?>>(b, x => x.Config);
@@ -194,6 +231,7 @@ public class AppDbContext : DbContext
         Json<AutomationRule, List<object?>>(b, x => x.Conditions);
         Json<AutomationRule, List<object?>>(b, x => x.Actions);
         Json<KnowledgeItem, List<string>>(b, x => x.Channels);
+        Json<CannedResponse, List<string>>(b, x => x.Channels);
         Json<FlowRun, Dictionary<string, object?>>(b, x => x.Context);
         Json<FlowRun, List<object?>>(b, x => x.Log);
         Json<OutboundJob, Dictionary<string, object?>>(b, x => x.Payload);
@@ -201,6 +239,11 @@ public class AppDbContext : DbContext
         Json<ConversationSummary, List<object?>>(b, x => x.Facts);
         Json<Integration, Dictionary<string, object?>>(b, x => x.Credentials);
         Json<Integration, Dictionary<string, object?>>(b, x => x.Config);
+        Json<AgentSkill, List<string>>(b, x => x.Channels);
+        Json<ApiKey, List<string>>(b, x => x.Scopes);
+        Json<AiDraft, Dictionary<string, object?>>(b, x => x.Context);
+        Json<Tag, List<TagAttribute>>(b, x => x.Attributes);
+        Json<TagAssignment, Dictionary<string, object?>>(b, x => x.Values);
 
         // ---- snake_case columns to match Django (<field>_id for FKs) -----------
         // Django names every column snake_case; matching it is what lets this

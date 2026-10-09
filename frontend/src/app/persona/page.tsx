@@ -15,11 +15,13 @@ import {
 } from 'lucide-react'
 import { useApp } from '@/lib/AppContext'
 import { SectionLabel } from '@/components/ui/Card'
+import { Select } from '@/components/ui/Select'
 import { buildOpeningLine } from '@/lib/personaLine'
 import { stopPreview, subscribePlaying } from '@/lib/voice'
 import { PERSONAS, PERSONA_LABELS } from '@/lib/personas'
 import { PronunciationSettings } from '@/components/settings/PronunciationSettings'
 import type { Voice } from '@/lib/mocks'
+import { tint } from '@/lib/color'
 
 function errMessage(err: unknown): string {
   return err instanceof Error && err.message ? err.message : 'Preview unavailable.'
@@ -42,19 +44,7 @@ function VoiceFilterSelect({
   onChange: (v: string) => void
   opts: { value: string; label: string }[]
 }) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="cursor-pointer rounded-[7px] border border-line-strong bg-well px-2.5 py-1.5 text-[12px] font-semibold text-text-high outline-none"
-    >
-      {opts.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  )
+  return <Select value={value} onChange={onChange} options={opts} className="min-w-[130px]" />
 }
 
 // Free-text fields (gender, accent) come from ElevenLabs labels or manual entry with
@@ -260,10 +250,10 @@ export default function PersonaPage() {
       {/* Intro */}
       <div
         className="flex items-start gap-3 rounded-2xl px-[18px] py-3.5"
-        style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.16)' }}
+        style={{ background: 'rgba(255,90,31,0.06)', border: '1px solid rgba(255,90,31,0.16)' }}
       >
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-brand-400/15">
-          <Mic size={16} strokeWidth={1.75} color="#93C5FD" />
+          <Mic size={16} strokeWidth={1.75} color="#D9480F" />
         </div>
         <div>
           <div className="mb-0.5 text-[13px] font-bold text-text-high">Voice &amp; Calls</div>
@@ -277,8 +267,8 @@ export default function PersonaPage() {
       <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
         {PERSONAS.map((p) => (
           <div key={p.id} className="rounded-2xl border border-line bg-card p-4">
-            <div className="mb-2 grid h-9 w-9 place-items-center rounded-xl" style={{ background: p.color + '1A' }}>
-              <p.Icon size={16} strokeWidth={1.85} color={p.color} />
+            <div className="mb-2 grid h-9 w-9 place-items-center rounded-xl" style={{ background: tint(p.color, '1A') }}>
+              <p.Icon size={16} strokeWidth={1.85} style={{ color: p.color }} />
             </div>
             <div className="text-[12.5px] font-bold text-text-high">{p.label}</div>
             <div className="mt-0.5 text-[11px] leading-snug text-text-muted">{p.sub}</div>
@@ -311,9 +301,9 @@ export default function PersonaPage() {
                 onClick={() => setPreviewLangTab(l.id)}
                 className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
                 style={{
-                  border: `1px solid ${previewLangTab === l.id ? 'rgba(59,130,246,0.5)' : 'var(--line)'}`,
-                  background: previewLangTab === l.id ? 'rgba(59,130,246,0.12)' : 'transparent',
-                  color: previewLangTab === l.id ? '#93C5FD' : 'var(--text-muted)',
+                  border: `1px solid ${previewLangTab === l.id ? 'rgba(255,90,31,0.5)' : 'var(--line)'}`,
+                  background: previewLangTab === l.id ? 'rgba(255,90,31,0.12)' : 'transparent',
+                  color: previewLangTab === l.id ? 'var(--brand-ink)' : 'var(--text-muted)',
                 }}
               >
                 {l.label}
@@ -349,7 +339,7 @@ export default function PersonaPage() {
               </div>
               <div className="flex flex-1 flex-col items-center gap-2 overflow-y-auto p-[22px] text-center">
                 <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-400/15">
-                  <Mic size={20} strokeWidth={1.75} color="#93C5FD" />
+                  <Mic size={20} strokeWidth={1.75} color="#D9480F" />
                 </div>
                 <div className="text-[13px] font-bold text-text-high">Add your own voice</div>
                 <div className="text-[11px] text-text-muted">MP3 or WAV · 30-60s of clear speech recommended</div>
@@ -365,30 +355,22 @@ export default function PersonaPage() {
                   </div>
                 </details>
                 <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
-                  <select
+                  <Select
                     value={cloneLanguage}
-                    onChange={(e) => setCloneLanguage(e.target.value)}
+                    onChange={setCloneLanguage}
                     disabled={busy || recording}
-                    className="cursor-pointer rounded-md border border-line-strong bg-well px-2.5 py-1.5 text-[11px] font-semibold text-text-high outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {CLONE_LANGUAGES.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.label}
-                      </option>
-                    ))}
-                  </select>
-                  <select
+                    options={CLONE_LANGUAGES.map((l) => ({ value: l.id, label: l.label }))}
+                    ariaLabel="Voice language"
+                    className="w-[130px]"
+                  />
+                  <Select
                     value={clonePersona}
-                    onChange={(e) => setClonePersona(e.target.value)}
+                    onChange={setClonePersona}
                     disabled={busy || recording}
-                    className="cursor-pointer rounded-md border border-line-strong bg-well px-2.5 py-1.5 text-[11px] font-semibold text-text-high outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {PERSONAS.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.label}
-                      </option>
-                    ))}
-                  </select>
+                    options={PERSONAS.map((p) => ({ value: p.id, label: p.label }))}
+                    ariaLabel="Voice persona"
+                    className="w-[150px]"
+                  />
                   <button
                     disabled={busy || recording}
                     onClick={() => fileRef.current?.click()}
@@ -469,8 +451,8 @@ export default function PersonaPage() {
                 onClick={() => !editing && ready && setSelectedVoice(v.id)}
                 className="relative flex h-full flex-col rounded-[11px] p-3.5 transition-all"
                 style={{
-                  border: `1.5px solid ${sel ? 'rgba(59,130,246,0.5)' : 'var(--line)'}`,
-                  background: sel ? 'rgba(59,130,246,0.08)' : 'var(--fill-subtle)',
+                  border: `1.5px solid ${sel ? 'rgba(255,90,31,0.5)' : 'var(--line)'}`,
+                  background: sel ? 'rgba(255,90,31,0.08)' : 'var(--fill-subtle)',
                   cursor: editing ? 'default' : ready ? 'pointer' : 'default',
                   opacity: ready ? 1 : 0.7,
                 }}
@@ -496,7 +478,7 @@ export default function PersonaPage() {
                           className="flex h-6 w-6 items-center justify-center rounded-full bg-fill-hover"
                           aria-label="Edit voice"
                         >
-                          <Pencil size={12} strokeWidth={2} color="#94A3B8" />
+                          <Pencil size={12} strokeWidth={2} color="#8A8177" />
                         </button>
                         <button
                           onClick={(e) => {
@@ -506,7 +488,7 @@ export default function PersonaPage() {
                           className="flex h-6 w-6 items-center justify-center rounded-full bg-fill-hover"
                           aria-label="Delete voice"
                         >
-                          <Trash2 size={12} strokeWidth={2} color="#F87171" />
+                          <Trash2 size={12} strokeWidth={2} color="#C0392B" />
                         </button>
                       </>
                     )}
@@ -515,16 +497,16 @@ export default function PersonaPage() {
                 <div className="mb-2.5 flex items-start gap-2.5 pr-[132px]">
                   <div
                     className="relative flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px]"
-                    style={{ background: v.custom ? 'rgba(139,92,246,0.18)' : 'rgba(59,130,246,0.15)' }}
+                    style={{ background: v.custom ? 'rgba(122,78,140,0.18)' : 'rgba(255,90,31,0.15)' }}
                   >
                     {v.custom ? (
-                      <User size={15} strokeWidth={1.75} color="#C4B5FD" />
+                      <User size={15} strokeWidth={1.75} color="#7A4E8C" />
                     ) : (
-                      <Mic size={15} strokeWidth={1.75} color="#93C5FD" />
+                      <Mic size={15} strokeWidth={1.75} color="#D9480F" />
                     )}
                     {sel && !editing && (
                       <div className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-card">
-                        <CheckCircle size={14} strokeWidth={2} color="#3B82F6" />
+                        <CheckCircle size={14} strokeWidth={2} color="#D9480F" />
                       </div>
                     )}
                   </div>
@@ -564,28 +546,18 @@ export default function PersonaPage() {
                         placeholder="Accent"
                       />
                     </div>
-                    <select
+                    <Select
                       value={editLanguage}
-                      onChange={(e) => setEditLanguage(e.target.value)}
-                      className="cursor-pointer rounded-md border border-line-strong bg-well px-2 py-1 text-[11px] text-text-high outline-none"
-                    >
-                      {EDIT_LANGUAGES.map((l) => (
-                        <option key={l.id} value={l.id}>
-                          {l.label}
-                        </option>
-                      ))}
-                    </select>
-                    <select
+                      onChange={setEditLanguage}
+                      options={EDIT_LANGUAGES.map((l) => ({ value: l.id, label: l.label }))}
+                      ariaLabel="Voice language"
+                    />
+                    <Select
                       value={editPersona}
-                      onChange={(e) => setEditPersona(e.target.value)}
-                      className="cursor-pointer rounded-md border border-line-strong bg-well px-2 py-1 text-[11px] text-text-high outline-none"
-                    >
-                      {PERSONAS.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.label}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={setEditPersona}
+                      options={PERSONAS.map((p) => ({ value: p.id, label: p.label }))}
+                      ariaLabel="Voice persona"
+                    />
                     <div className="mt-1 flex gap-1.5">
                       <button
                         disabled={voiceActionBusy}
@@ -611,7 +583,7 @@ export default function PersonaPage() {
                           key={i}
                           className="w-[2.5px] rounded-sm"
                           style={{
-                            background: playingId === v.id ? '#3B82F6' : ready ? '#3B82F6' : '#475569',
+                            background: playingId === v.id ? 'rgb(var(--c-brand))' : ready ? 'rgb(var(--c-brand))' : 'var(--text-mid)',
                             height: playingId === v.id ? undefined : 6,
                             animation: playingId === v.id ? `${w} ${1 + i * 0.07}s ease-in-out infinite` : 'none',
                           }}
@@ -641,11 +613,11 @@ export default function PersonaPage() {
                           aria-label={loadingId === v.id ? 'Loading preview' : playingId === v.id ? 'Stop preview' : 'Play preview'}
                         >
                           {loadingId === v.id ? (
-                            <Loader2 size={12} strokeWidth={2} color="#93C5FD" className="animate-spin" />
+                            <Loader2 size={12} strokeWidth={2} color="#D9480F" className="animate-spin" />
                           ) : playingId === v.id ? (
-                            <Pause size={12} strokeWidth={2} color="#93C5FD" />
+                            <Pause size={12} strokeWidth={2} color="#D9480F" />
                           ) : (
-                            <Play size={12} strokeWidth={2} color="#93C5FD" />
+                            <Play size={12} strokeWidth={2} color="#D9480F" />
                           )}
                         </button>
                       ) : isGemini ? (
@@ -654,8 +626,8 @@ export default function PersonaPage() {
                       {ready ? (
                         <span className="text-[10px] font-bold text-green-300">Ready</span>
                       ) : (
-                        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-amber-300" style={{ color: '#FCD34D' }}>
-                          <Loader2 size={11} strokeWidth={2.5} color="#FCD34D" className="animate-spin" />
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-amber-300" style={{ color: 'var(--amber-ink)' }}>
+                          <Loader2 size={11} strokeWidth={2.5} color="#B7791F" className="animate-spin" />
                           Processing
                         </span>
                       )}
@@ -685,7 +657,7 @@ export default function PersonaPage() {
           </div>
         )}
         <div className="mt-4 flex items-center gap-1.5 text-[11px] text-text-muted">
-          <RefreshCw size={12} strokeWidth={1.75} color="#64748B" />
+          <RefreshCw size={12} strokeWidth={1.75} color="#8A8177" />
           Selected voices are assignable per campaign in Playbook and Live Calling.
         </div>
       </div>

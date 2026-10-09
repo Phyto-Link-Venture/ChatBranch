@@ -114,13 +114,13 @@ export const STATUS_STYLE: Record<
   partial: {
     label: (s) => `Partial (${s.granted}/${s.total})`,
     ink: 'var(--amber-ink)',
-    pillBg: 'rgba(245,158,11,0.14)',
+    pillBg: 'rgba(200,137,26,0.14)',
     border: 'var(--amber-ink)',
   },
   full: {
     label: (s) => `Full access (${s.total}/${s.total})`,
     ink: 'var(--green-ink)',
-    pillBg: 'rgba(16,185,129,0.14)',
+    pillBg: 'rgba(47,125,79,0.14)',
     border: 'var(--green-ink)',
   },
 }

@@ -1,6 +1,7 @@
 import { LegacyRedirect } from '@/components/shell/LegacyRedirect'
 
-// Moved to a top-level route (upgrade §1). Old link redirects.
+// The old Settings → Notifications tab (organization mute switches) lives at
+// Settings → Organization → Notification defaults; /notifications is the inbox.
 export default function LegacyNotifSettingsPage() {
-  return <LegacyRedirect to="/notifications" />
+  return <LegacyRedirect to="/settings/notifications" />
 }

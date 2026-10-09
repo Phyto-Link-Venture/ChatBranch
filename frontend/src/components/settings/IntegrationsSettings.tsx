@@ -8,21 +8,17 @@ import {
   Check,
   CheckCircle,
   Copy,
-  CreditCard,
-  FileSpreadsheet,
-  FolderOpen,
   KeyRound,
   Link2,
   Loader2,
   Lock,
-  Mail,
   Plug,
   RefreshCw,
-  ShoppingBag,
   Trash2,
   Unplug,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { Modal } from '@/components/ui/Modal'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { roleHeaders } from '@/lib/role'
@@ -99,23 +95,26 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 const inputCls =
   'w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400'
 
-const ICONS: Record<string, typeof Plug> = {
-  google_calendar: CalendarDays,
-  google_drive: FolderOpen,
-  gmail: Mail,
-  google_sheets: FileSpreadsheet,
-  shopify: ShoppingBag,
-  stripe: CreditCard,
+/** Providers with a real brand mark (ChannelLogo); anything else gets a plug. */
+const BRANDED = new Set(['google_calendar', 'google_drive', 'gmail', 'google_sheets', 'shopify', 'stripe'])
+
+function ProviderLogo({ id, size }: { id: string; size: number }) {
+  if (BRANDED.has(id)) return <ChannelLogo channel={id} size={size} variant="tile" title="" />
+  return (
+    <span className="grid shrink-0 place-items-center rounded-lg bg-fill" style={{ width: size, height: size }}>
+      <Plug size={Math.round(size * 0.5)} className="text-text-muted" aria-hidden />
+    </span>
+  )
 }
 
 /** Per-account health chip (used in the connected-accounts table). Static hex
  *  only: `var(--…)` inside a lucide `color=` prop renders invisible. */
 function StatusChip({ status, detail }: { status: string; detail?: string }) {
   const map: Record<string, { bg: string; fg: string; lbl: string }> = {
-    healthy: { bg: 'rgba(16,185,129,0.12)', fg: 'var(--green-ink)', lbl: 'Healthy' },
-    degraded: { bg: 'rgba(245,158,11,0.12)', fg: 'var(--amber-ink)', lbl: 'Degraded' },
-    disconnected: { bg: 'rgba(239,68,68,0.12)', fg: 'var(--red-ink)', lbl: 'Disconnected' },
-    revoked: { bg: 'rgba(239,68,68,0.12)', fg: 'var(--red-ink)', lbl: 'Revoked' },
+    healthy: { bg: 'rgba(47,125,79,0.12)', fg: 'var(--green-ink)', lbl: 'Healthy' },
+    degraded: { bg: 'rgba(200,137,26,0.12)', fg: 'var(--amber-ink)', lbl: 'Degraded' },
+    disconnected: { bg: 'rgba(192,57,43,0.12)', fg: 'var(--red-ink)', lbl: 'Disconnected' },
+    revoked: { bg: 'rgba(192,57,43,0.12)', fg: 'var(--red-ink)', lbl: 'Revoked' },
     unknown: { bg: 'var(--fill)', fg: 'var(--text-muted)', lbl: 'Not checked' },
   }
   const s = map[status] || map.unknown
@@ -351,12 +350,9 @@ export function IntegrationsSettings() {
       width: 200,
       value: (a) => a.provider_label,
       render: (a) => {
-        const Icon = ICONS[a.provider] || Plug
         return (
           <div className="flex items-center gap-2.5">
-            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-fill">
-              <Icon size={14} color="#3B82F6" aria-hidden />
-            </span>
+            <ProviderLogo id={a.provider} size={28} />
             <span className="text-[12.5px] font-semibold text-text-high">{a.provider_label}</span>
           </div>
         )
@@ -494,7 +490,6 @@ export function IntegrationsSettings() {
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {providers.map((p) => {
-            const Icon = ICONS[p.id] || Plug
             const status = providerStatus(p)
             const blocked = status === 'needs_setup'
             return (
@@ -503,9 +498,7 @@ export function IntegrationsSettings() {
                 className="flex flex-col gap-3 rounded-xl border border-line bg-card p-4"
               >
                 <div className="flex items-start gap-2.5">
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-fill">
-                    <Icon size={16} color="#3B82F6" aria-hidden />
-                  </span>
+                  <ProviderLogo id={p.id} size={36} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-[12.5px] font-bold text-text-high">{p.label}</span>
@@ -575,7 +568,7 @@ export function IntegrationsSettings() {
         {showBookingHours && (
           <div className="mt-1 rounded-xl border border-line bg-card p-4">
             <div className="mb-1 flex items-center gap-2">
-              <CalendarDays size={15} color="#3B82F6" aria-hidden />
+              <CalendarDays size={15} color="#D9480F" aria-hidden />
               <h3 className="text-[13px] font-bold text-text-high">Google Calendar · Booking hours</h3>
             </div>
             <p className="mb-2 text-[11px] leading-relaxed text-text-muted">
