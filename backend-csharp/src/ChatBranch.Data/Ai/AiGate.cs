@@ -233,6 +233,8 @@ public class AiGate
         draft.SendAfter = null;
         draft.UpdatedAt = Now;
         _db.SaveChanges();
+        Learning.LearningService.OnDraftDecided(_db, _scoping, draft,
+            edited ? AiFeedbackKind.Edited : AiFeedbackKind.Approved, actor, clock: _clock); // implicit feedback
 
         var account = Account(draft.AccountId ?? thread.AccountId);
         var policy = AiBehaviourSettings.Resolve(_scoping, thread.EntityId, account);
@@ -253,6 +255,8 @@ public class AiGate
         draft.SendAfter = null;
         draft.UpdatedAt = Now;
         _db.SaveChanges();
+        Learning.LearningService.OnDraftDecided(_db, _scoping, draft, AiFeedbackKind.Rejected, actor, r,
+            _clock); // implicit feedback
         BumpThread(draft.ThreadId);
         return Outcome("rejected", draft.Id, "Rejected.");
     }
