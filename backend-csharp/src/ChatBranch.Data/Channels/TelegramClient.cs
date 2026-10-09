@@ -201,6 +201,14 @@ public static class TelegramBot
             allowed_updates = new[] { "message" },
         }, ct);
 
+    /// <summary>
+    /// "typing…" in the chat (sendChatAction). Telegram shows it for ~5 s or until
+    /// the bot's next message — the AI's human-like typing pause.
+    /// </summary>
+    public static Task<TelegramResult> SendChatActionAsync(this ITelegramClient c, ChannelAccount a, string chatId,
+        string action = "typing", CancellationToken ct = default) =>
+        c.CallAsync(a.AccessToken, "sendChatAction", new { chat_id = chatId, action }, ct);
+
     /// <summary>The webhook secret Telegram echoes in X-Telegram-Bot-Api-Secret-Token ("" = none set).</summary>
     public static string WebhookSecret(ChannelAccount a) => EmailConfig.Cfg(a.Config ?? new(), "webhook_secret");
 
