@@ -24,6 +24,12 @@ services:
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-}
       - SIP_OUTBOUND_TRUNK_ID=${SIP_OUTBOUND_TRUNK_ID:-}
       - AGENT_NAME=${AGENT_NAME:-chatbranch-agent}
+      # WhatsApp Web (profile `whatsapp`): where the gateway listens and the
+      # secret both sides send — the same value the baileys service gets below.
+      # Without the profile the host doesn't resolve and QR accounts read as
+      # unreachable; a URL saved in the dashboard still wins.
+      - BAILEYS_URL=${BAILEYS_URL:-http://baileys:3020}
+      - BAILEYS_SECRET=${BAILEYS_SECRET:-baileys-local-dev}
     volumes:
       # SQLite is a FILE — without this volume every redeploy starts from an
       # empty database and re-seeds the demo users. It is also the data dir the
@@ -52,7 +58,13 @@ services:
     environment:
       - API_URL=http://api:8090
       - BAILEYS_SECRET=${BAILEYS_SECRET:-baileys-local-dev}
+      # listen beyond loopback so the api container can reach it (no host port)
+      - BAILEYS_HOST=0.0.0.0
     volumes:
+      # the API's data dir: call recordings (whatsapp/calls/recordings) land
+      # where the API streams them from
+      - chatbranch-data:/srv/data
+      # the paired WhatsApp sessions stay in their own volume, mounted over it
       - baileys-auth:/srv/data/whatsapp/baileys
     depends_on:
       - api

@@ -76,6 +76,10 @@ for (const [event, label] of [['unhandledRejection', 'UNHANDLED REJECTION'],
 }
 
 const PORT = Number(process.env.BAILEYS_PORT || 3020)
+// Loopback by default: only the API on this machine may call the gateway. In
+// Docker the API is another container, so compose sets BAILEYS_HOST=0.0.0.0
+// (the port is not published — it is reachable on the compose network only).
+const HOST = process.env.BAILEYS_HOST || '127.0.0.1'
 const SECRET = process.env.BAILEYS_SECRET || 'baileys-local-dev'
 // The API this gateway pushes inbound events to. Named DJANGO_URL when the
 // backend was Django; that name is still accepted so existing runbooks and
@@ -631,8 +635,8 @@ http
       return json(res, 502, { detail: e.message })
     }
   })
-  .listen(PORT, '127.0.0.1', () => {
-    console.log(`Baileys gateway on http://127.0.0.1:${PORT} (auth state: ${AUTH_ROOT})`)
+  .listen(PORT, HOST, () => {
+    console.log(`Baileys gateway on http://${HOST}:${PORT} (auth state: ${AUTH_ROOT})`)
     loadHints()
     // resume sessions that were paired before the restart
     if (existsSync(AUTH_ROOT)) {

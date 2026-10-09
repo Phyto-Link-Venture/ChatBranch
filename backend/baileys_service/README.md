@@ -82,6 +82,8 @@ drawer shows the QR). Calls need `LIVEKIT_URL` /
 agent worker running — same requirements as every other call path.
 
 Env (loaded from `backend/.env`; shell variables win): `BAILEYS_PORT` (3020),
+`BAILEYS_HOST` (bind address, `127.0.0.1`; docker compose sets `0.0.0.0` so the
+API container can reach it on the compose network — the port is not published),
 `BAILEYS_SECRET` (shared with the API — Setting `baileys_secret` or env on the
 API side; change the default), `API_URL` (push target; legacy `DJANGO_URL` still
 accepted), `BAILEYS_LOG_LEVEL`, `BAILEYS_RECORD_CALLS`. Call length is capped by
