@@ -106,10 +106,26 @@ public static partial class EmailParser
     private static partial Regex OutlookFrom();
     [GeneratedRegex(@"^\s*(Sent|Date):\s.+$", RegexOptions.IgnoreCase)]
     private static partial Regex OutlookSent();
-    [GeneratedRegex(@"<(script|style)[^>]*>.*?</\1>", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
-    private static partial Regex ScriptStyle();
-    [GeneratedRegex(@"<\s*(br|/p|/div|/li|/tr|/h[1-6])\s*/?\s*>", RegexOptions.IgnoreCase)]
-    private static partial Regex BlockBreak();
+    [GeneratedRegex(@"<!--.*?-->", RegexOptions.Singleline)]
+    private static partial Regex Comments();
+    [GeneratedRegex(@"<(script|style|head|title|noscript|template|svg)\b[^>]*>.*?</\1\s*>",
+        RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex Invisible();
+    [GeneratedRegex(@"<a\b[^>]*?\bhref\s*=\s*(?:""(?<href>[^""]*)""|'(?<href>[^']*)')[^>]*>(?<text>.*?)</a\s*>",
+        RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex Anchor();
+    [GeneratedRegex(@"\s+")]
+    private static partial Regex SourceSpace();
+    [GeneratedRegex(@"<\s*br\b[^>]*>", RegexOptions.IgnoreCase)]
+    private static partial Regex LineBreak();
+    [GeneratedRegex(@"<\s*/?\s*(p|h[1-6]|blockquote|ul|ol|table|hr|pre)\b[^>]*>", RegexOptions.IgnoreCase)]
+    private static partial Regex ParagraphBreak();
+    [GeneratedRegex(@"<\s*/\s*(div|tr|dd|dt|section|article|header|footer|address)\s*>", RegexOptions.IgnoreCase)]
+    private static partial Regex BlockEnd();
+    [GeneratedRegex(@"<\s*li\b[^>]*>", RegexOptions.IgnoreCase)]
+    private static partial Regex ListItem();
+    [GeneratedRegex(@"<\s*/\s*(td|th)\s*>", RegexOptions.IgnoreCase)]
+    private static partial Regex CellEnd();
     [GeneratedRegex(@"<[^>]+>")]
     private static partial Regex AnyTag();
     [GeneratedRegex(@"[ \t]+")]
@@ -178,12 +194,38 @@ public static partial class EmailParser
         return kept.Length > 0 ? kept : string.Join("\n", lines).Trim();
     }
 
+    /// <summary>
+    /// Flatten an HTML-only mail into readable text: comments, scripts, styles
+    /// and the head are dropped; source whitespace collapses (it is not layout in
+    /// HTML); &lt;br&gt; and block ends become line breaks, paragraphs a blank
+    /// line, list items "• "; a link keeps its URL next to its text; every
+    /// remaining tag is removed and only THEN entities are decoded (so escaped
+    /// markup in the mail stays literal text, never a tag).
+    /// </summary>
     public static string HtmlToText(string html)
     {
-        var s = ScriptStyle().Replace(html, "");
-        s = BlockBreak().Replace(s, "\n");
+        var s = Comments().Replace(html ?? "", "");
+        s = Invisible().Replace(s, "");
+        s = SourceSpace().Replace(s, " ");
+        s = Anchor().Replace(s, m =>
+        {
+            var inner = m.Groups["text"].Value;
+            var href = m.Groups["href"].Value.Trim();
+            var plainHref = WebUtility.HtmlDecode(href);
+            var plainText = WebUtility.HtmlDecode(AnyTag().Replace(inner, "")).Trim();
+            var web = plainHref.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                      || plainHref.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+            if (!web || plainText.Contains(plainHref, StringComparison.OrdinalIgnoreCase)) return inner;
+            return plainText.Length == 0 ? href : $"{inner} ({href})";
+        });
+        s = LineBreak().Replace(s, "\n");
+        s = ParagraphBreak().Replace(s, "\n\n");
+        s = ListItem().Replace(s, "\n• ");
+        s = BlockEnd().Replace(s, "\n");
+        s = CellEnd().Replace(s, " ");
         s = AnyTag().Replace(s, "");
         s = WebUtility.HtmlDecode(s);
+        s = s.Replace(' ', ' ').Replace("​", "").Replace("‌", "").Replace("﻿", "");
         s = Spaces().Replace(s, " ");
         s = string.Join("\n", s.Split('\n').Select(l => l.Trim()));
         return ManyBreaks().Replace(s, "\n\n").Trim();

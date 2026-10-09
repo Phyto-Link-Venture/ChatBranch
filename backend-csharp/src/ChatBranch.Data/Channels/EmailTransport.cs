@@ -1,4 +1,6 @@
 using System.Net.Sockets;
+using System.Text;
+using System.Text.RegularExpressions;
 using MailKit;
 using MailKit.Net.Smtp;
 using MailKit.Security;
@@ -114,10 +116,12 @@ public sealed class MailKitEmailTransport : IEmailTransport
 public sealed record EmailAttachment(string FileName, byte[] Content, string ContentType);
 
 /// <summary>
-/// Builds the outgoing MIME message: plain-text body, From = the mailbox
-/// address, a fresh Message-ID and — when the conversation has history —
-/// In-Reply-To / References so the customer's mail client threads the reply.
-/// Pure (no I/O) so it is unit-testable.
+/// Builds the outgoing MIME message: a multipart/alternative body (the plain
+/// text as typed + its safe HTML rendering, <see cref="EmailHtml"/>), wrapped in
+/// multipart/mixed when there are attachments; From = the mailbox address, a
+/// fresh Message-ID and — when the conversation has history — In-Reply-To /
+/// References so the customer's mail client threads the reply. Pure (no I/O)
+/// so it is unit-testable.
 /// </summary>
 public static class EmailComposer
 {
@@ -164,10 +168,134 @@ public static class EmailComposer
         foreach (var r in references.Select(Bare).Where(r => r.Length > 0).Distinct().TakeLast(MaxReferences))
             try { msg.References.Add(r); } catch { }
 
-        var builder = new BodyBuilder { TextBody = body };
+        // multipart/alternative: the text as typed + an HTML rendering of the SAME
+        // text (escaped, never raw HTML); attachments wrap it in multipart/mixed
+        var builder = new BodyBuilder { TextBody = body, HtmlBody = EmailHtml.Render(body) };
         foreach (var a in attachments ?? Array.Empty<EmailAttachment>())
             builder.Attachments.Add(a.FileName, a.Content, ContentType.Parse(a.ContentType));
         msg.Body = builder.ToMessageBody();
         return msg;
+    }
+}
+
+/// <summary>
+/// The HTML alternative of an outgoing mail, rendered SAFELY from the plain
+/// text the operator (or the AI) wrote — there is no HTML compose, so nothing
+/// typed is ever passed through as markup:
+/// <list type="bullet">
+///   <item>every character is HTML-escaped (<c>&amp; &lt; &gt; " '</c>);</item>
+///   <item>blank lines separate paragraphs, a single newline is a <c>&lt;br&gt;</c>,
+///         leading indentation is kept;</item>
+///   <item>http(s) URLs and email addresses become links whose href is built
+///         from the escaped match (only <c>http://</c>, <c>https://</c> and
+///         <c>mailto:</c> — a <c>javascript:</c> "link" stays text), with
+///         trailing punctuation left outside the link;</item>
+///   <item>a minimal inline-styled wrapper (mail clients drop &lt;style&gt;).</item>
+/// </list>
+/// Pure, so it is unit-tested directly.
+/// </summary>
+public static partial class EmailHtml
+{
+    private const string LinkStyle = "color:#c2410c;text-decoration:underline;";
+
+    [GeneratedRegex(
+        @"(?<url>\bhttps?://[^\s<>""`]+)|(?<![A-Za-z0-9._%+\-])(?<email>[A-Za-z0-9._%+\-]+@[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?)*\.[A-Za-z]{2,})",
+        RegexOptions.IgnoreCase)]
+    private static partial Regex Linkable();
+
+    [GeneratedRegex(@"\n(?:[ \t]*\n)+")]
+    private static partial Regex BlankLines();
+
+    public static string Render(string? text)
+    {
+        var body = (text ?? "").Replace("\r\n", "\n").Replace('\r', '\n');
+        var sb = new StringBuilder();
+        sb.Append("<!DOCTYPE html>\n<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\">")
+          .Append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head>\n")
+          .Append("<body style=\"margin:0;padding:0;background-color:#ffffff;\">\n")
+          .Append("<div style=\"max-width:640px;padding:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',")
+          .Append("Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#1f2328;\">\n");
+        foreach (var paragraph in BlankLines().Split(body))
+        {
+            // whitespace-only lines at a paragraph's edges (the text's own start/end) are not content
+            var lines = paragraph.Split('\n').SkipWhile(l => l.Trim().Length == 0).Reverse()
+                .SkipWhile(l => l.Trim().Length == 0).Reverse().ToList();
+            if (lines.Count == 0) continue;
+            sb.Append("<p style=\"margin:0 0 1em 0;\">")
+              .Append(string.Join("<br>\n", lines.Select(Line)))
+              .Append("</p>\n");
+        }
+        sb.Append("</div>\n</body></html>\n");
+        return sb.ToString();
+    }
+
+    /// <summary>One line: leading indentation kept, everything escaped, URLs and addresses linked.</summary>
+    public static string Line(string line)
+    {
+        var sb = new StringBuilder();
+        var i = 0;
+        for (; i < line.Length && line[i] is ' ' or '\t'; i++)
+            sb.Append(line[i] == '\t' ? "&nbsp;&nbsp;&nbsp;&nbsp;" : "&nbsp;");
+        var rest = line[i..].TrimEnd();
+        var last = 0;
+        foreach (Match m in Linkable().Matches(rest))
+        {
+            if (m.Index < last) continue;
+            string href, shown;
+            if (m.Groups["url"].Success)
+            {
+                shown = TrimUrl(m.Value);
+                if (shown.Length <= shown.IndexOf("://", StringComparison.Ordinal) + 3) continue; // "https://" alone
+                href = shown;
+            }
+            else
+            {
+                shown = m.Value;
+                href = $"mailto:{shown}";
+            }
+            sb.Append(Escape(rest[last..m.Index]))
+              .Append("<a href=\"").Append(Escape(href)).Append("\" style=\"").Append(LinkStyle).Append("\">")
+              .Append(Escape(shown)).Append("</a>");
+            last = m.Index + shown.Length;
+        }
+        sb.Append(Escape(rest[last..]));
+        return sb.ToString();
+    }
+
+    /// <summary>Sentence punctuation after a URL is not part of it; neither is an unbalanced closing bracket.</summary>
+    public static string TrimUrl(string url)
+    {
+        var s = url;
+        while (s.Length > 0)
+        {
+            var c = s[^1];
+            if (".,;:!?'*_~".Contains(c)) { s = s[..^1]; continue; }
+            if ((c == ')' && s.Count(x => x == '(') < s.Count(x => x == ')'))
+                || (c == ']' && s.Count(x => x == '[') < s.Count(x => x == ']'))
+                || (c == '}' && s.Count(x => x == '{') < s.Count(x => x == '}')))
+            {
+                s = s[..^1];
+                continue;
+            }
+            break;
+        }
+        return s;
+    }
+
+    /// <summary>HTML-escape text and attribute values alike.</summary>
+    public static string Escape(string s)
+    {
+        var sb = new StringBuilder(s.Length + 16);
+        foreach (var c in s)
+            sb.Append(c switch
+            {
+                '&' => "&amp;",
+                '<' => "&lt;",
+                '>' => "&gt;",
+                '"' => "&quot;",
+                '\'' => "&#39;",
+                _ => c.ToString(),
+            });
+        return sb.ToString();
     }
 }

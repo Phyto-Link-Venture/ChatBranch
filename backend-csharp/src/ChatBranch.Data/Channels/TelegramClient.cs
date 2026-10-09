@@ -228,8 +228,8 @@ public static class TelegramBot
 
 /// <summary>
 /// Outbound Telegram for <see cref="OutboundSender"/>: the bot that carries the
-/// thread (or, for a thread with no bot yet, the first configured one — the
-/// outlet's own before the organization's) sends; no bot = sandbox.
+/// thread (or, for a thread with no bot yet, the routed one — see
+/// <see cref="Route"/>) sends; no bot = sandbox.
 /// </summary>
 public sealed class TelegramChannel
 {
@@ -248,16 +248,22 @@ public sealed class TelegramChannel
         _client = client;
     }
 
-    public ChannelAccount? Route(Thread thread, int? accountId)
+    /// <summary>
+    /// The bot that carries this thread, by the shared send-time rules
+    /// (<see cref="Routing.ForThread"/>, channel "telegram"). A Telegram chat
+    /// only works with the bot the customer started, so a thread keeps its own
+    /// configured bot (a dead one fails honestly — never a failover onto a bot
+    /// that cannot reach them); a thread with no bot yet takes the contact's
+    /// sticky bot → the least-loaded eligible one (the outlet's own before the
+    /// organization's) → the sole bot. Null = sandbox. Tracked, so health writes stick.
+    /// </summary>
+    public ChannelAccount? Route(Thread thread, int? accountId, bool apply = false)
     {
         try
         {
-            var bots = _db.ChannelAccounts.Where(a => a.Channel == ChannelIds.Telegram && a.AccessToken != "").ToList();
-            if ((accountId ?? thread.AccountId) is int id && bots.FirstOrDefault(a => a.Id == id) is { } own)
-                return own;
-            return bots.OrderBy(a => thread.EntityId != null && a.EntityId == thread.EntityId ? 0
-                                     : a.EntityId == null ? 1 : 2)
-                .ThenBy(a => a.Id).FirstOrDefault();
+            var r = new Routing(_db, _scoping).ForThread(thread, RouteNeed.Any, accountId ?? thread.AccountId, apply);
+            var bot = r.Account ?? r.DownAccount;
+            return bot != null && TelegramBot.Configured(bot) ? _db.ChannelAccounts.Find(bot.Id) : null;
         }
         catch { return null; }
     }
@@ -266,7 +272,7 @@ public sealed class TelegramChannel
 
     public Message Send(Thread thread, string text, string source, int? accountId, OutboundMedia? media = null)
     {
-        var bot = Route(thread, accountId);
+        var bot = Route(thread, accountId, apply: true);
         if (bot == null)
         {
             var sandbox = _threads.AppendMessage(thread, MessageDirection.Out, source, text,

@@ -7,29 +7,45 @@ using ChannelIds = ChatBranch.Domain.Channels;
 
 namespace ChatBranch.Data.Channels;
 
-/// <summary>The mailbox an outbound mail leaves through.</summary>
-public sealed record EmailRoute(ChannelAccount? Account, EmailServerSettings Server);
+/// <summary>
+/// The mailbox an outbound mail leaves through. <see cref="Account"/> null =
+/// the organization's default mail settings. <see cref="Via"/> is
+/// <see cref="Routing"/>'s reason (current / sticky / auto / failover / sole)
+/// or "default". <see cref="Error"/> set = every mailbox that may carry this
+/// conversation is down: the send is refused (stored as failed, nothing sent).
+/// </summary>
+public sealed record EmailRoute(ChannelAccount? Account, EmailServerSettings Server, string Via = "")
+{
+    public string? Error { get; init; }
+    public bool Ok => Error == null;
+}
 
 /// <summary>
 /// Outbound email for <see cref="OutboundSender"/> (port of messaging/views
 /// <c>_email_send_account</c> + <c>send_message</c>'s email branch).
 ///
-/// Mailbox resolution, first match wins:
-///  1. the pinned / thread's own email account, while configured and routable;
+/// Mailbox resolution follows the SAME send-time rules as WhatsApp numbers
+/// (<see cref="Routing.ForThread"/>, channel "email"):
+///  1. the pinned / thread's own mailbox while configured and not
+///     disconnected/banned;
 ///  2. the contact's sticky <see cref="AccountAssignment"/> for "email";
-///  3. any configured, routable email account — the thread's outlet's own
-///     mailboxes first, then the organization-wide ones;
-///  4. a configured but currently unhealthy account (better to try than to
-///     pretend: the attempt itself re-tests it);
-///  5. the global SMTP settings (Channels → Advanced / SMTP_* env);
-///  6. nothing → the message is stored as "sandbox".
-/// A routed account is stamped onto the thread (with the entity re-synced) so
-/// replies keep leaving through the same mailbox.
+///  3. no assignment yet → the least-loaded eligible mailbox, which becomes the
+///     contact's unpinned assignment (a conversation with no contact still takes
+///     the least-loaded mailbox, without an assignment);
+///  4. the thread's / assigned mailbox is disconnected or banned → FAILOVER:
+///     the assignment moves and loses its pin, the thread moves, a system note,
+///     an <c>account.failover</c> audit row and an admin notification;
+///  5. nothing eligible while mailboxes ARE configured → refused (a failed
+///     message naming the dead mailbox — never a guess, never sandbox);
+///  6. no configured mailbox at all → the default SMTP settings (Channels →
+///     Advanced / SMTP_* env), else the message is stored as "sandbox".
+/// Eligible mailboxes are the conversation's outlet's own (nearest level of the
+/// entity tree that has one), else the organization-wide ones. A routed
+/// mailbox is stamped onto the thread (entity re-synced) so replies keep
+/// leaving through it.
 /// </summary>
 public sealed class EmailChannel
 {
-    private static readonly string[] Ineligible = { Health.Disconnected, Health.Banned };
-
     private readonly AppDbContext _db;
     private readonly ScopingService _scoping;
     private readonly ThreadStore _threads;
@@ -50,47 +66,32 @@ public sealed class EmailChannel
         _dataDir = dataDir;
     }
 
-    public bool WouldSendLive(Thread thread, int? accountId) => Route(thread, accountId) != null;
+    /// <summary>True when a send would leave through a real mailbox now (a refusal is not live).</summary>
+    public bool WouldSendLive(Thread thread, int? accountId) => Route(thread, accountId) is { Ok: true };
 
-    public EmailRoute? Route(Thread thread, int? accountId)
+    /// <summary>
+    /// The mailbox a mail on this thread leaves through (null = sandbox).
+    /// <paramref name="apply"/>=false is a dry run; with it, routing writes the
+    /// contact's assignment and a failover moves the thread (announced).
+    /// </summary>
+    public EmailRoute? Route(Thread thread, int? accountId, bool apply = false)
     {
         try
         {
-            var accounts = _db.ChannelAccounts.Where(a => a.Channel == ChannelIds.Email).ToList()
-                .Where(EmailConfig.AccountConfigured).ToList();
-            bool Routable(ChannelAccount a) => !Ineligible.Contains(a.HealthStatus);
-
-            var preferred = (accountId ?? thread.AccountId) is int pid
-                ? accounts.FirstOrDefault(a => a.Id == pid) : null;
-            if (preferred != null && Routable(preferred)) return Make(preferred);
-
-            if (thread.ContactId is int cid)
-            {
-                var sticky = _db.AccountAssignments.AsNoTracking()
-                    .Where(x => x.ContactId == cid && x.Channel == ChannelIds.Email)
-                    .Select(x => (int?)x.AccountId).FirstOrDefault();
-                var pinned = sticky is int sid ? accounts.FirstOrDefault(a => a.Id == sid) : null;
-                if (pinned != null && Routable(pinned)) return Make(pinned);
-            }
-
-            var ordered = accounts
-                .OrderBy(a => thread.EntityId != null && a.EntityId == thread.EntityId ? 0
-                              : a.EntityId == null ? 1 : 2)
-                .ThenBy(a => a.Id).ToList();
-            var healthy = ordered.FirstOrDefault(Routable);
-            if (healthy != null) return Make(healthy);
-            var any = preferred ?? ordered.FirstOrDefault();
-            if (any != null) return Make(any);
-
+            var r = new Routing(_db, _scoping).ForThread(thread, RouteNeed.Any, accountId ?? thread.AccountId, apply);
+            if (!r.Ok) return new EmailRoute(null, new EmailServerSettings(), "none") { Error = r.Error };
+            // tracked, so the thread stamp and the health verdict after the send stick
+            if (r.Account is { } a && a.Channel == ChannelIds.Email && Routing.IsEligible(a)
+                && _db.ChannelAccounts.Find(a.Id) is { } mailbox)
+                return new EmailRoute(mailbox, EmailConfig.ForAccount(mailbox, _scoping), r.Via);
+            // no configured mailbox to route between: the organization's default mail settings
             var global = EmailConfig.GlobalSettings(_scoping);
-            return global.SmtpConfigured ? new EmailRoute(null, global) : null;
+            return global.SmtpConfigured ? new EmailRoute(null, global, "default") : null;
         }
         catch
         {
             return null; // routing trouble degrades to sandbox, never to an exception
         }
-
-        EmailRoute Make(ChannelAccount a) => new(a, EmailConfig.ForAccount(a, _scoping));
     }
 
     /// <summary>
@@ -101,12 +102,21 @@ public sealed class EmailChannel
     public Message Send(Thread thread, string text, string source, int? accountId,
         string? subject = null, OutboundMedia? media = null)
     {
-        var route = Route(thread, accountId);
+        var route = Route(thread, accountId, apply: true);
         if (route == null)
         {
             var sandbox = _threads.AppendMessage(thread, MessageDirection.Out, source, text,
                 status: "sandbox", accountId: accountId ?? thread.AccountId);
             return WithMedia(sandbox, media);
+        }
+        if (!route.Ok)
+        {
+            // every mailbox this conversation may use is down: refused, thread untouched
+            var refused = _threads.AppendMessage(thread, MessageDirection.Out, MessageSource.System,
+                $"[send failed: {route.Error}] {text}", status: "failed", accountId: thread.AccountId);
+            refused.Error = route.Error!.Length > 300 ? route.Error[..300] : route.Error;
+            _db.SaveChanges();
+            return WithMedia(refused, media);
         }
 
         var account = route.Account;

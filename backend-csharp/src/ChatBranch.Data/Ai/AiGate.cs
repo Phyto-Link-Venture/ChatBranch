@@ -59,6 +59,7 @@ public class AiGate
     private readonly OutboundSender _sender;
     private readonly TimeProvider _clock;
     private readonly ITypingIndicator _typing;
+    private readonly Routing _routing;
 
     public AiGate(AppDbContext db, ScopingService scoping, ThreadStore threads, OutboundSender sender,
         TimeProvider? clock = null, ITypingIndicator? typing = null)
@@ -69,6 +70,7 @@ public class AiGate
         _sender = sender;
         _clock = clock ?? TimeProvider.System;
         _typing = typing ?? new NoTypingIndicator();
+        _routing = new Routing(db, scoping);
     }
 
     private DateTime Now => _clock.GetUtcNow().UtcDateTime;
@@ -317,12 +319,42 @@ public class AiGate
         bool humanDecision)
     {
         var template = Str(draft.Context, "template", "");
+
+        // the carrying account, resolved at send time the way the queue drain
+        // resolves a queued ai_reply (dry run first, so a refused send moves nothing)
+        RouteResult? route = null;
+        var preferred = thread.AccountId ?? account?.Id;
+        if (template.Length == 0)
+        {
+            route = RouteFor(thread, preferred, apply: false);
+            if (!route.Ok)
+            {
+                Fail(draft, route.Error!);
+                return Outcome(AiGateStatus.Blocked, draft.Id, route.Error!);
+            }
+            account = Carrier(route, account);
+        }
+
         var block = SendTimeBlock(thread, account?.Id ?? draft.AccountId, isTemplate: template.Length > 0,
             humanDecision: humanDecision);
         if (block != null)
         {
             Fail(draft, block);
             return Outcome(AiGateStatus.Blocked, draft.Id, block);
+        }
+
+        if (route != null && route.Via is not ("current" or "sandbox" or "bound"))
+        {
+            // write it: the contact's assignment, the thread's move — and, off a
+            // banned/disconnected number, the failover note + audit + notification
+            var applied = RouteFor(thread, preferred, apply: true);
+            if (applied.Ok) account = Carrier(applied, account);
+        }
+        if (account != null && draft.AccountId != account.Id)
+        {
+            draft.AccountId = account.Id; // the monitor shows the number that carried it
+            draft.UpdatedAt = Now;
+            _db.SaveChanges();
         }
 
         var extra = new Dictionary<string, object?> { ["draft_id"] = draft.Id };
@@ -355,6 +387,34 @@ public class AiGate
         BumpThread(thread.Id);
         return Outcome(AiGateStatus.Scheduled, draft.Id, start.Detail);
     }
+
+    /// <summary>
+    /// Send-time routing for an AI message (<see cref="Routing.ForThread"/>, the
+    /// rules the queue drain applies to a queued ai_reply): the thread's healthy
+    /// number → the contact's sticky assignment → least-loaded auto-assign →
+    /// failover off a banned/disconnected number; on WhatsApp a CONVERSATION
+    /// number, never the business (reminder) one while conversation numbers
+    /// exist. A message the queue already routed finds its thread on that very
+    /// number ("current" — nothing is routed twice); with no configured account
+    /// nothing is routed ("sandbox").
+    /// </summary>
+    private RouteResult RouteFor(Thread thread, int? preferredAccountId, bool apply)
+    {
+        try
+        {
+            return _routing.ForThread(thread, RouteNeed.For(thread.Channel), preferredAccountId, apply);
+        }
+        catch
+        {
+            return new RouteResult(null, "sandbox"); // routing trouble never blocks a reply
+        }
+    }
+
+    /// <summary>The account a route says to use; the sandbox keeps whatever the caller had.</summary>
+    private ChannelAccount? Carrier(RouteResult route, ChannelAccount? fallback) =>
+        route.Via == "sandbox" || route.Account == null ? fallback
+        : route.Account.Id == fallback?.Id ? fallback
+        : Account(route.Account.Id) ?? fallback;
 
     public record HumanSendStart(int? MessageId, int Bubbles, string Detail);
 
