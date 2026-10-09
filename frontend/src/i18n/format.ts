@@ -31,19 +31,33 @@ export function useFormat() {
   const { locale } = useI18n()
   return useMemo(() => {
     const tag = intlTag(locale)
-    const df = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(tag, o)
+    // `timeZone` (an IANA name, e.g. a calendar's) formats in that zone instead of the browser's
+    const df = (o: Intl.DateTimeFormatOptions, timeZone?: string) =>
+      new Intl.DateTimeFormat(tag, timeZone ? { ...o, timeZone } : o)
+    const fmt = (d: DateInput, o: Intl.DateTimeFormatOptions, timeZone?: string) => {
+      const v = toDate(d)
+      if (!v) return ''
+      try {
+        return df(o, timeZone).format(v)
+      } catch {
+        return df(o).format(v) // an unknown zone name: the browser's own
+      }
+    }
     return {
       /** 9 Oct 2026 */
-      date: (d: DateInput) => (toDate(d) ? df({ day: 'numeric', month: 'short', year: 'numeric' }).format(toDate(d)!) : ''),
+      date: (d: DateInput, timeZone?: string) => fmt(d, { day: 'numeric', month: 'short', year: 'numeric' }, timeZone),
+      /** 9 Oct — chart axes, lists within one year */
+      dayMonth: (d: DateInput, timeZone?: string) => fmt(d, { day: 'numeric', month: 'short' }, timeZone),
       /** 14:05 */
-      time: (d: DateInput) => (toDate(d) ? df({ hour: '2-digit', minute: '2-digit' }).format(toDate(d)!) : ''),
+      time: (d: DateInput, timeZone?: string) => fmt(d, { hour: '2-digit', minute: '2-digit' }, timeZone),
+      /** 14:05:09 — transcripts, logs */
+      timeSeconds: (d: DateInput, timeZone?: string) =>
+        fmt(d, { hour: '2-digit', minute: '2-digit', second: '2-digit' }, timeZone),
       /** 9 Oct 2026, 14:05 */
-      dateTime: (d: DateInput) =>
-        toDate(d)
-          ? df({ day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(toDate(d)!)
-          : '',
+      dateTime: (d: DateInput, timeZone?: string) =>
+        fmt(d, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }, timeZone),
       /** Thu */
-      weekday: (d: DateInput) => (toDate(d) ? df({ weekday: 'short' }).format(toDate(d)!) : ''),
+      weekday: (d: DateInput, timeZone?: string) => fmt(d, { weekday: 'short' }, timeZone),
       /** "5 minutes ago" / "in 2 days" (now = the reference time) */
       relative: (d: DateInput, now: number = Date.now()) => {
         const v = toDate(d)

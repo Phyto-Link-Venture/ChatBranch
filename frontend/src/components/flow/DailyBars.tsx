@@ -30,7 +30,7 @@ export default function DailyBars({ data, label, color = 'rgb(var(--c-brand))' }
   const t = useT()
   const f = useFormat()
   /** a "YYYY-MM-DD" day, read as LOCAL midnight (not UTC) */
-  const dayLabel = (iso: string) => f.date(`${iso}T00:00:00`)
+  const dayLabel = (iso: string) => f.dayMonth(`${iso}T00:00:00`)
   const wrap = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(360)
   const [view, setView] = useState<'chart' | 'table'>('chart')

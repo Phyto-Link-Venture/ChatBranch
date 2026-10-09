@@ -67,7 +67,7 @@ function RatingChart({ daily }: { daily: Stats['daily'] }) {
   const f = useFormat()
   const shortDate = (iso: string) => {
     const d = dayDate(iso)
-    return d ? f.date(d) : iso
+    return d ? f.dayMonth(d) : iso
   }
   const pct = (r: number | null) => (r == null ? '—' : f.percent(r / 100))
   const [hover, setHover] = useState<number | null>(null)
