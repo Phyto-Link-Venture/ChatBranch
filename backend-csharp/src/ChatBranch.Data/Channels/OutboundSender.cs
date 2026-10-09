@@ -286,14 +286,29 @@ public class OutboundSender
         var last = SocialWindow.LastInbound(_db, thread);
         var state = SocialWindow.StateAt(last, DateTime.UtcNow);
         var refusal = SocialWindow.Refusal(thread.Channel, state, humanAgent, everWrote: last != null);
-        if (refusal == null) return Record(thread, account, source, text, send(SocialWindow.Tag(state, humanAgent)));
+        if (refusal != null) return Failed(thread, account, text, refusal, $"window_closed: {refusal}");
 
-        var refused = _threads.AppendMessage(thread, MessageDirection.Out, MessageSource.System,
-            $"[send failed: {refusal}] {text}", status: "failed", accountId: account.Id);
-        var error = $"window_closed: {refusal}";
-        refused.Error = error.Length > 300 ? error[..300] : error;
+        var tag = SocialWindow.Tag(state, humanAgent);
+        var outcome = send(tag);
+        // A TAGGED reply refused on permissions (10 / 2xx) means the page works but
+        // its Meta app lacks the Human Agent feature — not an account fault, so
+        // health is left alone (a really revoked token fails the next plain send
+        // and the prober anyway).
+        if (tag != null && !outcome.Ok && outcome.ErrorCode is int code && (code == 10 || code is >= 200 and <= 299))
+            return Failed(thread, account, text,
+                $"{outcome.Detail} — {SocialWindow.HumanAgentTag} replies need Meta's Human Agent permission for this app",
+                $"{code}: {outcome.Detail}");
+        return Record(thread, account, source, text, outcome);
+    }
+
+    /// <summary>A refused social send: a failed system row with the reason (health untouched).</summary>
+    private Message Failed(Thread thread, ChannelAccount account, string text, string reason, string error)
+    {
+        var msg = _threads.AppendMessage(thread, MessageDirection.Out, MessageSource.System,
+            $"[send failed: {reason}] {text}", status: "failed", accountId: account.Id);
+        msg.Error = error.Length > 300 ? error[..300] : error;
         _db.SaveChanges();
-        return refused;
+        return msg;
     }
 
     /// <summary>

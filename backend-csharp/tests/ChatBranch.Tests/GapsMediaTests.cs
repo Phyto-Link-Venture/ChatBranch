@@ -337,6 +337,25 @@ public class GapsMediaTests : IDisposable
     }
 
     [Fact]
+    public void A_HUMAN_AGENT_reply_refused_on_permissions_fails_without_taking_the_page_down()
+    {
+        var page = Page("facebook", "PAGE-NOHA");
+        page.HealthStatus = Health.Healthy;
+        _t.Db.SaveChanges();
+        var thread = Social(page, "PSID-NOHA", TimeSpan.FromHours(40));
+        _graph.Error("POST", @"/me/messages$", 10, "Application does not have permission for this action",
+            HttpStatusCode.Forbidden);
+
+        var msg = _sender.SendSocialText(thread, "Sorry for the delay!", MessageSource.Agent, null, humanAgent: true);
+
+        Assert.Equal("failed", msg.Status);
+        Assert.Contains("Human Agent permission", msg.Text);
+        Assert.StartsWith("10:", msg.Error);
+        Assert.Equal(Health.Healthy, _t.Fresh().ChannelAccounts.Single(a => a.Id == page.Id).HealthStatus);
+        Assert.Equal("HUMAN_AGENT", Json(Sends.Single()).GetProperty("tag").GetString());
+    }
+
+    [Fact]
     public void Beyond_7_days_or_before_the_customer_writes_nothing_goes_out()
     {
         var ig = Page("instagram", "IG-1");
