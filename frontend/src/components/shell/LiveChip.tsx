@@ -6,19 +6,20 @@ import { usePathname, useRouter } from 'next/navigation'
 import { ArrowUpRight, PhoneCall } from 'lucide-react'
 import { useEntityQuery } from '@/lib/EntityContext'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
-import { secondsSince, shortAge, useLive, useStreamStatus } from './liveStore'
+import { secondsSince, useLive, useShortAge, useStreamStatus } from './liveStore'
 import { AiQuickToggle } from '@/components/ai-controls/AiQuickToggle'
+import { useT, type MessageKey } from '@/i18n'
 
-const DOT: Record<string, { cls: string; label: string }> = {
-  connected: { cls: 'bg-green', label: 'Live — connected' },
-  reconnecting: { cls: 'bg-amber', label: 'Live — reconnecting' },
-  offline: { cls: 'bg-text-faint', label: 'Offline — updates paused' },
+const DOT: Record<string, { cls: string; lbl: MessageKey }> = {
+  connected: { cls: 'bg-green', lbl: 'shell.live.connected' },
+  reconnecting: { cls: 'bg-amber', lbl: 'shell.live.reconnecting' },
+  offline: { cls: 'bg-text-faint', lbl: 'shell.live.offline' },
 }
 
-const CALL_STATUS: Record<string, string> = {
-  connecting: 'Connecting',
-  ringing: 'Ringing',
-  in_call: 'In call',
+const CALL_STATUS: Record<string, MessageKey> = {
+  connecting: 'shell.live.callStatus.connecting',
+  ringing: 'shell.live.callStatus.ringing',
+  in_call: 'shell.live.callStatus.inCall',
 }
 
 /**
@@ -29,6 +30,8 @@ const CALL_STATUS: Record<string, string> = {
  * and a short feed of recent events, each a link into the right screen.
  */
 export function LiveChip() {
+  const t = useT()
+  const shortAge = useShortAge()
   const entityQ = useEntityQuery()
   const { data } = useLive(entityQ)
   const status = useStreamStatus()
@@ -64,10 +67,8 @@ export function LiveChip() {
   const calls = data?.active_call_count ?? 0
   const waiting = data?.waiting_count ?? 0
   const dot = DOT[status] ?? DOT.offline
-  const summary = [
-    calls > 0 ? `${calls} ${calls === 1 ? 'call' : 'calls'}` : null,
-    `${waiting} waiting`,
-  ]
+  const dotLabel = t(dot.lbl)
+  const summary = [calls > 0 ? t('shell.live.calls', { count: calls }) : null, t('shell.live.waiting', { count: waiting })]
     .filter(Boolean)
     .join(' · ')
 
@@ -86,34 +87,34 @@ export function LiveChip() {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="dialog"
-        aria-label={`${dot.label}. ${summary}`}
-        title={dot.label}
-        className="flex h-9 cursor-pointer items-center gap-2 rounded-full border border-line bg-card px-3 text-[13px] font-semibold text-text-high transition-colors hover:border-line-strong"
+        aria-label={`${dotLabel}. ${summary}`}
+        title={dotLabel}
+        className="flex h-9 cursor-pointer items-center gap-2 whitespace-nowrap rounded-full border border-line bg-card px-3 text-[13px] font-semibold text-text-high transition-colors hover:border-line-strong"
       >
         <span className={`relative h-2 w-2 shrink-0 rounded-full ${dot.cls}`} aria-hidden>
           {status === 'connected' && (
             <span className={`absolute inset-0 animate-ping rounded-full ${dot.cls} opacity-40`} />
           )}
         </span>
-        Live
+        {t('shell.live.label')}
         {data && <span className="hidden font-normal text-text-muted sm:inline">· {summary}</span>}
       </button>
 
       {open && (
         <div
           role="dialog"
-          aria-label="Live activity"
+          aria-label={t('shell.live.dialog')}
           className="fixed inset-x-3 top-[64px] z-50 max-h-[78vh] animate-slideDown overflow-y-auto rounded-xl border border-line bg-card shadow-pop sm:absolute sm:inset-x-auto sm:right-0 sm:top-[44px] sm:w-[380px]"
         >
           <div className="flex items-baseline justify-between gap-3 border-b border-line px-4 py-3">
-            <span className="display text-[18px] text-text-heading">Live</span>
-            <span className="text-[12px] text-text-muted">{dot.label}</span>
+            <span className="display text-[18px] text-text-heading">{t('shell.live.label')}</span>
+            <span className="min-w-0 truncate text-[12px] text-text-muted">{dotLabel}</span>
           </div>
           <AiQuickToggle />
 
-          <Section title="Active calls" count={calls}>
+          <Section title={t('shell.live.activeCalls')} count={calls}>
             {(data?.active_calls ?? []).length === 0 ? (
-              <Empty>No calls in progress.</Empty>
+              <Empty>{t('shell.live.noCalls')}</Empty>
             ) : (
               data!.active_calls.map((c) => (
                 <RowButton key={`${c.channel}:${c.key}`} onClick={() => go(c.url)}>
@@ -123,7 +124,7 @@ export function LiveChip() {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold text-text-high">{c.name}</span>
                     <span className="flex items-center gap-1.5 text-[12px] text-text-muted">
-                      <ChannelLogo channel={c.channel} size={12} /> {CALL_STATUS[c.status] ?? c.status}
+                      <ChannelLogo channel={c.channel} size={12} /> {CALL_STATUS[c.status] ? t(CALL_STATUS[c.status]) : c.status}
                     </span>
                   </span>
                   <span className="shrink-0 text-[12px] tabular-nums text-text-muted">
@@ -134,9 +135,9 @@ export function LiveChip() {
             )}
           </Section>
 
-          <Section title="Waiting for a reply" count={waiting}>
+          <Section title={t('shell.live.waitingTitle')} count={waiting}>
             {(data?.waiting ?? []).length === 0 ? (
-              <Empty>Nobody is waiting — every conversation has an answer.</Empty>
+              <Empty>{t('shell.live.nobodyWaiting')}</Empty>
             ) : (
               data!.waiting.map((w) => {
                 const secs = secondsSince(w.waiting_since)
@@ -160,14 +161,14 @@ export function LiveChip() {
             )}
             {waiting > (data?.waiting.length ?? 0) && (
               <div className="px-4 pb-1 pt-1 text-[12px] text-text-muted">
-                + {waiting - (data?.waiting.length ?? 0)} more in the inbox
+                {t('shell.live.moreInInbox', { count: waiting - (data?.waiting.length ?? 0) })}
               </div>
             )}
           </Section>
 
-          <Section title="Recent">
+          <Section title={t('shell.live.recent')}>
             {(data?.recent ?? []).length === 0 ? (
-              <Empty>Nothing yet.</Empty>
+              <Empty>{t('shell.live.nothingYet')}</Empty>
             ) : (
               data!.recent.map((r) => (
                 <RowButton key={r.id} onClick={() => go(r.url)} dense>
@@ -192,14 +193,14 @@ export function LiveChip() {
             )}
           </Section>
 
-          <div className="flex items-center justify-between border-t border-line px-4 py-2.5 text-[12.5px]">
-            <span className="text-text-muted">Updates as it happens</span>
+          <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-2.5 text-[12.5px]">
+            <span className="min-w-0 truncate text-text-muted">{t('shell.live.footer')}</span>
             <Link
               href="/chats"
               onClick={() => setOpen(false)}
-              className="inline-flex items-center gap-1 font-semibold text-[color:var(--brand-ink)] hover:underline"
+              className="inline-flex shrink-0 items-center gap-1 font-semibold text-[color:var(--brand-ink)] hover:underline"
             >
-              Open chats <ArrowUpRight size={13} aria-hidden />
+              {t('shell.live.openChats')} <ArrowUpRight size={13} aria-hidden />
             </Link>
           </div>
         </div>

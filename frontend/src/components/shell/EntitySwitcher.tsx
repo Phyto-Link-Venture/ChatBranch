@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, Search } from 'lucide-react'
 import { useEntity } from '@/lib/EntityContext'
 import { entityTree } from '@/components/ui/EntityPicker'
+import { useT } from '@/i18n'
 
 /**
  * Top-bar ENTITY switcher: "All entities ▾" (or the working entity). Opens the
@@ -15,6 +16,7 @@ import { entityTree } from '@/components/ui/EntityPicker'
  * The TENANT is deliberately not shown: operators think in entities.
  */
 export function EntitySwitcher({ block = false }: { block?: boolean }) {
+  const t = useT()
   const { entities, activeEntity, allEntities, setActiveEntity, loading } = useEntity()
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
@@ -35,7 +37,8 @@ export function EntitySwitcher({ block = false }: { block?: boolean }) {
     }
   }, [open])
 
-  const label = loading ? 'Loading…' : allEntities ? 'All entities' : (activeEntity?.name ?? 'All entities')
+  const allLabel = t('ui.entityPicker.allEntities')
+  const label = loading ? t('common.status.loading') : allEntities ? allLabel : (activeEntity?.name ?? allLabel)
   const canSwitch = entities.length > 1
   const tree = useMemo(() => entityTree(entities), [entities])
   const shown = q.trim()
@@ -54,7 +57,7 @@ export function EntitySwitcher({ block = false }: { block?: boolean }) {
         disabled={!canSwitch}
         aria-haspopup="listbox"
         aria-expanded={open}
-        title={canSwitch ? 'Switch entity' : label}
+        title={canSwitch ? t('shell.entitySwitcher.switch') : label}
         className={`flex h-9 items-center gap-2 rounded-lg border border-line bg-card px-3 text-[13px] font-medium text-text-high transition-colors hover:border-line-strong disabled:cursor-default disabled:hover:border-line ${
           block ? 'w-full' : ''
         }`}
@@ -83,13 +86,13 @@ export function EntitySwitcher({ block = false }: { block?: boolean }) {
                 autoFocus
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Find an entity"
-                aria-label="Find an entity"
+                placeholder={t('shell.entitySwitcher.find')}
+                aria-label={t('shell.entitySwitcher.find')}
                 className="min-w-0 flex-1 bg-transparent text-[13px] text-text-primary outline-none placeholder:text-text-faint"
               />
             </label>
           )}
-          <div role="listbox" aria-label="Entities" className="max-h-[320px] overflow-y-auto p-1">
+          <div role="listbox" aria-label={t('shell.nav.entities')} className="max-h-[320px] overflow-y-auto p-1">
             {!q.trim() && (
               <>
                 <button
@@ -98,7 +101,7 @@ export function EntitySwitcher({ block = false }: { block?: boolean }) {
                   onClick={() => pick(null)}
                   className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] text-text-high transition-colors hover:bg-fill-hover"
                 >
-                  <span className="min-w-0 flex-1 truncate font-semibold">All entities</span>
+                  <span className="min-w-0 flex-1 truncate font-semibold">{allLabel}</span>
                   {allEntities && <Check size={14} strokeWidth={2} className="shrink-0" aria-hidden />}
                 </button>
                 <div className="mx-2 my-1 h-px bg-line" />
@@ -124,15 +127,15 @@ export function EntitySwitcher({ block = false }: { block?: boolean }) {
                     {e.name}
                   </span>
                   {depth === 0 && (
-                    <span className="shrink-0 rounded border border-line px-1 text-[9.5px] font-bold tracking-[0.06em] text-text-muted">
-                      MAIN
+                    <span className="shrink-0 rounded border border-line px-1 text-[9.5px] font-bold uppercase tracking-[0.06em] text-text-muted">
+                      {t('ui.entityPicker.main')}
                     </span>
                   )}
                   {active && <Check size={14} strokeWidth={2} className="shrink-0 text-text-high" aria-hidden />}
                 </button>
               )
             })}
-            {shown.length === 0 && <div className="px-3 py-3 text-[12.5px] text-text-muted">No entity matches.</div>}
+            {shown.length === 0 && <div className="px-3 py-3 text-[12.5px] text-text-muted">{t('shell.entitySwitcher.noMatch')}</div>}
           </div>
         </div>
       )}

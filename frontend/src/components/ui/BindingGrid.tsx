@@ -23,6 +23,7 @@ import { Search, SlidersHorizontal } from 'lucide-react'
 import { Button } from './Button'
 import { Modal } from './Modal'
 import { Toggle } from './Toggle'
+import { useT, type TFunction } from '@/i18n'
 
 export interface BindingItem {
   id: string
@@ -46,9 +47,6 @@ export interface BindingGroup {
 
 type Status = 'none' | 'partial' | 'full'
 
-/** entity → entities, member → members */
-const plural = (w: string) => (/[^aeiou]y$/.test(w) ? `${w.slice(0, -1)}ies` : `${w}s`)
-
 const PILL: Record<Status, string> = {
   none: 'border border-line-strong text-text-mid',
   partial: 'bg-amber/15 text-[color:var(--amber-ink)]',
@@ -59,8 +57,13 @@ function summary(g: BindingGroup, value: Set<string>) {
   const k = g.items.filter((i) => value.has(i.id)).length
   const n = g.items.length
   const status: Status = k === 0 ? 'none' : k === n ? 'full' : 'partial'
-  const label = status === 'none' ? 'None' : status === 'full' ? (n === 1 ? 'Bound' : `All ${n}`) : `${k} of ${n}`
-  return { k, n, status, label }
+  return { k, n, status }
+}
+
+function statusLabel({ k, n, status }: ReturnType<typeof summary>, t: TFunction): string {
+  if (status === 'none') return t('common.status.none')
+  if (status === 'full') return n === 1 ? t('ui.bindingGrid.bound') : t('ui.bindingGrid.allN', { count: n })
+  return t('ui.bindingGrid.kOfN', { k, n })
 }
 
 export function BindingGrid({
@@ -68,23 +71,33 @@ export function BindingGrid({
   value,
   onChange,
   disabled,
-  searchPlaceholder = 'Search…',
-  itemNoun = 'item',
+  searchPlaceholder: searchPlaceholderProp,
+  itemCount,
   manageTitle,
-  emptyText = 'Nothing to bind yet.',
+  emptyText,
   columns = 3,
 }: {
   groups: BindingGroup[]
   value: Set<string>
   onChange: (next: Set<string>) => void
   disabled?: boolean
+  /** Placeholder of the grid's search box, also used in the Manage dialog ("Search users…"). */
   searchPlaceholder?: string
-  /** "entity", "member", "contact"… — used in counts and modal copy. */
+  /**
+   * @deprecated Ignored — an English noun can't be pluralised in every
+   * language. Pass `itemCount` instead.
+   */
   itemNoun?: string
+  /** A group's member count under its name, e.g. `(n) => t('admin.teams.users', { count: n })`.
+   *  Defaults to "{count} items" in the current language. */
+  itemCount?: (count: number) => string
   manageTitle?: (g: BindingGroup) => ReactNode
   emptyText?: ReactNode
   columns?: 2 | 3 | 4
 }) {
+  const t = useT()
+  const searchPlaceholder = searchPlaceholderProp ?? t('ui.search.placeholder')
+  const countLabel = itemCount ?? ((n: number) => t('common.counts.items', { count: n }))
   const [query, setQuery] = useState('')
   const [managing, setManaging] = useState<BindingGroup | null>(null)
 
@@ -135,13 +148,13 @@ export function BindingGrid({
             onChange(next)
           }}
         >
-          {allOn ? 'Clear all' : 'Check all'}
+          {allOn ? t('ui.bindingGrid.clearAll') : t('ui.bindingGrid.checkAll')}
         </Button>
       </div>
 
       {shown.length === 0 ? (
         <div className="rounded-xl border border-dashed border-line-strong px-4 py-8 text-center text-[13px] text-text-muted">
-          {query ? `No matches for “${query}”.` : emptyText}
+          {query ? t('ui.bindingGrid.noMatchesFor', { query }) : (emptyText ?? t('ui.bindingGrid.empty'))}
         </div>
       ) : (
         <div className={`grid grid-cols-1 gap-3 ${colCls}`}>
@@ -151,7 +164,7 @@ export function BindingGrid({
               group={g}
               value={value}
               disabled={disabled}
-              itemNoun={itemNoun}
+              countLabel={countLabel}
               onToggleAll={(on) => setGroup(g, on)}
               onManage={() => setManaging(g)}
             />
@@ -162,7 +175,7 @@ export function BindingGrid({
       <ManageModal
         group={managing}
         value={value}
-        itemNoun={itemNoun}
+        searchPlaceholder={searchPlaceholder}
         disabled={disabled}
         title={managing ? manageTitle?.(managing) ?? managing.label : ''}
         onClose={() => setManaging(null)}
@@ -180,17 +193,18 @@ function GroupCard({
   group,
   value,
   disabled,
-  itemNoun,
+  countLabel,
   onToggleAll,
   onManage,
 }: {
   group: BindingGroup
   value: Set<string>
   disabled?: boolean
-  itemNoun: string
+  countLabel: (count: number) => string
   onToggleAll: (on: boolean) => void
   onManage: () => void
 }) {
+  const t = useT()
   const sum = summary(group, value)
   const boxRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -206,7 +220,7 @@ function GroupCard({
           checked={sum.status === 'full'}
           disabled={disabled || group.items.length === 0}
           onChange={(e) => onToggleAll(e.target.checked)}
-          aria-label={`Bind all of ${group.label}`}
+          aria-label={t('ui.bindingGrid.bindAll', { group: group.label })}
           className="mt-[3px] h-4 w-4 shrink-0 cursor-pointer accent-[color:var(--primary)]"
         />
         <div className="min-w-0 flex-1">
@@ -220,14 +234,16 @@ function GroupCard({
             <span className="truncate text-[14px] font-bold text-text-heading">{group.label}</span>
           </div>
           <div className="mt-0.5 truncate text-[12px] text-text-muted">
-            {group.sub ?? `${sum.n} ${sum.n === 1 ? itemNoun : plural(itemNoun)}`}
+            {group.sub ?? countLabel(sum.n)}
           </div>
         </div>
-        <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11.5px] font-semibold ${PILL[sum.status]}`}>{sum.label}</span>
+        <span className={`shrink-0 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11.5px] font-semibold ${PILL[sum.status]}`}>
+          {statusLabel(sum, t)}
+        </span>
       </div>
       {group.items.length > 1 && (
         <Button variant="secondary" size="sm" className="self-start" onClick={onManage}>
-          <SlidersHorizontal size={13} aria-hidden /> Manage
+          <SlidersHorizontal size={13} aria-hidden /> {t('ui.bindingGrid.manage')}
         </Button>
       )}
     </div>
@@ -237,7 +253,7 @@ function GroupCard({
 function ManageModal({
   group,
   value,
-  itemNoun,
+  searchPlaceholder,
   disabled,
   title,
   onClose,
@@ -245,12 +261,13 @@ function ManageModal({
 }: {
   group: BindingGroup | null
   value: Set<string>
-  itemNoun: string
+  searchPlaceholder: string
   disabled?: boolean
   title: ReactNode
   onClose: () => void
   onApply: (ids: string[], on: Set<string>) => void
 }) {
+  const t = useT()
   const [draft, setDraft] = useState<Set<string>>(new Set())
   const [query, setQuery] = useState('')
 
@@ -269,12 +286,12 @@ function ManageModal({
       open={!!group}
       onClose={onClose}
       title={title}
-      subtitle={`Switch each ${itemNoun} on or off, then apply. Nothing is saved until you press Save on the page.`}
+      subtitle={t('ui.bindingGrid.manageHint')}
       size="sm"
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {t('common.actions.cancel')}
           </Button>
           <Button
             variant="primary"
@@ -284,7 +301,7 @@ function ManageModal({
               onClose()
             }}
           >
-            Apply
+            {t('common.actions.apply')}
           </Button>
         </>
       }
@@ -296,26 +313,24 @@ function ManageModal({
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={`Search ${plural(itemNoun)}…`}
-              aria-label={`Search ${plural(itemNoun)}`}
+              placeholder={searchPlaceholder}
+              aria-label={searchPlaceholder}
               className="min-w-0 flex-1 bg-transparent text-[13px] text-text-primary outline-none"
             />
           </label>
         )}
-        <div className="flex items-center justify-between text-[12px] text-text-muted">
-          <span>
-            {draft.size} of {group.items.length} on
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[12px] text-text-muted">
+          <span>{t('ui.bindingGrid.onCount', { k: draft.size, n: group.items.length })}</span>
           <span className="flex gap-3">
             <button type="button" className="font-semibold hover:text-text-high" onClick={() => setDraft(new Set(group.items.map((i) => i.id)))}>
-              All on
+              {t('ui.bindingGrid.allOn')}
             </button>
             <button
               type="button"
               className="font-semibold hover:text-text-high"
               onClick={() => setDraft(new Set(group.items.filter((i) => i.locked && draft.has(i.id)).map((i) => i.id)))}
             >
-              All off
+              {t('ui.bindingGrid.allOff')}
             </button>
           </span>
         </div>
@@ -370,17 +385,18 @@ export function SaveBar({
   onDiscard: () => void
   summary?: ReactNode
 }) {
+  const t = useT()
   if (!dirty) return null
   return (
     <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center gap-2 rounded-xl border border-line-strong bg-card px-3.5 py-2.5 shadow-pop">
-      <span className="text-[12.5px] font-semibold text-[color:var(--amber-ink)]">Unsaved changes</span>
+      <span className="text-[12.5px] font-semibold text-[color:var(--amber-ink)]">{t('ui.saveBar.unsaved')}</span>
       {text && <span className="text-[12.5px] text-text-muted">{text}</span>}
       <span className="ml-auto flex gap-2">
         <Button variant="ghost" size="sm" onClick={onDiscard} disabled={saving}>
-          Discard
+          {t('common.actions.discard')}
         </Button>
         <Button variant="primary" size="sm" onClick={onSave} disabled={saving}>
-          {saving ? 'Saving…' : 'Save changes'}
+          {saving ? t('common.status.saving') : t('ui.saveBar.saveChanges')}
         </Button>
       </span>
     </div>

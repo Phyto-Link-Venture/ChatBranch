@@ -18,6 +18,7 @@
 import { useMemo } from 'react'
 import { useEntity, type Entity } from '@/lib/EntityContext'
 import { MultiSelect, Select, type SelectOption } from './Select'
+import { useT, type TFunction } from '@/i18n'
 
 /** Depth-first order with each entity's depth, parents before their children. */
 export function entityTree(entities: Entity[]): { entity: Entity; depth: number }[] {
@@ -44,12 +45,14 @@ export function entityTree(entities: Entity[]): { entity: Entity; depth: number 
   return out
 }
 
-export function entityOptions(entities: Entity[]): SelectOption[] {
+/** Select options for the entity tree; `t` translates the top-level badge ("Main"). */
+export function entityOptions(entities: Entity[], t: TFunction): SelectOption[] {
+  const main = t('ui.entityPicker.main')
   return entityTree(entities).map(({ entity, depth }) => ({
     value: entity.slug,
     label: entity.name,
     depth,
-    badge: depth === 0 ? 'Main' : undefined,
+    badge: depth === 0 ? main : undefined,
   }))
 }
 
@@ -57,11 +60,11 @@ export function EntityPicker({
   value,
   onChange,
   disabled,
-  globalLabel = 'Organization-wide (shared by all entities)',
+  globalLabel: globalLabelProp,
   allowGlobal = true,
   size = 'md',
   className = '',
-  ariaLabel = 'Entity',
+  ariaLabel,
   entities: override,
 }: {
   /** Entity slug, or null for organization-wide. */
@@ -77,12 +80,14 @@ export function EntityPicker({
   /** Pick from this list instead of the signed-in user's entities. */
   entities?: Entity[]
 }) {
+  const t = useT()
+  const globalLabel = globalLabelProp ?? t('ui.entityPicker.orgWide')
   const { entities: mine } = useEntity()
   const entities = override ?? mine
   const options = useMemo(() => {
-    const tree = entityOptions(entities)
+    const tree = entityOptions(entities, t)
     return allowGlobal ? [{ value: '', label: globalLabel }, ...tree] : tree
-  }, [entities, allowGlobal, globalLabel])
+  }, [entities, allowGlobal, globalLabel, t])
   return (
     <Select
       value={value ?? ''}
@@ -91,8 +96,8 @@ export function EntityPicker({
       disabled={disabled}
       size={size}
       className={className}
-      ariaLabel={ariaLabel}
-      placeholder={allowGlobal ? globalLabel : 'Choose an entity…'}
+      ariaLabel={ariaLabel ?? t('common.fields.entity')}
+      placeholder={allowGlobal ? globalLabel : t('ui.entityPicker.choose')}
       searchable={entities.length > 6}
     />
   )
@@ -102,10 +107,10 @@ export function EntityMultiPicker({
   value,
   onChange,
   disabled,
-  placeholder = 'All entities',
+  placeholder,
   size = 'md',
   className = '',
-  ariaLabel = 'Entities',
+  ariaLabel,
   entities: override,
 }: {
   value: string[]
@@ -117,9 +122,10 @@ export function EntityMultiPicker({
   ariaLabel?: string
   entities?: Entity[]
 }) {
+  const t = useT()
   const { entities: mine } = useEntity()
   const entities = override ?? mine
-  const options = useMemo(() => entityOptions(entities), [entities])
+  const options = useMemo(() => entityOptions(entities, t), [entities, t])
   return (
     <MultiSelect
       value={value}
@@ -128,8 +134,8 @@ export function EntityMultiPicker({
       disabled={disabled}
       size={size}
       className={className}
-      ariaLabel={ariaLabel}
-      placeholder={placeholder}
+      ariaLabel={ariaLabel ?? t('shell.nav.entities')}
+      placeholder={placeholder ?? t('ui.entityPicker.allEntities')}
       searchable={entities.length > 6}
     />
   )

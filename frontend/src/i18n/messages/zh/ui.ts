@@ -1,4 +1,92 @@
 import type { ui as source } from '../en/ui'
 import type { Dict } from '../../types'
 
-export const ui: Dict<typeof source> = {}
+export const ui: Dict<typeof source> = {
+  search: {
+    placeholder: '搜索…',
+  },
+  select: {
+    placeholder: '请选择…',
+    any: '任意',
+    selectShown: '选择当前显示项',
+    searchOptions: '搜索选项',
+    noMatches: '无匹配项',
+  },
+  dataTable: {
+    noResultsFor: '没有与“{query}”相关的结果。',
+    range: '第 {from}–{to} 条，共 {total} 条',
+    page: '第 {page} / {pages} 页',
+    previousPage: '上一页',
+    nextPage: '下一页',
+  },
+  bindingGrid: {
+    bound: '已关联',
+    allN: '全部 {count} 项',
+    kOfN: '{k} / {n}',
+    checkAll: '全选',
+    clearAll: '全部取消',
+    noMatchesFor: '没有与“{query}”匹配的项。',
+    empty: '暂无可关联的内容。',
+    bindAll: '关联“{group}”下的全部项',
+    manage: '管理',
+    manageHint: '逐项开启或关闭，然后点击“应用”。在页面上点击“保存”之前，不会保存任何更改。',
+    onCount: '已开启 {k} / {n}',
+    allOn: '全部开启',
+    allOff: '全部关闭',
+  },
+  saveBar: {
+    unsaved: '有未保存的更改',
+    saveChanges: '保存更改',
+  },
+  entityPicker: {
+    orgWide: '全组织（所有实体共享）',
+    choose: '选择实体…',
+    allEntities: '全部实体',
+    main: '主',
+  },
+  phone: {
+    number: '电话号码',
+    countryCode: '国家/地区区号',
+  },
+  tagList: {
+    removeItem: '移除 {item}',
+  },
+  contactStatus: {
+    active: '活跃',
+    pending: '待处理',
+    messageSent: '已发消息',
+    resolved: '已解决',
+    failed: '失败',
+  },
+  callStatus: {
+    completed: '已完成',
+    live: '进行中',
+    voicemail: '语音信箱',
+    noAnswer: '无人接听',
+    callbackRequested: '要求回电',
+    read: '已读',
+    delivered: '已送达',
+  },
+  health: {
+    healthy: '正常',
+    degraded: '降级',
+    unknown: '未知',
+    disconnected: '已断开',
+    banned: '已封禁',
+  },
+  accountRole: {
+    reminder: '提醒',
+    reminderHint: '提醒号（企业）——发送模板，并把联系人转交给对话号码',
+    conversation: '对话',
+    conversationHint: '对话号（个人）——AI 对话，仅限客户主动发起',
+  },
+  channel: {
+    email: '邮件',
+    website: '网站聊天',
+    voice: '语音',
+    chat: '聊天',
+  },
+  languages: {
+    auto: '自动识别',
+  },
+}

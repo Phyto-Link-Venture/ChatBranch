@@ -43,7 +43,7 @@ export function TopBar({
     <header className="flex h-[60px] shrink-0 items-center gap-2 border-b border-line px-3 sm:gap-3 sm:px-5 lg:px-7">
       <button
         onClick={onOpenMobileNav}
-        aria-label="Open menu"
+        aria-label={t('shell.topBar.openMenu')}
         className="-ml-1 grid h-10 w-10 shrink-0 place-items-center rounded-lg text-text-high transition-colors hover:bg-fill-hover lg:hidden"
       >
         <Menu size={20} strokeWidth={1.6} />
@@ -56,13 +56,13 @@ export function TopBar({
       <button
         type="button"
         onClick={onOpenSearch}
-        aria-label="Search"
+        aria-label={t('common.actions.search')}
         aria-keyshortcuts="Control+K Meta+K"
         className="hidden h-[38px] min-w-0 max-w-[520px] flex-1 cursor-text items-center gap-2.5 rounded-lg border border-line-strong bg-card px-3 text-left transition-colors hover:border-text-faint md:flex"
       >
         <Search size={16} strokeWidth={1.6} className="shrink-0 text-text-muted" aria-hidden />
         <span className="min-w-0 flex-1 truncate text-[13.5px] text-text-faint">
-          Search contacts, chats, flows, templates…
+          {t('shell.topBar.searchPlaceholder')}
         </span>
         <kbd className="shrink-0 rounded border border-line px-1.5 py-px font-sans text-[11px] font-semibold text-text-muted">
           {mod} K
@@ -74,7 +74,7 @@ export function TopBar({
         <button
           type="button"
           onClick={onOpenSearch}
-          aria-label="Search"
+          aria-label={t('common.actions.search')}
           className="grid h-10 w-10 place-items-center rounded-lg text-text-high transition-colors hover:bg-fill-hover md:hidden"
         >
           <Search size={18} strokeWidth={1.6} />

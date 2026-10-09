@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown, Search, X } from 'lucide-react'
+import { useT } from '@/i18n'
 
 export interface SelectOption {
   value: string
@@ -32,7 +33,7 @@ export function Select({
   value,
   onChange,
   options,
-  placeholder = 'Select…',
+  placeholder,
   disabled = false,
   size = 'sm',
   ariaLabel,
@@ -53,6 +54,7 @@ export function Select({
   /** Show an × that resets to '' (only when '' is not itself an option). */
   clearable?: boolean
 }) {
+  const t = useT()
   const selected = options.find((o) => o.value === value)
   return (
     <Dropdown
@@ -73,7 +75,7 @@ export function Select({
             {selected.hint && <span className="ml-1 font-normal text-text-muted">{selected.hint}</span>}
           </span>
         ) : (
-          <span className="truncate text-text-faint">{placeholder}</span>
+          <span className="truncate text-text-faint">{placeholder ?? t('ui.select.placeholder')}</span>
         )
       }
     />
@@ -85,7 +87,7 @@ export function MultiSelect({
   value,
   onChange,
   options,
-  placeholder = 'Any',
+  placeholder,
   disabled = false,
   size = 'sm',
   ariaLabel,
@@ -104,6 +106,7 @@ export function MultiSelect({
   searchable?: boolean
   maxChips?: number
 }) {
+  const t = useT()
   const set = useMemo(() => new Set(value), [value])
   const picked = options.filter((o) => set.has(o.value))
   return (
@@ -125,16 +128,16 @@ export function MultiSelect({
             className="font-semibold text-text-muted hover:text-text-high"
             onClick={() => onChange(Array.from(new Set([...value, ...visible.filter((o) => !o.disabled).map((o) => o.value)])))}
           >
-            Select shown
+            {t('ui.select.selectShown')}
           </button>
           <button type="button" className="font-semibold text-text-muted hover:text-text-high" onClick={() => onChange([])}>
-            Clear
+            {t('common.actions.clear')}
           </button>
         </div>
       )}
       trigger={
         picked.length === 0 ? (
-          <span className="truncate text-text-faint">{placeholder}</span>
+          <span className="truncate text-text-faint">{placeholder ?? t('ui.select.any')}</span>
         ) : (
           <span className="flex min-w-0 items-center gap-1 overflow-hidden">
             {picked.slice(0, maxChips).map((o) => (
@@ -183,6 +186,7 @@ function Dropdown({
   onClear?: () => void
   footer?: (visible: SelectOption[]) => ReactNode
 }) {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
@@ -316,7 +320,7 @@ function Dropdown({
           <span
             role="button"
             tabIndex={-1}
-            aria-label="Clear"
+            aria-label={t('common.actions.clear')}
             onClick={(e) => {
               e.stopPropagation()
               onClear()
@@ -347,14 +351,14 @@ function Dropdown({
                     setQuery(e.target.value)
                     setActive(0)
                   }}
-                  placeholder="Search…"
-                  aria-label="Search options"
+                  placeholder={t('ui.search.placeholder')}
+                  aria-label={t('ui.select.searchOptions')}
                   className="min-w-0 flex-1 bg-transparent text-[12.5px] text-text-primary outline-none"
                 />
               </label>
             )}
             <div id={listId} role="listbox" aria-multiselectable={multi || undefined} className="min-h-0 flex-1 overflow-y-auto p-1">
-              {visible.length === 0 && <div className="px-2.5 py-2 text-[12px] text-text-muted">No matches</div>}
+              {visible.length === 0 && <div className="px-2.5 py-2 text-[12px] text-text-muted">{t('ui.select.noMatches')}</div>}
               {visible.map((o, i) => {
                 const sel = isSelected(o.value)
                 const header = o.group && o.group !== lastGroup ? o.group : null
