@@ -82,6 +82,7 @@ import { getRole } from '@/lib/role'
 import { useApp } from '@/lib/AppContext'
 import { tagMeta } from '@/lib/tags'
 import PendingDraftBanner from '@/components/chats/PendingDraftBanner'
+import IdentityBanner from '@/components/chats/IdentityBanner'
 import { subscribeChatStream } from '@/lib/chatStream'
 import './chats.css'
 
@@ -246,6 +247,11 @@ function ChatsPage() {
       setQ(spQ)
     }
   }, [spQ])
+  // ?draft=<text> (a contact invite's "Send it in a chat") prefills the composer
+  const spDraft = searchParams.get('draft')
+  useEffect(() => {
+    if (spDraft) setDraft(spDraft)
+  }, [spDraft])
 
   // ── the list request ──
   const listParams = useMemo(() => filtersToParams(filters, { q, entity: topEntity }).toString(), [filters, q, topEntity])
@@ -1359,6 +1365,16 @@ function ChatsPage() {
                   </button>
                 </div>
               </div>
+
+              {/* unknown customer: "asking who they are" + the Create contact quick action */}
+              {active.contact_id == null && (
+                <IdentityBanner
+                  channel={active.channel}
+                  threadKey={active.key}
+                  refreshToken={active.messages.length}
+                  onCreated={() => void Promise.all([refreshActive(), refreshThreads()])}
+                />
+              )}
 
               {/* linked contact: single channel ⇄ combined view ⇄ voice-only history */}
               {active.contact_id != null && combined && (

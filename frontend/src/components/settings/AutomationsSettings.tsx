@@ -238,6 +238,20 @@ export function AutomationsSettings() {
           ]}
         />
       )
+    if (a.type === 'ask_identity')
+      return (
+        <Select
+          value={a.value || 'ask'}
+          onChange={set}
+          size="md"
+          ariaLabel="When there is no matching contact"
+          className="flex-1"
+          options={[
+            { value: 'ask', label: 'Ask — leave a note if no contact matches' },
+            { value: 'ask_and_create', label: 'Ask and create the contact' },
+          ]}
+        />
+      )
     if (a.type === 'set_status')
       return (
         <Select
@@ -482,7 +496,7 @@ export function AutomationsSettings() {
                           cur.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)),
                         )
                       }
-                      placeholder="Value"
+                      placeholder={c.field === 'contact_linked' ? 'yes or no' : 'Value'}
                       aria-label="Condition value"
                       className={`${inputCls} flex-1 min-w-[140px]`}
                     />
