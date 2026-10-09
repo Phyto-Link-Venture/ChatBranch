@@ -89,8 +89,25 @@ export function TagAssignEditor({
           {isEntity ? t('admin.tags.assign.noneEntity') : t('admin.tags.assign.noneContact')}
         </p>
       ) : (
-        <ul className="flex flex-col gap-2">
-          {assigned.map(({ item, tag }) => {
+        <>
+        {/* plain tags (no group, no fields) read best as one row of chips */}
+        {assigned.some(({ tag }) => !tag.group && tag.attributes.length === 0) && (
+          <div className="flex flex-wrap gap-1.5">
+            {assigned
+              .filter(({ tag }) => !tag.group && tag.attributes.length === 0)
+              .map(({ tag }) => (
+                <TagChip
+                  key={tag.id}
+                  name={tag.name}
+                  color={tag.color}
+                  onRemove={disabled ? undefined : () => remove(tag.id)}
+                  disabled={disabled}
+                />
+              ))}
+          </div>
+        )}
+        <ul className="flex flex-col gap-2 empty:hidden">
+          {assigned.filter(({ tag }) => tag.group || tag.attributes.length > 0).map(({ item, tag }) => {
             const missing = tag.attributes.filter((a) => a.required && formatTagValue(a, item.values[a.key]) === '')
             const filled = tag.attributes.filter((a) => formatTagValue(a, item.values[a.key]) !== '')
             const isOpen = open === tag.id
@@ -147,6 +164,7 @@ export function TagAssignEditor({
             )
           })}
         </ul>
+        </>
       )}
 
       {!disabled && (

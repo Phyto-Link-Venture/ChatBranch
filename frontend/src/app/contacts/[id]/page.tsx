@@ -67,7 +67,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3 border-b border-line py-2 last:border-b-0">
       <span className="text-[12.5px] text-text-muted">{label}</span>
-      <span className="min-w-0 truncate text-right text-[13px] text-text-high">{children}</span>
+      <span className="min-w-0 text-right text-[13px] text-text-high [overflow-wrap:anywhere]">{children}</span>
     </div>
   )
 }
@@ -217,10 +217,10 @@ export default function ContactDetailPage() {
           {initials(d.name)}
         </div>
         <div className="min-w-0 flex-1 basis-[220px]">
-          <h1 className="display truncate text-[28px] leading-tight text-text-heading sm:text-[32px]">{d.name}</h1>
+          <h1 className="display text-[26px] leading-tight text-text-heading [overflow-wrap:anywhere] sm:text-[32px]">{d.name}</h1>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-text-mid">
             {d.phone && <span className="font-mono text-[12.5px]">{d.phone}</span>}
-            {d.email && <span className="truncate">{d.email}</span>}
+            {d.email && <span className="min-w-0 [overflow-wrap:anywhere]">{d.email}</span>}
             {d.company && <span className="text-text-muted">{d.company}</span>}
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -243,33 +243,15 @@ export default function ContactDetailPage() {
         </Link>
       </section>
 
-      {/* AI summary */}
-      <section className="rounded-xl border border-line bg-card px-5 py-4">
-        <div className="mb-2 flex flex-wrap items-center gap-2">
-          <Sparkles size={14} className="text-brand-300" aria-hidden />
-          <h2 className="eyebrow">{t('contacts.detail.aiSummary')}</h2>
-          {summary && (
-            <span className="text-[11.5px] text-text-muted">
-              {t('contacts.detail.summaryMeta', {
-                interactions: t('contacts.detail.interactions', { count: summary.event_count }),
-                time: f.dateTime(summary.generated_at),
-              })}
-              {summary.heuristic && ` · ${t('contacts.detail.basicNoKey')}`}
-            </span>
-          )}
-          <Button variant="ghost" size="sm" onClick={generate} disabled={genBusy} className="ml-auto">
-            {genBusy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <RefreshCw size={13} aria-hidden />}
-            {t(summary ? 'contacts.detail.regenerate' : 'contacts.detail.generate')}
-          </Button>
-        </div>
-        <p className="text-[14px] leading-[1.65] text-text-high">
-          {summary ? summary.summary : t('contacts.detail.noSummary')}
-        </p>
-      </section>
-
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-        {/* left column */}
-        <div className="flex min-w-0 flex-col gap-4">
+      {/*
+        Layout: the conversation is the page's centre of gravity, so it gets the
+        wide column; the profile (who they are, how the AI treats them) is a
+        sidebar. Below lg the DOM order applies — header, details, the history,
+        then the rest — so the timeline is never buried under seven cards.
+      */}
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[auto_1fr]">
+        {/* sidebar, top: who they are */}
+        <div className="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-start-1">
           <Panel title={t('contacts.detail.details')}>
             <Row label={t('contacts.detail.id')}>#{String(d.id).padStart(4, '0')}</Row>
             <Row label={t('common.fields.phone')}>{d.phone || '—'}</Row>
@@ -288,7 +270,6 @@ export default function ContactDetailPage() {
               />
             </div>
           </Panel>
-
           {filledFields.length > 0 && (
             <Panel title={t('contacts.detail.customFields')}>
               {filledFields.map(({ field, v }) => (
@@ -298,7 +279,6 @@ export default function ContactDetailPage() {
               ))}
             </Panel>
           )}
-
           {d.records.length > 0 && (
             <Panel title={t('contacts.detail.records')}>
               <ul className="flex flex-col">
@@ -314,94 +294,119 @@ export default function ContactDetailPage() {
               </ul>
             </Panel>
           )}
+        </div>
 
+        {/* main column: what has been said, then where they can be reached */}
+        <div className="flex min-w-0 flex-col gap-4 lg:col-start-1 lg:row-span-2 lg:row-start-1">
+          {/* AI summary */}
+          <section className="rounded-xl border border-line bg-card px-5 py-4">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <Sparkles size={14} className="text-brand-300" aria-hidden />
+              <h2 className="eyebrow">{t('contacts.detail.aiSummary')}</h2>
+              {summary && (
+                <span className="text-[11.5px] text-text-muted">
+                  {t('contacts.detail.summaryMeta', {
+                    interactions: t('contacts.detail.interactions', { count: summary.event_count }),
+                    time: f.dateTime(summary.generated_at),
+                  })}
+                  {summary.heuristic && ` · ${t('contacts.detail.basicNoKey')}`}
+                </span>
+              )}
+              <Button variant="ghost" size="sm" onClick={generate} disabled={genBusy} className="ml-auto">
+                {genBusy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <RefreshCw size={13} aria-hidden />}
+                {t(summary ? 'contacts.detail.regenerate' : 'contacts.detail.generate')}
+              </Button>
+            </div>
+            <p className="text-[14px] leading-[1.65] text-text-high">
+              {summary ? summary.summary : t('contacts.detail.noSummary')}
+            </p>
+          </section>
+
+            <section className="min-w-0 rounded-xl border border-line bg-card p-5">
+              <div className="flex flex-wrap items-baseline gap-2">
+                <h2 className="display text-[22px] leading-tight text-text-heading">{t('contacts.detail.communications')}</h2>
+                <span className="text-[12.5px] text-text-muted">
+                  {total === 0
+                    ? ''
+                    : !fullLoaded && total > events.length
+                      ? t('contacts.detail.mostRecentOf', { shown: events.length, count: total })
+                      : t('contacts.detail.interactions', { count: total })}
+                </span>
+                {!fullLoaded && total > events.length && (
+                  <Button variant="ghost" size="sm" onClick={() => fetchLog(true)} disabled={logBusy} className="ml-auto">
+                    {logBusy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <ChevronDown size={13} aria-hidden />}
+                    {t('contacts.detail.loadFullLog')}
+                  </Button>
+                )}
+              </div>
+              <p className="mb-4 mt-1 text-[12.5px] text-text-muted">
+                {t('contacts.detail.commsHint')}
+              </p>
+              {timeline.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-line-strong px-6 py-10 text-center text-[13px] text-text-muted">
+                  {t('contacts.detail.nothingYet', { name: d.name })}
+                </div>
+              ) : (
+                <ol className="relative">
+                  {timeline.map((e, i) => {
+                    const inbound = e.dir === 'in' && e.source === 'customer'
+                    return (
+                      <li key={i} className="relative flex gap-3 pb-5 last:pb-0">
+                        {i < timeline.length - 1 && <span className="absolute left-[13px] top-8 bottom-0 w-px bg-line" aria-hidden />}
+                        <span className="relative z-[1] grid h-7 w-7 shrink-0 place-items-center rounded-full border border-line bg-card">
+                          <ChannelLogo channel={logoKey(e.channel)} size={14} />
+                        </span>
+                        <div className="min-w-0 flex-1 pt-0.5">
+                          <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[11.5px]">
+                            <span className="font-semibold text-text-high">{timelineChannel(t, e.channel)}</span>
+                            <span className="text-text-muted">·</span>
+                            <span className={inbound ? 'font-semibold text-[color:var(--green-ink)]' : 'text-text-muted'}>
+                              {t(
+                                inbound
+                                  ? 'contacts.detail.fromCustomer'
+                                  : e.source === 'ai'
+                                    ? 'contacts.detail.fromAi'
+                                    : e.source === 'system'
+                                      ? 'contacts.detail.system'
+                                      : 'contacts.detail.toCustomer',
+                              )}
+                            </span>
+                            {e.source === 'ai' && <Bot size={11} className="text-text-muted" aria-hidden />}
+                            {e.extra?.outcome && (
+                              <span className="rounded-full border border-line px-1.5 text-[10.5px] text-text-mid">{e.extra.outcome.replace(/_/g, ' ')}</span>
+                            )}
+                            <span className="ml-auto shrink-0 text-text-muted">{f.dateTime(e.ts)}</span>
+                          </div>
+                          <div
+                            className={`whitespace-pre-wrap rounded-lg px-3 py-2 text-[13px] leading-[1.55] ${
+                              inbound ? 'border border-line bg-card text-text-high' : 'bg-well text-text-mid'
+                            }`}
+                          >
+                            {e.text.length > 400 ? e.text.slice(0, 400) + '…' : e.text}
+                          </div>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ol>
+              )}
+            </section>
           <Panel title={t('contacts.detail.channels')}>
             <ChannelHub contactId={d.id} allowAdd />
           </Panel>
-
-          {/* Upcoming appointments the AI or the team booked for them */}
-          <BookingsCard contactId={d.id} />
-
-          {/* Per-entity membership — link/unlink without deleting the profile */}
-          <ContactEntitiesCard contactId={d.id} />
-
-          {/* Registry tags (boss / employee / driver…) with their attribute values */}
-          <ContactTagsCard contactId={d.id} />
-
-          {/* AI for this contact: follow the chat · never · always */}
-          <ContactAiModeCard contactId={d.id} />
         </div>
 
-        {/* main column — the real communications timeline */}
-        <section className="min-w-0 rounded-xl border border-line bg-card p-5">
-          <div className="flex flex-wrap items-baseline gap-2">
-            <h2 className="display text-[22px] leading-tight text-text-heading">{t('contacts.detail.communications')}</h2>
-            <span className="text-[12.5px] text-text-muted">
-              {total === 0
-                ? ''
-                : !fullLoaded && total > events.length
-                  ? t('contacts.detail.mostRecentOf', { shown: events.length, count: total })
-                  : t('contacts.detail.interactions', { count: total })}
-            </span>
-            {!fullLoaded && total > events.length && (
-              <Button variant="ghost" size="sm" onClick={() => fetchLog(true)} disabled={logBusy} className="ml-auto">
-                {logBusy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <ChevronDown size={13} aria-hidden />}
-                {t('contacts.detail.loadFullLog')}
-              </Button>
-            )}
-          </div>
-          <p className="mb-4 mt-1 text-[12.5px] text-text-muted">
-            {t('contacts.detail.commsHint')}
-          </p>
-          {timeline.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-line-strong px-6 py-10 text-center text-[13px] text-text-muted">
-              {t('contacts.detail.nothingYet', { name: d.name })}
-            </div>
-          ) : (
-            <ol className="relative">
-              {timeline.map((e, i) => {
-                const inbound = e.dir === 'in' && e.source === 'customer'
-                return (
-                  <li key={i} className="relative flex gap-3 pb-5 last:pb-0">
-                    {i < timeline.length - 1 && <span className="absolute left-[13px] top-8 bottom-0 w-px bg-line" aria-hidden />}
-                    <span className="relative z-[1] grid h-7 w-7 shrink-0 place-items-center rounded-full border border-line bg-card">
-                      <ChannelLogo channel={logoKey(e.channel)} size={14} />
-                    </span>
-                    <div className="min-w-0 flex-1 pt-0.5">
-                      <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[11.5px]">
-                        <span className="font-semibold text-text-high">{timelineChannel(t, e.channel)}</span>
-                        <span className="text-text-muted">·</span>
-                        <span className={inbound ? 'font-semibold text-[color:var(--green-ink)]' : 'text-text-muted'}>
-                          {t(
-                            inbound
-                              ? 'contacts.detail.fromCustomer'
-                              : e.source === 'ai'
-                                ? 'contacts.detail.fromAi'
-                                : e.source === 'system'
-                                  ? 'contacts.detail.system'
-                                  : 'contacts.detail.toCustomer',
-                          )}
-                        </span>
-                        {e.source === 'ai' && <Bot size={11} className="text-text-muted" aria-hidden />}
-                        {e.extra?.outcome && (
-                          <span className="rounded-full border border-line px-1.5 text-[10.5px] text-text-mid">{e.extra.outcome.replace(/_/g, ' ')}</span>
-                        )}
-                        <span className="ml-auto shrink-0 text-text-muted">{f.dateTime(e.ts)}</span>
-                      </div>
-                      <div
-                        className={`whitespace-pre-wrap rounded-lg px-3 py-2 text-[13px] leading-[1.55] ${
-                          inbound ? 'border border-line bg-card text-text-high' : 'bg-well text-text-mid'
-                        }`}
-                      >
-                        {e.text.length > 400 ? e.text.slice(0, 400) + '…' : e.text}
-                      </div>
-                    </div>
-                  </li>
-                )
-              })}
-            </ol>
-          )}
-        </section>
+        {/* sidebar, bottom: how the AI and the team handle them */}
+        <div className="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-start-2">
+          {/* AI for this contact: follow the chat · never · always */}
+          <ContactAiModeCard contactId={d.id} />
+          {/* Registry tags (boss / employee / driver…) with their attribute values */}
+          <ContactTagsCard contactId={d.id} />
+          {/* Per-entity membership — link/unlink without deleting the profile */}
+          <ContactEntitiesCard contactId={d.id} />
+          {/* Upcoming appointments the AI or the team booked for them */}
+          <BookingsCard contactId={d.id} />
+        </div>
       </div>
     </div>
   )
