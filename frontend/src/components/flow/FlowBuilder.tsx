@@ -21,6 +21,7 @@ import {
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
+import { useFormat, useT, type MessageKey } from '@/i18n'
 import { getAuth } from '@/lib/auth'
 import { fetchCustomFields } from '@/lib/customFields'
 import {
@@ -63,26 +64,32 @@ import TemplateGallery from './TemplateGallery'
 const STORAGE_KEY = 'chatbranch-flow-builder-v1'
 
 type SyncState = 'loading' | 'synced' | 'saving' | 'local' | 'readonly'
-const SYNC_LABEL: Record<SyncState, string> = {
-  loading: 'Loading…',
-  synced: 'Saved',
-  saving: 'Saving…',
-  local: 'Offline — saved in this browser',
-  readonly: 'View only',
+const SYNC_LABEL: Record<SyncState, MessageKey> = {
+  loading: 'common.status.loading',
+  synced: 'common.status.saved',
+  saving: 'common.status.saving',
+  local: 'flows.builder.syncLocal',
+  readonly: 'flows.builder.syncReadonly',
 }
 
-const PERIODS = [
-  { value: 1, label: 'Today' },
-  { value: 7, label: '7 days' },
-  { value: 30, label: '30 days' },
+const PERIODS: { value: number; lbl: MessageKey }[] = [
+  { value: 1, lbl: 'common.time.today' },
+  { value: 7, lbl: 'flows.builder.period7' },
+  { value: 30, lbl: 'flows.builder.period30' },
 ]
-const PERIOD_LABEL: Record<number, string> = { 1: 'Today', 7: 'Last 7 days', 30: 'Last 30 days' }
+const PERIOD_LABEL: Record<number, MessageKey> = {
+  1: 'common.time.today',
+  7: 'flows.builder.periodLast7',
+  30: 'flows.builder.periodLast30',
+}
 
 type Panel = { kind: 'node'; id: string } | { kind: 'edge'; id: string } | { kind: 'runs' } | null
 type Insert = (InsertAt & { mode: 'steps' }) | { mode: 'edge'; edgeId: string; hasContinuation: true } | null
 
 export default function FlowBuilder() {
   const router = useRouter()
+  const t = useT()
+  const f = useFormat()
   const [workflows, setWorkflows] = useState<WorkflowDef[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [sync, setSync] = useState<SyncState>('loading')
@@ -164,7 +171,7 @@ export default function FlowBuilder() {
   // ---- autosave (debounced): localStorage + the server library ------------------
   useEffect(() => {
     if (!hydrated.current || version === 0) return
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify({ workflows, activeWorkflowId: activeId }))
       } catch {
@@ -179,7 +186,7 @@ export default function FlowBuilder() {
       const result = await pushFlowLibrary(workflows)
       setSync(result === 'saved' ? 'synced' : result === 'forbidden' ? 'readonly' : 'local')
     }, 700)
-    return () => clearTimeout(t)
+    return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version])
 
@@ -202,8 +209,8 @@ export default function FlowBuilder() {
   useEffect(() => {
     setStats(null)
     loadStats()
-    const t = setInterval(loadStats, 60_000)
-    return () => clearInterval(t)
+    const timer = setInterval(loadStats, 60_000)
+    return () => clearInterval(timer)
   }, [loadStats])
   // the first save of a new flow makes its stats addressable
   useEffect(() => {
@@ -221,17 +228,22 @@ export default function FlowBuilder() {
   }
 
   // ---- library operations -------------------------------------------------------------
-  const createFromTemplate = (t: StarterTemplate | null) => {
-    const wf = workflowFromTemplate(t, freshId('wf'))
+  const createFromTemplate = (tpl: StarterTemplate | null) => {
+    const wf = workflowFromTemplate(tpl, freshId('wf'), t)
     mutate((wfs) => [...wfs, wf])
     setActiveId(wf.id)
-    setPanel(t ? null : { kind: 'node', id: wf.nodes[0]?.id ?? '' })
+    setPanel(tpl ? null : { kind: 'node', id: wf.nodes[0]?.id ?? '' })
     setGallery(false)
   }
 
   const duplicateFlow = () => {
     if (!active) return
-    const copy: WorkflowDef = { ...structuredClone(active), id: freshId('wf'), name: `${active.name} (copy)`, active: false }
+    const copy: WorkflowDef = {
+      ...structuredClone(active),
+      id: freshId('wf'),
+      name: t('flows.builder.copyName', { name: active.name }),
+      active: false,
+    }
     mutate((wfs) => [...wfs, copy])
     setActiveId(copy.id)
     setPanel(null)
@@ -288,7 +300,7 @@ export default function FlowBuilder() {
         setActiveId(id)
         setPanel(null)
       } catch {
-        setImportError('That file is not a flow exported from here.')
+        setImportError(t('flows.builder.importNotAFlow'))
       }
     }
     reader.readAsText(file)
@@ -392,7 +404,8 @@ export default function FlowBuilder() {
       skills: lookups.skills,
       teams: lookups.teams,
       scripts: lookups.scripts,
-      fields: lookups.fields.map((f) => ({ key: f.key, label: f.label })),
+      fields: lookups.fields.map((fd) => ({ key: fd.key, label: fd.label })),
+      list: f.list,
     },
     stats,
     selectedId: panel?.kind === 'node' ? panel.id : null,
@@ -412,24 +425,25 @@ export default function FlowBuilder() {
           <button
             type="button"
             onClick={() => router.push('/analytics')}
-            title="Back to Analytics"
+            title={t('flows.builder.backToAnalytics')}
             className="inline-flex h-8 items-center gap-1 rounded-lg px-2 text-[12.5px] font-semibold text-text-mid hover:bg-fill-hover hover:text-text-high"
           >
-            <ArrowLeft size={15} aria-hidden /> Back
+            <ArrowLeft size={15} aria-hidden /> {t('common.actions.back')}
           </button>
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            {workflows.length > 0 && <span className="eyebrow hidden sm:inline">Flow</span>}
+          {/* min width: longer translations wrap the header instead of squeezing the flow picker away */}
+          <div className="flex min-w-[min(100%,260px)] flex-1 items-center gap-2">
+            {workflows.length > 0 && <span className="eyebrow hidden shrink-0 whitespace-nowrap sm:inline">{t('flows.builder.flow')}</span>}
             {workflows.length > 0 && (
-              <div className="w-[220px] min-w-0 max-w-full sm:w-[260px]">
+              <div className="min-w-0 flex-1 sm:max-w-[260px]">
                 <Select
                   value={activeId ?? ''}
                   onChange={(id) => {
                     setActiveId(id)
                     setPanel(null)
                   }}
-                  options={workflows.map((w) => ({ value: w.id, label: w.name, badge: w.active ? 'LIVE' : undefined }))}
+                  options={workflows.map((w) => ({ value: w.id, label: w.name, badge: w.active ? t('flows.builder.liveBadge') : undefined }))}
                   searchable={workflows.length > 6}
-                  ariaLabel="Open flow"
+                  ariaLabel={t('flows.builder.openFlow')}
                 />
               </div>
             )}
@@ -437,22 +451,22 @@ export default function FlowBuilder() {
               <button
                 type="button"
                 onClick={() => setRenaming(true)}
-                title="Rename"
-                aria-label="Rename flow"
+                title={t('flows.builder.rename')}
+                aria-label={t('flows.builder.renameFlow')}
                 className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-text-muted hover:bg-fill-hover hover:text-text-high"
               >
                 <Pencil size={14} aria-hidden />
               </button>
             )}
-            <span className="hidden items-center gap-1 text-[11.5px] text-text-muted md:inline-flex" title={SYNC_LABEL[sync]}>
+            <span className="hidden shrink-0 items-center gap-1 whitespace-nowrap text-[11.5px] text-text-muted md:inline-flex" title={t(SYNC_LABEL[sync])}>
               {sync === 'local' || sync === 'readonly' ? <CloudOff size={12} aria-hidden /> : <Cloud size={12} aria-hidden />}
-              {SYNC_LABEL[sync]}
+              {t(SYNC_LABEL[sync])}
             </span>
           </div>
 
           {active && (
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex overflow-hidden rounded-lg border border-line-strong" role="radiogroup" aria-label="Period">
+              <div className="flex overflow-hidden rounded-lg border border-line-strong" role="radiogroup" aria-label={t('flows.builder.period')}>
                 {PERIODS.map((p) => (
                   <button
                     key={p.value}
@@ -462,19 +476,19 @@ export default function FlowBuilder() {
                     onClick={() => setPeriod(p.value)}
                     className={`h-8 px-2.5 text-[12px] font-semibold ${period === p.value ? 'bg-primary text-on-primary' : 'bg-card text-text-mid hover:bg-fill-hover'}`}
                   >
-                    {p.label}
+                    {t(p.lbl)}
                   </button>
                 ))}
               </div>
               <Button variant={panel?.kind === 'runs' ? 'primary' : 'secondary'} size="sm" onClick={() => setPanel(panel?.kind === 'runs' ? null : { kind: 'runs' })}>
-                <Activity size={13} aria-hidden /> Runs
-                {stats ? <span className="tabular-nums opacity-70">{stats.totals.started}</span> : null}
+                <Activity size={13} aria-hidden /> {t('flows.builder.runs')}
+                {stats ? <span className="tabular-nums opacity-70">{f.number(stats.totals.started)}</span> : null}
               </Button>
-              <div className="flex overflow-hidden rounded-lg border border-line-strong" role="radiogroup" aria-label="View">
+              <div className="flex overflow-hidden rounded-lg border border-line-strong" role="radiogroup" aria-label={t('flows.builder.view')}>
                 {(
                   [
-                    ['steps', 'Steps', LayoutList],
-                    ['canvas', 'Advanced canvas', Network],
+                    ['steps', t('flows.builder.viewSteps'), LayoutList],
+                    ['canvas', t('flows.builder.viewCanvas'), Network],
                   ] as const
                 ).map(([v, label, Icon]) => (
                   <button
@@ -492,25 +506,25 @@ export default function FlowBuilder() {
               <button
                 type="button"
                 onClick={() => (active.active ? setLive(false) : nIssues ? setConfirmLive(true) : setLive(true))}
-                title={active.active ? 'Live — the engine runs this flow. Click to pause.' : 'Paused — a draft. Click to go live.'}
+                title={active.active ? t('flows.builder.liveTitle') : t('flows.builder.pausedTitle')}
                 className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[12.5px] font-semibold ${
                   active.active ? 'border-green/50 bg-green/10 text-[color:var(--green-ink)]' : 'border-line-strong bg-card text-text-high hover:bg-fill-hover'
                 }`}
               >
                 <span className={`h-2 w-2 rounded-full ${active.active ? 'animate-pulseGreen bg-green' : 'bg-text-faint'}`} aria-hidden />
-                {active.active ? 'Live' : 'Go live'}
+                {active.active ? t('flows.builder.live') : t('flows.builder.goLive')}
               </button>
             </div>
           )}
           <div className="flex items-center gap-2">
             <Button variant={active ? 'secondary' : 'primary'} size="sm" onClick={() => setGallery(true)}>
-              <Plus size={13} aria-hidden /> New flow
+              <Plus size={13} aria-hidden /> {t('flows.builder.newFlow')}
             </Button>
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setMenuOpen(!menuOpen)}
-                aria-label="More"
+                aria-label={t('flows.builder.moreActions')}
                 aria-expanded={menuOpen}
                 className="grid h-8 w-8 place-items-center rounded-lg border border-line-strong bg-card text-text-mid hover:bg-fill-hover"
               >
@@ -519,15 +533,15 @@ export default function FlowBuilder() {
               {menuOpen && (
                 <>
                   <div className="fixed inset-0 z-30" onClick={() => setMenuOpen(false)} aria-hidden />
-                  <div className="absolute right-0 top-9 z-40 w-48 overflow-hidden rounded-lg border border-line-strong bg-card py-1 shadow-pop" role="menu">
+                  <div className="absolute right-0 top-9 z-40 w-52 overflow-hidden rounded-lg border border-line-strong bg-card py-1 shadow-pop" role="menu">
                     {[
-                      { label: 'Duplicate', Icon: Copy, run: duplicateFlow, off: !active },
-                      { label: 'Export JSON', Icon: Download, run: exportJson, off: !active },
-                      { label: 'Import JSON', Icon: Upload, run: () => fileInput.current?.click(), off: false },
-                      { label: 'Delete flow', Icon: Trash2, run: () => setConfirmFlowDelete(true), off: !active, danger: true },
+                      { id: 'dup', label: t('flows.builder.duplicate'), Icon: Copy, run: duplicateFlow, off: !active },
+                      { id: 'export', label: t('flows.builder.exportJson'), Icon: Download, run: exportJson, off: !active },
+                      { id: 'import', label: t('flows.builder.importJson'), Icon: Upload, run: () => fileInput.current?.click(), off: false },
+                      { id: 'delete', label: t('flows.builder.deleteFlow'), Icon: Trash2, run: () => setConfirmFlowDelete(true), off: !active, danger: true },
                     ].map((it) => (
                       <button
-                        key={it.label}
+                        key={it.id}
                         type="button"
                         role="menuitem"
                         disabled={it.off}
@@ -555,7 +569,7 @@ export default function FlowBuilder() {
             {active.hint && <span className="text-text-muted">{active.hint}</span>}
             {nIssues > 0 && (
               <span className="font-semibold text-[color:var(--amber-ink)]">
-                {nIssues} thing{nIssues === 1 ? '' : 's'} to finish before this runs properly
+                {t('flows.builder.issuesBanner', { count: nIssues })}
               </span>
             )}
           </div>
@@ -565,7 +579,7 @@ export default function FlowBuilder() {
         <div className="relative flex min-h-0 flex-1">
           <main className="min-h-0 min-w-0 flex-1">
             {sync === 'loading' ? (
-              <div className="grid h-full place-items-center text-[13px] text-text-muted">Loading flows…</div>
+              <div className="grid h-full place-items-center text-[13px] text-text-muted">{t('flows.builder.loadingFlows')}</div>
             ) : !active ? (
               <EmptyState onPick={createFromTemplate} />
             ) : view === 'steps' ? (
@@ -628,7 +642,7 @@ export default function FlowBuilder() {
                   nodes={graph.nodes}
                   stats={stats}
                   days={period}
-                  periodLabel={PERIOD_LABEL[period]}
+                  periodLabel={t(PERIOD_LABEL[period] ?? 'flows.builder.periodLast7')}
                   onClose={() => setPanel(null)}
                   onSelectStep={(id) => setPanel({ kind: 'node', id })}
                 />
@@ -645,60 +659,64 @@ export default function FlowBuilder() {
         onPick={pickInsert}
         hasContinuation={!!insert && insert.hasContinuation}
       />
-      <Modal open={gallery} onClose={() => setGallery(false)} title="Start a new flow" subtitle="Pick a starter and adjust the words — or begin with a blank flow." size="xl">
+      <Modal open={gallery} onClose={() => setGallery(false)} title={t('flows.builder.galleryTitle')} subtitle={t('flows.builder.gallerySubtitle')} size="xl">
         <TemplateGallery onPick={createFromTemplate} />
       </Modal>
       <Modal
         open={!!confirmDelete}
         onClose={() => setConfirmDelete(null)}
-        title="Delete this step?"
+        title={t('flows.builder.deleteStepTitle')}
         size="sm"
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => setConfirmDelete(null)}>
-              Keep it
+              {t('flows.builder.keepIt')}
             </Button>
             <Button variant="danger" size="sm" onClick={() => confirmDelete && doDelete(confirmDelete.id)}>
-              Delete {confirmDelete ? confirmDelete.removed + 1 : ''} steps
+              {t('flows.builder.deleteSteps', { count: confirmDelete ? confirmDelete.removed + 1 : 0 })}
             </Button>
           </>
         }
       >
         <p className="text-[13px] text-text-mid">
-          This step has a second path. Deleting it keeps the {confirmDelete && graph.nodes.find((n) => n.id === confirmDelete.id)?.type === 'followup' ? 'Replied' : 'YES'} path and also removes the{' '}
-          {confirmDelete?.removed} step{confirmDelete?.removed === 1 ? '' : 's'} only the other path reaches.
+          {t(
+            confirmDelete && graph.nodes.find((n) => n.id === confirmDelete.id)?.type === 'followup'
+              ? 'flows.builder.deleteStepBodyReplied'
+              : 'flows.builder.deleteStepBodyYes',
+            { count: confirmDelete?.removed ?? 0 },
+          )}
         </p>
       </Modal>
       <Modal
         open={confirmFlowDelete}
         onClose={() => setConfirmFlowDelete(false)}
-        title={`Delete “${active?.name ?? ''}”?`}
+        title={t('flows.builder.deleteFlowTitle', { name: active?.name ?? '' })}
         size="sm"
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => setConfirmFlowDelete(false)}>
-              Cancel
+              {t('common.actions.cancel')}
             </Button>
             <Button variant="danger" size="sm" onClick={deleteFlow}>
-              Delete flow
+              {t('flows.builder.deleteFlow')}
             </Button>
           </>
         }
       >
-        <p className="text-[13px] text-text-mid">The flow stops running and is removed for everyone. Its past runs stay in the records.</p>
+        <p className="text-[13px] text-text-mid">{t('flows.builder.deleteFlowBody')}</p>
       </Modal>
       <Modal
         open={confirmLive}
         onClose={() => setConfirmLive(false)}
-        title="Go live with unfinished steps?"
+        title={t('flows.builder.goLiveTitle')}
         size="sm"
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => setConfirmLive(false)}>
-              Finish first
+              {t('flows.builder.finishFirst')}
             </Button>
             <Button size="sm" onClick={() => setLive(true)}>
-              Go live anyway
+              {t('flows.builder.goLiveAnyway')}
             </Button>
           </>
         }
@@ -708,14 +726,14 @@ export default function FlowBuilder() {
             .flat()
             .slice(0, 6)
             .map((m, i) => (
-              <li key={i}>{m}</li>
+              <li key={i}>{t(m)}</li>
             ))}
         </ul>
       </Modal>
       <Modal
         open={renaming}
         onClose={() => setRenaming(false)}
-        title="Rename flow"
+        title={t('flows.builder.renameFlow')}
         size="sm"
       >
         <form
@@ -728,20 +746,20 @@ export default function FlowBuilder() {
           <input
             name="name"
             defaultValue={active?.name ?? ''}
-            aria-label="Flow name"
+            aria-label={t('flows.builder.flowName')}
             className="h-9 w-full rounded-lg border border-line-strong bg-card px-3 text-[13px] text-text-high outline-none focus:border-text-primary"
           />
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" size="sm" onClick={() => setRenaming(false)}>
-              Cancel
+              {t('common.actions.cancel')}
             </Button>
             <Button type="submit" size="sm">
-              Save
+              {t('common.actions.save')}
             </Button>
           </div>
         </form>
       </Modal>
-      <Modal open={!!importError} onClose={() => setImportError(null)} title="Import failed" size="sm">
+      <Modal open={!!importError} onClose={() => setImportError(null)} title={t('flows.builder.importFailed')} size="sm">
         <div role="alert" className="text-[13px] text-[color:var(--red-ink)]">
           {importError}
         </div>
@@ -751,18 +769,14 @@ export default function FlowBuilder() {
 }
 
 function EmptyState({ onPick }: { onPick: (t: StarterTemplate | null) => void }) {
+  const t = useT()
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-[980px] px-4 py-8 sm:px-8 sm:py-12">
-        <div className="eyebrow">Flows</div>
-        <h1 className="display mt-1 text-[30px] leading-tight text-text-heading sm:text-[36px]">Let follow-ups run themselves</h1>
-        <p className="mt-3 max-w-[680px] text-[14px] leading-relaxed text-text-mid">
-          A flow starts when something happens — a contact is tagged, a message arrives, a date comes round — and then
-          works through the steps you choose: send a message (or let the AI write it), wait for a reply, branch on the
-          answer, follow up when nobody answers, and hand over to your team when a person is needed. Every step shows
-          how many people reached it, so you can see it working.
-        </p>
-        <div className="eyebrow mb-3 mt-8">Start from a template</div>
+        <div className="eyebrow">{t('flows.builder.emptyEyebrow')}</div>
+        <h1 className="display mt-1 text-[30px] leading-tight text-text-heading sm:text-[36px]">{t('flows.builder.emptyTitle')}</h1>
+        <p className="mt-3 max-w-[680px] text-[14px] leading-relaxed text-text-mid">{t('flows.builder.emptyBody')}</p>
+        <div className="eyebrow mb-3 mt-8">{t('flows.builder.startFromTemplate')}</div>
         <TemplateGallery onPick={onPick} />
       </div>
     </div>

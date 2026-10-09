@@ -3,22 +3,20 @@
 import Link from 'next/link'
 import { ExternalLink } from 'lucide-react'
 import { Select, type SelectOption } from '@/components/ui/Select'
+import { useT, type MessageKey } from '@/i18n'
 import type { AgentSkill } from '@/lib/flow/types'
 
 /** Skill kinds from the Skills page: a PROMPT skill is a brief the AI writes
  * with — the only kind a step can pick. Tools and reply checks run on their
  * own whenever the AI writes, so they are listed for reference only. */
-const KIND_LABEL: Record<string, string> = {
-  prompt: 'Prompt skills',
-  tool: 'Tools — used automatically',
-  check: 'Reply checks — run automatically',
-  app: 'Connected apps — used automatically',
+const KIND_LABEL: Record<string, MessageKey> = {
+  prompt: 'flows.skillPicker.kindPrompt',
+  tool: 'flows.skillPicker.kindTool',
+  check: 'flows.skillPicker.kindCheck',
+  app: 'flows.skillPicker.kindApp',
 }
 
 const isPrompt = (kind?: string) => !kind || kind === 'prompt'
-
-const groupName = (kind?: string) =>
-  KIND_LABEL[kind || 'prompt'] ?? (kind ? kind.charAt(0).toUpperCase() + kind.slice(1) : undefined)
 
 /**
  * Which AI skill guides this step. Reads the real skills (GET
@@ -37,19 +35,24 @@ export default function SkillPicker({
   loaded: boolean
   onChange: (id: string) => void
 }) {
+  const t = useT()
+  const groupName = (kind?: string) => {
+    const key = KIND_LABEL[kind || 'prompt']
+    return key ? t(key) : kind ? kind.charAt(0).toUpperCase() + kind.slice(1) : undefined
+  }
   const byId = skills.find((s) => s.id === value)
   const byName = !byId && value ? skills.find((s) => s.name === value) : undefined
   const options: SelectOption[] = [
-    { value: '', label: 'No skill — the default assistant' },
+    { value: '', label: t('flows.skillPicker.none') },
     ...[...skills.filter((s) => isPrompt(s.kind)), ...skills.filter((s) => !isPrompt(s.kind))].map((s) => ({
       value: s.id,
       label: s.name,
       group: groupName(s.kind),
-      hint: s.enabled === false ? '(off)' : undefined,
+      hint: s.enabled === false ? t('flows.skillPicker.off') : undefined,
       disabled: !isPrompt(s.kind),
     })),
   ]
-  if (value && !byId && !byName) options.push({ value, label: `${value} (not found)` })
+  if (value && !byId && !byName) options.push({ value, label: t('flows.skillPicker.notFound', { value }) })
   const shown = byName ? byName.id : value
 
   return (
@@ -60,21 +63,21 @@ export default function SkillPicker({
         options={options}
         size="md"
         searchable
-        ariaLabel="AI skill"
-        placeholder={loaded ? 'Pick a skill' : 'Loading skills…'}
+        ariaLabel={t('flows.skillPicker.aria')}
+        placeholder={loaded ? t('flows.skillPicker.pick') : t('flows.skillPicker.loading')}
       />
       <div className="flex flex-wrap items-center justify-between gap-2 text-[11.5px] text-text-muted">
-        <span>
+        <span className="min-w-0">
           {byName
-            ? `Saved by name (“${value}”) in an older flow — pick it again to store its id.`
+            ? t('flows.skillPicker.savedByName', { name: value })
             : byId?.useWhen
-              ? `Use when: ${byId.useWhen}`
+              ? t('flows.skillPicker.useWhen', { text: byId.useWhen })
               : loaded && skills.length === 0
-                ? 'No skills yet.'
-                : 'The skill’s instructions shape what the AI writes.'}
+                ? t('flows.skillPicker.noSkills')
+                : t('flows.skillPicker.shapes')}
         </span>
         <Link href="/skills" className="inline-flex items-center gap-1 font-semibold text-text-mid hover:text-text-high">
-          Manage skills <ExternalLink size={11} aria-hidden />
+          {t('flows.skillPicker.manage')} <ExternalLink size={11} aria-hidden />
         </Link>
       </div>
     </div>

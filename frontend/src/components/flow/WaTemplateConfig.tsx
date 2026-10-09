@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, ExternalLink, Loader2, MessageSquareReply, Phone, RefreshCw } from 'lucide-react'
+import { useT, type MessageKey } from '@/i18n'
 import { authHeaders } from '@/lib/auth'
 import type { FlowConfig } from '@/lib/flow/types'
 import { Field, Segmented } from './fields'
@@ -58,6 +59,7 @@ const variableCount = (body: string) =>
 let templatesCache: { templates: WaTemplate[]; sandbox: boolean } | null = null
 
 function PreviewBody({ body, values }: { body: string; values: Record<string, string> }) {
+  const t = useT()
   return (
     <>
       {body.split(PLACEHOLDER_RE).map((part, i) => {
@@ -68,7 +70,7 @@ function PreviewBody({ body, values }: { body: string; values: Record<string, st
           <mark
             key={i}
             className={`rounded px-0.5 ${v ? 'bg-green/15 text-text-high' : 'bg-amber/20 text-[color:var(--amber-ink)]'}`}
-            title={`Variable {{${m[1]}}}`}
+            title={t('flows.waTemplate.variableTitle', { slot: `{{${m[1]}}}` })}
           >
             {v || `{{${m[1]}}}`}
           </mark>
@@ -80,10 +82,10 @@ function PreviewBody({ body, values }: { body: string; values: Record<string, st
 
 type Mode = 'text' | 'template' | 'auto'
 
-const MODE_COPY: Record<Mode, { label: string; hint: string }> = {
-  text: { label: 'Free text', hint: '24h window only' },
-  template: { label: 'Template', hint: 'works any time' },
-  auto: { label: 'Text, else template', hint: 'template after 24h' },
+const MODE_COPY: Record<Mode, { label: MessageKey; hint: MessageKey }> = {
+  text: { label: 'flows.waTemplate.modeText', hint: 'flows.waTemplate.modeTextHint' },
+  template: { label: 'flows.waTemplate.modeTemplate', hint: 'flows.waTemplate.modeTemplateHint' },
+  auto: { label: 'flows.waTemplate.modeAuto', hint: 'flows.waTemplate.modeAutoHint' },
 }
 
 export default function WaTemplateConfig({
@@ -98,6 +100,7 @@ export default function WaTemplateConfig({
   /** what "text" means on this step, e.g. "AI text" */
   textLabel?: string
 }) {
+  const t = useT()
   const raw = (config.waMode as Mode) || 'text'
   const mode: Mode = modes.includes(raw) ? raw : modes[0]
   const templateName = typeof config.templateName === 'string' ? config.templateName : ''
@@ -142,22 +145,22 @@ export default function WaTemplateConfig({
   }, [needsTemplate])
 
   const selected =
-    data?.templates.find((t) => t.name === templateName && (!templateLanguage || t.language === templateLanguage)) ?? null
+    data?.templates.find((tp) => tp.name === templateName && (!templateLanguage || tp.language === templateLanguage)) ?? null
 
   const slotCount = selected
     ? (selected.variables ?? variableCount(selected.body))
     : Math.max(0, ...Object.keys(values).map((k) => parseInt(k, 10) || 0))
   const slots = Array.from({ length: slotCount }, (_, i) => String(i + 1))
 
-  const pick = (t: WaTemplate) => {
-    const count = t.variables ?? variableCount(t.body)
-    const same = t.name === templateName && t.language === templateLanguage
+  const pick = (tp: WaTemplate) => {
+    const count = tp.variables ?? variableCount(tp.body)
+    const same = tp.name === templateName && tp.language === templateLanguage
     const vars: Record<string, string> = {}
     for (let i = 1; i <= count; i++) {
-      const binding = t.bindings?.[i - 1]
+      const binding = tp.bindings?.[i - 1]
       vars[String(i)] = (same && values[String(i)]) || (binding ? `{{${binding}}}` : '')
     }
-    onPatch({ templateName: t.name, templateLanguage: t.language, templateVariables: vars })
+    onPatch({ templateName: tp.name, templateLanguage: tp.language, templateVariables: vars })
     setFocusSlot('1')
   }
 
@@ -182,23 +185,23 @@ export default function WaTemplateConfig({
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-line bg-well p-3">
       <Field
-        label="WhatsApp message type"
+        label={t('flows.waTemplate.type')}
         help={
           mode === 'text'
-            ? 'Free text only delivers inside Meta’s 24-hour window (after the customer last wrote). Scheduled messages usually need a template.'
+            ? t('flows.waTemplate.helpText')
             : mode === 'template'
-              ? 'An approved template can be sent at any time.'
-              : 'Sends the text while the 24-hour window is open, and this template once it has closed.'
+              ? t('flows.waTemplate.helpTemplate')
+              : t('flows.waTemplate.helpAuto')
         }
       >
         <Segmented
-          ariaLabel="WhatsApp message type"
+          ariaLabel={t('flows.waTemplate.type')}
           value={mode}
           onChange={(m) => onPatch({ waMode: m })}
           options={modes.map((m) => ({
             value: m,
-            label: m === 'text' && textLabel ? textLabel : MODE_COPY[m].label,
-            hint: MODE_COPY[m].hint,
+            label: m === 'text' && textLabel ? textLabel : t(MODE_COPY[m].label),
+            hint: t(MODE_COPY[m].hint),
           }))}
         />
       </Field>
@@ -206,12 +209,12 @@ export default function WaTemplateConfig({
       {needsTemplate && (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <span className="text-[12px] font-semibold text-text-mid">Template</span>
+            <span className="text-[12px] font-semibold text-text-mid">{t('flows.waTemplate.modeTemplate')}</span>
             <button
               type="button"
               onClick={() => load(true)}
-              title="Reload templates"
-              aria-label="Reload templates"
+              title={t('flows.waTemplate.reload')}
+              aria-label={t('flows.waTemplate.reload')}
               disabled={loading}
               className="grid h-6 w-6 place-items-center rounded-md text-text-muted hover:bg-fill-hover hover:text-text-high"
             >
@@ -221,60 +224,54 @@ export default function WaTemplateConfig({
 
           {loading ? (
             <div className="flex items-center gap-1.5 text-[12px] text-text-muted">
-              <Loader2 size={12} className="animate-spin" aria-hidden /> Loading templates…
+              <Loader2 size={12} className="animate-spin" aria-hidden /> {t('flows.waTemplate.loading')}
             </div>
           ) : error ? (
             <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-[color:var(--red-ink)]">
               <AlertCircle size={12} aria-hidden /> {error}
               <button type="button" className="font-semibold underline" onClick={() => load(true)}>
-                Retry
+                {t('common.actions.retry')}
               </button>
             </div>
           ) : (
-            <div role="listbox" aria-label="WhatsApp templates" className="flex max-h-[220px] flex-col gap-1 overflow-y-auto">
+            <div role="listbox" aria-label={t('flows.waTemplate.listAria')} className="flex max-h-[220px] flex-col gap-1 overflow-y-auto">
               {templateName && data && !selected && (
                 <div className="rounded-lg border border-amber/40 bg-amber/10 px-2.5 py-2 text-[12px] text-[color:var(--amber-ink)]">
-                  {templateName} {templateLanguage && `· ${templateLanguage}`} — not in the current template list
+                  {t('flows.waTemplate.notInList', { name: templateLanguage ? `${templateName} · ${templateLanguage}` : templateName })}
                 </div>
               )}
-              {(data?.templates ?? []).map((t) => {
-                const approved = (t.status || '').toUpperCase() === 'APPROVED'
-                const on = selected === t
+              {(data?.templates ?? []).map((tp) => {
+                const approved = (tp.status || '').toUpperCase() === 'APPROVED'
+                const on = selected === tp
                 return (
                   <button
                     type="button"
-                    key={`${t.name}:${t.language}`}
+                    key={`${tp.name}:${tp.language}`}
                     role="option"
                     aria-selected={on}
                     disabled={!approved}
-                    title={approved ? undefined : `Only APPROVED templates can be sent — this one is ${t.status || 'unreviewed'}.`}
-                    onClick={() => pick(t)}
+                    title={approved ? undefined : t('flows.waTemplate.onlyApproved', { status: tp.status || t('flows.waTemplate.unreviewed') })}
+                    onClick={() => pick(tp)}
                     className={`flex flex-col gap-0.5 rounded-lg border px-2.5 py-2 text-left transition-colors disabled:opacity-50 ${
                       on ? 'border-text-primary bg-card' : 'border-line bg-card hover:border-line-strong'
                     }`}
                   >
                     <span className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-[12.5px] font-semibold text-text-high">{t.name}</span>
-                      <span className="rounded bg-fill-hover px-1 text-[10.5px] text-text-muted">{t.language}</span>
-                      {!approved && <span className="rounded bg-fill-hover px-1 text-[10.5px] text-text-muted">{t.status || '—'}</span>}
+                      <span className="text-[12.5px] font-semibold text-text-high">{tp.name}</span>
+                      <span className="rounded bg-fill-hover px-1 text-[10.5px] text-text-muted">{tp.language}</span>
+                      {!approved && <span className="rounded bg-fill-hover px-1 text-[10.5px] text-text-muted">{tp.status || '—'}</span>}
                     </span>
-                    {t.body && <span className="line-clamp-2 text-[11.5px] text-text-muted">{t.body}</span>}
+                    {tp.body && <span className="line-clamp-2 text-[11.5px] text-text-muted">{tp.body}</span>}
                   </button>
                 )
               })}
-              {data && data.templates.length === 0 && (
-                <div className="text-[12px] text-text-muted">No templates yet — create one under Templates.</div>
-              )}
-              {data?.sandbox && (
-                <div className="text-[11.5px] text-text-muted">
-                  Sandbox — no WhatsApp account linked, so these are the local demo templates.
-                </div>
-              )}
+              {data && data.templates.length === 0 && <div className="text-[12px] text-text-muted">{t('flows.waTemplate.none')}</div>}
+              {data?.sandbox && <div className="text-[11.5px] text-text-muted">{t('flows.waTemplate.sandbox')}</div>}
             </div>
           )}
 
           {selected && (
-            <div className="rounded-lg border border-line bg-card px-3 py-2 text-[12.5px] leading-relaxed text-text-high" aria-label="Template preview">
+            <div className="rounded-lg border border-line bg-card px-3 py-2 text-[12.5px] leading-relaxed text-text-high" aria-label={t('flows.waTemplate.preview')}>
               <PreviewBody body={selected.body} values={values} />
               {(selected.buttons ?? []).length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1">
@@ -302,8 +299,8 @@ export default function WaTemplateConfig({
                       inputRefs.current[slot] = el
                     }}
                     value={values[slot] ?? ''}
-                    placeholder="Value or {{first_name}}"
-                    aria-label={`Value for template variable ${slot}`}
+                    placeholder={t('flows.waTemplate.valuePlaceholder')}
+                    aria-label={t('flows.waTemplate.valueFor', { slot })}
                     onFocus={() => setFocusSlot(slot)}
                     onChange={(e) => setValue(slot, e.target.value)}
                     className="h-8 w-full min-w-0 rounded-md border border-line-strong bg-card px-2 text-[12.5px] text-text-high outline-none focus:border-text-primary"
@@ -312,7 +309,7 @@ export default function WaTemplateConfig({
               ))}
               <div className="flex flex-wrap items-center gap-1">
                 <span className="text-[11px] text-text-muted">
-                  Insert into {`{{${slots.includes(focusSlot) ? focusSlot : slots[0]}}}`}:
+                  {t('flows.waTemplate.insertInto', { slot: `{{${slots.includes(focusSlot) ? focusSlot : slots[0]}}}` })}
                 </span>
                 {QUICK_VARS.map((v) => (
                   <button

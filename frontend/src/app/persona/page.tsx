@@ -16,35 +16,41 @@ import {
 import { useApp } from '@/lib/AppContext'
 import { SectionLabel } from '@/components/ui/Card'
 import { Select } from '@/components/ui/Select'
+import { useT, type MessageKey, type TFunction } from '@/i18n'
 import { buildOpeningLine } from '@/lib/personaLine'
-import { stopPreview, subscribePlaying } from '@/lib/voice'
-import { PERSONAS, PERSONA_LABELS } from '@/lib/personas'
+import { PreviewError, stopPreview, subscribePlaying } from '@/lib/voice'
+import { PERSONAS, PERSONA_LABEL_KEYS } from '@/lib/personas'
 import { PronunciationSettings } from '@/components/settings/PronunciationSettings'
 import type { Voice } from '@/lib/mocks'
 import { tint } from '@/lib/color'
 
-function errMessage(err: unknown): string {
-  return err instanceof Error && err.message ? err.message : 'Preview unavailable.'
+function errMessage(t: TFunction, err: unknown): string {
+  if (err instanceof PreviewError) return err.message || t('voice.library.previewFailed', { status: err.status })
+  return err instanceof Error && err.message ? err.message : t('voice.library.previewUnavailable')
 }
-const LANGUAGE_LABELS: Record<string, string> = { en: 'English', ms: 'Malay', zh: 'Chinese', unknown: 'Unknown' }
+/** A voice's language code → the word for it (the code itself is what the API stores). */
+const LANGUAGE_KEYS: Record<string, MessageKey> = {
+  en: 'voice.languages.en',
+  ms: 'voice.languages.ms',
+  zh: 'voice.languages.zh',
+  unknown: 'common.status.unknown',
+}
 const SOURCE_LABELS: Record<string, string> = { openai: 'OpenAI', elevenlabs: 'ElevenLabs', gemini: 'Gemini' }
-const CLONE_LANGUAGES = [
-  { id: 'en', label: 'English' },
-  { id: 'ms', label: 'Malay' },
-  { id: 'zh', label: 'Chinese' },
-]
-const EDIT_LANGUAGES = [...CLONE_LANGUAGES, { id: 'unknown', label: 'Unknown' }]
+const CLONE_LANGUAGES = ['en', 'ms', 'zh']
+const EDIT_LANGUAGES = [...CLONE_LANGUAGES, 'unknown']
 
 function VoiceFilterSelect({
   value,
   onChange,
   opts,
+  ariaLabel,
 }: {
   value: string
   onChange: (v: string) => void
   opts: { value: string; label: string }[]
+  ariaLabel: string
 }) {
-  return <Select value={value} onChange={onChange} options={opts} className="min-w-[130px]" />
+  return <Select value={value} onChange={onChange} options={opts} className="min-w-[130px]" ariaLabel={ariaLabel} />
 }
 
 // Free-text fields (gender, accent) come from ElevenLabs labels or manual entry with
@@ -59,12 +65,15 @@ function voiceFilterOpts(voices: Voice[], field: 'gender' | 'accent' | 'language
   const vals = Array.from(new Set(voices.map((v) => norm(v[field])))).sort()
   return [{ value: '', label: allLabel }, ...vals.map((v) => ({ value: v, label: labelMap?.[v] ?? v }))]
 }
+// What each voice SAYS when previewed — in the voice's own language (spoken
+// content, not interface text, so these stay as written).
 const SAMPLE_LINES: Record<string, string> = {
   en: buildOpeningLine('professional'),
   ms: 'Selamat tengah hari, saya menghubungi daripada ChatBranch berkaitan akaun anda. Bolehkah saya mengambil sedikit masa anda?',
   zh: '下午好,这里是ChatBranch,想和您聊聊您的账户。请问现在方便占用您几分钟时间吗?',
 }
 const VOICE_WAVES = ['wave1', 'wave3', 'wave2', 'wave4', 'wave2', 'wave3', 'wave1', 'wave2']
+// The passage to read aloud when cloning, in the language being cloned.
 const RECORDING_SCRIPTS: Record<string, string> = {
   en: 'Good afternoon. My name is Aisha, and I’m calling from ChatBranch regarding your account. I’m here to help make sure everything is on track. We can go over the latest updates and any questions you might have. Please let me know if now is a convenient time to talk. Thank you for your time, and please feel free to ask me any questions.',
   ms: 'Selamat tengah hari. Nama saya Aisha, dan saya menghubungi daripada ChatBranch berkaitan akaun anda. Saya di sini untuk membantu memastikan semuanya berjalan lancar. Kita boleh semak kemas kini terkini dan sebarang soalan yang anda ada. Sila beritahu saya jika sekarang adalah masa yang sesuai untuk bercakap. Terima kasih atas masa anda, dan jangan segan untuk bertanya sebarang soalan.',
@@ -72,6 +81,7 @@ const RECORDING_SCRIPTS: Record<string, string> = {
 }
 
 export default function PersonaPage() {
+  const t = useT()
   const {
     voices,
     selectedVoice,
@@ -121,6 +131,11 @@ export default function PersonaPage() {
     [],
   )
 
+  const languageName = (code: string) => (LANGUAGE_KEYS[code] ? t(LANGUAGE_KEYS[code]) : code)
+  const personaName = (id: string) => (PERSONA_LABEL_KEYS[id] ? t(PERSONA_LABEL_KEYS[id]) : id)
+  const languageLabels = Object.fromEntries(Object.keys(LANGUAGE_KEYS).map((k) => [k, languageName(k)]))
+  const personaLabels = Object.fromEntries(PERSONAS.map((p) => [p.id, t(p.lbl)]))
+
   const filteredVoices = useMemo(
     () =>
       voices.filter(
@@ -143,7 +158,7 @@ export default function PersonaPage() {
   }
 
   async function submitClone(blob: Blob) {
-    const name = window.prompt('Name this voice:')?.trim()
+    const name = window.prompt(t('voice.library.namePrompt'))?.trim()
     if (!name) return
     setBusy(true)
     setCloneErr(null)
@@ -151,7 +166,7 @@ export default function PersonaPage() {
       await cloneVoice(name, blob, cloneLanguage, clonePersona)
       setShowAddVoice(false)
     } catch {
-      setCloneErr('Clone failed - check ELEVENLABS_API_KEY and voice-slot limit.')
+      setCloneErr(t('voice.library.cloneFailed'))
     } finally {
       setBusy(false)
     }
@@ -168,7 +183,7 @@ export default function PersonaPage() {
       setImportId('')
       setImportName('')
     } catch {
-      setCloneErr('Import failed - check the voice ID and ELEVENLABS_API_KEY.')
+      setCloneErr(t('voice.library.importFailed'))
     } finally {
       setBusy(false)
     }
@@ -198,21 +213,21 @@ export default function PersonaPage() {
       setEditingId(null)
     } catch {
       setVoiceActionErrId(voiceId)
-      setVoiceActionErrMsg('Update failed.')
+      setVoiceActionErrMsg(t('voice.library.updateFailed'))
     } finally {
       setVoiceActionBusy(false)
     }
   }
 
   async function handleDeleteVoice(v: Voice) {
-    if (!window.confirm(`Delete "${v.name}"? This also removes it from ElevenLabs.`)) return
+    if (!window.confirm(t('voice.library.confirmDelete', { name: v.name }))) return
     setVoiceActionBusy(true)
     setVoiceActionErrId(null)
     try {
       await deleteVoice(v.id)
     } catch {
       setVoiceActionErrId(v.id)
-      setVoiceActionErrMsg('Delete failed - check ELEVENLABS_API_KEY.')
+      setVoiceActionErrMsg(t('voice.library.deleteFailed'))
     } finally {
       setVoiceActionBusy(false)
     }
@@ -241,7 +256,7 @@ export default function PersonaPage() {
       rec.start()
       setRecording(true)
     } catch {
-      setCloneErr('Microphone access was unavailable. Check browser permission and try again.')
+      setCloneErr(t('voice.library.micUnavailable'))
     }
   }
 
@@ -255,67 +270,61 @@ export default function PersonaPage() {
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-brand-400/15">
           <Mic size={16} strokeWidth={1.75} color="#D9480F" />
         </div>
-        <div>
-          <div className="mb-0.5 text-[13px] font-bold text-text-high">Voice &amp; Calls</div>
-          <div className="text-[12px] leading-[1.5] text-text-mid">
-            Browse, clone, import, and manage the voices available for AI Responsive Calls.
-          </div>
+        <div className="min-w-0">
+          <div className="mb-0.5 text-[13px] font-bold text-text-high">{t('shell.nav.voice')}</div>
+          <div className="text-[12px] leading-[1.5] text-text-mid">{t('voice.page.intro')}</div>
         </div>
       </div>
 
       {/* Persona legend — the four agent personalities a voice can carry */}
       <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
         {PERSONAS.map((p) => (
-          <div key={p.id} className="rounded-2xl border border-line bg-card p-4">
+          <div key={p.id} className="min-w-0 rounded-2xl border border-line bg-card p-4">
             <div className="mb-2 grid h-9 w-9 place-items-center rounded-xl" style={{ background: tint(p.color, '1A') }}>
               <p.Icon size={16} strokeWidth={1.85} style={{ color: p.color }} />
             </div>
-            <div className="text-[12.5px] font-bold text-text-high">{p.label}</div>
-            <div className="mt-0.5 text-[11px] leading-snug text-text-muted">{p.sub}</div>
+            <div className="text-[12.5px] font-bold text-text-high">{t(p.lbl)}</div>
+            <div className="mt-0.5 text-[11px] leading-snug text-text-muted">{t(p.sub)}</div>
           </div>
         ))}
       </div>
 
       {/* Voice Library — pick a preset or clone your own; selection drives the config below */}
       <div id="voice-library" className="rounded-2xl border border-line bg-card px-5 py-[22px]">
-        <div className="mb-2.5 flex items-center justify-between">
-          <SectionLabel>Voice Library</SectionLabel>
+        <div className="mb-2.5 flex items-center justify-between gap-2">
+          <SectionLabel>{t('voice.library.title')}</SectionLabel>
           <button
             onClick={() => setShowAddVoice(true)}
-            className="rounded-md border border-brand-400/20 bg-brand-400/[0.12] px-2.5 py-1 text-[11px] font-semibold text-brand-200"
+            className="shrink-0 rounded-md border border-brand-400/20 bg-brand-400/[0.12] px-2.5 py-1 text-[11px] font-semibold text-brand-200"
           >
-            + Add voice
+            {t('voice.library.addVoice')}
           </button>
         </div>
-        <div className="mb-4 text-[12px] leading-[1.6] text-text-mid">
-          Click a voice to select it, or add your own recording to clone a custom persona voice.
-        </div>
+        <div className="mb-4 text-[12px] leading-[1.6] text-text-mid">{t('voice.library.hint')}</div>
         <details className="mb-4 rounded-lg border border-line bg-fill-subtle p-3 text-left">
           <summary className="cursor-pointer text-[10px] font-bold uppercase tracking-[0.06em] text-brand-200">
-            Sample preview line
+            {t('voice.library.sampleLine')}
           </summary>
           <div className="mt-2 flex items-center gap-1.5">
-            {CLONE_LANGUAGES.map((l) => (
+            {CLONE_LANGUAGES.map((code) => (
               <button
-                key={l.id}
-                onClick={() => setPreviewLangTab(l.id)}
+                key={code}
+                onClick={() => setPreviewLangTab(code)}
                 className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
                 style={{
-                  border: `1px solid ${previewLangTab === l.id ? 'rgba(255,90,31,0.5)' : 'var(--line)'}`,
-                  background: previewLangTab === l.id ? 'rgba(255,90,31,0.12)' : 'transparent',
-                  color: previewLangTab === l.id ? 'var(--brand-ink)' : 'var(--text-muted)',
+                  border: `1px solid ${previewLangTab === code ? 'rgba(255,90,31,0.5)' : 'var(--line)'}`,
+                  background: previewLangTab === code ? 'rgba(255,90,31,0.12)' : 'transparent',
+                  color: previewLangTab === code ? 'var(--brand-ink)' : 'var(--text-muted)',
                 }}
               >
-                {l.label}
+                {languageName(code)}
               </button>
             ))}
           </div>
           <blockquote className="mt-2 text-[11px] leading-[1.65] text-text-mid">
             &ldquo;{SAMPLE_LINES[previewLangTab] ?? SAMPLE_LINES.en}&rdquo;
           </blockquote>
-          <div className="mt-2 text-[10px] text-text-muted">
-            Each voice&rsquo;s Preview button speaks this line in its own language.
-          </div>
+          <div className="mt-2 text-[10px] text-text-muted">{t('voice.library.sampleLineHint')}</div>
         </details>
         {showAddVoice && (
           <div
@@ -325,13 +334,17 @@ export default function PersonaPage() {
           >
             <div
               onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label={t('voice.addVoice.title')}
               className="flex max-h-[86vh] w-full max-w-[480px] flex-col overflow-hidden rounded-2xl border border-line-strong bg-well"
               style={{ boxShadow: '0 24px 60px rgba(0,0,0,0.5)' }}
             >
               <div className="flex items-center justify-between border-b border-line px-[22px] py-[18px]">
-                <div className="text-[15px] font-extrabold tracking-[-0.4px] text-text-primary">Add a voice</div>
+                <div className="text-[15px] font-extrabold tracking-[-0.4px] text-text-primary">{t('voice.addVoice.title')}</div>
                 <button
                   onClick={() => setShowAddVoice(false)}
+                  aria-label={t('common.actions.close')}
                   className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg border border-line bg-fill text-text-muted"
                 >
                   <X size={15} strokeWidth={1.75} />
@@ -341,71 +354,69 @@ export default function PersonaPage() {
                 <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-400/15">
                   <Mic size={20} strokeWidth={1.75} color="#D9480F" />
                 </div>
-                <div className="text-[13px] font-bold text-text-high">Add your own voice</div>
-                <div className="text-[11px] text-text-muted">MP3 or WAV · 30-60s of clear speech recommended</div>
+                <div className="text-[13px] font-bold text-text-high">{t('voice.addVoice.ownVoice')}</div>
+                <div className="text-[11px] text-text-muted">{t('voice.addVoice.fileHint')}</div>
                 <details open className="mt-1 w-full rounded-lg border border-line bg-fill-subtle p-3 text-left">
                   <summary className="mb-1.5 cursor-pointer text-[10px] font-bold uppercase tracking-[0.06em] text-brand-200">
-                    Recording script · {LANGUAGE_LABELS[cloneLanguage] ?? cloneLanguage} · Read aloud
+                    {t('voice.addVoice.recordingScript', { language: languageName(cloneLanguage) })}
                   </summary>
                   <blockquote className="text-[11px] leading-[1.65] text-text-mid">
                     &ldquo;{RECORDING_SCRIPTS[cloneLanguage] ?? RECORDING_SCRIPTS.en}&rdquo;
                   </blockquote>
-                  <div className="mt-2 text-[10px] text-text-muted">
-                    Speak naturally in a quiet room and keep the microphone 15-20 cm away.
-                  </div>
+                  <div className="mt-2 text-[10px] text-text-muted">{t('voice.addVoice.recordingTip')}</div>
                 </details>
                 <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
                   <Select
                     value={cloneLanguage}
                     onChange={setCloneLanguage}
                     disabled={busy || recording}
-                    options={CLONE_LANGUAGES.map((l) => ({ value: l.id, label: l.label }))}
-                    ariaLabel="Voice language"
+                    options={CLONE_LANGUAGES.map((code) => ({ value: code, label: languageName(code) }))}
+                    ariaLabel={t('voice.library.voiceLanguage')}
                     className="w-[130px]"
                   />
                   <Select
                     value={clonePersona}
                     onChange={setClonePersona}
                     disabled={busy || recording}
-                    options={PERSONAS.map((p) => ({ value: p.id, label: p.label }))}
-                    ariaLabel="Voice persona"
-                    className="w-[150px]"
+                    options={PERSONAS.map((p) => ({ value: p.id, label: t(p.lbl) }))}
+                    ariaLabel={t('voice.library.voicePersona')}
+                    className="w-[170px]"
                   />
                   <button
                     disabled={busy || recording}
                     onClick={() => fileRef.current?.click()}
                     className="rounded-md border border-brand-400/20 bg-brand-400/[0.12] px-3 py-1.5 text-[11px] font-semibold text-brand-200 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {busy ? 'Processing...' : 'Upload file'}
+                    {busy ? t('voice.addVoice.processing') : t('voice.addVoice.uploadFile')}
                   </button>
                   <button
                     disabled={busy}
                     onClick={() => void toggleRecord()}
                     className="rounded-md border border-brand-400/20 bg-brand-400/[0.12] px-3 py-1.5 text-[11px] font-semibold text-brand-200 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {recording ? 'Stop recording' : 'Record'}
+                    {recording ? t('voice.addVoice.stopRecording') : t('voice.addVoice.record')}
                   </button>
                 </div>
                 <input ref={fileRef} type="file" accept="audio/*" hidden onChange={onFile} />
-                <div className="mt-1 text-[10px] text-text-muted">
-                  By adding a voice you confirm you have the speaker&rsquo;s consent to clone it.
-                </div>
+                <div className="mt-1 text-[10px] text-text-muted">{t('voice.addVoice.consent')}</div>
                 <div className="mt-3 flex w-full items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-text-muted">
                   <span className="h-px flex-1 bg-line" />
-                  or import an existing ElevenLabs voice
+                  <span className="shrink text-center">{t('voice.addVoice.orImport')}</span>
                   <span className="h-px flex-1 bg-line" />
                 </div>
                 <div className="mt-2 flex w-full flex-wrap items-center gap-2">
                   <input
                     value={importId}
                     onChange={(e) => setImportId(e.target.value)}
-                    placeholder="ElevenLabs voice ID"
+                    placeholder={t('voice.addVoice.voiceIdPlaceholder')}
+                    aria-label={t('voice.addVoice.voiceIdPlaceholder')}
                     className="flex-[1_1_160px] rounded-md border border-line-strong bg-well px-2.5 py-1.5 text-[11px] text-text-high outline-none"
                   />
                   <input
                     value={importName}
                     onChange={(e) => setImportName(e.target.value)}
-                    placeholder="Name (optional)"
+                    placeholder={t('voice.addVoice.namePlaceholder')}
+                    aria-label={t('voice.addVoice.namePlaceholder')}
                     className="flex-[1_1_120px] rounded-md border border-line-strong bg-well px-2.5 py-1.5 text-[11px] text-text-high outline-none"
                   />
                   <button
@@ -413,7 +424,7 @@ export default function PersonaPage() {
                     onClick={() => void submitImport()}
                     className="rounded-md border border-brand-400/20 bg-brand-400/[0.12] px-3 py-1.5 text-[11px] font-semibold text-brand-200 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {busy ? 'Processing...' : 'Import'}
+                    {busy ? t('voice.addVoice.processing') : t('voice.addVoice.import')}
                   </button>
                 </div>
                 {cloneErr && <div className="mt-1 text-[10px] font-semibold text-red-300">{cloneErr}</div>}
@@ -422,21 +433,46 @@ export default function PersonaPage() {
           </div>
         )}
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <VoiceFilterSelect value={genderFilter} onChange={setGenderFilter} opts={voiceFilterOpts(voices, 'gender', 'All genders')} />
-          <VoiceFilterSelect value={languageFilter} onChange={setLanguageFilter} opts={voiceFilterOpts(voices, 'language', 'All languages', LANGUAGE_LABELS)} />
-          <VoiceFilterSelect value={accentFilter} onChange={setAccentFilter} opts={voiceFilterOpts(voices, 'accent', 'All accents')} />
-          <VoiceFilterSelect value={sourceFilter} onChange={setSourceFilter} opts={voiceFilterOpts(voices, 'provider', 'All sources', SOURCE_LABELS)} />
-          <VoiceFilterSelect value={personaFilter} onChange={setPersonaFilter} opts={voiceFilterOpts(voices, 'persona', 'All personas', PERSONA_LABELS)} />
+          <VoiceFilterSelect
+            value={genderFilter}
+            onChange={setGenderFilter}
+            opts={voiceFilterOpts(voices, 'gender', t('voice.filters.allGenders'))}
+            ariaLabel={t('voice.filters.gender')}
+          />
+          <VoiceFilterSelect
+            value={languageFilter}
+            onChange={setLanguageFilter}
+            opts={voiceFilterOpts(voices, 'language', t('voice.filters.allLanguages'), languageLabels)}
+            ariaLabel={t('common.fields.language')}
+          />
+          <VoiceFilterSelect
+            value={accentFilter}
+            onChange={setAccentFilter}
+            opts={voiceFilterOpts(voices, 'accent', t('voice.filters.allAccents'))}
+            ariaLabel={t('voice.filters.accent')}
+          />
+          <VoiceFilterSelect
+            value={sourceFilter}
+            onChange={setSourceFilter}
+            opts={voiceFilterOpts(voices, 'provider', t('voice.filters.allSources'), SOURCE_LABELS)}
+            ariaLabel={t('voice.filters.source')}
+          />
+          <VoiceFilterSelect
+            value={personaFilter}
+            onChange={setPersonaFilter}
+            opts={voiceFilterOpts(voices, 'persona', t('voice.filters.allPersonas'), personaLabels)}
+            ariaLabel={t('voice.filters.persona')}
+          />
           {hasVoiceFilters && (
             <button
               onClick={clearVoiceFilters}
               className="rounded-[7px] border border-line-strong bg-well px-2.5 py-1.5 text-[12px] font-semibold text-text-muted"
             >
-              Clear
+              {t('common.actions.clear')}
             </button>
           )}
           <span className="ml-auto text-[12px] font-semibold text-text-muted">
-            {filteredVoices.length} of {voices.length}
+            {t('voice.filters.shownOf', { shown: filteredVoices.length, total: voices.length })}
           </span>
         </div>
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -476,7 +512,7 @@ export default function PersonaPage() {
                             startEdit(v)
                           }}
                           className="flex h-6 w-6 items-center justify-center rounded-full bg-fill-hover"
-                          aria-label="Edit voice"
+                          aria-label={t('voice.library.editVoice')}
                         >
                           <Pencil size={12} strokeWidth={2} color="#8A8177" />
                         </button>
@@ -486,7 +522,7 @@ export default function PersonaPage() {
                             void handleDeleteVoice(v)
                           }}
                           className="flex h-6 w-6 items-center justify-center rounded-full bg-fill-hover"
-                          aria-label="Delete voice"
+                          aria-label={t('voice.library.deleteVoice')}
                         >
                           <Trash2 size={12} strokeWidth={2} color="#C0392B" />
                         </button>
@@ -517,14 +553,15 @@ export default function PersonaPage() {
                         onChange={(e) => setEditName(e.target.value)}
                         onClick={(e) => e.stopPropagation()}
                         className="w-full rounded-md border border-line-strong bg-well px-2 py-1 text-[12px] font-bold text-text-high outline-none"
-                        placeholder="Name"
+                        placeholder={t('common.fields.name')}
+                        aria-label={t('common.fields.name')}
                       />
                     ) : (
                       <>
                         <div className="text-[13px] font-bold leading-snug text-text-high">{v.name}</div>
-                        <div className="whitespace-nowrap text-[10px] text-text-muted">{titleCase(v.gender)} · {titleCase(v.accent)}</div>
-                        <div className="whitespace-nowrap text-[10px] text-text-muted">
-                          {LANGUAGE_LABELS[v.language] ?? v.language} · {PERSONA_LABELS[v.persona] ?? v.persona}
+                        <div className="truncate text-[10px] text-text-muted">{titleCase(v.gender)} · {titleCase(v.accent)}</div>
+                        <div className="truncate text-[10px] text-text-muted">
+                          {languageName(v.language)} · {personaName(v.persona)}
                         </div>
                       </>
                     )}
@@ -537,26 +574,28 @@ export default function PersonaPage() {
                         value={editGender}
                         onChange={(e) => setEditGender(e.target.value)}
                         className="w-1/2 rounded-md border border-line-strong bg-well px-2 py-1 text-[11px] text-text-high outline-none"
-                        placeholder="Gender"
+                        placeholder={t('voice.filters.gender')}
+                        aria-label={t('voice.filters.gender')}
                       />
                       <input
                         value={editAccent}
                         onChange={(e) => setEditAccent(e.target.value)}
                         className="w-1/2 rounded-md border border-line-strong bg-well px-2 py-1 text-[11px] text-text-high outline-none"
-                        placeholder="Accent"
+                        placeholder={t('voice.filters.accent')}
+                        aria-label={t('voice.filters.accent')}
                       />
                     </div>
                     <Select
                       value={editLanguage}
                       onChange={setEditLanguage}
-                      options={EDIT_LANGUAGES.map((l) => ({ value: l.id, label: l.label }))}
-                      ariaLabel="Voice language"
+                      options={EDIT_LANGUAGES.map((code) => ({ value: code, label: languageName(code) }))}
+                      ariaLabel={t('voice.library.voiceLanguage')}
                     />
                     <Select
                       value={editPersona}
                       onChange={setEditPersona}
-                      options={PERSONAS.map((p) => ({ value: p.id, label: p.label }))}
-                      ariaLabel="Voice persona"
+                      options={PERSONAS.map((p) => ({ value: p.id, label: t(p.lbl) }))}
+                      ariaLabel={t('voice.library.voicePersona')}
                     />
                     <div className="mt-1 flex gap-1.5">
                       <button
@@ -564,14 +603,14 @@ export default function PersonaPage() {
                         onClick={() => void saveEdit(v.id)}
                         className="flex-1 rounded-md border border-brand-400/20 bg-brand-400/[0.12] px-2 py-1 text-[11px] font-semibold text-brand-200 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {voiceActionBusy ? 'Saving...' : 'Save'}
+                        {voiceActionBusy ? t('common.status.saving') : t('common.actions.save')}
                       </button>
                       <button
                         disabled={voiceActionBusy}
                         onClick={() => setEditingId(null)}
                         className="flex-1 rounded-md border border-line-strong bg-well px-2 py-1 text-[11px] font-semibold text-text-muted disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        Cancel
+                        {t('common.actions.cancel')}
                       </button>
                     </div>
                   </div>
@@ -604,13 +643,19 @@ export default function PersonaPage() {
                               previewVoice(v.id, SAMPLE_LINES[v.language] ?? SAMPLE_LINES.en)
                                 .catch((err) => {
                                   setPreviewErrId(v.id)
-                                  setPreviewErrMsg(errMessage(err))
+                                  setPreviewErrMsg(errMessage(t, err))
                                 })
                                 .finally(() => setLoadingId((id) => (id === v.id ? null : id)))
                             }
                           }}
                           className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-400/15 disabled:cursor-not-allowed"
-                          aria-label={loadingId === v.id ? 'Loading preview' : playingId === v.id ? 'Stop preview' : 'Play preview'}
+                          aria-label={
+                            loadingId === v.id
+                              ? t('voice.library.loadingPreview')
+                              : playingId === v.id
+                                ? t('voice.library.stopPreview')
+                                : t('voice.library.playPreview')
+                          }
                         >
                           {loadingId === v.id ? (
                             <Loader2 size={12} strokeWidth={2} color="#D9480F" className="animate-spin" />
@@ -621,14 +666,14 @@ export default function PersonaPage() {
                           )}
                         </button>
                       ) : isGemini ? (
-                        <span className="text-[9px] font-semibold text-text-muted">Gemini voice</span>
+                        <span className="text-[9px] font-semibold text-text-muted">{t('voice.library.geminiVoice')}</span>
                       ) : null}
                       {ready ? (
-                        <span className="text-[10px] font-bold text-green-300">Ready</span>
+                        <span className="text-[10px] font-bold text-green-300">{t('voice.library.ready')}</span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-amber-300" style={{ color: 'var(--amber-ink)' }}>
                           <Loader2 size={11} strokeWidth={2.5} color="#B7791F" className="animate-spin" />
-                          Processing
+                          {t('voice.library.processing')}
                         </span>
                       )}
                     </div>
@@ -646,26 +691,24 @@ export default function PersonaPage() {
         </div>
         {filteredVoices.length === 0 && (
           <div className="rounded-[11px] border border-dashed border-line bg-fill-subtle px-4 py-8 text-center text-[12px] text-text-muted">
-            {voices.length === 0
-              ? 'No voices available yet — add one to get started.'
-              : 'No voices match these filters.'}
+            {voices.length === 0 ? t('voice.library.noVoices') : t('voice.library.noMatches')}
             {hasVoiceFilters && (
               <button onClick={clearVoiceFilters} className="ml-1.5 font-semibold text-brand-300 underline">
-                Clear filters
+                {t('voice.filters.clearFilters')}
               </button>
             )}
           </div>
         )}
         <div className="mt-4 flex items-center gap-1.5 text-[11px] text-text-muted">
-          <RefreshCw size={12} strokeWidth={1.75} color="#8A8177" />
-          Selected voices are assignable per campaign in Playbook and Live Calling.
+          <RefreshCw size={12} strokeWidth={1.75} color="#8A8177" className="shrink-0" />
+          {t('voice.library.assignable')}
         </div>
       </div>
 
       {/* Pronunciation lives with the voices it shapes (ElevenLabs respellings
           applied to every TTS call) — moved here from Settings. */}
       <div id="pronunciation" className="rounded-[14px] border border-line bg-card p-4">
-        <SectionLabel>Pronunciation</SectionLabel>
+        <SectionLabel>{t('voice.pronunciation.title')}</SectionLabel>
         <PronunciationSettings />
       </div>
     </div>

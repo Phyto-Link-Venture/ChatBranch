@@ -45,6 +45,16 @@ export function stopPreview(): void {
   emit(null)
 }
 
+/** A preview the API refused: `detail` is the server's own words (shown as
+ * sent); without one the page words it from `status`. */
+export class PreviewError extends Error {
+  status: number
+  constructor(status: number, detail: string) {
+    super(detail)
+    this.status = status
+  }
+}
+
 export async function playPreview(voiceId: string, text: string): Promise<void> {
   stopPreview()
   const myToken = token
@@ -60,14 +70,14 @@ export async function playPreview(voiceId: string, text: string): Promise<void> 
     if (!resp.ok) {
       if (myToken !== token) return
       emit(null)
-      let detail = `preview failed (${resp.status})`
+      let detail = ''
       try {
         const body = await resp.json()
-        if (body?.detail) detail = body.detail
+        if (body?.detail) detail = String(body.detail)
       } catch {
         /* body wasn't JSON */
       }
-      throw new Error(detail)
+      throw new PreviewError(resp.status, detail)
     }
     const blob = await resp.blob()
     if (myToken !== token) return

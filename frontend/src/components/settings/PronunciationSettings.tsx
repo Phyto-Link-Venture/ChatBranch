@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { Loader2, Plus, Trash2, AlertCircle, Volume2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { Trans, useT } from '@/i18n'
+import { authHeaders } from '@/lib/auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -10,7 +12,8 @@ type Term = { term: string; alias: string }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}/${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    // the GET is anonymous, the save is admin+ — so send the session either way
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     ...init,
   })
   const data = await res.json().catch(() => ({}))
@@ -27,6 +30,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
  * affect marin/cedar/alloy.
  */
 export function PronunciationSettings() {
+  const t = useT()
   const [terms, setTerms] = useState<Term[]>([])
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -40,7 +44,7 @@ export function PronunciationSettings() {
   }, [])
 
   const setTerm = (i: number, patch: Partial<Term>) =>
-    setTerms((prev) => prev.map((t, idx) => (idx === i ? { ...t, ...patch } : t)))
+    setTerms((prev) => prev.map((x, idx) => (idx === i ? { ...x, ...patch } : x)))
   const addTerm = () => setTerms((prev) => [...prev, { term: '', alias: '' }])
   const removeTerm = (i: number) => setTerms((prev) => prev.filter((_, idx) => idx !== i))
 
@@ -58,13 +62,14 @@ export function PronunciationSettings() {
     setBusy(true)
     setMsg(null)
     try {
-      const clean = terms.filter((t) => t.term.trim() && t.alias.trim())
-      const d = await api<{ terms: Term[] }>('pronunciation', {
+      const clean = terms.filter((x) => x.term.trim() && x.alias.trim())
+      const d = await api<{ terms: Term[]; synced?: boolean }>('pronunciation', {
         method: 'POST',
         body: JSON.stringify({ terms: clean }),
       })
       setTerms(d.terms)
-      setMsg({ ok: true, text: 'Saved and synced to ElevenLabs.' })
+      // the API says whether the ElevenLabs dictionary was actually updated
+      setMsg({ ok: true, text: d.synced === false ? t('voice.pronunciation.savedNotSynced') : t('voice.pronunciation.savedSynced') })
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
     } finally {
@@ -73,81 +78,83 @@ export function PronunciationSettings() {
   }
 
   if (!loaded) {
-    return <div className="py-6 text-[12px] text-text-muted">Loading…</div>
+    return <div className="py-6 text-[12px] text-text-muted">{t('common.status.loading')}</div>
   }
 
   return (
     <div className="flex flex-col gap-4 pt-3.5">
       <div className="flex items-start gap-2 rounded-lg border border-line bg-fill-subtle px-3 py-2.5 text-[11px] leading-relaxed text-text-muted">
         <AlertCircle size={14} className="mt-px shrink-0 text-amber-300" aria-hidden />
-        Applies to <strong className="text-text-high">ElevenLabs voices only</strong>. OpenAI voices
-        (marin, cedar, alloy) have no pronunciation-control API and will always read terms as
-        spelled, in every language. This is a <strong className="text-text-high">respelling</strong>,
-        not real IPA &mdash; the ElevenLabs model used here (multilingual, for ms/zh support) only
-        supports respelling-style rules. Write how it should sound using normal letters (e.g.{' '}
-        <span className="text-text-high">Doo-it Ghee-nee</span>), not phonetic symbols. The{' '}
-        <Volume2 size={11} className="inline align-text-bottom" aria-hidden /> buttons play your
-        browser&apos;s own voice as a sanity-check &mdash; save &amp; sync, then use an ElevenLabs
-        voice&apos;s Preview button to hear the real result.
+        <span>
+          <Trans
+            k="voice.pronunciation.intro"
+            values={{
+              elevenOnly: <strong className="text-text-high">{t('voice.pronunciation.elevenOnly')}</strong>,
+              respelling: <strong className="text-text-high">{t('voice.pronunciation.respelling')}</strong>,
+              example: <span className="text-text-high">Doo-it Ghee-nee</span>,
+              speaker: <Volume2 size={11} className="inline align-text-bottom" aria-hidden />,
+            }}
+          />
+        </span>
       </div>
 
       <div className="flex flex-col gap-2">
-        {terms.map((t, i) => (
+        {terms.map((x, i) => (
           <div key={i} className="flex items-center gap-2">
             <input
-              value={t.term}
+              value={x.term}
               onChange={(e) => setTerm(i, { term: e.target.value })}
-              placeholder="Term (e.g. Northwind)"
-              className="flex-1 rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none focus:border-brand-400"
+              placeholder={t('voice.pronunciation.termPlaceholder')}
+              aria-label={t('voice.pronunciation.term')}
+              className="min-w-0 flex-1 rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none focus:border-brand-400"
             />
             <input
-              value={t.alias}
+              value={x.alias}
               onChange={(e) => setTerm(i, { alias: e.target.value })}
-              placeholder="Respelling (e.g. Doo-it Ghee-nee)"
-              className="flex-1 rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none focus:border-brand-400"
+              placeholder={t('voice.pronunciation.aliasPlaceholder')}
+              aria-label={t('voice.pronunciation.alias')}
+              className="min-w-0 flex-1 rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none focus:border-brand-400"
             />
             <button
-              onClick={() => speak(t.term)}
-              disabled={!t.term.trim()}
-              aria-label="Speak term with browser TTS"
-              title="Reads the term as spelled with your browser's built-in voice -- how it sounds today, without any override."
+              onClick={() => speak(x.term)}
+              disabled={!x.term.trim()}
+              aria-label={t('voice.pronunciation.speakTerm')}
+              title={t('voice.pronunciation.speakTermTitle')}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line bg-fill text-text-muted disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Volume2 size={13} aria-hidden />
             </button>
             <button
-              onClick={() => speak(t.alias)}
-              disabled={!t.alias.trim()}
-              aria-label="Speak respelling with browser TTS"
-              title="Reads the respelling with your browser's built-in voice -- a sanity-check for the override text. Preview an ElevenLabs voice after saving to hear the real result."
+              onClick={() => speak(x.alias)}
+              disabled={!x.alias.trim()}
+              aria-label={t('voice.pronunciation.speakAlias')}
+              title={t('voice.pronunciation.speakAliasTitle')}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line bg-fill text-text-muted disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Volume2 size={13} className="opacity-60" aria-hidden />
             </button>
             <button
               onClick={() => removeTerm(i)}
-              aria-label="Remove term"
+              aria-label={t('voice.pronunciation.removeTerm')}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line bg-fill text-text-muted"
             >
               <Trash2 size={13} aria-hidden />
             </button>
           </div>
         ))}
-        {terms.length === 0 && (
-          <div className="text-[12px] text-text-muted">No terms yet — add one below.</div>
-        )}
+        {terms.length === 0 && <div className="text-[12px] text-text-muted">{t('voice.pronunciation.empty')}</div>}
       </div>
 
       <button
         onClick={addTerm}
         className="flex w-fit items-center gap-1.5 rounded-md border border-brand-400/20 bg-brand-400/[0.12] px-2.5 py-1.5 text-[11px] font-semibold text-brand-200"
       >
-        <Plus size={13} aria-hidden /> Add term
+        <Plus size={13} aria-hidden /> {t('voice.pronunciation.addTerm')}
       </button>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="primary" onClick={save} disabled={busy}>
-          {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null} Save &amp; sync
+          {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null} {t('voice.pronunciation.saveSync')}
         </Button>
         {msg && (
           <span className={`text-[12px] font-semibold ${msg.ok ? 'text-green-300' : 'text-red-300'}`}>

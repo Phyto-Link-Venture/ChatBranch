@@ -1,3 +1,5 @@
+import { translate, type MessageKey, type TFunction } from '@/i18n'
+import { en } from '@/i18n/messages/en'
 import type { FlowConfig, FlowEdge, FlowNode, NodeKind, WorkflowDef } from './types'
 import { AI_MESSAGE } from './nodeConfig'
 import { autoLayout } from './steps'
@@ -7,15 +9,22 @@ import { autoLayout } from './steps'
  * graph built from the same step types the builder offers, laid out by the
  * same auto-layout, and shipped PAUSED: the operator reads it, adjusts the
  * words, and goes live. Node ids only need to be unique within a flow.
+ *
+ * Names, descriptions and the starter WORDING (messages, AI briefs, handover
+ * notes, reply keywords) come from `flows.starters.*`, so a flow started in
+ * Malay or Chinese reads in that language. Config VALUES (trigger names,
+ * channels, decision kinds), tags and outcome codes stay English — the engine
+ * matches them. Keyword lists keep ASCII commas: the engine splits on them.
  */
 
 export interface StarterTemplate {
   id: string
-  name: string
-  hint: string
-  /** the steps in one line, for the gallery card */
-  outline: string[]
-  build: () => { nodes: FlowNode[]; edges: FlowEdge[] }
+  /** translation keys */
+  name: MessageKey
+  hint: MessageKey
+  /** the steps in one line, for the gallery card (translation keys) */
+  outline: MessageKey[]
+  build: (t: TFunction) => { nodes: FlowNode[]; edges: FlowEdge[] }
 }
 
 const n = (id: string, type: NodeKind, config: FlowConfig, label = ''): FlowNode => ({
@@ -30,6 +39,7 @@ const e = (source: string, target: string, handle?: 'yes' | 'no', followup = fal
   id: `e${++k}-${source}-${target}`,
   source,
   target,
+  // stored branch words — English, the engine reads them (shown translated)
   ...(handle
     ? { sourceHandle: handle, label: followup ? (handle === 'yes' ? 'Replied' : 'No reply') : handle === 'yes' ? 'Yes' : 'No' }
     : {}),
@@ -41,21 +51,26 @@ const laidOut = (nodes: FlowNode[], edges: FlowEdge[]) => autoLayout({ nodes, ed
 export const STARTER_TEMPLATES: StarterTemplate[] = [
   {
     id: 'welcome-series',
-    name: 'Welcome series',
-    hint: 'Greet every new contact, then send a getting-started email two days later.',
-    outline: ['Contact created', 'WhatsApp welcome', 'Wait 2 days', 'Email guide'],
-    build: () =>
+    name: 'flows.starters.welcome.name',
+    hint: 'flows.starters.welcome.hint',
+    outline: [
+      'flows.starters.outline.contactCreated',
+      'flows.starters.outline.whatsappWelcome',
+      'flows.starters.outline.wait2Days',
+      'flows.starters.outline.emailGuide',
+    ],
+    build: (t) =>
       laidOut(
         [
           n('t1', 'trigger', { when: 'Contact created', repeat: 'Once' }),
           n('a1', 'action', {
             channels: ['WhatsApp'], waMode: 'text', humanize: true,
-            script: 'Hi {{first_name}}, welcome to {{business_name}}! Reply here any time — we usually answer within minutes.',
+            script: t('flows.starters.welcome.message'),
           }),
           n('w1', 'wait', { mode: 'time', amount: 2, unit: 'days' }),
           n('a2', 'action', {
-            channels: ['Email'], subject: 'Getting started with {{business_name}}',
-            script: "Hi {{first_name}},\n\nHere's a quick guide to getting the most from us: {{website}}\n\nQuestions? Just reply to this email.",
+            channels: ['Email'], subject: t('flows.starters.welcome.emailSubject'),
+            script: t('flows.starters.welcome.emailBody'),
           }),
           n('e1', 'end', { logCode: 'WELCOMED', updateMemory: 'Yes' }),
         ],
@@ -64,22 +79,27 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
   },
   {
     id: 'appointment-reminder',
-    name: 'Appointment reminder',
-    hint: 'The day before an appointment: remind, ask to confirm, and hand anyone unsure to the team.',
-    outline: ['1 day before the appointment', 'Reminder', 'Wait for a reply', 'If they said yes'],
-    build: () =>
+    name: 'flows.starters.appointment.name',
+    hint: 'flows.starters.appointment.hint',
+    outline: [
+      'flows.starters.outline.dayBefore',
+      'flows.starters.outline.reminder',
+      'flows.starters.outline.waitForReply',
+      'flows.starters.outline.ifSaidYes',
+    ],
+    build: (t) =>
       laidOut(
         [
           n('t1', 'trigger', { when: 'Date field', field: 'appointment_date', dateWhen: 'before', days: 1, repeat: 'Every time' }),
           n('a1', 'action', {
             channels: ['WhatsApp'], waMode: 'text',
-            script: 'Hi {{first_name}}, a reminder about your appointment with {{business_name}} tomorrow. Reply YES to confirm, or tell us a time that suits you better.',
+            script: t('flows.starters.appointment.reminder'),
           }),
           n('w1', 'wait', { mode: 'reply', timeoutAmount: 12, timeoutUnit: 'hours' }),
           n('d1', 'decision', { basedOn: 'They said yes' }),
           n('u1', 'update', { op: 'add_tag', tag: 'confirmed' }),
           n('e1', 'end', { logCode: 'CONFIRMED', updateMemory: 'Yes' }),
-          n('h1', 'handover', { team: '', priority: 'High', reason: '{{first_name}} has not confirmed tomorrow’s appointment — please check in or reschedule.' }),
+          n('h1', 'handover', { team: '', priority: 'High', reason: t('flows.starters.appointment.handoverReason') }),
           n('e2', 'end', { logCode: 'NEEDS_FOLLOW_UP', updateMemory: 'Yes' }),
         ],
         [e('t1', 'a1'), e('a1', 'w1'), e('w1', 'd1'), e('d1', 'u1', 'yes'), e('u1', 'e1'), e('d1', 'h1', 'no'), e('h1', 'e2')],
@@ -87,20 +107,24 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
   },
   {
     id: 're-engage',
-    name: 'Re-engage quiet contacts',
-    hint: 'Weekday mornings, the AI checks in with contacts tagged “quiet” and follows up once.',
-    outline: ['Weekdays at 10:00', 'AI check-in', 'Follow up if no reply'],
-    build: () =>
+    name: 'flows.starters.reengage.name',
+    hint: 'flows.starters.reengage.hint',
+    outline: [
+      'flows.starters.outline.weekdaysAt10',
+      'flows.starters.outline.aiCheckIn',
+      'flows.stepChoice.followup',
+    ],
+    build: (t) =>
       laidOut(
         [
           n('t1', 'trigger', { when: 'Scheduled', time: '10:00', weekdays: ['mon', 'tue', 'wed', 'thu', 'fri'], onlyTag: 'quiet', repeat: 'Once' }),
           n('a1', 'action', {
             channels: [AI_MESSAGE, 'WhatsApp'], skill: '', waMode: 'text', humanize: true,
-            script: 'Write a short, friendly check-in. Mention what they last asked about if you know it. No pressure, no discounts.',
+            script: t('flows.starters.reengage.aiBrief'),
           }),
           n('f1', 'followup', {
             waitAmount: 3, waitUnit: 'days', maxFollowUps: 1, channels: ['WhatsApp'], waMode: 'text',
-            script: 'Just floating this back up, {{first_name}} — anything we can help with?', stopOnResolved: true,
+            script: t('flows.starters.reengage.followUp'), stopOnResolved: true,
           }),
           n('u1', 'update', { op: 'remove_tag', tag: 'quiet' }),
           n('e1', 'end', { logCode: 'RE_ENGAGED', updateMemory: 'Yes' }),
@@ -111,21 +135,26 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
   },
   {
     id: 'lead-qualification',
-    name: 'Lead qualification',
-    hint: 'A new lead gets an AI greeting; buying signals go straight to the team, the rest are nurtured.',
-    outline: ['Tagged “lead”', 'AI greeting', 'Wait for a reply', 'If they mention buying'],
-    build: () =>
+    name: 'flows.starters.lead.name',
+    hint: 'flows.starters.lead.hint',
+    outline: [
+      'flows.starters.outline.taggedLead',
+      'flows.starters.outline.aiGreeting',
+      'flows.starters.outline.waitForReply',
+      'flows.starters.outline.ifBuying',
+    ],
+    build: (t) =>
       laidOut(
         [
           n('t1', 'trigger', { when: 'Tag added', tag: 'lead', repeat: 'Once' }),
           n('a1', 'action', {
             channels: [AI_MESSAGE, 'WhatsApp'], skill: '', waMode: 'text',
-            script: 'Greet the lead warmly, introduce {{business_name}} in one sentence, and ask what they are looking for and by when.',
+            script: t('flows.starters.lead.aiBrief'),
           }),
           n('w1', 'wait', { mode: 'reply', timeoutAmount: 1, timeoutUnit: 'days' }),
           n('d1', 'decision', { basedOn: 'They replied' }),
-          n('d2', 'decision', { basedOn: 'Reply contains', keyword: 'price, quote, buy, demo, today, now' }),
-          n('h1', 'handover', { team: '', priority: 'High', reason: 'Hot lead — {{first_name}} is asking about buying.' }),
+          n('d2', 'decision', { basedOn: 'Reply contains', keyword: t('flows.starters.lead.buyingWords') }),
+          n('h1', 'handover', { team: '', priority: 'High', reason: t('flows.starters.lead.handoverReason') }),
           n('e1', 'end', { logCode: 'QUALIFIED', updateMemory: 'Yes' }),
           n('u1', 'update', { op: 'add_tag', tag: 'nurture' }),
           n('e2', 'end', { logCode: 'NURTURE', updateMemory: 'Yes' }),
@@ -141,26 +170,31 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
   },
   {
     id: 'feedback-request',
-    name: 'Feedback request',
-    hint: 'A day after a job is done, ask for a 1–5 rating; happy customers get a review link, others reach a person.',
-    outline: ['Tagged “completed”', 'Wait 1 day', 'Ask for a rating', 'If it is a 4 or 5'],
-    build: () =>
+    name: 'flows.starters.feedback.name',
+    hint: 'flows.starters.feedback.hint',
+    outline: [
+      'flows.starters.outline.taggedCompleted',
+      'flows.starters.outline.wait1Day',
+      'flows.starters.outline.askRating',
+      'flows.starters.outline.ifFourOrFive',
+    ],
+    build: (t) =>
       laidOut(
         [
           n('t1', 'trigger', { when: 'Tag added', tag: 'completed', repeat: 'Once' }),
           n('w0', 'wait', { mode: 'time', amount: 1, unit: 'days' }),
           n('a1', 'action', {
             channels: ['WhatsApp'], waMode: 'text',
-            script: 'Hi {{first_name}}, how did we do? Reply with a number from 1 (poor) to 5 (great).',
+            script: t('flows.starters.feedback.ask'),
           }),
           n('w1', 'wait', { mode: 'reply', timeoutAmount: 3, timeoutUnit: 'days' }),
-          n('d1', 'decision', { basedOn: 'Reply contains', keyword: '4, 5, great, good, love' }),
+          n('d1', 'decision', { basedOn: 'Reply contains', keyword: t('flows.starters.feedback.happyWords') }),
           n('a2', 'action', {
             channels: ['WhatsApp'], waMode: 'text',
-            script: 'Thank you, {{first_name}}! Would you mind leaving us a short review? {{website}}',
+            script: t('flows.starters.feedback.reviewAsk'),
           }),
           n('e1', 'end', { logCode: 'HAPPY', updateMemory: 'Yes' }),
-          n('h1', 'handover', { team: '', priority: 'Normal', reason: 'Low rating or no answer to the feedback request — worth a personal follow-up.' }),
+          n('h1', 'handover', { team: '', priority: 'Normal', reason: t('flows.starters.feedback.handoverReason') }),
           n('e2', 'end', { logCode: 'FOLLOW_UP', updateMemory: 'Yes' }),
         ],
         [
@@ -171,15 +205,19 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
   },
 ]
 
-/** A fresh, paused workflow from a template (or a blank one). */
-export function workflowFromTemplate(t: StarterTemplate | null, id: string): WorkflowDef {
-  if (!t) {
+/** English, for callers outside a component (DEFAULT_WORKFLOWS). */
+const english: TFunction = (key, vars) => translate(en, 'en', key, vars)
+
+/** A fresh, paused workflow from a template (or a blank one), worded in the
+ * language `t` speaks. */
+export function workflowFromTemplate(tpl: StarterTemplate | null, id: string, t: TFunction = english): WorkflowDef {
+  if (!tpl) {
     const g = autoLayout({
       nodes: [n('t1', 'trigger', { when: 'Tag added', tag: '', repeat: 'Once' })],
       edges: [],
     })
-    return { id, name: 'New flow', hint: '', active: false, nodes: g.nodes, edges: g.edges }
+    return { id, name: t('flows.builder.newFlowName'), hint: '', active: false, nodes: g.nodes, edges: g.edges }
   }
-  const g = t.build()
-  return { id, name: t.name, hint: t.hint, active: false, nodes: structuredClone(g.nodes), edges: structuredClone(g.edges) }
+  const g = tpl.build(t)
+  return { id, name: t(tpl.name), hint: t(tpl.hint), active: false, nodes: structuredClone(g.nodes), edges: structuredClone(g.edges) }
 }

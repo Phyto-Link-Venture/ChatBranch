@@ -18,13 +18,14 @@ import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { SharedTemplatesSettings } from '@/components/settings/SharedTemplatesSettings'
 import { ScriptTemplatesSettings } from '@/components/settings/ScriptTemplatesSettings'
 import { TemplatesSettings } from '@/components/settings/TemplatesSettings'
+import { useT, type MessageKey } from '@/i18n'
 
 type Tab = 'messages' | 'scripts' | 'whatsapp'
 
-const TABS: { id: Tab; label: string; logo?: string }[] = [
-  { id: 'messages', label: 'Messages' },
-  { id: 'scripts', label: 'Call scripts', logo: 'voice' },
-  { id: 'whatsapp', label: 'WhatsApp (Meta-approved)', logo: 'whatsapp' },
+const TABS: { id: Tab; lbl: MessageKey; logo?: string }[] = [
+  { id: 'messages', lbl: 'library.module.tabMessages' },
+  { id: 'scripts', lbl: 'library.module.tabScripts', logo: 'voice' },
+  { id: 'whatsapp', lbl: 'library.module.tabWhatsApp', logo: 'whatsapp' },
 ]
 
 function parseTab(raw: string | null, hasAccount: boolean): Tab {
@@ -37,6 +38,7 @@ function parseTab(raw: string | null, hasAccount: boolean): Tab {
 }
 
 export function TemplatesModule() {
+  const t = useT()
   const params = useSearchParams()
   const router = useRouter()
   const accountId = params.get('account_id') ?? ''
@@ -62,36 +64,32 @@ export function TemplatesModule() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <PageHeader
-        eyebrow="Library"
-        title="Templates"
-        subtitle="Quick replies, call scripts and WhatsApp templates — written once, used everywhere."
-      />
+      <PageHeader eyebrow={t('shell.groups.library')} title={t('shell.nav.templates')} subtitle={t('library.module.subtitle')} />
 
       <div
         role="tablist"
-        aria-label="Template type"
+        aria-label={t('library.module.tabsAria')}
         className="-mx-1 flex gap-1 overflow-x-auto border-b border-line px-1"
       >
-        {TABS.map((t) => {
-          const active = t.id === tab
+        {TABS.map((tb) => {
+          const active = tb.id === tab
           return (
             <button
-              key={t.id}
+              key={tb.id}
               role="tab"
               type="button"
               aria-selected={active}
-              onClick={() => go(t.id)}
+              onClick={() => go(tb.id)}
               className={`-mb-px inline-flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-[13px] font-semibold transition-colors ${
                 active
                   ? 'border-text-primary text-text-heading'
                   : 'border-transparent text-text-muted hover:text-text-high'
               }`}
             >
-              {t.logo && <ChannelLogo channel={t.logo} size={14} variant={t.logo === 'voice' ? 'mono' : 'mark'} title="" />}
-              {t.label}
-              {counts[t.id] != null && (
-                <span className="rounded-full bg-fill px-1.5 text-[11px] font-semibold text-text-muted">{counts[t.id]}</span>
+              {tb.logo && <ChannelLogo channel={tb.logo} size={14} variant={tb.logo === 'voice' ? 'mono' : 'mark'} title="" />}
+              {t(tb.lbl)}
+              {counts[tb.id] != null && (
+                <span className="rounded-full bg-fill px-1.5 text-[11px] font-semibold text-text-muted">{counts[tb.id]}</span>
               )}
             </button>
           )

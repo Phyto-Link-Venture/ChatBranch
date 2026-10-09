@@ -1,22 +1,28 @@
+import type { MessageKey, TFunction } from '@/i18n'
 import type { AgentSkill, FlowConfig, FlowNode } from './types'
 import {
   AI_MESSAGE,
   CHATBOT_CHANNELS,
   DECISIONS,
+  INTEGRATION_ACTION_LABELS,
   LEGACY_TRIGGERS,
   MESSAGE_CHANNELS,
-  TEAM_PUSH,
   WEEKDAYS,
+  actionChannelLabel,
   actionType,
   channelsOf,
+  choiceLabel,
   durationText,
   isChatbotStep,
+  type IntegrationAction,
 } from './nodeConfig'
 
 /**
  * Plain-language summaries of a step — what the Steps view's cards and the
  * canvas nodes print. One function per kind; everything reads the same config
- * the engine executes, so the words can never drift from the behaviour.
+ * the engine executes, so the words can never drift from the behaviour. The
+ * words come from the `flows.describe.*` messages, so they follow the
+ * dashboard language while the config stays English.
  */
 
 export interface DescribeContext {
@@ -24,6 +30,8 @@ export interface DescribeContext {
   teams?: { id: number; name: string }[]
   scripts?: { id: number; name: string }[]
   fields?: { key: string; label: string }[]
+  /** "A, B and C" in the current language (useFormat().list); default joins with ", ". */
+  list?: (items: string[]) => string
 }
 
 export interface StepText {
@@ -32,11 +40,9 @@ export interface StepText {
   detail?: string
 }
 
-const q = (s: unknown) => `“${String(s ?? '').trim()}”`
 const str = (v: unknown) => (v === undefined || v === null ? '' : String(v)).trim()
 const clip = (s: string, n = 110) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s)
-const joinAnd = (xs: string[]) =>
-  xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`
+const listOf = (ctx: DescribeContext, xs: string[]) => (ctx.list ? ctx.list(xs) : xs.join(', '))
 
 /** A skill reference holds the skill's id; flows saved before the picker held
  * its NAME — resolve either. */
@@ -51,88 +57,100 @@ function fieldLabel(key: unknown, ctx: DescribeContext) {
   return ctx.fields?.find((f) => f.key === k)?.label ?? k
 }
 
-function teamLabel(ref: unknown, ctx: DescribeContext) {
+function teamLabel(t: TFunction, ref: unknown, ctx: DescribeContext) {
   const r = str(ref)
-  if (!r) return 'the team'
-  return ctx.teams?.find((t) => String(t.id) === r)?.name ?? r
+  if (!r) return t('flows.describe.theTeam')
+  return ctx.teams?.find((x) => String(x.id) === r)?.name ?? r
 }
 
-function triggerTitle(cfg: FlowConfig, ctx: DescribeContext): string {
+const PRIORITY_KEYS: Record<string, MessageKey> = {
+  Normal: 'flows.priority.normal',
+  High: 'flows.priority.high',
+  Urgent: 'flows.priority.urgent',
+}
+
+function triggerTitle(t: TFunction, cfg: FlowConfig, ctx: DescribeContext): string {
   const when = str(cfg.when) || 'Days after due date'
+  const days = Number(cfg.days) || 1
   switch (when) {
     case 'Contact created':
-      return 'A contact is created'
+      return t('flows.trigger.contactCreated')
     case 'Tag added':
     case 'Contact has tag':
-      return str(cfg.tag) ? `A contact is tagged ${q(cfg.tag)}` : 'A contact is tagged…'
+      return str(cfg.tag) ? t('flows.describe.tagged', { tag: str(cfg.tag) }) : t('flows.describe.taggedAny')
     case 'Message received': {
       const ch = MESSAGE_CHANNELS.find((c) => c.value === str(cfg.channel).toLowerCase())
-      const on = ch && ch.value ? ` on ${ch.label}` : ''
-      const kw = str(cfg.keyword)
-      return `A message arrives${on}${kw ? ` containing ${q(kw)}` : ''}`
+      const channel = ch && ch.value ? choiceLabel(t, ch) : ''
+      const keyword = str(cfg.keyword)
+      if (channel && keyword) return t('flows.describe.messageOnContaining', { channel, keyword })
+      if (channel) return t('flows.describe.messageOn', { channel })
+      if (keyword) return t('flows.describe.messageContaining', { keyword })
+      return t('flows.trigger.messageReceived')
     }
     case 'Date field': {
-      const f = fieldLabel(cfg.field, ctx) || 'a date field'
-      const n = Math.abs(Number(cfg.days) || 0)
-      const yearly = cfg.yearly === true || cfg.yearly === 'true' ? ', every year' : ''
-      if (cfg.dateWhen === 'before' && n) return `${n} day${n === 1 ? '' : 's'} before ${f}${yearly}`
-      if (cfg.dateWhen === 'after' && n) return `${n} day${n === 1 ? '' : 's'} after ${f}${yearly}`
-      return `On ${f}${yearly}`
+      const field = fieldLabel(cfg.field, ctx) || t('flows.describe.aDateField')
+      const count = Math.abs(Number(cfg.days) || 0)
+      const yearly = cfg.yearly === true || cfg.yearly === 'true'
+      if (cfg.dateWhen === 'before' && count)
+        return t(yearly ? 'flows.describe.daysBeforeYearly' : 'flows.describe.daysBefore', { count, field })
+      if (cfg.dateWhen === 'after' && count)
+        return t(yearly ? 'flows.describe.daysAfterYearly' : 'flows.describe.daysAfter', { count, field })
+      return t(yearly ? 'flows.describe.onDateYearly' : 'flows.describe.onDate', { field })
     }
     case 'Scheduled': {
-      const days = Array.isArray(cfg.weekdays) ? cfg.weekdays.map(String) : []
-      const which =
-        days.length === 0 || days.length === 7
-          ? 'Every day'
-          : `Every ${joinAnd(WEEKDAYS.filter((d) => days.includes(d.value)).map((d) => d.label))}`
-      return `${which} at ${str(cfg.time) || '09:00'}`
+      const picked = Array.isArray(cfg.weekdays) ? cfg.weekdays.map(String) : []
+      const time = str(cfg.time) || '09:00'
+      if (picked.length === 0 || picked.length === 7) return t('flows.describe.everyDayAt', { time })
+      const days = listOf(ctx, WEEKDAYS.filter((d) => picked.includes(d.value)).map((d) => choiceLabel(t, d)))
+      return t('flows.describe.everyWeekdaysAt', { days, time })
     }
     case 'Manual / API':
-      return 'Started by hand or by the API'
+      return t('flows.trigger.manual')
     case 'Record status is':
-      return `Record status is ${q(cfg.status)} (legacy)`
+      return t('flows.describe.recordStatusLegacy', { status: str(cfg.status) })
     case 'On the due date':
-      return "On the record's due date (legacy)"
+      return t('flows.describe.onDueDateLegacy')
     case 'Days before due date':
-      return `${Number(cfg.days) || 1} days before the due date (legacy)`
+      return t('flows.describe.daysBeforeDueLegacy', { count: days })
     case 'Days after due date':
-      return `${Number(cfg.days) || 1}+ days after the due date (legacy)`
+      return t('flows.describe.daysAfterDueLegacy', { count: days })
     case 'Days after due date (exactly)':
-      return `Exactly ${Number(cfg.days) || 1} days after the due date (legacy)`
+      return t('flows.describe.exactlyAfterDueLegacy', { count: days })
     default:
-      return LEGACY_TRIGGERS[when] ?? when
+      return LEGACY_TRIGGERS[when] ? t(LEGACY_TRIGGERS[when]) : when
   }
 }
 
-function audienceText(cfg: FlowConfig): string {
+function audienceText(t: TFunction, cfg: FlowConfig): string {
   const parts: string[] = []
   const contacts = Array.isArray(cfg.contacts) ? cfg.contacts : []
-  if (contacts.length) parts.push(`only ${contacts.length} chosen contact${contacts.length === 1 ? '' : 's'}`)
-  if (str(cfg.onlyTag)) parts.push(`only contacts tagged ${q(cfg.onlyTag)}`)
+  if (contacts.length) parts.push(t('flows.describe.audienceChosen', { count: contacts.length }))
+  if (str(cfg.onlyTag)) parts.push(t('flows.describe.audienceTagged', { tag: str(cfg.onlyTag) }))
   return parts.join(' · ')
 }
 
-function channelWords(channels: string[]): string {
+/** The channels a message goes out on, as words ("WhatsApp and Email"). */
+function channelWords(t: TFunction, ctx: DescribeContext, channels: string[]): string {
   const msg = channels.filter((c) => c !== AI_MESSAGE)
-  return joinAnd(msg.map((c) => (c === TEAM_PUSH ? 'a team notification' : c)))
+  return listOf(ctx, msg.map((c) => actionChannelLabel(t, c)))
 }
 
-function messageTitle(cfg: FlowConfig, channels: string[]): string {
-  const words = channelWords(channels) || 'a channel'
-  const tpl = str(cfg.templateName)
-  if (channels.includes('WhatsApp') && tpl) {
-    if (cfg.waMode === 'template') return `${words} template ${q(tpl)}`
-    if (cfg.waMode === 'auto') return `${words} message (template ${q(tpl)} after 24h)`
+function messageTitle(t: TFunction, ctx: DescribeContext, cfg: FlowConfig, channels: string[]): string {
+  const words = channelWords(t, ctx, channels) || t('flows.describe.aChannel')
+  const name = str(cfg.templateName)
+  if (channels.includes('WhatsApp') && name) {
+    if (cfg.waMode === 'template') return t('flows.describe.channelTemplate', { channels: words, name })
+    if (cfg.waMode === 'auto') return t('flows.describe.channelMessageAuto', { channels: words, name })
   }
-  return `${words} message`
+  return t('flows.describe.channelMessage', { channels: words })
 }
 
-export function describeStep(node: FlowNode, ctx: DescribeContext = {}): StepText {
+export function describeStep(t: TFunction, node: FlowNode, ctx: DescribeContext = {}): StepText {
   const cfg = node.data?.config ?? {}
   switch (node.type) {
     case 'trigger': {
-      const aud = audienceText(cfg)
-      return { eyebrow: 'When', title: triggerTitle(cfg, ctx), detail: aud ? `For ${aud}` : undefined }
+      const aud = audienceText(t, cfg)
+      return { eyebrow: t('flows.describe.eyebrowWhen'), title: triggerTitle(t, cfg, ctx), detail: aud || undefined }
     }
     case 'action': {
       const channels = channelsOf(cfg)
@@ -140,87 +158,137 @@ export function describeStep(node: FlowNode, ctx: DescribeContext = {}): StepTex
       const script = str(cfg.script)
       if (type === 'ai') {
         const skill = skillName(cfg.skill, ctx.skills)
+        const words = channelWords(t, ctx, channels)
         return {
-          eyebrow: 'AI message',
-          title: channelWords(channels) ? `AI writes a ${channelWords(channels)} message` : 'AI writes a message on their latest channel',
-          detail: [skill && `Skill: ${skill}`, script && clip(script, 90)].filter(Boolean).join(' · ') || undefined,
+          eyebrow: t('flows.stepChoice.ai'),
+          title: words ? t('flows.describe.aiWrites', { channels: words }) : t('flows.describe.aiWritesLatest'),
+          detail:
+            [skill && t('flows.describe.skillIs', { skill }), script && clip(script, 90)].filter(Boolean).join(' · ') ||
+            undefined,
         }
       }
       if (type === 'call') {
-        const via = str(cfg.callVia).startsWith('WhatsApp') ? 'WhatsApp' : 'phone'
+        const whatsapp = str(cfg.callVia).startsWith('WhatsApp')
         if (channels.includes('Script call')) {
-          const tpl = ctx.scripts?.find((s) => String(s.id) === str(cfg.scriptTemplateId))?.name
-          return { eyebrow: 'Call', title: `Script call over ${via}`, detail: tpl ? `Reads ${q(tpl)}` : undefined }
+          const name = ctx.scripts?.find((s) => String(s.id) === str(cfg.scriptTemplateId))?.name
+          return {
+            eyebrow: t('flows.stepChoice.call'),
+            title: t(whatsapp ? 'flows.describe.scriptCallWhatsApp' : 'flows.describe.scriptCallPhone'),
+            detail: name ? t('flows.describe.readsScript', { name }) : undefined,
+          }
         }
-        return { eyebrow: 'Call', title: `AI voice call over ${via}`, detail: script ? clip(script) : undefined }
+        return {
+          eyebrow: t('flows.stepChoice.call'),
+          title: t(whatsapp ? 'flows.describe.aiCallWhatsApp' : 'flows.describe.aiCallPhone'),
+          detail: script ? clip(script) : undefined,
+        }
       }
       if (type === 'app') {
-        const action = channels[0] ?? 'App action'
-        return { eyebrow: 'App action', title: action, detail: script ? clip(script) : undefined }
+        const action = channels[0]
+        const key = action ? INTEGRATION_ACTION_LABELS[action as IntegrationAction] : undefined
+        return {
+          eyebrow: t('flows.stepChoice.app'),
+          title: key ? t(key) : action || t('flows.stepChoice.app'),
+          detail: script ? clip(script) : undefined,
+        }
       }
       const calls: string[] = channels.filter((c) => c === 'AI voice call' || c === 'Script call')
       const msg = channels.filter((c) => !calls.includes(c))
       return {
-        eyebrow: calls.length ? 'Send & call' : 'Send message',
-        title: calls.length ? `${messageTitle(cfg, msg)}, then ${joinAnd(calls).toLowerCase()}` : messageTitle(cfg, msg),
+        eyebrow: calls.length ? t('flows.describe.eyebrowSendAndCall') : t('flows.stepChoice.send'),
+        title: calls.length
+          ? t('flows.describe.thenCall', {
+              message: messageTitle(t, ctx, cfg, msg),
+              calls: listOf(ctx, calls.map((c) => actionChannelLabel(t, c))).toLowerCase(),
+            })
+          : messageTitle(t, ctx, cfg, msg),
         detail: script ? clip(script) : undefined,
       }
     }
     case 'wait': {
       if (cfg.mode === 'reply') {
-        const t = durationText(cfg.timeoutAmount, cfg.timeoutUnit)
-        return { eyebrow: 'Wait', title: t ? `For a reply, up to ${t}` : 'For a reply' }
+        const d = durationText(t, cfg.timeoutAmount, cfg.timeoutUnit)
+        return {
+          eyebrow: t('flows.stepChoice.wait'),
+          title: d ? t('flows.describe.forReplyUpTo', { duration: d }) : t('flows.describe.forReply'),
+        }
       }
-      return { eyebrow: 'Wait', title: durationText(cfg.amount, cfg.unit) || '1 day' }
+      return {
+        eyebrow: t('flows.stepChoice.wait'),
+        title: durationText(t, cfg.amount, cfg.unit) || durationText(t, 1, 'days'),
+      }
     }
     case 'followup': {
-      const every = durationText(cfg.waitAmount, cfg.waitUnit) || '1 day'
+      const every = durationText(t, cfg.waitAmount, cfg.waitUnit) || durationText(t, 1, 'days')
       const max = Number(cfg.maxFollowUps) || 2
       const ai = channelsOf(cfg).includes(AI_MESSAGE)
       const skill = skillName(cfg.skill, ctx.skills)
-      const what = ai ? `AI-written${skill ? ` (${skill})` : ''}` : str(cfg.script) ? q(clip(str(cfg.script), 60)) : ''
+      const what = ai
+        ? skill
+          ? t('flows.describe.aiWrittenSkill', { skill })
+          : t('flows.describe.aiWritten')
+        : str(cfg.script)
+          ? `“${clip(str(cfg.script), 60)}”`
+          : ''
+      const on = channelWords(t, ctx, channelsOf(cfg))
       return {
-        eyebrow: 'Follow up',
-        title: `If no reply after ${every}, follow up — up to ${max} time${max === 1 ? '' : 's'}`,
-        detail: [what && `Sends ${what}`, channelWords(channelsOf(cfg)) && `on ${channelWords(channelsOf(cfg))}`]
-          .filter(Boolean).join(' ') || undefined,
+        eyebrow: t('flows.describe.eyebrowFollowUp'),
+        title: t('flows.describe.followUpTitle', { every, count: max }),
+        detail:
+          what && on
+            ? t('flows.describe.sendsOn', { what, channels: on })
+            : what
+              ? t('flows.describe.sends', { what })
+              : on
+                ? t('flows.describe.onChannels', { channels: on })
+                : undefined,
       }
     }
     case 'decision': {
       const basis = str(cfg.basedOn) || "Contact's answer"
+      const field = fieldLabel(cfg.field, ctx) || t('flows.describe.aField')
       let title: string
       switch (basis) {
         case 'They replied':
-          title = 'They replied'
+          title = t('flows.decision.replied')
           break
         case 'Reply contains':
-          title = `Their reply contains ${q(cfg.keyword)}`
+          title = t('flows.describe.replyContains', { keyword: str(cfg.keyword) })
           break
         case 'They said yes':
-          title = 'They said yes'
+          title = t('flows.decision.saidYes')
           break
         case 'Has tag':
         case 'Contact tag':
-          title = `They have the tag ${q(cfg.tag)}`
+          title = t('flows.describe.hasTheTag', { tag: str(cfg.tag) })
           break
         case 'Custom field equals':
           title = str(cfg.value)
-            ? `${fieldLabel(cfg.field, ctx) || 'A field'} is ${q(cfg.value)}`
-            : `${fieldLabel(cfg.field, ctx) || 'A field'} is filled in`
+            ? t('flows.describe.fieldIs', { field, value: str(cfg.value) })
+            : t('flows.describe.fieldFilled', { field })
           break
         case 'Record status':
-          title = `Record status is ${q(cfg.status) || 'closed'} (legacy)`
+          title = t('flows.describe.recordStatusLegacy', { status: str(cfg.status) })
           break
-        default:
-          title = DECISIONS.find((d) => d.value === basis)?.label ?? "Their answer is yes"
+        default: {
+          const d = DECISIONS.find((x) => x.value === basis)
+          title = d ? choiceLabel(t, d) : t('flows.describe.answerIsYes')
+        }
       }
-      return { eyebrow: 'If', title }
+      return { eyebrow: t('flows.describe.eyebrowIf'), title }
     }
     case 'handover': {
       const priority = str(cfg.priority) || 'Normal'
+      const team = teamLabel(t, cfg.team, ctx)
       return {
-        eyebrow: 'Hand over',
-        title: `To ${teamLabel(cfg.team, ctx)}${priority !== 'Normal' ? ` · ${priority} priority` : ''}`,
+        eyebrow: t('flows.stepChoice.handover'),
+        title:
+          priority !== 'Normal'
+            ? t('flows.describe.toTeamPriority', {
+                team,
+                priority: PRIORITY_KEYS[priority] ? t(PRIORITY_KEYS[priority]) : priority,
+              })
+            : t('flows.describe.toTeam', { team }),
         detail: str(cfg.reason) ? clip(str(cfg.reason)) : undefined,
       }
     }
@@ -228,33 +296,49 @@ export function describeStep(node: FlowNode, ctx: DescribeContext = {}): StepTex
       if (isChatbotStep(cfg)) {
         const on = str(cfg.value).toLowerCase() === 'on'
         const chans = Array.isArray(cfg.channels) ? (cfg.channels as unknown[]).map(String) : []
-        const where =
-          str(cfg.scope) === 'channels' && chans.length
-            ? `on ${chans.map((c) => CHATBOT_CHANNELS.find((x) => x.value === c)?.label ?? c).join(', ')}`
-            : 'on all their chats'
-        return { eyebrow: 'Chatbot', title: `Turn the AI ${on ? 'on' : 'off'} ${where}` }
+        if (str(cfg.scope) === 'channels' && chans.length) {
+          const channels = listOf(
+            ctx,
+            chans.map((c) => {
+              const ch = CHATBOT_CHANNELS.find((x) => x.value === c)
+              return ch ? choiceLabel(t, ch) : c
+            }),
+          )
+          return {
+            eyebrow: t('flows.describe.eyebrowChatbot'),
+            title: t(on ? 'flows.describe.chatbotOnChannels' : 'flows.describe.chatbotOffChannels', { channels }),
+          }
+        }
+        return {
+          eyebrow: t('flows.describe.eyebrowChatbot'),
+          title: t(on ? 'flows.describe.chatbotOnAll' : 'flows.describe.chatbotOffAll'),
+        }
       }
       const op = str(cfg.op) || 'add_tag'
       const title =
         op === 'remove_tag'
-          ? `Remove the tag ${q(cfg.tag)}`
+          ? t('flows.describe.removeTag', { tag: str(cfg.tag) })
           : op === 'set_field'
-            ? `Set ${fieldLabel(cfg.field, ctx) || 'a field'} to ${q(cfg.value)}`
-            : `Add the tag ${q(cfg.tag)}`
-      return { eyebrow: 'Update contact', title }
+            ? t('flows.describe.setField', { field: fieldLabel(cfg.field, ctx) || t('flows.describe.aField'), value: str(cfg.value) })
+            : t('flows.describe.addTag', { tag: str(cfg.tag) })
+      return { eyebrow: t('flows.stepChoice.update'), title }
     }
     case 'end': {
       const code = str(cfg.logCode) || 'END'
       const remember = str(cfg.updateMemory).toLowerCase()
       return {
-        eyebrow: 'End',
-        title: `Finish · ${code}`,
-        detail: remember === 'yes' || remember === 'true' ? "Remembered in the contact's AI memory" : undefined,
+        eyebrow: t('flows.stepChoice.end'),
+        title: t('flows.describe.finish', { code }),
+        detail: remember === 'yes' || remember === 'true' ? t('flows.describe.remembered') : undefined,
       }
     }
     case 'stage':
-      return { eyebrow: 'Section (legacy)', title: node.data?.label || 'Section', detail: 'Passes straight through' }
+      return {
+        eyebrow: t('flows.describe.eyebrowSection'),
+        title: node.data?.label || t('flows.describe.section'),
+        detail: t('flows.describe.passesThrough'),
+      }
     default:
-      return { eyebrow: String(node.type ?? 'Step'), title: node.data?.label || 'Step' }
+      return { eyebrow: String(node.type ?? t('flows.describe.step')), title: node.data?.label || t('flows.describe.step') }
   }
 }

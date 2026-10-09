@@ -15,6 +15,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { TemplateVariablePicker } from '@/components/settings/TemplateVariablePicker'
+import { useFormat, useT, type MessageKey, type TFunction } from '@/i18n'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 
 export const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
@@ -28,32 +29,41 @@ export class ApiError extends Error {
   }
 }
 
+/** Marker message for an expired session — shown translated by `errText`. */
+const SESSION_EXPIRED = 'session-expired'
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}/${path}`, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
   })
   const data = await res.json().catch(() => ({}))
-  if (expireSessionOn401(res)) throw new ApiError(401, 'Session expired — redirecting to login…')
+  if (expireSessionOn401(res)) throw new ApiError(401, SESSION_EXPIRED)
   if (!res.ok) throw new ApiError(res.status, (data as { detail?: string }).detail || `HTTP ${res.status}`)
   return data as T
 }
 
-export const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
+/** An error for display: our own messages translated, a server `detail` as sent. */
+export const errText = (e: unknown, t: TFunction) => {
+  if (e instanceof ApiError && e.message === SESSION_EXPIRED) return t('common.errors.sessionExpired')
+  if (e instanceof TypeError) return t('common.errors.network') // fetch could not reach the API
+  return e instanceof Error ? e.message : String(e)
+}
 
 export const inputCls =
   'w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[13px] text-text-primary outline-none transition-colors placeholder:text-text-faint focus:border-text-primary disabled:opacity-60'
 
 // ── channels a quick reply can be limited to ─────────────────────────────────
 
-/** Thread channel ids (what the inbox composer filters by) → label + logo. */
-export const TEMPLATE_CHANNELS: { id: string; label: string; logo: string }[] = [
+/** Thread channel ids (what the inbox composer filters by) → label + logo.
+ * Brand names show as is; the two generic channels carry a translation key. */
+export const TEMPLATE_CHANNELS: { id: string; label: string; lbl?: MessageKey; logo: string }[] = [
   { id: 'whatsapp', label: 'WhatsApp', logo: 'whatsapp' },
   { id: 'telegram', label: 'Telegram', logo: 'telegram' },
-  { id: 'email', label: 'Email', logo: 'email' },
+  { id: 'email', label: 'Email', lbl: 'common.fields.email', logo: 'email' },
   { id: 'facebook', label: 'Messenger', logo: 'messenger' },
   { id: 'instagram', label: 'Instagram', logo: 'instagram' },
-  { id: 'website', label: 'Website', logo: 'website' },
+  { id: 'website', label: 'Website', lbl: 'library.channels.website', logo: 'website' },
   { id: 'sms', label: 'SMS', logo: 'sms' },
   { id: 'line', label: 'LINE', logo: 'line' },
   { id: 'viber', label: 'Viber', logo: 'viber' },
@@ -65,6 +75,13 @@ export const TEMPLATE_CHANNELS: { id: string; label: string; logo: string }[] = 
 
 const channelMeta = (id: string) => TEMPLATE_CHANNELS.find((c) => c.id === id)
 
+/** A channel id's name in the current language ("Website" → "Laman web"). */
+export function channelName(t: TFunction, id: string): string {
+  const m = channelMeta(id)
+  if (!m) return id
+  return m.lbl ? t(m.lbl) : m.label
+}
+
 /** "All channels" or a subset — chip toggles. `[]` means every channel. */
 export function ChannelsPicker({
   value,
@@ -75,6 +92,7 @@ export function ChannelsPicker({
   onChange: (next: string[]) => void
   disabled?: boolean
 }) {
+  const t = useT()
   const all = value.length === 0
   const chip = (on: boolean) =>
     `inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-[12.5px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
@@ -91,9 +109,9 @@ export function ChannelsPicker({
     onChange(next.length === TEMPLATE_CHANNELS.length ? [] : next)
   }
   return (
-    <div className="flex flex-wrap gap-1.5" role="group" aria-label="Channels">
+    <div className="flex flex-wrap gap-1.5" role="group" aria-label={t('library.table.channels')}>
       <button type="button" className={chip(all)} aria-pressed={all} disabled={disabled} onClick={() => onChange([])}>
-        All channels
+        {t('library.channels.all')}
       </button>
       {TEMPLATE_CHANNELS.map((c) => {
         const on = !all && value.includes(c.id)
@@ -107,7 +125,7 @@ export function ChannelsPicker({
             onClick={() => toggle(c.id)}
           >
             <ChannelLogo channel={c.logo} size={13} variant={on ? 'mono' : 'mark'} title="" />
-            {c.label}
+            {channelName(t, c.id)}
           </button>
         )
       })}
@@ -117,19 +135,23 @@ export function ChannelsPicker({
 
 /** Compact display of a channel list: logos, or "All channels". */
 export function ChannelMarks({ channels, voice }: { channels: string[]; voice?: boolean }) {
+  const t = useT()
+  const f = useFormat()
   if (voice)
     return (
       <span className="inline-flex items-center gap-1.5 text-[12px] text-text-mid">
-        <ChannelLogo channel="voice" size={13} variant="mono" title="" /> Voice calls
+        <ChannelLogo channel="voice" size={13} variant="mono" title="" /> {t('library.channels.voiceCalls')}
       </span>
     )
-  if (channels.length === 0) return <span className="text-[12px] text-text-muted">All channels</span>
+  if (channels.length === 0) return <span className="text-[12px] text-text-muted">{t('library.channels.all')}</span>
   return (
-    <span className="inline-flex flex-wrap items-center gap-1.5" title={channels.map((c) => channelMeta(c)?.label ?? c).join(', ')}>
+    <span className="inline-flex flex-wrap items-center gap-1.5" title={f.list(channels.map((c) => channelName(t, c)))}>
       {channels.map((c) => (
-        <ChannelLogo key={c} channel={channelMeta(c)?.logo ?? c} size={15} title={channelMeta(c)?.label ?? c} />
+        <ChannelLogo key={c} channel={channelMeta(c)?.logo ?? c} size={15} title={channelName(t, c)} />
       ))}
-      {channels.length === 1 && <span className="text-[12px] text-text-mid">{channelMeta(channels[0])?.label} only</span>}
+      {channels.length === 1 && (
+        <span className="text-[12px] text-text-mid">{t('library.channels.only', { channel: channelName(t, channels[0]) })}</span>
+      )}
     </span>
   )
 }
@@ -155,14 +177,6 @@ export interface TemplateRow {
   onDelete?: () => void
 }
 
-function updatedLabel(iso: string | null): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  const sameYear = d.getFullYear() === new Date().getFullYear()
-  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) })
-}
-
 export function TemplateTable({
   rows,
   empty,
@@ -174,11 +188,14 @@ export function TemplateTable({
   searchPlaceholder: string
   toolbarRight?: ReactNode
 }) {
+  const t = useT()
+  const f = useFormat()
+  const updatedLabel = (iso: string | null) => f.date(iso) || '—'
   const hasActions = rows.some((r) => r.onEdit || r.onDelete)
   const columns: Column<TemplateRow>[] = [
     {
       key: 'name',
-      header: 'Name',
+      header: t('common.fields.name'),
       sortable: true,
       value: (r) => `${r.name} ${r.preview}`,
       render: (r) => (
@@ -193,10 +210,10 @@ export function TemplateTable({
         </div>
       ),
     },
-    { key: 'type', header: 'Type', sortable: true, width: 130, value: (r) => r.type, render: (r) => <span className="whitespace-nowrap text-[12.5px] text-text-mid">{r.type}</span> },
+    { key: 'type', header: t('common.fields.type'), sortable: true, width: 130, value: (r) => r.type, render: (r) => <span className="whitespace-nowrap text-[12.5px] text-text-mid">{r.type}</span> },
     {
       key: 'channels',
-      header: 'Channels',
+      header: t('library.table.channels'),
       sortable: true,
       width: 170,
       value: (r) => (r.voice ? 'voice' : r.channels.length ? r.channels.join(' ') : 'all'),
@@ -204,19 +221,19 @@ export function TemplateTable({
     },
     {
       key: 'entity',
-      header: 'Entity',
+      header: t('common.fields.entity'),
       sortable: true,
       width: 170,
       value: (r) => r.entityName ?? '',
       render: (r) => (
         <span className="whitespace-nowrap text-[12.5px] text-text-mid">
-          {r.entityName === null ? '—' : r.entityName || 'Organization-wide'}
+          {r.entityName === null ? '—' : r.entityName || t('library.table.orgWide')}
         </span>
       ),
     },
     {
       key: 'updated',
-      header: 'Updated',
+      header: t('common.fields.updated'),
       sortable: true,
       width: 100,
       value: (r) => r.updated ?? '',
@@ -226,7 +243,7 @@ export function TemplateTable({
       ? [
           {
             key: 'actions',
-            header: 'Actions',
+            header: t('library.table.actions'),
             srHeader: true,
             align: 'right' as const,
             width: 84,
@@ -236,8 +253,8 @@ export function TemplateTable({
                   <button
                     type="button"
                     onClick={r.onEdit}
-                    title={`Edit ${r.name}`}
-                    aria-label={`Edit ${r.name}`}
+                    title={t('library.table.editName', { name: r.name })}
+                    aria-label={t('library.table.editName', { name: r.name })}
                     className="grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
                   >
                     <Pencil size={14} aria-hidden />
@@ -247,8 +264,8 @@ export function TemplateTable({
                   <button
                     type="button"
                     onClick={r.onDelete}
-                    title={`Delete ${r.name}`}
-                    aria-label={`Delete ${r.name}`}
+                    title={t('library.table.deleteName', { name: r.name })}
+                    aria-label={t('library.table.deleteName', { name: r.name })}
                     className="grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/10 hover:text-red-300"
                   >
                     <Trash2 size={14} aria-hidden />
@@ -326,6 +343,8 @@ export function TemplateEditorModal({
   onSave: (draft: TemplateDraft) => Promise<void>
   onClose: () => void
 }) {
+  const t = useT()
+  const f = useFormat()
   const [draft, setDraft] = useState<TemplateDraft>(initial)
   const [nameError, setNameError] = useState<string | null>(null)
   const [contentError, setContentError] = useState<string | null>(null)
@@ -339,8 +358,8 @@ export function TemplateEditorModal({
 
   const checkName = (v: string): string | null => {
     const n = normName(v)
-    if (!n) return isMsg ? 'Give it a short code — what agents type after “/”.' : 'Give the script a name.'
-    if (isMsg && !CODE_RE.test(n)) return 'Lowercase letters, digits, dashes or underscores — no spaces.'
+    if (!n) return isMsg ? t('library.editor.needShortCode') : t('library.editor.needScriptName')
+    if (isMsg && !CODE_RE.test(n)) return t('library.editor.badShortCode')
     return null
   }
 
@@ -364,7 +383,7 @@ export function TemplateEditorModal({
 
   const submit = async () => {
     const ne = checkName(draft.name)
-    const ce = draft.content.trim() ? null : isMsg ? 'Write the reply.' : 'Write what the call should say.'
+    const ce = draft.content.trim() ? null : isMsg ? t('library.editor.writeReply') : t('library.editor.writeScript')
     setNameError(ne)
     setContentError(ce)
     setError(null)
@@ -376,10 +395,10 @@ export function TemplateEditorModal({
       if (e instanceof ApiError && e.status === 409)
         setNameError(
           isMsg
-            ? `/${normName(draft.name)} already exists for this entity — pick another short code.`
-            : `“${normName(draft.name)}” already exists — pick another name.`,
+            ? t('library.editor.shortCodeTaken', { code: normName(draft.name) })
+            : t('library.editor.scriptNameTaken', { name: normName(draft.name) }),
         )
-      else setError(errText(e))
+      else setError(errText(e, t))
     } finally {
       setBusy(false)
     }
@@ -387,31 +406,27 @@ export function TemplateEditorModal({
 
   const title = isMsg
     ? editing
-      ? `Edit /${initial.name}`
-      : 'New quick reply'
+      ? t('library.editor.editShortCode', { code: initial.name })
+      : t('library.editor.newQuickReply')
     : editing
-      ? `Edit “${initial.name}”`
-      : 'New call script'
+      ? t('library.editor.editScript', { name: initial.name })
+      : t('library.editor.newScript')
 
   return (
     <Modal
       open
       onClose={() => !busy && onClose()}
       title={title}
-      subtitle={
-        isMsg
-          ? 'Inserted from the composer with “/short-code”. Variables fill from the contact’s record.'
-          : 'Read verbatim on a one-way bot call — dial, read, hang up. No conversation.'
-      }
+      subtitle={isMsg ? t('library.editor.quickReplySubtitle') : t('library.editor.scriptSubtitle')}
       size="lg"
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={busy}>
-            Cancel
+            {t('common.actions.cancel')}
           </Button>
           <Button onClick={submit} disabled={busy}>
             {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <CheckCircle size={13} aria-hidden />}
-            {editing ? 'Save changes' : isMsg ? 'Save quick reply' : 'Save script'}
+            {editing ? t('library.editor.saveChanges') : isMsg ? t('library.editor.saveQuickReply') : t('library.editor.saveScript')}
           </Button>
         </>
       }
@@ -421,7 +436,9 @@ export function TemplateEditorModal({
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <label className="block">
-            <span className="mb-1 block text-[12px] font-semibold text-text-high">{isMsg ? 'Short code' : 'Name'}</span>
+            <span className="mb-1 block text-[12px] font-semibold text-text-high">
+              {isMsg ? t('library.editor.shortCode') : t('common.fields.name')}
+            </span>
             <div className="relative">
               {isMsg && (
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-mono text-[13px] text-text-muted">
@@ -435,7 +452,7 @@ export function TemplateEditorModal({
                   if (nameError) setNameError(checkName(e.target.value))
                 }}
                 onBlur={() => draft.name.trim() && setNameError(checkName(draft.name))}
-                placeholder={isMsg ? 'delivery-update' : 'Order status reminder'}
+                placeholder={isMsg ? 'delivery-update' : t('library.editor.scriptNamePlaceholder')}
                 aria-invalid={!!nameError}
                 className={`${inputCls} ${isMsg ? 'pl-6 font-mono' : ''} ${nameError ? '!border-[color:var(--red-ink)]' : ''}`}
               />
@@ -446,43 +463,40 @@ export function TemplateEditorModal({
               </span>
             ) : (
               <span className="mt-1 block text-[11.5px] text-text-muted">
-                {isMsg ? 'Lowercase letters, digits and dashes.' : 'Picked from the script-call button and flow steps.'}
+                {isMsg ? t('library.editor.shortCodeHint') : t('library.editor.scriptNameHint')}
               </span>
             )}
           </label>
           <label className="block">
-            <span className="mb-1 block text-[12px] font-semibold text-text-high">Entity</span>
+            <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('common.fields.entity')}</span>
             <EntityPicker
               value={draft.entity}
               onChange={(entity) => setDraft({ ...draft, entity })}
-              globalLabel="Organization-wide (every entity)"
-              ariaLabel="Entity this template belongs to"
+              globalLabel={t('library.editor.orgWideEvery')}
+              ariaLabel={t('library.editor.entityAria')}
             />
-            <span className="mt-1 block text-[11.5px] text-text-muted">
-              Organization-wide templates are available to every entity.
-            </span>
+            <span className="mt-1 block text-[11.5px] text-text-muted">{t('library.editor.orgWideHint')}</span>
           </label>
         </div>
 
         {isMsg && (
           <div>
-            <span className="mb-1.5 block text-[12px] font-semibold text-text-high">Channels</span>
+            <span className="mb-1.5 block text-[12px] font-semibold text-text-high">{t('library.table.channels')}</span>
             <ChannelsPicker value={draft.channels} onChange={(channels) => setDraft({ ...draft, channels })} />
             <span className="mt-1.5 block text-[11.5px] text-text-muted">
               {draft.channels.length === 0
-                ? 'Offered in every channel’s composer, including channels added later.'
-                : `Only offered when replying on ${draft.channels
-                    .map((c) => channelMeta(c)?.label ?? c)
-                    .join(', ')
-                    .replace(/, ([^,]*)$/, ' or $1')}.`}
+                ? t('library.editor.everyChannelHint')
+                : t('library.editor.onlyChannelsHint', { channels: f.list(draft.channels.map((c) => channelName(t, c))) })}
             </span>
           </div>
         )}
 
         <label className="block">
           <span className="mb-1 flex items-baseline justify-between gap-2">
-            <span className="text-[12px] font-semibold text-text-high">{isMsg ? 'Message' : 'Script'}</span>
-            <span className="text-[11px] text-text-faint">{draft.content.length} characters</span>
+            <span className="text-[12px] font-semibold text-text-high">
+              {isMsg ? t('library.editor.message') : t('library.editor.script')}
+            </span>
+            <span className="text-[11px] text-text-faint">{t('library.editor.characters', { count: draft.content.length })}</span>
           </span>
           <textarea
             ref={textRef}
@@ -496,11 +510,7 @@ export function TemplateEditorModal({
               (caret.current = { start: e.currentTarget.selectionStart, end: e.currentTarget.selectionEnd })
             }
             rows={isMsg ? 5 : 7}
-            placeholder={
-              isMsg
-                ? 'Hi {{first_name}}, here is the latest on {{record_title}}: {{record_status}}.'
-                : 'Hello {{name}}, this is an automated call about your {{record_title}}…'
-            }
+            placeholder={isMsg ? t('library.editor.messagePlaceholder') : t('library.editor.scriptPlaceholder')}
             aria-invalid={!!contentError}
             className={`${inputCls} resize-y leading-[1.6] ${contentError ? '!border-[color:var(--red-ink)]' : ''}`}
           />
@@ -528,6 +538,7 @@ export function ConfirmDelete({
   onConfirm: () => Promise<void>
   onClose: () => void
 }) {
+  const t = useT()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   return (
@@ -539,7 +550,7 @@ export function ConfirmDelete({
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={busy}>
-            Cancel
+            {t('common.actions.cancel')}
           </Button>
           <Button
             variant="danger"
@@ -550,12 +561,12 @@ export function ConfirmDelete({
               try {
                 await onConfirm()
               } catch (e) {
-                setError(errText(e))
+                setError(errText(e, t))
                 setBusy(false)
               }
             }}
           >
-            {busy && <Loader2 size={13} className="animate-spin" aria-hidden />} Delete
+            {busy && <Loader2 size={13} className="animate-spin" aria-hidden />} {t('common.actions.delete')}
           </Button>
         </>
       }

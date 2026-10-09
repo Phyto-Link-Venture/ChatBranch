@@ -2,6 +2,7 @@
 
 import { useLayoutEffect, useMemo, useRef } from 'react'
 import { AlertCircle, ArrowDown, ArrowUp, CornerDownRight, Plus, Trash2 } from 'lucide-react'
+import { Trans, useT } from '@/i18n'
 import { describeStep } from '@/lib/flow/describe'
 import { buildStepTree, canMove, timingText, type BranchTree, type Graph, type StepTree } from '@/lib/flow/steps'
 import type { FlowEdge, FlowNode } from '@/lib/flow/types'
@@ -40,9 +41,10 @@ export default function StepsView({
   onDelete: (id: string) => void
   onMove: (id: string, dir: 'up' | 'down') => void
 }) {
+  const t = useT()
   const forest = useMemo(() => buildStepTree(graph.nodes, graph.edges), [graph])
   const { describeCtx } = useFlowView()
-  const titleOf = (n: FlowNode) => describeStep(n, describeCtx).title
+  const titleOf = (n: FlowNode) => describeStep(t, n, describeCtx).title
 
   const ctx = { graph, onSelect, onInsert, onDelete, onMove, titleOf }
 
@@ -63,10 +65,8 @@ export default function StepsView({
       <div className="mx-auto flex w-max min-w-full max-w-none flex-col items-center px-4 pb-24 pt-6 sm:px-8">
         {forest.roots.length === 0 && (
           <div className="w-full max-w-[min(560px,calc(100vw-2rem))] rounded-xl border border-dashed border-line-strong bg-card px-5 py-6 text-center">
-            <div className="display text-[18px] text-text-heading">No starting point</div>
-            <p className="mt-1 text-[13px] text-text-muted">
-              Every flow begins with a “When…” step. This one has none, so it never runs.
-            </p>
+            <div className="display text-[18px] text-text-heading">{t('flows.stepsView.noStartTitle')}</div>
+            <p className="mt-1 text-[13px] text-text-muted">{t('flows.stepsView.noStartBody')}</p>
           </div>
         )}
         {forest.roots.map((root, i) => (
@@ -75,16 +75,14 @@ export default function StepsView({
             className="flex w-full flex-col items-center"
             data-step-root={i === 0 ? '' : undefined}
           >
-            {i > 0 && <div className="eyebrow my-6">Another starting point</div>}
+            {i > 0 && <div className="eyebrow my-6">{t('flows.stepsView.anotherStart')}</div>}
             <Chain tree={root} ctx={ctx} />
           </div>
         ))}
         {forest.orphans.length > 0 && (
           <div className="mt-10 w-full max-w-[min(560px,calc(100vw-2rem))]">
-            <div className="eyebrow mb-1">Not connected</div>
-            <p className="mb-3 text-[12.5px] text-text-muted">
-              No path reaches these steps, so they never run. Delete them, or connect them in the Advanced canvas.
-            </p>
+            <div className="eyebrow mb-1">{t('flows.stepsView.notConnected')}</div>
+            <p className="mb-3 text-[12.5px] text-text-muted">{t('flows.stepsView.notConnectedBody')}</p>
             <div className="flex flex-col gap-2">
               {forest.orphans.map((n) => (
                 <StepCard key={n.id} node={n} ctx={ctx} canUp={false} canDown={false} />
@@ -116,7 +114,10 @@ function Chain({ tree, ctx }: { tree: StepTree; ctx: Ctx }) {
       >
         <CornerDownRight size={14} className="shrink-0 text-text-muted" aria-hidden />
         <span className="min-w-0 truncate">
-          Continues at <strong className="font-semibold text-text-high">{ctx.titleOf(tree.node)}</strong>
+          <Trans
+            k="flows.stepsView.continuesAt"
+            values={{ step: <strong className="font-semibold text-text-high">{ctx.titleOf(tree.node)}</strong> }}
+          />
         </span>
       </button>
     )
@@ -193,6 +194,7 @@ function Branches({ branches, ctx }: { branches: BranchTree[]; ctx: Ctx }) {
 }
 
 function BranchPill({ branch }: { branch: BranchTree }) {
+  const t = useT()
   const tone =
     branch.key === 'yes'
       ? 'border-green/40 text-[color:var(--green-ink)]'
@@ -205,13 +207,14 @@ function BranchPill({ branch }: { branch: BranchTree }) {
     <span
       className={`rounded-full border bg-card px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-[0.06em] ${tone}`}
     >
-      {branch.label}
+      {t(branch.labelKey, branch.labelVars)}
     </span>
   )
 }
 
 function Connector({ edge, onAdd }: { edge: FlowEdge | null; onAdd: () => void }) {
-  const timing = timingText(edge ?? undefined)
+  const t = useT()
+  const timing = timingText(t, edge ?? undefined)
   return (
     <div className="flex flex-col items-center">
       <div className="h-3 w-px bg-line-strong" aria-hidden />
@@ -224,8 +227,8 @@ function Connector({ edge, onAdd }: { edge: FlowEdge | null; onAdd: () => void }
       <button
         type="button"
         onClick={onAdd}
-        title="Add a step here"
-        aria-label="Add a step here"
+        title={t('flows.stepsView.addStepHere')}
+        aria-label={t('flows.stepsView.addStepHere')}
         className="grid h-7 w-7 place-items-center rounded-full border border-line-strong bg-card text-text-mid transition-colors hover:border-text-primary hover:bg-primary hover:text-on-primary"
       >
         <Plus size={14} strokeWidth={2.25} aria-hidden />
@@ -236,12 +239,14 @@ function Connector({ edge, onAdd }: { edge: FlowEdge | null; onAdd: () => void }
 }
 
 function PathEnd() {
-  return <div className="pb-2 text-[11.5px] text-text-faint">Path ends</div>
+  const t = useT()
+  return <div className="pb-2 text-[11.5px] text-text-faint">{t('flows.stepsView.pathEnds')}</div>
 }
 
 function StepCard({ node, ctx, canUp, canDown }: { node: FlowNode; ctx: Ctx; canUp: boolean; canDown: boolean }) {
+  const t = useT()
   const { describeCtx, selectedId, issues } = useFlowView()
-  const text = describeStep(node, describeCtx)
+  const text = describeStep(t, node, describeCtx)
   const selected = selectedId === node.id
   const isTrigger = node.type === 'trigger'
   const warn = issues[node.id] ?? []
@@ -281,10 +286,10 @@ function StepCard({ node, ctx, canUp, canDown }: { node: FlowNode; ctx: Ctx; can
             </span>
             {warn.length > 0 && (
               <span
-                className="inline-flex items-center gap-1 text-[11px] font-semibold text-[color:var(--amber-ink)]"
-                title={warn.join('\n')}
+                className="inline-flex min-w-0 items-center gap-1 text-[11px] font-semibold text-[color:var(--amber-ink)]"
+                title={warn.map((w) => t(w)).join('\n')}
               >
-                <AlertCircle size={12} aria-hidden /> {warn[0]}
+                <AlertCircle size={12} className="shrink-0" aria-hidden /> {t(warn[0])}
               </span>
             )}
           </div>
@@ -300,17 +305,17 @@ function StepCard({ node, ctx, canUp, canDown }: { node: FlowNode; ctx: Ctx; can
       </div>
       <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100">
         {canUp && (
-          <IconBtn label="Move up" onClick={() => ctx.onMove(node.id, 'up')}>
+          <IconBtn label={t('flows.stepsView.moveUp')} onClick={() => ctx.onMove(node.id, 'up')}>
             <ArrowUp size={13} aria-hidden />
           </IconBtn>
         )}
         {canDown && (
-          <IconBtn label="Move down" onClick={() => ctx.onMove(node.id, 'down')}>
+          <IconBtn label={t('flows.stepsView.moveDown')} onClick={() => ctx.onMove(node.id, 'down')}>
             <ArrowDown size={13} aria-hidden />
           </IconBtn>
         )}
         {deletable && (
-          <IconBtn label="Delete step" onClick={() => ctx.onDelete(node.id)} danger>
+          <IconBtn label={t('flows.config.deleteStep')} onClick={() => ctx.onDelete(node.id)} danger>
             <Trash2 size={13} aria-hidden />
           </IconBtn>
         )}

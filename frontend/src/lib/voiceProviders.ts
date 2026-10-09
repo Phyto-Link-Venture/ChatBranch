@@ -1,8 +1,14 @@
+import type { MessageKey } from '@/i18n'
+
 /**
  * Voice-call pipeline provider catalogues — mirrors calls/voice_settings.py
  * LLM_PROVIDERS / STT_PROVIDERS (and the C# VoiceMessagingEndpoints lists).
  * These are configured PER CHANNEL ACCOUNT (Channels → edit account →
  * Delivery & AI); the organization-wide value is only the inherited default.
+ *
+ * Provider and model names are proper names. `*_LABELS` are the English
+ * labels; `*_LABEL_KEYS` the translation keys of the same labels (the few
+ * words in them — "Malaysia", "Malaysian-trained" — translate).
  */
 export const LLM_PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI (gpt-4o-mini)',
@@ -15,4 +21,17 @@ export const STT_PROVIDER_LABELS: Record<string, string> = {
   elevenlabs: 'ElevenLabs Scribe v2 Realtime',
   openai: 'OpenAI gpt-4o-transcribe',
   ilmu: 'YTL ILMU ASR (Malaysian-trained)',
+}
+
+export const LLM_PROVIDER_LABEL_KEYS: Record<string, MessageKey> = {
+  openai: 'voice.providers.llmOpenai',
+  ilmu: 'voice.providers.llmIlmu',
+  openrouter: 'voice.providers.llmOpenrouter',
+  gemini: 'voice.providers.llmGemini',
+}
+
+export const STT_PROVIDER_LABEL_KEYS: Record<string, MessageKey> = {
+  elevenlabs: 'voice.providers.sttElevenlabs',
+  openai: 'voice.providers.sttOpenai',
+  ilmu: 'voice.providers.sttIlmu',
 }

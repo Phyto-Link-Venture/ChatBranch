@@ -5,6 +5,7 @@ import { Loader2, Pencil, Plus, Trash2, Workflow, X, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
+import { Trans, useFormat, useT, type MessageKey } from '@/i18n'
 import { authHeaders, hasCap } from '@/lib/auth'
 import { useEntity, useEntityQuery } from '@/lib/EntityContext'
 import { EntityScopeSelect } from './EntityScopeSelect'
@@ -80,7 +81,63 @@ const NO_VALUE_ACTIONS = ['disable_ai', 'enable_ai']
 /** Yes/no condition fields (the engine compares true/false; yes/no/on/off work too). */
 const YES_NO_FIELDS = ['ai_on', 'handed_over', 'is_first_message']
 
+/**
+ * The catalog's labels arrive in English from the server; these translate them
+ * by their STABLE ids. An id missing here (a newer engine) falls back to the
+ * server's label, so the editor never hides an option.
+ */
+const EVENT_LABELS: Record<string, MessageKey> = {
+  conversation_created: 'flows.automations.events.conversationCreated',
+  message_created: 'flows.automations.events.messageCreated',
+  status_changed: 'flows.automations.events.statusChanged',
+  assigned: 'flows.automations.events.assigned',
+}
+const FIELD_LABELS: Record<string, MessageKey> = {
+  message: 'flows.automations.fields.message',
+  channel: 'common.fields.channel',
+  status: 'common.fields.status',
+  assignee: 'flows.automations.fields.assignee',
+  team: 'flows.automations.fields.team',
+  labels: 'flows.automations.fields.labels',
+  contact_name: 'flows.automations.fields.contactName',
+  contact_tags: 'flows.automations.fields.contactTags',
+  is_first_message: 'flows.automations.fields.isFirstMessage',
+  ai_on: 'flows.automations.fields.aiOn',
+  handed_over: 'flows.automations.fields.handedOver',
+  contact_linked: 'flows.automations.fields.contactLinked',
+}
+const OPERATOR_LABELS: Record<string, MessageKey> = {
+  contains: 'flows.automations.operators.contains',
+  not_contains: 'flows.automations.operators.notContains',
+  equals: 'flows.automations.operators.equals',
+  not_equals: 'flows.automations.operators.notEquals',
+  is_empty: 'flows.automations.operators.isEmpty',
+  is_not_empty: 'flows.automations.operators.isNotEmpty',
+}
+const ACTION_LABELS: Record<string, MessageKey> = {
+  add_label: 'flows.automations.actions.addLabel',
+  remove_label: 'flows.automations.actions.removeLabel',
+  set_status: 'flows.automations.actions.setStatus',
+  assign_team: 'flows.automations.actions.assignTeam',
+  assign_agent: 'flows.automations.actions.assignAgent',
+  disable_ai: 'flows.automations.actions.disableAi',
+  enable_ai: 'flows.automations.actions.enableAi',
+  add_note: 'flows.automations.actions.addNote',
+  notify: 'flows.automations.actions.notify',
+  hand_over: 'flows.automations.actions.handOver',
+  ask_identity: 'flows.automations.actions.askIdentity',
+}
+/** Conversation statuses (the catalog's `statuses`) — glossary words. */
+const STATUS_LABELS: Record<string, MessageKey> = {
+  open: 'flows.automations.statuses.open',
+  pending: 'flows.automations.statuses.pending',
+  snoozed: 'flows.automations.statuses.snoozed',
+  resolved: 'flows.automations.statuses.resolved',
+}
+
 export function AutomationsSettings() {
+  const t = useT()
+  const f = useFormat()
   const entityQ = useEntityQuery()
   const { activeEntity } = useEntity()
   const [rules, setRules] = useState<Rule[] | null>(null)
@@ -164,7 +221,12 @@ export function AutomationsSettings() {
       if (editing) await api(`automations/${editing.id}`, { method: 'PATCH', body })
       else await api('automations', { method: 'POST', body })
       setOpen(false)
-      setMsg({ ok: true, text: `Rule ${name.trim()} ${editing ? 'updated' : 'created'}.` })
+      setMsg({
+        ok: true,
+        text: editing
+          ? t('flows.automations.ruleUpdated', { name: name.trim() })
+          : t('flows.automations.ruleCreated', { name: name.trim() }),
+      })
       await load()
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
@@ -186,10 +248,10 @@ export function AutomationsSettings() {
   }
 
   const remove = async (r: Rule) => {
-    if (!window.confirm(`Delete rule "${r.name}"? Conversations it already touched are unaffected.`)) return
+    if (!window.confirm(t('flows.automations.confirmDelete', { name: r.name }))) return
     try {
       await api(`automations/${r.id}`, { method: 'DELETE' })
-      setMsg({ ok: true, text: `Rule ${r.name} deleted.` })
+      setMsg({ ok: true, text: t('flows.automations.ruleDeleted', { name: r.name }) })
       await load()
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
@@ -199,13 +261,17 @@ export function AutomationsSettings() {
   if (rules === null) {
     return (
       <div className="py-6 text-[12px] text-text-muted">
-        Automations unavailable{loadError ? ` — ${loadError}` : ' — is the backend API running?'}
+        {loadError ? t('flows.automations.unavailableError', { error: loadError }) : t('flows.automations.unavailable')}
       </div>
     )
   }
 
-  const label = (list: { id: string; label: string }[] | undefined, id: string) =>
-    list?.find((x) => x.id === id)?.label ?? id
+  /** A catalog entry's label: ours by id, else the server's, else the id. */
+  const label = (keys: Record<string, MessageKey>, list: { id: string; label: string }[] | undefined, id: string) =>
+    keys[id] ? t(keys[id]) : (list?.find((x) => x.id === id)?.label ?? id)
+  const catalogOptions = (keys: Record<string, MessageKey>, list: { id: string; label: string }[] | undefined) =>
+    (list ?? []).map((x) => ({ value: x.id, label: keys[x.id] ? t(keys[x.id]) : x.label }))
+  const statusLabel = (s: string) => (STATUS_LABELS[s] ? t(STATUS_LABELS[s]) : s)
 
   /** The value control depends on the action — a team picker beats free text. */
   const actionValueControl = (a: Action, i: number) => {
@@ -218,11 +284,11 @@ export function AutomationsSettings() {
           value={a.value}
           onChange={set}
           size="md"
-          ariaLabel="Team"
+          ariaLabel={t('flows.automations.team')}
           className="flex-1"
           options={[
-            { value: '', label: 'Pick a team…' },
-            ...(catalog?.teams ?? []).map((t) => ({ value: String(t.id), label: t.name })),
+            { value: '', label: t('flows.automations.pickTeam') },
+            ...(catalog?.teams ?? []).map((tm) => ({ value: String(tm.id), label: tm.name })),
           ]}
         />
       )
@@ -232,10 +298,10 @@ export function AutomationsSettings() {
           value={a.value}
           onChange={set}
           size="md"
-          ariaLabel="Agent"
+          ariaLabel={t('flows.automations.agent')}
           className="flex-1"
           options={[
-            { value: '', label: 'Pick an agent…' },
+            { value: '', label: t('flows.automations.pickAgent') },
             ...(catalog?.agents ?? []).map((x) => ({ value: x.username, label: x.username, hint: x.role })),
           ]}
         />
@@ -246,11 +312,11 @@ export function AutomationsSettings() {
           value={a.value || 'ask'}
           onChange={set}
           size="md"
-          ariaLabel="When there is no matching contact"
+          ariaLabel={t('flows.automations.noMatchingContact')}
           className="flex-1"
           options={[
-            { value: 'ask', label: 'Ask — leave a note if no contact matches' },
-            { value: 'ask_and_create', label: 'Ask and create the contact' },
+            { value: 'ask', label: t('flows.automations.identityAsk') },
+            { value: 'ask_and_create', label: t('flows.automations.identityAskCreate') },
           ]}
         />
       )
@@ -260,28 +326,48 @@ export function AutomationsSettings() {
           value={a.value}
           onChange={set}
           size="md"
-          ariaLabel="Status"
+          ariaLabel={t('common.fields.status')}
           className="flex-1"
-          options={(catalog?.statuses ?? []).map((s) => ({ value: s, label: s }))}
+          options={(catalog?.statuses ?? []).map((s) => ({ value: s, label: statusLabel(s) }))}
         />
       )
     return (
       <input
         value={a.value}
         onChange={(e) => set(e.target.value)}
-        placeholder={a.type === 'add_note' ? 'Note text' : a.type === 'hand_over' ? 'Why (shown to the team)' : 'Value'}
+        placeholder={
+          a.type === 'add_note'
+            ? t('flows.automations.noteText')
+            : a.type === 'hand_over'
+              ? t('flows.automations.whyForTeam')
+              : t('flows.automations.value')
+        }
         className={`${inputCls} flex-1 min-w-[140px]`}
-        aria-label="Action value"
+        aria-label={t('flows.automations.actionValue')}
       />
     )
+  }
+
+  /** "→ Set status: Resolved" — a stored status value reads as its word. */
+  const actionChip = (a: Action) => {
+    const name = label(ACTION_LABELS, catalog?.actions, a.type)
+    if (NO_VALUE_ACTIONS.includes(a.type) || !a.value) return t('flows.automations.actionChip', { action: name })
+    const value = a.type === 'set_status' ? statusLabel(a.value) : a.value
+    return t('flows.automations.actionChipValue', { action: name, value })
   }
 
   return (
     <div className="flex flex-col gap-4 pt-3.5">
       <p className="max-w-[720px] text-[11.5px] leading-relaxed text-text-mid">
-        <b>When</b> something happens to a conversation, <b>if</b> the conditions hold, <b>do</b> these
-        actions. Every matching rule runs, in order — this is not a first-match switch. For contact-centric
-        sequences over days (reminders, follow-ups) use the <b>Flow Builder</b> instead.
+        <Trans
+          k="flows.automations.intro"
+          values={{
+            when: <b>{t('flows.automations.introWhen')}</b>,
+            if: <b>{t('flows.automations.introIf')}</b>,
+            do: <b>{t('flows.automations.introDo')}</b>,
+            flowBuilder: <b>{t('shell.nav.flowBuilder')}</b>,
+          }}
+        />
       </p>
 
       {msg && (!open || msg.ok) && (
@@ -292,11 +378,11 @@ export function AutomationsSettings() {
 
       <div className="flex items-center justify-between gap-3">
         <span className="text-[11px] font-bold uppercase tracking-[0.06em] text-text-faint">
-          {rules.length} rule{rules.length === 1 ? '' : 's'}
+          {t('flows.automations.ruleCount', { count: rules.length })}
         </span>
         {canManage && (
           <Button onClick={openCreate}>
-            <Plus size={13} aria-hidden /> Add rule
+            <Plus size={13} aria-hidden /> {t('flows.automations.addRule')}
           </Button>
         )}
       </div>
@@ -304,8 +390,7 @@ export function AutomationsSettings() {
       <div className="flex flex-col gap-2">
         {rules.length === 0 && (
           <div className="rounded-xl border border-dashed border-line-strong px-4 py-6 text-center text-[12px] text-text-muted">
-            No rules yet — e.g. &ldquo;when a message contains <i>refund</i>, label it and assign the billing
-            team&rdquo;.
+            <Trans k="flows.automations.empty" values={{ word: <i>{t('flows.automations.emptyWord')}</i> }} />
           </div>
         )}
         {rules.map((r) => (
@@ -321,13 +406,18 @@ export function AutomationsSettings() {
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[13px] font-bold text-text-high">{r.name}</span>
                 <span className="rounded-full bg-fill px-2 py-px text-[10px] font-semibold text-text-muted">
-                  {label(catalog?.events, r.event)}
+                  {label(EVENT_LABELS, catalog?.events, r.event)}
                 </span>
                 {!r.active && (
-                  <span className="rounded-full bg-fill px-2 py-px text-[10px] font-bold text-text-muted">Off</span>
+                  <span className="rounded-full bg-fill px-2 py-px text-[10px] font-bold text-text-muted">{t('common.status.off')}</span>
                 )}
                 {r.times_fired > 0 && (
-                  <span className="text-[10px] text-text-faint">fired {r.times_fired}×</span>
+                  <span
+                    className="text-[10px] text-text-faint"
+                    title={r.last_fired_at ? t('flows.automations.lastFired', { when: f.dateTime(r.last_fired_at) }) : undefined}
+                  >
+                    {t('flows.automations.fired', { count: r.times_fired })}
+                  </span>
                 )}
               </div>
               {r.description && (
@@ -336,14 +426,21 @@ export function AutomationsSettings() {
               <div className="mt-1 flex flex-wrap gap-1.5 text-[10.5px]">
                 {(r.conditions ?? []).map((c, i) => (
                   <span key={i} className="rounded bg-fill px-1.5 py-0.5 text-text-mid">
-                    {label(catalog?.fields, c.field)} {label(catalog?.operators, c.op)}{' '}
-                    {VALUELESS.includes(c.op) ? '' : `“${c.value}”`}
+                    {VALUELESS.includes(c.op)
+                      ? t('flows.automations.conditionChip', {
+                          field: label(FIELD_LABELS, catalog?.fields, c.field),
+                          op: label(OPERATOR_LABELS, catalog?.operators, c.op),
+                        })
+                      : t('flows.automations.conditionChipValue', {
+                          field: label(FIELD_LABELS, catalog?.fields, c.field),
+                          op: label(OPERATOR_LABELS, catalog?.operators, c.op),
+                          value: c.value,
+                        })}
                   </span>
                 ))}
                 {(r.actions ?? []).map((a, i) => (
                   <span key={i} className="rounded bg-brand-400/10 px-1.5 py-0.5 text-brand-300">
-                    → {label(catalog?.actions, a.type)}
-                    {NO_VALUE_ACTIONS.includes(a.type) || !a.value ? '' : `: ${a.value}`}
+                    {actionChip(a)}
                   </span>
                 ))}
               </div>
@@ -352,24 +449,24 @@ export function AutomationsSettings() {
               <div className="flex shrink-0 items-center gap-1">
                 <button
                   onClick={() => toggle(r)}
-                  title={r.active ? 'Turn off' : 'Turn on'}
-                  aria-label={`${r.active ? 'Deactivate' : 'Activate'} ${r.name}`}
+                  title={r.active ? t('flows.automations.turnOff') : t('flows.automations.turnOn')}
+                  aria-label={r.active ? t('flows.automations.deactivate', { name: r.name }) : t('flows.automations.activate', { name: r.name })}
                   className="rounded-lg px-2 py-1 text-[11px] font-semibold text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
                 >
-                  {r.active ? 'On' : 'Off'}
+                  {r.active ? t('common.status.on') : t('common.status.off')}
                 </button>
                 <button
                   onClick={() => openEdit(r)}
-                  title={`Edit ${r.name}`}
-                  aria-label={`Edit rule ${r.name}`}
+                  title={t('flows.automations.editName', { name: r.name })}
+                  aria-label={t('flows.automations.editRule', { name: r.name })}
                   className="grid h-7 w-7 place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
                 >
                   <Pencil size={13} aria-hidden />
                 </button>
                 <button
                   onClick={() => remove(r)}
-                  title={`Delete ${r.name}`}
-                  aria-label={`Delete rule ${r.name}`}
+                  title={t('flows.automations.deleteName', { name: r.name })}
+                  aria-label={t('flows.automations.deleteRule', { name: r.name })}
                   className="grid h-7 w-7 place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/15 hover:text-red-300"
                 >
                   <Trash2 size={13} aria-hidden />
@@ -383,17 +480,17 @@ export function AutomationsSettings() {
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title={editing ? `Edit ${editing.name}` : 'New automation rule'}
-        subtitle="When this happens, if these hold, do that."
+        title={editing ? t('flows.automations.editName', { name: editing.name }) : t('flows.automations.newRule')}
+        subtitle={t('flows.automations.modalSubtitle')}
         size="lg"
         footer={
           <>
             <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
-              Cancel
+              {t('common.actions.cancel')}
             </Button>
             <Button variant="primary" onClick={save} disabled={busy || !name.trim()}>
               {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Workflow size={13} aria-hidden />}{' '}
-              {editing ? 'Save changes' : 'Create rule'}
+              {editing ? t('flows.automations.saveChanges') : t('flows.automations.createRule')}
             </Button>
           </>
         }
@@ -410,63 +507,64 @@ export function AutomationsSettings() {
 
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block">
-              <span className="mb-1 block text-[11px] font-bold text-text-high">Rule name</span>
+              <span className="mb-1 block text-[11px] font-bold text-text-high">{t('flows.automations.ruleName')}</span>
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Route refunds to billing"
+                placeholder={t('flows.automations.ruleNamePlaceholder')}
                 className={inputCls}
               />
             </label>
             <label className="block">
-              <span className="mb-1 block text-[11px] font-bold text-text-high">When</span>
+              <span className="mb-1 block text-[11px] font-bold text-text-high">{t('flows.automations.introWhen')}</span>
               <Select
                 value={evt}
                 onChange={setEvt}
                 size="md"
-                ariaLabel="Trigger event"
-                options={(catalog?.events ?? []).map((e) => ({ value: e.id, label: e.label }))}
+                ariaLabel={t('flows.automations.triggerEvent')}
+                options={catalogOptions(EVENT_LABELS, catalog?.events)}
               />
             </label>
           </div>
 
           <label className="block">
-            <span className="mb-1 block text-[11px] font-bold text-text-high">Description</span>
+            <span className="mb-1 block text-[11px] font-bold text-text-high">{t('common.fields.description')}</span>
             <input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="What this rule is for"
+              placeholder={t('flows.automations.descriptionPlaceholder')}
               className={inputCls}
             />
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-[11px] font-bold text-text-high">Applies to</span>
+            <span className="mb-1 block text-[11px] font-bold text-text-high">{t('flows.automations.appliesTo')}</span>
             <EntityScopeSelect
               value={entity}
               onChange={setEntity}
-              globalLabel="Organization-wide"
+              globalLabel={t('flows.automations.orgWide')}
               className="w-full"
             />
           </label>
 
           {/* conditions */}
           <div className="rounded-lg border border-line bg-fill-subtle p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-[11px] font-bold text-text-high">
-                If <span className="font-normal text-text-muted">(all must hold — none = always)</span>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="min-w-0 text-[11px] font-bold text-text-high">
+                {t('flows.automations.introIf')}{' '}
+                <span className="font-normal text-text-muted">{t('flows.automations.ifHint')}</span>
               </span>
               <button
                 type="button"
                 onClick={() => setConditions((c) => [...c, { field: 'message', op: 'contains', value: '' }])}
-                className="text-[11px] font-semibold text-brand-300 hover:underline"
+                className="shrink-0 text-[11px] font-semibold text-brand-300 hover:underline"
               >
-                + Add condition
+                {t('flows.automations.addCondition')}
               </button>
             </div>
             {conditions.length === 0 && (
               <span className="text-[10.5px] text-text-muted">
-                No conditions — this rule fires on every {label(catalog?.events, evt).toLowerCase()}.
+                {t('flows.automations.noConditions', { event: label(EVENT_LABELS, catalog?.events, evt).toLowerCase() })}
               </span>
             )}
             <div className="flex flex-col gap-2">
@@ -478,29 +576,29 @@ export function AutomationsSettings() {
                       setConditions((cur) => cur.map((x, j) => (j === i ? { ...x, field } : x)))
                     }
                     size="md"
-                    ariaLabel="Condition field"
+                    ariaLabel={t('flows.automations.conditionField')}
                     className="w-[150px] shrink-0"
-                    options={(catalog?.fields ?? []).map((f) => ({ value: f.id, label: f.label }))}
+                    options={catalogOptions(FIELD_LABELS, catalog?.fields)}
                   />
                   <Select
                     value={c.op}
                     onChange={(op) => setConditions((cur) => cur.map((x, j) => (j === i ? { ...x, op } : x)))}
                     size="md"
-                    ariaLabel="Condition operator"
+                    ariaLabel={t('flows.automations.conditionOperator')}
                     className="w-[150px] shrink-0"
-                    options={(catalog?.operators ?? []).map((o) => ({ value: o.id, label: o.label }))}
+                    options={catalogOptions(OPERATOR_LABELS, catalog?.operators)}
                   />
                   {!VALUELESS.includes(c.op) && YES_NO_FIELDS.includes(c.field) && (
                     <Select
                       value={['true', 'yes', 'on', '1'].includes(c.value.toLowerCase()) ? 'true' : c.value ? 'false' : ''}
                       onChange={(value) => setConditions((cur) => cur.map((x, j) => (j === i ? { ...x, value } : x)))}
                       size="md"
-                      ariaLabel="Condition value"
+                      ariaLabel={t('flows.automations.conditionValue')}
                       className="min-w-[110px] flex-1"
                       options={[
-                        { value: '', label: 'Pick…' },
-                        { value: 'true', label: 'Yes' },
-                        { value: 'false', label: 'No' },
+                        { value: '', label: t('flows.automations.pick') },
+                        { value: 'true', label: t('common.status.yes') },
+                        { value: 'false', label: t('common.status.no') },
                       ]}
                     />
                   )}
@@ -512,15 +610,15 @@ export function AutomationsSettings() {
                           cur.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)),
                         )
                       }
-                      placeholder={c.field === 'contact_linked' ? 'yes or no' : 'Value'}
-                      aria-label="Condition value"
+                      placeholder={c.field === 'contact_linked' ? t('flows.automations.yesOrNo') : t('flows.automations.value')}
+                      aria-label={t('flows.automations.conditionValue')}
                       className={`${inputCls} flex-1 min-w-[140px]`}
                     />
                   )}
                   <button
                     type="button"
                     onClick={() => setConditions((cur) => cur.filter((_, j) => j !== i))}
-                    aria-label="Remove condition"
+                    aria-label={t('flows.automations.removeCondition')}
                     className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-text-muted hover:bg-fill-hover"
                   >
                     <X size={13} aria-hidden />
@@ -532,20 +630,18 @@ export function AutomationsSettings() {
 
           {/* actions */}
           <div className="rounded-lg border border-line bg-fill-subtle p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-[11px] font-bold text-text-high">Then</span>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-[11px] font-bold text-text-high">{t('flows.automations.then')}</span>
               <button
                 type="button"
                 onClick={() => setActions((a) => [...a, { type: 'add_label', value: '' }])}
-                className="text-[11px] font-semibold text-brand-300 hover:underline"
+                className="shrink-0 text-[11px] font-semibold text-brand-300 hover:underline"
               >
-                + Add action
+                {t('flows.automations.addAction')}
               </button>
             </div>
             {actions.length === 0 && (
-              <span className="text-[10.5px] text-amber-300">
-                A rule with no actions does nothing — add at least one.
-              </span>
+              <span className="text-[10.5px] text-amber-300">{t('flows.automations.noActions')}</span>
             )}
             <div className="flex flex-col gap-2">
               {actions.map((a, i) => (
@@ -556,15 +652,15 @@ export function AutomationsSettings() {
                       setActions((cur) => cur.map((x, j) => (j === i ? { type, value: '' } : x)))
                     }
                     size="md"
-                    ariaLabel="Action"
+                    ariaLabel={t('flows.automations.action')}
                     className="w-[190px] shrink-0"
-                    options={(catalog?.actions ?? []).map((x) => ({ value: x.id, label: x.label }))}
+                    options={catalogOptions(ACTION_LABELS, catalog?.actions)}
                   />
                   {actionValueControl(a, i)}
                   <button
                     type="button"
                     onClick={() => setActions((cur) => cur.filter((_, j) => j !== i))}
-                    aria-label="Remove action"
+                    aria-label={t('flows.automations.removeAction')}
                     className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-text-muted hover:bg-fill-hover"
                   >
                     <X size={13} aria-hidden />
@@ -582,8 +678,8 @@ export function AutomationsSettings() {
               className="h-3.5 w-3.5 accent-emerald-500"
             />
             <span className="text-[12px] text-text-primary">
-              Active
-              <span className="ml-1 text-[10.5px] text-text-muted">— off means it never runs</span>
+              {t('common.status.active')}
+              <span className="ml-1 text-[10.5px] text-text-muted">{t('flows.automations.activeHint')}</span>
             </span>
           </label>
         </div>

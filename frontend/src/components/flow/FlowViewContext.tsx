@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useContext } from 'react'
+import type { MessageKey } from '@/i18n'
 import type { AgentSkill, FlowStats } from '@/lib/flow/types'
 import type { AgentVoice, ScriptTemplateOpt, TeamOpt } from '@/lib/flow/api'
 import type { FieldDef } from '@/lib/customFields'
@@ -25,7 +26,8 @@ export interface FlowView {
   describeCtx: DescribeContext
   stats: FlowStats | null
   selectedId: string | null
-  issues: Record<string, string[]>
+  /** unfinished-step notes per node id (translation keys) */
+  issues: Record<string, MessageKey[]>
   onInsertOnEdge: (edgeId: string) => void
 }
 

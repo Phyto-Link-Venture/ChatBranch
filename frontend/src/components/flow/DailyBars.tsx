@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useFormat, useT } from '@/i18n'
 
 /**
  * One series of daily counts as thin columns (inline SVG, no chart library):
@@ -25,10 +26,11 @@ function niceCeil(n: number): number {
   return 10 * pow
 }
 
-export const dayLabel = (iso: string) =>
-  new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
-
 export default function DailyBars({ data, label, color = 'rgb(var(--c-brand))' }: { data: DailyValue[]; label: string; color?: string }) {
+  const t = useT()
+  const f = useFormat()
+  /** a "YYYY-MM-DD" day, read as LOCAL midnight (not UTC) */
+  const dayLabel = (iso: string) => f.date(`${iso}T00:00:00`)
   const wrap = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(360)
   const [view, setView] = useState<'chart' | 'table'>('chart')
@@ -63,9 +65,9 @@ export default function DailyBars({ data, label, color = 'rgb(var(--c-brand))' }
               key={v}
               type="button"
               onClick={() => setView(v)}
-              className={`px-2 py-0.5 text-[10.5px] font-semibold capitalize ${view === v ? 'bg-fill-hover text-text-high' : 'text-text-muted hover:bg-fill'}`}
+              className={`px-2 py-0.5 text-[10.5px] font-semibold ${view === v ? 'bg-fill-hover text-text-high' : 'text-text-muted hover:bg-fill'}`}
             >
-              {v}
+              {v === 'chart' ? t('flows.chart.chart') : t('flows.chart.table')}
             </button>
           ))}
         </div>
@@ -77,7 +79,7 @@ export default function DailyBars({ data, label, color = 'rgb(var(--c-brand))' }
               {data.map((d) => (
                 <tr key={d.day} className="border-b border-line last:border-0">
                   <td className="px-3 py-1.5 text-text-mid">{dayLabel(d.day)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums text-text-high">{d.value.toLocaleString()}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-text-high">{f.number(d.value)}</td>
                 </tr>
               ))}
             </tbody>
@@ -85,11 +87,11 @@ export default function DailyBars({ data, label, color = 'rgb(var(--c-brand))' }
         </div>
       ) : (
         <div ref={wrap} className="relative" onMouseLeave={() => setHover(null)}>
-          <svg width={width} height={H} role="img" aria-label={`${label}, by day`} className="block">
+          <svg width={width} height={H} role="img" aria-label={t('flows.chart.byDay', { label })} className="block">
             <line x1={PAD_L} x2={width} y1={y(max)} y2={y(max)} stroke="var(--line)" strokeWidth={1} />
             <line x1={PAD_L} x2={width} y1={base} y2={base} stroke="var(--line-strong)" strokeWidth={1} />
             <text x={PAD_L - 6} y={y(max) + 3} textAnchor="end" fontSize={10} fill="var(--text-muted)">
-              {max.toLocaleString()}
+              {f.number(max)}
             </text>
             <text x={PAD_L - 6} y={base + 3} textAnchor="end" fontSize={10} fill="var(--text-muted)">
               0
@@ -109,7 +111,14 @@ export default function DailyBars({ data, label, color = 'rgb(var(--c-brand))' }
                   <rect x={PAD_L + band * i} y={TOP} width={band} height={H - TOP} fill="transparent" />
                   {path && <path d={path} fill={color} opacity={hover === null || hover === i ? 1 : 0.55} />}
                   {labelled.has(i) && n > 1 && (
-                    <text x={cx} y={H - 4} textAnchor="middle" fontSize={10} fill="var(--text-muted)">
+                    // the first/last labels anchor inward so a long localized date never clips
+                    <text
+                      x={i === 0 ? PAD_L : i === n - 1 ? width : cx}
+                      y={H - 4}
+                      textAnchor={i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}
+                      fontSize={10}
+                      fill="var(--text-muted)"
+                    >
                       {dayLabel(d.day)}
                     </text>
                   )}
@@ -122,7 +131,7 @@ export default function DailyBars({ data, label, color = 'rgb(var(--c-brand))' }
               className="pointer-events-none absolute -top-1 z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border border-line-strong bg-card px-2 py-1 text-[11px] shadow-pop"
               style={{ left: Math.min(width - 50, Math.max(50, PAD_L + band * hover + band / 2)) }}
             >
-              <span className="font-semibold text-text-high">{data[hover].value.toLocaleString()}</span>
+              <span className="font-semibold text-text-high">{f.number(data[hover].value)}</span>
               <span className="text-text-muted"> · {dayLabel(data[hover].day)}</span>
             </div>
           )}

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AlertCircle, CheckCircle, Loader2, Lock, RefreshCw, RotateCcw, Save } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { useT, type TFunction } from '@/i18n'
 import { roleHeaders, getRole } from '@/lib/role'
 import { expireSessionOn401 } from '@/lib/auth'
 import { useEntity, useEntityQuery } from '@/lib/EntityContext'
@@ -19,20 +20,27 @@ interface PersonaPayload {
   entity?: string | null
 }
 
+/** Our own failure words are codes, worded at render; a server `detail` is shown as sent. */
+const SESSION_EXPIRED = 'session-expired'
+const NOT_AVAILABLE = 'persona-api-missing'
+
 async function personaApi<T>(init?: RequestInit, entityQ = ''): Promise<T> {
   const res = await fetch(`${API}/aicore/persona${entityQ && `?${entityQ}`}`, {
     headers: { 'Content-Type': 'application/json', ...roleHeaders() },
     ...init,
   })
-  if (expireSessionOn401(res)) throw new Error('Session expired — redirecting to login…')
+  if (expireSessionOn401(res)) throw new Error(SESSION_EXPIRED)
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    throw new Error(
-      (data as { detail?: string }).detail ||
-        (res.status === 404 ? 'Persona API not available on this backend yet.' : `HTTP ${res.status}`),
-    )
+    throw new Error((data as { detail?: string }).detail || (res.status === 404 ? NOT_AVAILABLE : `HTTP ${res.status}`))
   }
   return data as T
+}
+
+function errWords(t: TFunction, msg: string): string {
+  if (msg === SESSION_EXPIRED) return t('common.errors.sessionExpired')
+  if (msg === NOT_AVAILABLE) return t('voice.chatPersona.apiMissing')
+  return msg
 }
 
 /** Settings → Chat Persona: the AI agent's permanent operating
@@ -41,6 +49,7 @@ async function personaApi<T>(init?: RequestInit, entityQ = ''): Promise<T> {
  *  string resets to the built-in default. Everyone else gets a read-only view.
  *  Compliance hard rules are enforced server-side and cannot be overridden. */
 export function PersonaSettings() {
+  const t = useT()
   // Entity scope: with an outlet selected this edits THAT outlet's persona;
   // with "All entities" it edits the organization persona every outlet
   // inherits. Clearing an outlet's text reverts it to inherited.
@@ -98,22 +107,17 @@ export function PersonaSettings() {
     }
   }
 
-  const save = () => put(text, 'Persona saved — new calls and chats use it immediately.')
+  const save = () => put(text, t('voice.chatPersona.saved'))
 
   const resetToDefault = () => {
-    if (
-      !window.confirm(
-        'Reset the persona to the built-in default? Your customized instructions will be discarded.',
-      )
-    )
-      return
-    put('', 'Persona reset to the built-in default.')
+    if (!window.confirm(t('voice.chatPersona.confirmReset'))) return
+    put('', t('voice.chatPersona.resetDone'))
   }
 
   return (
     <div className="pt-3">
       <div className="mb-1.5 flex items-center gap-2">
-        <span className="text-[13px] font-bold text-text-high">Chat Persona</span>
+        <span className="text-[13px] font-bold text-text-high">{t('voice.chatPersona.title')}</span>
         {!loading && !loadError && (
           <span
             className="rounded-full px-2 py-px text-[10px] font-bold"
@@ -123,32 +127,25 @@ export function PersonaSettings() {
                 : { color: 'var(--brand-ink)', background: 'rgba(255,90,31,0.1)' }
             }
           >
-            {isDefault ? 'Default' : 'Customized'}
+            {isDefault ? t('voice.chatPersona.default') : t('voice.chatPersona.customized')}
           </span>
         )}
       </div>
-      <p className="mb-4 max-w-[640px] text-[11.5px] leading-[1.6] text-text-muted">
-        These are the AI agent&apos;s permanent operating instructions — its personality, tone,
-        conversation style, and escalation rules — applied to every call and chat.
-        Compliance hard rules are enforced server-side and cannot be overridden here.
-      </p>
+      <p className="mb-4 max-w-[640px] text-[11.5px] leading-[1.6] text-text-muted">{t('voice.chatPersona.intro')}</p>
 
       {/* Scope banner — editing one outlet's persona vs the organization's. */}
       <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-line bg-fill-subtle px-3 py-2.5">
         <span className="text-[12px] font-semibold text-text-high">
-          {activeEntity ? `Editing: ${activeEntity.name}` : 'Editing: organization default'}
+          {activeEntity
+            ? t('voice.chatPersona.editingEntity', { name: activeEntity.name })
+            : t('voice.chatPersona.editingOrg')}
         </span>
         {activeEntity ? (
           <span className="text-[11px] text-text-muted">
-            {scope === 'entity'
-              ? 'This outlet has its own persona. Clear the text and save to go back to the organization persona.'
-              : 'Following the organization persona. Saving here creates an override for this outlet only.'}
+            {scope === 'entity' ? t('voice.chatPersona.entityOwn') : t('voice.chatPersona.entityInherits')}
           </span>
         ) : (
-          <span className="text-[11px] text-text-muted">
-            Every entity without its own persona uses this. Pick an entity in the top bar
-            to give one outlet a different voice.
-          </span>
+          <span className="text-[11px] text-text-muted">{t('voice.chatPersona.orgHint')}</span>
         )}
       </div>
 
@@ -157,7 +154,7 @@ export function PersonaSettings() {
           className="mb-3 flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-[12px]"
           style={{ color: 'var(--red-ink)' }}
         >
-          <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden /> {error}
+          <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden /> {errWords(t, error)}
         </div>
       )}
       {notice && (
@@ -171,7 +168,7 @@ export function PersonaSettings() {
 
       {loading ? (
         <div className="flex items-center gap-2 py-6 text-[12px] text-text-muted">
-          <Loader2 size={14} className="animate-spin" aria-hidden /> Loading persona…
+          <Loader2 size={14} className="animate-spin" aria-hidden /> {t('voice.chatPersona.loading')}
         </div>
       ) : loadError ? (
         <div>
@@ -179,17 +176,17 @@ export function PersonaSettings() {
             className="mb-3 flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-[12px]"
             style={{ color: 'var(--red-ink)' }}
           >
-            <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden /> {loadError}
+            <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden /> {errWords(t, loadError)}
           </div>
           <Button variant="ghost" onClick={load}>
-            <RefreshCw size={13} aria-hidden /> Retry
+            <RefreshCw size={13} aria-hidden /> {t('common.actions.retry')}
           </Button>
         </div>
       ) : (
         <div>
           {!isSuper && (
             <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold text-text-muted">
-              <Lock size={11} aria-hidden /> Read-only — only a superadmin can edit the persona.
+              <Lock size={11} aria-hidden /> {t('voice.chatPersona.readOnly')}
             </div>
           )}
           <textarea
@@ -198,17 +195,17 @@ export function PersonaSettings() {
             readOnly={!isSuper}
             rows={16}
             spellCheck={false}
-            aria-label="AI persona instructions"
-            placeholder="Persona instructions…"
+            aria-label={t('voice.chatPersona.instructionsAria')}
+            placeholder={t('voice.chatPersona.placeholder')}
             className={`w-full resize-y rounded-lg border border-line-strong px-3 py-2.5 font-mono text-[12px] leading-[1.65] text-text-high outline-none transition-colors ${
               isSuper ? 'bg-card focus:border-brand-400' : 'cursor-default bg-fill-subtle'
             }`}
           />
           <div className="mt-1 flex items-center gap-2 text-[10.5px] text-text-muted">
-            <span>{text.length.toLocaleString()} characters</span>
+            <span>{t('library.editor.characters', { count: text.length })}</span>
             {isSuper && dirty && (
               <span className="font-semibold" style={{ color: 'var(--amber-ink)' }}>
-                Unsaved changes
+                {t('voice.chatPersona.unsaved')}
               </span>
             )}
           </div>
@@ -221,10 +218,10 @@ export function PersonaSettings() {
                 ) : (
                   <Save size={13} aria-hidden />
                 )}
-                {saving ? 'Saving…' : 'Save persona'}
+                {saving ? t('common.status.saving') : t('voice.chatPersona.save')}
               </Button>
               <Button variant="ghost" onClick={resetToDefault} disabled={saving || isDefault}>
-                <RotateCcw size={13} aria-hidden /> Reset to default
+                <RotateCcw size={13} aria-hidden /> {t('voice.chatPersona.reset')}
               </Button>
             </div>
           )}

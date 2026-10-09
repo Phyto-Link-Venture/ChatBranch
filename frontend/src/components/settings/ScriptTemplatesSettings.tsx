@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { Trans, useT } from '@/i18n'
 import { hasCap } from '@/lib/auth'
 import {
   ConfirmDelete,
@@ -45,8 +46,10 @@ export function ScriptTemplatesSettings({
   openId?: string
   onOpened?: () => void
 }) {
+  const t = useT()
   const [list, setList] = useState<ScriptTemplate[] | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  /** the load failure, kept raw and worded at render (it follows the language) */
+  const [loadError, setLoadError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [toDelete, setToDelete] = useState<ScriptTemplate | null>(null)
@@ -62,7 +65,7 @@ export function ScriptTemplatesSettings({
     } catch (e) {
       // keep the real reason — a 500, a 403 and a dead server are different fixes
       setList(null)
-      setLoadError(errText(e))
+      setLoadError(e)
     }
   }, [onCount])
 
@@ -73,9 +76,9 @@ export function ScriptTemplatesSettings({
   // deep link: /templates?tab=scripts&id=<id> opens that script
   useEffect(() => {
     if (!openId || !list) return
-    const t = list.find((x) => String(x.id) === openId)
-    if (t && canManage)
-      setEditor({ editing: t, initial: { name: t.name, content: t.content, entity: t.entity ?? null, channels: [] } })
+    const st = list.find((x) => String(x.id) === openId)
+    if (st && canManage)
+      setEditor({ editing: st, initial: { name: st.name, content: st.content, entity: st.entity ?? null, channels: [] } })
     onOpened?.()
   }, [openId, list, canManage, onOpened])
 
@@ -85,70 +88,72 @@ export function ScriptTemplatesSettings({
     if (editing) await api(`calls/script-templates/${editing.id}`, { method: 'PATCH', body })
     else await api('calls/script-templates', { method: 'POST', body })
     setEditor(null)
-    setNotice(
-      editing
-        ? `“${draft.name}” updated.`
-        : `“${draft.name}” saved — pick it from the script-call button or a flow’s Script call step.`,
-    )
+    setNotice(editing ? t('library.scripts.updated', { name: draft.name }) : t('library.scripts.saved', { name: draft.name }))
     await load()
   }
 
   const rows: TemplateRow[] = useMemo(
     () =>
-      (list ?? []).map((t) => ({
-        key: t.id,
-        name: t.name,
-        preview: t.content,
-        type: 'Call script',
+      (list ?? []).map((st) => ({
+        key: st.id,
+        name: st.name,
+        preview: st.content,
+        type: t('library.scripts.type'),
         channels: [],
         voice: true,
-        entityName: t.entity_name ?? '',
-        updated: t.updated_at ?? null,
+        entityName: st.entity_name ?? '',
+        updated: st.updated_at ?? null,
         onEdit: canManage
           ? () => {
               setNotice(null)
               setEditor({
-                editing: t,
-                initial: { name: t.name, content: t.content, entity: t.entity ?? null, channels: [] },
+                editing: st,
+                initial: { name: st.name, content: st.content, entity: st.entity ?? null, channels: [] },
               })
             }
           : undefined,
         onDelete: canManage
           ? () => {
               setNotice(null)
-              setToDelete(t)
+              setToDelete(st)
             }
           : undefined,
       })),
-    [list, canManage],
+    [list, canManage, t],
   )
 
   if (list === null && !loadError)
     return (
       <div className="flex items-center gap-2 py-8 text-[12.5px] text-text-muted">
-        <Loader2 size={14} className="animate-spin" aria-hidden /> Loading call scripts…
+        <Loader2 size={14} className="animate-spin" aria-hidden /> {t('library.scripts.loading')}
       </div>
     )
   if (list === null)
     return (
       <Notice tone="error">
-        Couldn&apos;t load call scripts — {loadError}. A network error means the API isn&apos;t running (
-        <code>npm run dev:api</code>).
+        <Trans
+          k="library.scripts.loadFailed"
+          values={{ error: errText(loadError, t), command: <code>npm run dev:api</code> }}
+        />
       </Notice>
     )
 
   return (
     <div className="flex flex-col gap-4">
       <p className="max-w-[760px] text-[12.5px] leading-relaxed text-text-mid">
-        A call script is read <b className="text-text-high">verbatim</b> by the AI voice on a one-way call — dial, read
-        it, hang up. Use one from the phone icon next to a conversation, or in a flow&apos;s{' '}
-        <b className="text-text-high">Script call</b> step.
+        <Trans
+          k="library.scripts.intro"
+          values={{
+            verbatim: <b className="text-text-high">{t('library.scripts.verbatim')}</b>,
+            step: <b className="text-text-high">{t('flows.call.scriptCall')}</b>,
+          }}
+        />
       </p>
       {notice && <Notice tone="ok">{notice}</Notice>}
       <TemplateTable
         rows={rows}
-        searchPlaceholder="Search call scripts…"
-        empty="No call scripts yet — add the announcements your one-way calls should read."
+        searchPlaceholder={t('library.scripts.search')}
+        empty={t('library.scripts.empty')}
         toolbarRight={
           canManage ? (
             <Button
@@ -157,7 +162,7 @@ export function ScriptTemplatesSettings({
                 setEditor({ editing: null, initial: { name: '', content: '', entity: null, channels: [] } })
               }}
             >
-              <Plus size={14} aria-hidden /> New call script
+              <Plus size={14} aria-hidden /> {t('library.editor.newScript')}
             </Button>
           ) : undefined
         }
@@ -173,12 +178,12 @@ export function ScriptTemplatesSettings({
       )}
       {toDelete && (
         <ConfirmDelete
-          title={`Delete “${toDelete.name}”?`}
-          body="Any flow step still pointing at it will skip the call."
+          title={t('library.scripts.deleteTitle', { name: toDelete.name })}
+          body={t('library.scripts.deleteBody')}
           onClose={() => setToDelete(null)}
           onConfirm={async () => {
             await api(`calls/script-templates/${toDelete.id}`, { method: 'DELETE' })
-            setNotice(`“${toDelete.name}” deleted.`)
+            setNotice(t('library.scripts.deleted', { name: toDelete.name }))
             setToDelete(null)
             await load()
           }}

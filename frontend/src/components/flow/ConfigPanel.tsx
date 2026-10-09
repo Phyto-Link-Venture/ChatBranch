@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Play, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { MultiSelect, Select, type SelectOption } from '@/components/ui/Select'
+import { Trans, useT } from '@/i18n'
 import {
   AI_MESSAGE,
   CALL_CHANNELS,
@@ -11,6 +12,7 @@ import {
   DECISIONS,
   DURATION_UNITS,
   INTEGRATION_ACTIONS,
+  INTEGRATION_ACTION_LABELS,
   LEGACY_DECISIONS,
   LEGACY_REPEATS,
   LEGACY_TRIGGERS,
@@ -20,8 +22,10 @@ import {
   TEAM_PUSH,
   TRIGGERS,
   WEEKDAYS,
+  actionChannelLabel,
   actionType,
   channelsOf,
+  choiceOptions,
   isChatbotStep,
   type ActionType,
 } from '@/lib/flow/nodeConfig'
@@ -39,7 +43,8 @@ import { StepIcon } from './stepIcons'
 /**
  * The step editor — one plain-language form per step type, used by BOTH views
  * (Steps list and Advanced canvas). Every control writes straight into the
- * node's `data.config`, which is exactly what the engine executes.
+ * node's `data.config`, which is exactly what the engine executes: option
+ * VALUES stay the engine's English vocabulary, only their labels translate.
  */
 
 const str = (v: unknown) => (v === undefined || v === null ? '' : String(v))
@@ -60,14 +65,15 @@ export default function ConfigPanel({
   onDelete?: () => void
   onClose: () => void
 }) {
+  const t = useT()
   const { describeCtx, issues } = useFlowView()
   const cfg = node.data.config ?? {}
-  const text = describeStep(node, describeCtx)
+  const text = describeStep(t, node, describeCtx)
   const set = (key: string, value: FlowConfig[string]) => onPatch({ [key]: value })
   const myIssues = issues[node.id] ?? []
 
   return (
-    <aside className="flex h-full w-full flex-col bg-card" aria-label="Step settings">
+    <aside className="flex h-full w-full flex-col bg-card" aria-label={t('flows.config.settings')}>
       <header className="flex items-start gap-3 border-b border-line px-4 py-3">
         <span
           className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border ${
@@ -85,7 +91,7 @@ export default function ConfigPanel({
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close step settings"
+          aria-label={t('flows.config.close')}
           className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-text-muted hover:bg-fill-hover hover:text-text-high"
         >
           <X size={16} aria-hidden />
@@ -96,7 +102,7 @@ export default function ConfigPanel({
         {myIssues.length > 0 && (
           <Notice tone="amber">
             {myIssues.map((m) => (
-              <div key={m}>{m}</div>
+              <div key={m}>{t(m)}</div>
             ))}
           </Notice>
         )}
@@ -109,25 +115,20 @@ export default function ConfigPanel({
         {node.type === 'handover' && <HandoverForm cfg={cfg} set={set} />}
         {node.type === 'update' && <UpdateForm cfg={cfg} set={set} />}
         {node.type === 'end' && <EndForm cfg={cfg} set={set} />}
-        {node.type === 'stage' && (
-          <Notice>
-            A legacy section from an older flow. It no longer does anything — runs pass straight through it. You can
-            delete it; the steps inside stay.
-          </Notice>
-        )}
+        {node.type === 'stage' && <Notice>{t('flows.config.legacySection')}</Notice>}
 
         <div className="border-t border-line pt-4">
-          <Field label="Name (optional)" help="Your own label for this step, shown under its summary.">
-            <TextInput value={str(node.data.label)} onChange={onLabel} placeholder="e.g. Welcome message" ariaLabel="Step name" />
+          <Field label={t('flows.config.nameLabel')} help={t('flows.config.nameHelp')}>
+            <TextInput value={str(node.data.label)} onChange={onLabel} placeholder={t('flows.config.namePlaceholder')} ariaLabel={t('flows.config.stepName')} />
           </Field>
         </div>
       </div>
 
       {onDelete && (
         <footer className="flex items-center justify-between gap-2 border-t border-line bg-surface px-4 py-2.5">
-          <span className="text-[11.5px] text-text-muted">Changes save automatically.</span>
+          <span className="min-w-0 text-[11.5px] text-text-muted">{t('flows.config.autosaves')}</span>
           <Button variant="danger" size="sm" onClick={onDelete}>
-            <Trash2 size={13} aria-hidden /> Delete step
+            <Trash2 size={13} aria-hidden /> {t('flows.config.deleteStep')}
           </Button>
         </footer>
       )}
@@ -140,12 +141,21 @@ type SetFn = (key: string, value: FlowConfig[string]) => void
 // ---- WHEN ---------------------------------------------------------------------------
 
 function TriggerForm({ cfg, set, onPatch, flowId }: { cfg: FlowConfig; set: SetFn; onPatch: (p: FlowConfig) => void; flowId: string }) {
+  const t = useT()
   const { lookups } = useFlowView()
   const when = str(cfg.when) || 'Days after due date'
-  const legacy = !TRIGGERS.some((t) => t.value === when)
+  const legacy = !TRIGGERS.some((x) => x.value === when)
   const options: SelectOption[] = [
-    ...TRIGGERS.map((t) => ({ value: t.value, label: t.label })),
-    ...(legacy ? [{ value: when, label: `${LEGACY_TRIGGERS[when] ?? when} (legacy)`, group: 'No longer offered' }] : []),
+    ...choiceOptions(t, TRIGGERS),
+    ...(legacy
+      ? [
+          {
+            value: when,
+            label: t('flows.config.legacySuffix', { label: LEGACY_TRIGGERS[when] ? t(LEGACY_TRIGGERS[when]) : when }),
+            group: t('flows.config.noLongerOffered'),
+          },
+        ]
+      : []),
   ]
   const contacts = Array.isArray(cfg.contacts) ? cfg.contacts.map(String) : []
   const contactLabels =
@@ -155,73 +165,68 @@ function TriggerForm({ cfg, set, onPatch, flowId }: { cfg: FlowConfig; set: SetF
   const audience = (str(cfg.audience) || (contacts.length ? 'some' : str(cfg.onlyTag) ? 'tag' : 'all')) as 'all' | 'tag' | 'some'
   const repeat = str(cfg.repeat) || (when === 'Message received' ? 'Every time' : 'Once')
   const repeatOptions: SelectOption[] = [
-    ...REPEAT_OPTIONS,
-    ...(LEGACY_REPEATS[repeat] ? [{ value: repeat, label: LEGACY_REPEATS[repeat] }] : []),
+    ...choiceOptions(t, REPEAT_OPTIONS),
+    ...(LEGACY_REPEATS[repeat] ? [{ value: repeat, label: t(LEGACY_REPEATS[repeat]) }] : []),
   ]
 
   return (
     <>
-      <Field label="Start this flow when">
-        <Select value={when} onChange={(v) => set('when', v)} options={options} size="md" ariaLabel="Trigger" />
+      <Field label={t('flows.config.startWhen')}>
+        <Select value={when} onChange={(v) => set('when', v)} options={options} size="md" ariaLabel={t('flows.config.trigger')} />
       </Field>
-      {legacy && (
-        <Notice tone="amber">
-          This starting point is from an older version. It still runs, but it is no longer offered — pick one of the new
-          ones to modernise the flow.
-        </Notice>
-      )}
+      {legacy && <Notice tone="amber">{t('flows.config.legacyTriggerNotice')}</Notice>}
 
       {(when === 'Tag added' || when === 'Contact has tag') && (
-        <Field label="Tag" help="Each tagged contact enters once, as soon as the tag is on them.">
-          <TextInput value={str(cfg.tag)} onChange={(v) => set('tag', v)} placeholder="e.g. New customer" ariaLabel="Tag" />
+        <Field label={t('flows.config.tag')} help={t('flows.config.tagHelp')}>
+          <TextInput value={str(cfg.tag)} onChange={(v) => set('tag', v)} placeholder={t('flows.config.tagPlaceholder')} ariaLabel={t('flows.config.tag')} />
         </Field>
       )}
 
       {when === 'Message received' && (
         <>
-          <Field label="On" help="Which channel the message has to arrive on.">
+          <Field label={t('flows.config.channelOn')} help={t('flows.config.channelOnHelp')}>
             <Select
               value={str(cfg.channel)}
               onChange={(v) => set('channel', v)}
-              options={MESSAGE_CHANNELS}
+              options={choiceOptions(t, MESSAGE_CHANNELS)}
               size="md"
-              ariaLabel="Channel"
+              ariaLabel={t('common.fields.channel')}
             />
           </Field>
-          <Field label="Only when it contains (optional)" help="Separate words with commas — any of them matches. Leave empty for every message.">
-            <TextInput value={str(cfg.keyword)} onChange={(v) => set('keyword', v)} placeholder="price, quote, booking" ariaLabel="Keywords" />
+          <Field label={t('flows.config.containsLabel')} help={t('flows.config.containsHelp')}>
+            <TextInput value={str(cfg.keyword)} onChange={(v) => set('keyword', v)} placeholder={t('flows.config.containsPlaceholder')} ariaLabel={t('flows.config.keywords')} />
           </Field>
         </>
       )}
 
       {when === 'Date field' && (
         <>
-          <Field label="Date field" help="A customer custom field holding a date (YYYY-MM-DD).">
+          <Field label={t('flows.config.dateField')} help={t('flows.config.dateFieldHelp')}>
             <FieldPicker value={str(cfg.field)} onChange={(v) => set('field', v)} />
           </Field>
-          <Field label="When">
+          <Field label={t('flows.config.when')}>
             <div className="flex flex-wrap items-center gap-2">
               {cfg.dateWhen !== 'on' && cfg.dateWhen && (
-                <NumberInput value={cfg.days as number} onChange={(v) => set('days', v)} min={1} ariaLabel="Days" className="!w-20" />
+                <NumberInput value={cfg.days as number} onChange={(v) => set('days', v)} min={1} ariaLabel={t('flows.config.days')} className="!w-20" />
               )}
               <div className="min-w-[180px] flex-1">
                 <Select
                   value={str(cfg.dateWhen) || 'on'}
                   onChange={(v) => onPatch({ dateWhen: v, days: v === 'on' ? 0 : Number(cfg.days) || 1 })}
                   options={[
-                    { value: 'before', label: 'days before the date' },
-                    { value: 'on', label: 'on the date' },
-                    { value: 'after', label: 'days after the date' },
+                    { value: 'before', label: t('flows.config.daysBeforeDate') },
+                    { value: 'on', label: t('flows.config.onTheDate') },
+                    { value: 'after', label: t('flows.config.daysAfterDate') },
                   ]}
                   size="md"
-                  ariaLabel="Before, on or after"
+                  ariaLabel={t('flows.config.beforeOnAfter')}
                 />
               </div>
             </div>
           </Field>
           <SwitchRow
-            label="Every year"
-            help="Match the day and month only — for birthdays, anniversaries and renewals."
+            label={t('flows.config.everyYear')}
+            help={t('flows.config.everyYearHelp')}
             on={bool(cfg.yearly)}
             onChange={(v) => set('yearly', v)}
           />
@@ -230,43 +235,41 @@ function TriggerForm({ cfg, set, onPatch, flowId }: { cfg: FlowConfig; set: SetF
 
       {when === 'Scheduled' && (
         <>
-          <Field label="Time" help="Organization time. Contacts enter once per day at this time.">
-            <TextInput type="time" value={str(cfg.time) || '09:00'} onChange={(v) => set('time', v)} ariaLabel="Time" />
+          <Field label={t('flows.config.time')} help={t('flows.config.timeHelp')}>
+            <TextInput type="time" value={str(cfg.time) || '09:00'} onChange={(v) => set('time', v)} ariaLabel={t('flows.config.time')} />
           </Field>
-          <Field label="On these days" help="Leave empty for every day.">
+          <Field label={t('flows.config.onTheseDays')} help={t('flows.config.onTheseDaysHelp')}>
             <MultiSelect
               value={Array.isArray(cfg.weekdays) ? cfg.weekdays.map(String) : []}
               onChange={(v) => set('weekdays', v)}
-              options={WEEKDAYS}
+              options={choiceOptions(t, WEEKDAYS)}
               size="md"
-              placeholder="Every day"
+              placeholder={t('flows.config.everyDay')}
               maxChips={7}
-              ariaLabel="Weekdays"
+              ariaLabel={t('flows.config.weekdays')}
             />
           </Field>
-          {audience === 'all' && (
-            <Notice tone="amber">A schedule with no audience filter runs for every contact, every day. Narrow it below.</Notice>
-          )}
+          {audience === 'all' && <Notice tone="amber">{t('flows.config.scheduleEveryone')}</Notice>}
         </>
       )}
 
       {when === 'Manual / API' && <ManualStart flowId={flowId} />}
 
       {(when === 'Record status is' || when.includes('due date')) && (
-        <Field label={when === 'Record status is' ? 'Record status' : 'Days'}>
+        <Field label={when === 'Record status is' ? t('flows.config.recordStatus') : t('flows.config.days')}>
           {when === 'Record status is' ? (
-            <TextInput value={str(cfg.status)} onChange={(v) => set('status', v)} ariaLabel="Record status" />
+            <TextInput value={str(cfg.status)} onChange={(v) => set('status', v)} ariaLabel={t('flows.config.recordStatus')} />
           ) : (
-            <NumberInput value={cfg.days as number} onChange={(v) => set('days', v)} ariaLabel="Days" />
+            <NumberInput value={cfg.days as number} onChange={(v) => set('days', v)} ariaLabel={t('flows.config.days')} />
           )}
         </Field>
       )}
 
       {when !== 'Manual / API' && (
         <div className="flex flex-col gap-3 rounded-lg border border-line bg-well p-3">
-          <Field label="Who can enter">
+          <Field label={t('flows.config.whoCanEnter')}>
             <Segmented
-              ariaLabel="Audience"
+              ariaLabel={t('flows.config.audience')}
               value={audience}
               onChange={(v) => {
                 if (v === 'all') onPatch({ audience: 'all', contacts: [], contactLabels: undefined, onlyTag: '' })
@@ -274,14 +277,14 @@ function TriggerForm({ cfg, set, onPatch, flowId }: { cfg: FlowConfig; set: SetF
                 if (v === 'some') onPatch({ audience: 'some', onlyTag: '' })
               }}
               options={[
-                { value: 'all', label: 'Everyone' },
-                { value: 'tag', label: 'Tagged' },
-                { value: 'some', label: 'Chosen' },
+                { value: 'all', label: t('flows.config.audienceAll') },
+                { value: 'tag', label: t('flows.config.audienceTag') },
+                { value: 'some', label: t('flows.config.audienceSome') },
               ]}
             />
           </Field>
           {audience === 'tag' && (
-            <TextInput value={str(cfg.onlyTag)} onChange={(v) => set('onlyTag', v)} placeholder="Only contacts tagged…" ariaLabel="Only contacts tagged" />
+            <TextInput value={str(cfg.onlyTag)} onChange={(v) => set('onlyTag', v)} placeholder={t('flows.config.onlyTagged')} ariaLabel={t('flows.config.onlyTagged')} />
           )}
           {audience === 'some' && (
             <>
@@ -291,7 +294,7 @@ function TriggerForm({ cfg, set, onPatch, flowId }: { cfg: FlowConfig; set: SetF
                 onChange={(ids, labels) => onPatch({ contacts: ids, contactLabels: labels })}
               />
               {contacts.length === 0 && (
-                <div className="text-[11.5px] text-[color:var(--amber-ink)]">Pick at least one — an empty list means everyone.</div>
+                <div className="text-[11.5px] text-[color:var(--amber-ink)]">{t('flows.config.pickAtLeastOne')}</div>
               )}
             </>
           )}
@@ -299,25 +302,26 @@ function TriggerForm({ cfg, set, onPatch, flowId }: { cfg: FlowConfig; set: SetF
       )}
 
       {when !== 'Scheduled' && when !== 'Manual / API' && when !== 'Contact created' && (
-        <Field label="If it happens again">
-          <Select value={repeat} onChange={(v) => set('repeat', v)} options={repeatOptions} size="md" ariaLabel="Repeat" />
+        <Field label={t('flows.config.ifAgain')}>
+          <Select value={repeat} onChange={(v) => set('repeat', v)} options={repeatOptions} size="md" ariaLabel={t('flows.config.repeat')} />
         </Field>
       )}
       {lookups.fields.length === 0 && when === 'Date field' && (
-        <div className="text-[11.5px] text-text-muted">No customer date fields yet — add one under Custom Fields.</div>
+        <div className="text-[11.5px] text-text-muted">{t('flows.config.noDateFields')}</div>
       )}
     </>
   )
 }
 
 function ManualStart({ flowId }: { flowId: string }) {
+  const t = useT()
   const [ids, setIds] = useState<string[]>([])
   const [labels, setLabels] = useState<Record<string, string>>({})
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-line bg-well p-3">
-      <div className="text-[12px] font-semibold text-text-mid">Start it now for…</div>
+      <div className="text-[12px] font-semibold text-text-mid">{t('flows.config.startNowFor')}</div>
       <ContactScopePicker
         selected={ids}
         labels={labels}
@@ -327,8 +331,8 @@ function ManualStart({ flowId }: { flowId: string }) {
         }}
       />
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11.5px] text-text-muted">
-          The flow must be saved and live. Integrations use POST /api/flows/{flowId}/start.
+        <span className="min-w-0 text-[11.5px] text-text-muted">
+          {t('flows.config.manualHelp', { endpoint: `POST /api/flows/${flowId}/start` })}
         </span>
         <Button
           size="sm"
@@ -339,13 +343,18 @@ function ManualStart({ flowId }: { flowId: string }) {
             setBusy(false)
             if (typeof r === 'string') setMsg({ ok: false, text: r })
             else {
-              setMsg({ ok: true, text: `Started for ${r.started}${r.skipped ? ` · ${r.skipped} already in it` : ''}.` })
+              setMsg({
+                ok: true,
+                text: r.skipped
+                  ? t('flows.config.startedSkipped', { started: r.started, count: r.skipped })
+                  : t('flows.config.started', { count: r.started }),
+              })
               setIds([])
               setLabels({})
             }
           }}
         >
-          <Play size={12} aria-hidden /> Start
+          <Play size={12} aria-hidden /> {t('flows.config.start')}
         </Button>
       </div>
       {msg && (
@@ -359,11 +368,15 @@ function ManualStart({ flowId }: { flowId: string }) {
 
 /** A customer custom field — a dropdown when fields exist, else a key box. */
 function FieldPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const t = useT()
   const { lookups } = useFlowView()
-  if (!lookups.fields.length) return <TextInput value={value} onChange={onChange} placeholder="field key, e.g. renewal_date" ariaLabel="Field" />
-  const options: SelectOption[] = lookups.fields.map((f) => ({ value: f.key, label: f.label || f.key, hint: f.key }))
-  if (value && !options.some((o) => o.value === value)) options.push({ value, label: `${value} (not a field)` })
-  return <Select value={value} onChange={onChange} options={options} size="md" searchable ariaLabel="Field" placeholder="Choose a field" />
+  if (!lookups.fields.length)
+    return <TextInput value={value} onChange={onChange} placeholder={t('flows.config.fieldKeyPlaceholder')} ariaLabel={t('flows.config.field')} />
+  const options: SelectOption[] = lookups.fields.map((fd) => ({ value: fd.key, label: fd.label || fd.key, hint: fd.key }))
+  if (value && !options.some((o) => o.value === value)) options.push({ value, label: t('flows.config.notAField', { value }) })
+  return (
+    <Select value={value} onChange={onChange} options={options} size="md" searchable ariaLabel={t('flows.config.field')} placeholder={t('flows.config.chooseField')} />
+  )
 }
 
 // ---- SEND / AI / CALL / APP -----------------------------------------------------------------
@@ -379,37 +392,34 @@ function DeliveryFields({
   channels: string[]
   ai: boolean
 }) {
+  const t = useT()
   const deliver = channels.filter((c) => c !== AI_MESSAGE)
   const allLinked = bool(cfg.allLinked ?? cfg.waAllNumbers)
-  const opts = ai ? SEND_CHANNELS.filter((c) => c.value !== 'SMS') : [...SEND_CHANNELS, { value: TEAM_PUSH, label: 'Team notification (in-app)' }]
+  const opts = ai
+    ? choiceOptions(t, SEND_CHANNELS.filter((c) => c.value !== 'SMS'))
+    : [...choiceOptions(t, SEND_CHANNELS), { value: TEAM_PUSH, label: t('flows.channels.teamPush') }]
   return (
     <>
-      <Field
-        label="Send on"
-        help={ai ? 'Leave empty to reply on their latest conversation’s channel.' : 'Pick every channel this message should go out on.'}
-      >
+      <Field label={t('flows.config.sendOn')} help={ai ? t('flows.config.sendOnHelpAi') : t('flows.config.sendOnHelp')}>
         <MultiSelect
           value={deliver}
           onChange={(v) => onPatch({ channels: ai ? [AI_MESSAGE, ...v] : v })}
           options={opts}
           size="md"
-          placeholder={ai ? 'Their latest channel' : 'Choose a channel'}
-          ariaLabel="Channels"
+          placeholder={ai ? t('flows.config.latestChannel') : t('flows.config.chooseChannel')}
+          ariaLabel={t('flows.config.channels')}
           maxChips={3}
         />
       </Field>
       {(deliver.includes('WhatsApp') || deliver.includes('Email')) && (
-        <Field
-          label="Send to"
-          help={allLinked ? 'Every WhatsApp number and email address linked to the contact (duplicates removed).' : 'The phone number / email on the contact.'}
-        >
+        <Field label={t('flows.config.sendTo')} help={allLinked ? t('flows.config.sendToAllHelp') : t('flows.config.sendToPrimaryHelp')}>
           <Segmented
-            ariaLabel="Send to"
+            ariaLabel={t('flows.config.sendTo')}
             value={allLinked ? 'all' : 'primary'}
             onChange={(v) => onPatch({ allLinked: v === 'all' ? true : undefined, waAllNumbers: undefined })}
             options={[
-              { value: 'primary', label: 'Their main contact' },
-              { value: 'all', label: 'Everything linked' },
+              { value: 'primary', label: t('flows.config.sendToPrimary') },
+              { value: 'all', label: t('flows.config.sendToAll') },
             ]}
           />
         </Field>
@@ -419,59 +429,82 @@ function DeliveryFields({
           config={cfg}
           onPatch={onPatch}
           modes={ai ? ['text', 'auto'] : ['text', 'template', 'auto']}
-          textLabel={ai ? 'AI text' : undefined}
+          textLabel={ai ? t('flows.config.aiText') : undefined}
         />
       )}
       {deliver.includes('Email') && (
-        <Field label="Email subject">
-          <TextInput value={str(cfg.subject)} onChange={(v) => onPatch({ subject: v })} placeholder="e.g. A quick update from {{business_name}}" ariaLabel="Email subject" />
+        <Field label={t('flows.config.emailSubject')}>
+          <TextInput
+            value={str(cfg.subject)}
+            onChange={(v) => onPatch({ subject: v })}
+            placeholder={t('flows.config.emailSubjectPlaceholder')}
+            ariaLabel={t('flows.config.emailSubject')}
+          />
         </Field>
       )}
     </>
   )
 }
 
+function HumanizeRow({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
+  const t = useT()
+  return (
+    <SwitchRow
+      label={t('flows.config.humanize')}
+      help={t('flows.config.humanizeHelp')}
+      on={bool(cfg.humanize)}
+      onChange={(v) => set('humanize', v || undefined)}
+    />
+  )
+}
+
 function ActionForm({ cfg, onPatch, set }: { cfg: FlowConfig; onPatch: (p: FlowConfig) => void; set: SetFn }) {
+  const t = useT()
   const { lookups } = useFlowView()
   const channels = channelsOf(cfg)
   const type = actionType(cfg)
   const mixed =
     type === 'send' && channels.some((c) => (CALL_CHANNELS as readonly string[]).includes(c) || (INTEGRATION_ACTIONS as readonly string[]).includes(c))
 
-  const switchType = (t: ActionType) => {
-    if (t === type) return
-    if (t === 'send') onPatch({ channels: ['WhatsApp'] })
-    if (t === 'ai') onPatch({ channels: [AI_MESSAGE, 'WhatsApp'] })
-    if (t === 'call') onPatch({ channels: ['AI voice call'], callVia: str(cfg.callVia) || 'Phone (SIP)' })
-    if (t === 'app') onPatch({ channels: ['Create calendar event'] })
+  const switchType = (next: ActionType) => {
+    if (next === type) return
+    if (next === 'send') onPatch({ channels: ['WhatsApp'] })
+    if (next === 'ai') onPatch({ channels: [AI_MESSAGE, 'WhatsApp'] })
+    if (next === 'call') onPatch({ channels: ['AI voice call'], callVia: str(cfg.callVia) || 'Phone (SIP)' })
+    if (next === 'app') onPatch({ channels: ['Create calendar event'] })
   }
 
   return (
     <>
-      <Field label="This step">
+      <Field label={t('flows.config.thisStep')}>
         <Segmented
-          ariaLabel="Step type"
+          ariaLabel={t('flows.config.stepType')}
           value={type}
           onChange={switchType}
           options={[
-            { value: 'send', label: 'Message' },
-            { value: 'ai', label: 'AI message' },
-            { value: 'call', label: 'Call' },
-            { value: 'app', label: 'App' },
+            { value: 'send', label: t('flows.config.typeMessage') },
+            { value: 'ai', label: t('flows.stepChoice.ai') },
+            { value: 'call', label: t('flows.stepChoice.call') },
+            { value: 'app', label: t('flows.config.typeApp') },
           ]}
         />
       </Field>
 
       {mixed && (
         <>
-          <Notice tone="amber">This older step mixes several kinds of channel. It still runs as saved; edit the channels here.</Notice>
-          <Field label="Channels">
+          <Notice tone="amber">{t('flows.config.mixedNotice')}</Notice>
+          <Field label={t('flows.config.channels')}>
             <MultiSelect
               value={channels}
               onChange={(v) => onPatch({ channels: v })}
-              options={[...SEND_CHANNELS, { value: TEAM_PUSH, label: 'Team notification (in-app)' }, ...CALL_CHANNELS.map((c) => ({ value: c, label: c })), ...INTEGRATION_ACTIONS.map((c) => ({ value: c, label: c, group: 'App actions' }))]}
+              options={[
+                ...choiceOptions(t, SEND_CHANNELS),
+                { value: TEAM_PUSH, label: t('flows.channels.teamPush') },
+                ...CALL_CHANNELS.map((c) => ({ value: c, label: actionChannelLabel(t, c) })),
+                ...INTEGRATION_ACTIONS.map((c) => ({ value: c, label: t(INTEGRATION_ACTION_LABELS[c]), group: t('flows.config.appActionsGroup') })),
+              ]}
               size="md"
-              ariaLabel="Channels"
+              ariaLabel={t('flows.config.channels')}
             />
           </Field>
         </>
@@ -481,114 +514,104 @@ function ActionForm({ cfg, onPatch, set }: { cfg: FlowConfig; onPatch: (p: FlowC
         <>
           <DeliveryFields cfg={cfg} onPatch={onPatch} channels={channels} ai={false} />
           <VariableTextarea
-            label="Message"
+            label={t('flows.config.message')}
             value={str(cfg.script)}
             onChange={(v) => set('script', v)}
-            placeholder="Hi {{first_name}}, …"
-            help={cfg.waMode === 'template' ? 'Used on the other channels; WhatsApp sends the template.' : undefined}
+            placeholder={t('flows.config.messagePlaceholder')}
+            help={cfg.waMode === 'template' ? t('flows.config.messageTemplateHelp') : undefined}
           />
-          <SwitchRow
-            label="Send like a person"
-            help="A short typing pause, and long text split into a few shorter messages."
-            on={bool(cfg.humanize)}
-            onChange={(v) => set('humanize', v || undefined)}
-          />
+          <HumanizeRow cfg={cfg} set={set} />
         </>
       )}
 
       {type === 'send' && mixed && (
-        <VariableTextarea label="Message / instruction" value={str(cfg.script)} onChange={(v) => set('script', v)} />
+        <VariableTextarea label={t('flows.config.messageOrInstruction')} value={str(cfg.script)} onChange={(v) => set('script', v)} />
       )}
 
       {type === 'ai' && (
         <>
-          <Field label="Skill" help="Which of your AI skills writes this message.">
+          <Field label={t('flows.config.skill')} help={t('flows.config.skillHelp')}>
             <SkillPicker value={str(cfg.skill)} skills={lookups.skills} loaded={lookups.skillsLoaded} onChange={(v) => set('skill', v)} />
           </Field>
           <VariableTextarea
-            label="What should the message do?"
+            label={t('flows.config.aiBriefLabel')}
             value={str(cfg.script)}
             onChange={(v) => set('script', v)}
-            placeholder="e.g. Thank them for signing up and ask what brought them to us."
-            help="A brief for the AI. It writes the actual words, in the contact’s language, using what it knows about them."
+            placeholder={t('flows.config.aiBriefPlaceholder')}
+            help={t('flows.config.aiBriefHelp')}
           />
           <DeliveryFields cfg={cfg} onPatch={onPatch} channels={channels} ai />
-          <SwitchRow
-            label="Send like a person"
-            help="A short typing pause, and long text split into a few shorter messages."
-            on={bool(cfg.humanize)}
-            onChange={(v) => set('humanize', v || undefined)}
-          />
+          <HumanizeRow cfg={cfg} set={set} />
         </>
       )}
 
       {type === 'call' && (
         <>
-          <Field label="Call type">
+          <Field label={t('flows.config.callType')}>
             <Segmented
-              ariaLabel="Call type"
+              ariaLabel={t('flows.config.callType')}
               value={channels.includes('Script call') ? 'Script call' : 'AI voice call'}
               onChange={(v) => onPatch({ channels: [v] })}
               options={[
-                { value: 'AI voice call', label: 'AI voice call', hint: 'A real conversation' },
-                { value: 'Script call', label: 'Script call', hint: 'Reads a script, hangs up' },
+                { value: 'AI voice call', label: t('flows.call.aiVoiceCall'), hint: t('flows.config.aiCallHint') },
+                { value: 'Script call', label: t('flows.call.scriptCall'), hint: t('flows.config.scriptCallHint') },
               ]}
             />
           </Field>
-          <Field label="Call over">
+          <Field label={t('flows.config.callOver')}>
             <Segmented
-              ariaLabel="Call over"
+              ariaLabel={t('flows.config.callOver')}
               value={str(cfg.callVia).startsWith('WhatsApp') ? 'WhatsApp (Baileys)' : 'Phone (SIP)'}
               onChange={(v) => set('callVia', v)}
               options={[
-                { value: 'Phone (SIP)', label: 'Phone line' },
+                { value: 'Phone (SIP)', label: t('flows.config.phoneLine') },
                 { value: 'WhatsApp (Baileys)', label: 'WhatsApp' },
               ]}
             />
           </Field>
           {channels.includes('Script call') ? (
-            <Field label="Script" help="Manage scripts under Script Templates.">
+            <Field label={t('flows.config.script')} help={t('flows.config.scriptHelp')}>
               <Select
                 value={str(cfg.scriptTemplateId)}
                 onChange={(v) => set('scriptTemplateId', v)}
                 options={[
                   ...lookups.scripts.map((s) => ({ value: String(s.id), label: s.name })),
                   ...(str(cfg.scriptTemplateId) && !lookups.scripts.some((s) => String(s.id) === str(cfg.scriptTemplateId))
-                    ? [{ value: str(cfg.scriptTemplateId), label: `#${str(cfg.scriptTemplateId)} (missing)` }]
+                    ? [{ value: str(cfg.scriptTemplateId), label: t('flows.config.missingScript', { id: str(cfg.scriptTemplateId) }) }]
                     : []),
                 ]}
                 size="md"
-                placeholder="Choose a script"
-                ariaLabel="Script"
+                placeholder={t('flows.config.chooseScript')}
+                ariaLabel={t('flows.config.script')}
               />
             </Field>
           ) : (
             <>
-              <Field label="Skill">
+              <Field label={t('flows.config.skill')}>
                 <SkillPicker value={str(cfg.skill)} skills={lookups.skills} loaded={lookups.skillsLoaded} onChange={(v) => set('skill', v)} />
               </Field>
               <VariableTextarea
-                label="What should the AI cover?"
+                label={t('flows.config.callBriefLabel')}
                 value={str(cfg.script)}
                 onChange={(v) => set('script', v)}
-                placeholder="e.g. Confirm tomorrow’s appointment time and offer to reschedule."
+                placeholder={t('flows.config.callBriefPlaceholder')}
               />
             </>
           )}
           {(channels.includes('Script call') || str(cfg.callVia).startsWith('WhatsApp')) && (
-            <Field label="Voice">
+            <Field label={t('flows.config.voice')}>
               <Select
                 value={str(cfg.voice)}
                 onChange={(v) => set('voice', v)}
                 options={[
-                  { value: '', label: 'Default voice' },
+                  { value: '', label: t('flows.config.defaultVoice') },
                   ...lookups.voices.map((v) => ({ value: v.id, label: v.name, hint: 'ElevenLabs' })),
                   ...(str(cfg.voice) && !lookups.voices.some((v) => v.id === str(cfg.voice))
-                    ? [{ value: str(cfg.voice), label: `${str(cfg.voice)} (unavailable)` }]
+                    ? [{ value: str(cfg.voice), label: t('flows.config.unavailableVoice', { voice: str(cfg.voice) }) }]
                     : []),
                 ]}
                 size="md"
-                ariaLabel="Voice"
+                ariaLabel={t('flows.config.voice')}
               />
             </Field>
           )}
@@ -597,18 +620,18 @@ function ActionForm({ cfg, onPatch, set }: { cfg: FlowConfig; onPatch: (p: FlowC
 
       {type === 'app' && (
         <>
-          <Field label="Action" help="Runs against the connection under Integrations; with nothing connected the step logs a skip and the flow carries on.">
+          <Field label={t('flows.config.action')} help={t('flows.config.actionHelp')}>
             <Select
               value={channels[0] ?? ''}
               onChange={(v) => onPatch({ channels: [v] })}
-              options={INTEGRATION_ACTIONS.map((a) => ({ value: a, label: a }))}
+              options={INTEGRATION_ACTIONS.map((a) => ({ value: a, label: t(INTEGRATION_ACTION_LABELS[a]) }))}
               size="md"
-              ariaLabel="App action"
+              ariaLabel={t('flows.stepChoice.app')}
             />
           </Field>
           <AppFields action={channels[0] ?? ''} cfg={cfg} set={set} />
           <VariableTextarea
-            label={channels[0] === 'Send via Gmail' ? 'Email body' : 'Text / description'}
+            label={channels[0] === 'Send via Gmail' ? t('flows.config.emailBody') : t('flows.config.textOrDescription')}
             value={str(cfg.script)}
             onChange={(v) => set('script', v)}
           />
@@ -619,6 +642,7 @@ function ActionForm({ cfg, onPatch, set }: { cfg: FlowConfig; onPatch: (p: FlowC
 }
 
 function AppFields({ action, cfg, set }: { action: string; cfg: FlowConfig; set: SetFn }) {
+  const t = useT()
   const text = (key: string, label: string, help?: string, placeholder?: string) => (
     <Field key={key} label={label} help={help}>
       <TextInput value={str(cfg[key])} onChange={(v) => set(key, v)} placeholder={placeholder} ariaLabel={label} />
@@ -629,29 +653,29 @@ function AppFields({ action, cfg, set }: { action: string; cfg: FlowConfig; set:
     case 'Find free slot':
       return (
         <>
-          {action === 'Create calendar event' && text('eventTitle', 'Event title', 'Falls back to the text below.')}
-          {text('eventStart', 'Start', 'An ISO date-time (2026-08-01T10:00). Empty = tomorrow, same time.', '2026-08-01T10:00')}
-          <Field label="Length (minutes)">
-            <NumberInput value={cfg.eventMinutes as number} onChange={(v) => set('eventMinutes', v)} min={5} ariaLabel="Length in minutes" />
+          {action === 'Create calendar event' && text('eventTitle', t('flows.config.eventTitle'), t('flows.config.eventTitleHelp'))}
+          {text('eventStart', t('flows.config.eventStart'), t('flows.config.eventStartHelp'), '2026-08-01T10:00')}
+          <Field label={t('flows.config.lengthMinutes')}>
+            <NumberInput value={cfg.eventMinutes as number} onChange={(v) => set('eventMinutes', v)} min={5} ariaLabel={t('flows.config.lengthMinutes')} />
           </Field>
-          {text('calendarId', 'Calendar id (optional)', 'Empty = the connected account’s default calendar.')}
+          {text('calendarId', t('flows.config.calendarId'), t('flows.config.calendarIdHelp'))}
         </>
       )
     case 'Upload file to Drive':
-      return text('fileName', 'File name', 'The text below becomes the file body.')
+      return text('fileName', t('flows.config.fileName'), t('flows.config.fileNameHelp'))
     case 'Append row to Sheet':
       return (
         <>
-          {text('spreadsheetId', 'Spreadsheet id (optional)', 'Empty = the one set on the integration.')}
-          {text('sheetRange', 'Range', undefined, 'Sheet1!A:Z')}
+          {text('spreadsheetId', t('flows.config.spreadsheetId'), t('flows.config.spreadsheetIdHelp'))}
+          {text('sheetRange', t('flows.config.range'), undefined, 'Sheet1!A:Z')}
         </>
       )
     case 'Send via Gmail':
-      return text('subject', 'Subject')
+      return text('subject', t('flows.config.subject'))
     case 'Update order status':
-      return text('orderStatus', 'New status', 'The contact’s primary record moves to this status.', 'shipped')
+      return text('orderStatus', t('flows.config.newStatus'), t('flows.config.newStatusHelp'), t('flows.config.newStatusPlaceholder'))
     case 'Create Stripe payment link':
-      return text('successUrl', 'After paying, send them to', undefined, 'https://…')
+      return text('successUrl', t('flows.config.successUrl'), undefined, 'https://…')
     default:
       return null
   }
@@ -672,49 +696,59 @@ function DurationRow({
   onUnit: (v: string) => void
   label: string
 }) {
+  const t = useT()
   return (
     <div className="flex items-center gap-2">
-      <NumberInput value={amount as number} onChange={onAmount} min={0} step={1} ariaLabel={`${label} amount`} className="!w-24" />
+      <NumberInput value={amount as number} onChange={onAmount} min={0} step={1} ariaLabel={t('flows.config.amountOf', { label })} className="!w-24" />
       <div className="min-w-0 flex-1">
-        <Select value={str(unit) || 'days'} onChange={onUnit} options={DURATION_UNITS} size="md" ariaLabel={`${label} unit`} />
+        <Select value={str(unit) || 'days'} onChange={onUnit} options={choiceOptions(t, DURATION_UNITS)} size="md" ariaLabel={t('flows.config.unitOf', { label })} />
       </div>
     </div>
   )
 }
 
 function WaitForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
+  const t = useT()
   const mode = cfg.mode === 'reply' ? 'reply' : 'time'
   return (
     <>
-      <Field label="Wait for">
+      <Field label={t('flows.config.waitFor')}>
         <Segmented
-          ariaLabel="Wait for"
+          ariaLabel={t('flows.config.waitFor')}
           value={mode}
           onChange={(v) => set('mode', v)}
           options={[
-            { value: 'time', label: 'A set time' },
-            { value: 'reply', label: 'A reply' },
+            { value: 'time', label: t('flows.config.aSetTime') },
+            { value: 'reply', label: t('flows.config.aReply') },
           ]}
         />
       </Field>
       {mode === 'time' ? (
-        <Field label="How long">
-          <DurationRow amount={cfg.amount} unit={cfg.unit} onAmount={(v) => set('amount', v)} onUnit={(v) => set('unit', v)} label="Wait" />
+        <Field label={t('flows.config.howLong')}>
+          <DurationRow amount={cfg.amount} unit={cfg.unit} onAmount={(v) => set('amount', v)} onUnit={(v) => set('unit', v)} label={t('flows.stepChoice.wait')} />
         </Field>
       ) : (
         <>
-          <Field label="Give up after" help="Leave empty to wait as long as it takes.">
+          <Field label={t('flows.config.giveUpAfter')} help={t('flows.config.giveUpAfterHelp')}>
             <DurationRow
               amount={cfg.timeoutAmount}
               unit={cfg.timeoutUnit}
               onAmount={(v) => set('timeoutAmount', v)}
               onUnit={(v) => set('timeoutUnit', v)}
-              label="Give up after"
+              label={t('flows.config.giveUpAfter')}
             />
           </Field>
           <Notice>
-            The flow moves on either way. Add an <strong>Ask &amp; branch → They replied</strong> step next to do
-            something different when no reply came.
+            <Trans
+              k="flows.config.waitMovesOn"
+              values={{
+                step: (
+                  <strong>
+                    {t('flows.stepChoice.branch')} → {t('flows.decision.replied')}
+                  </strong>
+                ),
+              }}
+            />
           </Notice>
         </>
       )}
@@ -723,75 +757,67 @@ function WaitForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
 }
 
 function FollowUpForm({ cfg, set, onPatch }: { cfg: FlowConfig; set: SetFn; onPatch: (p: FlowConfig) => void }) {
+  const t = useT()
   const { lookups } = useFlowView()
   const channels = channelsOf(cfg)
   const ai = channels.includes(AI_MESSAGE)
   const max = Number(cfg.maxFollowUps) || 2
   return (
     <>
-      <Field label="Wait before each follow-up">
+      <Field label={t('flows.config.waitBeforeEach')}>
         <DurationRow
           amount={cfg.waitAmount}
           unit={cfg.waitUnit}
           onAmount={(v) => set('waitAmount', v)}
           onUnit={(v) => set('waitUnit', v)}
-          label="Wait before each follow-up"
+          label={t('flows.config.waitBeforeEach')}
         />
       </Field>
-      <Field label="Follow up at most">
+      <Field label={t('flows.config.followUpAtMost')}>
         <Select
           value={String(max)}
           onChange={(v) => set('maxFollowUps', Number(v))}
-          options={[1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: `${n} time${n === 1 ? '' : 's'}` }))}
+          options={[1, 2, 3, 4, 5].map((count) => ({ value: String(count), label: t('flows.config.times', { count }) }))}
           size="md"
-          ariaLabel="Maximum follow-ups"
+          ariaLabel={t('flows.config.maxFollowUps')}
         />
       </Field>
-      <Field label="Each follow-up is">
+      <Field label={t('flows.config.eachFollowUpIs')}>
         <Segmented
-          ariaLabel="Follow-up content"
+          ariaLabel={t('flows.config.followUpContent')}
           value={ai ? 'ai' : 'text'}
           onChange={(v) =>
             onPatch({ channels: v === 'ai' ? [AI_MESSAGE, ...channels.filter((c) => c !== AI_MESSAGE)] : channels.filter((c) => c !== AI_MESSAGE) })
           }
           options={[
-            { value: 'text', label: 'My message' },
-            { value: 'ai', label: 'AI writes it' },
+            { value: 'text', label: t('flows.config.myMessage') },
+            { value: 'ai', label: t('flows.config.aiWritesIt') },
           ]}
         />
       </Field>
       {ai && (
-        <Field label="Skill">
+        <Field label={t('flows.config.skill')}>
           <SkillPicker value={str(cfg.skill)} skills={lookups.skills} loaded={lookups.skillsLoaded} onChange={(v) => set('skill', v)} />
         </Field>
       )}
       <VariableTextarea
-        label={ai ? 'What should the follow-up say?' : 'Follow-up message'}
+        label={ai ? t('flows.config.followUpBriefLabel') : t('flows.config.followUpMessage')}
         value={str(cfg.script)}
         onChange={(v) => set('script', v)}
-        placeholder={ai ? 'e.g. Gently check they saw our last message; offer help.' : 'Just checking you saw my last message, {{first_name}}.'}
-        help={ai ? 'The AI writes a fresh nudge each time, aware of how many it has sent.' : 'Sent the same each time.'}
+        placeholder={ai ? t('flows.config.followUpBriefPlaceholder') : t('flows.config.followUpMessagePlaceholder')}
+        help={ai ? t('flows.config.followUpBriefHelp') : t('flows.config.followUpMessageHelp')}
       />
       <DeliveryFields cfg={cfg} onPatch={onPatch} channels={channels} ai={ai} />
       <div className="flex flex-col gap-3 rounded-lg border border-line bg-well p-3">
-        <div className="text-[12px] font-semibold text-text-mid">Stop following up when</div>
-        <SwitchRow label="They reply" help="Always — any reply ends the follow-ups." on onChange={() => {}} locked />
-        <SwitchRow
-          label="The conversation is resolved"
-          on={bool(cfg.stopOnResolved)}
-          onChange={(v) => set('stopOnResolved', v)}
-        />
-        <Field label="A tag is added (optional)">
-          <TextInput value={str(cfg.stopTag)} onChange={(v) => set('stopTag', v)} placeholder="e.g. booked" ariaLabel="Stop tag" />
+        <div className="text-[12px] font-semibold text-text-mid">{t('flows.config.stopWhen')}</div>
+        <SwitchRow label={t('flows.config.theyReply')} help={t('flows.config.theyReplyHelp')} on onChange={() => {}} locked />
+        <SwitchRow label={t('flows.config.resolved')} on={bool(cfg.stopOnResolved)} onChange={(v) => set('stopOnResolved', v)} />
+        <Field label={t('flows.config.stopTag')}>
+          <TextInput value={str(cfg.stopTag)} onChange={(v) => set('stopTag', v)} placeholder={t('flows.config.stopTagPlaceholder')} ariaLabel={t('flows.config.stopTag')} />
         </Field>
       </div>
-      <SwitchRow
-        label="Send like a person"
-        help="A short typing pause, and long text split into a few shorter messages."
-        on={bool(cfg.humanize)}
-        onChange={(v) => set('humanize', v || undefined)}
-      />
-      <Notice>Follow-ups never go out during quiet hours — they wait until the window opens.</Notice>
+      <HumanizeRow cfg={cfg} set={set} />
+      <Notice>{t('flows.config.quietHoursNotice')}</Notice>
     </>
   )
 }
@@ -799,117 +825,122 @@ function FollowUpForm({ cfg, set, onPatch }: { cfg: FlowConfig; set: SetFn; onPa
 // ---- IF / HAND OVER / UPDATE / END -------------------------------------------------------
 
 function DecisionForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
+  const t = useT()
   const basis = str(cfg.basedOn) || "Contact's answer"
   const legacy = !DECISIONS.some((d) => d.value === basis)
   const options: SelectOption[] = [
-    ...DECISIONS.map((d) => ({ value: d.value, label: d.label, hint: undefined })),
-    ...(legacy ? [{ value: basis, label: `${LEGACY_DECISIONS[basis] ?? basis} (legacy)`, group: 'No longer offered' }] : []),
+    ...choiceOptions(t, DECISIONS),
+    ...(legacy
+      ? [
+          {
+            value: basis,
+            label: t('flows.config.legacySuffix', { label: LEGACY_DECISIONS[basis] ? t(LEGACY_DECISIONS[basis]) : basis }),
+            group: t('flows.config.noLongerOffered'),
+          },
+        ]
+      : []),
   ]
-  const hint = DECISIONS.find((d) => d.value === basis)?.hint
+  const hintKey = DECISIONS.find((d) => d.value === basis)?.hint
   return (
     <>
-      <Field label="Check whether" help={hint}>
-        <Select value={basis} onChange={(v) => set('basedOn', v)} options={options} size="md" ariaLabel="Check" />
+      <Field label={t('flows.config.checkWhether')} help={hintKey ? t(hintKey) : undefined}>
+        <Select value={basis} onChange={(v) => set('basedOn', v)} options={options} size="md" ariaLabel={t('flows.config.checkWhether')} />
       </Field>
       {basis === 'Reply contains' && (
-        <Field label="Any of these words" help="Comma-separated, not case-sensitive.">
-          <TextInput value={str(cfg.keyword)} onChange={(v) => set('keyword', v)} placeholder="price, quote, buy" ariaLabel="Words" />
+        <Field label={t('flows.config.anyOfWords')} help={t('flows.config.anyOfWordsHelp')}>
+          <TextInput value={str(cfg.keyword)} onChange={(v) => set('keyword', v)} placeholder={t('flows.config.anyOfWordsPlaceholder')} ariaLabel={t('flows.config.keywords')} />
         </Field>
       )}
       {(basis === 'Has tag' || basis === 'Contact tag') && (
-        <Field label="Tag">
-          <TextInput value={str(cfg.tag)} onChange={(v) => set('tag', v)} placeholder="e.g. vip" ariaLabel="Tag" />
+        <Field label={t('flows.config.tag')}>
+          <TextInput value={str(cfg.tag)} onChange={(v) => set('tag', v)} placeholder={t('flows.config.vipPlaceholder')} ariaLabel={t('flows.config.tag')} />
         </Field>
       )}
       {basis === 'Custom field equals' && (
         <>
-          <Field label="Field">
+          <Field label={t('flows.config.field')}>
             <FieldPicker value={str(cfg.field)} onChange={(v) => set('field', v)} />
           </Field>
-          <Field label="Equals" help="Not case-sensitive. Leave empty for “is filled in”.">
-            <TextInput value={str(cfg.value)} onChange={(v) => set('value', v)} ariaLabel="Value" />
+          <Field label={t('flows.config.equals')} help={t('flows.config.equalsHelp')}>
+            <TextInput value={str(cfg.value)} onChange={(v) => set('value', v)} ariaLabel={t('flows.config.value')} />
           </Field>
         </>
       )}
       {basis === 'Record status' && (
-        <Field label="Record status">
-          <TextInput value={str(cfg.status)} onChange={(v) => set('status', v)} ariaLabel="Record status" />
+        <Field label={t('flows.config.recordStatus')}>
+          <TextInput value={str(cfg.status)} onChange={(v) => set('status', v)} ariaLabel={t('flows.config.recordStatus')} />
         </Field>
       )}
       {(basis === 'They replied' || basis === 'Reply contains' || basis === 'They said yes') && (
-        <Notice>Looks at the reply that arrived during the last Wait (or the message that started the flow).</Notice>
+        <Notice>{t('flows.config.looksAtReply')}</Notice>
       )}
-      <Notice>
-        YES and NO each get their own path — build them side by side in the Steps view. A path with no steps simply
-        ends the flow.
-      </Notice>
+      <Notice>{t('flows.config.yesNoPaths')}</Notice>
     </>
   )
 }
 
 function HandoverForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
+  const t = useT()
   const { lookups } = useFlowView()
   const team = str(cfg.team)
   const options: SelectOption[] = [
-    { value: '', label: 'Admins (no team)' },
-    ...lookups.teams.map((t) => ({ value: String(t.id), label: t.name })),
+    { value: '', label: t('flows.config.adminsNoTeam') },
+    ...lookups.teams.map((tm) => ({ value: String(tm.id), label: tm.name })),
   ]
-  if (team && !options.some((o) => o.value === team)) options.push({ value: team, label: `${team} (not a team)` })
+  if (team && !options.some((o) => o.value === team)) options.push({ value: team, label: t('flows.config.notATeam', { team }) })
   return (
     <>
-      <Field label="Hand over to" help="Teams are managed under Teams.">
-        <Select value={team} onChange={(v) => set('team', v)} options={options} size="md" ariaLabel="Team" />
+      <Field label={t('flows.config.handOverTo')} help={t('flows.config.handOverToHelp')}>
+        <Select value={team} onChange={(v) => set('team', v)} options={options} size="md" ariaLabel={t('flows.config.team')} />
       </Field>
-      <Field label="Priority">
+      <Field label={t('flows.config.priority')}>
         <Segmented
-          ariaLabel="Priority"
+          ariaLabel={t('flows.config.priority')}
           value={(str(cfg.priority) || 'Normal') as 'Normal' | 'High' | 'Urgent'}
           onChange={(v) => set('priority', v)}
           options={[
-            { value: 'Normal', label: 'Normal' },
-            { value: 'High', label: 'High' },
-            { value: 'Urgent', label: 'Urgent' },
+            { value: 'Normal', label: t('flows.priority.normal') },
+            { value: 'High', label: t('flows.priority.high') },
+            { value: 'Urgent', label: t('flows.priority.urgent') },
           ]}
         />
       </Field>
-      <VariableTextarea label="Why — a note for the team" rows={3} value={str(cfg.reason)} onChange={(v) => set('reason', v)} />
-      <Notice>
-        Their latest conversation moves to the team, the AI stops replying in it, and a private note explains why. The
-        team is notified; High and Urgent also alert admins.
-      </Notice>
+      <VariableTextarea label={t('flows.config.whyNote')} rows={3} value={str(cfg.reason)} onChange={(v) => set('reason', v)} />
+      <Notice>{t('flows.config.handoverNotice')}</Notice>
     </>
   )
 }
 
 function UpdateForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
+  const t = useT()
   if (isChatbotStep(cfg)) return <ChatbotForm cfg={cfg} set={set} />
   const op = str(cfg.op) || 'add_tag'
   return (
     <>
-      <Field label="Change">
+      <Field label={t('flows.config.change')}>
         <Segmented
-          ariaLabel="Change"
+          ariaLabel={t('flows.config.change')}
           value={op as 'add_tag' | 'remove_tag' | 'set_field'}
           onChange={(v) => set('op', v)}
           options={[
-            { value: 'add_tag', label: 'Add tag' },
-            { value: 'remove_tag', label: 'Remove tag' },
-            { value: 'set_field', label: 'Set field' },
+            { value: 'add_tag', label: t('flows.config.addTag') },
+            { value: 'remove_tag', label: t('flows.config.removeTag') },
+            { value: 'set_field', label: t('flows.config.setField') },
           ]}
         />
       </Field>
       {op === 'set_field' ? (
         <>
-          <Field label="Field">
+          <Field label={t('flows.config.field')}>
             <FieldPicker value={str(cfg.field)} onChange={(v) => set('field', v)} />
           </Field>
-          <Field label="Value" help="May use {{variables}}, e.g. {{first_name}}.">
-            <input value={str(cfg.value)} onChange={(e) => set('value', e.target.value)} className={inputCls} aria-label="Value" />
+          <Field label={t('flows.config.value')} help={t('flows.config.valueHelp')}>
+            <input value={str(cfg.value)} onChange={(e) => set('value', e.target.value)} className={inputCls} aria-label={t('flows.config.value')} />
           </Field>
         </>
       ) : (
-        <Field label="Tag">
-          <TextInput value={str(cfg.tag)} onChange={(v) => set('tag', v)} placeholder="e.g. qualified" ariaLabel="Tag" />
+        <Field label={t('flows.config.tag')}>
+          <TextInput value={str(cfg.tag)} onChange={(v) => set('tag', v)} placeholder={t('flows.config.qualifiedPlaceholder')} ariaLabel={t('flows.config.tag')} />
         </Field>
       )}
     </>
@@ -918,62 +949,61 @@ function UpdateForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
 
 /** "Set chatbot on/off" — the per-chat AI switch on this contact's conversations (FlowEngine.SetChatbot). */
 function ChatbotForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
+  const t = useT()
   const value = str(cfg.value) === 'on' ? 'on' : 'off'
   const scope = str(cfg.scope) === 'channels' ? 'channels' : 'all'
   const channels = Array.isArray(cfg.channels) ? (cfg.channels as unknown[]).map(String) : []
   return (
     <>
-      <Field label="Chatbot">
+      <Field label={t('flows.describe.eyebrowChatbot')}>
         <Segmented
-          ariaLabel="Chatbot"
+          ariaLabel={t('flows.describe.eyebrowChatbot')}
           value={value}
           onChange={(v) => set('value', v)}
           options={[
-            { value: 'off', label: 'Off', hint: 'People answer from here on' },
-            { value: 'on', label: 'On', hint: 'The AI answers their chats again' },
+            { value: 'off', label: t('common.status.off'), hint: t('flows.config.chatbotOffHint') },
+            { value: 'on', label: t('common.status.on'), hint: t('flows.config.chatbotOnHint') },
           ]}
         />
       </Field>
-      <Field label="Which chats">
+      <Field label={t('flows.config.whichChats')}>
         <Segmented
-          ariaLabel="Which chats"
+          ariaLabel={t('flows.config.whichChats')}
           value={scope}
           onChange={(v) => set('scope', v)}
           options={[
-            { value: 'all', label: 'All their chats' },
-            { value: 'channels', label: 'Only some channels' },
+            { value: 'all', label: t('flows.config.allTheirChats') },
+            { value: 'channels', label: t('flows.config.someChannels') },
           ]}
         />
       </Field>
       {scope === 'channels' && (
-        <Field label="Channels">
+        <Field label={t('flows.config.channels')}>
           <MultiSelect
             value={channels}
             onChange={(v) => set('channels', v)}
-            options={CHATBOT_CHANNELS}
-            placeholder="Pick channels"
+            options={choiceOptions(t, CHATBOT_CHANNELS)}
+            placeholder={t('flows.config.pickChannels')}
             size="md"
-            ariaLabel="Channels"
+            ariaLabel={t('flows.config.channels')}
           />
         </Field>
       )}
-      <Notice>
-        It flips the same AI switch the chat header shows. The AI master switch, a contact set to “never”, never-AI tags
-        and opt-outs still win.
-      </Notice>
+      <Notice>{t('flows.config.chatbotNotice')}</Notice>
     </>
   )
 }
 
 function EndForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
+  const t = useT()
   return (
     <>
-      <Field label="Outcome" help="A short code shown on each finished run, e.g. BOOKED, NO_REPLY.">
-        <TextInput value={str(cfg.logCode)} onChange={(v) => set('logCode', v.toUpperCase().replace(/\s+/g, '_'))} placeholder="DONE" ariaLabel="Outcome" />
+      <Field label={t('flows.config.outcome')} help={t('flows.config.outcomeHelp')}>
+        <TextInput value={str(cfg.logCode)} onChange={(v) => set('logCode', v.toUpperCase().replace(/\s+/g, '_'))} placeholder="DONE" ariaLabel={t('flows.config.outcome')} />
       </Field>
       <SwitchRow
-        label="Remember the outcome"
-        help="Adds a line to the contact's AI memory, so chats and calls know how this ended."
+        label={t('flows.config.rememberOutcome')}
+        help={t('flows.config.rememberOutcomeHelp')}
         on={bool(cfg.updateMemory)}
         onChange={(v) => set('updateMemory', v ? 'Yes' : 'No')}
       />
