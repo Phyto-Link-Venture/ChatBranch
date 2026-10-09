@@ -78,6 +78,9 @@ export interface UiThreadSummary {
   provider?: 'cloud' | 'baileys' | null
   window_open?: boolean
   window_expires_at?: string | null
+  /** Messenger / Instagram: a person may still reply (Meta's 7-day HUMAN_AGENT window) */
+  human_window_open?: boolean
+  human_window_expires_at?: string | null
   opted_out?: boolean
   waiting?: boolean
   has_call?: boolean

@@ -284,9 +284,10 @@ public static class WhatsAppThreadsEndpoints
         // ---- send: media (multipart) -----------------------------------------
         // views.send_media. The file is ALWAYS kept on disk (live or sandbox) so
         // the inbox can render the bubble either way; a configured Cloud number
-        // then uploads it to /{phone_number_id}/media and sends it by id.
+        // then uploads it to /{phone_number_id}/media and sends it by id, a
+        // Baileys number hands it to the gateway's send-media.
         app.MapPost("/api/whatsapp/threads/{key}/send-media", async (string key, HttpContext ctx,
-            AppDbContext db, OutboundSender sender, IWhatsAppCloudClient wa,
+            AppDbContext db, ScopingService sc, OutboundSender sender, IWhatsAppCloudClient wa,
             MediaStore media, ClaimsPrincipal me) =>
         {
             if (!ctx.Request.HasFormContentType)
@@ -321,6 +322,12 @@ public static class WhatsAppThreadsEndpoints
                 }, statusCode: 409);
             var account = await EffectiveAccount(db, wa, thread);
             var live = account != null && wa.IsConfigured(account);
+            // a file into a zero-inbound thread on a conversation (Baileys) number
+            // is the same ban-risk case as cold free text (Setting cold_text_guard)
+            if (account != null && AccountRole(account) == "conversation"
+                && Rule(sc, "cold_text_guard", "block") == "block" && !(force && IsAdminPlus(me))
+                && !await db.Messages.AnyAsync(m => m.ThreadId == thread.Id && m.Direction == MessageDirection.In))
+                return Results.Json(new { detail = ColdTextBlockDetail }, statusCode: 409);
             if (live && !WindowOpen(db, thread, account))
                 return Results.Json(new
                 {

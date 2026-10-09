@@ -88,6 +88,9 @@ import './chats.css'
 /** First page of the list; "Load more" pages by the same step. */
 const PAGE = 50
 
+/** Channels whose thread has a send-media route (the composer's paperclip). */
+const MEDIA_CHANNELS: Channel[] = ['whatsapp', 'facebook', 'instagram', 'telegram', 'email']
+
 interface CannedResponse {
   id: number
   short_code: string
@@ -358,6 +361,11 @@ function ChatsPage() {
           labels: string[]
           contact_id?: number | null
           contact_name?: string
+          // Messenger / Instagram: Meta's messaging window (always open elsewhere)
+          window_open?: boolean
+          window_expires_at?: string | null
+          human_window_open?: boolean
+          human_window_expires_at?: string | null
           messages: UiMessage[]
         }>(`messaging/threads/${activeId.channel}/${activeId.key}`)
         setActive({
@@ -372,6 +380,10 @@ function ChatsPage() {
           labels: t.labels,
           contact_id: t.contact_id,
           contact_name: t.contact_name,
+          window_open: t.window_open,
+          window_expires_at: t.window_expires_at,
+          human_window_open: t.human_window_open,
+          human_window_expires_at: t.human_window_expires_at,
           messages: t.messages,
         })
       }
@@ -741,11 +753,12 @@ function ChatsPage() {
         appendToActive(r.message)
         return
       }
-      if (isWa && pendingFile) {
+      if (pendingFile && MEDIA_CHANNELS.includes(active.channel)) {
         const form = new FormData()
         form.append('file', pendingFile)
         if (text) form.append('caption', text)
-        const r = await apiUpload<{ message: UiMessage }>(`whatsapp/threads/${active.key}/send-media`, form)
+        // whatsapp/threads/{key}/send-media · messaging/threads/{channel}/{key}/send-media
+        const r = await apiUpload<{ message: UiMessage }>(`${threadPath(active)}/send-media`, form)
         setPendingFile(null)
         setDraft('')
         appendToActive(r.message)
@@ -771,7 +784,7 @@ function ChatsPage() {
       return
     }
     if (f.size > 16 * 1024 * 1024) {
-      setError('File too large — WhatsApp media is limited to 16 MB.')
+      setError('File too large — attachments are limited to 16 MB.')
       return
     }
     setError(null)
@@ -974,6 +987,13 @@ function ChatsPage() {
   const activeSandbox = active ? !channelLive(active.channel) : false
   // 24h customer-service window (live WhatsApp accounts only — sandbox is always open)
   const windowClosed = activeIsWa && !activeSandbox && active?.window_open === false
+  // Messenger / Instagram (live pages): anything inside 24h, then only a person
+  // for 7 days (sent with Meta's HUMAN_AGENT tag), then nothing until they write
+  const activeIsSocial = active?.channel === 'facebook' || active?.channel === 'instagram'
+  const socialClosed = activeIsSocial && !activeSandbox && active?.human_window_open === false
+  const socialLate = activeIsSocial && !activeSandbox && !socialClosed && active?.window_open === false
+  const composerLocked = windowClosed || socialClosed
+  const canAttach = !!active && MEDIA_CHANNELS.includes(active.channel)
 
   const activeFilterCount = countActive(chips)
   const unfiltered = activeFilterCount === 0 && !q.trim()
@@ -1691,7 +1711,7 @@ function ChatsPage() {
                     </div>
                   )}
                   {/* contact-bound quick replies — one tap drafts a personalized message */}
-                  {!draft && !pendingFile && canned.length > 0 && !windowClosed && !noteMode && (
+                  {!draft && !pendingFile && canned.length > 0 && !composerLocked && !noteMode && (
                     <div className="no-scrollbar mb-2 flex gap-1.5 overflow-x-auto">
                       {canned.slice(0, 8).map((c) => (
                         <button
@@ -1705,7 +1725,7 @@ function ChatsPage() {
                       ))}
                     </div>
                   )}
-                  {active.channel === 'whatsapp' && pendingFile && (
+                  {canAttach && pendingFile && (
                     <div className="mb-2 flex items-center gap-2 rounded-lg border border-line bg-card px-3 py-1.5 text-[12.5px] text-text-mid">
                       <Paperclip size={13} className="shrink-0 text-text-muted" aria-hidden />
                       <span className="min-w-0 flex-1 truncate">
@@ -1727,22 +1747,30 @@ function ChatsPage() {
                     }`}
                   >
                     {active.channel === 'whatsapp' && !noteMode && (
+                      <button
+                        onClick={() => setTplOpen(true)}
+                        disabled={busy}
+                        title="Send a message template"
+                        aria-label="Send a message template"
+                        className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg transition-colors disabled:opacity-35 ${
+                          windowClosed ? 'bg-primary text-on-primary hover:opacity-90' : 'text-text-muted hover:bg-fill-hover hover:text-text-high'
+                        }`}
+                      >
+                        <LayoutTemplate size={15} aria-hidden />
+                      </button>
+                    )}
+                    {canAttach && !noteMode && (
                       <>
                         <button
-                          onClick={() => setTplOpen(true)}
-                          disabled={busy}
-                          title="Send a message template"
-                          aria-label="Send a message template"
-                          className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg transition-colors disabled:opacity-35 ${
-                            windowClosed ? 'bg-primary text-on-primary hover:opacity-90' : 'text-text-muted hover:bg-fill-hover hover:text-text-high'
-                          }`}
-                        >
-                          <LayoutTemplate size={15} aria-hidden />
-                        </button>
-                        <button
                           onClick={() => fileRef.current?.click()}
-                          disabled={busy || windowClosed}
-                          title={windowClosed ? 'Window closed — media needs an open 24h window' : 'Attach a file'}
+                          disabled={busy || composerLocked}
+                          title={
+                            windowClosed
+                              ? 'Window closed — media needs an open 24h window'
+                              : socialClosed
+                                ? 'Reply window closed — wait for the customer to write again'
+                                : 'Attach a file'
+                          }
                           aria-label="Attach a file"
                           className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:opacity-35"
                         >
@@ -1763,13 +1791,15 @@ function ChatsPage() {
                       value={draft}
                       onChange={(e) => setDraft(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-                      disabled={windowClosed && !noteMode}
+                      disabled={composerLocked && !noteMode}
                       placeholder={
                         noteMode
                           ? 'Write a private note — agents only, never sent'
                           : windowClosed
                             ? '24h window closed — send a template to re-open'
-                            : pendingFile
+                            : socialClosed
+                              ? 'Reply window closed — wait for the customer to write again'
+                              : pendingFile
                               ? 'Add a caption (optional)'
                               : active.channel === 'email'
                                 ? 'Write an email…'
@@ -1780,7 +1810,7 @@ function ChatsPage() {
                     />
                     <button
                       onClick={sendMessage}
-                      disabled={busy || (windowClosed && !noteMode) || (!draft.trim() && !pendingFile)}
+                      disabled={busy || (composerLocked && !noteMode) || (!draft.trim() && !pendingFile)}
                       title={noteMode ? 'Save private note' : 'Send'}
                       aria-label={noteMode ? 'Save private note' : 'Send message'}
                       className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35 ${
@@ -1794,6 +1824,14 @@ function ChatsPage() {
                     <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-amber-300">
                       <Clock size={12} className="shrink-0" aria-hidden />
                       24h window closed — send a template to re-open the conversation.
+                    </div>
+                  )}
+                  {(socialClosed || socialLate) && !noteMode && (
+                    <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-amber-300">
+                      <Clock size={12} className="shrink-0" aria-hidden />
+                      {socialClosed
+                        ? `${CHANNEL_META[active.channel].lbl} only accepts replies within 7 days of the customer's last message — wait for them to write again.`
+                        : `Outside ${CHANNEL_META[active.channel].lbl}'s 24h window — your reply goes out as a human-agent message; the AI and automations can't send until the customer writes again.`}
                     </div>
                   )}
                 </div>

@@ -32,7 +32,12 @@ builder.Services.AddScoped<ChatBranch.Data.Flows.FlowEngine>();
 builder.Services.AddScoped<ChatBranch.Data.Flows.AutomationService>();
 // AI ops: the monitor gate, human-like replies, follow-ups (+ their clock)
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddScoped<ChatBranch.Data.Ai.ITypingIndicator, ChatBranch.Data.Ai.LiveTypingIndicator>();
+// "typing…": one dispatcher over the per-channel indicators (WhatsApp Cloud +
+// Baileys in LiveTypingIndicator, Telegram's sendChatAction)
+builder.Services.AddScoped<ChatBranch.Data.Ai.LiveTypingIndicator>();
+builder.Services.AddScoped<ChatBranch.Data.Ai.ITypingIndicator>(sp => new ChatBranch.Data.Ai.ChannelTypingIndicator(
+    sp.GetRequiredService<ChatBranch.Data.Ai.LiveTypingIndicator>(),
+    new ChatBranch.Data.Ai.TelegramTypingIndicator(sp.GetRequiredService<ChatBranch.Data.Channels.ITelegramClient>())));
 builder.Services.AddScoped<ChatBranch.Data.Ai.AiComposer>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.AiGate>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.AiResponder>();

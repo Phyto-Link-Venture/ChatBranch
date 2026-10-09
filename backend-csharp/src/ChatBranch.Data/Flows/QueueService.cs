@@ -320,6 +320,10 @@ public class QueueService
                     return Fail(job, "contact opted out");
                 if (job.Kind == JobKind.Text && _gate.WindowClosed(thread, job.AccountId))
                     return Fail(job, "WhatsApp 24h window closed — use a template");
+                // Messenger / Instagram: a queued (automated) send never uses the HUMAN_AGENT tag
+                if (job.Kind is JobKind.Text or JobKind.Template
+                    && _sender.SocialWindowBlock(thread, job.AccountId, humanAgent: false, Now) is { } socialClosed)
+                    return Fail(job, socialClosed);
                 if (job.Kind == JobKind.Text && ColdTextBlocked(thread, job))
                     return Fail(job, "cold text blocked — this contact has never messaged this conversation "
                                      + "number (Routing rules → cold-text guard); open with a template");

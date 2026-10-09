@@ -10,6 +10,9 @@
  *   GET  /accounts/:id/status      -> { state, qr?, me?, error? }
  *   POST /accounts/:id/start       -> begin/refresh pairing (emits a QR)
  *   POST /accounts/:id/send        -> { to, text } -> { id }
+ *   POST /accounts/:id/send-media  -> { to, media_type: image|video|audio|document,
+ *                                     file_b64, mime?, filename?, caption? } -> { id }
+ *                                     (≤16 MB, base64 in the body — never a path/URL; media.js)
  *   POST /accounts/:id/logout      -> unpair + wipe local auth state
  *   POST /accounts/:id/call        -> { to, room, livekit_url, token, max_seconds }
  *                                     place a voice call bridged to LiveKit (calls.js)
@@ -30,6 +33,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSyn
 import path from 'path'
 import { fileURLToPath } from 'url'
 import pino from 'pino'
+import { buildMediaMessage, MediaRequestError, MAX_SEND_MEDIA_BODY, readJsonBodyCapped } from './media.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
@@ -433,7 +437,8 @@ async function checkNumber(id, to) {
   return { exists: true, jid: lid || hit.jid || `${d}@s.whatsapp.net` }
 }
 
-async function sendText(id, to, text, rawJid = null) {
+/** The connected account + the chat jid a send to `to` must target (lid-aware). */
+async function resolveTarget(id, to, rawJid = null) {
   const a = accounts.get(id)
   if (!a || a.state !== 'connected') throw new Error(`account ${id} is not connected (state: ${a?.state || 'stopped'})`)
   const d = digits(to)
@@ -443,16 +448,35 @@ async function sendText(id, to, text, rawJid = null) {
     if (check.exists === false) throw new Error(`+${d} is not on WhatsApp — check the number`)
     jid = check.jid || `${d}@s.whatsapp.net`
   }
-  // brief "typing…" before the send — reads human, and companion sessions
-  // that never emit presence look like bots to WhatsApp's scoring
+  return { a, d, jid }
+}
+
+/** Brief "typing…" before a send — reads human, and companion sessions that
+ *  never emit presence look like bots to WhatsApp's scoring. */
+async function humanPause(a, jid) {
   try {
     await a.sock.presenceSubscribe(jid)
     await a.sock.sendPresenceUpdate('composing', jid)
     await new Promise((r) => setTimeout(r, 900 + Math.floor(Math.random() * 1800)))
     await a.sock.sendPresenceUpdate('paused', jid)
   } catch { /* presence is best-effort */ }
+}
+
+async function sendText(id, to, text, rawJid = null) {
+  const { a, d, jid } = await resolveTarget(id, to, rawJid)
+  await humanPause(a, jid)
   const result = await a.sock.sendMessage(jid, { text })
   logEvent('send', { acct: id, to: d, jid, id: result?.key?.id || '' })
+  return result?.key?.id || ''
+}
+
+/** An image / video / audio / document already validated by media.js
+ *  buildMediaMessage — Baileys encrypts and uploads it to WhatsApp's CDN. */
+async function sendMedia(id, to, built, rawJid = null) {
+  const { a, d, jid } = await resolveTarget(id, to, rawJid)
+  await humanPause(a, jid)
+  const result = await a.sock.sendMessage(jid, built.content)
+  logEvent('sendMedia', { acct: id, to: d, jid, kind: built.mediaType, bytes: built.bytes, id: result?.key?.id || '' })
   return result?.key?.id || ''
 }
 
@@ -544,7 +568,7 @@ const readBody = (req) =>
 http
   .createServer(async (req, res) => {
     if (req.headers['x-baileys-secret'] !== SECRET) return json(res, 403, { detail: 'bad secret' })
-    const m = req.url.match(/^\/accounts\/([\w-]+)\/(status|start|send|presence|logout|check|call|call-end|call-status)$/)
+    const m = req.url.match(/^\/accounts\/([\w-]+)\/(status|start|send|send-media|presence|logout|check|call|call-end|call-status)$/)
     if (!m) return json(res, 404, { detail: 'not found' })
     const [, id, action] = m
     try {
@@ -567,6 +591,21 @@ http
         const { to, text, raw_jid } = await readBody(req)
         if (!to || !text) return json(res, 400, { detail: 'to and text are required' })
         return json(res, 200, { id: await sendText(id, to, text, raw_jid || null) })
+      }
+      if (action === 'send-media') {
+        // capped read: a file rides in this body (base64, ≤16 MB) — never a path or URL
+        const read = await readJsonBodyCapped(req, MAX_SEND_MEDIA_BODY)
+        if (read.tooLarge) return json(res, 413, { detail: 'file too large (max 16 MB)' })
+        const { to, raw_jid } = read.body
+        if (!to) return json(res, 400, { detail: 'to is required' })
+        let built
+        try {
+          built = buildMediaMessage(read.body)
+        } catch (e) {
+          if (e instanceof MediaRequestError) return json(res, e.status, { detail: e.message })
+          throw e
+        }
+        return json(res, 200, { id: await sendMedia(id, to, built, raw_jid || null) })
       }
       if (action === 'presence') {
         const { to, state } = await readBody(req)

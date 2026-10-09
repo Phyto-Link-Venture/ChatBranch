@@ -950,6 +950,10 @@ export function callStatus(accountId) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
     && process.argv.includes('--selftest')) {
+  // index.js's outbound-media payload builder (pure; no WhatsApp needed)
+  const { selftest: mediaSelftest } = await import('./media.js')
+  mediaSelftest()
+  console.log('send-media payload builder OK')
   const { WasmEngine, lk } = await loadModules()
   console.log('modules loaded: baileys-caller internals + @livekit/rtc-node')
   if (!lk.Room || !lk.AudioSource || !lk.AudioFrame || !lk.AudioStream) {

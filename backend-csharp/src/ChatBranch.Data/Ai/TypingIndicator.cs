@@ -22,6 +22,72 @@ public sealed class NoTypingIndicator : ITypingIndicator
 }
 
 /// <summary>
+/// The registered indicator: picks the channel's own implementation — Telegram
+/// bots through <see cref="TelegramTypingIndicator"/>, everything else (WhatsApp
+/// Cloud + Baileys; a no-op elsewhere) through <see cref="LiveTypingIndicator"/>.
+/// </summary>
+public sealed class ChannelTypingIndicator : ITypingIndicator
+{
+    private readonly ITypingIndicator _whatsapp;
+    private readonly ITypingIndicator _telegram;
+
+    public ChannelTypingIndicator(ITypingIndicator whatsapp, ITypingIndicator telegram)
+    {
+        _whatsapp = whatsapp;
+        _telegram = telegram;
+    }
+
+    public void Start(Thread thread, ChannelAccount account)
+    {
+        try
+        {
+            if (thread.Channel == ChatBranch.Domain.Channels.Telegram) _telegram.Start(thread, account);
+            else _whatsapp.Start(thread, account);
+        }
+        catch { /* presence is best-effort */ }
+    }
+}
+
+/// <summary>
+/// Telegram: <c>sendChatAction(typing)</c> from the bot that carries the chat.
+/// Fire-and-forget — the Bot API call runs off the caller's thread and any
+/// failure (bad token, network, a blocked bot) is swallowed; health is never
+/// touched by a presence call.
+/// </summary>
+public sealed class TelegramTypingIndicator : ITypingIndicator
+{
+    private readonly ChatBranch.Data.Channels.ITelegramClient _client;
+
+    public TelegramTypingIndicator(ChatBranch.Data.Channels.ITelegramClient client) => _client = client;
+
+    public void Start(Thread thread, ChannelAccount account) => _ = StartAsync(thread, account);
+
+    /// <summary>The same call, awaitable (tests). Never throws; false = nothing was sent.</summary>
+    public Task<bool> StartAsync(Thread thread, ChannelAccount account)
+    {
+        try
+        {
+            if (thread.Channel != ChatBranch.Domain.Channels.Telegram
+                || !ChatBranch.Data.Channels.TelegramBot.Configured(account)
+                || string.IsNullOrEmpty(thread.Key)) return Task.FromResult(false);
+            var chatId = thread.Key;
+            return Task.Run(async () =>
+            {
+                try
+                {
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    var r = await ChatBranch.Data.Channels.TelegramBot.SendChatActionAsync(_client, account, chatId,
+                        "typing", cts.Token);
+                    return r.Ok;
+                }
+                catch { return false; }
+            });
+        }
+        catch { return Task.FromResult(false); }
+    }
+}
+
+/// <summary>
 /// The live indicator:
 ///  * WhatsApp Cloud — marks the customer's latest message as read and shows the
 ///    typing indicator (Graph <c>/{phone_number_id}/messages</c> with
@@ -29,7 +95,9 @@ public sealed class NoTypingIndicator : ITypingIndicator
 ///    send or after ~25 s).
 ///  * Baileys — the gateway's <c>POST /accounts/{id}/presence</c>
 ///    (<c>sendPresenceUpdate('composing')</c>).
-///  * Every other channel has no typing signal; nothing is sent.
+///  * Telegram has its own (<see cref="TelegramTypingIndicator"/>, routed by
+///    <see cref="ChannelTypingIndicator"/>); every other channel has no typing
+///    signal and nothing is sent.
 /// </summary>
 public sealed class LiveTypingIndicator : ITypingIndicator
 {
