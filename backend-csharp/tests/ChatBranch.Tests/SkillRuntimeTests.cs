@@ -79,7 +79,10 @@ public class SkillRuntimeTests
               for (let i = 0; i < 90000; i++) keep.push({ i: i, s: 'x'.repeat(2000) + i });
               return keep.length;
             }
-            """, "{}", Ctx());
+            """, "{}", Ctx(),
+            // only the memory cap may trip: under a loaded parallel run the default
+            // 250 ms wall clock can expire before 8 MB is allocated ("timeout")
+            SkillRuntime.Limits.Default with { Timeout = TimeSpan.FromSeconds(10) });
         Assert.False(r.Ok);
         Assert.Equal("memory", r.ErrorKind);
     }

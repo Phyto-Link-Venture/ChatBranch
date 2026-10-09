@@ -197,7 +197,7 @@ requires a restart.
 | **WhatsApp (Baileys)** | A spare phone. Add a "QR" WhatsApp inbox and scan. ⚠ Read the ToS warning below | inbound text + media, send, calls + recordings live; outbound media stored locally |
 | **Website widget** | Nothing — paste the snippet the inbox gives you | live |
 | **Telegram** | A BotFather token, then "Register webhook" in the inbox (needs a public https URL — `PUBLIC_BASE_URL` or the one you type) | live: inbound text + media, replies and attachments via the Bot API |
-| **Email** | Per-mailbox SMTP credentials (+ an IMAP host, per mailbox or the default under Channels → Advanced) | live: SMTP send with threaded replies, IMAP pull from known senders |
+| **Email** | Per-mailbox SMTP credentials (+ an IMAP host, per mailbox or the default under Channels → Advanced) | live: SMTP send (text + escaped HTML alternative, threaded replies, mailboxes routed and failed over like WhatsApp numbers), IMAP pull from known senders (HTML-only mail flattened to text) |
 | **Messenger / Instagram** | A page token, the page / IG account id, the Meta app secret, and a public webhook (`/api/messaging/webhook`) | live: signed inbound (incl. attachments), Send API text, receipts |
 | **Voice (SIP)** | LiveKit + a SIP trunk: `npm --prefix backend/voice_agent run setup-trunk`, then Channels → Voice | live |
 
@@ -255,7 +255,7 @@ ChatBranch/
 
 ```bash
 cd backend-csharp && dotnet build src/ChatBranch.Api -c Release
-cd backend-csharp && dotnet test tests/ChatBranch.Tests    # 302 tests
+cd backend-csharp && dotnet test tests/ChatBranch.Tests    # 312 tests
 cd frontend && npx tsc --noEmit && npx eslint src && npx next build
 cd backend/voice_agent && npx tsc --noEmit && npm run selftest
 node backend/baileys_service/calls.js --selftest
@@ -275,9 +275,8 @@ every pull request.
   Baileys numbers can't send media (the gateway has no media route) and send
   templates as rendered text; WhatsApp Cloud has no voice calls; Messenger's
   24-hour window isn't modelled (Meta's refusal shows as a failed send); email
-  bodies are plain text; the opt-out flag lives on the conversation, not the
-  contact; AI replies sent instantly use the thread's own number rather than
-  send-time routing. Nothing has been exercised against the live providers from
+  is composed as plain text (an escaped HTML alternative is rendered from it);
+  the opt-out flag lives on the conversation, not the contact. Nothing has been exercised against the live providers from
   this repo's CI — expect field debugging on a first real account. The full table is
   in [CLAUDE.md](CLAUDE.md#port-status--what-is-real-what-is-sandbox).
 - **WhatsApp via Baileys violates WhatsApp's Terms of Service.** It speaks the

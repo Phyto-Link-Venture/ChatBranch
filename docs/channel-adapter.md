@@ -22,7 +22,7 @@ another.
 | | WhatsApp Cloud | WhatsApp Baileys | Website widget | Telegram | Messenger / IG | Email |
 |---|---|---|---|---|---|---|
 | Receive text | ✅ webhook | ✅ gateway push | ✅ widget API | ✅ webhook | ✅ webhook | ✅ IMAP pull (`/email/sync`) |
-| Send text | ✅ Graph API | ✅ gateway | ✅ (stored; the widget polls them) | ✅ Bot API | ✅ Send API (page token) | ✅ SMTP (threaded replies) |
+| Send text | ✅ Graph API | ✅ gateway | ✅ (stored; the widget polls them) | ✅ Bot API | ✅ Send API (page token) | ✅ SMTP (threaded replies; text + escaped HTML alternative) |
 | Templates | ✅ real template messages; live registry (list/create/edit/delete) with a `waba_id` | rendered as free text | — | — | — | — |
 | Send media | ✅ upload → send by id | ❌ stored locally (no gateway route) | — | ✅ sendPhoto / sendDocument | ✅ by public URL | ✅ attachment |
 | Receive media | ✅ downloaded off the ack | ✅ `/baileys/media` (two-phase) | — | ✅ getFile, off the ack | ✅ CDN url, downloaded off the ack | ✅ attachments (≤5, 10 MB) |
@@ -147,6 +147,9 @@ outbound queue are already channel-blind.
   sendDocument / sendAudio / sendVideo for attachments. A 401/404 from the Bot
   API marks the bot disconnected; 400/403 (chat not found, bot blocked) is the
   recipient's problem and leaves health alone. "Test" = getMe (+ webhook state).
+  The bot is the thread's own — a Telegram chat only works with the bot the
+  customer started, so there is no failover; a bot-less thread takes the
+  contact's sticky / least-loaded / sole bot (`Routing.ForThread`).
 - No phone number, so CRM linking is manual (the `/chats` contact picker or
   `POST /api/messaging/threads/telegram/{key}/link`). Auto-replies only fire on
   linked threads.
@@ -173,9 +176,18 @@ outbound queue are already channel-blind.
   imap_password`; blank = the default IMAP host and the mailbox's own SMTP
   login). Passwords never leave the API unmasked. The default mailbox is the
   Setting rows `smtp_*` / `imap_*` / `email_subject` (env `SMTP_*`, `IMAP_*`).
-- Out (MailKit): mailbox = thread's account → sticky `AccountAssignment` →
-  first routable mailbox (the outlet's own, then shared) → default SMTP →
-  sandbox. Port 465 = implicit TLS, otherwise STARTTLS when `use_tls`. Replies
+- Out (MailKit): mailbox = the shared send-time routing (`Routing.ForThread`,
+  channel `email`): the thread's healthy mailbox → the contact's sticky
+  `AccountAssignment` → least-loaded auto-assign (an unpinned row; a
+  contactless conversation also takes the least-loaded mailbox, without a row)
+  → failover off a disconnected/banned mailbox (row moves, pin cleared, thread
+  moves, system note + `account.failover` audit + admin notification), the
+  outlet's own mailboxes first; every eligible mailbox down ⇒ a failed message
+  naming it (nothing sent); no configured mailbox ⇒ default SMTP ⇒ sandbox.
+  Every mail is multipart/alternative — the text as typed + an HTML rendering
+  of it (`EmailHtml`: everything escaped, paragraphs / line breaks, http(s) and
+  email auto-links, never raw HTML) — wrapped in multipart/mixed with
+  attachments; AI mail carries `Auto-Submitted: auto-replied`. Port 465 = implicit TLS, otherwise STARTTLS when `use_tls`. Replies
   carry Message-ID / In-Reply-To / References and "Re: <last subject>" (from
   `crm_emailheader`); a flow step's `subject` wins. Refused login →
   disconnected; unreachable server → degraded after 3 in a row; refused
@@ -184,7 +196,9 @@ outbound queue are already channel-blind.
   every 30 s, `{force:true}` skips it) pulls UNSEEN mail from the last 7 days
   (10 per mailbox per pass), marks it \Seen, keeps only KNOWN senders (a CRM
   contact's email, or an address we already wrote to / a contact-linked
-  thread), dedups by Message-ID, strips quoted history conservatively, and runs
+  thread), dedups by Message-ID, strips quoted history conservatively, flattens HTML-only mail to readable
+  text (scripts/styles/comments dropped, line breaks + paragraphs kept, links
+  keep their URL, entities decoded), and runs
   the normal inbound pipeline. A new email thread starts with the chatbot off.
 - "Test" = SMTP connect + login (+ a test mail when `to` is given).
 
@@ -236,8 +250,10 @@ window, a bad number, a blocked bot) must never damage account health.
 **Assignment** — sticky `AccountAssignment` rows (contact × channel → account,
 optionally pinned), edited on `/assignments`, spread evenly by
 `POST /api/whatsapp/assignments/rebalance`; the per-chat switch pins one.
-Routing happens AT SEND TIME (`Channels/Routing.cs`, used by the queue drain and
-the manual send endpoints; a job's payload `account_id` pins it): the thread's
+Routing happens AT SEND TIME (`Channels/Routing.cs`, used by the queue drain,
+the manual send endpoints, the email/Telegram account choice and the AI gate —
+instant, approved and auto-sent AI replies, follow-ups; a job's payload
+`account_id` pins it): the thread's
 healthy number → the sticky row → least-loaded auto-assign (writes an unpinned
 row) → failover when the number is banned/disconnected (row moves and loses its
 pin, the thread moves, a system note + `account.failover` audit + admin
@@ -246,7 +262,11 @@ entity's own numbers (else the organization-wide ones); WhatsApp text/AI never
 fails over onto a reminder number when conversation numbers exist; templates
 need a Cloud number (reminder first), are carried per send without moving the
 sticky row and never fall back to Baileys — nothing eligible fails the job / 409s
-the endpoint. With no configured account nothing is routed (sandbox). A
+the endpoint. With no configured account nothing is routed (sandbox). Roles,
+providers and templates are WhatsApp-only (`RouteNeed.For`); Telegram,
+Messenger/Instagram and widget conversations stay on the account that received
+them (account-bound — no failover or spreading); email spreads even a
+contactless conversation to the least-loaded mailbox. A
 conversation number going INTO banned/disconnected notifies admins and, with
 `recovery_mode=auto`, queues `recovery_template` for its contacts
 (`Channels/Recovery.cs`, hooked in `AccountHealth.SetStatus`).
