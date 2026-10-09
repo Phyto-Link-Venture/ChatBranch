@@ -176,9 +176,9 @@ export function InviteModal({
             </Button>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {result.links.map((l) => (
-              <div key={l.channel} className="flex flex-col gap-2 rounded-xl border border-line bg-card p-3">
+              <div key={l.channel} className="flex min-w-0 flex-col gap-2 rounded-xl border border-line bg-card p-3">
                 <div className="flex items-center gap-2">
                   <ChannelLogo channel={LOGO[l.channel] ?? l.channel} size={22} variant="tile" title="" />
                   <div className="min-w-0 flex-1">
