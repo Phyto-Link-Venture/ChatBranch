@@ -28,6 +28,7 @@ import {
   type DraftStatus,
 } from '@/lib/aiMonitor'
 import { ContextChips, ConversationSnippet, DraftHeader, HoldReasons, StatusBadge, chatHref } from './DraftBits'
+import { DraftFeedback, GroundingLine } from '@/components/ai-learning/DraftLearning'
 
 const PAGE_SIZE = 25
 const CHANNELS = ['whatsapp', 'telegram', 'facebook', 'instagram', 'email', 'website']
@@ -237,6 +238,7 @@ export function ActivityList({ entityQuery, canDecide }: { entityQuery: string; 
                           <p className="text-[11.5px] text-text-muted">Signals noticed (not held): {d.flags.join('; ')}</p>
                         )}
                         <ContextChips d={d} />
+                        <GroundingLine d={d} />
                         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11.5px] text-text-muted">
                           <dt>Written</dt>
                           <dd>{when(d.created_at)}</dd>
@@ -273,6 +275,7 @@ export function ActivityList({ entityQuery, canDecide }: { entityQuery: string; 
                             Open chat <ExternalLink size={12} aria-hidden />
                           </Link>
                         </div>
+                        <DraftFeedback d={d} />
                         {rowMsg[d.id] && <p className="text-[12px] text-text-mid">{rowMsg[d.id]}</p>}
                       </div>
                     </section>

@@ -3,7 +3,8 @@
 /**
  * AI monitor — see (and, by policy, approve) what the AI says before it
  * reaches a customer, review everything it did, and tune how human it acts.
- * Tabs: Waiting for review · AI activity · Stats · Settings (the reusable
+ * Tabs: Waiting for review · AI activity · Learning (lessons from 👍/👎 +
+ * retrieval status) · Stats · Settings (the reusable
  * <AiBehaviourSettings />). The tab lives in ?tab= so a refresh or a link from
  * a notification keeps the place; lists refresh live off the inbox SSE stream.
  */
@@ -16,15 +17,17 @@ import { ReviewQueue } from '@/components/ai-monitor/ReviewQueue'
 import { ActivityList } from '@/components/ai-monitor/ActivityList'
 import { StatsPanel } from '@/components/ai-monitor/StatsPanel'
 import { AiBehaviourSettings } from '@/components/ai-monitor/AiBehaviourSettings'
+import { LearningPanel } from '@/components/ai-learning/LearningPanel'
 import { hasCap } from '@/lib/auth'
 import { useEntity, useEntityQuery } from '@/lib/EntityContext'
 import { subscribeChatStream } from '@/lib/chatStream'
 import { aiApi, type BehaviourPayload, type DraftList } from '@/lib/aiMonitor'
 
-type Tab = 'review' | 'activity' | 'stats' | 'settings'
+type Tab = 'review' | 'activity' | 'learning' | 'stats' | 'settings'
 const TABS: { id: Tab; label: string }[] = [
   { id: 'review', label: 'Waiting for review' },
   { id: 'activity', label: 'AI activity' },
+  { id: 'learning', label: 'Learning' },
   { id: 'stats', label: 'Stats' },
   { id: 'settings', label: 'Settings' },
 ]
@@ -153,6 +156,9 @@ export default function AiMonitorPage() {
               />
             )}
             {access.ready && tab === 'activity' && <ActivityList entityQuery={entityQ} canDecide={hasCap('ai.monitor')} />}
+            {access.ready && tab === 'learning' && (
+              <LearningPanel entityQuery={entityQ} entitySlug={activeEntity?.slug ?? null} entityName={activeEntity?.name ?? null} />
+            )}
             {access.ready && tab === 'stats' && <StatsPanel entityQuery={entityQ} />}
             {access.ready && tab === 'settings' && <AiBehaviourSettings initialEntity={activeEntity?.slug ?? null} />}
           </div>

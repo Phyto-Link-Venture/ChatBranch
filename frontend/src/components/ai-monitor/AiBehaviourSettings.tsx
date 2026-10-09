@@ -31,6 +31,11 @@ const OPTION_LABELS: Record<string, Record<string, string>> = {
     review_all: 'Review every reply',
     shadow: 'Shadow mode — draft only, never send',
   },
+  ai_learning_mode: {
+    review: 'Review first — a person approves every lesson',
+    auto: 'Learn from admins straight away, review the rest',
+    off: 'Off — count ratings, learn nothing',
+  },
   ai_split: {
     off: 'Don’t split',
     auto: 'Split replies longer than the limit',
