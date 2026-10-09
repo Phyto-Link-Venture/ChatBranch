@@ -226,6 +226,16 @@ public static class MessagingEndpoints
             .OrderBy(m => m.CreatedAt).ThenBy(m => m.Id)
             .ToList();
 
+    /// <summary>The inbox's read rule for one conversation (entity scope; unassigned = everyone's).</summary>
+    private static Func<Thread, bool> ThreadFilter(AppDbContext db, ScopingService sc, ClaimsPrincipal me)
+    {
+        var ids = ShellScope.ThreadEntityIds(db, sc, me, null);
+        return t => ids == null || t.EntityId == null || ids.Contains(t.EntityId.Value);
+    }
+
+    private static Task<bool> ContactVisibleAsync(AppDbContext db, ScopingService sc, ClaimsPrincipal me, int id) =>
+        ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc).AnyAsync(c => c.Id == id);
+
     /// <summary>store._get — the messaging store never normalizes beyond a trim.</summary>
     private static Thread? GetThread(AppDbContext db, string channel, string key) =>
         db.Threads.Include(t => t.Contact).Include(t => t.Account)
@@ -346,9 +356,10 @@ public static class MessagingEndpoints
     private static void MapContacts(IEndpointRouteBuilder app)
     {
         // GET /api/messaging/contacts — the "Link to a contact" picker.
-        app.MapGet("/api/messaging/contacts", async (AppDbContext db) =>
+        app.MapGet("/api/messaging/contacts", async (AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
-            var rows = await db.Contacts.AsNoTracking().OrderBy(c => c.Name)
+            // the caller's own contacts only (the contacts rule: tenant, then assigned entities)
+            var rows = await ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc).OrderBy(c => c.Name)
                 .Select(c => new { c.Id, c.Name, c.Phone, c.Email }).ToListAsync();
             return Results.Ok(new
             {
@@ -357,16 +368,17 @@ public static class MessagingEndpoints
                     ["id"] = c.Id, ["name"] = c.Name, ["phone"] = c.Phone, ["email"] = c.Email,
                 }),
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("chats.view", "contacts.view");
 
         // GET /api/messaging/contacts/vcard — every contact as a .vcf download.
         // Address-book contacts are exempt from WhatsApp's cold-contact (463
         // reach-out) restriction, so importing this on a paired Baileys phone is
         // what makes reminders deliver.
-        app.MapGet("/api/messaging/contacts/vcard", async (AppDbContext db, HttpContext ctx,
+        app.MapGet("/api/messaging/contacts/vcard", async (AppDbContext db, ScopingService sc, HttpContext ctx,
             ClaimsPrincipal me) =>
         {
-            var rows = await db.Contacts.AsNoTracking().Where(c => c.Phone != "")
+            var rows = await ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
+                .Where(c => c.Phone != "")
                 .OrderBy(c => c.Name).Select(c => new { c.Name, c.Phone, c.Email }).ToListAsync();
             var sb = new StringBuilder();
             foreach (var c in rows)
@@ -381,20 +393,22 @@ public static class MessagingEndpoints
             Audit(db, me, ctx, "contacts.vcard_export", "", $"{rows.Count} contacts");
             ctx.Response.Headers.ContentDisposition = "attachment; filename=\"contacts.vcf\"";
             return Results.Text(sb.ToString(), "text/vcard; charset=utf-8");
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("contacts.manage", "channels.manage");
 
         // GET /api/messaging/contacts/{id}/conversation — the combined view:
         // every message to/from this contact across EVERY channel (WhatsApp
         // included), oldest first, each annotated with its channel + thread key.
         app.MapGet("/api/messaging/contacts/{id:int}/conversation",
-            async (int id, int? limit, AppDbContext db) =>
+            async (int id, int? limit, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
-            var contact = await db.Contacts.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id);
+            var contact = await ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
+                .FirstOrDefaultAsync(c => c.Id == id);
             if (contact == null)
                 return Results.Json(new { detail = "Contact not found." }, statusCode: 404);
 
-            var threads = await db.Threads.AsNoTracking().Where(t => t.ContactId == id)
-                .OrderBy(t => t.Channel).ThenBy(t => t.Key).ToListAsync();
+            var canSee = ThreadFilter(db, sc, me);
+            var threads = (await db.Threads.AsNoTracking().Where(t => t.ContactId == id)
+                .OrderBy(t => t.Channel).ThenBy(t => t.Key).ToListAsync()).Where(canSee).ToList();
             var take = Math.Max(1, Math.Min(limit ?? 200, 1000));
             var threadIds = threads.Select(t => t.Id).ToList();
 
@@ -448,7 +462,11 @@ public static class MessagingEndpoints
             var entityId = await InboxEndpoints.EntityId(db, entity);
             IQueryable<Thread> q = db.Threads.AsNoTracking().Include(t => t.Contact)
                 .Where(t => t.Channel != Channels.WhatsApp);
-            var rows = await sc.ScopeOwned(q, entityId, includeUnassigned: true).ToListAsync();
+            // the inbox rule: agents are bounded by their assigned entities (an
+            // out-of-scope ?entity= narrows instead of widening)
+            var allowed = ShellScope.ThreadEntityIds(db, sc, me, entityId);
+            var rows = await (allowed == null ? q
+                : q.Where(t => t.EntityId == null || allowed.Contains(t.EntityId.Value))).ToListAsync();
 
             var ids = rows.Select(t => t.Id).ToList();
             var last = await db.Messages.AsNoTracking()
@@ -490,7 +508,7 @@ public static class MessagingEndpoints
             .ToList();
 
             return Results.Ok(new { threads });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.view");
 
         // POST /api/messaging/threads {channel, to, name?} — open a conversation.
         app.MapPost("/api/messaging/threads", async (Dictionary<string, JsonElement>? body,
@@ -544,7 +562,7 @@ public static class MessagingEndpoints
             if (thread == null)
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
             return Results.Ok(ThreadPayload(db, thread, MessagesOf(db, thread.Id)));
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.view");
     }
 
     // =========================================================================
@@ -601,7 +619,7 @@ public static class MessagingEndpoints
             AiControlsEndpoints.HumanReplied(db, thread, msg, me); // answers an open handover
             Audit(db, me, ctx, "message.send", $"{channel}:{key}", text);
             return Results.Ok(new { message = MessagePayload(msg, thread.Channel, thread.Account?.Name) });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
 
         // POST …/ai {enabled} — per-thread AI auto-reply tick (social channels;
         // email threads ship with it off).
@@ -618,7 +636,7 @@ public static class MessagingEndpoints
             ChatBranch.Data.Ai.AiEligibility.Set(thread, BoolOf(body, "enabled", false));
             await db.SaveChangesAsync();
             return Results.Ok(new { ai_enabled = thread.AiEnabled });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
 
         // POST …/status {status} — open | pending | snoozed | resolved.
         // (Inbound contact messages re-open resolved/snoozed threads in the store.)
@@ -641,7 +659,7 @@ public static class MessagingEndpoints
             await db.SaveChangesAsync();
             Audit(db, me, ctx, "thread.status", $"{channel}:{key}", value);
             return Results.Ok(new { status = thread.Status });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
 
         // POST …/assign {assignee} — "" clears the assignment.
         app.MapPost("/api/messaging/threads/{channel}/{key}/assign",
@@ -658,7 +676,7 @@ public static class MessagingEndpoints
             Audit(db, me, ctx, "thread.assign", $"{channel}:{key}",
                 thread.Assignee.Length > 0 ? thread.Assignee : "(unassigned)");
             return Results.Ok(new { assignee = thread.Assignee });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
 
         // POST …/labels {labels: []} — replaces the list (lowercased, deduped,
         // 48 chars each, 20 max — the store's own normalization).
@@ -687,7 +705,7 @@ public static class MessagingEndpoints
             await db.SaveChangesAsync();
             Audit(db, me, ctx, "thread.labels", $"{channel}:{key}", string.Join(",", labels));
             return Results.Ok(new { labels = thread.Labels });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
 
         // POST …/note {text} — a private note: stored on the thread, NEVER sent
         // to the contact and kept out of the AI's context.
@@ -705,7 +723,7 @@ public static class MessagingEndpoints
                 status: "note", accountId: thread.AccountId, priv: true);
             Audit(db, me, ctx, "thread.note", $"{channel}:{key}", text);
             return Results.Ok(new { message = MessagePayload(msg, thread.Channel, thread.Account?.Name) });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
 
         // POST …/link {contact_id} — attach the conversation to a CRM contact
         // (null unlinks). Channel-agnostic ON PURPOSE: the /chats page routes
@@ -721,7 +739,8 @@ public static class MessagingEndpoints
             var contactId = IntOrNull(body, "contact_id");
             if (contactId is int cid)
             {
-                var contact = await db.Contacts.FirstOrDefaultAsync(c => c.Id == cid);
+                var contact = await ContactsEndpoints.ScopeContacts(db.Contacts, me, db, sc)
+                    .FirstOrDefaultAsync(c => c.Id == cid);
                 if (contact == null)
                     return Results.Json(new { detail = "Contact not found." }, statusCode: 404);
                 thread.ContactId = contact.Id;
@@ -744,7 +763,7 @@ public static class MessagingEndpoints
                 contact_id = thread.ContactId,
                 contact_name = thread.ContactId != null ? thread.Contact?.Name ?? "" : "",
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
     }
 
     // =========================================================================
@@ -807,8 +826,8 @@ public static class MessagingEndpoints
         // across voice/WhatsApp/email/social, oldest first, plus the cached AI
         // summary. `total` is ALWAYS the full count so the contact page knows
         // how much more there is behind its preview.
-        app.MapGet("/api/messaging/timeline", (string? phone, string? email, int? limit,
-            AppDbContext db) =>
+        app.MapGet("/api/messaging/timeline", async (string? phone, string? email, int? limit,
+            AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             phone = (phone ?? "").Trim();
             email = (email ?? "").Trim();
@@ -816,7 +835,9 @@ public static class MessagingEndpoints
                 return Results.Json(new { detail = "phone or email query param required." },
                     statusCode: 400);
 
-            var (events, contact) = CollectEvents(db, phone, email);
+            var (events, contact) = CollectEvents(db, phone, email, ThreadFilter(db, sc, me));
+            if (contact != null && !await ContactVisibleAsync(db, sc, me, contact.Id))
+                return Results.Json(new { detail = "Contact not found." }, statusCode: 404);
             var take = limit ?? 0;
             var slice = take > 0 && events.Count > take
                 ? events.Skip(events.Count - take).ToList()
@@ -827,14 +848,14 @@ public static class MessagingEndpoints
                 ["total"] = events.Count,
                 ["summary"] = contact == null ? null : CachedSummary(db, contact.Id),
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("contacts.view", "chats.view");
 
         // POST /api/messaging/timeline/summary {name, phone?, email?, record?}
         // — (re)generate the AI case summary from the full cross-channel
         // timeline. Without an AI key a deterministic heuristic summary is
         // produced, so the feature still demos in sandbox.
         app.MapPost("/api/messaging/timeline/summary", async (Dictionary<string, JsonElement>? body,
-            AppDbContext db, ILlmClient llm, CancellationToken ct) =>
+            AppDbContext db, ILlmClient llm, ScopingService sc, ClaimsPrincipal me, CancellationToken ct) =>
         {
             var phone = (Str(body, "phone") ?? "").Trim();
             var email = (Str(body, "email") ?? "").Trim();
@@ -851,10 +872,12 @@ public static class MessagingEndpoints
                 context.TryGetProperty("record", out var rec) && rec.ValueKind != JsonValueKind.Null)
                 record = rec.ValueKind == JsonValueKind.String ? rec.GetString() ?? "" : rec.GetRawText();
 
-            var (events, contact) = CollectEvents(db, phone, email);
+            var (events, contact) = CollectEvents(db, phone, email, ThreadFilter(db, sc, me));
+            if (contact != null && !await ContactVisibleAsync(db, sc, me, contact.Id))
+                return Results.Json(new { detail = "Contact not found." }, statusCode: 404);
             var result = await GenerateSummary(db, llm, name, phone, email, record, events, contact, ct);
             return Results.Ok(result);
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("contacts.view", "chats.view");
     }
 
     // ---- timeline.collect_events -------------------------------------------
@@ -869,7 +892,7 @@ public static class MessagingEndpoints
     /// unlinked threads. Deduped by (channel, key).
     /// </summary>
     private static (List<Dictionary<string, object?>> Events, Contact? Contact) CollectEvents(
-        AppDbContext db, string phone, string email)
+        AppDbContext db, string phone, string email, Func<Thread, bool>? visible = null)
     {
         var events = new List<Dictionary<string, object?>>();
         var digits = Digits(phone);
@@ -922,6 +945,7 @@ public static class MessagingEndpoints
             void Consider(Thread? t)
             {
                 if (t == null) return;
+                if (visible != null && !visible(t)) return;   // outside the caller's scope
                 if (!seen.Add($"{t.Channel}\0{t.Key}")) return;
                 threads.Add(t);
             }

@@ -320,7 +320,7 @@ public static class AiControlsEndpoints
                 ai_forced = verdict.Forced,
                 handover = HandoverPayload(t),
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.send");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
 
         // ---- handover stats --------------------------------------------------------------
         app.MapGet("/api/ai/handovers/stats", async (int? days, string? entity, AppDbContext db,

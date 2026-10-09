@@ -134,7 +134,7 @@ public static class WhatsAppThreadsEndpoints
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
             var take = Math.Clamp(limit ?? DefaultLimit, 1, MaxLimit);
             return Results.Ok(await ThreadPayload(db, sc, wa, thread, take, before));
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.view");
 
         // ---- start a chat ----------------------------------------------------
         // views.threads POST. The inbox's "new chat" row posts {phone}; the body
@@ -224,7 +224,7 @@ public static class WhatsAppThreadsEndpoints
                     status: live ? "sent" : "sandbox", accountId: account?.Id);
             await Audit(db, ctx, me, "message.send", $"whatsapp:{thread.Key}", Cap(text, 200));
             return Results.Ok(new { message = MessagePayload(msg, account) });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
 
         // ---- send: template --------------------------------------------------
         // views.send_template — the only way to (re)open a conversation outside
@@ -281,7 +281,7 @@ public static class WhatsAppThreadsEndpoints
             AiControlsEndpoints.HumanReplied(db, thread, msg, me); // answers an open handover
             await Audit(db, ctx, me, "message.send", $"whatsapp:{thread.Key}", $"template:{name}");
             return Results.Ok(new { message = MessagePayload(msg, account) });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
 
         // ---- send: media (multipart) -----------------------------------------
         // views.send_media. The file is ALWAYS kept on disk (live or sandbox) so
@@ -349,7 +349,7 @@ public static class WhatsAppThreadsEndpoints
             await Audit(db, ctx, me, "message.send", $"whatsapp:{thread.Key}",
                 $"media:{kind.Type} {Cap(text, 150)}");
             return Results.Ok(new { message = MessagePayload(msg, account) });
-        }).RequireAuthorization(AuthPolicies.Authenticated).DisableAntiforgery();
+        }).RequireAuthorization(AuthPolicies.Authenticated).DisableAntiforgery().RequireThreadAccess("chats.send");
 
         // ---- chatbot tick ----------------------------------------------------
         // views.toggle_ai. The tick is PER SENDING ACCOUNT (Thread.ai_overrides):
@@ -367,7 +367,7 @@ public static class WhatsAppThreadsEndpoints
             await Audit(db, ctx, me, "thread.ai_toggle", $"whatsapp:{thread.Key}",
                 $"enabled={body.Enabled}");
             return Results.Ok(await ThreadPayload(db, sc, wa, thread, DefaultLimit, null));
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
 
         // ---- conversation status (open / resolved / …) ------------------------
         // Chatwoot-style management, shared with the messaging channels because
@@ -394,7 +394,7 @@ public static class WhatsAppThreadsEndpoints
             await db.SaveChangesAsync();
             await Audit(db, ctx, me, "thread.status", $"whatsapp:{thread.Key}", status);
             return Results.Ok(await ThreadPayload(db, sc, wa, thread, DefaultLimit, null));
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
 
         // ---- labels ----------------------------------------------------------
         // views.set_labels — deduped + lowercased in the store, same as messaging.
@@ -418,7 +418,7 @@ public static class WhatsAppThreadsEndpoints
             await Audit(db, ctx, me, "thread.labels", $"whatsapp:{thread.Key}",
                 string.Join(",", clean));
             return Results.Ok(await ThreadPayload(db, sc, wa, thread, DefaultLimit, null));
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
 
         // ---- switch the sending account (admin+) ------------------------------
         // views.switch_account. Meta's window is per OUR number, so the note the
@@ -526,7 +526,7 @@ public static class WhatsAppThreadsEndpoints
                 prior_contact = priorContact,
                 window_open_with_new_account = isBaileys || recentReply,
             });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.AdminPlus).RequireThreadAccess("chats.send");
 
         // =====================================================================
         // Call controls.
@@ -570,7 +570,7 @@ public static class WhatsAppThreadsEndpoints
                 turns,
                 done,
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.view");
 
         // Recordings — one entry per past call of this conversation: the Baileys
         // gateway's WAV ({wa_id}-{ms}.wav, else the voice agent's recording of the
@@ -584,7 +584,7 @@ public static class WhatsAppThreadsEndpoints
             if (!await WhatsAppMediaEndpoints.CanSeeThread(db, sc, me, thread))
                 return Results.NotFound(new { detail = "Thread not found." });
             return Results.Ok(new { recordings = recordings.ListFor(thread.Key, voice) });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.view");
 
         // Start. A linked Baileys account places a real call. With no linked
         // account Django's sandbox branch stays: the thread's call state flips
@@ -700,7 +700,7 @@ public static class WhatsAppThreadsEndpoints
                 stt_provider = sttProvider,
                 sandbox = true,
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
 
         // End. A live Baileys call is hung up at the gateway and its room
         // deleted (best-effort: either may already be gone); then the thread's
@@ -733,7 +733,7 @@ public static class WhatsAppThreadsEndpoints
                 store.AppendMessage(thread, MessageDirection.Out, MessageSource.System,
                     "WhatsApp call ended.", status: real ? "sent" : "sandbox", accountId: thread.AccountId);
             return Results.Ok(new { status = "ended" });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
 
         // Say (guide | takeover) — into the voice agent's file inbox when a room
         // is attached; a clean 409 otherwise (wa_calls.push_say).
@@ -757,7 +757,7 @@ public static class WhatsAppThreadsEndpoints
             await Audit(db, ctx, me, "call.say", $"whatsapp:{thread.Key}",
                 $"[{mode}] {Cap(text, 120)}");
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
 
         // Escalate — the same guide push with the fixed hand-off wording.
         app.MapPost("/api/whatsapp/threads/{key}/call/escalate", async (string key,
@@ -773,7 +773,7 @@ public static class WhatsAppThreadsEndpoints
             voice.PushInstruction(thread.CallRoom!, "guide", EscalateText);
             await Audit(db, ctx, me, "call.escalate", $"whatsapp:{thread.Key}");
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
     }
 
     // ======================= payload builders ================================

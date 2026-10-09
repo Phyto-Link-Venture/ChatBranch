@@ -104,7 +104,7 @@ public static class InboxEndpoints
             var rows = store.ListThreads(channel, entityId, status,
                                          limit is int n && n > 0 ? n : 100);
             return Results.Ok(new { threads = await ThreadSummaries(db, sc, rows, entityId) });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.view");
 
         app.MapGet("/api/whatsapp/threads/{channel}/{key}/messages",
             (string channel, string key, int? limit, int? before, ThreadStore store) =>
@@ -113,7 +113,7 @@ public static class InboxEndpoints
             if (thread == null) return Results.NotFound(new { detail = "thread not found" });
             var msgs = store.GetMessages(thread, limit ?? 50, before);
             return Results.Ok(new { messages = msgs.Select(Dtos.MessageDto) });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.view");
 
         // ---- sandbox send ------------------------------------------------------
         app.MapPost("/api/whatsapp/threads/{channel}/{key}/send",
@@ -139,7 +139,7 @@ public static class InboxEndpoints
             var msg = sender.Send(thread, body.Text, MessageSource.Agent, accountId);
             AiControlsEndpoints.HumanReplied(db, thread, msg, me); // answers an open handover
             return Results.Ok(Dtos.MessageDto(msg));
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
 
         // ---- simulate inbound (sandbox) ---------------------------------------
         app.MapPost("/api/whatsapp/simulate", async (SimulateRequest body, string? ai, ThreadStore store, AppDbContext db,
@@ -225,7 +225,7 @@ public static class InboxEndpoints
                 stale = svc.IsStale(thread, brief),
                 message_count = count,
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.view");
 
         app.MapPost("/api/messaging/threads/{channel}/{key}/summary",
             async (string channel, string key, ThreadStore store,
@@ -241,7 +241,7 @@ public static class InboxEndpoints
                 stale = false,
                 message_count = count,
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.view");
 
         // NOTE: POST /api/messaging/timeline/summary (the contact page's
         // "Generate summary") already lives in MessagingEndpoints — it handles
