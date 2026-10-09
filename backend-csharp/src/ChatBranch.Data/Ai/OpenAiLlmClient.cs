@@ -42,6 +42,9 @@ public class OpenAiLlmClient : ILlmClient
     public const string IlmuBaseUrlDefault = "https://api.ilmu.ai/v1";
 
     /// <summary>The automatic order when <c>chat_provider_order</c> names nothing usable.</summary>
+    /// <summary>OpenRouter's <c>max_tokens</c> when <c>openrouter_max_tokens</c> is unset.</summary>
+    public const int OpenRouterMaxTokensDefault = 2048;
+
     public static readonly string[] DefaultOrder = { "openrouter", "openai", "ilmu", "google", "local" };
 
     public OpenAiLlmClient(IHttpClientFactory http, ScopingService scoping)
@@ -254,6 +257,12 @@ public class OpenAiLlmClient : ILlmClient
         // extended thinking off — faster, and no think-block leaking into a reply
         // (the voice agent does the same; Gemini's OpenAI endpoint takes this knob)
         if (provider.Name is "ilmu" or "google") body["reasoning_effort"] = "low";
+        // OpenRouter checks the key's credit against the model's FULL output
+        // ceiling (65k for Sonnet) when max_tokens is absent - even on a BYOK key
+        // that would cost nothing - and answers 402. A modest cap fits any balance.
+        if (provider.Name == "openrouter")
+            body["max_tokens"] = int.TryParse(S("openrouter_max_tokens", "OPENROUTER_MAX_TOKENS"), out var mt) && mt > 0
+                ? mt : OpenRouterMaxTokensDefault;
         if (tools is { Count: > 0 })
         {
             body["tools"] = tools.Select(t => new
@@ -276,7 +285,14 @@ public class OpenAiLlmClient : ILlmClient
         req.Content = JsonContent.Create(body);
 
         using var resp = await client.SendAsync(req, ct);
-        resp.EnsureSuccessStatusCode();
+        if (!resp.IsSuccessStatusCode)
+        {
+            // keep the provider's own reason ("requires more credits...") - a bare
+            // status code is not enough to tell a billing problem from a bad model id
+            var detail = await resp.Content.ReadAsStringAsync(ct);
+            if (detail.Length > 300) detail = detail[..300];
+            throw new HttpRequestException($"{(int)resp.StatusCode} {resp.ReasonPhrase}: {detail}", null, resp.StatusCode);
+        }
         var json = await resp.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
 
         var msg = json.GetProperty("choices")[0].GetProperty("message");
