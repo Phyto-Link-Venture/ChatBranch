@@ -247,7 +247,7 @@ export function SideNav({
         <EntitySwitcher block />
       </div>
 
-      <nav
+      <nav data-tour="nav"
         ref={navRef}
         onScroll={hideTip}
         className={`relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden no-scrollbar py-3 ${collapsed ? 'px-2' : 'px-3'}`}

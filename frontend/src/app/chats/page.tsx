@@ -1389,6 +1389,7 @@ function ChatsPage() {
                   {/* AI auto-reply on/off (email has no auto-reply) */}
                   {active.channel !== 'email' && (
                     <button
+                      data-tour="chats-ai"
                       onClick={toggleAi}
                       disabled={busy || optedOut || !!active.ai_forced}
                       role="switch"
@@ -1847,7 +1848,7 @@ function ChatsPage() {
                     refreshToken={active?.messages.length}
                   />
                 )}
-                <div className="shrink-0 border-t border-line px-3 pb-3 pt-2 sm:px-4">
+                <div data-tour="chats-composer" className="shrink-0 border-t border-line px-3 pb-3 pt-2 sm:px-4">
                   <div className="mb-2 flex gap-1" role="tablist" aria-label={t('chats.page.composerModeAria')}>
                     <button
                       role="tab"

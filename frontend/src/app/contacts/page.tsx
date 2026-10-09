@@ -599,14 +599,14 @@ function ContactsList() {
         }
         actions={
           canManage && (
-            <>
+            <span data-tour="contacts-actions" className="flex flex-wrap items-center gap-2">
               <Button variant="secondary" onClick={() => setImportOpen(true)}>
                 <Upload size={14} aria-hidden /> {t('contacts.list.import')}
               </Button>
               <Button variant="primary" onClick={openCreate}>
                 <Plus size={14} aria-hidden /> {t('contacts.list.addContact')}
               </Button>
-            </>
+            </span>
           )
         }
       />
@@ -632,7 +632,7 @@ function ContactsList() {
 
       <ContactModal open={modalOpen} editing={editing} onClose={() => setModalOpen(false)} onSaved={load} />
 
-      <div className="min-h-0 flex-1">
+      <div data-tour="contacts-list" className="min-h-0 flex-1">
         <DataTable
           columns={contactColumns}
           rows={filtered}

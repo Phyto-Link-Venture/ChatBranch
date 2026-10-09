@@ -123,7 +123,7 @@ export function AiBill() {
   return (
     <div className="flex flex-col gap-4">
       {/* controls */}
-      <div className="flex flex-wrap items-center gap-2 print:hidden">
+      <div data-tour="billing-controls" className="flex flex-wrap items-center gap-2 print:hidden">
         <div className="inline-flex items-center rounded-lg border border-line-strong bg-card">
           <button
             type="button"
@@ -181,7 +181,7 @@ export function AiBill() {
 
       {/* one company's bill */}
       {bill && detail && (
-        <Card className="p-5 sm:p-6">
+        <Card className="p-5 sm:p-6" data-tour="billing-statement">
           <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line pb-4">
             <div>
               <div className="eyebrow">{t('billing.statement')}</div>

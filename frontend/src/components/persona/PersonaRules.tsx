@@ -148,7 +148,7 @@ export function PersonaRules() {
       )}
 
       {/* ---- persona: nearest level wins ---- */}
-      <Card className="p-5">
+      <Card className="p-5" data-tour="persona-card">
         <CardTitle
           right={
             <span className="text-text-muted">
@@ -215,7 +215,7 @@ export function PersonaRules() {
       </Card>
 
       {/* ---- house rules: they add up ---- */}
-      <Card className="p-5">
+      <Card className="p-5" data-tour="rules-card">
         <CardTitle>{t('ai.persona.rulesTitle')}</CardTitle>
         <p className="mt-1 text-[12.5px] text-text-muted">{t('ai.persona.rulesHelp')}</p>
 
@@ -261,7 +261,7 @@ export function PersonaRules() {
       </Card>
 
       {/* ---- what the AI actually receives ---- */}
-      <Card className="p-5">
+      <Card className="p-5" data-tour="preamble-card">
         <CardTitle
           right={
             <Link href="/ai-playground" className="inline-flex items-center gap-1 font-semibold text-[var(--brand-ink)] hover:underline">

@@ -18,6 +18,7 @@ import { resetNotifications } from './notificationsStore'
 import { useLive } from './liveStore'
 import { CampaignModal } from '@/components/CampaignModal'
 import { AssistantDock } from '@/components/assistant/AssistantDock'
+import { TourProvider } from '@/components/tour/TourProvider'
 
 /**
  * App chrome, Paper & Ink: a flush layout — the sidebar rail (surface, hairline
@@ -158,6 +159,7 @@ export function Shell({ children }: { children: ReactNode }) {
   if (isLogin || isPublic) return <>{children}</>
 
   return (
+    <TourProvider>
     <div
       className="shell-root flex overflow-hidden bg-app text-text-primary"
       style={{ zoom: 'var(--ui-zoom)', height: 'calc(100dvh / var(--ui-zoom))' } as React.CSSProperties}
@@ -223,6 +225,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <AssistantDock open={assistantOpen} onOpenChange={setAssistantOpen} />
       </ErrorBoundary>
     </div>
+    </TourProvider>
   )
 }
 

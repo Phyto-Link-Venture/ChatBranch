@@ -158,7 +158,7 @@ export default function AnalyticsPage() {
           </div>
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <div role="group" aria-label={t('analytics.page.period')} className="flex overflow-hidden rounded-lg border border-line-strong">
+          <div role="group" data-tour="analytics-range" aria-label={t('analytics.page.period')} className="flex overflow-hidden rounded-lg border border-line-strong">
             {PERIODS.map((d) => (
               <button
                 key={d}
@@ -191,7 +191,9 @@ export default function AnalyticsPage() {
         </Card>
       ) : (
         <div className={`flex flex-col gap-6 transition-opacity ${refreshing ? 'opacity-60' : 'opacity-100'}`}>
-          <KpiStrip data={data} />
+          <div data-tour="analytics-kpis">
+            <KpiStrip data={data} />
+          </div>
           <EngagementStrip entityQ={entityQ} summary={data} />
 
           <div className="grid gap-5 lg:grid-cols-3">

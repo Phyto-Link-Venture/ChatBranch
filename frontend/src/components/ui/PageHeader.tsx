@@ -19,7 +19,7 @@ export function PageHeader({
   className?: string
 }) {
   return (
-    <div className={`flex flex-wrap items-end gap-x-4 gap-y-2 border-b border-text-primary/80 pb-3 ${className}`}>
+    <div data-tour="page-header" className={`flex flex-wrap items-end gap-x-4 gap-y-2 border-b border-text-primary/80 pb-3 ${className}`}>
       <div className="min-w-0">
         {eyebrow && <div className="eyebrow">{eyebrow}</div>}
         <h1 className="display mt-0.5 text-[30px] leading-[1.05] text-text-heading sm:text-[36px]">{title}</h1>

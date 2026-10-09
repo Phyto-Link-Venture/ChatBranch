@@ -6,6 +6,7 @@ import { Menu, Search, Sparkles } from 'lucide-react'
 import type { AuthUser } from '@/lib/auth'
 import { EntitySwitcher } from './EntitySwitcher'
 import { NotificationsBell } from './NotificationsBell'
+import { GuideMenu } from '@/components/tour/GuideMenu'
 import { LiveChip } from './LiveChip'
 import { NAV_GROUPS, SETTINGS_NAV, isActive } from './nav'
 import { useT, type TFunction } from '@/i18n'
@@ -64,6 +65,7 @@ export function TopBar({
         onClick={onOpenSearch}
         aria-label={t('common.actions.search')}
         aria-keyshortcuts="Control+K Meta+K"
+        data-tour="search"
         className="hidden h-[38px] min-w-0 max-w-[520px] flex-1 cursor-text items-center gap-2.5 rounded-lg border border-line-strong bg-card px-3 text-left transition-colors hover:border-text-faint md:flex"
       >
         <Search size={16} strokeWidth={1.6} className="shrink-0 text-text-muted" aria-hidden />
@@ -76,7 +78,9 @@ export function TopBar({
       </button>
 
       <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2.5">
-        <LiveChip />
+        <div data-tour="live-chip">
+          <LiveChip />
+        </div>
         <button
           type="button"
           onClick={onOpenSearch}
@@ -85,7 +89,7 @@ export function TopBar({
         >
           <Search size={18} strokeWidth={1.6} />
         </button>
-        <div className="hidden sm:block">
+        <div className="hidden sm:block" data-tour="entity-switcher">
           <EntitySwitcher />
         </div>
         {onToggleAssistant && (
@@ -95,6 +99,7 @@ export function TopBar({
             aria-label={t('assistant.dock.name')}
             aria-expanded={assistantOpen}
             aria-keyshortcuts="Control+J Meta+J"
+            data-tour="assistant"
             title={`${t('assistant.dock.name')} (${mod} J)`}
             className={`inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg px-2.5 text-[13px] font-semibold transition-colors ${
               assistantOpen ? 'bg-fill-hover text-text-heading' : 'text-text-high hover:bg-fill-hover'
@@ -104,6 +109,7 @@ export function TopBar({
             <span className="hidden xl:inline">{t('assistant.dock.name')}</span>
           </button>
         )}
+        <GuideMenu />
         <NotificationsBell />
       </div>
     </header>

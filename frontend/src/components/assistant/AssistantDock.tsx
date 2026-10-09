@@ -13,6 +13,8 @@ import {
   History,
   Loader2,
   MessageSquarePlus,
+  PanelRight,
+  PictureInPicture2,
   Sparkles,
   X,
 } from 'lucide-react'
@@ -22,6 +24,7 @@ import { useEntity } from '@/lib/EntityContext'
 import { BranchMark } from '@/components/shell/Logo'
 import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
 import { AssistantHistory } from './AssistantHistory'
+import { FLOAT_H, FLOAT_W, clampPos, useAssistantLayout } from './assistantLayout'
 import {
   AssistantError,
   assistantApi,
@@ -106,6 +109,31 @@ export function AssistantDock({
   const [loadingChat, setLoadingChat] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hints, setHints] = useState<Hint[]>([])
+  // docked to the right edge, or a floating window dragged by its header (desktop)
+  const { layout, update: updateLayout, floating, desktop } = useAssistantLayout()
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  const drag = useRef<{ dx: number; dy: number } | null>(null)
+  useEffect(() => {
+    if (!floating) return
+    const place = () => setPos(clampPos(layout.x, layout.y))
+    place()
+    window.addEventListener('resize', place)
+    return () => window.removeEventListener('resize', place)
+  }, [floating, layout.x, layout.y])
+  const onDragStart = (e: React.PointerEvent<HTMLElement>) => {
+    if (!floating || !pos || (e.target as HTMLElement).closest('button, a, input, textarea')) return
+    drag.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+  const onDragMove = (e: React.PointerEvent<HTMLElement>) => {
+    if (!drag.current) return
+    setPos(clampPos(e.clientX - drag.current.dx, e.clientY - drag.current.dy))
+  }
+  const onDragEnd = () => {
+    if (!drag.current) return
+    drag.current = null
+    if (pos) updateLayout({ x: pos.x, y: pos.y })
+  }
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -362,6 +390,20 @@ export function AssistantDock({
 
   return (
     <>
+      {/* closed, on a desktop: a slim tab on the right edge that slides out on hover */}
+      {!open && desktop && (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-label={t('assistant.dock.name')}
+          title={t('assistant.dock.name')}
+          className="print-hide group fixed right-0 top-[42%] z-[45] flex translate-x-[calc(100%-6px)] items-center gap-2 rounded-l-xl border border-r-0 border-line-strong bg-card py-3 pl-2.5 pr-3 text-[12.5px] font-semibold text-text-high shadow-pop transition-transform duration-200 hover:translate-x-0 focus-visible:translate-x-0"
+        >
+          <span aria-hidden className="absolute inset-y-2 left-0.5 w-[3px] rounded-full bg-brand-400 transition-opacity group-hover:opacity-0" />
+          <Sparkles size={15} aria-hidden className="text-[var(--brand-ink)]" />
+          <span className="whitespace-nowrap">{t('assistant.dock.name')}</span>
+        </button>
+      )}
       {open && (
         <>
           <div
@@ -373,10 +415,24 @@ export function AssistantDock({
           <aside
             role="dialog"
             aria-label={t('assistant.dock.name')}
-            className="fixed inset-y-0 right-0 z-[55] flex w-full animate-fadeIn flex-col border-l border-line-strong bg-card shadow-pop sm:w-[420px]"
-            style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+            className={
+              floating
+                ? 'fixed z-[55] flex animate-fadeIn flex-col overflow-hidden rounded-xl border border-line-strong bg-card shadow-pop'
+                : 'fixed inset-y-0 right-0 z-[55] flex w-full animate-fadeIn flex-col border-l border-line-strong bg-card shadow-pop sm:w-[420px]'
+            }
+            style={
+              floating
+                ? { left: pos?.x ?? -9999, top: pos?.y ?? -9999, width: FLOAT_W, height: `min(${FLOAT_H}px, calc(100vh - 24px))` }
+                : { paddingBottom: 'env(safe-area-inset-bottom)' }
+            }
           >
-            <header className="flex items-center gap-2 border-b border-line px-3 py-3 sm:px-4">
+            <header
+              onPointerDown={onDragStart}
+              onPointerMove={onDragMove}
+              onPointerUp={onDragEnd}
+              onPointerCancel={onDragEnd}
+              className={`flex items-center gap-2 border-b border-line px-3 py-3 sm:px-4 ${floating ? 'cursor-move select-none' : ''}`}
+            >
               {view === 'history' ? (
                 <>
                   <button
@@ -437,6 +493,17 @@ export function AssistantDock({
                   className={headerBtn}
                 >
                   <MessageSquarePlus size={15} aria-hidden />
+                </button>
+              )}
+              {desktop && (
+                <button
+                  type="button"
+                  onClick={() => updateLayout({ mode: floating ? 'docked' : 'floating' })}
+                  aria-label={floating ? t('assistant.dock.dock') : t('assistant.dock.float')}
+                  title={floating ? t('assistant.dock.dock') : t('assistant.dock.float')}
+                  className={headerBtn}
+                >
+                  {floating ? <PanelRight size={15} aria-hidden /> : <PictureInPicture2 size={15} aria-hidden />}
                 </button>
               )}
               <button type="button" onClick={() => setOpen(false)} aria-label={t('assistant.dock.close')} className={headerBtn}>

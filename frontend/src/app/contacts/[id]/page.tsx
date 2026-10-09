@@ -51,9 +51,9 @@ const timelineChannel = (t: TFunction, c: string) =>
   c === 'email' || c === 'website' ? t(`chats.channels.${c}`) : c === 'voice' ? t('contacts.hub.aiVoice') : channelLabel(logoKey(c))
 
 /** A paper card with an eyebrow heading and an optional right slot. */
-function Panel({ title, right, children, className = '' }: { title: string; right?: ReactNode; children: ReactNode; className?: string }) {
+function Panel({ title, right, children, className = '', tour }: { title: string; right?: ReactNode; children: ReactNode; className?: string; tour?: string }) {
   return (
-    <section className={`rounded-xl border border-line bg-card p-4 ${className}`}>
+    <section data-tour={tour} className={`rounded-xl border border-line bg-card p-4 ${className}`}>
       <div className="mb-3 flex items-center justify-between gap-2">
         <h2 className="eyebrow">{title}</h2>
         {right}
@@ -212,7 +212,7 @@ export default function ContactDetailPage() {
       </Link>
 
       {/* header */}
-      <section className="flex flex-wrap items-center gap-4 rounded-xl border border-line bg-card px-5 py-5 sm:px-6">
+      <section data-tour="contact-header" className="flex flex-wrap items-center gap-4 rounded-xl border border-line bg-card px-5 py-5 sm:px-6">
         <div className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-primary text-[18px] font-semibold text-on-primary">
           {initials(d.name)}
         </div>
@@ -299,7 +299,7 @@ export default function ContactDetailPage() {
         {/* main column: what has been said, then where they can be reached */}
         <div className="flex min-w-0 flex-col gap-4 lg:col-start-1 lg:row-span-2 lg:row-start-1">
           {/* AI summary */}
-          <section className="rounded-xl border border-line bg-card px-5 py-4">
+          <section data-tour="contact-summary" className="rounded-xl border border-line bg-card px-5 py-4">
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <Sparkles size={14} className="text-brand-300" aria-hidden />
               <h2 className="eyebrow">{t('contacts.detail.aiSummary')}</h2>
@@ -322,7 +322,7 @@ export default function ContactDetailPage() {
             </p>
           </section>
 
-            <section className="min-w-0 rounded-xl border border-line bg-card p-5">
+            <section data-tour="contact-comms" className="min-w-0 rounded-xl border border-line bg-card p-5">
               <div className="flex flex-wrap items-baseline gap-2">
                 <h2 className="display text-[22px] leading-tight text-text-heading">{t('contacts.detail.communications')}</h2>
                 <span className="text-[12.5px] text-text-muted">
@@ -391,7 +391,7 @@ export default function ContactDetailPage() {
                 </ol>
               )}
             </section>
-          <Panel title={t('contacts.detail.channels')}>
+          <Panel title={t('contacts.detail.channels')} tour="contact-channels">
             <ChannelHub contactId={d.id} allowAdd />
           </Panel>
         </div>
@@ -399,7 +399,9 @@ export default function ContactDetailPage() {
         {/* sidebar, bottom: how the AI and the team handle them */}
         <div className="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-start-2">
           {/* AI for this contact: follow the chat · never · always */}
-          <ContactAiModeCard contactId={d.id} />
+          <div data-tour="contact-ai">
+            <ContactAiModeCard contactId={d.id} />
+          </div>
           {/* Registry tags (boss / employee / driver…) with their attribute values */}
           <ContactTagsCard contactId={d.id} />
           {/* Per-entity membership — link/unlink without deleting the profile */}

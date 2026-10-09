@@ -63,6 +63,12 @@ export default function HelpIndexPage() {
           <h1 className="text-[26px] font-extrabold tracking-[-0.6px] text-text-heading">{t('help.title')}</h1>
         </div>
         <p className="text-[13px] text-text-muted">{t('help.subtitle')}</p>
+        <Link
+          href="/help/manual"
+          className="mt-3 inline-flex items-center gap-1.5 text-[13px] font-semibold text-[var(--brand-ink)] hover:underline"
+        >
+          <BookOpen size={14} aria-hidden /> {t('guide.manual.title')} →
+        </Link>
       </header>
 
       <label className="mb-8 flex items-center gap-2 rounded-xl border border-line-strong bg-card px-3 py-2.5">

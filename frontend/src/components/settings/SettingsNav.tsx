@@ -293,6 +293,7 @@ function SettingsShellInner({ children }: { children: ReactNode }) {
       <div className="flex md:min-h-0 md:flex-1">
         {/* Desktop navigation: collapsible sections. */}
         <nav
+          data-tour="settings-nav"
           className="hidden w-[244px] shrink-0 overflow-y-auto border-r border-line px-3 py-5 md:block"
           aria-label={t('settings.shell.sectionsAria')}
         >

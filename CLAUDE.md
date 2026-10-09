@@ -986,12 +986,30 @@ When you fix one of these, update this table, `README.md` and
   hand-written `public/sw.js` (never caches `/api/*` or the stream; offline
   navigations land on `/offline?from=`), icons in `public/icons/` rendered from
   `Logo.tsx`'s `brandMarkSvg`. **Ask ChatBranch** (`AssistantDock`) opens from
-  the top bar's sparkle button or Ctrl/⌘+J — the shell owns its `open` state;
-  nothing floats over the page (the old bottom-right pill covered composers and
-  save bars, don't bring it back); its chats live on the server (History
+  the top bar's sparkle button, Ctrl/⌘+J, or — on desktop, while closed — a
+  slim tab on the right edge (6 px peek at 42% height, slides out on hover);
+  the shell owns its `open` state. Desktop can switch it between docked (the
+  right-hand panel) and a FLOATING window dragged by its header
+  (`assistantLayout.ts`, localStorage `assistant-layout`, clamped on screen).
+  Never a bottom-right pill: that covered composers and save bars. Its chats live on the server (History
   view, per user); the browser keeps only `assistant:<username>:current` (open
   chat id + draft, `lib/assistantCache.ts`), and `clearAuth()` (sign-out, 401
   expiry) and every login remove every `assistant:*` key.
+- **Page guides + the manual.** `lib/tours.ts` is ONE list of tours (page,
+  steps → `data-tour="<target>"` elements; words in the `guide` namespace by
+  convention `guide.tours.<id>.steps.s<n>.title|body`, en/ms/zh) feeding BOTH
+  the in-app guide and the public manual. `components/tour/TourProvider.tsx`
+  (in the Shell) spotlights one target at a time (missing targets are skipped,
+  no target = a centred card), starts by itself on a person's FIRST visit to a
+  page (localStorage `tour-seen:<user>:<id>`, off via the Guide menu's
+  `tour-auto:<user>`), and on `?tour=<id>`; the top bar's ? button
+  (`GuideMenu.tsx`) replays the page's guide, the app tour (`shell`) or opens
+  the manual. `/help/manual` (public, like `/help`) prints every tour as a
+  chapter with "Show me in the app" (`<href>?tour=<id>`), Download PDF (print),
+  Download HTML (one self-contained file in the reader's language) and an
+  iframe embed snippet (`?embed=1` drops the chrome). A new page = a `TOURS`
+  entry + its `guide.tours.<id>` words in 3 locales + `data-tour` targets
+  (`PageHeader` carries `page-header`; `Card` forwards `data-tour`).
 - **`src/lib/AppContext.tsx`** holds shared state + the real-call seams. API
   base = `NEXT_PUBLIC_API_URL` (default `http://localhost:8090/api` in
   `next.config.js` and `frontend/.env.example` — no longer the Django-era 8000;

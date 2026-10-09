@@ -89,6 +89,7 @@ export default function ChatInfoPanel({
   const meta = CHANNEL_META[active.channel]
   return (
     <aside
+      data-tour="chats-info"
       aria-label={t('chats.info.aria')}
       className="hidden w-[288px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-line bg-surface p-3 xl:flex"
     >

@@ -17,6 +17,8 @@ export const assistant: Dict<typeof source> = {
     backToChat: 'Kembali ke sembang',
     newChat: 'Sembang baharu',
     close: 'Tutup pembantu',
+    float: 'Terapung — alihkan ke mana-mana',
+    dock: 'Lekatkan di sisi',
     opening: 'Membuka sembang anda…',
     openFailed: 'Tidak dapat membuka sembang itu — {error}',
     unreachable: 'Saya tidak dapat menghubungi pembantu — {error}',
