@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 're
 import { Check, Loader2, MessageSquare, Pencil, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
-import { relTime } from '@/lib/channelHealth'
-import { assistantApi, type ConversationSummary } from './assistantApi'
+import { useFormat, useT } from '@/i18n'
+import { AssistantError, assistantApi, type ConversationSummary } from './assistantApi'
 
 /**
  * The dock's "History" view: the signed-in user's own past chats, newest first
@@ -26,6 +26,18 @@ export function AssistantHistory({
   onCleared: () => void
   onRenamed: (id: number, title: string) => void
 }) {
+  const t = useT()
+  const f = useFormat()
+  // the loader reads the latest t without re-running on a language switch
+  const tRef = useRef(t)
+  tRef.current = t
+  /** A failure for display: the server's detail as it is; an expired session translated. */
+  const errMsg = (e: unknown) =>
+    e instanceof AssistantError && e.status === 401
+      ? tRef.current('common.errors.sessionExpired')
+      : e instanceof Error
+        ? e.message
+        : String(e)
   const [items, setItems] = useState<ConversationSummary[]>([])
   const [total, setTotal] = useState(0)
   const [nextBefore, setNextBefore] = useState<string | null>(null)
@@ -49,10 +61,12 @@ export function AssistantHistory({
       setTotal(page.total)
       setNextBefore(page.has_more ? page.next_before : null)
     } catch (e) {
-      if (alive.current) setError(`Couldn’t load your chats — ${e instanceof Error ? e.message : String(e)}`)
+      if (alive.current) setError(tRef.current('assistant.history.loadFailed', { error: errMsg(e) }))
     } finally {
       if (alive.current) setLoading(false)
     }
+    // errMsg reads tRef only — the loader never needs to change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -72,7 +86,7 @@ export function AssistantHistory({
       setTotal((t) => Math.max(0, t - 1))
       onDeleted(id)
     } catch (e) {
-      setError(`Couldn’t delete that chat — ${e instanceof Error ? e.message : String(e)}`)
+      setError(t('assistant.history.deleteFailed', { error: errMsg(e) }))
     } finally {
       setBusyId(null)
       setConfirmDelete(null)
@@ -95,7 +109,7 @@ export function AssistantHistory({
       onRenamed(saved.id, saved.title)
       setEditing(null)
     } catch (e) {
-      setError(`Couldn’t rename that chat — ${e instanceof Error ? e.message : String(e)}`)
+      setError(t('assistant.history.renameFailed', { error: errMsg(e) }))
     } finally {
       setBusyId(null)
     }
@@ -112,7 +126,7 @@ export function AssistantHistory({
       setClearOpen(false)
       onCleared()
     } catch (e) {
-      setClearError(`Couldn’t clear your chats — ${e instanceof Error ? e.message : String(e)}`)
+      setClearError(t('assistant.history.clearFailed', { error: errMsg(e) }))
     } finally {
       setClearing(false)
     }
@@ -144,7 +158,9 @@ export function AssistantHistory({
       )}
 
       <div className="flex items-center justify-between gap-2">
-        <div className="eyebrow">Your chats{total > 0 ? ` · ${total}` : ''}</div>
+        <div className="eyebrow">
+          {total > 0 ? t('assistant.history.yourChatsCount', { n: f.number(total) }) : t('assistant.history.yourChats')}
+        </div>
         {items.length > 0 && (
           <Button
             variant="ghost"
@@ -154,23 +170,21 @@ export function AssistantHistory({
               setClearOpen(true)
             }}
           >
-            <Trash2 size={13} aria-hidden /> Clear all
+            <Trash2 size={13} aria-hidden /> {t('assistant.history.clearAll')}
           </Button>
         )}
       </div>
 
       {loading && items.length === 0 ? (
         <div className="flex items-center gap-2 py-6 text-[12.5px] text-text-muted">
-          <Loader2 size={14} className="animate-spin" aria-hidden /> Loading your chats…
+          <Loader2 size={14} className="animate-spin" aria-hidden /> {t('assistant.history.loading')}
         </div>
       ) : items.length === 0 ? (
         !error && (
           <div className="flex flex-col items-start gap-1.5 rounded-lg border border-dashed border-line-strong px-4 py-6">
             <MessageSquare size={18} className="text-text-faint" aria-hidden />
-            <div className="text-[13px] font-semibold text-text-high">No chats yet</div>
-            <p className="text-[12.5px] leading-relaxed text-text-muted">
-              Questions you ask are kept here, for you only, so you can pick a chat up again later.
-            </p>
+            <div className="text-[13px] font-semibold text-text-high">{t('assistant.history.emptyTitle')}</div>
+            <p className="text-[12.5px] leading-relaxed text-text-muted">{t('assistant.history.emptyBody')}</p>
           </div>
         )
       ) : (
@@ -195,7 +209,7 @@ export function AssistantHistory({
                       maxLength={120}
                       onChange={(e) => setEditing({ id: c.id, title: e.target.value })}
                       onKeyDown={onTitleKey}
-                      aria-label="Chat title"
+                      aria-label={t('assistant.history.titleAria')}
                       className="h-8 min-w-0 flex-1 rounded-md border border-line-strong bg-card px-2 text-[13px] text-text-primary outline-none focus:border-text-muted"
                     />
                   ) : (
@@ -207,7 +221,9 @@ export function AssistantHistory({
                     >
                       <span className="flex items-baseline gap-2">
                         <span className="truncate text-[13px] font-semibold text-text-high">{c.title}</span>
-                        <span className="ml-auto shrink-0 text-[11px] text-text-faint">{relTime(c.updated_at)}</span>
+                        <span className="ml-auto shrink-0 text-[11px] text-text-faint" title={f.dateTime(c.updated_at)}>
+                          {f.relative(c.updated_at)}
+                        </span>
                       </span>
                       {c.snippet && (
                         <span className="mt-0.5 line-clamp-2 break-words text-[12px] leading-snug text-text-muted">
@@ -224,12 +240,12 @@ export function AssistantHistory({
                           type="button"
                           onClick={() => void saveTitle()}
                           disabled={busy}
-                          aria-label="Save title"
+                          aria-label={t('assistant.history.saveTitle')}
                           className={iconBtn}
                         >
                           {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Check size={13} aria-hidden />}
                         </button>
-                        <button type="button" onClick={() => setEditing(null)} aria-label="Cancel rename" className={iconBtn}>
+                        <button type="button" onClick={() => setEditing(null)} aria-label={t('assistant.history.cancelRename')} className={iconBtn}>
                           <X size={13} aria-hidden />
                         </button>
                       </>
@@ -237,10 +253,10 @@ export function AssistantHistory({
                       <>
                         <Button variant="danger" size="sm" disabled={busy} onClick={() => void remove(c.id)}>
                           {busy && <Loader2 size={12} className="animate-spin" aria-hidden />}
-                          Delete
+                          {t('common.actions.delete')}
                         </Button>
                         <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(null)}>
-                          Keep
+                          {t('assistant.history.keep')}
                         </Button>
                       </>
                     ) : (
@@ -251,8 +267,8 @@ export function AssistantHistory({
                             setConfirmDelete(null)
                             setEditing({ id: c.id, title: c.title })
                           }}
-                          aria-label={`Rename “${c.title}”`}
-                          title="Rename"
+                          aria-label={t('assistant.history.renameAria', { title: c.title })}
+                          title={t('assistant.history.rename')}
                           className={iconBtn}
                         >
                           <Pencil size={13} aria-hidden />
@@ -263,8 +279,8 @@ export function AssistantHistory({
                             setEditing(null)
                             setConfirmDelete(c.id)
                           }}
-                          aria-label={`Delete “${c.title}”`}
-                          title="Delete"
+                          aria-label={t('assistant.history.deleteAria', { title: c.title })}
+                          title={t('common.actions.delete')}
                           className={iconBtn}
                         >
                           <Trash2 size={13} aria-hidden />
@@ -282,24 +298,24 @@ export function AssistantHistory({
       {nextBefore && (
         <Button variant="secondary" size="sm" disabled={loading} onClick={() => void load(nextBefore)} className="self-center">
           {loading && <Loader2 size={12} className="animate-spin" aria-hidden />}
-          Show older chats
+          {t('assistant.history.older')}
         </Button>
       )}
 
       <Modal
         open={clearOpen}
         onClose={() => !clearing && setClearOpen(false)}
-        title="Clear all chats?"
+        title={t('assistant.history.clearTitle')}
         size="sm"
         labelledById="assistant-clear-title"
         footer={
           <>
             <Button variant="ghost" onClick={() => setClearOpen(false)} disabled={clearing}>
-              Cancel
+              {t('common.actions.cancel')}
             </Button>
             <Button variant="danger" onClick={() => void clearAll()} disabled={clearing}>
               {clearing && <Loader2 size={13} className="animate-spin" aria-hidden />}
-              Clear all
+              {t('assistant.history.clearAll')}
             </Button>
           </>
         }
@@ -313,9 +329,7 @@ export function AssistantHistory({
           </div>
         )}
         <p className="text-[13px] leading-relaxed text-text-mid">
-          This deletes all {total === 1 ? 'your chat' : `${total} of your chats`} with Ask ChatBranch. It can’t be
-          undone, and any change still waiting for your confirmation is cancelled. Other people’s chats aren’t
-          affected.
+          {t('assistant.history.clearBody', { count: total })}
         </p>
       </Modal>
     </div>

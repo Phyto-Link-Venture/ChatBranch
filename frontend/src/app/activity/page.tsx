@@ -28,6 +28,7 @@ import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Select } from '@/components/ui/Select'
 import { EntityPicker } from '@/components/ui/EntityPicker'
+import { useFormat, useT, type MessageKey } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -42,13 +43,13 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 type Preset = '24h' | '7d' | '30d' | '90d' | 'all' | 'custom'
 
-const PRESETS: { id: Preset; label: string; ms?: number }[] = [
-  { id: '24h', label: '24 hours', ms: 864e5 },
-  { id: '7d', label: '7 days', ms: 7 * 864e5 },
-  { id: '30d', label: '30 days', ms: 30 * 864e5 },
-  { id: '90d', label: '90 days', ms: 90 * 864e5 },
-  { id: 'all', label: 'All time' },
-  { id: 'custom', label: 'Custom' },
+const PRESETS: { id: Preset; label: MessageKey; ms?: number }[] = [
+  { id: '24h', label: 'review.activity.presets.h24', ms: 864e5 },
+  { id: '7d', label: 'review.activity.presets.d7', ms: 7 * 864e5 },
+  { id: '30d', label: 'review.activity.presets.d30', ms: 30 * 864e5 },
+  { id: '90d', label: 'review.activity.presets.d90', ms: 90 * 864e5 },
+  { id: 'all', label: 'review.activity.presets.all' },
+  { id: 'custom', label: 'review.activity.presets.custom' },
 ]
 
 const PAGE_SIZES = [25, 50, 100]
@@ -128,27 +129,25 @@ function urlQuery(f: Filters, page: number, size: number): string {
   return s ? `?${s}` : ''
 }
 
-const when = (iso: string) =>
-  new Date(iso).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-
-function ago(iso: string): string {
-  const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000)
-  if (s < 45) return 'just now'
-  if (s < 3600) return `${Math.round(s / 60)}m ago`
-  if (s < 86400) return `${Math.round(s / 3600)}h ago`
-  if (s < 7 * 86400) return `${Math.round(s / 86400)}d ago`
-  return when(iso)
+/** "5 minutes ago" within a week, else the date and time — in the UI language. */
+function useAgo() {
+  const f = useFormat()
+  return (iso: string) => {
+    const s = (Date.now() - new Date(iso).getTime()) / 1000
+    return s < 7 * 86400 ? f.relative(iso) : f.dateTime(iso)
+  }
 }
 
 function SourceBadge({ source }: { source: string }) {
+  const t = useT()
   const m = sourceMeta(source)
   return (
     <span
-      title={m.hint}
+      title={t(m.hint)}
       className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[10.5px] font-semibold ${m.cls}`}
     >
       <span className={`h-[5px] w-[5px] rounded-full ${m.dot}`} aria-hidden />
-      {m.label}
+      {t(m.label)}
     </span>
   )
 }
@@ -158,6 +157,12 @@ function Status({ status }: { status: number | null }) {
 }
 
 export default function ActivityPage() {
+  const t = useT()
+  const f = useFormat()
+  const ago = useAgo()
+  // the loader reads the latest t without re-running on a language switch
+  const tRef = useRef(t)
+  tRef.current = t
   const [filters, setFilters] = useState<Filters>(EMPTY)
   const [page, setPage] = useState(1)
   const [size, setSize] = useState(50)
@@ -192,10 +197,10 @@ export default function ActivityPage() {
   // debounce the free-text search
   useEffect(() => {
     if (!ready) return
-    const t = window.setTimeout(() => {
+    const timer = window.setTimeout(() => {
       if (searchDraft !== filters.q) update({ q: searchDraft })
     }, 350)
-    return () => window.clearTimeout(t)
+    return () => window.clearTimeout(timer)
   }, [searchDraft, filters.q, ready, update])
 
   const query = useMemo(() => apiQuery(filters), [filters])
@@ -210,7 +215,7 @@ export default function ActivityPage() {
     p.set('page_size', String(size))
     fetch(`${API}/audit?${p}`, { headers: authHeaders() })
       .then(async (r) => {
-        if (expireSessionOn401(r)) throw new Error('Session expired')
+        if (expireSessionOn401(r)) throw new Error(tRef.current('common.errors.sessionExpired'))
         const d = await r.json().catch(() => ({}))
         if (!r.ok) throw new Error((d as { detail?: string }).detail || `HTTP ${r.status}`)
         return d as AuditPage
@@ -249,7 +254,7 @@ export default function ActivityPage() {
       a.click()
       URL.revokeObjectURL(a.href)
     } catch (e) {
-      setError(e instanceof Error ? `Export failed — ${e.message}` : 'Export failed')
+      setError(t('review.activity.exportFailed', { error: e instanceof Error ? e.message : String(e) }))
     } finally {
       setExporting(false)
     }
@@ -258,10 +263,14 @@ export default function ActivityPage() {
   const sourceCount = (s: string) => facets?.sources.find((x) => x.value === s)?.count ?? 0
   const actorOptions = useMemo(
     () => [
-      { value: '', label: 'Anyone' },
-      ...(facets?.actors ?? []).map((a) => ({ value: a.value, label: a.value || '(none)', hint: String(a.count) })),
+      { value: '', label: t('review.activity.anyone') },
+      ...(facets?.actors ?? []).map((a) => ({
+        value: a.value,
+        label: a.value || t('review.activity.none'),
+        hint: f.number(a.count),
+      })),
     ],
-    [facets],
+    [facets, t, f],
   )
   const actionOptions = useMemo(() => {
     const groups = new Map<string, number>()
@@ -273,18 +282,18 @@ export default function ActivityPage() {
       }
     }
     return [
-      { value: '', label: 'Any action' },
+      { value: '', label: t('review.activity.anyAction') },
       ...Array.from(groups.entries())
         .filter(([, n]) => n > 0)
-        .map(([g, n]) => ({ value: `${g}.*`, label: `${g}.*`, hint: String(n), group: 'Groups' })),
+        .map(([g, n]) => ({ value: `${g}.*`, label: `${g}.*`, hint: f.number(n), group: t('review.activity.groups') })),
       ...(facets?.actions ?? []).map((a) => ({
         value: a.value,
         label: a.value,
-        hint: String(a.count),
-        group: a.value.includes(' ') ? 'API requests' : 'Actions',
+        hint: f.number(a.count),
+        group: a.value.includes(' ') ? t('review.activity.apiRequests') : t('review.activity.actions'),
       })),
     ]
-  }, [facets])
+  }, [facets, t, f])
 
   const active =
     filters.actor || filters.sources.length || filters.action || filters.entity || filters.q || filters.preset !== '7d'
@@ -300,28 +309,33 @@ export default function ActivityPage() {
       <PageHeader
         eyebrow={
           <span className="inline-flex items-center gap-1.5">
-            <Activity size={12} strokeWidth={2.2} aria-hidden /> Review
+            <Activity size={12} strokeWidth={2.2} aria-hidden /> {t('shell.groups.review')}
           </span>
         }
-        title="Activity"
-        subtitle="Everything people, API keys, AI apps, the assistant, automations, flows and webhooks did."
+        title={t('shell.nav.activity')}
+        subtitle={t('review.activity.subtitle')}
         actions={
           <>
-            <Button variant="ghost" size="sm" onClick={() => setReloadTick((t) => t + 1)} aria-label="Refresh">
-              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} aria-hidden /> Refresh
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setReloadTick((n) => n + 1)}
+              aria-label={t('common.actions.refresh')}
+            >
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} aria-hidden /> {t('common.actions.refresh')}
             </Button>
             <Button variant="secondary" size="sm" onClick={exportCsv} disabled={exporting || !data?.total}>
               {exporting ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Download size={13} aria-hidden />}
-              Export CSV
+              {t('review.activity.exportCsv')}
             </Button>
           </>
         }
       />
 
       {/* ---- filters ------------------------------------------------------ */}
-      <section className="flex flex-col gap-3 rounded-xl border border-line bg-card p-3 sm:p-4" aria-label="Filters">
+      <section className="flex flex-col gap-3 rounded-xl border border-line bg-card p-3 sm:p-4" aria-label={t('review.activity.filters')}>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex flex-wrap gap-1 rounded-lg bg-well p-0.5" role="group" aria-label="Time range">
+          <div className="flex flex-wrap gap-1 rounded-lg bg-well p-0.5" role="group" aria-label={t('review.activity.timeRange')}>
             {PRESETS.map((p) => (
               <button
                 key={p.id}
@@ -334,7 +348,7 @@ export default function ActivityPage() {
                     : 'text-text-muted hover:text-text-high'
                 }`}
               >
-                {p.label}
+                {t(p.label)}
               </button>
             ))}
           </div>
@@ -346,16 +360,16 @@ export default function ActivityPage() {
                 max={filters.to || undefined}
                 onChange={(e) => update({ from: e.target.value })}
                 className={`${inputCls} w-[150px]`}
-                aria-label="From date"
+                aria-label={t('notifications.inbox.fromDate')}
               />
-              <span>to</span>
+              <span>{t('notifications.inbox.to')}</span>
               <input
                 type="date"
                 value={filters.to}
                 min={filters.from || undefined}
                 onChange={(e) => update({ to: e.target.value })}
                 className={`${inputCls} w-[150px]`}
-                aria-label="To date"
+                aria-label={t('notifications.inbox.toDate')}
               />
             </div>
           )}
@@ -364,9 +378,9 @@ export default function ActivityPage() {
             <input
               value={searchDraft}
               onChange={(e) => setSearchDraft(e.target.value)}
-              placeholder="Search target, detail, path, IP, request id…"
+              placeholder={t('review.activity.searchPlaceholder')}
               className={`${inputCls} pl-8`}
-              aria-label="Search the activity log"
+              aria-label={t('review.activity.search')}
             />
           </label>
         </div>
@@ -378,26 +392,38 @@ export default function ActivityPage() {
           className="inline-flex items-center gap-1.5 self-start text-[12.5px] font-semibold text-text-mid sm:hidden"
         >
           <SlidersHorizontal size={13} aria-hidden />
-          {moreFilters ? 'Fewer filters' : 'More filters'}
+          {moreFilters ? t('review.activity.fewerFilters') : t('review.activity.moreFilters')}
           {advancedCount > 0 && (
             <span className="rounded-full bg-primary px-1.5 text-[10.5px] leading-[16px] text-on-primary">{advancedCount}</span>
           )}
         </button>
 
         <div className={`${moreFilters ? 'grid' : 'hidden'} grid-cols-1 gap-2 sm:grid sm:grid-cols-3`}>
-          <Select value={filters.actor} onChange={(v) => update({ actor: v })} options={actorOptions} ariaLabel="Actor" searchable />
-          <Select value={filters.action} onChange={(v) => update({ action: v })} options={actionOptions} ariaLabel="Action" searchable />
+          <Select
+            value={filters.actor}
+            onChange={(v) => update({ actor: v })}
+            options={actorOptions}
+            ariaLabel={t('review.activity.actor')}
+            searchable
+          />
+          <Select
+            value={filters.action}
+            onChange={(v) => update({ action: v })}
+            options={actionOptions}
+            ariaLabel={t('review.activity.action')}
+            searchable
+          />
           <EntityPicker
             value={filters.entity}
             onChange={(slug) => update({ entity: slug })}
-            globalLabel="All entities"
+            globalLabel={t('analytics.page.allEntities')}
             size="sm"
-            ariaLabel="Entity"
+            ariaLabel={t('common.fields.entity')}
           />
         </div>
 
-        <div className={`${moreFilters ? 'flex' : 'hidden'} flex-wrap items-center gap-1.5 sm:flex`} role="group" aria-label="Source">
-          <span className="eyebrow mr-1">Source</span>
+        <div className={`${moreFilters ? 'flex' : 'hidden'} flex-wrap items-center gap-1.5 sm:flex`} role="group" aria-label={t('review.activity.source')}>
+          <span className="eyebrow mr-1">{t('review.activity.source')}</span>
           {SOURCES.map((s) => {
             const m = sourceMeta(s)
             const on = filters.sources.includes(s)
@@ -406,7 +432,7 @@ export default function ActivityPage() {
               <button
                 key={s}
                 type="button"
-                title={m.hint}
+                title={t(m.hint)}
                 aria-pressed={on}
                 onClick={() => toggleSource(s)}
                 className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11.5px] font-semibold transition-colors ${
@@ -414,8 +440,8 @@ export default function ActivityPage() {
                 }`}
               >
                 <span className={`h-[6px] w-[6px] rounded-full ${m.dot}`} aria-hidden />
-                {m.label}
-                {facets && <span className="font-normal tabular-nums opacity-70">{n}</span>}
+                {t(m.label)}
+                {facets && <span className="font-normal tabular-nums opacity-70">{f.number(n)}</span>}
               </button>
             )
           })}
@@ -429,7 +455,7 @@ export default function ActivityPage() {
               }}
               className="ml-auto inline-flex items-center gap-1 text-[12px] font-semibold text-text-muted hover:text-text-high"
             >
-              <X size={12} aria-hidden /> Clear filters
+              <X size={12} aria-hidden /> {t('notifications.inbox.clearFilters')}
             </button>
           )}
         </div>
@@ -439,31 +465,31 @@ export default function ActivityPage() {
       {error && !data ? (
         <div className="rounded-xl border border-line bg-card px-5 py-8 text-center text-[13px] text-text-muted">
           {/activity\.view|403/.test(error)
-            ? 'The activity log needs the "View activity log" permission — ask an admin.'
-            : `The activity log is unavailable — ${error}.`}
+            ? t('review.activity.needsPermission')
+            : t('review.activity.unavailable', { error })}
         </div>
       ) : (
-        <section className="overflow-hidden rounded-xl border border-line bg-card" aria-label="Activity entries">
+        <section className="overflow-hidden rounded-xl border border-line bg-card" aria-label={t('review.activity.entriesAria')}>
           <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-4 py-2.5">
             <span className="text-[12.5px] text-text-muted">
-              {data ? (
-                <>
-                  <span className="font-semibold text-text-high tabular-nums">{data.total.toLocaleString()}</span>{' '}
-                  {data.total === 1 ? 'entry' : 'entries'}
-                  {data.pages > 1 && ` · page ${data.page} of ${data.pages}`}
-                </>
-              ) : (
-                'Loading…'
-              )}
+              {data
+                ? data.pages > 1
+                  ? t('review.activity.entriesPaged', {
+                      entries: t('review.activity.entries', { count: data.total }),
+                      page: data.page,
+                      pages: data.pages,
+                    })
+                  : t('review.activity.entries', { count: data.total })
+                : t('common.status.loading')}
             </span>
             {error && <span className="text-[12px] text-red-300">{error}</span>}
           </div>
 
           {data && data.entries.length === 0 && !loading ? (
             <div className="px-5 py-12 text-center">
-              <div className="display text-[20px] text-text-heading">Nothing here</div>
+              <div className="display text-[20px] text-text-heading">{t('review.activity.emptyTitle')}</div>
               <p className="mt-1 text-[13px] text-text-muted">
-                {active ? 'No activity matches these filters.' : 'Actions will appear here as they happen.'}
+                {active ? t('review.activity.noMatch') : t('review.activity.emptyBody')}
               </p>
             </div>
           ) : (
@@ -473,13 +499,13 @@ export default function ActivityPage() {
                 <table className="w-full min-w-[860px] border-collapse text-left">
                   <thead>
                     <tr className="eyebrow border-b border-line">
-                      <th className="px-4 py-2 font-semibold">When</th>
-                      <th className="px-3 py-2 font-semibold">Who</th>
-                      <th className="px-3 py-2 font-semibold">Source</th>
-                      <th className="px-3 py-2 font-semibold">Action</th>
-                      <th className="px-3 py-2 font-semibold">Target</th>
-                      <th className="px-3 py-2 font-semibold">Entity</th>
-                      <th className="px-4 py-2 text-right font-semibold">Status</th>
+                      <th className="px-4 py-2 font-semibold">{t('review.activity.when')}</th>
+                      <th className="px-3 py-2 font-semibold">{t('review.activity.who')}</th>
+                      <th className="px-3 py-2 font-semibold">{t('review.activity.source')}</th>
+                      <th className="px-3 py-2 font-semibold">{t('review.activity.action')}</th>
+                      <th className="px-3 py-2 font-semibold">{t('review.activity.target')}</th>
+                      <th className="px-3 py-2 font-semibold">{t('common.fields.entity')}</th>
+                      <th className="px-4 py-2 text-right font-semibold">{t('common.fields.status')}</th>
                     </tr>
                   </thead>
                   <tbody className={loading ? 'opacity-60 transition-opacity' : ''}>
@@ -489,7 +515,7 @@ export default function ActivityPage() {
                         onClick={() => setSelected(e)}
                         className="cursor-pointer border-b border-line last:border-b-0 hover:bg-fill-subtle"
                       >
-                        <td className="whitespace-nowrap px-4 py-2.5 text-[12px] text-text-muted" title={new Date(e.created_at).toLocaleString()}>
+                        <td className="whitespace-nowrap px-4 py-2.5 text-[12px] text-text-muted" title={f.dateTime(e.created_at)}>
                           {ago(e.created_at)}
                         </td>
                         <td className="max-w-[140px] truncate px-3 py-2.5 text-[12.5px] font-semibold text-text-high">{e.actor}</td>
@@ -546,7 +572,7 @@ export default function ActivityPage() {
 
               {!data && loading && (
                 <div className="flex items-center justify-center gap-2 px-5 py-12 text-[13px] text-text-muted">
-                  <Loader2 size={14} className="animate-spin" aria-hidden /> Loading activity…
+                  <Loader2 size={14} className="animate-spin" aria-hidden /> {t('review.activity.loading')}
                 </div>
               )}
             </>
@@ -555,7 +581,7 @@ export default function ActivityPage() {
           {data && data.total > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-2.5">
               <div className="flex items-center gap-2 text-[12px] text-text-muted">
-                Rows per page
+                {t('review.activity.rowsPerPage')}
                 <div className="w-[76px]">
                   <Select
                     value={String(size)}
@@ -564,19 +590,19 @@ export default function ActivityPage() {
                       setPage(1)
                     }}
                     options={PAGE_SIZES.map((n) => ({ value: String(n), label: String(n) }))}
-                    ariaLabel="Rows per page"
+                    ariaLabel={t('review.activity.rowsPerPage')}
                   />
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
                 <Button variant="ghost" size="sm" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
-                  <ChevronLeft size={14} aria-hidden /> Newer
+                  <ChevronLeft size={14} aria-hidden /> {t('review.activity.newer')}
                 </Button>
                 <span className="text-[12px] tabular-nums text-text-muted">
                   {page} / {data.pages}
                 </span>
                 <Button variant="ghost" size="sm" disabled={page >= data.pages || loading} onClick={() => setPage((p) => p + 1)}>
-                  Older <ChevronRight size={14} aria-hidden />
+                  {t('review.activity.older')} <ChevronRight size={14} aria-hidden />
                 </Button>
               </div>
             </div>
@@ -600,6 +626,7 @@ export default function ActivityPage() {
 // ---- detail drawer ---------------------------------------------------------
 
 function CopyText({ value }: { value: string }) {
+  const t = useT()
   const [done, setDone] = useState(false)
   if (!value) return null
   return (
@@ -614,7 +641,7 @@ function CopyText({ value }: { value: string }) {
           /* clipboard blocked */
         }
       }}
-      aria-label="Copy"
+      aria-label={t('common.actions.copy')}
       className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-text-faint hover:bg-fill-hover hover:text-text-high"
     >
       {done ? <Check size={12} aria-hidden /> : <Copy size={12} aria-hidden />}
@@ -643,6 +670,8 @@ function DetailDrawer({
   onClose: () => void
   onFilter: (patch: Partial<Filters>) => void
 }) {
+  const t = useT()
+  const f = useFormat()
   const closeRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     if (!entry) return
@@ -664,45 +693,55 @@ function DetailDrawer({
       >
         <header className="flex items-start gap-3 border-b border-line px-5 py-4">
           <div className="min-w-0 flex-1">
-            <div className="eyebrow">Activity #{entry.id}</div>
+            <div className="eyebrow">{t('review.activity.detailEyebrow', { id: entry.id })}</div>
             <h2 id="activity-detail-title" className="display mt-0.5 break-words text-[20px] leading-tight text-text-heading">
               {entry.action}
             </h2>
             <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[12px] text-text-muted">
               <SourceBadge source={entry.source} />
-              <span>{new Date(entry.created_at).toLocaleString()}</span>
+              <span>{f.dateTime(entry.created_at)}</span>
             </div>
           </div>
           <button
             ref={closeRef}
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t('common.actions.close')}
             className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-text-muted hover:bg-fill-hover hover:text-text-high"
           >
             <X size={15} aria-hidden />
           </button>
         </header>
         <dl className="min-h-0 flex-1 overflow-y-auto px-5 py-2">
-          <Field label="Who" value={<>{entry.actor}{entry.user_id != null && <span className="text-text-faint"> · user #{entry.user_id}</span>}</>} />
-          <Field label="How" value={`${m.label} — ${m.hint}`} />
-          <Field label="Action" value={entry.action} mono copy={entry.action} />
-          <Field label="Target" value={entry.target} />
-          <Field label="Detail" value={entry.detail} />
-          <Field label="Entity" value={entry.entity_name ? `${entry.entity_name} (${entry.entity})` : ''} />
-          <Field label="Request" value={entry.method ? `${entry.method} ${entry.path}` : ''} mono />
-          <Field label="Status" value={entry.status != null ? <Status status={entry.status} /> : ''} />
-          <Field label="IP address" value={entry.ip} mono copy={entry.ip} />
-          <Field label="User agent" value={entry.user_agent} mono />
-          <Field label="Request id" value={entry.request_id} mono copy={entry.request_id} />
-          <Field label="Time (UTC)" value={entry.created_at} mono />
+          <Field
+            label={t('review.activity.who')}
+            value={
+              <>
+                {entry.actor}
+                {entry.user_id != null && (
+                  <span className="text-text-faint"> · {t('review.activity.userId', { id: entry.user_id })}</span>
+                )}
+              </>
+            }
+          />
+          <Field label={t('review.activity.how')} value={t('review.activity.howValue', { label: t(m.label), hint: t(m.hint) })} />
+          <Field label={t('review.activity.action')} value={entry.action} mono copy={entry.action} />
+          <Field label={t('review.activity.target')} value={entry.target} />
+          <Field label={t('review.activity.detail')} value={entry.detail} />
+          <Field label={t('common.fields.entity')} value={entry.entity_name ? `${entry.entity_name} (${entry.entity})` : ''} />
+          <Field label={t('review.activity.request')} value={entry.method ? `${entry.method} ${entry.path}` : ''} mono />
+          <Field label={t('common.fields.status')} value={entry.status != null ? <Status status={entry.status} /> : ''} />
+          <Field label={t('review.activity.ip')} value={entry.ip} mono copy={entry.ip} />
+          <Field label={t('review.activity.userAgent')} value={entry.user_agent} mono />
+          <Field label={t('review.activity.requestId')} value={entry.request_id} mono copy={entry.request_id} />
+          <Field label={t('review.activity.timeUtc')} value={entry.created_at} mono />
         </dl>
         <footer className="flex flex-wrap gap-2 border-t border-line bg-surface px-5 py-3">
           <Button variant="secondary" size="sm" onClick={() => onFilter({ actor: entry.actor })}>
-            More by {entry.actor.length > 18 ? `${entry.actor.slice(0, 18)}…` : entry.actor}
+            {t('review.activity.moreBy', { actor: entry.actor.length > 18 ? `${entry.actor.slice(0, 18)}…` : entry.actor })}
           </Button>
           {entry.request_id && (
             <Button variant="ghost" size="sm" onClick={() => onFilter({ q: entry.request_id })}>
-              Everything in this request
+              {t('review.activity.sameRequest')}
             </Button>
           )}
         </footer>

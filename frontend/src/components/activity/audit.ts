@@ -1,3 +1,5 @@
+import type { MessageKey } from '@/i18n'
+
 /**
  * Activity log (GET /api/audit) — types and the source vocabulary shared by the
  * Activity page and anything else that shows audit rows. Lives under
@@ -41,53 +43,53 @@ export interface AuditFacets {
   sources: { value: string; count: number }[]
 }
 
-/** Label, one-line meaning and token classes per source (badge + chip). */
-export const SOURCE_META: Record<AuditSource, { label: string; hint: string; cls: string; dot: string }> = {
+/** Label + one-line meaning (translation keys) and token classes per source (badge + chip). */
+export const SOURCE_META: Record<AuditSource, { label: MessageKey; hint: MessageKey; cls: string; dot: string }> = {
   user: {
-    label: 'User',
-    hint: 'A person signed in to the dashboard',
+    label: 'review.sources.user',
+    hint: 'review.sources.userHint',
     cls: 'bg-blue/10 text-blue-300',
     dot: 'bg-blue',
   },
   api: {
-    label: 'API',
-    hint: 'A script or integration using an API key',
+    label: 'review.sources.api',
+    hint: 'review.sources.apiHint',
     cls: 'bg-purple/10 text-purple-300',
     dot: 'bg-purple',
   },
   mcp: {
-    label: 'MCP',
-    hint: 'An AI app (Claude, Cursor…) connected over MCP',
+    label: 'review.sources.mcp',
+    hint: 'review.sources.mcpHint',
     cls: 'bg-cyan/10 text-cyan-300',
     dot: 'bg-cyan',
   },
   assistant: {
-    label: 'Assistant',
-    hint: 'The in-app assistant, acting for the signed-in user',
+    label: 'review.sources.assistant',
+    hint: 'review.sources.assistantHint',
     cls: 'bg-brand-400/10 text-brand-300',
     dot: 'bg-brand',
   },
   automation: {
-    label: 'Automation',
-    hint: 'An automation rule reacting to a conversation event',
+    label: 'review.sources.automation',
+    hint: 'review.sources.automationHint',
     cls: 'bg-amber/10 text-amber-300',
     dot: 'bg-amber',
   },
   flow: {
-    label: 'Flow',
-    hint: 'A Live flow from the flow builder',
+    label: 'review.sources.flow',
+    hint: 'review.sources.flowHint',
     cls: 'bg-green/10 text-green-300',
     dot: 'bg-green',
   },
   webhook: {
-    label: 'Webhook',
-    hint: 'A provider or gateway calling in (no signed-in user)',
+    label: 'review.sources.webhook',
+    hint: 'review.sources.webhookHint',
     cls: 'bg-fill-hover text-text-mid',
     dot: 'bg-text-muted',
   },
   system: {
-    label: 'System',
-    hint: 'Background work: the send queue, AI replies, health checks',
+    label: 'review.sources.system',
+    hint: 'review.sources.systemHint',
     cls: 'bg-fill text-text-muted',
     dot: 'bg-text-faint',
   },
