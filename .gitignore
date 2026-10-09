@@ -264,3 +264,6 @@ presentation
 
 # Claude Code agent worktrees (local only)
 .claude/worktrees/
+
+# dotnet test --logger trx output
+TestResults/
