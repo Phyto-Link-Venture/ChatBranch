@@ -74,6 +74,10 @@ public class AppDbContext : DbContext
     // developer platform: API keys + the operator assistant's pending writes
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<AssistantAction> AssistantActions => Set<AssistantAction>();
+    // AI learning: feedback on replies, the lessons drawn from it, retrieval vectors
+    public DbSet<AiFeedback> AiFeedback => Set<AiFeedback>();
+    public DbSet<AiLesson> AiLessons => Set<AiLesson>();
+    public DbSet<AiEmbedding> AiEmbeddings => Set<AiEmbedding>();
 
     /// <summary>Every AuditLog row is stamped with its request/source provenance
     /// on save (Audit/AuditStampInterceptor), so the per-file audit helpers carry
@@ -166,6 +170,22 @@ public class AppDbContext : DbContext
         b.Entity<ApiKey>().ToTable("crm_apikey");
         b.Entity<ApiKey>().HasIndex(k => k.Prefix).IsUnique().HasDatabaseName("uniq_apikey_prefix");
         b.Entity<AssistantAction>().ToTable("crm_assistantaction");
+        // AI learning (Ai/Learning/): one explicit rating per user per message /
+        // per draft (implicit approve/edit/reject rows are exempt from the filter)
+        b.Entity<AiFeedback>().ToTable("crm_aifeedback");
+        b.Entity<AiFeedback>().HasIndex(f => new { f.UserId, f.MessageId }).IsUnique()
+            .HasFilter("[kind] = 'explicit' AND [message_id] IS NOT NULL")
+            .HasDatabaseName("uniq_aifeedback_user_message");
+        b.Entity<AiFeedback>().HasIndex(f => new { f.UserId, f.DraftId }).IsUnique()
+            .HasFilter("[kind] = 'explicit' AND [draft_id] IS NOT NULL")
+            .HasDatabaseName("uniq_aifeedback_user_draft");
+        b.Entity<AiFeedback>().HasIndex(f => f.CreatedAt).HasDatabaseName("ix_aifeedback_created");
+        b.Entity<AiFeedback>().HasIndex(f => f.LessonId).HasDatabaseName("ix_aifeedback_lesson");
+        b.Entity<AiLesson>().ToTable("crm_ailesson");
+        b.Entity<AiLesson>().HasIndex(l => new { l.Status, l.EntityId }).HasDatabaseName("ix_ailesson_status_entity");
+        b.Entity<AiEmbedding>().ToTable("crm_embedding");
+        b.Entity<AiEmbedding>().HasIndex(e => new { e.OwnerType, e.OwnerId, e.ChunkIndex })
+            .HasDatabaseName("ix_embedding_owner");
 
         // ---- Profile <-> Entity many-to-many (Django crm_profile_entities) -----
         b.Entity<Profile>()
@@ -244,6 +264,8 @@ public class AppDbContext : DbContext
         Json<AiDraft, Dictionary<string, object?>>(b, x => x.Context);
         Json<Tag, List<TagAttribute>>(b, x => x.Attributes);
         Json<TagAssignment, Dictionary<string, object?>>(b, x => x.Values);
+        Json<AiFeedback, List<string>>(b, x => x.Reasons);
+        Json<AiLesson, List<string>>(b, x => x.Channels);
 
         // ---- snake_case columns to match Django (<field>_id for FKs) -----------
         // Django names every column snake_case; matching it is what lets this

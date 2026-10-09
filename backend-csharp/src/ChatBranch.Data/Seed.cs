@@ -136,7 +136,57 @@ public static class Seed
         AddColumnIfMissing(db, "crm_message", "error", "TEXT NOT NULL DEFAULT ''");
         // delivery receipts (Cloud statuses, Baileys ticks, Messenger) find the message by provider id
         AddIndexIfMissing(db, "ix_message_external_id", "crm_message", "\"external_id\"");
+        // AI learning: feedback on AI replies, lessons, retrieval vectors, uploaded-document provenance
+        AddColumnIfMissing(db, "crm_knowledgeitem", "source_file", "TEXT NOT NULL DEFAULT ''");
+        AddTableIfMissing(db, "crm_aifeedback",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_aifeedback\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"entity_id\" INTEGER NULL, \"thread_id\" INTEGER NULL, \"message_id\" INTEGER NULL, "
+            + "\"draft_id\" INTEGER NULL, \"contact_id\" INTEGER NULL, \"channel\" TEXT NOT NULL, "
+            + "\"rating\" INTEGER NOT NULL, \"weight\" REAL NOT NULL, \"kind\" TEXT NOT NULL, "
+            + "\"reasons\" TEXT NOT NULL, \"note\" TEXT NOT NULL, \"question\" TEXT NOT NULL, "
+            + "\"answer\" TEXT NOT NULL, \"correction\" TEXT NOT NULL, \"user_id\" INTEGER NULL, "
+            + "\"lesson_id\" INTEGER NULL, \"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
+        AddUniqueIndexIfMissing(db, "uniq_aifeedback_user_message", "crm_aifeedback", "\"user_id\", \"message_id\"",
+            "\"kind\" = 'explicit' AND \"message_id\" IS NOT NULL");
+        AddUniqueIndexIfMissing(db, "uniq_aifeedback_user_draft", "crm_aifeedback", "\"user_id\", \"draft_id\"",
+            "\"kind\" = 'explicit' AND \"draft_id\" IS NOT NULL");
+        AddIndexIfMissing(db, "ix_aifeedback_created", "crm_aifeedback", "\"created_at\"");
+        AddIndexIfMissing(db, "ix_aifeedback_lesson", "crm_aifeedback", "\"lesson_id\"");
+        AddTableIfMissing(db, "crm_ailesson",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_ailesson\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"entity_id\" INTEGER NULL, \"kind\" TEXT NOT NULL, \"status\" TEXT NOT NULL, "
+            + "\"question\" TEXT NOT NULL, \"answer\" TEXT NOT NULL, \"avoid\" TEXT NOT NULL, "
+            + "\"note\" TEXT NOT NULL, \"channels\" TEXT NOT NULL, \"source_count\" INTEGER NOT NULL, "
+            + "\"uses\" INTEGER NOT NULL, \"last_used_at\" TEXT NULL, \"created_by\" TEXT NOT NULL, "
+            + "\"approved_by\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
+        AddIndexIfMissing(db, "ix_ailesson_status_entity", "crm_ailesson", "\"status\", \"entity_id\"");
+        AddTableIfMissing(db, "crm_embedding",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_embedding\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"owner_type\" TEXT NOT NULL, \"owner_id\" INTEGER NOT NULL, \"chunk_index\" INTEGER NOT NULL, "
+            + "\"text\" TEXT NOT NULL, \"content_hash\" TEXT NOT NULL, \"model\" TEXT NOT NULL, "
+            + "\"dims\" INTEGER NOT NULL, \"vector\" BLOB NOT NULL, \"updated_at\" TEXT NOT NULL");
+        AddIndexIfMissing(db, "ix_embedding_owner", "crm_embedding", "\"owner_type\", \"owner_id\", \"chunk_index\"");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
+    }
+
+    /// <summary>A partial UNIQUE index EnsureCreated() will never add to an existing
+    /// database. Idempotent via IF NOT EXISTS.</summary>
+    private static void AddUniqueIndexIfMissing(AppDbContext db, string name, string table, string columns,
+        string where)
+    {
+        var conn = db.Database.GetDbConnection();
+        var wasClosed = conn.State != System.Data.ConnectionState.Open;
+        if (wasClosed) conn.Open();
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = $"CREATE UNIQUE INDEX IF NOT EXISTS \"{name}\" ON \"{table}\" ({columns}) WHERE {where}";
+            cmd.ExecuteNonQuery();
+        }
+        finally
+        {
+            if (wasClosed) conn.Close();
+        }
     }
 
     /// <summary>Create a (non-unique) index EnsureCreated() will never add to an

@@ -137,4 +137,7 @@ public class KnowledgeItem : IEntityScoped
     public string CreatedBy { get; set; } = "";
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    /// <summary>The uploaded document this item's text was extracted from ("" =
+    /// typed in). The file itself is never stored.</summary>
+    public string SourceFile { get; set; } = "";
 }
