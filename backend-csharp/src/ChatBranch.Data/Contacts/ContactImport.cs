@@ -606,11 +606,19 @@ public class ContactImporter
             foreach (var chunk in matchIds.Chunk(BatchSize))
                 foreach (var c in _db.Contacts.AsNoTracking().Where(c => chunk.Contains(c.Id)))
                     copies[c.Id] = c;
+            // an entity link the import would add is a change too
+            var links = new HashSet<(int, int)>();
+            foreach (var chunk in matchIds.Chunk(BatchSize))
+                foreach (var l in _db.ContactEntities.AsNoTracking().Where(l => chunk.Contains(l.ContactId))
+                             .Select(l => new { l.ContactId, l.EntityId }))
+                    links.Add((l.ContactId, l.EntityId));
+            bool NeedsLink(int cid, int? eid) => eid is int e && !links.Contains((cid, e));
             foreach (var (r, id) in plan.Where(p => p.ExistingId != null))
             {
                 if (!copies.TryGetValue(id!.Value, out var c)) continue;
                 var changed = Apply(c, r, overwrite: opt.Mode == ModeOverwrite)
-                              | r.Tags.Any(t => !c.Tags.Contains(t, StringComparer.OrdinalIgnoreCase));
+                              | r.Tags.Any(t => !c.Tags.Contains(t, StringComparer.OrdinalIgnoreCase))
+                              | NeedsLink(c.Id, opt.EntityId) | NeedsLink(c.Id, r.EntityId);
                 if (changed) report.Updated++; else report.Unchanged++;
             }
             return report;
@@ -632,15 +640,14 @@ public class ContactImporter
                     if (opt.Mode == ModeSkip) { report.Skipped++; continue; }
                     var changed = Apply(c, r, overwrite: opt.Mode == ModeOverwrite);
                     var tagsChanged = r.Tags.Any(t => !c.Tags.Contains(t, StringComparer.OrdinalIgnoreCase));
-                    if (changed || tagsChanged)
+                    var linked = (r.EntityId is int re && Link(c.Id, re)) | (opt.EntityId is int oe && Link(c.Id, oe));
+                    if (changed || tagsChanged || linked)
                     {
                         c.UpdatedAt = now;
                         report.Updated++;
                     }
                     else report.Unchanged++;
                     if (tagsChanged) tagWork.Add((c.Id, c.Tags.Concat(r.Tags).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), false));
-                    if (r.EntityId is int re) Link(c.Id, re);
-                    if (opt.EntityId is int oe) Link(c.Id, oe);
                     touched.Add(c.Id);
                 }
                 else
@@ -709,11 +716,13 @@ public class ContactImporter
 
     private readonly HashSet<(int, int)> _linked = new();
 
-    private void Link(int contactId, int entityId)
+    /// <summary>Link the contact to the entity unless it already is. True when a link was added.</summary>
+    private bool Link(int contactId, int entityId)
     {
-        if (!_linked.Add((contactId, entityId))) return;
-        if (_db.ContactEntities.Any(l => l.ContactId == contactId && l.EntityId == entityId)) return;
+        if (!_linked.Add((contactId, entityId))) return false;
+        if (_db.ContactEntities.Any(l => l.ContactId == contactId && l.EntityId == entityId)) return false;
         _db.ContactEntities.Add(new ContactEntity { ContactId = contactId, EntityId = entityId, CreatedAt = DateTime.UtcNow });
+        return true;
     }
 
     /// <summary>Copy a record onto a contact. overwrite=false fills blanks only. True when something changed.</summary>

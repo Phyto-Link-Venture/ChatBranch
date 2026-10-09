@@ -346,6 +346,25 @@ public class ContactImportTests : IdentityApiBase, IClassFixture<IdentityFactory
     }
 
     [Fact]
+    public async Task Linking_an_existing_contact_to_the_entity_counts_as_an_update()
+    {
+        var admin = await Authed();
+        var p = NewNumber();
+        var id = await CreateContact(admin, "Link Only", "+" + p);
+        var csv = Encoding.UTF8.GetBytes($"Name,Phone\nLink Only,+{p}\n");
+        var fields = new Dictionary<string, string> { ["entity"] = "main" };
+
+        var first = await Import(admin, csv, "l.csv", true, fields);
+        Assert.Equal(1, first.GetProperty("updated").GetInt32());          // only the entity link is new
+        await Import(admin, csv, "l.csv", false, fields);
+        var mainId = InScope((_, db) => db.Entities.Single(e => e.Slug == "main").Id);
+        Assert.True(InScope((_, db) => db.ContactEntities.Any(l => l.ContactId == id && l.EntityId == mainId)));
+        var again = await Import(admin, csv, "l.csv", true, fields);
+        Assert.Equal(0, again.GetProperty("updated").GetInt32());
+        Assert.Equal(1, again.GetProperty("unchanged").GetInt32());
+    }
+
+    [Fact]
     public async Task The_caps_and_unsupported_files_are_refused_clearly()
     {
         var admin = await Authed();

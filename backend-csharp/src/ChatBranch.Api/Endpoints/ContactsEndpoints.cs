@@ -265,8 +265,11 @@ public static class ContactsEndpoints
                 // "connected" is deliberately simple, per channel.
                 var connected = ch switch
                 {
-                    Channels.WhatsApp => pairs.Any(p => p.usable),
-                    Channels.Email => ts.Count > 0 && emailConfigured,
+                    Channels.WhatsApp => pairs.Any(p => p.usable)
+                        // a registered number we can reach on a working WhatsApp account
+                        || (registry.Any(r => r.Channel == ch && r.Verification != IdentityVerdicts.NotOnWhatsApp)
+                            && accounts.Any(a => a.Channel == ch && AccountConfigured(a) && !DownHealth.Contains(a.HealthStatus))),
+                    Channels.Email => (ts.Count > 0 || registry.Any(r => r.Channel == ch)) && emailConfigured,
                     _ => ts.Count > 0 && accounts.Any(a => a.Channel == ch && a.AccessToken.Length > 0),
                 };
 
