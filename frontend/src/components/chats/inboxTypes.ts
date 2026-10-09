@@ -6,6 +6,10 @@
  */
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import type { UiHandover } from '@/lib/aiControls'
+import type { MessageKey, TFunction, useFormat } from '@/i18n'
+
+/** The formatter bag `useFormat()` returns (helpers below take it as an argument). */
+export type Fmt = ReturnType<typeof useFormat>
 
 export const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -45,28 +49,40 @@ export const CHANNELS: Channel[] = [
 export const WINDOWED_CHANNELS: Channel[] = ['wechat', 'zalo', 'tiktok', 'douyin']
 export const THREAD_STATUSES: ThreadStatus[] = ['open', 'pending', 'snoozed', 'resolved']
 
-export const CHANNEL_META: Record<Channel, { lbl: string; placeholder: string; beta?: boolean }> = {
-  whatsapp: { lbl: 'WhatsApp', placeholder: '+60 phone number' },
-  facebook: { lbl: 'Messenger', placeholder: 'Messenger PSID', beta: true },
-  instagram: { lbl: 'Instagram', placeholder: 'Instagram IGSID', beta: true },
-  telegram: { lbl: 'Telegram', placeholder: 'Telegram chat ID' },
-  email: { lbl: 'Email', placeholder: 'customer@email.com' },
-  // The site widget: the visitor's browser is the transport, so there is no
-  // address to start a conversation FROM our side — they always begin it.
-  website: { lbl: 'Website', placeholder: 'started by the visitor' },
-  line: { lbl: 'LINE', placeholder: 'LINE user ID (U…)' },
-  viber: { lbl: 'Viber', placeholder: 'started by the subscriber' },
-  sms: { lbl: 'SMS', placeholder: '+60 phone number' },
-  wechat: { lbl: 'WeChat', placeholder: 'follower OpenID' },
-  tiktok: { lbl: 'TikTok', placeholder: 'started by the customer', beta: true },
-  douyin: { lbl: 'Douyin', placeholder: 'started by the customer', beta: true },
-  zalo: { lbl: 'Zalo', placeholder: 'Zalo user ID' },
+export const CHANNEL_META: Record<Channel, { lbl: string; beta?: boolean }> = {
+  whatsapp: { lbl: 'WhatsApp' },
+  facebook: { lbl: 'Messenger', beta: true },
+  instagram: { lbl: 'Instagram', beta: true },
+  telegram: { lbl: 'Telegram' },
+  email: { lbl: 'Email' },
+  // The site widget: the visitor's browser is the transport (they always begin it).
+  // Email / Website labels are translated by channelName().
+  website: { lbl: 'Website' },
+  line: { lbl: 'LINE' },
+  viber: { lbl: 'Viber' },
+  sms: { lbl: 'SMS' },
+  wechat: { lbl: 'WeChat' },
+  tiktok: { lbl: 'TikTok', beta: true },
+  douyin: { lbl: 'Douyin', beta: true },
+  zalo: { lbl: 'Zalo' },
 }
 
 /** Our `facebook` channel is Messenger — show Messenger's mark, not Facebook's. */
 export const logoKey = (c: string) => (c === 'facebook' ? 'messenger' : c)
 
-export const statusLabel = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+/** A channel's display name: brand names as they are, Email / Website translated. */
+export const channelName = (t: TFunction, c: string): string =>
+  c === 'email' || c === 'website' ? t(`chats.channels.${c}`) : (CHANNEL_META[c as Channel]?.lbl ?? c)
+
+/** A conversation status in the current language (unknown values capitalised as they come). */
+export const statusLabel = (t: TFunction, s: string): string =>
+  (THREAD_STATUSES as string[]).includes(s)
+    ? t(`chats.status.${s}` as MessageKey)
+    : s.charAt(0).toUpperCase() + s.slice(1)
+
+/** A teammate's role as a hint ("Agent", "Admin"); custom role names as they are. */
+export const roleLabel = (t: TFunction, r: string): string =>
+  r === 'superadmin' || r === 'admin' || r === 'agent' ? t(`chats.roles.${r}`) : r
 
 export interface UiMedia {
   type: 'image' | 'document' | 'audio' | 'video'
@@ -260,36 +276,29 @@ export const resolveMediaUrl = (u: string) =>
 export const threadPath = (t: { channel: Channel; key: string }) =>
   t.channel === 'whatsapp' ? `whatsapp/threads/${t.key}` : `messaging/threads/${t.channel}/${t.key}`
 
-export const timeShort = (ts: string) =>
-  ts ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
+export const timeShort = (ts: string, f: Fmt) => (ts ? f.time(ts) : '')
 
 /** List-row stamp: time today, weekday this week, date beyond. */
-export const listStamp = (ts: string) => {
+export const listStamp = (ts: string, f: Fmt) => {
   if (!ts) return ''
   const d = new Date(ts)
   const now = new Date()
-  if (d.toDateString() === now.toDateString()) return timeShort(ts)
+  if (d.toDateString() === now.toDateString()) return f.time(ts)
   const days = (now.getTime() - d.getTime()) / 86_400_000
-  if (days < 6) return d.toLocaleDateString([], { weekday: 'short' })
-  return d.toLocaleDateString([], { day: 'numeric', month: 'short' })
+  if (days < 6) return f.weekday(ts)
+  return f.date(ts)
 }
 
-export const timeAgo = (ts: string) => {
-  const mins = Math.max(0, Math.round((Date.now() - new Date(ts).getTime()) / 60000))
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.round(mins / 60)
-  return hours < 24 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`
-}
+export const timeAgo = (ts: string, f: Fmt) => f.relative(ts)
 
-export const dayLabel = (ts: string) => {
+export const dayLabel = (ts: string, f: Fmt, t: TFunction) => {
   const d = new Date(ts)
   const today = new Date()
   const yest = new Date(today)
   yest.setDate(today.getDate() - 1)
-  if (d.toDateString() === today.toDateString()) return 'Today'
-  if (d.toDateString() === yest.toDateString()) return 'Yesterday'
-  return d.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })
+  if (d.toDateString() === today.toDateString()) return t('common.time.today')
+  if (d.toDateString() === yest.toDateString()) return t('common.time.yesterday')
+  return f.date(ts)
 }
 
 export const initials = (name: string) =>

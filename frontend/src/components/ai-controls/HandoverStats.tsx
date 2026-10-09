@@ -6,15 +6,16 @@ import { ArrowUpRight, Loader2 } from 'lucide-react'
 import { Card, CardTitle } from '@/components/ui/Card'
 import DailyBars from '@/components/flow/DailyBars'
 import { subscribeChatStream } from '@/lib/chatStream'
-import { aiControlsApi, type HandoverStats as Stats } from '@/lib/aiControls'
+import { aiControlsApi, handoverKindLabel, type HandoverStats as Stats } from '@/lib/aiControls'
+import { useFormat, useT, type MessageKey } from '@/i18n'
 
 const DAYS = [7, 30, 90]
-const BY_LABEL: Record<string, string> = {
-  ai: 'The AI',
-  rule: 'Automation rules',
-  flow: 'Flows',
-  agent: 'People',
-  other: 'Other',
+const BY_LABEL: Record<string, MessageKey> = {
+  ai: 'chats.aiControls.stats.byAi',
+  rule: 'chats.aiControls.stats.byRule',
+  flow: 'chats.aiControls.stats.byFlow',
+  agent: 'chats.aiControls.stats.byAgent',
+  other: 'chats.aiControls.stats.byOther',
 }
 
 function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
@@ -27,9 +28,6 @@ function Tile({ label, value, sub }: { label: string; value: string; sub?: strin
   )
 }
 
-const pct = (r: number | null) => (r == null ? '—' : `${Math.round(r * 1000) / 10}%`)
-const mins = (m: number | null) =>
-  m == null ? '—' : m < 60 ? `${Math.round(m)} min` : m < 60 * 24 ? `${Math.round(m / 6) / 10} h` : `${Math.round(m / 144) / 10} d`
 
 /**
  * Human handovers on the AI monitor's Stats tab: how many conversations the
@@ -38,6 +36,13 @@ const mins = (m: number | null) =>
  * by reason. GET /api/ai/handovers/stats.
  */
 export function HandoverStats({ entityQuery }: { entityQuery: string }) {
+  const t = useT()
+  const f = useFormat()
+  const pct = (v: number | null) => (v == null ? '—' : f.percent(v, 1))
+  const unit = (n: number, u: 'minute' | 'hour' | 'day') =>
+    f.number(n, { style: 'unit', unit: u, unitDisplay: 'short', maximumFractionDigits: u === 'minute' ? 0 : 1 })
+  const mins = (m: number | null) =>
+    m == null ? '—' : m < 60 ? unit(m, 'minute') : m < 60 * 24 ? unit(m / 60, 'hour') : unit(m / 1440, 'day')
   const [days, setDays] = useState(30)
   const [data, setData] = useState<Stats | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -53,14 +58,14 @@ export function HandoverStats({ entityQuery }: { entityQuery: string }) {
 
   useEffect(() => {
     void load()
-    let t: number | undefined
+    let timer: number | undefined
     const unsub = subscribeChatStream(() => {
-      window.clearTimeout(t)
-      t = window.setTimeout(() => void load(), 800)
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => void load(), 800)
     })
     return () => {
       unsub()
-      window.clearTimeout(t)
+      window.clearTimeout(timer)
     }
   }, [load])
 
@@ -70,7 +75,7 @@ export function HandoverStats({ entityQuery }: { entityQuery: string }) {
     <Card className="px-4 py-4 sm:px-5">
       <CardTitle
         right={
-          <div role="radiogroup" aria-label="Period" className="inline-flex rounded-lg border border-line-strong bg-card p-0.5">
+          <div role="radiogroup" aria-label={t('chats.aiControls.stats.periodAria')} className="inline-flex rounded-lg border border-line-strong bg-card p-0.5">
             {DAYS.map((d) => (
               <button
                 key={d}
@@ -82,17 +87,15 @@ export function HandoverStats({ entityQuery }: { entityQuery: string }) {
                   days === d ? 'bg-primary text-on-primary' : 'text-text-mid hover:bg-fill-hover'
                 }`}
               >
-                {d}d
+                {t('chats.aiControls.stats.daysShort', { count: d })}
               </button>
             ))}
           </div>
         }
       >
-        Handed to a human
+        {t('chats.aiControls.stats.title')}
       </CardTitle>
-      <p className="mt-1 text-[12.5px] text-text-muted">
-        Conversations the AI — or a rule, a flow or a person — passed to a human, and how fast someone picked them up.
-      </p>
+      <p className="mt-1 text-[12.5px] text-text-muted">{t('chats.aiControls.stats.intro')}</p>
 
       {err && (
         <div role="alert" className="mt-3 rounded-md bg-red/10 px-3 py-2 text-[12.5px] text-[color:var(--red-ink)]">
@@ -101,37 +104,52 @@ export function HandoverStats({ entityQuery }: { entityQuery: string }) {
       )}
       {!data && !err && (
         <div className="flex items-center gap-2 py-6 text-[12.5px] text-text-muted">
-          <Loader2 size={14} className="animate-spin" aria-hidden /> Loading…
+          <Loader2 size={14} className="animate-spin" aria-hidden /> {t('common.status.loading')}
         </div>
       )}
 
       {data && (
         <div className="mt-4 flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Tile label="Handovers" value={String(data.total)} sub={`last ${data.days} days`} />
-            <Tile label="Waiting for a person" value={String(data.open)} sub="right now" />
             <Tile
-              label="Handover rate"
-              value={pct(data.rate)}
-              sub={`${data.handed_over_conversations} of ${data.conversations} conversations`}
+              label={t('chats.aiControls.stats.handovers')}
+              value={f.number(data.total)}
+              sub={t('chats.aiControls.stats.lastNDays', { count: data.days })}
             />
-            <Tile label="Time to a human" value={mins(data.avg_minutes_to_human)} sub="average, answered ones" />
+            <Tile
+              label={t('chats.aiControls.stats.waitingForPerson')}
+              value={f.number(data.open)}
+              sub={t('chats.aiControls.stats.rightNow')}
+            />
+            <Tile
+              label={t('chats.aiControls.stats.rate')}
+              value={pct(data.rate)}
+              sub={t('chats.aiControls.stats.rateSub', { n: data.handed_over_conversations, count: data.conversations })}
+            />
+            <Tile
+              label={t('chats.aiControls.stats.timeToHuman')}
+              value={mins(data.avg_minutes_to_human)}
+              sub={t('chats.aiControls.stats.avgAnswered')}
+            />
           </div>
 
-          <DailyBars data={data.series.map((s) => ({ day: s.day, value: s.handovers }))} label="Handovers per day" />
+          <DailyBars
+            data={data.series.map((s) => ({ day: s.day, value: s.handovers }))}
+            label={t('chats.aiControls.stats.perDay')}
+          />
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
-              <div className="eyebrow mb-2">Why</div>
+              <div className="eyebrow mb-2">{t('chats.aiControls.stats.why')}</div>
               {data.by_kind.length === 0 ? (
-                <div className="text-[12.5px] text-text-muted">No handovers in this period.</div>
+                <div className="text-[12.5px] text-text-muted">{t('chats.aiControls.stats.noHandovers')}</div>
               ) : (
                 <ul className="flex flex-col gap-2">
                   {data.by_kind.map((k) => (
                     <li key={k.kind} className="text-[12.5px]">
                       <div className="flex items-baseline justify-between gap-2">
-                        <span className="truncate text-text-high">{k.label}</span>
-                        <span className="tabular-nums text-text-muted">{k.count}</span>
+                        <span className="truncate text-text-high">{handoverKindLabel(t, k.kind, k.label)}</span>
+                        <span className="tabular-nums text-text-muted">{f.number(k.count)}</span>
                       </div>
                       <div className="mt-1 h-1.5 rounded-full bg-fill">
                         <div className="h-1.5 rounded-full bg-brand" style={{ width: `${(k.count / kindMax) * 100}%` }} />
@@ -142,15 +160,15 @@ export function HandoverStats({ entityQuery }: { entityQuery: string }) {
               )}
             </div>
             <div>
-              <div className="eyebrow mb-2">Handed over by</div>
+              <div className="eyebrow mb-2">{t('chats.aiControls.stats.handedOverBy')}</div>
               {data.by_source.length === 0 ? (
                 <div className="text-[12.5px] text-text-muted">—</div>
               ) : (
                 <ul className="flex flex-col divide-y divide-line rounded-lg border border-line">
                   {data.by_source.map((s) => (
                     <li key={s.by} className="flex items-center justify-between px-3 py-2 text-[12.5px]">
-                      <span className="text-text-high">{BY_LABEL[s.by] ?? s.by}</span>
-                      <span className="tabular-nums text-text-muted">{s.count}</span>
+                      <span className="text-text-high">{BY_LABEL[s.by] ? t(BY_LABEL[s.by]) : s.by}</span>
+                      <span className="tabular-nums text-text-muted">{f.number(s.count)}</span>
                     </li>
                   ))}
                 </ul>
@@ -166,7 +184,7 @@ export function HandoverStats({ entityQuery }: { entityQuery: string }) {
                 }}
                 className="mt-3 inline-flex items-center gap-1 text-[12.5px] font-semibold text-[color:var(--brand-ink)] hover:underline"
               >
-                Open “Needs human” in Chats <ArrowUpRight size={13} aria-hidden />
+                {t('chats.aiControls.stats.openNeedsHuman')} <ArrowUpRight size={13} aria-hidden />
               </Link>
             </div>
           </div>

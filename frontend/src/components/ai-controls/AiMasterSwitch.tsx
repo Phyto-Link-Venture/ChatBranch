@@ -12,6 +12,7 @@ import { useTags } from '@/lib/tags'
 import {
   describeSchedule,
   emptySchedule,
+  weekdayDate,
   getAiControls,
   putAiControls,
   type AiControls,
@@ -19,13 +20,15 @@ import {
   type AiMasterMode,
   type AiSchedule,
   type AiScheduleMode,
+  type Weekday,
 } from '@/lib/aiControls'
 import { AiScheduleEditor } from './AiScheduleEditor'
+import { Trans, useFormat, useT, type MessageKey } from '@/i18n'
 
-const MODES: { value: AiMasterMode; label: string }[] = [
-  { value: 'on', label: 'On' },
-  { value: 'off', label: 'Off' },
-  { value: 'schedule', label: 'On a schedule' },
+const MODES: { value: AiMasterMode; label: MessageKey }[] = [
+  { value: 'on', label: 'common.status.on' },
+  { value: 'off', label: 'common.status.off' },
+  { value: 'schedule', label: 'chats.aiControls.modeSchedule' },
 ]
 
 function Segmented<T extends string>({
@@ -62,9 +65,6 @@ function Segmented<T extends string>({
   )
 }
 
-const timeShort = (iso: string) =>
-  new Date(iso).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })
-
 /**
  * The AI master switch — ONE prominent "AI is ON for <scope>" card at the top
  * of the AI monitor: per outlet (entity picker) or organization-wide, on · off ·
@@ -74,6 +74,10 @@ const timeShort = (iso: string) =>
  * else sees the state.
  */
 export function AiMasterSwitch() {
+  const t = useT()
+  const f = useFormat()
+  const dayLabel = (d: Weekday) => f.weekday(weekdayDate(d))
+  const timeShort = (iso: string) => `${f.weekday(iso)} ${f.time(iso)}`
   const { activeEntity } = useEntity()
   const [scope, setScope] = useState<string | null>(activeEntity?.slug ?? null)
   useEffect(() => setScope(activeEntity?.slug ?? null), [activeEntity?.slug])
@@ -136,24 +140,32 @@ export function AiMasterSwitch() {
 
   const canManage = !!data?.can_manage
   const on = !!data?.now_on
-  const scopeName = data?.entity_name ?? (scope ? scope : 'the organization')
+  const scopeName = data?.entity_name ?? (scope ? scope : t('chats.aiControls.theOrganization'))
   const isSchedule = data?.mode === 'schedule'
 
+  const hours = data ? describeSchedule(data.schedule, t, dayLabel) : ''
+  const aiWindow = data
+    ? t(data.schedule_mode === 'outside' ? 'chats.aiControls.windowOutside' : 'chats.aiControls.windowInside', { hours })
+    : ''
   const subline = !data
     ? ''
     : data.mode === 'off'
-      ? 'No AI replies, follow-ups or AI flow messages anywhere in this scope.'
+      ? t('chats.aiControls.subOff')
       : data.mode === 'schedule'
-        ? `The AI answers ${data.schedule_mode === 'outside' ? 'outside' : 'during'} ${describeSchedule(data.schedule)} (${data.timezone})${
-            data.next_change_at ? ` — ${on ? 'off' : 'on'} again ${timeShort(data.next_change_at)}` : ''
-          }.`
-        : 'The AI answers here; per-chat switches, contact settings and inbox defaults still apply.'
+        ? data.next_change_at
+          ? t('chats.aiControls.subScheduleNext', {
+              window: aiWindow,
+              tz: data.timezone,
+              next: t(on ? 'chats.aiControls.nextOff' : 'chats.aiControls.nextOn', { time: timeShort(data.next_change_at) }),
+            })
+          : t('chats.aiControls.subSchedule', { window: aiWindow, tz: data.timezone })
+        : t('chats.aiControls.subOn')
   const provenance = !data
     ? ''
     : data.mode_from === 'inherited'
-      ? `Set on ${data.mode_set_at}.`
+      ? t('chats.aiControls.setOn', { name: data.mode_set_at ?? '' })
       : data.mode_from === 'organization' && data.entity
-        ? 'Following the organization-wide switch.'
+        ? t('chats.aiControls.followingOrg')
         : ''
 
   const tone = !data ? 'bg-fill text-text-muted' : on ? 'bg-green/15 text-[color:var(--green-ink)]' : isSchedule ? 'bg-amber/15 text-[color:var(--amber-ink)]' : 'bg-red/10 text-[color:var(--red-ink)]'
@@ -165,17 +177,24 @@ export function AiMasterSwitch() {
           {!data ? <Loader2 size={18} className="animate-spin" /> : on ? <Bot size={20} strokeWidth={1.8} /> : <BotOff size={20} strokeWidth={1.8} />}
         </span>
         <div className="min-w-0 flex-1 basis-[220px]">
-          <div className="eyebrow">AI master switch</div>
+          <div className="eyebrow">{t('chats.aiControls.masterSwitch')}</div>
           <div className="display text-[21px] leading-tight text-text-heading" aria-live="polite">
             {data ? (
-              <>
-                AI is <span className={on ? 'text-[color:var(--green-ink)]' : 'text-[color:var(--red-ink)]'}>{on ? 'ON' : 'OFF'}</span> for{' '}
-                {scopeName}
-              </>
+              <Trans
+                k="chats.aiControls.isOnFor"
+                values={{
+                  state: (
+                    <span className={on ? 'text-[color:var(--green-ink)]' : 'text-[color:var(--red-ink)]'}>
+                      {t(on ? 'chats.aiControls.stateOn' : 'chats.aiControls.stateOff')}
+                    </span>
+                  ),
+                  scope: scopeName,
+                }}
+              />
             ) : loadErr ? (
-              'AI switch unavailable'
+              t('chats.aiControls.unavailable')
             ) : (
-              'Loading…'
+              t('common.status.loading')
             )}
           </div>
           <div className="mt-0.5 text-[12.5px] text-text-muted">
@@ -187,15 +206,20 @@ export function AiMasterSwitch() {
             value={scope}
             onChange={setScope}
             size="sm"
-            globalLabel="Whole organization"
-            ariaLabel="Scope of the AI switch"
+            globalLabel={t('chats.aiControls.wholeOrg')}
+            ariaLabel={t('chats.aiControls.scopeAria')}
             className="min-w-0 flex-1 sm:w-[230px] sm:flex-none"
           />
           <Toggle
             on={!!data && data.mode !== 'off'}
             disabled={!canManage || busy || !data}
-            onChange={(v) => save({ mode: v ? 'on' : 'off' }, v ? `AI switched on for ${scopeName}.` : `AI switched off for ${scopeName}.`)}
-            label={`AI for ${scopeName}`}
+            onChange={(v) =>
+              save(
+                { mode: v ? 'on' : 'off' },
+                t(v ? 'chats.aiControls.switchedOn' : 'chats.aiControls.switchedOff', { scope: scopeName }),
+              )
+            }
+            label={t('chats.aiControls.toggleLabel', { scope: scopeName })}
           />
         </div>
       </div>
@@ -217,16 +241,22 @@ export function AiMasterSwitch() {
         aria-expanded={open}
         className="flex w-full flex-wrap items-center gap-2 border-t border-line px-4 py-2.5 text-left text-[12.5px] transition-colors hover:bg-fill sm:px-5"
       >
-        <span className="font-semibold text-text-high">Schedule &amp; exceptions</span>
+        <span className="font-semibold text-text-high">{t('chats.aiControls.scheduleExceptions')}</span>
         {data && (
           <>
             <span className="inline-flex items-center gap-1 rounded-full border border-line-strong px-2 py-px text-[11.5px] text-text-mid">
               <CalendarClock size={11} aria-hidden />
-              {isSchedule ? `${data.schedule_mode === 'outside' ? 'Outside' : 'During'} ${describeSchedule(data.schedule)}` : 'No schedule'}
+              {isSchedule
+                ? t(data.schedule_mode === 'outside' ? 'chats.aiControls.chipOutside' : 'chats.aiControls.chipInside', { hours })
+                : t('chats.aiControls.noSchedule')}
             </span>
             <span className="inline-flex items-center gap-1 rounded-full border border-line-strong px-2 py-px text-[11.5px] text-text-mid">
               <ShieldOff size={11} aria-hidden />
-              {data.never_tags.length ? `Never AI: ${data.never_tags.slice(0, 3).join(', ')}${data.never_tags.length > 3 ? '…' : ''}` : 'No never-AI tags'}
+              {data.never_tags.length
+                ? t('chats.aiControls.neverAi', {
+                    tags: `${data.never_tags.slice(0, 3).join(', ')}${data.never_tags.length > 3 ? '…' : ''}`,
+                  })
+                : t('chats.aiControls.noNeverAiTags')}
             </span>
           </>
         )}
@@ -246,16 +276,22 @@ export function AiMasterSwitch() {
             </div>
           )}
           <div className="flex flex-col gap-2">
-            <span className="eyebrow">AI in {scopeName}</span>
+            <span className="eyebrow">{t('chats.aiControls.aiIn', { scope: scopeName })}</span>
             <div className="flex flex-wrap items-center gap-3">
-              <Segmented value={mode} options={MODES} onChange={setMode} label="AI mode" disabled={!canManage} />
+              <Segmented
+                value={mode}
+                options={MODES.map((m) => ({ value: m.value, label: t(m.label) }))}
+                onChange={setMode}
+                label={t('chats.aiControls.modeAria')}
+                disabled={!canManage}
+              />
               {data.entity && data.own.mode && canManage && (
                 <button
                   type="button"
-                  onClick={() => save({ mode: 'inherit' }, `${scopeName} follows its parent's switch again.`)}
+                  onClick={() => save({ mode: 'inherit' }, t('chats.aiControls.followsParent', { scope: scopeName }))}
                   className="text-[12.5px] font-semibold text-[color:var(--brand-ink)] hover:underline"
                 >
-                  Use the parent’s setting
+                  {t('chats.aiControls.useParent')}
                 </button>
               )}
             </div>
@@ -264,44 +300,42 @@ export function AiMasterSwitch() {
           {mode === 'schedule' && (
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="eyebrow">Hours ({data.timezone})</span>
+                <span className="eyebrow">{t('chats.aiControls.hoursTz', { tz: data.timezone })}</span>
                 <Segmented
                   value={scheduleMode}
                   onChange={setScheduleMode}
-                  label="When the AI answers"
+                  label={t('chats.aiControls.whenAria')}
                   disabled={!canManage}
                   options={[
-                    { value: 'inside', label: 'AI during these hours' },
-                    { value: 'outside', label: 'AI outside these hours' },
+                    { value: 'inside', label: t('chats.aiControls.inside') },
+                    { value: 'outside', label: t('chats.aiControls.outside') },
                   ]}
                 />
               </div>
               <p className="text-[12px] text-text-muted">
-                {scheduleMode === 'inside'
-                  ? 'e.g. an after-hours bot: the AI answers only inside these windows.'
-                  : 'e.g. people during office hours: the AI answers only outside these windows.'}{' '}
-                A draft a person approves later still goes out.
+                {t(scheduleMode === 'inside' ? 'chats.aiControls.insideHint' : 'chats.aiControls.outsideHint')}{' '}
+                {t('chats.aiControls.approvedStillGoes')}
               </p>
               <AiScheduleEditor value={schedule} onChange={setSchedule} disabled={!canManage} />
             </div>
           )}
 
           <div className="flex flex-col gap-2">
-            <span className="eyebrow">Never use AI for contacts tagged</span>
+            <span className="eyebrow">{t('chats.aiControls.neverTitle')}</span>
             <MultiSelect
               value={neverTags}
               onChange={setNeverTags}
               options={tagOptions}
-              placeholder={tagOptions.length ? 'No tags — pick VIPs, complaints…' : 'No contact tags yet'}
+              placeholder={t(tagOptions.length ? 'chats.aiControls.neverPlaceholder' : 'chats.aiControls.noContactTags')}
               size="md"
-              ariaLabel="Never-AI tags"
+              ariaLabel={t('chats.aiControls.neverAria')}
               searchable
               maxChips={4}
               disabled={!canManage}
             />
             {data.inherited_never_tags.length > 0 && (
               <p className="text-[12px] text-text-muted">
-                Also from above: {data.inherited_never_tags.join(', ')}
+                {t('chats.aiControls.alsoFromAbove', { tags: data.inherited_never_tags.join(', ') })}
               </p>
             )}
           </div>
@@ -309,7 +343,7 @@ export function AiMasterSwitch() {
           {canManage ? (
             <div className="flex flex-wrap justify-end gap-2">
               <Button variant="secondary" size="sm" onClick={() => adopt(data)} disabled={busy}>
-                Discard
+                {t('common.actions.discard')}
               </Button>
               <Button
                 size="sm"
@@ -321,15 +355,15 @@ export function AiMasterSwitch() {
                       ...(mode === 'schedule' ? { schedule, schedule_mode: scheduleMode } : {}),
                       never_tags: neverTags,
                     },
-                    'Saved.',
+                    t('chats.aiControls.saved'),
                   )
                 }
               >
-                {busy && <Loader2 size={13} className="animate-spin" aria-hidden />} Save
+                {busy && <Loader2 size={13} className="animate-spin" aria-hidden />} {t('common.actions.save')}
               </Button>
             </div>
           ) : (
-            <p className="text-[12px] text-text-muted">Changing these needs the “Edit AI behaviour settings” permission.</p>
+            <p className="text-[12px] text-text-muted">{t('chats.aiControls.needsPermission')}</p>
           )}
         </div>
       )}

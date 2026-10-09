@@ -4,7 +4,8 @@ import { useState } from 'react'
 import { Bot, BotOff, CheckCircle2, Loader2, X } from 'lucide-react'
 import { Select } from '@/components/ui/Select'
 import { bulkThreads, paramsToFilter, type BulkAction } from '@/lib/aiControls'
-import type { UiAgent } from './inboxTypes'
+import { roleLabel, type UiAgent } from './inboxTypes'
+import { useT } from '@/i18n'
 
 /**
  * The chat list's bulk bar (select mode): AI on · AI off · Resolve · Assign
@@ -35,6 +36,7 @@ export default function BulkBar({
   onClear: () => void
   onDone: () => void
 }) {
+  const t = useT()
   const [busy, setBusy] = useState<BulkAction | null>(null)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [assignee, setAssignee] = useState('')
@@ -52,19 +54,20 @@ export default function BulkBar({
       const r = await bulkThreads(target, action, value)
       const what =
         action === 'ai_on'
-          ? 'AI turned on'
+          ? t('chats.bulk.aiTurnedOn')
           : action === 'ai_off'
-            ? 'AI turned off'
+            ? t('chats.bulk.aiTurnedOff')
             : action === 'resolve'
-              ? 'Resolved'
+              ? t('chats.bulk.resolved')
               : action === 'reopen'
-                ? 'Reopened'
+                ? t('chats.bulk.reopened')
                 : value
-                  ? `Assigned to ${agents.find((a) => a.username === value)?.name || value}`
-                  : 'Unassigned'
+                  ? t('chats.bulk.assignedTo', { name: agents.find((a) => a.username === value)?.name || value })
+                  : t('chats.bulk.unassigned')
+      const text = t('chats.bulk.result', { what, count: r.matched })
       setMsg({
         ok: true,
-        text: `${what} · ${r.matched} conversation${r.matched === 1 ? '' : 's'}${r.skipped.length ? ` (${r.skipped.length} skipped)` : ''}`,
+        text: r.skipped.length ? t('chats.bulk.skipped', { text, count: r.skipped.length }) : text,
       })
       onDone()
     } catch (e) {
@@ -78,7 +81,7 @@ export default function BulkBar({
     'inline-flex h-8 items-center gap-1.5 rounded-lg border border-line-strong bg-card px-2.5 text-[12.5px] font-semibold text-text-high transition-colors hover:bg-fill-hover disabled:cursor-not-allowed disabled:opacity-50'
 
   return (
-    <div className="shrink-0 border-t border-line-strong bg-surface px-3 pb-3 pt-2.5" role="region" aria-label="Bulk actions">
+    <div className="shrink-0 border-t border-line-strong bg-surface px-3 pb-3 pt-2.5" role="region" aria-label={t('chats.bulk.regionAria')}>
       {msg && (
         <div
           role={msg.ok ? 'status' : 'alert'}
@@ -90,22 +93,20 @@ export default function BulkBar({
         </div>
       )}
       <div className="flex items-center gap-2 text-[12.5px]">
-        <span className="font-semibold text-text-heading">
-          {count} selected
-        </span>
+        <span className="shrink-0 font-semibold text-text-heading">{t('common.counts.selected', { count })}</span>
         {total !== null && total > selected.length && (
           <button
             type="button"
             onClick={() => onAllMatching(!allMatching)}
             className="truncate font-semibold text-[color:var(--brand-ink)] hover:underline"
           >
-            {allMatching ? 'Only the ones I picked' : `Select all ${total} in this filter`}
+            {allMatching ? t('chats.bulk.onlyPicked') : t('chats.bulk.selectAllN', { count: total })}
           </button>
         )}
         <button
           type="button"
           onClick={onClear}
-          aria-label="Clear selection"
+          aria-label={t('chats.bulk.clearSelection')}
           className="ml-auto grid h-7 w-7 shrink-0 place-items-center rounded-md text-text-muted hover:bg-fill-hover hover:text-text-high"
         >
           <X size={14} aria-hidden />
@@ -113,31 +114,31 @@ export default function BulkBar({
       </div>
       {allMatching && total !== null && total > 1000 && (
         <div className="mt-1 text-[11.5px] text-[color:var(--amber-ink)]">
-          Bulk actions take at most 1000 conversations — narrow the filter first.
+          {t('chats.bulk.max1000')}
         </div>
       )}
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <button type="button" className={btn} disabled={disabled} onClick={() => run('ai_on')}>
-          {busy === 'ai_on' ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Bot size={13} aria-hidden />} AI on
+          {busy === 'ai_on' ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Bot size={13} aria-hidden />} {t('chats.bulk.aiOn')}
         </button>
         <button type="button" className={btn} disabled={disabled} onClick={() => run('ai_off')}>
-          {busy === 'ai_off' ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <BotOff size={13} aria-hidden />} AI off
+          {busy === 'ai_off' ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <BotOff size={13} aria-hidden />} {t('chats.bulk.aiOff')}
         </button>
         <button type="button" className={btn} disabled={disabled} onClick={() => run('resolve')}>
           {busy === 'resolve' ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <CheckCircle2 size={13} aria-hidden />}{' '}
-          Resolve
+          {t('chats.bulk.resolve')}
         </button>
         <div className="flex min-w-[180px] flex-1 items-center gap-1.5">
           <Select
             value={assignee}
             onChange={setAssignee}
             options={[
-              { value: '', label: 'Assign to…' },
-              { value: '__none__', label: 'Nobody (unassign)' },
-              ...agents.map((a) => ({ value: a.username, label: a.name || a.username, hint: a.role })),
+              { value: '', label: t('chats.bulk.assignTo') },
+              { value: '__none__', label: t('chats.bulk.nobody') },
+              ...agents.map((a) => ({ value: a.username, label: a.name || a.username, hint: roleLabel(t, a.role) })),
             ]}
             size="sm"
-            ariaLabel="Assign to"
+            ariaLabel={t('chats.bulk.assignAria')}
             className="min-w-0 flex-1"
             searchable={agents.length > 6}
           />
@@ -147,7 +148,7 @@ export default function BulkBar({
             disabled={disabled || !assignee}
             onClick={() => run('assign', assignee === '__none__' ? '' : assignee)}
           >
-            {busy === 'assign' && <Loader2 size={13} className="animate-spin" aria-hidden />} Assign
+            {busy === 'assign' && <Loader2 size={13} className="animate-spin" aria-hidden />} {t('chats.bulk.assign')}
           </button>
         </div>
       </div>

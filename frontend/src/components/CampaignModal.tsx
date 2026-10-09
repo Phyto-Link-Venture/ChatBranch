@@ -4,18 +4,34 @@ import { useRouter } from 'next/navigation'
 import { Mic, Phone, MessageSquare, X, Check, Zap } from 'lucide-react'
 import { useApp } from '@/lib/AppContext'
 import { primaryRecord } from '@/lib/mocks'
+import { recordTypeLabel } from '@/lib/contactIdentity'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { tint } from '@/lib/color'
+import { useT, type MessageKey } from '@/i18n'
 
-const METHODS = [
-  { id: 'ai-call', label: 'AI Responsive Call', sub: 'Real-time AI conversation', color: 'rgb(var(--c-brand))', Icon: Mic },
-  { id: 'bot-call', label: 'Automated Bot Call', sub: 'Interactive IVR flow', color: 'rgb(var(--c-cyan))', Icon: Phone },
-  { id: 'message', label: 'AI Message', sub: 'WhatsApp / SMS', color: 'rgb(var(--c-purple))', Icon: MessageSquare },
+const METHODS: { id: string; label: MessageKey; sub: MessageKey; color: string; Icon: typeof Mic }[] = [
+  { id: 'ai-call', label: 'contacts.campaign.aiCall', sub: 'contacts.campaign.aiCallSub', color: 'rgb(var(--c-brand))', Icon: Mic },
+  { id: 'bot-call', label: 'contacts.campaign.botCall', sub: 'contacts.campaign.botCallSub', color: 'rgb(var(--c-cyan))', Icon: Phone },
+  {
+    id: 'message',
+    label: 'contacts.campaign.message',
+    sub: 'contacts.campaign.messageSub',
+    color: 'rgb(var(--c-purple))',
+    Icon: MessageSquare,
+  },
 ]
-const TONES = ['Professional', 'Firm', 'Empathetic', 'Urgent']
+/** The tone codes the launch sends, with their labels. */
+const TONES: { id: string; label: MessageKey }[] = [
+  { id: 'professional', label: 'contacts.campaign.tones.professional' },
+  { id: 'firm', label: 'contacts.campaign.tones.firm' },
+  { id: 'empathetic', label: 'contacts.campaign.tones.empathetic' },
+  { id: 'urgent', label: 'contacts.campaign.tones.urgent' },
+]
+const GENDERS: Record<string, MessageKey> = { male: 'contacts.campaign.gender.male', female: 'contacts.campaign.gender.female' }
 
 export function CampaignModal() {
+  const t = useT()
   const router = useRouter()
   const {
     campaignModal,
@@ -44,10 +60,8 @@ export function CampaignModal() {
     router.push('/chats')
   }
 
-  const label = (t: string) => (
-    <div className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-text-muted">
-      {t}
-    </div>
+  const label = (text: string) => (
+    <div className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-text-muted">{text}</div>
   )
 
   return (
@@ -65,16 +79,15 @@ export function CampaignModal() {
         <div className="flex items-center justify-between border-b border-line px-[22px] py-[18px]">
           <div>
             <div className="text-[15px] font-extrabold tracking-[-0.4px] text-text-primary">
-              New Campaign
+              {t('contacts.campaign.title')}
             </div>
             <div className="mt-0.5 text-[11px] text-text-muted">
-              {campaignStep === 1
-                ? 'Step 1 of 2 · Select contacts'
-                : 'Step 2 of 2 · Configure & launch'}
+              {t(campaignStep === 1 ? 'contacts.campaign.step1' : 'contacts.campaign.step2')}
             </div>
           </div>
           <button
             onClick={closeCampaign}
+            aria-label={t('common.actions.close')}
             className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg border border-line bg-fill text-text-muted"
           >
             <X size={15} strokeWidth={1.75} />
@@ -112,7 +125,7 @@ export function CampaignModal() {
                   <div className="shrink-0 text-right">
                     {record && (
                       <div className="text-[11px] font-semibold text-text-mid">
-                        {record.type} · {record.status}
+                        {recordTypeLabel(t, record.type)} · {record.status}
                       </div>
                     )}
                   </div>
@@ -123,7 +136,7 @@ export function CampaignModal() {
         ) : (
           <div className="flex flex-1 flex-col gap-[18px] overflow-y-auto px-[22px] py-[18px]">
             <div>
-              {label('Method')}
+              {label(t('contacts.campaign.method'))}
               <div className="flex flex-col gap-2">
                 {METHODS.map((m) => {
                   const sel = launchMethod === m.id
@@ -144,10 +157,8 @@ export function CampaignModal() {
                         <m.Icon size={15} strokeWidth={1.75} style={{ color: m.color }} />
                       </div>
                       <div className="flex-1">
-                        <div className="text-[13px] font-bold text-text-high">
-                          {m.label}
-                        </div>
-                        <div className="text-[11px] text-text-muted">{m.sub}</div>
+                        <div className="text-[13px] font-bold text-text-high">{t(m.label)}</div>
+                        <div className="text-[11px] text-text-muted">{t(m.sub)}</div>
                       </div>
                       <div
                         className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full"
@@ -170,30 +181,34 @@ export function CampaignModal() {
 
             {launchMethod === 'ai-call' && (
               <div>
-                {label('Voice')}
+                {label(t('contacts.campaign.voice'))}
                 <Select
                   value={selectedVoice}
                   onChange={setSelectedVoice}
                   options={voices
                     .filter((v) => v.status === 'ready')
-                    .map((v) => ({ value: v.id, label: v.name, hint: v.gender }))}
+                    .map((v) => ({
+                      value: v.id,
+                      label: v.name,
+                      hint: GENDERS[String(v.gender).toLowerCase()] ? t(GENDERS[String(v.gender).toLowerCase()]) : v.gender,
+                    }))}
                   size="md"
-                  ariaLabel="Voice"
-                  placeholder="Pick a voice…"
+                  ariaLabel={t('contacts.campaign.voice')}
+                  placeholder={t('contacts.campaign.pickVoice')}
                   className="w-full"
                 />
               </div>
             )}
 
             <div>
-              {label('Tone')}
+              {label(t('contacts.campaign.tone'))}
               <div className="flex flex-wrap gap-2">
-                {TONES.map((t) => {
-                  const sel = launchTone === t.toLowerCase()
+                {TONES.map((tone) => {
+                  const sel = launchTone === tone.id
                   return (
                     <div
-                      key={t}
-                      onClick={() => setLaunchTone(t.toLowerCase())}
+                      key={tone.id}
+                      onClick={() => setLaunchTone(tone.id)}
                       className="cursor-pointer rounded-lg px-3.5 py-[7px] text-[12px] font-semibold"
                       style={{
                         border: `1.5px solid ${sel ? 'rgba(255,90,31,0.5)' : 'var(--line)'}`,
@@ -201,7 +216,7 @@ export function CampaignModal() {
                         color: sel ? 'var(--brand-ink)' : 'var(--text-muted)',
                       }}
                     >
-                      {t}
+                      {t(tone.label)}
                     </div>
                   )
                 })}
@@ -213,12 +228,14 @@ export function CampaignModal() {
         {/* Footer */}
         <div className="flex items-center justify-between gap-3 border-t border-line px-[22px] py-4">
           <div className="text-[12px] font-semibold text-text-muted">
-            {campaignSel.length ? `${campaignSel.length} selected` : 'No contacts selected'}
+            {campaignSel.length
+              ? t('common.counts.selected', { count: campaignSel.length })
+              : t('contacts.campaign.noneSelected')}
           </div>
           <div className="flex gap-2">
             {campaignStep === 2 && (
               <Button variant="secondary" style={{ fontSize: 12 }} onClick={() => setCampaignStep(1)}>
-                Back
+                {t('common.actions.back')}
               </Button>
             )}
             {campaignStep === 1 ? (
@@ -231,7 +248,7 @@ export function CampaignModal() {
                 }}
                 onClick={() => campaignSel.length && setCampaignStep(2)}
               >
-                Next
+                {t('common.actions.next')}
               </Button>
             ) : (
               <button
@@ -240,7 +257,7 @@ export function CampaignModal() {
                 style={{ background: 'var(--primary)' }}
               >
                 <Zap size={15} strokeWidth={1.75} color="white" />
-                Launch &amp; Go Live
+                {t('contacts.campaign.launch')}
               </button>
             )}
           </div>

@@ -24,7 +24,8 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Check, ChevronDown, ChevronRight, HelpCircle, Loader2, MessageSquarePlus, Plus, RefreshCw, Send, X } from 'lucide-react'
 import { authHeaders } from '@/lib/auth'
-import { HEALTH_META, relTime, type HealthStatus } from '@/lib/channelHealth'
+import { HEALTH_META, type HealthStatus } from '@/lib/channelHealth'
+import { Trans, useFormat, useT, type MessageKey, type TFunction } from '@/i18n'
 import { useAccess } from '@/lib/useAccess'
 import { NO_LOOKUP_LABELS, cApi, errText, type DiscoverResult, type Verdict } from '@/lib/contactIdentity'
 import { Select, type SelectOption } from '@/components/ui/Select'
@@ -84,7 +85,8 @@ export interface HubPayload {
   invite_channels?: string[]
 }
 
-/** Display name + the brand mark to show (our `facebook` channel is Messenger). */
+/** Display name + the brand mark to show (our `facebook` channel is Messenger).
+ *  Email / Website / AI Voice are translated by chName(). */
 const CH_META: Record<string, { lbl: string; logo: string }> = {
   whatsapp: { lbl: 'WhatsApp', logo: 'whatsapp' },
   email: { lbl: 'Email', logo: 'email' },
@@ -102,25 +104,45 @@ const CH_META: Record<string, { lbl: string; logo: string }> = {
   douyin: { lbl: 'Douyin', logo: 'douyin' },
 }
 
-const VERDICT: Record<Verdict, { lbl: string; cls: string; Icon: typeof Check | null }> = {
-  verified: { lbl: 'On WhatsApp', cls: 'bg-green/10 text-green-300', Icon: Check },
-  not_on_whatsapp: { lbl: 'Not on WhatsApp', cls: 'bg-red/10 text-red-300', Icon: X },
-  unknown: { lbl: 'Unverified', cls: 'bg-fill text-text-muted', Icon: HelpCircle },
-  pending: { lbl: 'Checking…', cls: 'bg-amber/10 text-amber-300', Icon: Loader2 },
+/** A channel's name in the current language (brand names as they are). */
+const chName = (t: TFunction, c: string) =>
+  c === 'email' || c === 'website'
+    ? t(`chats.channels.${c}`)
+    : c === 'voice'
+      ? t('contacts.hub.aiVoice')
+      : (CH_META[c]?.lbl ?? c)
+
+const VERDICT: Record<Verdict, { lbl: MessageKey; cls: string; Icon: typeof Check | null }> = {
+  verified: { lbl: 'contacts.hub.verdictVerified', cls: 'bg-green/10 text-green-300', Icon: Check },
+  not_on_whatsapp: { lbl: 'contacts.hub.verdictNotOnWa', cls: 'bg-red/10 text-red-300', Icon: X },
+  unknown: { lbl: 'contacts.hub.verdictUnverified', cls: 'bg-fill text-text-muted', Icon: HelpCircle },
+  pending: { lbl: 'contacts.hub.verdictChecking', cls: 'bg-amber/10 text-amber-300', Icon: Loader2 },
 }
 
-const CLOUD_NOTE =
-  'The WhatsApp Cloud API cannot look numbers up — only a connected QR (WhatsApp Web) number can. ' +
-  'Nobody is ever messaged to test a number.'
+const HEALTH_KEYS: Record<HealthStatus, MessageKey> = {
+  healthy: 'contacts.hub.health.healthy',
+  degraded: 'contacts.hub.health.degraded',
+  unknown: 'contacts.hub.health.unknown',
+  disconnected: 'contacts.hub.health.disconnected',
+  banned: 'contacts.hub.health.banned',
+}
+
+/** "5 minutes ago" in the current language; "never" for no timestamp. */
+function useRel() {
+  const t = useT()
+  const f = useFormat()
+  return (iso: string | null | undefined) => (iso ? f.relative(iso) || t('common.status.never') : t('common.status.never'))
+}
 
 function VerdictChip({ ident }: { ident: ChannelIdentity }) {
+  const t = useT()
   const v = ident.verification
   if (!v) return null
   const meta = VERDICT[v] ?? VERDICT.unknown
   const title =
     v === 'unknown'
-      ? `${ident.verification_detail || 'Not checked yet.'} ${CLOUD_NOTE}`
-      : ident.verification_detail || meta.lbl
+      ? `${ident.verification_detail || t('contacts.hub.notChecked')} ${t('contacts.hub.cloudNote')}`
+      : ident.verification_detail || t(meta.lbl)
   const Icon = meta.Icon
   return (
     <span
@@ -128,7 +150,7 @@ function VerdictChip({ ident }: { ident: ChannelIdentity }) {
       title={title}
     >
       {Icon && <Icon size={9} className={v === 'pending' ? 'animate-spin' : ''} aria-hidden />}
-      {meta.lbl}
+      {t(meta.lbl)}
     </span>
   )
 }
@@ -141,54 +163,60 @@ function dotColor(ch: HubChannel): string {
   return (ch.identities ?? []).some((i) => i.account_health === 'healthy') ? 'rgb(var(--c-green))' : 'rgb(var(--c-amber))'
 }
 
-const SOURCE_LABEL: Record<string, string> = {
-  auto: "From the contact's details",
-  import: 'From an import',
-  self: 'Given by the customer',
-  thread: 'From a chat',
-  manual: 'Added by hand',
-  invite: 'From an invite link',
+const SOURCE_LABEL: Record<string, MessageKey> = {
+  auto: 'contacts.hub.source.auto',
+  import: 'contacts.hub.source.import',
+  self: 'contacts.hub.source.self',
+  thread: 'contacts.hub.source.thread',
+  manual: 'contacts.hub.source.manual',
+  invite: 'contacts.hub.source.invite',
 }
 
 function IdentityRow({ ident }: { ident: ChannelIdentity }) {
+  const t = useT()
+  const rel = useRel()
   const health = HEALTH_META[ident.account_health] ?? HEALTH_META.unknown
+  const healthLabel = t(HEALTH_KEYS[ident.account_health] ?? HEALTH_KEYS.unknown)
+  const source = SOURCE_LABEL[ident.source ?? '']
   return (
     <div className="border-t border-line px-2.5 py-2">
       <div className="flex items-baseline justify-between gap-2">
         <span className="min-w-0 truncate text-[12px] font-semibold text-text-high">
           {ident.address || ident.key}
         </span>
-        <span className="shrink-0 text-[10.5px] text-text-muted">{relTime(ident.last_active)}</span>
+        <span className="shrink-0 text-[10.5px] text-text-muted">{rel(ident.last_active)}</span>
       </div>
       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-text-muted">
         <span>
           {ident.registered && ident.message_count === 0
-            ? 'No messages yet'
-            : `${ident.message_count} msgs · ${ident.inbound_count} in / ${ident.outbound_count} out`}
+            ? t('contacts.hub.noMessagesYet')
+            : t('contacts.hub.msgsInOut', { count: ident.message_count, in: ident.inbound_count, out: ident.outbound_count })}
         </span>
         <VerdictChip ident={ident} />
         {ident.opted_out && (
           <span className="rounded-full bg-red/10 px-1.5 text-[10px] font-semibold text-red-300">
-            Opted out
+            {t('contacts.hub.optedOut')}
           </span>
         )}
         {ident.window_open === false && (
           <span className="rounded-full bg-amber/10 px-1.5 text-[10px] font-semibold text-amber-300">
-            24h window closed
+            {t('contacts.hub.windowClosed')}
           </span>
         )}
       </div>
       <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px]">
         <span className="min-w-0 truncate text-text-muted">
           {ident.account_name
-            ? `via ${ident.account_name}${ident.account_provider ? ` (${ident.account_provider})` : ''}`
+            ? ident.account_provider
+              ? t('contacts.hub.viaProvider', { name: ident.account_name, provider: ident.account_provider })
+              : t('contacts.hub.via', { name: ident.account_name })
             : ident.registered && ident.message_count === 0
-              ? SOURCE_LABEL[ident.source ?? ''] ?? 'Registered'
-              : 'No provider account'}
+              ? t(source ?? 'contacts.hub.registered')
+              : t('contacts.hub.noProvider')}
         </span>
         {!(ident.registered && ident.message_count === 0 && !ident.account_name) && (
           <span className="shrink-0 font-semibold" style={{ color: health.ink }}>
-            {health.lbl}
+            {healthLabel}
           </span>
         )}
       </div>
@@ -197,8 +225,11 @@ function IdentityRow({ ident }: { ident: ChannelIdentity }) {
 }
 
 function ChannelRow({ ch }: { ch: HubChannel }) {
+  const t = useT()
+  const rel = useRel()
   const [open, setOpen] = useState(false)
   const meta = CH_META[ch.channel] ?? CH_META.whatsapp
+  const name = CH_META[ch.channel] ? chName(t, ch.channel) : meta.lbl
   const idents = ch.identities ?? []
   const isVoice = ch.channel === 'voice'
   const expandable = isVoice ? Boolean(ch.last_outcome) : idents.length > 0
@@ -211,7 +242,7 @@ function ChannelRow({ ch }: { ch: HubChannel }) {
         type="button"
         onClick={() => expandable && setOpen(!open)}
         aria-expanded={open}
-        aria-label={`${meta.lbl} channel details`}
+        aria-label={t('contacts.hub.channelDetails', { channel: name })}
         className={`flex w-full items-center gap-2.5 px-2.5 py-2 text-left ${
           expandable ? 'cursor-pointer hover:bg-fill' : 'cursor-default'
         }`}
@@ -219,24 +250,22 @@ function ChannelRow({ ch }: { ch: HubChannel }) {
         <ChannelLogo channel={meta.logo} size={24} variant="tile" title="" />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
-            <span className="truncate text-[12.5px] font-semibold text-text-high">{meta.lbl}</span>
+            <span className="truncate text-[12.5px] font-semibold text-text-high">{name}</span>
             <span
               className="h-1.5 w-1.5 shrink-0 rounded-full"
               style={{ background: dotColor(ch) }}
-              title={ch.connected ? 'Connected' : 'Not connected'}
+              title={ch.connected ? t('common.status.connected') : t('contacts.hub.notConnected')}
             />
             {!isVoice && idents.length > 1 && (
               <span className="shrink-0 rounded-full border border-line px-1.5 text-[10px] text-text-muted">
-                {idents.length} ids
+                {t('contacts.hub.ids', { count: idents.length })}
               </span>
             )}
           </span>
           <span className="mt-px block truncate text-[11px] text-text-muted">
-            {isVoice
-              ? `${count} call${count === 1 ? '' : 's'}`
-              : `${count} msg${count === 1 ? '' : 's'}`}
+            {t(isVoice ? 'contacts.hub.calls' : 'contacts.hub.msgs', { count })}
             {' · '}
-            {lastActive ? relTime(lastActive) : 'no activity'}
+            {lastActive ? rel(lastActive) : t('contacts.hub.noActivity')}
           </span>
         </span>
         {expandable &&
@@ -250,40 +279,38 @@ function ChannelRow({ ch }: { ch: HubChannel }) {
       {isVoice && ch.number && (
         <div className="border-t border-line px-2.5 py-1.5 text-[11px] text-text-muted">
           <span className="font-semibold text-text-mid">{ch.number}</span>
-          {ch.registered ? ' · registered for calls' : ''}
+          {ch.registered ? ` · ${t('contacts.hub.registeredForCalls')}` : ''}
         </div>
       )}
       {open && isVoice && ch.last_outcome && (
         <div className="border-t border-line px-2.5 py-2 text-[11px] text-text-muted">
-          Last outcome: <span className="font-semibold text-text-mid">{ch.last_outcome}</span>
-          {ch.last_call && <> · {relTime(ch.last_call)}</>}
+          <Trans
+            k="contacts.hub.lastOutcome"
+            values={{ outcome: <span className="font-semibold text-text-mid">{ch.last_outcome}</span> }}
+          />
+          {ch.last_call && <> · {rel(ch.last_call)}</>}
         </div>
       )}
     </div>
   )
 }
 
-const ADD_CHANNELS: SelectOption[] = [
-  { value: 'whatsapp', label: 'WhatsApp' },
-  { value: 'email', label: 'Email' },
-  { value: 'telegram', label: 'Telegram' },
-  { value: 'facebook', label: 'Messenger' },
-  { value: 'instagram', label: 'Instagram' },
-  { value: 'voice', label: 'AI Voice' },
-]
+const ADD_CHANNELS = ['whatsapp', 'email', 'telegram', 'facebook', 'instagram', 'voice'] as const
 
-const ADD_PLACEHOLDER: Record<string, string> = {
-  whatsapp: 'Phone e.g. 60123456789',
-  email: 'name@example.com',
-  telegram: 'Telegram chat ID',
-  facebook: 'Messenger PSID',
-  instagram: 'Instagram IGSID',
-  voice: 'Phone e.g. +60123456789',
+const ADD_PLACEHOLDER: Record<string, MessageKey> = {
+  whatsapp: 'contacts.hub.ph.whatsapp',
+  email: 'contacts.hub.ph.email',
+  telegram: 'contacts.hub.ph.telegram',
+  facebook: 'contacts.hub.ph.facebook',
+  instagram: 'contacts.hub.ph.instagram',
+  voice: 'contacts.hub.ph.voice',
 }
 
 /** Register a channel identity by hand — POST /contacts/<id>/channels creates
  * (or claims) the thread and links it to this contact. */
 function AddIdentity({ contactId, onAdded }: { contactId: number; onAdded: () => void }) {
+  const t = useT()
+  const addOptions: SelectOption[] = ADD_CHANNELS.map((c) => ({ value: c, label: chName(t, c) }))
   const [channel, setChannel] = useState('whatsapp')
   const [address, setAddress] = useState('')
   const [busy, setBusy] = useState(false)
@@ -312,13 +339,13 @@ function AddIdentity({ contactId, onAdded }: { contactId: number; onAdded: () =>
 
   return (
     <div className="rounded-lg border border-dashed border-line-strong p-2.5">
-      <div className="eyebrow mb-1.5">Add channel</div>
+      <div className="eyebrow mb-1.5">{t('contacts.hub.addChannel')}</div>
       <div className="flex items-center gap-1.5">
         <Select
           value={channel}
           onChange={setChannel}
-          options={ADD_CHANNELS}
-          ariaLabel="Channel to add"
+          options={addOptions}
+          ariaLabel={t('contacts.hub.channelToAdd')}
           className="w-[118px] shrink-0"
         />
         <input
@@ -326,27 +353,23 @@ function AddIdentity({ contactId, onAdded }: { contactId: number; onAdded: () =>
           value={address}
           onChange={(e) => setAddress(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && submit()}
-          placeholder={ADD_PLACEHOLDER[channel]}
-          aria-label="Channel address"
+          placeholder={ADD_PLACEHOLDER[channel] ? t(ADD_PLACEHOLDER[channel]) : ''}
+          aria-label={t('contacts.hub.addressAria')}
           className="h-8 min-w-0 flex-1 rounded-lg border border-line-strong bg-card px-2 text-[12.5px] text-text-high placeholder:text-text-faint focus:border-text-primary focus:outline-none"
         />
         <button
           type="button"
           onClick={submit}
           disabled={busy || !address.trim()}
-          title="Add channel identity"
-          aria-label="Add channel identity"
+          title={t('contacts.hub.addIdentity')}
+          aria-label={t('contacts.hub.addIdentity')}
           className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg bg-primary text-on-primary transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35"
         >
           <Plus size={13} aria-hidden />
         </button>
       </div>
       {error && <div role="alert" className="mt-1 text-[11px] text-red-300">{error}</div>}
-      <p className="mt-1.5 text-[11px] leading-relaxed text-text-muted">
-        WhatsApp numbers and emails are ready to message right away. Telegram / Messenger /
-        Instagram IDs come from the platform — the customer must have messaged the bot or page
-        once.
-      </p>
+      <p className="mt-1.5 text-[11px] leading-relaxed text-text-muted">{t('contacts.hub.addHint')}</p>
     </div>
   )
 }
@@ -359,6 +382,7 @@ export default function ChannelHub({
   /** Show the add-identity form (the contact detail page turns this on). */
   allowAdd?: boolean
 }) {
+  const t = useT()
   const [hub, setHub] = useState<HubPayload | null>(null)
   const [failed, setFailed] = useState(false)
   const [reloadTick, setReloadTick] = useState(0)
@@ -376,14 +400,14 @@ export default function ChannelHub({
     try {
       const r = await cApi<DiscoverResult>(`contacts/${contactId}/channels/discover`, { method: 'POST' })
       const parts = [
-        r.added > 0 ? `${r.added} new identit${r.added === 1 ? 'y' : 'ies'}` : 'Nothing new',
-        r.queued > 0 ? `${r.queued} WhatsApp check${r.queued === 1 ? '' : 's'} queued` : '',
-        !r.lookup_available ? 'WhatsApp numbers stay unverified until a QR number is connected' : '',
+        r.added > 0 ? t('contacts.hub.newIdentities', { count: r.added }) : t('contacts.hub.nothingNew'),
+        r.queued > 0 ? t('contacts.hub.checksQueued', { count: r.queued }) : '',
+        !r.lookup_available ? t('contacts.hub.unverifiedNote') : '',
       ].filter(Boolean)
       setFindMsg(parts.join(' · '))
-      setReloadTick((t) => t + 1)
+      setReloadTick((n) => n + 1)
       // a queued lookup lands within seconds — look again shortly
-      if (r.queued > 0) setTimeout(() => setReloadTick((t) => t + 1), 4000)
+      if (r.queued > 0) setTimeout(() => setReloadTick((n) => n + 1), 4000)
     } catch (e) {
       setFindMsg(errText(e))
     } finally {
@@ -432,15 +456,15 @@ export default function ChannelHub({
 
   if (contactId == null) return null
   if (failed) {
-    return <div className="text-[11.5px] text-text-muted">Couldn’t load channel info.</div>
+    return <div className="text-[11.5px] text-text-muted">{t('contacts.hub.loadFailed')}</div>
   }
   if (!hub) {
-    return <div className="text-[11.5px] text-text-muted">Loading channels…</div>
+    return <div className="text-[11.5px] text-text-muted">{t('contacts.hub.loading')}</div>
   }
   const chats = hub.channels.flatMap((ch) =>
     (ch.identities ?? [])
       .filter((i) => i.message_count > 0 || !i.registered)
-      .map((i) => ({ channel: ch.channel, key: i.key, label: `${CH_META[ch.channel]?.lbl ?? ch.channel} chat` })),
+      .map((i) => ({ channel: ch.channel, key: i.key, label: t('contacts.hub.chatLabel', { channel: chName(t, ch.channel) }) })),
   )
   const registeredOnly = hub.channels.flatMap((ch) =>
     (ch.identities ?? [])
@@ -459,14 +483,14 @@ export default function ChannelHub({
             disabled={finding}
             className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-line-strong bg-card px-2.5 text-[11.5px] font-semibold text-text-high transition-colors hover:bg-fill-hover disabled:opacity-50"
           >
-            <RefreshCw size={11} className={finding ? 'animate-spin' : ''} aria-hidden /> Find channels
+            <RefreshCw size={11} className={finding ? 'animate-spin' : ''} aria-hidden /> {t('contacts.hub.findChannels')}
           </button>
           <button
             type="button"
             onClick={() => setInviteOpen(true)}
             className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-line-strong bg-card px-2.5 text-[11.5px] font-semibold text-text-high transition-colors hover:bg-fill-hover"
           >
-            <Send size={11} aria-hidden /> Invite to another app
+            <Send size={11} aria-hidden /> {t('contacts.hub.invite')}
           </button>
         </div>
       )}
@@ -476,7 +500,7 @@ export default function ChannelHub({
         </div>
       )}
       {hub.channels.length === 0 && (
-        <div className="text-[11.5px] text-text-muted">No channels on record yet.</div>
+        <div className="text-[11.5px] text-text-muted">{t('contacts.hub.noChannels')}</div>
       )}
       {hub.channels.map((ch) => (
         <ChannelRow key={ch.channel} ch={ch} />
@@ -489,22 +513,22 @@ export default function ChannelHub({
               type="button"
               onClick={() => openChat(r.channel, r.address)}
               className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
-              title="Start the conversation in the inbox"
+              title={t('contacts.hub.openChatHint')}
             >
-              <MessageSquarePlus size={11} aria-hidden /> Open {CH_META[r.channel]?.lbl ?? r.channel} chat
+              <MessageSquarePlus size={11} aria-hidden /> {t('contacts.hub.openChat', { channel: chName(t, r.channel) })}
             </button>
           ))}
         </div>
       )}
       {allowAdd && (
         <p className="rounded-lg bg-fill-subtle px-2.5 py-2 text-[11px] leading-relaxed text-text-muted">
-          {hub.lookup_available === false ? `${CLOUD_NOTE} ` : ''}
+          {hub.lookup_available === false ? `${t('contacts.hub.cloudNote')} ` : ''}
           {noLookup.length > 0 &&
-            `${noLookup.slice(0, 6).join(', ')}${noLookup.length > 6 ? '…' : ''} don't allow lookup by phone — send an invite link instead.`}
+            t('contacts.hub.noLookupNote', { apps: `${noLookup.slice(0, 6).join(', ')}${noLookup.length > 6 ? '…' : ''}` })}
         </p>
       )}
       {allowAdd && (
-        <AddIdentity contactId={contactId} onAdded={() => setReloadTick((t) => t + 1)} />
+        <AddIdentity contactId={contactId} onAdded={() => setReloadTick((n) => n + 1)} />
       )}
       {manage && (
         <InviteModal

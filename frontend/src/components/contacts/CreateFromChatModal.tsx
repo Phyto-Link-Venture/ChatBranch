@@ -15,6 +15,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { cApi, errText, threadPath, type IdentifyState } from '@/lib/contactIdentity'
+import { useT } from '@/i18n'
 
 const inputCls =
   'h-9 w-full rounded-lg border border-line-strong bg-card px-3 text-[13px] text-text-high placeholder:text-text-faint focus:border-text-primary focus:outline-none'
@@ -32,6 +33,7 @@ export function CreateFromChatModal({
   threadKey: string
   onCreated: (contactId: number) => void
 }) {
+  const t = useT()
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
@@ -68,7 +70,7 @@ export function CreateFromChatModal({
 
   const save = async () => {
     if (!name.trim()) {
-      setError('Give the contact a name.')
+      setError(t('contacts.createFromChat.needName'))
       return
     }
     setBusy(true)
@@ -91,17 +93,17 @@ export function CreateFromChatModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="Create contact from this chat"
-      subtitle="The conversation is linked to the new contact straight away."
+      title={t('contacts.createFromChat.title')}
+      subtitle={t('contacts.createFromChat.subtitle')}
       size="sm"
       footer={
         <>
           <Button variant="secondary" size="sm" onClick={onClose}>
-            Cancel
+            {t('common.actions.cancel')}
           </Button>
           <Button size="sm" onClick={save} disabled={busy || loading}>
             {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <UserPlus size={13} aria-hidden />}
-            Create &amp; link
+            {t('contacts.createFromChat.createLink')}
           </Button>
         </>
       }
@@ -113,34 +115,39 @@ export function CreateFromChatModal({
       )}
       <div className="flex flex-col gap-3">
         <label className="flex flex-col gap-1">
-          <span className="text-[11.5px] font-semibold text-text-mid">Name</span>
+          <span className="text-[11.5px] font-semibold text-text-mid">{t('common.fields.name')}</span>
           <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} autoFocus disabled={loading} />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-[11.5px] font-semibold text-text-mid">Phone</span>
+          <span className="text-[11.5px] font-semibold text-text-mid">{t('common.fields.phone')}</span>
           <input
             className={inputCls}
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            placeholder="+60 12 345 6789"
+            placeholder={t('contacts.createFromChat.phonePlaceholder')}
             inputMode="tel"
             disabled={loading}
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-[11.5px] font-semibold text-text-mid">Email</span>
+          <span className="text-[11.5px] font-semibold text-text-mid">{t('common.fields.email')}</span>
           <input
             className={inputCls}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="name@example.com"
+            placeholder={t('contacts.createFromChat.emailPlaceholder')}
             inputMode="email"
             disabled={loading}
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-[11.5px] font-semibold text-text-mid">Entity</span>
-          <EntityPicker value={entity} onChange={setEntity} globalLabel="The inbox's entity" ariaLabel="Entity" />
+          <span className="text-[11.5px] font-semibold text-text-mid">{t('common.fields.entity')}</span>
+          <EntityPicker
+            value={entity}
+            onChange={setEntity}
+            globalLabel={t('contacts.createFromChat.inboxEntity')}
+            ariaLabel={t('common.fields.entity')}
+          />
         </label>
       </div>
     </Modal>
@@ -157,6 +164,7 @@ export function CreateFromChat({
   threadKey: string
   onCreated: (contactId: number) => void
 }) {
+  const t = useT()
   const [open, setOpen] = useState(false)
   return (
     <>
@@ -165,7 +173,7 @@ export function CreateFromChat({
         onClick={() => setOpen(true)}
         className="mt-2 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[11.5px] font-semibold text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
       >
-        <UserPlus size={12} aria-hidden /> Create from this chat
+        <UserPlus size={12} aria-hidden /> {t('contacts.createFromChat.trigger')}
       </button>
       <CreateFromChatModal
         open={open}

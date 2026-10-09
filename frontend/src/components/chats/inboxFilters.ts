@@ -3,7 +3,8 @@
  * stores, and how it turns into GET /api/inbox/threads query parameters.
  * Everything is filtered on the SERVER — this file only describes the request.
  */
-import { CHANNEL_META, statusLabel, type Channel, type ThreadStatus } from './inboxTypes'
+import type { MessageKey, TFunction } from '@/i18n'
+import { channelName, statusLabel, type Channel, type ThreadStatus } from './inboxTypes'
 
 export type DatePreset = '' | 'today' | '24h' | '7d' | '30d' | '90d' | 'custom'
 
@@ -110,20 +111,21 @@ export function sameFilters(a: InboxFilters, b: InboxFilters): boolean {
   return canon(a) === canon(b)
 }
 
-export const DATE_PRESETS: { value: DatePreset; label: string }[] = [
-  { value: '', label: 'Any time' },
-  { value: 'today', label: 'Today' },
-  { value: '24h', label: 'Last 24 hours' },
-  { value: '7d', label: 'Last 7 days' },
-  { value: '30d', label: 'Last 30 days' },
-  { value: '90d', label: 'Last 90 days' },
-  { value: 'custom', label: 'Custom range…' },
+/** Labels are translation keys — render with `t(p.label)`. */
+export const DATE_PRESETS: { value: DatePreset; label: MessageKey }[] = [
+  { value: '', label: 'chats.dates.any' },
+  { value: 'today', label: 'common.time.today' },
+  { value: '24h', label: 'chats.dates.last24h' },
+  { value: '7d', label: 'chats.dates.last7d' },
+  { value: '30d', label: 'chats.dates.last30d' },
+  { value: '90d', label: 'chats.dates.last90d' },
+  { value: 'custom', label: 'chats.dates.custom' },
 ]
 
-export const SORTS: { value: Sort; label: string }[] = [
-  { value: 'newest', label: 'Newest activity' },
-  { value: 'oldest_waiting', label: 'Oldest waiting' },
-  { value: 'unread', label: 'Unread first' },
+export const SORTS: { value: Sort; label: MessageKey }[] = [
+  { value: 'newest', label: 'chats.sorts.newest' },
+  { value: 'oldest_waiting', label: 'chats.sorts.oldestWaiting' },
+  { value: 'unread', label: 'chats.sorts.unread' },
 ]
 
 /** [from, to) in ISO for a range; undefined bounds are open. */
@@ -213,65 +215,102 @@ export interface ChipLookups {
   labelName: (slug: string) => string
 }
 
-const joinNames = (xs: string[], max = 2) =>
-  xs.length <= max ? xs.join(', ') : `${xs.slice(0, max).join(', ')} +${xs.length - max}`
-
-const rangeLabel = (r: DateRange) =>
-  r.preset === 'custom'
-    ? `${r.from || '…'} – ${r.to || '…'}`
-    : (DATE_PRESETS.find((p) => p.value === r.preset)?.label ?? '').toLowerCase()
+const HANDOVER_KIND_KEYS = new Set([
+  'check_failed',
+  'asked_for_human',
+  'send_blocked',
+  'booking_failed',
+  'low_confidence',
+  'rule',
+  'manual',
+  'unknown_customer',
+])
 
 /** One removable chip per active filter dimension (sort is not a filter). */
-export function activeChips(f: InboxFilters, l: ChipLookups): FilterChip[] {
+export function activeChips(f: InboxFilters, l: ChipLookups, t: TFunction): FilterChip[] {
+  const joinNames = (xs: string[], max = 2) =>
+    xs.length <= max ? xs.join(', ') : t('chats.chips.more', { list: xs.slice(0, max).join(', '), count: xs.length - max })
+  const rangeLabel = (r: DateRange) =>
+    r.preset === 'custom'
+      ? t('chats.chips.customRange', { from: r.from || '…', to: r.to || '…' })
+      : t(DATE_PRESETS.find((p) => p.value === r.preset)?.label ?? 'chats.dates.any')
   const chips: FilterChip[] = []
   const add = (key: string, label: string, clear: (f: InboxFilters) => InboxFilters) =>
     chips.push({ key, label, clear })
-  if (f.status.length) add('status', `Status: ${joinNames(f.status.map(statusLabel))}`, (x) => ({ ...x, status: [] }))
-  if (f.channels.length)
-    add('channels', joinNames(f.channels.map((c) => CHANNEL_META[c]?.lbl ?? c)), (x) => ({ ...x, channels: [] }))
+  if (f.status.length)
+    add('status', t('chats.chips.status', { list: joinNames(f.status.map((s) => statusLabel(t, s))) }), (x) => ({ ...x, status: [] }))
+  if (f.channels.length) add('channels', joinNames(f.channels.map((c) => channelName(t, c))), (x) => ({ ...x, channels: [] }))
   if (f.accounts.length)
-    add('accounts', `Via ${joinNames(f.accounts.map((a) => (a === 'none' ? 'no account' : l.accountName(a))))}`, (x) => ({
-      ...x,
-      accounts: [],
-    }))
+    add(
+      'accounts',
+      t('chats.chips.via', { list: joinNames(f.accounts.map((a) => (a === 'none' ? t('chats.chips.noAccount') : l.accountName(a)))) }),
+      (x) => ({ ...x, accounts: [] }),
+    )
   if (f.assignees.length)
     add(
       'assignees',
-      `Assignee: ${joinNames(f.assignees.map((a) => (a === 'me' ? 'me' : a === 'unassigned' ? 'unassigned' : l.agentName(a))))}`,
+      t('chats.chips.assignee', {
+        list: joinNames(
+          f.assignees.map((a) =>
+            a === 'me' ? t('chats.chips.me') : a === 'unassigned' ? t('chats.chips.unassigned') : l.agentName(a),
+          ),
+        ),
+      }),
       (x) => ({ ...x, assignees: [] }),
     )
   if (f.teams.length)
-    add('teams', `Team: ${joinNames(f.teams.map((t) => (t === 'none' ? 'none' : l.teamName(t))))}`, (x) => ({ ...x, teams: [] }))
+    add(
+      'teams',
+      t('chats.chips.team', { list: joinNames(f.teams.map((id) => (id === 'none' ? t('common.status.none') : l.teamName(id)))) }),
+      (x) => ({ ...x, teams: [] }),
+    )
   if (f.entities)
-    add('entities', f.entities.length ? `Entity: ${joinNames(f.entities.map(l.entityName))}` : 'All entities', (x) => ({
-      ...x,
-      entities: null,
-    }))
+    add(
+      'entities',
+      f.entities.length ? t('chats.chips.entity', { list: joinNames(f.entities.map(l.entityName)) }) : t('chats.chips.allEntities'),
+      (x) => ({ ...x, entities: null }),
+    )
   if (f.labels.length)
     add(
       'labels',
-      `${f.labelsMode === 'all' ? 'All of' : 'Label'}: ${joinNames(f.labels.map(l.labelName))}`,
+      t(f.labelsMode === 'all' ? 'chats.chips.allOf' : 'chats.chips.label', { list: joinNames(f.labels.map(l.labelName)) }),
       (x) => ({ ...x, labels: [], labelsMode: 'any' }),
     )
-  if (f.tags.length) add('tags', `Tag: ${joinNames(f.tags)}`, (x) => ({ ...x, tags: [] }))
-  if (f.waiting) add('waiting', 'Waiting for reply', (x) => ({ ...x, waiting: false }))
-  if (f.ai) add('ai', f.ai === 'on' ? 'AI on' : 'AI off', (x) => ({ ...x, ai: '' }))
-  if (f.window) add('window', f.window === 'open' ? '24h window open' : '24h window closed', (x) => ({ ...x, window: '' }))
-  if (f.optedOut) add('optedOut', f.optedOut === 'yes' ? 'Opted out' : 'Not opted out', (x) => ({ ...x, optedOut: '' }))
-  if (f.call) add('call', f.call === 'live' ? 'Call in progress' : 'Has a call', (x) => ({ ...x, call: '' }))
-  if (f.linked) add('linked', f.linked === 'yes' ? 'Linked to a contact' : 'Not linked', (x) => ({ ...x, linked: '' }))
+  if (f.tags.length) add('tags', t('chats.chips.tag', { list: joinNames(f.tags) }), (x) => ({ ...x, tags: [] }))
+  if (f.waiting) add('waiting', t('chats.chips.waiting'), (x) => ({ ...x, waiting: false }))
+  if (f.ai) add('ai', t(f.ai === 'on' ? 'chats.chips.aiOn' : 'chats.chips.aiOff'), (x) => ({ ...x, ai: '' }))
+  if (f.window)
+    add('window', t(f.window === 'open' ? 'chats.chips.windowOpen' : 'chats.chips.windowClosed'), (x) => ({ ...x, window: '' }))
+  if (f.optedOut)
+    add('optedOut', t(f.optedOut === 'yes' ? 'chats.list.optedOut' : 'chats.chips.notOptedOut'), (x) => ({ ...x, optedOut: '' }))
+  if (f.call) add('call', t(f.call === 'live' ? 'chats.chips.callLive' : 'chats.chips.hasCall'), (x) => ({ ...x, call: '' }))
+  if (f.linked) add('linked', t(f.linked === 'yes' ? 'chats.chips.linked' : 'chats.chips.notLinked'), (x) => ({ ...x, linked: '' }))
   if (f.handover)
     add(
       'handover',
-      f.handover === 'open' ? 'Needs a human' : f.handover === 'any' ? 'Ever handed over' : 'Never handed over',
+      t(
+        f.handover === 'open'
+          ? 'chats.chips.needsHuman'
+          : f.handover === 'any'
+            ? 'chats.chips.everHandedOver'
+            : 'chats.chips.neverHandedOver',
+      ),
       (x) => ({ ...x, handover: '' }),
     )
   if (f.handoverKinds.length)
-    add('handoverKinds', `Handover: ${joinNames(f.handoverKinds.map((k) => k.replace(/_/g, ' ')))}`, (x) => ({
-      ...x,
-      handoverKinds: [],
-    }))
-  if (rangeActive(f.active)) add('active', `Active ${rangeLabel(f.active)}`, (x) => ({ ...x, active: { preset: '' } }))
-  if (rangeActive(f.created)) add('created', `Created ${rangeLabel(f.created)}`, (x) => ({ ...x, created: { preset: '' } }))
+    add(
+      'handoverKinds',
+      t('chats.chips.handover', {
+        list: joinNames(
+          f.handoverKinds.map((k) =>
+            HANDOVER_KIND_KEYS.has(k) ? t(`chats.handoverKinds.${k}` as MessageKey) : k.replace(/_/g, ' '),
+          ),
+        ),
+      }),
+      (x) => ({ ...x, handoverKinds: [] }),
+    )
+  if (rangeActive(f.active)) add('active', t('chats.chips.active', { range: rangeLabel(f.active) }), (x) => ({ ...x, active: { preset: '' } }))
+  if (rangeActive(f.created))
+    add('created', t('chats.chips.created', { range: rangeLabel(f.created) }), (x) => ({ ...x, created: { preset: '' } }))
   return chips
 }

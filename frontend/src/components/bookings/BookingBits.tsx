@@ -12,6 +12,18 @@ import { Button } from '@/components/ui/Button'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { Modal } from '@/components/ui/Modal'
 import { BOOKING_STATUS, bookingLabel, cancelBooking, type Booking } from '@/lib/bookings'
+import { intlTag, useI18n, useT, type TFunction } from '@/i18n'
+
+/** `bookingLabel` in the current language — "Tue 14 Oct, 15:00" (the calendar's timezone). */
+export function useBookingLabel() {
+  const { locale } = useI18n()
+  const intl = intlTag(locale)
+  return (b: Pick<Booking, 'label' | 'start' | 'timezone'>) => bookingLabel(b, intl)
+}
+
+/** The calendar's own name, else Google Calendar / ChatBranch bookings. */
+export const calendarName = (t: TFunction, b: Pick<Booking, 'calendar_label' | 'source'>) =>
+  b.calendar_label || (b.source === 'google' ? 'Google Calendar' : t('bookings.chatbranchCalendar'))
 
 const TONE: Record<string, string> = {
   green: 'bg-green/10 text-green-300',
@@ -21,13 +33,16 @@ const TONE: Record<string, string> = {
 }
 
 export function BookingStatusChip({ booking: b }: { booking: Pick<Booking, 'status' | 'detail'> }) {
-  const m = BOOKING_STATUS[b.status] ?? { label: b.status, tone: 'muted', hint: '' }
+  const t = useT()
+  const m = BOOKING_STATUS[b.status]
+  const label = m ? t(m.label) : b.status
+  const hint = m ? t(m.hint) : ''
   return (
     <span
-      title={b.detail ? `${m.hint} ${b.detail}`.trim() : m.hint}
-      className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${TONE[m.tone]}`}
+      title={b.detail ? `${hint} ${b.detail}`.trim() : hint}
+      className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${TONE[m?.tone ?? 'muted']}`}
     >
-      {m.label}
+      {label}
     </span>
   )
 }
@@ -51,6 +66,8 @@ export function CancelBookingModal({
   onClose: () => void
   onCancelled: (b: Booking) => void
 }) {
+  const t = useT()
+  const label = useBookingLabel()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -66,7 +83,7 @@ export function CancelBookingModal({
     setError(null)
     try {
       const r = await cancelBooking(booking.id)
-      if (r && r.ok === false) throw new Error(r.detail || 'The booking could not be cancelled.')
+      if (r && r.ok === false) throw new Error(r.detail || t('bookings.cancel.failed'))
       onCancelled(booking)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -79,15 +96,15 @@ export function CancelBookingModal({
     <Modal
       open={!!booking}
       onClose={close}
-      title="Cancel this booking?"
+      title={t('bookings.cancel.title')}
       size="sm"
       footer={
         <>
           <Button variant="ghost" onClick={close} disabled={busy}>
-            Keep it
+            {t('bookings.cancel.keep')}
           </Button>
           <Button variant="danger" onClick={run} disabled={busy}>
-            {busy && <Loader2 size={13} className="animate-spin" aria-hidden />} Cancel booking
+            {busy && <Loader2 size={13} className="animate-spin" aria-hidden />} {t('bookings.cancel.confirm')}
           </Button>
         </>
       }
@@ -103,10 +120,10 @@ export function CancelBookingModal({
       {booking && (
         <div className="flex flex-col gap-3">
           <div className="rounded-lg border border-line bg-well px-3 py-2.5">
-            <div className="text-[13.5px] font-semibold text-text-heading">{bookingLabel(booking)}</div>
+            <div className="text-[13.5px] font-semibold text-text-heading">{label(booking)}</div>
             <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[12px] text-text-muted">
               <CalendarMark source={booking.source} size={12} />
-              {booking.calendar_label || (booking.source === 'google' ? 'Google Calendar' : 'ChatBranch bookings')}
+              {calendarName(t, booking)}
               {booking.timezone && <span>· {booking.timezone}</span>}
             </div>
             {(booking.contact_name || booking.title) && (
@@ -114,8 +131,7 @@ export function CancelBookingModal({
             )}
           </div>
           <p className="text-[12.5px] leading-relaxed text-text-mid">
-            {booking.source === 'google' ? 'The event is removed from Google Calendar' : 'The time is freed'} and a
-            note is added to the conversation. The customer isn’t messaged automatically — let them know in the chat.
+            {t(booking.source === 'google' ? 'bookings.cancel.googleNote' : 'bookings.cancel.localNote')}
           </p>
         </div>
       )}

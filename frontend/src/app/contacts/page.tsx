@@ -15,22 +15,13 @@ import { PhoneInput } from '@/components/ui/PhoneInput'
 import { Select } from '@/components/ui/Select'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { DataTable, type Column } from '@/components/ui/DataTable'
-import { LANGUAGES } from '@/lib/languages'
 import { ContactImportModal } from '@/components/contacts/ContactImportModal'
 import { CustomFieldsInputs } from '@/components/CustomFieldsInputs'
 import { fetchCustomFields, type FieldDef } from '@/lib/customFields'
+import { useT } from '@/i18n'
+import { RECORD_TYPE_OPTS, languageOptions, recordTypeLabel } from '@/lib/contactIdentity'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
-
-const RECORD_TYPE_OPTS = [
-  { value: '', label: 'Any record' },
-  { value: 'order', label: 'Order' },
-  { value: 'shipment', label: 'Shipment' },
-  { value: 'invoice', label: 'Invoice' },
-  { value: 'booking', label: 'Booking' },
-  { value: 'ticket', label: 'Ticket' },
-  { value: 'custom', label: 'Custom' },
-]
 
 function AddField({
   label, value, onChange, placeholder, type = 'text', required = false,
@@ -70,6 +61,7 @@ function ContactModal({
   onClose: () => void
   onSaved: () => void
 }) {
+  const t = useT()
   const { reloadContacts } = useApp()
   const { activeEntity, entities } = useEntity()
   const [name, setName] = useState('')
@@ -136,7 +128,7 @@ function ContactModal({
         language,
         email: email.trim(),
         company_name: company.trim(),
-        tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
+        tags: tags.split(',').map((x) => x.trim()).filter(Boolean),
         notes: notes.trim(),
         // Custom Field values — merged onto the contact's `attributes` JSON.
         attributes,
@@ -174,16 +166,17 @@ function ContactModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={editing ? 'Edit contact' : 'New contact'}
-      subtitle={editing ? 'Update this contact’s details.' : "Add a person to this entity's contact list."}
+      title={t(editing ? 'contacts.form.titleEdit' : 'contacts.form.titleNew')}
+      subtitle={t(editing ? 'contacts.form.subtitleEdit' : 'contacts.form.subtitleNew')}
       size="lg"
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
-            Cancel
+            {t('common.actions.cancel')}
           </Button>
           <Button variant="primary" onClick={save} disabled={busy || !name.trim() || !phone.trim()}>
-            {busy && <Loader2 size={13} className="animate-spin" aria-hidden />} {editing ? 'Save changes' : 'Add contact'}
+            {busy && <Loader2 size={13} className="animate-spin" aria-hidden />}{' '}
+            {t(editing ? 'contacts.form.saveChanges' : 'contacts.form.addContact')}
           </Button>
         </>
       }
@@ -194,33 +187,55 @@ function ContactModal({
         </div>
       )}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <AddField label="Name" value={name} onChange={setName} placeholder="Ahmad Fauzi" required />
+        <AddField
+          label={t('common.fields.name')}
+          value={name}
+          onChange={setName}
+          placeholder={t('contacts.form.namePlaceholder')}
+          required
+        />
         <label className="block">
           <span className="mb-1 block text-[11px] font-bold text-text-high">
-            Phone<span className="text-red-300"> *</span>
+            {t('common.fields.phone')}
+            <span className="text-red-300"> *</span>
           </span>
           {/* Country picker + national number — the stored value stays E.164. */}
-          <PhoneInput value={phone} onChange={setPhone} ariaLabel="Contact phone number" />
+          <PhoneInput value={phone} onChange={setPhone} ariaLabel={t('contacts.form.phoneAria')} />
         </label>
         <label className="block">
-          <span className="mb-1 block text-[11px] font-bold text-text-high">Language</span>
+          <span className="mb-1 block text-[11px] font-bold text-text-high">{t('common.fields.language')}</span>
           <Select
             value={language}
             onChange={setLanguage}
-            options={LANGUAGES.map((l) => ({ value: l.value, label: l.label }))}
+            options={languageOptions(t)}
             size="md"
-            ariaLabel="Language"
+            ariaLabel={t('common.fields.language')}
           />
         </label>
-        <AddField label="Email (optional)" value={email} onChange={setEmail} placeholder="contact@example.com" />
-        <AddField label="Company (optional)" value={company} onChange={setCompany} placeholder="Acme Sdn Bhd" />
-        <AddField label="Tags (comma-separated)" value={tags} onChange={setTags} placeholder="vip, wholesale" />
-        <AddField label="Notes (optional)" value={notes} onChange={setNotes} />
+        <AddField
+          label={t('contacts.form.emailOptional')}
+          value={email}
+          onChange={setEmail}
+          placeholder={t('contacts.form.emailPlaceholder')}
+        />
+        <AddField
+          label={t('contacts.form.companyOptional')}
+          value={company}
+          onChange={setCompany}
+          placeholder={t('contacts.form.companyPlaceholder')}
+        />
+        <AddField
+          label={t('contacts.form.tagsComma')}
+          value={tags}
+          onChange={setTags}
+          placeholder={t('contacts.form.tagsPlaceholder')}
+        />
+        <AddField label={t('contacts.form.notesOptional')} value={notes} onChange={setNotes} />
       </div>
 
       {customerFields.length > 0 && (
         <div className="mt-3 rounded-lg border border-line bg-fill-subtle px-3 py-2.5">
-          <div className="mb-2 text-[11px] font-bold text-text-high">Custom fields</div>
+          <div className="mb-2 text-[11px] font-bold text-text-high">{t('contacts.form.customFields')}</div>
           <CustomFieldsInputs
             fields={customerFields}
             values={attributes}
@@ -228,7 +243,7 @@ function ContactModal({
             disabled={busy}
           />
           <p className="mt-1.5 text-[10.5px] text-text-faint">
-            Defined in Settings → Custom Fields. The AI reads these when it talks to this contact.
+            {t('contacts.form.customFieldsHint')}
           </p>
         </div>
       )}
@@ -236,14 +251,14 @@ function ContactModal({
       {entities.length > 0 && (
         <div className="mt-3 rounded-lg border border-line bg-fill-subtle px-3 py-2.5">
           <div className="mb-1.5 flex items-center justify-between">
-            <span className="text-[11px] font-bold text-text-high">Entities</span>
+            <span className="text-[11px] font-bold text-text-high">{t('contacts.form.entities')}</span>
             <div className="flex gap-2 text-[10.5px] font-semibold">
               <button
                 type="button"
                 onClick={() => setSelectedEntities(entities.map((e) => e.slug))}
                 className="text-text-high hover:underline"
               >
-                All
+                {t('common.status.all')}
               </button>
               <span className="text-line-strong">·</span>
               <button
@@ -259,7 +274,7 @@ function ContactModal({
                 }
                 className="text-text-muted hover:underline"
               >
-                Reset
+                {t('common.actions.reset')}
               </button>
             </div>
           </div>
@@ -288,7 +303,7 @@ function ContactModal({
             })}
           </div>
           <p className="mt-1.5 text-[10.5px] text-text-faint">
-            Tick which entities this contact belongs to — the shared profile is linked to each.
+            {t('contacts.form.entitiesHint')}
           </p>
         </div>
       )}
@@ -300,11 +315,12 @@ type Contact = ReturnType<typeof useApp>['contacts'][number]
 
 /** Small "type · status" chip for the contact's primary record. */
 function RecordChip({ d }: { d: Contact }) {
+  const t = useT()
   const r = primaryRecord(d)
   if (!r) return <span className="text-[11.5px] text-text-muted">—</span>
   return (
     <span className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-[11px] text-text-mid">
-      <span className="capitalize">{r.type}</span> · {r.status}
+      <span>{recordTypeLabel(t, r.type)}</span> · {r.status}
     </span>
   )
 }
@@ -327,9 +343,9 @@ function TagChips({ tags }: { tags: string[] }) {
   if (!tags.length) return <span className="text-[11.5px] text-text-muted">—</span>
   return (
     <div className="flex flex-wrap gap-1">
-      {tags.slice(0, 3).map((t) => (
-        <span key={t} className="rounded-full border border-line-strong px-2 py-0.5 text-[11px] text-text-mid">
-          {t}
+      {tags.slice(0, 3).map((tag) => (
+        <span key={tag} className="rounded-full border border-line-strong px-2 py-0.5 text-[11px] text-text-mid">
+          {tag}
         </span>
       ))}
       {tags.length > 3 && <span className="text-[11px] text-text-muted">+{tags.length - 3}</span>}
@@ -338,6 +354,7 @@ function TagChips({ tags }: { tags: string[] }) {
 }
 
 function ContactsList() {
+  const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
   const { reloadContacts } = useApp()
@@ -351,8 +368,8 @@ function ContactsList() {
   const q = searchParams.get('q') ?? undefined
   useEffect(() => setEntityFilter(activeEntity?.slug ?? null), [activeEntity?.slug])
   useEffect(() => {
-    const t = searchParams.get('tag')
-    if (t !== null) setTag(t)
+    const fromUrl = searchParams.get('tag')
+    if (fromUrl !== null) setTag(fromUrl)
   }, [searchParams])
 
   const [rows, setRows] = useState<Contact[]>([])
@@ -408,7 +425,7 @@ function ContactsList() {
     setModalOpen(true)
   }
   const deleteContact = async (d: Contact) => {
-    if (!window.confirm(`Delete contact "${d.name}"? Their conversations stay but the record is removed.`)) return
+    if (!window.confirm(t('contacts.list.confirmDelete', { name: d.name }))) return
     setNotice(null)
     try {
       // DELETE /api/v1/contacts/<id> — a 409 (e.g. blocked by linked data)
@@ -419,7 +436,7 @@ function ContactsList() {
         throw new Error((data as { error?: { message?: string } }).error?.message || `HTTP ${res.status}`)
       }
       await Promise.all([load(), reloadContacts()])
-      setNotice({ ok: true, text: `Contact ${d.name} deleted.` })
+      setNotice({ ok: true, text: t('contacts.list.deleted', { name: d.name }) })
     } catch (e) {
       setNotice({ ok: false, text: e instanceof Error ? e.message : String(e) })
     }
@@ -429,7 +446,7 @@ function ContactsList() {
     () =>
       rows.filter(
         (d) =>
-          (!tag || (d.tags ?? []).some((t) => t.toLowerCase() === tag.toLowerCase())) &&
+          (!tag || (d.tags ?? []).some((x) => x.toLowerCase() === tag.toLowerCase())) &&
           (!recordType || primaryRecord(d)?.type === recordType),
       ),
     [rows, tag, recordType],
@@ -445,7 +462,7 @@ function ContactsList() {
   const contactColumns: Column<Contact>[] = [
     {
       key: 'name',
-      header: 'Contact',
+      header: t('contacts.list.colContact'),
       sortable: true,
       value: (d) => d.name,
       render: (d) => (
@@ -462,7 +479,7 @@ function ContactsList() {
     },
     {
       key: 'phone',
-      header: 'Phone',
+      header: t('common.fields.phone'),
       sortable: true,
       width: 150,
       value: (d) => d.phone,
@@ -470,7 +487,7 @@ function ContactsList() {
     },
     {
       key: 'tags',
-      header: 'Tags',
+      header: t('common.fields.tags'),
       width: 170,
       value: (d) => d.tags.join(' '),
       render: (d) => <TagChips tags={d.tags} />,
@@ -478,7 +495,7 @@ function ContactsList() {
     {
       // Entity membership at a glance.
       key: 'entities',
-      header: 'Entities',
+      header: t('contacts.list.colEntities'),
       width: 170,
       value: (d) =>
         contactEntityRefs(d, entityList)
@@ -501,14 +518,17 @@ function ContactsList() {
     },
     {
       key: 'record',
-      header: 'Record',
+      header: t('contacts.list.colRecord'),
       width: 170,
-      value: (d) => primaryRecord(d)?.type ?? '',
+      value: (d) => {
+        const type = primaryRecord(d)?.type
+        return type ? recordTypeLabel(t, type) : ''
+      },
       render: (d) => <RecordChip d={d} />,
     },
     {
       key: 'status',
-      header: 'Status',
+      header: t('common.fields.status'),
       sortable: true,
       width: 110,
       value: (d) => d.status,
@@ -516,7 +536,7 @@ function ContactsList() {
     },
     {
       key: 'actions',
-      header: 'Actions',
+      header: t('contacts.list.colActions'),
       srHeader: true,
       align: 'right',
       width: canManage ? 150 : 80,
@@ -530,7 +550,7 @@ function ContactsList() {
               router.push(`/contacts/${d.id}`)
             }}
           >
-            View
+            {t('common.actions.view')}
           </Button>
           {canManage && (
             <>
@@ -539,8 +559,8 @@ function ContactsList() {
                   ev.stopPropagation()
                   openEdit(d)
                 }}
-                title={`Edit ${d.name}`}
-                aria-label={`Edit contact ${d.name}`}
+                title={t('contacts.list.editTitle', { name: d.name })}
+                aria-label={t('contacts.list.editAria', { name: d.name })}
                 className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
               >
                 <Pencil size={13} aria-hidden />
@@ -550,8 +570,8 @@ function ContactsList() {
                   ev.stopPropagation()
                   deleteContact(d)
                 }}
-                title={`Delete ${d.name}`}
-                aria-label={`Delete contact ${d.name}`}
+                title={t('contacts.list.deleteTitle', { name: d.name })}
+                aria-label={t('contacts.list.deleteAria', { name: d.name })}
                 className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-text-muted transition-colors hover:bg-red/10 hover:text-red-300"
               >
                 <Trash2 size={13} aria-hidden />
@@ -568,21 +588,23 @@ function ContactsList() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <PageHeader
-        eyebrow="Work"
-        title="Contacts"
+        eyebrow={t('shell.groups.work')}
+        title={t('shell.nav.contacts')}
         subtitle={
           loading
-            ? 'Loading…'
-            : `${filtered.length} ${filtered.length === 1 ? 'contact' : 'contacts'}${entityName ? ` · ${entityName}` : ' · all entities'}`
+            ? t('common.status.loading')
+            : entityName
+              ? t('contacts.list.countIn', { count: filtered.length, entity: entityName })
+              : t('contacts.list.countAll', { count: filtered.length })
         }
         actions={
           canManage && (
             <>
               <Button variant="secondary" onClick={() => setImportOpen(true)}>
-                <Upload size={14} aria-hidden /> Import
+                <Upload size={14} aria-hidden /> {t('contacts.list.import')}
               </Button>
               <Button variant="primary" onClick={openCreate}>
-                <Plus size={14} aria-hidden /> Add contact
+                <Plus size={14} aria-hidden /> {t('contacts.list.addContact')}
               </Button>
             </>
           )
@@ -616,15 +638,15 @@ function ContactsList() {
           rows={filtered}
           rowKey={(d) => d.id}
           searchKeys={['name', 'phone', 'tags', 'entities', 'record']}
-          searchPlaceholder="Search name, phone, email or tag…"
+          searchPlaceholder={t('contacts.list.searchPlaceholder')}
           initialQuery={q}
           pageSize={25}
           empty={
             hasFilters
-              ? 'No contacts match these filters.'
+              ? t('contacts.list.emptyFiltered')
               : entityName
-                ? `No contacts in ${entityName} yet — add one, import a CSV, or switch the entity filter to All entities.`
-                : 'No contacts yet — add one or import a CSV.'
+                ? t('contacts.list.emptyIn', { entity: entityName })
+                : t('contacts.list.empty')
           }
           onRowClick={(d) => router.push(`/contacts/${d.id}`)}
           toolbarRight={
@@ -632,29 +654,29 @@ function ContactsList() {
               <EntityPicker
                 value={entityFilter}
                 onChange={setEntityFilter}
-                globalLabel="All entities"
+                globalLabel={t('contacts.list.allEntities')}
                 size="sm"
-                ariaLabel="Filter by entity"
+                ariaLabel={t('contacts.list.filterEntity')}
                 className="w-[170px]"
               />
               <Select
                 value={tag}
                 onChange={setTag}
-                options={[{ value: '', label: 'Any tag' }, ...allTags.map((t) => ({ value: t, label: t }))]}
-                ariaLabel="Filter by tag"
+                options={[{ value: '', label: t('contacts.list.anyTag') }, ...allTags.map((x) => ({ value: x, label: x }))]}
+                ariaLabel={t('contacts.list.filterTag')}
                 className="w-[140px]"
                 searchable={allTags.length > 8}
               />
               <Select
                 value={recordType}
                 onChange={setRecordType}
-                options={RECORD_TYPE_OPTS}
-                ariaLabel="Filter by record type"
+                options={RECORD_TYPE_OPTS.map((o) => ({ value: o.value, label: t(o.label) }))}
+                ariaLabel={t('contacts.list.filterRecord')}
                 className="w-[140px]"
               />
               {hasFilters && (
                 <Button variant="ghost" size="sm" onClick={clear}>
-                  Clear
+                  {t('common.actions.clear')}
                 </Button>
               )}
             </div>

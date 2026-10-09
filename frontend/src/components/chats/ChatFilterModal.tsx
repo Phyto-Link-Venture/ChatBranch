@@ -9,12 +9,14 @@ import { EntityMultiPicker } from '@/components/ui/EntityPicker'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { useTags } from '@/lib/tags'
 import { HANDOVER_KINDS } from '@/lib/aiControls'
+import { useT } from '@/i18n'
 import {
-  CHANNEL_META,
   CHANNELS,
   THREAD_STATUSES,
   api,
+  channelName,
   logoKey,
+  roleLabel,
   statusLabel,
   type UiAccount,
   type UiAgent,
@@ -99,6 +101,7 @@ function Segmented<T extends string>({
 }
 
 function DateRangeField({ value, onChange, label }: { value: DateRange; onChange: (r: DateRange) => void; label: string }) {
+  const t = useT()
   const input =
     'h-9 min-w-0 flex-1 rounded-lg border border-line-strong bg-card px-2.5 text-[12.5px] text-text-primary outline-none focus:border-text-primary'
   return (
@@ -106,7 +109,7 @@ function DateRangeField({ value, onChange, label }: { value: DateRange; onChange
       <Select
         value={value.preset}
         onChange={(v) => onChange({ preset: v as DatePreset, from: value.from, to: value.to })}
-        options={DATE_PRESETS.map((p) => ({ value: p.value, label: p.label }))}
+        options={DATE_PRESETS.map((p) => ({ value: p.value, label: t(p.label) }))}
         size="md"
         ariaLabel={label}
       />
@@ -117,16 +120,16 @@ function DateRangeField({ value, onChange, label }: { value: DateRange; onChange
             value={value.from ?? ''}
             max={value.to || undefined}
             onChange={(e) => onChange({ ...value, from: e.target.value || undefined })}
-            aria-label={`${label} from`}
+            aria-label={t('chats.filterModal.dateFrom', { label })}
             className={input}
           />
-          <span className="text-[12px] text-text-muted">to</span>
+          <span className="text-[12px] text-text-muted">{t('chats.filterModal.to')}</span>
           <input
             type="date"
             value={value.to ?? ''}
             min={value.from || undefined}
             onChange={(e) => onChange({ ...value, to: e.target.value || undefined })}
-            aria-label={`${label} to`}
+            aria-label={t('chats.filterModal.dateTo', { label })}
             className={input}
           />
         </div>
@@ -168,6 +171,7 @@ export default function ChatFilterModal({
   onApply: (f: InboxFilters) => void
   onSaveView: (name: string, f: InboxFilters) => Promise<void>
 }) {
+  const t = useT()
   // Conversation labels come from the Tags registry (Library → Tags).
   const { metas: conversationTags } = useTags('conversation')
   const [draft, setDraft] = useState<InboxFilters>(initial)
@@ -200,7 +204,7 @@ export default function ChatFilterModal({
     if (!open) return
     let cancelled = false
     setCounting(true)
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       api<{ count: number }>(`inbox/threads?${params}`)
         .then((d) => !cancelled && setCount(d.count))
         .catch(() => !cancelled && setCount(null))
@@ -208,7 +212,7 @@ export default function ChatFilterModal({
     }, 220)
     return () => {
       cancelled = true
-      clearTimeout(t)
+      clearTimeout(timer)
     }
   }, [open, params])
 
@@ -217,31 +221,37 @@ export default function ChatFilterModal({
   const accountOptions: SelectOption[] = [
     ...accounts.map((a) => ({
       value: a.id,
-      label: a.name || `Account #${a.id}`,
-      group: CHANNEL_META[(a.channel ?? 'whatsapp') as keyof typeof CHANNEL_META]?.lbl ?? a.channel ?? 'Other',
-      hint: a.provider === 'baileys' ? '(personal)' : undefined,
+      label: a.name || t('chats.info.accountN', { id: a.id }),
+      group: a.channel ? channelName(t, a.channel) : channelName(t, 'whatsapp'),
+      hint: a.provider === 'baileys' ? t('chats.filterModal.personal') : undefined,
     })),
-    { value: 'none', label: 'No sending account', group: 'Other' },
+    { value: 'none', label: t('chats.filterModal.noSendingAccount'), group: t('chats.filterModal.other') },
   ]
+  const quickPicks = t('chats.filterModal.quickPicks')
   const assigneeOptions: SelectOption[] = [
-    { value: 'me', label: 'Me', group: 'Quick picks' },
-    { value: 'unassigned', label: 'Unassigned', group: 'Quick picks' },
-    ...agents.map((a) => ({ value: a.username, label: a.name, hint: `(${a.role})`, group: 'Teammates' })),
+    { value: 'me', label: t('chats.filterModal.me'), group: quickPicks },
+    { value: 'unassigned', label: t('chats.filterModal.unassigned'), group: quickPicks },
+    ...agents.map((a) => ({
+      value: a.username,
+      label: a.name,
+      hint: `(${roleLabel(t, a.role)})`,
+      group: t('chats.filterModal.teammates'),
+    })),
   ]
   const teamOptions: SelectOption[] = [
-    ...teams.map((t) => ({ value: String(t.id), label: t.name })),
-    { value: 'none', label: 'No team' },
+    ...teams.map((tm) => ({ value: String(tm.id), label: tm.name })),
+    { value: 'none', label: t('chats.filterModal.noTeam') },
   ]
   const labelOptions: SelectOption[] = [
-    ...conversationTags.map((t) => ({ value: t.slug, label: t.label })),
+    ...conversationTags.map((tg) => ({ value: tg.slug, label: tg.label })),
     // keep a saved view's legacy free-text label visible
     ...draft.labels
-      .filter((l) => !conversationTags.some((t) => t.slug === l))
+      .filter((l) => !conversationTags.some((tg) => tg.slug === l))
       .map((l) => ({ value: l, label: l })),
   ]
   const tagOptions: SelectOption[] = Array.from(new Set([...contactTags, ...draft.tags]))
     .sort((a, b) => a.localeCompare(b))
-    .map((t) => ({ value: t, label: t }))
+    .map((tag) => ({ value: tag, label: tag }))
 
   const saveView = async () => {
     const name = viewName.trim()
@@ -251,7 +261,7 @@ export default function ChatFilterModal({
     try {
       await onSaveView(name, draft)
       setViewName('')
-      setMsg({ ok: true, text: `Saved "${name}" — it's a tab above the list now.` })
+      setMsg({ ok: true, text: t('chats.filterModal.savedView', { name }) })
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
     } finally {
@@ -267,9 +277,9 @@ export default function ChatFilterModal({
       labelledById="chat-filter-title"
       title={
         <span className="flex items-baseline gap-3">
-          Filter conversations
+          {t('chats.filterModal.title')}
           <span className="font-sans text-[13px] font-normal tracking-normal text-text-muted">
-            {counting && count === null ? '…' : count === null ? '' : `${count} match`}
+            {counting && count === null ? '…' : count === null ? '' : t('chats.filterModal.matches', { count })}
           </span>
         </span>
       }
@@ -280,17 +290,17 @@ export default function ChatFilterModal({
             onClick={() => setDraft({ ...EMPTY_FILTERS, sort: draft.sort })}
             className="text-[13px] font-semibold text-[color:var(--brand-ink)] hover:underline"
           >
-            Clear all
+            {t('chats.list.clearAll')}
           </button>
           <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
             <label className="flex h-9 min-w-0 items-center gap-2 rounded-lg border border-line-strong bg-card px-2.5">
-              <span className="shrink-0 text-[12.5px] text-text-muted">Save as view</span>
+              <span className="shrink-0 text-[12.5px] text-text-muted">{t('chats.filterModal.saveAsView')}</span>
               <input
                 value={viewName}
                 onChange={(e) => setViewName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && saveView()}
-                placeholder="e.g. VIP drivers"
-                aria-label="View name"
+                placeholder={t('chats.filterModal.viewNamePlaceholder')}
+                aria-label={t('chats.filterModal.viewNameAria')}
                 maxLength={60}
                 className="w-[120px] min-w-0 bg-transparent text-[13px] text-text-primary outline-none placeholder:text-text-faint"
               />
@@ -301,7 +311,7 @@ export default function ChatFilterModal({
                   disabled={saving}
                   className="shrink-0 text-[12.5px] font-semibold text-text-high hover:underline disabled:opacity-50"
                 >
-                  {saving ? 'Saving…' : 'Save'}
+                  {saving ? t('common.status.saving') : t('common.actions.save')}
                 </button>
               )}
             </label>
@@ -313,7 +323,7 @@ export default function ChatFilterModal({
               }}
             >
               {counting && <Loader2 size={13} className="animate-spin" aria-hidden />}
-              {count === null ? 'Show chats' : `Show ${count} ${count === 1 ? 'chat' : 'chats'}`}
+              {count === null ? t('chats.filterModal.showChats') : t('chats.filterModal.showN', { count })}
             </Button>
           </div>
         </div>
@@ -330,54 +340,54 @@ export default function ChatFilterModal({
         </div>
       )}
       <div className="grid grid-cols-1 gap-x-[22px] gap-y-[18px] sm:grid-cols-2">
-        <Field label="Status">
+        <Field label={t('common.fields.status')}>
           <div className="flex flex-wrap gap-1.5">
             {THREAD_STATUSES.map((s) => (
               <Pill key={s} on={draft.status.includes(s)} onClick={() => set({ status: toggle(draft.status, s) })}>
-                {statusLabel(s)}
+                {statusLabel(t, s)}
               </Pill>
             ))}
           </div>
         </Field>
 
-        <Field label="Channel">
+        <Field label={t('common.fields.channel')}>
           <div className="flex flex-wrap gap-1.5">
             {CHANNELS.map((c) => {
               const on = draft.channels.includes(c)
               return (
                 <Pill key={c} on={on} onClick={() => set({ channels: toggle(draft.channels, c) })}>
                   <ChannelLogo channel={logoKey(c)} size={13} variant={on ? 'mono' : 'mark'} title="" />
-                  {CHANNEL_META[c].lbl}
+                  {channelName(t, c)}
                 </Pill>
               )
             })}
           </div>
         </Field>
 
-        <Field label="Assignee">
+        <Field label={t('chats.filterModal.assignee')}>
           <MultiSelect
             value={draft.assignees}
             onChange={(v) => set({ assignees: v })}
             options={assigneeOptions}
-            placeholder="Anyone"
+            placeholder={t('chats.filterModal.anyone')}
             size="md"
-            ariaLabel="Assignee"
+            ariaLabel={t('chats.filterModal.assignee')}
           />
         </Field>
 
-        <Field label="Team">
+        <Field label={t('chats.filterModal.team')}>
           <MultiSelect
             value={draft.teams}
             onChange={(v) => set({ teams: v })}
             options={teamOptions}
-            placeholder="Any team"
+            placeholder={t('chats.filterModal.anyTeam')}
             size="md"
-            ariaLabel="Team"
+            ariaLabel={t('chats.filterModal.team')}
           />
         </Field>
 
         <Field
-          label="Entity"
+          label={t('common.fields.entity')}
           aside={
             draft.entities !== null && (
               <button
@@ -385,7 +395,7 @@ export default function ChatFilterModal({
                 onClick={() => set({ entities: null })}
                 className="text-[11.5px] font-semibold text-text-muted hover:text-text-high"
               >
-                Follow top bar
+                {t('chats.filterModal.followTopBar')}
               </button>
             )
           }
@@ -393,24 +403,24 @@ export default function ChatFilterModal({
           <EntityMultiPicker
             value={draft.entities ?? (topEntity ? [topEntity] : [])}
             onChange={(slugs) => set({ entities: slugs })}
-            placeholder="All entities"
-            ariaLabel="Entity"
+            placeholder={t('chats.filterModal.allEntities')}
+            ariaLabel={t('common.fields.entity')}
           />
         </Field>
 
-        <Field label="Sending account / number">
+        <Field label={t('chats.filterModal.account')}>
           <MultiSelect
             value={draft.accounts}
             onChange={(v) => set({ accounts: v })}
             options={accountOptions}
-            placeholder="Any account"
+            placeholder={t('chats.filterModal.anyAccount')}
             size="md"
-            ariaLabel="Sending account"
+            ariaLabel={t('chats.filterModal.accountAria')}
           />
         </Field>
 
         <Field
-          label="Conversation labels"
+          label={t('chats.filterModal.labels')}
           aside={
             <div className="flex rounded-md border border-line p-px text-[11px]">
               {(['any', 'all'] as const).map((m) => (
@@ -423,7 +433,7 @@ export default function ChatFilterModal({
                     draft.labelsMode === m ? 'bg-primary text-on-primary' : 'text-text-muted hover:text-text-high'
                   }`}
                 >
-                  {m === 'any' ? 'Any of' : 'All of'}
+                  {t(m === 'any' ? 'chats.filterModal.anyOf' : 'chats.filterModal.allOf')}
                 </button>
               ))}
             </div>
@@ -433,28 +443,28 @@ export default function ChatFilterModal({
             value={draft.labels}
             onChange={(v) => set({ labels: v })}
             options={labelOptions}
-            placeholder="Any label"
+            placeholder={t('chats.filterModal.anyLabel')}
             size="md"
-            ariaLabel="Conversation labels"
+            ariaLabel={t('chats.filterModal.labels')}
           />
         </Field>
 
-        <Field label="Contact tags">
+        <Field label={t('chats.filterModal.contactTags')}>
           <MultiSelect
             value={draft.tags}
             onChange={(v) => set({ tags: v })}
             options={tagOptions}
-            placeholder={tagOptions.length ? 'Any tag' : 'No contact tags yet'}
+            placeholder={t(tagOptions.length ? 'chats.filterModal.anyTag' : 'chats.filterModal.noContactTags')}
             size="md"
-            ariaLabel="Contact tags"
+            ariaLabel={t('chats.filterModal.contactTags')}
             searchable
           />
         </Field>
 
-        <DateRangeField label="Last activity" value={draft.active} onChange={(r) => set({ active: r })} />
-        <DateRangeField label="Created" value={draft.created} onChange={(r) => set({ created: r })} />
+        <DateRangeField label={t('chats.filterModal.lastActivity')} value={draft.active} onChange={(r) => set({ active: r })} />
+        <DateRangeField label={t('common.fields.created')} value={draft.created} onChange={(r) => set({ created: r })} />
 
-        <Field label="Conversation state" wide>
+        <Field label={t('chats.filterModal.state')} wide>
           <label className="flex cursor-pointer items-center gap-2 text-[13px] text-text-high">
             <input
               type="checkbox"
@@ -462,94 +472,94 @@ export default function ChatFilterModal({
               onChange={(e) => set({ waiting: e.target.checked })}
               className="h-4 w-4 accent-[var(--primary)]"
             />
-            Waiting for our reply <span className="text-text-muted">(the last message came from the customer)</span>
+            {t('chats.filterModal.waiting')} <span className="text-text-muted">{t('chats.filterModal.waitingHint')}</span>
           </label>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Segmented
-              label="AI auto-reply"
+              label={t('chats.filterModal.aiAutoReply')}
               value={draft.ai}
               onChange={(v) => set({ ai: v })}
               options={[
-                { value: '', label: 'Any' },
-                { value: 'on', label: 'On' },
-                { value: 'off', label: 'Off' },
+                { value: '', label: t('chats.filterModal.any') },
+                { value: 'on', label: t('common.status.on') },
+                { value: 'off', label: t('common.status.off') },
               ]}
             />
             <Segmented
-              label="24h window"
+              label={t('chats.filterModal.window24h')}
               value={draft.window}
               onChange={(v) => set({ window: v })}
               options={[
-                { value: '', label: 'Any' },
-                { value: 'open', label: 'Open' },
-                { value: 'closed', label: 'Closed' },
+                { value: '', label: t('chats.filterModal.any') },
+                { value: 'open', label: t('chats.filterModal.open') },
+                { value: 'closed', label: t('chats.filterModal.closed') },
               ]}
             />
             <Segmented
-              label="Opted out"
+              label={t('chats.list.optedOut')}
               value={draft.optedOut}
               onChange={(v) => set({ optedOut: v })}
               options={[
-                { value: '', label: 'Any' },
-                { value: 'yes', label: 'Yes' },
-                { value: 'no', label: 'No' },
+                { value: '', label: t('chats.filterModal.any') },
+                { value: 'yes', label: t('common.status.yes') },
+                { value: 'no', label: t('common.status.no') },
               ]}
             />
             <Segmented
-              label="Calls"
+              label={t('chats.filterModal.calls')}
               value={draft.call}
               onChange={(v) => set({ call: v })}
               options={[
-                { value: '', label: 'Any' },
-                { value: 'any', label: 'Has a call' },
-                { value: 'live', label: 'Live now' },
+                { value: '', label: t('chats.filterModal.any') },
+                { value: 'any', label: t('chats.filterModal.hasCall') },
+                { value: 'live', label: t('chats.filterModal.liveNow') },
               ]}
             />
             <Segmented
-              label="Contact"
+              label={t('chats.filterModal.contact')}
               value={draft.linked}
               onChange={(v) => set({ linked: v })}
               options={[
-                { value: '', label: 'Any' },
-                { value: 'yes', label: 'Linked' },
-                { value: 'no', label: 'Not linked' },
+                { value: '', label: t('chats.filterModal.any') },
+                { value: 'yes', label: t('chats.filterModal.linked') },
+                { value: 'no', label: t('chats.filterModal.notLinked') },
               ]}
             />
             <div className="flex min-w-0 flex-col gap-1.5">
-              <span className="text-[12px] font-semibold text-text-mid">Sort</span>
+              <span className="text-[12px] font-semibold text-text-mid">{t('chats.filterModal.sort')}</span>
               <Select
                 value={draft.sort}
                 onChange={(v) => set({ sort: v as InboxFilters['sort'] })}
-                options={SORTS.map((s) => ({ value: s.value, label: s.label }))}
-                ariaLabel="Sort"
+                options={SORTS.map((s) => ({ value: s.value, label: t(s.label) }))}
+                ariaLabel={t('chats.filterModal.sort')}
               />
             </div>
           </div>
         </Field>
 
         {/* human handover (Ai/Handover): the AI — or a rule, a flow, a person — passed it on */}
-        <Field label="Handed to a human" wide>
+        <Field label={t('chats.filterModal.handedToHuman')} wide>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Segmented
-              label="Handover"
+              label={t('chats.filterModal.handover')}
               value={draft.handover}
               onChange={(v) => set({ handover: v })}
               options={[
-                { value: '', label: 'Any' },
-                { value: 'open', label: 'Needs a human' },
-                { value: 'any', label: 'Ever' },
-                { value: 'none', label: 'Never' },
+                { value: '', label: t('chats.filterModal.any') },
+                { value: 'open', label: t('chats.filterModal.needsHuman') },
+                { value: 'any', label: t('chats.filterModal.ever') },
+                { value: 'none', label: t('common.status.never') },
               ]}
             />
             <div className="flex min-w-0 flex-col gap-1.5">
-              <span className="text-[12px] font-semibold text-text-mid">Why</span>
+              <span className="text-[12px] font-semibold text-text-mid">{t('chats.filterModal.why')}</span>
               <MultiSelect
                 value={draft.handoverKinds}
                 onChange={(v) => set({ handoverKinds: v })}
-                options={HANDOVER_KINDS.map((k) => ({ value: k.value, label: k.label }))}
-                placeholder="Any reason"
+                options={HANDOVER_KINDS.map((k) => ({ value: k.value, label: t(k.label) }))}
+                placeholder={t('chats.filterModal.anyReason')}
                 size="md"
-                ariaLabel="Handover reason"
+                ariaLabel={t('chats.filterModal.handoverReason')}
               />
             </div>
           </div>
