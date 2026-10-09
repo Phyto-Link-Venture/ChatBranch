@@ -1,6 +1,7 @@
 import type { AgentSkill, FlowConfig, FlowNode } from './types'
 import {
   AI_MESSAGE,
+  CHATBOT_CHANNELS,
   DECISIONS,
   LEGACY_TRIGGERS,
   MESSAGE_CHANNELS,
@@ -9,6 +10,7 @@ import {
   actionType,
   channelsOf,
   durationText,
+  isChatbotStep,
 } from './nodeConfig'
 
 /**
@@ -223,6 +225,15 @@ export function describeStep(node: FlowNode, ctx: DescribeContext = {}): StepTex
       }
     }
     case 'update': {
+      if (isChatbotStep(cfg)) {
+        const on = str(cfg.value).toLowerCase() === 'on'
+        const chans = Array.isArray(cfg.channels) ? (cfg.channels as unknown[]).map(String) : []
+        const where =
+          str(cfg.scope) === 'channels' && chans.length
+            ? `on ${chans.map((c) => CHATBOT_CHANNELS.find((x) => x.value === c)?.label ?? c).join(', ')}`
+            : 'on all their chats'
+        return { eyebrow: 'Chatbot', title: `Turn the AI ${on ? 'on' : 'off'} ${where}` }
+      }
       const op = str(cfg.op) || 'add_tag'
       const title =
         op === 'remove_tag'

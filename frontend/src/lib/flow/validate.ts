@@ -1,5 +1,5 @@
 import type { FlowEdge, FlowNode } from './types'
-import { AI_MESSAGE, actionType, channelsOf } from './nodeConfig'
+import { AI_MESSAGE, actionType, channelsOf, isChatbotStep } from './nodeConfig'
 
 /**
  * Things that would make a step do nothing when the flow runs — shown as a
@@ -51,6 +51,12 @@ export function flowIssues(nodes: FlowNode[], edges: FlowEdge[]): Record<string,
         break
       }
       case 'update': {
+        if (isChatbotStep(c)) {
+          if (!['on', 'off'].includes(s(c.value))) add(n.id, 'Choose on or off.')
+          if (s(c.scope) === 'channels' && !(Array.isArray(c.channels) && c.channels.length))
+            add(n.id, 'Pick at least one channel, or apply it to all chats.')
+          break
+        }
         const op = s(c.op) || 'add_tag'
         if (op !== 'set_field' && !s(c.tag)) add(n.id, 'Choose the tag.')
         if (op === 'set_field' && !s(c.field)) add(n.id, 'Choose the field.')

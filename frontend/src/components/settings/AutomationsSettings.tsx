@@ -77,6 +77,8 @@ const inputCls =
 const VALUELESS = ['is_empty', 'is_not_empty']
 /** Actions that take no value. */
 const NO_VALUE_ACTIONS = ['disable_ai', 'enable_ai']
+/** Yes/no condition fields (the engine compares true/false; yes/no/on/off work too). */
+const YES_NO_FIELDS = ['ai_on', 'handed_over', 'is_first_message']
 
 export function AutomationsSettings() {
   const entityQ = useEntityQuery()
@@ -253,7 +255,7 @@ export function AutomationsSettings() {
       <input
         value={a.value}
         onChange={(e) => set(e.target.value)}
-        placeholder={a.type === 'add_note' ? 'Note text' : 'Value'}
+        placeholder={a.type === 'add_note' ? 'Note text' : a.type === 'hand_over' ? 'Why (shown to the team)' : 'Value'}
         className={`${inputCls} flex-1 min-w-[140px]`}
         aria-label="Action value"
       />
@@ -474,7 +476,21 @@ export function AutomationsSettings() {
                     className="w-[150px] shrink-0"
                     options={(catalog?.operators ?? []).map((o) => ({ value: o.id, label: o.label }))}
                   />
-                  {!VALUELESS.includes(c.op) && (
+                  {!VALUELESS.includes(c.op) && YES_NO_FIELDS.includes(c.field) && (
+                    <Select
+                      value={['true', 'yes', 'on', '1'].includes(c.value.toLowerCase()) ? 'true' : c.value ? 'false' : ''}
+                      onChange={(value) => setConditions((cur) => cur.map((x, j) => (j === i ? { ...x, value } : x)))}
+                      size="md"
+                      ariaLabel="Condition value"
+                      className="min-w-[110px] flex-1"
+                      options={[
+                        { value: '', label: 'Pick…' },
+                        { value: 'true', label: 'Yes' },
+                        { value: 'false', label: 'No' },
+                      ]}
+                    />
+                  )}
+                  {!VALUELESS.includes(c.op) && !YES_NO_FIELDS.includes(c.field) && (
                     <input
                       value={c.value}
                       onChange={(e) =>
