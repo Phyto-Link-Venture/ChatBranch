@@ -73,9 +73,12 @@ public static class AiBehaviourSettings
     public const string FollowUpMax = "ai_followup_max";
     public const string FollowUpTemplate = "ai_followup_template";
     public const string FollowUpGuidance = "ai_followup_guidance";
+    /// <summary>How feedback becomes lessons (Ai/Learning/LearningService.cs).</summary>
+    public const string LearningMode = "ai_learning_mode";
 
     public static readonly string[] ReviewModes = { "auto", "review_flagged", "review_all", "shadow" };
     public static readonly string[] SplitModes = { "off", "auto", "always" };
+    public static readonly string[] LearningModes = { "review", "auto", "off" };
 
     public const string DefaultKeywords =
         "price, cost, discount, refund, payment, invoice, deposit, fee, free, guarantee, "
@@ -151,6 +154,13 @@ public static class AiBehaviourSettings
         new(FollowUpGuidance, "followup", "textarea", "", "Guidance for follow-up messages",
             "Optional instructions for how follow-ups should sound, e.g. \"Keep it to one friendly "
             + "line and offer to call\"."),
+
+        // ---- learning from feedback (lessons) --------------------------------
+        new(LearningMode, "learning", "select", "review", "Learn from feedback",
+            "Thumbs up/down, approvals and edits suggest lessons the AI uses in later replies. Review: "
+            + "every lesson waits for a person to approve it. Auto: lessons from admins' feedback go live "
+            + "at once (everyone else's still wait). Off: feedback is only counted, nothing is learned.",
+            LearningModes),
     };
 
     public static readonly Dictionary<string, Field> ByKey = Fields.ToDictionary(f => f.Key);

@@ -315,6 +315,15 @@ public static class VoiceMessagingEndpoints
                        "the chat model to the model name (e.g. llama3.1). The server must reach this URL." },
         new() { key = "local_api_key", label = "Local model API key (optional)", group = "providers", kind = "secret",
                 help = "Optional — Ollama ignores it; some gateways require one." },
+        // semantic retrieval (AI learning): Data/Ai/Learning/EmbeddingClient.cs
+        new() { key = "embedding_provider", label = "Embeddings provider (semantic search)", group = "embeddings",
+                kind = "select",
+                help = "Lets the AI find knowledge and lessons by meaning, not just matching words. Automatic " +
+                       "uses the first of OpenAI → Gemini → Local that has a key; Off keeps keyword search only. " +
+                       "Uses the API keys above." },
+        new() { key = "embedding_model", label = "Embeddings model", group = "embeddings", kind = "text",
+                help = "Empty = the provider's default (OpenAI text-embedding-3-small, Gemini text-embedding-004, " +
+                       "Local nomic-embed-text). Changing it re-indexes everything in the background." },
         new() { key = "email_subject", label = "Default email subject", group = "tunables", kind = "text" },
         new() { key = "flows_tick_seconds", label = "Flow engine tick (seconds)", group = "tunables", kind = "int", min = 1 },
         new() { key = "whatsapp_health_interval", label = "Channel health check interval (seconds)",
@@ -340,6 +349,8 @@ public static class VoiceMessagingEndpoints
         ["chat_model"] = "WHATSAPP_CHAT_MODEL",
         ["chat_provider_pref"] = "CHAT_PROVIDER",
         ["email_subject"] = "EMAIL_DEFAULT_SUBJECT",
+        ["embedding_provider"] = "EMBEDDING_PROVIDER",
+        ["embedding_model"] = "EMBEDDING_MODEL",
     };
 
     // key -> (default, minimum, env var). Mirrors app_settings._INT_TUNABLES.
@@ -472,6 +483,15 @@ public static class VoiceMessagingEndpoints
             ["fields"] = AiFields,
             ["chat_provider_options"] = new[] { "" }.Concat(ChatProviders).ToArray(),
             ["chat_model_options"] = ChatModelOptions(),
+            // embeddings (semantic search): "" = automatic, "none" = keyword only
+            ["embedding_provider_options"] = ChatBranch.Data.Ai.Learning.OpenAiEmbeddingClient.Choices,
+            ["embedding_model_options"] = ChatBranch.Data.Ai.Learning.OpenAiEmbeddingClient.DefaultModels
+                .Select(kv => new { provider = kv.Key, models = new[] { kv.Value } }).ToList(),
+        };
+        var embedding = ChatBranch.Data.Ai.Learning.OpenAiEmbeddingClient.CurrentFor(sc);
+        outv["embedding_status"] = new
+        {
+            provider = embedding.Provider, model = embedding.Model, configured = embedding.Configured,
         };
 
         foreach (var f in AiFields)
@@ -542,6 +562,19 @@ public static class VoiceMessagingEndpoints
                                  $"{string.Join(", ", ChatProviders)} or empty (auto).",
                     }, statusCode: 400);
                 patch["chat_provider_pref"] = pref;
+            }
+
+            // the embeddings provider: automatic (""), a known provider, or none
+            if (patch.TryGetValue("embedding_provider", out var embRaw))
+            {
+                var emb = ((string)embRaw!).ToLowerInvariant();
+                if (emb is "gemini") emb = "google";
+                if (!ChatBranch.Data.Ai.Learning.OpenAiEmbeddingClient.Choices.Contains(emb))
+                    return Results.Json(new
+                    {
+                        detail = "embedding_provider must be one of openai, google, local, none or empty (automatic).",
+                    }, statusCode: 400);
+                patch["embedding_provider"] = emb;
             }
 
             // fallback order: a list (or JSON/CSV string) of KNOWN providers

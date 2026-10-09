@@ -55,6 +55,8 @@ public sealed record AiReplyResult
     /// rejected, superseded, expired or shadowed (see Bookings.BookingService).
     /// </summary>
     public IReadOnlyList<AiPendingAction> PendingActions { get; init; } = Array.Empty<AiPendingAction>();
+    /// <summary>The knowledge items / chunks and lessons the prompt carried (retrieval).</summary>
+    public IReadOnlyList<AiGrounding> Grounding { get; init; } = Array.Empty<AiGrounding>();
 
     /// <summary>A reply check asked for a human (or retries ran out).</summary>
     public bool HandoverRequested => Action == AiActions.Handover;
@@ -87,6 +89,7 @@ public sealed record AiReplyResult
         ["model"] = Model,
         ["prompt_tokens"] = PromptTokens,
         ["completion_tokens"] = CompletionTokens,
+        ["grounding"] = Grounding.Select(g => g.ToMeta()).ToList(),
         ["tools"] = Tools.Select(t => new Dictionary<string, object?>
         {
             ["name"] = t.Name, ["args"] = t.Args, ["result"] = t.Result, ["ok"] = t.Ok,

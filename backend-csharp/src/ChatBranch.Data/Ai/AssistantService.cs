@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using ChatBranch.Data.Ai.Learning;
 using ChatBranch.Data.Ai.Skills;
 using ChatBranch.Data.Bookings;
 using ChatBranch.Domain;
@@ -26,7 +27,7 @@ namespace ChatBranch.Data.Ai;
 /// sends. Callers decide. Every path is exception-safe — nothing here may
 /// throw into a webhook.
 /// </summary>
-public class AssistantService
+public partial class AssistantService
 {
     public const int MaxCheckRetries = 2;
     private const int MaxToolRounds = 4;
@@ -52,7 +53,7 @@ public class AssistantService
     // ---- prompt assembly ------------------------------------------------------
 
     /// <summary>Assemble the full system prompt for a given entity/channel/contact.</summary>
-    public string BuildSystemPrompt(int? entityId, string? channel, Contact? contact, string? query)
+    public string BuildSystemPrompt(int? entityId, string? channel, Contact? contact, RetrievalQuery? query)
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine(_persona.SystemPreamble(entityId));
@@ -60,7 +61,7 @@ public class AssistantService
         var skills = SkillsBlock(_skills.InScope(entityId, channel), includeApps: true);
         if (skills.Length > 0) sb.AppendLine().AppendLine(skills);
 
-        var knowledge = _knowledge.BuildContext(query, entityId, channel);
+        var knowledge = KnowledgeAndLessons(query, entityId, channel); // + LEARNED block, grounding kept for RunAsync
         if (knowledge.Length > 0) sb.AppendLine().AppendLine(knowledge);
 
         if (contact != null)
@@ -207,7 +208,7 @@ public class AssistantService
             var history = History(thread.Id, 20);
             var lastUser = history.LastOrDefault(m => m.Direction == MessageDirection.In)?.Text ?? "";
 
-            var system = BuildSystemPrompt(thread.EntityId, thread.Channel, contact, lastUser);
+            var system = BuildSystemPrompt(thread.EntityId, thread.Channel, contact, RetrievalQuery.FromHistory(history));
             var messages = history.Select(m => new LlmMessage(
                 m.Direction == MessageDirection.In ? "user" : "assistant", m.Text)).ToList();
 
@@ -247,7 +248,7 @@ public class AssistantService
             var lastUser = history.LastOrDefault(m => m.Direction == MessageDirection.In)?.Text ?? "";
             var lastOut = history.LastOrDefault(m => m.Direction == MessageDirection.Out)?.Text ?? "";
 
-            var system = BuildSystemPrompt(thread.EntityId, thread.Channel, contact, lastUser) + "\n\n" +
+            var system = BuildSystemPrompt(thread.EntityId, thread.Channel, contact, RetrievalQuery.FromHistory(history)) + "\n\n" +
                 $"FOLLOW-UP: The customer has not replied to your last message. Write follow-up #{attempt}: "
                 + "one or two short, natural sentences that refer to the open question or request in this "
                 + "conversation. Never repeat your previous message word for word, don't pressure, don't "
@@ -530,6 +531,7 @@ public class AssistantService
             Retries = Math.Min(attempt, MaxCheckRetries),
             Tools = tools,
             Checks = checks,
+            Grounding = TakeGrounding(),
             Provider = metered.Calls.Count > 0 ? metered.Calls[^1].Result.Provider : "",
             Model = metered.Calls.Count > 0 ? metered.Calls[^1].Result.Model : "",
             PromptTokens = metered.Calls.Sum(c => c.Result.PromptTokens),
