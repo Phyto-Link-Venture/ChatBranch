@@ -23,11 +23,18 @@ import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { RoleChip } from '@/components/ui/Badges'
 import { getRole, hasCap } from '@/lib/auth'
 import { fetchChannelHealth, HEALTH_META, type ChannelHealthPayload, type HealthStatus } from '@/lib/channelHealth'
-import { InboxSetupDrawer, KindBadge, type DrawerTarget, type Step } from '@/components/channels/InboxSetupDrawer'
+import {
+  ApprovalChip,
+  InboxSetupDrawer,
+  KindBadge,
+  type DrawerTarget,
+  type Step,
+} from '@/components/channels/InboxSetupDrawer'
 import { ChannelsAdvanced } from '@/components/channels/ChannelsAdvanced'
 import {
   FILTERS,
   KINDS,
+  KIND_GROUPS,
   deleteInbox,
   errText,
   kindMeta,
@@ -96,6 +103,7 @@ function InboxCard({
             <span className="truncate text-[14px] font-bold text-text-heading">{inbox.name}</span>
             {inbox.role && <RoleChip role={inbox.role} />}
             {meta.badge && <KindBadge badge={meta.badge} />}
+            {meta.approval && <ApprovalChip compact />}
             {inbox.envManaged && (
               <span className="rounded-full bg-fill px-1.5 py-px text-[9.5px] font-bold uppercase text-text-muted">
                 from .env
@@ -384,41 +392,54 @@ export function ChannelsSettings() {
                 : 'You need the “Manage channel accounts” permission to add inboxes.'}
             </span>
           </div>
-          <div className="grid grid-cols-1 gap-3.5 min-[460px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {KINDS.map((k) => {
-              const selected = !!drawer && drawer.kind === k.kind && !drawer.inbox
-              const voiceLocked = k.kind === 'voice' && !isSuper && !voiceInbox
-              const disabled = !canManage || voiceLocked
-              return (
-                <button
-                  key={k.kind}
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => openBlock(k.kind)}
-                  className={`group flex min-w-0 flex-col gap-2 rounded-xl border bg-card p-4 text-left transition-colors enabled:cursor-pointer enabled:hover:border-text-primary disabled:cursor-not-allowed disabled:opacity-60 ${
-                    selected ? 'border-text-primary shadow-[0_0_0_1px_var(--text-primary)]' : 'border-line'
-                  }`}
-                >
-                  <span className="flex items-start justify-between gap-2">
-                    <ChannelLogo channel={k.logo} variant="tile" size={38} title="" />
-                    {k.badge && <KindBadge badge={k.badge} />}
-                  </span>
-                  <span className="mt-1 text-[14px] font-bold text-text-heading">{k.label}</span>
-                  <span className="text-[12px] leading-snug text-text-mid">{k.blurb}</span>
-                  {k.kind === 'wa_qr' && (
-                    <span className="text-[11.5px] leading-snug" style={{ color: 'var(--amber-ink)' }}>
-                      Unofficial — breaks WhatsApp&apos;s terms. Use a spare number.
-                    </span>
-                  )}
-                  {k.kind === 'voice' && (voiceInbox || voiceLocked) && (
-                    <span className="text-[11.5px] text-text-muted">
-                      {voiceInbox ? 'Already connected — opens its settings' : 'Super admin only'}
-                    </span>
-                  )}
-                </button>
-              )
-            })}
-          </div>
+          {KIND_GROUPS.map((g) => (
+            <div key={g.id} className="flex flex-col gap-2" role="group" aria-labelledby={`add-group-${g.id}`}>
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <h3 id={`add-group-${g.id}`} className="eyebrow">
+                  {g.label}
+                </h3>
+                <span className="text-[11.5px] text-text-faint">{g.hint}</span>
+              </div>
+              <div className="grid grid-cols-1 gap-3.5 min-[460px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {KINDS.filter((k) => k.group === g.id).map((k) => {
+                  const selected = !!drawer && drawer.kind === k.kind && !drawer.inbox
+                  const voiceLocked = k.kind === 'voice' && !isSuper && !voiceInbox
+                  const disabled = !canManage || voiceLocked
+                  return (
+                    <button
+                      key={k.kind}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => openBlock(k.kind)}
+                      className={`group flex min-w-0 flex-col gap-2 rounded-xl border bg-card p-4 text-left transition-colors enabled:cursor-pointer enabled:hover:border-text-primary disabled:cursor-not-allowed disabled:opacity-60 ${
+                        selected ? 'border-text-primary shadow-[0_0_0_1px_var(--text-primary)]' : 'border-line'
+                      }`}
+                    >
+                      <span className="flex items-start justify-between gap-2">
+                        <ChannelLogo channel={k.logo} variant="tile" size={38} title="" />
+                        <span className="flex flex-wrap justify-end gap-1">
+                          {k.badge && <KindBadge badge={k.badge} />}
+                          {k.approval && <ApprovalChip />}
+                        </span>
+                      </span>
+                      <span className="mt-1 text-[14px] font-bold text-text-heading">{k.label}</span>
+                      <span className="text-[12px] leading-snug text-text-mid">{k.blurb}</span>
+                      {k.kind === 'wa_qr' && (
+                        <span className="text-[11.5px] leading-snug" style={{ color: 'var(--amber-ink)' }}>
+                          Unofficial — breaks WhatsApp&apos;s terms. Use a spare number.
+                        </span>
+                      )}
+                      {k.kind === 'voice' && (voiceInbox || voiceLocked) && (
+                        <span className="text-[11.5px] text-text-muted">
+                          {voiceInbox ? 'Already connected — opens its settings' : 'Super admin only'}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
         </section>
 
         {canManage && <ChannelsAdvanced verifyToken={snap?.verifyToken ?? ''} isSuper={isSuper} />}

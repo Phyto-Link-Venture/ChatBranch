@@ -25,7 +25,22 @@ interface Row {
   notSetUp?: boolean
 }
 
-const ORDER = ['whatsapp', 'telegram', 'facebook', 'instagram', 'website', 'email', 'voice']
+const ORDER = [
+  'whatsapp',
+  'telegram',
+  'line',
+  'viber',
+  'zalo',
+  'facebook',
+  'instagram',
+  'tiktok',
+  'wechat',
+  'douyin',
+  'website',
+  'sms',
+  'email',
+  'voice',
+]
 
 /**
  * Channel health (moved here from the old Dashboard): every connected account

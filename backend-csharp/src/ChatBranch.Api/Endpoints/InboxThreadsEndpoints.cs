@@ -442,6 +442,8 @@ public static class InboxThreadsEndpoints
         private Dictionary<int, ChannelAccount> _byId = new();
         /// <summary>Messenger / Instagram pages, for their messaging window.</summary>
         private Dictionary<int, ChannelAccount> _social = new();
+        /// <summary>Live WeChat / Zalo / TikTok / Douyin accounts, for their reply windows.</summary>
+        private Dictionary<int, ChannelAccount> _windowed = new();
         private ChannelAccount? _fallback;
         private bool _envIsSoleFallback;
         private ScopingService? _sc;
@@ -470,6 +472,7 @@ public static class InboxThreadsEndpoints
             {
                 _byId = wa.ToDictionary(a => a.Id),
                 _social = social.ToDictionary(a => a.Id),
+                _windowed = ChatBranch.Data.Channels.ChannelWindow.LiveAccounts(db),
                 // an unknown/missing account falls back to the SOLE configured
                 // one — never a guess between several (wa_config.get_account)
                 _fallback = configured.Count == 1 && !env ? configured[0] : null,
@@ -493,6 +496,10 @@ public static class InboxThreadsEndpoints
                 return ChatBranch.Data.Channels.SocialWindow.ListWindow(
                     ChatBranch.Data.Channels.SocialWindow.Live(
                         c.AccountId is int sid && _social.TryGetValue(sid, out var page) ? page : null, c.Channel),
+                    c.LastInTs, DateTime.UtcNow);
+            if (ChatBranch.Data.Channels.ChannelWindow.Applies(c.Channel))
+                return ChatBranch.Data.Channels.ChannelWindow.ListWindow(c.Channel,
+                    c.AccountId is int wid && _windowed.TryGetValue(wid, out var wacct) && wacct.Channel == c.Channel,
                     c.LastInTs, DateTime.UtcNow);
             if (c.Channel != ChatBranch.Domain.Channels.WhatsApp) return (true, null);
             var account = Account(c.AccountId);

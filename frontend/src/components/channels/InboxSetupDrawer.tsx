@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { AlertTriangle, Check, ChevronDown, Loader2, Plug, RefreshCw, Webhook, X } from 'lucide-react'
+import { AlertTriangle, BadgeCheck, Check, ChevronDown, Loader2, Plug, RefreshCw, Webhook, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
@@ -49,6 +49,7 @@ import {
   fromVoice,
   fromWa,
   fromWidget,
+  isMoreKind,
   kindMeta,
   testInbox,
   type AiDefault,
@@ -62,7 +63,7 @@ import {
   type WaAccount,
   type Widget,
 } from './inboxes'
-import { CRED_FIELDS, DEFAULT_NAME, GUIDES, type FieldSpec } from './setupSpec'
+import { CRED_FIELDS, DEFAULT_NAME, GUIDES, ONE_OF, WEBHOOK_HELP, type FieldSpec } from './setupSpec'
 
 export type Step = 1 | 2 | 3 | 4 | 5 // 5 = done
 
@@ -269,6 +270,9 @@ export function InboxSetupDrawer({
       c.imap_host = cfg.imap_host || ''
       c.imap_port = cfg.imap_port != null && cfg.imap_port !== '' ? String(cfg.imap_port) : ''
       c.external_id = inbox.msg.channel === 'telegram' ? '' : inbox.msg.external_id || ''
+      // LINE, Viber, SMS, WeChat, TikTok, Douyin, Zalo: their non-secret settings
+      for (const key of ['app_id', 'account_sid', 'from_number', 'messaging_service_sid', 'client_key', 'sender_name'])
+        if (cfg[key] != null && cfg[key] !== '') c[key] = String(cfg[key])
     } else if (k === 'email') c.port = '587'
     if (inbox?.voice) {
       c.sip_username = inbox.voice.sip_username || ''
@@ -385,6 +389,9 @@ export function InboxSetupDrawer({
       const msg = fieldError(f, creds[f.key] ?? '')
       if (msg) next[f.key] = msg
     }
+    const oneOf = kind ? ONE_OF[kind] : undefined
+    if (oneOf && !oneOf.keys.some((k) => (creds[k] ?? '').trim()))
+      for (const k of oneOf.keys) next[k] = next[k] || oneOf.message
     setErrors(next)
     setTouched(Object.fromEntries(Object.keys(next).map((k) => [k, true])))
     return Object.keys(next).length === 0
@@ -460,13 +467,22 @@ export function InboxSetupDrawer({
         imap_port: c('imap_port'),
       })
       if (c('password')) body.password = c('password')
+    } else if (isMoreKind(kind)) {
+      // LINE, Viber, SMS, WeChat, TikTok, Douyin, Zalo — keys mirror the API's field table;
+      // a blank secret means "keep the stored one"
+      for (const f of fields) {
+        const v = c(f.key)
+        if (f.secret) {
+          if (v) body[f.key] = v
+        } else body[f.key] = v
+      }
     } else {
       if (kind !== 'telegram') body.external_id = c('external_id')
       if (c('access_token')) body.access_token = c('access_token')
       // Messenger / Instagram: Meta signs every webhook with the app secret
       if (kind !== 'telegram' && c('app_secret')) body.app_secret = c('app_secret')
     }
-    if (!id) body.channel = kind === 'email' ? 'email' : SOCIAL_CHANNEL[kind]
+    if (!id) body.channel = kind === 'email' ? 'email' : isMoreKind(kind) ? kind : SOCIAL_CHANNEL[kind]
     const m = await api<MessagingAccount>(id ? `messaging/accounts/${id}` : 'messaging/accounts', {
       method: id ? 'PATCH' : 'POST',
       body: JSON.stringify(body),
@@ -594,6 +610,7 @@ export function InboxSetupDrawer({
       setTgResult({ tone: 'error', text: 'Use the public https:// address that reaches this API (e.g. your tunnel URL).' })
       return
     }
+    // Telegram, LINE and Viber register through the same endpoint
     setTgResult(null)
     try {
       const r = await api<{ url?: string; detail?: string }>(`messaging/accounts/${saved.id}/set-webhook`, {
@@ -643,7 +660,8 @@ export function InboxSetupDrawer({
               ? saved.msg?.config?.password_masked
               : f.key === 'sip_password'
                 ? saved.voice?.sip_password_masked
-                : ''
+                : // the newer channels: `<key>_masked` on the account or in its config
+                  saved.msg?.[`${f.key}_masked`] || String(saved.msg?.config?.[`${f.key}_masked`] ?? '')
         : ''
     return (
       <label key={f.key} className={`block ${f.half ? '' : 'sm:col-span-2'}`}>
@@ -694,6 +712,7 @@ export function InboxSetupDrawer({
             <span className="flex items-center gap-1.5 text-[13.5px] font-bold text-text-heading">
               {k.label}
               {k.badge && <KindBadge badge={k.badge} />}
+              {k.approval && <ApprovalChip compact />}
             </span>
             <span className="block truncate text-[12px] text-text-muted">{k.blurb}</span>
           </span>
@@ -747,6 +766,19 @@ export function InboxSetupDrawer({
           </p>
           <WidgetLookFields value={look} onChange={setLook} errors={errors as Partial<Record<keyof WidgetLook, string>>} />
         </>
+      )}
+
+      {meta?.approval && (
+        <div
+          className="flex gap-2.5 rounded-lg border border-amber/40 bg-amber/10 px-3 py-2.5 text-[12.5px] leading-relaxed"
+          style={{ color: 'var(--amber-ink)' }}
+        >
+          <BadgeCheck size={16} className="mt-0.5 shrink-0" aria-hidden />
+          <span>
+            <b>Requires platform approval.</b> {meta.label} only opens its messaging API to approved apps — the
+            credentials below exist once the platform has approved yours. Until then the inbox stays in sandbox.
+          </span>
+        </div>
       )}
 
       {voiceLocked && (
@@ -1025,6 +1057,44 @@ export function InboxSetupDrawer({
             </Section>
           )}
 
+          {isMoreKind(kind) && saved.msg && (
+            <Section title={`Point ${meta?.label ?? 'the platform'} at ChatBranch`}>
+              <p className="text-[12.5px] leading-relaxed text-text-mid">{WEBHOOK_HELP[kind]}</p>
+              <CopyRow label="Webhook URL" value={`${API_ORIGIN}${saved.msg.webhook_path ?? ''}`} />
+              {kind === 'wechat' && (
+                <p className="text-[11.5px] leading-relaxed text-text-muted">
+                  Use the same Token you entered here. Plaintext and safe mode both work — safe mode needs the
+                  EncodingAESKey above.
+                </p>
+              )}
+              {saved.msg.can_set_webhook && (
+                <>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      className={inputCls}
+                      inputMode="url"
+                      value={tgBase}
+                      onChange={(e) => setTgBase(e.target.value)}
+                      placeholder="https://your-tunnel.example.com"
+                      aria-label="Public base URL"
+                    />
+                    <Button variant="secondary" onClick={registerTelegram} className="shrink-0">
+                      <Webhook size={13} aria-hidden /> Register
+                    </Button>
+                  </div>
+                  {tgResult && <ResultLine result={tgResult} />}
+                </>
+              )}
+              {saved.msg.window_hours ? (
+                <p className="text-[11.5px] leading-relaxed text-text-muted">
+                  Replies are allowed for {saved.msg.window_hours >= 72 ? `${saved.msg.window_hours / 24} days` : `${saved.msg.window_hours} hours`}{' '}
+                  after the customer&apos;s last message — after that the composer, the AI and flows are refused until
+                  they write again.
+                </p>
+              ) : null}
+            </Section>
+          )}
+
           {kind === 'website' && saved.widget && (
             <Section
               title="Put it on your site"
@@ -1290,6 +1360,20 @@ export function InboxSetupDrawer({
       </aside>
     </div>,
     document.body,
+  )
+}
+
+/** "Requires platform approval" — TikTok / Douyin only open their messaging APIs to approved apps. */
+export function ApprovalChip({ compact = false }: { compact?: boolean }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full bg-amber/15 px-1.5 py-px text-[9.5px] font-bold uppercase tracking-[0.06em]"
+      style={{ color: 'var(--amber-ink)' }}
+      title="The platform must approve your app before its messaging API works"
+    >
+      <BadgeCheck size={10} aria-hidden />
+      {compact ? 'Approval' : 'Requires approval'}
+    </span>
   )
 }
 

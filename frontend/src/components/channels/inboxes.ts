@@ -5,6 +5,8 @@
  *
  *   WhatsApp (Cloud + QR)   GET/POST /api/whatsapp/accounts, POST …/{id}
  *   Email / social          GET/POST /api/messaging/accounts, PATCH …/{id}
+ *   (also LINE, Viber, SMS via Twilio, WeChat, TikTok, Douyin and Zalo — each
+ *   with its own signed webhook at /api/messaging/webhook/{channel}/{id})
  *   Website widget          GET/POST /api/widgets, PATCH …/{id}
  *   Voice (SIP trunk)       GET/PUT  /api/whatsapp/voice-settings
  *
@@ -31,9 +33,41 @@ export type InboxKind =
   | 'instagram'
   | 'website'
   | 'voice'
+  | 'line'
+  | 'viber'
+  | 'sms'
+  | 'wechat'
+  | 'tiktok'
+  | 'douyin'
+  | 'zalo'
+
+/** The channels added with their own transports — their kind IS their channel id. */
+export const MORE_KINDS = ['line', 'viber', 'sms', 'wechat', 'tiktok', 'douyin', 'zalo'] as const
+export type MoreKind = (typeof MORE_KINDS)[number]
+export const isMoreKind = (k: InboxKind | null | undefined): k is MoreKind =>
+  !!k && (MORE_KINDS as readonly string[]).includes(k)
 
 /** Filter buckets on the Connected section (both WhatsApp kinds share one). */
-export type ChannelFilter = 'all' | 'whatsapp' | 'email' | 'telegram' | 'messenger' | 'instagram' | 'website' | 'voice'
+export type ChannelFilter =
+  | 'all'
+  | 'whatsapp'
+  | 'email'
+  | 'telegram'
+  | 'messenger'
+  | 'instagram'
+  | 'website'
+  | 'voice'
+  | MoreKind
+
+/** How the "Add a channel" blocks are grouped. */
+export type KindGroup = 'messaging' | 'social' | 'sms_voice' | 'china'
+
+export const KIND_GROUPS: { id: KindGroup; label: string; hint: string }[] = [
+  { id: 'messaging', label: 'Messaging apps', hint: 'Chat apps your customers already use' },
+  { id: 'social', label: 'Social', hint: 'Direct messages on social networks' },
+  { id: 'sms_voice', label: 'SMS, email & voice', hint: 'Phone numbers, mailboxes and calls' },
+  { id: 'china', label: 'China', hint: 'WeChat and Douyin (抖音)' },
+]
 
 export interface KindMeta {
   kind: InboxKind
@@ -48,48 +82,87 @@ export interface KindMeta {
   badge?: 'Beta' | 'Demo'
   /** Step 2's title — what "connect" means for this channel. */
   connectTitle: string
+  /** Which "Add a channel" group the block sits in. */
+  group: KindGroup
+  /** The platform must approve the app before its API works (TikTok, Douyin). */
+  approval?: boolean
 }
 
 export const KINDS: KindMeta[] = [
   {
     kind: 'wa_cloud', logo: 'whatsapp', label: 'WhatsApp Business',
     blurb: 'Official Cloud API · templates · compliant', channelLabel: 'WhatsApp Cloud API',
-    filter: 'whatsapp', connectTitle: 'Connect the number',
+    filter: 'whatsapp', connectTitle: 'Connect the number', group: 'messaging',
   },
   {
     kind: 'wa_qr', logo: 'whatsapp', label: 'WhatsApp by QR',
     blurb: 'Pair a personal number · demo only', channelLabel: 'WhatsApp by QR',
-    filter: 'whatsapp', badge: 'Demo', connectTitle: 'Before you pair',
+    filter: 'whatsapp', badge: 'Demo', connectTitle: 'Before you pair', group: 'messaging',
   },
   {
     kind: 'email', logo: 'email', label: 'Email',
     blurb: 'A mailbox · SMTP out, IMAP in', channelLabel: 'Email',
-    filter: 'email', connectTitle: 'Connect the mailbox',
+    filter: 'email', connectTitle: 'Connect the mailbox', group: 'sms_voice',
   },
   {
     kind: 'telegram', logo: 'telegram', label: 'Telegram',
     blurb: 'A bot from @BotFather', channelLabel: 'Telegram bot',
-    filter: 'telegram', connectTitle: 'Connect the bot',
+    filter: 'telegram', connectTitle: 'Connect the bot', group: 'messaging',
+  },
+  {
+    kind: 'line', logo: 'line', label: 'LINE',
+    blurb: 'A LINE Official Account bot', channelLabel: 'LINE Official Account',
+    filter: 'line', connectTitle: 'Connect the channel', group: 'messaging',
+  },
+  {
+    kind: 'viber', logo: 'viber', label: 'Viber',
+    blurb: 'A Viber bot · subscribers and invite links', channelLabel: 'Viber bot',
+    filter: 'viber', connectTitle: 'Connect the bot', group: 'messaging',
+  },
+  {
+    kind: 'zalo', logo: 'zalo', label: 'Zalo',
+    blurb: 'A Zalo Official Account · 7-day reply window', channelLabel: 'Zalo Official Account',
+    filter: 'zalo', connectTitle: 'Connect the OA', group: 'messaging',
   },
   {
     kind: 'messenger', logo: 'messenger', label: 'Messenger',
     blurb: 'Facebook page messages', channelLabel: 'Messenger',
-    filter: 'messenger', badge: 'Beta', connectTitle: 'Connect the page',
+    filter: 'messenger', badge: 'Beta', connectTitle: 'Connect the page', group: 'social',
   },
   {
     kind: 'instagram', logo: 'instagram', label: 'Instagram',
     blurb: 'Business account DMs', channelLabel: 'Instagram',
-    filter: 'instagram', badge: 'Beta', connectTitle: 'Connect the account',
+    filter: 'instagram', badge: 'Beta', connectTitle: 'Connect the account', group: 'social',
+  },
+  {
+    kind: 'tiktok', logo: 'tiktok', label: 'TikTok',
+    blurb: 'Business Messaging DMs · 48-hour replies', channelLabel: 'TikTok Business Messaging',
+    filter: 'tiktok', badge: 'Beta', connectTitle: 'Connect the business account', group: 'social', approval: true,
   },
   {
     kind: 'website', logo: 'website', label: 'Website chat',
     blurb: 'A chat bubble you paste into your site', channelLabel: 'Website chat',
-    filter: 'website', connectTitle: 'Design the widget',
+    filter: 'website', connectTitle: 'Design the widget', group: 'messaging',
+  },
+  {
+    kind: 'sms', logo: 'sms', label: 'SMS',
+    blurb: 'Text messages through Twilio · STOP handled', channelLabel: 'SMS (Twilio)',
+    filter: 'sms', connectTitle: 'Connect Twilio', group: 'sms_voice',
   },
   {
     kind: 'voice', logo: 'voice', label: 'Voice (SIP)',
     blurb: 'AI phone calls over a Twilio SIP trunk', channelLabel: 'Voice (SIP trunk)',
-    filter: 'voice', connectTitle: 'Connect the trunk',
+    filter: 'voice', connectTitle: 'Connect the trunk', group: 'sms_voice',
+  },
+  {
+    kind: 'wechat', logo: 'wechat', label: 'WeChat',
+    blurb: 'Official Account (公众号) · 48-hour replies', channelLabel: 'WeChat Official Account',
+    filter: 'wechat', connectTitle: 'Connect the account', group: 'china',
+  },
+  {
+    kind: 'douyin', logo: 'douyin', label: 'Douyin 抖音',
+    blurb: 'Enterprise account DMs (企业号私信)', channelLabel: 'Douyin enterprise account',
+    filter: 'douyin', badge: 'Beta', connectTitle: 'Connect the account', group: 'china', approval: true,
   },
 ]
 
@@ -104,6 +177,13 @@ export const FILTERS: { id: ChannelFilter; label: string; logo?: string }[] = [
   { id: 'instagram', label: 'Instagram', logo: 'instagram' },
   { id: 'website', label: 'Website', logo: 'website' },
   { id: 'voice', label: 'Voice', logo: 'voice' },
+  { id: 'line', label: 'LINE', logo: 'line' },
+  { id: 'viber', label: 'Viber', logo: 'viber' },
+  { id: 'zalo', label: 'Zalo', logo: 'zalo' },
+  { id: 'sms', label: 'SMS', logo: 'sms' },
+  { id: 'tiktok', label: 'TikTok', logo: 'tiktok' },
+  { id: 'wechat', label: 'WeChat', logo: 'wechat' },
+  { id: 'douyin', label: 'Douyin', logo: 'douyin' },
 ]
 
 // ── wire types (exactly what the endpoints return) ───────────────────────────
@@ -156,16 +236,26 @@ export interface WaAccount {
 
 export interface MessagingAccount {
   id: string
-  channel: 'email' | 'facebook' | 'instagram' | 'telegram'
+  channel: 'email' | 'facebook' | 'instagram' | 'telegram' | MoreKind
   name: string
   external_id?: string
   owner?: string
   entity?: string | null
   entity_name?: string
   access_token_masked?: string
-  /** Messenger / Instagram only. */
+  /** Messenger / Instagram, and the app / channel / client secret of the newer channels. */
   app_secret_masked?: string
   configured?: boolean
+  /** LINE, Viber, SMS, WeChat, TikTok, Douyin, Zalo: this account's own signed webhook path. */
+  webhook_path?: string
+  /** TikTok / Douyin: the platform must approve the app first. */
+  requires_approval?: boolean
+  /** WeChat 48 h, Zalo 168 h, TikTok / Douyin 48 h — null where the platform has no window. */
+  window_hours?: number | null
+  /** LINE and Viber register their webhook through the API (the rest are pasted by hand). */
+  can_set_webhook?: boolean
+  /** Masked per-channel secrets (`<key>_masked`), e.g. channel_secret_masked, client_secret_masked. */
+  [masked: `${string}_masked`]: string | undefined
   team_id?: number | null
   ai_default?: AiDefault
   ai_review_mode?: ReviewMode
@@ -180,6 +270,8 @@ export interface MessagingAccount {
     /** inbound — blank = the default IMAP host + this mailbox's SMTP login */
     imap_host?: string
     imap_port?: number | string
+    /** the newer channels' plain settings (app_id, account_sid, from_number, client_key…) and `<key>_masked` secrets */
+    [key: string]: string | number | boolean | undefined
   }
 }
 
@@ -253,6 +345,33 @@ const SOCIAL_KIND: Record<string, InboxKind> = {
   instagram: 'instagram',
   telegram: 'telegram',
   email: 'email',
+  line: 'line',
+  viber: 'viber',
+  sms: 'sms',
+  wechat: 'wechat',
+  tiktok: 'tiktok',
+  douyin: 'douyin',
+  zalo: 'zalo',
+}
+
+/** The address line of a newer channel's card. */
+function moreAddress(a: MessagingAccount): string {
+  const cfg = a.config ?? {}
+  const str = (k: string) => (cfg[k] != null ? String(cfg[k]) : '')
+  switch (a.channel) {
+    case 'sms':
+      return str('from_number') || (str('messaging_service_sid') ? `Service ${str('messaging_service_sid')}` : 'Number not set')
+    case 'wechat':
+      return a.external_id ? `Account ${a.external_id}` : str('app_id') ? `AppID ${str('app_id')}` : 'AppID not set'
+    case 'tiktok':
+      return a.external_id ? `Business ${a.external_id}` : 'Business ID not set'
+    case 'douyin':
+      return a.external_id ? `Account ${a.external_id}` : 'open_id not set'
+    case 'zalo':
+      return a.external_id ? `OA ${a.external_id}` : str('app_id') ? `App ${str('app_id')}` : 'OA linked'
+    default:
+      return a.external_id ? `Bot ${a.external_id}` : 'Token linked'
+  }
 }
 
 export function fromWa(a: WaAccount): Inbox {
@@ -284,8 +403,9 @@ export function fromWa(a: WaAccount): Inbox {
 
 export function fromMessaging(a: MessagingAccount): Inbox {
   const kind = SOCIAL_KIND[a.channel] ?? 'telegram'
-  const address =
-    kind === 'email'
+  const address = isMoreKind(kind)
+    ? moreAddress(a)
+    : kind === 'email'
       ? a.config?.from_email || a.external_id || 'From address not set'
       : kind === 'telegram'
         ? a.external_id
@@ -414,11 +534,12 @@ export async function testInbox(inbox: Inbox): Promise<TestResult> {
       const r = await api<{ ok?: boolean; detail?: string }>('whatsapp/voice-settings/test', { method: 'POST' })
       return { tone: r.ok ? 'ok' : 'info', text: r.detail || 'SIP trunk creds are set.' }
     }
-    const r = await api<{ ok?: boolean; name?: string; id?: string; detail?: string }>(
+    const r = await api<{ ok?: boolean; warning?: boolean; name?: string; id?: string; detail?: string }>(
       `messaging/accounts/${inbox.id}/test`,
       { method: 'POST', body: JSON.stringify({}) },
     )
-    return { tone: 'ok', text: r.detail || `Connected${r.name ? ` as ${r.name}` : ''}.` }
+    // a degraded verdict (e.g. "webhook not active") is a warning, not a pass
+    return { tone: r.warning ? 'info' : 'ok', text: r.detail || `Connected${r.name ? ` as ${r.name}` : ''}.` }
   } catch (e) {
     // 501 = the backend can't place a live probe for this provider yet; it
     // still says whether the stored config looks complete.

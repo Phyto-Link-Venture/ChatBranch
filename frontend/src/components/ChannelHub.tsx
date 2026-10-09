@@ -69,6 +69,13 @@ const CH_META: Record<string, { lbl: string; logo: string }> = {
   telegram: { lbl: 'Telegram', logo: 'telegram' },
   website: { lbl: 'Website', logo: 'website' },
   voice: { lbl: 'AI Voice', logo: 'voice' },
+  sms: { lbl: 'SMS', logo: 'sms' },
+  line: { lbl: 'LINE', logo: 'line' },
+  viber: { lbl: 'Viber', logo: 'viber' },
+  wechat: { lbl: 'WeChat', logo: 'wechat' },
+  zalo: { lbl: 'Zalo', logo: 'zalo' },
+  tiktok: { lbl: 'TikTok', logo: 'tiktok' },
+  douyin: { lbl: 'Douyin', logo: 'douyin' },
 }
 
 /** Connection dot: emerald = connected via a healthy account, amber =

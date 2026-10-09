@@ -36,11 +36,15 @@ public class OutboundSender
     private readonly MediaStore? _media;
     private readonly EmailChannel? _email;
     private readonly TelegramChannel? _telegram;
+    /// <summary>LINE, Viber, SMS, WeChat, TikTok, Douyin, Zalo (<see cref="MoreChannels"/>).</summary>
+    private readonly MoreChannelSender? _more;
 
     public OutboundSender(AppDbContext db, ThreadStore threads, IWhatsAppCloudClient whatsapp,
         ChatBranch.Data.Sidecars.IBaileysGateway baileys, IMetaMessagingClient? meta = null,
-        MediaStore? media = null, EmailChannel? email = null, TelegramChannel? telegram = null)
+        MediaStore? media = null, EmailChannel? email = null, TelegramChannel? telegram = null,
+        MoreChannelSender? more = null)
     {
+        _more = more;
         _db = db;
         _threads = threads;
         _whatsapp = whatsapp;
@@ -81,6 +85,8 @@ public class OutboundSender
             return _email?.WouldSendLive(thread, accountId ?? thread.AccountId) ?? false;
         if (thread.Channel == ChatBranch.Domain.Channels.Telegram)
             return _telegram?.WouldSendLive(thread, accountId ?? thread.AccountId) ?? false;
+        if (MoreChannels.Handles(thread.Channel))
+            return _more?.WouldSendLive(thread, accountId ?? thread.AccountId) ?? false;
         var account = Account(accountId ?? thread.AccountId);
         return BaileysLive(thread, account) || CloudLive(thread, account) || SocialLive(thread, account);
     }
@@ -94,6 +100,8 @@ public class OutboundSender
             return _email.Send(thread, text, source, accountId ?? thread.AccountId, subject, media);
         if (thread.Channel == ChatBranch.Domain.Channels.Telegram && _telegram != null)
             return _telegram.Send(thread, text, source, accountId ?? thread.AccountId, media);
+        if (MoreChannels.Handles(thread.Channel) && _more != null)
+            return _more.Send(thread, text, source, accountId ?? thread.AccountId, media);
 
         var acctId = accountId ?? thread.AccountId;
         var account = Account(acctId);
@@ -167,6 +175,10 @@ public class OutboundSender
         var acctId = accountId ?? thread.AccountId;
         var account = Account(acctId);
         var text = string.IsNullOrWhiteSpace(caption) ? $"[{mediaType}]" : caption!.Trim();
+        if (MoreChannels.Handles(thread.Channel) && _more != null
+            && _media?.Resolve(thread.Channel, relPath) is { } stored)
+            return _more.Send(thread, text, source, acctId, new OutboundMedia(stored, relPath, mediaType,
+                string.IsNullOrWhiteSpace(filename) ? Path.GetFileName(stored) : filename!), humanAgent);
 
         Message msg;
         var full = _media?.Resolve(thread.Channel, relPath);
@@ -267,6 +279,9 @@ public class OutboundSender
     /// </summary>
     public string? SocialWindowBlock(Thread thread, int? accountId, bool humanAgent, DateTime? nowUtc = null)
     {
+        // WeChat (48h), Zalo (7 days), TikTok / Douyin (48h): the ChannelWindow registry
+        if (ChannelWindow.Applies(thread.Channel))
+            return _more?.WindowBlock(thread, accountId ?? thread.AccountId, humanAgent, nowUtc);
         if (!SocialWindow.Applies(thread.Channel)) return null;
         var account = Account(accountId ?? thread.AccountId);
         if (!SocialLive(thread, account)) return null;

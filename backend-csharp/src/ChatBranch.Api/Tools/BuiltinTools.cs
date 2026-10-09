@@ -232,7 +232,7 @@ public static class BuiltinTools
         protected override string Schema => """
         {"type":"object","properties":{
           "status":{"type":"string","enum":["open","pending","snoozed","resolved"]},
-          "channel":{"type":"string","enum":["whatsapp","email","facebook","instagram","telegram","website"]},
+          "channel":{"type":"string","enum":["whatsapp","email","facebook","instagram","telegram","website","line","viber","sms","wechat","tiktok","douyin","zalo"]},
           "entity":{"type":"string","description":"Entity slug (includes its branches)."},
           "assignee":{"type":"string","description":"Username; \"me\" for yourself, \"none\" for unassigned."},
           "awaiting_reply":{"type":"boolean","description":"Only conversations whose last message came from the customer."},

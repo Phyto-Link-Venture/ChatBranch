@@ -57,6 +57,7 @@ import {
   threadPath,
   timeAgo,
   timeShort,
+  WINDOWED_CHANNELS,
   type Channel,
   type InboxRow,
   type ThreadStatus,
@@ -90,7 +91,7 @@ import './chats.css'
 const PAGE = 50
 
 /** Channels whose thread has a send-media route (the composer's paperclip). */
-const MEDIA_CHANNELS: Channel[] = ['whatsapp', 'facebook', 'instagram', 'telegram', 'email']
+const MEDIA_CHANNELS: Channel[] = ['whatsapp', 'facebook', 'instagram', 'telegram', 'email', 'wechat', 'zalo']
 
 interface CannedResponse {
   id: number
@@ -414,6 +415,8 @@ function ChatsPage() {
           facebook_configured: msg.facebook_configured,
           instagram_configured: msg.instagram_configured,
           telegram_configured: msg.telegram_configured,
+          // the newer channels' `<channel>_configured` flags ride along untyped
+          ...(msg as Record<string, boolean>),
         }),
       )
       .catch(() => setStatus(null))
@@ -983,7 +986,8 @@ function ChatsPage() {
               ? status.telegram_configured
               : c === 'instagram'
                 ? status.instagram_configured
-                : true
+                : // LINE, Viber, SMS, WeChat, TikTok, Douyin, Zalo: `<channel>_configured`
+                  ((status as unknown as Record<string, boolean | undefined>)[`${c}_configured`] ?? true)
 
   const activeSandbox = active ? !channelLive(active.channel) : false
   // 24h customer-service window (live WhatsApp accounts only — sandbox is always open)
@@ -993,7 +997,10 @@ function ChatsPage() {
   const activeIsSocial = active?.channel === 'facebook' || active?.channel === 'instagram'
   const socialClosed = activeIsSocial && !activeSandbox && active?.human_window_open === false
   const socialLate = activeIsSocial && !activeSandbox && !socialClosed && active?.window_open === false
-  const composerLocked = windowClosed || socialClosed
+  // WeChat 48 h, Zalo 7 days, TikTok / Douyin 48 h on a live account (ChannelWindow server-side)
+  const platformClosed =
+    !!active && WINDOWED_CHANNELS.includes(active.channel) && !activeSandbox && active.window_open === false
+  const composerLocked = windowClosed || socialClosed || platformClosed
   const canAttach = !!active && MEDIA_CHANNELS.includes(active.channel)
 
   const activeFilterCount = countActive(chips)
@@ -1799,7 +1806,7 @@ function ChatsPage() {
                           ? 'Write a private note — agents only, never sent'
                           : windowClosed
                             ? '24h window closed — send a template to re-open'
-                            : socialClosed
+                            : socialClosed || platformClosed
                               ? 'Reply window closed — wait for the customer to write again'
                               : pendingFile
                               ? 'Add a caption (optional)'
@@ -1834,6 +1841,12 @@ function ChatsPage() {
                       {socialClosed
                         ? `${CHANNEL_META[active.channel].lbl} only accepts replies within 7 days of the customer's last message — wait for them to write again.`
                         : `Outside ${CHANNEL_META[active.channel].lbl}'s 24h window — your reply goes out as a human-agent message; the AI and automations can't send until the customer writes again.`}
+                    </div>
+                  )}
+                  {platformClosed && !noteMode && (
+                    <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-amber-300">
+                      <Clock size={12} className="shrink-0" aria-hidden />
+                      {`${CHANNEL_META[active.channel].lbl}'s reply window has closed — nothing can be sent until the customer writes again.`}
                     </div>
                   )}
                 </div>

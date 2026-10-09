@@ -230,7 +230,8 @@ public class InboundProcessor
     {
         if (channel == "email")
             return _db.Contacts.FirstOrDefault(c => c.Email.ToLower() == key.ToLower());
-        if (channel != ChatBranch.Domain.Channels.WhatsApp) return null;
+        // SMS is phone-keyed too (MoreChannels.PhoneKeyed)
+        if (channel != ChatBranch.Domain.Channels.WhatsApp && !MoreChannels.PhoneKeyed(channel)) return null;
         if (PhoneMatch.Tail(key) == null) return null;
         return PhoneMatch.Find(_db.Contacts.AsEnumerable(), key);
     }

@@ -113,10 +113,13 @@ public sealed class ChannelHealthProber
     private readonly ITelegramClient _telegram;
     private readonly IEmailTransport _email;
     private readonly IGraphHealthProbe _graph;
+    /// <summary>LINE, Viber, SMS, WeChat, TikTok, Douyin, Zalo — each transport's own probe.</summary>
+    private readonly ChannelTransports? _more;
 
     public ChannelHealthProber(AppDbContext db, ScopingService scoping, ITelegramClient telegram,
-        IEmailTransport email, IGraphHealthProbe graph)
+        IEmailTransport email, IGraphHealthProbe graph, ChannelTransports? more = null)
     {
+        _more = more;
         _db = db;
         _scoping = scoping;
         _telegram = telegram;
@@ -132,6 +135,7 @@ public sealed class ChannelHealthProber
         ChannelIds.Telegram => TelegramBot.Configured(a),
         ChannelIds.Email => EmailConfig.AccountConfigured(a),
         ChannelIds.Facebook or ChannelIds.Instagram => a.AccessToken.Length > 0,
+        _ when MoreChannels.Handles(a.Channel) => MoreChannels.Configured(a),
         _ => false,
     };
 
@@ -145,6 +149,11 @@ public sealed class ChannelHealthProber
             {
                 case ChannelIds.Telegram:
                     return await ProbeTelegramAsync(a, ct);
+                case var more when MoreChannels.Handles(more):
+                    // the transport refreshes tokens on the tracked row (Zalo); the caller's save keeps them
+                    return _more?.For(more) is { } transport
+                        ? (await transport.ProbeAsync(a, ct)).Verdict
+                        : null;
                 case ChannelIds.Email:
                 {
                     var r = await _email.ProbeAsync(EmailConfig.ForAccount(a, _scoping), ct);

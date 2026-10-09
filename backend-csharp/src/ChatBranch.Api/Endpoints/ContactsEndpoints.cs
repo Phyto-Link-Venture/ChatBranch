@@ -44,7 +44,9 @@ public static class ContactsEndpoints
 
     /// <summary>Channel display order for the hub (voice is appended last).</summary>
     private static readonly string[] HubChatChannels =
-        { Channels.WhatsApp, Channels.Email, Channels.Facebook, Channels.Instagram, Channels.Telegram };
+        { Channels.WhatsApp, Channels.Email, Channels.Facebook, Channels.Instagram, Channels.Telegram,
+          Channels.Sms, Channels.Line, Channels.Viber, Channels.WeChat, Channels.Zalo, Channels.TikTok,
+          Channels.Douyin };
 
     /// <summary>Accounts in these states are skipped by routing — not usable for outreach.</summary>
     private static readonly string[] DownHealth = { Health.Disconnected, Health.Banned };
@@ -215,6 +217,13 @@ public static class ContactsEndpoints
                         // Messenger / Instagram: Meta's 24h window on a live page
                         windowOpen = ChatBranch.Data.Channels.SocialWindow.ListWindow(
                             ChatBranch.Data.Channels.SocialWindow.Live(row, t.Channel), agg?.LastIn,
+                            DateTime.UtcNow).Open;
+                    }
+                    else if (ChatBranch.Data.Channels.ChannelWindow.Applies(t.Channel))
+                    {
+                        // WeChat 48h, Zalo 7 days, TikTok / Douyin 48h on a live account
+                        windowOpen = ChatBranch.Data.Channels.ChannelWindow.ListWindow(t.Channel,
+                            ChatBranch.Data.Channels.ChannelWindow.Live(row, t.Channel), agg?.LastIn,
                             DateTime.UtcNow).Open;
                     }
 

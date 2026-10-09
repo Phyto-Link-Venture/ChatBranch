@@ -636,7 +636,12 @@ public static class VoiceMessagingEndpoints
     // =========================================================================
 
     private static readonly string[] SocialChannels = { "facebook", "instagram", "telegram" };
-    private static readonly string[] ManagedChannels = { "email", "facebook", "instagram", "telegram" };
+    private static readonly string[] ManagedChannels =
+    {
+        "email", "facebook", "instagram", "telegram",
+        // LINE, Viber, SMS, WeChat, TikTok, Douyin, Zalo — MoreChannelAccounts
+        "line", "viber", "sms", "wechat", "tiktok", "douyin", "zalo",
+    };
 
     private static string CfgStr(Dictionary<string, object?> cfg, string key)
     {
@@ -718,6 +723,7 @@ public static class VoiceMessagingEndpoints
             outv["configured"] = !string.IsNullOrEmpty(a.AccessToken);
             // Messenger / Instagram: the Meta app secret that verifies the webhook
             if (a.Channel is "facebook" or "instagram") outv["app_secret_masked"] = Mask(a.AppSecret);
+            if (MoreChannelAccounts.Handles(a.Channel)) MoreChannelAccounts.AddPayload(outv, a);
         }
         return outv;
     }
@@ -815,6 +821,21 @@ public static class VoiceMessagingEndpoints
                 return Results.Ok(AccountPayload(account));
             }
 
+            if (MoreChannelAccounts.Handles(channel))
+            {
+                // LINE, Viber, SMS, WeChat, TikTok, Douyin, Zalo: per-channel credential fields
+                var (more, moreErr) = MoreChannelAccounts.Build(channel, body, owner);
+                if (moreErr != null) return Results.Json(new { detail = moreErr }, statusCode: 400);
+                more!.EntityId = await InboxEndpoints.EntityId(db, body.Str("entity"));
+                if (ApplyInbox(db, more, body) is IResult moreInboxErr) return moreInboxErr;
+                db.ChannelAccounts.Add(more);
+                await db.SaveChangesAsync();
+                await db.Entry(more).Reference(a => a.Entity).LoadAsync();
+                Audit(db, me, ctx, "account.create", $"{more.Channel}:{more.Name}", "");
+                MessagingAccountTransport.Created(more, ctx);
+                return Results.Ok(AccountPayload(more));
+            }
+
             if (!SocialChannels.Contains(channel))
                 return Results.Json(new
                 {
@@ -877,6 +898,20 @@ public static class VoiceMessagingEndpoints
             var inboxTouched = body.Has(ChatBranch.Data.Channels.InboxSettings.TeamKey)
                                || body.Has(ChatBranch.Data.Channels.InboxSettings.AiDefaultKey);
             if (inboxTouched && ApplyInbox(db, account, body) is IResult inboxErr) return inboxErr;
+
+            if (MoreChannelAccounts.Handles(account.Channel))
+            {
+                var (moreTouched, moreCreds, moreErr) = MoreChannelAccounts.ApplyPatch(account, body);
+                if (moreErr != null) return Results.Json(new { detail = moreErr }, statusCode: 400);
+                if (moreTouched.Count == 0 && !inboxTouched)
+                    return Results.Json(new { detail = "Nothing to update." }, statusCode: 400);
+                await db.SaveChangesAsync();
+                if (moreCreds) await MessagingAccountTransport.CredentialsChangedAsync(account, ctx);
+                if (inboxTouched) moreTouched.Add("inbox");
+                Audit(db, me, ctx, "account.update", $"{account.Channel}:{account.Name}",
+                    $"keys: {string.Join(", ", moreTouched.OrderBy(k => k))}");
+                return Results.Ok(AccountPayload(account));
+            }
 
             if (account.Channel != "email")
             {
@@ -1030,10 +1065,14 @@ public static class VoiceMessagingEndpoints
             var account = await ManagedAccount(db, id);
             if (account == null)
                 return Results.Json(new { detail = "Account not found." }, statusCode: 404);
+            // LINE (webhook endpoint API) and Viber (set_webhook)
+            if (MoreChannelAccounts.CanSetWebhook(account.Channel))
+                return await MoreChannelAccounts.SetWebhookAsync(account, body, ctx);
             if (account.Channel != "telegram")
                 return Results.Json(new
                 {
-                    detail = "Webhook registration is for Telegram bots only.",
+                    detail = "Webhook registration is for Telegram, LINE and Viber accounts — paste the webhook URL "
+                             + "into the platform's console for the others.",
                 }, statusCode: 400);
             // setWebhook with a secret_token; the bot token (the path secret) is never echoed back
             return await MessagingAccountTransport.SetWebhookAsync(account, body, ctx);
