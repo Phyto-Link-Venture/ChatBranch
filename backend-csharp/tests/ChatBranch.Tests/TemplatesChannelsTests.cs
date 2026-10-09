@@ -90,7 +90,8 @@ public class TemplatesChannelsTests : IClassFixture<ApiFactory>
         var every = await c.PostAsJsonAsync("/api/messaging/canned", new
         {
             short_code = "/cv-every", content = "x",
-            channels = new[] { "whatsapp", "telegram", "email", "facebook", "instagram", "website" },
+            channels = new[] { "whatsapp", "telegram", "email", "facebook", "instagram", "website",
+                "line", "viber", "sms", "wechat", "tiktok", "douyin", "zalo" },
         });
         every.EnsureSuccessStatusCode();
         var row = await every.Content.ReadFromJsonAsync<JsonElement>();
