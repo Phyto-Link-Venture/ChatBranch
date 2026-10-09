@@ -170,6 +170,7 @@ export function Shell({ children }: { children: ReactNode }) {
           aria-hidden="true"
         />
       )}
+      <div className="print-hide contents">
       <SideNav
         user={user}
         collapsed={collapsed}
@@ -178,8 +179,10 @@ export function Shell({ children }: { children: ReactNode }) {
         onCloseMobile={() => setMobileNavOpen(false)}
         onSignOut={() => void signOut()}
       />
+      </div>
 
       <div className="flex min-w-0 flex-1 flex-col">
+        <div className="print-hide contents">
         <TopBar
           user={user}
           onOpenMobileNav={() => setMobileNavOpen(true)}
@@ -187,6 +190,7 @@ export function Shell({ children }: { children: ReactNode }) {
           assistantOpen={assistantOpen}
           onToggleAssistant={() => setAssistantOpen((v) => !v)}
         />
+        </div>
 
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {isFullBleed ? (
@@ -204,7 +208,9 @@ export function Shell({ children }: { children: ReactNode }) {
           )}
         </main>
 
-        <BottomTabs user={user} pathname={pathname} onMore={() => setMobileNavOpen(true)} />
+        <div className="print-hide contents">
+          <BottomTabs user={user} pathname={pathname} onMore={() => setMobileNavOpen(true)} />
+        </div>
       </div>
 
       <ErrorBoundary name="command-palette">

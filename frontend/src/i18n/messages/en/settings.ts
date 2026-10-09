@@ -41,6 +41,10 @@ export const settings = {
         lbl: 'Custom fields',
         blurb: 'Extra fields on customers, usable everywhere as template variables.',
       },
+      billing: {
+        lbl: 'AI billing',
+        blurb: 'Markup, monthly fee and currency for each company’s AI bill.',
+      },
       appkeys: {
         lbl: 'App & provider keys',
         blurb: 'The webhook verify token and the integration provider credentials.',

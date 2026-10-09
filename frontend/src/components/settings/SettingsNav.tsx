@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import {
+import { Receipt,
   BellOff,
   BellRing,
   Check,
@@ -106,6 +106,13 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
         blurb: 'settings.nav.pages.appkeys.blurb',
         Icon: KeyRound,
         cap: 'app_keys.manage',
+      },
+      {
+        id: 'billing',
+        lbl: 'settings.nav.pages.billing.lbl',
+        blurb: 'settings.nav.pages.billing.blurb',
+        Icon: Receipt,
+        cap: 'billing.manage',
       },
     ],
   },

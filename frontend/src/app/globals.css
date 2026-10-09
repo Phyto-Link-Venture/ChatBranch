@@ -502,3 +502,12 @@
 .nav-collapsed .nav-label {
   display: none;
 }
+
+/* Printing (the AI bill's Print button): only the page content — no sidebar,
+   top bar or tab bar — and let the shell grow to the content's height. */
+@media print {
+  .print-hide { display: none !important; }
+  .shell-root { display: block !important; height: auto !important; overflow: visible !important; zoom: 1 !important; }
+  .shell-root main,
+  .shell-root main > div { overflow: visible !important; }
+}

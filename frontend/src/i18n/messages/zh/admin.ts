@@ -49,6 +49,8 @@ export const admin: Dict<typeof source> = {
     settingsAiManage: '管理 AI 配置',
     accountAssignmentManage: '管理账号分配',
     appKeysManage: '管理应用与服务商密钥',
+    billingView: '查看 AI 用量账单',
+    billingManage: '设置 AI 账单加价并查看成本',
     pronunciationManage: '管理发音',
     settingsAppearanceOrg: '设置组织默认外观',
     settingsCustomFieldsManage: '管理自定义字段',

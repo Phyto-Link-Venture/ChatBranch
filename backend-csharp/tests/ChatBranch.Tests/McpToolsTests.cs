@@ -124,7 +124,7 @@ public class McpToolsTests : IClassFixture<ApiFactory>
             ("notifications_get_org_defaults", new { }),
             ("settings_get_my_preferences", new { }), ("settings_get_org_appearance", new { }),
             ("settings_get_custom_fields", new { }), ("views_list", new { }),
-            ("analytics_get_reports", new { days = 7 }), ("analytics_get_flows", new { }), ("analytics_get_usage", new { }),
+            ("analytics_get_reports", new { days = 7 }), ("analytics_get_flows", new { }), ("billing_get_ai_bill", new { }),
             ("analytics_get_engagement", new { }), ("analytics_get_live", new { }), ("get_analytics_summary", new { }),
             ("activity_search_log", new { page_size = 5 }), ("activity_get_facets", new { }),
             ("search_everything", new { q = "liew" }), ("developers_list_api_keys", new { }),

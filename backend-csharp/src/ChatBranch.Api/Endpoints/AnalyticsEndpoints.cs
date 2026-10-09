@@ -57,8 +57,9 @@ public static class AnalyticsEndpoints
             }
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("analytics.view");
 
-        // No `entity` here on purpose: crm.LlmUsage carries no entity column, so
-        // the ledger is organization-wide (same as Django's analytics_usage).
+        // The organization-wide ledger at COST (USD) — what the platform pays.
+        // billing.manage only (superadmin by default): companies see their marked-up
+        // bill at /api/billing/ai instead, never the cost.
         app.MapGet("/api/analytics/usage", async (string? days, AppDbContext db, ScopingService sc) =>
         {
             var window = ParseDays(days);
@@ -70,7 +71,7 @@ public static class AnalyticsEndpoints
             {
                 return EmptyUsage(window);
             }
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(AiBillingEndpoints.ManageCap);
     }
 
     // ---- summary -----------------------------------------------------------

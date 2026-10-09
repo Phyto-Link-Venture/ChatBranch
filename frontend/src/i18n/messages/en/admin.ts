@@ -47,6 +47,8 @@ export const admin = {
     settingsAiManage: 'Manage AI configuration',
     accountAssignmentManage: 'Manage account assignment',
     appKeysManage: 'Manage app & provider keys',
+    billingView: 'View the AI usage bill',
+    billingManage: 'Set AI billing markup & see costs',
     pronunciationManage: 'Manage pronunciation',
     settingsAppearanceOrg: 'Set the organization default appearance',
     settingsCustomFieldsManage: 'Manage custom fields',

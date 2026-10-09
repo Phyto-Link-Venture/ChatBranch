@@ -43,6 +43,10 @@ export const settings: Dict<typeof source> = {
         lbl: 'Medan tersuai',
         blurb: 'Medan tambahan pada pelanggan, boleh digunakan di mana-mana sebagai pemboleh ubah templat.',
       },
+      billing: {
+        lbl: 'Bil AI',
+        blurb: 'Markup, yuran bulanan dan mata wang bagi bil AI setiap syarikat.',
+      },
       appkeys: {
         lbl: 'Kunci aplikasi & penyedia',
         blurb: 'Token pengesahan webhook dan kelayakan penyedia integrasi.',

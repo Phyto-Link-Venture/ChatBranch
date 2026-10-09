@@ -198,11 +198,11 @@ When you fix one of these, update this table, `README.md` and
   because `ApiKeyAuth.UseKeyScopes` (right after `UseAuthentication`) makes them
   ambient for the request (`ApiKeyAuth.CurrentScopes`). Roles: superadmin / admin /
   agent / custom (`Role` + `RolePermission`). Capabilities are data-driven:
-  the catalog is `AdminEndpoints.Catalog` (34 entries — keep it in step with
+  the catalog is `AdminEndpoints.Catalog` (36 entries — keep it in step with
   `CAPABILITY_CATALOG` in `frontend/src/lib/auth.ts`); **superadmin is always
   allowed in code**, a missing matrix row falls back to the code default, admin
   gets everything except `rbac.manage` / `app_keys.manage` /
-  `settings.ai_keys.manage`, agent gets `contacts.view chats.view chats.send
+  `settings.ai_keys.manage` / `billing.manage`, agent gets `contacts.view chats.view chats.send
   flows.view analytics.view call_logs.view activity.view tags.view ai.monitor`.
   Server checks use `AdminEndpoints.HasCapabilityAsync` /
   `SettingsEndpoints.RequireCapability` on top of the coarse policies
@@ -863,7 +863,21 @@ When you fix one of these, update this table, `README.md` and
   Analytics (`/analytics`, the HOME page):
   `GET /api/analytics/summary?days=` (funnel, per-account volumes, call
   outcomes, health events, daily series, KPI deltas),
-  `GET /api/analytics/usage?days=` (LLM metering/billing, admin+),
+  `GET /api/analytics/usage?days=` (LLM metering at COST, `billing.manage` —
+  companies never see it), **the AI bill** (`/billing`, Review;
+  `Endpoints/AiBillingEndpoints.cs`): per calendar month, per COMPANY = a
+  top-level entity (branches roll up). A usage row's company = its
+  `crm_llmusage.entity_id` (stamped by the AI brain from the reply's entity)
+  → its contact's entity when every link shares one company → unattributed
+  (skill drafting, embeddings, the operator assistant — shown to managers,
+  billed to nobody). Bill = cost (llm_prices, USD) × (1 + markup %) × the
+  exchange rate + a monthly fee; terms in ONE org-wide Setting `ai_billing`
+  (`GET/PUT /api/billing/ai/settings`, `billing.manage`, Settings → AI
+  billing `/settings/billing`). `GET /api/billing/ai?month=&company=`
+  (`billing.view`): billed amounts for the caller's companies (assigned
+  entities' companies; unassigned = all); cost, markup, margin and the
+  unattributed bucket only with `billing.manage`. Print hides the shell
+  (`.print-hide` + `@media print` in `globals.css`). Tests: `AiBillingTests`.
   `/api/analytics/reports`, `/api/analytics/flows`, `/api/live` (waiting
   conversations + active calls + `needs_human_count`).
 - **Integrations** (`/integrations`, `/api/integrations/*`,
@@ -1003,7 +1017,7 @@ When you fix one of these, update this table, `README.md` and
   cap; `/settings/connections` connects your own Google products, see
   Integrations); Organization — Notification defaults (`notifications.manage`),
   Custom fields (`settings.custom_fields.manage`), App & provider keys
-  (`app_keys.manage`); AI — AI keys & models (`settings.ai_keys.manage`; also
+  (`app_keys.manage`), AI billing (`billing.manage`); AI — AI keys & models (`settings.ai_keys.manage`; also
   the embeddings provider, `components/ai-learning/EmbeddingsSection.tsx`). New page = a
   `SETTINGS_SECTIONS` entry + `app/settings/<id>/page.tsx` + the capability in
   `AdminEndpoints.cs` and `lib/auth.ts` + the server-side check. Everything

@@ -43,6 +43,10 @@ export const settings: Dict<typeof source> = {
         lbl: '自定义字段',
         blurb: '客户的额外字段，可在各处作为模板变量使用。',
       },
+      billing: {
+        lbl: 'AI 计费',
+        blurb: '每家公司 AI 账单的加价、月费和币种。',
+      },
       appkeys: {
         lbl: '应用与服务商密钥',
         blurb: 'Webhook 验证令牌和集成服务商凭据。',

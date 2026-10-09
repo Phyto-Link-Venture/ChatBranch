@@ -109,6 +109,8 @@ export default function AnalyticsPage() {
   const isAdmin = role === 'admin' || role === 'superadmin'
   const [canChannels, setCanChannels] = useState(false)
   useEffect(() => setCanChannels(hasCap('channels.view')), []) // after mount: reads the session
+  const [canCost, setCanCost] = useState(false)
+  useEffect(() => setCanCost(hasCap('billing.manage')), [])
   const [days, setDays] = useState(30)
   const [data, setData] = useState<AnalyticsSummary | null>(null)
   const [refreshing, setRefreshing] = useState(false)
@@ -261,9 +263,9 @@ export default function AnalyticsPage() {
             </Panel>
           </div>
 
-          {/* LLM metering is admin-only server-side; hide it rather than show
-              an error to roles that can read analytics but not billing. */}
-          {ready && isAdmin && <AiUsageCard days={days} />}
+          {/* The cost ledger is billing.manage only (companies see their marked-up
+              bill at /billing); hide it rather than show an error. */}
+          {ready && canCost && <AiUsageCard days={days} />}
         </div>
       )}
     </div>

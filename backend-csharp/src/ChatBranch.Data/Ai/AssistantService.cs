@@ -757,6 +757,7 @@ public partial class AssistantService
                     Feature = spec.Feature, Provider = r.Provider, Model = r.Model,
                     // a made-up playground customer is never a stored contact
                     Channel = spec.Channel, ContactId = spec.Contact is { Id: > 0 } c ? c.Id : null, Ref = spec.Ref,
+                    EntityId = spec.EntityId,
                     PromptTokens = r.PromptTokens, CompletionTokens = r.CompletionTokens,
                     Detail = detail, CreatedAt = DateTime.UtcNow,
                 });

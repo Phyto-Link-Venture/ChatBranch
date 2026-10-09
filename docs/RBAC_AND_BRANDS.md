@@ -272,7 +272,9 @@ exemption list below fails the build.
 | `/api/auth/notification-prefs` | `notifications.manage` | Settings → Notification defaults |
 | `/api/settings/ai-providers` | `settings.ai_keys.manage` | Settings → AI keys & models |
 | `/api/settings?keys=` (raw key/value store, secrets masked) | admin+ | no page — API callers |
-| `/api/auth/roles`, `/api/auth/permissions`, `/api/auth/audit`, `/api/analytics/usage` | admin+ | Permissions, Users, Analytics usage |
+| `/api/auth/roles`, `/api/auth/permissions`, `/api/auth/audit` | admin+ | Permissions, Users |
+| `/api/analytics/usage` (the cost ledger), `/api/billing/ai/settings` | `billing.manage` | Analytics → AI usage, Settings → AI billing |
+| `/api/billing/ai` (billed amounts; cost and margin only with `billing.manage`) | `billing.view` | AI bill |
 
 **Any signed-in user may read** (the exemption list in `PermissionGatesTests`;
 everything here is the caller's own data or is gated row by row inside):

@@ -108,7 +108,9 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/analytics/flows", new[] { "flows.view" }),
         ("/api/messaging/engagement", new[] { "analytics.view" }),
         ("/api/whatsapp/channels/health", new[] { "analytics.view", "channels.view" }),
-        ("/api/analytics/usage", Array.Empty<string>()),
+        ("/api/analytics/usage", new[] { "billing.manage" }),
+        ("/api/billing/ai", new[] { "billing.view" }),
+        ("/api/billing/ai/settings", new[] { "billing.manage" }),
         // Activity
         ("/api/audit", new[] { "activity.view" }),
         ("/api/audit.csv", new[] { "activity.view" }),

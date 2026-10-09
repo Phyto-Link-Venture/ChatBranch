@@ -21,6 +21,7 @@ import { assistant } from './assistant'
 import { help } from './help'
 import { testlab } from './testlab'
 import { playground } from './playground'
+import { billing } from './billing'
 
 export const ms: Dict<Messages> = {
   common,
@@ -44,4 +45,5 @@ export const ms: Dict<Messages> = {
   help,
   testlab,
   playground,
+  billing,
 }

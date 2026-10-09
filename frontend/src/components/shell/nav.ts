@@ -15,6 +15,7 @@ import {
   PhoneCall,
   Plug,
   Radio,
+  Receipt,
   ScanEye,
   Settings,
   ShieldCheck,
@@ -122,6 +123,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'shell.groups.review',
     items: [
+      { href: '/billing', lbl: 'shell.nav.aiBill', Icon: Receipt, cap: 'billing.view', keywords: 'bill invoice usage cost ai tokens bil invois kos 账单 费用 用量' },
       { href: '/activity', lbl: 'shell.nav.activity', Icon: Activity, cap: 'activity.view', keywords: 'audit log' },
       { href: '/call-logs', lbl: 'shell.nav.callLogs', Icon: PhoneCall, alsoActive: ['/call-logs/'], cap: 'call_logs.view', keywords: 'calls recordings' },
       { href: '/test-lab', lbl: 'shell.nav.testLab', Icon: FlaskConical, roles: ['superadmin'], keywords: 'tests scenarios use cases qa demo data' },

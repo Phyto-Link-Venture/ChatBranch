@@ -18,6 +18,7 @@ export const shell: Dict<typeof source> = {
     knowledge: '知识库',
     skills: 'AI 技能',
     aiPersona: '人设与规则',
+    aiBill: 'AI 账单',
     tags: '标签',
     channels: '渠道',
     integrations: '集成',
