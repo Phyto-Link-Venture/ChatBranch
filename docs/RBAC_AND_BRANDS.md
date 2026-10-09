@@ -142,6 +142,7 @@ where a write reads its body first. Notable gates:
 | Bindings (`POST /api/bindings/{kind}`) | admin+ AND the kind's own capability (`users.manage`, `contacts.manage`, `tags.manage`, `channels.manage`) |
 | Message templates / call scripts | `templates.manage` / `script_templates.manage` |
 | AI monitor / behaviour | `ai.monitor` / `ai.behaviour.manage` |
+| AI playground (`/api/ai/playground/options`, `POST …/reply`, `POST …/import`) | `ai.monitor` or `ai.behaviour.manage`; trying changes (provider / model, a persona draft, knowledge / lessons / skills / memory off, the full prompt) `ai.behaviour.manage` (else 403); the entity must sit in the caller's assigned subtree (an unassigned agent-level user keeps the tenant-wide view; organization-wide needs admin+ or no assignment), a real contact in `ScopeContacts` (404), an imported conversation needs `chats.view` + the inbox scope (404); 30 replies a minute per user (429) |
 | AI controls — master switch, schedule, never-AI tags (`/api/ai/controls`) | GET `ai.monitor`, `ai.behaviour.manage` or `chats.view`; PUT `ai.behaviour.manage` — the organization-wide value needs admin+, an outlet must sit in the caller's assigned subtree (an unassigned agent-level user keeps the tenant-wide view) |
 | A contact's AI mode (`/api/contacts/{id}/ai-mode`) | GET `contacts.view`, PUT `contacts.manage` |
 | Bulk conversation actions (`POST /api/inbox/threads/bulk`) | `chats.manage`, scoped like the list, ≤1000 |
@@ -232,6 +233,7 @@ exemption list below fails the build.
 | `/api/automations`, `/catalog` | `flows.manage` | Automations |
 | `/api/ai/monitor`, `/stats`, `/{id}` | `ai.monitor` | AI monitor |
 | `/api/ai/behaviour` | `ai.monitor`, `ai.behaviour.manage` | AI monitor |
+| `/api/ai/playground/options` (providers, the stored persona and `can_override` only with `ai.behaviour.manage`; `POST …/reply` and `…/import` carry the same gate — trying changes needs `ai.behaviour.manage`, importing a conversation `chats.view` + the conversation scope) | `ai.monitor`, `ai.behaviour.manage` | AI playground |
 | `POST /api/aicore/knowledge/preview` | `settings.ai.manage`, `ai.monitor` | Knowledge, AI monitor's retrieval tester |
 | `/api/aicore/knowledge`, `/persona`, `/skills/apps`, `/skills/builtins` | `settings.ai.manage` | Knowledge base, AI skills |
 | `/api/aicore/skills` | `settings.ai.manage`, `flows.manage` | AI skills, the Journeys skill picker |

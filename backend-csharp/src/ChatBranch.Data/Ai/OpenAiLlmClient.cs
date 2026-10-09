@@ -50,9 +50,62 @@ public class OpenAiLlmClient : ILlmClient
         _scoping = scoping;
     }
 
+    /// <summary>A client pinned to ONE provider (see <see cref="Pinned"/>).</summary>
+    private OpenAiLlmClient(IHttpClientFactory http, ScopingService scoping, Provider only) : this(http, scoping) =>
+        _only = only;
+
+    /// <summary>Set by <see cref="Pinned"/>: this client speaks to that provider only.</summary>
+    private readonly Provider? _only;
+
     public sealed record Provider(string Name, string BaseUrl, string ApiKey, string Model);
 
+    /// <summary>Human names of the providers (the keys never leave the server; these may).</summary>
+    public static readonly IReadOnlyDictionary<string, string> Labels = new Dictionary<string, string>
+    {
+        ["openrouter"] = "OpenRouter",
+        ["openai"] = "OpenAI",
+        ["ilmu"] = "ILMU",
+        ["google"] = "Google Gemini",
+        ["local"] = "Local model",
+    };
+
     public bool IsConfigured => Candidates().Count > 0;
+
+    /// <summary>
+    /// The last provider failure this client swallowed (e.g. "openai: Response
+    /// status code does not indicate success: 401 (Unauthorized).") — "" after a
+    /// call that succeeded. The reply path degrades to the sandbox echo on a
+    /// failure; this lets a caller that wants to (the AI playground) say why.
+    /// It names the provider and the HTTP status, never a key or a body.
+    /// </summary>
+    public string LastError { get; private set; } = "";
+
+    /// <summary>
+    /// Every provider that has a key (local: a base URL), in the default order,
+    /// whatever the pin or the automatic order says — what may be chosen for a
+    /// one-off call. Each carries its built-in default model.
+    /// </summary>
+    public List<Provider> Configured()
+    {
+        var keyed = Keyed();
+        return DefaultOrder.Where(keyed.ContainsKey).Select(p => keyed[p]).ToList();
+    }
+
+    /// <summary>
+    /// A client that speaks to ONE configured provider — and only it, like a
+    /// pin: a failure degrades to the sandbox echo, never to another vendor —
+    /// with <paramref name="model"/> instead of the provider's default when
+    /// given. Null when that provider has no key.
+    /// </summary>
+    public OpenAiLlmClient? Pinned(string provider, string? model = null)
+    {
+        var name = (provider ?? "").Trim().ToLowerInvariant();
+        if (name == "gemini") name = "google";
+        var p = Configured().FirstOrDefault(x => x.Name == name);
+        if (p == null) return null;
+        return new OpenAiLlmClient(_http, _scoping,
+            string.IsNullOrWhiteSpace(model) ? p : p with { Model = model.Trim() });
+    }
 
     /// <summary>Setting row → the first non-empty env var → "".</summary>
     private string S(string key, params string[] envs)
@@ -96,6 +149,31 @@ public class OpenAiLlmClient : ILlmClient
     /// </summary>
     public List<Provider> Candidates()
     {
+        if (_only != null) return new List<Provider> { _only };
+        var keyed = Keyed();
+        if (keyed.Count == 0) return new List<Provider>();
+
+        var pin = S("chat_provider_pref").ToLowerInvariant();
+        if (pin.Length == 0) pin = S("chat_provider", "CHAT_PROVIDER").ToLowerInvariant();
+        if (pin is "gemini") pin = "google";
+
+        List<string> order;
+        if (pin.Length > 0 && keyed.ContainsKey(pin)) order = new List<string> { pin };
+        else
+        {
+            order = ParseOrder(S("chat_provider_order", "CHAT_PROVIDER_ORDER"));
+            order.AddRange(DefaultOrder.Where(p => !order.Contains(p)));
+        }
+        var list = order.Where(keyed.ContainsKey).Select(p => keyed[p]).ToList();
+
+        var chatModel = S("chat_model", "WHATSAPP_CHAT_MODEL", "CHAT_MODEL");
+        if (chatModel.Length > 0 && list.Count > 0) list[0] = list[0] with { Model = chatModel };
+        return list;
+    }
+
+    /// <summary>Every provider with a key (local: a base URL), by name, with its built-in default model.</summary>
+    private Dictionary<string, Provider> Keyed()
+    {
         var keyed = new Dictionary<string, Provider>();
         var openrouter = S("openrouter_api_key", "OPENROUTER_API_KEY");
         if (openrouter.Length > 0)
@@ -117,24 +195,7 @@ public class OpenAiLlmClient : ILlmClient
         var localBase = S("local_base_url", "LOCAL_BASE_URL");
         if (localBase.Length > 0)
             keyed["local"] = new("local", localBase.TrimEnd('/'), S("local_api_key", "LOCAL_API_KEY"), "local");
-        if (keyed.Count == 0) return new List<Provider>();
-
-        var pin = S("chat_provider_pref").ToLowerInvariant();
-        if (pin.Length == 0) pin = S("chat_provider", "CHAT_PROVIDER").ToLowerInvariant();
-        if (pin is "gemini") pin = "google";
-
-        List<string> order;
-        if (pin.Length > 0 && keyed.ContainsKey(pin)) order = new List<string> { pin };
-        else
-        {
-            order = ParseOrder(S("chat_provider_order", "CHAT_PROVIDER_ORDER"));
-            order.AddRange(DefaultOrder.Where(p => !order.Contains(p)));
-        }
-        var list = order.Where(keyed.ContainsKey).Select(p => keyed[p]).ToList();
-
-        var chatModel = S("chat_model", "WHATSAPP_CHAT_MODEL", "CHAT_MODEL");
-        if (chatModel.Length > 0 && list.Count > 0) list[0] = list[0] with { Model = chatModel };
-        return list;
+        return keyed;
     }
 
     public async Task<LlmResult> CompleteAsync(string system,
@@ -158,15 +219,19 @@ public class OpenAiLlmClient : ILlmClient
             {
                 // an explicit per-call model only means something to the first provider
                 var useModel = i == 0 && !string.IsNullOrWhiteSpace(model) ? model! : candidates[i].Model;
-                return await SendAsync(candidates[i], useModel, system, messages, tools, temperature, ct);
+                var r = await SendAsync(candidates[i], useModel, system, messages, tools, temperature, ct);
+                LastError = "";
+                return r;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 throw;
             }
-            catch
+            catch (Exception ex)
             {
                 // provider error → the next provider in the automatic order
+                var why = ex.Message.Length > 200 ? ex.Message[..200] + "…" : ex.Message;
+                LastError = $"{candidates[i].Name}: {why}";
             }
         }
         // Every provider failed → degrade to sandbox rather than break the reply path.

@@ -42,6 +42,12 @@ is a settings exercise, not a fork — see
   replies, and follows up when a conversation goes quiet. An AI master switch
   with a weekly schedule, per-contact "never/always" and never-AI tags; every
   hand-over to a person is tracked ("Needs human").
+- **AI playground** (`/ai-playground`) — chat with the AI as a customer would (a
+  made-up customer, a real contact or a copy of a real conversation) and see why
+  it answered: knowledge and lessons with scores, tools, checks, tokens and cost,
+  and what production would do (send, hold, hand over, block, AI off). Admins
+  try another model, an unsaved persona or parts switched off and compare two
+  set-ups side by side. Nothing is sent, stored or booked.
 - **The AI learns from your team** — 👍/👎 on any AI reply, and every approve /
   edit / reject in the monitor, becomes a suggested lesson (an example, a
   correction or a rule) that a manager approves.

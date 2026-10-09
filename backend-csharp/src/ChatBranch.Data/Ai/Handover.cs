@@ -168,24 +168,38 @@ public static class Handover
     {
         try
         {
-            if (canned || draftKind is not (AiDraftKind.Reply or AiDraftKind.FollowUp)) return;
             var action = AiGate.Str(ctx, "action", AiActions.Send);
-            if (action is AiActions.Handover or AiActions.Block)
+            switch (KindForAiDraft(draftKind, text, action, canned))
             {
-                var why = AiGate.Str(ctx, "reason", "");
-                Mark(db, thread, HandoverKinds.CheckFailed,
-                    why.Length > 0 ? $"The AI's reply checks stopped its answer: {why}"
-                        : "The AI's reply checks stopped its answer.", "ai", notify: false);
-                return;
+                case HandoverKinds.CheckFailed:
+                    var why = AiGate.Str(ctx, "reason", "");
+                    Mark(db, thread, HandoverKinds.CheckFailed,
+                        why.Length > 0 ? $"The AI's reply checks stopped its answer: {why}"
+                            : "The AI's reply checks stopped its answer.", "ai", notify: false);
+                    break;
+                case HandoverKinds.AskedForHuman:
+                    // the reply itself still has to reach the customer (its later bubbles are
+                    // re-checked against the AI switch), so the AI does not stand down here;
+                    // and no note — the reply that follows says it (the banner + chip show it)
+                    Mark(db, thread, HandoverKinds.AskedForHuman, "The AI told the customer a person will help.", "ai",
+                        note: false, standDown: false);
+                    break;
             }
-            // the reply itself still has to reach the customer (its later bubbles are
-            // re-checked against the AI switch), so the AI does not stand down here;
-            // and no note — the reply that follows says it (the banner + chip show it)
-            if (Humanizer.HandsOver(text))
-                Mark(db, thread, HandoverKinds.AskedForHuman, "The AI told the customer a person will help.", "ai",
-                    note: false, standDown: false);
         }
         catch { /* never breaks the gate */ }
+    }
+
+    /// <summary>
+    /// Which handover a submitted AI draft starts (pure — the gate marks it, the
+    /// AI playground only reports it): <c>check_failed</c> when the assistant
+    /// refused the reply, <c>asked_for_human</c> when the reply tells the customer
+    /// a person will help, null otherwise.
+    /// </summary>
+    public static string? KindForAiDraft(string draftKind, string text, string action, bool canned)
+    {
+        if (canned || draftKind is not (AiDraftKind.Reply or AiDraftKind.FollowUp)) return null;
+        if (action is AiActions.Handover or AiActions.Block) return HandoverKinds.CheckFailed;
+        return Humanizer.HandsOver(text) ? HandoverKinds.AskedForHuman : null;
     }
 
     /// <summary>

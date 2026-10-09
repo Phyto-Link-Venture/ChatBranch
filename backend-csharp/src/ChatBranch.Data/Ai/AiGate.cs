@@ -113,10 +113,11 @@ public class AiGate
             Kind = s.Kind, Content = text, Context = ctx, CreatedAt = now, UpdatedAt = now,
         };
 
-        if (policy.ReviewMode == "shadow")
+        var decision = Review(policy, flags, Str(ctx, "action", AiActions.Send), s.Canned);
+        if (decision.Status == AiGateStatus.Shadow)
         {
             draft.Status = AiDraftStatus.Shadow;
-            draft.HoldReason = "Shadow mode — the AI drafts, people send.";
+            draft.HoldReason = ShadowReason;
             Save(draft);
             // shadow mode never books: a person who sends this draft later makes
             // the booking then (if the time is still free)
@@ -125,22 +126,10 @@ public class AiGate
         }
 
         Handover.FromAiDraft(_db, thread, s.Kind, text, ctx, s.Canned); // the AI passed it to a person?
-        var hold = s.Canned ? new List<string>()
-            : policy.ReviewMode == "review_all" ? new List<string> { "Every AI reply is reviewed" }
-            : policy.ReviewMode == "review_flagged" ? flags
-            : new List<string>();
-        // The assistant itself refused (its checks blocked the draft, or it asked
-        // for a person): never sent blind, whatever the mode — a person decides.
-        var action = Str(ctx, "action", AiActions.Send);
-        if (!s.Canned && action is AiActions.Handover or AiActions.Block)
-        {
-            hold = flags.Count > 0 ? new List<string>(flags) : new List<string> { "The AI's reply checks stopped this reply" };
-            if (policy.ReviewMode == "review_all") hold.Insert(0, "Every AI reply is reviewed");
-        }
-        if (hold.Count > 0)
+        if (decision.Status == AiGateStatus.Held)
         {
             draft.Status = AiDraftStatus.Pending;
-            draft.HoldReason = string.Join("; ", hold);
+            draft.HoldReason = string.Join("; ", decision.Reasons);
             draft.SendAfter = policy.AutosendMinutes > 0 ? now.AddMinutes(policy.AutosendMinutes) : null;
             Save(draft);
             // a held reply books nothing: its reservations wait for the decision
@@ -160,12 +149,61 @@ public class AiGate
         return Deliver(draft, thread, account, policy, humanDecision: false);
     }
 
+    public const string ShadowReason = "Shadow mode — the AI drafts, people send.";
+    public const string ReviewAllReason = "Every AI reply is reviewed";
+
+    /// <summary>What the review policy does with one AI-written outbound:
+    /// <see cref="AiGateStatus.Shadow"/>, <see cref="AiGateStatus.Held"/> (with the
+    /// reasons) or <see cref="AiGateStatus.Sent"/> (no reasons).</summary>
+    public sealed record ReviewDecision(string Status, IReadOnlyList<string> Reasons);
+
+    /// <summary>
+    /// The review policy, pure — <see cref="Submit"/> applies it and the AI
+    /// playground shows it ("what would happen in production") without a draft.
+    /// Shadow records and never sends; review_all holds everything;
+    /// review_flagged holds a reply with any <paramref name="flags"/>; and a reply
+    /// the assistant itself refused (its checks blocked it or asked for a person)
+    /// is never sent blind, whatever the mode. A canned (non-AI-written) message
+    /// skips the review.
+    /// </summary>
+    public static ReviewDecision Review(AiBehaviour policy, IReadOnlyList<string> flags, string action, bool canned)
+    {
+        if (policy.ReviewMode == "shadow")
+            return new ReviewDecision(AiGateStatus.Shadow, new[] { ShadowReason });
+        var hold = canned ? new List<string>()
+            : policy.ReviewMode == "review_all" ? new List<string> { ReviewAllReason }
+            : policy.ReviewMode == "review_flagged" ? flags.ToList()
+            : new List<string>();
+        if (!canned && action is AiActions.Handover or AiActions.Block)
+        {
+            hold = flags.Count > 0 ? flags.ToList() : new List<string> { "The AI's reply checks stopped this reply" };
+            if (policy.ReviewMode == "review_all") hold.Insert(0, ReviewAllReason);
+        }
+        return hold.Count > 0
+            ? new ReviewDecision(AiGateStatus.Held, hold)
+            : new ReviewDecision(AiGateStatus.Sent, Array.Empty<string>());
+    }
+
     /// <summary>
     /// The review_flagged signals, recorded on every draft (so the activity view
     /// shows them even for replies that went straight out).
     /// </summary>
     private List<string> Flags(Thread thread, string text, Dictionary<string, object?> ctx,
-        AiBehaviour policy, string kind)
+        AiBehaviour policy, string kind) =>
+        FlagReasons(text, ctx, policy, kind, () => _db.AiDrafts.AsNoTracking().Count(d => d.ThreadId == thread.Id
+            && d.Kind == AiDraftKind.Reply
+            && (d.Status == AiDraftStatus.AutoSent || d.Status == AiDraftStatus.Approved
+                || d.Status == AiDraftStatus.Edited || d.Status == AiDraftStatus.Sent)));
+
+    /// <summary>
+    /// The review_flagged signals for a reply, pure: what its checks, tools,
+    /// retries and words say, the risky keywords, and — for one of the first
+    /// <see cref="AiBehaviour.FirstN"/> replies of a conversation — that it is an
+    /// opening reply. <paramref name="deliveredReplies"/> counts the AI replies the
+    /// conversation already had (asked only when the first-N rule needs it).
+    /// </summary>
+    public static List<string> FlagReasons(string text, Dictionary<string, object?> ctx, AiBehaviour policy,
+        string kind, Func<int> deliveredReplies)
     {
         var reasons = new List<string>();
         var action = Str(ctx, "action", AiActions.Send);
@@ -201,10 +239,7 @@ public class AiGate
             .Select(h => char.ToUpperInvariant(h[0]) + h[1..]));
         if (kind == AiDraftKind.Reply && policy.FirstN > 0)
         {
-            var delivered = _db.AiDrafts.AsNoTracking().Count(d => d.ThreadId == thread.Id
-                && d.Kind == AiDraftKind.Reply
-                && (d.Status == AiDraftStatus.AutoSent || d.Status == AiDraftStatus.Approved
-                    || d.Status == AiDraftStatus.Edited || d.Status == AiDraftStatus.Sent));
+            var delivered = deliveredReplies();
             if (delivered < policy.FirstN)
                 reasons.Add(policy.FirstN == 1
                     ? "The first AI reply in this conversation"

@@ -55,6 +55,7 @@ export function AreaPage({
   subtitle,
   Icon,
   eyebrow,
+  actions,
   children,
 }: {
   title: string
@@ -62,6 +63,8 @@ export function AreaPage({
   Icon: LucideIcon
   /** Small label above the title (the sidebar group, e.g. "Library"). */
   eyebrow?: string
+  /** Extra masthead actions (links, buttons), shown before Save / Discard. */
+  actions?: ReactNode
   children: ReactNode
 }) {
   const t = useT()
@@ -77,7 +80,12 @@ export function AreaPage({
           }
           title={title}
           subtitle={subtitle}
-          actions={<DirtyControls />}
+          actions={
+            <>
+              {actions}
+              <DirtyControls />
+            </>
+          }
         />
 
         {/* Height-capped (flex-1) so tall content scrolls inside the page body

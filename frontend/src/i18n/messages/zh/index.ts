@@ -20,6 +20,7 @@ import { notifications } from './notifications'
 import { assistant } from './assistant'
 import { help } from './help'
 import { testlab } from './testlab'
+import { playground } from './playground'
 
 export const zh: Dict<Messages> = {
   common,
@@ -42,4 +43,5 @@ export const zh: Dict<Messages> = {
   assistant,
   help,
   testlab,
+  playground,
 }

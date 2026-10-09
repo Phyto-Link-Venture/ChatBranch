@@ -16,22 +16,40 @@ public partial class AssistantService
     // time, and every entry point builds its prompt immediately before running it.
     private KnowledgeComposition _lastComposition = KnowledgeComposition.Empty;
 
-    /// <summary>The knowledge block followed by the learned-lessons block ("" when neither applies).</summary>
-    private string KnowledgeAndLessons(RetrievalQuery? query, int? entityId, string? channel)
+    /// <summary>The knowledge block followed by the learned-lessons block ("" when neither applies).
+    /// The AI playground may leave either out (<paramref name="knowledge"/> / <paramref name="lessons"/>).</summary>
+    private string KnowledgeAndLessons(RetrievalQuery? query, int? entityId, string? channel,
+        bool knowledge = true, bool lessons = true)
     {
-        var c = _knowledge.Compose(query, entityId, channel, withLessons: true);
+        if (!knowledge && !lessons)
+        {
+            _lastComposition = KnowledgeComposition.Empty;
+            return "";
+        }
+        var c = _knowledge.Compose(query, entityId, channel, withLessons: lessons);
+        if (!knowledge)
+            c = new KnowledgeComposition
+            {
+                Learned = c.Learned,
+                Grounding = c.Grounding.Where(g => g.Type == "lesson").ToList(),
+                Hits = c.Hits.Where(h => h.Type == "lesson").ToList(),
+                LessonIds = c.LessonIds,
+                Semantic = c.Semantic,
+                Provider = c.Provider,
+                Model = c.Model,
+            };
         _lastComposition = c;
         if (c.Knowledge.Length == 0) return c.Learned;
         return c.Learned.Length == 0 ? c.Knowledge : c.Knowledge + "\n\n" + c.Learned;
     }
 
     /// <summary>What the last-built prompt was based on — once. Counts the
-    /// lessons it carried as used.</summary>
-    private IReadOnlyList<AiGrounding> TakeGrounding()
+    /// lessons it carried as used (not for a playground reply, which nobody receives).</summary>
+    private IReadOnlyList<AiGrounding> TakeGrounding(bool countUse = true)
     {
         var c = _lastComposition;
         _lastComposition = KnowledgeComposition.Empty;
-        _knowledge.MarkLessonsUsed(c.LessonIds);
+        if (countUse) _knowledge.MarkLessonsUsed(c.LessonIds);
         return c.Grounding;
     }
 }

@@ -53,27 +53,48 @@ public partial class AssistantService
     // ---- prompt assembly ------------------------------------------------------
 
     /// <summary>Assemble the full system prompt for a given entity/channel/contact.</summary>
-    public string BuildSystemPrompt(int? entityId, string? channel, Contact? contact, RetrievalQuery? query)
+    public string BuildSystemPrompt(int? entityId, string? channel, Contact? contact, RetrievalQuery? query) =>
+        BuildSystemPrompt(entityId, channel, contact, query, PromptParts.All);
+
+    /// <summary>
+    /// Which parts the prompt carries — every one for a real reply; the AI
+    /// playground switches some off or swaps the persona for an unsaved draft.
+    /// <see cref="PersonaService.HardRules"/> are not a part: they always lead.
+    /// </summary>
+    private sealed record PromptParts(string? Persona, bool Skills, bool Knowledge, bool Lessons, bool Memory)
+    {
+        public static readonly PromptParts All = new(null, true, true, true, true);
+    }
+
+    private string BuildSystemPrompt(int? entityId, string? channel, Contact? contact, RetrievalQuery? query,
+        PromptParts parts)
     {
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine(_persona.SystemPreamble(entityId));
+        sb.AppendLine(parts.Persona is { } persona
+            ? PersonaService.HardRules + "\n\n" + persona.Trim()
+            : _persona.SystemPreamble(entityId));
 
-        var skills = SkillsBlock(_skills.InScope(entityId, channel), includeApps: true);
-        if (skills.Length > 0) sb.AppendLine().AppendLine(skills);
+        if (parts.Skills)
+        {
+            var skills = SkillsBlock(_skills.InScope(entityId, channel), includeApps: true);
+            if (skills.Length > 0) sb.AppendLine().AppendLine(skills);
+        }
 
-        var knowledge = KnowledgeAndLessons(query, entityId, channel); // + LEARNED block, grounding kept for RunAsync
+        // + LEARNED block, grounding kept for RunAsync
+        var knowledge = KnowledgeAndLessons(query, entityId, channel, parts.Knowledge, parts.Lessons);
         if (knowledge.Length > 0) sb.AppendLine().AppendLine(knowledge);
 
         if (contact != null)
         {
-            sb.AppendLine().AppendLine(ContactBlock(contact));
-            var memory = MemoryBlock(contact);
+            sb.AppendLine().AppendLine(ContactBlock(contact, parts.Memory));
+            var memory = parts.Memory ? MemoryBlock(contact) : "";
             if (memory.Length > 0) sb.AppendLine().AppendLine(memory);
         }
 
         sb.AppendLine().AppendLine(ClockLine());
-        sb.AppendLine("For the current time, today's date or weekday, week numbers and date arithmetic, "
-                      + "call the date/time tools instead of guessing.");
+        if (parts.Skills) // the date/time tools are only offered with the skills
+            sb.AppendLine("For the current time, today's date or weekday, week numbers and date arithmetic, "
+                          + "call the date/time tools instead of guessing.");
         return sb.ToString().TrimEnd();
     }
 
@@ -155,13 +176,13 @@ public partial class AssistantService
     public int ReleasePending(AiReplyResult result, string reason) =>
         result.PendingActions.Count == 0 ? 0 : _skills.Bookings.Release(result.PendingActions, reason);
 
-    private static string ContactBlock(Contact c)
+    private static string ContactBlock(Contact c, bool withMemory = true)
     {
         var bits = new List<string> { $"Name: {c.Name}" };
         if (!string.IsNullOrEmpty(c.CompanyName)) bits.Add($"Company: {c.CompanyName}");
         if (!string.IsNullOrEmpty(c.Language)) bits.Add($"Language: {c.Language}");
         if (c.Tags.Count > 0) bits.Add($"Tags: {string.Join(", ", c.Tags)}");
-        if (!string.IsNullOrEmpty(c.AiProfileSummary)) bits.Add($"Memory: {c.AiProfileSummary}");
+        if (withMemory && !string.IsNullOrEmpty(c.AiProfileSummary)) bits.Add($"Memory: {c.AiProfileSummary}");
         return "CONTACT:\n" + string.Join("\n", bits.Select(b => "- " + b));
     }
 
@@ -435,14 +456,29 @@ public partial class AssistantService
         public int? ThreadId { get; init; }
         /// <summary>Its assigned agent (username) — "the assignee's calendar".</summary>
         public string Assignee { get; init; } = "";
+        /// <summary>No skills at all: no tools offered (built-ins included), no checks run.</summary>
+        public bool SkillsOff { get; init; }
+        /// <summary>
+        /// The AI playground: calendar tools preview instead of reserving, and the
+        /// lessons the prompt carried are not counted as used.
+        /// </summary>
+        public bool Playground { get; init; }
     }
 
-    private async Task<AiReplyResult> RunAsync(Spec spec, ILlmClient llm, CancellationToken ct)
+    private async Task<AiReplyResult> RunAsync(Spec spec, ILlmClient llm, CancellationToken ct) =>
+        (await RunWithContextAsync(spec, llm, ct)).Result;
+
+    private async Task<(AiReplyResult Result, SkillContext Context, IReadOnlyList<string> Tools,
+        IReadOnlyList<string> Checks)> RunWithContextAsync(Spec spec, ILlmClient llm, CancellationToken ct)
     {
-        var inScope = _skills.InScope(spec.EntityId, spec.Channel);
-        var toolSet = _skills.BuildTools(inScope);
+        var inScope = spec.SkillsOff ? new List<AgentSkill>() : _skills.InScope(spec.EntityId, spec.Channel);
+        var toolSet = spec.SkillsOff ? new SkillService.ToolSet() : _skills.BuildTools(inScope);
         var ctx = _skills.Context(spec.Contact, spec.Channel, spec.LastMessage, spec.ThreadId, spec.EntityId,
             spec.Assignee);
+        if (spec.Playground) ctx.Apps.Preview = true;
+        var offered = toolSet.Tools.Select(t => t.Name).ToList();
+        var checkNames = inScope.Where(s => s.Kind == SkillKinds.Check && !string.IsNullOrWhiteSpace(s.Code))
+            .Select(s => s.Name).ToList();
         try
         {
             var result = await GenerateAsync(spec, llm, inScope, toolSet, ctx, ct);
@@ -451,7 +487,7 @@ public partial class AssistantService
             // makes the booking and whose rejection releases it.)
             if (result.Action is AiActions.Empty or AiActions.Error && ctx.Apps.Actions.Count > 0)
                 _skills.Bookings.Release(ctx.Apps.Actions, $"The AI produced no reply ({result.Action}).");
-            return result;
+            return (result, ctx, offered, checkNames);
         }
         catch
         {
@@ -531,7 +567,7 @@ public partial class AssistantService
             Retries = Math.Min(attempt, MaxCheckRetries),
             Tools = tools,
             Checks = checks,
-            Grounding = TakeGrounding(),
+            Grounding = TakeGrounding(countUse: !spec.Playground),
             Provider = metered.Calls.Count > 0 ? metered.Calls[^1].Result.Provider : "",
             Model = metered.Calls.Count > 0 ? metered.Calls[^1].Result.Model : "",
             PromptTokens = metered.Calls.Sum(c => c.Result.PromptTokens),
@@ -700,7 +736,8 @@ public partial class AssistantService
                 _db.LlmUsage.Add(new LlmUsage
                 {
                     Feature = spec.Feature, Provider = r.Provider, Model = r.Model,
-                    Channel = spec.Channel, ContactId = spec.Contact?.Id, Ref = spec.Ref,
+                    // a made-up playground customer is never a stored contact
+                    Channel = spec.Channel, ContactId = spec.Contact is { Id: > 0 } c ? c.Id : null, Ref = spec.Ref,
                     PromptTokens = r.PromptTokens, CompletionTokens = r.CompletionTokens,
                     Detail = detail, CreatedAt = DateTime.UtcNow,
                 });

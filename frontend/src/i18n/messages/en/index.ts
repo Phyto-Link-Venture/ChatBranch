@@ -19,6 +19,7 @@ import { notifications } from './notifications'
 import { assistant } from './assistant'
 import { help } from './help'
 import { testlab } from './testlab'
+import { playground } from './playground'
 
 export const en = {
   common,
@@ -41,6 +42,7 @@ export const en = {
   assistant,
   help,
   testlab,
+  playground,
 }
 
 export type Messages = typeof en

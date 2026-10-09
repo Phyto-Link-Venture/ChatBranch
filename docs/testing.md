@@ -71,7 +71,7 @@ lab's jobs included.
 | `automation` | flows (welcome series, keyword menu), automation rules, team round-robin |
 | `contacts` | CSV import duplicates, exclusive tag groups, template variables (`{{cf_*}}`, `{{tag_*}}`) |
 | `booking` | the calendar skill books and cancels at delivery; a held reply releases its slot |
-| `platform` | Ask ChatBranch history isolation, a user's language preference, the website widget |
+| `platform` | Ask ChatBranch history isolation, a user's language preference, the website widget, the AI playground never touching real data |
 
 The full list with "what it proves" is on the page and in
 `npm run test:scenarios -- --list`.

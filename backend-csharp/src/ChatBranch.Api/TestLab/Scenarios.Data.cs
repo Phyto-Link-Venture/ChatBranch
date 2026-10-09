@@ -97,6 +97,23 @@ public static class DataScenarios
                 "The visitor's poll returns the AI's answer.",
             },
             WidgetAsync),
+
+        new LabScenario("ai-playground-no-side-effects", "platform",
+            "The AI playground never touches real data",
+            "Chatting with the AI in the playground — as a made-up customer or on a copy of a real conversation — runs the real generator and shows what production would do, but sends, stores and books nothing; only the model usage is metered.",
+            new[]
+            {
+                "A lab customer writes on the lab WhatsApp line (a real conversation to copy).",
+                "As the front-desk agent, chat twice with a made-up customer in the lab's playground.",
+                "Try a persona draft as the agent; copy the lab conversation into the playground and answer it.",
+                "As the North agent, try to copy the head office's conversation.",
+            },
+            new[]
+            {
+                "Each reply comes back with what production would do; nothing new in the lab's conversations, messages, AI monitor, bookings or notifications.",
+                "The persona draft needs “Change AI behaviour” (403); the North agent gets 404; the usage is metered as “playground”.",
+            },
+            PlaygroundAsync),
     };
 
     // ---- contacts & data --------------------------------------------------------------------------
@@ -306,6 +323,88 @@ public static class DataScenarios
         ctx.Check("An unknown language is refused (400)", await Put("xx") == "HTTP 400");
         ctx.Check("Reset returns to the organization default (null)", await Put(null) == null);
         ctx.Link("Appearance → Language", "/settings/appearance");
+    }
+
+    private static async Task PlaygroundAsync(LabContext ctx)
+    {
+        // a real lab conversation to copy (made before the "nothing changes" snapshot)
+        var c = ctx.NewContact("Playground Pat");
+        var key = LabContext.WaKey(c);
+        ctx.Say(ctx.Lab.Conversation, key, "Hi, do you have gluten-free cakes?", "Playground Pat");
+        ctx.LinkChat("whatsapp", key, "The conversation copied into the playground");
+        ctx.Link("AI playground", "/ai-playground");
+
+        var lab = ctx.Lab.EntityIds.ToList();
+        var labUsers = new[] { ctx.Lab.HqAgent.Id, ctx.Lab.NorthAgent.Id };
+        var madeUp = $"Playground Quinn {ctx.Tag}";
+        var notifFrom = ctx.Db.Notifications.AsNoTracking().Max(n => (int?)n.Id) ?? 0;
+        var usageFrom = ctx.Db.LlmUsage.AsNoTracking().Max(u => (int?)u.Id) ?? 0;
+        (int Threads, int Messages, int Drafts, int Bookings) Fence() => (
+            ctx.Db.Threads.AsNoTracking().Count(t => t.EntityId != null && lab.Contains(t.EntityId.Value)),
+            ctx.Db.Messages.AsNoTracking().Count(m => m.Thread!.EntityId != null && lab.Contains(m.Thread.EntityId.Value)),
+            ctx.Db.AiDrafts.AsNoTracking().Count(d => d.EntityId != null && lab.Contains(d.EntityId.Value)),
+            ctx.Db.Bookings.AsNoTracking().Count(b => b.EntityId != null && lab.Contains(b.EntityId.Value)));
+        var before = Fence();
+
+        var agent = ctx.As(ctx.Lab.HqAgent);
+        var opts = await ctx.Api(agent, "GET", "/api/ai/playground/options", query: new() { ["entity"] = LabFixture.HqSlug });
+        ctx.Check("The front-desk agent opens the playground for the lab", opts.Ok, $"HTTP {opts.Status} {opts.Detail()}");
+        ctx.Check("…without the admin-only “try changes”",
+            opts.Ok && opts.Body.TryGetProperty("can_override", out var co) && co.ValueKind == JsonValueKind.False);
+
+        object Body(object[] messages, object? options = null, string? thread = null) => new Dictionary<string, object?>
+        {
+            ["entity"] = LabFixture.HqSlug, ["channel"] = "whatsapp", ["thread"] = thread,
+            ["profile"] = new { name = madeUp, language = "en", tags = new[] { "VIP" } },
+            ["messages"] = messages, ["options"] = options,
+        };
+        var first = await ctx.Api(agent, "POST", "/api/ai/playground/reply",
+            Body(new object[] { new { role = "customer", text = "Hello! What time do you open on Saturday?" } }));
+        var verdict = first.Ok && first.Body.TryGetProperty("production", out var p) ? LabContext.Str(p, "verdict") : "";
+        ctx.Check("A made-up customer gets a reply with what production would do",
+            first.Ok && LabContext.Str(first.Body, "draft").Length > 0 && verdict.Length > 0,
+            $"HTTP {first.Status} {first.Detail()} · verdict {verdict}");
+        var second = await ctx.Api(agent, "POST", "/api/ai/playground/reply", Body(new object[]
+        {
+            new { role = "customer", text = "Hello! What time do you open on Saturday?" },
+            new { role = "ai", text = LabContext.Str(first.Body, "draft") },
+            new { role = "customer", text = "Great — and can I book a table?" },
+        }));
+        ctx.Check("…and a second turn on the same transcript", second.Ok, $"HTTP {second.Status} {second.Detail()}");
+
+        var persona = await ctx.Api(agent, "POST", "/api/ai/playground/reply",
+            Body(new object[] { new { role = "customer", text = "Hi" } }, new { persona = "Be very formal." }));
+        ctx.Check("A persona draft needs “Change AI behaviour” (403)", persona.Status == 403, $"HTTP {persona.Status}");
+
+        var imported = await ctx.Api(agent, "POST", "/api/ai/playground/import", new { channel = "whatsapp", key });
+        var turns = imported.Ok && imported.Body.TryGetProperty("messages", out var ms) && ms.ValueKind == JsonValueKind.Array
+            ? ms.EnumerateArray().Select(m => new { role = LabContext.Str(m, "role"), text = LabContext.Str(m, "text") })
+                .ToList()
+            : new();
+        ctx.Check("The lab conversation is copied into the playground", imported.Ok && turns.Count > 0,
+            $"HTTP {imported.Status} · {turns.Count} message(s)");
+        if (turns.Count > 0)
+        {
+            var transcript = turns.Cast<object>().ToList();
+            if (turns[^1].role != "customer") transcript.Add(new { role = "customer", text = "Is that all of them?" });
+            var copy = await ctx.Api(agent, "POST", "/api/ai/playground/reply",
+                Body(transcript.ToArray(), thread: LabContext.Str(imported.Body, "thread")));
+            ctx.Check("…and answered there", copy.Ok, $"HTTP {copy.Status} {copy.Detail()}");
+        }
+        var north = await ctx.Api(ctx.As(ctx.Lab.NorthAgent), "POST", "/api/ai/playground/import",
+            new { channel = "whatsapp", key });
+        ctx.Check("The North agent can't copy the head office's conversation (404)", north.Status == 404,
+            $"HTTP {north.Status}");
+
+        var after = Fence();
+        ctx.Check("No conversation, message, AI-monitor draft or booking was added in the lab", before == after,
+            $"before {before} · after {after}");
+        var notes = ctx.Db.Notifications.AsNoTracking().Count(n => n.Id > notifFrom
+            && (labUsers.Contains(n.UserId) || n.Title.Contains(madeUp) || n.Body.Contains(madeUp)));
+        ctx.Check("Nobody was notified", notes == 0, $"{notes} notification(s)");
+        var usage = ctx.Db.LlmUsage.AsNoTracking().Count(u => u.Id > usageFrom && u.Feature == "playground"
+            && u.Ref == "playground:" + ctx.Lab.HqAgent.Username);
+        ctx.Check("The model usage is metered as “playground”", usage >= 3, $"{usage} usage row(s)");
     }
 
     private static async Task WidgetAsync(LabContext ctx)

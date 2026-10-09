@@ -9,6 +9,7 @@ export const shell = {
     assignments: 'Account assignment',
     flowBuilder: 'Journeys',
     aiMonitor: 'AI monitor',
+    aiPlayground: 'AI playground',
     automations: 'Automations',
     voice: 'Voice & calls',
     templates: 'Templates',

@@ -286,7 +286,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `entities_get_tags` | Get an entity's tags | read | `tags.view` |
 | `entities_set_tags` | Set an entity's tags | write | `tags.manage` |
 
-#### ai (27)
+#### ai (30)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -317,6 +317,9 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `ai_get_learning_status` | AI learning / retrieval status | read | `ai.monitor` |
 | `ai_reindex_learning` | Re-index knowledge and lessons | write · open-world | `ai.behaviour.manage` |
 | `ai_get_learning_stats` | AI quality statistics | read | `ai.monitor` |
+| `ai_get_playground_options` | AI playground options | read | `ai.monitor` or `ai.behaviour.manage` |
+| `ai_playground_reply` | Try the AI in the playground | read | `ai.monitor` or `ai.behaviour.manage` |
+| `ai_playground_import` | Copy a conversation into the playground | read | `ai.monitor` or `ai.behaviour.manage` |
 
 #### skills (7)
 
