@@ -42,10 +42,11 @@ public static class AssistantGuide
             new[] { "template", "templates", "canned", "saved", "shortcut", "short", "quick", "reply" },
             "Message Templates are saved replies for every channel — type /short_code in the composer to insert " +
             "one. WhatsApp's Meta-approved templates are managed inside the WhatsApp channel settings."),
-        new("Flow Builder", "/flow-builder", "flows.manage",
-            new[] { "flow", "flows", "workflow", "workflows", "sequence", "reminder", "builder", "drip", "campaign" },
-            "The Flow Builder draws multi-step sequences: send WhatsApp or email, place an AI or script call, " +
-            "wait, branch on the contact's answer. Switch a flow to Live and it runs on its own."),
+        new("Journeys", "/journeys", "flows.manage",
+            new[] { "journey", "journeys", "flow", "flows", "workflow", "workflows", "sequence", "reminder", "builder", "drip", "campaign" },
+            "Journeys (formerly the flow builder) draw multi-step sequences: send WhatsApp or email, place an AI or " +
+            "script call, wait, then branch — on conditions (tags, fields, the reply, bookings…) or by letting the AI " +
+            "decide from the conversation. Switch a journey to Live and it runs on its own."),
         new("Automations", "/automations", "flows.manage",
             new[] { "automation", "automations", "rule", "rules", "trigger", "auto", "routing", "route" },
             "Automations react to conversation events — a new conversation, a new message, a status change or " +
@@ -101,7 +102,7 @@ public static class AssistantGuide
         ("Dashboard", "/dashboard", "", new[] { "dashboard", "home", "overview" }),
         ("Chats", "/chats", "chats.view", new[] { "chats", "chat", "inbox", "conversations", "messages" }),
         ("Contacts", "/contacts", "contacts.view", new[] { "contacts", "contact", "customers", "people" }),
-        ("Flow Builder", "/flow-builder", "flows.manage", new[] { "flow builder", "flows", "flow", "workflows" }),
+        ("Journeys", "/journeys", "flows.manage", new[] { "journeys", "journey", "flow builder", "flows", "flow", "workflows" }),
         ("Automations", "/automations", "flows.manage", new[] { "automations", "automation", "rules" }),
         ("Channels", "/channels", "channels.view", new[] { "channels", "channel", "whatsapp", "accounts" }),
         ("Integrations", "/integrations", "integrations.view", new[] { "integrations", "integration", "google" }),

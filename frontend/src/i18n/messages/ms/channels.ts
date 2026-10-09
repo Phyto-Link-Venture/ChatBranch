@@ -794,7 +794,7 @@ export const channels: Dict<typeof source> = {
     loadFailed: 'Tidak dapat memuatkan integrasi — {error}',
     inboundFirst: 'mengutamakan data masuk',
     intro:
-      'Sambungkan sistem luar yang diperlukan perbualan: tempah slot, failkan dokumen, catat satu baris, hantar e-mel daripada peti mel sebenar, atau biarkan pesanan dan bayaran masuk dengan sendirinya. Shopify dan Stripe {b} — webhook mereka menukar pesanan atau bayaran yang berjaya kepada Rekod yang sudah difahami oleh pembina aliran dan AI. Semuanya di sini adalah pilihan: tanpa sambungan, aplikasi berjalan seperti biasa dan langkah integrasi mencatat langkauan yang jelas.',
+      'Sambungkan sistem luar yang diperlukan perbualan: tempah slot, failkan dokumen, catat satu baris, hantar e-mel daripada peti mel sebenar, atau biarkan pesanan dan bayaran masuk dengan sendirinya. Shopify dan Stripe {b} — webhook mereka menukar pesanan atau bayaran yang berjaya kepada Rekod yang sudah difahami oleh perjalanan dan AI. Semuanya di sini adalah pilihan: tanpa sambungan, aplikasi berjalan seperti biasa dan langkah integrasi mencatat langkauan yang jelas.',
     connectTitle: 'Sambungkan integrasi',
     connectHint: 'Sambungan dikongsi: perjalanan, kemahiran tempahan AI dan sesiapa yang tiada sambungan sendiri menggunakannya. Produk Google berkongsi satu log masuk.',
     bookingHours: 'Waktu tempahan ditetapkan bagi setiap kemahiran AI',

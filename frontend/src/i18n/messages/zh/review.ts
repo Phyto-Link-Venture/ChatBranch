@@ -14,7 +14,7 @@ export const review: Dict<typeof source> = {
     automation: '自动化规则',
     automationHint: '响应对话事件的自动化规则',
     flow: '流程',
-    flowHint: '流程编辑器中的运行中流程',
+    flowHint: '运行中的客户旅程',
     webhook: 'Webhook',
     webhookHint: '服务商或网关的回调（没有登录用户）',
     system: '系统',

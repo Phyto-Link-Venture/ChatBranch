@@ -14,7 +14,7 @@ export const review = {
     automation: 'Automation',
     automationHint: 'An automation rule reacting to a conversation event',
     flow: 'Flow',
-    flowHint: 'A Live flow from the flow builder',
+    flowHint: 'A live journey',
     webhook: 'Webhook',
     webhookHint: 'A provider or gateway calling in (no signed-in user)',
     system: 'System',

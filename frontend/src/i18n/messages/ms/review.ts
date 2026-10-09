@@ -14,7 +14,7 @@ export const review: Dict<typeof source> = {
     automation: 'Automasi',
     automationHint: 'Peraturan automasi yang bertindak balas kepada peristiwa perbualan',
     flow: 'Aliran',
-    flowHint: 'Aliran Aktif daripada pembina aliran',
+    flowHint: 'Perjalanan yang aktif',
     webhook: 'Webhook',
     webhookHint: 'Penyedia atau gerbang yang menghubungi masuk (tiada pengguna log masuk)',
     system: 'Sistem',

@@ -31,7 +31,7 @@ import { AssistantDock } from '@/components/assistant/AssistantDock'
  * Below lg the rail becomes an off-canvas drawer and a bottom tab bar (Home ·
  * Chats · Contacts · More) takes over primary navigation, as on the phone
  * board. A few routes render full-bleed (they own the whole content height):
- * Chats, Flow Builder and Settings. Login, the Help Center and the offline
+ * Chats, Journeys and Settings. Login, the Help Center and the offline
  * page render bare.
  *
  * Auth guard: every non-public route requires a signed-in user.

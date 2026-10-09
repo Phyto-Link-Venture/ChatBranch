@@ -787,7 +787,7 @@ export const channels = {
     loadFailed: "Couldn't load integrations — {error}",
     inboundFirst: 'inbound-first',
     intro:
-      'Connect the outside systems a conversation needs: book a slot, file a document, log a row, email from a real mailbox, or let orders and payments flow in on their own. Shopify and Stripe are {b} — their webhooks turn an order or a successful payment into a Record the flow builder and the AI already understand. Everything here is optional: with nothing connected the app runs exactly as before and integration steps log a clear skip.',
+      'Connect the outside systems a conversation needs: book a slot, file a document, log a row, email from a real mailbox, or let orders and payments flow in on their own. Shopify and Stripe are {b} — their webhooks turn an order or a successful payment into a Record that journeys and the AI already understand. Everything here is optional: with nothing connected the app runs exactly as before and integration steps log a clear skip.',
     connectTitle: 'Connect an integration',
     connectHint: "Shared connections: journeys, the AI's booking skills and anyone without their own use these. Google products share a single sign-in.",
     bookingHours: 'Booking hours are set per AI skill',

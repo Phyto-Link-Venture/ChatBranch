@@ -754,7 +754,8 @@ When you fix one of these, update this table, `README.md` and
   `ScriptTemplate` (`/api/calls/script-templates`, `script_templates.manage`),
   WhatsApp = per-account templates (`/api/whatsapp/templates`). Old
   `/script-templates` and `/settings/templates` redirect here.
-- **Flows** — see **Flow builder** below for the editor. Execution:
+- **Flows** (the product calls them **Journeys**) — see **Journeys** below for
+  the editor and the decision step (Check conditions / Let AI decide). Execution:
   `Flows/FlowEngine.cs` is the ONLY interpreter of the builder's React Flow
   JSON (`Workflow.Nodes/Edges`, stored verbatim). Time axis
   `FlowEngine.Tick` (`Workers/FlowEngineWorker`, every 10 s,
@@ -902,7 +903,7 @@ When you fix one of these, update this table, `README.md` and
   entity; also feeds the sidebar's Chats counter and Analytics' waiting card);
   its popover carries the AI quick toggle (`components/ai-controls/AiQuickToggle.tsx`).
   Below `lg` the rail becomes a drawer and a **bottom tab bar** (Home · Chats ·
-  Contacts · More) takes over. `Shell.FULL_BLEED` (`/chats`, `/flow-builder`,
+  Contacts · More) takes over. `Shell.FULL_BLEED` (`/chats`, `/journeys`,
   `/settings`) render edge-to-edge and own their height; `PUBLIC_ROUTES`
   (`/help`, `/offline`) and `/login` render bare. **PWA:** `app/manifest.ts`,
   hand-written `public/sw.js` (never caches `/api/*` or the stream; offline
@@ -1122,15 +1123,19 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   OpenAI-compatible mock as `ILMU_BASE_URL` (voice_provider `ilmu`) exercises a
   full cascade call — dispatch, answer gating, inbox, endings, calls.json.
 
-## Flow builder
+## Journeys (the flow builder)
 
-- Route `/flow-builder` (full-bleed), components `frontend/src/components/flow/`,
-  data model `frontend/src/lib/flow/` (`@xyflow/react`). The library syncs to
-  the DB via `GET/PUT /api/flows/library` (GET `flows.view`, PUT
-  `flows.manage`); localStorage is only the offline fallback. ⚠ **The PUT
-  PRUNES** server-side workflows (in its scope) missing from the browser's copy
-  — after creating a Workflow row outside the UI, refresh `/flow-builder`
-  before its next sync.
+- Product name **Journeys** (en) / **Perjalanan** (ms) / **客户旅程** (zh);
+  route `/journeys` (full-bleed); `/flow-builder` redirects, query and hash
+  kept. Internals keep the flow names (`FlowEngine`, `Workflow`,
+  `/api/flows/*`, `flows.view|manage`, `crm_workflow`, the nav key
+  `shell.nav.flowBuilder`) — no data migration. Components
+  `frontend/src/components/flow/`, data model `frontend/src/lib/flow/`
+  (`@xyflow/react`). The library syncs to the DB via `GET/PUT
+  /api/flows/library` (GET `flows.view`, PUT `flows.manage`); localStorage is
+  only the offline fallback. ⚠ **The PUT PRUNES** server-side workflows (in its
+  scope) missing from the browser's copy — after creating a Workflow row
+  outside the UI, refresh `/journeys` before its next sync.
 - **Two views, one graph.** **Steps** (default, `StepsView.tsx`) reads
   nodes/edges as a tree (`lib/flow/steps.ts buildStepTree`, mirroring the
   engine's edge picking) and edits it with insert / delete / move +
@@ -1138,7 +1143,8 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   the same JSON. Plain-language summaries come from ONE place
   (`lib/flow/describe.ts`). New flows start from the template gallery
   (`lib/flow/templates.ts STARTER_TEMPLATES`: welcome series, appointment
-  reminder, re-engage, lead qualification, feedback request — all paused).
+  reminder, re-engage, lead qualification, feedback request, lead
+  qualification with AI — all paused).
 - **The vocabulary is a contract** with `FlowEngine.cs`
   (`lib/flow/nodeConfig.ts` — change both sides together). Triggers: Contact
   created · Tag added · Message received (optional keyword/channel) · Date field
@@ -1153,14 +1159,42 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   the AI controls say no) · call = AI voice call or Script call, `callVia` `Phone (SIP)` |
   `WhatsApp (Baileys)` · app action) · wait (time, or until they reply) ·
   **followup** ("Follow up if no reply": yes = replied, no = no reply; up to 5
-  nudges, stops on resolve) · decision ("Ask & branch": They replied / Reply
-  contains / They said yes (EN + BM keyword lists — deterministic on purpose) /
-  Has tag / Custom field equals) · handover (to a team; a tracked handover,
+  nudges, stops on resolve) · decision (see Decisions below) · handover (to a team; a tracked handover,
   kind `rule`) · update (add/remove tag, set a field, **Set chatbot on/off** =
   op `chatbot`, value on|off, scope all|channels — written through
   `AiEligibility.Set`) · end (outcome code); `stage` is a legacy pass-through. The
   step `skill` picker (`SkillPicker.tsx`) offers PROMPT skills only — tools,
   checks and connected apps run on their own; skills are edited only on `/skills`.
+- **Decisions** (`basedOn`). **`Conditions`** — `match` all|any +
+  `conditions` [{subject, op, field?, value?, values?, amount?}] over custom
+  fields (typed by the field's definition), tags, the contact (language, phone,
+  email, entity subtree, opted out), the conversation (status, assigned, team,
+  open handover, AI on via `AiEligibility.Decide`, channel, last customer
+  message within N h, ≥ N customer messages), the reply (replied, contains
+  any/all, said yes/no — EN + BM lists, deterministic on purpose) and bookings;
+  `FlowEngine.Conditions.cs`, never parks, an unknown subject/operator matches
+  nothing, an empty group is NO. **`AI yes/no`** / **`AI picks a path`** (2–6
+  `options` [{id: opt-N, label, description}] + `none`) —
+  `Flows/FlowAiDecision.cs` + `FlowEngine.AiDecisions.cs`: history = the
+  contact + the last `historyMessages` (20, 5–100) of all channels / the run's
+  channel / the triggering conversation (`historyScope`), optionally
+  `sinceEntered`, private notes never, + the latest reply; the question and
+  options sit in the system prompt with hard rules (classify only, never
+  message the customer), customer text is fenced as data; strict JSON,
+  temperature 0.1; below `threshold` (0.6) = unsure → `unsure` yes | no | none
+  | wait (park on the next reply, `maxAsks` 2, `waitHours` 24, then NO/none) |
+  end; the AI master switch off, model errors and unreadable answers take the
+  unsure path with a note; no model = a deterministic "sandbox guess"; metered
+  as `LlmUsage` `flow_decision`; the verdict ("AI decided YES (0.82): …") is the
+  step's completed event, translated in the Runs panel by `lib/flow/runText.ts`.
+  The pre-Journeys single checks (They replied, Reply contains, They said yes,
+  Has tag, Custom field equals) run unchanged — the server never rewrites them;
+  the editor opens them as the equivalent condition and saves the new shape on
+  edit ("Contact's answer" / "Record status" stay legacy). Vocabulary:
+  `lib/flow/conditions.ts` ↔ `FlowEngine.Conditions.cs`; editor
+  `DecisionEditor.tsx`; outcomes from `nodeConfig.branchOutcomes` (Steps view,
+  canvas handles, `autoLayout`, `reconcileBranchEdges` when a step's kind or
+  options change). Tests: `FlowDecisionTests.cs`.
 - **Runs panel** (`RunsPanel.tsx`): totals, people entering per day, reach and
   drop-off per step, failure reasons, and each contact's path — from
   `/api/flows/{flowId}/stats` and paged `/api/flows/runs[/{id}]` (contact-scoped
@@ -1168,24 +1202,27 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 - The variable catalog (`lib/flow/variables.ts`) must stay in step with
   `FlowEngine.VariablesFor` (contact, business, record, memory groups +
   `{{cf_*}}` + `{{tag_*}}`). Styles are token-based in
-  `src/app/flow-builder/flow-builder.css`, scoped under `.flow-studio`.
+  `src/app/journeys/journeys.css`, scoped under `.flow-studio`.
 
 ## Verifying changes
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **526 tests** covering auth/RBAC, scoping, the inbox + server-side filters +
-  saved views, the per-conversation scope guard, webhooks (wamid dedup, the
+  **640 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /
   Zalo, media, recordings, the health prober), routing + failover + STOP/START,
   contacts (identities, WhatsApp lookups, invites, unknown customers, import),
-  tags, templates + inbox settings, flows + step events + stats, the outbound
+  tags, templates + inbox settings, flows + step events + stats + decision
+  conditions + AI decisions (`FlowDecisionTests`), the outbound
   queue + queued calls, the AI (tool loop, skills runtime/drafter/API, built-ins,
   AI monitor + human-like behaviour, AI controls + handover, calendar booking —
   availability, reserve → make-at-delivery, a fake Google Calendar — retrieval and
-  learning), integrations (+ My connections), notifications + settings,
-  search/live, the platform (audit, API keys, MCP, assistant) and the LiveKit
+  learning), integrations (+ My connections, shared/personal scope and
+  up-the-tree resolution — `IntegrationScopeTests`), notifications + settings,
+  search/live, the platform (audit, API keys, MCP — every route a tool or a
+  documented exclusion, `McpCoverageTests` — assistant), the Test lab and the LiveKit
   control plane. Keep them green. The test host (`ApiFactory` in
   `ApiSmokeTests.cs`) sets its own env: `QUEUE_WORKER=0`, `FLOWS_WORKER=0`,
   `AI_FOLLOWUP_WORKER=0`, `HEALTH_WORKER=0`, `EMBEDDING_WORKER=0`,

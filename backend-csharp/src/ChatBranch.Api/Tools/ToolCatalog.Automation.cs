@@ -15,7 +15,7 @@ public static partial class ToolCatalog
         var flowId = A.Str("flow_id", "The flow's id (flowId from list_flows).", req: true);
 
         yield return Custom(f, "flows_get_flow", "Read a flow",
-            "One workflow from the flow builder in full: trigger, steps (nodes) and branches (edges), live or " +
+            "One journey (a workflow) in full: trigger, steps (nodes) and branches (edges), live or " +
             "paused — the same graph the builder edits.",
             new[] { "GET /api/flows/library" }, GetFlowAsync, flowsView,
             new[] { flowId, A.Entity("The flow's entity slug; omit for organisation-wide flows.") }, write: false);
@@ -159,7 +159,7 @@ public static partial class ToolCatalog
             ["workflows"] = new JsonArray(lib.Flows.Select(x => (JsonNode)x).ToArray()),
         };
         ToolContext.Require(await ctx.CallAsync("PUT", "/api/flows/library", body: payload, ct: ct));
-        ctx.Links.Add(new ToolLink("Open the flow builder", "/flow-builder"));
+        ctx.Links.Add(new ToolLink("Open Journeys", "/journeys"));
     }
 
     private static JsonObject FindFlow(FlowLibrary lib, string id) =>

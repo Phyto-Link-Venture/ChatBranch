@@ -619,7 +619,7 @@ public static class BuiltinTools
         public override string Name => "list_flows";
         public override string Title => "List flows";
         public override string Description =>
-            "Workflows from the flow builder (automated multi-step sequences) and whether each is live.";
+            "Journeys (automated multi-step sequences, formerly the flow builder) and whether each is live.";
         public override string? Capability => "flows.view";
         public override string Domain => "flows";
         protected override string Schema => """
@@ -638,7 +638,7 @@ public static class BuiltinTools
             if (a.TryGetProperty("live_only", out var lo) && lo.ValueKind == JsonValueKind.True)
                 rows = rows.Where(w => w.Active).ToList();
             if (ctx.Capabilities.Contains("flows.manage"))
-                ctx.Links.Add(new ToolLink("Open the flow builder", "/flow-builder"));
+                ctx.Links.Add(new ToolLink("Open Journeys", "/journeys"));
             return new
             {
                 count = rows.Count,

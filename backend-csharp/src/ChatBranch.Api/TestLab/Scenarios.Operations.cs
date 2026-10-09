@@ -263,7 +263,7 @@ public static class OperationScenarios
         foreach (var (route, page) in new[]
                  {
                      ("/api/contacts", "Contacts"), ("/api/inbox/threads", "Chats"), ("/api/ai/monitor", "AI monitor"),
-                     ("/api/flows/library", "Flow builder"), ("/api/analytics/summary", "Analytics"), ("/api/tags", "Tags"),
+                     ("/api/flows/library", "Journeys"), ("/api/analytics/summary", "Analytics"), ("/api/tags", "Tags"),
                      ("/api/bookings", "Bookings"), ("/api/audit", "Activity"),
                  })
         {
@@ -302,7 +302,7 @@ public static class OperationScenarios
                 LabKit.Node("end", "end", new { logCode = "WELCOMED" }),
             },
             new List<object?> { LabKit.Edge("e1", "trg", "act"), LabKit.Edge("e2", "act", "end") });
-        ctx.Link("Flow builder", "/flow-builder");
+        ctx.Link("Journeys", "/journeys");
         var c = ctx.NewContact("Nadia Ismail");
         var key = LabContext.WaKey(c);
         ctx.LinkContact(c.Id);
@@ -337,7 +337,7 @@ public static class OperationScenarios
                 LabKit.Node("end", "end", new { logCode = "MENU_SENT" }),
             },
             new List<object?> { LabKit.Edge("e1", "trg", "act"), LabKit.Edge("e2", "act", "end") });
-        ctx.Link("Flow builder", "/flow-builder");
+        ctx.Link("Journeys", "/journeys");
         var c = ctx.NewContact("Ong Bee Hoon");
         var key = LabContext.WaKey(c);
         ctx.Say(ctx.Lab.Conversation, key, "MENU please", c.Name);

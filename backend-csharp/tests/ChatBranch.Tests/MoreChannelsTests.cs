@@ -406,9 +406,12 @@ public class MoreChannelsTests : IClassFixture<MoreChannelsFactory>
         // a stale timestamp (replayed URL) is refused; a reused nonce is acked but never processed
         Assert.Equal(HttpStatusCode.Unauthorized,
             (await PostWeChat(a, WxText(openId, "replayed", "2"), ts: DateTimeOffset.UtcNow.AddHours(-1).ToUnixTimeSeconds())).StatusCode);
+        // a replay is the SAME captured URL (timestamp + nonce + signature) with a new body —
+        // pin the timestamp, or a slow run straddles a second and signs a genuinely new URL
         var nonce = U();
-        await PostWeChat(a, WxText(openId, "first", "3" + Random.Shared.Next()), nonce: nonce);
-        await PostWeChat(a, WxText(openId, "forged body", "4" + Random.Shared.Next()), nonce: nonce);
+        var captured = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        await PostWeChat(a, WxText(openId, "first", "3" + Random.Shared.Next()), ts: captured, nonce: nonce);
+        await PostWeChat(a, WxText(openId, "forged body", "4" + Random.Shared.Next()), ts: captured, nonce: nonce);
         Assert.DoesNotContain(Messages(ChannelIds.WeChat, openId), m => m.Text == "forged body");
     }
 

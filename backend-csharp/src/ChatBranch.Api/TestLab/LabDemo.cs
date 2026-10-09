@@ -306,7 +306,7 @@ public static class LabDemo
 
         links.Insert(0, new LabLink("Chats in the Test lab", "/chats"));
         links.Add(new LabLink("Contacts", "/contacts"));
-        links.Add(new LabLink("Flow builder (paused demo flows)", "/flow-builder"));
+        links.Add(new LabLink("Journeys (paused demo journeys)", "/journeys"));
         _ = review;
         _ = stop;
         return new Outcome(false, created, links);

@@ -48,7 +48,7 @@ export function FlowsCard({ days = 30, entityQ = '' }: { days?: number; entityQ?
       <CardTitle
         className="mb-2"
         right={
-          <Link href="/flow-builder" className="font-semibold text-[color:var(--brand-ink)] hover:underline">
+          <Link href="/journeys" className="font-semibold text-[color:var(--brand-ink)] hover:underline">
             {t('analytics.flows.open')}
           </Link>
         }
@@ -71,7 +71,7 @@ export function FlowsCard({ days = 30, entityQ = '' }: { days?: number; entityQ?
             k="analytics.flows.none"
             values={{
               link: (
-                <Link href="/flow-builder" className="font-semibold text-text-high hover:underline">
+                <Link href="/journeys" className="font-semibold text-text-high hover:underline">
                   {t('analytics.flows.startOne')}
                 </Link>
               ),
@@ -86,7 +86,7 @@ export function FlowsCard({ days = 30, entityQ = '' }: { days?: number; entityQ?
             return (
               <li key={fl.flowId}>
                 <Link
-                  href="/flow-builder"
+                  href="/journeys"
                   className="group block"
                   title={t('analytics.flows.tooltip', {
                     name: fl.name,
