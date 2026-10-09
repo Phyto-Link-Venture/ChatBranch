@@ -32,14 +32,20 @@ public static class McpServerEndpoints
 
     public const string Instructions =
         "ChatBranch is a multi-channel conversation platform: one inbox for WhatsApp, email, " +
-        "Messenger, Instagram, Telegram and website chat, with contacts, automations and an AI " +
-        "assistant. These tools act as the API key's owner, with that person's permissions and " +
-        "entity scope. Typical flow: search_contacts or list_conversations to find something, " +
-        "get_contact / get_conversation to read it, then send_message, add_note, " +
-        "set_conversation_status or assign_conversation to act. Conversations are addressed by " +
-        "channel + key (as returned by list_conversations). Sends follow the normal guards — " +
-        "opt-outs, WhatsApp's 24-hour window — and a refusal says why. Everything you do is " +
-        "recorded in the ChatBranch activity log.";
+        "Messenger, Instagram, Telegram, LINE, Viber, SMS, WeChat, Zalo and website chat, with " +
+        "contacts, flows, automations, an AI that answers customers, and voice calls. These tools " +
+        "cover what an operator can do in the dashboard and act as the API key's owner, with that " +
+        "person's permissions and entity scope. Names are domain_verb_object (contacts_*, " +
+        "conversations_*, ai_*, knowledge_*, skills_*, bookings_*, templates_*, tags_*, flows_*, " +
+        "automations_*, teams_*, users_*, entities_*, bindings_*, channels_*, integrations_*, calls_*, " +
+        "voice_*, notifications_*, settings_*, views_*, analytics_*, activity_*, developers_*); the " +
+        "original core is search_contacts, get_contact, list_conversations, get_conversation, " +
+        "send_message, add_note, set_conversation_status, assign_conversation. Conversations are " +
+        "addressed by channel + key (as the conversation tools return them; results carry a /chats " +
+        "deep link). Sends follow the normal guards — opt-outs, WhatsApp's 24-hour window, the " +
+        "Messenger/Instagram human-agent window (closed to API keys), the cold-message guard — and " +
+        "a refusal says why. Tools marked destructive need \"confirm\": true — ask the person first. " +
+        "Everything you do is recorded in the ChatBranch activity log under source mcp.";
 
 
     public static void MapMcpServerEndpoints(this IEndpointRouteBuilder app)
@@ -130,7 +136,17 @@ public static class McpServerEndpoints
             case "ping":
                 return Result(id, new { });
             case "tools/list":
-                return Result(id, new { tools = ToolRegistry.AllowedFor(tools).Select(Describe) });
+            {
+                var cursor = p.TryGetProperty("cursor", out var c) && c.ValueKind == JsonValueKind.String
+                    ? c.GetString() : null;
+                List<IChatBranchTool> page;
+                string? next;
+                try { (page, next) = Page(ToolRegistry.AllowedFor(tools).ToList(), cursor, PageSize); }
+                catch (ArgumentException) { return Error(id, -32602, "Invalid params: unknown cursor."); }
+                return next == null
+                    ? Result(id, new { tools = page.Select(Describe) })
+                    : Result(id, new { tools = page.Select(Describe), nextCursor = next });
+            }
             case "tools/call":
             {
                 var name = p.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String
@@ -151,7 +167,7 @@ public static class McpServerEndpoints
                     structured = JsonSerializer.SerializeToElement(new { result = structured });
                 return Result(id, new
                 {
-                    content = new[] { new { type = "text", text = structured.GetRawText() } },
+                    content = new[] { new { type = "text", text = JsonSerializer.Serialize(structured, ToolResults.Wire) } },
                     structuredContent = structured,
                     isError = false,
                 });
@@ -172,12 +188,33 @@ public static class McpServerEndpoints
         {
             title = t.Title,
             readOnlyHint = !t.IsWrite,
-            destructiveHint = false,
-            idempotentHint = !t.IsWrite || t.Name is "set_conversation_status" or "assign_conversation"
-                or "update_contact",
-            openWorldHint = t.Name == "send_message",
+            destructiveHint = t.IsWrite && t.Destructive,
+            idempotentHint = t.Idempotent,
+            openWorldHint = t.OpenWorld,
         },
     };
+
+    /// <summary>Tools per tools/list page. The whole catalogue fits one page by
+    /// default (some clients never follow nextCursor); set MCP_TOOLS_PAGE_SIZE to page it.</summary>
+    public static int PageSize =>
+        int.TryParse(Environment.GetEnvironmentVariable("MCP_TOOLS_PAGE_SIZE"), out var n) && n > 0 ? n : 500;
+
+    /// <summary>One page of the list from an opaque cursor (the next offset, base64).</summary>
+    public static (List<T> Items, string? NextCursor) Page<T>(IReadOnlyList<T> all, string? cursor, int size)
+    {
+        var offset = 0;
+        if (!string.IsNullOrEmpty(cursor))
+        {
+            try { offset = int.Parse(System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(cursor))); }
+            catch { throw new ArgumentException("Invalid cursor."); }
+        }
+        offset = Math.Clamp(offset, 0, all.Count);
+        var items = all.Skip(offset).Take(size).ToList();
+        var next = offset + items.Count < all.Count
+            ? Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes((offset + items.Count).ToString()))
+            : null;
+        return (items, next);
+    }
 
     private static object Result(object? id, object result) => new { jsonrpc = "2.0", id, result };
 

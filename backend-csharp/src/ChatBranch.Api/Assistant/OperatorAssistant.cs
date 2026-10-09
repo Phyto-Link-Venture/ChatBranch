@@ -80,10 +80,15 @@ public sealed class OperatorAssistant
             ? ExternalMcpTools.Available(_ctx.Services.GetRequiredService<ScopingService>())
             : new List<ExternalMcpTools.ExternalTool>();
 
-        var tools = builtins.Select(t => new LlmTool(t.Name, $"{t.Title}. {t.Description}"
-                                                             + (t.IsWrite ? " (Needs the user's confirmation.)" : ""),
-                t.InputSchema))
+        // A bounded list per call: the core + what this request is about + find_tools
+        // (which adds more to THIS list mid-loop — ToolLoop re-offers it every round).
+        static LlmTool ToLlm(IChatBranchTool t) => new(t.Name, $"{t.Title}. {t.Description}"
+                                                              + (t.IsWrite ? " (Needs the user's confirmation.)" : ""),
+            t.InputSchema);
+        var asked = string.Join(" ", turns.Where(t => t.Role == "user").TakeLast(2).Select(t => t.Content));
+        var tools = ToolRouter.Select(builtins, asked).Select(ToLlm)
             .Concat(external.Select(e => new LlmTool(e.QualifiedName, e.Description, e.Parameters)))
+            .Append(new LlmTool(ToolRouter.FindToolsName, ToolRouter.FindToolsDescription, ToolRouter.FindToolsSchema))
             .ToList();
 
         var steps = new List<Step>();
@@ -94,6 +99,21 @@ public sealed class OperatorAssistant
         async Task<(string, bool)> Execute(LlmToolCall call, CancellationToken token)
         {
             var args = ParseArgs(call.ArgumentsJson);
+            if (call.Name == ToolRouter.FindToolsName)
+            {
+                var query = args.TryGetProperty("query", out var q) && q.ValueKind == JsonValueKind.String
+                    ? q.GetString() ?? "" : "";
+                var found = ToolRouter.Find(builtins, query, 10);
+                foreach (var t in found)
+                    if (tools.All(x => x.Name != t.Name)) tools.Add(ToLlm(t));
+                return (JsonSerializer.Serialize(new
+                {
+                    loaded = found.Select(t => new { name = t.Name, title = t.Title, changes_something = t.IsWrite }),
+                    note = found.Count == 0
+                        ? "Nothing matched — try other words, or the user may lack the permission."
+                        : "These tools are now available: call them by name.",
+                }), true);
+            }
             if (ToolRegistry.Find(call.Name) is { } tool)
             {
                 if (!ToolRegistry.Allowed(_ctx, tool))
@@ -172,6 +192,7 @@ public sealed class OperatorAssistant
             - Answer "how do I…" questions from the product guide and name the page by its path (for example /chats) so the user can click it.
             - Be brief: a sentence or two, or a short list. Plain text, no tables.
             - Conversations are identified by channel + key, contacts by id — take them from tool results.
+            - You see only the tools picked for this request. If you need one you don't have (AI monitor, knowledge, flows, bookings, tags, teams, channels, calls, settings…), call find_tools with a few words first.
 
             Context: the user is on {_path}; entity filter: {entity}; today is {DateTime.UtcNow:yyyy-MM-dd} (UTC).
 

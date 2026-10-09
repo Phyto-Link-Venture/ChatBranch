@@ -47,12 +47,18 @@ public static class InternalApi
         }
     }
 
+    /// <summary>A file in a multipart upload (the dashboard's file pickers).</summary>
+    public sealed record FormFile(string Field, string FileName, string ContentType, byte[] Bytes);
+
+    /// <summary>A multipart/form-data body: plain fields plus files.</summary>
+    public sealed record FormBody(IReadOnlyDictionary<string, string?> Fields, IReadOnlyList<FormFile> Files);
+
     public static async Task<Response> InvokeAsync(HttpContext outer, ClaimsPrincipal user, string method,
         string routeTemplate, IDictionary<string, string>? routeValues = null, object? body = null,
-        IDictionary<string, string?>? query = null, CancellationToken ct = default)
+        IDictionary<string, string?>? query = null, CancellationToken ct = default, FormBody? form = null)
     {
         var sp = outer.RequestServices;
-        var endpoint = Find(sp, method, routeTemplate);
+        var endpoint = Find(sp.GetRequiredService<EndpointDataSource>(), method, routeTemplate);
         if (endpoint?.RequestDelegate == null)
             return Error(501, $"This build has no {method} {routeTemplate} endpoint.");
 
@@ -94,7 +100,27 @@ public static class InternalApi
         foreach (var (k, v) in values) ctx.Request.RouteValues[k] = v;
         ctx.Request.Headers.UserAgent = outer.Request.Headers.UserAgent;
         ctx.Connection.RemoteIpAddress = outer.Connection.RemoteIpAddress;
-        if (body != null)
+        if (form != null)
+        {
+            using var content = new System.Net.Http.MultipartFormDataContent();
+            foreach (var (k, v) in form.Fields)
+                if (v != null) content.Add(new System.Net.Http.StringContent(v), k);
+            foreach (var f in form.Files)
+            {
+                var part = new System.Net.Http.ByteArrayContent(f.Bytes);
+                part.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse(
+                    string.IsNullOrWhiteSpace(f.ContentType) ? "application/octet-stream" : f.ContentType);
+                content.Add(part, f.Field, f.FileName);
+            }
+            var ms = new MemoryStream();
+            await content.CopyToAsync(ms, ct);
+            ms.Position = 0;
+            ctx.Request.ContentType = content.Headers.ContentType!.ToString();
+            ctx.Request.ContentLength = ms.Length;
+            ctx.Request.Body = ms;
+            ctx.Features.Set<IHttpRequestBodyDetectionFeature>(new HasBody());
+        }
+        else if (body != null)
         {
             var bytes = body is JsonElement je
                 ? Encoding.UTF8.GetBytes(je.GetRawText())
@@ -127,10 +153,10 @@ public static class InternalApi
         return new Response(status, parsed);
     }
 
-    private static RouteEndpoint? Find(IServiceProvider sp, string method, string template)
+    /// <summary>The endpoint mapped at this method + route template, if any.</summary>
+    public static RouteEndpoint? Find(EndpointDataSource source, string method, string template)
     {
         var wanted = Normalize(template);
-        var source = sp.GetRequiredService<EndpointDataSource>();
         return source.Endpoints.OfType<RouteEndpoint>()
             .Where(e => Normalize(e.RoutePattern.RawText ?? "") == wanted)
             .Where(e => e.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods
