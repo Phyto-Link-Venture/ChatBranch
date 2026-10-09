@@ -15,6 +15,7 @@ import { ChannelLogo, channelLabel } from '@/components/ui/ChannelLogo'
 import ChannelHub from '@/components/ChannelHub'
 import ContactEntitiesCard from '@/components/ContactEntitiesCard'
 import ContactTagsCard from '@/components/contacts/ContactTagsCard'
+import { BookingsCard } from '@/components/bookings/BookingsCard'
 import { TagChip } from '@/components/tags/TagChip'
 import { useTags } from '@/lib/tags'
 import { fetchCustomFields, formatFieldValue, type FieldDef } from '@/lib/customFields'
@@ -311,6 +312,9 @@ export default function ContactDetailPage() {
           <Panel title="Channels">
             <ChannelHub contactId={d.id} allowAdd />
           </Panel>
+
+          {/* Upcoming appointments the AI or the team booked for them */}
+          <BookingsCard contactId={d.id} />
 
           {/* Per-entity membership — link/unlink without deleting the profile */}
           <ContactEntitiesCard contactId={d.id} />
