@@ -504,6 +504,10 @@ any code.
       you can't afford; tests passing.
 - [ ] Knowledge base seeded (documents uploaded where they exist) and **Test
       retrieval** run against five real messages.
+- [ ] A few real conversations replayed in the **AI playground**
+      (`/ai-playground`: a made-up customer or a copy of a real chat; nothing is
+      sent, stored or booked) — persona drafts and parts switched off compared
+      side by side, the inspector read, corrections taught from there.
 - [ ] Learning mode chosen, and someone owns the AI monitor's Learning tab.
 - [ ] Business variables set.
 - [ ] Inboxes connected (or deliberately left in sandbox), each with a team, an

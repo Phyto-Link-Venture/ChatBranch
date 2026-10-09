@@ -66,6 +66,9 @@ full-width punctuation (，。：？！“”).
 | invite link | pautan jemputan | 邀请链接 |
 | import | import | 导入 |
 | test lab | makmal ujian | 测试实验室 |
+| AI playground | ruang uji AI | AI 试验场 |
+| set-up (a playground configuration being compared) | tetapan uji | 方案 |
+| persona (the AI's voice) | persona | 人设 |
 
 Never translate: ChatBranch, WhatsApp, Telegram, Messenger, Instagram, LINE,
 Viber, WeChat, TikTok, Douyin, Zalo, Google, Gmail, Shopify, Stripe, MCP, SMS,

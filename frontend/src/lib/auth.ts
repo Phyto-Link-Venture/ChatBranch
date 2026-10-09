@@ -16,6 +16,7 @@
  * role→capability default that mirrors the server seed.
  */
 import { clearAssistantCache } from './assistantCache'
+import { clearPlaygroundCache } from './playgroundCache'
 import type { MessageKey, TFunction } from '@/i18n'
 
 export type Role = 'superadmin' | 'admin' | 'agent'
@@ -196,7 +197,8 @@ export function setAuth(user: AuthUser): void {
 }
 
 /** Every way a session ends (sign-out, a 401 on a stale token) comes through
- *  here — so the assistant's per-user browser cache goes with it. */
+ *  here — so the assistant's and the AI playground's per-user browser caches
+ *  go with it. */
 export function clearAuth(): void {
   try {
     localStorage.removeItem(KEY)
@@ -205,6 +207,7 @@ export function clearAuth(): void {
     /* ignore */
   }
   clearAssistantCache()
+  clearPlaygroundCache()
 }
 
 export function getRole(): Role {
@@ -295,8 +298,10 @@ export async function login(username: string, password: string): Promise<AuthUse
   const ident = await fetchIdentity(user.token)
   user.capabilities = inline || ident.capabilities
   // a fresh sign-in starts with no assistant cache — whoever used this browser
-  // before, their chat stays on the server under their own login
+  // before, their chat stays on the server under their own login — and no
+  // AI playground transcript
   clearAssistantCache()
+  clearPlaygroundCache()
   setAuth(user)
   return user
 }

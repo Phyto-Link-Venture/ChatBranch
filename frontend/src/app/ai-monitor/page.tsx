@@ -10,7 +10,8 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { ScanEye } from 'lucide-react'
+import Link from 'next/link'
+import { FlaskRound, ScanEye } from 'lucide-react'
 import { AreaPage } from '@/components/shell/AreaPage'
 import { Card } from '@/components/ui/Card'
 import { ReviewQueue } from '@/components/ai-monitor/ReviewQueue'
@@ -113,6 +114,16 @@ export default function AiMonitorPage() {
       title={t('shell.nav.aiMonitor')}
       eyebrow={t('shell.groups.automate')}
       Icon={ScanEye}
+      actions={
+        access.view ? (
+          <Link
+            href="/ai-playground"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line-strong bg-card px-3 text-[12.5px] font-semibold text-text-high transition-colors hover:bg-fill-hover"
+          >
+            <FlaskRound size={13} aria-hidden /> {t('playground.monitorLink')}
+          </Link>
+        ) : undefined
+      }
       subtitle={
         modeLabel
           ? activeEntity
