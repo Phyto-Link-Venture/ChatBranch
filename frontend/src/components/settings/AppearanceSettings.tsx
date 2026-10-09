@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Building2, Check, Monitor, Moon, RotateCcw, Sun, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { LanguageCard } from '@/components/i18n/LanguageCard'
 import { authHeaders } from '@/lib/auth'
 import {
   ACCENT_PRESETS,
@@ -163,6 +164,7 @@ export function AppearanceSettings() {
 
   return (
     <div className="flex flex-col gap-5">
+      <LanguageCard />
       {/* Live sample in the real tokens — the whole app re-themes with it. */}
       <Card className="flex flex-wrap items-center gap-x-6 gap-y-3 p-4 sm:p-5">
         <div className="min-w-0 flex-1 basis-[260px]">

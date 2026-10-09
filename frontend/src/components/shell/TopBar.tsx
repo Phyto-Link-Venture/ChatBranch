@@ -8,11 +8,12 @@ import { EntitySwitcher } from './EntitySwitcher'
 import { NotificationsBell } from './NotificationsBell'
 import { LiveChip } from './LiveChip'
 import { NAV_GROUPS, SETTINGS_NAV, isActive } from './nav'
+import { useT, type TFunction } from '@/i18n'
 
 /** The page's name for the phone header (the rail is hidden there). */
-function pageTitle(pathname: string): string {
-  for (const g of NAV_GROUPS) for (const n of g.items) if (isActive(pathname, n)) return n.lbl
-  if (isActive(pathname, SETTINGS_NAV)) return 'Settings'
+function pageTitle(pathname: string, t: TFunction): string {
+  for (const g of NAV_GROUPS) for (const n of g.items) if (isActive(pathname, n)) return t(n.lbl)
+  if (isActive(pathname, SETTINGS_NAV)) return t(SETTINGS_NAV.lbl)
   return 'ChatBranch'
 }
 
@@ -31,6 +32,7 @@ export function TopBar({
   onOpenSearch: () => void
 }) {
   const pathname = usePathname() || '/'
+  const t = useT()
   // ⌘ on Apple keyboards, Ctrl elsewhere — resolved after mount (SSR-safe).
   const [mod, setMod] = useState('Ctrl')
   useEffect(() => {
@@ -47,7 +49,7 @@ export function TopBar({
         <Menu size={20} strokeWidth={1.6} />
       </button>
       <span className="display min-w-0 truncate text-[22px] leading-none text-text-heading md:hidden">
-        {pageTitle(pathname)}
+        {pageTitle(pathname, t)}
       </span>
 
       {/* Search: a button that looks like a field — typing happens in the palette. */}

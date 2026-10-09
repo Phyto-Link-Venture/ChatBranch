@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { login } from '@/lib/auth'
 import { Logo } from '@/components/shell/Logo'
+import { LanguageSwitcher } from '@/components/i18n/LanguageSwitcher'
 
 const INPUT =
   'h-11 w-full rounded-lg border border-line-strong bg-card px-3 text-[14px] text-text-primary outline-none transition-colors placeholder:text-text-faint focus:border-text-primary'
@@ -121,6 +122,7 @@ export default function LoginPage() {
         <p className="mt-6 text-center text-[12px] text-text-faint">
           One inbox for WhatsApp, email, social, web chat and voice.
         </p>
+        <LanguageSwitcher className="mt-3" />
       </div>
     </div>
   )

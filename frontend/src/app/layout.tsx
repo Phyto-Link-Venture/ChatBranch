@@ -6,6 +6,7 @@ import '@fontsource-variable/nunito/index.css'
 import './globals.css'
 import { AppProvider } from '@/lib/AppContext'
 import { EntityProvider } from '@/lib/EntityContext'
+import { I18nProvider } from '@/i18n'
 import { Shell } from '@/components/shell/Shell'
 import { ServiceWorkerRegistrar } from '@/components/shell/pwa'
 import { PREPAINT_SCRIPT } from '@/lib/themeScript'
@@ -61,11 +62,13 @@ export default function RootLayout({
       </head>
       <body className="font-sans">
         <ServiceWorkerRegistrar />
-        <EntityProvider>
-          <AppProvider>
-            <Shell>{children}</Shell>
-          </AppProvider>
-        </EntityProvider>
+        <I18nProvider>
+          <EntityProvider>
+            <AppProvider>
+              <Shell>{children}</Shell>
+            </AppProvider>
+          </EntityProvider>
+        </I18nProvider>
       </body>
     </html>
   )

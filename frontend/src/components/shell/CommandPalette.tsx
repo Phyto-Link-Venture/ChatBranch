@@ -21,6 +21,7 @@ import { authHeaders, capabilitiesFor, type AuthUser } from '@/lib/auth'
 import { useEntityQuery } from '@/lib/EntityContext'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { visiblePages } from './nav'
+import { useT, type TFunction } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 const MIN_CHARS = 2
@@ -84,14 +85,15 @@ function pushRecent(u: AuthUser | null, q: string): void {
 }
 
 /** Client-side page match: label first, then group and keywords. */
-function matchPages(user: AuthUser | null, q: string) {
+function matchPages(user: AuthUser | null, q: string, tr: TFunction) {
   const t = q.trim().toLowerCase()
   const pages = visiblePages(user)
   if (!t) return pages.slice(0, 6).map((p) => ({ p, score: 0 }))
   return pages
     .map((p) => {
-      const lbl = p.lbl.toLowerCase()
-      const hay = `${p.group ?? ''} ${p.keywords ?? ''} ${p.href}`.toLowerCase()
+      // the translated label first; the English keywords keep working in every language
+      const lbl = tr(p.lbl).toLowerCase()
+      const hay = `${p.group ? tr(p.group) : ''} ${p.keywords ?? ''} ${p.href}`.toLowerCase()
       const score = lbl.startsWith(t) ? 3 : lbl.includes(t) ? 2 : hay.split(/[\s/]+/).some((w) => w.startsWith(t)) ? 1 : 0
       return { p, score }
     })
@@ -176,6 +178,7 @@ export function CommandPalette({
     }
   }, [q, open, entityQ])
 
+  const tr = useT()
   const caps = useMemo(() => capabilitiesFor(user), [user])
 
   const items = useMemo<Item[]>(() => {
@@ -184,12 +187,12 @@ export function CommandPalette({
     if (!term && recent.length) {
       for (const r of recent) out.push({ key: `recent:${r}`, group: 'Recent searches', title: r, fill: r, Icon: History })
     }
-    for (const { p } of matchPages(user, term)) {
+    for (const { p } of matchPages(user, term, tr)) {
       out.push({
         key: `page:${p.href}`,
         group: term ? 'Pages' : 'Jump to',
-        title: p.lbl,
-        subtitle: p.group,
+        title: tr(p.lbl),
+        subtitle: p.group ? tr(p.group) : undefined,
         url: p.href,
         Icon: p.Icon,
       })
@@ -230,7 +233,7 @@ export function CommandPalette({
         })
     }
     return out
-  }, [q, hits, recent, user, caps])
+  }, [q, hits, recent, user, caps, tr])
 
   useEffect(() => setActive(0), [q, hits.length])
 

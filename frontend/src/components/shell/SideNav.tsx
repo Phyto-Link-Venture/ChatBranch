@@ -10,6 +10,7 @@ import { BranchMark, Logo } from './Logo'
 import { ThemeToggle } from './ThemeToggle'
 import { EntitySwitcher } from './EntitySwitcher'
 import { SETTINGS_NAV, isActive, visibleGroups, type NavDef } from './nav'
+import { useT } from '@/i18n'
 import { useNotifications } from './notificationsStore'
 import { useLive } from './liveStore'
 import { useInstallPrompt } from './pwa'
@@ -54,6 +55,7 @@ export function SideNav({
   onCloseMobile?: () => void
   onSignOut: () => void
 }) {
+  const t = useT()
   const pathname = usePathname() || '/analytics'
   const entityQ = useEntityQuery()
   const { unread } = useNotifications()
@@ -148,7 +150,8 @@ export function SideNav({
     const active = isActive(pathname, n)
     const count = counter(n)
     const needsHuman = n.counter === 'waiting' ? live?.needs_human_count ?? 0 : 0
-    const label = count > 0 ? `${n.lbl} (${count})` : n.lbl
+    const name = t(n.lbl)
+    const label = count > 0 ? `${name} (${count})` : name
     return (
       <Link
         key={n.href}
@@ -170,7 +173,7 @@ export function SideNav({
         }`}
       >
         <n.Icon size={17} strokeWidth={1.7} className="shrink-0" aria-hidden />
-        {!collapsed && <span className="min-w-0 flex-1 truncate">{n.lbl}</span>}
+        {!collapsed && <span className="min-w-0 flex-1 truncate">{name}</span>}
         {!collapsed && count > 0 && n.counter === 'waiting' && (
           <span className="shrink-0 rounded-full bg-primary px-[7px] py-px text-[11.5px] font-semibold tabular-nums text-on-primary">
             {count > 99 ? '99+' : count}
@@ -262,7 +265,7 @@ export function SideNav({
                   aria-controls={id}
                   className="eyebrow flex w-full cursor-pointer items-center justify-between rounded-md px-2.5 py-1.5 transition-colors hover:text-text-high"
                 >
-                  {g.label}
+                  {t(g.label!)}
                   <ChevronDown
                     size={13}
                     strokeWidth={2}

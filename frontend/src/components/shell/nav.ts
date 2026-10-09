@@ -27,10 +27,12 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { DEFAULT_ROLE_CAPS, type AuthUser } from '@/lib/auth'
+import type { MessageKey } from '@/i18n'
 
 export interface NavDef {
   href: string
-  lbl: string
+  /** Translation key of the label — render with `t(n.lbl)`. */
+  lbl: MessageKey
   Icon: LucideIcon
   /** Extra path prefixes that also mark this item active (detail routes). */
   alsoActive?: string[]
@@ -47,8 +49,8 @@ export interface NavDef {
 }
 
 export interface NavGroup {
-  /** Undefined = the ungrouped head of the list (Analytics, Notifications). */
-  label?: string
+  /** Translation key; undefined = the ungrouped head of the list (Analytics, Notifications). */
+  label?: MessageKey
   items: NavDef[]
 }
 
@@ -63,60 +65,60 @@ const ADMINS = ['superadmin', 'admin']
 export const NAV_GROUPS: NavGroup[] = [
   {
     items: [
-      { href: '/analytics', lbl: 'Analytics', Icon: TrendingUp, cap: 'analytics.view', keywords: 'home dashboard overview reports' },
-      { href: '/notifications', lbl: 'Notifications', Icon: Bell, counter: 'notifications', keywords: 'alerts bell inbox' },
+      { href: '/analytics', lbl: 'shell.nav.analytics', Icon: TrendingUp, cap: 'analytics.view', keywords: 'home dashboard overview reports' },
+      { href: '/notifications', lbl: 'shell.nav.notifications', Icon: Bell, counter: 'notifications', keywords: 'alerts bell inbox' },
     ],
   },
   {
-    label: 'Work',
+    label: 'shell.groups.work',
     items: [
-      { href: '/chats', lbl: 'Chats', Icon: MessageSquare, cap: 'chats.view', counter: 'waiting', keywords: 'inbox conversations messages whatsapp email' },
-      { href: '/contacts', lbl: 'Contacts', Icon: Users, alsoActive: ['/contacts/'], cap: 'contacts.view', keywords: 'customers people crm' },
-      { href: '/bookings', lbl: 'Bookings', Icon: CalendarCheck, cap: 'chats.view', keywords: 'appointments calendar booking schedule' },
-      { href: '/assignments', lbl: 'Account assignment', Icon: ListChecks, cap: 'account_assignment.manage', roles: ADMINS, keywords: 'routing sticky numbers' },
+      { href: '/chats', lbl: 'shell.nav.chats', Icon: MessageSquare, cap: 'chats.view', counter: 'waiting', keywords: 'inbox conversations messages whatsapp email' },
+      { href: '/contacts', lbl: 'shell.nav.contacts', Icon: Users, alsoActive: ['/contacts/'], cap: 'contacts.view', keywords: 'customers people crm' },
+      { href: '/bookings', lbl: 'shell.nav.bookings', Icon: CalendarCheck, cap: 'chats.view', keywords: 'appointments calendar booking schedule' },
+      { href: '/assignments', lbl: 'shell.nav.assignments', Icon: ListChecks, cap: 'account_assignment.manage', roles: ADMINS, keywords: 'routing sticky numbers' },
     ],
   },
   {
-    label: 'Automate',
+    label: 'shell.groups.automate',
     items: [
-      { href: '/flow-builder', lbl: 'Flow builder', Icon: Workflow, cap: 'flows.manage', roles: ADMINS, keywords: 'workflows campaigns' },
-      { href: '/ai-monitor', lbl: 'AI monitor', Icon: ScanEye, cap: 'ai.monitor', keywords: 'drafts approve review bot' },
-      { href: '/automations', lbl: 'Automations', Icon: Zap, cap: 'flows.manage', roles: ADMINS, keywords: 'rules triggers' },
-      { href: '/persona', lbl: 'Voice & calls', Icon: Mic, cap: 'settings.ai.manage', roles: ADMINS, keywords: 'voice persona calling' },
+      { href: '/flow-builder', lbl: 'shell.nav.flowBuilder', Icon: Workflow, cap: 'flows.manage', roles: ADMINS, keywords: 'workflows campaigns' },
+      { href: '/ai-monitor', lbl: 'shell.nav.aiMonitor', Icon: ScanEye, cap: 'ai.monitor', keywords: 'drafts approve review bot' },
+      { href: '/automations', lbl: 'shell.nav.automations', Icon: Zap, cap: 'flows.manage', roles: ADMINS, keywords: 'rules triggers' },
+      { href: '/persona', lbl: 'shell.nav.voice', Icon: Mic, cap: 'settings.ai.manage', roles: ADMINS, keywords: 'voice persona calling' },
     ],
   },
   {
-    label: 'Library',
+    label: 'shell.groups.library',
     items: [
-      { href: '/templates', lbl: 'Templates', Icon: FileText, alsoActive: ['/script-templates'], cap: ['templates.manage', 'script_templates.manage'], roles: ADMINS, keywords: 'canned replies scripts messages' },
-      { href: '/knowledge', lbl: 'Knowledge base', Icon: BookOpen, cap: 'settings.ai.manage', roles: ADMINS, keywords: 'faq policies facts' },
-      { href: '/skills', lbl: 'AI skills', Icon: Sparkles, cap: 'settings.ai.manage', roles: ADMINS, keywords: 'instructions' },
-      { href: '/tags', lbl: 'Tags', Icon: Tag, cap: 'tags.view', keywords: 'labels fields' },
+      { href: '/templates', lbl: 'shell.nav.templates', Icon: FileText, alsoActive: ['/script-templates'], cap: ['templates.manage', 'script_templates.manage'], roles: ADMINS, keywords: 'canned replies scripts messages' },
+      { href: '/knowledge', lbl: 'shell.nav.knowledge', Icon: BookOpen, cap: 'settings.ai.manage', roles: ADMINS, keywords: 'faq policies facts' },
+      { href: '/skills', lbl: 'shell.nav.skills', Icon: Sparkles, cap: 'settings.ai.manage', roles: ADMINS, keywords: 'instructions' },
+      { href: '/tags', lbl: 'shell.nav.tags', Icon: Tag, cap: 'tags.view', keywords: 'labels fields' },
     ],
   },
   {
-    label: 'Channels',
+    label: 'shell.groups.channels',
     items: [
-      { href: '/channels', lbl: 'Channels', Icon: Radio, cap: 'channels.view', roles: ADMINS, keywords: 'whatsapp telegram email accounts numbers widget' },
-      { href: '/integrations', lbl: 'Integrations', Icon: Plug, cap: 'integrations.view', roles: ADMINS, keywords: 'google calendar stripe shopify' },
+      { href: '/channels', lbl: 'shell.nav.channels', Icon: Radio, cap: 'channels.view', roles: ADMINS, keywords: 'whatsapp telegram email accounts numbers widget' },
+      { href: '/integrations', lbl: 'shell.nav.integrations', Icon: Plug, cap: 'integrations.view', roles: ADMINS, keywords: 'google calendar stripe shopify' },
     ],
   },
   {
-    label: 'Admin',
+    label: 'shell.groups.admin',
     items: [
-      { href: '/users', lbl: 'Users & roles', Icon: UserCog, cap: 'users.view', roles: ADMINS, keywords: 'people accounts staff' },
-      { href: '/teams', lbl: 'Teams', Icon: UsersRound, cap: 'users.view', roles: ADMINS },
-      { href: '/entities', lbl: 'Entities', Icon: Building2, cap: 'entities.view', roles: ADMINS, keywords: 'branches outlets' },
-      { href: '/bindings', lbl: 'Bindings', Icon: Link2, cap: 'users.view', roles: ADMINS, keywords: 'access' },
-      { href: '/permissions', lbl: 'Permissions', Icon: ShieldCheck, cap: 'rbac.manage', roles: ['superadmin'], keywords: 'rbac capabilities matrix' },
-      { href: '/developers', lbl: 'API keys & MCP', Icon: Code2, cap: 'api_keys.manage', roles: ADMINS, keywords: 'developers tokens mcp' },
+      { href: '/users', lbl: 'shell.nav.users', Icon: UserCog, cap: 'users.view', roles: ADMINS, keywords: 'people accounts staff' },
+      { href: '/teams', lbl: 'shell.nav.teams', Icon: UsersRound, cap: 'users.view', roles: ADMINS },
+      { href: '/entities', lbl: 'shell.nav.entities', Icon: Building2, cap: 'entities.view', roles: ADMINS, keywords: 'branches outlets' },
+      { href: '/bindings', lbl: 'shell.nav.bindings', Icon: Link2, cap: 'users.view', roles: ADMINS, keywords: 'access' },
+      { href: '/permissions', lbl: 'shell.nav.permissions', Icon: ShieldCheck, cap: 'rbac.manage', roles: ['superadmin'], keywords: 'rbac capabilities matrix' },
+      { href: '/developers', lbl: 'shell.nav.developers', Icon: Code2, cap: 'api_keys.manage', roles: ADMINS, keywords: 'developers tokens mcp' },
     ],
   },
   {
-    label: 'Review',
+    label: 'shell.groups.review',
     items: [
-      { href: '/activity', lbl: 'Activity', Icon: Activity, cap: 'activity.view', keywords: 'audit log' },
-      { href: '/call-logs', lbl: 'Call logs', Icon: PhoneCall, alsoActive: ['/call-logs/'], cap: 'call_logs.view', keywords: 'calls recordings' },
+      { href: '/activity', lbl: 'shell.nav.activity', Icon: Activity, cap: 'activity.view', keywords: 'audit log' },
+      { href: '/call-logs', lbl: 'shell.nav.callLogs', Icon: PhoneCall, alsoActive: ['/call-logs/'], cap: 'call_logs.view', keywords: 'calls recordings' },
     ],
   },
 ]
@@ -125,7 +127,7 @@ export const NAV_GROUPS: NavGroup[] = [
  *  and the settings shell gates its own admin tabs. */
 export const SETTINGS_NAV: NavDef = {
   href: '/settings',
-  lbl: 'Settings',
+  lbl: 'shell.nav.settings',
   Icon: Settings,
   alsoActive: ['/settings/'],
   keywords: 'preferences appearance theme configuration',
@@ -180,7 +182,7 @@ export function firstVisibleHref(user: AuthUser | null): string {
 }
 
 /** Flat list for the command palette's "Pages" group. */
-export function visiblePages(user: AuthUser | null): (NavDef & { group?: string })[] {
+export function visiblePages(user: AuthUser | null): (NavDef & { group?: MessageKey })[] {
   return [
     ...visibleGroups(user).flatMap((g) => g.items.map((n) => ({ ...n, group: g.label }))),
     SETTINGS_NAV,

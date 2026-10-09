@@ -541,6 +541,39 @@ public class SettingsCapabilityTests : IClassFixture<ApiFactory>
         Assert.Equal(JsonValueKind.Null, org.GetProperty("appearance").ValueKind);
         Assert.True(SettingsTestKit.WithDb(_f, db => db.AuditLogs.Any(a => a.Actor == "admin" && a.Target == "appearance")));
     }
+
+    [Fact]
+    public async Task Language_preference_round_trips_validates_and_falls_back_to_the_org_default()
+    {
+        var agent = await SettingsTestKit.Client(_f, "agent", "agent123");
+        var admin = await SettingsTestKit.Client(_f, "admin", "admin123");
+        var start = await agent.GetFromJsonAsync<JsonElement>("/api/auth/preferences");
+        Assert.Equal(JsonValueKind.Null, start.GetProperty("locale").ValueKind);
+
+        // the user's own language, without touching their appearance
+        var saved = await agent.PutAsJsonAsync("/api/auth/preferences", new { locale = "ms" });
+        saved.EnsureSuccessStatusCode();
+        var mine = await saved.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("ms", mine.GetProperty("locale").GetString());
+        (await agent.PutAsJsonAsync("/api/auth/preferences", new { locale = "ZH" })).EnsureSuccessStatusCode();
+        Assert.Equal("zh", (await agent.GetFromJsonAsync<JsonElement>("/api/auth/preferences")).GetProperty("locale").GetString());
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await agent.PutAsJsonAsync("/api/auth/preferences", new { locale = "fr" })).StatusCode);
+
+        // the organization default: admin only; a user without a choice inherits it
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await agent.PutAsJsonAsync("/api/settings/appearance", new { locale = "ms" })).StatusCode);
+        (await admin.PutAsJsonAsync("/api/settings/appearance", new { locale = "ms" })).EnsureSuccessStatusCode();
+        (await agent.PutAsJsonAsync("/api/auth/preferences", new { locale = (string?)null })).EnsureSuccessStatusCode();
+        var inherited = await agent.GetFromJsonAsync<JsonElement>("/api/auth/preferences");
+        Assert.Equal(JsonValueKind.Null, inherited.GetProperty("locale").ValueKind);
+        Assert.Equal("ms", inherited.GetProperty("org_locale").GetString());
+        Assert.Equal("ms", (await agent.GetFromJsonAsync<JsonElement>("/api/settings/appearance")).GetProperty("locale").GetString());
+
+        (await admin.PutAsJsonAsync("/api/settings/appearance", new { locale = (string?)null })).EnsureSuccessStatusCode();
+        Assert.Equal(JsonValueKind.Null,
+            (await agent.GetFromJsonAsync<JsonElement>("/api/auth/preferences")).GetProperty("org_locale").ValueKind);
+    }
 }
 
 /// <summary>POST /api/whatsapp/assignments/rebalance — even spread, pins stay.</summary>

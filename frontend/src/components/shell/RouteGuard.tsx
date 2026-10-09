@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Lock } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { AuthUser } from '@/lib/auth'
+import { useT } from '@/i18n'
 import { canSee, firstVisibleHref, routeDef, visiblePages } from './nav'
 
 /**
@@ -24,12 +25,14 @@ export function RouteGuard({
   pathname: string
   children: ReactNode
 }) {
+  const t = useT()
   if (!ready) return <div className="min-h-0 flex-1" aria-busy="true" />
   const def = routeDef(pathname)
   if (!def || canSee(user, def)) return <>{children}</>
 
   const next = firstVisibleHref(user)
-  const nextLabel = visiblePages(user).find((p) => p.href === next)?.lbl ?? 'Settings'
+  const nextDef = visiblePages(user).find((p) => p.href === next)
+  const nextLabel = t(nextDef?.lbl ?? 'shell.nav.settings')
   const need = def.cap ? ([] as string[]).concat(def.cap) : []
   return (
     <div className="flex h-full min-h-[50vh] flex-1 items-center justify-center p-6">
@@ -37,22 +40,15 @@ export function RouteGuard({
         <span className="mx-auto grid h-11 w-11 place-items-center rounded-full bg-fill">
           <Lock size={18} className="text-text-muted" aria-hidden />
         </span>
-        <h1 className="display mt-3 text-[22px] text-text-heading">You don&rsquo;t have access to {def.lbl}</h1>
+        <h1 className="display mt-3 text-[22px] text-text-heading">{t('shell.guard.title', { page: t(def.lbl) })}</h1>
         <p className="mt-2 text-[13px] leading-relaxed text-text-muted">
-          Your role doesn&rsquo;t include the permission this page needs
-          {need.length > 0 && (
-            <>
-              {' '}
-              (<span className="font-mono text-[12px] text-text-mid">{need.join(' or ')}</span>)
-            </>
-          )}
-          . Ask an admin to grant it under Users &amp; roles.
+          {t('shell.guard.body', { caps: need.join(' / ') || '—' })}
         </p>
         <Link
           href={next}
           className="mt-4 inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-on-primary hover:opacity-90"
         >
-          Go to {nextLabel}
+          {t('shell.guard.goTo', { page: nextLabel })}
         </Link>
       </div>
     </div>

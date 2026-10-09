@@ -12,6 +12,7 @@ import { TopBar } from './TopBar'
 import { CommandPalette } from './CommandPalette'
 import { HOME, canSee, firstVisibleHref, isActive, NAV_GROUPS, routeDef } from './nav'
 import { RouteGuard } from './RouteGuard'
+import { syncLocaleFromServer, useT, type MessageKey } from '@/i18n'
 import { resetNotifications } from './notificationsStore'
 import { useLive } from './liveStore'
 import { CampaignModal } from '@/components/CampaignModal'
@@ -89,6 +90,7 @@ export function Shell({ children }: { children: ReactNode }) {
     if (u && u.token !== syncedToken) {
       syncedToken = u.token
       void syncAppearanceFromServer() // a 404 on an older API is harmless
+      void syncLocaleFromServer() // the user's own language, else the organization default
       void refreshIdentity()
     }
   }, [pathname])
@@ -203,12 +205,14 @@ export function Shell({ children }: { children: ReactNode }) {
 function BottomTabs({ user, pathname, onMore }: { user: AuthUser | null; pathname: string; onMore: () => void }) {
   const entityQ = useEntityQuery()
   const { data: live } = useLive(entityQ)
+  const tr = useT()
   const byHref = (href: string) => NAV_GROUPS.flatMap((g) => g.items).find((n) => n.href === href)
-  const tabs = [
-    { href: HOME, lbl: 'Home', Icon: TrendingUp },
-    { href: '/chats', lbl: 'Chats', Icon: MessageSquare, badge: live?.waiting_count ?? 0 },
-    { href: '/contacts', lbl: 'Contacts', Icon: Users },
-  ].filter((t) => {
+  const allTabs: { href: string; lbl: MessageKey; Icon: typeof Users; badge?: number }[] = [
+    { href: HOME, lbl: 'shell.nav.home', Icon: TrendingUp },
+    { href: '/chats', lbl: 'shell.nav.chats', Icon: MessageSquare, badge: live?.waiting_count ?? 0 },
+    { href: '/contacts', lbl: 'shell.nav.contacts', Icon: Users },
+  ]
+  const tabs = allTabs.filter((t) => {
     const def = byHref(t.href)
     return !def || canSee(user, def)
   })
@@ -239,7 +243,7 @@ function BottomTabs({ user, pathname, onMore }: { user: AuthUser | null; pathnam
                 </span>
               )}
             </span>
-            {t.lbl}
+            {tr(t.lbl)}
           </Link>
         )
       })}
@@ -249,7 +253,7 @@ function BottomTabs({ user, pathname, onMore }: { user: AuthUser | null; pathnam
         className="flex flex-col items-center gap-1 border-t-2 border-transparent pb-2.5 pt-2 text-[11px] text-text-mid"
       >
         <Menu size={19} strokeWidth={1.6} aria-hidden />
-        More
+        {tr('shell.nav.more')}
       </button>
     </nav>
   )
