@@ -228,6 +228,14 @@ export const settings: Dict<typeof source> = {
     needsReconnect: '需要重新连接',
     reconnectHint: '重新登录（例如切换 Google 账号）',
     shared: '整个组织或某个分店的共享连接由管理员在{link}中管理。',
+    order: '需要用到 Google 时，ChatBranch 先用你自己的连接，然后是共享连接：对话所属的实体、其上级实体，最后是整个组织。',
+    usedFor: {
+      google_calendar: '设为“对话指派的客服”的预约技能会查看你的空闲时间，并为指派给你的对话预约到这个日历。',
+      google_contacts: '联系人 → 导入 → Google Contacts 会读取你的通讯录（只读）。',
+      gmail: '你自己执行的操作从你的 Gmail 发送；自动化客户旅程使用共享连接。',
+      google_drive: '你自己执行的操作保存到你的 Drive；自动化客户旅程使用共享连接。',
+      google_sheets: '你自己执行的操作写入你的表格；自动化客户旅程使用共享连接。',
+    },
   },
   aiProviders: {
     groups: {

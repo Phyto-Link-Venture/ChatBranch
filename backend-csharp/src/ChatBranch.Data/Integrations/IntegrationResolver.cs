@@ -7,10 +7,11 @@ namespace ChatBranch.Data.Integrations;
 /// Which connection answers for a provider, in one place.
 ///
 /// Resolution order is <b>the acting user's own grant → the entity's shared
-/// grant → the organization-wide one</b>. That is what makes "different people,
-/// different Google Calendars" work: a user who connected their own calendar
-/// books against it, and everyone else falls back to the shared account rather
-/// than failing.
+/// grant → its parent entities' (up the tree) → the organization-wide one</b>.
+/// That is what makes "different people, different Google Calendars" work: a
+/// user who connected their own calendar books against it, and everyone else
+/// falls back to the shared account rather than failing. A branch inherits head
+/// office's connection; head office never borrows a branch's.
 /// </summary>
 public class IntegrationResolver
 {
@@ -44,18 +45,53 @@ public class IntegrationResolver
                       ?? rows.FirstOrDefault(i => i.OwnerUserId == uid);
             if (own != null) return own;
         }
-        // 2. the entity's shared grant, then anything beneath it
+        // 2. the entity's shared grant, then its parent's, up to the top of the tree —
+        //    a branch inherits head office's connection, never the other way round
         if (entityId is int eid)
-        {
-            var shared = rows.FirstOrDefault(i => i.OwnerUserId == null && i.EntityId == eid);
-            if (shared != null) return shared;
-            var subtree = _scoping.EntitySubtreeIds(eid);
-            var below = rows.FirstOrDefault(i => i.OwnerUserId == null
-                                                 && i.EntityId != null && subtree.Contains(i.EntityId.Value));
-            if (below != null) return below;
-        }
+            foreach (var level in AncestorChain(eid))
+            {
+                var shared = rows.FirstOrDefault(i => i.OwnerUserId == null && i.EntityId == level);
+                if (shared != null) return shared;
+            }
         // 3. the organization-wide connection
         return rows.FirstOrDefault(i => i.OwnerUserId == null && i.EntityId == null);
+    }
+
+    /// <summary>The entity, then its parent, grandparent… (bounded, cycle-safe).</summary>
+    public List<int> AncestorChain(int entityId)
+    {
+        var chain = new List<int>();
+        int? current = entityId;
+        while (current is int id && chain.Count < 32 && !chain.Contains(id))
+        {
+            chain.Add(id);
+            current = _db.Entities.AsNoTracking().Where(e => e.Id == id).Select(e => e.ParentId).FirstOrDefault();
+        }
+        return chain;
+    }
+
+    /// <summary>
+    /// The SHARED row a connect flow writes to: no owner, for one entity (and,
+    /// through <see cref="Active"/>, its branches) or the whole organization
+    /// (<paramref name="entityId"/> null). Created empty when missing.
+    /// </summary>
+    public async Task<Integration> SharedRowAsync(string provider, int? entityId, CancellationToken ct = default)
+    {
+        var row = await _db.Integrations.FirstOrDefaultAsync(
+            i => i.Provider == provider && i.EntityId == entityId && i.OwnerUserId == null, ct);
+        if (row != null) return row;
+        row = new Integration
+        {
+            Provider = provider,
+            EntityId = entityId,
+            OwnerUserId = null,
+            Status = "unknown",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        _db.Integrations.Add(row);
+        await _db.SaveChangesAsync(ct);
+        return row;
     }
 
     /// <summary>

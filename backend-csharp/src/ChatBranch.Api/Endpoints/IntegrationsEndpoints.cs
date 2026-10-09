@@ -200,7 +200,7 @@ public static class IntegrationsEndpoints
             AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
-            var rows = await (await Visible(db, sc, me, entityId)).Include(i => i.Owner).ToListAsync();
+            var rows = await (await Visible(db, sc, me, entityId)).Include(i => i.Owner).Include(i => i.Entity).ToListAsync();
             var googleReady = GoogleOauthConfigured(sc);
 
             var providers = Catalog.Select(meta =>
@@ -241,8 +241,8 @@ public static class IntegrationsEndpoints
             // (their personal Google Calendar), never anyone else's
             var uid = await UserIdAsync(db, me);
             var qs = await ShellScope.HasCapAsync(db, me, "integrations.view")
-                ? (await Visible(db, sc, me, entityId)).Include(i => i.Owner)
-                : db.Integrations.AsNoTracking().Include(i => i.Owner)
+                ? (await Visible(db, sc, me, entityId)).Include(i => i.Owner).Include(i => i.Entity)
+                : db.Integrations.AsNoTracking().Include(i => i.Owner).Include(i => i.Entity)
                     .Where(i => uid != null && i.OwnerUserId == uid);
             var wanted = (provider ?? "").Trim();
             if (wanted.Length > 0) qs = qs.Where(i => i.Provider == wanted);
@@ -263,7 +263,11 @@ public static class IntegrationsEndpoints
                     detail = $"provider must be one of {string.Join(", ", Catalog.Select(c => c.Id))}.",
                 }, statusCode: 400);
 
-            var entityId = await InboxEndpoints.EntityId(db, AsText(body, "entity"));
+            // entity = that entity and its branches; none = the whole organization
+            var entitySlug = (AsText(body, "entity") ?? "").Trim();
+            var entityId = await InboxEndpoints.EntityId(db, entitySlug);
+            if (entitySlug is { Length: > 0 } and not ("all" or "__all__") && entityId == null)
+                return Results.Json(new { detail = $"Unknown entity '{entitySlug}'." }, statusCode: 404);
             var config = ObjectToDict(body, "config");
             var name = Cap((AsText(body, "name") ?? "").Trim(), 120);
             config["name"] = name.Length > 0 ? name : meta.Label;
@@ -291,6 +295,7 @@ public static class IntegrationsEndpoints
             };
             db.Integrations.Add(row);
             await db.SaveChangesAsync();
+            if (row.EntityId is int eid) row.Entity = await db.Entities.FindAsync(eid);
 
             await Audit(db, ctx, me, "integration.create", $"{provider}:{Name(row)}");
             await NotifyAdmins(db, $"Integration added: {Name(row)}",
@@ -318,7 +323,7 @@ public static class IntegrationsEndpoints
         app.MapPost("/api/integrations/accounts/{id:int}/test", async (int id, AppDbContext db,
             ClaimsPrincipal me) =>
         {
-            var row = await db.Integrations.FirstOrDefaultAsync(i => i.Id == id);
+            var row = await db.Integrations.Include(i => i.Owner).Include(i => i.Entity).FirstOrDefaultAsync(i => i.Id == id);
             if (row == null || !await CanSeeRowAsync(db, me, row))
                 return Results.Json(new { detail = "Integration not found." }, statusCode: 404);
 
@@ -342,7 +347,7 @@ public static class IntegrationsEndpoints
         app.MapPost("/api/integrations/accounts/{id:int}/disconnect", async (int id,
             HttpContext ctx, AppDbContext db, ClaimsPrincipal me) =>
         {
-            var row = await db.Integrations.FirstOrDefaultAsync(i => i.Id == id);
+            var row = await db.Integrations.Include(i => i.Owner).Include(i => i.Entity).FirstOrDefaultAsync(i => i.Id == id);
             if (row == null || !await CanSeeRowAsync(db, me, row))
                 return Results.Json(new { detail = "Integration not found." }, statusCode: 404);
             // anyone may disconnect their OWN connection; shared ones need admin+
@@ -406,7 +411,7 @@ public static class IntegrationsEndpoints
         {
             var uid = await UserIdAsync(db, me);
             var own = uid == null ? new List<Integration>()
-                : await db.Integrations.AsNoTracking().Include(i => i.Owner)
+                : await db.Integrations.AsNoTracking().Include(i => i.Owner).Include(i => i.Entity)
                     .Where(i => i.OwnerUserId == uid).ToListAsync();
             // the two a personal grant matters most for first
             var products = Catalog.Where(p => p.Kind == "oauth")
@@ -437,14 +442,25 @@ public static class IntegrationsEndpoints
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- OAuth: start ------------------------------------------------
-        // Returns a ready Google consent URL for THIS caller's own connection
-        // (PKCE + signed state). Each user gets their own row, so two people in
-        // one entity connect two different calendars instead of overwriting one.
+        // Returns a ready Google consent URL (PKCE + signed state) for one of two
+        // kinds of row:
+        //   default        THIS caller's own connection (Settings → My connections).
+        //                  Each user gets their own row, so two people in one entity
+        //                  connect two different calendars instead of overwriting one.
+        //   for=shared     a SHARED connection (the Integrations page): ?entity=<slug>
+        //                  = that entity and its branches, none = the whole
+        //                  organization. admin+ with integrations.manage.
         app.MapGet("/api/integrations/oauth/{provider}/start", async (string provider, string? entity,
             [Microsoft.AspNetCore.Mvc.FromQuery(Name = "return")] string? returnTo,
+            [Microsoft.AspNetCore.Mvc.FromQuery(Name = "for")] string? forWhom,
             HttpContext ctx, AppDbContext db, ScopingService sc, ClaimsPrincipal me,
             IntegrationResolver resolver, GoogleOAuth oauth) =>
         {
+            var shared = string.Equals((forWhom ?? "").Trim(), "shared", StringComparison.OrdinalIgnoreCase);
+            if (shared && !(ShellScope.RoleOf(me) is Roles.SuperAdmin or Roles.Admin
+                            && await ShellScope.HasCapAsync(db, me, "integrations.manage")))
+                return Results.Json(new { detail = "Only an admin with integrations.manage can connect a shared account." },
+                    statusCode: 403);
             var meta = Meta(provider);
             if (meta == null)
                 return Results.Json(new { detail = "Unknown provider." }, statusCode: 404);
@@ -465,8 +481,11 @@ public static class IntegrationsEndpoints
                 });
 
             var entityId = await InboxEndpoints.EntityId(db, entity);
-            var userId = await UserIdAsync(db, me);
-            var row = await resolver.OwnRowAsync(provider, entityId, userId);
+            if (shared && !string.IsNullOrWhiteSpace(entity) && entity is not ("all" or "__all__") && entityId == null)
+                return Results.Json(new { detail = $"Unknown entity '{entity}'." }, statusCode: 404);
+            var row = shared
+                ? await resolver.SharedRowAsync(provider, entityId)
+                : await resolver.OwnRowAsync(provider, entityId, await UserIdAsync(db, me));
             try
             {
                 var url = oauth.AuthorizeUrl(row, meta.Scopes, RedirectUri(ctx, sc), ReturnKey(returnTo));
@@ -627,7 +646,13 @@ public static class IntegrationsEndpoints
             scopes = row.Scopes.Count > 0
                 ? row.Scopes.ToArray()
                 : connected ? meta?.Scopes ?? Array.Empty<string>() : Array.Empty<string>(),
-            // Whose connection this is. null = shared by the whole entity.
+            // Who it answers for: personal = its owner only (their own actions and
+            // "the assigned agent's calendar"); entity = that entity and its
+            // branches; organization = everyone, after the narrower ones.
+            scope = row.OwnerUserId != null ? "personal" : row.EntityId != null ? "entity" : "organization",
+            entity_id = row.EntityId,
+            entity_name = row.Entity?.Name,
+            entity_slug = row.Entity?.Slug,
             owner_user_id = row.OwnerUserId,
             owner = row.Owner?.Username,
             connected,

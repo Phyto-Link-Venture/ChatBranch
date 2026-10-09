@@ -13,9 +13,12 @@ public class Integration : IEntityScoped
     public int? EntityId { get; set; }
     public Entity? Entity { get; set; }
     /// <summary>
-    /// The user whose account this grant belongs to. null = a SHARED connection
-    /// the whole entity uses. Two people in one entity each connecting their own
-    /// Google Calendar get one row apiece instead of overwriting each other.
+    /// The user whose account this grant belongs to. null = a SHARED connection:
+    /// with an <see cref="EntityId"/>, that entity's and its branches'; without
+    /// one, the whole organization's (IntegrationResolver.Active walks
+    /// own → entity → parent entities → organization). Two people in one entity
+    /// each connecting their own Google Calendar get one row apiece instead of
+    /// overwriting each other.
     /// </summary>
     public int? OwnerUserId { get; set; }
     public AppUser? Owner { get; set; }

@@ -229,6 +229,16 @@ export const settings: Dict<typeof source> = {
     needsReconnect: 'Perlu disambung semula',
     reconnectHint: 'Log masuk semula (cth. untuk menukar akaun Google)',
     shared: 'Sambungan dikongsi untuk seluruh organisasi atau sesebuah cawangan diurus oleh pentadbir di {link}.',
+    order:
+      'Apabila sesuatu memerlukan Google, ChatBranch menggunakan sambungan anda sendiri dahulu, kemudian sambungan dikongsi: entiti perbualan, entiti induknya, kemudian seluruh organisasi.',
+    usedFor: {
+      google_calendar:
+        'Kemahiran tempahan yang ditetapkan kepada “ejen yang ditugaskan untuk perbualan” menyemak masa lapang anda dan menempah ke dalam kalendar ini bagi perbualan yang ditugaskan kepada anda.',
+      google_contacts: 'Kenalan → Import → Google Contacts membaca buku alamat anda (baca sahaja).',
+      gmail: 'Tindakan yang anda jalankan sendiri dihantar daripada Gmail anda; perjalanan automatik menggunakan sambungan dikongsi.',
+      google_drive: 'Tindakan yang anda jalankan sendiri disimpan ke Drive anda; perjalanan automatik menggunakan sambungan dikongsi.',
+      google_sheets: 'Tindakan yang anda jalankan sendiri menulis ke hamparan anda; perjalanan automatik menggunakan sambungan dikongsi.',
+    },
   },
   aiProviders: {
     groups: {

@@ -1089,7 +1089,7 @@ export const ai: Dict<typeof source> = {
       assigneeHint: '——其本人的 Google 授权，否则用共享的',
       followsGroup: '跟随对话',
       shared: '此分店的共享日历',
-      sharedHint: '——否则用组织的',
+      sharedHint: '——否则用上级实体的，再否则用组织的',
       specificGroup: '指定连接',
       ownerHint: '——{owner}',
       ownerNameHint: '——{owner} · {name}',

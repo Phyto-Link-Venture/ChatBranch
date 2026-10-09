@@ -9,7 +9,7 @@ import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { expireSessionOn401 } from '@/lib/auth'
 import { roleHeaders } from '@/lib/role'
 import { useAccess } from '@/lib/useAccess'
-import { Trans, useT } from '@/i18n'
+import { Trans, useT, type MessageKey } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -34,6 +34,15 @@ interface Mine {
   google_configured: boolean
   username?: string
   connections: Product[]
+}
+
+/** What a personal grant is used for, translated by provider id (the server's English is the fallback). */
+const USED_FOR: Record<string, MessageKey> = {
+  google_calendar: 'settings.connections.usedFor.google_calendar',
+  google_contacts: 'settings.connections.usedFor.google_contacts',
+  gmail: 'settings.connections.usedFor.gmail',
+  google_drive: 'settings.connections.usedFor.google_drive',
+  google_sheets: 'settings.connections.usedFor.google_sheets',
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -192,7 +201,9 @@ export function MyConnectionsSettings() {
                         </span>
                       )}
                     </div>
-                    <div className="text-[12px] leading-snug text-text-muted">{p.used_for || p.blurb}</div>
+                    <div className="text-[12px] leading-snug text-text-muted">
+                      {USED_FOR[p.provider] ? t(USED_FOR[p.provider]) : p.used_for || p.blurb}
+                    </div>
                   </div>
                   <div className="flex shrink-0 gap-2">
                     {on ? (
@@ -231,6 +242,7 @@ export function MyConnectionsSettings() {
       </Card>
 
       <p className="text-[12.5px] text-text-muted">
+        {t('settings.connections.order')}{' '}
         <Trans
           k="settings.connections.shared"
           values={{

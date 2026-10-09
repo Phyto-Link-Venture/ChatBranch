@@ -1117,7 +1117,7 @@ export const ai: Dict<typeof source> = {
       assigneeHint: '— geran Google mereka sendiri, jika tiada yang dikongsi',
       followsGroup: 'Mengikut perbualan',
       shared: 'Kalendar dikongsi cawangan ini',
-      sharedHint: '— jika tiada, kalendar organisasi',
+      sharedHint: '— jika tiada, kalendar entiti induknya, kemudian organisasi',
       specificGroup: 'Sambungan tertentu',
       ownerHint: '— {owner}',
       ownerNameHint: '— {owner} · {name}',

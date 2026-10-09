@@ -1122,7 +1122,7 @@ export const ai = {
       assigneeHint: '— their own Google grant, else the shared one',
       followsGroup: 'Follows the conversation',
       shared: 'This outlet’s shared calendar',
-      sharedHint: '— else the organisation’s',
+      sharedHint: '— else its parent entity’s, then the organization’s',
       specificGroup: 'A specific connection',
       ownerHint: '— {owner}',
       ownerNameHint: '— {owner} · {name}',

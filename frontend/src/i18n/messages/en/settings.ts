@@ -227,6 +227,16 @@ export const settings = {
     needsReconnect: 'Needs reconnecting',
     reconnectHint: 'Sign in again (e.g. to switch Google account)',
     shared: 'Shared connections for the whole organization or an outlet are managed by admins on {link}.',
+    order:
+      'When something needs Google, ChatBranch uses your own connection first, then a shared one: the conversation’s entity, its parent entities, then the whole organization.',
+    usedFor: {
+      google_calendar:
+        'Booking skills set to “the conversation’s assigned agent” check your free time and book into this calendar for conversations assigned to you.',
+      google_contacts: 'Contacts → Import → Google Contacts reads your address book (read-only).',
+      gmail: 'Actions you run yourself send from your own Gmail; automated journeys use the shared connection.',
+      google_drive: 'Actions you run yourself save to your own Drive; automated journeys use the shared connection.',
+      google_sheets: 'Actions you run yourself write to your own spreadsheets; automated journeys use the shared connection.',
+    },
   },
   aiProviders: {
     groups: {

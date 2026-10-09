@@ -17,13 +17,15 @@ import {
   RefreshCw,
   Trash2,
   Unplug,
+  UserRound,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { Modal } from '@/components/ui/Modal'
 import { DataTable, type Column } from '@/components/ui/DataTable'
+import { EntityPicker } from '@/components/ui/EntityPicker'
 import { roleHeaders } from '@/lib/role'
-import { useRole } from '@/lib/useRole'
+import { useAccess } from '@/lib/useAccess'
 import { expireSessionOn401 } from '@/lib/auth'
 import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
 import { useSettingsDirty } from './SettingsDirtyContext'
@@ -69,6 +71,11 @@ interface Account {
   status: string
   status_detail: string
   last_ok_at: string | null
+  /** Who it answers for (IntegrationResolver: own → entity → parent entities → organization). */
+  scope: 'personal' | 'entity' | 'organization'
+  entity_name: string | null
+  entity_slug: string | null
+  owner: string | null
 }
 
 interface GlobalSettings {
@@ -95,6 +102,36 @@ async function api<T>(path: string, t: TFunction, init?: RequestInit): Promise<T
 
 const inputCls =
   'w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400'
+
+/** The catalog's one-line purpose, translated by provider id (the server's English is the fallback). */
+const BLURBS: Record<string, MessageKey> = {
+  google_calendar: 'channels.integrations.blurbs.google_calendar',
+  google_drive: 'channels.integrations.blurbs.google_drive',
+  gmail: 'channels.integrations.blurbs.gmail',
+  google_sheets: 'channels.integrations.blurbs.google_sheets',
+  google_contacts: 'channels.integrations.blurbs.google_contacts',
+  shopify: 'channels.integrations.blurbs.shopify',
+  stripe: 'channels.integrations.blurbs.stripe',
+}
+
+/** "Used by" chip: how far a connection reaches. */
+function ScopeChip({ a }: { a: Account }) {
+  const t = useT()
+  if (a.scope === 'personal')
+    return (
+      <span className="inline-flex min-w-0 items-center gap-1 text-[11.5px] text-text-mid">
+        <UserRound size={12} className="shrink-0 text-text-muted" aria-hidden />
+        <span className="truncate">{t('channels.integrations.scope.personal', { owner: a.owner ?? '—' })}</span>
+      </span>
+    )
+  return (
+    <span className="inline-block max-w-full truncate rounded-full bg-fill px-2 py-px text-[10.5px] font-semibold text-text-high">
+      {a.scope === 'entity'
+        ? t('channels.integrations.scope.entity', { entity: a.entity_name ?? a.entity_slug ?? '—' })
+        : t('channels.integrations.scope.organization')}
+    </span>
+  )
+}
 
 /** Providers with a real brand mark (ChannelLogo); anything else gets a plug. */
 const BRANDED = new Set(['google_calendar', 'google_drive', 'gmail', 'google_sheets', 'shopify', 'stripe'])
@@ -146,14 +183,19 @@ function CardStatus({ status }: { status: 'connected' | 'needs_setup' | 'not_con
 interface DraftAccount {
   provider: string
   name: string
+  /** Entity slug it is shared with; null = the whole organization. */
+  entity: string | null
   config: Record<string, string>
   secrets: Record<string, string>
 }
 
 /**
- * Settings → Integrations (upgrade §B). Two clearly separated zones:
+ * Settings → Integrations (upgrade §B). These are SHARED connections — for the
+ * whole organization or one entity and its branches; a person's own grants live
+ * on Settings → My connections. Two clearly separated zones:
  *  1. Connect-first cards — icon, name, one-line purpose, status chip and a
- *     primary Connect button (OAuth full-page redirect via /oauth/<p>/start).
+ *     primary Connect button: "Connect for…" (organization or an entity), then
+ *     the OAuth full-page redirect via /oauth/<p>/start?for=shared.
  *  2. A pointer to Settings → App & Provider Keys, where the one-time system
  *     credentials (Google OAuth client, Shopify/Stripe webhook secrets) live.
  *     The #oauth-client-keys anchor is kept for the "Set up" scroll link.
@@ -168,9 +210,9 @@ export function IntegrationsSettings() {
   // the loaders read the latest t without re-running (a language switch must not refetch)
   const tRef = useRef(t)
   tRef.current = t
-  const { role, ready } = useRole()
-  const canManage = role === 'admin' || role === 'superadmin'
-  const isSuper = role === 'superadmin'
+  const { role, ready, can } = useAccess()
+  // the server's rule for shared connections: admin+ with integrations.manage
+  const canManage = (role === 'admin' || role === 'superadmin') && can('integrations.manage')
 
   const [providers, setProviders] = useState<Provider[] | null>(null)
   const [accounts, setAccounts] = useState<Account[]>([])
@@ -180,10 +222,8 @@ export function IntegrationsSettings() {
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState<string>('')
   const [draft, setDraft] = useState<DraftAccount | null>(null)
-
-  // Booking hours belong to the Google Calendar integration (they drive the
-  // slots the AI offers + the booking guard), not the global settings — so the
-  // editor lives here, revealed from the Google Calendar card.
+  // "Connect for…": the OAuth provider being connected and who it will serve
+  const [connectFor, setConnectFor] = useState<{ provider: Provider; entity: string | null } | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -193,7 +233,9 @@ export function IntegrationsSettings() {
         api<GlobalSettings>('settings', tRef.current),
       ])
       setProviders(p.providers)
-      setAccounts(a.accounts)
+      // a Google sign-in that was started and never finished leaves an empty
+      // placeholder row — nothing to show until a grant lands on it
+      setAccounts(a.accounts.filter((x) => !(x.kind === 'oauth' && !x.connected && (!x.status || x.status === 'unknown'))))
       setSettings(s)
       setLoadError(null)
     } catch (e) {
@@ -238,25 +280,36 @@ export function IntegrationsSettings() {
     document.getElementById('oauth-client-keys')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
-  const connect = async (provider: Provider) => {
+  /** The shared row that already serves exactly this scope (connecting again replaces its grant). */
+  const existingFor = (providerId: string, entity: string | null) =>
+    (byProvider[providerId] || []).find(
+      (a) => a.scope !== 'personal' && a.connected && (a.entity_slug ?? null) === entity,
+    )
+
+  const connect = async (provider: Provider, entity: string | null) => {
     setError(null)
     setNotice(null)
     setBusy(`connect-${provider.id}`)
     try {
-      // The start endpoint returns a ready authorize URL, or {configured:false}
-      // when the platform OAuth app hasn't been registered yet (spec §5).
+      // A SHARED connection for the organization (no entity) or one entity and
+      // its branches. The start endpoint returns a ready authorize URL, or
+      // {configured:false} when the platform OAuth app isn't registered yet.
+      const q = new URLSearchParams({ for: 'shared' })
+      if (entity) q.set('entity', entity)
       const d = await api<{ authorize_url?: string; configured?: boolean; reason?: string }>(
-        `oauth/${provider.id}/start`,
+        `oauth/${provider.id}/start?${q}`,
         t,
       )
       if (d.configured === false || !d.authorize_url) {
+        setConnectFor(null)
         setError(d.reason || t('channels.integrations.notSetUp', { name: provider.label }))
         scrollToKeys()
         return
       }
-      // Full-page redirect: the user authorizes with THEIR account and returns.
+      // Full-page redirect: the admin authorizes with the account to share and returns.
       window.location.href = d.authorize_url
     } catch (e) {
+      setConnectFor(null)
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy('')
@@ -273,6 +326,7 @@ export function IntegrationsSettings() {
         body: JSON.stringify({
           provider: draft.provider,
           name: draft.name.trim() || undefined,
+          entity: draft.entity ?? undefined,
           config: draft.config,
           ...draft.secrets,
         }),
@@ -366,6 +420,15 @@ export function IntegrationsSettings() {
       ),
     },
     {
+      key: 'scope',
+      header: t('channels.integrations.colUsedBy'),
+      sortable: true,
+      width: 190,
+      value: (a) =>
+        a.scope === 'personal' ? `~${a.owner ?? ''}` : a.scope === 'entity' ? `1${a.entity_name ?? ''}` : '0',
+      render: (a) => <ScopeChip a={a} />,
+    },
+    {
       key: 'status',
       header: t('common.fields.status'),
       sortable: true,
@@ -453,7 +516,36 @@ export function IntegrationsSettings() {
         />
       </p>
 
-      {error && (
+      {/* Who uses which connection — the resolver's order, in words */}
+      <section
+        aria-labelledby="integrations-reach"
+        className="max-w-[720px] rounded-xl border border-line bg-well px-4 py-3 text-[11.5px] leading-relaxed text-text-mid"
+      >
+        <h2 id="integrations-reach" className="text-[12.5px] font-bold text-text-high">
+          {t('channels.integrations.reach.title')}
+        </h2>
+        <p className="mt-1">
+          <Trans
+            k="channels.integrations.reach.body"
+            values={{
+              link: (
+                <Link href="/settings/connections" className="font-semibold text-brand-300 underline-offset-2 hover:underline">
+                  {t('channels.integrations.reach.myConnections')}
+                </Link>
+              ),
+            }}
+          />
+        </p>
+        <ol className="mt-1.5 flex list-decimal flex-col gap-0.5 pl-5">
+          <li>{t('channels.integrations.reach.own')}</li>
+          <li>{t('channels.integrations.reach.entity')}</li>
+          <li>{t('channels.integrations.reach.parents')}</li>
+          <li>{t('channels.integrations.reach.org')}</li>
+        </ol>
+        <p className="mt-1.5 text-text-muted">{t('channels.integrations.reach.note')}</p>
+      </section>
+
+      {error && !connectFor && (
         <div
           className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-[12px]"
           style={{ color: 'var(--red-ink)' }}
@@ -498,7 +590,9 @@ export function IntegrationsSettings() {
                       <span className="text-[12.5px] font-bold text-text-high">{p.label}</span>
                       <CardStatus status={status} />
                     </div>
-                    <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">{p.blurb}</p>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">
+                      {BLURBS[p.id] ? t(BLURBS[p.id]) : p.blurb}
+                    </p>
                   </div>
                 </div>
 
@@ -514,7 +608,26 @@ export function IntegrationsSettings() {
                     </Link>
                   )}
                   {!canManage ? (
-                    <span className="text-[10.5px] text-text-muted">{t('channels.integrations.managedByAdmin')}</span>
+                    <span className="text-[10.5px] text-text-muted">
+                      {t('channels.integrations.managedByAdmin')}
+                      {p.kind === 'oauth' && p.id !== 'google_contacts' && (
+                        <>
+                          {' '}
+                          <Link href="/settings/connections" className="font-semibold text-brand-300 hover:underline">
+                            {t('channels.integrations.connectYourOwn')}
+                          </Link>
+                        </>
+                      )}
+                    </span>
+                  ) : p.id === 'google_contacts' ? (
+                    // read-only, per person: everyone imports from their OWN address book
+                    <Link
+                      href="/settings/connections"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-2.5 py-1.5 text-[12px] font-semibold text-text-high hover:bg-fill-hover"
+                    >
+                      <UserRound size={13} aria-hidden />
+                      {t('channels.integrations.personalOnly')}
+                    </Link>
                   ) : p.kind === 'oauth' ? (
                     blocked ? (
                       <div className="flex flex-col gap-1">
@@ -526,14 +639,16 @@ export function IntegrationsSettings() {
                         </span>
                       </div>
                     ) : (
-                      <Button onClick={() => connect(p)} disabled={busy === `connect-${p.id}`}>
-                        {busy === `connect-${p.id}` ? (
-                          <Loader2 size={13} className="animate-spin" aria-hidden />
-                        ) : (
-                          <Link2 size={13} aria-hidden />
-                        )}
+                      <Button
+                        onClick={() => {
+                          setError(null)
+                          setConnectFor({ provider: p, entity: null })
+                        }}
+                        disabled={busy === `connect-${p.id}`}
+                      >
+                        <Link2 size={13} aria-hidden />
                         {status === 'connected'
-                          ? t('channels.integrations.reconnectNamed', { name: p.label })
+                          ? t('channels.integrations.connectAnother')
                           : t('channels.integrations.connectNamed', { name: p.label })}
                       </Button>
                     )
@@ -544,6 +659,7 @@ export function IntegrationsSettings() {
                         setDraft({
                           provider: p.id,
                           name: p.label,
+                          entity: null,
                           config: Object.fromEntries(p.config_fields.map((f) => [f.key, ''])),
                           secrets: Object.fromEntries(p.secret_fields.map((f) => [f.key, ''])),
                         })
@@ -578,6 +694,76 @@ export function IntegrationsSettings() {
         </section>
       )}
 
+      {/* Connect for… (OAuth providers): who this shared connection serves */}
+      {connectFor && (
+        <Modal
+          open
+          onClose={() => setConnectFor(null)}
+          title={t('channels.integrations.connectFor.title', { name: connectFor.provider.label })}
+          subtitle={t('channels.integrations.connectFor.subtitle')}
+          size="md"
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setConnectFor(null)} disabled={busy !== ''}>
+                {t('common.actions.cancel')}
+              </Button>
+              <Button
+                onClick={() => connect(connectFor.provider, connectFor.entity)}
+                disabled={busy === `connect-${connectFor.provider.id}`}
+              >
+                {busy === `connect-${connectFor.provider.id}` ? (
+                  <Loader2 size={13} className="animate-spin" aria-hidden />
+                ) : (
+                  <Link2 size={13} aria-hidden />
+                )}
+                {t('channels.integrations.connectFor.continue')}
+              </Button>
+            </>
+          }
+        >
+          {error && (
+            <div
+              role="alert"
+              className="mb-3 flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-[12px]"
+              style={{ color: 'var(--red-ink)' }}
+            >
+              <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden /> {error}
+            </div>
+          )}
+          <span className="mb-1 block text-[10.5px] font-bold text-text-high">
+            {t('channels.integrations.connectFor.sharedWith')}
+          </span>
+          <EntityPicker
+            value={connectFor.entity}
+            onChange={(entity) => setConnectFor({ ...connectFor, entity })}
+            globalLabel={t('channels.integrations.scope.organization')}
+            ariaLabel={t('channels.integrations.connectFor.sharedWith')}
+          />
+          <p className="mt-1.5 text-[11px] leading-relaxed text-text-muted">
+            {connectFor.entity
+              ? t('channels.integrations.connectFor.entityHint')
+              : t('channels.integrations.connectFor.orgHint')}
+          </p>
+          {existingFor(connectFor.provider.id, connectFor.entity) && (
+            <p className="mt-2 rounded-lg bg-amber/10 px-3 py-2 text-[11px] leading-relaxed" style={{ color: 'var(--amber-ink)' }}>
+              {t('channels.integrations.connectFor.replaces')}
+            </p>
+          )}
+          <p className="mt-3 text-[11px] leading-relaxed text-text-muted">
+            <Trans
+              k="channels.integrations.connectFor.personalHint"
+              values={{
+                link: (
+                  <Link href="/settings/connections" className="font-semibold text-brand-300 hover:underline">
+                    {t('channels.integrations.reach.myConnections')}
+                  </Link>
+                ),
+              }}
+            />
+          </p>
+        </Modal>
+      )}
+
       {/* Add-account modal (api-key providers: Shopify custom app, etc.) */}
       {draft && draftProvider && (
         <Modal
@@ -610,6 +796,20 @@ export function IntegrationsSettings() {
               className={inputCls}
             />
           </label>
+          <div className="mb-3">
+            <span className="mb-1 block text-[10.5px] font-bold text-text-high">
+              {t('channels.integrations.connectFor.sharedWith')}
+            </span>
+            <EntityPicker
+              value={draft.entity}
+              onChange={(entity) => setDraft({ ...draft, entity })}
+              globalLabel={t('channels.integrations.scope.organization')}
+              ariaLabel={t('channels.integrations.connectFor.sharedWith')}
+            />
+            <p className="mt-1 text-[10.5px] leading-relaxed text-text-muted">
+              {draft.entity ? t('channels.integrations.connectFor.entityHint') : t('channels.integrations.connectFor.orgHint')}
+            </p>
+          </div>
           {draftProvider.config_fields.map((f) => (
             <label key={f.key} className="mb-3 block">
               <span className="mb-1 block text-[10.5px] font-bold text-text-high">{f.label}</span>
