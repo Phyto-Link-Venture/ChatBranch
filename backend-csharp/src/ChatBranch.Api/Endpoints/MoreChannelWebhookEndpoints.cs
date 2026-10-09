@@ -220,14 +220,14 @@ public static class MoreChannelWebhookEndpoints
                 {
                     case "follow":
                         OptState(db, threads, ChannelIds.Line, e.UserId, false, "added the account as a friend again");
-                        line?.RememberReplyToken(account.Id, e.UserId, e.ReplyToken, DateTime.UtcNow);
+                        line?.RememberReplyToken(account.Id, e.UserId, e.ReplyToken);
                         continue;
                     case "unfollow":
                         OptState(db, threads, ChannelIds.Line, e.UserId, true, "blocked the account");
                         continue;
                 }
                 // remembered first, so an instant AI answer replies for free
-                line?.RememberReplyToken(account.Id, e.UserId, e.ReplyToken, DateTime.UtcNow);
+                line?.RememberReplyToken(account.Id, e.UserId, e.ReplyToken);
                 var msg = Ingest(db, processor, account, e.UserId, e.Text, null, e.MessageId, e.Timestamp);
                 if (msg == null) continue;
                 if (e.Media is { } media) AttachLater(scopes, account.Id, msg.Id, media);

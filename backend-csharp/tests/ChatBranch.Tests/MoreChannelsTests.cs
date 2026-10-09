@@ -161,6 +161,20 @@ public class MoreChannelsTests : IClassFixture<MoreChannelsFactory>
     }
 
     [Fact]
+    public async Task Line_reply_token_older_than_its_life_falls_back_to_a_push()
+    {
+        var a = Add(ChannelIds.Line, x => { x.AccessToken = "line-token"; x.AppSecret = "line-secret"; });
+        var user = "U" + U();
+        (await PostLine(a, LineText(user, "m" + U(), "Still there?", replyToken: "stale-token"))).EnsureSuccessStatusCode();
+        _f.LineClock.Advance(LineTransport.ReplyTokenTtl + TimeSpan.FromSeconds(1));
+
+        var c = await Authed();
+        (await c.PostAsJsonAsync($"/api/messaging/threads/line/{user}/send", new { text = "Yes!" })).EnsureSuccessStatusCode();
+        Assert.Empty(_f.Http.To("api.line.me", "/message/reply"));
+        Assert.Equal(user, Assert.Single(_f.Http.To("api.line.me", "/message/push")).Json.GetProperty("to").GetString());
+    }
+
+    [Fact]
     public async Task Line_media_downloads_off_the_ack_and_unfollow_opts_out()
     {
         var a = Add(ChannelIds.Line, x => { x.AccessToken = "line-token"; x.AppSecret = "line-secret"; });

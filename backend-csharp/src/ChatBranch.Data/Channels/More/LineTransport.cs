@@ -48,10 +48,12 @@ public sealed class LineTransport : IChannelTransport
 
     // ---- reply tokens ------------------------------------------------------------
 
-    public void RememberReplyToken(int accountId, string userId, string token, DateTime receivedUtc)
+    /// <summary>Keep the webhook's reply token, stamped with this transport's clock
+    /// (the same clock <see cref="TakeReplyToken"/> measures its age with).</summary>
+    public void RememberReplyToken(int accountId, string userId, string token)
     {
         if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(userId)) return;
-        _replyTokens[$"{accountId}:{userId}"] = (token, receivedUtc);
+        _replyTokens[$"{accountId}:{userId}"] = (token, Now);
         if (_replyTokens.Count > 5000) // never grows without bound
             foreach (var (k, v) in _replyTokens)
                 if (Now - v.At > ReplyTokenTtl) _replyTokens.TryRemove(k, out _);

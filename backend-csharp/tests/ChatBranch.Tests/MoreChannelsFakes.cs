@@ -114,13 +114,16 @@ public sealed class FakeProviderHttp : HttpMessageHandler, IHttpClientFactory
 public sealed class MoreChannelsFactory : ApiFactory
 {
     public FakeProviderHttp Http { get; } = new();
+    /// <summary>LINE's reply-token clock: frozen unless a test advances it, so a slow
+    /// CI runner can't age a token past its 50 s life mid-test.</summary>
+    internal ManualClock LineClock { get; } = new(DateTimeOffset.UtcNow);
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         base.ConfigureWebHost(builder);
         builder.ConfigureTestServices(s =>
         {
-            s.AddSingleton(new LineTransport(Http));
+            s.AddSingleton(new LineTransport(Http, LineClock));
             s.AddSingleton(new ViberTransport(Http));
             s.AddSingleton(new TwilioSmsTransport(Http));
             s.AddSingleton(new WeChatTransport(Http));
