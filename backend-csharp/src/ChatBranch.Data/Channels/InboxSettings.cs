@@ -158,6 +158,8 @@ public static class TemplateChannels
     {
         Domain.Channels.WhatsApp, Domain.Channels.Telegram, Domain.Channels.Email,
         Domain.Channels.Facebook, Domain.Channels.Instagram, Domain.Channels.Website,
+        Domain.Channels.Line, Domain.Channels.Viber, Domain.Channels.Sms, Domain.Channels.WeChat,
+        Domain.Channels.TikTok, Domain.Channels.Douyin, Domain.Channels.Zalo,
     };
 
     private static readonly Dictionary<string, string> Aliases = new(StringComparer.OrdinalIgnoreCase)

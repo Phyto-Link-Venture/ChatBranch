@@ -136,6 +136,7 @@ public class Routing
             return a.Provider == Providers.Baileys || (a.AccessToken != "" && a.ExternalId != "");
         if (a.Channel == ChatBranch.Domain.Channels.Email)
             return EmailConfig.AccountConfigured(a);
+        if (MoreChannels.Handles(a.Channel)) return MoreChannels.Configured(a);
         return a.AccessToken != "";
     }
 
@@ -153,7 +154,8 @@ public class Routing
     /// </summary>
     public static bool AccountBound(string channel) =>
         channel is ChatBranch.Domain.Channels.Telegram or ChatBranch.Domain.Channels.Facebook
-            or ChatBranch.Domain.Channels.Instagram or ChatBranch.Domain.Channels.Website;
+            or ChatBranch.Domain.Channels.Instagram or ChatBranch.Domain.Channels.Website
+        || MoreChannels.AccountBound(channel); // LINE, Viber, WeChat, TikTok, Douyin, Zalo
 
     /// <summary>
     /// A channel whose address works from ANY of our accounts (every mailbox can
@@ -162,7 +164,8 @@ public class Routing
     /// unrouted. WhatsApp could, but deliberately never guesses a number for an
     /// unknown sender (cold-text exposure).
     /// </summary>
-    public static bool AddressPortable(string channel) => channel == ChatBranch.Domain.Channels.Email;
+    public static bool AddressPortable(string channel) =>
+        channel == ChatBranch.Domain.Channels.Email || channel == ChatBranch.Domain.Channels.Sms;
 
     public static string ProviderOf(ChannelAccount a) =>
         string.IsNullOrEmpty(a.Provider) ? Providers.Cloud : a.Provider;
@@ -406,6 +409,8 @@ public class Routing
         ChatBranch.Domain.Channels.Email => "email mailbox",
         ChatBranch.Domain.Channels.Telegram => "Telegram bot",
         ChatBranch.Domain.Channels.WhatsApp => "WhatsApp number",
+        ChatBranch.Domain.Channels.Sms => "SMS number",
+        _ when MoreChannels.Handles(channel) => $"{MoreChannels.Label(channel)} account",
         _ => $"{channel} account",
     };
 }

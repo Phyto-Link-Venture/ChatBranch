@@ -689,6 +689,7 @@ public class FlowEngine
                     case "WhatsApp": QueueWhatsApp(run, nodeId, contact, cfg, script); break;
                     case "Email": QueueEmail(run, nodeId, contact, cfg, script); break;
                     case "Telegram": QueueTelegram(run, nodeId, contact, cfg, script); break;
+                    case "SMS": QueueSms(run, nodeId, contact, cfg, script); break;
                     case "AI message": break; // composition marker — the text above is AI-written; sent on the step's other channels
                     case "AI voice call": EnqueueCall(run, nodeId, contact, cfg, ""); break;
                     case "Script call": EnqueueScriptCall(run, nodeId, contact, cfg); break;
@@ -937,6 +938,35 @@ public class FlowEngine
             _queue.Enqueue("telegram", JobKind.Text, key, WithHints(new() { ["text"] = script }, cfg),
                 contact.Id, flowRunId: run.Id, flowNode: nodeId);
         Log(run, nodeId, $"telegram queued ×{keys.Count}");
+    }
+
+    /// <summary>
+    /// SMS: the CRM phone (plus, with "all linked", every SMS conversation linked to
+    /// the contact), digits-keyed like the SMS thread. The queue sends it through
+    /// OutboundSender — a real Twilio SMS when an SMS inbox is configured, a sandbox
+    /// row otherwise (it used to be log-only).
+    /// </summary>
+    private void QueueSms(FlowRun run, string nodeId, Contact? contact, JsonElement cfg, string script)
+    {
+        if (contact == null) { Skip(run, nodeId, "sms skipped: no contact"); return; }
+        var raw = new List<string>();
+        if (!string.IsNullOrWhiteSpace(contact.Phone)) raw.Add(contact.Phone);
+        if (AllLinked(cfg))
+            raw.AddRange(_db.Threads.AsNoTracking()
+                .Where(t => t.Channel == Domain.Channels.Sms && t.ContactId == contact.Id)
+                .Select(t => t.Key).ToList());
+        var seen = new HashSet<string>();
+        var targets = new List<string>();
+        foreach (var d in raw.Select(Digits).Where(d => d.Length >= 6))
+            if (seen.Add(d.Length > 9 ? d[^9..] : d)) targets.Add(d);
+        if (targets.Count == 0) { Skip(run, nodeId, "sms skipped: no contact phone"); return; }
+        if (string.IsNullOrEmpty(script)) { Skip(run, nodeId, "sms skipped: empty message"); return; }
+        foreach (var to in targets)
+        {
+            var job = _queue.Enqueue(Domain.Channels.Sms, JobKind.Text, to, WithHints(new() { ["text"] = script }, cfg),
+                contact.Id, flowRunId: run.Id, flowNode: nodeId);
+            Log(run, nodeId, $"sms queued (job #{job.Id})");
+        }
     }
 
     private void EnqueueCall(FlowRun run, string nodeId, Contact? contact, JsonElement cfg, string script)

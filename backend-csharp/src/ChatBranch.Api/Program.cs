@@ -84,6 +84,8 @@ builder.Services.AddScoped(sp => new ChatBranch.Data.Channels.EmailChannel(
     sp.GetRequiredService<ChatBranch.Data.Channels.IEmailTransport>(),
     sp.GetRequiredService<ChatBranch.Data.Sidecars.VoiceAgentBridge>()));
 builder.Services.AddScoped<ChatBranch.Data.Channels.TelegramChannel>();
+// LINE, Viber, SMS (Twilio), WeChat, TikTok, Douyin, Zalo: one transport each + the send seam
+builder.Services.AddMoreChannels();
 builder.Services.AddScoped<ChatBranch.Data.Channels.EmailSyncService>();
 builder.Services.AddScoped<ChatBranch.Data.Channels.ChannelHealthProber>();
 builder.Services.AddSingleton(sp => new ChatBranch.Api.Workers.HealthRecheck(
@@ -181,6 +183,7 @@ ChatBranch.Data.Channels.InboundProcessor.TeamRouter = (db, thread) =>
 app.MapApiV1Endpoints();
 app.MapWebhookEndpoints();
 app.MapTelegramWebhookEndpoints();
+app.MapMoreChannelWebhookEndpoints();
 app.MapMessagingTransportEndpoints();
 app.MapMetaWebhookEndpoints();
 app.MapWhatsAppMediaEndpoints();

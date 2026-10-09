@@ -21,6 +21,20 @@ public static class Channels
     public const string Email = "email";
     /// <summary>Embeddable site widget — the visitor's browser is the transport.</summary>
     public const string Website = "website";
+    /// <summary>LINE Messaging API (a LINE Official Account's bot).</summary>
+    public const string Line = "line";
+    /// <summary>Viber REST Bot API.</summary>
+    public const string Viber = "viber";
+    /// <summary>SMS / MMS through Twilio — phone-keyed like WhatsApp.</summary>
+    public const string Sms = "sms";
+    /// <summary>WeChat Official Account (公众号), Customer Service message API.</summary>
+    public const string WeChat = "wechat";
+    /// <summary>TikTok Business Messaging API (partner-gated).</summary>
+    public const string TikTok = "tiktok";
+    /// <summary>Douyin (抖音) enterprise account private messages (企业号私信).</summary>
+    public const string Douyin = "douyin";
+    /// <summary>Zalo Official Account.</summary>
+    public const string Zalo = "zalo";
 }
 
 public static class Providers

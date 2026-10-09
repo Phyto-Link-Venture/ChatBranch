@@ -39,7 +39,10 @@ public static class MessagingEndpoints
 {
     // Django messaging/views.VALID_CHANNELS = ("email",) + msg_config.SOCIAL_CHANNELS
     private static readonly string[] ValidChannels =
-        { Channels.Email, Channels.Facebook, Channels.Instagram, Channels.Telegram };
+        { Channels.Email, Channels.Facebook, Channels.Instagram, Channels.Telegram,
+          // LINE, Viber, SMS, WeChat, TikTok, Douyin, Zalo (ChatBranch.Data.Channels.MoreChannels)
+          Channels.Line, Channels.Viber, Channels.Sms, Channels.WeChat, Channels.TikTok, Channels.Douyin,
+          Channels.Zalo };
 
     private static readonly string[] ValidStatuses =
         { ThreadStatus.Open, ThreadStatus.Pending, ThreadStatus.Snoozed, ThreadStatus.Resolved };
@@ -183,6 +186,11 @@ public static class MessagingEndpoints
         foreach (var (k, v) in ChatBranch.Data.Channels.SocialWindow.Fields(
                      ChatBranch.Data.Channels.SocialWindow.Live(account, t.Channel), lastIn, DateTime.UtcNow))
             payload[k] = v;
+        // WeChat / Zalo / TikTok / Douyin: their own reply windows (ChannelWindow)
+        if (ChatBranch.Data.Channels.ChannelWindow.Applies(t.Channel))
+            foreach (var (k, v) in ChatBranch.Data.Channels.ChannelWindow.Fields(t.Channel,
+                         ChatBranch.Data.Channels.ChannelWindow.Live(account, t.Channel), lastIn, DateTime.UtcNow))
+                payload[k] = v;
         return payload;
     }
 
@@ -250,7 +258,7 @@ public static class MessagingEndpoints
                     .Where(a => a.AccessToken != "")
                     .Select(a => a.Channel).ToListAsync();
 
-                return Results.Ok(new Dictionary<string, object?>
+                var status = new Dictionary<string, object?>
                 {
                     ["email_configured"] = (smtpHost.Length > 0 && smtpFrom.Length > 0) || anyMailbox,
                     // the default mailbox, or any account mailbox with IMAP (its own or the default host)
@@ -261,7 +269,14 @@ public static class MessagingEndpoints
                     ["instagram_configured"] = socialTokens.Contains(Channels.Instagram),
                     ["telegram_configured"] = socialTokens.Contains(Channels.Telegram),
                     ["ai_available"] = AiAvailable(sc),
-                });
+                };
+                // line_configured, viber_configured, sms_configured, wechat_configured…
+                var more = await db.ChannelAccounts.AsNoTracking()
+                    .Where(a => ChatBranch.Data.Channels.MoreChannels.All.Contains(a.Channel)).ToListAsync();
+                foreach (var ch in ChatBranch.Data.Channels.MoreChannels.All)
+                    status[$"{ch}_configured"] = more.Any(a => a.Channel == ch
+                                                             && ChatBranch.Data.Channels.MoreChannels.Configured(a));
+                return Results.Ok(status);
             }
             catch
             {
@@ -486,6 +501,8 @@ public static class MessagingEndpoints
                 {
                     detail = $"channel must be one of {string.Join(", ", ValidChannels)}.",
                 }, statusCode: 400);
+            // SMS is phone-keyed: the thread key is the number's digits, like WhatsApp
+            if (channel == Channels.Sms) to = PhoneMatch.Digits(to);
             if (to.Length == 0 || (channel == Channels.Email && !to.Contains('@')))
                 return Results.Json(new { detail = "Valid recipient ('to') required." }, statusCode: 400);
 
@@ -495,6 +512,7 @@ public static class MessagingEndpoints
             // are linked by hand from the chat's Contact panel.
             var matched = channel == Channels.Email
                 ? await db.Contacts.FirstOrDefaultAsync(c => c.Email.ToLower() == to.ToLower())
+                : channel == Channels.Sms ? PhoneMatch.Find(db.Contacts.AsNoTracking().AsEnumerable(), to)
                 : null;
 
             var thread = store.GetOrCreateThread(channel, to, Str(body, "name"),

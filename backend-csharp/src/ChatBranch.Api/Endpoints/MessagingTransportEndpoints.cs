@@ -28,7 +28,9 @@ namespace ChatBranch.Api.Endpoints;
 public static class MessagingTransportEndpoints
 {
     private static readonly string[] AttachChannels =
-        { ChannelIds.Email, ChannelIds.Telegram, ChannelIds.Facebook, ChannelIds.Instagram };
+        { ChannelIds.Email, ChannelIds.Telegram, ChannelIds.Facebook, ChannelIds.Instagram,
+          ChannelIds.Line, ChannelIds.Viber, ChannelIds.Sms, ChannelIds.WeChat, ChannelIds.TikTok,
+          ChannelIds.Douyin, ChannelIds.Zalo };
 
     /// <summary>
     /// True when a PERSON is sending (a signed-in dashboard user, or the operator
@@ -84,7 +86,7 @@ public static class MessagingTransportEndpoints
         // WhatsAppMediaEndpoints (one implementation for every channel).
 
         // ---- attachment send (email / Telegram / Messenger / Instagram) ----
-        app.MapPost("/api/messaging/threads/{channel:regex(^(email|telegram|facebook|instagram)$)}/{key}/send-media",
+        app.MapPost("/api/messaging/threads/{channel:regex(^(email|telegram|facebook|instagram|line|viber|sms|wechat|tiktok|douyin|zalo)$)}/{key}/send-media",
             async (string channel, string key, HttpContext ctx, AppDbContext db, OutboundSender sender,
                 VoiceAgentBridge bridge, ClaimsPrincipal me) =>
         {
@@ -168,6 +170,7 @@ public static class MessagingAccountTransport
     /// </summary>
     public static async Task<IResult?> TestAsync(ChannelAccount account, HttpContext ctx)
     {
+        if (MoreChannels.Handles(account.Channel)) return await MoreChannelAccounts.TestAsync(account, ctx);
         var sp = ctx.RequestServices;
         var body = await ReadBody(ctx);
         if (account.Channel == ChannelIds.Email)

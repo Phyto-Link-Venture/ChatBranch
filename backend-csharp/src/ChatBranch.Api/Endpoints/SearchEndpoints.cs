@@ -183,6 +183,8 @@ public static class SearchEndpoints
         Channels.Instagram => "Instagram",
         "website" => "Website chat",
         "voice" => "Voice",
+        _ when ChatBranch.Data.Channels.MoreChannels.Handles(channel) =>
+            ChatBranch.Data.Channels.MoreChannels.Label(channel),
         _ => channel.Length > 0 ? char.ToUpperInvariant(channel[0]) + channel[1..] : "Chat",
     };
 
