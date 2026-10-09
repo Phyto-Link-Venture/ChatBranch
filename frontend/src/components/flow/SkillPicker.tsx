@@ -12,6 +12,7 @@ const KIND_LABEL: Record<string, string> = {
   prompt: 'Prompt skills',
   tool: 'Tools — used automatically',
   check: 'Reply checks — run automatically',
+  app: 'Connected apps — used automatically',
 }
 
 const isPrompt = (kind?: string) => !kind || kind === 'prompt'

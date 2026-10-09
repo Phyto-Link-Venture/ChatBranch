@@ -35,11 +35,15 @@ import {
   KIND_META,
   ON_FAIL_OPTIONS,
   aicore,
+  appSkillSubtitle,
+  calendarConfig,
   deleteSkill,
+  fetchApps,
   pretty,
   saveSkill,
   toWire,
   writeScope,
+  type AppCatalogEntry,
   type BuiltinsPayload,
   type Skill,
   type SkillKind,
@@ -47,12 +51,20 @@ import {
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
-const KIND_ICON: Record<SkillKind, typeof BookOpen> = { prompt: BookOpen, tool: Wrench, check: ShieldCheck }
+const KIND_ICON: Record<SkillKind, typeof BookOpen> = {
+  prompt: BookOpen,
+  tool: Wrench,
+  check: ShieldCheck,
+  app: CalendarClock,
+}
+
+/** Section order on the page — connected apps sit right under instructions. */
+const KIND_ORDER: SkillKind[] = ['prompt', 'app', 'tool', 'check']
 
 const channelLabel = (c: string) => CHANNEL_OPTIONS.find((o) => o.value === c)?.label ?? c
 
 /**
- * AI skills — what the assistant can do, in three kinds:
+ * AI skills — what the assistant can do, in four kinds:
  *
  *  * Instructions (prompt): plain-language guidance in the prompt's SKILLS
  *    block, selected by its "use when".
@@ -61,6 +73,9 @@ const channelLabel = (c: string) => CHANNEL_OPTIONS.find((o) => o.value === c)?.
  *  * Reply checks: JavaScript that vets every AI reply before it is sent; a
  *    failing reply is rewritten with the reason, then handed to a human or
  *    blocked.
+ *  * Connected apps: settings, not code — Calendar booking gives the AI
+ *    availability / book / cancel tools over Google Calendar or ChatBranch's
+ *    own bookings (catalog: GET /api/aicore/skills/apps).
  *
  * Plus the read-only built-ins (current time / week, date maths, timezone
  * conversion) that every conversation gets as tools.
@@ -78,6 +93,8 @@ export function SkillsSettings() {
 
   const [skills, setSkills] = useState<Skill[] | null>(null)
   const [builtins, setBuiltins] = useState<BuiltinsPayload | null>(null)
+  // connected-app catalog — only for the app rows' calendar labels (fail-soft)
+  const [apps, setApps] = useState<AppCatalogEntry[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -88,12 +105,14 @@ export function SkillsSettings() {
 
   const load = useCallback(async () => {
     try {
-      const [d, b] = await Promise.all([
+      const [d, b, a] = await Promise.all([
         aicore<{ skills: Skill[] }>(`skills${entityQ && `?${entityQ}`}`),
         aicore<BuiltinsPayload>('skills/builtins').catch(() => null),
+        fetchApps(),
       ])
       setSkills(d.skills)
       setBuiltins(b)
+      setApps(a)
       setLoadError(null)
     } catch (e) {
       setSkills(null)
@@ -106,7 +125,7 @@ export function SkillsSettings() {
   }, [load])
 
   const byKind = useMemo(() => {
-    const out: Record<SkillKind, Skill[]> = { prompt: [], tool: [], check: [] }
+    const out: Record<SkillKind, Skill[]> = { prompt: [], tool: [], check: [], app: [] }
     for (const s of skills ?? []) out[(s.kind in out ? s.kind : 'prompt') as SkillKind].push(s)
     return out
   }, [skills])
@@ -202,6 +221,7 @@ export function SkillsSettings() {
     canManage,
     busyId,
     activeEntityName: activeEntity?.name ?? null,
+    apps,
     onToggle: toggle,
     onEdit: (s: Skill) => open({ mode: 'edit', skill: s }, !canManage),
     onDelete: (s: Skill) => setConfirm(s),
@@ -215,7 +235,9 @@ export function SkillsSettings() {
           <b className="font-semibold text-text-high">instruction</b>; anything that must be exact — opening hours,
           dates, ID formats — becomes a <b className="font-semibold text-text-high">tool</b> it calls or a{' '}
           <b className="font-semibold text-text-high">reply check</b> every answer must pass. Code skills are written
-          for you, tested in a sandbox, and only switched on when their tests pass.
+          for you, tested in a sandbox, and only switched on when their tests pass. A{' '}
+          <b className="font-semibold text-text-high">connected app</b> lets the AI use your calendar — check free
+          times and book.
         </p>
         {canManage && (
           <Button onClick={() => open({ mode: 'new' })}>
@@ -234,7 +256,7 @@ export function SkillsSettings() {
 
       <BuiltinsSection data={builtins} canEditTimezone={isSuper} onTimezoneSaved={load} />
 
-      {(['prompt', 'tool', 'check'] as SkillKind[]).map((kind) => (
+      {KIND_ORDER.map((kind) => (
         <Section
           key={kind}
           kind={kind}
@@ -242,7 +264,8 @@ export function SkillsSettings() {
           action={
             canManage && (
               <Button variant="secondary" size="sm" onClick={() => open({ mode: 'new', kindHint: kind })}>
-                <Plus size={13} aria-hidden /> {kind === 'prompt' ? 'Instruction' : kind === 'tool' ? 'Tool' : 'Reply check'}
+                <Plus size={13} aria-hidden />{' '}
+                {kind === 'prompt' ? 'Instruction' : kind === 'tool' ? 'Tool' : kind === 'check' ? 'Reply check' : 'Connected app'}
               </Button>
             )
           }
@@ -264,6 +287,7 @@ export function SkillsSettings() {
           init={wizard}
           defaultScope={defaultScope}
           readOnly={readOnlyWizard}
+          orgTimezone={builtins?.timezone}
           onClose={() => setWizard(null)}
           onSaved={(msg) => {
             setNotice(msg)
@@ -346,6 +370,7 @@ function Empty({
     prompt: 'No instructions yet — the AI runs on its persona alone.',
     tool: 'No tools yet. The built-ins above still answer time and date questions exactly.',
     check: 'No reply checks yet — replies go out as the AI writes them.',
+    app: 'No connected apps yet — let the AI check free times and book appointments, on Google Calendar or in ChatBranch.',
   }
   return (
     <div className="rounded-xl border border-dashed border-line-strong px-4 py-6 text-center">
@@ -353,7 +378,7 @@ function Empty({
       {canManage && (
         <div className="mt-3 flex flex-wrap justify-center gap-2">
           <Button variant="secondary" size="sm" onClick={onNew}>
-            <Plus size={13} aria-hidden /> Describe one
+            <Plus size={13} aria-hidden /> {kind === 'app' ? 'Set up calendar booking' : 'Describe one'}
           </Button>
           {kind === 'prompt' && (
             <Button variant="ghost" size="sm" onClick={onStarters}>
@@ -371,6 +396,7 @@ function SkillRow({
   canManage,
   busyId,
   activeEntityName,
+  apps,
   onToggle,
   onEdit,
   onDelete,
@@ -379,11 +405,13 @@ function SkillRow({
   canManage: boolean
   busyId: string | null
   activeEntityName: string | null
+  apps: AppCatalogEntry[] | null
   onToggle: (s: Skill, on: boolean) => void
   onEdit: (s: Skill) => void
   onDelete: (s: Skill) => void
 }) {
   const Icon = KIND_ICON[s.kind] ?? BookOpen
+  const appCfg = s.kind === 'app' ? calendarConfig(s.config) : null
   const summary = s.useWhen || s.description || s.instructions || 'No trigger set — the AI decides when it applies.'
   const tests = Array.isArray(s.tests) ? s.tests.length : 0
   const onFail = ON_FAIL_OPTIONS.find((o) => o.value === s.onFail)
@@ -425,6 +453,16 @@ function SkillRow({
             )
           )}
         </div>
+        {appCfg && (
+          <p className="mt-0.5 flex items-start gap-1.5 text-[12px] font-medium leading-snug text-text-mid">
+            {appCfg.source === 'google' ? (
+              <ChannelLogo channel="google_calendar" size={12} title="" className="mt-[2px]" />
+            ) : (
+              <CalendarClock size={12} className="mt-[2px] shrink-0 text-text-muted" aria-hidden />
+            )}
+            <span className="min-w-0">{appSkillSubtitle(s.config, apps)}</span>
+          </p>
+        )}
         <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-relaxed text-text-muted">{summary}</p>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-text-muted">
           {s.channels.length ? (
@@ -440,9 +478,18 @@ function SkillRow({
               <Globe size={11} aria-hidden /> All channels
             </span>
           )}
-          {s.kind !== 'prompt' && (
+          {(s.kind === 'tool' || s.kind === 'check') && (
             <span className="inline-flex items-center gap-1">
               <CheckCircle size={11} aria-hidden /> {tests} test{tests === 1 ? '' : 's'}
+            </span>
+          )}
+          {appCfg && (
+            <span>
+              {appCfg.actions.length
+                ? appCfg.actions
+                    .map((a) => (a === 'availability' ? 'Check availability' : a === 'book' ? 'Book' : 'Cancel'))
+                    .join(' · ')
+                : 'No actions on'}
             </span>
           )}
           {s.kind === 'check' && onFail && <span>On fail: {onFail.label.toLowerCase()}</span>}
