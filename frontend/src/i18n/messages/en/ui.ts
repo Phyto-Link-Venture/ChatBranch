@@ -87,4 +87,20 @@ export const ui = {
   languages: {
     auto: 'Auto-detect',
   },
+  nounCounts: {
+    entity_one: '{count} entity',
+    entity_other: '{count} entities',
+    team_one: '{count} team',
+    team_other: '{count} teams',
+    user_one: '{count} user',
+    user_other: '{count} users',
+    contact_one: '{count} contact',
+    contact_other: '{count} contacts',
+    tag_one: '{count} tag',
+    tag_other: '{count} tags',
+    account_one: '{count} channel account',
+    account_other: '{count} channel accounts',
+    conversation_one: '{count} conversation',
+    conversation_other: '{count} conversations',
+  },
 } as const

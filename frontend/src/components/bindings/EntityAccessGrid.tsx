@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import { BindingGrid } from '@/components/ui/BindingGrid'
+import { BindingGrid, nounCount } from '@/components/ui/BindingGrid'
 import { useT } from '@/i18n'
 import { entityTreeGroups, type TreeEntity } from './groups'
 
@@ -33,6 +33,7 @@ export function EntityAccessGrid({
       onChange={(next) => onChange([...next].map(Number))}
       disabled={disabled}
       itemNoun="entity"
+      itemCount={nounCount(t, 'entity')}
       searchPlaceholder={t('admin.bindings.entityGrid.search')}
       columns={2}
       emptyText={emptyText ?? t('admin.bindings.entityGrid.empty')}

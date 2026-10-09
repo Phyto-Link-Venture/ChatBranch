@@ -7,7 +7,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Toggle } from '@/components/ui/Toggle'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { EntityPicker } from '@/components/ui/EntityPicker'
-import { BindingGrid } from '@/components/ui/BindingGrid'
+import { BindingGrid, nounCount } from '@/components/ui/BindingGrid'
 import { usersByRoleGroups } from '@/components/bindings/groups'
 import { authHeaders, hasCap } from '@/lib/auth'
 import { useEntity, useEntityQuery } from '@/lib/EntityContext'
@@ -406,6 +406,7 @@ export function TeamsSettings() {
               onChange={setMemberIds}
               disabled={busy}
               itemNoun="user"
+              itemCount={nounCount(t, 'user')}
               searchPlaceholder={t('admin.users.searchPlaceholder')}
               columns={2}
               emptyText={t('admin.teams.noUsers')}

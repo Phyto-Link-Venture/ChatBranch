@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Info, Loader2 } from 'lucide-react'
-import { BindingGrid, SaveBar, type BindingGroup } from '@/components/ui/BindingGrid'
+import { BindingGrid, SaveBar, type BindingGroup, nounCount } from '@/components/ui/BindingGrid'
 import { Card } from '@/components/ui/Card'
 import { entityTreeGroups, idDiff, itemsByEntityGroups, sameSet, type TreeEntity } from '@/components/bindings/groups'
 import { authHeaders } from '@/lib/auth'
@@ -183,6 +183,7 @@ export function TagBindingView({
           }}
           disabled={!canManage || saving}
           itemNoun={tag.applies_to}
+          itemCount={nounCount(t, tag.applies_to)}
           searchPlaceholder={t('admin.bindings.searchThings', { things: t(meta.plural) })}
           manageTitle={(g) => `${tag.name} — ${g.label}`}
           emptyText={

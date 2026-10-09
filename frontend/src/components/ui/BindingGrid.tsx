@@ -23,7 +23,25 @@ import { Search, SlidersHorizontal } from 'lucide-react'
 import { Button } from './Button'
 import { Modal } from './Modal'
 import { Toggle } from './Toggle'
-import { useT, type TFunction } from '@/i18n'
+import { useT, type MessageKey, type TFunction } from '@/i18n'
+
+const NOUN_COUNT: Record<string, MessageKey> = {
+  entity: 'ui.nounCounts.entity',
+  team: 'ui.nounCounts.team',
+  user: 'ui.nounCounts.user',
+  contact: 'ui.nounCounts.contact',
+  tag: 'ui.nounCounts.tag',
+  account: 'ui.nounCounts.account',
+  'channel account': 'ui.nounCounts.account',
+  conversation: 'ui.nounCounts.conversation',
+}
+
+/** `itemCount` for the usual binding nouns ("3 entities" / "3 entiti" / "3 个实体"); anything else counts "items". */
+export function nounCount(t: TFunction, noun: string | undefined): (count: number) => string {
+  const key = noun ? NOUN_COUNT[noun] : undefined
+  return (count) => (key ? t(key, { count }) : t('common.counts.items', { count }))
+}
+
 
 export interface BindingItem {
   id: string

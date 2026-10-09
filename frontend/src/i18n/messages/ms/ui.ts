@@ -89,4 +89,20 @@ export const ui: Dict<typeof source> = {
   languages: {
     auto: 'Kesan automatik',
   },
+  nounCounts: {
+    entity_one: '{count} entiti',
+    entity_other: '{count} entiti',
+    team_one: '{count} pasukan',
+    team_other: '{count} pasukan',
+    user_one: '{count} pengguna',
+    user_other: '{count} pengguna',
+    contact_one: '{count} kenalan',
+    contact_other: '{count} kenalan',
+    tag_one: '{count} tag',
+    tag_other: '{count} tag',
+    account_one: '{count} akaun saluran',
+    account_other: '{count} akaun saluran',
+    conversation_one: '{count} perbualan',
+    conversation_other: '{count} perbualan',
+  },
 }

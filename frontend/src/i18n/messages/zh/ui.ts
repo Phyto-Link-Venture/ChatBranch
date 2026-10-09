@@ -89,4 +89,20 @@ export const ui: Dict<typeof source> = {
   languages: {
     auto: '自动识别',
   },
+  nounCounts: {
+    entity_one: '{count} 个实体',
+    entity_other: '{count} 个实体',
+    team_one: '{count} 个团队',
+    team_other: '{count} 个团队',
+    user_one: '{count} 位用户',
+    user_other: '{count} 位用户',
+    contact_one: '{count} 位联系人',
+    contact_other: '{count} 位联系人',
+    tag_one: '{count} 个标签',
+    tag_other: '{count} 个标签',
+    account_one: '{count} 个渠道账号',
+    account_other: '{count} 个渠道账号',
+    conversation_one: '{count} 个对话',
+    conversation_other: '{count} 个对话',
+  },
 }

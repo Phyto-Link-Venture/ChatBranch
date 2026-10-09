@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Building2, Loader2, Radio, Tag, Tags, UserCog, Users, type LucideIcon } from 'lucide-react'
-import { BindingGrid, SaveBar, type BindingGroup } from '@/components/ui/BindingGrid'
+import { BindingGrid, SaveBar, type BindingGroup, nounCount } from '@/components/ui/BindingGrid'
 import { Select, type SelectOption } from '@/components/ui/Select'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
@@ -400,6 +400,7 @@ export function BindingsWorkbench() {
               }}
               disabled={!canManage || saving}
               itemNoun={cand.noun}
+              itemCount={nounCount(t, cand.noun)}
               searchPlaceholder={t('admin.bindings.searchThings', { things: cand.many })}
               manageTitle={(g) => `${targetLabel} — ${g.label}`}
               emptyText={t('admin.bindings.nothingToBind', { things: cand.many })}
