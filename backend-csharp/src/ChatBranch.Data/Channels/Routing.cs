@@ -53,6 +53,16 @@ public sealed record RouteNeed(string? Role = null, string? Provider = null, str
     public static readonly RouteNeed Any = new();
 
     public bool IsTemplate => Provider != null;
+
+    /// <summary>
+    /// What a send on <paramref name="channel"/> needs: roles and providers are
+    /// WhatsApp concepts (a template needs a Cloud number, free text / AI a
+    /// conversation number); every other channel takes any eligible account.
+    /// </summary>
+    public static RouteNeed For(string channel, bool template = false) =>
+        channel != ChatBranch.Domain.Channels.WhatsApp ? Any
+        : template ? Template
+        : Conversation;
 }
 
 /// <summary>
@@ -91,6 +101,14 @@ public sealed record RouteResult(ChannelAccount? Account, string Via, ChannelAcc
 /// else the organization-wide ones; an outlet with its own number never falls
 /// back to the shared one). With no configured account at all nothing is
 /// routed: sandbox stays the zero-credential default.
+///
+/// The rules are channel-blind except where a channel's identity says
+/// otherwise: account ROLES, providers and templates are WhatsApp-only
+/// (<see cref="RouteNeed.For"/>); on an <see cref="AccountBound"/> channel
+/// (Telegram, Messenger, Instagram, the widget) the conversation exists only on
+/// the account that received it, so it never fails over or spreads; on an
+/// <see cref="AddressPortable"/> channel (email) any mailbox can write to the
+/// address, so even an unattributed conversation takes the least-loaded one.
 /// </summary>
 public class Routing
 {
@@ -117,7 +135,7 @@ public class Routing
         if (a.Channel == ChatBranch.Domain.Channels.WhatsApp)
             return a.Provider == Providers.Baileys || (a.AccessToken != "" && a.ExternalId != "");
         if (a.Channel == ChatBranch.Domain.Channels.Email)
-            return Cfg(a, "host") != "" && Cfg(a, "username") != "" && Cfg(a, "password") != "";
+            return EmailConfig.AccountConfigured(a);
         return a.AccessToken != "";
     }
 
@@ -125,11 +143,29 @@ public class Routing
 
     public static bool IsEligible(ChannelAccount a) => IsConfigured(a) && !IsDown(a);
 
+    /// <summary>
+    /// A channel whose conversation identity is minted BY the receiving account —
+    /// a Telegram chat only works with the bot the customer started, a
+    /// Messenger/Instagram PSID is page-scoped, a widget session belongs to its
+    /// widget. No other account can carry such a conversation, so a thread with a
+    /// configured account keeps it, even while it is down (the send fails
+    /// honestly instead of going out on an account that cannot reach them).
+    /// </summary>
+    public static bool AccountBound(string channel) =>
+        channel is ChatBranch.Domain.Channels.Telegram or ChatBranch.Domain.Channels.Facebook
+            or ChatBranch.Domain.Channels.Instagram or ChatBranch.Domain.Channels.Website;
+
+    /// <summary>
+    /// A channel whose address works from ANY of our accounts (every mailbox can
+    /// write to an email address), so a conversation with no contact and no
+    /// account yet still takes the least-loaded eligible one rather than staying
+    /// unrouted. WhatsApp could, but deliberately never guesses a number for an
+    /// unknown sender (cold-text exposure).
+    /// </summary>
+    public static bool AddressPortable(string channel) => channel == ChatBranch.Domain.Channels.Email;
+
     public static string ProviderOf(ChannelAccount a) =>
         string.IsNullOrEmpty(a.Provider) ? Providers.Cloud : a.Provider;
-
-    private static string Cfg(ChannelAccount a, string key) =>
-        a.Config != null && a.Config.TryGetValue(key, out var v) ? v?.ToString() ?? "" : "";
 
     private static bool Satisfies(ChannelAccount a, RouteNeed need) =>
         need.Provider == null || ProviderOf(a) == need.Provider;
@@ -249,11 +285,17 @@ public class Routing
     /// </summary>
     public RouteResult ForThread(Thread thread, RouteNeed need, int? preferredAccountId = null, bool apply = false)
     {
+        // roles, providers and templates only mean something on WhatsApp
+        if (thread.Channel != ChatBranch.Domain.Channels.WhatsApp) need = RouteNeed.Any;
         var currentId = preferredAccountId ?? thread.AccountId;
         var current = currentId is int cid
             ? _db.ChannelAccounts.AsNoTracking().FirstOrDefault(a => a.Id == cid) : null;
         if (current != null && IsEligible(current) && Satisfies(current, need))
             return new RouteResult(current, "current");
+        // the conversation only exists on the account that received it
+        if (current != null && AccountBound(thread.Channel) && current.Channel == thread.Channel
+            && IsConfigured(current))
+            return new RouteResult(current, "bound", DownAccount: IsDown(current) ? current : null);
 
         var configured = Pool(thread.Channel, thread.EntityId).Where(IsConfigured).ToList();
         // nothing to route between: the zero-credential sandbox
@@ -274,9 +316,13 @@ public class Routing
         else if (current == null)
         {
             // an unknown sender with no number yet: only the sole usable account,
-            // never a guess between several
+            // never a guess between several — except where every account can
+            // write to the address (email): the least-loaded one, no assignment
             var candidates = Eligible(thread.Channel, need, thread.EntityId);
-            r = candidates.Count == 1 ? new RouteResult(candidates[0], "sole") : new RouteResult(null, "sandbox");
+            r = candidates.Count == 1 ? new RouteResult(candidates[0], "sole")
+                : candidates.Count > 1 && AddressPortable(thread.Channel)
+                    ? new RouteResult(LeastLoaded(candidates, thread.Channel), "auto")
+                    : new RouteResult(null, "sandbox");
         }
         else
         {
@@ -351,7 +397,15 @@ public class Routing
             detail = $"No healthy WhatsApp conversation number is available{why}. "
                      + "Reconnect it or link another under Channels.";
         else
-            detail = $"No healthy {channel} account is available{why}. Reconnect one under Channels.";
+            detail = $"No healthy {Noun(channel)} is available{why}. Reconnect one under Channels.";
         return new RouteResult(null, "none", DownAccount: down, Error: detail);
     }
+
+    private static string Noun(string channel) => channel switch
+    {
+        ChatBranch.Domain.Channels.Email => "email mailbox",
+        ChatBranch.Domain.Channels.Telegram => "Telegram bot",
+        ChatBranch.Domain.Channels.WhatsApp => "WhatsApp number",
+        _ => $"{channel} account",
+    };
 }
