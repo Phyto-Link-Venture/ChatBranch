@@ -251,7 +251,8 @@ public static class MoreChannelWebhookEndpoints
         if (body == null || !ViberTransport.VerifySignature(account.AccessToken, body,
                 ctx.Request.Headers[ViberTransport.SignatureHeader].ToString()))
             return BadSignature();
-        if (Json(body) is not { } root || ViberInbound.Parse(root) is not { } e) return Ack();
+        // Viber reads a JSON body on conversation_started as a welcome message: answer every event with an empty 200
+        if (Json(body) is not { } root || ViberInbound.Parse(root) is not { } e) return Results.Ok();
         try
         {
             switch (e.Event)
@@ -284,7 +285,7 @@ public static class MoreChannelWebhookEndpoints
             }
         }
         catch { /* Viber must still get its 200 */ }
-        return Ack();
+        return Results.Ok();
     }
 
     /// <summary>A delivery receipt on our message: forward-only sent → delivered → read; failed keeps Viber's reason.</summary>
