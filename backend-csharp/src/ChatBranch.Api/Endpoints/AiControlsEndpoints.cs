@@ -111,13 +111,13 @@ public static class AiControlsEndpoints
             var masterWrite = writes.FirstOrDefault(w => w.Key == AiControlKeys.Master);
             var effectiveMode = masterWrite.Key != null
                 ? masterWrite.Value ?? ""
-                : new AiControls(db, sc).Master(entityId).Mode;
+                : new AiControls(db, sc) { AlwaysLoadSchedule = true }.Master(entityId).Mode;
             if (effectiveMode == AiMasterModes.Schedule)
             {
                 var schedWrite = writes.FirstOrDefault(w => w.Key == AiControlKeys.Schedule);
                 var schedule = schedWrite.Key != null
                     ? AiSchedule.Parse(schedWrite.Value)
-                    : new AiControls(db, sc).Master(entityId).Schedule;
+                    : new AiControls(db, sc) { AlwaysLoadSchedule = true }.Master(entityId).Schedule;
                 if (schedule.IsEmpty)
                     return Bad("Add at least one time window before switching the AI to a schedule.");
             }
@@ -463,7 +463,7 @@ public static class AiControlsEndpoints
     private static async Task<object> ControlsPayload(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
         int? entityId)
     {
-        var ai = new AiControls(db, sc);
+        var ai = new AiControls(db, sc) { AlwaysLoadSchedule = true };
         var master = ai.Master(entityId);
         var own = await db.Settings.AsNoTracking()
             .Where(s => AiControlKeys.All.Contains(s.Key) && s.EntityId == entityId)

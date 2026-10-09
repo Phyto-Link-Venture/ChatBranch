@@ -280,7 +280,8 @@ public sealed class AiControls
 {
     private readonly AppDbContext _db;
     private readonly ScopingService _sc;
-    private Dictionary<int, (int? ParentId, string Name)>? _entities;
+    /// <summary>Entities looked up so far (id → parent, name) — a tree walk costs one query per level, once.</summary>
+    private readonly Dictionary<int, (int? ParentId, string Name)?> _entities = new();
     private readonly Dictionary<int, AiMaster> _masters = new();
     private readonly Dictionary<int, List<string>> _never = new();
     private readonly Dictionary<int, bool> _reminder = new();
@@ -295,20 +296,29 @@ public sealed class AiControls
 
     public DateTime NowUtc { get; }
 
+    /// <summary>Resolve the schedule even when the switch is not on "schedule" (the settings screen).</summary>
+    public bool AlwaysLoadSchedule { get; init; }
+
     public TimeZoneInfo Zone => _zone ??= Skills.BuiltinSkills.OrgTimeZone(_sc);
 
     // ---- the entity tree -------------------------------------------------------
 
-    private Dictionary<int, (int? ParentId, string Name)> Entities => _entities ??= _db.Entities.AsNoTracking()
-        .Select(e => new { e.Id, e.ParentId, e.Name }).ToList()
-        .ToDictionary(e => e.Id, e => (e.ParentId, e.Name));
+    private (int? ParentId, string Name)? EntityRow(int id)
+    {
+        if (_entities.TryGetValue(id, out var cached)) return cached;
+        var row = _db.Entities.AsNoTracking().Where(e => e.Id == id)
+            .Select(e => new { e.ParentId, e.Name }).FirstOrDefault();
+        (int? ParentId, string Name)? v = row == null ? null : (row.ParentId, row.Name);
+        _entities[id] = v;
+        return v;
+    }
 
     /// <summary>The entity and its ancestors, nearest first (cycle-safe).</summary>
     public List<int> Chain(int? entityId)
     {
         var chain = new List<int>();
         var cur = entityId;
-        while (cur is int id && Entities.TryGetValue(id, out var e) && !chain.Contains(id) && chain.Count < 16)
+        while (cur is int id && EntityRow(id) is { } e && !chain.Contains(id) && chain.Count < 16)
         {
             chain.Add(id);
             cur = e.ParentId;
@@ -317,7 +327,7 @@ public sealed class AiControls
     }
 
     public string EntityName(int? entityId) =>
-        entityId is int id && Entities.TryGetValue(id, out var e) ? e.Name : "the organization";
+        entityId is int id && EntityRow(id) is { } e ? e.Name : "the organization";
 
     /// <summary>One key up the tree: (value, the entity that set it — null = the organization row).</summary>
     public (string Value, int? At, bool Found) Resolve(string key, int? entityId)
@@ -347,8 +357,12 @@ public sealed class AiControls
         {
             var (raw, at, found) = Resolve(AiControlKeys.Master, entityId);
             var mode = found ? AiMasterModes.Normalize(raw) : AiMasterModes.On;
-            var schedule = AiSchedule.Parse(Resolve(AiControlKeys.Schedule, entityId).Value);
-            var smode = AiScheduleModes.Normalize(Resolve(AiControlKeys.ScheduleMode, entityId).Value);
+            // the hours only matter on a schedule (the settings screen asks for them always)
+            var needHours = mode == AiMasterModes.Schedule || AlwaysLoadSchedule;
+            var schedule = needHours ? AiSchedule.Parse(Resolve(AiControlKeys.Schedule, entityId).Value) : new AiSchedule();
+            var smode = needHours
+                ? AiScheduleModes.Normalize(Resolve(AiControlKeys.ScheduleMode, entityId).Value)
+                : AiScheduleModes.Inside;
             var from = !found ? "default" : at == null ? "organization" : at == entityId ? "entity" : "inherited";
             m = new AiMaster(mode, schedule, smode, at, EntityName(at), from);
         }

@@ -147,6 +147,12 @@ public class AiControlsApiTests : IClassFixture<ApiFactory>
 
         var outside = await admin.PutAsJsonAsync($"/api/ai/controls?entity={slug}", new { schedule_mode = "outside" });
         Assert.False((await outside.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("now_on").GetBoolean());
+
+        // switching on and back to the schedule keeps the stored hours
+        (await admin.PutAsJsonAsync($"/api/ai/controls?entity={slug}", new { mode = "on" })).EnsureSuccessStatusCode();
+        var again = await admin.PutAsJsonAsync($"/api/ai/controls?entity={slug}", new { mode = "schedule" });
+        again.EnsureSuccessStatusCode();
+        Assert.Equal("schedule", (await again.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("mode").GetString());
         (await admin.PutAsJsonAsync($"/api/ai/controls?entity={slug}", new { mode = "inherit", schedule = (object?)null, schedule_mode = "" }))
             .EnsureSuccessStatusCode();
     }
