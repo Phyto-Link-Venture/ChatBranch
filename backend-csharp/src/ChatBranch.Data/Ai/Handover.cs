@@ -176,10 +176,11 @@ public static class Handover
                 return;
             }
             // the reply itself still has to reach the customer (its later bubbles are
-            // re-checked against the AI switch), so the AI does not stand down here
+            // re-checked against the AI switch), so the AI does not stand down here;
+            // and no note — the reply that follows says it (the banner + chip show it)
             if (Humanizer.HandsOver(text))
                 Mark(db, thread, HandoverKinds.AskedForHuman, "The AI told the customer a person will help.", "ai",
-                    standDown: false);
+                    note: false, standDown: false);
         }
         catch { /* never breaks the gate */ }
     }

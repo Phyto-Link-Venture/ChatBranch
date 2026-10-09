@@ -335,13 +335,14 @@ public static class AiControlsEndpoints
             var events = await db.AuditLogs.AsNoTracking()
                 .Where(x => x.Action == Handover.AuditAction && x.CreatedAt >= since)
                 .Where(x => ids == null || x.EntityId == null || ids.Contains(x.EntityId.Value))
-                .Select(x => new { x.CreatedAt, x.Detail, x.Actor })
+                .Select(x => new { x.CreatedAt, x.Detail, x.Actor, x.Target })
                 .Take(50000).ToListAsync();
-            var drafts = await db.AiDrafts.AsNoTracking()
+            var drafts = (await db.AiDrafts.AsNoTracking()
                 .Where(d => d.CreatedAt >= since && d.ThreadId != null)
                 .Where(d => ids == null || d.EntityId == null || ids.Contains(d.EntityId.Value))
-                .Select(d => new { d.ThreadId, d.CreatedAt })
-                .Take(100000).ToListAsync();
+                .Select(d => new { d.Channel, d.ThreadKey, d.CreatedAt })
+                .Take(100000).ToListAsync())
+                .Select(d => new { Target = $"{d.Channel}:{d.ThreadKey}", d.CreatedAt }).ToList();
             var open = await ShellScope.ScopeThreads(db.Threads.AsNoTracking(), ids)
                 .CountAsync(t => t.HandoverAt != null && t.HandoverResolvedAt == null);
             var answered = await ShellScope.ScopeThreads(db.Threads.AsNoTracking(), ids)
@@ -360,10 +361,20 @@ public static class AiControlsEndpoints
 
             var dayKeys = OrgClock.LastDays(span, zone);
             var byDay = events.GroupBy(x => OrgClock.Day(x.CreatedAt, zone)).ToDictionary(g => g.Key, g => g.Count());
+            // the rate: conversations handed over ÷ conversations the AI worked on or
+            // that were handed over (so a rule's or a person's handover counts too, ≤ 100%)
+            HashSet<string> Handed(IEnumerable<string> t) => t.ToHashSet();
+            var handedByDay = events.GroupBy(x => OrgClock.Day(x.CreatedAt, zone))
+                .ToDictionary(g => g.Key, g => Handed(g.Select(x => x.Target)));
             var aiByDay = drafts.GroupBy(x => OrgClock.Day(x.CreatedAt, zone))
-                .ToDictionary(g => g.Key, g => g.Select(x => x.ThreadId).Distinct().Count());
-            var aiConversations = drafts.Select(d => d.ThreadId).Distinct().Count();
+                .ToDictionary(g => g.Key, g => g.Select(x => x.Target).ToHashSet());
+            var handedAll = Handed(events.Select(x => x.Target));
+            var aiAll = drafts.Select(d => d.Target).ToHashSet();
+            var aiConversations = aiAll.Count;
+            var conversations = aiAll.Union(handedAll).Count();
             double? Rate(int n, int d) => d == 0 ? null : Math.Round((double)n / d, 4);
+            int Union(string day) => (aiByDay.GetValueOrDefault(day) ?? new HashSet<string>())
+                .Union(handedByDay.GetValueOrDefault(day) ?? new HashSet<string>()).Count();
             var minutes = answered
                 .Select(x => (x.HandoverResolvedAt!.Value - x.HandoverAt!.Value).TotalMinutes)
                 .Where(m => m >= 0).ToList();
@@ -375,7 +386,9 @@ public static class AiControlsEndpoints
                 total = events.Count,
                 open,
                 ai_conversations = aiConversations,
-                rate = Rate(events.Count, aiConversations),
+                handed_over_conversations = handedAll.Count,
+                conversations,
+                rate = Rate(handedAll.Count, conversations),
                 avg_minutes_to_human = minutes.Count == 0 ? (double?)null : Math.Round(minutes.Average(), 1),
                 by_kind = HandoverKinds.All
                     .Select(k => new { kind = k, label = HandoverKinds.Label(k), count = events.Count(x => KindOf(x.Detail) == k) })
@@ -386,8 +399,8 @@ public static class AiControlsEndpoints
                 {
                     day = d,
                     handovers = byDay.GetValueOrDefault(d),
-                    ai_conversations = aiByDay.GetValueOrDefault(d),
-                    rate = Rate(byDay.GetValueOrDefault(d), aiByDay.GetValueOrDefault(d)),
+                    ai_conversations = aiByDay.GetValueOrDefault(d)?.Count ?? 0,
+                    rate = Rate(handedByDay.GetValueOrDefault(d)?.Count ?? 0, Union(d)),
                 }).ToList(),
             });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("ai.monitor", "chats.view");

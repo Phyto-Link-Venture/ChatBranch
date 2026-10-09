@@ -403,6 +403,8 @@ public class AiControlsApiTests : IClassFixture<ApiFactory>
         Assert.Equal(7, s.GetProperty("days").GetInt32());
         Assert.True(s.GetProperty("total").GetInt32() >= 2);
         Assert.True(s.GetProperty("open").GetInt32() >= 2);
+        Assert.True(s.GetProperty("handed_over_conversations").GetInt32() >= 2);
+        Assert.InRange(s.GetProperty("rate").GetDouble(), 0.0, 1.0);          // never above 100%
         Assert.Equal(7, s.GetProperty("series").GetArrayLength());
         Assert.True(s.GetProperty("series")[6].GetProperty("handovers").GetInt32() >= 2);
         Assert.Contains(s.GetProperty("by_kind").EnumerateArray(),
