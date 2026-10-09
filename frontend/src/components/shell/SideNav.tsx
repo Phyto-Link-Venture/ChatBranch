@@ -10,22 +10,22 @@ import { BranchMark, Logo } from './Logo'
 import { ThemeToggle } from './ThemeToggle'
 import { EntitySwitcher } from './EntitySwitcher'
 import { SETTINGS_NAV, isActive, visibleGroups, type NavDef } from './nav'
-import { useT } from '@/i18n'
+import { useT, type MessageKey } from '@/i18n'
 import { useNotifications } from './notificationsStore'
 import { useLive } from './liveStore'
 import { useInstallPrompt } from './pwa'
 
 export { NAV_GROUPS, type NavDef } from './nav'
 
-const ROLE_LABEL: Record<string, string> = {
-  superadmin: 'Super admin',
-  admin: 'Administrator',
-  agent: 'Agent',
+const ROLE_LABEL: Record<string, MessageKey> = {
+  superadmin: 'shell.roles.superadmin',
+  admin: 'shell.roles.admin',
+  agent: 'shell.roles.agent',
 }
 
-/** Groups folded the first time a user opens the app; the group holding the
- *  current page always opens itself. */
-const DEFAULT_FOLDED = ['Library', 'Channels', 'Admin', 'Review']
+/** Groups folded the first time a user opens the app (keyed by the group's
+ *  label key); the group holding the current page always opens itself. */
+const DEFAULT_FOLDED: MessageKey[] = ['shell.groups.library', 'shell.groups.channels', 'shell.groups.admin', 'shell.groups.review']
 
 const foldKey = (user: AuthUser | null) => `nav-groups:${user?.username ?? 'anon'}`
 
@@ -151,7 +151,8 @@ export function SideNav({
     const count = counter(n)
     const needsHuman = n.counter === 'waiting' ? live?.needs_human_count ?? 0 : 0
     const name = t(n.lbl)
-    const label = count > 0 ? `${name} (${count})` : name
+    const label = count > 0 ? t('shell.sideNav.withCount', { name, count }) : name
+    const humanTip = needsHuman > 0 ? t('shell.sideNav.needsHuman', { count: needsHuman }) : ''
     return (
       <Link
         key={n.href}
@@ -159,8 +160,8 @@ export function SideNav({
         onClick={onCloseMobile}
         aria-current={active ? 'page' : undefined}
         aria-label={collapsed ? label : undefined}
-        title={!collapsed && needsHuman > 0 ? `${needsHuman} need${needsHuman === 1 ? 's' : ''} a human` : undefined}
-        onMouseEnter={(e) => showTip(e.currentTarget, needsHuman > 0 ? `${label} · ${needsHuman} need${needsHuman === 1 ? 's' : ''} a human` : label)}
+        title={!collapsed && humanTip ? humanTip : undefined}
+        onMouseEnter={(e) => showTip(e.currentTarget, humanTip ? `${label} · ${humanTip}` : label)}
         onMouseLeave={hideTip}
         onFocus={(e) => showTip(e.currentTarget, label)}
         onBlur={hideTip}
@@ -203,7 +204,7 @@ export function SideNav({
         ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
         lg:relative lg:z-auto lg:h-full lg:translate-x-0 lg:shadow-none lg:transition-[width]
         ${collapsed ? 'lg:w-[64px]' : 'lg:w-[248px]'}`}
-      aria-label="Main navigation"
+      aria-label={t('shell.sideNav.mainNavigation')}
       aria-hidden={!mobileOpen && !isDesktop ? true : undefined}
     >
       {/* Logo row */}
@@ -216,15 +217,15 @@ export function SideNav({
           href="/analytics"
           onClick={onCloseMobile}
           className="flex min-w-0 items-center rounded-md"
-          aria-label="ChatBranch — home"
+          aria-label={t('shell.sideNav.homeLink')}
         >
           {collapsed ? <BranchMark size={26} className="text-text-heading" /> : <Logo />}
         </Link>
         {onToggle && (
           <button
             onClick={onToggle}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={collapsed ? t('shell.sideNav.expand') : t('shell.sideNav.collapse')}
+            aria-label={collapsed ? t('shell.sideNav.expand') : t('shell.sideNav.collapse')}
             className={`hidden h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high lg:grid ${
               collapsed ? '' : 'ml-auto'
             }`}
@@ -234,7 +235,7 @@ export function SideNav({
         )}
         <button
           onClick={onCloseMobile}
-          aria-label="Close menu"
+          aria-label={t('shell.sideNav.closeMenu')}
           className="ml-auto grid h-9 w-9 shrink-0 place-items-center rounded-lg text-text-muted hover:bg-fill-hover lg:hidden"
         >
           <X size={18} strokeWidth={1.75} />
@@ -252,7 +253,7 @@ export function SideNav({
         className={`relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden no-scrollbar py-3 ${collapsed ? 'px-2' : 'px-3'}`}
       >
         {groups.map((g, gi) => {
-          const id = `nav-group-${(g.label ?? 'top').toLowerCase()}`
+          const id = `nav-group-${(g.label ?? 'top').split('.').pop()}`
           const isFolded = !collapsed && !!g.label && !!folded[g.label]
           return (
             <div key={g.label ?? 'top'} className={gi > 0 ? (collapsed ? 'mt-2' : 'mt-3') : ''}>
@@ -301,15 +302,15 @@ export function SideNav({
             <button
               type="button"
               onClick={() => void install()}
-              aria-label={collapsed ? 'Install app' : undefined}
-              onMouseEnter={(e) => showTip(e.currentTarget, 'Install app')}
+              aria-label={collapsed ? t('shell.sideNav.installApp') : undefined}
+              onMouseEnter={(e) => showTip(e.currentTarget, t('shell.sideNav.installApp'))}
               onMouseLeave={hideTip}
               className={`flex cursor-pointer items-center gap-2.5 rounded-lg py-[7px] text-[13.5px] text-text-mid transition-colors hover:bg-fill-hover hover:text-text-heading ${
                 collapsed ? 'justify-center px-0' : 'px-2.5'
               }`}
             >
               <Download size={17} strokeWidth={1.7} className="shrink-0" aria-hidden />
-              {!collapsed && <span className="flex-1 text-left">Install app</span>}
+              {!collapsed && <span className="min-w-0 flex-1 truncate text-left">{t('shell.sideNav.installApp')}</span>}
             </button>
           )}
         </div>
@@ -317,7 +318,7 @@ export function SideNav({
         <div className={`mt-2 flex items-center gap-2 border-t border-line pt-2.5 ${collapsed ? 'flex-col' : ''}`}>
           <span
             className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary text-[11.5px] font-semibold text-on-primary"
-            title={user?.name || user?.username || 'Not signed in'}
+            title={user?.name || user?.username || t('shell.sideNav.notSignedIn')}
             aria-hidden
           >
             {initials}
@@ -325,16 +326,16 @@ export function SideNav({
           {!collapsed && (
             <span className="flex min-w-0 flex-1 flex-col leading-tight">
               <span className="truncate text-[13px] font-semibold text-text-high">
-                {user?.name || user?.username || 'Not signed in'}
+                {user?.name || user?.username || t('shell.sideNav.notSignedIn')}
               </span>
-              <span className="truncate text-[11.5px] text-text-muted">{ROLE_LABEL[role] ?? role}</span>
+              <span className="truncate text-[11.5px] text-text-muted">{ROLE_LABEL[role] ? t(ROLE_LABEL[role]) : role}</span>
             </span>
           )}
           <ThemeToggle />
           <button
             onClick={onSignOut}
-            title="Sign out"
-            aria-label="Sign out"
+            title={t('common.actions.signOut')}
+            aria-label={t('common.actions.signOut')}
             className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-[color:var(--red-ink)]"
           >
             <LogOut size={15} strokeWidth={1.75} />

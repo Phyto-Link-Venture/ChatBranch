@@ -14,6 +14,7 @@
 import { useEffect, useState } from 'react'
 import { authHeaders, getAuth } from '@/lib/auth'
 import { subscribeChatStream, subscribeStreamStatus, type StreamStatus } from '@/lib/chatStream'
+import { useT, type TFunction } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 const POLL_MS = 15_000
@@ -129,14 +130,30 @@ export function useStreamStatus(): StreamStatus {
   return s
 }
 
-/** "just now" · "4 min" · "2 h" · "3 d" — compact waits and ages. */
-export function shortAge(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 60) return 'just now'
+/**
+ * "just now" · "4 min" · "2 h" · "3 d" — compact waits and ages, in the
+ * dashboard language when given the translate function (`useShortAge()` binds
+ * it); without one it stays English for callers not yet localised.
+ */
+export function shortAge(seconds: number, t?: TFunction): string {
   const m = Math.floor(seconds / 60)
-  if (m < 60) return `${m} min`
   const h = Math.floor(m / 60)
+  if (typeof t === 'function') {
+    if (!Number.isFinite(seconds) || seconds < 60) return t('shell.live.age.justNow')
+    if (m < 60) return t('shell.live.age.minutes', { count: m })
+    if (h < 24) return t('shell.live.age.hours', { count: h })
+    return t('shell.live.age.days', { count: Math.floor(h / 24) })
+  }
+  if (!Number.isFinite(seconds) || seconds < 60) return 'just now'
+  if (m < 60) return `${m} min`
   if (h < 24) return `${h} h`
   return `${Math.floor(h / 24)} d`
+}
+
+/** `shortAge` bound to the current language: `const age = useShortAge(); age(secs)`. */
+export function useShortAge(): (seconds: number) => string {
+  const t = useT()
+  return (seconds: number) => shortAge(seconds, t)
 }
 
 export function secondsSince(iso: string): number {

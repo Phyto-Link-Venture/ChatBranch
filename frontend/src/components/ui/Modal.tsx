@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
+import { useT } from '@/i18n'
 
 /**
  * Reusable modal: a centred card over a dimmed scrim (theme tokens only):
@@ -49,6 +50,7 @@ export function Modal({
   closeOnScrim?: boolean
   labelledById?: string
 }) {
+  const t = useT()
   const cardRef = useRef<HTMLDivElement>(null)
   const restoreRef = useRef<HTMLElement | null>(null)
 
@@ -131,7 +133,7 @@ export function Modal({
           </div>
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t('common.actions.close')}
             className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
           >
             <X size={15} strokeWidth={1.75} aria-hidden />

@@ -21,7 +21,7 @@ import { authHeaders, capabilitiesFor, type AuthUser } from '@/lib/auth'
 import { useEntityQuery } from '@/lib/EntityContext'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { visiblePages } from './nav'
-import { useT, type TFunction } from '@/i18n'
+import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 const MIN_CHARS = 2
@@ -51,14 +51,14 @@ interface Item {
   hint?: boolean
 }
 
-const GROUPS: { type: Hit['type']; label: string; Icon: LucideIcon }[] = [
-  { type: 'contact', label: 'Contacts', Icon: UserRound },
-  { type: 'conversation', label: 'Conversations', Icon: UserRound },
-  { type: 'template', label: 'Templates', Icon: FileText },
-  { type: 'knowledge', label: 'Knowledge', Icon: BookOpen },
-  { type: 'flow', label: 'Flows', Icon: Workflow },
-  { type: 'user', label: 'Users', Icon: UserCog },
-  { type: 'entity', label: 'Entities', Icon: Building2 },
+const GROUPS: { type: Hit['type']; lbl: MessageKey; Icon: LucideIcon }[] = [
+  { type: 'contact', lbl: 'shell.nav.contacts', Icon: UserRound },
+  { type: 'conversation', lbl: 'shell.palette.groups.conversations', Icon: UserRound },
+  { type: 'template', lbl: 'shell.nav.templates', Icon: FileText },
+  { type: 'knowledge', lbl: 'shell.nav.knowledge', Icon: BookOpen },
+  { type: 'flow', lbl: 'shell.palette.groups.flows', Icon: Workflow },
+  { type: 'user', lbl: 'shell.palette.groups.users', Icon: UserCog },
+  { type: 'entity', lbl: 'shell.nav.entities', Icon: Building2 },
 ]
 
 const recentKey = (u: AuthUser | null) => `cmdk-recent:${u?.username ?? 'anon'}`
@@ -185,12 +185,13 @@ export function CommandPalette({
     const term = q.trim()
     const out: Item[] = []
     if (!term && recent.length) {
-      for (const r of recent) out.push({ key: `recent:${r}`, group: 'Recent searches', title: r, fill: r, Icon: History })
+      for (const r of recent)
+        out.push({ key: `recent:${r}`, group: tr('shell.palette.recent'), title: r, fill: r, Icon: History })
     }
     for (const { p } of matchPages(user, term, tr)) {
       out.push({
         key: `page:${p.href}`,
-        group: term ? 'Pages' : 'Jump to',
+        group: term ? tr('shell.palette.pages') : tr('shell.palette.jumpTo'),
         title: tr(p.lbl),
         subtitle: p.group ? tr(p.group) : undefined,
         url: p.href,
@@ -203,7 +204,7 @@ export function CommandPalette({
         for (const h of rows)
           out.push({
             key: `${h.type}:${h.id}`,
-            group: g.label,
+            group: tr(g.lbl),
             title: h.title,
             subtitle: h.subtitle,
             url: h.url,
@@ -216,8 +217,8 @@ export function CommandPalette({
       if (caps.includes('contacts.view'))
         out.push({
           key: 'all:contacts',
-          group: 'Search all',
-          title: `Search all contacts for “${term}”`,
+          group: tr('shell.palette.searchAll'),
+          title: tr('shell.palette.searchAllContacts', { term }),
           url: `/contacts?q=${encodeURIComponent(term)}`,
           Icon: Search,
           hint: true,
@@ -225,8 +226,8 @@ export function CommandPalette({
       if (caps.includes('chats.view'))
         out.push({
           key: 'all:chats',
-          group: 'Search all',
-          title: `Search all conversations for “${term}”`,
+          group: tr('shell.palette.searchAll'),
+          title: tr('shell.palette.searchAllChats', { term }),
           url: `/chats?q=${encodeURIComponent(term)}`,
           Icon: Search,
           hint: true,
@@ -296,7 +297,7 @@ export function CommandPalette({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Search"
+        aria-label={tr('common.actions.search')}
         className="flex max-h-[76vh] w-full max-w-[640px] flex-col overflow-hidden rounded-2xl border border-line-strong bg-card shadow-pop"
         onKeyDown={onKeyDown}
       >
@@ -310,8 +311,8 @@ export function CommandPalette({
             ref={inputRef}
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search contacts, chats, flows, templates…"
-            aria-label="Search"
+            placeholder={tr('shell.topBar.searchPlaceholder')}
+            aria-label={tr('common.actions.search')}
             role="combobox"
             aria-expanded="true"
             aria-controls="cmdk-list"
@@ -327,7 +328,7 @@ export function CommandPalette({
                 setQ('')
                 inputRef.current?.focus()
               }}
-              aria-label="Clear search"
+              aria-label={tr('shell.palette.clear')}
               className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-text-muted hover:bg-fill-hover"
             >
               <X size={15} aria-hidden />
@@ -339,18 +340,18 @@ export function CommandPalette({
           )}
         </div>
 
-        <div ref={listRef} id="cmdk-list" role="listbox" aria-label="Results" className="min-h-0 flex-1 overflow-y-auto py-1.5">
+        <div ref={listRef} id="cmdk-list" role="listbox" aria-label={tr('shell.palette.results')} className="min-h-0 flex-1 overflow-y-auto py-1.5">
           {term.length > 0 && term.length < MIN_CHARS && (
-            <div className="px-4 pb-1 pt-2 text-[12px] text-text-muted">Type one more character to search records.</div>
+            <div className="px-4 pb-1 pt-2 text-[12px] text-text-muted">{tr('shell.palette.oneMore')}</div>
           )}
           {failed && (
             <div className="px-4 pb-1 pt-2 text-[12px] text-[color:var(--red-ink)]">
-              Search is unavailable right now — pages still match below.
+              {tr('shell.palette.unavailable')}
             </div>
           )}
           {noResults && (
             <div className="px-4 pb-1 pt-3 text-[13px] text-text-muted">
-              No records match “{term}”.
+              {tr('shell.palette.noRecords', { term })}
             </div>
           )}
           {items.map((it, idx) => {
@@ -396,16 +397,25 @@ export function CommandPalette({
         </div>
 
         <div className="hidden items-center gap-4 border-t border-line bg-surface px-4 py-2 text-[11.5px] text-text-muted sm:flex">
-          <span>
-            <kbd className="font-sans font-semibold">↑</kbd> <kbd className="font-sans font-semibold">↓</kbd> to move
+          <span className="shrink-0">
+            <Trans
+              k="shell.palette.hintMove"
+              values={{
+                keys: (
+                  <>
+                    <kbd className="font-sans font-semibold">↑</kbd> <kbd className="font-sans font-semibold">↓</kbd>
+                  </>
+                ),
+              }}
+            />
           </span>
-          <span>
-            <kbd className="font-sans font-semibold">↵</kbd> to open
+          <span className="shrink-0">
+            <Trans k="shell.palette.hintOpen" values={{ key: <kbd className="font-sans font-semibold">↵</kbd> }} />
           </span>
-          <span>
-            <kbd className="font-sans font-semibold">Esc</kbd> to close
+          <span className="shrink-0">
+            <Trans k="shell.palette.hintClose" values={{ key: <kbd className="font-sans font-semibold">Esc</kbd> }} />
           </span>
-          <span className="ml-auto">Results follow your entity and permissions</span>
+          <span className="ml-auto min-w-0 truncate">{tr('shell.palette.scopeNote')}</span>
         </div>
       </div>
     </div>

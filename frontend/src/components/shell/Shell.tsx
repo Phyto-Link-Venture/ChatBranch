@@ -226,7 +226,7 @@ function BottomTabs({ user, pathname, onMore }: { user: AuthUser | null; pathnam
 
   return (
     <nav
-      aria-label="Primary"
+      aria-label={tr('shell.sideNav.primaryTabs')}
       className="grid shrink-0 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden"
       style={{ gridTemplateColumns: `repeat(${tabs.length + 1}, minmax(0, 1fr))` }}
     >
@@ -250,7 +250,7 @@ function BottomTabs({ user, pathname, onMore }: { user: AuthUser | null; pathnam
                 </span>
               )}
             </span>
-            {tr(t.lbl)}
+            <span className="max-w-full truncate px-0.5">{tr(t.lbl)}</span>
           </Link>
         )
       })}
@@ -260,7 +260,7 @@ function BottomTabs({ user, pathname, onMore }: { user: AuthUser | null; pathnam
         className="flex flex-col items-center gap-1 border-t-2 border-transparent pb-2.5 pt-2 text-[11px] text-text-mid"
       >
         <Menu size={19} strokeWidth={1.6} aria-hidden />
-        {tr('shell.nav.more')}
+        <span className="max-w-full truncate px-0.5">{tr('shell.nav.more')}</span>
       </button>
     </nav>
   )

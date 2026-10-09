@@ -1,20 +1,24 @@
+'use client'
+
 import type { ReactNode } from 'react'
 import type { ContactStatus } from '@/lib/mocks'
 import { HEALTH_META, type HealthStatus } from '@/lib/channelHealth'
+import { useT, type MessageKey } from '@/i18n'
 
 // ── Status badge (contact status) ────────────────────────────────────────────
 const STATUS: Record<
   string,
-  { lbl: string; bg: string; c: string; dot: string }
+  { lbl: MessageKey; bg: string; c: string; dot: string }
 > = {
-  active: { lbl: 'Active', bg: 'rgba(255,90,31,0.15)', c: 'var(--brand-ink)', dot: 'rgb(var(--c-brand))' },
-  pending: { lbl: 'Pending', bg: 'rgba(200,137,26,0.13)', c: 'var(--amber-ink)', dot: 'rgb(var(--c-amber))' },
-  'message-sent': { lbl: 'Msg Sent', bg: 'rgba(122,78,140,0.15)', c: 'var(--purple-ink)', dot: 'rgb(var(--c-purple))' },
-  resolved: { lbl: 'Resolved', bg: 'rgba(47,125,79,0.13)', c: 'var(--green-ink)', dot: 'rgb(var(--c-green))' },
-  failed: { lbl: 'Failed', bg: 'rgba(192,57,43,0.13)', c: 'var(--red-ink)', dot: 'rgb(var(--c-red))' },
+  active: { lbl: 'ui.contactStatus.active', bg: 'rgba(255,90,31,0.15)', c: 'var(--brand-ink)', dot: 'rgb(var(--c-brand))' },
+  pending: { lbl: 'ui.contactStatus.pending', bg: 'rgba(200,137,26,0.13)', c: 'var(--amber-ink)', dot: 'rgb(var(--c-amber))' },
+  'message-sent': { lbl: 'ui.contactStatus.messageSent', bg: 'rgba(122,78,140,0.15)', c: 'var(--purple-ink)', dot: 'rgb(var(--c-purple))' },
+  resolved: { lbl: 'ui.contactStatus.resolved', bg: 'rgba(47,125,79,0.13)', c: 'var(--green-ink)', dot: 'rgb(var(--c-green))' },
+  failed: { lbl: 'ui.contactStatus.failed', bg: 'rgba(192,57,43,0.13)', c: 'var(--red-ink)', dot: 'rgb(var(--c-red))' },
 }
 
 export function StatusBadge({ status }: { status: ContactStatus }) {
+  const t = useT()
   const s = STATUS[status] || STATUS.pending
   return (
     <span
@@ -25,37 +29,49 @@ export function StatusBadge({ status }: { status: ContactStatus }) {
         className="inline-block h-[5px] w-[5px] shrink-0 rounded-full"
         style={{ background: s.dot }}
       />
-      {s.lbl}
+      {t(s.lbl)}
     </span>
   )
 }
 
 // ── Call-log status badge ─────────────────────────────────────────────────────
-const LOG_STATUS: Record<string, { lbl: string; c: string; bg: string }> = {
-  completed: { lbl: 'Completed', c: 'var(--green-ink)', bg: 'rgba(47,125,79,0.13)' },
-  active: { lbl: 'Live', c: 'var(--brand-ink)', bg: 'rgba(255,90,31,0.15)' },
-  voicemail: { lbl: 'Voicemail', c: 'var(--amber-ink)', bg: 'rgba(200,137,26,0.13)' },
-  'no-answer': { lbl: 'No Answer', c: 'var(--red-ink)', bg: 'rgba(192,57,43,0.13)' },
-  'callback-requested': { lbl: 'Callback Req.', c: 'var(--purple-ink)', bg: 'rgba(122,78,140,0.15)' },
-  read: { lbl: 'Read', c: 'var(--green-ink)', bg: 'rgba(47,125,79,0.13)' },
-  delivered: { lbl: 'Delivered', c: 'var(--brand-ink)', bg: 'rgba(255,90,31,0.13)' },
+const LOG_STATUS: Record<string, { lbl: MessageKey; c: string; bg: string }> = {
+  completed: { lbl: 'ui.callStatus.completed', c: 'var(--green-ink)', bg: 'rgba(47,125,79,0.13)' },
+  active: { lbl: 'ui.callStatus.live', c: 'var(--brand-ink)', bg: 'rgba(255,90,31,0.15)' },
+  voicemail: { lbl: 'ui.callStatus.voicemail', c: 'var(--amber-ink)', bg: 'rgba(200,137,26,0.13)' },
+  'no-answer': { lbl: 'ui.callStatus.noAnswer', c: 'var(--red-ink)', bg: 'rgba(192,57,43,0.13)' },
+  'callback-requested': { lbl: 'ui.callStatus.callbackRequested', c: 'var(--purple-ink)', bg: 'rgba(122,78,140,0.15)' },
+  read: { lbl: 'ui.callStatus.read', c: 'var(--green-ink)', bg: 'rgba(47,125,79,0.13)' },
+  delivered: { lbl: 'ui.callStatus.delivered', c: 'var(--brand-ink)', bg: 'rgba(255,90,31,0.13)' },
 }
 
 export function LogStatusBadge({ status }: { status: string }) {
+  const t = useT()
   const st = LOG_STATUS[status] || LOG_STATUS.delivered
   return (
     <span
       className="rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap"
       style={{ color: st.c, background: st.bg }}
     >
-      {st.lbl}
+      {t(st.lbl)}
     </span>
   )
 }
 
 // ── Channel-account health badge (dashboard card + Settings) ─────────────────
+// Colours come from HEALTH_META; the visible label is translated here.
+const HEALTH_LBL: Record<HealthStatus, MessageKey> = {
+  healthy: 'ui.health.healthy',
+  degraded: 'ui.health.degraded',
+  unknown: 'ui.health.unknown',
+  disconnected: 'ui.health.disconnected',
+  banned: 'ui.health.banned',
+}
+
 export function HealthBadge({ health, detail }: { health: HealthStatus | string; detail?: string }) {
-  const m = HEALTH_META[health as HealthStatus] || HEALTH_META.unknown
+  const t = useT()
+  const known = (Object.prototype.hasOwnProperty.call(HEALTH_LBL, health) ? health : 'unknown') as HealthStatus
+  const m = HEALTH_META[known]
   return (
     <span
       className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold whitespace-nowrap"
@@ -66,7 +82,7 @@ export function HealthBadge({ health, detail }: { health: HealthStatus | string;
         className="inline-block h-[5px] w-[5px] shrink-0 rounded-full"
         style={{ background: m.dot }}
       />
-      {m.lbl}
+      {t(HEALTH_LBL[known])}
     </span>
   )
 }
@@ -85,27 +101,28 @@ export function accountRole(a: { role?: string | null; provider?: string | null 
   return a.provider === 'baileys' ? 'conversation' : 'reminder'
 }
 
-const ROLE_CHIP: Record<AccountRole, { lbl: string; cls: string; title: string }> = {
+const ROLE_CHIP: Record<AccountRole, { lbl: MessageKey; cls: string; title: MessageKey }> = {
   reminder: {
-    lbl: 'Reminder',
+    lbl: 'ui.accountRole.reminder',
     cls: 'bg-cyan/15 text-cyan-300',
-    title: 'Reminder (business) — sends templates and hands contacts to conversation numbers',
+    title: 'ui.accountRole.reminderHint',
   },
   conversation: {
-    lbl: 'Conversation',
+    lbl: 'ui.accountRole.conversation',
     cls: 'bg-brand-400/10 text-brand-300',
-    title: 'Conversation (personal) — AI chat, customer-initiated only',
+    title: 'ui.accountRole.conversationHint',
   },
 }
 
 export function RoleChip({ role }: { role: AccountRole }) {
+  const t = useT()
   const m = ROLE_CHIP[role]
   return (
     <span
-      className={`shrink-0 rounded-full px-1.5 py-px text-[9px] font-bold uppercase ${m.cls}`}
-      title={m.title}
+      className={`shrink-0 whitespace-nowrap rounded-full px-1.5 py-px text-[9px] font-bold uppercase ${m.cls}`}
+      title={t(m.title)}
     >
-      {m.lbl}
+      {t(m.lbl)}
     </span>
   )
 }

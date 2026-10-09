@@ -10,6 +10,7 @@ import {
   useNotifications,
   type Notif,
 } from './notificationsStore'
+import { useFormat, useT } from '@/i18n'
 
 const KIND_ICON = { message: MessageSquare, call: Phone, system: Settings2 }
 const KIND_TINT = {
@@ -18,13 +19,12 @@ const KIND_TINT = {
   system: 'bg-fill text-text-mid',
 }
 
-const timeShort = (ts: string) =>
-  new Date(ts).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-
 /** Per-user notification bell: a tangerine dot when something is unread, a
  *  dropdown of the latest, and "View all" into /notifications. Shares its data
  *  with the sidebar's Notifications counter (notificationsStore). */
 export function NotificationsBell() {
+  const t = useT()
+  const f = useFormat()
   const router = useRouter()
   const { unread, items } = useNotifications()
   const [open, setOpen] = useState(false)
@@ -54,7 +54,7 @@ export function NotificationsBell() {
     <div ref={wrapRef} className="relative">
       <button
         onClick={() => setOpen(!open)}
-        aria-label={`Notifications${unread ? ` (${unread} unread)` : ''}`}
+        aria-label={unread ? t('shell.bell.ariaUnread', { count: unread }) : t('shell.nav.notifications')}
         aria-expanded={open}
         aria-haspopup="dialog"
         className="relative grid h-10 w-10 cursor-pointer place-items-center rounded-lg text-text-high transition-colors hover:bg-fill-hover"
@@ -71,26 +71,31 @@ export function NotificationsBell() {
       {open && (
         <div
           role="dialog"
-          aria-label="Notifications"
+          aria-label={t('shell.nav.notifications')}
           className="fixed inset-x-3 top-[64px] z-50 animate-slideDown overflow-hidden rounded-xl border border-line bg-card shadow-pop sm:absolute sm:inset-x-auto sm:right-0 sm:top-[46px] sm:w-[360px]"
         >
           <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-            <span className="display text-[18px] text-text-heading">
-              Notifications
-              {unread > 0 && <span className="ml-2 font-sans text-[12px] font-semibold text-text-muted">{unread} unread</span>}
+            {/* the unread count drops under the title when the row is tight (long languages) */}
+            <span className="display flex min-w-0 flex-wrap items-baseline gap-x-2 text-[18px] text-text-heading">
+              <span>{t('shell.nav.notifications')}</span>
+              {unread > 0 && (
+                <span className="whitespace-nowrap font-sans text-[12px] font-semibold text-text-muted">
+                  {t('shell.bell.unread', { count: unread })}
+                </span>
+              )}
             </span>
             <button
               onClick={() => void markAllNotificationsRead()}
               disabled={!unread}
-              className="flex cursor-pointer items-center gap-1 text-[12px] font-semibold text-text-muted transition-colors hover:text-text-high disabled:cursor-default disabled:opacity-40"
+              className="flex shrink-0 cursor-pointer items-center gap-1 text-[12px] font-semibold text-text-muted transition-colors hover:text-text-high disabled:cursor-default disabled:opacity-40"
             >
-              <CheckCheck size={13} aria-hidden /> Mark all read
+              <CheckCheck size={13} aria-hidden /> {t('shell.bell.markAllRead')}
             </button>
           </div>
           <div className="max-h-[min(380px,60vh)] overflow-y-auto">
             {items.length === 0 && (
               <div className="px-4 py-8 text-center text-[12.5px] text-text-muted">
-                Nothing yet — customer replies and system events land here.
+                {t('shell.bell.empty')}
               </div>
             )}
             {items.map((n) => {
@@ -109,10 +114,10 @@ export function NotificationsBell() {
                       <span className={`truncate text-[13px] ${n.read ? 'text-text-mid' : 'font-semibold text-text-high'}`}>
                         {n.title}
                       </span>
-                      {!n.read && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-label="unread" />}
+                      {!n.read && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-label={t('shell.bell.unreadDot')} />}
                     </span>
                     {n.body && <span className="block truncate text-[12px] text-text-muted">{n.body}</span>}
-                    <span className="block text-[11px] text-text-faint">{timeShort(n.created_at)}</span>
+                    <span className="block text-[11px] text-text-faint">{f.dateTime(n.created_at)}</span>
                   </span>
                 </button>
               )
@@ -123,7 +128,7 @@ export function NotificationsBell() {
             onClick={() => setOpen(false)}
             className="block border-t border-line px-4 py-2.5 text-center text-[12.5px] font-semibold text-[color:var(--brand-ink)] transition-colors hover:bg-fill-hover"
           >
-            View all
+            {t('shell.bell.viewAll')}
           </Link>
         </div>
       )}

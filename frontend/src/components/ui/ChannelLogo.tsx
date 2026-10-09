@@ -16,8 +16,9 @@
  * on a dark surface.
  */
 
-import type { CSSProperties } from 'react'
+import { useCallback, type CSSProperties } from 'react'
 import { Globe, Mail, MessageSquareText, Phone, Smartphone } from 'lucide-react'
+import { useT, type MessageKey, type TFunction } from '@/i18n'
 
 type BrandKey =
   | 'whatsapp'
@@ -103,10 +104,41 @@ const ALIAS: Record<string, BrandKey | 'email' | 'website' | 'voice' | 'sms' | '
 
 const GLYPH = { email: Mail, website: Globe, voice: Phone, sms: Smartphone, chat: MessageSquareText } as const
 
+/** Brand-less channels' names: translation keys (SMS is a name, never translated). */
+const GENERIC: Record<keyof typeof GLYPH, { lbl?: MessageKey; en: string }> = {
+  email: { lbl: 'ui.channel.email', en: 'Email' },
+  website: { lbl: 'ui.channel.website', en: 'Website chat' },
+  voice: { lbl: 'ui.channel.voice', en: 'Voice' },
+  sms: { en: 'SMS' },
+  chat: { lbl: 'ui.channel.chat', en: 'Chat' },
+}
+
+/**
+ * A channel's display name in the dashboard language. Brand names (WhatsApp,
+ * Telegram…) are never translated; the generic ones (Email, Website chat,
+ * Voice, Chat) are. In a component prefer `useChannelLabel()`.
+ */
+export function channelLabelFor(channel: string, t: TFunction): string {
+  const k = ALIAS[channel?.toLowerCase?.() ?? ''] ?? 'chat'
+  if (k in BRAND) return BRAND[k as BrandKey].label
+  const g = GENERIC[k as keyof typeof GLYPH]
+  return g.lbl ? t(g.lbl) : g.en
+}
+
+/**
+ * The channel's name in English — for code that has no translate function.
+ * User-visible labels should come from `useChannelLabel()` / `channelLabelFor`.
+ */
 export function channelLabel(channel: string): string {
   const k = ALIAS[channel?.toLowerCase?.() ?? ''] ?? 'chat'
   if (k in BRAND) return BRAND[k as BrandKey].label
-  return { email: 'Email', website: 'Website chat', voice: 'Voice', sms: 'SMS', chat: 'Chat' }[k as keyof typeof GLYPH]
+  return GENERIC[k as keyof typeof GLYPH].en
+}
+
+/** `channelLabelFor` bound to the current language: `const label = useChannelLabel(); label('email')`. */
+export function useChannelLabel(): (channel: string) => string {
+  const t = useT()
+  return useCallback((channel: string) => channelLabelFor(channel, t), [t])
 }
 
 /** Brand hex for a channel (null for brand-less and near-black brands, which follow the theme's ink). */
@@ -137,8 +169,9 @@ export function ChannelLogo({
   /** Accessible name; defaults to the channel label. Pass '' to hide from AT. */
   title?: string
 }) {
+  const t = useT()
   const k = ALIAS[channel?.toLowerCase?.() ?? ''] ?? 'chat'
-  const label = title ?? channelLabel(channel)
+  const label = title ?? channelLabelFor(channel, t)
   const a11y = label ? { role: 'img' as const, 'aria-label': label } : { 'aria-hidden': true as const }
 
   if (variant === 'tile') {

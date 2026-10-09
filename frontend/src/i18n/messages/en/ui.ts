@@ -1,2 +1,90 @@
 // English source for the `ui` namespace (owner: the core (components/ui)). Other locales mirror it key for key.
-export const ui = {} as const
+export const ui = {
+  search: {
+    placeholder: 'Search…',
+  },
+  select: {
+    placeholder: 'Select…',
+    any: 'Any',
+    selectShown: 'Select shown',
+    searchOptions: 'Search options',
+    noMatches: 'No matches',
+  },
+  dataTable: {
+    noResultsFor: 'No results for “{query}”.',
+    range: '{from}–{to} of {total}',
+    page: 'Page {page} / {pages}',
+    previousPage: 'Previous page',
+    nextPage: 'Next page',
+  },
+  bindingGrid: {
+    bound: 'Bound',
+    allN: 'All {count}',
+    kOfN: '{k} of {n}',
+    checkAll: 'Check all',
+    clearAll: 'Clear all',
+    noMatchesFor: 'No matches for “{query}”.',
+    empty: 'Nothing to bind yet.',
+    bindAll: 'Bind all of {group}',
+    manage: 'Manage',
+    manageHint: 'Switch each one on or off, then apply. Nothing is saved until you press Save on the page.',
+    onCount: '{k} of {n} on',
+    allOn: 'All on',
+    allOff: 'All off',
+  },
+  saveBar: {
+    unsaved: 'Unsaved changes',
+    saveChanges: 'Save changes',
+  },
+  entityPicker: {
+    orgWide: 'Organization-wide (shared by all entities)',
+    choose: 'Choose an entity…',
+    allEntities: 'All entities',
+    main: 'Main',
+  },
+  phone: {
+    number: 'Phone number',
+    countryCode: 'Country calling code',
+  },
+  tagList: {
+    removeItem: 'Remove {item}',
+  },
+  contactStatus: {
+    active: 'Active',
+    pending: 'Pending',
+    messageSent: 'Msg sent',
+    resolved: 'Resolved',
+    failed: 'Failed',
+  },
+  callStatus: {
+    completed: 'Completed',
+    live: 'Live',
+    voicemail: 'Voicemail',
+    noAnswer: 'No answer',
+    callbackRequested: 'Callback req.',
+    read: 'Read',
+    delivered: 'Delivered',
+  },
+  health: {
+    healthy: 'Healthy',
+    degraded: 'Degraded',
+    unknown: 'Unknown',
+    disconnected: 'Disconnected',
+    banned: 'Banned',
+  },
+  accountRole: {
+    reminder: 'Reminder',
+    reminderHint: 'Reminder (business) — sends templates and hands contacts to conversation numbers',
+    conversation: 'Conversation',
+    conversationHint: 'Conversation (personal) — AI chat, customer-initiated only',
+  },
+  channel: {
+    email: 'Email',
+    website: 'Website chat',
+    voice: 'Voice',
+    chat: 'Chat',
+  },
+  languages: {
+    auto: 'Auto-detect',
+  },
+} as const

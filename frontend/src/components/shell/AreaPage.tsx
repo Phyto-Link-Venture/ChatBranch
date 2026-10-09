@@ -8,6 +8,7 @@ import {
   SettingsDirtyProvider,
   useSettingsDirty,
 } from '@/components/settings/SettingsDirtyContext'
+import { useT } from '@/i18n'
 
 /**
  * Chrome for the areas promoted out of Settings into their own top-level routes
@@ -23,17 +24,18 @@ import {
 /** Save/Discard cluster, identical to the Settings header's, wired to the
  *  dirty context so reused components keep working outside SettingsShell. */
 function DirtyControls() {
+  const t = useT()
   const { dirty, saving, saved, save, discard } = useSettingsDirty()
   if (dirty || saving) {
     return (
       <div className="flex items-center gap-2">
-        <span className="hidden text-[12px] font-semibold text-amber-300 sm:inline">Unsaved changes</span>
+        <span className="hidden text-[12px] font-semibold text-amber-300 sm:inline">{t('ui.saveBar.unsaved')}</span>
         <Button variant="ghost" size="sm" onClick={discard} disabled={saving}>
-          Discard
+          {t('common.actions.discard')}
         </Button>
         <Button variant="primary" size="sm" onClick={() => void save()} disabled={saving}>
           {saving && <Loader2 size={13} className="animate-spin" aria-hidden />}
-          Save changes
+          {t('ui.saveBar.saveChanges')}
         </Button>
       </div>
     )
@@ -41,7 +43,7 @@ function DirtyControls() {
   if (saved) {
     return (
       <span className="flex items-center gap-1.5 text-[12px] font-semibold text-brand-300">
-        <Check size={14} strokeWidth={2.25} /> Saved
+        <Check size={14} strokeWidth={2.25} /> {t('common.status.saved')}
       </span>
     )
   }
@@ -62,6 +64,7 @@ export function AreaPage({
   eyebrow?: string
   children: ReactNode
 }) {
+  const t = useT()
   return (
     <SettingsDirtyProvider>
       <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -69,7 +72,7 @@ export function AreaPage({
           eyebrow={
             <span className="inline-flex items-center gap-1.5">
               <Icon size={12} strokeWidth={2.2} aria-hidden />
-              {eyebrow ?? 'Workspace'}
+              {eyebrow ?? t('shell.area.workspace')}
             </span>
           }
           title={title}

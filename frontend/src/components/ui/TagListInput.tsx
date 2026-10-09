@@ -2,6 +2,7 @@
 
 import { useState, type KeyboardEvent } from 'react'
 import { Plus, X } from 'lucide-react'
+import { useT } from '@/i18n'
 
 /**
  * Add-one-at-a-time list editor: the user types a single value and presses
@@ -14,7 +15,7 @@ export function TagListInput({
   onChange,
   placeholder,
   disabled,
-  addLabel = 'Add',
+  addLabel,
 }: {
   value: string[]
   onChange: (next: string[]) => void
@@ -22,6 +23,7 @@ export function TagListInput({
   disabled?: boolean
   addLabel?: string
 }) {
+  const t = useT()
   const [draft, setDraft] = useState('')
 
   const commit = () => {
@@ -50,17 +52,17 @@ export function TagListInput({
     >
       {value.length > 0 && (
         <div className="mb-1.5 flex flex-wrap gap-1">
-          {value.map((t, i) => (
+          {value.map((item, i) => (
             <span
-              key={`${t}-${i}`}
+              key={`${item}-${i}`}
               className="inline-flex items-center gap-1 rounded-full bg-brand-400/10 px-2 py-0.5 text-[11px] font-semibold text-brand-300"
             >
-              {t}
+              {item}
               {!disabled && (
                 <button
                   type="button"
-                  aria-label={`Remove ${t}`}
-                  title="Remove"
+                  aria-label={t('ui.tagList.removeItem', { item })}
+                  title={t('common.actions.remove')}
                   onClick={() => remove(i)}
                   className="grid h-3.5 w-3.5 place-items-center rounded-full hover:bg-brand-400/20"
                 >
@@ -88,7 +90,7 @@ export function TagListInput({
           className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-brand-300 hover:bg-brand-400/10 disabled:opacity-40"
         >
           <Plus size={12} aria-hidden />
-          {addLabel}
+          {addLabel ?? t('common.actions.add')}
         </button>
       </div>
     </div>
