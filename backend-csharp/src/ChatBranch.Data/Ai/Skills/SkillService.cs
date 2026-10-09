@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using ChatBranch.Data.Bookings;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,13 +19,19 @@ public class SkillService
     private readonly AppDbContext _db;
     private readonly ScopingService _scoping;
     private readonly TimeProvider _clock;
+    private readonly BookingService _bookings;
 
-    public SkillService(AppDbContext db, ScopingService scoping, TimeProvider? clock = null)
+    public SkillService(AppDbContext db, ScopingService scoping, TimeProvider? clock = null,
+        BookingService? bookings = null)
     {
         _db = db;
         _scoping = scoping;
         _clock = clock ?? TimeProvider.System;
+        _bookings = bookings ?? new BookingService(db, scoping, clock: _clock);
     }
+
+    /// <summary>The calendar booking service app tools run on (shared with the AI gate in DI).</summary>
+    public BookingService Bookings => _bookings;
 
     public DateTimeOffset UtcNow => _clock.GetUtcNow();
 
@@ -62,21 +69,43 @@ public class SkillService
         Contact = SkillContext.ContactView(contact),
     };
 
+    /// <summary>The context for a reply in a conversation — what app tools need
+    /// (which conversation, contact, outlet and assignee) on top of the sandbox view.</summary>
+    public SkillContext Context(Contact? contact, string? channel, string? lastMessage, int? threadId,
+        int? entityId, string? assignee) => new()
+    {
+        UtcNow = UtcNow,
+        TimeZone = OrgTimeZone(),
+        Channel = channel ?? "",
+        LastMessage = lastMessage ?? "",
+        Contact = SkillContext.ContactView(contact),
+        ThreadId = threadId,
+        ContactId = contact?.Id,
+        ContactRecord = contact,
+        EntityId = entityId,
+        Assignee = assignee ?? "",
+    };
+
     // ---- tools -------------------------------------------------------------------
 
     public sealed class ToolSet
     {
         public List<LlmTool> Tools { get; } = new();
         public Dictionary<string, AgentSkill> Skills { get; } = new();
+        /// <summary>App tools (connected-app skills): tool name → what it runs.</summary>
+        public Dictionary<string, BookingService.ToolBinding> Apps { get; } = new();
+        /// <summary>App skill SkillId → the base name of its tools ("calendar", "calendar_2"…).</summary>
+        public Dictionary<string, string> AppBases { get; } = new();
     }
 
-    /// <summary>Built-ins + the enabled tool skills given, with unique names.</summary>
+    /// <summary>Built-ins + the enabled tool skills + the enabled app skills given, with unique names.</summary>
     public ToolSet BuildTools(IEnumerable<AgentSkill> skills)
     {
         var set = new ToolSet();
         set.Tools.AddRange(BuiltinSkills.Tools());
         var taken = new HashSet<string>(set.Tools.Select(t => t.Name));
-        foreach (var s in skills.Where(s => s.Kind == SkillKinds.Tool && !string.IsNullOrWhiteSpace(s.Code)))
+        var list = skills.ToList();
+        foreach (var s in list.Where(s => s.Kind == SkillKinds.Tool && !string.IsNullOrWhiteSpace(s.Code)))
         {
             var name = ToolName(s);
             for (var i = 2; taken.Contains(name); i++) name = $"{ToolName(s)}_{i}";
@@ -84,7 +113,47 @@ public class SkillService
             set.Skills[name] = s;
             set.Tools.Add(new LlmTool(name, ToolDescription(s), ParameterSchema(s.Parameters)));
         }
+        foreach (var s in list.Where(s => s.Kind == SkillKinds.App && s.Enabled))
+        {
+            try
+            {
+                var cfg = CalendarAppConfig.From(s.Config);
+                if (cfg.App != CalendarAppConfig.AppId || cfg.AllowedActions.Count == 0) continue;
+                var tz = _bookings.TimeZoneFor(cfg);
+                var baseName = "calendar";
+                for (var i = 2; BookingService.ToolDefinitions(baseName, cfg, tz.Id).Any(t => taken.Contains(t.Name)); i++)
+                    baseName = $"calendar_{i}";
+                set.AppBases[s.SkillId] = baseName;
+                foreach (var (name, action, tool) in BookingService.ToolDefinitions(baseName, cfg, tz.Id))
+                {
+                    taken.Add(name);
+                    set.Apps[name] = new BookingService.ToolBinding(s, cfg, action, baseName);
+                    set.Tools.Add(tool);
+                }
+            }
+            catch { /* a broken app config offers no tools rather than breaking the reply */ }
+        }
         return set;
+    }
+
+    /// <summary>
+    /// Run one call the model made — app tools (calendar) asynchronously, every
+    /// other tool through <see cref="ExecuteTool"/>. Never throws.
+    /// </summary>
+    public async Task<(string result, bool ok)> ExecuteToolAsync(ToolSet set, LlmToolCall call, SkillContext ctx,
+        CancellationToken ct = default)
+    {
+        if (!set.Apps.TryGetValue(call.Name, out var binding)) return ExecuteTool(set, call, ctx);
+        try
+        {
+            var r = await _bookings.ExecuteToolAsync(binding, call.ArgumentsJson, ctx, ct);
+            return (r.Json, r.Ok);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            return ($"error: {ex.Message}", false);
+        }
     }
 
     /// <summary>

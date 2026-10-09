@@ -21,6 +21,10 @@ builder.Services.AddScoped<ChatBranch.Data.Ai.SummaryService>();
 builder.Services.AddScoped<ChatBranch.Data.Integrations.GoogleOAuth>();
 builder.Services.AddScoped<ChatBranch.Data.Integrations.IntegrationResolver>();
 builder.Services.AddScoped<ChatBranch.Data.Integrations.IntegrationActions>();
+// Calendar booking for the AI ("Connected app" skills): the Google Calendar
+// client (shared with the flow actions) and the reserve → make-at-delivery service
+builder.Services.AddScoped<ChatBranch.Data.Integrations.GoogleCalendarClient>();
+builder.Services.AddScoped<ChatBranch.Data.Bookings.BookingService>();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<ChatBranch.Data.Ai.ILlmClient, ChatBranch.Data.Ai.OpenAiLlmClient>();
 builder.Services.AddSingleton<ChatBranch.Data.Channels.IWhatsAppCloudClient, ChatBranch.Data.Channels.WhatsAppCloudClient>();
@@ -173,6 +177,7 @@ app.MapAssistantEndpoints();
 app.MapSearchEndpoints();
 app.MapLiveEndpoints();
 app.MapAiMonitorEndpoints();
+app.MapBookingsEndpoints();
 
 // Inbound conversations route themselves to a team. The hook lives here so the
 // data layer never has to reference the API assembly.

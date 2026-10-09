@@ -48,6 +48,13 @@ public sealed record AiReplyResult
     public string? SkillId { get; init; }
     /// <summary>False when the text is not AI-written (a flow step's static script).</summary>
     public bool Composed { get; init; } = true;
+    /// <summary>
+    /// What this reply's app tools RESERVED (a calendar booking to make, a
+    /// booking to cancel). Nothing is made until the reply is delivered: the AI
+    /// gate confirms them on delivery and releases them when the reply is
+    /// rejected, superseded, expired or shadowed (see Bookings.BookingService).
+    /// </summary>
+    public IReadOnlyList<AiPendingAction> PendingActions { get; init; } = Array.Empty<AiPendingAction>();
 
     /// <summary>A reply check asked for a human (or retries ran out).</summary>
     public bool HandoverRequested => Action == AiActions.Handover;
@@ -59,8 +66,16 @@ public sealed record AiReplyResult
         Action = AiActions.Error, Reason = reason, Feature = feature,
     };
 
-    /// <summary>Compact, JSON-friendly audit shape (queue payloads, usage rows, API).</summary>
-    public Dictionary<string, object?> ToMeta() => new()
+    /// <summary>Compact, JSON-friendly audit shape (queue payloads, usage rows, API).
+    /// <c>pending_actions</c> ([{type, booking_id}]) only when the reply reserved something.</summary>
+    public Dictionary<string, object?> ToMeta()
+    {
+        var meta = BaseMeta();
+        if (PendingActions.Count > 0) meta["pending_actions"] = AiPendingAction.ToMeta(PendingActions);
+        return meta;
+    }
+
+    private Dictionary<string, object?> BaseMeta() => new()
     {
         ["feature"] = Feature,
         ["action"] = Action,
@@ -82,4 +97,38 @@ public sealed record AiReplyResult
             ["fix"] = c.Fix, ["error"] = c.Error, ["attempt"] = c.Attempt,
         }).ToList(),
     };
+}
+
+/// <summary>
+/// Something an app tool reserved while the AI wrote a reply — made when the
+/// reply is delivered, released when it is not. Travels on
+/// <see cref="AiReplyResult.PendingActions"/> and, through the draft context,
+/// as <c>pending_actions: [{type, booking_id}]</c>.
+/// </summary>
+public sealed record AiPendingAction(string Type, int BookingId)
+{
+    public const string Book = "book";
+    public const string Cancel = "cancel";
+
+    public static List<Dictionary<string, object?>> ToMeta(IEnumerable<AiPendingAction> actions) =>
+        actions.Select(a => new Dictionary<string, object?> { ["type"] = a.Type, ["booking_id"] = a.BookingId })
+            .ToList();
+
+    /// <summary>The actions recorded in a draft / job context (CLR objects or JSON).</summary>
+    public static List<AiPendingAction> From(Dictionary<string, object?>? ctx)
+    {
+        var list = new List<AiPendingAction>();
+        if (ctx == null) return list;
+        try
+        {
+            foreach (var item in AiGate.Items(ctx, "pending_actions"))
+            {
+                var type = AiGate.Str(item, "type", "");
+                if (type is not (Book or Cancel) || AiGate.Num(item, "booking_id") is not double id) continue;
+                list.Add(new AiPendingAction(type, (int)id));
+            }
+        }
+        catch { /* a malformed context reserves nothing */ }
+        return list.Distinct().ToList();
+    }
 }

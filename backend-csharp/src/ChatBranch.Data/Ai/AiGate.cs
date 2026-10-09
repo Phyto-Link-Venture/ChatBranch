@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ChatBranch.Data.Bookings;
 using ChatBranch.Data.Channels;
 using ChatBranch.Data.Stores;
 using ChatBranch.Domain;
@@ -60,9 +61,10 @@ public class AiGate
     private readonly TimeProvider _clock;
     private readonly ITypingIndicator _typing;
     private readonly Routing _routing;
+    private readonly BookingService _bookings;
 
     public AiGate(AppDbContext db, ScopingService scoping, ThreadStore threads, OutboundSender sender,
-        TimeProvider? clock = null, ITypingIndicator? typing = null)
+        TimeProvider? clock = null, ITypingIndicator? typing = null, BookingService? bookings = null)
     {
         _db = db;
         _scoping = scoping;
@@ -71,6 +73,7 @@ public class AiGate
         _clock = clock ?? TimeProvider.System;
         _typing = typing ?? new NoTypingIndicator();
         _routing = new Routing(db, scoping);
+        _bookings = bookings ?? new BookingService(db, scoping, clock: _clock);
     }
 
     private DateTime Now => _clock.GetUtcNow().UtcDateTime;
@@ -84,7 +87,10 @@ public class AiGate
     {
         var text = (s.Text ?? "").Trim();
         if (text.Length == 0)
+        {
+            _bookings.Release(s.Context, "The AI produced no text — nothing was sent.");
             return new AiGateOutcome(AiGateStatus.Empty, 0, Array.Empty<int>(), "The AI produced no text.");
+        }
 
         var thread = s.Thread;
         var accountId = s.AccountId ?? thread.AccountId;
@@ -112,6 +118,9 @@ public class AiGate
             draft.Status = AiDraftStatus.Shadow;
             draft.HoldReason = "Shadow mode — the AI drafts, people send.";
             Save(draft);
+            // shadow mode never books: a person who sends this draft later makes
+            // the booking then (if the time is still free)
+            _bookings.Release(ctx, "Shadow mode — nothing is booked until a person sends the reply.");
             return new AiGateOutcome(AiGateStatus.Shadow, draft.Id, Array.Empty<int>(), draft.HoldReason);
         }
 
@@ -133,6 +142,8 @@ public class AiGate
             draft.HoldReason = string.Join("; ", hold);
             draft.SendAfter = policy.AutosendMinutes > 0 ? now.AddMinutes(policy.AutosendMinutes) : null;
             Save(draft);
+            // a held reply books nothing: its reservations wait for the decision
+            _bookings.Bind(AiPendingAction.From(ctx), draft.Id);
             NotifyReviewers(draft, thread, policy);
             Audit.AuditTrail.Write(_db, "ai.draft.held", $"{thread.Channel}:{thread.Key}",
                 $"draft #{draft.Id} ({draft.Kind}): {draft.HoldReason}", actor: "ai",
@@ -144,6 +155,7 @@ public class AiGate
         draft.DecidedBy = "auto";
         draft.DecidedAt = now;
         Save(draft);
+        _bookings.Bind(AiPendingAction.From(ctx), draft.Id);
         return Deliver(draft, thread, account, policy, humanDecision: false);
     }
 
@@ -253,6 +265,7 @@ public class AiGate
         draft.SendAfter = null;
         draft.UpdatedAt = Now;
         _db.SaveChanges();
+        _bookings.Release(draft.Context, $"The reply was rejected by {actor} — nothing was booked.");
         BumpThread(draft.ThreadId);
         return Outcome("rejected", draft.Id, "Rejected.");
     }
@@ -343,6 +356,18 @@ public class AiGate
             return Outcome(AiGateStatus.Blocked, draft.Id, block);
         }
 
+        // what the reply's app tools reserved is MADE now, before a word is sent
+        // (re-checked: still free, calendar still connected). If it can't be, the
+        // reply — which says "you're booked" — must not go out: block it, note +
+        // notify (BookingService), and hand the conversation to a person.
+        var booking = ConfirmBookings(draft, humanDecision ? draft.DecidedBy : "ai");
+        if (!booking.Ok)
+        {
+            Fail(draft, booking.Reason);
+            HandOver(thread);
+            return Outcome(AiGateStatus.Blocked, draft.Id, booking.Reason);
+        }
+
         if (route != null && route.Via is not ("current" or "sandbox" or "bound"))
         {
             // write it: the contact's assignment, the thread's move — and, off a
@@ -386,6 +411,35 @@ public class AiGate
         }
         BumpThread(thread.Id);
         return Outcome(AiGateStatus.Scheduled, draft.Id, start.Detail);
+    }
+
+    private BookingService.ConfirmResult ConfirmBookings(AiDraft draft, string actor)
+    {
+        if (AiPendingAction.From(draft.Context).Count == 0) return BookingService.ConfirmResult.Nothing;
+        try
+        {
+            return _bookings.ConfirmAsync(draft, string.IsNullOrWhiteSpace(actor) ? "ai" : actor)
+                .GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            return new BookingService.ConfirmResult(false, $"The calendar step failed ({ex.GetType().Name}).");
+        }
+    }
+
+    /// <summary>A reply that could not go out as written: a person takes the conversation.</summary>
+    private void HandOver(Thread thread)
+    {
+        try
+        {
+            var tracked = _db.Threads.FirstOrDefault(t => t.Id == thread.Id);
+            if (tracked == null || tracked.Status is not (ThreadStatus.Open or ThreadStatus.Snoozed)) return;
+            tracked.Status = ThreadStatus.Pending;
+            tracked.UpdatedAt = DateTime.UtcNow;
+            _db.SaveChanges();
+            if (!ReferenceEquals(tracked, thread)) thread.Status = ThreadStatus.Pending;
+        }
+        catch { /* the block itself already stopped the reply */ }
     }
 
     /// <summary>
@@ -530,7 +584,12 @@ public class AiGate
     {
         var d = _db.AiDrafts.FirstOrDefault(x => x.Id == draftId);
         if (d == null) return;
-        if (d.SentAt == null) Fail(d, error);
+        if (d.SentAt == null)
+        {
+            Fail(d, error);
+            // a booking made at delivery stands — but the customer never heard about it
+            _bookings.ConfirmationUndelivered(d, error);
+        }
         else
         {
             d.Error = error;  // a later bubble failed; the reply already reached them
@@ -641,6 +700,10 @@ public class AiGate
         BumpThread(draft.ThreadId);
     }
 
+    // Expire / Fail give back whatever the draft reserved (pending → released,
+    // cancelling → booked). Release never touches a booking that delivery
+    // already made, so calling it after a partial delivery is harmless.
+
     private void Expire(AiDraft d, string why)
     {
         d.Status = AiDraftStatus.Expired;
@@ -649,6 +712,7 @@ public class AiGate
         d.Error = why;
         d.SendAfter = null;
         d.UpdatedAt = Now;
+        _bookings.Release(d.Context, $"The reply expired — {why}");
     }
 
     private void Fail(AiDraft d, string why)
@@ -658,6 +722,7 @@ public class AiGate
         d.SendAfter = null;
         d.UpdatedAt = Now;
         _db.SaveChanges();
+        _bookings.Release(d.Context, $"The reply was not sent — {why}");
         BumpThread(d.ThreadId);
     }
 

@@ -57,12 +57,14 @@ public class AiComposer
         return Map(r, meta);
     }
 
-    private static AiComposition Map(AiReplyResult r, Dictionary<string, object?> meta)
+    private AiComposition Map(AiReplyResult r, Dictionary<string, object?> meta)
     {
         foreach (var (k, v) in r.ToMeta()) meta[k] = v;
         var text = r.ShouldSend ? r.Text
             : r.Action is AiActions.Handover or AiActions.Block ? r.Draft
             : "";
+        // no text ⇒ the callers submit nothing, so nothing the tools reserved can be delivered
+        if (string.IsNullOrWhiteSpace(text)) _assistant.ReleasePending(r, "The AI produced no reply to send.");
         return new AiComposition((text ?? "").Trim(), meta);
     }
 

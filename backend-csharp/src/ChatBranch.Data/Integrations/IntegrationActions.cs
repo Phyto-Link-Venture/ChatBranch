@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using ChatBranch.Domain;
@@ -27,14 +26,16 @@ public class IntegrationActions
     private readonly IntegrationResolver _resolver;
     private readonly GoogleOAuth _oauth;
     private readonly IHttpClientFactory _http;
+    private readonly GoogleCalendarClient _calendar;
 
     public IntegrationActions(AppDbContext db, IntegrationResolver resolver, GoogleOAuth oauth,
-        IHttpClientFactory http)
+        IHttpClientFactory http, GoogleCalendarClient? calendar = null)
     {
         _db = db;
         _resolver = resolver;
         _oauth = oauth;
         _http = http;
+        _calendar = calendar ?? new GoogleCalendarClient(db, oauth, http);
     }
 
     /// <summary>Action label → provider (actions.ACTIONS, verbatim).</summary>
@@ -91,92 +92,48 @@ public class IntegrationActions
         }
     }
 
-    // ---- Google Calendar ----------------------------------------------------
+    // ---- Google Calendar (HTTP in GoogleCalendarClient, shared with the AI's booking tools) ----
 
     private async Task<Result> CreateCalendarEventAsync(Integration row, Contact? contact,
         Dictionary<string, string> cfg, string text, CancellationToken ct)
     {
-        var token = await _oauth.AccessTokenAsync(row, ct);
-        if (token.Length == 0) return Skip("Google Calendar is not connected — step skipped.");
         var calendarId = Pick(cfg, "calendarId", Cfg(row, "calendar_id"), "primary");
         var start = ParseWhen(Get(cfg, "eventStart"));
         var minutes = Math.Max(5, IntOr(Get(cfg, "eventMinutes"), 30));
-        var body = new Dictionary<string, object?>
+        var summary = Trim(Pick(cfg, "eventTitle", text, "Appointment"), 200);
+        var r = await _calendar.InsertEventAsync(row, calendarId, new GoogleCalendarClient.EventSpec(
+            summary, Trim(text, 2000), start, start.AddMinutes(minutes),
+            AttendeeEmail: string.IsNullOrEmpty(contact?.Email) ? null : contact!.Email), ct);
+        if (r.NotConnected) return Skip("Google Calendar is not connected — step skipped.");
+        if (!r.Ok) return Fail(r.Error);
+        return Done($"calendar event created ({summary})", new()
         {
-            ["summary"] = Trim(Pick(cfg, "eventTitle", text, "Appointment"), 200),
-            ["description"] = Trim(text, 2000),
-            ["start"] = new Dictionary<string, object?> { ["dateTime"] = start.ToString("o") },
-            ["end"] = new Dictionary<string, object?> { ["dateTime"] = start.AddMinutes(minutes).ToString("o") },
-        };
-        if (!string.IsNullOrEmpty(contact?.Email))
-            body["attendees"] = new[] { new Dictionary<string, object?> { ["email"] = contact!.Email } };
-
-        var (ok, payload) = await SendAsync(HttpMethod.Post,
-            $"https://www.googleapis.com/calendar/v3/calendars/{Uri.EscapeDataString(calendarId)}/events",
-            token, jsonBody: body, ct: ct);
-        RecordResult(row, ok, ok ? "" : payload);
-        if (!ok) return Fail($"Google Calendar: {payload}");
-        return Done($"calendar event created ({body["summary"]})", new()
-        {
-            ["event_id"] = JsonField(payload, "id"),
-            ["html_link"] = JsonField(payload, "htmlLink"),
+            ["event_id"] = r.Id,
+            ["html_link"] = r.HtmlLink,
         });
     }
 
     private async Task<Result> FindFreeSlotAsync(Integration row, Dictionary<string, string> cfg,
         CancellationToken ct)
     {
-        var token = await _oauth.AccessTokenAsync(row, ct);
-        if (token.Length == 0) return Skip("Google Calendar is not connected — step skipped.");
         var calendarId = Pick(cfg, "calendarId", Cfg(row, "calendar_id"), "primary");
         var start = ParseWhen(Get(cfg, "eventStart"));
         var horizon = Math.Max(1, IntOr(Get(cfg, "searchDays"), 7));
         var minutes = Math.Max(5, IntOr(Get(cfg, "eventMinutes"), 30));
         var end = start.AddDays(horizon);
 
-        var (ok, payload) = await SendAsync(HttpMethod.Post,
-            "https://www.googleapis.com/calendar/v3/freeBusy", token,
-            jsonBody: new Dictionary<string, object?>
-            {
-                ["timeMin"] = start.ToString("o"),
-                ["timeMax"] = end.ToString("o"),
-                ["items"] = new[] { new Dictionary<string, object?> { ["id"] = calendarId } },
-            }, ct: ct);
-        RecordResult(row, ok, ok ? "" : payload);
-        if (!ok) return Fail($"Google Calendar: {payload}");
+        var r = await _calendar.FreeBusyAsync(row, calendarId, start, end, ct);
+        if (r.NotConnected) return Skip("Google Calendar is not connected — step skipped.");
+        if (!r.Ok) return Fail(r.Error);
 
-        var busy = BusySpans(payload, calendarId);
-        var slot = FirstGap(start, end, busy, minutes);
+        var slot = FirstGap(start, end, r.Busy.ToList(), minutes);
         if (slot == null) return Done("no free slot found in the search window", new() { ["slot"] = null });
         return Done($"free slot found at {slot.Value:yyyy-MM-dd HH:mm}", new() { ["slot"] = slot.Value.ToString("o") });
     }
 
-    /// <summary>Busy spans for the calendar out of a freeBusy response.</summary>
-    private static List<(DateTime start, DateTime end)> BusySpans(string payload, string calendarId)
-    {
-        var spans = new List<(DateTime, DateTime)>();
-        try
-        {
-            using var doc = JsonDocument.Parse(payload);
-            if (!doc.RootElement.TryGetProperty("calendars", out var cals)) return spans;
-            if (!cals.TryGetProperty(calendarId, out var cal)) return spans;
-            if (!cal.TryGetProperty("busy", out var busy) || busy.ValueKind != JsonValueKind.Array) return spans;
-            foreach (var b in busy.EnumerateArray())
-            {
-                if (DateTime.TryParse(b.GetProperty("start").GetString(), null,
-                        System.Globalization.DateTimeStyles.AdjustToUniversal, out var s)
-                    && DateTime.TryParse(b.GetProperty("end").GetString(), null,
-                        System.Globalization.DateTimeStyles.AdjustToUniversal, out var e))
-                    spans.Add((s, e));
-            }
-        }
-        catch { /* a malformed body just means "no known busy time" */ }
-        return spans.OrderBy(x => x.Item1).ToList();
-    }
-
     /// <summary>First gap of `minutes` between `from` and `to` (actions._first_gap).</summary>
     private static DateTime? FirstGap(DateTime from, DateTime to,
-        List<(DateTime start, DateTime end)> busy, int minutes)
+        List<(DateTime Start, DateTime End)> busy, int minutes)
     {
         var cursor = from;
         foreach (var (bs, be) in busy)
@@ -363,69 +320,19 @@ public class IntegrationActions
 
     // ---- HTTP + helpers -----------------------------------------------------
 
-    /// <summary>
-    /// One provider call. Returns (ok, body). A bearer token is sent when given;
-    /// extra headers cover Shopify's token header. Never throws — a transport
-    /// failure comes back as (false, "…").
-    /// </summary>
+    /// <summary>One provider call (<see cref="ProviderHttp"/>). Returns (ok, body);
+    /// never throws — a transport failure comes back as (false, "…").</summary>
     private async Task<(bool ok, string body)> SendAsync(HttpMethod method, string url, string token,
         Dictionary<string, object?>? jsonBody = null, Dictionary<string, string>? formBody = null,
         string? rawBody = null, string? rawContentType = null,
         Dictionary<string, string>? headers = null, CancellationToken ct = default)
     {
-        try
-        {
-            var client = _http.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(30);
-            using var req = new HttpRequestMessage(method, url);
-            if (token.Length > 0)
-                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            foreach (var kv in headers ?? new()) req.Headers.TryAddWithoutValidation(kv.Key, kv.Value);
-
-            if (jsonBody != null)
-                req.Content = new StringContent(JsonSerializer.Serialize(jsonBody), Encoding.UTF8, "application/json");
-            else if (formBody != null)
-                req.Content = new FormUrlEncodedContent(formBody);
-            else if (rawBody != null)
-                req.Content = new StringContent(rawBody, Encoding.UTF8, rawContentType ?? "text/plain");
-
-            var resp = await client.SendAsync(req, ct);
-            var text = await resp.Content.ReadAsStringAsync(ct);
-            if (resp.IsSuccessStatusCode) return (true, text);
-            // surface the provider's own message, capped — never the whole body
-            return (false, $"HTTP {(int)resp.StatusCode} {Trim(ProviderMessage(text), 200)}");
-        }
-        catch (Exception e)
-        {
-            return (false, e.GetType().Name);
-        }
+        var r = await ProviderHttp.SendAsync(_http, method, url, token, jsonBody, formBody, rawBody,
+            rawContentType, headers, ct);
+        return (r.Ok, r.Body);
     }
 
-    /// <summary>The human-readable bit of a provider error body.</summary>
-    private static string ProviderMessage(string body)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.TryGetProperty("error", out var err))
-            {
-                if (err.ValueKind == JsonValueKind.String) return err.GetString() ?? "";
-                if (err.TryGetProperty("message", out var m)) return m.GetString() ?? "";
-            }
-        }
-        catch { /* not JSON */ }
-        return body;
-    }
-
-    private static string JsonField(string body, string key)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(body);
-            return doc.RootElement.TryGetProperty(key, out var v) ? v.ToString() : "";
-        }
-        catch { return ""; }
-    }
+    private static string JsonField(string body, string key) => ProviderHttp.JsonField(body, key);
 
     /// <summary>Health is recorded per call so a dead grant surfaces in the UI.</summary>
     private void RecordResult(Integration row, bool ok, string detail)

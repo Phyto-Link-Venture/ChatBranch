@@ -67,6 +67,8 @@ public class AppDbContext : DbContext
     // crm — ai ops (monitor + follow-ups)
     public DbSet<AiDraft> AiDrafts => Set<AiDraft>();
     public DbSet<AiConversationState> AiConversationStates => Set<AiConversationState>();
+    // crm — calendar bookings made by app skills (reserved → made at delivery)
+    public DbSet<Booking> Bookings => Set<Booking>();
     // integrations
     public DbSet<Integration> Integrations => Set<Integration>();
     // crm — per-user saved list views (the inbox's saved filter tabs)
@@ -154,6 +156,9 @@ public class AppDbContext : DbContext
         b.Entity<AiDraft>().HasIndex(d => d.ThreadId);
         b.Entity<AiConversationState>().ToTable("crm_aiconversationstate");
         b.Entity<AiConversationState>().HasIndex(s => s.ThreadId).IsUnique();
+        b.Entity<Booking>().ToTable("crm_booking");
+        b.Entity<Booking>().HasIndex(x => new { x.ContactId, x.Status }).HasDatabaseName("ix_booking_contact_status");
+        b.Entity<Booking>().HasIndex(x => new { x.CalendarKey, x.StartUtc }).HasDatabaseName("ix_booking_calendar_start");
         b.Entity<Integration>().ToTable("integrations_integration");
         b.Entity<SavedView>().ToTable("crm_savedview");
         // Per-user grants: deleting a login must not delete the connection row
@@ -240,6 +245,7 @@ public class AppDbContext : DbContext
         Json<Integration, Dictionary<string, object?>>(b, x => x.Credentials);
         Json<Integration, Dictionary<string, object?>>(b, x => x.Config);
         Json<AgentSkill, List<string>>(b, x => x.Channels);
+        Json<AgentSkill, Dictionary<string, object?>>(b, x => x.Config);
         Json<ApiKey, List<string>>(b, x => x.Scopes);
         Json<AiDraft, Dictionary<string, object?>>(b, x => x.Context);
         Json<Tag, List<TagAttribute>>(b, x => x.Attributes);

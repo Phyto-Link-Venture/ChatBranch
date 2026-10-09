@@ -4,6 +4,8 @@ using System.Text.Json.Serialization;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
 using ChatBranch.Data.Ai.Skills;
+using ChatBranch.Data.Bookings;
+using ChatBranch.Data.Integrations;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,6 +20,11 @@ namespace ChatBranch.Api.Endpoints;
 /// ENABLED tool/check skill whose code or tests changed must parse, define its
 /// entry point and pass its own tests, or the whole PUT is refused (400) — the
 /// UI's "save anyway as disabled" is the escape hatch.
+///
+/// Connected-app skills (kind <c>app</c>) carry a <c>config</c> instead of code
+/// (validated on PUT; a row sent without <c>config</c> keeps its stored one);
+/// <c>/apps</c> is their catalog and <c>/test</c> with <c>kind:"app"</c> previews
+/// availability without booking anything.
 /// </summary>
 public static class AiSkillsEndpoints
 {
@@ -27,16 +34,26 @@ public static class AiSkillsEndpoints
     /// only knows the prompt fields keeps working (absent = keep).</summary>
     public record SkillDto(string? Id, string? Name, string? UseWhen, string? Instructions, int Position,
         string? Kind = null, string? Description = null, string? Code = null, JsonElement? Parameters = null,
-        JsonElement? Tests = null, bool? Enabled = null, List<string>? Channels = null, string? OnFail = null);
+        JsonElement? Tests = null, bool? Enabled = null, List<string>? Channels = null, string? OnFail = null,
+        JsonElement? Config = null);
 
     public record SkillsWrite(string? Entity, List<SkillDto>? Skills);
     public record DraftAnswer(string? Question, string? Answer);
     /// <summary>`kind_hint` is the documented wire name; `kindHint` binds too.</summary>
     public record DraftRequest(string? Description, string? KindHint, List<DraftAnswer>? Answers,
         [property: JsonPropertyName("kind_hint")] string? KindHintSnake = null);
-    public record TestRequest(string? Kind, string? Code, JsonElement? Tests);
+    /// <summary>Code skills: {kind, code, tests}. App skills (a DRY RUN, never
+    /// books): {kind:"app", config, app_action:"availability", from_date?, to_date?, entity?}.</summary>
+    public record TestRequest(string? Kind, string? Code, JsonElement? Tests, JsonElement? Config = null,
+        [property: JsonPropertyName("app_action")] string? AppAction = null,
+        [property: JsonPropertyName("from_date")] string? FromDate = null,
+        [property: JsonPropertyName("to_date")] string? ToDate = null,
+        string? Entity = null);
 
-    private static readonly HashSet<string> Kinds = new() { SkillKinds.Prompt, SkillKinds.Tool, SkillKinds.Check };
+    private static readonly HashSet<string> Kinds = new()
+    {
+        SkillKinds.Prompt, SkillKinds.Tool, SkillKinds.Check, SkillKinds.App,
+    };
 
     public static void MapSkillEndpoints(this IEndpointRouteBuilder app)
     {
@@ -71,7 +88,13 @@ public static class AiSkillsEndpoints
                 if (!seen.Add(skillId)) return Bad($"Skill id '{skillId}' appears twice.");
                 var current = existing.FirstOrDefault(e => e.SkillId == skillId);
                 var kind = s.Kind is null ? current?.Kind ?? SkillKinds.Prompt : s.Kind.Trim().ToLowerInvariant();
-                if (!Kinds.Contains(kind)) return Bad($"Skill '{s.Name}': kind must be prompt, tool or check.");
+                if (!Kinds.Contains(kind)) return Bad($"Skill '{s.Name}': kind must be prompt, tool, check or app.");
+                if (kind == SkillKinds.App)
+                {
+                    if (await AppConfigProblem(db, sc, me, s, current, entityId) is string problem)
+                        return Bad($"Skill '{s.Name}': {problem}");
+                    continue;
+                }
                 if (s.Parameters is JsonElement p && RawJson(p) is string praw && praw.Length > 0 && !IsJsonObject(praw))
                     return Bad($"Skill '{s.Name}': parameters must be a JSON object (a JSON schema).");
                 if (s.Tests is JsonElement t && RawJson(t) is string traw && traw.Length > 0 && !IsJsonArray(traw))
@@ -129,6 +152,12 @@ public static class AiSkillsEndpoints
                     row.Channels = s.Channels.Select(c => (c ?? "").Trim().ToLowerInvariant())
                         .Where(c => c.Length > 0).Distinct().ToList();
                 if (s.OnFail != null) row.OnFail = SkillService.NormalizeOnFail(s.OnFail.Trim().ToLowerInvariant());
+                // connected-app skills store their config normalized (defaults filled in)
+                if (row.Kind == SkillKinds.App && (s.Config is JsonElement { ValueKind: JsonValueKind.Object } || isNew
+                                                   || row.Config.Count == 0))
+                    row.Config = CalendarAppConfig.From(
+                        s.Config is JsonElement { ValueKind: JsonValueKind.Object } cfgEl ? cfgEl
+                            : JsonSerializer.SerializeToElement(row.Config), out _).ToDictionary();
                 // Position comes from LIST ORDER, not the payload field — the
                 // settings page reorders by dragging rows and never sends one.
                 row.Position = pos++;
@@ -181,9 +210,11 @@ public static class AiSkillsEndpoints
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
         // ---- run a skill's tests in the sandbox ---------------------------------
-        app.MapPost("/api/aicore/skills/test", (TestRequest body, SkillService skills) =>
+        app.MapPost("/api/aicore/skills/test", async (TestRequest body, SkillService skills, AppDbContext db,
+            ClaimsPrincipal me, BookingService bookings, CancellationToken ct) =>
         {
             var kind = (body.Kind ?? SkillKinds.Tool).Trim().ToLowerInvariant();
+            if (kind == SkillKinds.App) return await AppDryRunAsync(body, db, me, bookings, ct);
             if (!SkillKinds.IsCode(kind)) return Bad("Only tool and check skills have code to test.");
             var code = body.Code ?? "";
             var invalid = SkillRuntime.Validate(code, kind);
@@ -205,6 +236,66 @@ public static class AiSkillsEndpoints
                 }),
             });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
+
+        // ---- connected apps the AI can use (the "Connected app" kind) ------------
+        // What the skill wizard offers: the calendar app, its sources (with the
+        // Google Calendar connections the CALLER may see — shared rows, their own
+        // personal one, everyone's for admins), its actions and config defaults.
+        app.MapGet("/api/aicore/skills/apps", async (string? entity, AppDbContext db, ScopingService sc,
+            ClaimsPrincipal me) =>
+        {
+            var entityId = await InboxEndpoints.EntityId(db, entity);
+            var uid = await db.Users.AsNoTracking().Where(u => u.Username == me.Identity!.Name)
+                .Select(u => (int?)u.Id).FirstOrDefaultAsync();
+            var admin = ShellScope.RoleOf(me) is Roles.SuperAdmin or Roles.Admin;
+            var scoped = await ShellScope.ScopeLibrary(db.Integrations.AsNoTracking(), db, sc, me, entityId)
+                .Where(i => i.Provider == BookingService.GoogleProvider).Include(i => i.Owner).Include(i => i.Entity)
+                .ToListAsync();
+            var own = uid is int u0
+                ? await db.Integrations.AsNoTracking().Where(i => i.Provider == BookingService.GoogleProvider
+                        && i.OwnerUserId == u0).Include(i => i.Owner).Include(i => i.Entity).ToListAsync()
+                : new List<Integration>();
+            var rows = scoped.Concat(own).GroupBy(i => i.Id).Select(g => g.First())
+                .Where(i => i.OwnerUserId == null || i.OwnerUserId == uid || admin)
+                .Where(i => Cred(i, "access_token").Length > 0)
+                .OrderBy(i => i.OwnerUserId == null ? 0 : 1).ThenBy(i => i.Id).ToList();
+            var connections = rows.Select(i => new
+            {
+                id = i.Id,
+                label = ConnectionLabel(i),
+                owner = i.OwnerUserId != null ? "user" : i.EntityId != null ? "entity" : "org",
+                owner_name = i.Owner?.Username ?? i.Entity?.Name ?? "Organization",
+                calendar_id = GoogleCalendarClient.CalendarIdFor(i, null),
+                status = i.Status,
+            }).ToList();
+            return Results.Ok(new
+            {
+                apps = new[]
+                {
+                    new
+                    {
+                        app = CalendarAppConfig.AppId,
+                        label = "Calendar booking",
+                        description = "Let the AI check free times on a calendar and book, cancel or reschedule appointments for the customer.",
+                        timezone = BuiltinSkills.OrgTimeZone(sc).Id,
+                        sources = new object[]
+                        {
+                            new { source = BookingSources.Google, label = "Google Calendar",
+                                  connected = connections.Count > 0, connections },
+                            new { source = BookingSources.ChatBranch, label = "ChatBranch bookings",
+                                  connected = true },
+                        },
+                        actions = new[]
+                        {
+                            new { id = "availability", label = "Check availability" },
+                            new { id = "book", label = "Book appointments" },
+                            new { id = "cancel", label = "Cancel / reschedule" },
+                        },
+                        defaults = CalendarAppConfig.Defaults(),
+                    },
+                },
+            });
+        }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- built-ins (read-only; always offered to the model as tools) --------
         app.MapGet("/api/aicore/skills/builtins", (SkillService skills) =>
@@ -276,6 +367,8 @@ public static class AiSkillsEndpoints
         onFail = SkillService.NormalizeOnFail(s.OnFail),
         updatedAt = s.UpdatedAt,
         tool_name = s.Kind == SkillKinds.Tool ? SkillService.ToolName(s) : null,
+        // connected-app skills: the full config (defaults filled in); {} for other kinds
+        config = s.Kind == SkillKinds.App ? CalendarAppConfig.From(s.Config).ToDictionary() : s.Config,
         entity = s.Entity?.Slug,
         entity_name = s.Entity?.Name ?? "",
         scope = s.EntityId != null ? "entity" : "global",
@@ -315,9 +408,159 @@ public static class AiSkillsEndpoints
     }
 
     private static string Signature(AgentSkill s) => string.Join("\u0001", s.Name, s.UseWhen, s.Instructions,
-        s.Kind, s.Description, s.Code, s.Parameters, s.Tests, s.Enabled, string.Join(",", s.Channels), s.OnFail);
+        s.Kind, s.Description, s.Code, s.Parameters, s.Tests, s.Enabled, string.Join(",", s.Channels), s.OnFail,
+        JsonSerializer.Serialize(s.Config));
 
     private static AgentSkill Add(AppDbContext db, AgentSkill s) { db.AgentSkills.Add(s); return s; }
+
+    // ---- connected-app skills ------------------------------------------------------
+
+    /// <summary>
+    /// Why an app skill's config can't be saved (null = fine): an invalid config
+    /// (bad times, overlapping windows, duration/max-days out of range, unknown
+    /// action/source/app) or — when the calendar choice is new or changed — a
+    /// numeric calendar that isn't a connected Google Calendar this skill's scope
+    /// can use and the caller may see. An unchanged calendar is not re-checked, so
+    /// a later disconnect never blocks saving the rest of the library.
+    /// </summary>
+    private static async Task<string?> AppConfigProblem(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
+        SkillDto s, AgentSkill? current, int? entityId)
+    {
+        JsonElement el;
+        if (s.Config is JsonElement given && given.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
+        {
+            if (given.ValueKind != JsonValueKind.Object) return "config must be a JSON object.";
+            el = given;
+        }
+        else el = JsonSerializer.SerializeToElement(current?.Config ?? new Dictionary<string, object?>());
+        var cfg = CalendarAppConfig.From(el, out var error);
+        if (error != null) return error;
+        if (cfg.Source != BookingSources.Google || cfg.IntegrationId is not int iid) return null;
+
+        var before = current == null ? null : CalendarAppConfig.From(current.Config);
+        if (before != null && before.Source == cfg.Source && before.Calendar == cfg.Calendar) return null;
+        var row = await db.Integrations.AsNoTracking()
+            .FirstOrDefaultAsync(i => i.Id == iid && i.Provider == BookingService.GoogleProvider);
+        if (row == null) return $"calendar {iid} is not a Google Calendar connection.";
+        if (Cred(row, "access_token").Length == 0)
+            return $"the Google Calendar connection {iid} is not connected — reconnect it at Integrations first.";
+        var admin = ShellScope.RoleOf(me) is Roles.SuperAdmin or Roles.Admin;
+        if (row.OwnerUserId is int owner && !admin)
+        {
+            var uid = await db.Users.AsNoTracking().Where(u => u.Username == (me.Identity!.Name ?? ""))
+                .Select(u => (int?)u.Id).FirstOrDefaultAsync();
+            if (owner != uid) return $"calendar {iid} is someone else's personal calendar.";
+        }
+        if (row.EntityId is int rowEntity && entityId is int skillEntity
+            && !Lineage(db, sc, skillEntity).Contains(rowEntity))
+            return $"calendar {iid} belongs to another outlet — pick one this outlet can use.";
+        return null;
+    }
+
+    /// <summary>An entity, its ancestors and its subtree — the outlets whose
+    /// connections a skill of that entity may book into.</summary>
+    private static HashSet<int> Lineage(AppDbContext db, ScopingService sc, int entityId)
+    {
+        var ids = new HashSet<int>(sc.EntitySubtreeIds(entityId));
+        int? cursor = entityId;
+        for (var depth = 0; depth < 32 && cursor is int c; depth++)
+        {
+            cursor = db.Entities.AsNoTracking().Where(e => e.Id == c).Select(e => e.ParentId).FirstOrDefault();
+            if (cursor is int p && !ids.Add(p)) break;
+        }
+        return ids;
+    }
+
+    /// <summary>
+    /// "Preview availability" for an app skill being configured: the free times
+    /// the AI would see, computed exactly as at reply time — a DRY RUN that never
+    /// reserves or books. "The conversation's assigned agent" previews with the
+    /// caller as that agent. Always 200 with {ok, slots, timezone, source, detail}.
+    /// </summary>
+    private static async Task<IResult> AppDryRunAsync(TestRequest body, AppDbContext db, ClaimsPrincipal me,
+        BookingService bookings, CancellationToken ct)
+    {
+        var sc = new ScopingService(db);
+        var orgTz = BuiltinSkills.OrgTimeZone(sc).Id;
+        // {ok, slots, timezone, source, detail} + calendar_label / from_date / to_date / total when known
+        IResult Answer(bool ok, string source, string tz, string detail, IEnumerable<object>? slots = null,
+            Dictionary<string, object?>? extra = null)
+        {
+            var payload = new Dictionary<string, object?>
+            {
+                ["ok"] = ok, ["slots"] = (slots ?? Array.Empty<object>()).ToList(), ["timezone"] = tz,
+                ["source"] = source, ["detail"] = detail,
+                ["calendar_label"] = null, ["from_date"] = null, ["to_date"] = null, ["total"] = null,
+            };
+            foreach (var (k, v) in extra ?? new()) payload[k] = v;
+            return Results.Ok(payload);
+        }
+
+        var el = body.Config is JsonElement c && c.ValueKind == JsonValueKind.Object
+            ? c : JsonSerializer.SerializeToElement(new Dictionary<string, object?>());
+        var cfg = CalendarAppConfig.From(el, out var error);
+        if (error != null) return Answer(false, cfg.Source, orgTz, error);
+        var action = (body.AppAction ?? "availability").Trim().ToLowerInvariant();
+        if (action != "availability")
+            return Answer(false, cfg.Source, orgTz, "Only availability can be previewed — nothing is ever booked from here.");
+
+        try
+        {
+            var entityId = await InboxEndpoints.EntityId(db, body.Entity);
+            var tz = bookings.TimeZoneFor(cfg);
+            var uid = await db.Users.AsNoTracking().Where(u => u.Username == (me.Identity!.Name ?? ""))
+                .Select(u => (int?)u.Id).FirstOrDefaultAsync(ct);
+            var skill = new AgentSkill { SkillId = "preview", EntityId = entityId, Kind = SkillKinds.App };
+            var target = bookings.ResolveTarget(skill, cfg, entityId, uid);
+            if (!target.Ok)
+                return Answer(false, cfg.Source, tz.Id,
+                    $"{target.Error} Connect Google Calendar at Integrations, or use ChatBranch bookings.");
+
+            var today = BookingAvailability.Today(bookings.UtcNow, tz);
+            var from = BookingService.ParseDate(body.FromDate, today) ?? today;
+            var to = BookingService.ParseDate(body.ToDate, today) ?? from.AddDays(7);
+            if (to < from) (from, to) = (to, from);
+            var r = await bookings.FreeSlotsAsync(cfg, target, tz, from, to, ct: ct);
+            var extra = new Dictionary<string, object?>
+            {
+                ["calendar_label"] = target.Label,
+                ["from_date"] = r.From.ToString("yyyy-MM-dd"),
+                ["to_date"] = r.To.ToString("yyyy-MM-dd"),
+                ["total"] = r.Free.Count,
+            };
+            if (!r.Ok) return Answer(false, cfg.Source, tz.Id, r.Error, extra: extra);
+            var offered = BookingAvailability.Spread(r.Free);
+            var who = cfg.Source == BookingSources.Google && cfg.Calendar == "assignee"
+                ? " Previewed with you as the conversation's assigned agent." : "";
+            var detail = r.Free.Count == 0
+                ? $"No free times between {r.From:yyyy-MM-dd} and {r.To:yyyy-MM-dd} on {target.Label}.{who}"
+                : $"{r.Free.Count} free time{(r.Free.Count == 1 ? "" : "s")} between {r.From:yyyy-MM-dd} and "
+                  + $"{r.To:yyyy-MM-dd} on {target.Label}; the AI is shown up to {BookingAvailability.MaxOffered} "
+                  + $"spread across the days.{who} Nothing was booked.";
+            return Answer(true, cfg.Source, tz.Id, detail, offered.Select(sl => (object)new
+            {
+                start = BookingAvailability.LocalIso(sl.LocalStart),
+                end = BookingAvailability.LocalIso(sl.LocalEnd),
+                label = BookingAvailability.StartLabel(sl.LocalStart),
+            }), extra);
+        }
+        catch (Exception ex)
+        {
+            return Answer(false, cfg.Source, orgTz, $"The preview failed ({ex.GetType().Name}).");
+        }
+    }
+
+    private static string ConnectionLabel(Integration i)
+    {
+        var name = i.Config.TryGetValue("name", out var n) ? n?.ToString()?.Trim() ?? "" : "";
+        if (name.Length > 0 && name != "Google Calendar") return name;
+        if (i.OwnerUserId != null) return $"{i.Owner?.Username ?? "A teammate"}'s Google Calendar";
+        if (i.EntityId != null) return $"{i.Entity?.Name ?? "Outlet"} shared calendar";
+        return "Organization calendar";
+    }
+
+    private static string Cred(Integration i, string key) =>
+        i.Credentials.TryGetValue(key, out var v) ? v?.ToString() ?? "" : "";
 
     private static IResult Bad(string detail) => Results.Json(new { detail }, statusCode: 400);
 

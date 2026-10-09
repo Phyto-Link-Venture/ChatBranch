@@ -136,6 +136,20 @@ public static class Seed
         AddColumnIfMissing(db, "crm_message", "error", "TEXT NOT NULL DEFAULT ''");
         // delivery receipts (Cloud statuses, Baileys ticks, Messenger) find the message by provider id
         AddIndexIfMissing(db, "ix_message_external_id", "crm_message", "\"external_id\"");
+        // connected-app skills (kind "app") + the calendar bookings they make
+        AddColumnIfMissing(db, "crm_agentskill", "config", "TEXT NOT NULL DEFAULT '{}'");
+        AddTableIfMissing(db, "crm_booking",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_booking\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"entity_id\" INTEGER NULL, \"contact_id\" INTEGER NOT NULL, \"thread_id\" INTEGER NULL, "
+            + "\"skill_id\" TEXT NOT NULL, \"source\" TEXT NOT NULL, \"integration_id\" INTEGER NULL, "
+            + "\"calendar_key\" TEXT NOT NULL, \"calendar_label\" TEXT NOT NULL, "
+            + "\"external_event_id\" TEXT NOT NULL, \"event_link\" TEXT NOT NULL, \"title\" TEXT NOT NULL, "
+            + "\"note\" TEXT NOT NULL, \"start_utc\" TEXT NOT NULL, \"end_utc\" TEXT NOT NULL, "
+            + "\"timezone\" TEXT NOT NULL, \"status\" TEXT NOT NULL, \"created_by\" TEXT NOT NULL, "
+            + "\"draft_id\" INTEGER NULL, \"cancel_draft_id\" INTEGER NULL, \"detail\" TEXT NOT NULL, "
+            + "\"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
+        AddIndexIfMissing(db, "ix_booking_contact_status", "crm_booking", "\"contact_id\", \"status\"");
+        AddIndexIfMissing(db, "ix_booking_calendar_start", "crm_booking", "\"calendar_key\", \"start_utc\"");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 

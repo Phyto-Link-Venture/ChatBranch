@@ -18,6 +18,19 @@ public sealed class SkillContext
     public string LastMessage { get; init; } = "";
     public Dictionary<string, object?> Contact { get; init; } = new();
 
+    // ---- the conversation, for app tools (C# side only — never serialized into JS) ----
+    /// <summary>The conversation the reply is for (null for a flow message without one).</summary>
+    public int? ThreadId { get; init; }
+    public int? ContactId { get; init; }
+    /// <summary>The conversation's entity (bookings are owned by it; calendars resolve through it).</summary>
+    public int? EntityId { get; init; }
+    /// <summary>The conversation's assigned agent (username) — "the assignee's calendar".</summary>
+    public string Assignee { get; init; } = "";
+    /// <summary>The full contact row (name, phone, email for an event title / attendee).</summary>
+    public Contact? ContactRecord { get; init; }
+    /// <summary>What this generation's app tools reserved (one book + one cancel at most).</summary>
+    public Bookings.BookingService.Session Apps { get; init; } = new();
+
     public DateTimeOffset LocalNow => TimeZoneInfo.ConvertTime(UtcNow, TimeZone);
 
     public Dictionary<string, object?> ToDictionary()
