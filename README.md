@@ -61,8 +61,8 @@ is a settings exercise, not a fork — see
 - **Tags** with attributes and exclusive groups for contacts, entities and
   conversations; **custom fields**; both usable as template variables.
 - **Entities** (a branch tree), teams, automations, bulk **bindings**, role-based
-  access with a capability matrix, API keys, an **MCP server** (`/mcp`) for AI
-  apps, and an in-app assistant ("Ask ChatBranch") that acts as you.
+  access with a capability matrix, API keys, an **MCP server** (`/mcp`, every
+  dashboard feature as a tool — [docs/mcp.md](docs/mcp.md)) for AI apps, and an in-app assistant ("Ask ChatBranch") that acts as you.
 - **Integrations** — Google Calendar / Drive / Gmail / Sheets (OAuth, per user or
   shared), Shopify and Stripe (HMAC-verified webhooks).
 - **Analytics** home page, reports with CSV export, LLM usage/billing, an
@@ -351,7 +351,8 @@ every pull request.
 |---|---|
 | Configure this for your industry | **[docs/vertical-guide.md](docs/vertical-guide.md)** |
 | Understand the data model | [docs/DOMAIN_MODEL.md](docs/DOMAIN_MODEL.md) · [docs/DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) |
-| Call the API (or connect an AI app over MCP) | [docs/API_CONVENTIONS.md](docs/API_CONVENTIONS.md) |
+| Call the API | [docs/API_CONVENTIONS.md](docs/API_CONVENTIONS.md) |
+| Connect an AI app (Claude, Cursor…) over MCP — every dashboard feature as a tool | **[docs/mcp.md](docs/mcp.md)** |
 | Feed records from your own system | [docs/record-sync.md](docs/record-sync.md) |
 | Understand roles, capabilities and entities | [docs/RBAC_AND_BRANDS.md](docs/RBAC_AND_BRANDS.md) |
 | Add or debug a channel | [docs/channel-adapter.md](docs/channel-adapter.md) |

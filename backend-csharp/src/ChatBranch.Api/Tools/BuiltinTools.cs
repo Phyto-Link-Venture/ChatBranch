@@ -31,8 +31,7 @@ public static class BuiltinTools
     internal static string Iso(DateTime? dt) => dt is DateTime d
         ? DateTime.SpecifyKind(d, DateTimeKind.Utc).ToString("yyyy-MM-ddTHH:mm:ssZ") : "";
 
-    internal static string ChatHref(string channel, string key) =>
-        $"/chats?channel={Uri.EscapeDataString(channel)}&key={Uri.EscapeDataString(key)}";
+    internal static string ChatHref(string channel, string key) => ToolResults.ChatLink(channel, key);
 
     /// <summary>The compact contact card every contact tool returns.</summary>
     internal static Dictionary<string, object?> ContactCard(JsonElement c)
@@ -70,6 +69,8 @@ public static class BuiltinTools
             "Find contacts by name, phone number or email. Returns compact contact cards " +
             "(id, name, phone, email, company, tags). Use get_contact for the full record.";
         public override string? Capability => "contacts.view";
+        public override string Domain => "contacts";
+        public override IReadOnlyList<RouteRef> Covers => R("GET /api/contacts");
         protected override string Schema => """
         {"type":"object","properties":{
           "query":{"type":"string","description":"Text matched against name, phone and email. Empty lists the most recently updated contacts."},
@@ -104,6 +105,8 @@ public static class BuiltinTools
             "The full record for one contact: details, custom fields, business records " +
             "(orders, bookings, tickets…) and their conversations on every channel.";
         public override string? Capability => "contacts.view";
+        public override string Domain => "contacts";
+        public override IReadOnlyList<RouteRef> Covers => R("GET /api/contacts/{id:int}");
         protected override string Schema => """
         {"type":"object","properties":{"id":{"type":"integer","description":"Contact id."}},"required":["id"]}
         """;
@@ -143,6 +146,8 @@ public static class BuiltinTools
         public override string Description =>
             "Add a new contact. Name and phone (E.164, e.g. +60123456789) are required.";
         public override string? Capability => "contacts.manage";
+        public override string Domain => "contacts";
+        public override IReadOnlyList<RouteRef> Covers => R("POST /api/contacts");
         public override bool IsWrite => true;
         protected override string Schema => """
         {"type":"object","properties":{
@@ -181,6 +186,9 @@ public static class BuiltinTools
             "Change a contact's details. Only the fields you pass are changed; tags replace " +
             "the whole list; attributes (custom fields) are merged.";
         public override string? Capability => "contacts.manage";
+        public override string Domain => "contacts";
+        public override bool Idempotent => true;
+        public override IReadOnlyList<RouteRef> Covers => R("PATCH /api/contacts/{id:int}");
         public override bool IsWrite => true;
         protected override string Schema => """
         {"type":"object","properties":{
@@ -229,6 +237,7 @@ public static class BuiltinTools
             "website chat), newest activity first. Filter by status, channel, entity, assignee, or " +
             "only those waiting for a reply (the customer spoke last).";
         public override string? Capability => "chats.view";
+        public override string Domain => "conversations";
         protected override string Schema => """
         {"type":"object","properties":{
           "status":{"type":"string","enum":["open","pending","snoozed","resolved"]},
@@ -320,6 +329,7 @@ public static class BuiltinTools
             "One conversation with its most recent messages (oldest first), including private " +
             "notes, plus its status, assignee, labels and linked contact.";
         public override string? Capability => "chats.view";
+        public override string Domain => "conversations";
         protected override string Schema => """
         {"type":"object","properties":{
           "channel":{"type":"string","description":"whatsapp, email, facebook, instagram, telegram or website."},
@@ -367,11 +377,17 @@ public static class BuiltinTools
             "send path: opt-outs, WhatsApp's 24-hour window and the cold-message guard all apply, " +
             "and a refusal explains why.";
         public override string? Capability => "chats.send";
+        public override string Domain => "conversations";
+        public override bool OpenWorld => true;
+        public override IReadOnlyList<RouteRef> Covers =>
+            R("POST /api/whatsapp/threads/{key}/send", "POST /api/messaging/threads/{channel}/{key}/send");
         public override bool IsWrite => true;
         protected override string Schema => """
         {"type":"object","properties":{
           "channel":{"type":"string"},"key":{"type":"string"},
-          "text":{"type":"string","description":"The message to send."}},
+          "text":{"type":"string","description":"The message to send."},
+          "subject":{"type":"string","description":"Email only: the subject (default Re: the thread's subject)."},
+          "force":{"type":"boolean","description":"Send to an opted-out contact as a deliberate manual exception."}},
          "required":["channel","key","text"]}
         """;
         public override string Summarize(JsonElement a) =>
@@ -381,12 +397,14 @@ public static class BuiltinTools
         {
             var text = Req(a, "text");
             var t = await ToolScope.FindThreadAsync(ctx, Req(a, "channel"), Req(a, "key"));
+            var force = Bool(a, "force") == true;
             var r = t.Channel == Channels.WhatsApp
                 ? await ctx.CallAsync("POST", "/api/whatsapp/threads/{key}/send",
-                    new Dictionary<string, string> { ["key"] = t.Key }, new { text }, ct: ct)
+                    new Dictionary<string, string> { ["key"] = t.Key }, new { text, force }, ct: ct)
                 : await ctx.CallAsync("POST", "/api/messaging/threads/{channel}/{key}/send",
                     new Dictionary<string, string> { ["channel"] = t.Channel, ["key"] = t.Key },
-                    new { text }, ct: ct);
+                    new Dictionary<string, object?> { ["text"] = text, ["force"] = force, ["subject"] = Str(a, "subject") },
+                    ct: ct);
             ToolContext.Require(r);
             var status = r.Body.TryGetProperty("message", out var m) && m.TryGetProperty("status", out var s)
                 ? s.ToString() : "";
@@ -403,6 +421,8 @@ public static class BuiltinTools
             "Add an internal note to a conversation. Notes are never sent to the customer and are " +
             "kept out of the AI's context.";
         public override string? Capability => "chats.send";
+        public override string Domain => "conversations";
+        public override IReadOnlyList<RouteRef> Covers => R("POST /api/messaging/threads/{channel}/{key}/note");
         public override bool IsWrite => true;
         protected override string Schema => """
         {"type":"object","properties":{"channel":{"type":"string"},"key":{"type":"string"},
@@ -430,6 +450,10 @@ public static class BuiltinTools
             "Mark a conversation open, pending, snoozed or resolved. A customer reply re-opens " +
             "resolved and snoozed conversations automatically.";
         public override string? Capability => "chats.manage";
+        public override string Domain => "conversations";
+        public override bool Idempotent => true;
+        public override IReadOnlyList<RouteRef> Covers =>
+            R("POST /api/messaging/threads/{channel}/{key}/status", "POST /api/whatsapp/threads/{key}/status");
         public override bool IsWrite => true;
         protected override string Schema => """
         {"type":"object","properties":{"channel":{"type":"string"},"key":{"type":"string"},
@@ -445,7 +469,8 @@ public static class BuiltinTools
             if (!ThreadStatuses.Contains(status))
                 throw new ToolException($"status must be one of {string.Join(", ", ThreadStatuses)}.");
             var t = await ToolScope.FindThreadAsync(ctx, Req(a, "channel"), Req(a, "key"));
-            ToolContext.Require(await ctx.CallAsync("POST", "/api/messaging/threads/{channel}/{key}/status",
+            ToolContext.Require(await ctx.CallAsync("POST", t.Channel == Channels.WhatsApp
+                    ? "/api/whatsapp/threads/{key}/status" : "/api/messaging/threads/{channel}/{key}/status",
                 new Dictionary<string, string> { ["channel"] = t.Channel, ["key"] = t.Key },
                 new { status }, ct: ct));
             return new { channel = t.Channel, key = t.Key, status };
@@ -460,6 +485,10 @@ public static class BuiltinTools
             "Hand a conversation to a team (by team_id) and/or an agent (by username). " +
             "An empty assignee clears the agent; team_id 0 clears the team.";
         public override string? Capability => "chats.manage";
+        public override string Domain => "conversations";
+        public override bool Idempotent => true;
+        public override IReadOnlyList<RouteRef> Covers =>
+            R("POST /api/teams/assign", "POST /api/messaging/threads/{channel}/{key}/assign");
         public override bool IsWrite => true;
         protected override string Schema => """
         {"type":"object","properties":{"channel":{"type":"string"},"key":{"type":"string"},
@@ -508,6 +537,7 @@ public static class BuiltinTools
             "Saved replies (canned responses, inserted with /short_code in the composer) and call " +
             "script templates available to an entity.";
         public override string? Capability => "chats.view";
+        public override string Domain => "templates";
         protected override string Schema => """
         {"type":"object","properties":{
           "query":{"type":"string","description":"Filter by short code, name or text."},
@@ -546,6 +576,7 @@ public static class BuiltinTools
             "Search the company knowledge base the AI answers from (facts, policies, FAQs, events, " +
             "notices). Only live entries are returned — expired notices are excluded.";
         public override string? Capability => "chats.view";
+        public override string Domain => "knowledge";
         protected override string Schema => """
         {"type":"object","properties":{
           "query":{"type":"string"},"entity":{"type":"string"},
@@ -590,6 +621,7 @@ public static class BuiltinTools
         public override string Description =>
             "Workflows from the flow builder (automated multi-step sequences) and whether each is live.";
         public override string? Capability => "flows.view";
+        public override string Domain => "flows";
         protected override string Schema => """
         {"type":"object","properties":{
           "entity":{"type":"string"},
@@ -629,6 +661,8 @@ public static class BuiltinTools
             "Headline numbers for a period: message funnel (sent, delivered, read, replied), " +
             "contacts engaged, call outcomes, per-account volume and per-entity breakdown.";
         public override string? Capability => "analytics.view";
+        public override string Domain => "analytics";
+        public override IReadOnlyList<RouteRef> Covers => R("GET /api/analytics/summary");
         protected override string Schema => """
         {"type":"object","properties":{
           "days":{"type":"integer","enum":[7,30,90],"default":30},"entity":{"type":"string"}}}
@@ -659,6 +693,7 @@ public static class BuiltinTools
             "AI app via MCP, assistant, automation, flow, webhook, system). You only see what " +
             "your role may see.";
         public override string? Capability => "activity.view";
+        public override string Domain => "activity";
         protected override string Schema => """
         {"type":"object","properties":{
           "from":{"type":"string","description":"ISO date/time lower bound."},
@@ -702,6 +737,7 @@ public static class BuiltinTools
         public override string Description =>
             "The tags in use on contacts and the labels on conversations, with how often each is used.";
         public override string? Capability => "contacts.view";
+        public override string Domain => "tags";
         protected override string Schema => """
         {"type":"object","properties":{"query":{"type":"string","description":"Only tags containing this text."}}}
         """;

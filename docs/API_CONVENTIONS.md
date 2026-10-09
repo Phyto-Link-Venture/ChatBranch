@@ -171,16 +171,17 @@ Not every route — the endpoint files are authoritative — but every area.
 ChatBranch speaks the Model Context Protocol over **Streamable HTTP**, answered
 as plain JSON (no server push, stateless sessions — an `Mcp-Session-Id` is
 issued on `initialize` and accepted, never required). Methods: `initialize`,
-`notifications/initialized`, `ping`, `tools/list`, `tools/call`; batches are
-accepted. Authenticate with an **API key**. The tools
-(`Api/Tools/BuiltinTools.cs`) act as the key's user with the same capabilities
-and entity scope: `search_contacts`, `get_contact`, `create_contact`,
-`update_contact`, `list_conversations`, `get_conversation`, `send_message`,
-`add_note`, `set_conversation_status`, `assign_conversation`, `list_templates`,
-`search_knowledge`, `list_flows`, `get_analytics_summary`, `list_activity`,
-`list_tags`. Write tools call the dashboard's own endpoints in-process, so every
-guard (opt-out, 24h window, capability, scope) applies. `/developers` shows a
-ready-made client config.
+`notifications/initialized`, `ping`, `tools/list` (cursor paging),
+`tools/call`; batches are accepted. Authenticate with an **API key**. The
+tools cover every operator feature of the dashboard (~250 — the registry is
+`Api/Tools/ToolRegistry` over `BuiltinTools.cs` + the declarative
+`ToolCatalog.*.cs`), act as the key's user with the same capabilities and
+entity scope, and call the dashboard's own endpoints in-process, so every guard
+(opt-out, 24h / social windows, capability, scope) applies. Destructive tools
+need `"confirm": true`; a read-only key runs no write tool. What is NOT a tool
+(credentials, RBAC edits, key minting, binary streams…) is listed with reasons
+in `Api/Tools/McpExclusions.cs`. Full guide, client configs and the generated
+catalogue: **[docs/mcp.md](mcp.md)**. `/developers` shows a ready-made client config.
 
 ## Operator assistant (`/api/assistant/*`)
 

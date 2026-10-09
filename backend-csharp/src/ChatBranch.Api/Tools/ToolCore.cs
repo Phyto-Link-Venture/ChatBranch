@@ -1,9 +1,11 @@
+using System.Collections.Concurrent;
 using System.Security.Claims;
 using System.Text.Json;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
 using ChatBranch.Data.Audit;
 using ChatBranch.Domain;
+using Microsoft.AspNetCore.Authorization;
 
 namespace ChatBranch.Api.Tools;
 
@@ -28,6 +30,35 @@ public interface IChatBranchTool
     /// <summary>One line a person can confirm ("Send 'On my way' to Jane on WhatsApp").</summary>
     string Summarize(JsonElement args);
     Task<object?> ExecuteAsync(ToolContext ctx, JsonElement args, CancellationToken ct);
+
+    /// <summary>The capabilities that open this tool — ANY one of them (empty = any
+    /// signed-in user). <see cref="Capability"/> is the first, for display.</summary>
+    IReadOnlyList<string> AnyCapabilities { get; }
+    /// <summary>Deletes, or changes many things at once — MCP callers must pass
+    /// <c>confirm: true</c>; the assistant's confirm button is that confirmation.</summary>
+    bool Destructive { get; }
+    /// <summary>Calling it twice with the same arguments changes nothing more.</summary>
+    bool Idempotent { get; }
+    /// <summary>Reaches outside ChatBranch: messages or calls a customer, or calls a provider.</summary>
+    bool OpenWorld { get; }
+    /// <summary>Catalogue group (contacts, conversations, ai, …) — docs and the assistant's router.</summary>
+    string Domain { get; }
+    /// <summary>The dashboard endpoints this tool reaches (method + route TEMPLATE as
+    /// mapped) — what the MCP coverage test checks against the route table.</summary>
+    IReadOnlyList<RouteRef> Covers { get; }
+}
+
+/// <summary>One endpoint: HTTP method + the route template exactly as mapped.</summary>
+public sealed record RouteRef(string Method, string Template)
+{
+    public override string ToString() => $"{Method} {Template}";
+
+    /// <summary>"POST /api/x/{id:int}" → a RouteRef.</summary>
+    public static RouteRef Parse(string s)
+    {
+        var i = s.IndexOf(' ');
+        return new RouteRef(s[..i].Trim().ToUpperInvariant(), s[(i + 1)..].Trim());
+    }
 }
 
 /// <summary>A tool refusing with a reason the model (and the person) can read.</summary>
@@ -76,8 +107,9 @@ public sealed class ToolContext
     /// <summary>Call one of the app's own endpoints as this user (see <see cref="InternalApi"/>).</summary>
     public Task<InternalApi.Response> CallAsync(string method, string route,
         IDictionary<string, string>? routeValues = null, object? body = null,
-        IDictionary<string, string?>? query = null, CancellationToken ct = default) =>
-        InternalApi.InvokeAsync(Http, User, method, route, routeValues, body, query, ct);
+        IDictionary<string, string?>? query = null, CancellationToken ct = default,
+        InternalApi.FormBody? form = null) =>
+        InternalApi.InvokeAsync(Http, User, method, route, routeValues, body, query, ct, form);
 
     /// <summary>Endpoint answered with an error → surface the handler's own reason.</summary>
     public static InternalApi.Response Require(InternalApi.Response r)
@@ -98,6 +130,13 @@ public abstract class ChatBranchTool : IChatBranchTool
     protected abstract string Schema { get; }
     public virtual string? Capability => null;
     public virtual bool IsWrite => false;
+    public virtual IReadOnlyList<string> AnyCapabilities =>
+        Capability == null ? Array.Empty<string>() : new[] { Capability };
+    public virtual bool Destructive => false;
+    public virtual bool Idempotent => !IsWrite;
+    public virtual bool OpenWorld => false;
+    public virtual string Domain => "general";
+    public virtual IReadOnlyList<RouteRef> Covers => Array.Empty<RouteRef>();
 
     public JsonElement InputSchema => _schema ??= JsonDocument.Parse(Schema).RootElement.Clone();
 
@@ -105,9 +144,12 @@ public abstract class ChatBranchTool : IChatBranchTool
 
     public abstract Task<object?> ExecuteAsync(ToolContext ctx, JsonElement args, CancellationToken ct);
 
+    /// <summary>"GET /api/x" strings → route refs (for <see cref="Covers"/>).</summary>
+    protected static RouteRef[] R(params string[] refs) => refs.Select(RouteRef.Parse).ToArray();
+
     // ---- argument readers (models send loose JSON — be forgiving) ----------
 
-    protected static string? Str(JsonElement a, string key)
+    protected internal static string? Str(JsonElement a, string key)
     {
         if (a.ValueKind != JsonValueKind.Object || !a.TryGetProperty(key, out var v)) return null;
         return v.ValueKind switch
@@ -118,14 +160,14 @@ public abstract class ChatBranchTool : IChatBranchTool
         };
     }
 
-    protected static string Req(JsonElement a, string key)
+    protected internal static string Req(JsonElement a, string key)
     {
         var s = Str(a, key)?.Trim();
         if (string.IsNullOrEmpty(s)) throw new ToolException($"'{key}' is required.");
         return s;
     }
 
-    protected static int? Int(JsonElement a, string key)
+    protected internal static int? Int(JsonElement a, string key)
     {
         if (a.ValueKind != JsonValueKind.Object || !a.TryGetProperty(key, out var v)) return null;
         if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n)) return n;
@@ -133,11 +175,29 @@ public abstract class ChatBranchTool : IChatBranchTool
         return null;
     }
 
-    protected static bool Has(JsonElement a, string key) =>
+    protected internal static bool? Bool(JsonElement a, string key)
+    {
+        if (a.ValueKind != JsonValueKind.Object || !a.TryGetProperty(key, out var v)) return null;
+        return v.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.String => v.GetString()?.Trim().ToLowerInvariant() switch
+            {
+                "true" or "1" or "yes" or "on" => true,
+                "false" or "0" or "no" or "off" => false,
+                _ => null,
+            },
+            JsonValueKind.Number => v.TryGetInt32(out var n) ? n != 0 : null,
+            _ => null,
+        };
+    }
+
+    protected internal static bool Has(JsonElement a, string key) =>
         a.ValueKind == JsonValueKind.Object && a.TryGetProperty(key, out var v)
         && v.ValueKind != JsonValueKind.Null && v.ValueKind != JsonValueKind.Undefined;
 
-    protected static List<string>? StrList(JsonElement a, string key)
+    protected internal static List<string>? StrList(JsonElement a, string key)
     {
         if (a.ValueKind != JsonValueKind.Object || !a.TryGetProperty(key, out var v)) return null;
         if (v.ValueKind == JsonValueKind.Array)
@@ -152,7 +212,7 @@ public abstract class ChatBranchTool : IChatBranchTool
     protected static int Limit(JsonElement a, int fallback, int max) =>
         Math.Clamp(Int(a, "limit") ?? fallback, 1, max);
 
-    protected static string Clip(string? s, int n)
+    protected internal static string Clip(string? s, int n)
     {
         s ??= "";
         return s.Length <= n ? s : s[..n] + "…";
@@ -162,27 +222,86 @@ public abstract class ChatBranchTool : IChatBranchTool
 /// <summary>Outcome of one registry execution, already audited.</summary>
 public sealed record ToolOutcome(bool Ok, object? Data, string? Error, int Status)
 {
-    public string Json() => JsonSerializer.Serialize(Ok ? Data : new { error = Error },
-        new JsonSerializerOptions { WriteIndented = false });
+    public string Json() => JsonSerializer.Serialize(Ok ? Data : new { error = Error }, ToolResults.Wire);
 }
 
 /// <summary>
 /// The tool catalogue plus the one execution path both surfaces use: unknown
-/// tool → 404, missing capability → 403, a tool's own refusal → its status;
-/// every call is written to the activity log under the caller's source (one
-/// row: a write tool whose endpoint already logged a domain row adds none).
+/// tool → 404, missing capability / role → 403, a write on a read-only key →
+/// 403, a destructive MCP call without <c>confirm: true</c> → 400, a tool's own
+/// refusal → its status; every call is written to the activity log under the
+/// caller's source (one row: a write tool whose endpoint already logged a domain
+/// row adds none).
 /// </summary>
 public static class ToolRegistry
 {
-    public static readonly IReadOnlyList<IChatBranchTool> All = BuiltinTools.Create();
+    public static readonly IReadOnlyList<IChatBranchTool> All =
+        BuiltinTools.Create().Concat(ToolCatalog.Create()).ToList();
 
-    public static IChatBranchTool? Find(string name) =>
-        All.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.Ordinal));
+    private static readonly Dictionary<string, IChatBranchTool> ByName =
+        All.ToDictionary(t => t.Name, StringComparer.Ordinal);
 
-    public static bool Allowed(ToolContext ctx, IChatBranchTool tool) =>
-        tool.Capability == null || ctx.Capabilities.Contains(tool.Capability);
+    public static IChatBranchTool? Find(string name) => ByName.GetValueOrDefault(name);
+
+    /// <summary>
+    /// May this caller use the tool? Capability (any of the tool's), the role
+    /// gate of the endpoint(s) it reaches (admin+ / superadmin — the least strict
+    /// of them), and a scoped API key without any .manage/.send capability is
+    /// read-only here exactly as it is on the REST API.
+    /// </summary>
+    public static bool Allowed(ToolContext ctx, IChatBranchTool tool) => Denial(ctx, tool) == null;
 
     public static IEnumerable<IChatBranchTool> AllowedFor(ToolContext ctx) => All.Where(t => Allowed(ctx, t));
+
+    /// <summary>Why the caller may not use this tool, or null when they may.</summary>
+    public static string? Denial(ToolContext ctx, IChatBranchTool tool)
+    {
+        var caps = tool.AnyCapabilities;
+        if (caps.Count > 0 && !caps.Any(ctx.Capabilities.Contains))
+            return $"You don't have permission to {tool.Title.ToLowerInvariant()} " +
+                   (caps.Count == 1 ? $"(needs the {caps[0]} capability)." : $"(needs one of: {string.Join(", ", caps)}).");
+        if (tool.IsWrite && ApiKeyAuth.IsReadOnlyKey(ctx.User))
+            return "This API key is read-only — its scopes grant no write capability.";
+        if (RoleGate(ctx, tool) is { } role && !RoleOk(ctx.User, role))
+            return $"You don't have permission to {tool.Title.ToLowerInvariant()} " +
+                   $"(needs the {(role == AuthPolicies.SuperAdmin ? "superadmin" : "admin")} role).";
+        return null;
+    }
+
+    private static bool RoleOk(ClaimsPrincipal user, string gate) => gate switch
+    {
+        AuthPolicies.SuperAdmin => Caller.Role(user) == Roles.SuperAdmin,
+        AuthPolicies.AdminPlus => Caller.IsAdminPlus(user),
+        _ => true,
+    };
+
+    private static readonly ConcurrentDictionary<string, string?> Gates = new();
+
+    /// <summary>The strictest role policy a tool needs: the LEAST strict of the
+    /// endpoints it reaches (null = any signed-in user). Read from the route
+    /// table once per tool, so it follows the endpoints' own RequireAuthorization.</summary>
+    public static string? RoleGate(ToolContext ctx, IChatBranchTool tool)
+    {
+        if (tool.Covers.Count == 0) return null;
+        return Gates.GetOrAdd(tool.Name, _ =>
+        {
+            var source = ctx.Services.GetService<EndpointDataSource>();
+            if (source == null) return null;
+            string? least = AuthPolicies.SuperAdmin;
+            foreach (var r in tool.Covers)
+            {
+                var ep = InternalApi.Find(source, r.Method, r.Template);
+                if (ep == null) return null;
+                var policies = ep.Metadata.GetOrderedMetadata<IAuthorizeData>()
+                    .Select(a => a.Policy).Where(p => p != null).ToList();
+                var gate = policies.Contains(AuthPolicies.SuperAdmin) ? AuthPolicies.SuperAdmin
+                    : policies.Contains(AuthPolicies.AdminPlus) ? AuthPolicies.AdminPlus : null;
+                if (gate == null) return null;
+                if (gate == AuthPolicies.AdminPlus) least = AuthPolicies.AdminPlus;
+            }
+            return least;
+        });
+    }
 
     public static async Task<ToolOutcome> ExecuteAsync(ToolContext ctx, string name, JsonElement args,
         CancellationToken ct = default)
@@ -194,12 +313,21 @@ public static class ToolRegistry
         string summary;
         try { summary = tool.Summarize(args); } catch { summary = tool.Title; }
 
-        if (!Allowed(ctx, tool))
+        if (Denial(ctx, tool) is { } denied)
         {
-            var msg = $"You don't have permission to {tool.Title.ToLowerInvariant()} " +
-                      $"(needs the {tool.Capability} capability).";
-            Record(ctx, tool, summary, $"denied: missing {tool.Capability}", 403);
-            return new ToolOutcome(false, null, msg, 403);
+            var why = tool.AnyCapabilities.Count > 0 && !tool.AnyCapabilities.Any(ctx.Capabilities.Contains)
+                ? $"denied: missing {string.Join("|", tool.AnyCapabilities)}" : "denied: " + denied;
+            Record(ctx, tool, summary, why, 403);
+            return new ToolOutcome(false, null, denied, 403);
+        }
+
+        // An AI app over MCP has no confirm button: a destructive call must say so.
+        if (tool.Destructive && ctx.Source == AuditSources.Mcp && ChatBranchTool.Bool(args, "confirm") != true)
+        {
+            const string msg = "This action is destructive (it deletes or changes things in bulk). " +
+                               "Check with the person first, then call again with \"confirm\": true.";
+            Record(ctx, tool, summary, "refused: confirm required", 400);
+            return new ToolOutcome(false, null, msg, 400);
         }
 
         var before = AuditContext.Current?.DomainRows ?? 0;
