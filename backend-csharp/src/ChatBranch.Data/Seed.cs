@@ -234,6 +234,14 @@ public static class Seed
             + "CONSTRAINT \"FK_crm_assistantmessage_crm_assistantconversation_conversation_id\" "
             + "FOREIGN KEY (\"conversation_id\") REFERENCES \"crm_assistantconversation\" (\"id\") ON DELETE CASCADE");
         AddIndexIfMissing(db, "ix_assistantmessage_conversation", "crm_assistantmessage", "\"conversation_id\"");
+        // the Test lab's run history (scripted end-to-end scenarios, last 50 runs)
+        AddTableIfMissing(db, "crm_testlabrun",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_testlabrun\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"started_by\" TEXT NOT NULL, \"source\" TEXT NOT NULL, \"total\" INTEGER NOT NULL, "
+            + "\"passed\" INTEGER NOT NULL, \"failed\" INTEGER NOT NULL, \"skipped\" INTEGER NOT NULL, "
+            + "\"duration_ms\" INTEGER NOT NULL, \"results\" TEXT NOT NULL, "
+            + "\"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
+        AddIndexIfMissing(db, "ix_testlabrun_created", "crm_testlabrun", "\"created_at\"");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 

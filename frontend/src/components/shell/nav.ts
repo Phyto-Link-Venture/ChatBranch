@@ -5,6 +5,7 @@ import {
   Bell,
   Building2,
   Code2,
+  FlaskConical,
   FileText,
   Link2,
   ListChecks,
@@ -119,6 +120,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/activity', lbl: 'shell.nav.activity', Icon: Activity, cap: 'activity.view', keywords: 'audit log' },
       { href: '/call-logs', lbl: 'shell.nav.callLogs', Icon: PhoneCall, alsoActive: ['/call-logs/'], cap: 'call_logs.view', keywords: 'calls recordings' },
+      { href: '/test-lab', lbl: 'shell.nav.testLab', Icon: FlaskConical, roles: ['superadmin'], keywords: 'tests scenarios use cases qa demo data' },
     ],
   },
 ]

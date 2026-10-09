@@ -296,6 +296,7 @@ cd backend-csharp && dotnet test tests/ChatBranch.Tests    # 526 tests
 cd frontend && npx tsc --noEmit && npx eslint src && npx next build
 cd backend/voice_agent && npx tsc --noEmit && npm run selftest
 node backend/baileys_service/calls.js --selftest
+npm run test:scenarios     # the Test lab's use cases against a running API — docs/testing.md
 ```
 
 The test host disables the background workers and the human-like AI defaults
@@ -355,6 +356,7 @@ every pull request.
 | Feed records from your own system | [docs/record-sync.md](docs/record-sync.md) |
 | Understand roles, capabilities and entities | [docs/RBAC_AND_BRANDS.md](docs/RBAC_AND_BRANDS.md) |
 | Add or debug a channel | [docs/channel-adapter.md](docs/channel-adapter.md) |
+| Test it end to end (Test lab, per-role checklist, real channels) | [docs/testing.md](docs/testing.md) |
 | Run real calls | [backend/voice_agent/README.md](backend/voice_agent/README.md) |
 | Understand the Baileys transport and its risk | [backend/baileys_service/README.md](backend/baileys_service/README.md) · [RESEARCH.md](backend/baileys_service/RESEARCH.md) |
 | Change the code (or point a coding agent at it) | [CLAUDE.md](CLAUDE.md) · [AGENTS.md](AGENTS.md) |

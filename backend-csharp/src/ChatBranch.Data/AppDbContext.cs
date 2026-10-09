@@ -87,6 +87,8 @@ public class AppDbContext : DbContext
     public DbSet<ContactIdentity> ContactIdentities => Set<ContactIdentity>();
     public DbSet<ContactInvite> ContactInvites => Set<ContactInvite>();
     public DbSet<IdentityRequest> IdentityRequests => Set<IdentityRequest>();
+    // the Test lab's run history (the last 50 runs of scripted scenarios)
+    public DbSet<TestLabRun> TestLabRuns => Set<TestLabRun>();
 
     /// <summary>Every AuditLog row is stamped with its request/source provenance
     /// on save (Audit/AuditStampInterceptor), so the per-file audit helpers carry
@@ -306,6 +308,10 @@ public class AppDbContext : DbContext
         b.Entity<IdentityRequest>().ToTable("crm_identityrequest");
         b.Entity<IdentityRequest>().HasIndex(r => r.ThreadId).IsUnique().HasDatabaseName("uniq_identityrequest_thread");
         Json<IdentityRequest, Dictionary<string, object?>>(b, x => x.Collected);
+
+        // ---- Test lab run history ---------------------------------------------
+        b.Entity<TestLabRun>().ToTable("crm_testlabrun");
+        b.Entity<TestLabRun>().HasIndex(r => r.CreatedAt).HasDatabaseName("ix_testlabrun_created");
 
         // ---- snake_case columns to match Django (<field>_id for FKs) -----------
         // Django names every column snake_case; matching it is what lets this

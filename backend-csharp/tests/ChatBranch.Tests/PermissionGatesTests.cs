@@ -190,7 +190,16 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/auth/notification-prefs", new[] { "notifications.manage" }),
         ("/api/settings/ai-providers", new[] { "settings.ai_keys.manage" }),
         ("/api/settings?keys=quiet_start", Array.Empty<string>()),
+        // Test lab (superadmin only — see SuperadminOnly)
+        ("/api/testlab/scenarios", Array.Empty<string>()),
+        ("/api/testlab/status", Array.Empty<string>()),
+        ("/api/testlab/runs", Array.Empty<string>()),
+        ("/api/testlab/runs/999999", Array.Empty<string>()),
     };
+
+    /// <summary>Role-gated rows (empty caps) whose policy is superadmin, not admin+: the
+    /// superadmin login opens them and the admin login is refused.</summary>
+    private static readonly string[] SuperadminOnly = { "/api/testlab/" };
 
     /// <summary>What a signed-in person with NO capability still reads: the shell and
     /// their own things (the pages they can open — Notifications, personal Settings).</summary>
@@ -260,6 +269,13 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         {
             if (caps.Length == 0)
             {
+                if (SuperadminOnly.Any(url.StartsWith))
+                {
+                    bad.AddRange(await Check(await SettingsTestKit.Client(_f, "superadmin", "super123"), new[] { url },
+                        Through, "superadmin to get through"));
+                    bad.AddRange(await Check(admin, new[] { url }, s => s == HttpStatusCode.Forbidden, "403 for admin"));
+                    continue;
+                }
                 bad.AddRange(await Check(admin, new[] { url }, Through, "admin+ to get through"));
                 continue;
             }
