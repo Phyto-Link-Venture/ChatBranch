@@ -40,7 +40,7 @@ public static partial class NotificationEndpoints
         // GET /api/auth/notification-prefs → {messages: true, account_health: …}
         app.MapGet("/api/auth/notification-prefs", (ScopingService scoping) =>
             Results.Ok(ReadPrefs(scoping)))
-            .RequireAuthorization(AuthPolicies.Authenticated);
+            .RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(OrgDefaultsCapability);
 
         // PUT /api/auth/notification-prefs {<category>: bool, …}
         // Gate = the `notifications.manage` capability (Settings → Organization →

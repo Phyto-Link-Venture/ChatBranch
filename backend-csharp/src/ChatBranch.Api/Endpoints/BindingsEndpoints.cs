@@ -51,6 +51,14 @@ public static class BindingsEndpoints
             "Agents scoped to this entity see only its conversations (and those beneath it)."),
     };
 
+    /// <summary>Who may READ a kind's members besides users.view (the Bindings page).</summary>
+    private static string ReadCapability(string kind) => kind switch
+    {
+        "contact-entities" or "entity-contacts" => "contacts.view",
+        "tag-contacts" or "tag-entities" => "tags.view",
+        _ => "users.view",
+    };
+
     public static void MapBindingsEndpoints(this IEndpointRouteBuilder app)
     {
         // ---- what can be bound, and what you can pick ------------------------
@@ -113,6 +121,16 @@ public static class BindingsEndpoints
                     channel = a.Channel, provider = a.Provider, entity_id = a.EntityId,
                 }).ToList();
 
+            // The Bindings page (users.view) gets every pool; the Tags page's binding
+            // view (tags.view) only what a tag binds to — contacts with contacts.view.
+            if (!await ShellScope.HasCapAsync(db, me, "users.view"))
+            {
+                teams.Clear();
+                users.Clear();
+                accounts.Clear();
+                if (!await ShellScope.HasCapAsync(db, me, "contacts.view")) contacts.Clear();
+            }
+
             return Results.Ok(new
             {
                 kinds = Kinds.Select(k => new
@@ -124,16 +142,20 @@ public static class BindingsEndpoints
                 // one pool per side so the UI never has to guess what to list
                 pools = new { entities, teams, users, contacts, tags, accounts },
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("users.view", "tags.view");
 
         // ---- current membership for one target -------------------------------
-        app.MapGet("/api/bindings/{kind}", async (string kind, int target, AppDbContext db) =>
+        app.MapGet("/api/bindings/{kind}", async (string kind, int target, AppDbContext db, ClaimsPrincipal me) =>
         {
             if (!Kinds.Any(k => k.Id == kind))
                 return Results.Json(new { detail = "Unknown binding kind." }, statusCode: 400);
+            // the Bindings page reads every kind; the contact page its entities, the Tags page its targets
+            var need = ReadCapability(kind);
+            if (!await ShellScope.HasCapAsync(db, me, "users.view") && !await ShellScope.HasCapAsync(db, me, need))
+                return Results.Json(new { detail = $"The {need} capability is required." }, statusCode: 403);
             var members = await MembersAsync(db, kind, target);
             return Results.Ok(new { kind, target, member_ids = members });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("users.view", "contacts.view", "tags.view");
 
         // ---- apply a diff -----------------------------------------------------
         // A DIFF, not a replacement: the operator may be filtering to a subset,

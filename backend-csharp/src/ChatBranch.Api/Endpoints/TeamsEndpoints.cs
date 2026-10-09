@@ -30,7 +30,10 @@ public static class TeamsEndpoints
                 .OrderBy(t => t.Name).ToListAsync();
             var loads = await ThreadLoadsAsync(db);
             return Results.Ok(new { teams = rows.Select(t => Payload(t, loads)).ToList() });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          // the Teams page, the inbox (assign to a team), the flow builder's handover
+          // step and the inbox setup drawer ("who answers it")
+          .RequireAnyCapability("users.view", "chats.view", "flows.manage", "channels.view");
 
         // ---- create ---------------------------------------------------------
         app.MapPost("/api/teams", async (JsonElement body, AppDbContext db, ClaimsPrincipal me,

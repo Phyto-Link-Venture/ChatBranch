@@ -87,10 +87,13 @@ public static class CustomFieldsEndpoints
 
     public static void MapCustomFieldsEndpoints(this IEndpointRouteBuilder app)
     {
-        // GET the whole schema — forms + the settings tab read this.
+        // GET the whole schema — forms + the settings tab read this: the contact
+        // pages, the template/flow variable pickers and the settings page.
         app.MapGet("/api/settings/custom-fields", (ScopingService sc) =>
             Results.Ok(Payload(Load(sc))))
-            .RequireAuthorization(AuthPolicies.Authenticated);
+            .RequireAuthorization(AuthPolicies.Authenticated)
+            .RequireAnyCapability("contacts.view", "flows.manage", "templates.manage",
+                "script_templates.manage", "settings.custom_fields.manage");
 
         // PUT replaces the schema. Body: {customer:[...]} — an omitted key leaves
         // that target untouched (a legacy "provider" key is ignored).

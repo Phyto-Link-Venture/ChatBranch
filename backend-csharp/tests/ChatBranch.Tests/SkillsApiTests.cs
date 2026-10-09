@@ -203,7 +203,10 @@ public class SkillsApiTests : IClassFixture<ApiFactory>
     public async Task Builtins_are_listed_and_authoring_is_admin_only()
     {
         var agent = await Authed("agent", "agent123");
-        var b = await agent.GetFromJsonAsync<JsonElement>("/api/aicore/skills/builtins");
+        // the catalog is the Skills page's data (settings.ai.manage)
+        Assert.Equal(HttpStatusCode.Forbidden, (await agent.GetAsync("/api/aicore/skills/builtins")).StatusCode);
+        var admin = await Authed("admin", "admin123");
+        var b = await admin.GetFromJsonAsync<JsonElement>("/api/aicore/skills/builtins");
         var names = b.GetProperty("builtins").EnumerateArray().Select(x => x.GetProperty("name").GetString()).ToList();
         Assert.Equal(new[] { "current_time", "current_week", "date_add", "days_between", "convert_timezone" }, names);
         Assert.True(b.GetProperty("builtins")[0].GetProperty("example").TryGetProperty("weekday", out _));

@@ -54,7 +54,7 @@ public static class AuditEndpoints
                 page_size = size,
                 pages,
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("activity.view");
 
         app.MapGet("/api/audit.csv", async (string? from, string? to, string? actor, string? source,
             string? action, string? entity, string? q, AppDbContext db, ScopingService sc,
@@ -86,7 +86,7 @@ public static class AuditEndpoints
             var name = $"activity-{DateTime.UtcNow:yyyyMMdd-HHmm}.csv";
             return Results.File(Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray(),
                 "text/csv; charset=utf-8", name);
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("activity.view");
 
         app.MapGet("/api/audit/facets", async (AppDbContext db, ClaimsPrincipal me) =>
         {
@@ -106,7 +106,7 @@ public static class AuditEndpoints
                 count = sourceCounts.FirstOrDefault(x => x.value == s)?.count ?? 0,
             });
             return Results.Ok(new { actors, actions, sources });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("activity.view");
     }
 
     // ---- visibility + filters (shared with the list_activity tool) ---------

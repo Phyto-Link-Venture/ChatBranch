@@ -50,7 +50,7 @@ public static class McpEndpoints
     {
         app.MapGet("/api/integrations/mcp", (ScopingService sc) =>
             Results.Ok(new { servers = McpServerRegistry.Load(sc).Select(Payload) }))
-            .RequireAuthorization(AuthPolicies.Authenticated);
+            .RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(DevelopersEndpoints.Capability);
 
         app.MapPost("/api/integrations/mcp", async (HttpContext ctx, ScopingService sc, AppDbContext db) =>
         {

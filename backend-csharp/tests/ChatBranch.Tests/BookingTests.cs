@@ -1086,12 +1086,33 @@ public class BookingApiTests : IClassFixture<ApiFactory>
         Assert.True(cal.GetProperty("sources")[1].GetProperty("connected").GetBoolean());
 
         var agent = await Authed("agent", "agent123");
-        var agentConns = (await agent.GetFromJsonAsync<JsonElement>("/api/aicore/skills/apps"))
-            .GetProperty("apps")[0].GetProperty("sources")[0].GetProperty("connections");
-        // the shared calendar + their own — never the admin's personal one
-        Assert.Equal(2, agentConns.GetArrayLength());
-        Assert.Contains(agentConns.EnumerateArray(), c => c.GetProperty("owner").GetString() == "org" && c.GetProperty("id").GetInt32() == shared);
-        Assert.DoesNotContain(agentConns.EnumerateArray(), c => c.GetProperty("owner_name").GetString() == "admin");
+        // the catalog is the Skills page's (settings.ai.manage) — a plain agent is refused…
+        Assert.Equal(HttpStatusCode.Forbidden, (await agent.GetAsync("/api/aicore/skills/apps")).StatusCode);
+        // …and an agent-level curator holding it sees the shared calendar + their own,
+        // never the admin's personal one
+        Db(db =>
+        {
+            db.RolePermissions.Add(new RolePermission
+                { Role = Roles.Agent, Capability = "settings.ai.manage", Allowed = true, UpdatedAt = DateTime.UtcNow });
+            return db.SaveChanges();
+        });
+        try
+        {
+            var agentConns = (await agent.GetFromJsonAsync<JsonElement>("/api/aicore/skills/apps"))
+                .GetProperty("apps")[0].GetProperty("sources")[0].GetProperty("connections");
+            Assert.Equal(2, agentConns.GetArrayLength());
+            Assert.Contains(agentConns.EnumerateArray(), c => c.GetProperty("owner").GetString() == "org" && c.GetProperty("id").GetInt32() == shared);
+            Assert.DoesNotContain(agentConns.EnumerateArray(), c => c.GetProperty("owner_name").GetString() == "admin");
+        }
+        finally
+        {
+            Db(db =>
+            {
+                db.RolePermissions.RemoveRange(db.RolePermissions.Where(p => p.Role == Roles.Agent
+                                                                         && p.Capability == "settings.ai.manage"));
+                return db.SaveChanges();
+            });
+        }
 
         // dry run: every hour of every day open, no notice ⇒ there are always free times
         var everyDay = new Dictionary<string, object>();

@@ -85,7 +85,10 @@ public static class ContactsEndpoints
 
             var rows = await query.OrderByDescending(c => c.UpdatedAt).Take(limit ?? 200).ToListAsync();
             return Results.Ok(new { contacts = await ContactItemsAsync(db, rows) });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          // the Contacts page, the inbox (tag filter, call batches) and the Users
+          // page's customer-login picker all list contacts
+          .RequireAnyCapability("contacts.view", "chats.view", "users.manage");
 
         app.MapPost("/api/contacts", async (ContactWrite b, AppDbContext db, ClaimsPrincipal me,
             ChatBranch.Data.Contacts.ContactIdentityService identities) =>
@@ -118,7 +121,7 @@ public static class ContactsEndpoints
                 .FirstOrDefaultAsync(x => x.Id == id);
             if (c == null) return NotFound("Contact not found.");
             return Results.Ok((await ContactItemsAsync(db, new List<Contact> { c })).First());
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("contacts.view");
 
         app.MapMethods("/api/contacts/{id:int}", new[] { "PATCH" },
             async (int id, ContactWrite b, AppDbContext db, ClaimsPrincipal me,
@@ -350,7 +353,9 @@ public static class ContactsEndpoints
                 invite_channels = ChatBranch.Data.Contacts.ContactInviteService.LinkChannels
                     .Where(ch => accounts.Any(a => a.Channel == ch)).ToList(),
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          // rendered on the contact page AND in the chat's info panel
+          .RequireAnyCapability("contacts.view", "chats.view");
 
         // Register a channel identity by hand (the counterpart to linking from an
         // existing chat): creates or claims the thread and links it, so a number
@@ -418,7 +423,9 @@ public static class ContactsEndpoints
                 .OrderByDescending(x => x.ended_at.Length > 0 ? x.ended_at : x.started_at)
                 .ToList();
             return Results.Ok(new { calls });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          // rendered on the contact page AND in the chat's info panel
+          .RequireAnyCapability("contacts.view", "chats.view");
 
         // ---- bulk import --------------------------------------------------------
         // Parse + upsert; `?preview=1` computes the SAME plan without writing, so
@@ -456,7 +463,9 @@ public static class ContactsEndpoints
             // Frontend (ScriptTemplatesSettings) reads `templates` — a `scripts`
             // key left it undefined and crashed on `sorted.length`.
             return Results.Ok(new { templates = rows.Select(t => ScriptItem(t, variables)) });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          // Templates → Call scripts, the chat's Script call button, the flow builder's call step
+          .RequireAnyCapability("script_templates.manage", "chats.send", "flows.manage");
 
         app.MapPost("/api/calls/script-templates", async (JsonElement body, AppDbContext db,
             ClaimsPrincipal me, HttpContext ctx) =>

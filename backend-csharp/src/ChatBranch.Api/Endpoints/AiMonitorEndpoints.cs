@@ -57,7 +57,6 @@ public static class AiMonitorEndpoints
             string? kind, string? q, string? thread, int? page, int? page_size, string? sort,
             AppDbContext db, ScopingService sc, ClaimsPrincipal me, TimeProvider clock) =>
         {
-            if (!await Can(db, me, MonitorCap)) return Forbidden(MonitorCap);
             var scope = await ScopeFor(db, sc, me, entity);
             var baseQ = Scoped(db.AiDrafts.AsNoTracking(), scope);
             if (!string.IsNullOrWhiteSpace(channel) && channel is not ("all" or "__all__"))
@@ -101,13 +100,12 @@ public static class AiMonitorEndpoints
                 page_size = size,
                 counts = AiDraftStatus.All.ToDictionary(s => s, s => counts.FirstOrDefault(c => c.status == s)?.n ?? 0),
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(MonitorCap);
 
         // ---- stats (registered before /{id} so the literal wins) ----------------
         app.MapGet("/api/ai/monitor/stats", async (int? days, string? entity, AppDbContext db,
             ScopingService sc, ClaimsPrincipal me, TimeProvider clock) =>
         {
-            if (!await Can(db, me, MonitorCap)) return Forbidden(MonitorCap);
             var span = Math.Clamp(days ?? 30, 1, 365);
             var now = clock.GetUtcNow().UtcDateTime;
             var since = now.Date.AddDays(-(span - 1));
@@ -179,7 +177,7 @@ public static class AiMonitorEndpoints
                 top_hold_reasons = holdReasons,
                 daily,
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(MonitorCap);
 
         // ---- manual worker pass (tests / live checks) ---------------------------
         app.MapPost("/api/ai/monitor/tick", async (AppDbContext db, ClaimsPrincipal me,
@@ -234,7 +232,6 @@ public static class AiMonitorEndpoints
         app.MapGet("/api/ai/monitor/{id:int}", async (int id, AppDbContext db, ScopingService sc,
             ClaimsPrincipal me, TimeProvider clock, AiFollowUpService followUps) =>
         {
-            if (!await Can(db, me, MonitorCap)) return Forbidden(MonitorCap);
             var draft = await Visible(db, sc, me, id);
             if (draft == null) return Results.NotFound(new { detail = "Draft not found." });
             var payload = (await Payloads(db, new List<AiDraft> { draft }, clock, withRecent: true, recentCount: 12, me: me))[0];
@@ -250,7 +247,7 @@ public static class AiMonitorEndpoints
                     note = state.Note,
                 },
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(MonitorCap);
 
         app.MapPost("/api/ai/monitor/{id:int}/approve", async (int id, HttpContext ctx, AppDbContext db,
             ScopingService sc, ClaimsPrincipal me, AiGate gate, TimeProvider clock) =>
@@ -293,12 +290,11 @@ public static class AiMonitorEndpoints
         app.MapGet("/api/ai/behaviour", async (string? entity, AppDbContext db, ScopingService sc,
             ClaimsPrincipal me) =>
         {
-            if (!await Can(db, me, MonitorCap) && !await Can(db, me, BehaviourCap))
-                return Forbidden(BehaviourCap);
             var (entityId, err) = await BehaviourEntity(db, entity);
             if (err != null) return err;
             return Results.Ok(await BehaviourPayload(db, sc, me, entityId, entity));
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          .RequireAnyCapability(MonitorCap, BehaviourCap);
 
         app.MapPut("/api/ai/behaviour", async (string? entity, HttpContext ctx, AppDbContext db,
             ScopingService sc, ClaimsPrincipal me) =>

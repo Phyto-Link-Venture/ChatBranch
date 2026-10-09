@@ -33,9 +33,11 @@ public static class WhatsAppMediaEndpoints
     public static void MapWhatsAppMediaEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/api/whatsapp/media/{id:int}", ServeMessageMedia)
-            .RequireAuthorization(AuthPolicies.Authenticated);
+            .RequireAuthorization(AuthPolicies.Authenticated)
+            .RequireCapability("chats.view");
         app.MapGet("/api/messaging/media/{id:int}", ServeMessageMedia)
-            .RequireAuthorization(AuthPolicies.Authenticated);
+            .RequireAuthorization(AuthPolicies.Authenticated)
+            .RequireCapability("chats.view");
 
         app.MapGet("/api/whatsapp/calls/recording/{name}", async (string name, AppDbContext db,
             ScopingService sc, CallRecordings recordings, ClaimsPrincipal me, HttpContext ctx) =>
@@ -72,7 +74,7 @@ public static class WhatsAppMediaEndpoints
                      || !await CallInScope(db, me, Path.GetFileNameWithoutExtension(name)))
                 return NotFound();
             return Audio(ctx, full);
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("chats.view", "call_logs.view");
 
         app.MapGet("/api/calls/recording/{callId}", async (string callId, AppDbContext db,
             CallRecordings recordings, ClaimsPrincipal me, HttpContext ctx) =>
@@ -82,7 +84,7 @@ public static class WhatsAppMediaEndpoints
             if (!await ShellScope.HasCapAsync(db, me, "call_logs.view") || !await CallInScope(db, me, callId))
                 return NotFound();
             return Audio(ctx, full);
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("call_logs.view");
     }
 
     private static IResult NotFound() => Results.NotFound(new { detail = "Not found." });

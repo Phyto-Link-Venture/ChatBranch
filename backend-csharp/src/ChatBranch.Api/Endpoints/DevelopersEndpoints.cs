@@ -149,7 +149,7 @@ public static class DevelopersEndpoints
                     allowed = ToolRegistry.Allowed(tools, t),
                 }),
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(Capability);
 
         // A self-check from inside the API: the MCP surface is mapped, the tool
         // registry loads, and these are the tools a key of yours would expose.

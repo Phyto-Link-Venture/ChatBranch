@@ -63,8 +63,10 @@ public static class InboxEndpoints
         // ---- accounts ----------------------------------------------------------
         // WhatsApp accounts by default (the Settings → Channels → WhatsApp panel
         // and the chats sender picker both read this); ?channel=<c> switches
-        // channel, ?channel=all reports every provider account.
-        app.MapGet("/api/whatsapp/accounts", async (string? channel, AppDbContext db) =>
+        // channel, ?channel=all reports every provider account. The full row
+        // (ids, masked credentials, delivery config) is for channels.view /
+        // templates.manage; the inbox gets the picker shape (PickerKeys).
+        app.MapGet("/api/whatsapp/accounts", async (string? channel, AppDbContext db, ClaimsPrincipal me) =>
         {
             var ch = string.IsNullOrWhiteSpace(channel) ? Channels.WhatsApp : channel.Trim();
             var q = db.ChannelAccounts.AsNoTracking().Include(a => a.Entity).AsQueryable();
@@ -77,8 +79,12 @@ public static class InboxEndpoints
             if (ch is Channels.WhatsApp or "all" or "__all__"
                 && WhatsAppSettingsEndpoints.EnvAccountPayload() is object env)
                 accounts.Add(env);
+            if (!await ShellScope.HasCapAsync(db, me, "channels.view")
+                && !await ShellScope.HasCapAsync(db, me, "templates.manage"))
+                accounts = accounts.Select(PickerShape).ToList();
             return Results.Ok(new { accounts });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          .RequireAnyCapability("chats.view", "channels.view", "templates.manage");
 
         // ---- threads -----------------------------------------------------------
         // One row per conversation for the inbox list: identity, the 24h-window
@@ -274,7 +280,9 @@ public static class InboxEndpoints
                     try { variables = flows.VariablesFor(contact); } catch { }
             }
             return Results.Ok(new { canned = rows.Select(c => CannedPayload(c, variables)) });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          // the chat composer's quick replies + Templates → Messages
+          .RequireAnyCapability("chats.view", "chats.send", "templates.manage");
 
         // Writes are gated on the templates.manage CAPABILITY (admin by default,
         // grantable to custom roles from the permission matrix), checked here
@@ -355,6 +363,18 @@ public static class InboxEndpoints
             if (row != null) await CannedAudit(db, me, ctx, "canned.delete", row);
             return Results.Ok(new { ok = true });
         }).RequireAuthorization(AuthPolicies.Authenticated);
+    }
+
+    /// <summary>What the inbox needs to name and pick a sending account — no ids of
+    /// the provider, no masked credentials, no delivery config.</summary>
+    private static readonly string[] PickerKeys =
+        { "id", "name", "channel", "provider", "role", "entity", "entity_name", "health_status", "configured", "env_managed" };
+
+    private static object PickerShape(object full)
+    {
+        var el = JsonSerializer.SerializeToElement(full);
+        return PickerKeys.Where(k => el.TryGetProperty(k, out _))
+            .ToDictionary(k => k, k => el.GetProperty(k).Clone());
     }
 
     // ---- canned-response helpers ----------------------------------------------

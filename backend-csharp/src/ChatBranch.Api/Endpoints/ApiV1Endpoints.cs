@@ -74,7 +74,7 @@ public static class ApiV1Endpoints
             {
                 id = e.Id, name = e.Name, slug = e.Slug, tenantId = e.TenantId,
             }) });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("entities.view");
 
         app.MapPost("/api/v1/brands", async (BrandWrite b, ClaimsPrincipal me, AppDbContext db) =>
         {
@@ -91,14 +91,16 @@ public static class ApiV1Endpoints
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         // ---- contacts (brand-scoped) ------------------------------------------
-        app.MapGet("/api/v1/contacts", async (string? q, AppDbContext db) =>
+        app.MapGet("/api/v1/contacts", async (string? q, AppDbContext db, ClaimsPrincipal me, ScopingService sc) =>
         {
-            var query = db.Contacts.AsNoTracking().AsQueryable();
+            // the caller's own contacts only (the contacts rule: tenant, then assigned entities)
+            var query = ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc);
             if (!string.IsNullOrWhiteSpace(q))
                 query = query.Where(c => c.Name.Contains(q) || c.Phone.Contains(q));
             var rows = await query.OrderByDescending(c => c.UpdatedAt).Take(200).ToListAsync();
             return Results.Ok(new { contacts = rows.Select(Dtos.ContactDto) });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          .RequireAnyCapability("contacts.view", "flows.manage");
 
         // ---- POST /api/v1/contacts --------------------------------------------
         // The Contacts page's "Add contact" (api/views.py ContactsView.post). This
@@ -185,7 +187,7 @@ public static class ApiV1Endpoints
         {
             var contact = await ScopedContactAsync(db, me, id);
             return contact == null ? ContactMissing() : Results.Ok(ContactPayload(contact));
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("contacts.view");
 
         // ---- PATCH /api/v1/contacts/{id} --------------------------------------
         // A real partial update: every field the Contacts page's edit form can
@@ -354,7 +356,7 @@ public static class ApiV1Endpoints
                     .Select(l => new { id = l.Entity!.Id, slug = l.Entity.Slug, name = l.Entity.Name })
                     .OrderBy(e => e.slug).ToList(),
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("contacts.view");
 
         app.MapPost("/api/v1/contacts/{id:int}/entities",
             async (int id, JsonElement body, ClaimsPrincipal me, AppDbContext db) =>

@@ -24,7 +24,7 @@ public class IntegrationFixesTests : IClassFixture<ApiFactory>
             new { key = "openrouter_api_key", value = "sk-or-v1-abcdefghijklmnop1234" })).EnsureSuccessStatusCode();
         (await super.PutAsJsonAsync("/api/settings", new { key = "quiet_start", value = "22:00" })).EnsureSuccessStatusCode();
 
-        foreach (var who in new[] { ("agent", "agent123"), ("superadmin", "super123") })
+        foreach (var who in new[] { ("admin", "admin123"), ("superadmin", "super123") })
         {
             var c = await SettingsTestKit.Client(_f, who.Item1, who.Item2);
             var read = await c.GetFromJsonAsync<JsonElement>("/api/settings?keys=openrouter_api_key,quiet_start");
@@ -32,6 +32,10 @@ public class IntegrationFixesTests : IClassFixture<ApiFactory>
             Assert.Equal("••••1234", values.GetProperty("openrouter_api_key").GetString());
             Assert.Equal("22:00", values.GetProperty("quiet_start").GetString());
         }
+        // the raw key/value store is admin+ (PermissionGatesTests): an agent reads none of it
+        var agent = await SettingsTestKit.Client(_f, "agent", "agent123");
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await agent.GetAsync("/api/settings?keys=quiet_start")).StatusCode);
     }
 
     [Fact]

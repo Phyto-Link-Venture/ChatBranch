@@ -39,7 +39,7 @@ public static class WidgetAdminEndpoints
             {
                 widgets = rows.Select(a => Payload(a, ctx, counts.GetValueOrDefault(a.Id))).ToList(),
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.view");
 
         // ---- create -----------------------------------------------------------
         app.MapPost("/api/widgets", async (JsonElement body, AppDbContext db, ClaimsPrincipal me,
