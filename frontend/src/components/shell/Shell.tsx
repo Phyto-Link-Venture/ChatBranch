@@ -10,7 +10,8 @@ import { useEntityQuery } from '@/lib/EntityContext'
 import { SideNav } from './SideNav'
 import { TopBar } from './TopBar'
 import { CommandPalette } from './CommandPalette'
-import { HOME, canSee, isActive, NAV_GROUPS } from './nav'
+import { HOME, canSee, firstVisibleHref, isActive, NAV_GROUPS, routeDef } from './nav'
+import { RouteGuard } from './RouteGuard'
 import { resetNotifications } from './notificationsStore'
 import { useLive } from './liveStore'
 import { CampaignModal } from '@/components/CampaignModal'
@@ -50,6 +51,8 @@ export function Shell({ children }: { children: ReactNode }) {
   const isFullBleed = FULL_BLEED.some((p) => pathname === p || pathname.startsWith(p + '/'))
 
   const [user, setUser] = useState<AuthUser | null>(null)
+  // false until the session has been read on the client — pages wait for it
+  const [authReady, setAuthReady] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -82,6 +85,7 @@ export function Shell({ children }: { children: ReactNode }) {
   useEffect(() => {
     const u = getAuth()
     setUser(u)
+    setAuthReady(true)
     if (u && u.token !== syncedToken) {
       syncedToken = u.token
       void syncAppearanceFromServer() // a 404 on an older API is harmless
@@ -97,6 +101,17 @@ export function Shell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isLogin && !isPublic && !getAuth()) router.replace('/login')
   }, [isLogin, isPublic, pathname, router])
+
+  // Home (where sign-in lands) is Analytics; someone without it starts on
+  // the first page they can open instead of a "no access" panel.
+  useEffect(() => {
+    if (!authReady || !user || pathname !== HOME) return
+    const def = routeDef(HOME)
+    if (def && !canSee(user, def)) {
+      const next = firstVisibleHref(user)
+      if (next !== HOME) router.replace(next)
+    }
+  }, [authReady, user, pathname, router])
 
   // Ctrl/⌘+K anywhere opens the command palette.
   useEffect(() => {
@@ -160,10 +175,16 @@ export function Shell({ children }: { children: ReactNode }) {
 
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {isFullBleed ? (
-            <div className="min-h-0 flex-1">{children}</div>
+            <div className="min-h-0 flex-1">
+              <RouteGuard user={user} ready={authReady} pathname={pathname}>
+                {children}
+              </RouteGuard>
+            </div>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-5 sm:px-7 sm:py-7">
-              {children}
+              <RouteGuard user={user} ready={authReady} pathname={pathname}>
+                {children}
+              </RouteGuard>
             </div>
           )}
         </main>

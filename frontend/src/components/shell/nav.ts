@@ -160,6 +160,25 @@ export function visibleGroups(user: AuthUser | null): NavGroup[] {
   )
 }
 
+/**
+ * The sidebar entry a route belongs to — its own href, anything beneath it
+ * (detail routes) or an `alsoActive` alias — or null for an ungated route
+ * (Settings gates its own pages, Notifications and Help are everyone's).
+ * The shell's route guard checks it with `canSee` before a page mounts.
+ */
+export function routeDef(pathname: string): NavDef | null {
+  const under = (base: string) =>
+    base.endsWith('/') ? pathname.startsWith(base) : pathname === base || pathname.startsWith(base + '/')
+  for (const g of NAV_GROUPS)
+    for (const n of g.items) if (under(n.href) || n.alsoActive?.some(under)) return n
+  return null
+}
+
+/** Where to send someone who can't open the page they asked for. */
+export function firstVisibleHref(user: AuthUser | null): string {
+  return visibleGroups(user)[0]?.items[0]?.href ?? '/settings/appearance'
+}
+
 /** Flat list for the command palette's "Pages" group. */
 export function visiblePages(user: AuthUser | null): (NavDef & { group?: string })[] {
   return [
