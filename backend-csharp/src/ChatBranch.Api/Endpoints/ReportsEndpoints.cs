@@ -27,7 +27,7 @@ public static class ReportsEndpoints
             var (from, entityId) = await WindowAsync(db, days, entity);
             var report = await BuildAsync(db, sc, from, entityId);
             return Results.Ok(report);
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("analytics.view");
 
         // ---- CSV export -------------------------------------------------------
         // One report per call (?report=agents|teams|labels|channels) so the file
@@ -55,7 +55,7 @@ public static class ReportsEndpoints
             foreach (var line in rows) csv.AppendLine(line);
             var name = $"chatbranch-{which}-{DateTime.UtcNow:yyyy-MM-dd}.csv";
             return Results.File(Encoding.UTF8.GetBytes(csv.ToString()), "text/csv", name);
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("analytics.view");
     }
 
     // ---- the report ---------------------------------------------------------

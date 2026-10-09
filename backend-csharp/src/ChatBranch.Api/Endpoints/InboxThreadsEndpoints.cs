@@ -58,10 +58,6 @@ public static class InboxThreadsEndpoints
             ClaimsPrincipal me) =>
         {
             var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
-            if (!await AdminEndpoints.HasCapabilityAsync(db, role, "chats.view"))
-                return Results.Json(new { detail = "You do not have permission to view chats." },
-                    statusCode: 403);
-
             var f = InboxQuery.Parse(ctx.Request.Query, me.Identity?.Name ?? "");
             var scope = await ScopeEntityIdsAsync(db, sc, me, role, f.Entities);
 
@@ -84,7 +80,7 @@ public static class InboxThreadsEndpoints
                 count = sorted.Count,
                 next_cursor = next,
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.view");
     }
 
     /// <summary>

@@ -61,7 +61,7 @@ public static class AiEndpoints
                 scope = sc.SettingScope("aicore_persona", entityId),
                 global_persona = persona.PersonaBody(null),
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
         app.MapPut("/api/aicore/persona", async (PersonaWrite body, AppDbContext db, ScopingService sc) =>
         {
@@ -105,7 +105,7 @@ public static class AiEndpoints
                 entity = ent?.Slug,
                 entity_name = ent?.Name ?? "",
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
         app.MapPost("/api/aicore/knowledge", async (KnowledgeWrite b, AppDbContext db) =>
         {
@@ -197,7 +197,9 @@ public static class AiEndpoints
                 }),
                 grounding = c.Grounding.Select(g => g.ToMeta()),
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          // the Knowledge page and the AI monitor's retrieval tester
+          .RequireAnyCapability("settings.ai.manage", "ai.monitor");
 
         // ---- document upload: PDF / .txt / .md / .csv → one knowledge item ---------
         // The text is extracted and kept; the file itself never is. Read with
@@ -269,7 +271,9 @@ public static class AiEndpoints
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
             return Results.Ok(BookingHoursPayload(sc, entityId, entity));
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          // the booking-hours card on Integrations, or the AI configuration
+          .RequireAnyCapability("integrations.view", "settings.ai.manage");
 
         app.MapPut("/api/aicore/booking-hours", async (string? entity, HttpContext ctx, AppDbContext db, ScopingService sc) =>
         {
@@ -306,7 +310,7 @@ public static class AiEndpoints
             assistant.ReleasePending(r, "Operator preview — not sent through the AI, nothing was booked.");
             return Results.Ok(new { reply = r.Text, draft = r.Draft, action = r.Action, reason = r.Reason,
                 meta = r.ToMeta() });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.send");
     }
 
     private static Dictionary<string, int[]> DefaultBookingHours() => new()

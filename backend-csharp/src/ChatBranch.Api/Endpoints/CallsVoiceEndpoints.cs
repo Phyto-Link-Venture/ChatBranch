@@ -156,7 +156,7 @@ public static class CallsVoiceEndpoints
                 .ToList();
 
             return Results.Ok(new { logs });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("call_logs.view");
     }
 
     // =========================================================================
@@ -287,7 +287,7 @@ public static class CallsVoiceEndpoints
                 ["sentiment_score"] = FromFile("sentiment_score"),
                 ["transcript"] = ParseTranscript(r.Transcript),
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("chats.view", "call_logs.view");
 
         // ---- GET /api/calls/{room}/live — the live transcript ---------------
         // The file half of the agent protocol. Mirrors calls/lk.live_transcript,
@@ -327,7 +327,7 @@ public static class CallsVoiceEndpoints
                 outp["status"] = record != null ? "ended" : (hasTurns ? "live" : "idle");
 
             return Results.Ok(outp);
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("chats.view", "call_logs.view");
 
         // ---- POST /api/calls/{room}/say — guide / take over -----------------
         // calls/views.say: push the instruction into the agent's consume-once

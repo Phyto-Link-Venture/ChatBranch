@@ -38,12 +38,11 @@ public static class FlowsEndpoints
         app.MapGet("/api/flows/library", async (string? entity, AppDbContext db, ScopingService sc,
             ClaimsPrincipal me) =>
         {
-            if (await Denied(db, me, "flows.view") is IResult no) return no;
             var entityId = await InboxEndpoints.EntityId(db, entity);
             var rows = sc.ScopeInherited(db.Workflows.AsNoTracking(), entityId)
                 .OrderBy(w => w.Position).ThenBy(w => w.CreatedAt).ToList();
             return Results.Ok(new { workflows = rows.Select(WorkflowOut) });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("flows.view");
 
         app.MapPut("/api/flows/library", async (LibraryWrite body, AppDbContext db, ClaimsPrincipal me,
             HttpContext http) =>
@@ -110,7 +109,6 @@ public static class FlowsEndpoints
             string? node, int? page, int? page_size, string? days, string? entity,
             AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
-            if (await Denied(db, me, "flows.view") is IResult no) return no;
             var q = db.FlowRuns.AsNoTracking();
             if (!string.IsNullOrWhiteSpace(flow))
             {
@@ -179,12 +177,11 @@ public static class FlowsEndpoints
                 }),
                 count, page = pg, pageSize = size, pages,
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("flows.view");
 
         app.MapGet("/api/flows/runs/{id:int}", async (int id, string? entity, AppDbContext db,
             ScopingService sc, ClaimsPrincipal me) =>
         {
-            if (await Denied(db, me, "flows.view") is IResult no) return no;
             var q = db.FlowRuns.AsNoTracking().Where(r => r.Id == id);
             if (await ContactScopeAsync(db, sc, me, entity) is IQueryable<int> scope)
                 q = q.Where(r => r.ContactId != null && scope.Contains(r.ContactId.Value));
@@ -218,25 +215,23 @@ public static class FlowsEndpoints
                 }),
                 log = run.Log,
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("flows.view");
 
         // ---- per-step statistics for one flow ---------------------------------
         app.MapGet("/api/flows/{flowId}/stats", async (string flowId, string? days, string? entity,
             AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
-            if (await Denied(db, me, "flows.view") is IResult no) return no;
             var wf = await FindWorkflowAsync(db, sc, flowId, entity);
             if (wf == null) return Results.Json(new { detail = "No such flow." }, statusCode: 404);
             return Results.Ok(await StatsAsync(db, sc, me, wf, ParseDays(days), entity));
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("flows.view");
 
         // ---- the Analytics page's "Flows" card ---------------------------------
         app.MapGet("/api/analytics/flows", async (string? days, string? entity, AppDbContext db,
             ScopingService sc, ClaimsPrincipal me) =>
         {
-            if (await Denied(db, me, "flows.view") is IResult no) return no;
             return Results.Ok(await FlowsOverviewAsync(db, sc, me, ParseDays(days), entity));
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("flows.view");
 
         // ---- manual start ("Manual / API" trigger) -----------------------------
         app.MapPost("/api/flows/{flowId}/start", async (string flowId, StartRequest body, string? entity,
@@ -268,7 +263,7 @@ public static class FlowsEndpoints
                 status = j.Status, attempts = j.Attempts, notBefore = j.NotBefore,
                 sentAt = j.SentAt, lastError = j.LastError, createdAt = j.CreatedAt,
             }) });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("flows.manage");
 
         app.MapPost("/api/flows/enqueue", (EnqueueRequest body, QueueService queue) =>
         {

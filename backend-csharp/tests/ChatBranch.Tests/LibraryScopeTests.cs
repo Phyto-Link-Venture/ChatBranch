@@ -48,6 +48,10 @@ public class LibraryScopeTests : IClassFixture<ApiFactory>
             db.Entities.AddRange(east, west);
             db.SaveChanges();
             db.Profiles.Include(p => p.Entities).First(p => p.User!.Username == "agent").Entities.Add(east);
+            // skills + knowledge are read by their curators (settings.ai.manage, PermissionGatesTests):
+            // grant it so the scope rules below run on an agent-level role
+            db.RolePermissions.Add(new RolePermission
+                { Role = Roles.Agent, Capability = "settings.ai.manage", Allowed = true, UpdatedAt = now });
 
             db.AgentSkills.AddRange(
                 new AgentSkill { SkillId = "sk-global", Name = "Global skill", UseWhen = "always", Instructions = "x" },

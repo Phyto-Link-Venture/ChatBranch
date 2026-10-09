@@ -106,8 +106,14 @@ gone with Service Providers — see [DOMAIN_MODEL.md](DOMAIN_MODEL.md).)
 
 Every route carries a coarse policy — `authenticated`, `admin+` or
 `superadmin` (`Auth/AuthPolicies.cs`) — and, where the matrix applies, a
-capability check in the handler (`AdminEndpoints.HasCapabilityAsync`,
-`SettingsEndpoints.RequireCapability`). Notable gates:
+capability gate: the endpoint filter `.RequireCapability("x")` /
+`.RequireAnyCapability("x", "y")` (`Auth/CapabilityFilter.cs`, 403 before the
+handler runs; it also stamps `RequiredCapabilities` metadata so the route table
+can be audited), `.RequireThreadAccess("chats.view"|"chats.send")` on
+per-conversation routes (`Auth/ThreadAccessFilter.cs`: the capability, then the
+inbox scope — out of scope answers 404), or an in-handler check
+(`AdminEndpoints.HasCapabilityAsync`, `SettingsEndpoints.RequireCapability`)
+where a write reads its body first. Notable gates:
 
 | Surface | Gate |
 |---|---|
@@ -144,6 +150,76 @@ roles with assigned entities see the organization-wide rows plus their assigned
 entities' subtrees — an out-of-scope `?entity=` narrows to their own scope, it
 never widens; an agent with no assignment keeps the tenant-wide view. Rendering
 a template for a `?contact_id=` only fills in a contact the caller may see.
+
+### Read gates
+
+Hiding a sidebar link is cosmetic: a person who types a page's URL still makes
+its requests. So **every signed-in GET answers 403 to a role without the
+capability of the page(s) that read it**. A read shared by several pages opens
+for ANY of their capabilities; a few return a narrower shape to the weaker
+capability. `PermissionGatesTests` holds this table and walks the route table:
+a new `/api` GET with no capability gate, no role policy and no entry in the
+exemption list below fails the build.
+
+| Read (GET unless noted) | Capability (any of) | Read by |
+|---|---|---|
+| `/api/analytics/summary`, `/reports`, `/reports.csv`, `/api/messaging/engagement` | `analytics.view` | Analytics (home) |
+| `/api/whatsapp/channels/health` | `analytics.view`, `channels.view` | Analytics health card, Channels |
+| `/api/analytics/flows`, `/api/flows/library`, `/runs`, `/runs/{id}`, `/{flowId}/stats` | `flows.view` | Analytics flows card, flow builder, runs panel |
+| `/api/flows/queue` (every outbound job, unscoped) | `flows.manage` | queue inspection |
+| `/api/automations`, `/catalog` | `flows.manage` | Automations |
+| `/api/ai/monitor`, `/stats`, `/{id}` | `ai.monitor` | AI monitor |
+| `/api/ai/behaviour` | `ai.monitor`, `ai.behaviour.manage` | AI monitor |
+| `POST /api/aicore/knowledge/preview` | `settings.ai.manage`, `ai.monitor` | Knowledge, AI monitor's retrieval tester |
+| `/api/aicore/knowledge`, `/persona`, `/skills/apps`, `/skills/builtins` | `settings.ai.manage` | Knowledge base, AI skills |
+| `/api/aicore/skills` | `settings.ai.manage`, `flows.manage` | AI skills, the flow builder's skill picker |
+| `/api/aicore/booking-hours` | `integrations.view`, `settings.ai.manage` | Integrations (booking hours) |
+| `POST /api/aicore/reply` | `chats.send` | operator-requested AI draft |
+| `/api/audit`, `/audit.csv`, `/audit/facets` | `activity.view` (+ the handler's API-key-scope check and row tiering) | Activity |
+| `/api/call-logs`, `/api/calls/recording/{call_id}` | `call_logs.view` | Call logs |
+| `/api/calls/{room}`, `/{room}/live`, `/api/whatsapp/calls/recording/{name}` | `chats.view`, `call_logs.view` | live call in the inbox, call logs |
+| `/api/inbox/threads`, `/api/whatsapp/threads`, `/api/messaging/threads`, `/api/messaging/agents`, `/api/whatsapp/media/{id}`, `/api/messaging/media/{id}`, `/api/bookings` | `chats.view` | Chats, Bookings |
+| `/api/messaging/canned` | `chats.view`, `chats.send`, `templates.manage` | composer quick replies, Templates |
+| `/api/whatsapp/templates` | `chats.send`, `templates.manage`, `flows.manage` | template picker, Templates, flow builder |
+| `/api/calls/script-templates` | `chats.send`, `script_templates.manage`, `flows.manage` | Script call button, Templates, flow builder |
+| `/api/whatsapp/accounts` | `chats.view`, `channels.view`, `templates.manage` — the full row (provider ids, masked credentials, delivery config) needs `channels.view` or `templates.manage`; the inbox gets the picker shape (id, name, channel, provider, role, entity, health) | sender picker, Channels, Templates |
+| `/api/contacts` | `contacts.view`, `chats.view`, `users.manage` | Contacts, inbox, Users' customer-login picker |
+| `/api/contacts/{id}`, `/api/v1/contacts/{id}`, `/api/v1/contacts/{id}/entities` | `contacts.view` | contact page |
+| `/api/contacts/{id}/channels`, `/{id}/calls`, `/api/messaging/contacts`, `/contacts/{id}/conversation`, `/api/messaging/timeline` | `contacts.view`, `chats.view` | contact page, chat info panel |
+| `/api/v1/contacts` (now contact-scoped too) | `contacts.view`, `flows.manage` | flow builder's contact picker |
+| `/api/settings/custom-fields` | `contacts.view`, `flows.manage`, `templates.manage`, `script_templates.manage`, `settings.custom_fields.manage` | contact forms, variable pickers, Custom fields |
+| `/api/tags`, `/{id}/targets`, `/assignments`, `/api/contacts/{id}/tags`, `/api/entities/{slug}/tags` | `tags.view` | Tags, contact page, Entities |
+| `/api/bindings/catalog` | `users.view`, `tags.view` — without `users.view` the users/teams/accounts pools are empty, contacts need `contacts.view` | Bindings, a tag's binding view |
+| `/api/bindings/{kind}` | `users.view`, or per kind: `contacts.view` (contact↔entity), `tags.view` (tag↔…) | Bindings, contact entities card |
+| `/api/teams` | `users.view`, `chats.view`, `flows.manage`, `channels.view` | Teams, inbox assign, flow handover, inbox setup |
+| `/api/v1/users` | `users.manage` (in the handler) | Users & roles, Teams member picker |
+| `/api/v1/brands` | `entities.view` | API callers |
+| `/api/whatsapp/accounts/{id}/baileys/status`, `/api/whatsapp/voice-settings`, `/api/messaging/accounts`, `/api/messaging/settings`, `/api/widgets`, `/api/inboxes/{id}/identify` | `channels.view` | Channels |
+| `/api/whatsapp/settings` (carries the webhook verify token) | `channels.view`, `app_keys.manage` | Channels (Meta webhook rows), App & provider keys |
+| `/api/whatsapp/assignments`, `/routing-rules` | `account_assignment.manage` | Account assignment |
+| `/api/whatsapp/recovery` (the down-number alarm) | `account_assignment.manage`, `analytics.view` | Account assignment, Analytics health card |
+| `/api/integrations/mcp`, `/api/developers/mcp` | `api_keys.manage` | API keys & MCP |
+| `/api/auth/notification-prefs` | `notifications.manage` | Settings → Notification defaults |
+| `/api/settings/ai-providers` | `settings.ai_keys.manage` | Settings → AI keys & models |
+| `/api/settings?keys=` (raw key/value store, secrets masked) | admin+ | no page — API callers |
+| `/api/auth/roles`, `/api/auth/permissions`, `/api/auth/audit`, `/api/analytics/usage` | admin+ | Permissions, Users, Analytics usage |
+
+**Any signed-in user may read** (the exemption list in `PermissionGatesTests`;
+everything here is the caller's own data or is gated row by row inside):
+`/api/auth/whoami`, `/api/v1/whoami` (own identity + capabilities),
+`/api/auth/preferences`, `/api/auth/notifications`, `/api/notifications`,
+`/api/notifications/preferences`, `/api/views` (own preferences, bell, inbox,
+saved views), `/api/settings/appearance` (the org default theme every shell
+applies), `/api/v1/entities` (the entity switcher; rows bounded to the caller's
+accessible entities), `/api/live` (the Live chip; conversations need
+`chats.view` inside, audit rows admin+), `/api/search` (the palette; each
+result type gated by its page's capability), `/api/whatsapp/stream` (a change
+token, no data), `/api/developers/keys` (own keys; `?scope=tenant` needs
+`api_keys.manage`), `/api/integrations/mine`, `/api/integrations/accounts`
+(own connections without `integrations.view`),
+`/api/integrations/oauth/{provider}/start` (connect your own Google account),
+`/api/assistant/conversations[/{id}]` (your own Ask ChatBranch history).
+The anonymous GETs are the documented list in `API_CONVENTIONS.md`.
 
 ## API keys and scopes
 

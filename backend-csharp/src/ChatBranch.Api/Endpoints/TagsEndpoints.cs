@@ -28,7 +28,6 @@ public static class TagsEndpoints
         app.MapGet("/api/tags", async (string? applies_to, string? entity, ClaimsPrincipal me,
             AppDbContext db, ScopingService sc) =>
         {
-            if (await Denied(db, me, "tags.view") is IResult denied) return denied;
             var q = VisibleTags(db, sc, me);
             var entityId = await InboxEndpoints.EntityId(db, entity);
             q = sc.ScopeInherited(q, entityId);
@@ -44,7 +43,7 @@ public static class TagsEndpoints
                 attribute_types = TagService.AttributeTypes,
                 applies_to = TagService.AppliesToValues,
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("tags.view");
 
         // ---- registry: create ----------------------------------------------------
         app.MapPost("/api/tags", async (JsonElement body, ClaimsPrincipal me, AppDbContext db,
@@ -205,12 +204,11 @@ public static class TagsEndpoints
         app.MapGet("/api/tags/{id:int}/targets", async (int id, ClaimsPrincipal me, AppDbContext db,
             ScopingService sc) =>
         {
-            if (await Denied(db, me, "tags.view") is IResult denied) return denied;
             var tag = await VisibleTags(db, sc, me).Include(t => t.Entity)
                 .FirstOrDefaultAsync(t => t.Id == id);
             if (tag == null) return NotFound("Tag not found.");
             return Results.Ok(await TargetsPayloadAsync(db, tag));
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("tags.view");
 
         // {add:[ids], remove:[ids]} — a DIFF, like /api/bindings, so a filtered
         // view can never unbind what it was not showing.
@@ -255,7 +253,6 @@ public static class TagsEndpoints
         app.MapGet("/api/tags/assignments", async (string? target_type, ClaimsPrincipal me,
             AppDbContext db, ScopingService sc) =>
         {
-            if (await Denied(db, me, "tags.view") is IResult denied) return denied;
             var type = (target_type ?? TagService.EntityTarget).Trim().ToLowerInvariant();
             if (type is not (TagService.ContactTarget or TagService.EntityTarget))
                 return Bad("target_type must be contact or entity.");
@@ -280,13 +277,12 @@ public static class TagsEndpoints
                     tag_id = a.TagId, target_id = a.TargetId, values = a.Values,
                 }),
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("tags.view");
 
         // ---- contact tags ----------------------------------------------------------
         app.MapGet("/api/contacts/{id:int}/tags", async (int id, ClaimsPrincipal me, AppDbContext db,
             ScopingService sc) =>
         {
-            if (await Denied(db, me, "tags.view") is IResult denied) return denied;
             var contact = await ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
                 .FirstOrDefaultAsync(c => c.Id == id);
             if (contact == null) return NotFound("Contact not found.");
@@ -295,7 +291,7 @@ public static class TagsEndpoints
                 contact_id = id,
                 tags = await AssignedPayloadAsync(db, TagService.ContactTarget, id),
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("tags.view");
 
         app.MapPut("/api/contacts/{id:int}/tags", async (int id, JsonElement body, ClaimsPrincipal me,
             AppDbContext db, ScopingService sc, HttpContext ctx) =>
@@ -321,7 +317,6 @@ public static class TagsEndpoints
         // {slug} also accepts the numeric id: slugs are unique per tenant only.
         app.MapGet("/api/entities/{slug}/tags", async (string slug, ClaimsPrincipal me, AppDbContext db) =>
         {
-            if (await Denied(db, me, "tags.view") is IResult denied) return denied;
             var entity = await FindEntityAsync(db, me, slug);
             if (entity == null) return NotFound("Entity not found.");
             return Results.Ok(new
@@ -329,7 +324,7 @@ public static class TagsEndpoints
                 entity = entity.Slug, entity_id = entity.Id,
                 tags = await AssignedPayloadAsync(db, TagService.EntityTarget, entity.Id),
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("tags.view");
 
         app.MapPut("/api/entities/{slug}/tags", async (string slug, JsonElement body, ClaimsPrincipal me,
             AppDbContext db, ScopingService sc, HttpContext ctx) =>

@@ -55,7 +55,7 @@ public static class AnalyticsEndpoints
             {
                 return EmptySummary(window, ent);
             }
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("analytics.view");
 
         // No `entity` here on purpose: crm.LlmUsage carries no entity column, so
         // the ledger is organization-wide (same as Django's analytics_usage).

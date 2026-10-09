@@ -63,7 +63,9 @@ public static class AiSkillsEndpoints
             var entityId = await InboxEndpoints.EntityId(db, entity);
             // bounded by the caller's assigned outlets (ShellScope.ScopeLibrary)
             return Results.Ok(new { skills = List(ShellScope.ScopeLibrary(db.AgentSkills.AsNoTracking(), db, sc, me, entityId)) });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          // the Skills page, and the flow builder's step skill picker
+          .RequireAnyCapability("settings.ai.manage", "flows.manage");
 
         app.MapPut("/api/aicore/skills", async (SkillsWrite body, AppDbContext db, ScopingService sc,
             SkillService skills, ClaimsPrincipal me, HttpContext ctx) =>
@@ -295,7 +297,7 @@ public static class AiSkillsEndpoints
                     },
                 },
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
         // ---- built-ins (read-only; always offered to the model as tools) --------
         app.MapGet("/api/aicore/skills/builtins", (SkillService skills) =>
@@ -329,7 +331,7 @@ public static class AiSkillsEndpoints
                     example = Example(b.Name, samples[b.Name]),
                 }),
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
     }
 
     // ---- helpers ------------------------------------------------------------------

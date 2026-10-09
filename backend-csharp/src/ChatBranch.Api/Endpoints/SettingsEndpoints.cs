@@ -20,7 +20,9 @@ public static partial class SettingsEndpoints
         // Appearance (per-user + organization default).
         MapAppearance(app);
 
-        // GET /api/settings?entity=<slug>&keys=a,b,c
+        // GET /api/settings?entity=<slug>&keys=a,b,c — the raw key/value store
+        // (any key: persona, routing, notification defaults…), so admin+ like its
+        // PUT is superadmin; no page reads it, each settings page has its own route.
         app.MapGet("/api/settings", async (string? keys, string? entity,
             AppDbContext db, ScopingService scoping) =>
         {
@@ -36,15 +38,15 @@ public static partial class SettingsEndpoints
             return Results.Ok(new
             {
                 entity,
-                // Secrets never leave through this generic read — any signed-in
-                // user (or read-only API key) can call it. Their own settings
+                // Secrets never leave through this generic read — an admin (or a
+                // read-only API key of one) can call it. Their own settings
                 // pages round-trip them masked.
                 values = wanted.ToDictionary(k => k, k => IsSecretKey(k)
                     ? MaskSecret(values.GetValueOrDefault(k, ""))
                     : values.GetValueOrDefault(k, "")),
                 scopes,
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         // PUT /api/settings  {key, value, entity?}
         app.MapPut("/api/settings", async (SettingWrite body,

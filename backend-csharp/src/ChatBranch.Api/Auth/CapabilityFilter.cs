@@ -19,7 +19,7 @@ public static class CapabilityFilter
     /// <summary>Passes when the caller holds ANY of <paramref name="capabilities"/>.</summary>
     public static TBuilder RequireAnyCapability<TBuilder>(this TBuilder builder, params string[] capabilities)
         where TBuilder : IEndpointConventionBuilder =>
-        builder.AddEndpointFilter(async (ctx, next) =>
+        builder.WithMetadata(new RequiredCapabilities(capabilities)).AddEndpointFilter(async (ctx, next) =>
         {
             var http = ctx.HttpContext;
             var db = http.RequestServices.GetRequiredService<AppDbContext>();
@@ -32,3 +32,12 @@ public static class CapabilityFilter
             return Results.Json(new { detail = need, error = need }, statusCode: StatusCodes.Status403Forbidden);
         });
 }
+
+/// <summary>
+/// Endpoint metadata stamped by <see cref="CapabilityFilter.RequireAnyCapability"/>
+/// (the filter itself is invisible once the endpoint is built) — so the route
+/// table can be audited: PermissionGatesTests walks it and fails on any signed-in
+/// GET that carries neither this nor a documented exemption.
+/// </summary>
+public sealed record RequiredCapabilities(IReadOnlyList<string> Any);
+

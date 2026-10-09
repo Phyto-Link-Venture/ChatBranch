@@ -36,7 +36,7 @@ public static class AutomationsEndpoints
                 teams,
                 agents,
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("flows.manage");
 
         // ---- list ------------------------------------------------------------
         app.MapGet("/api/automations", async (string? entity, AppDbContext db, ScopingService sc) =>
@@ -46,7 +46,7 @@ public static class AutomationsEndpoints
                     db.AutomationRules.AsNoTracking().Include(r => r.Entity), entityId)
                 .OrderBy(r => r.Position).ThenBy(r => r.Id).ToListAsync();
             return Results.Ok(new { rules = rows.Select(Payload).ToList() });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("flows.manage");
 
         // ---- create ----------------------------------------------------------
         app.MapPost("/api/automations", async (JsonElement body, AppDbContext db, ClaimsPrincipal me) =>

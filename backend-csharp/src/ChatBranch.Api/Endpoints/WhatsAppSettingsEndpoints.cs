@@ -180,7 +180,7 @@ public static class WhatsAppSettingsEndpoints
         // Reads need any authenticated role; writes are SUPER ADMIN only.
         app.MapGet("/api/whatsapp/settings", async (AppDbContext db, ScopingService sc) =>
             Results.Ok(await GlobalPayload(db, sc)))
-            .RequireAuthorization(AuthPolicies.Authenticated);
+            .RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("channels.view", "app_keys.manage");
 
         // Django exposes this as POST (both Settings pages call POST); PUT is
         // accepted too so either verb patches the same partial body.
@@ -236,7 +236,7 @@ public static class WhatsAppSettingsEndpoints
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
             return Results.Ok(RulesPayload(sc, entityId));
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(AssignmentsEndpoints.Capability);
 
         // PUT = the account_assignment.manage capability (matches the assignments gating).
         app.MapPut("/api/whatsapp/routing-rules", async (string? entity, HttpContext ctx,
@@ -381,11 +381,12 @@ public static class WhatsAppSettingsEndpoints
         // separate process that reads it once at boot.
         app.MapGet("/api/whatsapp/voice-settings", (ScopingService sc) =>
             Results.Ok(VoicePayload(sc)))
-            .RequireAuthorization(AuthPolicies.Authenticated);
+            .RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.view");
 
         // ---- approved templates --------------------------------------------
         app.MapGet("/api/whatsapp/templates", async (string? account_id, string? wa_id,
-            AppDbContext db, ScopingService sc, FlowEngine flows, WhatsAppTemplateCatalog catalog) =>
+            AppDbContext db, ScopingService sc, FlowEngine flows, WhatsAppTemplateCatalog catalog,
+            ClaimsPrincipal me) =>
         {
             var account = await TemplateAccount(db, account_id);
             var bindings = TemplateBindings(sc, BindingsScope(account));
@@ -398,7 +399,9 @@ public static class WhatsAppSettingsEndpoints
             {
                 var thread = await db.Threads.AsNoTracking().Include(t => t.Contact)
                     .FirstOrDefaultAsync(t => t.Channel == Channels.WhatsApp && t.Key == key);
-                var contact = thread?.Contact;
+                // only a conversation the caller may open (no other outlet's customer data)
+                var contact = thread != null && await WhatsAppMediaEndpoints.CanSeeThread(db, sc, me, thread)
+                    ? thread.Contact : null;
                 if (contact != null) resolvedVars = SafeVariables(flows, contact);
             }
 
@@ -410,7 +413,9 @@ public static class WhatsAppSettingsEndpoints
             return error == null
                 ? Results.Ok(new { templates, sandbox = account == null })
                 : Results.Ok(new { templates, sandbox = account == null, error = $"Meta template listing failed: {error}" });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          // the chat's template picker, Templates → WhatsApp and the flow builder's template step
+          .RequireAnyCapability("chats.send", "templates.manage", "flows.manage");
 
         // ---- contact → account assignments ---------------------------------
         app.MapGet("/api/whatsapp/assignments", async (string? channel, AppDbContext db) =>
@@ -455,13 +460,15 @@ public static class WhatsAppSettingsEndpoints
                 }).ToList();
 
             return Results.Ok(new { channel = ch, channels, accounts, assignments = rows });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(AssignmentsEndpoints.Capability);
 
         // ---- channel health monitor ----------------------------------------
         app.MapGet("/api/whatsapp/channels/health", async (string? entity, AppDbContext db,
                 ScopingService sc) =>
             Results.Ok(await ChannelsHealthPayload(db, sc, await InboxEndpoints.EntityId(db, entity))))
-            .RequireAuthorization(AuthPolicies.Authenticated);
+            .RequireAuthorization(AuthPolicies.Authenticated)
+            // the Analytics health card and the Channels page
+            .RequireAnyCapability("analytics.view", "channels.view");
 
         // POST = the dashboard card's "Check now" (admin+): probe the accounts
         // this caller's card shows RIGHT NOW (ChannelHealthProber — Graph ping,
@@ -513,7 +520,9 @@ public static class WhatsAppSettingsEndpoints
                 .ToList();
 
             return Results.Ok(new { accounts });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          // the down-number alarm on Analytics' health card and on Account assignment
+          .RequireAnyCapability(AssignmentsEndpoints.Capability, "analytics.view");
 
         // POST (admin+): queue the recovery template for every contact assigned
         // to this down conversation account — the manual counterpart of
@@ -822,7 +831,7 @@ public static class WhatsAppSettingsEndpoints
             if (acct == null) return BaileysNotFound();
             var key = await EnsureBaileysKey(db, acct);
             return Results.Ok(BaileysStatePayload(await gw.StatusAsync(key)));
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.view");
 
         app.MapPost("/api/whatsapp/accounts/{id:int}/baileys/logout", async (int id, HttpContext ctx,
             AppDbContext db, ClaimsPrincipal me, ChatBranch.Data.Sidecars.IBaileysGateway gw) =>

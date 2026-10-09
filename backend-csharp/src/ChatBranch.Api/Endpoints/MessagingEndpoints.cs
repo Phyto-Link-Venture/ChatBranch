@@ -327,7 +327,7 @@ public static class MessagingEndpoints
                     ["role"] = r.Role,
                 }),
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.view");
     }
 
     /// <summary>msg_config.email_account_configured — SMTP host + login present.</summary>
@@ -829,7 +829,7 @@ public static class MessagingEndpoints
             }
             catch { /* dashboard tiles degrade to zeros, never to a broken page */ }
             return Results.Ok(new { stats });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("analytics.view");
 
         // GET /api/messaging/timeline?phone=&email=&limit= — every communication
         // across voice/WhatsApp/email/social, oldest first, plus the cached AI

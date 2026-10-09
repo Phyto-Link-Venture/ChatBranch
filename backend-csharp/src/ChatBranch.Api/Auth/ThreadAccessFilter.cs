@@ -19,7 +19,8 @@ public static class ThreadAccessFilter
 {
     public static TBuilder RequireThreadAccess<TBuilder>(this TBuilder builder, string capability)
         where TBuilder : IEndpointConventionBuilder =>
-        builder.AddEndpointFilter(async (ctx, next) =>
+        // the metadata lets the route-table audit (PermissionGatesTests) see the gate
+        builder.WithMetadata(new RequiredCapabilities(new[] { capability })).AddEndpointFilter(async (ctx, next) =>
         {
             var http = ctx.HttpContext;
             var db = http.RequestServices.GetRequiredService<AppDbContext>();

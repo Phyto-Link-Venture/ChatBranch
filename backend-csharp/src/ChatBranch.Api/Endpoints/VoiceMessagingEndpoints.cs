@@ -533,7 +533,7 @@ public static class VoiceMessagingEndpoints
         // GET: any authenticated role — secrets are masked.
         app.MapGet("/api/settings/ai-providers", (ScopingService sc) =>
             Results.Ok(AiProvidersPayload(sc)))
-            .RequireAuthorization(AuthPolicies.Authenticated);
+            .RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai_keys.manage");
 
         // PUT: the settings.ai_keys.manage capability (Settings → AI → AI keys &
         // models) — superadmin-only by default, like every org-wide credential.
@@ -761,7 +761,7 @@ public static class VoiceMessagingEndpoints
                 .Where(a => ManagedChannels.Contains(a.Channel))
                 .OrderBy(a => a.Id).ToListAsync();
             return Results.Ok(new { accounts = rows.Select(AccountPayload) });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.view");
 
         // ---- POST /api/messaging/accounts — link a mailbox or a social account ----
         app.MapPost("/api/messaging/accounts", async (Dictionary<string, JsonElement>? body,
@@ -1190,7 +1190,7 @@ public static class VoiceMessagingEndpoints
     {
         app.MapGet("/api/messaging/settings", (ScopingService sc) =>
             Results.Ok(EmailSettingsPayload(sc)))
-            .RequireAuthorization(AuthPolicies.Authenticated);
+            .RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.view");
 
         var save = (Dictionary<string, JsonElement>? body, AppDbContext db,
             ScopingService sc, ClaimsPrincipal me, HttpContext ctx) =>

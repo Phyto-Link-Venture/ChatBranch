@@ -24,7 +24,7 @@ import {
   type TranscriptLine,
 } from './mocks'
 import { useEntity } from './EntityContext'
-import { authHeaders, expireSessionOn401, getAuth } from './auth'
+import { authHeaders, expireSessionOn401, getAuth, userHasCap } from './auth'
 
 // Native Django API base. Override with NEXT_PUBLIC_API_URL.
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
@@ -150,6 +150,9 @@ type AppContextValue = {
 
 const AppCtx = createContext<AppContextValue | null>(null)
 
+/** Any of these opens GET /api/contacts (the server's read gate). */
+const CONTACT_LIST_CAPS = ['contacts.view', 'chats.view', 'users.manage']
+
 export function AppProvider({ children }: { children: ReactNode }) {
   // Data — loaded from the Django /contacts endpoint, with the
   // bundled mock list as an offline fallback so the UI still renders if the API is down.
@@ -168,7 +171,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     // Public pages (the Help Center) mount this provider with no session —
     // calling a bearer-gated endpoint there is a guaranteed 401 in the console.
-    if (!getAuth()) return
+    const auth = getAuth()
+    if (!auth) return
+    // The server only lists contacts to the Contacts page, the inbox and the
+    // Users page's picker (contacts.view | chats.view | users.manage) — a role
+    // with none of them would just collect a 403 on every page.
+    if (!CONTACT_LIST_CAPS.some((c) => userHasCap(auth, c))) return
     // /api/contacts is bearer-gated: WITHOUT the header it 401s and the catch
     // below silently keeps the demo mocks, so the page showed ten invented
     // people over a live database. Only a transport failure may fall back now.
