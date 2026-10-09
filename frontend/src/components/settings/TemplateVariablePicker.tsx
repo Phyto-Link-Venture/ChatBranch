@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useT } from '@/i18n'
 import { fetchCustomFields, type CustomFieldsSchema, type FieldDef } from '@/lib/customFields'
 import { fetchTags, tagColor, type TagDef } from '@/lib/tags'
 
@@ -42,11 +43,16 @@ function Chip({
   dot?: string
   onInsert: (token: string) => void
 }) {
+  const t = useT()
   return (
     <button
       type="button"
       onClick={() => onInsert(token)}
-      title={label ? `${label} — inserts {{${token}}}` : `Insert {{${token}}}`}
+      title={
+        label
+          ? t('library.variables.insertsLabelled', { label, token: `{{${token}}}` })
+          : t('library.variables.inserts', { token: `{{${token}}}` })
+      }
       className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-line bg-fill px-2 py-0.5 font-mono text-[10.5px] text-text-mid transition-colors hover:border-line-strong hover:text-text-high"
     >
       {dot && <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: dot }} aria-hidden />}
@@ -56,6 +62,7 @@ function Chip({
 }
 
 export function TemplateVariablePicker({ onInsert }: { onInsert: (token: string) => void }) {
+  const t = useT()
   const [schema, setSchema] = useState<CustomFieldsSchema | null>(null)
   const [tags, setTags] = useState<TagDef[]>([])
 
@@ -66,7 +73,7 @@ export function TemplateVariablePicker({ onInsert }: { onInsert: (token: string)
       .then(setSchema)
       .catch(() => setSchema(null))
     fetchTags()
-      .then((d) => setTags(d.tags.filter((t) => t.applies_to !== 'conversation' && t.attributes.length > 0)))
+      .then((d) => setTags(d.tags.filter((tg) => tg.applies_to !== 'conversation' && tg.attributes.length > 0)))
       .catch(() => setTags([]))
   }, [])
 
@@ -77,9 +84,7 @@ export function TemplateVariablePicker({ onInsert }: { onInsert: (token: string)
   return (
     <div className="flex flex-col gap-2">
       <div>
-        <span className="mb-1 block text-[10.5px] text-text-muted">
-          Click to insert a variable — filled from the contact&apos;s CRM record when sent:
-        </span>
+        <span className="mb-1 block text-[10.5px] text-text-muted">{t('library.variables.builtins')}</span>
         <div className="flex flex-wrap gap-1.5">
           {BUILTIN_VARIABLES.map((v) => (
             <Chip key={v} token={v} onInsert={onInsert} />
@@ -88,9 +93,7 @@ export function TemplateVariablePicker({ onInsert }: { onInsert: (token: string)
       </div>
       {custom.length > 0 && (
         <div>
-          <span className="mb-1 block text-[10.5px] text-text-muted">
-            Your custom fields (Settings → Custom Fields):
-          </span>
+          <span className="mb-1 block text-[10.5px] text-text-muted">{t('library.variables.customFields')}</span>
           <div className="flex flex-wrap gap-1.5">
             {custom.map(({ token, def }) => (
               <Chip key={token} token={token} label={def.label || def.key} onInsert={onInsert} />
@@ -100,22 +103,19 @@ export function TemplateVariablePicker({ onInsert }: { onInsert: (token: string)
       )}
       {tags.length > 0 && (
         <div>
-          <span className="mb-1 block text-[10.5px] text-text-muted">
-            Tags (Library → Tags) — a tag&apos;s fields, empty when the contact or its entity doesn&apos;t carry
-            the tag:
-          </span>
+          <span className="mb-1 block text-[10.5px] text-text-muted">{t('library.variables.tags')}</span>
           <div className="flex flex-col gap-1.5">
-            {tags.map((t) => (
-              <div key={t.id} className="flex flex-wrap items-center gap-1.5">
-                <span className="mr-0.5 text-[10.5px] font-semibold" style={{ color: tagColor(t.color).ink }}>
-                  {t.name}
+            {tags.map((tg) => (
+              <div key={tg.id} className="flex flex-wrap items-center gap-1.5">
+                <span className="mr-0.5 text-[10.5px] font-semibold" style={{ color: tagColor(tg.color).ink }}>
+                  {tg.name}
                 </span>
-                {t.attributes.map((a) => (
+                {tg.attributes.map((a) => (
                   <Chip
                     key={a.key}
-                    token={`${t.variable_prefix || `tag_${t.slug.replace(/-/g, '_')}_`}${a.key}`}
-                    label={`${t.name} · ${a.label}`}
-                    dot={tagColor(t.color).dot}
+                    token={`${tg.variable_prefix || `tag_${tg.slug.replace(/-/g, '_')}_`}${a.key}`}
+                    label={`${tg.name} · ${a.label}`}
+                    dot={tagColor(tg.color).dot}
                     onInsert={onInsert}
                   />
                 ))}

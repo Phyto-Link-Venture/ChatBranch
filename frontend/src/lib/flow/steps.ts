@@ -1,5 +1,6 @@
+import type { MessageKey, TFunction, Vars } from '@/i18n'
 import type { FlowConfig, FlowEdge, FlowNode, NodeKind } from './types'
-import { branchLabels, isBranchKind } from './nodeConfig'
+import { branchLabelKeys, branchLabels, isBranchKind } from './nodeConfig'
 
 /**
  * Graph ↔ step-list conversion. A workflow is stored as React Flow nodes +
@@ -21,14 +22,14 @@ export const edgeTiming = (e: FlowEdge | undefined) => String(e?.data?.config?.t
 export const isTimeoutEdge = (e: FlowEdge) => edgeTiming(e) === TIMEOUT_TIMING
 
 /** Words for an old-style timing set on a line ("" = immediately). */
-export function timingText(e: FlowEdge | undefined): string {
-  const t = edgeTiming(e)
-  if (t === 'Wait N days') {
+export function timingText(t: TFunction, e: FlowEdge | undefined): string {
+  const timing = edgeTiming(e)
+  if (timing === 'Wait N days') {
     const d = Number(e?.data?.config?.waitDays ?? 0)
-    return `waits ${d || 0} day${d === 1 ? '' : 's'}`
+    return t('flows.steps.waitsDays', { count: d || 0 })
   }
-  if (t === 'On contact reply') return 'waits for a reply'
-  if (t === 'On record update') return 'waits for a record update'
+  if (timing === 'On contact reply') return t('flows.steps.waitsReply')
+  if (timing === 'On record update') return t('flows.steps.waitsRecord')
   return ''
 }
 
@@ -59,7 +60,9 @@ export const nextEdge = (edges: FlowEdge[], nodeId: string): FlowEdge | null => 
 
 export interface BranchTree {
   key: 'yes' | 'no' | 'next' | 'timeout'
-  label: string
+  /** what the column is called — render with t(labelKey, labelVars) */
+  labelKey: MessageKey
+  labelVars?: Vars
   /** the edge carrying this outcome (absent = the path ends here) */
   edge: FlowEdge | null
   /** where a new step inserted at the top of this column hangs from */
@@ -99,7 +102,7 @@ export function buildStepTree(nodes: FlowNode[], edges: FlowEdge[]): StepForest 
     const tree: StepTree = { node, inEdge, ref: false, next: null, nextEdge: null, branches: null }
     const timeouts = edges.filter((e) => e.source === id && isTimeoutEdge(e))
     if (isBranchKind(node.type)) {
-      const labels = branchLabels(String(node.type))
+      const labels = branchLabelKeys(String(node.type))
       const yes = pickBranchEdge(edges, id, 'yes')
       const no = pickBranchEdge(edges, id, 'no')
       if (yes && no && yes.id === no.id) {
@@ -108,15 +111,15 @@ export function buildStepTree(nodes: FlowNode[], edges: FlowEdge[]): StepForest 
         tree.next = visit(yes.target, yes)
       } else {
         tree.branches = [
-          { key: 'yes', label: labels.yes, edge: yes, source: id, handle: 'yes', child: yes ? visit(yes.target, yes) : null },
-          { key: 'no', label: labels.no, edge: no, source: id, handle: 'no', child: no ? visit(no.target, no) : null },
+          { key: 'yes', labelKey: labels.yes, edge: yes, source: id, handle: 'yes', child: yes ? visit(yes.target, yes) : null },
+          { key: 'no', labelKey: labels.no, edge: no, source: id, handle: 'no', child: no ? visit(no.target, no) : null },
         ]
       }
     } else {
       const nxt = nextEdge(edges, id)
       if (timeouts.length) {
         tree.branches = [
-          { key: 'next', label: 'Then', edge: nxt, source: id, child: nxt ? visit(nxt.target, nxt) : null },
+          { key: 'next', labelKey: 'flows.branch.then', edge: nxt, source: id, child: nxt ? visit(nxt.target, nxt) : null },
         ]
       } else {
         tree.nextEdge = nxt
@@ -127,7 +130,7 @@ export function buildStepTree(nodes: FlowNode[], edges: FlowEdge[]): StepForest 
       const days = Number(t.data?.config?.waitDays ?? 0) || 1
       tree.branches = [
         ...(tree.branches ?? []),
-        { key: 'timeout', label: `No reply in ${days} day${days === 1 ? '' : 's'}`, edge: t, source: id,
+        { key: 'timeout', labelKey: 'flows.branch.noReplyIn', labelVars: { count: days }, edge: t, source: id,
           child: visit(t.target, t) },
       ]
     }

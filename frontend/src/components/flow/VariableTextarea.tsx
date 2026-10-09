@@ -2,22 +2,22 @@
 
 import { useEffect, useId, useRef, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
-import { VARIABLE_GROUPS, VARIABLE_COUNT, type VariableGroup } from '@/lib/flow/variables'
+import { useT } from '@/i18n'
+import { VARIABLE_GROUPS, VARIABLE_COUNT } from '@/lib/flow/variables'
 import { fetchCustomFields } from '@/lib/customFields'
 import { textareaCls } from './fields'
 
+/** A customer custom field as {{cf_<key>}} — its label is the operator's own. */
+interface CustomVar {
+  key: string
+  label: string
+}
+
 /** Customer custom fields as {{cf_<key>}} — fetched once per page visit. */
-let customGroupCache: Promise<VariableGroup | null> | null = null
-function customFieldsGroup(): Promise<VariableGroup | null> {
+let customGroupCache: Promise<CustomVar[] | null> | null = null
+function customFieldsGroup(): Promise<CustomVar[] | null> {
   customGroupCache ??= fetchCustomFields()
-    .then((s) =>
-      s.customer.length
-        ? {
-            group: 'Custom fields',
-            items: s.customer.map((f) => ({ key: `cf_${f.key}`, label: f.label || f.key, example: '' })),
-          }
-        : null,
-    )
+    .then((s) => (s.customer.length ? s.customer.map((fd) => ({ key: `cf_${fd.key}`, label: fd.label || fd.key })) : null))
     .catch(() => null)
   return customGroupCache
 }
@@ -43,10 +43,11 @@ export default function VariableTextarea({
   placeholder?: string
   defaultOpen?: boolean
 }) {
+  const t = useT()
   const id = useId()
   const ref = useRef<HTMLTextAreaElement>(null)
   const [open, setOpen] = useState(defaultOpen)
-  const [custom, setCustom] = useState<VariableGroup | null>(null)
+  const [custom, setCustom] = useState<CustomVar[] | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -70,7 +71,14 @@ export default function VariableTextarea({
     })
   }
 
-  const groups = custom ? [...VARIABLE_GROUPS, custom] : VARIABLE_GROUPS
+  // the catalog in the current language; custom fields keep the operator's labels
+  const groups: { title: string; items: { key: string; label: string; example: string }[] }[] = [
+    ...VARIABLE_GROUPS.map((g) => ({
+      title: t(g.lbl),
+      items: g.items.map((v) => ({ key: v.key, label: t(v.lbl), example: v.exampleKey ? t(v.exampleKey) : v.example })),
+    })),
+    ...(custom ? [{ title: t('flows.variables.groupCustom'), items: custom.map((c) => ({ ...c, example: '' })) }] : []),
+  ]
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -95,19 +103,19 @@ export default function VariableTextarea({
           className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-text-muted hover:text-text-high"
         >
           <ChevronRight size={12} className={`transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden />
-          Insert a variable{open ? '' : ` (${VARIABLE_COUNT}+)`}
+          {open ? t('flows.variables.insert') : t('flows.variables.insertCount', { count: VARIABLE_COUNT })}
         </button>
         {open && (
           <div className="mt-2 flex max-h-[260px] flex-col gap-2.5 overflow-y-auto rounded-lg border border-line bg-well p-2.5">
             {groups.map((g) => (
-              <div key={g.group}>
-                <div className="eyebrow mb-1">{g.group}</div>
+              <div key={g.title}>
+                <div className="eyebrow mb-1">{g.title}</div>
                 <div className="flex flex-wrap gap-1">
                   {g.items.map((v) => (
                     <button
                       key={v.key}
                       type="button"
-                      title={v.example ? `${v.label} — e.g. ${v.example}` : v.label}
+                      title={v.example ? t('flows.variables.example', { label: v.label, example: v.example }) : v.label}
                       onClick={() => insert(`{{${v.key}}}`)}
                       className="rounded-md border border-line bg-card px-1.5 py-0.5 text-[11.5px] text-text-mid hover:border-line-strong hover:text-text-high"
                     >

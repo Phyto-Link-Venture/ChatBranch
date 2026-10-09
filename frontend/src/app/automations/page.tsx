@@ -3,14 +3,12 @@
 import { Zap } from 'lucide-react'
 import { AreaPage } from '@/components/shell/AreaPage'
 import { AutomationsSettings } from '@/components/settings/AutomationsSettings'
+import { useT } from '@/i18n'
 
 export default function AutomationsPage() {
+  const t = useT()
   return (
-    <AreaPage
-      title="Automations"
-      subtitle="When this happens to a conversation, do that"
-      Icon={Zap}
-    >
+    <AreaPage title={t('shell.nav.automations')} subtitle={t('flows.automations.subtitle')} Icon={Zap}>
       <AutomationsSettings />
     </AreaPage>
   )

@@ -1,5 +1,7 @@
 // Single source of the spoken sample line, shared by the Persona page and the
-// Settings Voice Library so both preview the same sentence.
+// Settings Voice Library so both preview the same sentence. This is what an
+// ENGLISH voice SAYS (the page has its own Malay and Chinese lines for voices
+// in those languages), so it is spoken content — not translated with the UI.
 export function buildOpeningLine(tone: string): string {
   const opening =
     tone === 'urgent'

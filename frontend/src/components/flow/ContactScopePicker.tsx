@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Search, X } from 'lucide-react'
+import { useT } from '@/i18n'
 import { authHeaders } from '@/lib/auth'
 import { inputCls } from './fields'
 
@@ -27,13 +28,14 @@ export default function ContactScopePicker({
   selected,
   labels,
   onChange,
-  placeholder = 'Search contacts by name or phone…',
+  placeholder,
 }: {
   selected: string[]
   labels: Record<string, string>
   onChange: (ids: string[], labels: Record<string, string>) => void
   placeholder?: string
 }) {
+  const t = useT()
   const [query, setQuery] = useState('')
   const [rows, setRows] = useState<Row[]>([])
   const [count, setCount] = useState(0)
@@ -45,7 +47,7 @@ export default function ContactScopePicker({
   useEffect(() => {
     if (!open) return
     const mine = ++reqId.current
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       setBusy(true)
       setError('')
       try {
@@ -65,7 +67,7 @@ export default function ContactScopePicker({
         if (mine === reqId.current) setBusy(false)
       }
     }, 250)
-    return () => clearTimeout(t)
+    return () => clearTimeout(timer)
   }, [query, open])
 
   const unpicked = useMemo(() => rows.filter((r) => !selected.includes(String(r.id))), [rows, selected])
@@ -90,7 +92,7 @@ export default function ContactScopePicker({
               {labels[id] || `#${id}`}
               <button
                 type="button"
-                aria-label={`Remove ${labels[id] || id}`}
+                aria-label={t('flows.contactPicker.remove', { name: labels[id] || id })}
                 onClick={() => remove(id)}
                 className="grid h-4 w-4 place-items-center rounded text-text-muted hover:bg-fill-hover hover:text-text-high"
               >
@@ -105,25 +107,25 @@ export default function ContactScopePicker({
         <input
           type="search"
           value={query}
-          placeholder={placeholder}
+          placeholder={placeholder ?? t('flows.contactPicker.placeholder')}
           onFocus={() => setOpen(true)}
           onChange={(e) => {
             setQuery(e.target.value)
             setOpen(true)
           }}
           className={`${inputCls} pl-8`}
-          aria-label="Search contacts"
+          aria-label={t('flows.contactPicker.search')}
         />
       </div>
       {open && (
         <div className="rounded-lg border border-line bg-card">
           <div className="max-h-[200px] overflow-y-auto py-1">
             {busy && rows.length === 0 ? (
-              <div className="px-3 py-2 text-[12px] text-text-muted">Searching…</div>
+              <div className="px-3 py-2 text-[12px] text-text-muted">{t('flows.contactPicker.searching')}</div>
             ) : error ? (
-              <div className="px-3 py-2 text-[12px] text-[color:var(--red-ink)]">Contact search unavailable — {error}</div>
+              <div className="px-3 py-2 text-[12px] text-[color:var(--red-ink)]">{t('flows.contactPicker.unavailable', { error })}</div>
             ) : unpicked.length === 0 ? (
-              <div className="px-3 py-2 text-[12px] text-text-muted">No matches.</div>
+              <div className="px-3 py-2 text-[12px] text-text-muted">{t('common.status.noResults')}</div>
             ) : (
               unpicked.map((r) => (
                 <button
@@ -140,9 +142,13 @@ export default function ContactScopePicker({
             )}
           </div>
           <div className="flex items-center justify-between border-t border-line px-3 py-1.5 text-[11px] text-text-muted">
-            <span>{count > rows.length ? `Showing ${rows.length} of ${count.toLocaleString()} — type to narrow` : `${count.toLocaleString()} match${count === 1 ? '' : 'es'}`}</span>
-            <button type="button" className="font-semibold hover:text-text-high" onClick={() => setOpen(false)}>
-              Done
+            <span className="min-w-0">
+              {count > rows.length
+                ? t('flows.contactPicker.showingOf', { shown: rows.length, count })
+                : t('flows.contactPicker.matches', { count })}
+            </span>
+            <button type="button" className="shrink-0 font-semibold hover:text-text-high" onClick={() => setOpen(false)}>
+              {t('common.actions.done')}
             </button>
           </div>
         </div>

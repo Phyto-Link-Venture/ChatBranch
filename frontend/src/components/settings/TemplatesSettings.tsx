@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
 import { accountRole } from '@/components/ui/Badges'
+import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
 import { useRole } from '@/lib/useRole'
 import { Notice, TemplateTable, api, errText, inputCls, type TemplateRow } from '@/components/templates/shared'
 
@@ -52,66 +53,81 @@ interface WaAccount {
   external_id?: string
 }
 
-const LANGUAGES = [
-  { value: 'en', label: 'English (en)' },
-  { value: 'en_US', label: 'English US (en_US)' },
-  { value: 'ms', label: 'Malay (ms)' },
-  { value: 'zh_CN', label: 'Chinese (zh_CN)' },
+/** Meta language codes (sent as is) → their label keys. */
+const LANGUAGES: { value: string; lbl: MessageKey }[] = [
+  { value: 'en', lbl: 'library.wa.langEn' },
+  { value: 'en_US', lbl: 'library.wa.langEnUs' },
+  { value: 'ms', lbl: 'library.wa.langMs' },
+  { value: 'zh_CN', lbl: 'library.wa.langZh' },
 ]
 
-const CATEGORIES = [
-  { value: 'UTILITY', label: 'Utility', hint: 'updates, confirmations' },
-  { value: 'MARKETING', label: 'Marketing', hint: 'offers, promos' },
-  { value: 'AUTHENTICATION', label: 'Authentication', hint: 'one-time codes' },
+/** Meta template categories (sent as is) → label + hint keys. */
+const CATEGORIES: { value: string; lbl: MessageKey; hint: MessageKey }[] = [
+  { value: 'UTILITY', lbl: 'library.wa.catUtility', hint: 'library.wa.catUtilityHint' },
+  { value: 'MARKETING', lbl: 'library.wa.catMarketing', hint: 'library.wa.catMarketingHint' },
+  { value: 'AUTHENTICATION', lbl: 'library.wa.catAuth', hint: 'library.wa.catAuthHint' },
 ]
+
+type BindingGroup = 'contact' | 'record' | 'business' | 'memory' | 'sending'
+const BINDING_GROUPS: Record<BindingGroup, MessageKey> = {
+  contact: 'library.wa.bindGroupContact',
+  record: 'library.wa.bindGroupRecord',
+  business: 'library.wa.bindGroupBusiness',
+  memory: 'library.wa.bindGroupMemory',
+  sending: 'library.wa.bindGroupSending',
+}
 
 /** CRM fields a {{n}} slot can auto-fill from — mirrors the backend's TemplateBindingKeys. */
-const BINDING_OPTIONS = [
-  { value: '', label: 'Typed by the agent' },
-  { value: 'name', label: 'Contact name', group: 'Contact' },
-  { value: 'first_name', label: 'Contact first name', group: 'Contact' },
-  { value: 'phone', label: 'Contact phone', group: 'Contact' },
-  { value: 'email', label: 'Contact email', group: 'Contact' },
-  { value: 'language', label: 'Preferred language', group: 'Contact' },
-  { value: 'company', label: 'Company name', group: 'Contact' },
-  { value: 'record_id', label: 'Record ID', group: 'Record' },
-  { value: 'record_type', label: 'Record type', group: 'Record' },
-  { value: 'record_status', label: 'Record status', group: 'Record' },
-  { value: 'record_title', label: 'Record title', group: 'Record' },
-  { value: 'amount', label: 'Amount', group: 'Record' },
-  { value: 'currency', label: 'Currency', group: 'Record' },
-  { value: 'due_date', label: 'Due date', group: 'Record' },
-  { value: 'days_until_due', label: 'Days until due', group: 'Record' },
-  { value: 'tracking_url', label: 'Tracking URL', group: 'Record' },
-  { value: 'link', label: 'Record link', group: 'Record' },
-  { value: 'business_name', label: 'Business name', group: 'Business' },
-  { value: 'agent_name', label: 'AI agent display name', group: 'Business' },
-  { value: 'support_number', label: 'Support number', group: 'Business' },
-  { value: 'support_email', label: 'Support email', group: 'Business' },
-  { value: 'website', label: 'Website', group: 'Business' },
-  { value: 'best_contact_time', label: 'Best contact time', group: 'Memory' },
-  { value: 'preferred_channel', label: 'Preferred channel', group: 'Memory' },
-  { value: 'last_contact_date', label: 'Last contact date', group: 'Memory' },
-  { value: 'situation', label: 'Situation notes', group: 'Memory' },
+const BINDING_OPTIONS: { value: string; lbl: MessageKey; group?: BindingGroup }[] = [
+  { value: '', lbl: 'library.wa.bindTyped' },
+  { value: 'name', lbl: 'library.wa.bind.name', group: 'contact' },
+  { value: 'first_name', lbl: 'library.wa.bind.firstName', group: 'contact' },
+  { value: 'phone', lbl: 'library.wa.bind.phone', group: 'contact' },
+  { value: 'email', lbl: 'library.wa.bind.email', group: 'contact' },
+  { value: 'language', lbl: 'flows.variables.language', group: 'contact' },
+  { value: 'company', lbl: 'library.wa.bind.company', group: 'contact' },
+  { value: 'record_id', lbl: 'library.wa.bind.recordId', group: 'record' },
+  { value: 'record_type', lbl: 'library.wa.bind.recordType', group: 'record' },
+  { value: 'record_status', lbl: 'library.wa.bind.recordStatus', group: 'record' },
+  { value: 'record_title', lbl: 'library.wa.bind.recordTitle', group: 'record' },
+  { value: 'amount', lbl: 'flows.variables.amount', group: 'record' },
+  { value: 'currency', lbl: 'library.wa.bind.currency', group: 'record' },
+  { value: 'due_date', lbl: 'library.wa.bind.dueDate', group: 'record' },
+  { value: 'days_until_due', lbl: 'library.wa.bind.daysUntilDue', group: 'record' },
+  { value: 'tracking_url', lbl: 'library.wa.bind.trackingUrl', group: 'record' },
+  { value: 'link', lbl: 'library.wa.bind.recordLink', group: 'record' },
+  { value: 'business_name', lbl: 'flows.variables.businessName', group: 'business' },
+  { value: 'agent_name', lbl: 'library.wa.bind.agentName', group: 'business' },
+  { value: 'support_number', lbl: 'library.wa.bind.supportNumber', group: 'business' },
+  { value: 'support_email', lbl: 'flows.variables.supportEmail', group: 'business' },
+  { value: 'website', lbl: 'flows.variables.website', group: 'business' },
+  { value: 'best_contact_time', lbl: 'library.wa.bind.bestContactTime', group: 'memory' },
+  { value: 'preferred_channel', lbl: 'flows.variables.preferredChannel', group: 'memory' },
+  { value: 'last_contact_date', lbl: 'library.wa.bind.lastContactDate', group: 'memory' },
+  { value: 'situation', lbl: 'library.wa.bind.situation', group: 'memory' },
   // resolved at send time from the contact's assigned conversation number
-  { value: 'account_number', label: 'Assigned sending number', group: 'Sending account' },
-  { value: 'account_name', label: 'Assigned sending account name', group: 'Sending account' },
-  { value: 'whatsapp_assignment_account_number', label: 'Assigned WhatsApp number', group: 'Sending account' },
-  { value: 'whatsapp_assignment_account_name', label: 'Assigned WhatsApp account name', group: 'Sending account' },
+  { value: 'account_number', lbl: 'library.wa.bind.accountNumber', group: 'sending' },
+  { value: 'account_name', lbl: 'library.wa.bind.accountName', group: 'sending' },
+  { value: 'whatsapp_assignment_account_number', lbl: 'library.wa.bind.waNumber', group: 'sending' },
+  { value: 'whatsapp_assignment_account_name', lbl: 'library.wa.bind.waAccountName', group: 'sending' },
 ]
 
-const BUTTON_TYPES = [
-  { value: 'QUICK_REPLY', label: 'Quick reply' },
-  { value: 'URL', label: 'Open link' },
-  { value: 'PHONE_NUMBER', label: 'Call number' },
+const bindingOptions = (t: TFunction) =>
+  BINDING_OPTIONS.map((o) => ({ value: o.value, label: t(o.lbl), group: o.group ? t(BINDING_GROUPS[o.group]) : undefined }))
+
+const BUTTON_TYPES: { value: string; lbl: MessageKey }[] = [
+  { value: 'QUICK_REPLY', lbl: 'library.wa.btnQuickReply' },
+  { value: 'URL', lbl: 'library.wa.btnUrl' },
+  { value: 'PHONE_NUMBER', lbl: 'library.wa.btnPhone' },
 ]
 
 const BUTTON_ICON = { QUICK_REPLY: MessageSquareReply, URL: ExternalLink, PHONE_NUMBER: Phone }
 
-const STATUS_CLS: Record<string, { cls: string; ink: string }> = {
-  APPROVED: { cls: 'bg-green/15', ink: 'var(--green-ink)' },
-  PENDING: { cls: 'bg-amber/15', ink: 'var(--amber-ink)' },
-  REJECTED: { cls: 'bg-red/10', ink: 'var(--red-ink)' },
+/** Meta review statuses: colour + their word (an unknown status shows as sent). */
+const STATUS_CLS: Record<string, { cls: string; ink: string; lbl: MessageKey }> = {
+  APPROVED: { cls: 'bg-green/15', ink: 'var(--green-ink)', lbl: 'library.wa.statusApproved' },
+  PENDING: { cls: 'bg-amber/15', ink: 'var(--amber-ink)', lbl: 'library.wa.statusPending' },
+  REJECTED: { cls: 'bg-red/10', ink: 'var(--red-ink)', lbl: 'library.wa.statusRejected' },
 }
 
 const variableCount = (body: string) =>
@@ -141,6 +157,7 @@ const emptyForm = (): FormState => ({
 
 /** Builds a https://wa.me/<number> "Chat with us" link to a conversation-role number. */
 function WaMeQuickInsert({ accounts, onInsert }: { accounts: WaAccount[]; onInsert: (url: string) => void }) {
+  const t = useT()
   const [sel, setSel] = useState('')
   const [manual, setManual] = useState('')
   const digitsOf = (s?: string) => (s || '').replace(/\D/g, '')
@@ -170,7 +187,7 @@ function WaMeQuickInsert({ accounts, onInsert }: { accounts: WaAccount[]; onInse
 
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-2">
-      <span className="text-[11.5px] font-semibold text-text-muted">“Chat with us” link:</span>
+      <span className="text-[11.5px] font-semibold text-text-muted">{t('library.wa.chatLink')}</span>
       <Select
         value={sel}
         onChange={pick}
@@ -178,13 +195,13 @@ function WaMeQuickInsert({ accounts, onInsert }: { accounts: WaAccount[]; onInse
           ...conv.map((a) => ({
             value: a.id,
             label: a.name,
-            hint: numberOf(a) ? `(+${numberOf(a)})` : '(number unknown — type it)',
+            hint: numberOf(a) ? `(+${numberOf(a)})` : t('library.wa.numberUnknown'),
           })),
-          { value: '__manual', label: 'Enter a number…' },
+          { value: '__manual', label: t('library.wa.enterNumber') },
         ]}
-        placeholder="Insert a wa.me link…"
+        placeholder={t('library.wa.insertWaMe')}
         className="w-full sm:w-[260px]"
-        ariaLabel="Conversation number for the wa.me link"
+        ariaLabel={t('library.wa.waMeAccountAria')}
       />
       {needManual && (
         <>
@@ -192,11 +209,11 @@ function WaMeQuickInsert({ accounts, onInsert }: { accounts: WaAccount[]; onInse
             value={manual}
             onChange={(e) => setManual(e.target.value)}
             placeholder="+60123456789"
-            aria-label="WhatsApp number for the wa.me link"
+            aria-label={t('library.wa.waMeNumberAria')}
             className={`${inputCls} !w-[160px]`}
           />
           <Button variant="secondary" size="sm" onClick={insertManual} disabled={!digitsOf(manual)}>
-            Insert link
+            {t('library.wa.insertLink')}
           </Button>
         </>
       )}
@@ -212,6 +229,7 @@ export function TemplatesSettings({
   accountId?: string
   onAccountChange?: (id: string) => void
 }) {
+  const t = useT()
   const { role } = useRole()
   const canManage = role === 'admin' || role === 'superadmin'
   const [accounts, setAccounts] = useState<WaAccount[] | null>(null)
@@ -259,8 +277,10 @@ export function TemplatesSettings({
       setSandbox(data.sandbox)
     } catch (e) {
       setTemplates([])
-      setError(errText(e))
+      setError(errText(e, t))
     }
+    // t: only the wording of a failure — never a reason to refetch
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qs])
 
   useEffect(() => {
@@ -301,11 +321,11 @@ export function TemplatesSettings({
     if (!form) return
     const name = form.name.trim().toLowerCase().replace(/[\s-]+/g, '_')
     if (!form.editing && !/^[a-z0-9_]{1,120}$/.test(name)) {
-      setFormError('Template names use lowercase letters, digits and underscores only.')
+      setFormError(t('library.wa.badName'))
       return
     }
     if (!form.body.trim()) {
-      setFormError('Write the template body.')
+      setFormError(t('library.wa.writeBody'))
       return
     }
     setBusy(true)
@@ -344,10 +364,10 @@ export function TemplatesSettings({
         })
         setNotice(
           !contentChanged
-            ? `“${orig.name}” bindings updated — no Meta re-review needed.`
+            ? t('library.wa.bindingsUpdated', { name: orig.name })
             : sandbox
-              ? `“${orig.name}” updated.`
-              : `“${orig.name}” updated — Meta re-reviews edits before they go live.`,
+              ? t('library.wa.updated', { name: orig.name })
+              : t('library.wa.updatedReview', { name: orig.name }),
         )
       } else {
         const data = await api<{ template: WaTemplate; sandbox: boolean }>('whatsapp/templates', {
@@ -365,46 +385,55 @@ export function TemplatesSettings({
         })
         setNotice(
           data.sandbox
-            ? `“${data.template.name}” saved (sandbox — usable immediately).`
-            : `“${data.template.name}” submitted to Meta for review — status ${data.template.status}.`,
+            ? t('library.wa.savedSandbox', { name: data.template.name })
+            : t('library.wa.submitted', { name: data.template.name, status: statusWord(data.template.status) }),
         )
       }
       setForm(null)
       await load()
     } catch (e) {
-      setFormError(errText(e))
+      setFormError(errText(e, t))
     } finally {
       setBusy(false)
     }
   }
 
-  const bindingLabel = (key: string) => BINDING_OPTIONS.find((o) => o.value === key)?.label || key
+  const bindingLabel = (key: string) => {
+    const o = BINDING_OPTIONS.find((x) => x.value === key)
+    return o ? t(o.lbl) : key
+  }
+  const statusWord = (status: string) => (STATUS_CLS[status] ? t(STATUS_CLS[status].lbl) : status)
 
-  const rows: TemplateRow[] = (templates ?? []).map((t) => {
-    const st = STATUS_CLS[t.status]
+  const rows: TemplateRow[] = (templates ?? []).map((tp) => {
+    const st = STATUS_CLS[tp.status]
+    const category = CATEGORIES.find((c) => c.value === tp.category)
     return {
-      key: `${t.name}:${t.language}`,
-      name: t.name,
+      key: `${tp.name}:${tp.language}`,
+      name: tp.name,
       mono: true,
-      preview: t.body,
+      preview: tp.body,
       badges: (
         <>
           <span
             className={`rounded-full px-2 py-px text-[10.5px] font-bold ${st ? st.cls : 'bg-fill text-text-muted'}`}
             style={st ? { color: st.ink } : undefined}
           >
-            {t.status || '—'}
+            {tp.status ? statusWord(tp.status) : '—'}
           </span>
-          <span className="rounded-full bg-fill px-2 py-px text-[10.5px] font-semibold text-text-muted">{t.language}</span>
-          {(t.bindings || []).some(Boolean) && (
+          <span className="rounded-full bg-fill px-2 py-px text-[10.5px] font-semibold text-text-muted">{tp.language}</span>
+          {(tp.bindings || []).some(Boolean) && (
             <span
               className="rounded-full bg-fill px-2 py-px text-[10.5px] font-semibold text-text-mid"
-              title={(t.bindings || []).map((b, i) => `{{${i + 1}}} → ${b ? bindingLabel(b) : 'typed'}`).join(', ')}
+              title={(tp.bindings || [])
+                .map((b, i) =>
+                  t('library.wa.bindingTitle', { slot: `{{${i + 1}}}`, value: b ? bindingLabel(b) : t('library.wa.typed') }),
+                )
+                .join(', ')}
             >
-              auto-filled
+              {t('library.wa.autoFilled')}
             </span>
           )}
-          {(t.buttons || []).map((b, i) => {
+          {(tp.buttons || []).map((b, i) => {
             const Icon = BUTTON_ICON[b.type] || MessageSquareReply
             return (
               <span
@@ -418,12 +447,12 @@ export function TemplatesSettings({
           })}
         </>
       ),
-      type: CATEGORIES.find((c) => c.value === t.category)?.label ?? t.category,
+      type: category ? t(category.lbl) : tp.category,
       channels: ['whatsapp'],
       entityName: null,
       updated: null,
-      onEdit: canManage && t.custom ? () => openEdit(t) : undefined,
-      onDelete: canManage && t.custom ? () => setToDelete(t) : undefined,
+      onEdit: canManage && tp.custom ? () => openEdit(tp) : undefined,
+      onDelete: canManage && tp.custom ? () => setToDelete(tp) : undefined,
     }
   })
 
@@ -432,9 +461,7 @@ export function TemplatesSettings({
   return (
     <div className="flex flex-col gap-4">
       <p className="max-w-[760px] text-[12.5px] leading-relaxed text-text-mid">
-        Meta-approved templates are the only way to message a WhatsApp contact outside the 24-hour window. They belong
-        to a WhatsApp Business account: live ones go through Meta review, sandbox ones work immediately. Bind{' '}
-        <code className="rounded bg-fill px-1">{'{{1}}'}</code> slots to contact fields so sends fill themselves.
+        <Trans k="library.wa.intro" values={{ slot: <code className="rounded bg-fill px-1">{'{{1}}'}</code> }} />
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -443,15 +470,15 @@ export function TemplatesSettings({
             value={accountId}
             onChange={chooseAccount}
             size="md"
-            options={accounts.map((a) => ({ value: a.id, label: a.name, hint: a.waba_id ? '' : '(no WABA — sandbox)' }))}
+            options={accounts.map((a) => ({ value: a.id, label: a.name, hint: a.waba_id ? '' : t('library.wa.noWaba') }))}
             className="w-full sm:w-[260px]"
-            ariaLabel="WhatsApp Business account"
+            ariaLabel={t('library.wa.accountAria')}
           />
         ) : accounts ? (
           <span className="text-[12.5px] text-text-muted">
-            No WhatsApp Business account yet — showing the sandbox set.{' '}
+            {t('library.wa.noAccount')}{' '}
             <Link href="/channels" className="font-semibold text-text-high underline underline-offset-2">
-              Connect one
+              {t('library.wa.connectOne')}
             </Link>
           </span>
         ) : null}
@@ -459,7 +486,11 @@ export function TemplatesSettings({
           className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${sandbox ? 'bg-amber/15' : 'bg-green/15'}`}
           style={{ color: sandbox ? 'var(--amber-ink)' : 'var(--green-ink)' }}
         >
-          {sandbox ? 'Sandbox' : `Live${account?.waba_id ? ` · WABA ${account.waba_id}` : ''}`}
+          {sandbox
+            ? t('library.wa.sandbox')
+            : account?.waba_id
+              ? t('library.wa.liveWaba', { waba: account.waba_id })
+              : t('library.wa.live')}
         </span>
       </div>
 
@@ -468,16 +499,16 @@ export function TemplatesSettings({
 
       {templates === null ? (
         <div className="flex items-center gap-2 py-8 text-[12.5px] text-text-muted">
-          <Loader2 size={14} className="animate-spin" aria-hidden /> Loading templates…
+          <Loader2 size={14} className="animate-spin" aria-hidden /> {t('flows.waTemplate.loading')}
         </div>
       ) : (
         <TemplateTable
           rows={rows}
-          searchPlaceholder="Search WhatsApp templates…"
-          empty={`No templates yet${sandbox ? '' : ' — new ones go through Meta review'}.`}
+          searchPlaceholder={t('library.wa.search')}
+          empty={sandbox ? t('library.wa.empty') : t('library.wa.emptyLive')}
           toolbarRight={
             <>
-              <Button variant="secondary" onClick={load} aria-label="Refresh templates" title="Refresh">
+              <Button variant="secondary" onClick={load} aria-label={t('flows.waTemplate.reload')} title={t('common.actions.refresh')}>
                 <RefreshCw size={14} aria-hidden />
               </Button>
               {canManage && (
@@ -488,7 +519,7 @@ export function TemplatesSettings({
                     setForm(emptyForm())
                   }}
                 >
-                  <Plus size={14} aria-hidden /> New template
+                  <Plus size={14} aria-hidden /> {t('library.wa.newTemplate')}
                 </Button>
               )}
             </>
@@ -500,25 +531,23 @@ export function TemplatesSettings({
         <Modal
           open
           onClose={() => !busy && setForm(null)}
-          title={form.editing ? `Edit ${form.editing.name}` : 'New WhatsApp template'}
-          subtitle={
-            sandbox ? 'Sandbox — stored locally and usable straight away.' : 'Submitted to Meta for review before use.'
-          }
+          title={form.editing ? t('library.wa.editTitle', { name: form.editing.name }) : t('library.wa.newTitle')}
+          subtitle={sandbox ? t('library.wa.subtitleSandbox') : t('library.wa.subtitleLive')}
           size="lg"
           footer={
             <>
               <Button variant="secondary" onClick={() => setForm(null)} disabled={busy}>
-                Cancel
+                {t('common.actions.cancel')}
               </Button>
               <Button onClick={submit} disabled={busy}>
                 {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <CheckCircle size={13} aria-hidden />}
                 {form.editing
                   ? sandbox
-                    ? 'Save changes'
-                    : 'Submit edit for review'
+                    ? t('library.editor.saveChanges')
+                    : t('library.wa.submitEdit')
                   : sandbox
-                    ? 'Save template'
-                    : 'Submit for review'}
+                    ? t('library.wa.saveTemplate')
+                    : t('library.wa.submitReview')}
               </Button>
             </>
           }
@@ -527,7 +556,7 @@ export function TemplatesSettings({
             {formError && <Notice tone="error">{formError}</Notice>}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <label className="block">
-                <span className="mb-1 block text-[12px] font-semibold text-text-high">Name</span>
+                <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('common.fields.name')}</span>
                 <input
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -536,35 +565,35 @@ export function TemplatesSettings({
                   className={`${inputCls} font-mono`}
                 />
                 {!form.editing && (
-                  <span className="mt-1 block text-[11.5px] text-text-muted">Lowercase, digits, underscores.</span>
+                  <span className="mt-1 block text-[11.5px] text-text-muted">{t('library.wa.nameHint')}</span>
                 )}
               </label>
               <label className="block">
-                <span className="mb-1 block text-[12px] font-semibold text-text-high">Language</span>
+                <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('common.fields.language')}</span>
                 <Select
                   value={form.language}
                   onChange={(v) => setForm({ ...form, language: v })}
-                  options={LANGUAGES}
+                  options={LANGUAGES.map((l) => ({ value: l.value, label: t(l.lbl) }))}
                   size="md"
                   disabled={!!form.editing}
-                  ariaLabel="Template language"
+                  ariaLabel={t('library.wa.languageAria')}
                 />
               </label>
               <label className="block">
-                <span className="mb-1 block text-[12px] font-semibold text-text-high">Category</span>
+                <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('library.wa.category')}</span>
                 <Select
                   value={form.category}
                   onChange={(v) => setForm({ ...form, category: v })}
-                  options={CATEGORIES}
+                  options={CATEGORIES.map((c) => ({ value: c.value, label: t(c.lbl), hint: t(c.hint) }))}
                   size="md"
-                  ariaLabel="Template category"
+                  ariaLabel={t('library.wa.categoryAria')}
                 />
               </label>
             </div>
 
             <label className="block">
               <span className="mb-1 flex items-baseline justify-between gap-2">
-                <span className="text-[12px] font-semibold text-text-high">Body</span>
+                <span className="text-[12px] font-semibold text-text-high">{t('library.wa.body')}</span>
                 <span className="text-[11px] text-text-faint">{form.body.length}/1024</span>
               </span>
               <textarea
@@ -572,19 +601,15 @@ export function TemplatesSettings({
                 onChange={(e) => setForm({ ...form, body: e.target.value })}
                 rows={4}
                 maxLength={1024}
-                placeholder={'Hi {{1}}, your appointment is confirmed for {{2}} at {{3}}. Reply here with any questions.'}
+                placeholder={t('library.wa.bodyPlaceholder')}
                 className={`${inputCls} resize-y leading-[1.6]`}
               />
-              <span className="mt-1 block text-[11.5px] text-text-muted">
-                Use {'{{1}}'}, {'{{2}}'}… as placeholders — Meta templates are positional.
-              </span>
+              <span className="mt-1 block text-[11.5px] text-text-muted">{t('library.wa.bodyHint')}</span>
             </label>
 
             {vars > 0 && (
               <div>
-                <span className="mb-1 block text-[12px] font-semibold text-text-high">
-                  Fill the placeholders from the contact
-                </span>
+                <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('library.wa.fillFromContact')}</span>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                   {Array.from({ length: vars }, (_, i) => (
                     <label key={i} className="block">
@@ -592,9 +617,9 @@ export function TemplatesSettings({
                       <Select
                         value={form.bindings[i] || ''}
                         onChange={(v) => setSlotBinding(i, v)}
-                        options={BINDING_OPTIONS}
+                        options={bindingOptions(t)}
                         searchable
-                        ariaLabel={`Value for placeholder ${i + 1}`}
+                        ariaLabel={t('library.wa.valueForSlot', { slot: i + 1 })}
                       />
                     </label>
                   ))}
@@ -605,20 +630,20 @@ export function TemplatesSettings({
             {vars > 0 && !sandbox && (
               <label className="block">
                 <span className="mb-1 block text-[12px] font-semibold text-text-high">
-                  Example values ({vars} placeholder{vars > 1 ? 's' : ''})
+                  {t('library.wa.exampleValues', { count: vars })}
                 </span>
                 <input
                   value={form.example}
                   onChange={(e) => setForm({ ...form, example: e.target.value })}
-                  placeholder="Aisyah, 12 Oct, 3pm"
+                  placeholder={t('library.wa.examplePlaceholder')}
                   className={inputCls}
                 />
-                <span className="mt-1 block text-[11.5px] text-text-muted">Comma-separated samples for Meta’s reviewers.</span>
+                <span className="mt-1 block text-[11.5px] text-text-muted">{t('library.wa.exampleHint')}</span>
               </label>
             )}
 
             <div>
-              <span className="mb-1.5 block text-[12px] font-semibold text-text-high">Buttons (up to 3)</span>
+              <span className="mb-1.5 block text-[12px] font-semibold text-text-high">{t('library.wa.buttons')}</span>
               <div className="flex flex-col gap-3">
                 {form.buttons.map((b, i) => (
                   <div key={i} className="rounded-lg border border-line p-2.5">
@@ -626,22 +651,22 @@ export function TemplatesSettings({
                       <Select
                         value={b.type}
                         onChange={(v) => setButton(i, { type: v as WaButton['type'] })}
-                        options={BUTTON_TYPES}
-                        className="w-[140px] shrink-0"
-                        ariaLabel={`Button ${i + 1} type`}
+                        options={BUTTON_TYPES.map((o) => ({ value: o.value, label: t(o.lbl) }))}
+                        className="w-[150px] shrink-0"
+                        ariaLabel={t('library.wa.buttonType', { n: i + 1 })}
                       />
                       <input
                         value={b.text}
                         onChange={(e) => setButton(i, { text: e.target.value })}
-                        placeholder="Label (max 25)"
+                        placeholder={t('library.wa.buttonLabelPlaceholder')}
                         maxLength={25}
                         className={`${inputCls} min-w-[140px] flex-1 !py-1.5`}
-                        aria-label={`Button ${i + 1} label`}
+                        aria-label={t('library.wa.buttonLabel', { n: i + 1 })}
                       />
                       <button
                         type="button"
                         onClick={() => setForm({ ...form, buttons: form.buttons.filter((_, n) => n !== i) })}
-                        aria-label={`Remove button ${i + 1}`}
+                        aria-label={t('library.wa.removeButton', { n: i + 1 })}
                         className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted hover:bg-red/10 hover:text-red-300"
                       >
                         <Trash2 size={14} aria-hidden />
@@ -654,7 +679,7 @@ export function TemplatesSettings({
                           onChange={(e) => setButton(i, { url: e.target.value })}
                           placeholder="https://example.com/track"
                           className={`${inputCls} mt-2`}
-                          aria-label={`Button ${i + 1} link`}
+                          aria-label={t('library.wa.buttonLink', { n: i + 1 })}
                         />
                         <WaMeQuickInsert accounts={allAccounts} onInsert={(url) => setButton(i, { url })} />
                       </>
@@ -665,7 +690,7 @@ export function TemplatesSettings({
                         onChange={(e) => setButton(i, { phone_number: e.target.value })}
                         placeholder="+60123456789"
                         className={`${inputCls} mt-2`}
-                        aria-label={`Button ${i + 1} phone number`}
+                        aria-label={t('library.wa.buttonPhone', { n: i + 1 })}
                       />
                     )}
                   </div>
@@ -677,7 +702,7 @@ export function TemplatesSettings({
                     className="self-start"
                     onClick={() => setForm({ ...form, buttons: [...form.buttons, { type: 'QUICK_REPLY', text: '' }] })}
                   >
-                    <Plus size={13} aria-hidden /> Add button
+                    <Plus size={13} aria-hidden /> {t('library.wa.addButton')}
                   </Button>
                 )}
               </div>
@@ -690,12 +715,12 @@ export function TemplatesSettings({
         <Modal
           open
           onClose={() => !busy && setToDelete(null)}
-          title={`Delete ${toDelete.name}?`}
+          title={t('library.wa.deleteTitle', { name: toDelete.name })}
           size="sm"
           footer={
             <>
               <Button variant="secondary" onClick={() => setToDelete(null)} disabled={busy}>
-                Cancel
+                {t('common.actions.cancel')}
               </Button>
               <Button
                 variant="danger"
@@ -705,23 +730,23 @@ export function TemplatesSettings({
                   setError(null)
                   try {
                     await api(`whatsapp/templates/${encodeURIComponent(toDelete.name)}${qs}`, { method: 'DELETE' })
-                    setNotice(`“${toDelete.name}” deleted.`)
+                    setNotice(t('library.wa.deleted', { name: toDelete.name }))
                     setToDelete(null)
                     await load()
                   } catch (e) {
-                    setError(errText(e))
+                    setError(errText(e, t))
                     setToDelete(null)
                   } finally {
                     setBusy(false)
                   }
                 }}
               >
-                {busy && <Loader2 size={13} className="animate-spin" aria-hidden />} Delete
+                {busy && <Loader2 size={13} className="animate-spin" aria-hidden />} {t('common.actions.delete')}
               </Button>
             </>
           }
         >
-          <p className="text-[13px] leading-relaxed text-text-mid">This removes every language variant of the template.</p>
+          <p className="text-[13px] leading-relaxed text-text-mid">{t('library.wa.deleteBody')}</p>
         </Modal>
       )}
     </div>

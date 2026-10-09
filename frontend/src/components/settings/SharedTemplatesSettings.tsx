@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
+import { Trans, useT } from '@/i18n'
 import { hasCap } from '@/lib/auth'
 import {
   ConfirmDelete,
@@ -22,6 +23,7 @@ import {
   TemplateEditorModal,
   TemplateTable,
   api,
+  channelName,
   errText,
   type TemplateDraft,
   type TemplateRow,
@@ -50,8 +52,10 @@ export function SharedTemplatesSettings({
   openId?: string
   onOpened?: () => void
 }) {
+  const t = useT()
   const [list, setList] = useState<CannedResponse[] | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  /** the load failure, kept raw and worded at render (it follows the language) */
+  const [loadError, setLoadError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [toDelete, setToDelete] = useState<CannedResponse | null>(null)
@@ -68,7 +72,7 @@ export function SharedTemplatesSettings({
       onCount?.(d.canned.length)
     } catch (e) {
       setList(null)
-      setLoadError(errText(e))
+      setLoadError(e)
     }
   }, [onCount])
 
@@ -99,7 +103,7 @@ export function SharedTemplatesSettings({
     if (editing) await api(`messaging/canned/${editing.id}`, { method: 'PATCH', body })
     else await api('messaging/canned', { method: 'POST', body })
     setEditor(null)
-    setNotice(editing ? `/${draft.name} updated.` : `/${draft.name} saved — type it after “/” in the composer.`)
+    setNotice(editing ? t('library.quickReplies.updated', { code: draft.name }) : t('library.quickReplies.saved', { code: draft.name }))
     await load()
   }
 
@@ -112,7 +116,7 @@ export function SharedTemplatesSettings({
           name: `/${c.short_code}`,
           mono: true,
           preview: c.content,
-          type: 'Quick reply',
+          type: t('library.quickReplies.type'),
           channels: c.channels ?? [],
           entityName: c.entity_name ?? '',
           updated: c.updated_at ?? null,
@@ -132,45 +136,45 @@ export function SharedTemplatesSettings({
               }
             : undefined,
         })),
-    [list, channel, canManage],
+    [list, channel, canManage, t],
   )
 
   if (list === null && !loadError)
     return (
       <div className="flex items-center gap-2 py-8 text-[12.5px] text-text-muted">
-        <Loader2 size={14} className="animate-spin" aria-hidden /> Loading quick replies…
+        <Loader2 size={14} className="animate-spin" aria-hidden /> {t('library.quickReplies.loading')}
       </div>
     )
-  if (list === null) return <Notice tone="error">Couldn&apos;t load quick replies — {loadError}</Notice>
+  if (list === null) return <Notice tone="error">{t('library.quickReplies.loadFailed', { error: errText(loadError, t) })}</Notice>
 
   return (
     <div className="flex flex-col gap-4">
       <p className="max-w-[760px] text-[12.5px] leading-relaxed text-text-mid">
-        Agents type <code className="rounded bg-fill px-1">/short-code</code> in a conversation to insert one. Share a
-        reply across every channel, or limit it to the channels it suits. Variables like{' '}
-        <code className="rounded bg-fill px-1">{'{{first_name}}'}</code> fill from the contact&apos;s record.
+        <Trans
+          k="library.quickReplies.intro"
+          values={{
+            code: <code className="rounded bg-fill px-1">/short-code</code>,
+            variable: <code className="rounded bg-fill px-1">{'{{first_name}}'}</code>,
+          }}
+        />
       </p>
       {notice && <Notice tone="ok">{notice}</Notice>}
 
       <TemplateTable
         rows={rows}
-        searchPlaceholder="Search quick replies…"
-        empty={
-          channel
-            ? 'No quick replies are offered on that channel yet.'
-            : 'No quick replies yet — add the answers your agents type most.'
-        }
+        searchPlaceholder={t('library.quickReplies.search')}
+        empty={channel ? t('library.quickReplies.emptyChannel') : t('library.quickReplies.empty')}
         toolbarRight={
           <>
             <Select
               value={channel}
               onChange={setChannel}
-              ariaLabel="Show replies offered on"
-              className="w-[170px]"
+              ariaLabel={t('library.quickReplies.filterAria')}
+              className="w-[190px]"
               size="md"
               options={[
-                { value: '', label: 'Every channel' },
-                ...TEMPLATE_CHANNELS.map((c) => ({ value: c.id, label: `Offered on ${c.label}` })),
+                { value: '', label: t('library.quickReplies.everyChannel') },
+                ...TEMPLATE_CHANNELS.map((c) => ({ value: c.id, label: t('library.quickReplies.offeredOn', { channel: channelName(t, c.id) }) })),
               ]}
             />
             {canManage && (
@@ -180,7 +184,7 @@ export function SharedTemplatesSettings({
                   setEditor({ editing: null, initial: { name: '', content: '', entity: null, channels: [] } })
                 }}
               >
-                <Plus size={14} aria-hidden /> New quick reply
+                <Plus size={14} aria-hidden /> {t('library.editor.newQuickReply')}
               </Button>
             )}
           </>
@@ -198,12 +202,12 @@ export function SharedTemplatesSettings({
       )}
       {toDelete && (
         <ConfirmDelete
-          title={`Delete /${toDelete.short_code}?`}
-          body="It disappears from every composer it was offered in."
+          title={t('library.quickReplies.deleteTitle', { code: toDelete.short_code })}
+          body={t('library.quickReplies.deleteBody')}
           onClose={() => setToDelete(null)}
           onConfirm={async () => {
             await api(`messaging/canned/${toDelete.id}`, { method: 'DELETE' })
-            setNotice(`/${toDelete.short_code} deleted.`)
+            setNotice(t('library.quickReplies.deleted', { code: toDelete.short_code }))
             setToDelete(null)
             await load()
           }}
