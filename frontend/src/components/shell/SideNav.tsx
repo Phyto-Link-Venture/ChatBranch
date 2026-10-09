@@ -147,6 +147,7 @@ export function SideNav({
   const row = (n: NavDef) => {
     const active = isActive(pathname, n)
     const count = counter(n)
+    const needsHuman = n.counter === 'waiting' ? live?.needs_human_count ?? 0 : 0
     const label = count > 0 ? `${n.lbl} (${count})` : n.lbl
     return (
       <Link
@@ -155,7 +156,8 @@ export function SideNav({
         onClick={onCloseMobile}
         aria-current={active ? 'page' : undefined}
         aria-label={collapsed ? label : undefined}
-        onMouseEnter={(e) => showTip(e.currentTarget, label)}
+        title={!collapsed && needsHuman > 0 ? `${needsHuman} need${needsHuman === 1 ? 's' : ''} a human` : undefined}
+        onMouseEnter={(e) => showTip(e.currentTarget, needsHuman > 0 ? `${label} · ${needsHuman} need${needsHuman === 1 ? 's' : ''} a human` : label)}
         onMouseLeave={hideTip}
         onFocus={(e) => showTip(e.currentTarget, label)}
         onBlur={hideTip}

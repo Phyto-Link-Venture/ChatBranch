@@ -5,6 +5,7 @@
  * thread detail, message rows).
  */
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
+import type { UiHandover } from '@/lib/aiControls'
 
 export const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -101,6 +102,12 @@ export interface UiThreadSummary {
   /** address line: phone / email / handle */
   sub: string
   ai_enabled: boolean
+  /** Why the AI is on/off ("Off: AI is switched off for North Branch") — the AI switch's tooltip. */
+  ai_reason?: string
+  /** A rule above the per-chat tick decided (master switch, schedule, contact never…): the switch is disabled. */
+  ai_forced?: boolean
+  /** Human handover (null = never handed over). */
+  handover?: UiHandover | null
   call?: WaCall
   status?: ThreadStatus
   assignee?: string
@@ -145,6 +152,9 @@ export interface InboxRow {
   address: string
   status: ThreadStatus
   ai_enabled: boolean
+  ai_reason?: string
+  ai_forced?: boolean
+  handover?: UiHandover | null
   assignee: string
   team_id: number | null
   team_name: string
@@ -177,6 +187,9 @@ export const rowToSummary = (t: InboxRow): UiThreadSummary => ({
   name: t.contact_name || t.name,
   sub: t.address,
   ai_enabled: t.ai_enabled,
+  ai_reason: t.ai_reason,
+  ai_forced: t.ai_forced,
+  handover: t.handover ?? null,
   call: t.call,
   status: t.status,
   assignee: t.assignee,

@@ -29,7 +29,13 @@ import { useEntity } from '@/lib/EntityContext'
 import VoiceCallButton from '@/components/chats/VoiceCallButton'
 import ScriptCallButton from '@/components/chats/ScriptCallButton'
 import ActiveCallsStrip from '@/components/chats/ActiveCallsStrip'
-import ChatListPane, { type ViewTab } from '@/components/chats/ChatListPane'
+import ChatListPane, { rowRef, type ViewTab } from '@/components/chats/ChatListPane'
+import BulkBar from '@/components/chats/BulkBar'
+import HandoverBanner from '@/components/chats/HandoverBanner'
+import { useLive } from '@/components/shell/liveStore'
+import { useAccess } from '@/lib/useAccess'
+import { useEntityQuery } from '@/lib/EntityContext'
+import type { UiHandover } from '@/lib/aiControls'
 import ChatFilterModal from '@/components/chats/ChatFilterModal'
 import ChatInfoPanel, { type LinkContact } from '@/components/chats/ChatInfoPanel'
 import SavedViewsManager from '@/components/chats/SavedViewsManager'
@@ -138,6 +144,8 @@ const BUILTIN_VIEWS: { id: string; name: string; filters: InboxFilters }[] = [
   { id: 'all', name: 'All', filters: EMPTY_FILTERS },
   { id: 'mine', name: 'Mine', filters: { ...EMPTY_FILTERS, assignees: ['me'] } },
   { id: 'unassigned', name: 'Unassigned', filters: { ...EMPTY_FILTERS, assignees: ['unassigned'] } },
+  // conversations the AI (or a rule, a flow, a person) handed to a human, not yet answered
+  { id: 'needs_human', name: 'Needs human', filters: { ...EMPTY_FILTERS, handover: 'open' } },
 ]
 const VIEW_KEY = 'chats-view'
 
@@ -176,6 +184,15 @@ function ChatsPage() {
   const [manageOpen, setManageOpen] = useState(false)
   const listSeq = useRef(0)
   const loadedCount = useRef(PAGE)
+  // ── multi-select (bulk bar) + the "Needs human" count ──
+  const access = useAccess()
+  const canBulk = access.ready && access.can('chats.manage')
+  const canSendChats = access.ready && access.can('chats.send')
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedRefs, setSelectedRefs] = useState<Set<string>>(new Set())
+  const [allMatching, setAllMatching] = useState(false)
+  const { data: liveData } = useLive(useEntityQuery())
+  const needsHumanCount = liveData?.needs_human_count ?? null
 
   // ── conversation state ──
   const [active, setActive] = useState<UiThread | null>(null)
@@ -277,6 +294,12 @@ function ChatsPage() {
     refreshThreads()
   }, [refreshThreads])
 
+  // a selection belongs to the list it was made in
+  useEffect(() => {
+    setSelectedRefs(new Set())
+    setAllMatching(false)
+  }, [listParams])
+
   const loadMore = async () => {
     if (!nextCursor) return
     setLoadingMore(true)
@@ -315,6 +338,9 @@ function ChatsPage() {
           phone: string
           name: string
           ai_enabled: boolean
+          ai_reason?: string
+          ai_forced?: boolean
+          handover?: UiHandover | null
           status?: ThreadStatus
           assignee?: string
           team_id?: number | null
@@ -336,6 +362,9 @@ function ChatsPage() {
           // a WhatsApp id is bare digits — show it as the phone number it is
           sub: /^\d+$/.test(t.phone) ? `+${t.phone}` : t.phone,
           ai_enabled: t.ai_enabled,
+          ai_reason: t.ai_reason,
+          ai_forced: t.ai_forced,
+          handover: t.handover ?? null,
           status: t.status ?? 'open',
           assignee: t.assignee,
           team_id: t.team_id ?? null,
@@ -357,6 +386,9 @@ function ChatsPage() {
           address: string
           name: string
           ai_enabled: boolean
+          ai_reason?: string
+          ai_forced?: boolean
+          handover?: UiHandover | null
           status: ThreadStatus
           assignee: string
           team_id?: number | null
@@ -376,6 +408,9 @@ function ChatsPage() {
           name: t.contact_name || t.name,
           sub: t.address,
           ai_enabled: t.ai_enabled,
+          ai_reason: t.ai_reason,
+          ai_forced: t.ai_forced,
+          handover: t.handover ?? null,
           status: t.status,
           assignee: t.assignee,
           team_id: t.team_id ?? null,
@@ -898,7 +933,12 @@ function ChatsPage() {
   }
   const activeSaved = views.find((v) => `v:${v.id}` === activeView)
   const tabs: ViewTab[] = [
-    ...BUILTIN_VIEWS.map((b) => ({ id: b.id, name: b.name, active: sameFilters(filters, b.filters) })),
+    ...BUILTIN_VIEWS.map((b) => ({
+      id: b.id,
+      name: b.name,
+      active: sameFilters(filters, b.filters),
+      count: b.id === 'needs_human' ? needsHumanCount : undefined,
+    })),
     ...views.map((v) => {
       const id = `v:${v.id}`
       const on = activeView === id
@@ -1059,6 +1099,7 @@ function ChatsPage() {
         ...rows[0],
         labels: Array.from(new Set(rows.flatMap((r) => r.labels ?? []))),
         waiting: rows.some((r) => r.waiting),
+        handover: rows.find((r) => r.handover?.open)?.handover ?? rows[0].handover,
         _mergedChannels: Array.from(new Set(rows.map((r) => r.channel))),
       }
     })
@@ -1187,6 +1228,28 @@ function ChatsPage() {
 
   const noteMode = composerMode === 'note'
 
+  // multi-select: a merged row (one contact, several channels) stands for all of its conversations
+  const toggleSelect = (row: UiThreadSummary) => {
+    const refs =
+      (row._mergedChannels?.length ?? 0) > 1 && row.contact_id != null
+        ? threads.filter((t) => t.contact_id === row.contact_id).map(rowRef)
+        : [rowRef(row)]
+    setAllMatching(false)
+    setSelectedRefs((prev) => {
+      const next = new Set(prev)
+      const on = refs.every((r) => next.has(r))
+      refs.forEach((r) => (on ? next.delete(r) : next.add(r)))
+      return next
+    })
+  }
+  const exitSelect = () => {
+    setSelectMode(false)
+    setSelectedRefs(new Set())
+    setAllMatching(false)
+  }
+  const [meName, setMeName] = useState<string | null>(null)
+  useEffect(() => setMeName(access.user?.username ?? null), [access.user])
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ActiveCallsStrip onOpenContact={openContactThread} activeContactId={active?.contact_id} />
@@ -1217,6 +1280,30 @@ function ChatsPage() {
           onManageViews={() => setManageOpen(true)}
           onSaveViewChanges={activeSaved ? saveViewChanges : undefined}
           hidden={!!active}
+          selectMode={selectMode}
+          selected={selectedRefs}
+          onToggleSelect={toggleSelect}
+          onToggleSelectMode={canBulk ? () => (selectMode ? exitSelect() : setSelectMode(true)) : undefined}
+          footer={
+            selectMode && (selectedRefs.size > 0 || allMatching) ? (
+              <BulkBar
+                selected={Array.from(selectedRefs)}
+                total={total}
+                allMatching={allMatching}
+                onAllMatching={setAllMatching}
+                listParams={listParams}
+                agents={agents}
+                onClear={() => {
+                  setSelectedRefs(new Set())
+                  setAllMatching(false)
+                }}
+                onDone={() => {
+                  refreshThreads()
+                  refreshActive()
+                }}
+              />
+            ) : null
+          }
         />
 
         {/* ── conversation (paper) ── */}
@@ -1280,11 +1367,15 @@ function ChatsPage() {
                   {active.channel !== 'email' && (
                     <button
                       onClick={toggleAi}
-                      disabled={busy || optedOut}
+                      disabled={busy || optedOut || !!active.ai_forced}
                       role="switch"
                       aria-checked={!!active.ai_enabled && !optedOut}
-                      title={optedOut ? 'Customer opted out — AI disabled' : active.ai_enabled ? 'Turn AI off' : 'Turn AI on'}
-                      aria-label="Toggle AI auto-reply"
+                      // the server's reason: "Off: AI is switched off for North Branch", "On: switched on for this chat"…
+                      title={
+                        active.ai_reason ||
+                        (optedOut ? 'Customer opted out — AI disabled' : active.ai_enabled ? 'Turn AI off' : 'Turn AI on')
+                      }
+                      aria-label={`Toggle AI auto-reply${active.ai_reason ? ` — ${active.ai_reason}` : ''}`}
                       className={`flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                         active.ai_enabled && !optedOut
                           ? 'border-line-strong bg-[var(--nav-active-bg)] text-[color:var(--nav-active-text)]'
@@ -1672,6 +1763,20 @@ function ChatsPage() {
                 </div>
               ) : (
                 <>
+                {activeId && active && (
+                  <HandoverBanner
+                    channel={activeId.channel}
+                    threadKey={activeId.key}
+                    handover={active.handover}
+                    assignee={active.assignee}
+                    me={meName}
+                    canAct={canSendChats}
+                    onChanged={() => {
+                      refreshActive()
+                      refreshThreads()
+                    }}
+                  />
+                )}
                 {activeId && (
                   <PendingDraftBanner
                     channel={activeId.channel}

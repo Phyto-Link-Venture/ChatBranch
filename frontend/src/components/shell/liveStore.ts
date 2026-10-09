@@ -58,6 +58,8 @@ export interface LiveData {
   active_calls: LiveCall[]
   waiting_count: number
   waiting: LiveWaiting[]
+  /** conversations handed to a person and not yet answered (Ai/Handover) */
+  needs_human_count?: number
   recent: LiveEvent[]
 }
 

@@ -38,6 +38,10 @@ export interface InboxFilters {
   waiting: boolean
   call: '' | 'any' | 'live'
   linked: TriState
+  /** human handover: open = waiting for a person · any = ever handed over · none = never */
+  handover: '' | 'open' | 'any' | 'none'
+  /** handover kinds (any of) — check_failed, asked_for_human, … */
+  handoverKinds: string[]
   active: DateRange
   created: DateRange
   sort: Sort
@@ -59,6 +63,8 @@ export const EMPTY_FILTERS: InboxFilters = {
   waiting: false,
   call: '',
   linked: '',
+  handover: '',
+  handoverKinds: [],
   active: { preset: '' },
   created: { preset: '' },
   sort: 'newest',
@@ -81,6 +87,8 @@ export function normalizeFilters(raw: unknown): InboxFilters {
     entities: Array.isArray(r.entities) ? r.entities : null,
     labels: arr(r.labels),
     tags: arr(r.tags),
+    handover: r.handover === 'open' || r.handover === 'any' || r.handover === 'none' ? r.handover : '',
+    handoverKinds: arr(r.handoverKinds),
     labelsMode: r.labelsMode === 'all' ? 'all' : 'any',
     waiting: r.waiting === true,
     active: range(r.active),
@@ -175,6 +183,8 @@ export function filtersToParams(f: InboxFilters, opts: { q?: string; entity?: st
   if (f.waiting) p.set('waiting', '1')
   if (f.call) p.set('call', f.call)
   if (f.linked) p.set('linked', f.linked === 'yes' ? '1' : '0')
+  if (f.handover) p.set('handover', f.handover)
+  list('handover_kind', f.handoverKinds)
   if (rangeActive(f.active)) {
     const b = rangeBounds(f.active)
     if (b.from) p.set('active_from', b.from)
@@ -250,6 +260,17 @@ export function activeChips(f: InboxFilters, l: ChipLookups): FilterChip[] {
   if (f.optedOut) add('optedOut', f.optedOut === 'yes' ? 'Opted out' : 'Not opted out', (x) => ({ ...x, optedOut: '' }))
   if (f.call) add('call', f.call === 'live' ? 'Call in progress' : 'Has a call', (x) => ({ ...x, call: '' }))
   if (f.linked) add('linked', f.linked === 'yes' ? 'Linked to a contact' : 'Not linked', (x) => ({ ...x, linked: '' }))
+  if (f.handover)
+    add(
+      'handover',
+      f.handover === 'open' ? 'Needs a human' : f.handover === 'any' ? 'Ever handed over' : 'Never handed over',
+      (x) => ({ ...x, handover: '' }),
+    )
+  if (f.handoverKinds.length)
+    add('handoverKinds', `Handover: ${joinNames(f.handoverKinds.map((k) => k.replace(/_/g, ' ')))}`, (x) => ({
+      ...x,
+      handoverKinds: [],
+    }))
   if (rangeActive(f.active)) add('active', `Active ${rangeLabel(f.active)}`, (x) => ({ ...x, active: { preset: '' } }))
   if (rangeActive(f.created)) add('created', `Created ${rangeLabel(f.created)}`, (x) => ({ ...x, created: { preset: '' } }))
   return chips
