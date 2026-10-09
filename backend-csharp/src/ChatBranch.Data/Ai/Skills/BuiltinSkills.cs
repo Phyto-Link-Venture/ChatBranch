@@ -40,7 +40,19 @@ public static class BuiltinSkills
             "{\"type\":\"object\",\"properties\":{\"time\":{\"type\":\"string\",\"description\":\"ISO date-time or HH:mm; defaults to now\"}," +
             "\"from\":{\"type\":\"string\",\"description\":\"IANA timezone of `time`; defaults to the business timezone\"}," +
             "\"to\":{\"type\":\"string\",\"description\":\"IANA timezone to convert into\"}},\"required\":[\"to\"]}"),
+        new Builtin(RequestHandover, "Hand over to a person",
+            "Flag this conversation for a person on the team. Call it whenever a hand-over rule in your instructions "
+            + "applies (a complaint, a claim or compensation, a large or corporate order, an unhappy customer…), when "
+            + "the customer asks for a person and you agree, or whenever you tell the customer a teammate will take "
+            + "it from here. Staff are alerted only through this call. Still write your reply to the customer.",
+            "{\"type\":\"object\",\"properties\":{\"reason\":{\"type\":\"string\"," +
+            "\"description\":\"One short line for the staff member: why a person is needed.\"}},\"required\":[\"reason\"]}"),
     };
+
+    /// <summary>The built-in the model calls to hand the conversation to a person
+    /// (<see cref="AiReplyResult.HandoverAsked"/>). The call itself is pure — the
+    /// AI gate marks the handover when the reply is delivered.</summary>
+    public const string RequestHandover = "request_handover";
 
     private static readonly HashSet<string> Names = All.Select(b => b.Name).ToHashSet();
 
@@ -81,6 +93,14 @@ public static class BuiltinSkills
                 Arg(args, "to") is { Length: > 0 } to
                     ? ResolveTimeZone(to) ?? throw new ArgumentException($"unknown timezone '{to}'")
                     : throw new ArgumentException("`to` is required")),
+            RequestHandover => new
+            {
+                ok = true,
+                handover = "requested",
+                reason = Arg(args, "reason") ?? "",
+                note = "A person on the team will be alerted when your reply is sent. Tell the customer a teammate "
+                       + "will follow up; do not promise a time or an outcome.",
+            },
             _ => throw new ArgumentException($"unknown built-in '{name}'"),
         };
         return JsonSerializer.Serialize(result);

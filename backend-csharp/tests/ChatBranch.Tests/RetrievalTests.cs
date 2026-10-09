@@ -133,6 +133,37 @@ public class RetrievalTests
     }
 
     [Fact]
+    public void Chinese_is_split_into_bigrams_at_every_script_change()
+    {
+        Assert.Equal(new[] { "寄", "5", "公斤", "kl", "吉隆", "隆坡" }, TextAnalysis.Words("寄5公斤 KL吉隆坡"));
+        Assert.Equal(new[] { "灯" }, TextAnalysis.Terms("灯"));               // a lone character is a word
+        Assert.Contains("槟城", TextAnalysis.Terms("从吉隆坡到槟城多少钱？"));
+        var chunks = TextAnalysis.Chunk(new string('字', 500) + "。" + new string('文', 500), 700, 800);
+        Assert.Equal(2, chunks.Count);
+        Assert.EndsWith("字。", chunks[0]); // 。 ends a sentence with no space after it
+    }
+
+    [Fact]
+    public void Bm25_finds_a_chinese_question_without_spaces()
+    {
+        using var t = new TestDb();
+        var sc = new ScopingService(t.Db);
+        var showroom = Item(t.Db, "faq", "Melaka showroom", "Open Monday to Saturday 10am–7pm, closed on Sunday.",
+            question: "Melaka showroom hours");
+        showroom.Tags = new List<string> { "展厅", "营业时间" };
+        var times = Item(t.Db, "faq", "Delivery times", "Peninsular: 1–3 working days. 半岛 1–3 个工作日送达。");
+        times.Tags = new List<string> { "几天", "送达" };
+        t.Db.SaveChanges();
+        var knowledge = new KnowledgeService(t.Db, sc);
+
+        var zh = knowledge.Compose("你好，马六甲的展厅星期天有开吗？", null, "whatsapp");
+        Assert.Equal(showroom.Id, zh.Hits.First(h => h.Type == "knowledge").Id);
+
+        var days = knowledge.Compose("寄5公斤的包裹从吉隆坡到槟城几天到？", null, "whatsapp");
+        Assert.Equal(times.Id, days.Hits.First(h => h.Type == "knowledge").Id);
+    }
+
+    [Fact]
     public void Standing_knowledge_is_always_in_and_long_documents_come_back_by_chunk()
     {
         using var t = new TestDb();

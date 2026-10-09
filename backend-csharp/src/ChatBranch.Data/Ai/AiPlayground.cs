@@ -83,7 +83,7 @@ public static class AiPlayground
         var review = AiGate.Review(policy, flags, r.Action, canned: false);
         if (review.Status == AiGateStatus.Shadow)
             return P(Verdicts.Hold, AiGate.ShadowReason, "shadow", shadow: true);
-        var kind = Handover.KindForAiDraft(AiDraftKind.Reply, text, r.Action, canned: false);
+        var kind = Handover.KindForAiDraft(AiDraftKind.Reply, text, r.Action, canned: false, asked: r.HandoverAsked);
         if (r.Action == AiActions.Block)
             return P(Verdicts.Blocked, $"A reply check blocked it: {r.Reason}. It waits for a person.", null, kind);
         if (r.Action == AiActions.Handover)

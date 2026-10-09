@@ -316,6 +316,7 @@ public static class AiSkillsEndpoints
                 ["date_add"] = "{\"amount\":3,\"unit\":\"business_days\"}",
                 ["days_between"] = $"{{\"from\":\"{TimeZoneInfo.ConvertTime(now, tz).AddDays(-30):yyyy-MM-dd}\"}}",
                 ["convert_timezone"] = "{\"to\":\"Europe/London\"}",
+                [BuiltinSkills.RequestHandover] = "{\"reason\":\"The customer asks for compensation above the standard limit\"}",
             };
             return Results.Ok(new
             {

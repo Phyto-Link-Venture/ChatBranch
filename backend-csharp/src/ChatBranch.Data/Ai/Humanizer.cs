@@ -242,12 +242,36 @@ public static class Humanizer
         "i cannot confirm", "i can't confirm", "unable to confirm", "i'm unable to",
     };
 
+    // Wording that commits the conversation to a person. Substring matches on
+    // the lower-cased reply, in English, Malay and Chinese.
     private static readonly string[] HandoverPhrases =
     {
+        // EN
         "connect you with", "transfer you", "a human agent", "a member of our team will",
         "a colleague will", "someone from our team will", "speak to a human", "human representative",
-        "hand you over", "pass this to",
+        "hand you over", "pass this to", "pass your case to", "pass your claim to", "pass your request to",
+        "pass your details to", "pass everything to", "passing it to", "passing this to", "passing your",
+        "hand this over", "hand over your case", "handing this over", "handing you over", "escalate this to",
+        "escalating this to", "our sales team will", "our team will contact",
+        "customer care will", "customer service will", "after-sales support will", "support team will",
+        "i'll pass", "i will pass", "i’ll pass",
+        // MS
+        "serahkan kepada", "serahkan pertanyaan", "serahkan kes", "panjangkan kepada", "pasukan kami akan",
+        "akan menghubungi anda", "hubungkan anda dengan",
+        // ZH
+        "转给", "转交", "转接", "客服团队会", "销售团队会", "同事会联系", "同事会跟进", "专人联系", "人工客服",
     };
+
+    // A sentence that only OFFERS a person ("Would you like me to connect you
+    // with…?", "I can pass this to…") is not a handover until the customer
+    // accepts — the reply that follows then commits to it.
+    private static readonly Regex OfferMarker = new(
+        @"\b(would you like|do you want|shall i|should i|can i|may i|i can(?!'|’|not|t\b)|i could|if you'd like|if you would like|if you want|if you prefer|let me know if|want me to)\b"
+        + @"|\b(adakah anda mahu|anda mahu saya|mahu saya|boleh saya|saya boleh|jika anda mahu|kalau anda mahu)\b"
+        + @"|需要我|要不要|要我|我可以|如果您需要|如果你需要|是否需要",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex HandoverSentence = new(@"[^.!?。！？\n]+[.!?。！？]?", RegexOptions.Compiled);
 
     /// <summary>The reply hedges — a low-confidence signal.</summary>
     public static bool Hedges(string? text)
@@ -256,10 +280,21 @@ public static class Humanizer
         return HedgePhrases.Any(t.Contains);
     }
 
-    /// <summary>The reply hands the conversation to a person.</summary>
+    /// <summary>
+    /// The reply hands the conversation to a person — a sentence that commits
+    /// to it, not one that only offers it.
+    /// </summary>
     public static bool HandsOver(string? text)
     {
         var t = (text ?? "").ToLower(CultureInfo.InvariantCulture);
-        return HandoverPhrases.Any(t.Contains);
+        if (!HandoverPhrases.Any(t.Contains)) return false;
+        foreach (Match m in HandoverSentence.Matches(t))
+        {
+            var sentence = m.Value.Trim();
+            if (!HandoverPhrases.Any(sentence.Contains)) continue;
+            var offer = sentence.EndsWith('?') || sentence.EndsWith('？') || OfferMarker.IsMatch(sentence);
+            if (!offer) return true;
+        }
+        return false;
     }
 }

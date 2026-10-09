@@ -919,6 +919,10 @@ export const ai: Dict<typeof source> = {
       label: '时区转换',
       description: '将某个日期时间（或今天的 HH:mm 时间）从一个时区转换到另一个时区。',
     },
+    requestHandover: {
+      label: '转交人工',
+      description: '当适用转交规则，或 AI 告诉客户会有同事跟进时，将此对话标记给团队成员处理。',
+    },
   },
   wizard: {
     examples: {

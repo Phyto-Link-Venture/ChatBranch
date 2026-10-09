@@ -946,6 +946,10 @@ export const ai: Dict<typeof source> = {
       label: 'Tukar zon waktu',
       description: 'Tukar tarikh-masa (atau masa HH:mm hari ini) dari satu zon waktu ke zon waktu lain.',
     },
+    requestHandover: {
+      label: 'Serahkan kepada orang',
+      description: 'Menandakan perbualan untuk ahli pasukan apabila peraturan serahan terpakai atau AI memberitahu pelanggan bahawa rakan sepasukan akan menyusul.',
+    },
   },
   wizard: {
     examples: {
