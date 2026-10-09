@@ -368,6 +368,7 @@ public class AiGate
         var booking = ConfirmBookings(draft, humanDecision ? draft.DecidedBy : "ai");
         if (!booking.Ok)
         {
+            Handover.Mark(_db, thread, HandoverKinds.BookingFailed, booking.Reason, "ai", note: false, notify: false);
             Fail(draft, booking.Reason);
             HandOver(thread);
             return Outcome(AiGateStatus.Blocked, draft.Id, booking.Reason);

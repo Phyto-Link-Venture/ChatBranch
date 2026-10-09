@@ -1,6 +1,7 @@
 using System.Text.Json;
 using ChatBranch.Data;
 using ChatBranch.Data.Ai;
+using ChatBranch.Data.Bookings;
 using ChatBranch.Data.Channels;
 using ChatBranch.Data.Flows;
 using ChatBranch.Data.Stores;
@@ -583,6 +584,36 @@ public class AiControlsTests
         Assert.Equal(ThreadStatus.Open, t2.Status);                                     // the team's queue picks it up
         Assert.False(t2.AiEnabled);
         _ = c;
+    }
+
+    [Fact]
+    public void A_booking_that_fails_at_send_time_hands_over_as_booking_failed()
+    {
+        using var r = new BookingRig();
+        var c = r.Contact();
+        r.Skill(new { source = "chatbranch" });
+        r.Set("ai_review_mode", "review_all");
+        r.Say("60123000001", "Book me in please");
+        var draft = Assert.Single(r.Drafts());
+        var held = Assert.Single(r.FreshBookings());
+        // the hold lapsed and someone else took that very time
+        r.Db.Bookings.First(b => b.Id == held.Id).Status = BookingStatus.Released;
+        r.Db.Bookings.Add(new Booking
+        {
+            ContactId = c.Id + 100, SkillId = "cal-1", CalendarKey = held.CalendarKey, Status = BookingStatus.Booked,
+            StartUtc = held.StartUtc, EndUtc = held.EndUtc, Timezone = held.Timezone,
+            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+        });
+        r.Db.SaveChanges();
+
+        Assert.Equal(AiGateStatus.Blocked, r.Gate.Approve(draft.Id, "admin").Status);
+        var t = r.T.Fresh().Threads.Single();
+        Assert.True(Handover.IsOpen(t));
+        Assert.Equal(HandoverKinds.BookingFailed, t.HandoverKind);   // not a generic send_blocked
+        Assert.Equal(1, t.HandoverCount);
+        Assert.Contains("booking could not be made", t.HandoverReason);
+        // the booking's own note is the only one (no duplicate handover note)
+        Assert.Single(r.Messages("60123000001").Where(m => m.Private));
     }
 
     [Fact]
