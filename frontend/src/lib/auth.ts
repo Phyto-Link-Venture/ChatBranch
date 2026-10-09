@@ -74,6 +74,8 @@ export const CAPABILITY_CATALOG: { capability: string; area: string; label: stri
   { capability: 'api_keys.manage', area: 'Admin', label: 'Manage API keys & MCP', lbl: 'admin.caps.apiKeysManage' },
   { capability: 'ai.monitor', area: 'AI', label: 'See & approve AI drafts', lbl: 'admin.caps.aiMonitor' },
   { capability: 'ai.behaviour.manage', area: 'AI', label: 'Edit AI behaviour settings', lbl: 'admin.caps.aiBehaviourManage' },
+  { capability: 'billing.view', area: 'Review', label: 'View the AI usage bill', lbl: 'admin.caps.billingView' },
+  { capability: 'billing.manage', area: 'Settings', label: 'Set AI billing markup & see costs', lbl: 'admin.caps.billingManage' },
 ]
 
 const CAP_KEY = new Map<string, MessageKey>(CAPABILITY_CATALOG.map((c) => [c.capability, c.lbl]))
@@ -148,7 +150,9 @@ const ALL_CAPS = CAPABILITY_CATALOG.map((c) => c.capability)
  */
 export const DEFAULT_ROLE_CAPS: Record<Role, string[]> = {
   superadmin: ALL_CAPS,
-  admin: ALL_CAPS.filter((c) => c !== 'rbac.manage' && c !== 'app_keys.manage' && c !== 'settings.ai_keys.manage'),
+  admin: ALL_CAPS.filter(
+    (c) => c !== 'rbac.manage' && c !== 'app_keys.manage' && c !== 'settings.ai_keys.manage' && c !== 'billing.manage',
+  ),
   agent: [
     'contacts.view',
     'chats.view',

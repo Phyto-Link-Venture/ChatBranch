@@ -31,6 +31,9 @@ public class LlmUsage
     public string Channel { get; set; } = "";
     public int? ContactId { get; set; }
     public Contact? Contact { get; set; }
+    /// <summary>The outlet the call was made for (the AI bill's company = its top-level
+    /// entity). Null = not known at write time — the bill falls back to the contact's entity.</summary>
+    public int? EntityId { get; set; }
     public string Ref { get; set; } = "";
     public int PromptTokens { get; set; }
     public int CompletionTokens { get; set; }

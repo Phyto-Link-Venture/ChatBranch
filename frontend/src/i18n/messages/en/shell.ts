@@ -15,6 +15,8 @@ export const shell = {
     templates: 'Templates',
     knowledge: 'Knowledge base',
     skills: 'AI skills',
+    aiPersona: 'Persona & rules',
+    aiBill: 'AI bill',
     tags: 'Tags',
     channels: 'Channels',
     integrations: 'Integrations',

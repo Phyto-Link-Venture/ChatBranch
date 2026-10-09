@@ -18,7 +18,8 @@ namespace ChatBranch.Api.Endpoints;
 /// </summary>
 public static class AiEndpoints
 {
-    public record PersonaWrite(string Persona, string? Entity);
+    public record PersonaWrite(string? Persona, string? Entity,
+        [property: System.Text.Json.Serialization.JsonPropertyName("house_rules")] string? HouseRules = null);
     /// <remarks>
     /// EVERY field is optional so PATCH is a real partial update: the list's
     /// on/off button sends `{"active": false}` alone, and non-nullable Kind /
@@ -39,37 +40,56 @@ public static class AiEndpoints
 
     public static void MapAiEndpoints(this IEndpointRouteBuilder app)
     {
-        // ---- persona -----------------------------------------------------------
+        // ---- persona + house rules ----------------------------------------------
+        // The persona is ONE value: the nearest level of the entity tree that sets
+        // it wins (outlet → parent → … → organization → built-in default). House
+        // rules ADD UP: an outlet keeps every rule above it and adds its own.
         app.MapGet("/api/aicore/persona", async (string? entity, AppDbContext db,
-            PersonaService persona, ScopingService sc) =>
+            PersonaService persona, ScopingService sc, ClaimsPrincipal me) =>
         {
-            var entityId = await InboxEndpoints.EntityId(db, entity);
-            var ent = await EntityRow(db, entityId);
-            // Wire shape = aicore/views.py _persona_payload (snake_case). `is_default`
-            // is what the UI reads to label the box "built-in default" — it must be
-            // the STORED value being empty, not the resolved text matching
-            // DEFAULT_PERSONA (an operator who typed the default back in is still
-            // overriding it).
-            return Results.Ok(new
-            {
-                persona = persona.PersonaBody(entityId),
-                is_default = string.IsNullOrWhiteSpace(sc.SettingValue("aicore_persona", entityId)),
-                @default = PersonaService.DefaultPersona,
-                hard_rules = PersonaService.HardRules,
-                entity = ent?.Slug,
-                entity_name = ent?.Name ?? "",
-                scope = sc.SettingScope("aicore_persona", entityId),
-                global_persona = persona.PersonaBody(null),
-            });
+            var (entityId, err) = await AiControlsEndpoints.EntityArg(db, entity);
+            if (err != null) return err;
+            return Results.Ok(await PersonaPayload(db, persona, sc, me, entityId));
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
-        app.MapPut("/api/aicore/persona", async (PersonaWrite body, AppDbContext db, ScopingService sc) =>
+        app.MapPut("/api/aicore/persona", async (PersonaWrite body, AppDbContext db, PersonaService persona,
+            ScopingService sc, ClaimsPrincipal me) =>
         {
-            var entityId = await InboxEndpoints.EntityId(db, body.Entity);
-            try { sc.SetSetting("aicore_persona", body.Persona, entityId); }
-            catch (InvalidOperationException ex) { return Results.Json(new { detail = ex.Message }, statusCode: 400); }
-            return Results.Ok(new { persona = sc.SettingValue("aicore_persona", entityId) });
-        }).RequireAuthorization(AuthPolicies.SuperAdmin);
+            var (entityId, err) = await AiControlsEndpoints.EntityArg(db, body.Entity);
+            if (err != null) return err;
+            if (!AiControlsEndpoints.MayEdit(db, sc, me, entityId))
+                return Results.Json(new
+                {
+                    detail = entityId == null
+                        ? "Only an admin can change the organization-wide persona and house rules."
+                        : "That outlet is outside your scope.",
+                }, statusCode: 403);
+            if (body.Persona == null && body.HouseRules == null)
+                return Results.BadRequest(new { detail = "Send persona and/or house_rules." });
+            if ((body.Persona?.Length ?? 0) > 8000)
+                return Results.BadRequest(new { detail = "The persona is too long (8000 characters at most)." });
+            if ((body.HouseRules?.Length ?? 0) > PersonaService.MaxHouseRuleChars)
+                return Results.BadRequest(new { detail = $"House rules are too long ({PersonaService.MaxHouseRuleChars} characters at most)." });
+
+            var changed = new List<string>();
+            void Write(string key, string? value)
+            {
+                var v = (value ?? "").Trim();
+                // an outlet's blank value = no override: drop the row so it inherits again
+                if (v.Length == 0 && entityId != null) sc.ClearSetting(key, entityId);
+                else sc.SetSetting(key, v, entityId);
+            }
+            if (body.Persona != null) { Write("aicore_persona", body.Persona); changed.Add("persona"); }
+            if (body.HouseRules != null)
+            {
+                Write(PersonaService.HouseRulesKey, string.Join("\n", PersonaService.SplitRules(body.HouseRules)));
+                changed.Add("house rules");
+            }
+            var ent = await EntityRow(db, entityId);
+            ChatBranch.Data.Audit.AuditTrail.Write(db, "ai.persona", ent != null ? $"entity:{ent.Slug}" : "global",
+                $"Updated the {string.Join(" and ", changed)}", entityId: entityId);
+            return Results.Ok(await PersonaPayload(db, persona, sc, me, entityId));
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
         // ---- knowledge base ----------------------------------------------------
         app.MapGet("/api/aicore/knowledge", async (string? entity, AppDbContext db, ScopingService sc,
@@ -348,6 +368,64 @@ public static class AiEndpoints
     };
 
     /// <summary>Resolve an entity row for its slug/name, or null for "All entities".</summary>
+    /// <summary>
+    /// What the persona editor shows for one level: the effective persona and
+    /// where it comes from, this level's own override, what it would inherit
+    /// without one, and the house rules — inherited (read-only here) + its own.
+    /// </summary>
+    internal static async Task<object> PersonaPayload(AppDbContext db, PersonaService persona, ScopingService sc,
+        ClaimsPrincipal me, int? entityId)
+    {
+        var ent = await EntityRow(db, entityId);
+        var names = await db.Entities.AsNoTracking()
+            .Select(e => new { e.Id, e.Name, e.Slug }).ToDictionaryAsync(e => e.Id);
+        object Level(int? at) => at is int i && names.TryGetValue(i, out var n)
+            ? new { scope = at == entityId ? "entity" : "parent", entity = n.Slug, entity_name = n.Name }
+            : new { scope = "organization", entity = (string?)null, entity_name = "the organization" };
+
+        var (value, at) = sc.SettingSource("aicore_persona", entityId);
+        var own = entityId is int eid
+            ? (await db.Settings.AsNoTracking().Where(x => x.Key == "aicore_persona" && x.EntityId == eid)
+                .Select(x => x.Value).FirstOrDefaultAsync() ?? "").Trim()
+            : value;
+        // what this level would use without its own override: the level above's answer
+        var parentId = entityId is int pid
+            ? await db.Entities.AsNoTracking().Where(e => e.Id == pid).Select(e => e.ParentId).FirstOrDefaultAsync()
+            : null;
+        var (aboveValue, aboveAt) = entityId == null ? ("", (int?)null) : sc.SettingSource("aicore_persona", parentId);
+        if (entityId != null && parentId == null) (aboveValue, aboveAt) = (sc.SettingValue("aicore_persona", null), null);
+
+        var rules = persona.HouseRules(entityId);
+        return new
+        {
+            persona = value.Length > 0 ? value : PersonaService.DefaultPersona,
+            is_default = value.Length == 0,
+            source = value.Length > 0 ? Level(at) : new { scope = "default", entity = (string?)null, entity_name = "the built-in default" },
+            own_persona = own,
+            inherited_persona = aboveValue.Length > 0 ? aboveValue : PersonaService.DefaultPersona,
+            inherited_source = aboveValue.Length > 0 ? Level(aboveAt)
+                : new { scope = "default", entity = (string?)null, entity_name = "the built-in default" },
+            @default = PersonaService.DefaultPersona,
+            hard_rules = PersonaService.HardRules,
+            house_rules = new
+            {
+                own = rules.Where(r => r.At == entityId).Select(r => r.Rule).ToList(),
+                inherited = rules.Where(r => r.At != entityId).Select(r => new
+                {
+                    rule = r.Rule,
+                    from = Level(r.At),
+                }).ToList(),
+                max_chars = PersonaService.MaxHouseRuleChars,
+            },
+            preamble = persona.SystemPreamble(entityId),
+            entity = ent?.Slug,
+            entity_name = ent?.Name ?? "",
+            scope = sc.SettingScope("aicore_persona", entityId),
+            global_persona = persona.PersonaBody(null),
+            can_manage = AiControlsEndpoints.MayEdit(db, sc, me, entityId),
+        };
+    }
+
     private static async Task<Entity?> EntityRow(AppDbContext db, int? entityId) =>
         entityId is int eid
             ? await db.Entities.AsNoTracking().FirstOrDefaultAsync(e => e.Id == eid)

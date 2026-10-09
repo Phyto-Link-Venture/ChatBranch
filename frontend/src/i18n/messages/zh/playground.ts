@@ -67,6 +67,8 @@ export const playground: Dict<typeof source> = {
     persona: '人设',
     personaUnsaved: '未保存——只有本试验场使用。安全规则始终位于最上方。',
     personaSaved: '已保存的人设。',
+    personaSave: '保存为人设',
+    personaSavedOk: '已保存——此门店的所有对话现在都使用这个人设。',
     personaReset: '重置',
     parts: 'AI 可以使用的内容',
     knowledge: '知识库',

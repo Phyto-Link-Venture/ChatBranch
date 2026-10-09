@@ -5,13 +5,16 @@ export function Card({
   children,
   className = '',
   style,
+  'data-tour': tour,
 }: {
   children: ReactNode
   className?: string
   style?: CSSProperties
+  /** A page-guide target (lib/tours.ts). */
+  'data-tour'?: string
 }) {
   return (
-    <div className={`rounded-xl border border-line bg-card ${className}`} style={style}>
+    <div data-tour={tour} className={`rounded-xl border border-line bg-card ${className}`} style={style}>
       {children}
     </div>
   )

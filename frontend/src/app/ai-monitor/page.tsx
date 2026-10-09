@@ -138,9 +138,13 @@ export default function AiMonitorPage() {
         </Card>
       ) : (
         <div className="flex flex-col gap-4">
-          {access.ready && <AiMasterSwitch />}
+          {access.ready && (
+            <div data-tour="ai-master">
+              <AiMasterSwitch />
+            </div>
+          )}
           <div className="-mx-1 overflow-x-auto px-1">
-            <div role="tablist" aria-label={t('ai.monitor.tabsLabel')} className="flex min-w-max gap-5 border-b border-line">
+            <div role="tablist" data-tour="ai-monitor-tabs" aria-label={t('ai.monitor.tabsLabel')} className="flex min-w-max gap-5 border-b border-line">
               {TABS.map((x) => {
                 const active = tab === x.id
                 return (

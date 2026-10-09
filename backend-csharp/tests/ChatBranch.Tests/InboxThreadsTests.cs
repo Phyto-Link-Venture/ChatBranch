@@ -59,6 +59,19 @@ public class InboxThreadsTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task A_chat_with_no_messages_stays_out_of_the_list_unless_asked_for_by_name()
+    {
+        var c = await Authed();
+        // "open a chat" from a contact and walk away: the thread exists, nothing was said
+        (await c.PostAsJsonAsync("/api/whatsapp/threads", new { phone = "+60177700991" })).EnsureSuccessStatusCode();
+        Assert.False(Has(await List(c, "limit=200&q=60177700991"), "whatsapp", "60177700991"));
+        Assert.Equal(1, await Count(c, "thread=whatsapp:60177700991"));   // the open chat's scope check still finds it
+
+        await Simulate(c, "whatsapp", "60177700991", "hello?");
+        Assert.True(Has(await List(c, "limit=200&q=60177700991"), "whatsapp", "60177700991"));
+    }
+
+    [Fact]
     public async Task Every_channel_lists_once_with_its_own_channel_and_status()
     {
         var c = await Authed();

@@ -475,7 +475,12 @@ public static class AiMonitorEndpoints
         int? entityId, string? entitySlug)
     {
         var keys = AiBehaviourSettings.Keys.ToList();
-        var global = sc.SettingValues(keys);
+        var orgOnly = sc.SettingValues(keys);
+        // what this level inherits: its parent's resolved values (up the tree), else the org's
+        var parentId = entityId is int pe
+            ? await db.Entities.AsNoTracking().Where(e => e.Id == pe).Select(e => e.ParentId).FirstOrDefaultAsync()
+            : null;
+        var global = parentId != null ? sc.SettingValues(keys, parentId) : orgOnly;
         var own = entityId is int eid
             ? await db.Settings.AsNoTracking().Where(s => s.EntityId == eid && keys.Contains(s.Key))
                 .ToDictionaryAsync(s => s.Key, s => s.Value)
@@ -494,8 +499,10 @@ public static class AiMonitorEndpoints
             {
                 var orgValue = global.TryGetValue(f.Key, out var gv) ? gv : AiBehaviourSettings.DefaultFor(f.Key);
                 var hasOwn = own.TryGetValue(f.Key, out var ov) && !string.IsNullOrWhiteSpace(ov);
+                var fromParent = global.TryGetValue(f.Key, out var pv)
+                                 && (!orgOnly.TryGetValue(f.Key, out var gv2) || gv2 != pv);
                 var scope = entityId != null
-                    ? (hasOwn ? "entity" : global.ContainsKey(f.Key) ? "global" : "default")
+                    ? (hasOwn ? "entity" : fromParent ? "parent" : global.ContainsKey(f.Key) ? "global" : "default")
                     : (global.ContainsKey(f.Key) ? "global" : "default");
                 return new
                 {

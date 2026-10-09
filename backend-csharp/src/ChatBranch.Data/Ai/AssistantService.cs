@@ -71,7 +71,7 @@ public partial class AssistantService
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine(parts.Persona is { } persona
-            ? PersonaService.HardRules + "\n\n" + persona.Trim()
+            ? _persona.Preamble(entityId, persona)
             : _persona.SystemPreamble(entityId));
 
         if (parts.Skills)
@@ -757,6 +757,7 @@ public partial class AssistantService
                     Feature = spec.Feature, Provider = r.Provider, Model = r.Model,
                     // a made-up playground customer is never a stored contact
                     Channel = spec.Channel, ContactId = spec.Contact is { Id: > 0 } c ? c.Id : null, Ref = spec.Ref,
+                    EntityId = spec.EntityId,
                     PromptTokens = r.PromptTokens, CompletionTokens = r.CompletionTokens,
                     Detail = detail, CreatedAt = DateTime.UtcNow,
                 });

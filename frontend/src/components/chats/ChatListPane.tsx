@@ -105,7 +105,7 @@ export default function ChatListPane({
         </div>
 
         <div className="flex gap-2">
-          <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-line-strong bg-card px-2.5 focus-within:border-text-primary">
+          <label data-tour="chats-search" className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-line-strong bg-card px-2.5 focus-within:border-text-primary">
             <Search size={14} className="shrink-0 text-text-muted" aria-hidden />
             <input
               value={search}
@@ -162,7 +162,7 @@ export default function ChatListPane({
 
         {/* saved views: All · Mine · Unassigned · the operator's own */}
         <div className="-mb-px flex items-end gap-1">
-          <div className="no-scrollbar flex min-w-0 flex-1 gap-3.5 overflow-x-auto" role="tablist" aria-label={t('chats.list.viewsAria')}>
+          <div data-tour="chats-tabs" className="no-scrollbar flex min-w-0 flex-1 gap-3.5 overflow-x-auto" role="tablist" aria-label={t('chats.list.viewsAria')}>
             {tabs.map((tab) => (
               <button
                 key={tab.id}
@@ -211,7 +211,7 @@ export default function ChatListPane({
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div data-tour="chats-list" className="min-h-0 flex-1 overflow-y-auto">
         {loading && rows.length === 0 && (
           <div className="flex items-center justify-center gap-2 px-4 py-10 text-[12.5px] text-text-muted">
             <Loader2 size={14} className="animate-spin" aria-hidden /> {t('chats.list.loading')}

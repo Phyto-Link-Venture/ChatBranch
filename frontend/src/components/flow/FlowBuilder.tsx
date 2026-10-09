@@ -447,7 +447,7 @@ export default function FlowBuilder() {
             <ArrowLeft size={15} aria-hidden /> {t('common.actions.back')}
           </button>
           {/* min width: longer translations wrap the header instead of squeezing the flow picker away */}
-          <div className="flex min-w-[min(100%,260px)] flex-1 items-center gap-2">
+          <div data-tour="journeys-list" className="flex min-w-[min(100%,260px)] flex-1 items-center gap-2">
             {workflows.length > 0 && <span className="eyebrow hidden shrink-0 whitespace-nowrap sm:inline">{t('flows.builder.flow')}</span>}
             {workflows.length > 0 && (
               <div className="min-w-0 flex-1 sm:max-w-[260px]">
@@ -593,7 +593,7 @@ export default function FlowBuilder() {
 
         {/* ---- body ---- */}
         <div className="relative flex min-h-0 flex-1">
-          <main className="min-h-0 min-w-0 flex-1">
+          <main data-tour="journeys-canvas" className="min-h-0 min-w-0 flex-1">
             {sync === 'loading' ? (
               <div className="grid h-full place-items-center text-[13px] text-text-muted">{t('flows.builder.loadingFlows')}</div>
             ) : !active ? (

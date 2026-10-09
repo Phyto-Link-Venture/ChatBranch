@@ -67,6 +67,8 @@ export const playground: Dict<typeof source> = {
     persona: 'Persona',
     personaUnsaved: 'Belum disimpan — hanya ruang uji ini menggunakannya. Peraturan keselamatan sentiasa kekal di atas.',
     personaSaved: 'Persona yang disimpan.',
+    personaSave: 'Simpan sebagai persona',
+    personaSavedOk: 'Disimpan — setiap perbualan untuk cawangan ini kini menggunakan persona ini.',
     personaReset: 'Set semula',
     parts: 'Apa yang boleh digunakan oleh AI',
     knowledge: 'Pangkalan pengetahuan',

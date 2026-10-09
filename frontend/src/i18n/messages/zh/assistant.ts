@@ -15,6 +15,8 @@ export const assistant: Dict<typeof source> = {
     backToChat: '返回对话',
     newChat: '新对话',
     close: '关闭助手',
+    float: '浮动——可拖到任意位置',
+    dock: '停靠到侧边',
     opening: '正在打开你的对话…',
     openFailed: '无法打开该对话——{error}',
     unreachable: '无法连接助手——{error}',

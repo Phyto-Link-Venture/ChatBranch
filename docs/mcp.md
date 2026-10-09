@@ -262,14 +262,17 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `flows_enqueue_job` | Queue an outbound message | write · open-world | `flows.manage` |
 | `flows_run_due_steps` | Run due flow steps now | write · open-world | `flows.manage` |
 
-#### analytics (6)
+#### analytics (9)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
 | `get_analytics_summary` | Get the analytics summary | read | `analytics.view` |
 | `analytics_get_reports` | Get reports | read | `analytics.view` |
 | `analytics_get_flows` | Flow analytics | read | `flows.view` |
-| `analytics_get_usage` | AI usage and cost | read | `analytics.view` |
+| `analytics_get_usage` | AI usage and cost | read | `billing.manage` |
+| `billing_get_ai_bill` | AI usage bill | read | `billing.view` |
+| `billing_get_settings` | Read the AI billing terms | read | `billing.manage` |
+| `billing_set_settings` | Set the AI billing terms | write | `billing.manage` |
 | `analytics_get_engagement` | Engagement tiles | read | `analytics.view` |
 | `analytics_get_live` | What's live right now | read | signed in |
 
@@ -314,8 +317,8 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `ai_reset_behaviour` | Reset an AI behaviour override | write · **destructive** | `ai.behaviour.manage` |
 | `ai_get_controls` | Read the AI master switch | read | `ai.monitor` or `ai.behaviour.manage` or `chats.view` |
 | `ai_set_controls` | Set the AI master switch | write | `ai.behaviour.manage` |
-| `ai_get_persona` | Read the AI persona | read | `settings.ai.manage` |
-| `ai_set_persona` | Set the AI persona | write | `settings.ai.manage` |
+| `ai_get_persona` | Read the AI persona and house rules | read | `settings.ai.manage` |
+| `ai_set_persona` | Set the AI persona or house rules | write | `settings.ai.manage` |
 | `ai_rate_reply` | Rate an AI reply | write | `ai.monitor` |
 | `ai_list_my_feedback` | Read my AI ratings | read | `ai.monitor` |
 | `ai_withdraw_feedback` | Withdraw an AI rating | write · **destructive** | `ai.monitor` |

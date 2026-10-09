@@ -50,8 +50,8 @@ internal static class ShellScope
 
     /// <summary>
     /// Libraries an outlet INHERITS (skills, knowledge, message + script
-    /// templates, integrations…): the organization-wide rows plus the outlet's
-    /// own. Admins and superadmins read any outlet's library (narrowed by
+    /// templates, integrations…): the organization-wide rows, its ancestors'
+    /// and the outlet's own. Admins and superadmins read any outlet's library (narrowed by
     /// <c>?entity=</c> when given — none = every outlet's rows, the management
     /// view). Agents and custom roles with ASSIGNED entities read the org-wide
     /// rows plus their assigned entities' subtrees only — an out-of-scope
@@ -69,7 +69,9 @@ internal static class ShellScope
             {
                 var allowed = sc.EntitySubtreeIds(assigned);
                 if (pickedEntityId is int picked && allowed.Contains(picked)) return sc.ScopeInherited(qs, picked);
-                return qs.Where(r => r.EntityId == null || allowed.Contains(r.EntityId.Value));
+                // their outlets' own rows + what those outlets inherit from above
+                var visible = allowed.Concat(assigned.SelectMany(a => sc.EntityChain(a))).Distinct().ToList();
+                return qs.Where(r => r.EntityId == null || visible.Contains(r.EntityId.Value));
             }
         }
         return sc.ScopeInherited(qs, pickedEntityId);

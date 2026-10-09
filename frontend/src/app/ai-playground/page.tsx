@@ -353,7 +353,7 @@ export default function AiPlaygroundPage() {
 
       <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] gap-3 lg:grid-cols-[minmax(250px,290px)_minmax(0,1fr)_minmax(270px,330px)]">
         <Card className={`${pane('setup')} min-h-0 flex-col overflow-y-auto p-4`}>
-          <div id="pg-pane-setup" role="tabpanel" aria-labelledby="pg-tab-setup">
+          <div id="pg-pane-setup" data-tour="pg-setup" role="tabpanel" aria-labelledby="pg-tab-setup">
             {ready && (
               <SetupPane
                 options={options}
@@ -362,13 +362,14 @@ export default function AiPlaygroundPage() {
                 variants={variants}
                 onVariants={setVariants}
                 onImport={() => setImportOpen(true)}
+                onPersonaSaved={(persona) => setOptions((o) => (o ? { ...o, persona, persona_is_default: false } : o))}
                 failed={!!optionsError}
               />
             )}
           </div>
         </Card>
 
-        <div id="pg-pane-chat" role="tabpanel" aria-labelledby="pg-tab-chat" className={`${pane('chat')} min-h-0 flex-col`}>
+        <div id="pg-pane-chat" data-tour="pg-chat" role="tabpanel" aria-labelledby="pg-tab-chat" className={`${pane('chat')} min-h-0 flex-col`}>
           {ready && (
             <ChatPane
               entries={entries}
@@ -392,7 +393,7 @@ export default function AiPlaygroundPage() {
         </div>
 
         <Card className={`${pane('inspector')} min-h-0 flex-col overflow-y-auto p-4`}>
-          <div id="pg-pane-inspector" role="tabpanel" aria-labelledby="pg-tab-inspector">
+          <div id="pg-pane-inspector" data-tour="pg-inspector" role="tabpanel" aria-labelledby="pg-tab-inspector">
             <h2 className="eyebrow mb-3">{t('playground.inspector.title')}</h2>
             <InspectorPane
               result={selectedResult}

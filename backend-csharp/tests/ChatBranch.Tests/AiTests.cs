@@ -23,20 +23,66 @@ public class AiTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task Persona_write_is_superadmin_only()
+    public async Task Persona_and_house_rules_follow_the_entity_tree()
     {
+        var agent = await Authed("agent", "agent123");
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await agent.PutAsJsonAsync("/api/aicore/persona", new { persona = "x" })).StatusCode);
+
         var admin = await Authed("admin", "admin123");
-        var denied = await admin.PutAsJsonAsync("/api/aicore/persona", new { persona = "x" });
-        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await admin.PostAsJsonAsync("/api/v1/entities",
+            new { name = "Persona Head", slug = "persona-head", parent = "main" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await admin.PostAsJsonAsync("/api/v1/entities",
+            new { name = "Persona Outlet", slug = "persona-outlet", parent = "persona-head" })).StatusCode);
+        try
+        {
+            (await admin.PutAsJsonAsync("/api/aicore/persona",
+                new { persona = "Org voice.", house_rules = "- Be polite\n\nNever share another customer's data" }))
+                .EnsureSuccessStatusCode();
+            (await admin.PutAsJsonAsync("/api/aicore/persona",
+                new { persona = "Head office voice.", house_rules = "Quote list prices only", entity = "persona-head" }))
+                .EnsureSuccessStatusCode();
+            (await admin.PutAsJsonAsync("/api/aicore/persona",
+                new { house_rules = "Mention the Sunday hours", entity = "persona-outlet" })).EnsureSuccessStatusCode();
 
-        var su = await Authed("superadmin", "super123");
-        var ok = await su.PutAsJsonAsync("/api/aicore/persona", new { persona = "Be extra friendly." });
-        ok.EnsureSuccessStatusCode();
+            // the outlet has no persona of its own → its parent's, not the org's
+            var outlet = await admin.GetFromJsonAsync<JsonElement>("/api/aicore/persona?entity=persona-outlet");
+            Assert.Equal("Head office voice.", outlet.GetProperty("persona").GetString());
+            Assert.Equal("parent", outlet.GetProperty("source").GetProperty("scope").GetString());
+            Assert.Equal("persona-head", outlet.GetProperty("source").GetProperty("entity").GetString());
+            Assert.Equal("", outlet.GetProperty("own_persona").GetString());
+            // house rules add up, organization first
+            var inherited = outlet.GetProperty("house_rules").GetProperty("inherited").EnumerateArray()
+                .Select(r => r.GetProperty("rule").GetString()).ToList();
+            Assert.Equal(new[] { "Be polite", "Never share another customer's data", "Quote list prices only" }, inherited);
+            Assert.Equal(new[] { "Mention the Sunday hours" }, outlet.GetProperty("house_rules").GetProperty("own")
+                .EnumerateArray().Select(r => r.GetString()).ToArray());
+            var preamble = outlet.GetProperty("preamble").GetString()!;
+            Assert.True(preamble.IndexOf("HOUSE RULES", StringComparison.Ordinal)
+                        < preamble.IndexOf("Head office voice.", StringComparison.Ordinal));
+            Assert.Contains("- Mention the Sunday hours", preamble);
+            Assert.Contains("- Be polite", preamble);
+            Assert.True(outlet.GetProperty("can_manage").GetBoolean());
 
-        var read = await su.GetFromJsonAsync<JsonElement>("/api/aicore/persona");
-        Assert.Equal("Be extra friendly.", read.GetProperty("persona").GetString());
-        Assert.False(string.IsNullOrEmpty(read.GetProperty("hard_rules").GetString()));
-        Assert.False(read.GetProperty("is_default").GetBoolean()); // an override is stored
+            // its own persona replaces the parent's; an empty one drops the override again
+            (await admin.PutAsJsonAsync("/api/aicore/persona", new { persona = "Outlet voice.", entity = "persona-outlet" }))
+                .EnsureSuccessStatusCode();
+            var own = await admin.GetFromJsonAsync<JsonElement>("/api/aicore/persona?entity=persona-outlet");
+            Assert.Equal("Outlet voice.", own.GetProperty("persona").GetString());
+            Assert.Equal("entity", own.GetProperty("source").GetProperty("scope").GetString());
+            Assert.Equal("Head office voice.", own.GetProperty("inherited_persona").GetString());
+            (await admin.PutAsJsonAsync("/api/aicore/persona", new { persona = "", entity = "persona-outlet" }))
+                .EnsureSuccessStatusCode();
+            Assert.Equal("Head office voice.", (await admin.GetFromJsonAsync<JsonElement>(
+                "/api/aicore/persona?entity=persona-outlet")).GetProperty("persona").GetString());
+
+            Assert.Equal(HttpStatusCode.NotFound,
+                (await admin.PutAsJsonAsync("/api/aicore/persona", new { persona = "x", entity = "no-such-outlet" })).StatusCode);
+        }
+        finally
+        {
+            await admin.PutAsJsonAsync("/api/aicore/persona", new { persona = "", house_rules = "" });
+        }
     }
 
     [Fact]

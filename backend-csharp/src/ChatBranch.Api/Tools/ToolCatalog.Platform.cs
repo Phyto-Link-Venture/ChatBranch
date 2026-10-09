@@ -14,8 +14,32 @@ public static partial class ToolCatalog
             "Every flow's performance over the window: runs started, completed, failed, messages and calls sent.",
             "GET", "/api/analytics/flows", C("flows.view"), new[] { A.Days(), A.Entity() });
         yield return T(an, "analytics_get_usage", "AI usage and cost",
-            "LLM metering: tokens and estimated cost by feature (replies, assistant, voice, embeddings…), " +
-            "provider and model. Admin only.", "GET", "/api/analytics/usage", C("analytics.view"), new[] { A.Days() });
+            "LLM metering: tokens and estimated COST (USD, what the platform pays) by feature (replies, assistant, " +
+            "voice, embeddings…), provider and model. Billing managers only.", "GET", "/api/analytics/usage",
+            C("billing.manage"), new[] { A.Days() });
+        yield return T(an, "billing_get_ai_bill", "AI usage bill",
+            "A calendar month's AI bill per company (top-level entity; branches roll up): requests, tokens, the " +
+            "usage amount after markup, the monthly fee and the total, in the billing currency; with company, the " +
+            "line items by feature and the daily amounts. Billing managers also get cost, markup and margin.",
+            "GET", "/api/billing/ai", C("billing.view"), new[]
+            {
+                A.Str("month", "YYYY-MM; defaults to this month."),
+                A.Str("company", "Company (top-level entity) slug or id for the line items."),
+            });
+        yield return T(an, "billing_get_settings", "Read the AI billing terms",
+            "Currency, exchange rate (1 USD = n units), the default markup % and monthly fee, and each company's " +
+            "overrides.", "GET", "/api/billing/ai/settings", C("billing.manage"));
+        yield return T(an, "billing_set_settings", "Set the AI billing terms",
+            "Replace the AI billing terms: currency (3 letters), usd_rate, default_markup_pct, default_monthly_fee " +
+            "and companies {\"<top-level entity id>\": {markup_pct, monthly_fee}} (omit a field to use the default).",
+            "PUT", "/api/billing/ai/settings", C("billing.manage"), new[]
+            {
+                A.Str("currency", "3-letter code, e.g. MYR.", req: true),
+                A.Num("usd_rate", "1 USD = this many units of the currency.", req: true),
+                A.Num("default_markup_pct", "Markup on cost, in percent."),
+                A.Num("default_monthly_fee", "Flat fee per company per month, in the currency."),
+                A.Obj("companies", "Per-company overrides keyed by top-level entity id."),
+            });
         yield return T(an, "analytics_get_engagement", "Engagement tiles",
             "Conversations total, awaiting reply, replied, needing a human, follow-ups set, calls.",
             "GET", "/api/messaging/engagement", C("analytics.view"), new[] { A.Entity() });

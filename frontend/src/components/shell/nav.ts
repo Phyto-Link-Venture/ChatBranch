@@ -15,6 +15,7 @@ import {
   PhoneCall,
   Plug,
   Radio,
+  Receipt,
   ScanEye,
   Settings,
   ShieldCheck,
@@ -22,6 +23,7 @@ import {
   Tag,
   TrendingUp,
   UserCog,
+  UserRoundCog,
   Users,
   UsersRound,
   Workflow,
@@ -96,6 +98,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/templates', lbl: 'shell.nav.templates', Icon: FileText, alsoActive: ['/script-templates'], cap: ['templates.manage', 'script_templates.manage'], roles: ADMINS, keywords: 'canned replies scripts messages' },
       { href: '/knowledge', lbl: 'shell.nav.knowledge', Icon: BookOpen, cap: 'settings.ai.manage', roles: ADMINS, keywords: 'faq policies facts' },
       { href: '/skills', lbl: 'shell.nav.skills', Icon: Sparkles, cap: 'settings.ai.manage', roles: ADMINS, keywords: 'instructions' },
+      { href: '/ai-persona', lbl: 'shell.nav.aiPersona', Icon: UserRoundCog, cap: 'settings.ai.manage', roles: ADMINS, keywords: 'persona house rules tone voice brand prompt peraturan nada 人设 规则 语气' },
       { href: '/tags', lbl: 'shell.nav.tags', Icon: Tag, cap: 'tags.view', keywords: 'labels fields' },
     ],
   },
@@ -120,6 +123,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'shell.groups.review',
     items: [
+      { href: '/billing', lbl: 'shell.nav.aiBill', Icon: Receipt, cap: 'billing.view', keywords: 'bill invoice usage cost ai tokens bil invois kos 账单 费用 用量' },
       { href: '/activity', lbl: 'shell.nav.activity', Icon: Activity, cap: 'activity.view', keywords: 'audit log' },
       { href: '/call-logs', lbl: 'shell.nav.callLogs', Icon: PhoneCall, alsoActive: ['/call-logs/'], cap: 'call_logs.view', keywords: 'calls recordings' },
       { href: '/test-lab', lbl: 'shell.nav.testLab', Icon: FlaskConical, roles: ['superadmin'], keywords: 'tests scenarios use cases qa demo data' },

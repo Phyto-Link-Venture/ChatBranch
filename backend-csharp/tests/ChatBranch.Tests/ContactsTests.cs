@@ -78,7 +78,10 @@ public class ContactsTests : IClassFixture<ApiFactory>
         Assert.Equal(8, daily.GetArrayLength()); // zero-filled daily series
         Assert.True(summary.GetProperty("call_outcomes").TryGetProperty("total", out _));
 
-        var usage = await admin.GetFromJsonAsync<JsonElement>("/api/analytics/usage?days=7");
+        // the cost ledger is billing.manage (superadmin) — admins see the marked-up bill instead
+        Assert.Equal(System.Net.HttpStatusCode.Forbidden, (await admin.GetAsync("/api/analytics/usage?days=7")).StatusCode);
+        var su = await Authed("superadmin", "super123");
+        var usage = await su.GetFromJsonAsync<JsonElement>("/api/analytics/usage?days=7");
         Assert.True(usage.GetProperty("totals").TryGetProperty("est_cost_usd", out _));
         Assert.True(usage.TryGetProperty("by_model", out _));
     }

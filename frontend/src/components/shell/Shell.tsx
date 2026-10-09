@@ -18,6 +18,7 @@ import { resetNotifications } from './notificationsStore'
 import { useLive } from './liveStore'
 import { CampaignModal } from '@/components/CampaignModal'
 import { AssistantDock } from '@/components/assistant/AssistantDock'
+import { TourProvider } from '@/components/tour/TourProvider'
 
 /**
  * App chrome, Paper & Ink: a flush layout — the sidebar rail (surface, hairline
@@ -158,6 +159,7 @@ export function Shell({ children }: { children: ReactNode }) {
   if (isLogin || isPublic) return <>{children}</>
 
   return (
+    <TourProvider>
     <div
       className="shell-root flex overflow-hidden bg-app text-text-primary"
       style={{ zoom: 'var(--ui-zoom)', height: 'calc(100dvh / var(--ui-zoom))' } as React.CSSProperties}
@@ -170,6 +172,7 @@ export function Shell({ children }: { children: ReactNode }) {
           aria-hidden="true"
         />
       )}
+      <div className="print-hide contents">
       <SideNav
         user={user}
         collapsed={collapsed}
@@ -178,8 +181,10 @@ export function Shell({ children }: { children: ReactNode }) {
         onCloseMobile={() => setMobileNavOpen(false)}
         onSignOut={() => void signOut()}
       />
+      </div>
 
       <div className="flex min-w-0 flex-1 flex-col">
+        <div className="print-hide contents">
         <TopBar
           user={user}
           onOpenMobileNav={() => setMobileNavOpen(true)}
@@ -187,6 +192,7 @@ export function Shell({ children }: { children: ReactNode }) {
           assistantOpen={assistantOpen}
           onToggleAssistant={() => setAssistantOpen((v) => !v)}
         />
+        </div>
 
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {isFullBleed ? (
@@ -204,7 +210,9 @@ export function Shell({ children }: { children: ReactNode }) {
           )}
         </main>
 
-        <BottomTabs user={user} pathname={pathname} onMore={() => setMobileNavOpen(true)} />
+        <div className="print-hide contents">
+          <BottomTabs user={user} pathname={pathname} onMore={() => setMobileNavOpen(true)} />
+        </div>
       </div>
 
       <ErrorBoundary name="command-palette">
@@ -217,6 +225,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <AssistantDock open={assistantOpen} onOpenChange={setAssistantOpen} />
       </ErrorBoundary>
     </div>
+    </TourProvider>
   )
 }
 

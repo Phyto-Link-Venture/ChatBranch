@@ -150,21 +150,27 @@ When you fix one of these, update this table, `README.md` and
   `Endpoints/ShellScope.cs`) — an out-of-scope `?entity=` narrows to their own
   scope instead of widening; an agent with NO assignment keeps the tenant-wide
   view (not a lockout).
-- **Entity scoping = global default → entity override.**
-  `ChatBranch.Data/ScopingService.cs` is the ONE place the rule lives: *an
-  entity-specific binding wins; the global one is the fallback*. Three verbs,
-  and picking the wrong one is the bug the class exists to prevent:
-  `SettingValue(key, entityId)` (config: entity row → global row → ""),
+- **Entity scoping = global default → entity override, resolved DOWN the tree.**
+  `ChatBranch.Data/ScopingService.cs` is the ONE place the rule lives: *the
+  nearest level that sets something wins; the global one is the fallback*.
+  Three verbs, and picking the wrong one is the bug the class exists to prevent:
+  `SettingValue(key, entityId)` (config, ONE value: the entity's own row → its
+  parent's → … → the top-level entity's → global row → ""; `SettingSource`
+  also says which level answered, `SettingScope` = entity | parent | global;
+  `EntityChain` = the entity + its ancestors, nearest first),
   `ScopeInherited(q, entityId)` (libraries an outlet INHERITS — knowledge,
   canned/script templates, skills, workflows, tags, teams, channel accounts,
-  integrations: its own PLUS the global ones) and `ScopeOwned(q, entityId)`
+  lessons: its own PLUS every ancestor's PLUS the global ones; never a
+  sibling's or a child's) and `ScopeOwned(q, entityId)`
   (records that belong to exactly ONE outlet — contacts, threads, AI drafts,
   analytics). `entityId == null` means "All entities" for the Scope* helpers and
   "the global value" for the setting helpers.
   **`Setting` is not key-unique**: a nullable `EntityId` with two partial unique
   indexes (one global row per key; one override per `(key, entity)`), so a raw
   read MUST say `EntityId == null` or another outlet's override leaks into the
-  org-wide value. Only keys in `ScopingService.EntityScopedSettings` may be
+  org-wide value. ADDITIVE keys (house rules `ai_house_rules`) read every level
+  with `SettingValuesDownTree` (organization first). Only keys in
+  `ScopingService.EntityScopedSettings` may be
   overridden (persona, quiet hours, pacing, routing rules, AI review/behaviour,
   the AI switch/schedule/never-tags, the learning mode…);
   credentials and webhook secrets are organization-wide BY DESIGN.
@@ -192,11 +198,11 @@ When you fix one of these, update this table, `README.md` and
   because `ApiKeyAuth.UseKeyScopes` (right after `UseAuthentication`) makes them
   ambient for the request (`ApiKeyAuth.CurrentScopes`). Roles: superadmin / admin /
   agent / custom (`Role` + `RolePermission`). Capabilities are data-driven:
-  the catalog is `AdminEndpoints.Catalog` (34 entries — keep it in step with
+  the catalog is `AdminEndpoints.Catalog` (36 entries — keep it in step with
   `CAPABILITY_CATALOG` in `frontend/src/lib/auth.ts`); **superadmin is always
   allowed in code**, a missing matrix row falls back to the code default, admin
   gets everything except `rbac.manage` / `app_keys.manage` /
-  `settings.ai_keys.manage`, agent gets `contacts.view chats.view chats.send
+  `settings.ai_keys.manage` / `billing.manage`, agent gets `contacts.view chats.view chats.send
   flows.view analytics.view call_logs.view activity.view tags.view ai.monitor`.
   Server checks use `AdminEndpoints.HasCapabilityAsync` /
   `SettingsEndpoints.RequireCapability` on top of the coarse policies
@@ -271,7 +277,9 @@ When you fix one of these, update this table, `README.md` and
   team, entity, labels, contact tags, AI on/off, 24h window, opt-out, waiting,
   live call, linked, handover (`open`/`any`/`none` + `handover_kind`), date
   ranges, sorts, cursor paging; `count_only=1` powers the filter pop-up's live
-  "Show N chats"). The filter UI is `ChatFilterModal.tsx`; the filter tabs are
+  "Show N chats"). A conversation with NO messages (a chat opened from a contact
+  and left) is not listed — only `thread=<channel>:<key>` still finds it, so the
+  open chat's scope check keeps a freshly started chat open. The filter UI is `ChatFilterModal.tsx`; the filter tabs are
   per-user `SavedView` rows (`/api/views?scope=chats`, `lib/savedViews.ts`) next
   to a built-in "Needs human" tab. **Select mode** (`BulkBar.tsx`) drives `POST
   /api/inbox/threads/bulk` (`chats.manage`; picked conversations or everything a
@@ -533,9 +541,18 @@ When you fix one of these, update this table, `README.md` and
   reported rather than dropped; CSV fields are quoted.
 - **The AI brain** (`ChatBranch.Data/Ai/`). `AssistantService` is the
   channel-agnostic generator: system prompt = `PersonaService.HardRules` (safety
-  floor, never overridable) + persona (Setting `aicore_persona`, entity-scoped,
-  else `DefaultPersona`; `GET/PUT /api/aicore/persona`, PUT superadmin — there
-  is no persona UI) + SKILLS block (prompt skills in scope, plus how to use each
+  floor, never overridable) + HOUSE RULES (Setting `ai_house_rules`, one rule
+  per line, ADDED UP from the organization down the entity tree —
+  `PersonaService.HouseRules` / `HouseRulesBlock`; an outlet can add, never
+  drop) + persona (Setting `aicore_persona`, the nearest level of the tree wins,
+  else `DefaultPersona`; `PersonaService.Preamble` builds the three) —
+  `GET/PUT /api/aicore/persona` (`settings.ai.manage`; PUT `{persona?,
+  house_rules?, entity?}`, org-wide admin+, an outlet in the caller's scope, an
+  outlet's empty persona drops its override; GET says where the persona comes
+  from, what it would inherit, inherited + own house rules and the composed
+  `preamble`). UI: `/ai-persona` "Persona & rules" (Library,
+  `components/persona/PersonaRules.tsx`) and the playground's "Save as persona"
+  + SKILLS block (prompt skills in scope, plus how to use each
   connected-app skill's tools) + `COMPANY KNOWLEDGE` (`KnowledgeService.Compose`:
   kind fact/policy/faq/event/notice, `StartsAt/EndsAt` self-expiry; STANDING
   knowledge first — live notices, events and short typed facts ≤800 chars — then
@@ -548,7 +565,7 @@ When you fix one of these, update this table, `README.md` and
   query (voice dispatch) the old top-4 faq/policy by priority) + `LEARNED FROM
   PAST CONVERSATIONS` (active lessons — rules first, at most 5, then the top 3
   relevant examples/corrections, 1200 chars, the conversation's own entity +
-  org-wide only; chat replies only, see AI learning) + `CONTACT` (name, company,
+  its ancestors + org-wide only; chat replies only, see AI learning) + `CONTACT` (name, company,
   language, tag NAMES, profile summary — not custom fields, tag attributes or
   records) + `CONTACT MEMORY` (durable contact fields + the last 3 summaries,
   1500 chars) + the current org-local date/time. It is a **PURE GENERATOR
@@ -712,7 +729,8 @@ When you fix one of these, update this table, `README.md` and
   MERGES (normalized text at once, cosine ≥0.95 in the indexer; the latest
   correction wins and sends a live lesson back to review unless an admin gave it
   in auto mode); `/{id}/to-knowledge` turns one into a FAQ (a rule → a policy).
-  Lessons are DATA: `HardRules` win and they never cross entities.
+  Lessons are DATA: `HardRules` win and they never cross to a sibling, a parent
+  or an unassigned conversation (a branch DOES use its ancestors' lessons).
   **Retrieval** (`RetrievalService`):
   `embedding_provider` openai | google | local, "" = the first configured, `none`
   = keywords only; `embedding_model` overrides the model (env `EMBEDDING_PROVIDER`
@@ -847,7 +865,21 @@ When you fix one of these, update this table, `README.md` and
   Analytics (`/analytics`, the HOME page):
   `GET /api/analytics/summary?days=` (funnel, per-account volumes, call
   outcomes, health events, daily series, KPI deltas),
-  `GET /api/analytics/usage?days=` (LLM metering/billing, admin+),
+  `GET /api/analytics/usage?days=` (LLM metering at COST, `billing.manage` —
+  companies never see it), **the AI bill** (`/billing`, Review;
+  `Endpoints/AiBillingEndpoints.cs`): per calendar month, per COMPANY = a
+  top-level entity (branches roll up). A usage row's company = its
+  `crm_llmusage.entity_id` (stamped by the AI brain from the reply's entity)
+  → its contact's entity when every link shares one company → unattributed
+  (skill drafting, embeddings, the operator assistant — shown to managers,
+  billed to nobody). Bill = cost (llm_prices, USD) × (1 + markup %) × the
+  exchange rate + a monthly fee; terms in ONE org-wide Setting `ai_billing`
+  (`GET/PUT /api/billing/ai/settings`, `billing.manage`, Settings → AI
+  billing `/settings/billing`). `GET /api/billing/ai?month=&company=`
+  (`billing.view`): billed amounts for the caller's companies (assigned
+  entities' companies; unassigned = all); cost, markup, margin and the
+  unattributed bucket only with `billing.manage`. Print hides the shell
+  (`.print-hide` + `@media print` in `globals.css`). Tests: `AiBillingTests`.
   `/api/analytics/reports`, `/api/analytics/flows`, `/api/live` (waiting
   conversations + active calls + `needs_human_count`).
 - **Integrations** (`/integrations`, `/api/integrations/*`,
@@ -954,12 +986,30 @@ When you fix one of these, update this table, `README.md` and
   hand-written `public/sw.js` (never caches `/api/*` or the stream; offline
   navigations land on `/offline?from=`), icons in `public/icons/` rendered from
   `Logo.tsx`'s `brandMarkSvg`. **Ask ChatBranch** (`AssistantDock`) opens from
-  the top bar's sparkle button or Ctrl/⌘+J — the shell owns its `open` state;
-  nothing floats over the page (the old bottom-right pill covered composers and
-  save bars, don't bring it back); its chats live on the server (History
+  the top bar's sparkle button, Ctrl/⌘+J, or — on desktop, while closed — a
+  slim tab on the right edge (6 px peek at 42% height, slides out on hover);
+  the shell owns its `open` state. Desktop can switch it between docked (the
+  right-hand panel) and a FLOATING window dragged by its header
+  (`assistantLayout.ts`, localStorage `assistant-layout`, clamped on screen).
+  Never a bottom-right pill: that covered composers and save bars. Its chats live on the server (History
   view, per user); the browser keeps only `assistant:<username>:current` (open
   chat id + draft, `lib/assistantCache.ts`), and `clearAuth()` (sign-out, 401
   expiry) and every login remove every `assistant:*` key.
+- **Page guides + the manual.** `lib/tours.ts` is ONE list of tours (page,
+  steps → `data-tour="<target>"` elements; words in the `guide` namespace by
+  convention `guide.tours.<id>.steps.s<n>.title|body`, en/ms/zh) feeding BOTH
+  the in-app guide and the public manual. `components/tour/TourProvider.tsx`
+  (in the Shell) spotlights one target at a time (missing targets are skipped,
+  no target = a centred card), starts by itself on a person's FIRST visit to a
+  page (localStorage `tour-seen:<user>:<id>`, off via the Guide menu's
+  `tour-auto:<user>`), and on `?tour=<id>`; the top bar's ? button
+  (`GuideMenu.tsx`) replays the page's guide, the app tour (`shell`) or opens
+  the manual. `/help/manual` (public, like `/help`) prints every tour as a
+  chapter with "Show me in the app" (`<href>?tour=<id>`), Download PDF (print),
+  Download HTML (one self-contained file in the reader's language) and an
+  iframe embed snippet (`?embed=1` drops the chrome). A new page = a `TOURS`
+  entry + its `guide.tours.<id>` words in 3 locales + `data-tour` targets
+  (`PageHeader` carries `page-header`; `Card` forwards `data-tour`).
 - **`src/lib/AppContext.tsx`** holds shared state + the real-call seams. API
   base = `NEXT_PUBLIC_API_URL` (default `http://localhost:8090/api` in
   `next.config.js` and `frontend/.env.example` — no longer the Django-era 8000;
@@ -987,7 +1037,7 @@ When you fix one of these, update this table, `README.md` and
   cap; `/settings/connections` connects your own Google products, see
   Integrations); Organization — Notification defaults (`notifications.manage`),
   Custom fields (`settings.custom_fields.manage`), App & provider keys
-  (`app_keys.manage`); AI — AI keys & models (`settings.ai_keys.manage`; also
+  (`app_keys.manage`), AI billing (`billing.manage`); AI — AI keys & models (`settings.ai_keys.manage`; also
   the embeddings provider, `components/ai-learning/EmbeddingsSection.tsx`). New page = a
   `SETTINGS_SECTIONS` entry + `app/settings/<id>/page.tsx` + the capability in
   `AdminEndpoints.cs` and `lib/auth.ts` + the server-side check. Everything

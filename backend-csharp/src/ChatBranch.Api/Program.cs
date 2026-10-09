@@ -181,6 +181,7 @@ app.MapFlowsEndpoints();
 app.MapContactsEndpoints();
 app.MapContactIdentityEndpoints();
 app.MapAnalyticsEndpoints();
+app.MapAiBillingEndpoints();
 app.MapIntegrationsEndpoints();
 app.MapNotificationEndpoints();
 app.MapAdminEndpoints();

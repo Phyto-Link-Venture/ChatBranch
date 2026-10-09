@@ -17,6 +17,8 @@ export const assistant = {
     backToChat: 'Back to the chat',
     newChat: 'New chat',
     close: 'Close assistant',
+    float: 'Float — move it anywhere',
+    dock: 'Dock to the side',
     opening: 'Opening your chat…',
     openFailed: 'Couldn’t open that chat — {error}',
     unreachable: 'I couldn’t reach the assistant — {error}',
