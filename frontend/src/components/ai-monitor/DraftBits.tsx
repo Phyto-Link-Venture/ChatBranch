@@ -8,13 +8,28 @@
  */
 
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Bot, Check, Clock, Cpu, GitBranch, RotateCcw, UserRound, Wrench, X, type LucideIcon } from 'lucide-react'
+import {
+  AlertTriangle,
+  Bot,
+  CalendarPlus,
+  CalendarX,
+  Check,
+  Clock,
+  Cpu,
+  GitBranch,
+  RotateCcw,
+  UserRound,
+  Wrench,
+  X,
+  type LucideIcon,
+} from 'lucide-react'
 import { ChannelLogo, channelLabel } from '@/components/ui/ChannelLogo'
 import { tint } from '@/lib/color'
 import {
   KIND_LABEL,
   STATUS_META,
   ago,
+  draftBookingVerb,
   type Draft,
   type DraftStatus,
   type RecentMessage,
@@ -186,6 +201,79 @@ export function ContextChips({ d }: { d: Draft }) {
     )
   if (chips.length === 0) return null
   return <div className="flex flex-wrap gap-1">{chips}</div>
+}
+
+const BOOKING_INK: Record<string, string> = {
+  pending: 'text-[color:var(--blue-ink)]',
+  done: 'text-[color:var(--green-ink)]',
+  off: 'text-text-muted',
+  failed: 'text-[color:var(--red-ink)]',
+}
+
+/**
+ * "Will book: Tue 14 Oct, 3:00 PM · Google Calendar" — the calendar actions a
+ * reply carries. A held reply has only RESERVED them: approving makes the
+ * booking (or the cancellation), rejecting releases it — so the reviewer must
+ * see them next to the text. After a decision the same lines read "Booked",
+ * "Not booked", "Booking failed"…
+ */
+export function DraftBookings({
+  d,
+  compact = false,
+  inline = false,
+}: {
+  d: Pick<Draft, 'bookings' | 'status'>
+  /** No boxes — for the chat's review banner. */
+  compact?: boolean
+  /** Phrasing content only (inside a <button> row): one muted line. */
+  inline?: boolean
+}) {
+  const list = Array.isArray(d.bookings) ? d.bookings : []
+  if (!list.length) return null
+  const held = d.status === 'pending'
+  if (inline)
+    return (
+      <span className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11.5px]">
+        {list.map((b) => {
+          const v = draftBookingVerb(b)
+          const Icon = b.type === 'cancel' ? CalendarX : CalendarPlus
+          return (
+            <span key={`${b.type}:${b.booking_id}`} className="inline-flex items-center gap-1 text-text-muted">
+              <Icon size={11} className={BOOKING_INK[v.tone]} aria-hidden />
+              <span className={`font-semibold ${BOOKING_INK[v.tone]}`}>{v.verb}:</span> {b.label || `#${b.booking_id}`}
+            </span>
+          )
+        })}
+      </span>
+    )
+  return (
+    <ul aria-label="Calendar actions in this reply" className="flex flex-col gap-1">
+      {list.map((b) => {
+        const v = draftBookingVerb(b)
+        const Icon = b.type === 'cancel' ? CalendarX : CalendarPlus
+        return (
+          <li
+            key={`${b.type}:${b.booking_id}`}
+            className={`flex items-start gap-1.5 text-[12.5px] leading-snug ${
+              compact ? '' : 'rounded-lg border border-line bg-fill-subtle px-2.5 py-1.5'
+            }`}
+          >
+            <Icon size={13} className={`mt-px shrink-0 ${BOOKING_INK[v.tone]}`} aria-hidden />
+            <span className="min-w-0 text-text-high">
+              <b className={`font-semibold ${BOOKING_INK[v.tone]}`}>{v.verb}:</b> {b.label || `booking #${b.booking_id}`}
+              {b.calendar_label && <span className="text-text-muted"> · {b.calendar_label}</span>}
+              {held && v.tone === 'pending' && (
+                <span className="text-text-muted">
+                  {' '}
+                  — {b.type === 'cancel' ? 'approving cancels it' : 'approving books it'}
+                </span>
+              )}
+            </span>
+          </li>
+        )
+      })}
+    </ul>
+  )
 }
 
 /** "Why it was held" — the gate's reasons, plain language. */

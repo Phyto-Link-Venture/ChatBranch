@@ -6,6 +6,7 @@ import { ExternalLink, Link2, Mail, X } from 'lucide-react'
 import { Select } from '@/components/ui/Select'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import ChannelHub from '@/components/ChannelHub'
+import { BookingsCard } from '@/components/bookings/BookingsCard'
 import { useTags } from '@/lib/tags'
 import { tint } from '@/lib/color'
 import { Avatar, BetaChip } from './MessageParts'
@@ -152,6 +153,12 @@ export default function ChatInfoPanel({
         <InfoCard title="Channels">
           <ChannelHub contactId={active.contact_id} />
         </InfoCard>
+      )}
+
+      {/* upcoming appointments — refetched as the conversation moves (a booking
+          is made when the AI's reply is delivered) */}
+      {active.contact_id != null && (
+        <BookingsCard contactId={active.contact_id} refreshToken={active.messages.length} compact />
       )}
 
       <InfoCard title="Conversation" note="A new customer message re-opens a resolved or snoozed conversation.">

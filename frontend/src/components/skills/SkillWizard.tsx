@@ -1,11 +1,12 @@
 'use client'
 
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   AlertCircle,
   ArrowLeft,
   ArrowRight,
   BookOpen,
+  CalendarClock,
   Check,
   CheckCircle2,
   FlaskConical,
@@ -25,14 +26,22 @@ import { EntityPicker } from '@/components/ui/EntityPicker'
 import { Toggle } from '@/components/ui/Toggle'
 import { CodeEditor } from './CodeEditor'
 import { TestCasesEditor, rowsToTests, testsToRows, type TestRow } from './TestCasesEditor'
+import { AppSkillForm, calendarConfigProblem } from './AppSkillForm'
 import {
+  APP_INSTRUCTIONS,
+  APP_USE_WHEN,
   CHANNEL_OPTIONS,
   KIND_META,
   ON_FAIL_OPTIONS,
   aicore,
+  calendarApp,
+  calendarConfig,
+  fetchApps,
   newSkillId,
   pretty,
   saveSkill,
+  type AppCatalogEntry,
+  type CalendarAppConfig,
   type DraftResponse,
   type OnFail,
   type Skill,
@@ -54,12 +63,17 @@ import {
  *            needs every test passing; "save as disabled" is the way out.
  *
  * Editing an existing skill opens straight on Review.
+ *
+ * A "Connected app" skill (kind `app` — Calendar booking) skips the AI
+ * drafting: picking it (or opening the wizard with kindHint "app") goes
+ * straight to Set up, a settings form (<AppSkillForm/>) with no code or tests.
  */
 
 export type WizardInit = { mode: 'new'; kindHint?: SkillKind | '' } | { mode: 'edit'; skill: Skill }
 
 type Step = 'describe' | 'clarify' | 'review' | 'test'
-type Hint = '' | SkillKind
+/** The describe step's kind cards — code/prompt kinds only; an app is picked apart. */
+type Hint = '' | Exclude<SkillKind, 'app'>
 
 const input =
   'w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[13px] text-text-primary outline-none transition-colors focus:border-brand-400 disabled:opacity-70'
@@ -93,7 +107,11 @@ interface Form {
   channels: string[]
   enabled: boolean
   position: number
+  /** Connected-app settings — app skills only. */
+  config: CalendarAppConfig | null
 }
+
+const isCodeKind = (k: SkillKind): k is 'tool' | 'check' => k === 'tool' || k === 'check'
 
 function formFromSkill(s: Skill): Form {
   return {
@@ -105,12 +123,34 @@ function formFromSkill(s: Skill): Form {
     instructions: s.instructions,
     code: s.code,
     params: s.parameters ? pretty(s.parameters) : '',
-    rows: s.kind === 'prompt' ? [] : testsToRows(s.kind, s.tests ?? []),
+    rows: isCodeKind(s.kind) ? testsToRows(s.kind, s.tests ?? []) : [],
     onFail: s.onFail,
     scope: s.entity ?? null,
     channels: s.channels ?? [],
     enabled: s.enabled,
     position: s.position,
+    config: s.kind === 'app' ? calendarConfig(s.config) : null,
+  }
+}
+
+/** A fresh Calendar booking skill, prefilled — the server's defaults when known. */
+function newAppForm(scope: string | null, app: AppCatalogEntry): Form {
+  return {
+    id: newSkillId(),
+    name: 'Calendar booking',
+    kind: 'app',
+    useWhen: APP_USE_WHEN,
+    description: 'Checks the calendar for free times and books, reschedules or cancels appointments.',
+    instructions: APP_INSTRUCTIONS,
+    code: '',
+    params: '',
+    rows: [],
+    onFail: 'retry',
+    scope,
+    channels: [],
+    enabled: true,
+    position: 9999,
+    config: calendarConfig({}, app.defaults),
   }
 }
 
@@ -118,29 +158,78 @@ export function SkillWizard({
   init,
   defaultScope,
   readOnly = false,
+  orgTimezone,
   onClose,
   onSaved,
 }: {
   init: WizardInit
   defaultScope: string | null
   readOnly?: boolean
+  /** The organisation's timezone (shown as the app skills' default). */
+  orgTimezone?: string
   onClose: () => void
   onSaved: (message: string) => void
 }) {
   const editing = init.mode === 'edit'
   const original = init.mode === 'edit' ? init.skill : null
+  // "New connected app" opens straight on Set up — there is nothing to describe
+  const directApp = init.mode === 'new' && init.kindHint === 'app'
 
-  const [step, setStep] = useState<Step>(editing ? 'review' : 'describe')
+  const [step, setStep] = useState<Step>(editing || directApp ? 'review' : 'describe')
   const [description, setDescription] = useState('')
-  const [hint, setHint] = useState<Hint>(init.mode === 'new' ? init.kindHint ?? '' : '')
+  const [hint, setHint] = useState<Hint>(init.mode === 'new' && init.kindHint !== 'app' ? init.kindHint ?? '' : '')
   const [qa, setQa] = useState<{ question: string; answer: string }[]>([])
   const [round, setRound] = useState(0) // index in qa where the current batch starts
-  const [form, setForm] = useState<Form | null>(original ? formFromSkill(original) : null)
+  const [form, setForm] = useState<Form | null>(
+    original ? formFromSkill(original) : directApp ? newAppForm(defaultScope, calendarApp(null)) : null,
+  )
   const [note, setNote] = useState<{ text: string; source: string } | null>(null)
   const [busy, setBusy] = useState<false | 'draft' | 'test' | 'save'>(false)
   const [error, setError] = useState<string | null>(null)
   const [run, setRun] = useState<TestResponse | null>(null)
   const [stale, setStale] = useState(true)
+
+  // The connected-app catalog (Google connection status, defaults) — loaded
+  // only once an app skill is on screen; offline → the built-in fallback.
+  const isApp = form?.kind === 'app'
+  const [apps, setApps] = useState<{ state: 'idle' | 'loading' | 'ok' | 'offline'; list: AppCatalogEntry[] | null }>({
+    state: 'idle',
+    list: null,
+  })
+  const appsRequested = useRef(false)
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+  useEffect(() => {
+    // once per wizard: a ref, not the state, guards it — flipping the state to
+    // "loading" must not cancel the request it just started
+    if (!isApp || appsRequested.current) return
+    appsRequested.current = true
+    setApps({ state: 'loading', list: null })
+    fetchApps().then((list) => {
+      if (!mounted.current) return
+      setApps({ state: list ? 'ok' : 'offline', list })
+      // a brand-new, untouched skill takes the server's defaults
+      const untouched = JSON.stringify(calendarConfig({}))
+      if (list && !editing)
+        setForm((f) =>
+          f && f.kind === 'app' && JSON.stringify(f.config) === untouched
+            ? { ...f, config: calendarConfig({}, calendarApp(list).defaults) }
+            : f,
+        )
+    })
+  }, [isApp, editing])
+
+  const startApp = () => {
+    setError(null)
+    setNote(null)
+    setForm(newAppForm(defaultScope, calendarApp(apps.list)))
+    setStep('review')
+  }
 
   // Any edit to code/tests invalidates the last run.
   const patch = (p: Partial<Form>) => {
@@ -148,7 +237,7 @@ export function SkillWizard({
     if ('code' in p || 'rows' in p || 'kind' in p) setStale(true)
   }
 
-  const isCode = form ? form.kind !== 'prompt' : hint !== 'prompt'
+  const isCode = form ? isCodeKind(form.kind) : hint !== 'prompt'
 
   // ---- describe / clarify ----------------------------------------------------
 
@@ -178,12 +267,13 @@ export function SkillWizard({
         instructions: s.instructions,
         code: s.code,
         params: kind === 'tool' && s.parameters ? pretty(s.parameters) : '',
-        rows: kind === 'prompt' ? [] : testsToRows(kind, s.tests ?? []),
+        rows: isCodeKind(kind) ? testsToRows(kind, s.tests ?? []) : [],
         onFail: s.on_fail || 'retry',
         scope: defaultScope,
         channels: [],
         enabled: true,
         position: 9999,
+        config: null,
       })
       setNote(d.note ? { text: d.note, source: d.source } : null)
       setStale(true)
@@ -199,7 +289,7 @@ export function SkillWizard({
   // ---- tests -------------------------------------------------------------------
 
   const testsPayload = () => {
-    if (!form || form.kind === 'prompt') return { tests: [] as unknown[], error: null as string | null }
+    if (!form || !isCodeKind(form.kind)) return { tests: [] as unknown[], error: null as string | null }
     return rowsToTests(form.kind, form.rows)
   }
 
@@ -216,7 +306,7 @@ export function SkillWizard({
   }
 
   const runTests = async () => {
-    if (!form || form.kind === 'prompt') return
+    if (!form || !isCodeKind(form.kind)) return
     const t = testsPayload()
     const p = paramsPayload()
     if (t.error || p.error) {
@@ -253,28 +343,31 @@ export function SkillWizard({
     }
     const t = testsPayload()
     const p = paramsPayload()
-    if (t.error || p.error) {
-      setError(t.error || p.error)
+    const appProblem = form.kind === 'app' && form.config ? calendarConfigProblem(form.config) : null
+    if (t.error || p.error || appProblem) {
+      setError(t.error || p.error || appProblem)
       return
     }
     setBusy('save')
     setError(null)
     try {
+      const code = isCodeKind(form.kind)
       await saveSkill(
         {
           id: form.id,
           name,
           useWhen: form.useWhen,
-          instructions: form.kind === 'prompt' ? form.instructions : '',
+          instructions: code ? '' : form.instructions,
           position: form.position,
           kind: form.kind,
           description: form.description,
-          code: form.kind === 'prompt' ? '' : form.code,
+          code: code ? form.code : '',
           parameters: p.value,
           tests: t.tests,
           enabled,
           channels: form.channels,
           onFail: form.onFail,
+          ...(form.kind === 'app' && form.config ? { config: { ...form.config } } : {}),
         },
         form.scope,
         original ? original.entity ?? null : undefined,
@@ -282,7 +375,9 @@ export function SkillWizard({
       onSaved(
         enabled
           ? `“${name}” saved — the AI uses it from the next message.`
-          : `“${name}” saved switched off — turn it on once its tests pass.`,
+          : code
+            ? `“${name}” saved switched off — turn it on once its tests pass.`
+            : `“${name}” saved switched off.`,
       )
       onClose()
     } catch (e) {
@@ -296,19 +391,33 @@ export function SkillWizard({
 
   const steps: { id: Step; label: string }[] = useMemo(() => {
     const out: { id: Step; label: string }[] = []
+    if (isApp) {
+      // an app is configured, not drafted: Describe (where it was picked) → Set up
+      if (!editing && !directApp) out.push({ id: 'describe', label: 'Describe' })
+      out.push({ id: 'review', label: 'Set up' })
+      return out
+    }
     if (!editing) out.push({ id: 'describe', label: 'Describe' }, { id: 'clarify', label: 'Clarify' })
     out.push({ id: 'review', label: isCode ? 'Review code' : 'Review' })
     if (isCode) out.push({ id: 'test', label: 'Run tests' })
     return out
-  }, [editing, isCode])
+  }, [editing, isCode, isApp, directApp])
 
-  const title = editing ? (readOnly ? form?.name ?? 'Skill' : `Edit “${original?.name}”`) : 'New skill'
+  const title = editing
+    ? readOnly
+      ? form?.name ?? 'Skill'
+      : `Edit “${original?.name}”`
+    : isApp && step === 'review'
+      ? 'New connected app'
+      : 'New skill'
   const subtitle: Record<Step, string> = {
     describe: 'Say in your own words what the AI should be able to do. It will ask if anything is unclear.',
     clarify: 'A few questions so the code does exactly what you mean.',
-    review: isCode
-      ? 'Check the code and its test cases — everything here is editable.'
-      : 'Check the wording and when it applies.',
+    review: isApp
+      ? 'Choose the calendar, when the AI may book, and preview the free times it would offer.'
+      : isCode
+        ? 'Check the code and its test cases — everything here is editable.'
+        : 'Check the wording and when it applies.',
     test: 'The tests run in the same sandbox the AI uses for real replies.',
   }
 
@@ -357,8 +466,12 @@ export function SkillWizard({
     if (step === 'review')
       return (
         <>
-          {!editing && (
-            <Button variant="ghost" onClick={() => setStep(qa.length ? 'clarify' : 'describe')} disabled={!!busy}>
+          {!editing && !(isApp && directApp) && (
+            <Button
+              variant="ghost"
+              onClick={() => setStep(qa.length && !isApp ? 'clarify' : 'describe')}
+              disabled={!!busy}
+            >
               <ArrowLeft size={13} aria-hidden /> Back
             </Button>
           )}
@@ -461,6 +574,26 @@ export function SkillWizard({
                 )
               })}
             </div>
+            {/* the 4th kind — configured, not described, so it skips the drafting */}
+            <button
+              type="button"
+              onClick={startApp}
+              className="mt-2 flex w-full items-center gap-3 rounded-lg border border-line px-3 py-2.5 text-left transition-colors hover:border-line-strong hover:bg-fill-subtle"
+            >
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-line bg-card text-text-high" aria-hidden>
+                <CalendarClock size={15} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[12.5px] font-semibold text-text-heading">Connected app</span>
+                <span className="block text-[11.5px] leading-snug text-text-muted">
+                  Let the AI use a connected app — e.g. check your calendar and book. Set up directly, no description
+                  needed.
+                </span>
+              </span>
+              <span className="inline-flex shrink-0 items-center gap-1 text-[12px] font-semibold text-text-mid">
+                Set up <ArrowRight size={13} aria-hidden />
+              </span>
+            </button>
           </fieldset>
         </div>
       )}
@@ -510,33 +643,48 @@ export function SkillWizard({
               )}
             </Field>
             <Field label="Kind">
-              <Select
-                value={form.kind}
-                disabled={readOnly}
-                onChange={(v) => {
-                  const next = v as SkillKind
-                  if (next === form.kind) return
-                  // tool ↔ check: carry the test cases across in the new shape
-                  const carried =
-                    form.kind !== 'prompt' && next !== 'prompt'
-                      ? testsToRows(next, rowsToTests(form.kind, form.rows).tests)
-                      : form.rows
-                  patch({ kind: next, rows: next === 'prompt' ? [] : carried })
-                }}
-                size="md"
-                ariaLabel="Kind"
-                options={(['prompt', 'tool', 'check'] as SkillKind[]).map((k) => ({
-                  value: k,
-                  label: KIND_META[k].label,
-                  hint: k === 'prompt' ? 'no code' : undefined,
-                }))}
-              />
+              {form.kind === 'app' ? (
+                // an app skill holds settings, not code — it can't become another kind
+                <div className="flex h-[38px] items-center gap-2 rounded-lg border border-line bg-fill-subtle px-3 text-[13px] text-text-high">
+                  <CalendarClock size={14} className="shrink-0 text-text-muted" aria-hidden />
+                  <span className="truncate">
+                    {KIND_META.app.label} · <span className="text-text-muted">{calendarApp(apps.list).label}</span>
+                  </span>
+                </div>
+              ) : (
+                <Select
+                  value={form.kind}
+                  disabled={readOnly}
+                  onChange={(v) => {
+                    const next = v as SkillKind
+                    const cur = form.kind
+                    if (next === cur) return
+                    // tool ↔ check: carry the test cases across in the new shape
+                    const carried =
+                      isCodeKind(cur) && isCodeKind(next) ? testsToRows(next, rowsToTests(cur, form.rows).tests) : form.rows
+                    patch({ kind: next, rows: isCodeKind(next) ? carried : [] })
+                  }}
+                  size="md"
+                  ariaLabel="Kind"
+                  options={(['prompt', 'tool', 'check'] as SkillKind[]).map((k) => ({
+                    value: k,
+                    label: KIND_META[k].label,
+                    hint: k === 'prompt' ? 'no code' : undefined,
+                  }))}
+                />
+              )}
             </Field>
             <Field label="Use when" hint="When the AI should reach for it.">
               <input
                 value={form.useWhen}
                 disabled={readOnly}
-                placeholder={form.kind === 'check' ? 'every reply' : 'e.g. the customer asks if we are open'}
+                placeholder={
+                  form.kind === 'check'
+                    ? 'every reply'
+                    : form.kind === 'app'
+                      ? 'e.g. the customer wants to book an appointment'
+                      : 'e.g. the customer asks if we are open'
+                }
                 onChange={(e) => patch({ useWhen: e.target.value })}
                 className={input}
               />
@@ -562,6 +710,33 @@ export function SkillWizard({
                 className={`${input} resize-y leading-[1.6]`}
               />
             </Field>
+          ) : form.kind === 'app' ? (
+            <>
+              <Field
+                label="Instructions"
+                hint="How the AI should use the calendar — prefilled with the essentials; edit to taste."
+              >
+                <textarea
+                  rows={4}
+                  value={form.instructions}
+                  disabled={readOnly}
+                  onChange={(e) => patch({ instructions: e.target.value })}
+                  className={`${input} resize-y leading-[1.6]`}
+                />
+              </Field>
+              {form.config && (
+                <div className="border-t border-line pt-4">
+                  <AppSkillForm
+                    config={form.config}
+                    onChange={(config) => patch({ config })}
+                    app={calendarApp(apps.list)}
+                    appsState={apps.state === 'ok' ? 'ok' : apps.state === 'offline' ? 'offline' : 'loading'}
+                    orgTimezone={orgTimezone}
+                    readOnly={readOnly}
+                  />
+                </div>
+              )}
+            </>
           ) : (
             <>
               <Field
@@ -600,7 +775,7 @@ export function SkillWizard({
               )}
               <Field label="Test cases">
                 <TestCasesEditor
-                  kind={form.kind}
+                  kind={form.kind === 'check' ? 'check' : 'tool'}
                   rows={form.rows}
                   readOnly={readOnly}
                   results={stale ? null : run?.results}
@@ -625,7 +800,7 @@ export function SkillWizard({
                 ariaLabel="Channels"
               />
             </Field>
-            {form.kind === 'prompt' && (
+            {!isCodeKind(form.kind) && (
               <Field label="Active">
                 <div className="flex h-[38px] items-center gap-2">
                   <Toggle

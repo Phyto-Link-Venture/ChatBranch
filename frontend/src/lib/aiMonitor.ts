@@ -106,6 +106,34 @@ export interface Draft {
   error: string
   superseded: boolean
   recent: RecentMessage[] | null
+  /** Calendar reservations this reply carries (from context.pending_actions):
+   *  approving/sending it MAKES them; rejecting releases them. */
+  bookings?: DraftBooking[]
+}
+
+/** One booking a draft will make or cancel when delivered. `status` is the
+ *  booking's own (pending/cancelling while held; booked/cancelled/released/failed after). */
+export interface DraftBooking {
+  type: 'book' | 'cancel'
+  booking_id: number
+  label: string
+  status: string
+  calendar_label: string
+}
+
+/** "Will book" / "Booked" / "Not booked" … — the line a reviewer reads. */
+export function draftBookingVerb(b: DraftBooking): { verb: string; tone: 'pending' | 'done' | 'off' | 'failed' } {
+  if (b.type === 'cancel') {
+    if (b.status === 'cancelled') return { verb: 'Cancelled', tone: 'done' }
+    if (b.status === 'failed') return { verb: 'Cancel failed', tone: 'failed' }
+    if (b.status === 'booked') return { verb: 'Not cancelled', tone: 'off' }
+    return { verb: 'Will cancel', tone: 'pending' }
+  }
+  if (b.status === 'booked') return { verb: 'Booked', tone: 'done' }
+  if (b.status === 'cancelled' || b.status === 'cancelling') return { verb: 'Booked, since cancelled', tone: 'off' }
+  if (b.status === 'released') return { verb: 'Not booked', tone: 'off' }
+  if (b.status === 'failed') return { verb: 'Booking failed', tone: 'failed' }
+  return { verb: 'Will book', tone: 'pending' }
 }
 
 export interface DraftList {

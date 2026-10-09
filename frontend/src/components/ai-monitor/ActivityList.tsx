@@ -27,7 +27,15 @@ import {
   type DraftList,
   type DraftStatus,
 } from '@/lib/aiMonitor'
-import { ContextChips, ConversationSnippet, DraftHeader, HoldReasons, StatusBadge, chatHref } from './DraftBits'
+import {
+  ContextChips,
+  ConversationSnippet,
+  DraftBookings,
+  DraftHeader,
+  HoldReasons,
+  StatusBadge,
+  chatHref,
+} from './DraftBits'
 
 const PAGE_SIZE = 25
 const CHANNELS = ['whatsapp', 'telegram', 'facebook', 'instagram', 'email', 'website']
@@ -189,6 +197,7 @@ export function ActivityList({ entityQuery, canDecide }: { entityQuery: string; 
                     <span className="mt-1 line-clamp-2 block whitespace-pre-wrap break-words text-[13px] leading-snug text-text-high">
                       {d.content}
                     </span>
+                    <DraftBookings d={d} inline />
                     {(d.decided_by && d.decided_by !== 'auto') || d.error ? (
                       <span className="mt-1 block text-[11.5px] text-text-muted">
                         {d.decided_by && d.decided_by !== 'auto' && d.decided_by !== 'system' ? `${d.decided_by}` : ''}
@@ -236,6 +245,7 @@ export function ActivityList({ entityQuery, canDecide }: { entityQuery: string; 
                         {!d.reasons.length && d.flags.length > 0 && (
                           <p className="text-[11.5px] text-text-muted">Signals noticed (not held): {d.flags.join('; ')}</p>
                         )}
+                        <DraftBookings d={d} />
                         <ContextChips d={d} />
                         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11.5px] text-text-muted">
                           <dt>Written</dt>

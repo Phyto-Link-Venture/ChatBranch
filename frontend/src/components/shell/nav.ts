@@ -1,6 +1,7 @@
 import {
   Activity,
   BookOpen,
+  CalendarCheck,
   Bell,
   Building2,
   Code2,
@@ -71,6 +72,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/chats', lbl: 'Chats', Icon: MessageSquare, cap: 'chats.view', counter: 'waiting', keywords: 'inbox conversations messages whatsapp email' },
       { href: '/contacts', lbl: 'Contacts', Icon: Users, alsoActive: ['/contacts/'], cap: 'contacts.view', keywords: 'customers people crm' },
+      { href: '/bookings', lbl: 'Bookings', Icon: CalendarCheck, cap: 'chats.view', keywords: 'appointments calendar booking schedule' },
       { href: '/assignments', lbl: 'Account assignment', Icon: ListChecks, cap: 'account_assignment.manage', roles: ADMINS, keywords: 'routing sticky numbers' },
     ],
   },

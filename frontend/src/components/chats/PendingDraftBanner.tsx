@@ -15,6 +15,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Check, Loader2, ScanEye, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { DraftBookings } from '@/components/ai-monitor/DraftBits'
 import { aiApi, decide, decisionFromError, type Draft, type DraftList } from '@/lib/aiMonitor'
 
 export default function PendingDraftBanner({
@@ -90,6 +91,12 @@ export default function PendingDraftBanner({
         </span>
       </div>
       <p className="mt-1.5 line-clamp-3 whitespace-pre-wrap text-[13px] leading-relaxed text-text-high">{draft.content}</p>
+      {/* a held reply has only RESERVED its calendar actions — approving makes them */}
+      {draft.bookings && draft.bookings.length > 0 && (
+        <div className="mt-1.5">
+          <DraftBookings d={draft} compact />
+        </div>
+      )}
       {error && (
         <p role="alert" className="mt-1.5 text-[12px] text-[color:var(--red-ink)]">
           {error}
