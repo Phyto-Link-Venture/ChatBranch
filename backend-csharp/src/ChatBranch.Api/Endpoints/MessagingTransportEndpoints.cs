@@ -148,7 +148,7 @@ public static class MessagingTransportEndpoints
                     ["media"] = new { type = msg.MediaType, url = $"/api/messaging/media/{msg.Id}" },
                 },
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated).DisableAntiforgery();
+        }).RequireAuthorization(AuthPolicies.Authenticated).DisableAntiforgery().RequireThreadAccess("chats.send");
     }
 
     private static string Cap(string s, int n) => s.Length <= n ? s : s[..n];

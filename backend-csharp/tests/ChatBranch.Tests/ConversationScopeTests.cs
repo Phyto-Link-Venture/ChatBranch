@@ -132,6 +132,9 @@ public class ConversationScopeTests : IClassFixture<ApiFactory>
                 (await agent.PostAsJsonAsync($"/api/messaging/threads/telegram/cs-west/{path}", body)).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound,
             (await agent.PostAsJsonAsync("/api/whatsapp/threads/60111000222/send", new { text = "hi" })).StatusCode);
+        using (var form = new MultipartFormDataContent { { new ByteArrayContent(new byte[] { 1, 2, 3 }), "file", "x.jpg" } })
+            Assert.Equal(HttpStatusCode.NotFound,
+                (await agent.PostAsync("/api/messaging/threads/telegram/cs-west/send-media", form)).StatusCode);
         var after = ThreadOf("telegram", "cs-west");
         Assert.Equal(before.Status, after.Status);
         Assert.Equal(before.ContactId, after.ContactId);

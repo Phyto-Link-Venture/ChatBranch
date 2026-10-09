@@ -444,7 +444,7 @@ public static class MessagingEndpoints
                 }).ToList(),
                 ["messages"] = messages,
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("chats.view", "contacts.view");
     }
 
     // =========================================================================
@@ -743,8 +743,17 @@ public static class MessagingEndpoints
                     .FirstOrDefaultAsync(c => c.Id == cid);
                 if (contact == null)
                     return Results.Json(new { detail = "Contact not found." }, statusCode: 404);
+                // an unknown customer the identity exchange was waiting on: close it the
+                // same way the chat banner's "Create contact" does (request, note, handover)
+                var identity = ctx.RequestServices.GetService<ChatBranch.Data.Contacts.IdentityRequestService>();
+                if (identity?.For(thread.Id) is { } req
+                    && req.State is not (ChatBranch.Domain.IdentityStates.Linked or ChatBranch.Domain.IdentityStates.Created))
+                    identity.ResolveByHand(thread, contact, ChatBranch.Domain.IdentityStates.Linked,
+                        $"{me.Identity?.Name} linked this conversation to {contact.Name}.");
                 thread.ContactId = contact.Id;
                 thread.Contact = contact;
+                if (thread.HandoverKind == ChatBranch.Data.Ai.HandoverKinds.UnknownCustomer)
+                    ChatBranch.Data.Ai.Handover.Clear(db, thread, $"agent:{me.Identity?.Name}", "The contact was linked", save: false);
             }
             else
             {

@@ -160,6 +160,16 @@ public class IdentityRequestTests : IdentityApiBase, IClassFixture<IdentityFacto
         Assert.Contains("Twin One", note);
         Assert.Contains("Twin Two", note);
         Assert.True(InScope((_, db) => db.Notifications.Any(x => x.Title.Contains("several contacts"))));
+
+        // a person picks the right one with the chat's ordinary link picker: the
+        // request closes and the "unknown customer" handover clears
+        var twinOne = InScope((_, db) => db.Contacts.Single(c => c.Name == "Twin One").Id);
+        (await admin.PostAsJsonAsync($"/api/messaging/threads/telegram/{key}/link", new { contact_id = twinOne }))
+            .EnsureSuccessStatusCode();
+        var linked = ThreadOf("telegram", key);
+        Assert.Equal(twinOne, linked.ContactId);
+        Assert.NotNull(linked.HandoverResolvedAt);
+        Assert.Equal(IdentityStates.Linked, Request("telegram", key).State);
     }
 
     [Fact]
