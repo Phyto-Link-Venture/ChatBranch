@@ -14,17 +14,21 @@ namespace ChatBranch.Api.Auth;
 public static class CapabilityFilter
 {
     public static TBuilder RequireCapability<TBuilder>(this TBuilder builder, string capability)
+        where TBuilder : IEndpointConventionBuilder => builder.RequireAnyCapability(capability);
+
+    /// <summary>Passes when the caller holds ANY of <paramref name="capabilities"/>.</summary>
+    public static TBuilder RequireAnyCapability<TBuilder>(this TBuilder builder, params string[] capabilities)
         where TBuilder : IEndpointConventionBuilder =>
         builder.AddEndpointFilter(async (ctx, next) =>
         {
             var http = ctx.HttpContext;
             var db = http.RequestServices.GetRequiredService<AppDbContext>();
             var role = http.User.FindFirstValue(ClaimTypes.Role) ?? "";
-            if (await AdminEndpoints.HasCapabilityAsync(db, role, capability)) return await next(ctx);
-            return Results.Json(new
-            {
-                detail = $"The {capability} capability is required.",
-                error = $"The {capability} capability is required.",
-            }, statusCode: StatusCodes.Status403Forbidden);
+            foreach (var capability in capabilities)
+                if (await AdminEndpoints.HasCapabilityAsync(db, role, capability)) return await next(ctx);
+            var need = capabilities.Length == 1
+                ? $"The {capabilities[0]} capability is required."
+                : $"One of these capabilities is required: {string.Join(", ", capabilities)}.";
+            return Results.Json(new { detail = need, error = need }, statusCode: StatusCodes.Status403Forbidden);
         });
 }

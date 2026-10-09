@@ -48,6 +48,33 @@ internal static class ShellScope
         return pickedEntityId is int eid ? sc.EntitySubtreeIds(eid) : null;
     }
 
+    /// <summary>
+    /// Libraries an outlet INHERITS (skills, knowledge, message + script
+    /// templates, integrations…): the organization-wide rows plus the outlet's
+    /// own. Admins and superadmins read any outlet's library (narrowed by
+    /// <c>?entity=</c> when given — none = every outlet's rows, the management
+    /// view). Agents and custom roles with ASSIGNED entities read the org-wide
+    /// rows plus their assigned entities' subtrees only — an out-of-scope
+    /// <c>?entity=</c> narrows to their own scope instead of widening, the same
+    /// rule as conversations. An agent with no assignment keeps the tenant-wide
+    /// view (not a lockout).
+    /// </summary>
+    internal static IQueryable<T> ScopeLibrary<T>(IQueryable<T> qs, AppDbContext db, ScopingService sc,
+        ClaimsPrincipal me, int? pickedEntityId) where T : class, IEntityScoped
+    {
+        if (RoleOf(me) is not (Roles.SuperAdmin or Roles.Admin))
+        {
+            var assigned = ContactsEndpoints.AssignedEntityIds(db, me.Identity?.Name);
+            if (assigned.Count > 0)
+            {
+                var allowed = sc.EntitySubtreeIds(assigned);
+                if (pickedEntityId is int picked && allowed.Contains(picked)) return sc.ScopeInherited(qs, picked);
+                return qs.Where(r => r.EntityId == null || allowed.Contains(r.EntityId.Value));
+            }
+        }
+        return sc.ScopeInherited(qs, pickedEntityId);
+    }
+
     internal static IQueryable<Thread> ScopeThreads(IQueryable<Thread> qs, List<int>? entityIds) =>
         entityIds is null
             ? qs
