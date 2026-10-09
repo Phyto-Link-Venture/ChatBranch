@@ -189,6 +189,37 @@ public static class Seed
         AddColumnIfMissing(db, "crm_thread", "handover_resolved_at", "TEXT NULL");
         AddColumnIfMissing(db, "crm_thread", "handover_count", "INTEGER NOT NULL DEFAULT 0");
         AddIndexIfMissing(db, "ix_thread_handover", "crm_thread", "\"handover_at\", \"handover_resolved_at\"");
+        // contacts: identity registry (+ WhatsApp lookup verdicts), invite links,
+        // unknown-customer "who are you?" requests
+        AddTableIfMissing(db, "crm_contactidentity",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_contactidentity\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"contact_id\" INTEGER NOT NULL, \"channel\" TEXT NOT NULL, \"address\" TEXT NOT NULL, "
+            + "\"source\" TEXT NOT NULL, \"verification\" TEXT NOT NULL, \"verification_detail\" TEXT NOT NULL, "
+            + "\"checked_at\" TEXT NULL, \"checked_account_id\" INTEGER NULL, "
+            + "\"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL, "
+            + "CONSTRAINT \"FK_crm_contactidentity_crm_contact_contact_id\" FOREIGN KEY (\"contact_id\") "
+            + "REFERENCES \"crm_contact\" (\"id\") ON DELETE CASCADE, "
+            + "CONSTRAINT \"uniq_contactidentity\" UNIQUE (\"contact_id\", \"channel\", \"address\")");
+        AddIndexIfMissing(db, "ix_contactidentity_address", "crm_contactidentity", "\"channel\", \"address\"");
+        AddTableIfMissing(db, "crm_contactinvite",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_contactinvite\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"code\" TEXT NOT NULL, \"contact_id\" INTEGER NOT NULL, \"entity_id\" INTEGER NULL, "
+            + "\"channel\" TEXT NOT NULL, \"account_id\" INTEGER NULL, \"created_by\" TEXT NOT NULL, "
+            + "\"created_at\" TEXT NOT NULL, \"expires_at\" TEXT NOT NULL, \"used_at\" TEXT NULL, "
+            + "\"used_thread_id\" INTEGER NULL, \"used_channels\" TEXT NOT NULL, "
+            + "CONSTRAINT \"FK_crm_contactinvite_crm_contact_contact_id\" FOREIGN KEY (\"contact_id\") "
+            + "REFERENCES \"crm_contact\" (\"id\") ON DELETE CASCADE, "
+            + "CONSTRAINT \"uniq_contactinvite_code\" UNIQUE (\"code\")");
+        AddTableIfMissing(db, "crm_identityrequest",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_identityrequest\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"thread_id\" INTEGER NOT NULL, \"state\" TEXT NOT NULL, \"mode\" TEXT NOT NULL, "
+            + "\"attempts\" INTEGER NOT NULL, \"language\" TEXT NOT NULL, \"collected\" TEXT NOT NULL, "
+            + "\"original_message_id\" INTEGER NULL, \"contact_id\" INTEGER NULL, \"pending_job_id\" INTEGER NULL, "
+            + "\"note\" TEXT NOT NULL, \"started_at\" TEXT NOT NULL, \"last_asked_at\" TEXT NULL, "
+            + "\"resolved_at\" TEXT NULL, \"updated_at\" TEXT NOT NULL, "
+            + "CONSTRAINT \"FK_crm_identityrequest_crm_thread_thread_id\" FOREIGN KEY (\"thread_id\") "
+            + "REFERENCES \"crm_thread\" (\"id\") ON DELETE CASCADE, "
+            + "CONSTRAINT \"uniq_identityrequest_thread\" UNIQUE (\"thread_id\")");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 

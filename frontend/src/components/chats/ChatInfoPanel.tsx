@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/Select'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import ChannelHub from '@/components/ChannelHub'
 import { BookingsCard } from '@/components/bookings/BookingsCard'
+import { CreateFromChat } from '@/components/contacts/CreateFromChatModal'
 import { useTags } from '@/lib/tags'
 import { tint } from '@/lib/color'
 import { Avatar, BetaChip } from './MessageParts'
@@ -125,6 +126,7 @@ export default function ChatInfoPanel({
             </button>
           </div>
         ) : (
+          <>
           <div className="flex items-center gap-1.5">
             <Select
               value={linkSel}
@@ -146,6 +148,9 @@ export default function ChatInfoPanel({
               <Link2 size={13} aria-hidden />
             </button>
           </div>
+          {/* an unknown customer: a new contact prefilled from what they said */}
+          <CreateFromChat channel={active.channel} threadKey={active.key} onCreated={(id) => onLink(id)} />
+          </>
         )}
       </InfoCard>
 

@@ -80,6 +80,10 @@ public class AppDbContext : DbContext
     public DbSet<AiFeedback> AiFeedback => Set<AiFeedback>();
     public DbSet<AiLesson> AiLessons => Set<AiLesson>();
     public DbSet<AiEmbedding> AiEmbeddings => Set<AiEmbedding>();
+    // contacts — identity registry, invite links, "who are you?" requests
+    public DbSet<ContactIdentity> ContactIdentities => Set<ContactIdentity>();
+    public DbSet<ContactInvite> ContactInvites => Set<ContactInvite>();
+    public DbSet<IdentityRequest> IdentityRequests => Set<IdentityRequest>();
 
     /// <summary>Every AuditLog row is stamped with its request/source provenance
     /// on save (Audit/AuditStampInterceptor), so the per-file audit helpers carry
@@ -275,6 +279,18 @@ public class AppDbContext : DbContext
         Json<TagAssignment, Dictionary<string, object?>>(b, x => x.Values);
         Json<AiFeedback, List<string>>(b, x => x.Reasons);
         Json<AiLesson, List<string>>(b, x => x.Channels);
+
+        // ---- contacts: identity registry, invites, identity requests ----------
+        b.Entity<ContactIdentity>().ToTable("crm_contactidentity");
+        b.Entity<ContactIdentity>().HasIndex(i => new { i.ContactId, i.Channel, i.Address })
+            .IsUnique().HasDatabaseName("uniq_contactidentity");
+        b.Entity<ContactIdentity>().HasIndex(i => new { i.Channel, i.Address })
+            .HasDatabaseName("ix_contactidentity_address");
+        b.Entity<ContactInvite>().ToTable("crm_contactinvite");
+        b.Entity<ContactInvite>().HasIndex(i => i.Code).IsUnique().HasDatabaseName("uniq_contactinvite_code");
+        b.Entity<IdentityRequest>().ToTable("crm_identityrequest");
+        b.Entity<IdentityRequest>().HasIndex(r => r.ThreadId).IsUnique().HasDatabaseName("uniq_identityrequest_thread");
+        Json<IdentityRequest, Dictionary<string, object?>>(b, x => x.Collected);
 
         // ---- snake_case columns to match Django (<field>_id for FKs) -----------
         // Django names every column snake_case; matching it is what lets this

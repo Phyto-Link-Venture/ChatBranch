@@ -105,6 +105,9 @@ builder.Services.AddScoped<ChatBranch.Data.Ai.Learning.RetrievalService>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.Learning.LearningService>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.Learning.EmbeddingIndexer>();
 builder.Services.AddHostedService<ChatBranch.Api.Workers.EmbeddingWorker>();
+// Contacts: identity registry + WhatsApp lookups (IdentityCheckWorker), invite
+// links, unknown-customer "who are you?", contact-book import (+ Google Contacts)
+builder.Services.AddContactIdentity();
 
 // ---- auth: bearer token handler + RBAC policies -----------------------------
 builder.Services.AddAuthentication(TokenAuthenticationHandler.SchemeName)
@@ -160,6 +163,7 @@ app.MapSavedViewsEndpoints();
 app.MapAiEndpoints();
 app.MapFlowsEndpoints();
 app.MapContactsEndpoints();
+app.MapContactIdentityEndpoints();
 app.MapAnalyticsEndpoints();
 app.MapIntegrationsEndpoints();
 app.MapNotificationEndpoints();

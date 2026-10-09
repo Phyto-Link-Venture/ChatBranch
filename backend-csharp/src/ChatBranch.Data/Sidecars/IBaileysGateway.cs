@@ -10,6 +10,15 @@ public record BaileysResult(bool Ok, string Detail, string ExternalId = "");
 public record BaileysStatus(string State, string? Qr, string? Me, string? Error);
 
 /// <summary>
+/// "Is this number on WhatsApp?" as the gateway answers it (POST
+/// /accounts/{id}/check → {exists, jid}): Exists true / false, or null when the
+/// lookup was inconclusive (gateway down, account not connected, WhatsApp did
+/// not answer) — <see cref="Error"/> then says why. A lookup never messages the
+/// number.
+/// </summary>
+public record BaileysCheck(bool? Exists, string? Jid, string Error = "");
+
+/// <summary>
 /// The Node Baileys gateway (unofficial WhatsApp Web, <c>backend/baileys_service</c>)
 /// stays a sidecar — no C# port exists. This is the HTTP contract the backend
 /// uses to drive it, mirroring Django's <c>whatsapp/client.py baileys_request</c>:
@@ -51,6 +60,13 @@ public interface IBaileysGateway
     /// </summary>
     Task<string?> CallStatusAsync(string accountExternalId, CancellationToken ct = default) =>
         Task.FromResult<string?>(null);
+    /// <summary>
+    /// Look a number up on WhatsApp through a connected QR (Baileys) account —
+    /// the only transport that can: the Cloud API has no lookup. The default
+    /// answers "inconclusive" so a gateway double without it still compiles.
+    /// </summary>
+    Task<BaileysCheck> CheckNumberAsync(string accountExternalId, string number, CancellationToken ct = default) =>
+        Task.FromResult(new BaileysCheck(null, null, "this Baileys gateway does not support number lookups"));
     // ---- pairing (Settings → Channels → WhatsApp → Pair) ----
     Task<BaileysStatus> StatusAsync(string accountExternalId, CancellationToken ct = default);
     Task<BaileysStatus> StartAsync(string accountExternalId, CancellationToken ct = default);
@@ -80,6 +96,10 @@ public class SandboxBaileysGateway : IBaileysGateway
 
     public Task<BaileysResult> EndCallAsync(string accountExternalId, CancellationToken ct = default) =>
         Task.FromResult(new BaileysResult(false, "baileys gateway not configured (sandbox)"));
+
+    public Task<BaileysCheck> CheckNumberAsync(string accountExternalId, string number,
+        CancellationToken ct = default) =>
+        Task.FromResult(new BaileysCheck(null, null, "baileys gateway not configured (sandbox)"));
 
     public Task<BaileysStatus> StatusAsync(string a, CancellationToken ct = default) => Task.FromResult(NotAttached);
     public Task<BaileysStatus> StartAsync(string a, CancellationToken ct = default) => Task.FromResult(NotAttached);
@@ -222,6 +242,21 @@ public class HttpBaileysGateway : IBaileysGateway
     {
         var (ok, _, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/call-end", new { }, ct);
         return ok ? new BaileysResult(true, "ended") : new BaileysResult(false, err);
+    }
+
+    public async Task<BaileysCheck> CheckNumberAsync(string a, string number, CancellationToken ct = default)
+    {
+        var digits = new string((number ?? "").Where(char.IsDigit).ToArray());
+        if (digits.Length < 8) return new BaileysCheck(null, null, "not a phone number");
+        var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/check",
+            new { to = digits }, ct, timeoutSeconds: 20);
+        if (!ok) return new BaileysCheck(null, null, err);
+        if (body.ValueKind != JsonValueKind.Object) return new BaileysCheck(null, null, "gateway answered no body");
+        bool? exists = body.TryGetProperty("exists", out var ex)
+            ? ex.ValueKind switch { JsonValueKind.True => true, JsonValueKind.False => false, _ => null }
+            : null;
+        var jid = body.TryGetProperty("jid", out var j) && j.ValueKind == JsonValueKind.String ? j.GetString() : null;
+        return new BaileysCheck(exists, jid, exists == null ? "WhatsApp did not answer the lookup" : "");
     }
 
     public async Task<string?> CallStatusAsync(string a, CancellationToken ct = default)

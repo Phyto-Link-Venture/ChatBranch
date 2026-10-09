@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertTriangle, BadgeCheck, Check, ChevronDown, Loader2, Plug, RefreshCw, Webhook, X } from 'lucide-react'
+import { UnknownCustomersField, useInboxIdentify } from '@/components/channels/UnknownCustomersField'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
@@ -253,6 +254,8 @@ export function InboxSetupDrawer({
   const [tgBase, setTgBase] = useState('')
   const [tgResult, setTgResult] = useState<TestResult | null>(null)
   const [showGuide, setShowGuide] = useState(target.inbox === null)
+  // "Unknown customers" (identify_unknown) — saved right after the account
+  const identify = useInboxIdentify(saved?.id ?? null)
 
   /** Seed every field from an inbox (edit) or the kind's defaults (new). */
   const seed = useCallback((k: InboxKind, inbox: Inbox | null) => {
@@ -497,6 +500,7 @@ export function InboxSetupDrawer({
     try {
       const wasNew = !saved
       const inbox = await persist()
+      if (kind !== 'voice') await identify.save(inbox.id)
       setSaved(inbox)
       // never keep secrets in memory once stored — blank now means "keep"
       setCreds((prev) => {
@@ -946,6 +950,13 @@ export function InboxSetupDrawer({
           Held replies wait in the AI monitor (and on the chat) until someone approves, edits or rejects them.
         </Help>
       </div>
+
+      <UnknownCustomersField
+        value={identify.value}
+        onChange={identify.setValue}
+        defaults={identify.defaults}
+        inherited={identify.inherited}
+      />
 
       {isWa && (
         <div className="rounded-lg border border-line">

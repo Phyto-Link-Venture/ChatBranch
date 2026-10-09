@@ -58,6 +58,8 @@ public class AutomationService
         ("is_first_message", "Is the first message"),
         ("ai_on", "The chatbot is on"),
         ("handed_over", "Handed over to a human"),
+        // "yes" when the conversation is linked to a contact, else "no"
+        ("contact_linked", "Contact is linked (yes/no)"),
     };
 
     public static readonly (string Id, string Label)[] Operators =
@@ -82,6 +84,8 @@ public class AutomationService
         ("add_note", "Add a private note"),
         ("notify", "Notify the team"),
         ("hand_over", "Hand over to a human"),
+        // value: "ask" (default) | "ask_and_create" — see Contacts/IdentityRequests.cs
+        ("ask_identity", "Ask who they are (unknown customer)"),
     };
 
     // ---- entry points -------------------------------------------------------
@@ -168,6 +172,7 @@ public class AutomationService
         "contact_name" => contact?.Name ?? "",
         "contact_tags" => contact == null ? "" : string.Join(",", contact.Tags),
         "is_first_message" => isFirstMessage ? "true" : "false",
+        "contact_linked" => thread.ContactId != null ? "yes" : "no",
         _ => "",
     };
 
@@ -242,6 +247,10 @@ public class AutomationService
                     // pending + note + bell + audit, and the chatbot stands down (Ai/Handover)
                     ChatBranch.Data.Ai.Handover.Mark(_db, thread, ChatBranch.Data.Ai.HandoverKinds.Rule,
                         value.Length > 0 ? value : $"Automation: {rule.Name}", $"rule:{rule.Id}", save: false);
+                    break;
+                case "ask_identity":
+                    // arms the "who are you?" exchange; the inbound step sends the ask
+                    if (!ChatBranch.Data.Contacts.IdentityRequestService.Arm(_db, thread, value)) continue;
                     break;
                 default:
                     continue;   // unknown action type — skip, do not guess

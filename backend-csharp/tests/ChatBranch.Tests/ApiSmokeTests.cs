@@ -133,6 +133,8 @@ public class ApiFactory : WebApplicationFactory<Program>
         // No background embedding passes: the semantic index is driven
         // explicitly (EmbeddingIndexer.SyncAsync) with a fake embedding client.
         Environment.SetEnvironmentVariable("EMBEDDING_WORKER", "0");
+        // no background WhatsApp number lookups (POST /api/contacts/identity-checks/run drives them)
+        Environment.SetEnvironmentVariable("IDENTITY_CHECK_WORKER", "0");
         Environment.SetEnvironmentVariable("AI_HUMANIZE", "0");
         // Production seeds clean (no admin/agent logins) since the deploy pass,
         // but the suite signs in as those users on nearly every test. A test
