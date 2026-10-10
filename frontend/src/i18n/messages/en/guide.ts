@@ -463,14 +463,18 @@ export const guide = {
           body: 'Lessons the AI picked up from thumbs up, thumbs down and edits. Depending on the learning mode, a person approves each lesson before the AI uses it.',
         },
         s5: {
+          title: 'AI review',
+          body: 'Let a stronger AI check a sample of recent replies against your knowledge, house rules and persona. It flags mistakes and suggests what to add — a lesson, a knowledge item or a house rule — in one click. It only runs when you click Review now.',
+        },
+        s6: {
           title: 'Stats',
           body: 'How many replies were sent, held or rejected, how often people liked them, and how often chats were handed to a person.',
         },
-        s6: {
+        s7: {
           title: 'Settings — review modes',
           body: 'Choose how careful the AI is: send straight away, hold only risky replies (prices, refunds, promises), hold everything, or shadow mode (the AI drafts, people send).',
         },
-        s7: {
+        s8: {
           title: 'Try it safely',
           body: 'Opens the AI playground, where you chat with the AI as a customer would — nothing is sent to anyone.',
         },

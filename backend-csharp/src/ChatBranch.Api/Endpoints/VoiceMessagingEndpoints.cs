@@ -332,6 +332,10 @@ public static class VoiceMessagingEndpoints
         new() { key = "chat_model", label = "Chat model", group = "providers", kind = "model",
                 help = "Applies to whichever provider wins. Empty = that provider's default model; " +
                        "pick Custom… to enter any model id." },
+        new() { key = "ai_reviewer_model", label = "AI reviewer model", group = "providers", kind = "text",
+                help = "The stronger model the AI monitor's \"AI review\" uses to check past replies (only when someone " +
+                       "clicks Review now). Empty = anthropic/claude-sonnet-5.5 on OpenRouter; write provider:model " +
+                       "(e.g. openai:gpt-4.1) for another provider. Without that provider's key the normal chat model reviews." },
         new() { key = "local_base_url", label = "Local model base URL", group = "providers", kind = "text",
                 help = "For the Local (Ollama / LM Studio) provider — e.g. http://localhost:11434/v1 " +
                        "(Ollama) or http://localhost:1234/v1 (LM Studio). Then pin 'local' above and set " +
@@ -375,6 +379,7 @@ public static class VoiceMessagingEndpoints
         ["email_subject"] = "EMAIL_DEFAULT_SUBJECT",
         ["embedding_provider"] = "EMBEDDING_PROVIDER",
         ["embedding_model"] = "EMBEDDING_MODEL",
+        ["ai_reviewer_model"] = "AI_REVIEWER_MODEL",
     };
 
     // key -> (default, minimum, env var). Mirrors app_settings._INT_TUNABLES.

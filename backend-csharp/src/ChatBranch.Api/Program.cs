@@ -118,6 +118,8 @@ builder.Services.AddHttpClient("embeddings").RemoveAllLoggers();
 builder.Services.AddScoped<ChatBranch.Data.Ai.Learning.IEmbeddingClient, ChatBranch.Data.Ai.Learning.OpenAiEmbeddingClient>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.Learning.RetrievalService>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.Learning.LearningService>();
+// the on-demand AI reviewer ("AI to monitor AI") — runs only when an admin clicks Review now
+builder.Services.AddScoped<ChatBranch.Data.Ai.Review.AiReviewService>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.Learning.EmbeddingIndexer>();
 builder.Services.AddHostedService<ChatBranch.Api.Workers.EmbeddingWorker>();
 // Contacts: identity registry + WhatsApp lookups (IdentityCheckWorker), invite
@@ -213,6 +215,7 @@ app.MapBookingsEndpoints();
 app.MapLearningEndpoints();
 app.MapAiControlsEndpoints();
 app.MapAiPlaygroundEndpoints();
+app.MapAiReviewEndpoints();
 app.MapClientErrorEndpoints();
 
 // Inbound conversations route themselves to a team. The hook lives here so the

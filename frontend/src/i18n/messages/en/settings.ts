@@ -273,6 +273,8 @@ export const settings = {
         'For the Local (Ollama / LM Studio) provider — e.g. http://localhost:11434/v1 (Ollama) or http://localhost:1234/v1 (LM Studio). Then pin “local” above and set the chat model to the model name (e.g. llama3.1). The server must reach this URL.',
       localKey: 'Local model API key (optional)',
       localKeyHelp: 'Optional — Ollama ignores it; some gateways require one.',
+      reviewerModel: 'AI reviewer model',
+      reviewerModelHelp: 'The stronger model the AI monitor’s “AI review” uses to check past replies — only when someone clicks Review now. Empty = anthropic/claude-sonnet-5.5 on OpenRouter; write provider:model (for example openai:gpt-4.1) for another provider. Without that provider’s key, the normal chat model reviews.',
       emailSubject: 'Default email subject',
       flowsTick: 'Flow engine tick (seconds)',
       healthInterval: 'Channel health check interval (seconds)',

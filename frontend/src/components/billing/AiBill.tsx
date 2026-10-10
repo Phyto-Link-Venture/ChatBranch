@@ -63,6 +63,7 @@ export const FEATURE_LABELS: Record<string, MessageKey> = {
   assistant: 'billing.features.assistant',
   embedding: 'billing.features.embedding',
   skill_draft: 'billing.features.skillDraft',
+  ai_review: 'billing.features.aiReview',
 }
 
 const thisMonth = () => new Date().toISOString().slice(0, 7)

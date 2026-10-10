@@ -153,7 +153,16 @@ export const TOURS: TourDef[] = [
     href: '/ai-monitor',
     group: 'ai',
     match: exact('/ai-monitor'),
-    steps: steps('ai-master', 'ai-tab-review', 'ai-tab-activity', 'ai-tab-learning', 'ai-tab-stats', 'ai-tab-settings', 'ai-playground-link'),
+    steps: steps(
+      'ai-master',
+      'ai-tab-review',
+      'ai-tab-activity',
+      'ai-tab-learning',
+      'ai-tab-ai-review',
+      'ai-tab-stats',
+      'ai-tab-settings',
+      'ai-playground-link',
+    ),
   },
   {
     id: 'playground',

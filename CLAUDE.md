@@ -712,6 +712,36 @@ When you fix one of these, update this table, `README.md` and
   `ai.monitor` (agents hold it) / `ai.behaviour.manage`. `AI_HUMANIZE=0` turns
   the human-like DEFAULTS off (explicit Setting rows still win) — the test host
   sets it.
+- **AI reviewer — "AI to monitor AI"** (`Ai/Review/AiReviewService.cs`,
+  `Endpoints/AiReviewEndpoints.cs`, the AI monitor's "AI review" tab
+  `?tab=ai-review`, `components/ai-monitor/AiReviewPanel.tsx`). ON DEMAND ONLY —
+  nothing schedules it. `POST /api/ai/review {from?, to?, days?, entity?, limit?}`
+  (`ai.behaviour.manage`; default last 7 days, 30 replies, max 100; one run at a
+  time → 409) samples decided `AiDraft`s (auto_sent / sent / approved / edited /
+  rejected — never pending/shadow), newest first and round-robin across
+  conversations, scoped like the monitor's drafts (comma `entity` = union of
+  subtrees, bounded by an agent's assignment). It runs in a background DI scope
+  and the POST waits ≤20 s, so a long run answers `status: running` — poll
+  `GET /api/ai/review/runs/{id}`. Model = Setting `ai_reviewer_model` (env
+  `AI_REVIEWER_MODEL`; default `anthropic/claude-sonnet-5.5` on OpenRouter;
+  `provider:model` for another vendor) via `OpenAiLlmClient.Pinned`; no key for
+  that provider → the normal chat provider order with its model AND a note
+  saying so; no model at all (or every batch failing) → deterministic checks
+  (language mismatch EN/BM/ZH, numbers with no grounding on a factual question,
+  unanswered questions, length, missed hand-over, edited/rejected drafts),
+  labelled `mode: "heuristic"` per run and `source` per finding. 5 replies per
+  call, temperature 0.1, strict JSON, customer text fenced, the entity's persona +
+  house rules + review mode + knowledge TITLES as the setup to judge against;
+  a summary call adds top problems + 3–5 setup suggestions. Every call metered
+  as `LlmUsage` feature `ai_review` (entity = the run's). Tables
+  `crm_aireviewrun` (last 50 kept) + `crm_aireviewfinding`. Reads
+  `GET /api/ai/review/runs[/{id}]` (`ai.monitor` | `ai.behaviour.manage`): a run
+  is visible only when every entity it read is in the caller's scope; findings
+  filtered again by the conversation's entity. `POST
+  /api/ai/review/findings/{id}/apply {as: lesson|knowledge|house_rule, text?}`
+  → a rule lesson (active only in `auto` learning mode for an admin, else
+  suggested), an INACTIVE knowledge draft, or a house-rule line at the run's
+  entity level (`settings.ai.manage` for the last two). Tests: `AiReviewTests`.
 - **Human handover** (`Ai/Handover.cs`, the ONLY writer of `crm_thread.handover_*`).
   `Handover.Mark(db, thread, kind, reason, by)`: kinds `check_failed` ·
   `asked_for_human` · `send_blocked` · `booking_failed` · `low_confidence` ·
@@ -1350,7 +1380,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **670 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **690 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /

@@ -259,5 +259,49 @@ public static partial class ToolCatalog
                 A.Str("key", "The conversation's key.", req: true),
                 A.Int("take", "How many of its latest messages (default 20, max 60).", min: 1, max: 60),
             }, write: false);
+
+        // ---- AI review (on demand: a stronger model checks past replies) -------
+        yield return T(g, "ai_review_run", "Review recent AI replies",
+            "Have a stronger reviewer model (Setting ai_reviewer_model, default Claude Sonnet on OpenRouter; the normal " +
+            "chat model when OpenRouter isn't configured; deterministic checks with no model at all — the result says " +
+            "which) read a sample of the AI's past replies (auto-sent, sent, approved, edited, rejected; newest first, " +
+            "spread across conversations) and judge each one against the business's own knowledge, house rules and " +
+            "persona: verdict, severity, categories, explanation, cited evidence and a suggested fix — plus a summary " +
+            "with the top problems and 3–5 setup suggestions. Costs model tokens (metered as ai_review). Runs in the " +
+            "background: a run still 'running' is read with ai_review_get_run. One run at a time.",
+            "POST", "/api/ai/review", behaviour,
+            new[]
+            {
+                A.Str("from", "Start of the period (YYYY-MM-DD or ISO 8601). Default: 7 days before 'to'."),
+                A.Str("to", "End of the period (default now)."),
+                A.Int("days", "Instead of from: how many days back from 'to' (default 7).", min: 1, max: 366),
+                A.Entity("Entity (outlet) slug, or a comma list — includes branches. Omit for every entity you can see."),
+                A.Int("limit", "How many replies to review (default 30, max 100).", min: 1, max: 100),
+            }, outside: true, link: (_, _) => Page("Open the AI review", "/ai-monitor?tab=ai-review"));
+
+        yield return T(g, "ai_review_list_runs", "List AI review runs",
+            "The last AI review runs you can see (period, model or heuristic mode, replies reviewed, issues found, " +
+            "summary and suggestions) and which reviewer model a new run would use.",
+            "GET", "/api/ai/review/runs", monitorOrBehaviour,
+            new[] { A.Entity(), A.Limit(20, 50) },
+            link: (_, _) => Page("Open the AI review", "/ai-monitor?tab=ai-review"));
+
+        yield return T(g, "ai_review_get_run", "Get an AI review run",
+            "One AI review run with its findings: per reply the verdict, severity, categories, explanation, evidence, " +
+            "the suggested fix, the customer message and AI reply excerpts, and a /chats link to the conversation.",
+            "GET", "/api/ai/review/runs/{id:int}", monitorOrBehaviour,
+            new[] { A.Id("review run"), A.Str("verdict", "issue = only replies with a problem; good; omit for all.", oneOf: new[] { "issue", "good" }) });
+
+        yield return T(g, "ai_review_apply_finding", "Apply an AI review suggestion",
+            "Turn a finding's suggested fix into a real change: a lesson (live or suggested, per the learning mode), " +
+            "an INACTIVE knowledge draft (switch it on after checking) or a house rule added at the run's entity level. " +
+            "Knowledge and house rules also need settings.ai.manage.",
+            "POST", "/api/ai/review/findings/{id:int}/apply", behaviour,
+            new[]
+            {
+                A.Id("finding"),
+                A.Str("as", "lesson | knowledge | house_rule.", req: true, oneOf: new[] { "lesson", "knowledge", "house_rule" }),
+                A.Str("text", "The text to add instead of the suggestion as written."),
+            });
     }
 }

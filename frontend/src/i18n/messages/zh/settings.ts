@@ -271,6 +271,8 @@ export const settings: Dict<typeof source> = {
         '用于本地（Ollama / LM Studio）服务商——例如 http://localhost:11434/v1（Ollama）或 http://localhost:1234/v1（LM Studio）。然后在上方固定选择“local”，并将对话模型设为模型名称（例如 llama3.1）。服务器必须能访问此 URL。',
       localKey: '本地模型 API 密钥（可选）',
       localKeyHelp: '可选——Ollama 会忽略它；某些网关需要。',
+      reviewerModel: 'AI 审查模型',
+      reviewerModelHelp: 'AI 监控中“AI 审查”用来检查过往回复的更强模型——只在有人点击“立即审查”时运行。留空 = OpenRouter 上的 anthropic/claude-sonnet-5.5；其他服务商请写成 服务商:模型（例如 openai:gpt-4.1）。没有该服务商的密钥时，由普通聊天模型审查。',
       emailSubject: '默认邮件主题',
       flowsTick: '流程引擎周期（秒）',
       healthInterval: '渠道健康检查间隔（秒）',
