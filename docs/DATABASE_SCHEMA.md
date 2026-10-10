@@ -474,7 +474,9 @@ unrestricted — a caller sees the run only when all of them sit in their scope)
 `model` · `status` (`running` \| `done` \| `failed`) · `note` (fallbacks taken) ·
 `error` · `summary` (JSON: `summary`, `top_problems[]`, `suggestions[]`, `source`) ·
 `reviewed` · `issues` · `high_severity` · `prompt_tokens` · `completion_tokens` ·
-`cost_usd` · `created_at` · `finished_at` · `updated_at`. Index `created_at`; only
+`cost_usd` · `requested_model` (the reviewer picked for this run, `provider:model`;
+"" = the default `ai_reviewer_model` — `provider` / `model` say what actually
+reviewed) · `created_at` · `finished_at` · `updated_at`. Index `created_at`; only
 the last 50 runs are kept (their findings go with them).
 
 ### `crm_aireviewfinding` — the reviewer's verdict on one AI reply

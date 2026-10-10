@@ -868,7 +868,19 @@ When you fix one of these, update this table, `README.md` and
   `AI_REVIEWER_MODEL`; default `anthropic/claude-sonnet-5.5` on OpenRouter;
   `provider:model` for another vendor) via `OpenAiLlmClient.Pinned`; no key for
   that provider → the normal chat provider order with its model AND a note
-  saying so; no model at all (or every batch failing) → deterministic checks
+  saying so. **Per-run reviewer:** the POST's optional `model` (same format)
+  must name a CONFIGURED provider (else 400, `AiReviewService.CheckModel`) and
+  is used for that run only — stored canonical as `crm_aireviewrun.requested_model`
+  ("" = the default; `provider`/`model` stay what actually reviewed) and shown on
+  the run. `GET /api/ai/review/options` (`ai.behaviour.manage`) feeds the panel's
+  "Reviewer model" `Select`: providers (never keys; the list is
+  `Endpoints/AiProviderChoices.cs`, shared with the playground's options) with
+  `AiReviewService.SuggestedModels` as `provider:model` values, unconfigured
+  ones disabled, "Custom…" free text, the default preselected + its `source`
+  (setting | env | builtin), `can_set_default` = `settings.ai_keys.manage`,
+  whose holders get "Make this the default" (`PUT /api/settings/ai-providers`
+  `{ai_reviewer_model}`); others see the default as text. No model at all (or
+  every batch failing) → deterministic checks
   (language mismatch EN/BM/ZH, numbers with no grounding on a factual question,
   unanswered questions, length, missed hand-over, edited/rejected drafts),
   labelled `mode: "heuristic"` per run and `source` per finding. 5 replies per
@@ -1689,7 +1701,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **827 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **830 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /
