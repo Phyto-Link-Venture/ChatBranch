@@ -43,7 +43,9 @@ public static class AnalyticsEndpoints
             AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var window = ParseDays(days);
-            var entityId = await InboxEndpoints.EntityId(db, entity);
+            // an entity-bound caller: an out-of-scope ?entity= narrows to their own scope
+            var entityId = ShellScope.ClampPick(ShellScope.BoundEntityIds(db, sc, me),
+                await InboxEndpoints.EntityId(db, entity));
             var ent = entityId is int eid
                 ? await db.Entities.AsNoTracking().FirstOrDefaultAsync(e => e.Id == eid)
                 : null;
@@ -90,7 +92,16 @@ public static class AnalyticsEndpoints
         int? entityId = ent?.Id;
 
         // ---- 0. entity scope. Every section below is built off these bases.
-        var threadRows = await sc.ScopeOwned(db.Threads.AsNoTracking(), entityId)
+        // An entity-bound agent sees only their assigned subtrees (+ the
+        // unassigned conversations the inbox shows them), never the tenant.
+        var bound = ShellScope.BoundEntityIds(db, sc, me);
+        var boundInherited = ShellScope.BoundInheritedIds(db, sc, me);
+        var threadBase = sc.ScopeOwned(db.Threads.AsNoTracking(), entityId);
+        if (bound != null)
+            threadBase = entityId is int
+                ? threadBase.Where(t => t.EntityId != null && bound.Contains(t.EntityId.Value))
+                : ShellScope.ScopeThreads(db.Threads.AsNoTracking(), bound);
+        var threadRows = await threadBase
             .Select(t => new { t.Id, t.EntityId, t.ContactId }).ToListAsync();
         var threadMeta = threadRows.ToDictionary(t => t.Id, t => (t.EntityId, t.ContactId));
 
@@ -101,8 +112,10 @@ public static class AnalyticsEndpoints
         HashSet<int>? picks = entityId is int pe
             ? (EntitySelection.Covers(pe) ? EntitySelection.Current!.ToHashSet() : new HashSet<int> { pe })
             : null;
-        HashSet<int>? entityContacts = picks != null
-            ? links.Where(l => picks.Contains(l.EntityId)).Select(l => l.ContactId).ToHashSet()
+        if (picks != null && bound != null) picks.IntersectWith(bound);
+        var contactPicks = picks ?? bound?.ToHashSet();
+        HashSet<int>? entityContacts = contactPicks != null
+            ? links.Where(l => contactPicks.Contains(l.EntityId)).Select(l => l.ContactId).ToHashSet()
             : null;
 
         var msgs = (await db.Messages.AsNoTracking().Where(m => m.CreatedAt >= since)
@@ -166,6 +179,8 @@ public static class AnalyticsEndpoints
             var own = acctAll.Where(a => a.EntityId is int ae && picks.Contains(ae)).ToList();
             acctScoped = own.Count > 0 ? own : acctAll.Where(a => a.EntityId == null).ToList();
         }
+        else if (boundInherited != null)
+            acctScoped = acctAll.Where(a => a.EntityId == null || boundInherited.Contains(a.EntityId.Value)).ToList();
         var acctMeta = acctScoped.ToDictionary(a => a.Id);
         var accounts = msgs.GroupBy(m => m.AccountId)
             .Select(g => new
@@ -203,7 +218,7 @@ public static class AnalyticsEndpoints
             .Where(l => l.Action == "account.health" && l.CreatedAt >= since)
             .OrderByDescending(l => l.CreatedAt)
             .Select(l => new { l.Actor, l.Target, l.Detail, l.CreatedAt }).ToListAsync();
-        if (entityId is int)
+        if (entityId is int || bound != null)
         {
             var names = acctScoped.Select(a => a.Name).ToHashSet();
             healthRows = healthRows.Where(r => names.Contains(r.Target)).ToList();

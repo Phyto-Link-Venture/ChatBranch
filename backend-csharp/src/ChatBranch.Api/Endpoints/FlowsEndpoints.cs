@@ -39,17 +39,32 @@ public static class FlowsEndpoints
             ClaimsPrincipal me) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
-            var rows = sc.ScopeInherited(db.Workflows.AsNoTracking(), entityId)
+            // the library rule (ShellScope.ScopeLibrary): an entity-bound agent reads
+            // their subtrees + ancestors + the global flows, never another outlet's
+            var rows = ShellScope.ScopeLibrary(db.Workflows.AsNoTracking(), db, sc, me, entityId)
                 .OrderBy(w => w.Position).ThenBy(w => w.CreatedAt).ToList();
             return Results.Ok(new { workflows = rows.Select(WorkflowOut) });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("flows.view");
 
-        app.MapPut("/api/flows/library", async (LibraryWrite body, AppDbContext db, ClaimsPrincipal me,
-            HttpContext http) =>
+        app.MapPut("/api/flows/library", async (LibraryWrite body, AppDbContext db, ScopingService sc,
+            ClaimsPrincipal me, HttpContext http) =>
         {
             if (await Denied(db, me, "flows.manage") is IResult no) return no;
-            var entityId = await InboxEndpoints.EntityId(db, body.Entity);
-            var existing = await db.Workflows.Where(w => w.EntityId == entityId).ToListAsync();
+            // The builder GETs the library through ScopeLibrary (entity or "All") and
+            // PUTs the whole copy back. So: the rows it LOADED are exactly what the
+            // same rule returns for the same ?entity — only those may be pruned —
+            // and an existing flow is matched by flowId across every scope the
+            // caller may write and updated IN PLACE (its EntityId kept), so a save
+            // from "All entities" never duplicates an outlet's flow as a global one.
+            var bound = ShellScope.BoundEntityIds(db, sc, me);
+            var entityId = ShellScope.ClampPick(bound, await InboxEndpoints.EntityId(db, body.Entity));
+            if (bound != null && entityId == null && !string.IsNullOrWhiteSpace(body.Entity)
+                && body.Entity is not ("all" or "__all__"))
+                return Results.Json(new { detail = "No such entity." }, statusCode: 404);
+            var writable = await ShellScope.ScopeLibrary(db.Workflows, db, sc, me, null).ToListAsync();
+            var loadedIds = (await ShellScope.ScopeLibrary(db.Workflows.AsNoTracking(), db, sc, me, entityId)
+                .Select(w => w.Id).ToListAsync()).ToHashSet();
+            var existing = writable.Where(w => loadedIds.Contains(w.Id)).ToList();
             var keep = new HashSet<string>();
             var actor = me.Identity?.Name ?? "system";
             var created = new List<string>();
@@ -62,7 +77,12 @@ public static class FlowsEndpoints
                 // the builder's string id travels as flowId (older builds sent it as id)
                 var flowId = (w.FlowId ?? w.Id ?? "").Trim();
                 if (flowId.Length == 0 || !keep.Add(flowId)) continue;
-                var row = existing.FirstOrDefault(e => e.FlowId == flowId);
+                // the row at the level being edited first, then any loaded row, then
+                // any row the caller may write (a flow that lives at another level)
+                var row = existing.FirstOrDefault(e => e.FlowId == flowId && e.EntityId == entityId)
+                          ?? existing.FirstOrDefault(e => e.FlowId == flowId)
+                          ?? writable.FirstOrDefault(e => e.FlowId == flowId && e.EntityId == entityId)
+                          ?? writable.FirstOrDefault(e => e.FlowId == flowId);
                 var isNew = row == null;
                 if (row == null)
                 {
@@ -85,7 +105,8 @@ public static class FlowsEndpoints
                 row.Active = w.Active; row.Position = w.Position;
                 row.UpdatedAt = now; row.UpdatedBy = actor;
             }
-            // PRUNE within this scope only (mirrors the builder's library sync).
+            // PRUNE within the loaded scope only, and never a row whose flowId the
+            // payload still carries (another level's twin of a kept flow).
             var removed = existing.Where(e => !keep.Contains(e.FlowId)).ToList();
             db.Workflows.RemoveRange(removed);
             await db.SaveChangesAsync();
@@ -221,7 +242,7 @@ public static class FlowsEndpoints
         app.MapGet("/api/flows/{flowId}/stats", async (string flowId, string? days, string? entity,
             AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
-            var wf = await FindWorkflowAsync(db, sc, flowId, entity);
+            var wf = await FindWorkflowAsync(db, sc, me, flowId, entity);
             if (wf == null) return Results.Json(new { detail = "No such flow." }, statusCode: 404);
             return Results.Ok(await StatsAsync(db, sc, me, wf, ParseDays(days), entity));
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("flows.view");
@@ -238,7 +259,7 @@ public static class FlowsEndpoints
             AppDbContext db, ScopingService sc, ClaimsPrincipal me, HttpContext http, FlowEngine engine) =>
         {
             if (await Denied(db, me, "flows.manage") is IResult no) return no;
-            var wf = await FindWorkflowAsync(db, sc, flowId, entity);
+            var wf = await FindWorkflowAsync(db, sc, me, flowId, entity);
             if (wf == null) return Results.Json(new { detail = "No such flow." }, statusCode: 404);
             var ids = (body.ContactIds ?? new()).Distinct().Take(500).ToList();
             if (ids.Count == 0) return Results.Json(new { detail = "Pick at least one contact." }, statusCode: 400);
@@ -417,7 +438,8 @@ public static class FlowsEndpoints
         var dayKeys = OrgClock.LastDays(days, zone);
         var sinceUtc = OrgClock.ToUtc(DateTime.Parse(dayKeys[0]), zone);
         var entityId = await InboxEndpoints.EntityId(db, entity);
-        var flows = await sc.ScopeInherited(db.Workflows.AsNoTracking(), entityId)
+        // the library rule: a bound agent sees their subtrees + ancestors + global flows only
+        var flows = await ShellScope.ScopeLibrary(db.Workflows.AsNoTracking(), db, sc, me, entityId)
             .OrderBy(w => w.Position).ThenBy(w => w.CreatedAt).ToListAsync();
         var flowIds = flows.Select(f => f.Id).ToList();
         var scope = await ContactScopeAsync(db, sc, me, entity);
@@ -502,10 +524,11 @@ public static class FlowsEndpoints
     private static string Label(Dictionary<int, Dictionary<string, string>> labels, int workflowId, string nodeId) =>
         labels.TryGetValue(workflowId, out var map) && map.TryGetValue(nodeId, out var l) ? l : "";
 
-    private static async Task<Workflow?> FindWorkflowAsync(AppDbContext db, ScopingService sc, string flowId, string? entity)
+    private static async Task<Workflow?> FindWorkflowAsync(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
+        string flowId, string? entity)
     {
         var entityId = await InboxEndpoints.EntityId(db, entity);
-        var q = sc.ScopeInherited(db.Workflows.AsNoTracking(), entityId);
+        var q = ShellScope.ScopeLibrary(db.Workflows.AsNoTracking(), db, sc, me, entityId);
         var hit = await q.Where(w => w.FlowId == flowId)
             .OrderByDescending(w => w.EntityId != null).FirstOrDefaultAsync();
         if (hit == null && int.TryParse(flowId, out var pk)) hit = await q.FirstOrDefaultAsync(w => w.Id == pk);

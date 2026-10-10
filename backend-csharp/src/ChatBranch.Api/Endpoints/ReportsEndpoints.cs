@@ -25,7 +25,7 @@ public static class ReportsEndpoints
             AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var (from, entityId) = await WindowAsync(db, days, entity);
-            var report = await BuildAsync(db, sc, from, entityId);
+            var report = await BuildAsync(db, sc, me, from, entityId);
             return Results.Ok(report);
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("analytics.view");
 
@@ -33,10 +33,10 @@ public static class ReportsEndpoints
         // One report per call (?report=agents|teams|labels|channels) so the file
         // a supervisor downloads is the table they were looking at.
         app.MapGet("/api/analytics/reports.csv", async (string? report, string? days, string? entity,
-            AppDbContext db, ScopingService sc) =>
+            AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var (from, entityId) = await WindowAsync(db, days, entity);
-            var data = await BuildAsync(db, sc, from, entityId);
+            var data = await BuildAsync(db, sc, me, from, entityId);
             var which = (report ?? "agents").Trim().ToLowerInvariant();
 
             var (header, rows) = which switch
@@ -67,12 +67,14 @@ public static class ReportsEndpoints
     public record Report(int Days, List<AgentRow> Agents, List<TeamRow> Teams,
         List<LabelRow> Labels, List<ChannelRow> Channels);
 
-    private static async Task<Report> BuildAsync(AppDbContext db, ScopingService sc,
+    private static async Task<Report> BuildAsync(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
         DateTime from, int? entityId)
     {
         // Conversations TOUCHED in the window, not created in it — a thread that
-        // ran for weeks still belongs in this month's workload.
-        var threads = await sc.ScopeOwned(db.Threads.AsNoTracking(), entityId, includeUnassigned: true)
+        // ran for weeks still belongs in this month's workload. The inbox scope:
+        // an entity-bound agent counts only their subtrees (+ unassigned).
+        var threads = await ShellScope.ScopeThreads(db.Threads.AsNoTracking(),
+                ShellScope.ThreadEntityIds(db, sc, me, entityId))
             .Where(t => t.UpdatedAt >= from)
             .Select(t => new { t.Id, t.Assignee, t.TeamId, t.Labels, t.Channel, t.Status })
             .ToListAsync();

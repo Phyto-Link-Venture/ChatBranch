@@ -859,6 +859,37 @@ public class FlowDecisionTests
     }
 
     [Fact]
+    public void An_outlet_at_its_AI_quota_takes_the_unsure_path_without_asking_the_model()
+    {
+        using var t = new TestDb($"flowquota{Guid.NewGuid():N}");
+        var tenant = new Tenant { Name = "T", Slug = "t", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+        t.Db.Tenants.Add(tenant);
+        t.Db.SaveChanges();
+        var outlet = new Entity { TenantId = tenant.Id, Name = "Quota Co", Slug = "quota-co",
+            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+        t.Db.Entities.Add(outlet);
+        t.Db.SaveChanges();
+        var c = AddContact(t);
+        AddThread(t, c, tweak: th => th.EntityId = outlet.Id);
+        new ScopingService(t.Db).SetSetting(AiQuota.SettingKey,
+            JsonSerializer.Serialize(new { entities = new Dictionary<string, double> { [outlet.Id.ToString()] = 1 } }));
+        t.Db.LlmUsage.Add(new LlmUsage { Feature = "chat_reply", Model = "gpt-4o", EntityId = outlet.Id, CostUsd = 3,
+            PromptTokens = 1, CreatedAt = DateTime.UtcNow });
+        t.Db.SaveChanges();
+        AiQuota.Invalidate();
+        try
+        {
+            var llm = new FakeLlm("{\"answer\":\"yes\",\"confidence\":0.9,\"reason\":\"r\"}");
+            var wf = YesNoFlow(t, AiYesNo(new { unsure = "no" }));
+            var run = Run(t, wf.Id, c.Id, llm);
+            Assert.Equal("NO", Outcome(t, run.Id));
+            Assert.StartsWith("AI quota reached → NO", DecisionDetail(t, run.Id));
+            Assert.Empty(llm.Prompts);
+        }
+        finally { AiQuota.Invalidate(); }
+    }
+
+    [Fact]
     public void Without_a_model_the_sandbox_guess_is_deterministic_and_says_so()
     {
         using var t = new TestDb();

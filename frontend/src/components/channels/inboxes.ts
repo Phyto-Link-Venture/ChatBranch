@@ -575,11 +575,13 @@ export interface InboxesSnapshot {
   failed: MessageKey[]
 }
 
-/** Load every inbox source independently — one being down never blanks the page. */
-export async function loadInboxes(): Promise<InboxesSnapshot> {
+/** Load every inbox source independently — one being down never blanks the page.
+ *  `entityQ` is `useEntityQuery()` — the accounts follow the entity switcher. */
+export async function loadInboxes(entityQ = ''): Promise<InboxesSnapshot> {
+  const q = entityQ ? `?${entityQ}` : ''
   const [wa, msgs, widgets, voice, teams, settings] = await Promise.allSettled([
-    api<{ accounts: WaAccount[] }>('whatsapp/accounts'),
-    api<{ accounts: MessagingAccount[] }>('messaging/accounts'),
+    api<{ accounts: WaAccount[] }>(`whatsapp/accounts${q}`),
+    api<{ accounts: MessagingAccount[] }>(`messaging/accounts${q}`),
     api<{ widgets: Widget[] }>('widgets'),
     api<VoiceSettings>('whatsapp/voice-settings'),
     api<{ teams: Team[] }>('teams'),

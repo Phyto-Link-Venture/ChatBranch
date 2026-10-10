@@ -309,13 +309,20 @@ public static class MessagingEndpoints
         // GET /api/messaging/agents — the assignee dropdown. Any authenticated
         // caller: the list carries no secrets, just names (the /api/auth/users
         // admin endpoint is the gated one).
-        app.MapGet("/api/messaging/agents", async (AppDbContext db) =>
+        // ?channel=&key= narrows it to the people who may own THAT conversation
+        // (Assignees.EligibleAsync), its team's members first.
+        app.MapGet("/api/messaging/agents", async (string? channel, string? key, AppDbContext db,
+            ScopingService sc, ClaimsPrincipal me) =>
         {
-            var rows = await db.Profiles.AsNoTracking().Include(p => p.User)
-                .Where(p => p.User != null && p.User.IsActive)
-                .OrderBy(p => p.User!.Username)
-                .Select(p => new { p.User!.Username, p.Role })
-                .ToListAsync();
+            Thread? thread = null;
+            if (!string.IsNullOrWhiteSpace(channel) && !string.IsNullOrWhiteSpace(key))
+            {
+                thread = GetThread(db, channel.Trim(), key.Trim());
+                if (thread == null || !ThreadAccessFilter.InScope(db, sc, me, thread.EntityId))
+                    return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
+            }
+            var rows = (await Assignees.EligibleAsync(db, sc, me, thread))
+                .Select(p => new { p.Username, p.Role, p.InTeam }).ToList();
             return Results.Ok(new
             {
                 agents = rows.Select(r => new Dictionary<string, object?>
@@ -325,6 +332,7 @@ public static class MessagingEndpoints
                     // the username for exactly that case.
                     ["name"] = r.Username,
                     ["role"] = r.Role,
+                    ["in_team"] = r.InTeam,
                 }),
             });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.view");
@@ -677,6 +685,20 @@ public static class MessagingEndpoints
             if (thread == null)
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
             var assignee = (Str(body, "assignee") ?? "").Trim();
+            // "" unassigns; anyone else must be an active user of the tenant who can
+            // see this conversation (its entity in their scope)
+            if (assignee.Length > 0)
+            {
+                var sc = ctx.RequestServices.GetRequiredService<ScopingService>();
+                var eligible = await Assignees.EligibleAsync(db, sc, me, thread);
+                var hit = eligible.FirstOrDefault(p => string.Equals(p.Username, assignee, StringComparison.OrdinalIgnoreCase));
+                if (hit == null)
+                    return Results.Json(new
+                    {
+                        detail = $"'{assignee}' can't be assigned this conversation — pick an active user who can see it.",
+                    }, statusCode: 400);
+                assignee = hit.Username;
+            }
             thread.Assignee = assignee.Length > 64 ? assignee[..64] : assignee;
             thread.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();

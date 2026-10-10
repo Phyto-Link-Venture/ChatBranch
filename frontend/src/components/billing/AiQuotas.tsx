@@ -2,7 +2,9 @@
 
 /**
  * AI usage quotas — monthly spending caps in the billing currency, priced like
- * the bill (GET/PUT /api/billing/ai/quotas, billing.view or billing.manage).
+ * the bill (GET /api/billing/ai/quotas with billing.view or billing.manage; PUT
+ * with billing.quotas.manage or billing.manage — the row's `editable` says which
+ * caps this person may change: never their own, never one a manager set).
  * Companies → branches, then people, each with a progress bar: amber from
  * 80 %, red + "Paused" at 100 % (the AI stops answering those chats — or that
  * person's AI features — until next month or until the cap is raised).
