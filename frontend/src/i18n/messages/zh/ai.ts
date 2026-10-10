@@ -490,7 +490,7 @@ export const ai: Dict<typeof source> = {
     semanticKeyword: '语义 + 关键词搜索',
     keywordOnly: '仅关键词搜索',
     semanticBody: '知识和经验按含义匹配，换个说法提问也能找到正确答案。',
-    keywordBody: '在“设置 → AI 密钥与模型”中添加 OpenAI、Gemini 或本地向量嵌入提供商，即可按含义而不只是字词匹配。',
+    keywordBody: '在“设置 → AI 密钥与模型”中添加 OpenAI、Gemini、OpenRouter 或本地向量嵌入提供商，即可按含义而不只是字词匹配。',
     piecesIndexed_one: '已索引 {count} 个片段',
     piecesIndexed_other: '已索引 {count} 个片段',
     piecesWaiting: '{count} 个等待中',
@@ -681,9 +681,10 @@ export const ai: Dict<typeof source> = {
   embeddings: {
     providers: {
       auto: '自动',
-      autoHint: 'OpenAI → Gemini → 本地',
+      autoHint: 'OpenAI → Gemini → OpenRouter → 本地',
       openaiHint: '使用 OpenAI 密钥',
       googleHint: '使用 Google 密钥',
+      openrouterHint: '使用 OpenRouter 密钥（消耗 OpenRouter 额度）',
       local: '本地服务器',
       localHint: '本地基础 URL 上兼容 OpenAI 的 /embeddings',
       off: '关闭',

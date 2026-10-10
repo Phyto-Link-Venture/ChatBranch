@@ -751,7 +751,9 @@ When you fix one of these, update this table, `README.md` and
   Lessons are DATA: `HardRules` win and they never cross to a sibling, a parent
   or an unassigned conversation (a branch DOES use its ancestors' lessons).
   **Retrieval** (`RetrievalService`):
-  `embedding_provider` openai | google | local, "" = the first configured, `none`
+  `embedding_provider` openai | google | openrouter | local, "" = the first configured
+  (in that order; defaults text-embedding-3-small / gemini-embedding-001 /
+  openai/text-embedding-3-small — billed as OpenRouter credits / nomic-embed-text), `none`
   = keywords only; `embedding_model` overrides the model (env `EMBEDDING_PROVIDER`
   / `EMBEDDING_MODEL`); vectors live in `crm_embedding`, written ONLY by
   `Workers/EmbeddingWorker` (`EmbeddingIndexer`: every 30 s or on a kick; a

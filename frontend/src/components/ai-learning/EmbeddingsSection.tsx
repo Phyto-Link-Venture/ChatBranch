@@ -24,13 +24,15 @@ const providers = (t: TFunction): { value: string; label: string; hint: string }
   { value: '', label: t('ai.embeddings.providers.auto'), hint: t('ai.embeddings.providers.autoHint') },
   { value: 'openai', label: 'OpenAI', hint: t('ai.embeddings.providers.openaiHint') },
   { value: 'google', label: 'Google Gemini', hint: t('ai.embeddings.providers.googleHint') },
+  { value: 'openrouter', label: 'OpenRouter', hint: t('ai.embeddings.providers.openrouterHint') },
   { value: 'local', label: t('ai.embeddings.providers.local'), hint: t('ai.embeddings.providers.localHint') },
   { value: 'none', label: t('ai.embeddings.providers.off'), hint: t('ai.embeddings.providers.offHint') },
 ]
 
 const DEFAULT_MODEL: Record<string, string> = {
   openai: 'text-embedding-3-small',
-  google: 'text-embedding-004',
+  google: 'gemini-embedding-001',
+  openrouter: 'openai/text-embedding-3-small',
   local: 'nomic-embed-text',
 }
 

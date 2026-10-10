@@ -505,6 +505,7 @@ public class LearningApiTests : IClassFixture<LearningFactory>
 
         var bad = await su.PutAsJsonAsync("/api/settings/ai-providers", new { embedding_provider = "cohere" });
         Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+        Assert.Contains(get.GetProperty("embedding_provider_options").EnumerateArray(), o => o.GetString() == "openrouter");
         var ok = await su.PutAsJsonAsync("/api/settings/ai-providers",
             new { embedding_provider = "none", embedding_model = "text-embedding-3-large" });
         Assert.Equal(HttpStatusCode.OK, ok.StatusCode);

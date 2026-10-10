@@ -508,7 +508,7 @@ export const ai: Dict<typeof source> = {
     keywordOnly: 'Carian kata kunci sahaja',
     semanticBody: 'Pengetahuan dan pengajaran dipadankan mengikut maksud, jadi soalan yang diolah semula tetap menemui jawapan yang betul.',
     keywordBody:
-      'Tambah penyedia embedding OpenAI, Gemini atau tempatan di Tetapan → Kunci & model AI untuk memadankan mengikut maksud, bukan sekadar perkataan.',
+      'Tambah penyedia embedding OpenAI, Gemini, OpenRouter atau tempatan di Tetapan → Kunci & model AI untuk memadankan mengikut maksud, bukan sekadar perkataan.',
     piecesIndexed_one: '{count} cebisan diindeks',
     piecesIndexed_other: '{count} cebisan diindeks',
     piecesWaiting: '{count} menunggu',
@@ -702,9 +702,10 @@ export const ai: Dict<typeof source> = {
   embeddings: {
     providers: {
       auto: 'Automatik',
-      autoHint: 'OpenAI → Gemini → tempatan',
+      autoHint: 'OpenAI → Gemini → OpenRouter → tempatan',
       openaiHint: 'menggunakan kunci OpenAI',
       googleHint: 'menggunakan kunci Google',
+      openrouterHint: 'menggunakan kunci OpenRouter (kredit OpenRouter)',
       local: 'Pelayan tempatan',
       localHint: '/embeddings serasi OpenAI pada URL asas tempatan',
       off: 'Tutup',

@@ -44,12 +44,16 @@ public sealed class NoEmbeddingClient : IEmbeddingClient
 /// Embeddings over the OpenAI-compatible <c>/embeddings</c> API:
 /// <list type="bullet">
 ///   <item><c>openai</c> — https://api.openai.com/v1, <c>openai_api_key</c>, <c>text-embedding-3-small</c></item>
-///   <item><c>google</c> — Gemini's OpenAI-compatible endpoint, <c>google_api_key</c>, <c>text-embedding-004</c></item>
+///   <item><c>google</c> — Gemini's OpenAI-compatible endpoint, <c>google_api_key</c>, <c>gemini-embedding-001</c>
+///         (text-embedding-004 was retired by Google in January 2026)</item>
+///   <item><c>openrouter</c> — https://openrouter.ai/api/v1, <c>openrouter_api_key</c>,
+///         <c>openai/text-embedding-3-small</c> (OpenRouter's embedding models, billed as OpenRouter credits —
+///         Anthropic makes no embedding model, so a BYOK Anthropic key never covers these)</item>
 ///   <item><c>local</c> — <c>local_base_url</c> (Ollama / LM Studio), optional <c>local_api_key</c>,
 ///         <c>nomic-embed-text</c></item>
 /// </list>
 /// Setting <c>embedding_provider</c> (env <c>EMBEDDING_PROVIDER</c>) picks one;
-/// "" = automatic (the first configured of openai → google → local), <c>none</c>
+/// "" = automatic (the first configured of openai → google → openrouter → local), <c>none</c>
 /// = keyword retrieval only. <c>embedding_model</c> (env <c>EMBEDDING_MODEL</c>)
 /// overrides the model. Keys come from the same Setting rows (env fallback) as
 /// the chat brain and are never logged; provider bodies are never logged either.
@@ -58,13 +62,14 @@ public class OpenAiEmbeddingClient : IEmbeddingClient
 {
     public const string ProviderKey = "embedding_provider";
     public const string ModelKey = "embedding_model";
-    public static readonly string[] Providers = { "openai", "google", "local" };
+    public static readonly string[] Providers = { "openai", "google", "openrouter", "local" };
     /// <summary>Accepted values of <c>embedding_provider</c> ("" = automatic).</summary>
-    public static readonly string[] Choices = { "", "openai", "google", "local", "none" };
+    public static readonly string[] Choices = { "", "openai", "google", "openrouter", "local", "none" };
     public static readonly IReadOnlyDictionary<string, string> DefaultModels = new Dictionary<string, string>
     {
         ["openai"] = "text-embedding-3-small",
-        ["google"] = "text-embedding-004",
+        ["google"] = "gemini-embedding-001",
+        ["openrouter"] = "openai/text-embedding-3-small",
         ["local"] = "nomic-embed-text",
     };
     private const int MaxInputChars = 8000;
@@ -95,6 +100,7 @@ public class OpenAiEmbeddingClient : IEmbeddingClient
         string S(string key, params string[] envs) => OpenAiEmbeddingClient.S(scoping, key, envs);
         requested = S(ProviderKey, "EMBEDDING_PROVIDER").ToLowerInvariant();
         if (requested is "gemini") requested = "google";
+        if (requested is "open_router" or "open-router") requested = "openrouter";
         if (requested is "off" or "disabled") requested = "none";
         if (requested == "none") return null;
 
@@ -103,6 +109,9 @@ public class OpenAiEmbeddingClient : IEmbeddingClient
         if (openai.Length > 0) keyed["openai"] = new("openai", "https://api.openai.com/v1", openai, DefaultModels["openai"]);
         var google = S("google_api_key", "GOOGLE_API_KEY", "GEMINI_API_KEY");
         if (google.Length > 0) keyed["google"] = new("google", OpenAiLlmClient.GeminiBaseUrl, google, DefaultModels["google"]);
+        var openrouter = S("openrouter_api_key", "OPENROUTER_API_KEY");
+        if (openrouter.Length > 0)
+            keyed["openrouter"] = new("openrouter", "https://openrouter.ai/api/v1", openrouter, DefaultModels["openrouter"]);
         var local = S("local_base_url", "LOCAL_BASE_URL");
         if (local.Length > 0)
             keyed["local"] = new("local", local.TrimEnd('/'), S("local_api_key", "LOCAL_API_KEY"), DefaultModels["local"]);
