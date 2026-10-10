@@ -85,7 +85,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'shell.groups.automate',
     items: [
-      { href: '/journeys', lbl: 'shell.nav.flowBuilder', Icon: Workflow, alsoActive: ['/flow-builder'], cap: 'flows.manage', roles: ADMINS, keywords: 'journeys flow flows flow builder workflow workflows campaigns automation perjalanan aliran 客户旅程 流程' },
+      { href: '/journeys', lbl: 'shell.nav.flowBuilder', Icon: Workflow, alsoActive: ['/flow-builder'], cap: ['flows.view', 'flows.manage'], roles: ADMINS, keywords: 'journeys flow flows flow builder workflow workflows campaigns automation perjalanan aliran 客户旅程 流程' },
       { href: '/ai-monitor', lbl: 'shell.nav.aiMonitor', Icon: ScanEye, cap: 'ai.monitor', keywords: 'drafts approve review bot' },
       { href: '/ai-playground', lbl: 'shell.nav.aiPlayground', Icon: FlaskRound, cap: ['ai.monitor', 'ai.behaviour.manage'], keywords: 'playground test ai try simulate sandbox prompt persona model compare ruang uji cuba simulasi 试验场 测试 试用 模拟 提示词' },
       { href: '/automations', lbl: 'shell.nav.automations', Icon: Zap, cap: 'flows.manage', roles: ADMINS, keywords: 'rules triggers' },
@@ -138,7 +138,7 @@ export const SETTINGS_NAV: NavDef = {
   lbl: 'shell.nav.settings',
   Icon: Settings,
   alsoActive: ['/settings/'],
-  keywords: 'preferences appearance theme configuration',
+  keywords: 'preferences appearance theme configuration account profile password',
 }
 
 /** Where "home" is: the post-login landing page and the phone tab bar's Home. */

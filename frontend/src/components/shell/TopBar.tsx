@@ -23,8 +23,8 @@ function pageTitle(pathname: string, t: TFunction): string {
  * (opens the command palette — so does Ctrl/⌘+K anywhere), the Live chip, the
  * entity switcher, Ask ChatBranch (also Ctrl/⌘+J — it lives here rather than
  * floating over the page, where it covered composers and save bars) and the
- * notification bell. On a phone: menu button, the page title in the display
- * face, Live, a search button, Ask ChatBranch and the bell.
+ * notification bell. On a phone: menu button, Live, a search button, Ask
+ * ChatBranch and the bell (from sm up the page title in the display face too).
  */
 export function TopBar({
   onOpenMobileNav,
@@ -55,7 +55,9 @@ export function TopBar({
       >
         <Menu size={20} strokeWidth={1.6} />
       </button>
-      <span className="display min-w-0 truncate text-[22px] leading-none text-text-heading md:hidden">
+      {/* not below sm: squeezed beside the icons it truncated to "Das…" — the
+          page's own header names the page there */}
+      <span className="display hidden min-w-0 truncate text-[22px] leading-none text-text-heading sm:inline md:hidden">
         {pageTitle(pathname, t)}
       </span>
 

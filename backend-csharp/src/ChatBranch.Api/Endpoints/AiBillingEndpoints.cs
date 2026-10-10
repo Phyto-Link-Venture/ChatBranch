@@ -120,7 +120,7 @@ public static class AiBillingEndpoints
 
             // ---- the tree: entity -> its company (top-level ancestor)
             var entities = await db.Entities.AsNoTracking()
-                .Select(e => new { e.Id, e.ParentId, e.Name, e.Slug }).ToListAsync();
+                .Select(e => new { e.Id, e.ParentId, e.Name, e.Slug, e.CreatedAt }).ToListAsync();
             var byId = entities.ToDictionary(e => e.Id);
             int? CompanyOf(int? entityId)
             {
@@ -175,7 +175,9 @@ public static class AiBillingEndpoints
                 var mine = rows.Where(r => r.Company == companyId).ToList();
                 var cost = mine.Sum(r => r.CostUsd);
                 var usage = Billed(companyId, cost);
-                var fee = Math.Round(settings.FeeFor(companyId), 2);
+                // no monthly fee for a month that ended before the company existed
+                var existed = !byId.TryGetValue(companyId, out var row) || row.CreatedAt == default || row.CreatedAt < to;
+                var fee = existed ? Math.Round(settings.FeeFor(companyId), 2) : 0d;
                 return new
                 {
                     id = companyId, name, slug,
@@ -231,6 +233,8 @@ public static class AiBillingEndpoints
                       + "price are estimated from llm_prices over OpenRouter's public price list (USD per 1M tokens). "
                       + "Bill = cost × (1 + markup) × the exchange rate + the monthly fee."
                     : null,
+                // the dashboard translates the note by this code (the text above stays for API callers)
+                pricing_note_code = manager ? "provider_cost_markup_fee" : null,
             });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(ViewCap);
 
@@ -426,6 +430,8 @@ public static class AiBillingEndpoints
         public bool CanEditBranches { get; init; }
         public HashSet<int>? ReadEntities { get; init; }
         public HashSet<int> EditEntities { get; init; } = new();
+        // a bound caller (company admin, assigned agent): only users bound inside these
+        public HashSet<int>? UserEntities { get; init; }
         public int? TenantId { get; init; }
 
         public bool CanEditEntity(int id, int? parentId) =>
@@ -457,6 +463,7 @@ public static class AiBillingEndpoints
             ReadEntities = read,
             EditEntities = own,
             TenantId = tenant,
+            UserEntities = assigned.Count > 0 ? own : null,
         };
     }
 
@@ -471,10 +478,14 @@ public static class AiBillingEndpoints
                 u.Username, u.IsSuperuser,
                 Role = u.Profile != null ? u.Profile.Role : "",
                 Tenant = u.Profile != null ? u.Profile.TenantId : null,
+                Entities = u.Profile != null ? u.Profile.Entities.Select(e => e.Id).ToList() : new List<int>(),
             })
             .OrderBy(u => u.Username).Take(500).ToListAsync();
         return rows
             .Where(u => q.Manager || (q.TenantId != null && u.Tenant == q.TenantId && !u.IsSuperuser && u.Role != Roles.SuperAdmin))
+            // a company admin's quota list: only the users bound inside their companies
+            .Where(u => q.Manager || q.UserEntities == null
+                        || (u.Entities.Count > 0 && u.Entities.All(q.UserEntities.Contains)))
             .Select(u => new QuotaUser(u.Username, u.IsSuperuser ? Roles.SuperAdmin : u.Role)).ToList();
     }
 

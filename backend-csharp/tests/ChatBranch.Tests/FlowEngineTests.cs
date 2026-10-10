@@ -86,7 +86,15 @@ public class FlowEngineTests
         // 2) re-running triggers must NOT enroll a second run (dedupe)
         Assert.Equal(0, engine.EvaluateTriggers());
 
-        // 3) an affirmative inbound resumes the run → Decision yes → end
+        // 3) once the queued message has gone out, an affirmative inbound
+        //    resumes the run → Decision yes → end (a reply before the send
+        //    is not an answer to it — FlowStepTests)
+        using (var db = t.Fresh())
+        {
+            var sent = db.OutboundJobs.Single();
+            sent.Status = JobStatus.Sent;
+            db.SaveChanges();
+        }
         var resumed = engine.OnInboundMessage("whatsapp", "60123456789", "yes ok I will pay");
         Assert.Equal(1, resumed);
 

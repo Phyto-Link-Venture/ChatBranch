@@ -180,7 +180,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `contacts_summarize_timeline` | Summarize a contact's history | read · open-world | `contacts.view` or `chats.view` |
 | `contacts_sync_records` | Sync business records | write | `contacts.manage` |
 
-#### conversations (30)
+#### conversations (31)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -199,6 +199,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `conversations_send_media` | Send a file or image | write · open-world | `chats.send` |
 | `conversations_set_ai` | Switch the AI on/off for a conversation | write | `chats.send` |
 | `conversations_set_labels` | Set conversation labels | write | `chats.send` |
+| `conversations_react_to_message` | React to a message with an emoji | write | `chats.send` |
 | `conversations_link_contact` | Link a conversation to a contact | write | `chats.send` |
 | `conversations_handover` | Take over or hand back a conversation | write | `chats.send` |
 | `conversations_bulk_update` | Bulk-update conversations | write · **destructive** | `chats.manage` |
@@ -266,9 +267,9 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
-| `get_analytics_summary` | Get the analytics summary | read | `analytics.view` |
+| `get_analytics_summary` | Get the dashboard summary | read | `analytics.view` |
 | `analytics_get_reports` | Get reports | read | `analytics.view` |
-| `analytics_get_flows` | Flow analytics | read | `flows.view` |
+| `analytics_get_flows` | Journey statistics | read | `flows.view` |
 | `analytics_get_usage` | AI usage and cost | read | `billing.manage` |
 | `billing_get_ai_bill` | AI usage bill | read | `billing.view` |
 | `billing_get_settings` | Read the AI billing terms | read | `billing.manage` |
@@ -599,6 +600,10 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `POST /api/developers/keys` | mints an API key: the secret is shown once, to a person — an AI never creates keys |
 | `POST /api/developers/mcp/test` | the dashboard's self-probe of this very MCP endpoint |
 | `POST /api/auth/logout` | ends a dashboard session; an API key has no session to end |
+| `GET /api/auth/me/account` | credentials / own account: Settings → My account (name, email, password, sessions) is the person at the keyboard — the writes refuse API keys (403), so an AI acting as them never changes them |
+| `PATCH /api/auth/me/account` | credentials / own account: Settings → My account (name, email, password, sessions) is the person at the keyboard — the writes refuse API keys (403), so an AI acting as them never changes them |
+| `POST /api/auth/me/password` | credentials / own account: Settings → My account (name, email, password, sessions) is the person at the keyboard — the writes refuse API keys (403), so an AI acting as them never changes them |
+| `POST /api/auth/me/sessions/revoke-others` | credentials / own account: Settings → My account (name, email, password, sessions) is the person at the keyboard — the writes refuse API keys (403), so an AI acting as them never changes them |
 | `POST /api/client-errors` | the dashboard's own crash reporter (a browser telling the server it broke) — not an operator action |
 | `POST /api/assistant/chat` | Ask ChatBranch itself (chat / confirm / cancel) — a tool calling the assistant would recurse |
 | `POST /api/assistant/confirm` | Ask ChatBranch itself (chat / confirm / cancel) — a tool calling the assistant would recurse |

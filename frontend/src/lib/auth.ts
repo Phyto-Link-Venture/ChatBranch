@@ -213,6 +213,7 @@ export function clearAuth(): void {
   }
   clearAssistantCache()
   clearPlaygroundCache()
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('auth-change'))
 }
 
 export function getRole(): Role {
@@ -266,18 +267,19 @@ export function expireSessionOn401(res: Response): boolean {
  * Never throws — a backend that predates the matrix just leaves capabilities
  * undefined and the role fallback takes over.
  */
-async function fetchIdentity(token: string): Promise<{ capabilities?: string[] }> {
+async function fetchIdentity(token: string): Promise<{ capabilities?: string[]; name?: string }> {
   for (const path of ['auth/whoami', 'v1/whoami']) {
     try {
       const res = await fetch(`${API}/${path}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok) continue
-      const data = (await res.json().catch(() => ({}))) as { capabilities?: unknown }
+      const data = (await res.json().catch(() => ({}))) as { capabilities?: unknown; name?: unknown }
       const caps = Array.isArray(data.capabilities)
         ? data.capabilities.filter((c): c is string => typeof c === 'string')
         : undefined
-      if (caps) return { capabilities: caps }
+      const name = typeof data.name === 'string' && data.name ? data.name : undefined
+      if (caps) return { capabilities: caps, name }
     } catch {
       /* try the next endpoint */
     }
@@ -308,6 +310,8 @@ export async function login(username: string, password: string): Promise<AuthUse
   clearAssistantCache()
   clearPlaygroundCache()
   setAuth(user)
+  // listeners (the entity switcher, the shell) re-read the new session
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('auth-change'))
   return user
 }
 
@@ -322,10 +326,19 @@ export async function refreshIdentity(): Promise<AuthUser | null> {
   if (!user) return null
   const ident = await fetchIdentity(user.token)
   if (!ident.capabilities) return user
-  const next: AuthUser = { ...user, capabilities: ident.capabilities }
+  const next: AuthUser = { ...user, capabilities: ident.capabilities, ...(ident.name ? { name: ident.name } : {}) }
   setAuth(next)
   if (typeof window !== 'undefined') window.dispatchEvent(new Event('auth-change'))
   return next
+}
+
+/** Settings → My account saved a new display name: update the cached session
+ *  so the sidebar shows it at once (listeners hear 'auth-change'). */
+export function setCachedName(name: string): void {
+  const user = getAuth()
+  if (!user || !name || user.name === name) return
+  setAuth({ ...user, name })
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('auth-change'))
 }
 
 export async function logout(): Promise<void> {

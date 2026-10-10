@@ -709,6 +709,28 @@ export const guide: Dict<typeof source> = {
         },
       },
     },
+    account: {
+      title: 'Akaun saya',
+      intro: 'Nama, e-mel, kata laluan dan peranti anda sendiri.',
+      steps: {
+        s1: {
+          title: 'Akaun anda sahaja',
+          body: 'Semua di halaman ini berkenaan anda sahaja. Pentadbir mengurus orang lain di halaman Pengguna.',
+        },
+        s2: {
+          title: 'Profil anda',
+          body: 'Tetapkan nama yang dilihat rakan sekerja dan e-mel anda, kemudian klik Simpan profil. Nama pengguna anda tidak boleh diubah.',
+        },
+        s3: {
+          title: 'Kata laluan anda',
+          body: 'Taip kata laluan semasa, kemudian kata laluan baharu dua kali. Petunjuk kekuatan membantu anda memilih yang baik; setiap peranti lain dilog keluar apabila ia ditukar.',
+        },
+        s4: {
+          title: 'Peranti anda',
+          body: 'Lihat berapa banyak peranti yang log masuk dan log keluar yang lain — berguna selepas menggunakan komputer kongsi atau yang hilang.',
+        },
+      },
+    },
     connections: {
       title: 'Sambungan saya',
       intro: 'Sambungkan akaun Google anda sendiri.',

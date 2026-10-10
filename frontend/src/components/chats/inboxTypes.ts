@@ -101,7 +101,34 @@ export interface UiMessage {
   /** Which provider account carried this message (sender number for outbound). */
   account_id?: string | null
   account_name?: string
+  /** The database id (reactions, quotes and AI feedback key on it). */
+  pk?: number
+  /** The message this one quotes (WhatsApp / Telegram replies). */
+  reply_to?: UiQuote | null
+  /** Emoji reactions on this message — the customer's and ours. */
+  reactions?: UiReaction[]
 }
+
+/** A quoted message as the payload carries it; `missing` = older than our history. */
+export interface UiQuote {
+  pk?: number
+  id: string
+  dir?: 'in' | 'out'
+  source?: string
+  text?: string
+  media_type?: string | null
+  missing?: boolean
+}
+
+/** One reaction: `actor` is `contact` or `user:<username>`. */
+export interface UiReaction {
+  emoji: string
+  actor: string
+  at?: string
+}
+
+/** Channels whose provider carries quoted replies + reactions both ways. */
+export const REACTION_CHANNELS: Channel[] = ['whatsapp', 'telegram']
 
 export interface WaCall {
   permission: string
@@ -133,6 +160,8 @@ export interface UiThreadSummary {
   contact_id?: number | null
   contact_name?: string
   contact_tags?: string[]
+  /** The conversation's entity slug (null = unassigned). */
+  entity?: string | null
   account_id?: string | null
   account_name?: string
   provider?: 'cloud' | 'baileys' | null
@@ -178,6 +207,7 @@ export interface InboxRow {
   contact_id: number | null
   contact_name: string
   contact_tags: string[]
+  entity?: string | null
   account_id: string | null
   account_name: string
   provider: 'cloud' | 'baileys' | null
@@ -215,6 +245,7 @@ export const rowToSummary = (t: InboxRow): UiThreadSummary => ({
   contact_id: t.contact_id,
   contact_name: t.contact_name,
   contact_tags: t.contact_tags,
+  entity: t.entity ?? null,
   account_id: t.account_id,
   account_name: t.account_name,
   provider: t.provider,
@@ -255,8 +286,18 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   })
   const data = await res.json().catch(() => ({}))
   if (expireSessionOn401(res)) throw new Error('Session expired — redirecting to login…')
-  if (!res.ok) throw new Error((data as { detail?: string }).detail || `HTTP ${res.status}`)
+  if (!res.ok) throw new ApiError((data as { detail?: string }).detail || `HTTP ${res.status}`, res.status)
   return data as T
+}
+
+/** An API refusal that keeps its HTTP status (a 404 opens "Conversation not found"). */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message)
+  }
 }
 
 /** Multipart POST — no Content-Type header so the browser sets the boundary. */

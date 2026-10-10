@@ -81,6 +81,14 @@ public static class AiSkillsEndpoints
             // prune below would then wipe the global library.
             if (entityId == null && !string.IsNullOrWhiteSpace(body.Entity) && body.Entity is not ("all" or "__all__"))
                 return Bad($"Unknown entity '{body.Entity}'.");
+            // The PUT prunes its scope: a bound caller (a company admin, an
+            // assigned agent) may only save a level inside their own entities —
+            // never the organization-wide set.
+            if (ShellScope.BoundEntityIds(db, sc, me) is List<int> bound
+                && (entityId is not int lvl || !bound.Contains(lvl)))
+                return Results.Json(new { detail = entityId == null
+                    ? "Only an organization-wide admin can save the organization-wide skills."
+                    : "That entity is outside your scope." }, statusCode: 403);
 
             // Upsert within THIS scope, prune scope rows not in the payload
             // (the "sole writer" contract — only touches its own scope).
@@ -297,7 +305,7 @@ public static class AiSkillsEndpoints
             var entityId = await InboxEndpoints.EntityId(db, entity);
             var uid = await db.Users.AsNoTracking().Where(u => u.Username == me.Identity!.Name)
                 .Select(u => (int?)u.Id).FirstOrDefaultAsync();
-            var admin = ShellScope.RoleOf(me) is Roles.SuperAdmin or Roles.Admin;
+            var admin = ShellScope.IsOrgWideAdmin(db, me);   // a company admin sees only their own personal rows
             var scoped = await ShellScope.ScopeLibrary(db.Integrations.AsNoTracking(), db, sc, me, entityId)
                 .Where(i => i.Provider == BookingService.GoogleProvider).Include(i => i.Owner).Include(i => i.Entity)
                 .ToListAsync();
@@ -572,7 +580,7 @@ public static class AiSkillsEndpoints
         if (row == null) return $"calendar {iid} is not a Google Calendar connection.";
         if (Cred(row, "access_token").Length == 0)
             return $"the Google Calendar connection {iid} is not connected — reconnect it at Integrations first.";
-        var admin = ShellScope.RoleOf(me) is Roles.SuperAdmin or Roles.Admin;
+        var admin = ShellScope.IsOrgWideAdmin(db, me);   // a company admin sees only their own personal rows
         if (row.OwnerUserId is int owner && !admin)
         {
             var uid = await db.Users.AsNoTracking().Where(u => u.Username == (me.Identity!.Name ?? ""))

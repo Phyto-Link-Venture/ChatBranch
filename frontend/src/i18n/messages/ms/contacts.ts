@@ -3,7 +3,7 @@ import type { Dict } from '../../types'
 
 export const contacts: Dict<typeof source> = {
   recordTypes: {
-    any: 'Mana-mana rekod',
+    any: 'Semua rekod',
     order: 'Pesanan',
     shipment: 'Penghantaran',
     invoice: 'Invois',
@@ -21,7 +21,10 @@ export const contacts: Dict<typeof source> = {
     addContact: 'Tambah kenalan',
     namePlaceholder: 'Ahmad Fauzi',
     phoneAria: 'Nombor telefon kenalan',
-    emailOptional: 'E-mel (pilihan)',
+    emailOptional: 'E-mel',
+    phoneOrEmail: 'telefon atau e-mel — sekurang-kurangnya satu',
+    addToExisting: 'Telefon atau e-mel ini milik {name} — tambah {entity} pada kenalan itu sahaja?',
+    addToExistingAction: 'Tambah pada kenalan sedia ada',
     companyOptional: 'Syarikat (pilihan)',
     tagsComma: 'Tag (dipisahkan koma)',
     notesOptional: 'Nota (pilihan)',
@@ -55,8 +58,9 @@ export const contacts: Dict<typeof source> = {
     emptyIn: 'Belum ada kenalan di {entity} — tambah satu, import CSV, atau tukar penapis entiti kepada Semua entiti.',
     empty: 'Belum ada kenalan — tambah satu atau import CSV.',
     allEntities: 'Semua entiti',
+    noEntity: 'Tiada entiti (belum ditetapkan)',
     filterEntity: 'Tapis mengikut entiti',
-    anyTag: 'Mana-mana tag',
+    anyTag: 'Semua tag',
     filterTag: 'Tapis mengikut tag',
     filterRecord: 'Tapis mengikut jenis rekod',
   },

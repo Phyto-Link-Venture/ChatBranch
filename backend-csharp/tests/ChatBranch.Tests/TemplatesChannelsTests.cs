@@ -199,6 +199,10 @@ public class TemplatesChannelsTests : IClassFixture<ApiFactory>
         var key = session.GetProperty("session").GetString();
         (await anon.PostAsJsonAsync($"/api/widget/{token}/messages", new { session = key, text = "hello" }))
             .EnsureSuccessStatusCode();
+        // the poll returns UTC with the Z, like the POST (the widget read it as local time)
+        var polled = await anon.GetFromJsonAsync<JsonElement>($"/api/widget/{token}/messages?session={key}");
+        var stamp = polled.GetProperty("messages")[0].GetProperty("created_at").GetString()!;
+        Assert.EndsWith("Z", stamp);
 
         using (var scope = _factory.Services.CreateScope())
         {

@@ -334,6 +334,18 @@ public class AiReviewTests : IClassFixture<ReviewFactory>
             new { @as = "knowledge", text = "We deliver within 3–5 working days." }));
         var kid = k.GetProperty("result").GetProperty("knowledge_id").GetInt32();
         Assert.False(With(db => db.KnowledgeItems.AsNoTracking().First(x => x.Id == kid).Active));
+
+        // the confirm dialog picks the level: an unknown entity is refused, "" = organization-wide
+        var run4 = await Run(admin, "review-apply");
+        var fid4 = run4.GetProperty("findings").EnumerateArray().First(f => f.GetProperty("verdict").GetString() == "issue")
+            .GetProperty("id").GetInt32();
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.PostAsJsonAsync($"/api/ai/review/findings/{fid4}/apply",
+            new { @as = "lesson", level = "no-such-outlet" })).StatusCode);
+        var org = await Ok(await admin.PostAsJsonAsync($"/api/ai/review/findings/{fid4}/apply",
+            new { @as = "lesson", level = "", text = "Never promise a delivery date — say we will confirm it." }));
+        var orgLesson = With(db => db.AiLessons.AsNoTracking().First(l => l.Id == org.GetProperty("result").GetProperty("lesson_id").GetInt32()));
+        Assert.Null(orgLesson.EntityId);
+        Assert.Equal("Never promise a delivery date — say we will confirm it.", orgLesson.Answer);
     }
 
     [Fact]

@@ -58,9 +58,45 @@ starts with every capability OFF).
 | Role | Sees | Manages |
 |---|---|---|
 | **superadmin** | everything, every tenant | everyone and everything; always passes every capability check in code (anti-lockout) |
-| **admin** | their tenant | agent-level users (agents + custom roles) in their own tenant; never assigns admin/superadmin |
+| **admin** (organization-wide — no assigned entities) | their tenant | agent-level users (agents + custom roles) in their own tenant, and COMPANY admins; never superadmins or other org-wide admins |
+| **admin** with assigned entities = **company admin** | their assigned entities' subtrees (a company and its branches) — exactly like a bound agent | agent-level users bound inside their companies; branches under their companies; channels, library items, teams, tags and settings overrides of their own entities; never organization-wide items or settings |
 | **agent** | their assigned entities' subtrees (or the tenant when unassigned) | nothing in the user list |
 | custom roles | like agents (bounded by assigned entities) | whatever the matrix grants |
+
+### Company admins
+
+An **admin with assigned entities** is a *company admin*: admin capabilities,
+bounded by those entities' subtrees. An admin with none stays organization-wide
+(the old behaviour). ONE rule decides it, in `Endpoints/ShellScope.cs`:
+
+- `ShellScope.ScopeRoots(db, me)` — the assigned entity ids that bound the caller;
+  empty for superadmin (never bound), org-wide admins and unassigned agents.
+- `ShellScope.IsCompanyAdmin` / `IsOrgWideAdmin` (superadmin, or an admin with no
+  entities) / `AdminMayAct(entityId)` / `CompanyLevelError(entityId)` (the 403 for
+  a company admin acting at the organization level or on another company).
+- `BoundEntityIds`, `BoundInheritedIds`, `ThreadEntityIds`, `ScopeLibrary`,
+  `ContactsEndpoints.ScopeContacts`, `AdminEndpoints.AccessibleEntitiesAsync`
+  (their companies + branches — the entity switcher), `ToolScope` (MCP) and
+  `LibraryScope.MayGoGlobal` / `CheckExisting` all build on `ScopeRoots`, so every
+  read (contacts, conversations, drafts, analytics, channel lists + health,
+  libraries, bookings, call logs, activity, the AI bill and quotas, AI review
+  runs, search, live) is bounded like an entity-bound agent's.
+- `Auth/CompanyAdminScope.cs` (middleware after the key scopes) drops the
+  ORGANIZATION-LEVEL capabilities for a company admin in every check, whatever
+  the matrix says: `rbac.manage`, `app_keys.manage`, `settings.ai_keys.manage`,
+  `billing.manage`, `notifications.manage`, `settings.appearance.org`,
+  `settings.custom_fields.manage`, `pronunciation.manage`; org-wide voice and
+  default-mail writes carry `.OrgWideOnly()`.
+- Writes: entity create = a branch under their companies only (no top-level
+  company, no promoting a branch); library items never "Everyone (global)", and
+  an existing item is editable only when every entity it serves is theirs
+  (`LibraryScope.CheckExisting`); channel accounts, widgets, teams, tags, routing
+  rules, booking hours, AI behaviour / persona / controls only at their own
+  entities; shared integrations only for their entities. Admin notifications
+  (inbound, handovers) reach a company admin only for their own entities.
+- `GET /api/v1/whoami` and the users list carry `company_admin`; `/users` shows a
+  "Company admin" badge and lets an org-wide admin or superadmin pick companies
+  for an Admin. Tests: `CompanyAdminTests`.
 
 Role hygiene: `Message.source = "agent"` is a message origin, not a role, and
 `lib/auth.ts` maps a cached legacy `'collector'` session to `'agent'`.
@@ -140,6 +176,7 @@ where a write reads its body first. Notable gates:
 | Knowledge base and AI skills writes (`/api/aicore/knowledge*`, `PUT /api/aicore/skills`, skill draft/test) | `settings.ai.manage` |
 | Integrations — read (`GET /api/integrations`, `/providers`, `/accounts`, `/settings`) | `integrations.view` (settings also `app_keys.manage`); without it a person still lists **their own** connections |
 | Integrations — add / delete / shared connect (`POST/DELETE /api/integrations/accounts*` — `entity` = that entity and its branches, none = the whole organization —, `GET /api/integrations/oauth/{provider}/start?for=shared[&entity=slug]`, `POST /api/integrations/{provider}/connect`) | admin+ (`{provider}/connect`: superadmin) AND `integrations.manage`; an unknown entity is a 404 |
+| Your own account — Settings → My account (`GET/PATCH /api/auth/me/account`, `POST /api/auth/me/password`, `POST /api/auth/me/sessions/revoke-others`) | any signed-in user, always THEMSELVES (no id in the route — another user's account is unreachable); the writes are session-only (an API key → 403); wrong current passwords: 5 per 15 min → 429 |
 | Integrations — connect / disconnect your **own** Google account (`GET /api/integrations/mine`, `GET /api/integrations/oauth/{provider}/start` — `?return=connections` brings the callback back to Settings → My connections —, `POST …/accounts/{id}/disconnect`) | any signed-in user for their own row, no capability; someone else's personal row is invisible to non-admins; a shared row needs admin+ AND `integrations.manage` |
 | Integrations — run an action (`POST /api/integrations/action`: mail, charge, book…) | `integrations.manage` OR `flows.manage`, and the contact must be in the caller's scope |
 | WhatsApp global settings incl. the verify token (`POST/PUT /api/whatsapp/settings`) | `app_keys.manage` |
@@ -185,7 +222,9 @@ unassigned conversations stay visible to everyone). A conversation outside it
 answers **404**, the same as one that does not exist; a key with no
 conversation yet passes (a first send creates it). The multipart
 `POST /api/messaging/threads/{channel}/{key}/send-media`
-(`MessagingTransportEndpoints`) carries the same filter.
+(`MessagingTransportEndpoints`) carries the same filter, and so does the
+reaction route `POST /api/messaging/threads/{channel}/{key}/messages/{pk}/react`
+(`chats.send`; the message must belong to that conversation, else 404).
 
 Routes that name the conversation in the BODY apply the same rule with
 `ThreadAccessFilter.InScope`:
@@ -320,7 +359,8 @@ token, no data), `/api/developers/keys` (own keys; `?scope=tenant` needs
 `api_keys.manage`), `/api/integrations/mine`, `/api/integrations/accounts`
 (own connections without `integrations.view`),
 `/api/integrations/oauth/{provider}/start` (connect your own Google account),
-`/api/assistant/conversations[/{id}]` (your own Ask ChatBranch history).
+`/api/assistant/conversations[/{id}]` (your own Ask ChatBranch history),
+`/api/auth/me/account` (your own name, email, role, entities and session count).
 The anonymous GETs are the documented list in `API_CONVENTIONS.md`.
 
 ## API keys and scopes
@@ -341,17 +381,21 @@ logged with source `api` / `mcp`.
 `/api/v1/users` (+ `/{id}`, DELETE = deactivate) holds the tiered rules:
 
 - **superadmin** — any user, any role, any tenant (`tenant` slug on create).
-- **admin** — only agent-level users (agents and custom roles) in their own
-  tenant; may not change roles to/from admin/superadmin or touch
-  admins/superadmins (403). A custom role granted `users.manage` is tiered the
-  same way.
+- **organization-wide admin** — agent-level users (agents and custom roles) in
+  their own tenant, plus COMPANY admins (role admin WITH `entity_ids`); never
+  superadmins, other org-wide admins, or an admin without entities (403).
+- **company admin** — only agent-level users bound inside their own companies
+  (a new one must be given entities there; an unassigned, tenant-wide user is
+  not theirs); never admins. A custom role granted `users.manage` and bound to
+  entities is tiered the same way.
 - everyone else — 403 on `users.manage`.
 
 Other rules: passwords ≥ 8 characters; `entity_ids` (create and update) applies
-to agent-level users — agents AND custom roles — and must sit in one tenant,
+to agent-level users — agents AND custom roles — and to admins (= company
+admins; never superadmins), and must sit in one tenant,
 bounded by the creator's scope (their tenant; a custom-role manager who is
 itself bound to entities only within those subtrees); switching agent ↔ custom
-role keeps the binding, promotion to admin drops it; an agent-level user
+role ↔ admin keeps the binding, promotion to superadmin drops it; an agent-level user
 created without entities inherits the creating manager's tenant; a login can be
 bound to a Contact (`contact_id` — a **customer login**). Deactivation kills the
 user's sessions. UI: `/users` (Users & roles), `/teams`, `/entities`,

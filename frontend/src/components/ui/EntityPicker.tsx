@@ -66,6 +66,7 @@ export function EntityPicker({
   className = '',
   ariaLabel,
   entities: override,
+  extraOptions,
 }: {
   /** Entity slug, or null for organization-wide. */
   value: string | null
@@ -79,6 +80,8 @@ export function EntityPicker({
   ariaLabel?: string
   /** Pick from this list instead of the signed-in user's entities. */
   entities?: Entity[]
+  /** Extra choices listed right after the organization-wide one (e.g. a filter's "no entity"). */
+  extraOptions?: { value: string; label: string }[]
 }) {
   const t = useT()
   const globalLabel = globalLabelProp ?? t('ui.entityPicker.orgWide')
@@ -86,8 +89,9 @@ export function EntityPicker({
   const entities = override ?? mine
   const options = useMemo(() => {
     const tree = entityOptions(entities, t)
-    return allowGlobal ? [{ value: '', label: globalLabel }, ...tree] : tree
-  }, [entities, allowGlobal, globalLabel, t])
+    const extra = extraOptions ?? []
+    return allowGlobal ? [{ value: '', label: globalLabel }, ...extra, ...tree] : [...extra, ...tree]
+  }, [entities, allowGlobal, globalLabel, extraOptions, t])
   return (
     <Select
       value={value ?? ''}

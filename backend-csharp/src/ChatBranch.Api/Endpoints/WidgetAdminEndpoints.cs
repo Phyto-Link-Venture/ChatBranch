@@ -23,12 +23,14 @@ public static class WidgetAdminEndpoints
     {
         // ---- list -------------------------------------------------------------
         app.MapGet("/api/widgets", async (string? entity, AppDbContext db, ScopingService sc,
-            HttpContext ctx) =>
+            HttpContext ctx, ClaimsPrincipal me) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
-            var rows = await sc.ScopeInherited(
+            // bounded like every library: a company admin / assigned agent sees the
+            // org-wide widgets + their own entities', never another company's
+            var rows = await ShellScope.ScopeLibrary(
                     db.ChannelAccounts.AsNoTracking().Include(a => a.Entity)
-                        .Where(a => a.Channel == Channels.Website), entityId)
+                        .Where(a => a.Channel == Channels.Website), db, sc, me, entityId)
                 .OrderBy(a => a.Id).ToListAsync();
             var counts = await db.Threads.AsNoTracking()
                 .Where(t => t.Channel == Channels.Website && t.AccountId != null)
@@ -64,6 +66,8 @@ public static class WidgetAdminEndpoints
                 HealthStatus = Health.Healthy,
                 CreatedAt = DateTime.UtcNow,
             };
+            if (ShellScope.CompanyLevelError(db, ctx.RequestServices.GetRequiredService<ScopingService>(), me, row.EntityId) is { } outside)
+                return outside;
             if (InboxSettings.Apply(db, row, InboxRaw(body, InboxSettings.TeamKey),
                     InboxRaw(body, InboxSettings.AiDefaultKey),
                     InboxRaw(body, InboxSettings.ReviewModeKey)) is string inboxErr)
@@ -86,6 +90,8 @@ public static class WidgetAdminEndpoints
             var row = await db.ChannelAccounts.FirstOrDefaultAsync(
                 a => a.Id == id && a.Channel == Channels.Website);
             if (row == null) return Results.NotFound(new { detail = "Widget not found." });
+            var scope = ctx.RequestServices.GetRequiredService<ScopingService>();
+            if (ShellScope.CompanyLevelError(db, scope, me, row.EntityId) is { } outside) return outside;
             if (LanguageError(body) is string langErr)
                 return Results.Json(new { detail = langErr }, statusCode: 400);
 
@@ -102,7 +108,11 @@ public static class WidgetAdminEndpoints
                 row.Name = name;
             }
             if (Has(body, "entity"))
-                row.EntityId = await InboxEndpoints.EntityId(db, Str(body, "entity"));
+            {
+                var newEntity = await InboxEndpoints.EntityId(db, Str(body, "entity"));
+                if (ShellScope.CompanyLevelError(db, scope, me, newEntity) is { } outsideNew) return outsideNew;
+                row.EntityId = newEntity;
+            }
 
             var look = LookConfig(body);
             if (look.Count > 0)
@@ -129,11 +139,12 @@ public static class WidgetAdminEndpoints
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         // ---- delete -----------------------------------------------------------
-        app.MapDelete("/api/widgets/{id:int}", async (int id, AppDbContext db, ClaimsPrincipal me) =>
+        app.MapDelete("/api/widgets/{id:int}", async (int id, AppDbContext db, ClaimsPrincipal me, ScopingService sc) =>
         {
             var row = await db.ChannelAccounts.FirstOrDefaultAsync(
                 a => a.Id == id && a.Channel == Channels.Website);
             if (row == null) return Results.NotFound(new { detail = "Widget not found." });
+            if (ShellScope.CompanyLevelError(db, sc, me, row.EntityId) is { } outside) return outside;
             // Conversations stay: they are history, and deleting a widget must
             // not erase what customers said through it.
             var convos = await db.Threads.CountAsync(t => t.AccountId == row.Id);

@@ -154,6 +154,19 @@ public static partial class ToolCatalog
             args: new[] { A.StrList("labels", "The complete label list ([] clears).", req: true) }, idempotent: true,
             shape: s => new { channel = s.Thread!.Channel, key = s.Thread.Key, labels = ChatBranchTool.StrList(s.Args, "labels") });
 
+        yield return T(g, "conversations_react_to_message", "React to a message with an emoji",
+            "Put an emoji reaction on one message of a WhatsApp or Telegram conversation (pk = the message's pk " +
+            "from conversations_list_messages / conversations_get_state); emoji \"\" removes yours, a new one " +
+            "replaces it. WhatsApp Cloud only accepts it inside the 24-hour window; an opted-out conversation " +
+            "needs force. A reaction never creates a message.",
+            "POST", "/api/messaging/threads/{channel}/{key}/messages/{pk:int}/react", send, thread: true,
+            args: new[]
+            {
+                A.Int("pk", "The message's pk.", req: true),
+                A.Str("emoji", "One emoji, e.g. 👍 — \"\" removes your reaction.", req: true),
+                A.Bool("force", "Override an opt-out (a manual, audited exception)."),
+            }, idempotent: true);
+
         yield return T(g, "conversations_link_contact", "Link a conversation to a contact",
             "Attach the conversation to a contact (contact_id), or unlink it (contact_id null). Linking moves the " +
             "chat to the contact's entity and closes an unknown-customer handover.",

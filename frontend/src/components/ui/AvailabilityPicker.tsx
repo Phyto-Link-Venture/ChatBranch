@@ -20,6 +20,7 @@ import { Globe2, Building2 } from 'lucide-react'
 import { EntityMultiPicker } from './EntityPicker'
 import { useEntity } from '@/lib/EntityContext'
 import { useRole } from '@/lib/useRole'
+import { useCompanyAdmin } from '@/lib/useCompanyAdmin'
 import { useT } from '@/i18n'
 
 /** An entity as library payloads name it (`entities: [{id, slug, name}]`). */
@@ -31,12 +32,15 @@ export interface EntityRefLite {
 
 /**
  * May the signed-in person make an item global? As on the server
- * (LibraryScope.MayGoGlobal): admins, and anyone NOT limited to particular
- * entities (no assigned entities = the tenant-wide view).
+ * (LibraryScope.MayGoGlobal): superadmins, organization-wide admins, and anyone
+ * NOT limited to particular entities (no assigned entities = the tenant-wide
+ * view). A COMPANY admin (an admin bound to entities) is scoped like an agent.
  */
 export function useCanGlobal(): boolean {
   const { role } = useRole()
   const { entities } = useEntity()
+  const companyAdmin = useCompanyAdmin()
+  if (companyAdmin) return false
   return role === 'admin' || role === 'superadmin' || entities.length === 0
 }
 
@@ -47,7 +51,8 @@ export function useCanGlobal(): boolean {
 export function useDefaultAvailability(): string[] {
   const { role } = useRole()
   const { activeEntity, entities } = useEntity()
-  const admin = role === 'admin' || role === 'superadmin'
+  const companyAdmin = useCompanyAdmin()
+  const admin = (role === 'admin' && !companyAdmin) || role === 'superadmin'
   const slug = admin ? undefined : (activeEntity?.slug ?? entities[0]?.slug)
   // stable identity, so it can sit in an effect's dependency list
   return useMemo(() => (slug ? [slug] : []), [slug])

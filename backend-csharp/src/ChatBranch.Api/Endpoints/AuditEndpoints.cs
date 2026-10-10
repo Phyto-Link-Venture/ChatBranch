@@ -120,6 +120,18 @@ public static class AuditEndpoints
         var role = Caller.Role(me);
         if (role == Roles.SuperAdmin) return q;
 
+        // a COMPANY admin: rows by the users bound inside their companies (and
+        // themselves) or about their entities — never the tenant's system rows
+        if (role == Roles.Admin && ShellScope.BoundEntityIds(db, new ScopingService(db), me) is List<int> bound)
+        {
+            var self = await Caller.UserIdAsync(db, me);
+            var boundUsers = db.Profiles
+                .Where(p => p.Entities.Any() && p.Entities.All(e => bound.Contains(e.Id)) && p.Role != Roles.SuperAdmin)
+                .Select(p => p.UserId);
+            return q.Where(a =>
+                (a.UserId != null && (a.UserId == self || boundUsers.Contains(a.UserId.Value)))
+                || (a.EntityId != null && bound.Contains(a.EntityId.Value)));
+        }
         if (role == Roles.Admin && Caller.TenantId(me) is int tid)
         {
             var tenantUsers = db.Profiles.Where(p => p.TenantId == tid).Select(p => p.UserId);

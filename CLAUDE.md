@@ -83,9 +83,9 @@ the message is stored with `status="sandbox"` and never leaves the machine.
 
 | Area | Real | Still missing |
 |---|---|---|
-| WhatsApp Cloud | inbound webhook (verify token; `X-Hub-Signature-256` **required once any Cloud account is configured**; wamid dedup; Meta's own timestamps; text, media, button/interactive replies, location); **delivery statuses** (sent → delivered → read / failed + `Message.Error`, forward-only; 131047 closes the window; account-level codes → `AccountHealth.SetStatus`, per-recipient codes never — `Channels/MetaErrors.cs`); **text, real TEMPLATE messages** (header/body/URL-button parameters, rendered body stored) and **media** (upload → send by id) via Graph (`OutboundSender`, queue template jobs too); inbound media downloaded off the ack (`MediaFetcher`); live template registry when the account has a `waba_id` (paged list + create/edit/delete, `Channels/MetaTemplates.cs`); account Test = `GET /{phone_number_id}`; typing/read indicator | no Cloud voice calls (`call/start` on a Cloud account → 501) — Meta Business Calling is a gated beta and its WebRTC bridge (Python aiortc) went with Django; not planned until a calling-enabled number exists to build against |
-| WhatsApp Baileys | inbound text **+ media** (`/baileys/media` attaches the decrypted file to the `/inbound` placeholder), message-status ticks, lifecycle → health, **text + media send** (media: the gateway's `POST /accounts/{id}/send-media` — base64 in the body, ≤16 MB, never a path/URL, `backend/baileys_service/media.js`; `IBaileysGateway.SendMediaAsync`; the cold-text guard covers files too), presence, **voice calls** (call/start, call-event) + **call recordings** (paired transcript written on `ended`, listed per thread, WAV streamed); **number lookups** for the contact identity checker (`IBaileysGateway.CheckNumberAsync` → the gateway's `/accounts/{id}/check`; never sends a message) | templates go out as rendered text (WhatsApp Web has no template messages) |
-| Telegram | inbound webhook `/api/messaging/webhook/telegram/{token}` (token compared in constant time, unknown → 404; `X-Telegram-Bot-Api-Secret-Token` required once registered from the dashboard; text + media via getFile, off the ack; inbound heals health); **send** text/photo/document (`Channels/TelegramClient.cs` `TelegramChannel`; the thread keeps its own bot, a bot-less thread is routed); **typing indicator** (`sendChatAction` during the AI's typing pause — `Ai/TypingIndicator.cs` `TelegramTypingIndicator`, routed by `ChannelTypingIndicator`); Register webhook (setWebhook + secret_token) and Test (getMe) | — |
+| WhatsApp Cloud | inbound webhook (verify token; `X-Hub-Signature-256` **required once any Cloud account is configured**; wamid dedup; Meta's own timestamps; text, media, button/interactive replies, location); **delivery statuses** (sent → delivered → read / failed + `Message.Error`, forward-only; 131047 closes the window; account-level codes → `AccountHealth.SetStatus`, per-recipient codes never — `Channels/MetaErrors.cs`); **text, real TEMPLATE messages** (header/body/URL-button parameters, rendered body stored) and **media** (upload → send by id) via Graph (`OutboundSender`, queue template jobs too); inbound media downloaded off the ack (`MediaFetcher`); live template registry when the account has a `waba_id` (paged list + create/edit/delete, `Channels/MetaTemplates.cs`); account Test = `GET /{phone_number_id}`; typing/read indicator; **quoted replies** (inbound `context.id` → `Message.ReplyToId` / `ReplyToExternalId`, outbound `context.message_id` from `…/send {reply_to: pk}`) + **emoji reactions** (inbound `type: reaction` → `crm_messagereaction` — never a bubble, the AI, flows/automations or a reopen; outbound `type: reaction` via `POST /api/messaging/threads/{channel}/{key}/messages/{pk}/react`, 24h window else 409 — `Channels/MessageReactions.cs`) | no Cloud voice calls (`call/start` on a Cloud account → 501) — Meta Business Calling is a gated beta and its WebRTC bridge (Python aiortc) went with Django; not planned until a calling-enabled number exists to build against |
+| WhatsApp Baileys | inbound text **+ media** (`/baileys/media` attaches the decrypted file to the `/inbound` placeholder), message-status ticks, lifecycle → health, **text + media send** (media: the gateway's `POST /accounts/{id}/send-media` — base64 in the body, ≤16 MB, never a path/URL, `backend/baileys_service/media.js`; `IBaileysGateway.SendMediaAsync`; the cold-text guard covers files too), presence, **voice calls** (call/start, call-event) + **call recordings** (paired transcript written on `ended`, listed per thread, WAV streamed); **number lookups** for the contact identity checker (`IBaileysGateway.CheckNumberAsync` → the gateway's `/accounts/{id}/check`; never sends a message); **quoted replies + reactions** both ways (the gateway pushes `reply_to` / `{reaction: {msg_id, emoji}}` on `/inbound`; `send` takes `quoted_id`, `POST /accounts/{id}/react`; `messages.js`, self-tested) | templates go out as rendered text (WhatsApp Web has no template messages) |
+| Telegram | inbound webhook `/api/messaging/webhook/telegram/{token}` (token compared in constant time, unknown → 404; `X-Telegram-Bot-Api-Secret-Token` required once registered from the dashboard; text + media via getFile, off the ack; inbound heals health); **send** text/photo/document (`Channels/TelegramClient.cs` `TelegramChannel`; the thread keeps its own bot, a bot-less thread is routed); **typing indicator** (`sendChatAction` during the AI's typing pause — `Ai/TypingIndicator.cs` `TelegramTypingIndicator`, routed by `ChannelTypingIndicator`); **quoted replies** (`reply_to_message` in, `reply_parameters` out) + **reactions** (`message_reaction` updates in — setWebhook asks for them; `setMessageReaction` out, Telegram's own emoji set); Register webhook (setWebhook + secret_token) and Test (getMe) | — |
 | Email | account CRUD (masked SMTP + optional IMAP creds); **SMTP send** via MailKit (`Channels/EmailChannel.cs`) as **multipart/alternative** — the text as typed + an escaped HTML rendering (`EmailHtml`: paragraphs, `<br>`, http(s)/email auto-links, never raw HTML; multipart/mixed with attachments); the mailbox is chosen by `Routing.ForThread` like a WhatsApp number (thread's healthy mailbox → sticky assignment → least-loaded auto-assign → failover off disconnected/banned with note + audit + notification, the outlet's own first; all down ⇒ failed, none configured ⇒ default SMTP settings ⇒ sandbox); Message-ID / In-Reply-To / References + "Re: <subject>" from `crm_emailheader`; `Auto-Submitted` on AI mail; **IMAP pull** `POST /api/messaging/email/sync` (`Channels/ImapSync.cs`: 30 s throttle, known-sender filter, \Seen, Message-ID dedup, HTML-only mail flattened to readable text, attachments, normal inbound pipeline); Test = SMTP login (+ test mail) | no HTML compose (the HTML part is rendered from the plain text) |
 | Messenger / Instagram | account CRUD (+ `app_secret`, also in the setup drawer); **webhook** `GET/POST /api/messaging/webhook` (WhatsApp's verify token; signature **required** against the known Meta app secrets, none ⇒ 401; routed by page / IG id; mid dedup; CDN attachments; delivery/read receipts; sender name); **Send API** text, media by public URL **and uploaded files** (multipart `filedata`, `IMetaMessagingClient.SendFileAsync`; `POST /api/messaging/threads/{facebook\|instagram}/{key}/send-media`; a caption follows as its own message); **messaging window** (`Channels/SocialWindow.cs`, live pages only: ≤24h anything as `RESPONSE`; 24h–7d a signed-in person only, `MESSAGE_TAG` + `HUMAN_AGENT`; AI / follow-ups / flows / queue / API keys / MCP refused — 409 on the inbox routes, failed job, blocked AI draft; >7d or never wrote → refused; `window_open` / `human_window_open` on the thread payload, the inbox `window` filter and the channel hub; a tagged reply refused for permissions never touches health); **typing indicator** (`mark_seen` + `typing_on` sender actions inside the 24h window, `Ai/TypingIndicator.cs` `MetaTypingIndicator`); account Test = `GET /me` → health | — |
 | LINE | **webhook** (`X-Line-Signature`; text, image / video / audio / file downloaded off the ack, sticker / location placeholders; follow / unfollow → opt-in / opt-out; the bot profile names the thread); **send** text through the webhook's reply token while it is fresh (≤50 s, free) else push; Register webhook + Test (`/v2/bot/info`) | outbound media (LINE takes images by public URL only — refused honestly); typing indicator |
@@ -209,9 +209,15 @@ When you fix one of these, update this table, `README.md` and
   entity, its checkbox adds it to the view; each ticked entity brings its
   branches; the pick is remembered per browser (localStorage
   `chatbranch-entities`) and a first visit starts on the first company, never
-  "All". `useEntityQuery()` sends `entity=a,b`; on a GET the API's
+  "All"; it re-loads on every sign-in / sign-out (`auth-change`, fired by
+  `login()` / `clearAuth()`) and on a `storage` event from another tab. Its
+  list is `AdminEndpoints.SwitcherEntitiesAsync` (whoami + `GET /api/v1/entities`):
+  admins = `AccessibleEntitiesAsync`; an ASSIGNED agent = their entities PLUS
+  every branch under them (never wider than `ScopeOwned` already reads — it only
+  lets them narrow to a branch); an unassigned agent = the tenant's entities.
+  `useEntityQuery()` sends `entity=a,b`; on a GET the API's
   `UseEntitySelection` middleware publishes the ticked ids — cut to the caller's
-  `AccessibleEntitiesAsync` — as `EntitySelection` (Data, async-flow like the key
+  `SwitcherEntitiesAsync` — as `EntitySelection` (Data, async-flow like the key
   scopes); `InboxEndpoints.EntityId` returns the first pick and `ScopeOwned` /
   `ScopeInherited` / `ScopingService.PickSubtree` widen it to every pick (use
   `PickSubtree` for a picked filter, never for an assignment). Pages that read
@@ -239,12 +245,29 @@ When you fix one of these, update this table, `README.md` and
   flows.view analytics.view call_logs.view activity.view tags.view ai.monitor`.
   Server checks use `AdminEndpoints.HasCapabilityAsync` /
   `SettingsEndpoints.RequireCapability` on top of the coarse policies
-  (`authenticated` / `admin+` / `superadmin`). **There is no fallback policy:
+  (`authenticated` / `admin+` / `superadmin`). **Company admins:** an admin
+  WITH assigned entities is a company admin — admin capabilities bounded by
+  those entities' subtrees exactly like a bound agent (contacts, inbox, drafts,
+  analytics, channels, libraries, bookings, activity, the AI bill/quotas, users,
+  the entity switcher); an admin with none stays organization-wide. ONE rule:
+  `ShellScope.ScopeRoots(db, me)` (empty = unbound: superadmin, org-wide admin,
+  unassigned agent) with `IsCompanyAdmin` / `IsOrgWideAdmin` / `AdminMayAct` /
+  `CompanyLevelError`; every scope helper builds on it — never test
+  `role == Roles.Admin` for a scope shortcut. `Auth/CompanyAdminScope.cs` drops
+  the org-level capabilities (`rbac.manage`, `app_keys.manage`,
+  `settings.ai_keys.manage`, `billing.manage`, `notifications.manage`,
+  `settings.appearance.org`, `settings.custom_fields.manage`,
+  `pronunciation.manage`) for them; global library items, top-level entities,
+  org-wide settings stay with org-wide admins. Only a superadmin makes an
+  org-wide admin; an org-wide admin may make company admins (`entity_ids` on an
+  admin). `whoami.company_admin`; details in `docs/RBAC_AND_BRANDS.md`
+  ("Company admins"), tests `CompanyAdminTests`. **There is no fallback policy:
   every route must carry `RequireAuthorization(...)` or an explicit
   `AllowAnonymous()`** — the anonymous set is listed in
   `docs/API_CONVENTIONS.md`. User management (`/api/v1/users`) is tiered:
-  superadmin manages everyone; admin lists their own tenant and manages only
-  agents there. A login may be bound to a Contact (`Profile.ContactId`,
+  superadmin manages everyone; an org-wide admin lists their own tenant and
+  manages agents (and company admins) there; a company admin only the
+  agent-level users bound inside their companies. A login may be bound to a Contact (`Profile.ContactId`,
   "customer login"). The `X-Role` header only works while NO Profile rows exist
   (pre-seed bootstrap). **Per-conversation routes**
   (`/api/whatsapp/threads/{key}/…`, `/api/messaging/threads/{channel}/{key}/…`,
@@ -320,7 +343,12 @@ When you fix one of these, update this table, `README.md` and
   `ai_off` | `resolve` | `reopen` | `assign`). Messaging payloads carry `pk` (the
   message id) so AI bubbles get 👍/👎 (`components/ai-learning/BubbleFeedback.tsx`,
   see AI learning). Deep links: `/chats?thread=<channel>:<key>`,
-  `/chats?q=<text>`. The page does NOT poll — `lib/chatStream.ts` holds ONE SSE
+  `/chats?q=<text>`; the open chat IS the URL (opening one replaces `?thread=`,
+  pushes on a phone so Back returns to the list; an unknown or out-of-scope
+  `?thread=` shows "Conversation not found"). The composer's `/shortcut` picker:
+  ↑/↓ move, Enter/Tab insert, Esc closes (Enter never sends the shortcut); quick
+  replies are fetched for the conversation's own entity, and a reply still
+  holding `{{…}}` placeholders gets an inline warning. The page does NOT poll — `lib/chatStream.ts` holds ONE SSE
   connection per tab to `GET /api/whatsapp/stream` (all channels; the change
   token is `ThreadStore.ChangeToken()` = thread `UpdatedAt` + message count),
   ref-counted with a 2 s close grace so page navigation doesn't drop it, and
@@ -331,7 +359,16 @@ When you fix one of these, update this table, `README.md` and
   `POST /api/inbox/threads/{channel}/{key}/handover` takes / hands back / flags
   (see Human handover).
   Bubbles are theme tokens in `src/app/chats/chats.css` (ours = primary ink,
-  theirs = a hairline card) — no WhatsApp greens. `POST /api/whatsapp/simulate`
+  theirs = a hairline card) — no WhatsApp greens. **Bubble extras** live in their
+  own components (`components/chats/MessageActions.tsx` — hover / long-press bar:
+  quick reactions + more, Reply, Copy text; `ReactionBar.tsx` chips;
+  `QuotedBlock.tsx` quote + "jump to original" (`#msg-<pk>`) + the composer's
+  "Replying to"; `MessageContent.tsx` location / contact-card / sticker
+  rendering; `EmojiPicker.tsx` — a built-in ~300-emoji set with en/ms/zh search
+  words in `lib/emoji/data.ts`, recents in localStorage `emoji-recent`; strings
+  in the `bubble` i18n namespace). Payloads carry `reply_to` + `reactions`
+  (`Endpoints/MessageExtras.cs`); quotes and reactions are WhatsApp + Telegram
+  only (`REACTION_CHANNELS` / `MessageReactions.Supports`). `POST /api/whatsapp/simulate`
   fakes an inbound message through the same side effects as a real webhook
   (contact link, flows, team routing, automations, notifications; the invite
   binder, the unknown-customer step and the AI step only with `?ai=1`).
@@ -629,7 +666,10 @@ When you fix one of these, update this table, `README.md` and
   metered into `LlmUsage` at every call site; costs are estimated at READ time
   from Setting `llm_prices` (`AnalyticsService`). Case summaries
   (`SummaryService`, `/api/messaging/threads/{channel}/{key}/summary`) are
-  on-demand, persisted as `ConversationSummary`, heuristic without an LLM.
+  on-demand, persisted as `ConversationSummary` (a conversation with no contact
+  keeps its brief in-process, keyed by thread — the table needs a contact; private
+  notes are never counted or summarised; the chat panel auto-generates once per
+  message count), heuristic without an LLM.
   Knowledge API: `/api/aicore/knowledge` (+ `/preview` `{query}` = the exact
   knowledge + learned blocks the AI receives plus every scored hit — the
   "Test retrieval" view, `RetrievalTester.tsx`; `/upload` = a PDF / .txt / .md /
@@ -846,13 +886,15 @@ When you fix one of these, update this table, `README.md` and
   applies succeed once). One run at a time is a process-wide lock around the
   check + insert; a run heartbeats `updated_at` per batch and `ExpireStale` only
   fails a run whose heartbeat went quiet. Heuristic fix suggestions never quote
-  the customer. Tests: `AiReviewTests`.
+  the customer. An optional `level` (entity slug, "" = organization) overrides
+  where it lands — the panel's confirm dialog always sends it (editable text,
+  defaulting to the conversation's entity). Tests: `AiReviewTests`.
 - **Human handover** (`Ai/Handover.cs`, the ONLY writer of `crm_thread.handover_*`).
   `Handover.Mark(db, thread, kind, reason, by)`: kinds `check_failed` ·
   `asked_for_human` · `send_blocked` · `booking_failed` · `low_confidence` ·
   `rule` · `manual` · `unknown_customer` · `quota` (the AI usage quota, `standDown: false`); `by` = `ai` · `rule:<id>` · `flow` ·
   `agent:<username>` (· `identity`). It counts once while open, sets the chat
-  pending, adds the private note, notifies the owners, audits `ai.handover` and
+  pending (a RESOLVED chat reopens as pending too), adds the private note, notifies the owners, audits `ai.handover` and
   (default `standDown`) turns the chatbot off — the identity exchange's
   `unknown_customer` handover leaves the chatbot as it was, and a person linking
   or creating the contact through the identity banner (`POST
@@ -1033,7 +1075,8 @@ When you fix one of these, update this table, `README.md` and
   → its contact's entity when every link shares one company → unattributed
   (skill drafting, embeddings, the operator assistant — shown to managers,
   billed to nobody). Bill = cost × (1 + markup %) × the exchange rate + a
-  monthly fee (amounts kept to 4 decimals, shown so below 1 — a light month is
+  monthly fee — never for a month that ended before the company's
+  `created_at` — (amounts kept to 4 decimals, shown so below 1 — a light month is
   fractions of a cent); cost = the provider's own price per call where it reports one
   (`crm_llmusage.cost_usd` — OpenRouter's `usage.cost`, requested with
   `usage.include`), else tokens × `llm_prices` over OpenRouter's public price
@@ -1049,7 +1092,10 @@ When you fix one of these, update this table, `README.md` and
   this month (unchanged terms change nothing); the bill for month M uses the
   latest terms with `effective_from` ≤ M (a legacy row without one = every
   earlier month; a month older than every set uses the oldest). The settings GET
-  returns `history` (newest first, with `until`) for the "Terms by month" list.
+  returns `history` (newest first, with `until`) for the "Terms by month" list;
+  consecutive identical periods are ONE period (`AiBilling.Collapse`, applied on
+  save and when listing). The bill's `pricing_note` stays English for API
+  callers; the dashboard translates `pricing_note_code`.
   **AI usage quotas** (`Ai/AiQuota.cs`, Setting `ai_quotas` {entities:{id:amount},
   users:{username:amount}}, billing currency, 0/absent = no cap): spend = the
   month's BILLED usage (the month's terms; the fee never counts) — a company cap
@@ -1196,7 +1242,9 @@ When you fix one of these, update this table, `README.md` and
   never in the installed app) shows the Share → "Add to Home Screen" steps there
   and an Install button where the browser can prompt (`pwa.ts` `isIos`,
   `useInstallPrompt`); "Not now" snoozes 30 days, the sidebar's "Install app"
-  reopens it (`pwa:show-install`). The body never scrolls (the shell's panes
+  reopens it (`pwa:show-install`). It never stacks with a page guide (waits
+  while `useTour().busy`, and does not open by itself on the first visit to a
+  page whose guide auto-starts), and only its buttons take touches. The body never scrolls (the shell's panes
   do), so bare pages (`/login`, `PUBLIC_ROUTES`) scroll the DOCUMENT instead
   (`PageScroll` in `Shell.tsx` adds `html.page-scroll`, `globals.css`; it also
   jumps to a `#anchor` once drawn) — an inner scroll box did not scroll on iOS. **Ask ChatBranch** (`AssistantDock`) opens from
@@ -1268,7 +1316,10 @@ When you fix one of these, update this table, `README.md` and
 - **Settings is system configuration ONLY**, organised as SECTIONS of flat
   `/settings/<id>` pages, each with its own capability
   (`components/settings/SettingsNav.tsx` `SETTINGS_SECTIONS`, checked again
-  server-side): Personal — Appearance (incl. Language), My notifications, My connections (no
+  server-side): Personal — My account (no cap; `/settings/account`, your own
+  name / email / password / devices via `/api/auth/me/*` —
+  `Endpoints/MyAccountEndpoints.cs`, writes session-only, wrong passwords
+  throttled; also opened from the sidebar's name chip), Appearance (incl. Language), My notifications, My connections (no
   cap; `/settings/connections` connects your own Google products, see
   Integrations); Organization — Notification defaults (`notifications.manage`),
   Custom fields (`settings.custom_fields.manage`), App & provider keys
@@ -1324,6 +1375,19 @@ When you fix one of these, update this table, `README.md` and
   `{role, ready}`), or `useState(false)` + `useEffect`. `lib/auth.ts` still
   migrates the legacy `chatwood-auth` / `ai-collector-auth` session keys and a
   cached `'collector'` role.
+- **Contact identity is per COMPANY** (`Data/Contacts/ContactCompanies.cs`): a
+  contact needs a name AND a phone or an email; the same phone (last-8 rule) or
+  email may exist once per company (top-level entity + branches) — create,
+  edit and import check only the companies the contact belongs to (no entity =
+  the org-wide contacts), and a 409 names the existing contact (+
+  `existing_id`) only when the caller can see it (the Add form then offers "add
+  this entity to that contact instead"). Inbound matching
+  (`InboundProcessor.MatchContact`, the SMS start, the identity exchange) picks
+  the receiving entity's contact, else its company's, else an org-wide one —
+  never another company's. Chat-made contacts are linked to their
+  conversation's entity; `Seed.BackfillContactEntities` linked the old ones once
+  (Setting `contacts_entity_backfill_v1`). The contacts list under an entity
+  also shows contacts with a conversation there; `?entity=__none__` = no entity.
 - **Contacts:** `/contacts` is a list (the kanban board is gone) with a 4-step
   **import wizard** (`components/contacts/ContactImportModal.tsx`: a .csv / .xlsx
   / .vcf file or your own Google Contacts → map columns → duplicates skip / fill
@@ -1508,7 +1572,9 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   save from "All entities" never duplicates an outlet's flow as a global one).
   ⚠ **The PUT PRUNES** the rows the same GET would have loaded that are missing
   from the browser's copy — after creating a Workflow row outside the UI,
-  refresh `/journeys` before its next sync.
+  refresh `/journeys` before its next sync. `flows.view` without
+  `flows.manage` opens `/journeys` READ-ONLY (no New / Import / Go live / rename /
+  step edits, and nothing is ever PUT).
 - **List first.** `/journeys` opens on the list of every journey
   (`JourneyList.tsx`: trigger summary from `describe.ts`, live / paused, steps,
   people entered in the period + in it now from `/api/analytics/flows`, Open);
@@ -1536,7 +1602,9 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   message** = the `AI message` marker channel + a `skill` id, composed by
   `ComposeActionTextAsync` and sent through the AI gate (skipped with a note while
   the AI controls say no) · call = AI voice call or Script call, `callVia` `Phone (SIP)` |
-  `WhatsApp (Baileys)` · app action) · wait (time, or until they reply) ·
+  `WhatsApp (Baileys)` · app action) · wait (time, or until they reply — a
+  reply that arrives while the run's own message step is still queued is NOT
+  an answer and wakes nothing, `FlowEngine.MessageNotSentYet`) ·
   **followup** ("Follow up if no reply": yes = replied, no = no reply; up to 5
   nudges, stops on resolve) · decision (see Decisions below) · handover (to a team; a tracked handover,
   kind `rule`) · update (add/remove tag, set a field, **Set chatbot on/off** =
@@ -1587,7 +1655,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **763 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **796 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /

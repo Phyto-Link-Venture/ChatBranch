@@ -24,7 +24,9 @@ is a settings exercise, not a fork — see
 
 - **Unified inbox** (`/chats`) — every channel in one server-filtered list with
   a filter pop-up, per-user saved views, labels, teams, assignment, private
-  notes, AI summaries and a live SSE stream (no polling).
+  notes, AI summaries and a live SSE stream (no polling), an emoji picker in the
+  composer, location / contact-card bubbles and — on WhatsApp and Telegram —
+  quoted replies and emoji reactions both ways.
 - **One AI brain for every channel** — skills (prompt instructions, sandboxed
   JavaScript **tools** the model calls, **reply checks** that vet every draft,
   and **connected apps**), a self-expiring knowledge base with document upload
@@ -232,10 +234,10 @@ requires a restart.
 
 | Channel | What you need | Status in the C# API |
 |---|---|---|
-| **WhatsApp (Cloud API)** | A Meta app, phone number ID, access token, app secret, WABA id, and a public webhook (`/api/whatsapp/webhook`) | live: inbound (incl. media), delivery statuses, text, real template messages, media send, the WABA's template registry |
-| **WhatsApp (Baileys)** | A spare phone. Add a "QR" WhatsApp inbox and scan. ⚠ Read the ToS warning below | inbound text + media, text + media send, calls + recordings live |
+| **WhatsApp (Cloud API)** | A Meta app, phone number ID, access token, app secret, WABA id, and a public webhook (`/api/whatsapp/webhook`) | live: inbound (incl. media), delivery statuses, text, real template messages, media send, the WABA's template registry, quoted replies and emoji reactions both ways |
+| **WhatsApp (Baileys)** | A spare phone. Add a "QR" WhatsApp inbox and scan. ⚠ Read the ToS warning below | inbound text + media, text + media send, quoted replies + emoji reactions both ways, calls + recordings live |
 | **Website widget** | Nothing — paste the snippet the inbox gives you | live |
-| **Telegram** | A BotFather token, then "Register webhook" in the inbox (needs a public https URL — `PUBLIC_BASE_URL` or the one you type) | live: inbound text + media, replies and attachments via the Bot API, typing indicator |
+| **Telegram** | A BotFather token, then "Register webhook" in the inbox (needs a public https URL — `PUBLIC_BASE_URL` or the one you type) | live: inbound text + media, replies and attachments via the Bot API, quoted replies + emoji reactions both ways, typing indicator |
 | **Email** | Per-mailbox SMTP credentials (+ an IMAP host, per mailbox or the default under Channels → Advanced) | live: SMTP send (text + escaped HTML alternative, threaded replies, mailboxes routed and failed over like WhatsApp numbers), IMAP pull from known senders (HTML-only mail flattened to text) |
 | **Messenger / Instagram** | A page token, the page / IG account id, the Meta app secret, and a public webhook (`/api/messaging/webhook`) | live: signed inbound (incl. attachments), Send API text + files (URL or upload) inside Meta's 24h / 7-day human-agent window, typing indicator, receipts |
 | **LINE · Viber · Zalo OA** | LINE: channel access token + channel secret · Viber: the bot's auth token · Zalo: app id, OA secret key, OA access token (+ refresh token and app secret to renew it); then the webhook URL the inbox shows (LINE and Viber register it in one click) | live, untested against the providers: signed inbound (incl. media), text replies (Zalo also images; Zalo has a 7-day reply window), follow/unfollow → opt-in/out, Viber delivery ticks |

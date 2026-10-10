@@ -23,6 +23,10 @@ export const settings: Dict<typeof source> = {
       ai: { lbl: 'AI', blurb: 'Model dan alatan' },
     },
     pages: {
+      account: {
+        lbl: 'Akaun saya',
+        blurb: 'Nama, e-mel dan kata laluan anda, serta peranti tempat anda log masuk.',
+      },
       appearance: {
         lbl: 'Rupa',
         blurb: 'Tema, mod warna, saiz teks, fon, jarak dan susun atur. Disimpan pada profil anda, jadi ia mengikut anda ke mana-mana peranti.',

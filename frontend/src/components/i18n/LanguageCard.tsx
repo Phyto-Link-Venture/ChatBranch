@@ -5,7 +5,7 @@ import { Building2, Check, Languages } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { authHeaders } from '@/lib/auth'
-import { LOCALES, clearUserLocale, isLocale, useI18n, useT, type Locale } from '@/i18n'
+import { LOCALES, clearUserLocale, isLocale, useI18n, useT, type Locale, type MessageKey } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -24,7 +24,8 @@ export function LanguageCard() {
   const t = useT()
   const { locale, setLocale } = useI18n()
   const [prefs, setPrefs] = useState<Prefs | null>(null)
-  const [notice, setNotice] = useState('')
+  // a KEY, translated at render — so "Language saved." shows in the NEW language
+  const [notice, setNotice] = useState<MessageKey | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -50,7 +51,7 @@ export function LanguageCard() {
     try {
       await setLocale(l, { persist: 'user' })
       setPrefs((p) => (p ? { ...p, locale: l } : p))
-      setNotice(t('shell.language.saved'))
+      setNotice('shell.language.saved')
     } finally {
       setBusy(false)
     }
@@ -63,7 +64,7 @@ export function LanguageCard() {
       await clearUserLocale()
       setPrefs({ ...prefs, locale: null })
       if (prefs.org_locale) await setLocale(prefs.org_locale)
-      setNotice(t('shell.language.saved'))
+      setNotice('shell.language.saved')
     } finally {
       setBusy(false)
     }
@@ -80,7 +81,7 @@ export function LanguageCard() {
       })
       if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { detail?: string }).detail || `HTTP ${res.status}`)
       setPrefs((p) => (p ? { ...p, org_locale: l } : p))
-      setNotice(t('shell.language.orgSaved'))
+      setNotice('shell.language.orgSaved')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -148,7 +149,7 @@ export function LanguageCard() {
         </div>
       )}
 
-      {notice && <p role="status" className="mt-2 text-[12px] text-[color:var(--green-ink)]">{notice}</p>}
+      {notice && <p role="status" className="mt-2 text-[12px] text-[color:var(--green-ink)]">{t(notice)}</p>}
       {error && <p role="alert" className="mt-2 text-[12px] text-[color:var(--red-ink)]">{error}</p>}
       {locale !== 'en' && <p className="mt-2 text-[11.5px] text-text-faint">{t('shell.language.reviewNote')}</p>}
     </Card>

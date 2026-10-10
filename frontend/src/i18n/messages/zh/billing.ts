@@ -20,6 +20,7 @@ export const billing: Dict<typeof source> = {
   managerLine: '成本 {cost} · 加价 {markup}% · 利润 {margin}。只有计费管理员能看到这一行。',
   companiesTitle: '公司 — {month}',
   unattributed: '{requests} 次请求（{cost}）不属于任何公司——技能起草、知识索引和操作员助手。这些不计费。',
+  pricingNote: '成本 = 服务商按次收取的费用（由 OpenRouter 报告）；未报告价格的调用按你的价格表并参照 OpenRouter 公开价目表估算（每 100 万 token 的美元价）。账单 = 成本 × (1 + 加价) × 汇率 + 月费。',
   cols: {
     item: '项目',
     requests: '请求',

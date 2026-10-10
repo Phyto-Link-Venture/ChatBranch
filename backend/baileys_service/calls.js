@@ -954,6 +954,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
   const { selftest: mediaSelftest } = await import('./media.js')
   mediaSelftest()
   console.log('send-media payload builder OK')
+  // quoted replies, reactions and inbound placeholders (pure; no WhatsApp needed)
+  const { selftest: messagesSelftest } = await import('./messages.js')
+  messagesSelftest()
+  console.log('quote / reaction / inbound parsing OK')
   const { WasmEngine, lk } = await loadModules()
   console.log('modules loaded: baileys-caller internals + @livekit/rtc-node')
   if (!lk.Room || !lk.AudioSource || !lk.AudioFrame || !lk.AudioStream) {

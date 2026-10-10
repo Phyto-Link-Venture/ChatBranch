@@ -48,10 +48,12 @@ internal static class Assignees
                     if (!canView.TryGetValue(role, out var ok))
                         canView[role] = ok = await AdminEndpoints.RoleHasCapabilityAsync(db, role, "chats.view");
                     if (!ok) continue;
-                    if (thread?.EntityId is int eid && p.Entities.Count > 0
-                        && !sc.EntitySubtreeIds(p.Entities.Select(e => e.Id)).Contains(eid))
-                        continue;
                 }
+                // bound to entities (agents, custom roles, COMPANY admins): only
+                // conversations inside their subtrees
+                if (thread?.EntityId is int eid && p.Entities.Count > 0
+                    && !sc.EntitySubtreeIds(p.Entities.Select(e => e.Id)).Contains(eid))
+                    continue;
             }
             result.Add(new Candidate(p.UserId, p.User.Username, role, team.Contains(p.UserId)));
         }

@@ -10,8 +10,8 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { HelpCircle, Loader2, UserPlus } from 'lucide-react'
-import { cApi, threadPath, type IdentifyState } from '@/lib/contactIdentity'
+import { HelpCircle, Link2, Loader2, UserPlus } from 'lucide-react'
+import { cApi, errText, threadPath, type IdentifyState } from '@/lib/contactIdentity'
 import { CreateFromChatModal } from '@/components/contacts/CreateFromChatModal'
 import { useT } from '@/i18n'
 
@@ -30,6 +30,27 @@ export default function IdentityBanner({
   const t = useT()
   const [state, setState] = useState<IdentifyState | null>(null)
   const [open, setOpen] = useState(false)
+  const [linking, setLinking] = useState<number | null>(null)
+  const [linkError, setLinkError] = useState<string | null>(null)
+
+  // one of the matching contacts — the same scope-checked route as "Create
+  // contact", with the contact's id
+  const link = async (contactId: number) => {
+    setLinking(contactId)
+    setLinkError(null)
+    try {
+      await cApi(`contacts/identify/${threadPath(channel, threadKey)}/contact`, {
+        method: 'POST',
+        body: JSON.stringify({ contact_id: contactId }),
+      })
+      onCreated(contactId)
+      void load()
+    } catch (e) {
+      setLinkError(errText(e))
+    } finally {
+      setLinking(null)
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -80,6 +101,32 @@ export default function IdentityBanner({
         )}
         <span className="min-w-0">{text}</span>
       </span>
+      {req.state === 'ambiguous' && state.can_create && (state.candidates?.length ?? 0) > 0 && (
+        <span className="flex w-full flex-wrap items-center gap-1.5">
+          <span className="text-[11.5px] font-semibold">{t('chats.identity.linkOne')}</span>
+          {state.candidates!.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              disabled={linking !== null}
+              onClick={() => void link(c.id)}
+              title={[c.phone, c.email].filter(Boolean).join(' · ')}
+              className="inline-flex h-7 max-w-full items-center gap-1 rounded-lg border border-line-strong bg-card px-2.5 text-[11.5px] font-semibold text-text-high transition-colors hover:bg-fill-hover disabled:opacity-50"
+            >
+              {linking === c.id ? <Loader2 size={12} className="animate-spin" aria-hidden /> : <Link2 size={12} aria-hidden />}
+              <span className="truncate">
+                {c.name || c.phone || c.email}
+                {c.phone || c.email ? <span className="ml-1 font-normal text-text-muted">{c.phone || c.email}</span> : null}
+              </span>
+            </button>
+          ))}
+          {linkError && (
+            <span role="alert" className="text-[11.5px] text-[var(--red-ink)]">
+              {linkError}
+            </span>
+          )}
+        </span>
+      )}
       {state.can_create && req.state !== 'ambiguous' && (
         <button
           type="button"

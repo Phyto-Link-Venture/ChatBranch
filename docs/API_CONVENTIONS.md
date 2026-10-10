@@ -35,6 +35,17 @@ Two kinds of credential are accepted on every authenticated route:
   `POST /api/auth/logout` revokes it. `GET /api/auth/whoami` /
   `GET /api/v1/whoami` return the user, role, tenant, accessible entity slugs
   and resolved **capabilities**.
+- **Your own account** (Settings → My account, any signed-in user, always the
+  CALLER — no id in the route): `GET /api/auth/me/account` (username, first /
+  last / display name, email, role, entities, last sign-in, active sessions),
+  `PATCH /api/auth/me/account {first_name?, last_name?, email?}` (email
+  validated and unique across users → 409; the username never changes),
+  `POST /api/auth/me/password {current_password, new_password}` (≥ 8
+  characters, ≠ the current one; signs out every OTHER session and answers
+  `{signed_out}`; 5 wrong current passwords per 15 min per user → 429; audit
+  `user.password_changed`, no secret in it) and
+  `POST /api/auth/me/sessions/revoke-others`. The three writes are
+  **session-only** — an API key gets 403 — and none of them is an MCP tool.
 - **API keys** — `cbk_<prefix>_<secret>`, created at **API keys & MCP**
   (`/developers`, `POST /api/developers/keys`, capability `api_keys.manage`) and
   shown once. Send as `Authorization: Bearer cbk_…` or `X-Api-Key: cbk_…`. A key
@@ -142,7 +153,7 @@ Not every route — the endpoint files are authoritative — but every area.
 | RBAC | `/api/auth/roles[/{slug}]`, `/api/auth/permissions` (matrix; PUT needs `rbac.manage`) | `AdminEndpoints` |
 | v1 | `/api/v1/whoami`, `/api/v1/contacts[/{id}][/entities]`, `/api/v1/entities[/{id}]`, `/api/v1/brands`, `/api/v1/users[/{id}]`, `POST /api/v1/sync/records` | `ApiV1Endpoints`, `AdminEndpoints` |
 | Contacts | `/api/contacts[/{id}]` (POST/PATCH bind `company_name` as well as `companyName`), `/import` (multipart .csv / .xlsx / .vcf or JSON rows, `?preview=1`; admin+ and `contacts.manage`), `/import/google` (the caller's own Google Contacts, preview), `/{id}/channels` (channel hub) + `/{id}/channels/discover`, `/identity-checks/run`, `/{id}/invites`, `/identify/{channel}/{key}` + `/contact`, `/{id}/ai-mode`, `/{id}/calls`, `/{id}/tags`; `/api/inboxes/{id}/identify` (per-inbox unknown-customer mode) | `ContactsEndpoints`, `ContactIdentityEndpoints`, `AiControlsEndpoints`, `TagsEndpoints` |
-| Inbox | `GET /api/inbox/threads` (server-filtered list; `handover=open\|any\|none`, `handover_kind`), `POST /api/inbox/threads/bulk` (`ai_on\|ai_off\|resolve\|reopen\|assign` over picked ids or a list filter, ≤1000, `chats.manage`), `POST /api/inbox/threads/{channel}/{key}/handover` (`take\|continue\|flag`, `chats.send`), `/api/views` (saved views), `GET /api/whatsapp/stream` (SSE, all channels), `POST /api/whatsapp/simulate`, `/api/whatsapp/threads/{key}/…` (send, send-template, send-media, ai, status, labels, account, call/*), `/api/messaging/threads/{channel}/{key}/…` (send, ai, status, assign, labels, note, link, summary), `/api/messaging/canned`, `/api/messaging/timeline`, `/api/messaging/engagement` | `InboxThreadsEndpoints`, `AiControlsEndpoints`, `SavedViewsEndpoints`, `InboxEndpoints`, `WhatsAppThreadsEndpoints`, `MessagingEndpoints` |
+| Inbox | `GET /api/inbox/threads` (server-filtered list; `handover=open\|any\|none`, `handover_kind`), `POST /api/inbox/threads/bulk` (`ai_on\|ai_off\|resolve\|reopen\|assign` over picked ids or a list filter, ≤1000, `chats.manage`), `POST /api/inbox/threads/{channel}/{key}/handover` (`take\|continue\|flag`, `chats.send`), `/api/views` (saved views), `GET /api/whatsapp/stream` (SSE, all channels), `POST /api/whatsapp/simulate`, `/api/whatsapp/threads/{key}/…` (send, send-template, send-media, ai, status, labels, account, call/*), `/api/messaging/threads/{channel}/{key}/…` (send, ai, status, assign, labels, note, link, summary, `messages/{pk}/react` — an emoji reaction, `""` removes it, WhatsApp + Telegram, `chats.send`; `…/send` takes `reply_to` = the quoted message pk on every send route), `/api/messaging/canned`, `/api/messaging/timeline`, `/api/messaging/engagement` | `InboxThreadsEndpoints`, `AiControlsEndpoints`, `SavedViewsEndpoints`, `InboxEndpoints`, `WhatsAppThreadsEndpoints`, `MessagingEndpoints`, `MessageReactionEndpoints` |
 | Teams + automations | `/api/teams`, `/api/teams/assign`, `/api/automations[/{id}]`, `/api/automations/catalog`, `/{id}/test` | `TeamsEndpoints`, `AutomationsEndpoints` |
 | Channels | `/api/whatsapp/accounts[/{id}]` (+ `/test`, `/baileys/start\|status\|logout`), `/api/messaging/accounts[/{id}]` (+ `/test`, `/set-webhook` for Telegram, LINE and Viber; the newer channels' fields in `MoreChannelAccounts`), `/api/widgets[/{id}]`, `/api/whatsapp/templates`, `/api/whatsapp/settings`, `/api/whatsapp/routing-rules`, `/api/whatsapp/voice-settings`, `/api/whatsapp/channels/health`, `/api/whatsapp/recovery`, `/api/whatsapp/assignments` + `/rebalance` | `WhatsAppSettingsEndpoints`, `VoiceMessagingEndpoints`, `WidgetAdminEndpoints`, `AssignmentsEndpoints` |
 | Calls + voice | `/api/calls/dial`, `/api/calls/{room}[/live\|say\|hangup\|escalate]`, `/api/call-logs`, `/api/voices`, `/api/voice/*` (preview, clone, import, STT/LLM settings), `/api/pronunciation`, `/api/calls/script-templates` | `CallsVoiceEndpoints`, `VoiceMessagingEndpoints`, `PronunciationEndpoints`, `ContactsEndpoints` |

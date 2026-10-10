@@ -44,13 +44,18 @@ public sealed class NotificationAudience
     /// <summary>When set, admins are limited to this tenant (superadmins always
     /// pass) — a conversation in one tenant never pages another tenant's admins.</summary>
     public int? TenantId { get; init; }
+    /// <summary>The entity the alert is about. COMPANY admins (admins bound to
+    /// entities) only hear about their own companies: with an entity, those whose
+    /// subtrees hold it; without one (an organization-level alert), none.</summary>
+    public int? EntityId { get; init; }
 
     public static NotificationAudience ForRoles(params string[] roles) => new() { RoleSlugs = roles };
     public static NotificationAudience ForUsers(IEnumerable<int> ids) => new() { UserIds = ids.Distinct().ToArray() };
-    public static NotificationAudience Admins(int? tenantId = null) => new()
+    public static NotificationAudience Admins(int? tenantId = null, int? entityId = null) => new()
     {
         RoleSlugs = new[] { Roles.SuperAdmin, Roles.Admin },
         TenantId = tenantId,
+        EntityId = entityId,
     };
 }
 
@@ -291,9 +296,18 @@ public static class NotificationService
             var rows = await db.Profiles.AsNoTracking()
                 .Where(p => roles.Contains(p.Role) && p.User != null && p.User.IsActive)
                 .Where(p => tenant == null || p.Role == Roles.SuperAdmin || p.TenantId == tenant)
-                .Select(p => new { p.UserId, p.User!.Username, p.Preferences })
+                .Select(p => new { p.UserId, p.User!.Username, p.Preferences, p.Role,
+                    Entities = p.Entities.Select(e => e.Id).ToList() })
                 .ToListAsync(ct);
-            foreach (var p in rows) byId[p.UserId] = new Recipient(p.UserId, p.Username, p.Preferences);
+            var sc = new ScopingService(db);
+            foreach (var p in rows)
+            {
+                // a company admin: only alerts about an entity inside their companies
+                if (p.Role == Roles.Admin && p.Entities.Count > 0
+                    && (audience.EntityId is not int about || !sc.EntitySubtreeIds(p.Entities).Contains(about)))
+                    continue;
+                byId[p.UserId] = new Recipient(p.UserId, p.Username, p.Preferences);
+            }
         }
 
         return byId.Values.OrderBy(r => r.UserId).ToList();
@@ -321,7 +335,7 @@ public static class NotificationService
         if (thread.EntityId is int eid)
             tenantId = await db.Entities.AsNoTracking()
                 .Where(e => e.Id == eid).Select(e => (int?)e.TenantId).FirstOrDefaultAsync(ct);
-        return NotificationAudience.Admins(tenantId);
+        return NotificationAudience.Admins(tenantId, thread.EntityId);
     }
 
     private static async Task<bool> IsMineAsync(AppDbContext db, Thread thread, int userId,

@@ -76,7 +76,10 @@ parent's tenant. The `/api/v1/brands` endpoints read and write these rows.
 
 ### `auth_user`
 `username` · `password` (Django-format `pbkdf2_sha256$…`, verified by
-`DjangoPasswordHasher`) · `is_active` · `is_superuser` · `last_login`.
+`DjangoPasswordHasher`) · `is_active` · `is_superuser` · `last_login` ·
+`first_name` / `last_name` / `email` (Django's columns, added by
+`UpgradeSchema`; edited by the person themselves at Settings → My account —
+display name = first + last, else the username; email unique across users when set).
 
 ### `crm_profile` (+ `crm_profile_entities`)
 | Column | Notes |
@@ -242,9 +245,23 @@ mid / tg id) · `direction` (`in`\|`out`) · `source` (`customer`\|`agent`\|`ai`
 (`sent`/`delivered`/`read`/`received`/`sandbox`/`failed`) · `media_type` ·
 `media_path` (relative to `data/whatsapp/media/` or `data/messaging/media/`) ·
 `error` (Meta's code + reason for a failed delivery, e.g. `131047: …`) ·
+`reply_to_id` (nullable — the message of the SAME thread this one quotes,
+resolved from `reply_to_external_id` when we hold it) · `reply_to_external_id`
+(the provider id of the quoted message: Cloud `context.id`, Baileys
+`contextInfo.stanzaId`, Telegram `reply_to_message.message_id`, Messenger
+`reply_to.mid`; `''` = not a reply) ·
 `created_at` (provider timestamp for inbound). **Unique**
 `(thread_id, external_id)` where `external_id <> ''`
 (`uniq_message_thread_external_id`) — the webhook-redelivery guarantee.
+
+### `crm_messagereaction`
+`message_id` · `thread_id` · `actor` (`contact` \| `user:<username>`) · `emoji` ·
+`created_at`. **Unique** `(message_id, actor)` (`uniq_messagereaction_actor`) —
+reacting again replaces, an empty emoji deletes the row; one of OUR reactions
+replaces any colleague's on the same message (the business is one sender to
+WhatsApp / Telegram). Index `thread_id`. Written only by
+`Channels/MessageReactions.cs`; a reaction is never a `crm_message` row and
+only bumps the thread's `updated_at`.
 
 ### `crm_accountassignment`
 `contact_id` · `channel` · `account_id` · `pinned` · timestamps. **Unique**

@@ -24,7 +24,7 @@ export const work: Dict<typeof source> = {
       },
       s5: {
         title: 'Tambah emoji atau jawapan sedia',
-        body: 'Tiada butang emoji — gunakan panel emoji papan kekunci anda (kekunci Windows + noktah pada Windows, Control + Command + Space pada Mac, atau kekunci emoji pada telefon). Untuk jawapan tersimpan, taip “/” dan pilih daripada senarai “Balasan pantas”.',
+        body: 'Klik butang senyum, “Emoji”, di kiri kotak mesej: pilih kategori, cari (“terima kasih”, “thanks” atau “谢谢” semuanya boleh) atau pilih daripada “Baru digunakan” — emoji dimasukkan di tempat kursor anda. Untuk jawapan tersimpan, taip “/” dan pilih daripada senarai “Balasan pantas”.',
       },
       s6: {
         title: 'Lampirkan fail (pilihan)',
@@ -48,6 +48,45 @@ export const work: Dict<typeof source> = {
     },
     trouble:
       'Kotak mesej kelabu dan tertulis “Tetingkap 24 jam tertutup”: pada nombor WhatsApp Business anda mesti menghantar templat yang diluluskan dahulu — lihat “Hantar templat WhatsApp apabila tetingkap 24 jam tertutup”. Ikon klip kertas tiada: saluran ini tidak boleh menerima fail daripada ChatBranch (contohnya LINE, Viber atau SMS) — hantar teks sahaja. Tanda merah “Gagal”: mesej tidak sampai — minta pentadbir menyemak saluran itu di halaman Saluran.',
+  },
+  quoteAndReact: {
+    title: 'Petik mesej atau beri reaksi emoji',
+    summary: 'Di WhatsApp dan Telegram, balas satu mesej tertentu supaya pelanggan tahu mesej mana yang anda maksudkan, atau beri reaksi emoji tanpa menulis balasan.',
+    before: 'Petikan dan reaksi berfungsi dalam perbualan WhatsApp dan Telegram. Anda perlu dibenarkan menghantar mesej dalam sembang itu.',
+    steps: {
+      s1: {
+        title: 'Buka perbualan',
+        body: 'Di bar sisi, di bawah Kerja, klik “Sembang” dan pilih perbualan WhatsApp atau Telegram.',
+      },
+      s2: {
+        title: 'Tunjukkan tindakan mesej',
+        body: 'Pada komputer, gerakkan tetikus ke atas mesej. Pada telefon atau tablet, tekan dan tahan mesej seketika. Satu bar kecil muncul di atasnya dengan enam emoji, “+” (“Lagi emoji”), “Balas” dan “Salin teks”.',
+      },
+      s3: {
+        title: 'Beri reaksi emoji',
+        body: 'Klik salah satu 👍 ❤️ 😂 😮 😢 🙏, atau “+” untuk memilih emoji lain. Reaksi anda muncul dalam cip kecil di bawah mesej dan dihantar kepada pelanggan. Klik emoji yang sama sekali lagi (atau cip anda) untuk menariknya balik; memilih emoji lain akan menggantikannya.',
+      },
+      s4: {
+        title: 'Balas mesej itu',
+        body: 'Klik “Balas”. Jalur “Membalas …” dengan mesej itu muncul di atas kotak mesej — klik × jika anda berubah fikiran.',
+      },
+      s5: {
+        title: 'Tulis dan hantar',
+        body: 'Taip jawapan anda dan tekan Enter. Mesej anda menunjukkan mesej yang dipetik di atasnya, dan aplikasi pelanggan memaparkannya sebagai balasan kepada mesej itu.',
+      },
+      s6: {
+        title: 'Cari mesej asal',
+        body: 'Apabila pelanggan memetik mesej terdahulu, petikan itu dipaparkan di bahagian atas gelembung mereka. Klik untuk melompat ke mesej asal, yang akan berkelip seketika.',
+      },
+    },
+    done: 'Reaksi anda dipaparkan sebagai cip di bawah mesej, atau balasan anda menunjukkan mesej yang dipetik di atasnya.',
+    tips: {
+      t1: 'Halakan tetikus ke atas cip reaksi untuk melihat siapa yang memberi reaksi — pelanggan atau rakan sepasukan yang mana.',
+      t2: 'Perniagaan hanya ada satu reaksi bagi setiap mesej: jika rakan sepasukan sudah memberi reaksi, reaksi anda menggantikannya.',
+      t3: 'Reaksi pelanggan tidak sekali-kali membangunkan AI atau membuka semula sembang yang telah selesai — ia hanya dipaparkan pada mesej.',
+    },
+    trouble:
+      '“WhatsApp 24h window closed — a reaction can only be sent within 24 hours…”: pada nombor WhatsApp Business, reaksi dikira sebagai mesej, jadi ia hanya berfungsi dalam tempoh 24 jam selepas mesej terakhir pelanggan. “REACTION_INVALID” di Telegram: Telegram hanya membenarkan set emoji reaksinya sendiri — cuba 👍, ❤️, 🔥 atau 🙏. Tiada “Balas” pada mesej: nota, baris sistem dan saluran lain (e-mel, Messenger, SMS…) tidak menyokong petikan.',
   },
   findChats: {
     title: 'Cari sembang yang betul dengan cepat',
@@ -203,7 +242,7 @@ export const work: Dict<typeof source> = {
       },
       s3: {
         title: 'Pilih satu dan hantar',
-        body: 'Klik balasan yang anda mahu. Teksnya mengisi kotak, dengan butiran seperti nama pelanggan sudah diisi. Ubah apa-apa yang anda suka, kemudian tekan Enter.',
+        body: 'Klik balasan yang anda mahu — atau gerak dengan kekunci ↑ dan ↓ dan tekan Enter atau Tab (Esc menutup senarai). Teksnya mengisi kotak, dengan butiran seperti nama pelanggan sudah diisi. Jika masih ada {{ruang isian}} (perbualan tanpa kenalan dipautkan), amaran dipaparkan di bawah kotak: gantikannya, kemudian tekan Enter.',
       },
       s4: {
         title: 'Atau gunakan butang pintasan',

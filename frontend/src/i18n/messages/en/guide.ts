@@ -706,6 +706,28 @@ export const guide = {
         },
       },
     },
+    account: {
+      title: 'My account',
+      intro: 'Your own name, email, password and devices.',
+      steps: {
+        s1: {
+          title: 'Just your account',
+          body: 'Everything on this page is about you alone. Admins manage other people on the Users page.',
+        },
+        s2: {
+          title: 'Your profile',
+          body: 'Set the name colleagues see and your email, then click Save profile. Your username can’t change.',
+        },
+        s3: {
+          title: 'Your password',
+          body: 'Type your current password, then the new one twice. The strength hint helps you pick a good one; every other device is signed out when it changes.',
+        },
+        s4: {
+          title: 'Your devices',
+          body: 'See how many devices are signed in and sign the others out — useful after using a shared or lost computer.',
+        },
+      },
+    },
     connections: {
       title: 'My connections',
       intro: 'Connect your own Google account.',

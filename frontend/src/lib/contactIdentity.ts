@@ -131,6 +131,8 @@ export interface IdentityRequestState {
 }
 
 export interface IdentifyState {
+  /** "Matches several contacts": the matches the caller may see (one-click link). */
+  candidates?: { id: number; name: string; phone: string; email: string }[]
   channel: string
   key: string
   linked: boolean

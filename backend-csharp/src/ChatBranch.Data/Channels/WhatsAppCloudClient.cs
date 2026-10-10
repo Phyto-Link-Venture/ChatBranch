@@ -39,6 +39,18 @@ public interface IWhatsAppCloudClient
     Task<SendOutcome> SendTextAsync(ChannelAccount account, string toWaId, string text,
         CancellationToken ct = default);
 
+    /// <summary>A text that QUOTES an earlier message (<c>context.message_id</c> = its wamid).
+    /// A client without reply support sends the plain text — a quote is never a reason to fail.</summary>
+    Task<SendOutcome> SendReplyTextAsync(ChannelAccount account, string toWaId, string text, string contextWamid,
+        CancellationToken ct = default) =>
+        SendTextAsync(account, toWaId, text, ct);
+
+    /// <summary>An emoji reaction (<c>type: "reaction"</c>) on the message with that wamid;
+    /// an empty emoji removes ours.</summary>
+    Task<SendOutcome> SendReactionAsync(ChannelAccount account, string toWaId, string wamid, string emoji,
+        CancellationToken ct = default) =>
+        Task.FromResult(new SendOutcome(false, "", "reactions are not supported by this client"));
+
     /// <summary>POST a <c>type: "template"</c> message; <paramref name="template"/> is the
     /// <c>template</c> object (name, language, components).</summary>
     Task<SendOutcome> SendTemplateAsync(ChannelAccount account, string toWaId, object template,
@@ -129,7 +141,16 @@ public static class MetaGraph
         }
         catch (HttpRequestException ex)
         {
-            return new GraphRead(false, default, $"could not reach Meta ({ex.Message})");
+            // the exception text can carry an internal proxy / host address — say
+            // what happened (a network problem), never where it happened
+            var why = ex.HttpRequestError switch
+            {
+                HttpRequestError.NameResolutionError => "the address could not be resolved",
+                HttpRequestError.ConnectionError or HttpRequestError.ProxyTunnelError => "the connection failed",
+                HttpRequestError.SecureConnectionError => "the secure connection failed",
+                _ => "a network error",
+            };
+            return new GraphRead(false, default, $"could not reach Meta ({why})");
         }
         finally
         {
@@ -219,6 +240,31 @@ public class WhatsAppCloudClient : IWhatsAppCloudClient
             to = toWaId,
             type = "text",
             text = new { preview_url = false, body = text },
+        }, ct);
+
+    public Task<SendOutcome> SendReplyTextAsync(ChannelAccount account, string toWaId, string text,
+        string contextWamid, CancellationToken ct = default) =>
+        string.IsNullOrWhiteSpace(contextWamid)
+            ? SendTextAsync(account, toWaId, text, ct)
+            : PostMessageAsync(account, new
+            {
+                messaging_product = "whatsapp",
+                recipient_type = "individual",
+                to = toWaId,
+                context = new { message_id = contextWamid },
+                type = "text",
+                text = new { preview_url = false, body = text },
+            }, ct);
+
+    public Task<SendOutcome> SendReactionAsync(ChannelAccount account, string toWaId, string wamid, string emoji,
+        CancellationToken ct = default) =>
+        PostMessageAsync(account, new
+        {
+            messaging_product = "whatsapp",
+            recipient_type = "individual",
+            to = toWaId,
+            type = "reaction",
+            reaction = new { message_id = wamid, emoji = emoji ?? "" },
         }, ct);
 
     public Task<SendOutcome> SendTemplateAsync(ChannelAccount account, string toWaId, object template,

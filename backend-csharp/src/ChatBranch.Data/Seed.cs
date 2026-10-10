@@ -293,6 +293,19 @@ public static class Seed
         AddUniqueIndexIfMissing(db, "uniq_document_series_seq", "crm_document", "\"series\", \"seq\"", "\"seq\" > 0");
         AddIndexIfMissing(db, "ix_document_thread", "crm_document", "\"thread_id\"");
         AddIndexIfMissing(db, "ix_document_public_token", "crm_document", "\"public_token\"");
+        // quoted replies + emoji reactions (WhatsApp / Telegram / Messenger)
+        AddColumnIfMissing(db, "crm_message", "reply_to_id", "INTEGER NULL");
+        AddColumnIfMissing(db, "crm_message", "reply_to_external_id", "TEXT NOT NULL DEFAULT ''");
+        AddTableIfMissing(db, "crm_messagereaction",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_messagereaction\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"message_id\" INTEGER NOT NULL, \"thread_id\" INTEGER NOT NULL, \"actor\" TEXT NOT NULL, "
+            + "\"emoji\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL, "
+            + "CONSTRAINT \"uniq_messagereaction_actor\" UNIQUE (\"message_id\", \"actor\")");
+        AddIndexIfMissing(db, "ix_messagereaction_thread", "crm_messagereaction", "\"thread_id\"");
+        // My account: a person's own display name + email (Django's auth_user columns)
+        AddColumnIfMissing(db, "auth_user", "first_name", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "auth_user", "last_name", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "auth_user", "email", "TEXT NOT NULL DEFAULT ''");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 
@@ -381,10 +394,35 @@ public static class Seed
         }
     }
 
+    /// <summary>The Setting that marks the one-time contact → entity backfill as done.</summary>
+    public const string ContactEntityBackfillKey = "contacts_entity_backfill_v1";
+
+    /// <summary>
+    /// ONE time per database: link every contact with no entity to the entities
+    /// of its conversations (contacts made from chats before contacts were linked
+    /// on creation were invisible under every entity). Marked done by a Setting,
+    /// so a link someone removes later is never put back. Never throws.
+    /// </summary>
+    public static void BackfillContactEntities(AppDbContext db)
+    {
+        try
+        {
+            if (db.Settings.Any(s => s.Key == ContactEntityBackfillKey && s.EntityId == null)) return;
+            var added = Contacts.ContactCompanies.Backfill(db);
+            db.Settings.Add(new Setting
+            {
+                Key = ContactEntityBackfillKey, Value = $"done ({added} link(s))", UpdatedAt = DateTime.UtcNow,
+            });
+            db.SaveChanges();
+        }
+        catch { /* a fresh / odd database: nothing to backfill */ }
+    }
+
     public static void Run(AppDbContext db)
     {
         db.Database.EnsureCreated();
         UpgradeSchema(db);
+        BackfillContactEntities(db);
 
         // Production is clean by default: only the essential bootstrap (tenant,
         // entity, roles, one superadmin login, custom-field schema) is seeded.

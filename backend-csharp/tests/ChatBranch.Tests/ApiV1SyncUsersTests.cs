@@ -106,12 +106,17 @@ public class ApiV1SyncUsersTests : IClassFixture<ApiFactory>
             new { username = "lead-two", password = "pass12345", role = slug, entity_ids = new[] { otherId } });
         Assert.Equal(HttpStatusCode.Forbidden, outside.StatusCode);
 
-        // switching agent ↔ custom role keeps the binding; an admin role never takes one
+        // switching agent ↔ custom role keeps the binding; an admin WITH entities is
+        // a company admin; a superadmin never takes one
         var id = user.GetProperty("id").GetInt32();
         var toAgent = await Json(await super.PostAsJsonAsync($"/api/v1/users/{id}", new { role = "agent" }));
         Assert.Single(toAgent.GetProperty("entities").EnumerateArray());
-        var bad = await super.PostAsJsonAsync("/api/v1/users",
+        var companyAdmin = await super.PostAsJsonAsync("/api/v1/users",
             new { username = "admin-ent", password = "pass12345", role = "admin", entity_ids = new[] { mainId } });
+        Assert.Equal(HttpStatusCode.Created, companyAdmin.StatusCode);
+        Assert.True((await Json(companyAdmin)).GetProperty("company_admin").GetBoolean());
+        var bad = await super.PostAsJsonAsync("/api/v1/users",
+            new { username = "super-ent", password = "pass12345", role = "superadmin", entity_ids = new[] { mainId } });
         Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
     }
 }

@@ -347,8 +347,7 @@ public static class LearningEndpoints
     /// inside them (never an org-wide row); one with no assignment keeps the tenant view.</summary>
     private static bool CanWriteEntity(AppDbContext db, ScopingService sc, ClaimsPrincipal me, int? entityId)
     {
-        if (ShellScope.RoleOf(me) is Roles.SuperAdmin or Roles.Admin) return true;
-        var assigned = ContactsEndpoints.AssignedEntityIds(db, me.Identity?.Name);
+        var assigned = ShellScope.ScopeRoots(db, me);   // empty for superadmin + org-wide admins
         if (assigned.Count == 0) return true;
         return entityId is int eid && sc.EntitySubtreeIds(assigned).Contains(eid);
     }

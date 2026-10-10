@@ -35,14 +35,16 @@ public static class ApiV1Endpoints
             string? tenant = null;
             var entities = new List<string>();
             var capabilities = new List<string>();
+            var companyAdmin = false;
             try
             {
                 if (TenantId(me) is int tid)
                     tenant = await db.Tenants.AsNoTracking().Where(t => t.Id == tid)
                         .Select(t => t.Slug).FirstOrDefaultAsync();
-                entities = (await AdminEndpoints.AccessibleEntitiesAsync(db, me))
+                entities = (await AdminEndpoints.SwitcherEntitiesAsync(db, me))
                     .Select(e => e.Slug).ToList();
-                capabilities = await AdminEndpoints.CapabilitiesForAsync(db, role);
+                capabilities = CompanyAdminScope.Filter(await AdminEndpoints.CapabilitiesForAsync(db, role), CompanyAdminScope.Current);
+                companyAdmin = ShellScope.IsCompanyAdmin(db, me);
             }
             catch (Exception)
             {
@@ -60,15 +62,18 @@ public static class ApiV1Endpoints
                 tenant,
                 entities,
                 capabilities,
+                // an admin bound to entities: admin rights inside those companies only
+                company_admin = companyAdmin,
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // ---- brands (= entities) ----------------------------------------------
-        app.MapGet("/api/v1/brands", async (ClaimsPrincipal me, AppDbContext db) =>
+        app.MapGet("/api/v1/brands", async (ClaimsPrincipal me, AppDbContext db, ScopingService sc) =>
         {
             var tenantId = TenantId(me);
             var q = db.Entities.AsNoTracking().AsQueryable();
             if (tenantId is int tid) q = q.Where(e => e.TenantId == tid);
+            if (ShellScope.BoundEntityIds(db, sc, me) is List<int> bound) q = q.Where(e => bound.Contains(e.Id));
             var rows = await q.OrderBy(e => e.Name).ToListAsync();
             return Results.Ok(new { brands = rows.Select(e => new
             {
@@ -81,6 +86,9 @@ public static class ApiV1Endpoints
             var tenantId = TenantId(me);
             if (tenantId is not int tid)
                 return Results.Json(new { detail = "no tenant in scope" }, statusCode: 400);
+            // a brand is a top-level entity — not a company admin's to create
+            if (ShellScope.IsCompanyAdmin(db, me))
+                return Results.Json(new { detail = "Company admins cannot create a top-level company." }, statusCode: 403);
             if (db.Entities.Any(e => e.TenantId == tid && e.Slug == b.Slug))
                 return Results.Json(new { detail = "duplicate slug" }, statusCode: 409);
             var row = new Entity { TenantId = tid, Name = b.Name, Slug = b.Slug,
@@ -108,12 +116,16 @@ public static class ApiV1Endpoints
         // GET-only route and silently did nothing. `entity_slugs` binds the new
         // contact to zero or more entities in the same call.
         app.MapPost("/api/v1/contacts", async (JsonElement body, ClaimsPrincipal me,
-            AppDbContext db) =>
+            AppDbContext db, ScopingService sc, ChatBranch.Data.Contacts.ContactIdentityService identities) =>
         {
+            // a name AND a way to reach them: a phone, an email, or both
             var name = (Str(body, "name") ?? "").Trim();
             var phone = (Str(body, "phone") ?? "").Trim();
-            if (name.Length == 0 || phone.Length == 0)
-                return V1Error("bad_request", "name and phone are required.", 400);
+            var email = (Str(body, "email") ?? "").Trim();
+            if (name.Length == 0 || (phone.Length == 0 && email.Length == 0))
+                return V1Error("bad_request", "name and a phone or email are required.", 400);
+            if (email.Length > 0 && !ContactsEndpoints.ValidEmail(email))
+                return V1Error("bad_request", "That email address doesn't look right.", 400);
 
             var language = (Str(body, "language") ?? "en").Trim().ToLowerInvariant();
             if (language.Length == 0) language = "en";
@@ -121,25 +133,31 @@ public static class ApiV1Endpoints
                 return V1Error("bad_request",
                     $"language must be one of {string.Join(", ", SupportedLanguages)}.", 400);
 
-            // Same-phone contacts are a support nightmare (two histories for one
-            // person), so reject rather than silently create a twin.
-            // (the ONE phone rule: last 8 digits, punctuation ignored — PhoneMatch)
-            if (ChatBranch.Data.Stores.PhoneMatch.Tail(phone) is string tail)
+            // The entities it joins: the requested slugs in the caller's tenant
+            // (inside their own entities when they are bound — a company admin's
+            // new contact defaults to their company).
+            var requested = new List<int>();
+            foreach (var slug in StrList(body, "entity_slugs") ?? new())
             {
-                var phones = await db.Contacts.AsNoTracking().Where(c => c.Phone != "")
-                    .Select(c => new { c.Id, c.Name, c.Phone }).ToListAsync();
-                var clash = phones.OrderBy(c => c.Id)
-                    .FirstOrDefault(c => ChatBranch.Data.Stores.PhoneMatch.Tail(c.Phone) == tail);
-                if (clash != null)
-                    return V1Error("conflict",
-                        $"{clash.Name} already uses that number.", 409);
+                var entity = await db.Entities.AsNoTracking().FirstOrDefaultAsync(e => e.Slug == slug);
+                if (entity == null) continue;
+                if (TenantId(me) is int tid && entity.TenantId != tid) continue;
+                requested.Add(entity.Id);
             }
+            var entityIds = ContactsEndpoints.CreationEntities(db, sc, me, requested);
+
+            // Same-phone (or same-email) contacts are a support nightmare (two
+            // histories for one person) — but only within ONE company: the same
+            // person may be a contact of two companies. (The ONE phone rule: last
+            // 8 digits, punctuation ignored — PhoneMatch; ContactCompanies.FindClash.)
+            if (await ContactsEndpoints.DuplicateError(db, sc, me, TenantId(me), phone, email, entityIds) is { } dup)
+                return dup;
 
             var row = new Contact
             {
                 Name = name,
                 Phone = phone,
-                Email = (Str(body, "email") ?? "").Trim(),
+                Email = email,
                 Language = language,
                 CompanyName = (Str(body, "company_name") ?? "").Trim(),
                 Notes = (Str(body, "notes") ?? "").Trim(),
@@ -153,22 +171,19 @@ public static class ApiV1Endpoints
             await db.SaveChangesAsync();
 
             // 0..many entity memberships, bounded by what the caller can manage.
-            foreach (var slug in StrList(body, "entity_slugs") ?? new())
-            {
-                var entity = await db.Entities.FirstOrDefaultAsync(e => e.Slug == slug);
-                if (entity == null) continue;
-                if (TenantId(me) is int tid && entity.TenantId != tid) continue;
+            foreach (var eid in entityIds)
                 db.ContactEntities.Add(new ContactEntity
                 {
-                    ContactId = row.Id, EntityId = entity.Id, CreatedAt = DateTime.UtcNow,
+                    ContactId = row.Id, EntityId = eid, CreatedAt = DateTime.UtcNow,
                 });
-            }
             db.AuditLogs.Add(new AuditLog
             {
                 Actor = me.Identity?.Name ?? "system", Action = "contact.create",
-                Target = row.Phone, Detail = row.Name, CreatedAt = DateTime.UtcNow,
+                Target = row.Phone.Length > 0 ? row.Phone : row.Email, Detail = row.Name, CreatedAt = DateTime.UtcNow,
             });
             await db.SaveChangesAsync();
+            // the phone's WhatsApp / voice (/ SMS) and the email become identities
+            try { identities.Discover(row); } catch { /* discovery never fails a create */ }
             // tag names → registry tags (Contact.Tags is the registry's cache)
             if (row.Tags.Count > 0)
                 ChatBranch.Data.Tags.TagService.ApplyContactNames(db, row.Id, row.Tags, me.Identity?.Name ?? "");
@@ -194,7 +209,7 @@ public static class ApiV1Endpoints
         // change. It used to accept `language` ALONE and silently drop the rest,
         // so editing a name or a tag appeared to save and changed nothing.
         app.MapMethods("/api/v1/contacts/{id:int}", new[] { "PATCH" },
-            async (int id, JsonElement body, ClaimsPrincipal me, AppDbContext db) =>
+            async (int id, JsonElement body, ClaimsPrincipal me, AppDbContext db, ScopingService sc) =>
         {
             var contact = await ScopedContactAsync(db, me, id, track: true);
             if (contact == null) return ContactMissing();
@@ -216,14 +231,28 @@ public static class ApiV1Endpoints
                 contact.Name = name;
                 changed.Add("name");
             }
-            if (Has(body, "phone"))
+            var newPhone = Has(body, "phone") ? (Str(body, "phone") ?? "").Trim() : contact.Phone;
+            var newEmail = Has(body, "email") ? (Str(body, "email") ?? "").Trim() : contact.Email;
+            if (Has(body, "phone") || Has(body, "email"))
             {
-                var phone = (Str(body, "phone") ?? "").Trim();
-                if (phone.Length == 0) return V1Error("bad_request", "phone cannot be empty.", 400);
-                contact.Phone = phone;
-                changed.Add("phone");
+                // a contact keeps at least one way to reach them
+                if (newPhone.Length == 0 && newEmail.Length == 0)
+                    return V1Error("bad_request", "A contact needs a phone or an email.", 400);
+                if (newEmail.Length > 0 && newEmail != contact.Email && !ContactsEndpoints.ValidEmail(newEmail))
+                    return V1Error("bad_request", "That email address doesn't look right.", 400);
+                if (newPhone != contact.Phone || newEmail != contact.Email)
+                {
+                    // the per-company duplicate rule, against the contact's own companies
+                    var mine = await db.ContactEntities.AsNoTracking().Where(l => l.ContactId == contact.Id)
+                        .Select(l => l.EntityId).ToListAsync();
+                    if (await ContactsEndpoints.DuplicateError(db, sc, me, contact.TenantId,
+                            newPhone != contact.Phone ? newPhone : null,
+                            newEmail != contact.Email ? newEmail : null, mine, contact.Id) is { } dup)
+                        return dup;
+                }
             }
-            if (Has(body, "email")) { contact.Email = (Str(body, "email") ?? "").Trim(); changed.Add("email"); }
+            if (Has(body, "phone")) { contact.Phone = newPhone; changed.Add("phone"); }
+            if (Has(body, "email")) { contact.Email = newEmail; changed.Add("email"); }
             if (Has(body, "company_name"))
             {
                 contact.CompanyName = (Str(body, "company_name") ?? "").Trim();
@@ -241,9 +270,14 @@ public static class ApiV1Endpoints
                     .Where(e => slugs.Contains(e.Slug))
                     .Where(e => TenantId(me) == null || e.TenantId == TenantId(me))
                     .Select(e => e.Id).ToListAsync();
+                // a caller bound to entities (a company admin) edits only the links
+                // inside their scope — another company's link on the same person stays
+                var bound = ShellScope.BoundEntityIds(db, sc, me);
+                if (bound != null) wanted = wanted.Where(bound.Contains).ToList();
                 var current = await db.ContactEntities
                     .Where(l => l.ContactId == contact.Id).ToListAsync();
-                foreach (var link in current.Where(l => !wanted.Contains(l.EntityId)))
+                foreach (var link in current.Where(l => !wanted.Contains(l.EntityId)
+                                                         && (bound == null || bound.Contains(l.EntityId))))
                     db.ContactEntities.Remove(link);
                 foreach (var entityId in wanted.Where(id => current.All(l => l.EntityId != id)))
                     db.ContactEntities.Add(new ContactEntity
@@ -446,6 +480,11 @@ public static class ApiV1Endpoints
                     return V1Error("bad_request",
                         "parent must be an entity you can manage (or blank for a top-level entity).", 400);
             }
+            // A company admin adds branches UNDER their companies — a new
+            // top-level company is an organization-wide decision.
+            if (parent == null && ShellScope.IsCompanyAdmin(db, me))
+                return V1Error("forbidden",
+                    "Company admins can only add branches under their own companies — pick a parent.", 403);
 
             Tenant? tenant;
             if (parent != null)
@@ -535,6 +574,9 @@ public static class ApiV1Endpoints
             {
                 if (ParentIsBlank(body))
                 {
+                    if (entity.ParentId != null && ShellScope.IsCompanyAdmin(db, me))
+                        return V1Error("forbidden",
+                            "Company admins cannot turn a branch into a top-level company.", 403);
                     entity.ParentId = null;   // promote to top level
                 }
                 else
@@ -654,18 +696,13 @@ public static class ApiV1Endpoints
             if (!validRoles.Contains(role))
                 return V1Error("bad_request",
                     $"role must be one of: {string.Join(", ", validRoles.OrderBy(r => r))}.", 400);
-            // only a superadmin mints admins/superadmins — an admin, or a custom
-            // role holding users.manage, creates agent-level users only
-            if (actorRole != Roles.SuperAdmin && AdminEndpoints.IsPrivilegedRole(role))
-                return V1Error("forbidden", "Admins can only create agent-level users.", 403);
-
-            // Entity access binds AGENT-LEVEL users: agent and every custom role
-            // (both are bounded by their assigned entities). Admins see their
-            // whole tenant, so an entity list on one would mean nothing.
+            // Entity access binds agent-level users AND admins: an admin with
+            // entities is a COMPANY admin (only those companies + branches), one
+            // without is organization-wide. Only a superadmin mints superadmins
+            // and org-wide admins; an org-wide admin may mint company admins.
             var entityIds = IntList(body, "entity_ids") ?? new List<int>();
-            if (entityIds.Count > 0 && AdminEndpoints.IsPrivilegedRole(role))
-                return V1Error("bad_request",
-                    "Entity access applies to agent-level users (agent and custom roles) only.", 400);
+            if (RoleGrantError(db, me, actorRole, role, entityIds.Distinct().Count()) is { } grantErr)
+                return grantErr;
             var (entities, entityErr) = await ResolveEntitiesAsync(db, entityIds);
             if (entityErr != null) return entityErr;
             var actorTenantId = TenantId(me);
@@ -737,7 +774,7 @@ public static class ApiV1Endpoints
             var target = await TargetUserAsync(db, id);
             if (target == null) return V1Error("not_found", "User not found.", 404);
             var profile = await EnsureProfileAsync(db, target);
-            var tierErr = AdminMayManage(actorRole, TenantId(me), profile);
+            var tierErr = AdminMayManage(db, me, actorRole, profile);
             if (tierErr != null) return tierErr;
 
             string? newRole = Has(body, "role") ? (Str(body, "role") ?? "").Trim() : null;
@@ -749,7 +786,9 @@ public static class ApiV1Endpoints
                 if (!validRoles.Contains(newRole))
                     return V1Error("bad_request",
                         $"role must be one of: {string.Join(", ", validRoles.OrderBy(r => r))}.", 400);
-                if (actorRole != Roles.SuperAdmin && AdminEndpoints.IsPrivilegedRole(newRole))
+                if (actorRole != Roles.SuperAdmin && newRole == Roles.SuperAdmin)
+                    return V1Error("forbidden", "Admins can only assign agent-level roles.", 403);
+                if (actorRole != Roles.SuperAdmin && newRole == Roles.Admin && !ShellScope.IsOrgWideAdmin(db, me))
                     return V1Error("forbidden", "Admins can only assign agent-level roles.", 403);
             }
             if (Has(body, "active") && newActive == null)
@@ -774,9 +813,8 @@ public static class ApiV1Endpoints
                 if (ids == null)
                     return V1Error("bad_request", "entity_ids must be a list of entity ids.", 400);
                 var effectiveRole = newRole ?? profile.Role;
-                if (ids.Count > 0 && AdminEndpoints.IsPrivilegedRole(effectiveRole))
-                    return V1Error("bad_request",
-                        "Entity access applies to agent-level users (agent and custom roles) only.", 400);
+                if (ids.Count > 0 && effectiveRole == Roles.SuperAdmin)
+                    return V1Error("bad_request", "Entity access does not apply to super admins.", 400);
                 var (resolved, err) = await ResolveEntitiesAsync(db, ids);
                 if (err != null) return err;
                 if (CreatorScopeError(db, me, actorRole, resolved) is { } scopeErr) return scopeErr;
@@ -785,6 +823,16 @@ public static class ApiV1Endpoints
                     return V1Error("bad_request",
                         "Those entities belong to a different tenant than this user.", 400);
                 newEntities = resolved;
+            }
+            // The resulting admin must stay a COMPANY admin unless a superadmin
+            // decides otherwise (only a superadmin makes an org-wide admin).
+            {
+                var effRole = newRole ?? profile.Role;
+                var effCount = newEntities?.Count
+                    ?? (newRole == Roles.SuperAdmin ? 0 : profile.Entities.Count);
+                if ((newRole != null || newEntities != null)
+                    && RoleGrantError(db, me, actorRole, effRole, effCount) is { } grantErr)
+                    return grantErr;
             }
 
             // Bind / unbind this login to a CONTACT — a registered customer who
@@ -829,8 +877,9 @@ public static class ApiV1Endpoints
             {
                 profile.Role = newRole;
                 target.IsSuperuser = newRole == Roles.SuperAdmin;
-                // agent ↔ custom role keeps the entity binding; promotion to admin drops it
-                if (AdminEndpoints.IsPrivilegedRole(newRole)) profile.Entities.Clear();
+                // agent ↔ custom role ↔ admin keeps the entity binding (an admin
+                // with entities is a company admin); promotion to superadmin drops it
+                if (newRole == Roles.SuperAdmin) profile.Entities.Clear();
                 changed.Add("role");
             }
             if (newEntities != null)
@@ -880,7 +929,7 @@ public static class ApiV1Endpoints
             var target = await TargetUserAsync(db, id);
             if (target == null) return V1Error("not_found", "User not found.", 404);
             var profile = await EnsureProfileAsync(db, target);
-            var tierErr = AdminMayManage(actorRole, TenantId(me), profile);
+            var tierErr = AdminMayManage(db, me, actorRole, profile);
             if (tierErr != null) return tierErr;
             if (await WouldRemoveLastSuperAdminAsync(db, target, null, false))
                 return V1Error("bad_request",
@@ -1168,15 +1217,16 @@ public static class ApiV1Endpoints
             .Include(c => c.EntityLinks).ThenInclude(l => l.Entity)
             .Where(c => c.Id == id);
         if (role == Roles.SuperAdmin) return await q.FirstOrDefaultAsync();
-        if (role == Roles.Admin)
+        if (role == Roles.Admin && ShellScope.IsOrgWideAdmin(db, me))
             return TenantId(me) is int tid
                 ? await q.Where(c => c.TenantId == tid).FirstOrDefaultAsync()
                 : null;
-        // agent (and every custom role): only their assigned entities.
-        var ids = (await AdminEndpoints.AccessibleEntitiesAsync(db, me)).Select(e => e.Id).ToList();
-        if (ids.Count == 0) return null;
-        return await q.Where(c => c.EntityLinks.Any(l => ids.Contains(l.EntityId)))
-            .FirstOrDefaultAsync();
+        // a company admin, agent (and every custom role): only their entities'
+        // subtrees — the contacts list rule (linked there, or a conversation there)
+        var sc = new ScopingService(db);
+        var bound = ShellScope.BoundEntityIds(db, sc, me);
+        if (bound == null || bound.Count == 0) return null;
+        return await ContactsEndpoints.InEntities(q, bound).FirstOrDefaultAsync();
     }
 
     /// api/serializers.py ContactSerializer, built inline in snake_case.
@@ -1193,6 +1243,7 @@ public static class ApiV1Endpoints
         external_id = c.ExternalId,
         tags = c.Tags,
         attributes = c.Attributes,
+        notes = c.Notes,
         last_synced_at = c.LastSyncedAt,
         created_at = c.CreatedAt,
         updated_at = c.UpdatedAt,
@@ -1225,7 +1276,7 @@ public static class ApiV1Endpoints
         if (entity == null)
             return (null, null, V1Error("bad_request",
                 "Unknown entity for this contact's tenant.", 400));
-        if (role != Roles.SuperAdmin && role != Roles.Admin)
+        if (!ShellScope.IsOrgWideAdmin(db, me))
         {
             var accessible = await AdminEndpoints.AccessibleEntitiesAsync(db, me);
             if (accessible.All(e => e.Id != entity.Id))
@@ -1302,7 +1353,8 @@ public static class ApiV1Endpoints
             if (TenantId(me) is not int tid) return null;
             q = q.Where(e => e.TenantId == tid);
         }
-        return await q.FirstOrDefaultAsync();
+        var found = await q.Select(e => (int?)e.Id).FirstOrDefaultAsync();
+        return found is int fid ? await ManageableEntityAsync(db, me, fid) : null;
     }
 
     /// <summary>Walks up from `startId`; true when `ancestorId` is on the path
@@ -1330,9 +1382,13 @@ public static class ApiV1Endpoints
         var q = db.Entities.Include(e => e.Tenant).Include(e => e.Parent).Where(e => e.Id == id);
         if (role == Roles.SuperAdmin) return await q.FirstOrDefaultAsync();
         if (role == Roles.Admin)
-            return TenantId(me) is int tid
-                ? await q.Where(e => e.TenantId == tid).FirstOrDefaultAsync()
-                : null;
+        {
+            if (TenantId(me) is not int tid) return null;
+            // a company admin manages only the entities inside their companies
+            if (ShellScope.BoundEntityIds(db, new ScopingService(db), me) is List<int> bound)
+                q = q.Where(e => bound.Contains(e.Id));
+            return await q.Where(e => e.TenantId == tid).FirstOrDefaultAsync();
+        }
         return null;
     }
 
@@ -1358,34 +1414,76 @@ public static class ApiV1Endpoints
     /// _assert_admin_may_manage: an admin may act only on agent-level users
     /// (agent + every custom role) inside their own tenant — never on another
     /// admin or a superadmin. superadmin skips the check entirely.
-    private static IResult? AdminMayManage(string actorRole, int? actorTenantId, Profile target)
+    private static IResult? AdminMayManage(AppDbContext db, ClaimsPrincipal me, string actorRole,
+        Profile target)
     {
         // an admin — or a custom role granted users.manage — is tiered the same way
         if (actorRole == Roles.SuperAdmin) return null;
-        if (AdminEndpoints.IsPrivilegedRole(target.Role))
-            return V1Error("forbidden", "Admins can only manage agent-level users.", 403);
-        if (target.TenantId != actorTenantId)
+        if (target.TenantId != TenantId(me))
             return V1Error("forbidden", "That user is outside your tenant.", 403);
+        if (target.Role == Roles.SuperAdmin)
+            return V1Error("forbidden", "Admins can only manage agent-level users.", 403);
+        if (target.Role == Roles.Admin)
+        {
+            // an ORGANIZATION-WIDE admin may manage company admins (admins bound
+            // to entities); nobody but a superadmin touches an org-wide admin
+            if (target.Entities.Count == 0 || !ShellScope.IsOrgWideAdmin(db, me))
+                return V1Error("forbidden", "Admins can only manage agent-level users.", 403);
+            return null;
+        }
+        // a manager bound to entities (a company admin, a custom role holding
+        // users.manage) manages only users bound inside their own entities —
+        // never an unassigned (tenant-wide) user
+        if (ShellScope.BoundEntityIds(db, new ScopingService(db), me) is List<int> bound
+            && (target.Entities.Count == 0 || target.Entities.Any(e => !bound.Contains(e.Id))))
+            return V1Error("forbidden", "That user is outside your companies.", 403);
+        return null;
+    }
+
+    /// <summary>
+    /// Who may give a login this role with this many entities: only a superadmin
+    /// makes superadmins or ORGANIZATION-WIDE admins (admin, no entities); an
+    /// org-wide admin may make COMPANY admins (admin + entities); everyone else
+    /// grants agent-level roles only. A superadmin is never bound to entities.
+    /// </summary>
+    private static IResult? RoleGrantError(AppDbContext db, ClaimsPrincipal me, string actorRole,
+        string role, int entityCount)
+    {
+        if (role == Roles.SuperAdmin)
+        {
+            if (actorRole != Roles.SuperAdmin)
+                return V1Error("forbidden", "Admins can only create agent-level users.", 403);
+            if (entityCount > 0)
+                return V1Error("bad_request", "Entity access does not apply to super admins.", 400);
+            return null;
+        }
+        if (role != Roles.Admin || actorRole == Roles.SuperAdmin) return null;
+        if (!ShellScope.IsOrgWideAdmin(db, me))
+            return V1Error("forbidden", "Admins can only create agent-level users.", 403);
+        if (entityCount == 0)
+            return V1Error("forbidden",
+                "Only a super admin can make an organization-wide admin — pick companies to make a company admin.", 403);
         return null;
     }
 
     /// <summary>
     /// The creator's own scope bounds the entities they may grant: never outside
-    /// their tenant, and a manager who is themselves bound to entities (a custom
-    /// role holding users.manage) only within those entities' subtrees.
+    /// their tenant, and a manager who is themselves bound to entities (a company
+    /// admin, a custom role holding users.manage) only within those entities'
+    /// subtrees — and never NO entities (an unassigned user is tenant-wide).
     /// Superadmin is unbounded.
     /// </summary>
     private static IResult? CreatorScopeError(AppDbContext db, ClaimsPrincipal me,
         string actorRole, List<Entity> entities)
     {
-        if (entities.Count == 0 || actorRole == Roles.SuperAdmin) return null;
+        if (actorRole == Roles.SuperAdmin) return null;
         if (TenantId(me) is int tid && entities.Any(e => e.TenantId != tid))
             return V1Error("forbidden", "Those entities are outside your tenant.", 403);
-        if (actorRole == Roles.Admin) return null;   // admins manage their whole tenant
-        var assigned = ContactsEndpoints.AssignedEntityIds(db, me.Identity?.Name);
-        if (assigned.Count == 0) return null;          // an unbound manager keeps the tenant view
-        var scope = new ScopingService(db).EntitySubtreeIds(assigned).ToHashSet();
-        return entities.All(e => scope.Contains(e.Id))
+        if (ShellScope.BoundEntityIds(db, new ScopingService(db), me) is not List<int> bound)
+            return null;   // an unbound manager keeps the tenant view
+        if (entities.Count == 0)
+            return V1Error("bad_request", "Pick at least one of your entities for this user.", 400);
+        return entities.All(e => bound.Contains(e.Id))
             ? null
             : V1Error("forbidden", "Those entities are outside your own entity scope.", 403);
     }

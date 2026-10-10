@@ -535,12 +535,12 @@ public static class AiControlsEndpoints
         return id is int i ? (i, null) : (null, Results.NotFound(new { detail = $"Unknown entity '{slug}'." }));
     }
 
-    /// <summary>Org-wide: admins; an outlet: inside the caller's assigned subtree (admins: any).</summary>
+    /// <summary>Org-wide: org-wide admins; an outlet: inside the caller's assigned
+    /// subtree (org-wide admins: any; a company admin: their companies only).</summary>
     internal static bool MayEdit(AppDbContext db, ScopingService sc, ClaimsPrincipal me, int? entityId)
     {
-        var role = ShellScope.RoleOf(me);
-        if (role is Roles.SuperAdmin or Roles.Admin) return true;
-        var assigned = ContactsEndpoints.AssignedEntityIds(db, me.Identity?.Name);
+        if (ShellScope.IsOrgWideAdmin(db, me)) return true;
+        var assigned = ShellScope.ScopeRoots(db, me);
         if (entityId == null) return false;          // org-wide is an admin decision
         if (assigned.Count == 0) return true;        // unassigned: the tenant-wide view
         return sc.EntitySubtreeIds(assigned).Contains(entityId.Value);

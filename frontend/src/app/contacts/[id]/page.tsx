@@ -12,6 +12,7 @@ import { initials, primaryRecord, type Contact } from '@/lib/mocks'
 import { StatusBadge } from '@/components/ui/Badges'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
+import { useAccess } from '@/lib/useAccess'
 import { ChannelLogo, channelLabel } from '@/components/ui/ChannelLogo'
 import ChannelHub from '@/components/ChannelHub'
 import ContactEntitiesCard from '@/components/ContactEntitiesCard'
@@ -73,6 +74,9 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 export default function ContactDetailPage() {
+  const access = useAccess()
+  // editing the contact needs contacts.manage — others read the language
+  const canManageContact = access.ready && access.can('contacts.manage')
   const t = useT()
   const f = useFormat()
   const params = useParams()
@@ -260,14 +264,20 @@ export default function ContactDetailPage() {
             <div className="flex items-center justify-between gap-3 pt-2">
               <span className="text-[12.5px] text-text-muted">{t('common.fields.language')}</span>
               {/* the AI opens calls/chats in this language; applies from the next one */}
-              <Select
-                value={d.language ?? 'en'}
-                onChange={saveLanguage}
-                options={languageOptions(t)}
-                disabled={langBusy}
-                ariaLabel={t('contacts.detail.languageAria')}
-                className="w-[170px]"
-              />
+              {canManageContact ? (
+                <Select
+                  value={d.language ?? 'en'}
+                  onChange={saveLanguage}
+                  options={languageOptions(t)}
+                  disabled={langBusy}
+                  ariaLabel={t('contacts.detail.languageAria')}
+                  className="w-[170px]"
+                />
+              ) : (
+                <span className="text-[13px] text-text-high">
+                  {languageOptions(t).find((o) => o.value === (d.language ?? 'en'))?.label ?? d.language}
+                </span>
+              )}
             </div>
           </Panel>
           {filledFields.length > 0 && (

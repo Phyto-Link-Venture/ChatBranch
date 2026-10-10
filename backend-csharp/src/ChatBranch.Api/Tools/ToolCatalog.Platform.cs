@@ -10,7 +10,7 @@ public static partial class ToolCatalog
             "Reports by agent, team, label and channel: conversations TOUCHED in the window, resolved, open, " +
             "messages sent (\"(unassigned)\" is reported, not dropped).", "GET", "/api/analytics/reports",
             C("analytics.view"), new[] { A.Days(), A.Entity() }, link: (_, _) => Page("Open the dashboard", "/dashboard"));
-        yield return T(an, "analytics_get_flows", "Flow analytics",
+        yield return T(an, "analytics_get_flows", "Journey statistics",
             "Every flow's performance over the window: runs started, completed, failed, messages and calls sent.",
             "GET", "/api/analytics/flows", C("flows.view"), new[] { A.Days(), A.Entity() });
         yield return T(an, "analytics_get_usage", "AI usage and cost",

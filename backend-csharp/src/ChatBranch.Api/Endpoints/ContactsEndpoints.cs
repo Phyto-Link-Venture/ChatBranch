@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
+using ChatBranch.Data.Contacts;
 using ChatBranch.Data.Flows;
 using ChatBranch.Data.Stores;
 using ChatBranch.Data.Tags;
@@ -64,13 +65,21 @@ public static class ContactsEndpoints
             AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var query = ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc);
-            if (!string.IsNullOrWhiteSpace(entity) && entity is not ("all" or "__all__"))
+            if (entity is NoEntity)
+            {
+                // "Unassigned (no entity)": contacts linked to no entity at all —
+                // found here so they can be given one
+                query = query.Where(c => !c.EntityLinks.Any());
+            }
+            else if (!string.IsNullOrWhiteSpace(entity) && entity is not ("all" or "__all__"))
             {
                 // Narrow to the picked outlet AND everything under it: a contact
                 // on a child branch is visible to its parent, never the reverse.
+                // A contact belongs there when linked to it OR when it has a
+                // conversation there (a chat-made contact not linked yet).
                 var picked = await InboxEndpoints.EntityId(db, entity);
                 var ids = picked is int pid ? sc.PickSubtree(pid) : new List<int>();
-                query = query.Where(c => c.EntityLinks.Any(l => ids.Contains(l.EntityId)));
+                query = InEntities(query, ids);
             }
             if (!string.IsNullOrWhiteSpace(q))
                 query = query.Where(c => c.Name.Contains(q) || c.Phone.Contains(q) || c.Email.Contains(q));
@@ -89,17 +98,23 @@ public static class ContactsEndpoints
           // page's customer-login picker all list contacts
           .RequireAnyCapability("contacts.view", "chats.view", "users.manage");
 
-        app.MapPost("/api/contacts", async (ContactWrite b, AppDbContext db, ClaimsPrincipal me,
+        app.MapPost("/api/contacts", async (ContactWrite b, AppDbContext db, ClaimsPrincipal me, ScopingService sc,
             ChatBranch.Data.Contacts.ContactIdentityService identities) =>
         {
-            // create (unlike PATCH) genuinely needs an identity
+            // create (unlike PATCH) genuinely needs an identity: a name AND a way
+            // to reach them — a phone, an email, or both
             var name = (b.Name ?? "").Trim();
             var phone = (b.Phone ?? "").Trim();
-            if (name.Length == 0 || phone.Length == 0)
-                return Results.Json(new { detail = "name and phone are required." }, statusCode: 400);
+            var email = (b.Email ?? "").Trim();
+            if (name.Length == 0 || (phone.Length == 0 && email.Length == 0))
+                return Results.Json(new { detail = "name and a phone or email are required." }, statusCode: 400);
+            if (email.Length > 0 && !ValidEmail(email))
+                return Results.Json(new { detail = "That email address doesn't look right." }, statusCode: 400);
+            var entityIds = CreationEntities(db, sc, me, new List<int>());
+            if (await DuplicateError(db, sc, me, TenantId(me), phone, email, entityIds) is { } dup) return dup;
             var row = new Contact
             {
-                Name = name, Phone = phone, Email = b.Email ?? "", Language = b.Language ?? "en",
+                Name = name, Phone = phone, Email = email, Language = b.Language ?? "en",
                 CompanyName = b.Company ?? "", Tags = b.Tags ?? new(),
                 Attributes = b.Attributes ?? new(),
                 TenantId = TenantId(me),
@@ -107,6 +122,8 @@ public static class ContactsEndpoints
             };
             db.Contacts.Add(row);
             await db.SaveChangesAsync();
+            foreach (var eid in entityIds) ContactCompanies.LinkToEntity(db, row.Id, eid);
+            if (entityIds.Count > 0) await db.SaveChangesAsync();
             // tag names → registry tags (Contact.Tags is the registry's cache)
             if (row.Tags.Count > 0) TagService.ApplyContactNames(db, row.Id, row.Tags, me.Identity?.Name ?? "");
             // the phone's WhatsApp / voice (/ SMS) and the email become identities
@@ -129,6 +146,18 @@ public static class ContactsEndpoints
             var c = await ScopeContacts(db.Contacts, me, db, sc).FirstOrDefaultAsync(x => x.Id == id);
             if (c == null) return NotFound("Contact not found.");
             var (phoneBefore, emailBefore) = (c.Phone, c.Email);
+            if (b.Email is { Length: > 0 } newEmail && !ValidEmail(newEmail.Trim()))
+                return Results.Json(new { detail = "That email address doesn't look right." }, statusCode: 400);
+            if ((b.Phone != null && b.Phone != c.Phone) || (b.Email != null && b.Email != c.Email))
+            {
+                // the per-company duplicate rule, against the contact's own companies
+                var links = await db.ContactEntities.AsNoTracking().Where(l => l.ContactId == c.Id)
+                    .Select(l => l.EntityId).ToListAsync();
+                if (await DuplicateError(db, sc, me, c.TenantId,
+                        b.Phone != null && b.Phone != c.Phone ? b.Phone : null,
+                        b.Email != null && b.Email != c.Email ? b.Email : null, links, c.Id) is { } dup)
+                    return dup;
+            }
             if (b.Name != null) c.Name = b.Name;
             if (b.Phone != null) c.Phone = b.Phone;
             if (b.Email != null) c.Email = b.Email;
@@ -504,6 +533,8 @@ public static class ContactsEndpoints
             if (!await CanManageScripts(db, me)) return ScriptsForbidden();
             var row = await db.ScriptTemplates.FirstOrDefaultAsync(s => s.Id == id);
             if (row == null) return NotFound("Script template not found.");
+            if (LibraryScope.CheckExisting(db, sc, me,
+                    LibraryEntities.Ids(db, LibraryKinds.Script, row.Id, row.EntityId)) is { } locked) return locked;
 
             if (Has(body, "name"))
             {
@@ -535,12 +566,14 @@ public static class ContactsEndpoints
             return Results.Ok(ScriptItem(row, null, LibraryEntities.Load(db, new[] { row })));
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
-        app.MapDelete("/api/calls/script-templates/{id:int}", async (int id, AppDbContext db,
+        app.MapDelete("/api/calls/script-templates/{id:int}", async (int id, AppDbContext db, ScopingService sc,
             ClaimsPrincipal me, HttpContext ctx) =>
         {
             if (!await CanManageScripts(db, me)) return ScriptsForbidden();
             var row = await db.ScriptTemplates.FirstOrDefaultAsync(s => s.Id == id);
             if (row == null) return NotFound("Script template not found.");
+            if (LibraryScope.CheckExisting(db, sc, me,
+                    LibraryEntities.Ids(db, LibraryKinds.Script, row.Id, row.EntityId)) is { } locked) return locked;
             var name = row.Name;
             db.ScriptTemplates.Remove(row);
             LibraryEntities.Clear(db, LibraryKinds.Script, id);
@@ -597,6 +630,7 @@ public static class ContactsEndpoints
                 ["language"] = c.Language.Length > 0 ? c.Language : "en",
                 ["tags"] = c.Tags,
                 ["attributes"] = c.Attributes,
+                ["notes"] = c.Notes,
                 // Entity slugs this contact is linked to — a tenant's contacts are
                 // shared across its entities; this powers the topbar switcher.
                 ["entities"] = slugsBy.TryGetValue(c.Id, out var sl) ? sl : new List<string>(),
@@ -978,15 +1012,72 @@ public static class ContactsEndpoints
         if (role == Roles.SuperAdmin) return qs;
         if (TenantId(me) is not int tid) return qs;
         qs = qs.Where(c => c.TenantId == tid);
-        // An admin manages the whole tenant. Everyone else (agents, custom roles)
-        // sees ONLY the entities assigned to them — plus everything beneath those
-        // entities, since scope flows up the tree, not down.
-        if (role == Roles.Admin) return qs;
-        var assigned = AssignedEntityIds(db, me.Identity?.Name);
-        if (assigned.Count == 0) return qs;   // unassigned agent keeps the tenant view
-        var ids = sc.EntitySubtreeIds(assigned);
-        return qs.Where(c => c.EntityLinks.Any(l => ids.Contains(l.EntityId)));
+        // An org-wide admin manages the whole tenant. Everyone else (company
+        // admins, agents, custom roles) sees ONLY the entities assigned to them —
+        // plus everything beneath those entities, since scope flows up the tree,
+        // not down. A contact belongs there when it is LINKED to one of them or
+        // has a conversation there (a chat-made contact not yet linked).
+        var assigned = ShellScope.ScopeRoots(db, me);
+        if (assigned.Count == 0) return qs;   // org-wide admin / unassigned agent: the tenant view
+        return InEntities(qs, sc.EntitySubtreeIds(assigned));
     }
+
+    /// <summary>The contacts list's "Unassigned (no entity)" filter value.</summary>
+    internal const string NoEntity = "__none__";
+
+    /// <summary>A plausible email address (one @, a dot in the domain, no spaces).</summary>
+    internal static bool ValidEmail(string email) =>
+        System.Text.RegularExpressions.Regex.IsMatch(email, @"^[^@\s]+@[^@\s]+\.[^@\s]+$");
+
+    /// <summary>
+    /// The duplicate guard every contact create / edit uses, PER COMPANY
+    /// (<see cref="ContactCompanies.FindClash"/>): null = no clash, else a 409.
+    /// A clash the caller can see names the contact and carries its id (the
+    /// form offers "add this entity to that contact instead"); one they can't
+    /// see never reveals who it is.
+    /// </summary>
+    internal static async Task<IResult?> DuplicateError(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
+        int? tenantId, string? phone, string? email, IReadOnlyCollection<int> entityIds, int? excludeId = null)
+    {
+        var clash = ContactCompanies.FindClash(db, sc, tenantId, phone, email, entityIds, excludeId);
+        if (clash == null) return null;
+        var visible = await ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc).AnyAsync(c => c.Id == clash.ContactId);
+        var what = clash.Field == "phone" ? "number" : "email address";
+        var message = visible
+            ? $"{clash.Name} already uses that {what}."
+            : $"That {what} already belongs to a contact of this company.";
+        return Results.Json(new
+        {
+            detail = message,
+            error = new { code = "conflict", message },
+            field = clash.Field,
+            existing_id = visible ? clash.ContactId : (int?)null,
+            existing_name = visible ? clash.Name : null,
+        }, statusCode: 409);
+    }
+
+    /// <summary>
+    /// The entities a new contact is linked to: the requested ones the caller may
+    /// use (inside their scope when they are bound to entities); a bound caller
+    /// who names none gets their first assigned entity, so the contact they add
+    /// stays visible to them.
+    /// </summary>
+    internal static List<int> CreationEntities(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
+        IEnumerable<int> requested)
+    {
+        var ids = requested.Distinct().ToList();
+        var roots = ShellScope.ScopeRoots(db, me);
+        if (roots.Count == 0) return ids;
+        var bound = sc.EntitySubtreeIds(roots);
+        ids = ids.Where(bound.Contains).ToList();
+        return ids.Count > 0 ? ids : new List<int> { roots[0] };
+    }
+
+    /// <summary>Contacts that belong to these entities: linked to one, or with a
+    /// conversation in one (the contacts entity filter and the bound scope).</summary>
+    internal static IQueryable<Contact> InEntities(IQueryable<Contact> qs, List<int> ids) =>
+        qs.Where(c => c.EntityLinks.Any(l => ids.Contains(l.EntityId))
+                      || c.Threads.Any(t => t.EntityId != null && ids.Contains(t.EntityId.Value)));
 
     /// <summary>The entity ids explicitly assigned to this login (crm_profile ↔ entity).</summary>
     internal static List<int> AssignedEntityIds(AppDbContext db, string? username)

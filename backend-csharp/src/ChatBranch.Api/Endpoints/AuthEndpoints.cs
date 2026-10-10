@@ -57,12 +57,12 @@ public static class AuthEndpoints
             // dashboard reads `data.user` (name for the profile chip, role for
             // gates) — a flat body left it showing "Not signed in". Top-level
             // token/role/username kept for back-compat with existing callers.
-            // (auth_user has no first_name column, so name falls back to the
-            // username, matching Django's `first_name or username`.)
+            // name = first + last name (Settings → My account), else the
+            // username — Django's `get_full_name() or username`.
             var userPayload = new
             {
                 username = user.Username,
-                name = user.Username,
+                name = MyAccountEndpoints.DisplayName(user),
                 role = profile.Role,
             };
             return Results.Ok(new
@@ -94,17 +94,30 @@ public static class AuthEndpoints
         app.MapGet("/api/auth/whoami", async (ClaimsPrincipal me, AppDbContext db) =>
         {
             var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
+            var name = me.Identity?.Name ?? "";
+            try
+            {
+                if (int.TryParse(me.FindFirstValue("profile_id"), out var pid)
+                    && await db.Profiles.AsNoTracking().Where(p => p.Id == pid)
+                        .Select(p => p.User).FirstOrDefaultAsync() is AppUser u)
+                    name = MyAccountEndpoints.DisplayName(u);
+            }
+            catch (Exception) { /* the display name is cosmetic — never fail whoami over it */ }
             return Results.Ok(new
             {
                 username = me.Identity?.Name ?? "",
+                name,
                 role,
                 tenant_id = me.FindFirstValue("tenant_id"),
                 // (an API key with scopes reports only what its scopes leave)
-                capabilities = (await AdminEndpoints.CapabilitiesForAsync(db, role))
+                capabilities = CompanyAdminScope.Filter(await AdminEndpoints.CapabilitiesForAsync(db, role), CompanyAdminScope.Current)
                     .Where(c => ApiKeyAuth.Scopes(me) is not { } s || s.Contains(c)).ToList(),
                 auth_source = ApiKeyAuth.IsApiKey(me) ? "api" : "session",
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
+
+        // Settings → My account: the caller's own name, email, password, sessions
+        app.MapMyAccountEndpoints();
     }
 
     private static string NewToken() =>

@@ -6,6 +6,7 @@ import { auth } from './auth'
 import { settings } from './settings'
 import { admin } from './admin'
 import { chats } from './chats'
+import { bubble } from './bubble'
 import { contacts } from './contacts'
 import { bookings } from './bookings'
 import { flows } from './flows'
@@ -24,6 +25,7 @@ import { readySkills } from './readySkills'
 import { billing } from './billing'
 import { guide } from './guide'
 import { manual } from './manual'
+import { account } from './account'
 
 export const en = {
   common,
@@ -33,6 +35,7 @@ export const en = {
   settings,
   admin,
   chats,
+  bubble,
   contacts,
   bookings,
   flows,
@@ -51,6 +54,7 @@ export const en = {
   billing,
   guide,
   manual,
+  account,
 }
 
 export type Messages = typeof en

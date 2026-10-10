@@ -24,9 +24,11 @@ interface TourState {
   pageTour: TourDef | undefined
   start: (id?: string) => void
   running: boolean
+  /** A guide or its "replay it from ?" tip is on screen (other nudges wait). */
+  busy: boolean
 }
 
-const Ctx = createContext<TourState>({ pageTour: undefined, start: () => {}, running: false })
+const Ctx = createContext<TourState>({ pageTour: undefined, start: () => {}, running: false, busy: false })
 export const useTour = () => useContext(Ctx)
 
 const PAD = 6
@@ -102,7 +104,10 @@ export function TourProvider({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer)
   }, [pageTour, start])
 
-  const value = useMemo(() => ({ pageTour, start, running: tour != null }), [pageTour, start, tour])
+  const value = useMemo(
+    () => ({ pageTour, start, running: tour != null, busy: tour != null || replayTip }),
+    [pageTour, start, tour, replayTip],
+  )
 
   return (
     <Ctx.Provider value={value}>

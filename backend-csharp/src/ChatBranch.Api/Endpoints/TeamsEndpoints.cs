@@ -46,6 +46,7 @@ public static class TeamsEndpoints
             if (name.Length == 0)
                 return Results.Json(new { detail = "name is required." }, statusCode: 400);
             var entityId = await InboxEndpoints.EntityId(db, Str(body, "entity"));
+            if (ShellScope.CompanyLevelError(db, sc, me, entityId) is { } outside) return outside;
             var row = new Team
             {
                 Name = name,
@@ -65,10 +66,11 @@ public static class TeamsEndpoints
 
         // ---- update ---------------------------------------------------------
         app.MapMethods("/api/teams/{id:int}", new[] { "PATCH" },
-            async (int id, JsonElement body, AppDbContext db, ClaimsPrincipal me) =>
+            async (int id, JsonElement body, AppDbContext db, ClaimsPrincipal me, ScopingService sc) =>
         {
             var row = await db.Teams.Include(t => t.Members).FirstOrDefaultAsync(t => t.Id == id);
             if (row == null) return Results.NotFound(new { detail = "Team not found." });
+            if (ShellScope.CompanyLevelError(db, sc, me, row.EntityId) is { } outside) return outside;
 
             if (Has(body, "name"))
             {
@@ -80,7 +82,11 @@ public static class TeamsEndpoints
             if (Has(body, "description")) row.Description = (Str(body, "description") ?? "").Trim();
             if (Bool(body, "auto_assign") is bool auto) row.AutoAssign = auto;
             if (Has(body, "entity"))
-                row.EntityId = await InboxEndpoints.EntityId(db, Str(body, "entity"));
+            {
+                var newEntity = await InboxEndpoints.EntityId(db, Str(body, "entity"));
+                if (ShellScope.CompanyLevelError(db, sc, me, newEntity) is { } outsideNew) return outsideNew;
+                row.EntityId = newEntity;
+            }
             row.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
             await SyncMembersAsync(db, row, body);
@@ -89,10 +95,11 @@ public static class TeamsEndpoints
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         // ---- delete ---------------------------------------------------------
-        app.MapDelete("/api/teams/{id:int}", async (int id, AppDbContext db, ClaimsPrincipal me) =>
+        app.MapDelete("/api/teams/{id:int}", async (int id, AppDbContext db, ClaimsPrincipal me, ScopingService sc) =>
         {
             var row = await db.Teams.FirstOrDefaultAsync(t => t.Id == id);
             if (row == null) return Results.NotFound(new { detail = "Team not found." });
+            if (ShellScope.CompanyLevelError(db, sc, me, row.EntityId) is { } outside) return outside;
             // Threads keep existing; the FK is SetNull, so they return to the
             // unassigned queue rather than disappearing with the team.
             var owned = await db.Threads.CountAsync(t => t.TeamId == id);

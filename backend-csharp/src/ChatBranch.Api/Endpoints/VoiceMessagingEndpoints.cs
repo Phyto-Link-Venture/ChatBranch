@@ -214,7 +214,7 @@ public static class VoiceMessagingEndpoints
             sc.SetSetting(DefaultVoiceProviderKey, provider);
             return Results.Ok(new { default_voice = id, provider });
         };
-        app.MapPut("/api/voice/default-voice", saveDefault).RequireAuthorization(AuthPolicies.AdminPlus)
+        app.MapPut("/api/voice/default-voice", saveDefault).RequireAuthorization(AuthPolicies.AdminPlus).OrgWideOnly()
             .RequireCapability("settings.ai.manage");   // the Voice & calls page's capability
     }
 
@@ -268,9 +268,9 @@ public static class VoiceMessagingEndpoints
             sc.SetSetting("stt_provider", provider);
             return Results.Ok(new { stt_provider = provider });
         };
-        app.MapPost("/api/voice/stt-settings", saveStt).RequireAuthorization(AuthPolicies.AdminPlus)
+        app.MapPost("/api/voice/stt-settings", saveStt).RequireAuthorization(AuthPolicies.AdminPlus).OrgWideOnly()
             .RequireCapability("settings.ai.manage");
-        app.MapPut("/api/voice/stt-settings", saveStt).RequireAuthorization(AuthPolicies.AdminPlus)
+        app.MapPut("/api/voice/stt-settings", saveStt).RequireAuthorization(AuthPolicies.AdminPlus).OrgWideOnly()
             .RequireCapability("settings.ai.manage");
 
         app.MapGet("/api/voice/llm-settings", (ScopingService sc) =>
@@ -293,9 +293,9 @@ public static class VoiceMessagingEndpoints
             sc.SetSetting("llm_provider", provider);
             return Results.Ok(new { llm_provider = provider });
         };
-        app.MapPost("/api/voice/llm-settings", saveLlm).RequireAuthorization(AuthPolicies.AdminPlus)
+        app.MapPost("/api/voice/llm-settings", saveLlm).RequireAuthorization(AuthPolicies.AdminPlus).OrgWideOnly()
             .RequireCapability("settings.ai.manage");
-        app.MapPut("/api/voice/llm-settings", saveLlm).RequireAuthorization(AuthPolicies.AdminPlus)
+        app.MapPut("/api/voice/llm-settings", saveLlm).RequireAuthorization(AuthPolicies.AdminPlus).OrgWideOnly()
             .RequireCapability("settings.ai.manage");
     }
 
@@ -808,6 +808,9 @@ public static class VoiceMessagingEndpoints
             AppDbContext db, ScopingService sc, ClaimsPrincipal me, HttpContext ctx) =>
         {
             var channel = (body.Str("channel") ?? "").Trim().ToLowerInvariant();
+            // a company admin links inboxes for their own companies only
+            if (ShellScope.CompanyLevelError(db, sc, me, await InboxEndpoints.EntityId(db, body.Str("entity"))) is { } outside)
+                return outside;
             var owner = (body.Str("owner") ?? "").Trim() is { Length: > 0 } o
                 ? o : me.Identity?.Name ?? "admin";
 
@@ -918,12 +921,14 @@ public static class VoiceMessagingEndpoints
             var account = await ManagedAccount(db, id);
             if (account == null)
                 return Results.Json(new { detail = "Account not found." }, statusCode: 404);
+            if (ShellScope.CompanyLevelError(db, sc, me, account.EntityId) is { } outside) return outside;
 
             // Entity binding is editable on EVERY managed channel — a bot or page
             // belongs to an outlet just as much as a mailbox does.
             if (body.Has("entity"))
             {
                 var newEntity = await InboxEndpoints.EntityId(db, body.Str("entity"));
+                if (ShellScope.CompanyLevelError(db, sc, me, newEntity) is { } outsideNew) return outsideNew;
                 var rebind = account.EntityId != newEntity;
                 account.EntityId = newEntity;
                 await db.SaveChangesAsync();
@@ -1061,6 +1066,8 @@ public static class VoiceMessagingEndpoints
             var account = await ManagedAccount(db, id);
             if (account == null)
                 return Results.Json(new { detail = "Account not found." }, statusCode: 404);
+            if (ShellScope.CompanyLevelError(db, ctx.RequestServices.GetRequiredService<ScopingService>(), me, account.EntityId) is { } outside)
+                return outside;
             var label = $"{account.Channel}:{account.Name}";
             // conversations stay (back in sandbox) — unlink them first
             await ChatBranch.Data.Channels.InboxSettings.DetachAccountAsync(db, account.Id);
