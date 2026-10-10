@@ -12,6 +12,7 @@
  */
 
 import type { MessageKey } from '@/i18n'
+import { authHeaders } from './auth'
 
 export interface TourStep {
   /** `data-tour` value of the element to spotlight; none = a centred card. */
@@ -343,7 +344,58 @@ export const tourKey = (id: string, part: 'title' | 'intro') => `guide.tours.${i
 export const stepKey = (id: string, n: number, part: 'title' | 'body') =>
   `guide.tours.${id}.steps.s${n}.${part}` as MessageKey
 
-// ---- "seen" memory: a per-viewer convenience (never relied on) -------------
+// ---- "seen" memory ----------------------------------------------------------
+// localStorage answers at once; the person's account (Profile.Preferences
+// `guides`, via /api/auth/preferences) is the copy that follows them to other
+// browsers, the installed app and the next sign-in — an iPhone keeps Safari's
+// and the home-screen app's storage apart and may wipe either.
+
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
+
+/** Fire-and-forget write of the guide memory to the account (best effort). */
+function saveGuides(guides: { auto?: boolean; seen?: string[] }) {
+  try {
+    void fetch(`${API}/auth/preferences`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ guides }),
+    }).catch(() => {})
+  } catch {
+    /* offline / no session — the local copy still holds */
+  }
+}
+
+/** Once per sign-in (the Shell): copy the account's guide memory into this
+ *  browser, and send up anything this browser already knew. */
+export async function syncGuidesFromServer(user: string): Promise<void> {
+  try {
+    const res = await fetch(`${API}/auth/preferences`, { headers: authHeaders() })
+    if (!res.ok) return
+    const data = (await res.json()) as { guides?: { auto?: boolean; seen?: string[] } }
+    const g = data.guides
+    if (!g) return
+    const serverSeen = new Set(g.seen ?? [])
+    for (const id of serverSeen) localStorage.setItem(seenKey(user, id), '1')
+    const localOnly: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      const prefix = `tour-seen:${user}:`
+      if (k && k.startsWith(prefix) && localStorage.getItem(k) === '1') {
+        const id = k.slice(prefix.length)
+        if (!serverSeen.has(id)) localOnly.push(id)
+      }
+    }
+    // a switch turned off here before this sync existed wins over the account's default
+    const localAuto = localStorage.getItem(autoKey(user))
+    if (localAuto === '0' && g.auto !== false) saveGuides({ auto: false, seen: localOnly })
+    else {
+      if (typeof g.auto === 'boolean') localStorage.setItem(autoKey(user), g.auto ? '1' : '0')
+      if (localOnly.length) saveGuides({ seen: localOnly })
+    }
+  } catch {
+    /* storage blocked or offline — guides still work, they may just show again */
+  }
+}
 
 const seenKey = (user: string, id: string) => `tour-seen:${user}:${id}`
 
@@ -361,6 +413,7 @@ export function markTourSeen(user: string, id: string) {
   } catch {
     /* storage blocked */
   }
+  saveGuides({ seen: [id] })
 }
 
 /** Whether guides start by themselves on a first visit — the Guide menu toggles it. */
@@ -378,4 +431,5 @@ export function setToursAuto(user: string, on: boolean) {
   } catch {
     /* storage blocked */
   }
+  saveGuides({ auto: on })
 }

@@ -109,8 +109,9 @@ public static partial class SettingsEndpoints
         {
             var hasAppearance = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("appearance", out _);
             var hasLocale = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("locale", out _);
-            if (!hasAppearance && !hasLocale)
-                return AppearanceBad("Send {appearance: {…}} and/or {locale: \"en\"|\"ms\"|\"zh\"} (null = the organization default).");
+            var hasGuides = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("guides", out _);
+            if (!hasAppearance && !hasLocale && !hasGuides)
+                return AppearanceBad("Send {appearance: {…}}, {locale: \"en\"|\"ms\"|\"zh\"} (null = the organization default) and/or {guides: {auto?, seen?}}.");
             string? locale = null;
             if (hasLocale && !TryLocale(body.GetProperty("locale"), out locale))
                 return AppearanceBad($"locale must be one of: {string.Join(", ", SupportedLocales)} (or null).");
@@ -142,10 +143,15 @@ public static partial class SettingsEndpoints
                 await AuditSettings(db, ctx, me, "preferences.update", "locale",
                     locale == null ? "language reset to organization default" : $"language set to {locale}");
             }
+            if (hasGuides && MergeGuides(doc, body.GetProperty("guides")) is string guidesError)
+                return AppearanceBad(guidesError);
             profile.Preferences = ProfilePreferences.Save(doc);
             await db.SaveChangesAsync();
             return Results.Ok(await PreferencesPayload(db, sc, me));
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          // closing a page guide writes here — a convenience, not an audited change
+          // (appearance / language saves write their own audit rows)
+          .WithMetadata(new ChatBranch.Api.Audit.SkipRequestAuditAttribute());
 
         // ---- the organization default ----------------------------------------
         app.MapGet("/api/settings/appearance", async (AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
@@ -276,7 +282,53 @@ public static partial class SettingsEndpoints
             locale = ownLocale,
             org_locale = OrgLocale(sc),
             can_set_org_default = await AdminEndpoints.HasCapabilityAsync(db, role, AppearanceOrgCapability),
+            guides = GuidesOf(doc),
         };
+    }
+
+    private static readonly Regex GuideId = new("^[a-z0-9][a-z0-9_-]{0,63}$", RegexOptions.Compiled);
+    private const int MaxSeenGuides = 200;
+
+    /// <summary>The page-guide memory that follows a person across browsers and
+    /// devices: <c>auto</c> (guides start by themselves on a first visit) and the
+    /// guides already <c>seen</c>.</summary>
+    private static object GuidesOf(JsonObject doc)
+    {
+        var g = doc["guides"] as JsonObject;
+        var auto = g?["auto"] is JsonValue a && a.TryGetValue<bool>(out var b) ? b : true;
+        var seen = (g?["seen"] as JsonArray)?.Select(n => n is JsonValue jv && jv.TryGetValue<string>(out var x) ? x : null).OfType<string>().ToArray()
+                   ?? Array.Empty<string>();
+        return new { auto, seen };
+    }
+
+    /// <summary>Merge {auto?, seen?} into the stored guides: <c>seen</c> ADDS ids
+    /// (a guide closed on any device stays seen), <c>reset: true</c> clears them.</summary>
+    private static string? MergeGuides(JsonObject doc, JsonElement raw)
+    {
+        if (raw.ValueKind != JsonValueKind.Object) return "guides must be an object {auto?, seen?, reset?}.";
+        var g = doc["guides"] as JsonObject ?? new JsonObject();
+        if (raw.TryGetProperty("auto", out var auto))
+        {
+            if (auto.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) return "guides.auto must be true or false.";
+            g["auto"] = auto.GetBoolean();
+        }
+        var seen = new List<string>();
+        if (!(raw.TryGetProperty("reset", out var reset) && reset.ValueKind == JsonValueKind.True)
+            && g["seen"] is JsonArray old)
+            seen.AddRange(old.Select(n => n is JsonValue jv && jv.TryGetValue<string>(out var x) ? x : null).OfType<string>());
+        if (raw.TryGetProperty("seen", out var add))
+        {
+            if (add.ValueKind != JsonValueKind.Array) return "guides.seen must be a list of guide ids.";
+            foreach (var v in add.EnumerateArray())
+            {
+                var id = v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+                if (!GuideId.IsMatch(id)) return $"'{id}' is not a guide id.";
+                if (!seen.Contains(id)) seen.Add(id);
+            }
+        }
+        g["seen"] = new JsonArray(seen.TakeLast(MaxSeenGuides).Select(x => (JsonNode)JsonValue.Create(x)!).ToArray());
+        doc["guides"] = g;
+        return null;
     }
 
     /// <summary>null (= the default) or one of <see cref="SupportedLocales"/>; false for anything else.</summary>
