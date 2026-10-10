@@ -15,6 +15,14 @@ public sealed class AiQuotaConfig
     /// <summary>Username → cap for what that person runs themselves (assistant, playground, skill drafting, summaries).</summary>
     [JsonPropertyName("users")] public Dictionary<string, double> Users { get; set; } = new();
 
+    /// <summary>Caps a billing manager set ("entity:&lt;id&gt;" / "user:&lt;username&gt;", lower-case):
+    /// an admin may not change or clear them, only a billing manager.</summary>
+    [JsonPropertyName("set_by_manager")] public List<string> SetByManager { get; set; } = new();
+
+    public static string EntityKey(string id) => "entity:" + id;
+    public static string UserKey(string username) => "user:" + username.Trim().ToLowerInvariant();
+    public bool ManagerSet(string key) => SetByManager.Contains(key, StringComparer.OrdinalIgnoreCase);
+
     [JsonIgnore] public bool IsEmpty => Entities.Values.All(v => v <= 0) && Users.Values.All(v => v <= 0);
 }
 
@@ -82,6 +90,7 @@ public static class AiQuota
                 var c = JsonSerializer.Deserialize<AiQuotaConfig>(raw, Json) ?? new AiQuotaConfig();
                 c.Entities ??= new();
                 c.Users = new Dictionary<string, double>(c.Users ?? new(), StringComparer.OrdinalIgnoreCase);
+                c.SetByManager ??= new();
                 return c;
             }
         }
@@ -97,6 +106,12 @@ public static class AiQuota
             Users = config.Users.Where(kv => kv.Value > 0)
                 .ToDictionary(kv => kv.Key, kv => Math.Round(kv.Value, 2), StringComparer.OrdinalIgnoreCase),
         };
+        // keep a "set by a manager" mark only while its cap exists
+        clean.SetByManager = (config.SetByManager ?? new())
+            .Select(k => k.ToLowerInvariant()).Distinct()
+            .Where(k => clean.Entities.Keys.Any(e => AiQuotaConfig.EntityKey(e) == k)
+                        || clean.Users.Keys.Any(u => AiQuotaConfig.UserKey(u) == k))
+            .OrderBy(k => k, StringComparer.Ordinal).ToList();
         sc.SetSetting(SettingKey, JsonSerializer.Serialize(clean));
         Invalidate();
     }

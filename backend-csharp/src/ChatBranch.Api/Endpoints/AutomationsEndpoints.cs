@@ -80,7 +80,7 @@ public static class AutomationsEndpoints
             await Audit(db, me, "automation.create", row.Name);
             await db.SaveChangesAsync();
             return Results.Json(Payload(row), statusCode: 201);
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.AdminPlus).RequireCapability("flows.manage");
 
         // ---- update ----------------------------------------------------------
         app.MapMethods("/api/automations/{id:int}", new[] { "PATCH" },
@@ -114,7 +114,7 @@ public static class AutomationsEndpoints
             await Audit(db, me, "automation.update", row.Name);
             await db.SaveChangesAsync();
             return Results.Ok(Payload(row));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.AdminPlus).RequireCapability("flows.manage");
 
         // ---- delete ----------------------------------------------------------
         app.MapDelete("/api/automations/{id:int}", async (int id, AppDbContext db, ClaimsPrincipal me) =>
@@ -125,7 +125,7 @@ public static class AutomationsEndpoints
             await Audit(db, me, "automation.delete", row.Name);
             await db.SaveChangesAsync();
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.AdminPlus).RequireCapability("flows.manage");
 
         // ---- dry run ----------------------------------------------------------
         // "Would this rule have fired on that conversation?" — answered without
@@ -151,7 +151,7 @@ public static class AutomationsEndpoints
                 @event = row.Event,
                 active = row.Active,
             });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.AdminPlus).RequireCapability("flows.manage");
 
         // ---- reorder ----------------------------------------------------------
         // Rules run in this order (all matching rules run, top first): {ids:[…]}
@@ -180,7 +180,7 @@ public static class AutomationsEndpoints
             await Audit(db, me, "automation.reorder", string.Join(", ", listed.Select(r => r.Name)));
             await db.SaveChangesAsync();
             return Results.Ok(new { rules = rows.OrderBy(r => r.Position).Select(Payload) });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.AdminPlus).RequireCapability("flows.manage");
     }
 
     // ---- helpers ------------------------------------------------------------

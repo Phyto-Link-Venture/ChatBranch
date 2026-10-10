@@ -274,7 +274,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `billing_get_settings` | Read the AI billing terms | read | `billing.manage` |
 | `billing_set_settings` | Set the AI billing terms | write | `billing.manage` |
 | `billing_get_ai_quotas` | AI usage quotas | read | `billing.view` or `billing.manage` |
-| `billing_set_ai_quotas` | Set AI usage quotas | write | `billing.view` or `billing.manage` |
+| `billing_set_ai_quotas` | Set AI usage quotas | write | `billing.quotas.manage` or `billing.manage` |
 | `analytics_get_engagement` | Engagement tiles | read | `analytics.view` |
 | `analytics_get_live` | What's live right now | read | signed in |
 

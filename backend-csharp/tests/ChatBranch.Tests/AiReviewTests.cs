@@ -354,6 +354,130 @@ public class AiReviewTests : IClassFixture<ReviewFactory>
     }
 
     [Fact]
+    public async Task Parallel_applies_of_one_finding_succeed_once()
+    {
+        Models();
+        var ent = Entity("review-race");
+        Reply("60177000601", ent, "Can I return it?", "Yes.", status: AiDraftStatus.Rejected, rejectReason: "wrong policy");
+        var admin = await Admin();
+        var run = await Run(admin, "review-race");
+        var fid = run.GetProperty("findings").EnumerateArray()
+            .First(f => f.GetProperty("verdict").GetString() == "issue").GetProperty("id").GetInt32();
+        var tries = await Task.WhenAll(Enumerable.Range(0, 3).Select(_ =>
+            admin.PostAsJsonAsync($"/api/ai/review/findings/{fid}/apply", new { @as = "lesson", text = "Check the returns policy first." })));
+        Assert.Equal(1, tries.Count(r => r.StatusCode == HttpStatusCode.OK));
+        Assert.Equal(2, tries.Count(r => r.StatusCode == HttpStatusCode.Conflict));
+        Assert.Equal(1, With(db => db.AiLessons.Count(l => l.Note.Contains($"finding #{fid})"))));
+    }
+
+    [Fact]
+    public async Task Reviewer_lessons_wait_for_review_and_house_rules_land_on_the_conversations_level()
+    {
+        Models();
+        var ent = Entity("review-level");
+        Reply("60177000701", ent, "Refund?", "No.", status: AiDraftStatus.Rejected, rejectReason: "be kind");
+        Set("ai_learning_mode", "auto");   // even in auto mode an admin's reviewer lesson is only suggested
+        try
+        {
+            var admin = await Admin();
+            // an organization-wide run (no entity) over every outlet
+            var body = await Ok(await admin.PostAsJsonAsync("/api/ai/review", new { limit = 100 }));
+            var run = body.GetProperty("run");
+            Assert.Equal("done", run.GetProperty("status").GetString());
+            var mine = run.GetProperty("findings").EnumerateArray()
+                .Where(f => f.GetProperty("verdict").GetString() == "issue"
+                            && f.GetProperty("entity_id").ValueKind == JsonValueKind.Number
+                            && f.GetProperty("entity_id").GetInt32() == ent).ToList();
+            Assert.NotEmpty(mine);
+            var lessonRes = await Ok(await admin.PostAsJsonAsync($"/api/ai/review/findings/{mine[0].GetProperty("id").GetInt32()}/apply",
+                new { @as = "lesson", text = "Explain the refund policy kindly." }));
+            var lesson = With(db => db.AiLessons.AsNoTracking()
+                .First(l => l.Id == lessonRes.GetProperty("result").GetProperty("lesson_id").GetInt32()));
+            Assert.Equal(AiLessonStatus.Suggested, lesson.Status);
+            Assert.Equal("Explain the refund policy kindly.", lesson.Answer);   // the edited text
+
+            // a second org-wide run → the same conversation's finding as a house rule
+            var run2 = (await Ok(await admin.PostAsJsonAsync("/api/ai/review", new { limit = 100 }))).GetProperty("run");
+            var f2 = run2.GetProperty("findings").EnumerateArray()
+                .First(f => f.GetProperty("verdict").GetString() == "issue"
+                            && f.GetProperty("entity_id").ValueKind == JsonValueKind.Number
+                            && f.GetProperty("entity_id").GetInt32() == ent);
+            await Ok(await admin.PostAsJsonAsync($"/api/ai/review/findings/{f2.GetProperty("id").GetInt32()}/apply",
+                new { @as = "house_rule", text = "Be kind about refunds." }));
+            Assert.Contains("Be kind about refunds.", With(db => db.Settings.AsNoTracking()
+                .First(x => x.Key == PersonaService.HouseRulesKey && x.EntityId == ent).Value));
+            Assert.DoesNotContain("Be kind about refunds.", With(db => db.Settings.AsNoTracking()
+                .Where(x => x.Key == PersonaService.HouseRulesKey && x.EntityId == null).Select(x => x.Value).FirstOrDefault() ?? ""));
+        }
+        finally { Set("ai_learning_mode", ""); }
+    }
+
+    [Fact]
+    public void Heuristic_fix_suggestions_never_quote_the_customer()
+    {
+        var ent = Entity("review-quote");
+        var id = Reply("60177000801", ent, "What is the price for the ZEBRA42 model? And the warranty?", "It costs RM 500.");
+        var item = With(db => new AiReviewService.Item
+        {
+            Draft = db.AiDrafts.AsNoTracking().First(d => d.Id == id),
+            LatestCustomer = "What is the price for the ZEBRA42 model? And the warranty?",
+            Reply = "It costs RM 500.",
+            Edited = "",
+        });
+        var f = AiReviewService.Heuristic(item);
+        Assert.Equal("issue", f.Verdict);
+        Assert.DoesNotContain("ZEBRA42", f.FixText);
+    }
+
+    [Fact]
+    public async Task A_long_run_with_a_fresh_heartbeat_is_not_expired_and_still_blocks_a_second_start()
+    {
+        var runId = With(db =>
+        {
+            var r = new AiReviewRun
+            {
+                Status = AiReviewStatus.Running, Mode = AiReviewMode.Heuristic, CreatedBy = "admin",
+                PeriodFrom = DateTime.UtcNow.AddDays(-7), PeriodTo = DateTime.UtcNow, Limit = 5,
+                CreatedAt = DateTime.UtcNow - AiReviewService.StaleAfter - TimeSpan.FromMinutes(5),
+                UpdatedAt = DateTime.UtcNow,   // heartbeat: still being worked
+            };
+            db.AiReviewRuns.Add(r);
+            db.SaveChanges();
+            return r.Id;
+        });
+        try
+        {
+            var admin = await Admin();
+            Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync("/api/ai/review", new { limit = 5 })).StatusCode);
+            Assert.Equal(AiReviewStatus.Running, With(db => db.AiReviewRuns.AsNoTracking().First(r => r.Id == runId).Status));
+            // its heartbeat goes quiet → expired
+            With(db =>
+            {
+                var row = db.AiReviewRuns.First(r => r.Id == runId);
+                row.UpdatedAt = DateTime.UtcNow - AiReviewService.StaleAfter - TimeSpan.FromMinutes(1);
+                return db.SaveChanges();
+            });
+            Assert.True(With(db => new AiReviewService(db, new ScopingService(db), null!, null).ExpireStale()) >= 1);
+            Assert.Equal(AiReviewStatus.Failed, With(db => db.AiReviewRuns.AsNoTracking().First(r => r.Id == runId).Status));
+        }
+        finally
+        {
+            With(db => db.AiReviewRuns.Where(r => r.Id == runId)
+                .ExecuteUpdate(u => u.SetProperty(r => r.Status, AiReviewStatus.Failed)));
+        }
+    }
+
+    [Fact]
+    public async Task Dates_far_outside_the_products_life_are_a_400()
+    {
+        var admin = await Admin();
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await admin.PostAsJsonAsync("/api/ai/review", new { to = "9999-12-31" })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await admin.PostAsJsonAsync("/api/ai/review", new { from = "0001-01-01" })).StatusCode);
+    }
+
+    [Fact]
     public void Language_detection_tells_english_malay_and_chinese_apart()
     {
         Assert.Equal("zh", AiReviewService.Language("请问这个多少钱"));

@@ -176,6 +176,8 @@ public class QueueCallPlacer
             return new CallAttempt(CallAttempt.Failed, reason);
 
         var entityId = ContactEntity(contact);
+        if (Ai.AiQuota.EntityBlock(_db, _scoping, entityId) is { } quota)
+            return new CallAttempt(CallAttempt.Failed, Ai.AiQuota.Reason(quota));
         var metadata = await VoiceDispatch.BuildAsync(_db, _knowledge, _assistant, _scoping, _dataDir, contact,
             new VoiceCallOptions(phone, contact?.Name, contact?.Language, voiceProvider, voice,
                 AccountDelivery.Resolve(null, AccountDelivery.LlmProvider, _scoping),
@@ -217,6 +219,10 @@ public class QueueCallPlacer
 
         // the line may have become busy between the pre-check and now: wait, don't fail
         if (Busy(account)) return new CallAttempt(CallAttempt.Wait, $"{account.Name} is on a call", AccountId: account.Id);
+
+        // the AI usage quota of the conversation's outlet: at its cap no AI call is placed
+        if (Ai.AiQuota.EntityBlock(_db, _scoping, thread?.EntityId ?? account.EntityId) is { } quota)
+            return new CallAttempt(CallAttempt.Failed, Ai.AiQuota.Reason(quota), AccountId: account.Id);
 
         var room = LiveKitClient.NewRoomName();
         var metadata = await VoiceDispatch.BuildAsync(_db, _knowledge, _assistant, _scoping, _dataDir, contact,

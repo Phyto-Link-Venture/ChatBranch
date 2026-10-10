@@ -324,10 +324,18 @@ public static class AiEndpoints
             // them: the inbox's scope rule is applied here (out of scope = not found)
             if (thread == null || !ThreadAccessFilter.InScope(db, sc, me, thread.EntityId))
                 return Results.NotFound(new { detail = "thread not found" });
+            // AI usage quotas: the caller's own cap, then the conversation's outlet
+            // (or any level above it) — a suggestion is AI spend like any other
+            if (QuotaGuard.Refusal(db, sc, me) is { } userQuota) return userQuota;
+            if (ChatBranch.Data.Ai.AiQuota.EntityBlock(db, sc, thread.EntityId) is { } entityQuota)
+                return Results.Json(new { detail = ChatBranch.Data.Ai.AiQuota.Reason(entityQuota), quota = true },
+                    statusCode: StatusCodes.Status429TooManyRequests);
             // An operator-requested draft: no handover side effects. `reply` is
             // what may be sent ("" when a reply check held it back); `draft` is
-            // what the model wrote either way, `meta` the audit trail.
-            var r = await assistant.GenerateReplyAsync(thread, applyOutcome: false);
+            // what the model wrote either way, `meta` the audit trail. Charged to
+            // the operator who asked (their user quota).
+            var r = await assistant.GenerateReplyAsync(thread, applyOutcome: false,
+                chargeTo: ChatBranch.Data.Ai.AiQuota.CurrentUser() is { Length: > 0 } u ? u : me.Identity?.Name ?? "");
             // a preview is never delivered through the AI gate, so it books nothing:
             // give back whatever its calendar tools reserved
             assistant.ReleasePending(r, "Operator preview — not sent through the AI, nothing was booked.");

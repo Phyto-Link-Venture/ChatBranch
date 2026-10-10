@@ -38,6 +38,9 @@ public static class AiBillingEndpoints
 {
     public const string ViewCap = "billing.view";
     public const string ManageCap = "billing.manage";
+    /// <summary>The WRITE capability for AI usage quotas (admins hold it by default;
+    /// billing.view alone — or an API key scoped to it — can only read).</summary>
+    public const string QuotasCap = "billing.quotas.manage";
     public const string SettingKey = AiBilling.SettingKey;
 
     internal static BillingSettings Load(ScopingService sc) => AiBilling.Load(sc);
@@ -69,7 +72,7 @@ public static class AiBillingEndpoints
         app.MapPut("/api/billing/ai/settings", async (BillingSettings body, AppDbContext db, ScopingService sc) =>
         {
             var currency = (body.Currency ?? "").Trim().ToUpperInvariant();
-            if (currency.Length is < 3 or > 3 || !currency.All(char.IsLetter))
+            if (currency.Length is < 3 or > 3 || !currency.All(c => c is >= 'A' and <= 'Z'))
                 return Bad("currency must be a 3-letter code, e.g. MYR or USD.");
             if (body.UsdRate is <= 0 or > 100000) return Bad("usd_rate must be above 0 (1 USD = how many units of your currency).");
             if (!Ok(body.DefaultMarkupPct) || !OkFee(body.DefaultMonthlyFee))
@@ -79,6 +82,8 @@ public static class AiBillingEndpoints
             var companies = new Dictionary<string, CompanyTerms>();
             foreach (var (key, terms) in body.Companies ?? new())
             {
+                if (terms == null)
+                    return Bad($"Company '{key}' needs an object like {{\"markup_pct\": 20}} — leave it out to use the defaults.");
                 if (!int.TryParse(key, out var id) || !topLevel.Contains(id))
                     return Bad($"Unknown company '{key}' — use a top-level entity id.");
                 if (terms.MarkupPct is double m && !Ok(m) || terms.MonthlyFee is double f && !OkFee(f))
@@ -106,7 +111,7 @@ public static class AiBillingEndpoints
             ClaimsPrincipal me, IHttpClientFactory http) =>
         {
             await ModelPriceCatalog.EnsureFreshAsync(http, sc);
-            if (!TryMonth(month, out var from)) return Bad("month must look like 2026-10.");
+            if (!TryMonth(month, out var from)) return Bad("month must look like 2026-10 (years 2000–2200).");
             var to = from.AddMonths(1);
             var manager = await ShellScope.HasCapAsync(db, me, ManageCap);
             // the terms that applied to THAT month — a later change never rewrites a past bill
@@ -283,7 +288,9 @@ public static class AiBillingEndpoints
                         spent = s?.Spent ?? 0,
                         pct = s?.Pct ?? 0,
                         state = s?.State ?? AiQuotaStatus.Ok,
-                        editable = q.CanEditEntity(e.Id, e.ParentId),
+                        set_by_manager = snap.Config.ManagerSet(AiQuotaConfig.EntityKey(e.Id.ToString(CultureInfo.InvariantCulture))),
+                        editable = q.CanEditEntity(e.Id, e.ParentId)
+                                   && (q.Manager || !snap.Config.ManagerSet(AiQuotaConfig.EntityKey(e.Id.ToString(CultureInfo.InvariantCulture)))),
                     };
                 }).ToList(),
                 users = users.Select(u =>
@@ -294,7 +301,12 @@ public static class AiBillingEndpoints
                         username = u.Username, role = u.Role,
                         cap = s.Cap > 0 ? s.Cap : (double?)null,
                         spent = s.Spent, pct = s.Pct, state = s.State,
-                        editable = q.Manager || q.CanEditBranches,
+                        set_by_manager = snap.Config.ManagerSet(AiQuotaConfig.UserKey(u.Username)),
+                        // nobody sets their own cap but a superadmin; an admin never
+                        // touches a cap a billing manager set
+                        editable = (q.Manager || q.CanEditBranches)
+                                   && (q.Superadmin || !string.Equals(u.Username, me.Identity?.Name, StringComparison.OrdinalIgnoreCase))
+                                   && (q.Manager || !snap.Config.ManagerSet(AiQuotaConfig.UserKey(u.Username))),
                     };
                 }).ToList(),
                 counts = new
@@ -332,7 +344,7 @@ public static class AiBillingEndpoints
                     if (!int.TryParse(p.Name, out var id) || !entities.TryGetValue(id, out var e))
                         return Bad($"Unknown entity '{p.Name}'.");
                     if (!TryAmount(p.Value, out var amount))
-                        return Bad("A quota must be a number of at least 0 (0 or empty = no cap).");
+                        return Bad(AmountError);
                     if (!q.CanEditEntity(e.Id, e.ParentId))
                         return Results.Json(new
                         {
@@ -341,7 +353,11 @@ public static class AiBillingEndpoints
                                 : $"{e.Name} is outside your scope.",
                         }, statusCode: 403);
                     var key = id.ToString(CultureInfo.InvariantCulture);
+                    var mark = AiQuotaConfig.EntityKey(key);
+                    if (!q.Manager && config.ManagerSet(mark))
+                        return Results.Json(new { detail = $"A billing manager set the cap of {e.Name} — only a billing manager can change it." }, statusCode: 403);
                     if (amount > 0) config.Entities[key] = amount; else config.Entities.Remove(key);
+                    MarkSetter(config, mark, q.Manager && amount > 0);
                     changes.Add($"{e.Name}: {(amount > 0 ? amount.ToString("0.##", CultureInfo.InvariantCulture) : "no cap")}");
                 }
             }
@@ -355,10 +371,16 @@ public static class AiBillingEndpoints
                     var name = p.Name.Trim();
                     if (!known.Contains(name)) return Bad($"Unknown user '{name}'.");
                     if (!TryAmount(p.Value, out var amount))
-                        return Bad("A quota must be a number of at least 0 (0 or empty = no cap).");
+                        return Bad(AmountError);
                     if (!q.Manager && !inScope.Contains(name))
                         return Results.Json(new { detail = $"{name} is outside your scope." }, statusCode: 403);
+                    if (!q.Superadmin && string.Equals(name, me.Identity?.Name, StringComparison.OrdinalIgnoreCase))
+                        return Results.Json(new { detail = "You can't change your own AI quota — ask a billing manager." }, statusCode: 403);
+                    var mark = AiQuotaConfig.UserKey(name);
+                    if (!q.Manager && config.ManagerSet(mark))
+                        return Results.Json(new { detail = $"A billing manager set {name}'s cap — only a billing manager can change it." }, statusCode: 403);
                     if (amount > 0) config.Users[name] = amount; else config.Users.Remove(name);
+                    MarkSetter(config, mark, q.Manager && amount > 0);
                     changes.Add($"user {name}: {(amount > 0 ? amount.ToString("0.##", CultureInfo.InvariantCulture) : "no cap")}");
                 }
             }
@@ -376,7 +398,17 @@ public static class AiBillingEndpoints
                     scope = s.Scope, key = s.Key, name = s.Name, cap = s.Cap, spent = s.Spent, pct = s.Pct, state = s.State,
                 }),
             });
-        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability(ViewCap, ManageCap);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability(QuotasCap, ManageCap);
+    }
+
+    private const string AmountError =
+        "A quota must be a number of at least 0.01 (0 or empty = no cap).";
+
+    /// <summary>Record whether a billing manager (true) or an admin set this cap.</summary>
+    private static void MarkSetter(AiQuotaConfig config, string mark, bool byManager)
+    {
+        config.SetByManager.RemoveAll(k => string.Equals(k, mark, StringComparison.OrdinalIgnoreCase));
+        if (byManager) config.SetByManager.Add(mark);
     }
 
     // ---- quota scope -----------------------------------------------------------------------
@@ -390,6 +422,7 @@ public static class AiBillingEndpoints
     private sealed class QuotaScope
     {
         public bool Manager { get; init; }
+        public bool Superadmin { get; init; }
         public bool CanEditBranches { get; init; }
         public HashSet<int>? ReadEntities { get; init; }
         public HashSet<int> EditEntities { get; init; } = new();
@@ -404,7 +437,7 @@ public static class AiBillingEndpoints
         var role = ShellScope.RoleOf(me);
         var tenant = int.TryParse(me.FindFirstValue("tenant_id"), out var t) ? t : (int?)null;
         if (role == Roles.SuperAdmin || await ShellScope.HasCapAsync(db, me, ManageCap))
-            return new QuotaScope { Manager = true, CanEditBranches = true, TenantId = tenant };
+            return new QuotaScope { Manager = true, Superadmin = role == Roles.SuperAdmin, CanEditBranches = true, TenantId = tenant };
 
         // the entities this person works in: assigned subtrees, else (admin) their tenant
         var assigned = ContactsEndpoints.AssignedEntityIds(db, me.Identity?.Name);
@@ -419,7 +452,8 @@ public static class AiBillingEndpoints
         return new QuotaScope
         {
             Manager = false,
-            CanEditBranches = role == Roles.Admin,
+            // admins with the quota WRITE capability (theirs by default)
+            CanEditBranches = role == Roles.Admin && await ShellScope.HasCapAsync(db, me, QuotasCap),
             ReadEntities = read,
             EditEntities = own,
             TenantId = tenant,
@@ -455,7 +489,8 @@ public static class AiBillingEndpoints
             if (!double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out amount)) return false;
         }
         else if (v.ValueKind != JsonValueKind.Number || !v.TryGetDouble(out amount)) return false;
-        return double.IsFinite(amount) && amount >= 0 && amount <= 1_000_000_000;
+        // 0 clears; anything else must survive the 2-decimal rounding (≥ 0.01)
+        return double.IsFinite(amount) && (amount == 0 || amount >= 0.01) && amount <= 1_000_000_000;
     }
 
     /// <summary>The current and earlier terms, newest first (the settings screen's "Since …" list).</summary>
@@ -489,6 +524,8 @@ public static class AiBillingEndpoints
         if (string.IsNullOrWhiteSpace(month)) return true;
         if (!DateTime.TryParseExact(month.Trim(), "yyyy-MM", CultureInfo.InvariantCulture,
                 DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var parsed)) return false;
+        // a month far outside the product's life (9999-12 would overflow "next month")
+        if (parsed.Year is < 2000 or > 2200) return false;
         from = new DateTime(parsed.Year, parsed.Month, 1, 0, 0, 0, DateTimeKind.Utc);
         return true;
     }

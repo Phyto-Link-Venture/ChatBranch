@@ -212,7 +212,7 @@ When you fix one of these, update this table, `README.md` and
   because `ApiKeyAuth.UseKeyScopes` (right after `UseAuthentication`) makes them
   ambient for the request (`ApiKeyAuth.CurrentScopes`). Roles: superadmin / admin /
   agent / custom (`Role` + `RolePermission`). Capabilities are data-driven:
-  the catalog is `AdminEndpoints.Catalog` (36 entries — keep it in step with
+  the catalog is `AdminEndpoints.Catalog` (37 entries — keep it in step with
   `CAPABILITY_CATALOG` in `frontend/src/lib/auth.ts`); **superadmin is always
   allowed in code**, a missing matrix row falls back to the code default, admin
   gets everything except `rbac.manage` / `app_keys.manage` /
@@ -438,7 +438,9 @@ When you fix one of these, update this table, `README.md` and
   fail over to conversation numbers; templates go to a Cloud number (reminder
   first) per send without moving the sticky row, never to Baileys — none
   eligible ⇒ the job fails / the endpoint 409s, thread untouched. Entity rule:
-  an outlet's own numbers (nearest level of the tree), else the global ones.
+  an outlet's own numbers (nearest level of the tree), else the global ones; an
+  unattributed conversation (no entity) only ever takes an ORG-WIDE number
+  (`Routing.Pool`), never an outlet's.
 - **Channel health.** `Channels/AccountHealth.SetStatus` is the ONLY writer of
   `ChannelAccount.HealthStatus` (unknown/healthy/degraded/disconnected/banned):
   one `account.health` AuditLog row per real transition (detail
@@ -741,9 +743,14 @@ When you fix one of these, update this table, `README.md` and
   is visible only when every entity it read is in the caller's scope; findings
   filtered again by the conversation's entity. `POST
   /api/ai/review/findings/{id}/apply {as: lesson|knowledge|house_rule, text?}`
-  → a rule lesson (active only in `auto` learning mode for an admin, else
-  suggested), an INACTIVE knowledge draft, or a house-rule line at the run's
-  entity level (`settings.ai.manage` for the last two). Tests: `AiReviewTests`.
+  → a rule lesson (ALWAYS suggested — a person approves it in the Learning tab),
+  an INACTIVE knowledge draft, or a house-rule line at the CONVERSATION's entity
+  level (`settings.ai.manage` for the last two); an edited `text` replaces the
+  suggestion; the apply is an atomic claim (`… WHERE applied = 0`, parallel
+  applies succeed once). One run at a time is a process-wide lock around the
+  check + insert; a run heartbeats `updated_at` per batch and `ExpireStale` only
+  fails a run whose heartbeat went quiet. Heuristic fix suggestions never quote
+  the customer. Tests: `AiReviewTests`.
 - **Human handover** (`Ai/Handover.cs`, the ONLY writer of `crm_thread.handover_*`).
   `Handover.Mark(db, thread, kind, reason, by)`: kinds `check_failed` ·
   `asked_for_human` · `send_blocked` · `booking_failed` · `low_confidence` ·
@@ -967,8 +974,15 @@ When you fix one of these, update this table, `README.md` and
   per month (Setting `ai_quota_warned`), from the AI-ops worker, the quotas GET
   and a quota handover. `GET/PUT /api/billing/ai/quotas` (`billing.view` or
   `billing.manage`; PUT merges, 0/null clears): billing managers set anything,
-  admins set branch caps + same-tenant users inside their scope (never a company
-  cap, never a superadmin); audited `billing.quotas`. UI: the Quotas card on
+  admins (WRITE cap `billing.quotas.manage`, theirs by default — `billing.view`
+  alone, or a key scoped to it, only reads) set branch caps + same-tenant users
+  inside their scope (never a company cap, never a superadmin, never their OWN
+  cap — only a superadmin sets their own — and never a cap a billing manager set:
+  `ai_quotas.set_by_manager`); a cap is ≥ 0.01 (0 = none); audited `billing.quotas`.
+  Quotas also gate the operator's suggest-reply (`POST /api/aicore/reply`, charged
+  to them as `LlmUsage.UserName`), the AI reviewer, AI voice calls (dial, WhatsApp
+  call/start, queued calls) and flow AI decisions (the "when unsure" path with a
+  note). UI: the Quotas card on
   `/billing` (`components/billing/AiQuotas.tsx`). Tests: `AiQuotaTests`,
   `AiBillingTermsTests`. `GET /api/billing/ai?month=&company=`
   (`billing.view`): billed amounts for the caller's companies (assigned
@@ -1353,9 +1367,14 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   `frontend/src/components/flow/`, data model `frontend/src/lib/flow/`
   (`@xyflow/react`). The library syncs to the DB via `GET/PUT
   /api/flows/library` (GET `flows.view`, PUT `flows.manage`); localStorage is
-  only the offline fallback. ⚠ **The PUT PRUNES** server-side workflows (in its
-  scope) missing from the browser's copy — after creating a Workflow row
-  outside the UI, refresh `/journeys` before its next sync.
+  only the offline fallback. Both sides use the library rule
+  (`ShellScope.ScopeLibrary`: an entity-bound agent reads their subtrees +
+  ancestors + global). The PUT matches an existing flow by `flowId` across every
+  scope the caller may write and updates it IN PLACE (its `EntityId` kept — a
+  save from "All entities" never duplicates an outlet's flow as a global one).
+  ⚠ **The PUT PRUNES** the rows the same GET would have loaded that are missing
+  from the browser's copy — after creating a Workflow row outside the UI,
+  refresh `/journeys` before its next sync.
 - **List first.** `/journeys` opens on the list of every journey
   (`JourneyList.tsx`: trigger summary from `describe.ts`, live / paused, steps,
   people entered in the period + in it now from `/api/analytics/flows`, Open);
@@ -1434,7 +1453,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **699 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **718 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /

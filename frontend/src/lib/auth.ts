@@ -76,6 +76,7 @@ export const CAPABILITY_CATALOG: { capability: string; area: string; label: stri
   { capability: 'ai.behaviour.manage', area: 'AI', label: 'Edit AI behaviour settings', lbl: 'admin.caps.aiBehaviourManage' },
   { capability: 'billing.view', area: 'Review', label: 'View the AI usage bill', lbl: 'admin.caps.billingView' },
   { capability: 'billing.manage', area: 'Settings', label: 'Set AI billing markup & see costs', lbl: 'admin.caps.billingManage' },
+  { capability: 'billing.quotas.manage', area: 'Review', label: 'Set AI usage quotas', lbl: 'admin.caps.billingQuotasManage' },
 ]
 
 const CAP_KEY = new Map<string, MessageKey>(CAPABILITY_CATALOG.map((c) => [c.capability, c.lbl]))

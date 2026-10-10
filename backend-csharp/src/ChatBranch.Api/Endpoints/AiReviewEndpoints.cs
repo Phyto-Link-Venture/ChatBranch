@@ -34,6 +34,10 @@ namespace ChatBranch.Api.Endpoints;
 public static class AiReviewEndpoints
 {
     private const string MonitorCap = AiMonitorEndpoints.MonitorCap;
+    /// <summary>One review at a time, process-wide: the "is one running?" check and
+    /// the insert of the new run happen under this lock, so two parallel POSTs can
+    /// never both start.</summary>
+    private static readonly SemaphoreSlim StartLock = new(1, 1);
     private const string BehaviourCap = AiMonitorEndpoints.BehaviourCap;
 
     public static void MapAiReviewEndpoints(this IEndpointRouteBuilder app)
@@ -47,13 +51,15 @@ public static class AiReviewEndpoints
             {
                 var raw = Str(body, key);
                 if (string.IsNullOrWhiteSpace(raw)) return null;
+                // a date far outside the product's life (9999-12-31) is refused, not overflowed
                 return DateTime.TryParse(raw, CultureInfo.InvariantCulture,
-                    DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var d) ? d : DateTime.MinValue;
+                    DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var d)
+                    && d.Year is >= 2000 and <= 2200 ? d : DateTime.MinValue;
             }
             var to = Date("to");
             var from = Date("from");
             if (to == DateTime.MinValue || from == DateTime.MinValue)
-                return Results.BadRequest(new { detail = "from and to must be dates (YYYY-MM-DD or ISO 8601)." });
+                return Results.BadRequest(new { detail = "from and to must be dates (YYYY-MM-DD or ISO 8601) between 2000 and 2200." });
             // a bare date "to" means the end of that day
             var toAt = to is DateTime t0 ? (t0.TimeOfDay == TimeSpan.Zero ? t0.AddDays(1).AddSeconds(-1) : t0) : now;
             if (toAt > now) toAt = now;
@@ -67,19 +73,31 @@ public static class AiReviewEndpoints
 
             var (entityId, entityIds, err) = await RunScope(db, sc, me, Str(body, "entity"));
             if (err != null) return err;
+            // AI usage quotas: the reviewer's calls are AI spend — the caller's own
+            // cap, then the run's outlet (or any level above it)
+            if (QuotaGuard.Refusal(db, sc, me) is { } userQuota) return userQuota;
+            if (AiQuota.EntityBlock(db, sc, entityId) is { } entityQuota)
+                return Results.Json(new { detail = AiQuota.Reason(entityQuota), quota = true },
+                    statusCode: StatusCodes.Status429TooManyRequests);
 
-            review.ExpireStale();
-            var busy = await db.AiReviewRuns.AsNoTracking().Where(r => r.Status == AiReviewStatus.Running)
-                .OrderByDescending(r => r.Id).FirstOrDefaultAsync();
-            if (busy != null)
-                return Results.Json(new { detail = "A review is already running — wait for it to finish.", run_id = busy.Id },
-                    statusCode: 409);
-
-            var run = review.Start(new AiReviewRequest
+            AiReviewRun run;
+            await StartLock.WaitAsync();
+            try
             {
-                From = fromAt, To = toAt, EntityId = entityId, EntityIds = entityIds, Limit = limit,
-                CreatedBy = me.Identity?.Name ?? "",
-            });
+                review.ExpireStale();
+                var busy = await db.AiReviewRuns.AsNoTracking().Where(r => r.Status == AiReviewStatus.Running)
+                    .OrderByDescending(r => r.Id).FirstOrDefaultAsync();
+                if (busy != null)
+                    return Results.Json(new { detail = "A review is already running — wait for it to finish.", run_id = busy.Id },
+                        statusCode: 409);
+
+                run = review.Start(new AiReviewRequest
+                {
+                    From = fromAt, To = toAt, EntityId = entityId, EntityIds = entityIds, Limit = limit,
+                    CreatedBy = me.Identity?.Name ?? "",
+                });
+            }
+            finally { StartLock.Release(); }
             AuditTrail.Write(db, "ai.review.run", $"ai_review:{run.Id}",
                 $"Reviewing up to {run.Limit} AI replies from {fromAt:yyyy-MM-dd} to {toAt:yyyy-MM-dd} ({run.Mode})",
                 entityId: entityId);
@@ -154,9 +172,10 @@ public static class AiReviewEndpoints
             if (finding.Applied)
                 return Results.Json(new { detail = $"Already added as a {finding.AppliedAs.Replace('_', ' ')}." }, statusCode: 409);
             var asWhat = (Str(body, "as") ?? "").Trim().ToLowerInvariant();
+            // the edited suggestion when one is sent (blank = the reviewer's own text)
             if (asWhat is not ("lesson" or "knowledge" or "house_rule"))
                 return Results.BadRequest(new { detail = "as must be lesson, knowledge or house_rule." });
-            var text = (Str(body, "text") ?? finding.FixText).Trim();
+            var text = (Str(body, "text") is { } edited && edited.Trim().Length > 0 ? edited : finding.FixText).Trim();
             if (text.Length == 0) return Results.BadRequest(new { detail = "There is no suggestion to add — write the text." });
             if (text.Length > 2000) return Results.BadRequest(new { detail = "Keep it under 2000 characters." });
             var actor = learning.ActorFor(me.Identity?.Name);
@@ -166,20 +185,59 @@ public static class AiReviewEndpoints
             string appliedRef;
             object result;
 
+            // ---- permission checks first, then an ATOMIC claim (… WHERE applied = 0),
+            // so parallel applies of one finding can never all succeed
+            var mayManageAi = await AdminEndpoints.HasCapabilityAsync(db, role, "settings.ai.manage");
+            // a house rule goes to the CONVERSATION's level (its outlet), never the run's
+            var level = finding.EntityId;
+            switch (asWhat)
+            {
+                case "lesson":
+                    if (!MayWriteEntity(db, sc, me, finding.EntityId))
+                        return Results.Json(new { detail = "That conversation's entity is outside your scope." }, statusCode: 403);
+                    break;
+                case "knowledge":
+                    if (!mayManageAi)
+                        return Results.Json(new { detail = "You need the 'settings.ai.manage' permission." }, statusCode: 403);
+                    if (!MayWriteEntity(db, sc, me, finding.EntityId))
+                        return Results.Json(new { detail = "That conversation's entity is outside your scope." }, statusCode: 403);
+                    break;
+                default:
+                    if (!mayManageAi)
+                        return Results.Json(new { detail = "You need the 'settings.ai.manage' permission." }, statusCode: 403);
+                    if (!AiControlsEndpoints.MayEdit(db, sc, me, level))
+                        return Results.Json(new
+                        {
+                            detail = level == null
+                                ? "Only an admin can change the organization-wide house rules."
+                                : "That outlet is outside your scope.",
+                        }, statusCode: 403);
+                    break;
+            }
+            var claimed = await db.AiReviewFindings.Where(f => f.Id == finding.Id && !f.Applied)
+                .ExecuteUpdateAsync(u => u.SetProperty(f => f.Applied, true).SetProperty(f => f.AppliedAs, asWhat));
+            if (claimed == 0)
+                return Results.Json(new { detail = "This finding was already added." }, statusCode: 409);
+            async Task<IResult> Release(IResult answer)
+            {
+                await db.AiReviewFindings.Where(f => f.Id == finding.Id)
+                    .ExecuteUpdateAsync(u => u.SetProperty(f => f.Applied, false).SetProperty(f => f.AppliedAs, ""));
+                return answer;
+            }
+
             switch (asWhat)
             {
                 case "lesson":
                 {
-                    if (!MayWriteEntity(db, sc, me, finding.EntityId))
-                        return Results.Json(new { detail = "That conversation's entity is outside your scope." }, statusCode: 403);
-                    var mode = learning.Mode(finding.EntityId);
-                    var status = mode == "auto" && actor.IsAdmin ? AiLessonStatus.Active : AiLessonStatus.Suggested;
+                    // a reviewer's suggestion is never live on its own: a person approves it
+                    // in the Learning tab, whatever the learning mode
+                    var status = AiLessonStatus.Suggested;
                     var lesson = new AiLesson
                     {
                         EntityId = finding.EntityId, Kind = AiLessonKind.Rule, Status = status,
                         Question = "", Answer = text, Note = note,
                         SourceCount = 0, CreatedBy = actor.Username,
-                        ApprovedBy = status == AiLessonStatus.Active ? actor.Username : "",
+                        ApprovedBy = "",
                         CreatedAt = now, UpdatedAt = now,
                     };
                     db.AiLessons.Add(lesson);
@@ -191,18 +249,12 @@ public static class AiReviewEndpoints
                     result = new
                     {
                         lesson_id = lesson.Id, status,
-                        message = status == AiLessonStatus.Active
-                            ? "Added as a live lesson — the AI uses it from the next reply."
-                            : "Added as a suggested lesson — approve it in the Learning tab before the AI uses it.",
+                        message = "Added as a suggested lesson — approve it in the Learning tab before the AI uses it.",
                     };
                     break;
                 }
                 case "knowledge":
                 {
-                    if (!await AdminEndpoints.HasCapabilityAsync(db, role, "settings.ai.manage"))
-                        return Results.Json(new { detail = "You need the 'settings.ai.manage' permission." }, statusCode: 403);
-                    if (!MayWriteEntity(db, sc, me, finding.EntityId))
-                        return Results.Json(new { detail = "That conversation's entity is outside your scope." }, statusCode: 403);
                     var question = TextAnalysis.Clip(finding.CustomerExcerpt.Replace('\n', ' ').Trim(), 300);
                     var item = new KnowledgeItem
                     {
@@ -229,26 +281,16 @@ public static class AiReviewEndpoints
                 }
                 default:
                 {
-                    if (!await AdminEndpoints.HasCapabilityAsync(db, role, "settings.ai.manage"))
-                        return Results.Json(new { detail = "You need the 'settings.ai.manage' permission." }, statusCode: 403);
-                    var level = run.EntityId;
-                    if (!AiControlsEndpoints.MayEdit(db, sc, me, level))
-                        return Results.Json(new
-                        {
-                            detail = level == null
-                                ? "Only an admin can change the organization-wide house rules."
-                                : "That outlet is outside your scope.",
-                        }, statusCode: 403);
                     var line = string.Join(" ", PersonaService.SplitRules(text));
                     var row = await db.Settings.AsNoTracking()
                         .FirstOrDefaultAsync(s => s.Key == PersonaService.HouseRulesKey && s.EntityId == level);
                     var rules = PersonaService.SplitRules(row?.Value);
                     if (rules.Any(r => string.Equals(r, line, StringComparison.OrdinalIgnoreCase)))
-                        return Results.Json(new { detail = "That house rule is already there." }, statusCode: 409);
+                        return await Release(Results.Json(new { detail = "That house rule is already there." }, statusCode: 409));
                     rules.Add(line);
                     var joined = string.Join("\n", rules);
                     if (joined.Length > PersonaService.MaxHouseRuleChars)
-                        return Results.BadRequest(new { detail = $"House rules are too long ({PersonaService.MaxHouseRuleChars} characters at most)." });
+                        return await Release(Results.BadRequest(new { detail = $"House rules are too long ({PersonaService.MaxHouseRuleChars} characters at most)." }));
                     sc.SetSetting(PersonaService.HouseRulesKey, joined, level);
                     var ent = level is int lv ? await db.Entities.AsNoTracking().FirstOrDefaultAsync(e => e.Id == lv) : null;
                     AuditTrail.Add(db, "ai.persona", ent != null ? $"entity:{ent.Slug}" : "global",

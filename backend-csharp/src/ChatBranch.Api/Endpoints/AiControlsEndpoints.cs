@@ -43,6 +43,10 @@ public static class AiControlsEndpoints
         {
             var (entityId, err) = await EntityArg(db, entity);
             if (err != null) return err;
+            // an entity-bound agent reads only its own outlets' levels (like the playground)
+            if (entityId is int asked && ShellScope.BoundEntityIds(db, sc, me) is List<int> bound
+                && !bound.Contains(asked))
+                return Results.Json(new { detail = "That outlet is outside your scope." }, statusCode: 404);
             return Results.Ok(await ControlsPayload(db, sc, me, entityId));
         }).RequireAuthorization(AuthPolicies.Authenticated)
           .RequireAnyCapability("ai.monitor", AiMonitorEndpoints.BehaviourCap, "chats.view");
