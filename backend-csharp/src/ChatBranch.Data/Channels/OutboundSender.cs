@@ -12,7 +12,10 @@ namespace ChatBranch.Data.Channels;
 /// endpoints all go through here so behaviour is identical:
 ///
 ///   * WhatsApp Cloud — text, real TEMPLATE messages (<see cref="SendTemplate"/>)
-///     and media (upload → send by id, <see cref="SendMedia"/>);
+///     and media (upload → send by id, <see cref="SendMedia"/>); the official BSPs
+///     YCloud and Twilio ride the same seam (<see cref="WhatsAppClientRouter"/> picks
+///     the provider's client: Twilio sends media by a signed public link and has no
+///     quotes or reactions);
 ///   * WhatsApp Baileys — text and media through the Node gateway (templates
 ///     render as text);
 ///   * Messenger / Instagram — the Send API with the page token (text, URL
@@ -143,10 +146,15 @@ public class OutboundSender
         }
 
         if (CloudLive(thread, account))
+        {
+            // an official number (Cloud API, YCloud, Twilio): Twilio has no quoted replies, so
+            // its reply goes out — and is recorded — unquoted rather than failing
+            var quote = replyTo is { ExternalId.Length: > 0 } && WhatsAppProviders.SupportsQuotes(account!) ? replyTo : null;
             return LinkReply(Record(thread, account!, source, text,
-                (replyTo is { ExternalId.Length: > 0 }
-                    ? _whatsapp.SendReplyTextAsync(account!, thread.Key, text, replyTo.ExternalId)
-                    : _whatsapp.SendTextAsync(account!, thread.Key, text)).GetAwaiter().GetResult()), replyTo);
+                (quote != null
+                    ? _whatsapp.SendReplyTextAsync(account!, thread.Key, text, quote.ExternalId)
+                    : _whatsapp.SendTextAsync(account!, thread.Key, text)).GetAwaiter().GetResult()), quote);
+        }
 
         if (SocialLive(thread, account))
             return SocialSend(thread, account!, source, text, humanAgent: false,
@@ -188,6 +196,10 @@ public class OutboundSender
         var baileys = BaileysLive(thread, account);
         var cloud = CloudLive(thread, account);
         if (!baileys && !cloud) return new ReactionSend(true, false, "sandbox");
+        if (cloud && !WhatsAppProviders.SupportsReactions(account!))
+            return new ReactionSend(false, true,
+                $"Reactions aren't supported by {WhatsAppProviders.Label(account!.Provider)} — this provider's API can't send one.",
+                Conflict: true);
         if (target.ExternalId.Length == 0 || target.ExternalId.StartsWith("db-", StringComparison.Ordinal))
             return new ReactionSend(false, true,
                 "That message has no WhatsApp id (it never left this inbox), so it can't carry a reaction.",
@@ -268,14 +280,8 @@ public class OutboundSender
         var name = string.IsNullOrWhiteSpace(filename) ? Path.GetFileName(full ?? relPath) : filename!;
         if (CloudLive(thread, account) && full != null)
         {
-            var bytes = File.ReadAllBytes(full);
-            var up = _whatsapp.UploadMediaAsync(account!, bytes, mime, filename ?? Path.GetFileName(full))
-                .GetAwaiter().GetResult();
-            var outcome = up.Ok
-                ? _whatsapp.SendMediaAsync(account!, thread.Key, mediaType, up.ExternalId, caption, filename)
-                    .GetAwaiter().GetResult()
-                : up;
-            msg = Record(thread, account!, source, text, outcome);
+            msg = Record(thread, account!, source, text, OfficialMedia(thread, account!, full, relPath, mediaType, mime,
+                caption, filename));
         }
         else if (BaileysLive(thread, account) && full != null)
         {
@@ -311,6 +317,38 @@ public class OutboundSender
         }
         AttachMedia(msg, mediaType, relPath);
         return msg;
+    }
+
+    /// <summary>
+    /// A stored file on an official number. Cloud API: upload to /{phone_number_id}/media,
+    /// send by id. YCloud: its media upload, send by id — falling back to a signed public
+    /// link when the upload is refused. Twilio: no upload exists, Twilio FETCHES the file,
+    /// so it gets a short-lived signed public link (<see cref="MediaLinks"/>) — and an honest
+    /// failure when this API has no publicly reachable address to hand out.
+    /// </summary>
+    private SendOutcome OfficialMedia(Thread thread, ChannelAccount account, string full, string relPath,
+        string mediaType, string mime, string? caption, string? filename)
+    {
+        var provider = WhatsAppProviders.Of(account);
+        string? Link() => new MediaLinks(new ScopingService(_db)).PublicUrl(thread.Channel, relPath);
+        if (provider == Providers.Twilio)
+        {
+            var link = Link();
+            return link == null
+                ? new SendOutcome(false, "", "Twilio fetches media from a public URL — set public_base_url "
+                                              + "(Settings → App & provider keys) to this API's public https address")
+                : _whatsapp.SendMediaAsync(account, thread.Key, mediaType, link, caption, filename).GetAwaiter().GetResult();
+        }
+        var bytes = File.ReadAllBytes(full);
+        var up = _whatsapp.UploadMediaAsync(account, bytes, mime, filename ?? Path.GetFileName(full))
+            .GetAwaiter().GetResult();
+        if (up.Ok)
+            return _whatsapp.SendMediaAsync(account, thread.Key, mediaType, up.ExternalId, caption, filename)
+                .GetAwaiter().GetResult();
+        if (provider == Providers.YCloud && up.ErrorCode is not (190 or 10) && Link() is { } fallback)
+            return _whatsapp.SendMediaAsync(account, thread.Key, mediaType, fallback, caption, filename)
+                .GetAwaiter().GetResult();
+        return up;
     }
 
     private void AttachMedia(Message msg, string mediaType, string relPath)

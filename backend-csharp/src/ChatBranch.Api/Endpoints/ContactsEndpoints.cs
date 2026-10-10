@@ -1099,8 +1099,7 @@ public static class ContactsEndpoints
     private static bool AccountConfigured(ChannelAccount a)
     {
         if (a.Channel == Channels.WhatsApp)
-            return a.Provider == Providers.Baileys ||
-                   (a.AccessToken.Length > 0 && a.ExternalId.Length > 0);
+            return ChatBranch.Data.Channels.WhatsAppProviders.Configured(a);
         if (a.Channel == Channels.Email)
             return Cfg(a, "host").Length > 0 && Cfg(a, "username").Length > 0 &&
                    Cfg(a, "password").Length > 0;

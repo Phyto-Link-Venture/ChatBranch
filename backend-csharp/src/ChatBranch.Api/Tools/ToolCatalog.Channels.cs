@@ -14,7 +14,7 @@ public static partial class ToolCatalog
 
         yield return T(ch, "channels_list_accounts", "List channel accounts",
             "Every connected number, mailbox, bot, page and widget (or one channel): name, channel, provider " +
-            "(cloud / baileys / …), role (reminder / conversation), entity, health status. Secrets are never " +
+            "(cloud / baileys / ycloud / twilio), role (reminder / conversation), entity, health status. Secrets are never " +
             "included; without channels.view you get the picker shape (names only).",
             "GET", "/api/whatsapp/accounts", C("chats.view", "channels.view", "templates.manage"),
             new[] { A.Str("channel", "One channel, or all (default).") }, query: new() { ["channel"] = "all" },

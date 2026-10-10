@@ -235,6 +235,8 @@ requires a restart.
 | Channel | What you need | Status in the C# API |
 |---|---|---|
 | **WhatsApp (Cloud API)** | A Meta app, phone number ID, access token, app secret, WABA id, and a public webhook (`/api/whatsapp/webhook`) | live: inbound (incl. media), delivery statuses, text, real template messages, media send, the WABA's template registry, quoted replies and emoji reactions both ways |
+| **WhatsApp (YCloud)** | A YCloud API key, the business number (+ WABA id for templates); then create a webhook endpoint in YCloud with the URL the inbox shows and paste its signing secret back | live, untested against YCloud: signed inbound (incl. media), delivery statuses, text, templates + the WABA's template registry, media send, quoted replies + reactions both ways, typing indicator |
+| **WhatsApp (Twilio)** | Account SID, Auth Token, the WhatsApp sender (or a Messaging Service SID); point the sender's incoming-message webhook at the URL the inbox shows | live, untested against Twilio: signed inbound (incl. media), delivery statuses, text, Content templates (by ContentSid; authored in Twilio), media by a signed public link (needs a public https base URL) |
 | **WhatsApp (Baileys)** | A spare phone. Add a "QR" WhatsApp inbox and scan. ⚠ Read the ToS warning below | inbound text + media, text + media send, quoted replies + emoji reactions both ways, calls + recordings live |
 | **Website widget** | Nothing — paste the snippet the inbox gives you | live |
 | **Telegram** | A BotFather token, then "Register webhook" in the inbox (needs a public https URL — `PUBLIC_BASE_URL` or the one you type) | live: inbound text + media, replies and attachments via the Bot API, quoted replies + emoji reactions both ways, typing indicator |
@@ -324,8 +326,10 @@ every pull request.
 ## Honest limitations
 
 - **Every channel transport is wired, with a few edges left.**
-  Baileys numbers send templates as rendered text; WhatsApp Cloud has no voice
-  calls (Meta's calling API is a gated beta); email is composed as plain text (an escaped HTML alternative
+  Baileys numbers send templates as rendered text; WhatsApp Cloud, YCloud and
+  Twilio numbers have no voice calls (Meta's calling API is a gated beta);
+  Twilio's WhatsApp API has no reactions, quoted replies or typing indicator, and
+  its templates are created in Twilio's console; email is composed as plain text (an escaped HTML alternative
   is rendered from it); LINE, Viber and SMS send text only (they take media by
   public URL, which ChatBranch's files are not); TikTok and Douyin are text-only;
   the opt-out flag lives on the conversation, not the

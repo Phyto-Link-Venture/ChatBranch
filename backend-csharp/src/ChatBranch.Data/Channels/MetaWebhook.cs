@@ -81,80 +81,92 @@ public static class MetaWebhook
             if (!val.TryGetProperty("messages", out var messages) || messages.ValueKind != JsonValueKind.Array)
                 continue;
             foreach (var msg in messages.EnumerateArray())
-            {
-                var type = MetaGraph.Str(msg, "type");
-                var from = MetaGraph.Str(msg, "from");
-                var wamid = MetaGraph.Str(msg, "id");
-                if (from.Length == 0) continue;
-                var ts = UnixSeconds(msg, "timestamp");
-                string text = "", mediaId = "", mime = "", filename = "";
-                switch (type)
-                {
-                    case "text":
-                        text = msg.TryGetProperty("text", out var tx) ? MetaGraph.Str(tx, "body") : "";
-                        break;
-                    case "button": // quick-reply tap on a template
-                        text = msg.TryGetProperty("button", out var btn) ? MetaGraph.Str(btn, "text") : "";
-                        break;
-                    case "interactive":
-                        if (msg.TryGetProperty("interactive", out var ia))
-                            foreach (var k in new[] { "button_reply", "list_reply", "nfm_reply" })
-                                if (ia.TryGetProperty(k, out var r))
-                                {
-                                    text = MetaGraph.Str(r, "title") is { Length: > 0 } title ? title : MetaGraph.Str(r, "body");
-                                    break;
-                                }
-                        break;
-                    case "location":
-                        if (msg.TryGetProperty("location", out var loc))
-                        {
-                            var label = string.Join(", ", new[] { MetaGraph.Str(loc, "name"), MetaGraph.Str(loc, "address") }
-                                .Where(s => s.Length > 0));
-                            text = $"[location] {MetaGraph.Str(loc, "latitude")},{MetaGraph.Str(loc, "longitude")}"
-                                   + (label.Length > 0 ? $" {label}" : "");
-                        }
-                        break;
-                    case "contacts":
-                        // the first shared card as "[contact] Name · +phone" (the bubble renders a card)
-                        text = "[contact card]";
-                        if (msg.TryGetProperty("contacts", out var cards) && cards.ValueKind == JsonValueKind.Array
-                            && cards.GetArrayLength() > 0 && cards[0].ValueKind == JsonValueKind.Object)
-                        {
-                            var card = cards[0];
-                            var cardName = card.TryGetProperty("name", out var nm) ? MetaGraph.Str(nm, "formatted_name") : "";
-                            var cardPhone = card.TryGetProperty("phones", out var ph) && ph.ValueKind == JsonValueKind.Array
-                                            && ph.GetArrayLength() > 0 ? MetaGraph.Str(ph[0], "phone") : "";
-                            text = MessageCards.Contact(cardName, cardPhone);
-                        }
-                        break;
-                    case "reaction": // CloudReactions — a reaction is never a bubble
-                    case "system":
-                    case "ephemeral":
-                        continue; // not a customer message (and must not wake the AI)
-                    default:
-                        if (CloudMediaTypes.Contains(type) && msg.TryGetProperty(type, out var media))
-                        {
-                            mediaId = MetaGraph.Str(media, "id");
-                            mime = MetaGraph.Str(media, "mime_type");
-                            filename = MetaGraph.Str(media, "filename");
-                            var caption = MetaGraph.Str(media, "caption");
-                            // stickers are webp images in the bubble
-                            text = caption.Length > 0 ? caption : $"[{(type == "sticker" ? "sticker" : type)}]";
-                        }
-                        else
-                        {
-                            text = $"[{(type.Length > 0 ? type : "message")}]";
-                        }
-                        break;
-                }
-                if (text.Length == 0) continue;
-                // a quoted reply carries the quoted wamid in context.id (a forward carries none)
-                var replyTo = msg.TryGetProperty("context", out var ctx) && ctx.ValueKind == JsonValueKind.Object
-                    ? MetaGraph.Str(ctx, "id") : "";
-                outv.Add(new CloudInbound(pnid, from, name, wamid, type, text, ts, mediaId, mime, filename, replyTo));
-            }
+                if (ParseMessage(msg, pnid, name) is { } one) outv.Add(one);
         }
         return outv;
+    }
+
+    /// <summary>
+    /// One Meta-shaped message object (<c>messages[]</c> of a Cloud webhook — YCloud's
+    /// <c>whatsappInboundMessage</c> has the same per-type shape) → our inbound record;
+    /// null when it is not a customer message (a reaction, a system notice) or is empty.
+    /// The overrides carry what a BSP names differently (YCloud's <c>from</c> is "+…",
+    /// its time is <c>sendTime</c>, its media carry a download <c>link</c>).
+    /// </summary>
+    public static CloudInbound? ParseMessage(JsonElement msg, string pnid, string? name, string? fromOverride = null,
+        string? idOverride = null, DateTime? tsOverride = null, bool mediaByLink = false)
+    {
+        var type = MetaGraph.Str(msg, "type");
+        var from = fromOverride ?? MetaGraph.Str(msg, "from");
+        var wamid = idOverride ?? MetaGraph.Str(msg, "id");
+        if (from.Length == 0) return null;
+        var ts = tsOverride ?? UnixSeconds(msg, "timestamp");
+        string text = "", mediaId = "", mime = "", filename = "";
+        switch (type)
+        {
+            case "text":
+                text = msg.TryGetProperty("text", out var tx) ? MetaGraph.Str(tx, "body") : "";
+                break;
+            case "button": // quick-reply tap on a template
+                text = msg.TryGetProperty("button", out var btn) ? MetaGraph.Str(btn, "text") : "";
+                break;
+            case "interactive":
+                if (msg.TryGetProperty("interactive", out var ia))
+                    foreach (var k in new[] { "button_reply", "list_reply", "nfm_reply" })
+                        if (ia.TryGetProperty(k, out var r))
+                        {
+                            text = MetaGraph.Str(r, "title") is { Length: > 0 } title ? title : MetaGraph.Str(r, "body");
+                            break;
+                        }
+                break;
+            case "location":
+                if (msg.TryGetProperty("location", out var loc))
+                {
+                    var label = string.Join(", ", new[] { MetaGraph.Str(loc, "name"), MetaGraph.Str(loc, "address") }
+                        .Where(s => s.Length > 0));
+                    text = $"[location] {MetaGraph.Str(loc, "latitude")},{MetaGraph.Str(loc, "longitude")}"
+                           + (label.Length > 0 ? $" {label}" : "");
+                }
+                break;
+            case "contacts":
+                // the first shared card as "[contact] Name · +phone" (the bubble renders a card)
+                text = "[contact card]";
+                if (msg.TryGetProperty("contacts", out var cards) && cards.ValueKind == JsonValueKind.Array
+                    && cards.GetArrayLength() > 0 && cards[0].ValueKind == JsonValueKind.Object)
+                {
+                    var card = cards[0];
+                    var cardName = card.TryGetProperty("name", out var nm) ? MetaGraph.Str(nm, "formatted_name") : "";
+                    var cardPhone = card.TryGetProperty("phones", out var ph) && ph.ValueKind == JsonValueKind.Array
+                                    && ph.GetArrayLength() > 0 ? MetaGraph.Str(ph[0], "phone") : "";
+                    text = MessageCards.Contact(cardName, cardPhone);
+                }
+                break;
+            case "reaction": // CloudReactions — a reaction is never a bubble
+            case "system":
+            case "ephemeral":
+                return null; // not a customer message (and must not wake the AI)
+            default:
+                if (CloudMediaTypes.Contains(type) && msg.TryGetProperty(type, out var media))
+                {
+                    mediaId = mediaByLink && MetaGraph.Str(media, "link") is { Length: > 0 } link
+                        ? link : MetaGraph.Str(media, "id");
+                    mime = MetaGraph.Str(media, "mime_type");
+                    filename = MetaGraph.Str(media, "filename");
+                    var caption = MetaGraph.Str(media, "caption");
+                    // stickers are webp images in the bubble
+                    text = caption.Length > 0 ? caption : $"[{(type == "sticker" ? "sticker" : type)}]";
+                }
+                else
+                {
+                    text = $"[{(type.Length > 0 ? type : "message")}]";
+                }
+                break;
+        }
+        if (text.Length == 0) return null;
+        // a quoted reply carries the quoted wamid in context.id (a forward carries none)
+        var replyTo = msg.TryGetProperty("context", out var ctx) && ctx.ValueKind == JsonValueKind.Object
+            ? MetaGraph.Str(ctx, "id") : "";
+        return new CloudInbound(pnid, from, name, wamid, type, text, ts, mediaId, mime, filename, replyTo);
     }
 
     /// <summary>Inbound reactions (<c>type: reaction</c>, <c>reaction.message_id</c> + <c>emoji</c>).</summary>

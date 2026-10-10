@@ -6,8 +6,8 @@ another.
 
 > ## ⚠ Read this first: live, but not field-tested
 >
-> **Every channel has a live transport in the C# API** — WhatsApp (Cloud +
-> Baileys), Messenger/Instagram, Telegram, email, the website widget, SIP
+> **Every channel has a live transport in the C# API** — WhatsApp (Cloud,
+> YCloud, Twilio + Baileys), Messenger/Instagram, Telegram, email, the website widget, SIP
 > calls, and the newer LINE, Viber, SMS (Twilio), WeChat Official Account,
 > TikTok, Douyin and Zalo OA — and each falls back to sandbox (stored locally,
 > `status="sandbox"`) when it isn't configured. The provider clients are tested
@@ -40,6 +40,32 @@ another.
 | Health | ✅ Graph token ping (prober) + send / status / test results (`MetaErrors`), inbound heal | ✅ lifecycle pushes + inbound heal | — | ✅ getMe + getWebhookInfo, inbound heal | ✅ `GET /me` (prober, test), send results, inbound heal | ✅ SMTP login (prober), send outcomes |
 | Voice calls | ❌ (Cloud bridge removed; `call/start` → 501) | ✅ (ToS-violating) + recordings | — | — | — | — |
 | Auth on inbound | `X-Hub-Signature-256`, **required once any Cloud account is configured** | `X-Baileys-Secret` | anonymous by design (session id) | bot token in path (constant time) + `X-Telegram-Bot-Api-Secret-Token` once registered from the dashboard | `X-Hub-Signature-256`, **always required** | n/a (we pull over IMAP) |
+
+**WhatsApp through a Business Solution Provider** — YCloud and Twilio are
+OFFICIAL business numbers like Cloud (templates, the 24h window, the `reminder`
+role by default; `Channels/WhatsAppBsp/WhatsAppProviders.cs` is the one place
+that knows what each provider means, `WhatsAppClientRouter` sends every
+`IWhatsAppCloudClient` call to the account's provider). One signed webhook per
+ACCOUNT, `/api/messaging/webhook/whatsapp-{ycloud,twilio}/{account_id}`
+(`Endpoints/WhatsAppBspWebhookEndpoints.cs`; no secret ⇒ 503, bad signature ⇒
+401, unknown account ⇒ 404). **Both are built to the providers' public API
+docs and tested against fakes only — unverified against the live APIs.**
+
+| | WhatsApp (YCloud) | WhatsApp (Twilio) |
+|---|---|---|
+| Credentials | API key (`X-API-Key`), the business number (E.164), optional WABA id, the webhook endpoint's signing secret | Account SID + Auth Token (or an API Key SID + secret for REST), the `whatsapp:+…` sender or a Messaging Service SID |
+| Receive | `whatsapp.inbound_message.received` — Meta's message shape: text, media (downloaded off the ack from YCloud's `link`, the API key only ever sent to `*.ycloud.com`), location, buttons / interactive, contacts; YCloud's `sendTime` keeps the 24h window honest | the incoming-message form: `Body`, `MediaUrl{n}` (fetched with Basic auth off the ack), location, `ButtonText`; no provider timestamp (receipt time) |
+| Send text | `POST /v2/whatsapp/messages/sendDirectly` | `POST /2010-04-01/Accounts/{sid}/Messages.json` |
+| Templates | real template messages; live registry (list / create / edit / delete) with a WABA id | Content templates by `ContentSid` + `ContentVariables`; the Content API list is READ-ONLY here (create them in Twilio's Content Template Builder → 409 from our editor) |
+| Send media | upload → send by id; a refused upload falls back to a signed public link | Twilio fetches the file: a signed, 6-hour public link `GET /api/media/public/{token}` (`MediaLinks`) — needs `public_base_url` to be a public https address, else an honest failure |
+| Delivery receipts | `whatsapp.message.updated` (forward-only; Meta's error code → `MetaErrors`) | `MessageStatus` on the same URL (a per-message `StatusCallback` is stamped when the API knows its public address); Twilio error codes mapped to Meta's (63016 = window closed, 20003 = auth) |
+| Quoted replies | ✅ both ways (`context`) | in (`OriginalRepliedMessageSid`); our replies go unquoted |
+| Reactions | ✅ both ways | in (never a bubble); out refused (409) — Twilio's API has none |
+| Typing / read | ✅ `inboundMessages/{wamid}/typingIndicator` | — (none in Twilio's API) |
+| 24h window | ✅ enforced like Cloud (409 → use a template) | ✅ enforced like Cloud |
+| Health (Test + prober) | the number's profile (`phoneNumbers/{waba}/{phone}`) else `GET /balance` | `GET /Accounts/{sid}.json` (suspended / closed → health) |
+| Auth on inbound | `YCloud-Signature: t=…,s=…` (hex HMAC-SHA256 of `t.body`, 5-min window) | `X-Twilio-Signature` (the Auth Token — an API-key-only account cannot receive) |
+| Voice calls | ❌ (`call/start` → 501) | ❌ (`call/start` → 501) |
 
 **Newer channels** — one webhook per ACCOUNT,
 `/api/messaging/webhook/{channel}/{account_id}`; no secret configured ⇒ 503,
@@ -143,6 +169,20 @@ outbound queue are already channel-blind.
   `Thread.UpdatedAt`. Our reaction (`POST /api/messaging/threads/whatsapp/{key}/messages/{pk}/react`)
   is a `type: reaction` message — Meta refuses one outside the 24h window, so the
   route answers 409 first.
+
+### WhatsApp through YCloud / Twilio
+- Add them from Channels → "WhatsApp via YCloud" / "WhatsApp via Twilio"; the
+  test step shows the account's own webhook URL to paste into the provider.
+  YCloud's signing secret only exists once you create the endpoint with that
+  URL, so the order is: save → paste the URL in YCloud → copy its secret back
+  into step 2. Until then inbound is refused (503), never accepted unsigned.
+- They never touch Meta's `/api/whatsapp/webhook`: that route and the Meta
+  app-secret list only look at `provider = cloud` rows (a YCloud row's
+  `app_secret` is its webhook secret, not a Meta credential).
+- Routing treats every OFFICIAL number alike: `RouteNeed.Template` asks for
+  `WhatsAppProviders.AnyOfficial` (cloud / ycloud / twilio), never Baileys.
+- Twilio takes media by URL only. The signed link names one stored file for 6
+  hours (key in Setting `media_link_secret`) and resolves under the media root.
 
 ### WhatsApp over Baileys
 - Unofficial WhatsApp Web protocol. **Violates WhatsApp's ToS**; dev/demo only.

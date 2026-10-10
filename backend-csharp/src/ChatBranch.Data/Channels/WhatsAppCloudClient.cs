@@ -93,7 +93,18 @@ public interface IWhatsAppCloudClient
     /// <summary>GET /{phone_number_id} — display number, verified name, quality rating.</summary>
     Task<GraphRead> GetPhoneNumberAsync(ChannelAccount account, CancellationToken ct = default) =>
         Task.FromResult(new GraphRead(false, default, "number lookup is not supported"));
+
+    /// <summary>
+    /// A Business Solution Provider's own liveness probe (YCloud, Twilio — the health
+    /// checker and the account Test use it); null = not a BSP account, Meta's Graph
+    /// ping applies (<see cref="IGraphHealthProbe"/>).
+    /// </summary>
+    Task<BspProbe?> ProbeBspAsync(ChannelAccount account, CancellationToken ct = default) =>
+        Task.FromResult<BspProbe?>(null);
 }
+
+/// <summary>What a BSP probe learned: the health verdict plus what the account Test shows.</summary>
+public sealed record BspProbe(ProbeVerdict Verdict, string Number = "", string Name = "", string Quality = "");
 
 /// <summary>Shared Graph plumbing for the WhatsApp Cloud and Messenger/Instagram clients.</summary>
 public static class MetaGraph

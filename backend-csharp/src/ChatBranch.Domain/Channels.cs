@@ -10,7 +10,7 @@ public class ChannelAccount : IEntityScoped
     public int? EntityId { get; set; }               // null = global (org-wide)
     public Entity? Entity { get; set; }
     public string Channel { get; set; } = "";        // whatsapp|facebook|instagram|telegram|email
-    public string Provider { get; set; } = "cloud";  // cloud|baileys
+    public string Provider { get; set; } = "cloud";  // whatsapp: cloud|baileys|ycloud|twilio
     public string Name { get; set; } = "";
     public string ExternalId { get; set; } = "";     // phone_number_id / page id
     public string WabaId { get; set; } = "";

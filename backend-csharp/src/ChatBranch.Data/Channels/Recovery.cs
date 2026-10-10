@@ -96,7 +96,7 @@ public static class Recovery
         var routing = new Routing(db, sc);
         if (routing.Eligible(ChatBranch.Domain.Channels.WhatsApp, RouteNeed.Template, account.EntityId).Count == 0)
             return new Result(0, 0, affected.Count,
-                "No healthy reminder (Cloud API) account to carry the recovery template — "
+                "No healthy reminder (official business: Cloud API, YCloud or Twilio) account to carry the recovery template — "
                 + "reconnect one under Channels.");
 
         var now = DateTime.UtcNow;
