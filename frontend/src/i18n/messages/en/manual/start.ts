@@ -162,23 +162,23 @@ export const start = {
       },
       s3: {
         title: 'Pick a theme',
-        body: 'Under “Theme”, click one of the three cards: “Paper & Ink” (warm paper, the default), “Graphite Pro” (neutral and compact) or “Soft Blocks” (pastel and round). The app changes straight away — there is no Save button.',
+        body: 'Under “Theme”, click one of the ten cards — for example “Paper & Ink” (warm paper, the default), “Ocean”, “Midnight” (great in dark mode) or “High contrast” (the easiest to read). Each card shows a small preview. The app changes straight away — there is no Save button.',
       },
       s4: {
         title: 'Choose light or dark',
         body: 'Under “Mode”, click “Light”, “Dark” or “System”. “System” follows your computer or phone setting, switching to dark at night if your device does.',
       },
       s5: {
-        title: 'Pick an accent colour (optional)',
-        body: 'Under “Accent colour”, click one of the colour dots, or “Theme default” to go back. ChatBranch adjusts it slightly so text stays easy to read.',
+        title: 'Make text bigger or smaller',
+        body: 'Under “Text size”, click S, M, L or XL, or drag the slider to any size between 85 % and 130 %. Everything on screen grows or shrinks — try L if the text feels small.',
       },
       s6: {
-        title: 'Make text bigger or smaller',
-        body: 'Under “Text size”, click S, M, L or XL. Everything on screen grows or shrinks — try L if the text feels small.',
+        title: 'Pick an accent colour (optional)',
+        body: 'Click “Advanced settings” to open it. Under “Accent colour”, click one of the colour dots, or “Theme default” to go back. ChatBranch adjusts it slightly so text stays easy to read.',
       },
       s7: {
-        title: 'Extra touches (optional)',
-        body: '“Corners” (Theme, Sharp, Round) and “Heading font” (Theme, Serif, Sans) change the finer details. The preview card at the top shows how it looks.',
+        title: 'Fonts, spacing and layout (optional)',
+        body: 'Also in “Advanced settings”: “Typography” (body font, heading font, line height), “Spacing” (density, page width, page margins, card padding), “Layout” (sidebar on the left or right, or a top bar — computers only) and “Details” (corners, card style, motion). The preview card at the top shows how it looks.',
       },
       s8: {
         title: 'Switch light/dark quickly',
@@ -186,7 +186,7 @@ export const start = {
       },
       s9: {
         title: 'Start again if you don’t like it',
-        body: 'At the bottom of the Appearance page, click “Reset to default” to go back to the organization’s look (or Paper & Ink, light).',
+        body: 'At the bottom of the Appearance page, click “Reset to organization default” (or “Reset to default” when your organization has none) to go back to the organization’s look (or Paper & Ink, light).',
       },
     },
     done: 'The dashboard shows your chosen language and colours, and they are still there after you sign in on another device.',

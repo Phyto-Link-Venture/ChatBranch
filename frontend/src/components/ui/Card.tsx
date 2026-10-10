@@ -1,6 +1,8 @@
 import type { CSSProperties, ReactNode } from 'react'
 
-/** A paper card: hairline rule, the theme's card surface, theme radius. */
+/** A paper card: hairline rule, the theme's card surface, theme radius.
+ *  `ui-card` lets Settings → Appearance scale its padding (--card-pad) and
+ *  swap the hairline for a stronger rule or a shadow (globals.css). */
 export function Card({
   children,
   className = '',
@@ -14,7 +16,7 @@ export function Card({
   'data-tour'?: string
 }) {
   return (
-    <div data-tour={tour} className={`rounded-xl border border-line bg-card ${className}`} style={style}>
+    <div data-tour={tour} className={`ui-card rounded-xl border border-line bg-card ${className}`} style={style}>
       {children}
     </div>
   )

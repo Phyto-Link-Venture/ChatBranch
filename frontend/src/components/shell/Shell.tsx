@@ -5,10 +5,11 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Menu, MessageSquare, TrendingUp, Users } from 'lucide-react'
 import { getAuth, logout, refreshIdentity, type AuthUser } from '@/lib/auth'
-import { syncAppearanceFromServer } from '@/lib/theme'
+import { storedAppearance, syncAppearanceFromServer, type Appearance } from '@/lib/theme'
 import { useEntityQuery } from '@/lib/EntityContext'
 import { SideNav } from './SideNav'
 import { TopBar } from './TopBar'
+import { TopNav } from './TopNav'
 import { CommandPalette } from './CommandPalette'
 import { HOME, canSee, firstVisibleHref, isActive, NAV_GROUPS, routeDef } from './nav'
 import { RouteGuard } from './RouteGuard'
@@ -28,7 +29,10 @@ import { TourProvider } from '@/components/tour/TourProvider'
  *
  * The root applies the user's text-size setting: `zoom: var(--ui-zoom)` (set
  * by lib/theme.ts) with the height divided by the same factor, so the shell
- * still fills exactly one viewport at any size.
+ * still fills exactly one viewport at any size. The page column's margins and
+ * width cap come from `.shell-content` (globals.css, --gutter / --content-max);
+ * the sidebar's side and the desktop top-navigation layout are pure CSS on
+ * <html data-nav-side / data-nav> so they apply before first paint.
  *
  * Below lg the rail becomes an off-canvas drawer and a bottom tab bar (Home ·
  * Chats · Contacts · More) takes over primary navigation, as on the phone
@@ -63,10 +67,26 @@ export function Shell({ children }: { children: ReactNode }) {
   const [assistantOpen, setAssistantOpen] = useState(false)
 
   useEffect(() => {
+    // The rail's state: this browser's own toggle, else the appearance
+    // preference "sidebar starts collapsed" (Settings → Appearance).
+    let navStart = storedAppearance()?.navStart ?? 'expanded'
     try {
-      setCollapsed(localStorage.getItem('nav-collapsed') === '1')
+      const own = localStorage.getItem('nav-collapsed')
+      setCollapsed(own === null ? navStart === 'collapsed' : own === '1')
     } catch {
       /* ignore */
+    }
+    // Changing that preference applies it now (and drops the browser's toggle).
+    const onAppearance = (e: Event) => {
+      const next = (e as CustomEvent<Appearance>).detail?.navStart
+      if (!next || next === navStart) return
+      navStart = next
+      setCollapsed(next === 'collapsed')
+      try {
+        localStorage.removeItem('nav-collapsed')
+      } catch {
+        /* ignore */
+      }
     }
     const onAuth = () => setUser(getAuth())
     // The browser chrome (installed app title bar, mobile address bar) takes
@@ -78,9 +98,11 @@ export function Shell({ children }: { children: ReactNode }) {
     tintChrome()
     window.addEventListener('auth-change', onAuth)
     window.addEventListener('appearance-change', tintChrome)
+    window.addEventListener('appearance-change', onAppearance)
     return () => {
       window.removeEventListener('auth-change', onAuth)
       window.removeEventListener('appearance-change', tintChrome)
+      window.removeEventListener('appearance-change', onAppearance)
     }
   }, [])
 
@@ -189,6 +211,8 @@ export function Shell({ children }: { children: ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="print-hide contents">
+        {/* desktop "top navigation" layout only — hidden by CSS otherwise */}
+        <TopNav user={user} onSignOut={() => void signOut()} />
         <TopBar
           user={user}
           onOpenMobileNav={() => setMobileNavOpen(true)}
@@ -206,7 +230,7 @@ export function Shell({ children }: { children: ReactNode }) {
               </RouteGuard>
             </div>
           ) : (
-            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-5 sm:px-7 sm:py-7">
+            <div className="shell-content flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
               <RouteGuard user={user} ready={authReady} pathname={pathname}>
                 {children}
               </RouteGuard>
