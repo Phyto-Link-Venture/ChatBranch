@@ -71,6 +71,16 @@ public static class AiReviewEndpoints
             if (limit < 1 || limit > AiReviewService.MaxLimit)
                 return Results.BadRequest(new { detail = $"limit must be between 1 and {AiReviewService.MaxLimit}." });
 
+            // optional reviewer for THIS run only ("provider:model" or a bare OpenRouter id);
+            // it must name a configured provider — never a silent fallback to another vendor
+            string? model = null;
+            if (Str(body, "model") is { } rawModel && rawModel.Trim().Length > 0)
+            {
+                var (canonical, modelError) = review.CheckModel(rawModel);
+                if (modelError != null) return Results.BadRequest(new { detail = modelError });
+                model = canonical;
+            }
+
             var (entityId, entityIds, err) = await RunScope(db, sc, me, Str(body, "entity"));
             if (err != null) return err;
             // AI usage quotas: the reviewer's calls are AI spend — the caller's own
@@ -94,12 +104,13 @@ public static class AiReviewEndpoints
                 run = review.Start(new AiReviewRequest
                 {
                     From = fromAt, To = toAt, EntityId = entityId, EntityIds = entityIds, Limit = limit,
-                    CreatedBy = me.Identity?.Name ?? "",
+                    CreatedBy = me.Identity?.Name ?? "", Model = model,
                 });
             }
             finally { StartLock.Release(); }
             AuditTrail.Write(db, "ai.review.run", $"ai_review:{run.Id}",
-                $"Reviewing up to {run.Limit} AI replies from {fromAt:yyyy-MM-dd} to {toAt:yyyy-MM-dd} ({run.Mode})",
+                $"Reviewing up to {run.Limit} AI replies from {fromAt:yyyy-MM-dd} to {toAt:yyyy-MM-dd} ({run.Mode}"
+                + (run.Model.Length > 0 ? $", {run.Provider}:{run.Model}" : "") + ")",
                 entityId: entityId);
 
             // the work runs in its own DI scope, outside the request's ambient context
@@ -150,6 +161,67 @@ public static class AiReviewEndpoints
                 running = rows.Any(r => r.Status == AiReviewStatus.Running),
             });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability(MonitorCap, BehaviourCap);
+
+        // the reviewer picker: configured providers (never keys) with suggested
+        // reviewer models, the current default and whether the caller may change it
+        app.MapGet("/api/ai/review/options", async (AppDbContext db, ClaimsPrincipal me, ILlmClient llm,
+            AiReviewService review) =>
+        {
+            var configured = AiProviderChoices.Configured(llm);
+            var (raw, source) = review.ConfiguredSource();
+            var (defProvider, defModel) = AiReviewService.ParseModel(raw);
+            var ids = OpenAiLlmClient.DefaultOrder
+                .Where(p => configured.Any(c => c.Id == p) || AiReviewService.SuggestedModels.ContainsKey(p)
+                            || p == defProvider)
+                .ToList();
+            var providers = ids.Select(p =>
+            {
+                var choice = configured.FirstOrDefault(c => c.Id == p);
+                var models = AiReviewService.SuggestedModels.TryGetValue(p, out var sm)
+                    ? sm.ToList()
+                    : choice != null ? new List<string> { choice.DefaultModel } : new List<string>();
+                // the current default is always pickable, even when it is not a suggestion
+                if (p == defProvider && defModel.Length > 0 && !models.Contains(defModel)) models.Insert(0, defModel);
+                return new
+                {
+                    id = p,
+                    label = AiProviderChoices.Label(p),
+                    configured = choice != null,
+                    models = models.Select(m => new
+                    {
+                        value = AiReviewService.Canonical(p, m),
+                        model = m,
+                        is_default = p == defProvider && m == defModel,
+                    }).ToList(),
+                };
+            }).ToList();
+            var reviewer = review.Reviewer();
+            return Results.Ok(new
+            {
+                providers,
+                @default = new
+                {
+                    value = AiReviewService.Canonical(defProvider, defModel),
+                    raw,
+                    provider = defProvider,
+                    label = AiProviderChoices.Label(defProvider),
+                    model = defModel,
+                    source,
+                    configured = configured.Any(c => c.Id == defProvider),
+                },
+                // what "the default" runs on right now (a fallback is named in the note)
+                reviewer = new
+                {
+                    mode = reviewer.Available ? AiReviewMode.Model : AiReviewMode.Heuristic,
+                    provider = reviewer.Provider,
+                    model = reviewer.Model,
+                    note = reviewer.Note,
+                },
+                can_set_default = await ShellScope.HasCapAsync(db, me, "settings.ai_keys.manage"),
+                setting_key = AiReviewService.ModelKey,
+                max_chars = AiReviewService.MaxModelChars,
+            });
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(BehaviourCap);
 
         app.MapGet("/api/ai/review/runs/{id:int}", async (int id, string? verdict, AppDbContext db, ScopingService sc,
             ClaimsPrincipal me) =>
@@ -385,6 +457,7 @@ public static class AiReviewEndpoints
         mode = r.Mode,
         provider = r.Provider,
         model = r.Model,
+        requested_model = r.RequestedModel,
         note = r.Note,
         error = r.Error,
         created_by = r.CreatedBy,

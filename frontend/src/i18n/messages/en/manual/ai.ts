@@ -358,7 +358,7 @@ export const ai = {
       t2: 'Pick one outlet in the entity switcher first to review only its conversations — a house rule is then added to that outlet.',
       t3: 'Each review costs AI tokens; it shows on the AI bill as “AI review”.',
     },
-    trouble: '“Automatic checks only”: no AI model is set up, so only simple checks ran — add a key in Settings → “AI keys & models”. “A review is already running”: wait for it to finish. The reviewer named is not the one you expected: OpenRouter is not configured, so the normal chat model reviewed; change “AI reviewer model” in Settings → “AI keys & models” → Advanced settings.',
+    trouble: '“Automatic checks only”: no AI model is set up, so only simple checks ran — add a key in Settings → “AI keys & models”. “A review is already running”: wait for it to finish. The reviewer named is not the one you expected: OpenRouter is not configured, so the normal chat model reviewed; pick another model in “Reviewer model” next to “Review now” (models of a provider with no key are greyed out), or change the default with “Make this the default” there or “AI reviewer model” in Settings → “AI keys & models” → Advanced settings.',
   },
 
   aiSkills: {

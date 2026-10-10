@@ -277,7 +277,18 @@ public static partial class ToolCatalog
                 A.Int("days", "Instead of from: how many days back from 'to' (default 7).", min: 1, max: 366),
                 A.Entity("Entity (outlet) slug, or a comma list — includes branches. Omit for every entity you can see."),
                 A.Int("limit", "How many replies to review (default 30, max 100).", min: 1, max: 100),
+                A.Str("model", "The reviewer model for THIS run only: provider:model (e.g. openai:gpt-5, " +
+                    "openrouter:anthropic/claude-opus-5.5) or a bare OpenRouter id. The provider must be configured " +
+                    "(else an error) — ai_review_get_options lists them. Omit for the default (Setting ai_reviewer_model)."),
             }, outside: true, link: (_, _) => Page("Open the AI review", "/ai-monitor?tab=ai-review"));
+
+        yield return T(g, "ai_review_get_options", "List AI reviewer models",
+            "The reviewer models a run can use: each provider (configured or not — never a key) with suggested " +
+            "reviewer models as provider:model values, the current default (Setting ai_reviewer_model, env " +
+            "AI_REVIEWER_MODEL or the built-in) and what the default runs on right now. Pass a value as 'model' to " +
+            "ai_review_run.",
+            "GET", "/api/ai/review/options", behaviour, Array.Empty<ToolArg>(),
+            link: (_, _) => Page("Open the AI review", "/ai-monitor?tab=ai-review"));
 
         yield return T(g, "ai_review_list_runs", "List AI review runs",
             "The last AI review runs you can see (period, model or heuristic mode, replies reviewed, issues found, " +

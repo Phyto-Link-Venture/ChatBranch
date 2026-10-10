@@ -480,6 +480,119 @@ public class AiReviewTests : IClassFixture<ReviewFactory>
     }
 
     [Fact]
+    public async Task A_per_run_model_is_used_for_that_run_only_and_recorded()
+    {
+        Models("openrouter", "openai");
+        ScriptReviewer();
+        var ent = Entity("review-pick");
+        Reply("60177000901", ent, "Do you deliver on Sunday?", "Yes, always.");
+        var admin = await Admin();
+
+        // OpenAI's gpt-5 for this run, though the default is Claude on OpenRouter
+        var body = await Ok(await admin.PostAsJsonAsync("/api/ai/review",
+            new { entity = "review-pick", limit = 5, model = "openai:gpt-5" }));
+        var run = body.GetProperty("run");
+        Assert.Equal("done", run.GetProperty("status").GetString());
+        Assert.Equal("model", run.GetProperty("mode").GetString());
+        Assert.Equal("openai", run.GetProperty("provider").GetString());
+        Assert.Equal("gpt-5", run.GetProperty("model").GetString());
+        Assert.Equal("openai:gpt-5", run.GetProperty("requested_model").GetString());
+        Assert.Equal("", run.GetProperty("note").GetString());
+        var call = _f.Chat.Calls.Last(c => c.System.Contains("senior quality reviewer"));
+        Assert.Equal("api.openai.com", call.Host);
+        Assert.Equal("gpt-5", call.Model);
+        var id = run.GetProperty("id").GetInt32();
+        Assert.Equal("openai:gpt-5", With(db => db.AiReviewRuns.AsNoTracking().First(r => r.Id == id).RequestedModel));
+        var list = await Ok(await admin.GetAsync("/api/ai/review/runs"));
+        Assert.Equal("openai:gpt-5", list.GetProperty("runs").EnumerateArray()
+            .First(r => r.GetProperty("id").GetInt32() == id).GetProperty("requested_model").GetString());
+
+        // a bare OpenRouter id works too; the stored default is untouched
+        run = (await Ok(await admin.PostAsJsonAsync("/api/ai/review",
+            new { entity = "review-pick", limit = 5, model = "anthropic/claude-opus-5.5" }))).GetProperty("run");
+        Assert.Equal("openrouter", run.GetProperty("provider").GetString());
+        Assert.Equal("anthropic/claude-opus-5.5", run.GetProperty("model").GetString());
+        Assert.Equal("openrouter:anthropic/claude-opus-5.5", run.GetProperty("requested_model").GetString());
+        Assert.Equal("anthropic/claude-opus-5.5", _f.Chat.Calls.Last(c => c.System.Contains("senior quality reviewer")).Model);
+        Assert.Equal("", With(db => new ScopingService(db).SettingValue(AiReviewService.ModelKey)));
+
+        // no model = the default, recorded as ""
+        run = (await Ok(await admin.PostAsJsonAsync("/api/ai/review", new { entity = "review-pick", limit = 5 })))
+            .GetProperty("run");
+        Assert.Equal(AiReviewService.DefaultModel, run.GetProperty("model").GetString());
+        Assert.Equal("", run.GetProperty("requested_model").GetString());
+    }
+
+    [Fact]
+    public async Task A_model_on_an_unconfigured_provider_is_a_400_and_starts_nothing()
+    {
+        Models("openrouter");
+        var admin = await Admin();
+        var before = With(db => db.AiReviewRuns.Count());
+        foreach (var model in new[] { "google:gemini-2.5-pro", "openai:gpt-5", "openai:", "open ai gpt" })
+        {
+            var res = await admin.PostAsJsonAsync("/api/ai/review", new { limit = 5, model });
+            Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+            var detail = JsonDocument.Parse(await res.Content.ReadAsStringAsync()).RootElement.GetProperty("detail").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(detail));
+        }
+        var unconfigured = await admin.PostAsJsonAsync("/api/ai/review", new { limit = 5, model = "google:gemini-2.5-pro" });
+        Assert.Contains("Google Gemini isn't configured",
+            JsonDocument.Parse(await unconfigured.Content.ReadAsStringAsync()).RootElement.GetProperty("detail").GetString());
+        Assert.Equal(before, With(db => db.AiReviewRuns.Count()));
+    }
+
+    [Fact]
+    public async Task The_reviewer_options_list_providers_without_keys_and_are_gated()
+    {
+        Models("openrouter", "ilmu");
+        var admin = await Admin();
+        var res = await admin.GetAsync("/api/ai/review/options");
+        var text = await res.Content.ReadAsStringAsync();
+        Assert.True(res.IsSuccessStatusCode, text);
+        Assert.DoesNotContain("sk-test-", text); // never a key
+        var o = JsonDocument.Parse(text).RootElement;
+        var providers = o.GetProperty("providers").EnumerateArray().ToDictionary(p => p.GetProperty("id").GetString()!);
+        Assert.True(providers["openrouter"].GetProperty("configured").GetBoolean());
+        Assert.True(providers["ilmu"].GetProperty("configured").GetBoolean());
+        Assert.False(providers["openai"].GetProperty("configured").GetBoolean());
+        Assert.False(providers["google"].GetProperty("configured").GetBoolean());
+        var orModels = providers["openrouter"].GetProperty("models").EnumerateArray()
+            .Select(m => m.GetProperty("value").GetString()).ToList();
+        Assert.Equal($"openrouter:{AiReviewService.DefaultModel}", orModels[0]);
+        Assert.Contains("openrouter:anthropic/claude-opus-5.5", orModels);
+        Assert.Contains("openrouter:openai/gpt-5", orModels);
+        Assert.Contains("openrouter:google/gemini-2.5-pro", orModels);
+        Assert.Equal("google:gemini-2.5-pro", providers["google"].GetProperty("models")[0].GetProperty("value").GetString());
+        Assert.Equal("openai:gpt-5", providers["openai"].GetProperty("models")[0].GetProperty("value").GetString());
+        var def = o.GetProperty("default");
+        Assert.Equal($"openrouter:{AiReviewService.DefaultModel}", def.GetProperty("value").GetString());
+        Assert.Equal("builtin", def.GetProperty("source").GetString());
+        Assert.False(o.GetProperty("can_set_default").GetBoolean()); // admin lacks settings.ai_keys.manage
+
+        // a stored default shows up as the default (and is pickable even when not a suggestion)
+        Set(AiReviewService.ModelKey, "openrouter:x-ai/grok-5");
+        try
+        {
+            var su = await Platform.As(_f, "superadmin", "super123");
+            var o2 = await Ok(await su.GetAsync("/api/ai/review/options"));
+            Assert.Equal("setting", o2.GetProperty("default").GetProperty("source").GetString());
+            Assert.Equal("x-ai/grok-5", o2.GetProperty("default").GetProperty("model").GetString());
+            Assert.True(o2.GetProperty("can_set_default").GetBoolean());
+            Assert.Contains(o2.GetProperty("providers").EnumerateArray().First(p => p.GetProperty("id").GetString() == "openrouter")
+                .GetProperty("models").EnumerateArray(), m => m.GetProperty("is_default").GetBoolean()
+                && m.GetProperty("model").GetString() == "x-ai/grok-5");
+        }
+        finally { Set(AiReviewService.ModelKey, ""); }
+
+        // gated like starting a run: an agent (ai.monitor only) is refused
+        var agent = await Agent();
+        Assert.Equal(HttpStatusCode.Forbidden, (await agent.GetAsync("/api/ai/review/options")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await agent.PostAsJsonAsync("/api/ai/review", new { limit = 5, model = "openrouter:openai/gpt-5" })).StatusCode);
+    }
+
+    [Fact]
     public async Task Dates_far_outside_the_products_life_are_a_400()
     {
         var admin = await Admin();
