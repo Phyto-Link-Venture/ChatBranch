@@ -53,7 +53,7 @@ export interface NavDef {
 }
 
 export interface NavGroup {
-  /** Translation key; undefined = the ungrouped head of the list (Analytics, Notifications). */
+  /** Translation key; undefined = the ungrouped head of the list (Dashboard, Notifications). */
   label?: MessageKey
   items: NavDef[]
 }
@@ -69,7 +69,7 @@ const ADMINS = ['superadmin', 'admin']
 export const NAV_GROUPS: NavGroup[] = [
   {
     items: [
-      { href: '/analytics', lbl: 'shell.nav.analytics', Icon: TrendingUp, cap: 'analytics.view', keywords: 'home dashboard overview reports' },
+      { href: '/dashboard', lbl: 'shell.nav.dashboard', Icon: TrendingUp, cap: 'analytics.view', keywords: 'home dashboard overview reports' },
       { href: '/notifications', lbl: 'shell.nav.notifications', Icon: Bell, counter: 'notifications', keywords: 'alerts bell inbox' },
     ],
   },
@@ -142,7 +142,7 @@ export const SETTINGS_NAV: NavDef = {
 }
 
 /** Where "home" is: the post-login landing page and the phone tab bar's Home. */
-export const HOME = '/analytics'
+export const HOME = '/dashboard'
 
 /**
  * Capability gate: `cap` when the session carries a resolved capability list;

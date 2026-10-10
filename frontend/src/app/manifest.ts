@@ -9,7 +9,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: 'ChatBranch',
     short_name: 'ChatBranch',
     description: 'One inbox for WhatsApp, email, social, web chat and voice — with AI that helps.',
-    start_url: '/analytics',
+    start_url: '/dashboard',
     scope: '/',
     display: 'standalone',
     orientation: 'any',

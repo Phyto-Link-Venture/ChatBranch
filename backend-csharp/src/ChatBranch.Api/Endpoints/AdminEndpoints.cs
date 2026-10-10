@@ -53,7 +53,7 @@ public static class AdminEndpoints
         ("templates.manage", "Library", "Manage message templates"),
         ("script_templates.manage", "Library", "Manage script templates"),
         ("notifications.manage", "Settings", "Manage organization notification defaults"),
-        ("analytics.view", "Review", "View analytics"),
+        ("analytics.view", "Review", "View dashboard"),
         ("call_logs.view", "Review", "View call logs"),
         ("activity.view", "Review", "View activity log"),
         ("settings.ai.manage", "Settings", "Manage AI configuration"),

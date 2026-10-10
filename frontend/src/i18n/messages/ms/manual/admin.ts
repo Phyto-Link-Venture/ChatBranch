@@ -129,7 +129,7 @@ export const admin: Dict<typeof source> = {
       },
       s6: {
         title: 'Ketahui apa yang kekal bagi setiap cawangan',
-        body: 'Kenalan, perbualan, draf AI dan analitik dimiliki oleh satu cawangan sahaja. Syarikat melihat semua perbualan cawangannya; cawangan tidak pernah melihat milik syarikat atau cawangan lain. Kata laluan dan kunci penyedia sentiasa untuk seluruh organisasi.',
+        body: 'Kenalan, perbualan, draf AI dan angka papan pemuka dimiliki oleh satu cawangan sahaja. Syarikat melihat semua perbualan cawangannya; cawangan tidak pernah melihat milik syarikat atau cawangan lain. Kata laluan dan kunci penyedia sentiasa untuk seluruh organisasi.',
       },
       s7: {
         title: 'Sambungkan nombor kepada cawangan',

@@ -3,7 +3,7 @@ import type { Dict } from '../../types'
 
 export const shell: Dict<typeof source> = {
   nav: {
-    analytics: 'Analitik',
+    dashboard: 'Papan pemuka',
     notifications: 'Pemberitahuan',
     chats: 'Sembang',
     contacts: 'Kenalan',

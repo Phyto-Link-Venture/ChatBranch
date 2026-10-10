@@ -25,8 +25,8 @@ export const start: Dict<typeof source> = {
         body: 'Butang menjadi aktif sebaik kedua-dua kotak diisi. Satu pemutar kecil muncul sementara ChatBranch menyemak butiran anda.',
       },
       s5: {
-        title: 'Anda tiba di Analitik',
-        body: 'Analitik ialah laman utama: ringkasan perbualan, panggilan dan AI untuk beberapa hari lepas. Jika peranan anda tidak boleh melihat Analitik, anda dibawa ke halaman pertama yang dibenarkan (selalunya Sembang).',
+        title: 'Anda tiba di Papan pemuka',
+        body: 'Papan pemuka ialah laman utama: ringkasan perbualan, panggilan dan AI untuk beberapa hari lepas. Jika peranan anda tidak boleh melihat Papan pemuka, anda dibawa ke halaman pertama yang dibenarkan (selalunya Sembang).',
       },
       s6: {
         title: 'Ikut (atau langkau) panduan halaman',
@@ -45,7 +45,7 @@ export const start: Dict<typeof source> = {
         body: 'Di bahagian bawah bar sisi, di sebelah nama dan peranan anda, klik ikon pintu dengan anak panah (“Log keluar”). Pada telefon, ketik “Lagi” dahulu untuk membuka menu. Sentiasa log keluar pada komputer yang dikongsi.',
       },
     },
-    done: 'Anda nampak nama dan peranan anda di bahagian bawah kiri bar sisi dan halaman Analitik di tengah skrin.',
+    done: 'Anda nampak nama dan peranan anda di bahagian bawah kiri bar sisi dan halaman Papan pemuka di tengah skrin.',
     tips: {
       t1: 'Selepas log masuk, tukar bahasa anda secara kekal di Tetapan → Rupa — ia akan mengikut anda ke mana-mana peranti.',
       t2: 'Tandakan alamat ini, atau pada telefon gunakan “Pasang aplikasi” di bahagian bawah menu untuk mendapatkan ikon ChatBranch di skrin utama.',
@@ -60,7 +60,7 @@ export const start: Dict<typeof source> = {
     steps: {
       s1: {
         title: 'Lihat bar sisi',
-        body: 'Di sebelah kiri ialah bar sisi. Di atas sekali ada “Analitik” dan “Pemberitahuan”, diikuti kumpulan: “Kerja” (Sembang, Kenalan, Tempahan…), “Automasi”, “Pustaka”, “Saluran”, “Pentadbiran” dan “Semakan”. Anda hanya nampak halaman yang dibenarkan oleh peranan anda.',
+        body: 'Di sebelah kiri ialah bar sisi. Di atas sekali ada “Papan pemuka” dan “Pemberitahuan”, diikuti kumpulan: “Kerja” (Sembang, Kenalan, Tempahan…), “Automasi”, “Pustaka”, “Saluran”, “Pentadbiran” dan “Semakan”. Anda hanya nampak halaman yang dibenarkan oleh peranan anda.',
       },
       s2: {
         title: 'Lipat kumpulan yang jarang digunakan',

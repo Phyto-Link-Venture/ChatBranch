@@ -43,16 +43,16 @@ const SETTINGS_TOURS = ['appearance', 'connections', 'ai-providers', 'billing']
 export const TOURS: TourDef[] = [
   {
     id: 'shell',
-    href: '/analytics',
+    href: '/dashboard',
     group: 'start',
     match: () => false, // started from the manual or the Guide menu, never automatically
     steps: steps('nav', 'search', 'entity-switcher', 'live-chip', 'assistant', 'guide'),
   },
   {
     id: 'analytics',
-    href: '/analytics',
+    href: '/dashboard',
     group: 'start',
-    match: exact('/analytics'),
+    match: exact('/dashboard'),
     steps: steps('page-header', 'analytics-range', 'analytics-kpis', ''),
   },
   {

@@ -41,7 +41,7 @@ export const admin = {
     templatesManage: 'Manage message templates',
     scriptTemplatesManage: 'Manage script templates',
     notificationsManage: 'Manage organization notification defaults',
-    analyticsView: 'View analytics',
+    analyticsView: 'View dashboard',
     callLogsView: 'View call logs',
     activityView: 'View activity log',
     settingsAiManage: 'Manage AI configuration',

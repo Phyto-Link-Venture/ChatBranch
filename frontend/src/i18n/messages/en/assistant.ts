@@ -36,7 +36,7 @@ export const assistant = {
       findContact: 'Find contact…',
       activity: 'Show recent activity',
       connectWhatsapp: 'How do I connect WhatsApp?',
-      analytics: 'Go to analytics',
+      analytics: 'Go to the dashboard',
     },
   },
   action: {

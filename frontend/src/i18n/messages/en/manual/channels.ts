@@ -493,7 +493,7 @@ export const channels = {
       },
       s4: {
         title: 'Check all of them at once',
-        body: 'Open “Analytics” (the home page). On the “Channel health” card, click “Check now” to check every account; “Manage” takes you back to the Inboxes page.',
+        body: 'Open “Dashboard” (the home page). On the “Channel health” card, click “Check now” to check every account; “Manage” takes you back to the Inboxes page.',
       },
       s5: {
         title: 'Fix a disconnected inbox',
@@ -519,6 +519,6 @@ export const channels = {
       t3: 'Saving new credentials resets the label to “Unknown” and checks again in the background — wait a moment or click “Test”.',
     },
     trouble:
-      'A card says “Not monitored”: that inbox has no live health check (for example the voice trunk) — use “Test” instead. A label stays “Unknown”: click “Check now” on Analytics. “Degraded” on Telegram, LINE or Viber: the webhook is not registered — open “Settings”, go to “Test and finish” and click “Register” again.',
+      'A card says “Not monitored”: that inbox has no live health check (for example the voice trunk) — use “Test” instead. A label stays “Unknown”: click “Check now” on the Dashboard. “Degraded” on Telegram, LINE or Viber: the webhook is not registered — open “Settings”, go to “Test and finish” and click “Register” again.',
   },
 }

@@ -2,7 +2,7 @@
 
 /**
  * "What is happening right now" — GET /api/live, shared by every consumer in
- * the tab (the top-bar Live chip, the sidebar's Chats counter, Analytics'
+ * the tab (the top-bar Live chip, the sidebar's Chats counter, the Dashboard's
  * "Waiting for a reply" card).
  *
  * Refreshes every 15 s AND immediately on every inbox `change` event from the

@@ -33,7 +33,7 @@ export const assistant: Dict<typeof source> = {
       findContact: '查找联系人…',
       activity: '显示最近的活动',
       connectWhatsapp: '如何连接 WhatsApp？',
-      analytics: '前往分析',
+      analytics: '前往仪表板',
     },
   },
   action: {

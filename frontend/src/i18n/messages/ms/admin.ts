@@ -43,7 +43,7 @@ export const admin: Dict<typeof source> = {
     templatesManage: 'Urus templat mesej',
     scriptTemplatesManage: 'Urus templat skrip',
     notificationsManage: 'Urus lalai pemberitahuan organisasi',
-    analyticsView: 'Lihat analitik',
+    analyticsView: 'Lihat papan pemuka',
     callLogsView: 'Lihat log panggilan',
     activityView: 'Lihat log aktiviti',
     settingsAiManage: 'Urus konfigurasi AI',
