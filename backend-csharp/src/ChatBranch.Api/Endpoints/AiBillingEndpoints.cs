@@ -238,7 +238,7 @@ public static class AiBillingEndpoints
         {
             var q = await QuotaScopeAsync(db, sc, me);
             AiQuota.Sweep(db, sc);   // the 80 % / 100 % warnings, once per scope per month
-            var snap = AiQuota.Current(db, sc);
+            var snap = AiQuota.Build(db, sc, DateTime.UtcNow, always: true);   // spend shows before any cap is set
             var entities = await db.Entities.AsNoTracking()
                 .Select(e => new { e.Id, e.ParentId, e.Name, e.Slug }).ToListAsync();
             var visible = entities.Where(e => q.ReadEntities == null || q.ReadEntities.Contains(e.Id)).ToList();
@@ -273,7 +273,7 @@ public static class AiBillingEndpoints
                 can_edit = q.Manager || q.CanEditBranches,
                 entities = ordered.Select(o =>
                 {
-                    var s = snap.Config.IsEmpty ? null : snap.EntityStatus(o.Id);
+                    var s = snap.EntityStatus(o.Id);
                     var e = byId[o.Id];
                     return new
                     {

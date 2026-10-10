@@ -196,12 +196,14 @@ public static class AiQuota
         catch { return "default"; }
     }
 
-    public static Snapshot Build(AppDbContext db, ScopingService sc, DateTime nowUtc)
+    /// <param name="always">price the month even with no caps set (the quotas page shows spend
+    /// before anyone sets a cap); enforcement leaves it off so an uncapped org queries nothing</param>
+    public static Snapshot Build(AppDbContext db, ScopingService sc, DateTime nowUtc, bool always = false)
     {
         var month = AiBilling.MonthKey(nowUtc);
         var config = LoadConfig(sc);
         var terms = AiBilling.Load(sc).TermsFor(month);
-        if (config.IsEmpty)
+        if (config.IsEmpty && !always)
             return new Snapshot { BuiltAt = nowUtc, Month = month, Currency = terms.Currency, Config = config };
 
         var entities = db.Entities.AsNoTracking()
