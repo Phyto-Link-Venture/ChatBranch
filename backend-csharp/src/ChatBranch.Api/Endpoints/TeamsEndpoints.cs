@@ -21,12 +21,15 @@ public static class TeamsEndpoints
     public static void MapTeamsEndpoints(this IEndpointRouteBuilder app)
     {
         // ---- list -----------------------------------------------------------
-        app.MapGet("/api/teams", async (string? entity, AppDbContext db, ScopingService sc) =>
+        app.MapGet("/api/teams", async (string? entity, AppDbContext db, ScopingService sc,
+            System.Security.Claims.ClaimsPrincipal me) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
-            var rows = await sc.ScopeInherited(
+            // the library rule: an entity-bound agent lists only the teams usable in
+            // their scope (their outlets', those above them and the org-wide ones)
+            var rows = await ShellScope.ScopeLibrary(
                     db.Teams.AsNoTracking().Include(t => t.Entity)
-                        .Include(t => t.Members).ThenInclude(m => m.User), entityId)
+                        .Include(t => t.Members).ThenInclude(m => m.User), db, sc, me, entityId)
                 .OrderBy(t => t.Name).ToListAsync();
             var loads = await ThreadLoadsAsync(db);
             return Results.Ok(new { teams = rows.Select(t => Payload(t, loads)).ToList() });

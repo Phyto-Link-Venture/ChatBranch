@@ -51,6 +51,7 @@ export const admin: Dict<typeof source> = {
     appKeysManage: 'Urus kunci aplikasi & penyedia',
     billingView: 'Lihat bil penggunaan AI',
     billingManage: 'Tetapkan markup bil AI & lihat kos',
+    billingQuotasManage: 'Tetapkan kuota penggunaan AI',
     pronunciationManage: 'Urus sebutan',
     settingsAppearanceOrg: 'Tetapkan rupa lalai organisasi',
     settingsCustomFieldsManage: 'Urus medan tersuai',

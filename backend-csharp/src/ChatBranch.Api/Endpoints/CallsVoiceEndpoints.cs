@@ -188,7 +188,7 @@ public static class CallsVoiceEndpoints
         // data.room only on a 2xx.
         app.MapPost("/api/calls/dial", async (DialWrite? body, AppDbContext db, ScopingService sc,
             KnowledgeService knowledge, AssistantService assistant, LiveKitClient livekit,
-            VoiceAgentBridge bridge, CancellationToken ct) =>
+            VoiceAgentBridge bridge, System.Security.Claims.ClaimsPrincipal me, CancellationToken ct) =>
         {
             body ??= new DialWrite(null, null, null, null, null, null, null);
 
@@ -211,6 +211,16 @@ public static class CallsVoiceEndpoints
 
             if (string.IsNullOrEmpty(phone) || !phone.StartsWith('+'))
                 return Bad("phone must be E.164 (start with +).");
+
+            // AI usage quotas: an AI voice call is AI spend — the caller's own cap,
+            // then the contact's outlet (or any level above it)
+            if (QuotaGuard.Refusal(db, sc, me) is { } userQuota) return userQuota;
+            var callEntity = contact == null ? null
+                : await db.ContactEntities.AsNoTracking().Where(l => l.ContactId == contact.Id)
+                    .OrderBy(l => l.Id).Select(l => (int?)l.EntityId).FirstOrDefaultAsync(ct);
+            if (ChatBranch.Data.Ai.AiQuota.EntityBlock(db, sc, callEntity) is { } entityQuota)
+                return Results.Json(new { ok = false, room = (string?)null, status = "quota",
+                    detail = ChatBranch.Data.Ai.AiQuota.Reason(entityQuota), quota = true }, statusCode: 429);
 
             // Voice pre-flight, in Django's order: an unusable provider is a 501
             // BEFORE anything is dialled, so the operator sees the missing key

@@ -23,7 +23,8 @@ namespace ChatBranch.Data.Flows;
 /// </code>
 /// Decisions are internal (nothing reaches the customer), but the AI master
 /// switch / schedule of the conversation's outlet still applies: switched off
-/// = the "when unsure" path with a note. Every verdict is logged on the run
+/// = the "when unsure" path with a note, and so does an outlet at its AI usage
+/// quota (<c>AiQuota.EntityBlock</c>). Every verdict is logged on the run
 /// and in the step's completed event ("AI decided YES (0.82): …"), which the
 /// Runs panel shows per contact.
 /// </summary>
@@ -69,6 +70,13 @@ public partial class FlowEngine
             {
                 Log(run, nodeId, "AI is switched off for this outlet — took the \"when unsure\" path");
                 return Unsure(run, nodeId, cfg, pick, unsure, asksKey, "AI is switched off", "");
+            }
+            // the AI usage quota of that outlet (or any level above it): at its cap
+            // the model is not called — the "when unsure" path with a note
+            if (Ai.AiQuota.EntityBlock(_db, _scoping, entityId) is { } quota)
+            {
+                Log(run, nodeId, Ai.AiQuota.Reason(quota) + " — took the \"when unsure\" path");
+                return Unsure(run, nodeId, cfg, pick, unsure, asksKey, "AI quota reached", Ai.AiQuota.Reason(quota));
             }
 
             var take = Math.Clamp(CfgInt(cfg, "historyMessages", 20), 5, 100);

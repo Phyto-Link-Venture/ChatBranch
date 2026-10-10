@@ -66,11 +66,19 @@ public static class InboxEndpoints
         // channel, ?channel=all reports every provider account. The full row
         // (ids, masked credentials, delivery config) is for channels.view /
         // templates.manage; the inbox gets the picker shape (PickerKeys).
-        app.MapGet("/api/whatsapp/accounts", async (string? channel, AppDbContext db, ClaimsPrincipal me) =>
+        app.MapGet("/api/whatsapp/accounts", async (string? channel, string? entity, AppDbContext db,
+            ScopingService sc, ClaimsPrincipal me) =>
         {
             var ch = string.IsNullOrWhiteSpace(channel) ? Channels.WhatsApp : channel.Trim();
             var q = db.ChannelAccounts.AsNoTracking().Include(a => a.Entity).AsQueryable();
             if (ch is not ("all" or "__all__")) q = q.Where(a => a.Channel == ch);
+            // an entity-bound agent: only accounts their outlets may use (their
+            // subtrees + ancestors + org-wide) — never a sibling outlet's numbers
+            if (ShellScope.BoundInheritedIds(db, sc, me) is List<int> usable)
+                q = q.Where(a => a.EntityId == null || usable.Contains(a.EntityId.Value));
+            // ?entity= (the switcher) narrows to what that outlet inherits
+            if (ShellScope.ClampPick(ShellScope.BoundEntityIds(db, sc, me), await EntityId(db, entity)) is int picked)
+                q = sc.ScopeInherited(q, picked);
             var rows = await q.OrderBy(a => a.Id).ToListAsync();
 
             var accounts = rows.Select(WhatsAppSettingsEndpoints.AccountPayload).ToList();

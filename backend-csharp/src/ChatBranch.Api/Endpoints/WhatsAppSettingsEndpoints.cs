@@ -464,8 +464,16 @@ public static class WhatsAppSettingsEndpoints
 
         // ---- channel health monitor ----------------------------------------
         app.MapGet("/api/whatsapp/channels/health", async (string? entity, AppDbContext db,
-                ScopingService sc) =>
-            Results.Ok(await ChannelsHealthPayload(db, sc, await InboxEndpoints.EntityId(db, entity))))
+                ScopingService sc, ClaimsPrincipal me) =>
+        {
+            // an entity-bound agent sees only the numbers their outlets may use
+            // (their subtrees + ancestors + the org-wide ones); an out-of-scope
+            // ?entity= narrows to that instead of widening
+            var usable = ShellScope.BoundInheritedIds(db, sc, me);
+            var entityId = ShellScope.ClampPick(ShellScope.BoundEntityIds(db, sc, me),
+                await InboxEndpoints.EntityId(db, entity));
+            return Results.Ok(await ChannelsHealthPayload(db, sc, entityId, usable));
+        })
             .RequireAuthorization(AuthPolicies.Authenticated)
             // the Analytics health card and the Channels page
             .RequireAnyCapability("analytics.view", "channels.view");
@@ -1170,7 +1178,7 @@ public static class WhatsAppSettingsEndpoints
 
     /// <summary>GET/POST /channels/health — views.channels_health().</summary>
     private static async Task<object> ChannelsHealthPayload(AppDbContext db, ScopingService sc,
-        int? entityId)
+        int? entityId, List<int>? usable = null)
     {
         var assigned = await db.AccountAssignments.AsNoTracking()
             .GroupBy(a => a.AccountId)
@@ -1182,6 +1190,8 @@ public static class WhatsAppSettingsEndpoints
         // A preference, not a union (scoping.accounts_for_entity).
         var all = await db.ChannelAccounts.AsNoTracking().Include(a => a.Entity)
             .OrderBy(a => a.Id).ToListAsync();
+        if (usable != null)
+            all = all.Where(a => a.EntityId == null || usable.Contains(a.EntityId.Value)).ToList();
         var scoped = all;
         if (entityId is int eid)
         {

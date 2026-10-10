@@ -214,7 +214,8 @@ public static class VoiceMessagingEndpoints
             sc.SetSetting(DefaultVoiceProviderKey, provider);
             return Results.Ok(new { default_voice = id, provider });
         };
-        app.MapPut("/api/voice/default-voice", saveDefault).RequireAuthorization(AuthPolicies.AdminPlus);
+        app.MapPut("/api/voice/default-voice", saveDefault).RequireAuthorization(AuthPolicies.AdminPlus)
+            .RequireCapability("settings.ai.manage");   // the Voice & calls page's capability
     }
 
     internal const string DefaultVoiceKey = "default_voice";
@@ -267,8 +268,10 @@ public static class VoiceMessagingEndpoints
             sc.SetSetting("stt_provider", provider);
             return Results.Ok(new { stt_provider = provider });
         };
-        app.MapPost("/api/voice/stt-settings", saveStt).RequireAuthorization(AuthPolicies.AdminPlus);
-        app.MapPut("/api/voice/stt-settings", saveStt).RequireAuthorization(AuthPolicies.AdminPlus);
+        app.MapPost("/api/voice/stt-settings", saveStt).RequireAuthorization(AuthPolicies.AdminPlus)
+            .RequireCapability("settings.ai.manage");
+        app.MapPut("/api/voice/stt-settings", saveStt).RequireAuthorization(AuthPolicies.AdminPlus)
+            .RequireCapability("settings.ai.manage");
 
         app.MapGet("/api/voice/llm-settings", (ScopingService sc) =>
         {
@@ -290,8 +293,10 @@ public static class VoiceMessagingEndpoints
             sc.SetSetting("llm_provider", provider);
             return Results.Ok(new { llm_provider = provider });
         };
-        app.MapPost("/api/voice/llm-settings", saveLlm).RequireAuthorization(AuthPolicies.AdminPlus);
-        app.MapPut("/api/voice/llm-settings", saveLlm).RequireAuthorization(AuthPolicies.AdminPlus);
+        app.MapPost("/api/voice/llm-settings", saveLlm).RequireAuthorization(AuthPolicies.AdminPlus)
+            .RequireCapability("settings.ai.manage");
+        app.MapPut("/api/voice/llm-settings", saveLlm).RequireAuthorization(AuthPolicies.AdminPlus)
+            .RequireCapability("settings.ai.manage");
     }
 
     // =========================================================================
@@ -784,11 +789,17 @@ public static class VoiceMessagingEndpoints
     private static void MapMessagingAccounts(IEndpointRouteBuilder app)
     {
         // ---- GET /api/messaging/accounts — the Channels page's account list ----
-        app.MapGet("/api/messaging/accounts", async (AppDbContext db) =>
+        app.MapGet("/api/messaging/accounts", async (string? entity, AppDbContext db, ScopingService sc,
+            ClaimsPrincipal me) =>
         {
-            var rows = await db.ChannelAccounts.AsNoTracking().Include(a => a.Entity)
-                .Where(a => ManagedChannels.Contains(a.Channel))
-                .OrderBy(a => a.Id).ToListAsync();
+            var q = db.ChannelAccounts.AsNoTracking().Include(a => a.Entity)
+                .Where(a => ManagedChannels.Contains(a.Channel));
+            // entity-bound callers: only the accounts their outlets may use
+            if (ShellScope.BoundInheritedIds(db, sc, me) is List<int> usable)
+                q = q.Where(a => a.EntityId == null || usable.Contains(a.EntityId.Value));
+            if (ShellScope.ClampPick(ShellScope.BoundEntityIds(db, sc, me), await InboxEndpoints.EntityId(db, entity)) is int picked)
+                q = sc.ScopeInherited(q, picked);
+            var rows = await q.OrderBy(a => a.Id).ToListAsync();
             return Results.Ok(new { accounts = rows.Select(AccountPayload) });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.view");
 

@@ -145,7 +145,7 @@ where a write reads its body first. Notable gates:
 | WhatsApp global settings incl. the verify token (`POST/PUT /api/whatsapp/settings`) | `app_keys.manage` |
 | Flow library | GET `flows.view`, PUT `flows.manage` |
 | Tags | read `tags.view`, write `tags.manage` |
-| Bindings (`POST /api/bindings/{kind}`) | admin+ AND the kind's own capability (`users.manage`, `contacts.manage`, `tags.manage`, `channels.manage`) |
+| Bindings (`POST /api/bindings/{kind}`) | admin+ AND the kind's own capability (`users.manage`, `contacts.manage`, `tags.manage`, `channels.manage`); user kinds follow the `/api/v1/users` tiers (an admin binds agent-level users of their tenant only — never an admin, a superadmin or themselves; entity access only for agent-level users); contact kinds only contacts and entities in the caller's scope |
 | Message templates / call scripts | `templates.manage` / `script_templates.manage` |
 | AI monitor / behaviour | `ai.monitor` / `ai.behaviour.manage` |
 | AI playground (`/api/ai/playground/options`, `POST …/reply`, `POST …/import`) | `ai.monitor` or `ai.behaviour.manage`; trying changes (provider / model, a persona draft, knowledge / lessons / skills / memory off, the full prompt) `ai.behaviour.manage` (else 403); the entity must sit in the caller's assigned subtree (an unassigned agent-level user keeps the tenant-wide view; organization-wide needs admin+ or no assignment), a real contact in `ScopeContacts` (404), an imported conversation needs `chats.view` + the inbox scope (404); 30 replies a minute per user (429) |
@@ -242,11 +242,25 @@ capability. `PermissionGatesTests` holds this table and walks the route table:
 a new `/api` GET with no capability gate, no role policy and no entry in the
 exemption list below fails the build.
 
+**Entity-bound readers.** An agent or custom role with ASSIGNED entities reads
+only those entities' subtrees on every shared surface (an out-of-scope
+`?entity=` narrows to their own scope or 404s — it never widens): the
+Dashboard summary (funnel, per-account volumes, health history, calls,
+records), the reports and the journeys card count only their conversations
+(+ the unassigned ones the inbox shows them); the channel lists
+(`/api/whatsapp/accounts`, `/api/messaging/accounts`, `/channels/health`) list
+only the accounts their outlets may use (their subtrees, those above them and
+the org-wide ones — `ShellScope.BoundInheritedIds`); journeys (`/api/flows/library`,
+stats) and teams follow the library rule (`ShellScope.ScopeLibrary`);
+`/api/ai/controls?entity=<another outlet>` is a 404; contact bindings
+(`/api/bindings/contact-entities|entity-contacts`) are scoped like contacts.
+Admins keep the tenant-wide view. Tests: `QaScopeFixesTests`.
+
 | Read (GET unless noted) | Capability (any of) | Read by |
 |---|---|---|
-| `/api/analytics/summary`, `/reports`, `/reports.csv`, `/api/messaging/engagement` | `analytics.view` | Analytics (home) |
-| `/api/whatsapp/channels/health` | `analytics.view`, `channels.view` | Dashboard health card, Channels |
-| `/api/analytics/flows`, `/api/flows/library`, `/runs`, `/runs/{id}`, `/{flowId}/stats` | `flows.view` | Analytics flows card, Journeys, runs panel |
+| `/api/analytics/summary`, `/reports`, `/reports.csv`, `/api/messaging/engagement` | `analytics.view` (entity-bound agents: their subtrees only) | Analytics (home) |
+| `/api/whatsapp/channels/health` | `analytics.view`, `channels.view` (entity-bound agents: the accounts their outlets may use) | Dashboard health card, Channels |
+| `/api/analytics/flows`, `/api/flows/library`, `/runs`, `/runs/{id}`, `/{flowId}/stats` | `flows.view` (journeys by the library rule) | Analytics flows card, Journeys, runs panel |
 | `/api/flows/queue` (every outbound job, unscoped) | `flows.manage` | queue inspection |
 | `/api/automations`, `/catalog` | `flows.manage` | Automations |
 | `/api/ai/monitor`, `/stats`, `/{id}` | `ai.monitor` | AI monitor |
@@ -261,7 +275,7 @@ exemption list below fails the build.
 | `/api/audit`, `/audit.csv`, `/audit/facets` | `activity.view` (+ the handler's API-key-scope check and row tiering) | Activity |
 | `/api/call-logs`, `/api/calls/recording/{call_id}` | `call_logs.view` | Call logs |
 | `/api/calls/{room}`, `/{room}/live`, `/api/whatsapp/calls/recording/{name}` | `chats.view`, `call_logs.view` | live call in the inbox, call logs |
-| `/api/inbox/threads`, `/api/whatsapp/threads`, `/api/messaging/threads`, `/api/messaging/agents`, `/api/whatsapp/media/{id}`, `/api/messaging/media/{id}`, `/api/bookings` | `chats.view` | Chats, Bookings |
+| `/api/inbox/threads`, `/api/whatsapp/threads`, `/api/messaging/threads`, `/api/messaging/agents` (tenant users; `?channel=&key=` = only the active users who can see that conversation, its team first — the same rule the assign route enforces, `Assignees.cs`), `/api/whatsapp/media/{id}`, `/api/messaging/media/{id}`, `/api/bookings` | `chats.view` | Chats, Bookings |
 | `/api/messaging/canned` | `chats.view`, `chats.send`, `templates.manage` | composer quick replies, Templates |
 | `/api/whatsapp/templates` | `chats.send`, `templates.manage`, `flows.manage` | template picker, Templates, Journeys |
 | `/api/calls/script-templates` | `chats.send`, `script_templates.manage`, `flows.manage` | Script call button, Templates, Journeys |
@@ -288,7 +302,7 @@ exemption list below fails the build.
 | `/api/auth/roles`, `/api/auth/permissions`, `/api/auth/audit` | admin+ | Permissions, Users |
 | `/api/analytics/usage` (the cost ledger), `/api/billing/ai/settings` | `billing.manage` | Analytics → AI usage, Settings → AI billing |
 | `/api/billing/ai` (billed amounts; cost and margin only with `billing.manage`) | `billing.view` | AI bill |
-| `/api/billing/ai/quotas` (monthly AI caps + spend in the caller's scope; PUT: company caps `billing.manage`, branch + user caps also admins with `billing.view` inside their scope) | `billing.view` or `billing.manage` | AI bill → Quotas |
+| `/api/billing/ai/quotas` (monthly AI caps + spend in the caller's scope; PUT needs the WRITE capability `billing.quotas.manage` (admins by default) or `billing.manage`: company caps are the billing manager's; admins set branch + user caps inside their scope, never their OWN cap (superadmin only) and never a cap a billing manager set (`set_by_manager`); caps are ≥ 0.01 or 0 = none) | `billing.view` or `billing.manage` | AI bill → Quotas |
 
 **Any signed-in user may read** (the exemption list in `PermissionGatesTests`;
 everything here is the caller's own data or is gated row by row inside):

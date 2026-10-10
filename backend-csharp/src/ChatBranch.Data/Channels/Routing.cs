@@ -177,13 +177,15 @@ public class Routing
     /// The accounts of <paramref name="channel"/> a conversation of this entity
     /// may go out on: the entity's own (walking up the tree to the nearest level
     /// that has a configured one), else the organization-wide ones. An
-    /// unattributed conversation (entity null) may use any.
+    /// unattributed conversation (entity null) uses the ORGANIZATION-WIDE ones
+    /// only — never an outlet's number (auto-assigning an unassigned contact to a
+    /// fenced outlet's number would file the conversation under that outlet).
     /// </summary>
     public List<ChannelAccount> Pool(string channel, int? entityId)
     {
         var all = _db.ChannelAccounts.AsNoTracking().Where(a => a.Channel == channel)
             .OrderBy(a => a.Id).ToList();
-        if (entityId is not int start) return all;
+        if (entityId is not int start) return all.Where(a => a.EntityId == null).ToList();
         var seen = new HashSet<int>();
         int? cursor = start;
         for (var depth = 0; cursor is int id && depth < 16 && seen.Add(id); depth++)

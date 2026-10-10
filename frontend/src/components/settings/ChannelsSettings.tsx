@@ -22,6 +22,7 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { RoleChip } from '@/components/ui/Badges'
 import { getRole, hasCap } from '@/lib/auth'
+import { useEntityQuery } from '@/lib/EntityContext'
 import { fetchChannelHealth, HEALTH_META, type ChannelHealthPayload, type HealthStatus } from '@/lib/channelHealth'
 import { useFormat, useT, type MessageKey } from '@/i18n'
 import {
@@ -226,11 +227,12 @@ export function ChannelsSettings() {
     setIsSuper(getRole() === 'superadmin')
   }, [])
 
+  const entityQ = useEntityQuery()
   const reload = useCallback(async () => {
-    const [s, h] = await Promise.allSettled([loadInboxes(), fetchChannelHealth()])
+    const [s, h] = await Promise.allSettled([loadInboxes(entityQ), fetchChannelHealth(entityQ)])
     if (s.status === 'fulfilled') setSnap(s.value)
     setHealth(h.status === 'fulfilled' ? h.value : null)
-  }, [])
+  }, [entityQ])
 
   useEffect(() => {
     reload()

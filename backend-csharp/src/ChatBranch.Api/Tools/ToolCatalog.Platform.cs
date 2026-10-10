@@ -48,8 +48,9 @@ public static partial class ToolCatalog
         yield return T(an, "billing_set_ai_quotas", "Set AI usage quotas",
             "Set or clear monthly AI caps (merge: only the keys you send change; 0 or null clears). entities " +
             "{\"<entity id>\": amount} and/or users {\"<username>\": amount}. Company (top-level) caps need " +
-            "billing.manage; admins may cap branches and users in their own scope.",
-            "PUT", "/api/billing/ai/quotas", C("billing.view", "billing.manage"), new[]
+            "billing.manage; admins (billing.quotas.manage) may cap branches and other users in their own scope, never " +
+            "their own cap or one a billing manager set.",
+            "PUT", "/api/billing/ai/quotas", C("billing.quotas.manage", "billing.manage"), new[]
             {
                 A.Obj("entities", "Caps keyed by entity id (amount in the billing currency; 0/null = no cap)."),
                 A.Obj("users", "Caps keyed by username (amount in the billing currency; 0/null = no cap)."),

@@ -145,7 +145,8 @@ public static class BindingsEndpoints
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("users.view", "tags.view");
 
         // ---- current membership for one target -------------------------------
-        app.MapGet("/api/bindings/{kind}", async (string kind, int target, AppDbContext db, ClaimsPrincipal me) =>
+        app.MapGet("/api/bindings/{kind}", async (string kind, int target, AppDbContext db, ClaimsPrincipal me,
+            ScopingService sc) =>
         {
             if (!Kinds.Any(k => k.Id == kind))
                 return Results.Json(new { detail = "Unknown binding kind." }, statusCode: 400);
@@ -154,6 +155,28 @@ public static class BindingsEndpoints
             if (!await ShellScope.HasCapAsync(db, me, "users.view") && !await ShellScope.HasCapAsync(db, me, need))
                 return Results.Json(new { detail = $"The {need} capability is required." }, statusCode: 403);
             var members = await MembersAsync(db, kind, target);
+            // contact bindings follow the contact scope (tenant + an agent's entities)
+            if (kind == "contact-entities")
+            {
+                if (!await ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc).AnyAsync(c => c.Id == target))
+                    return Results.Json(new { detail = "Contact not found." }, statusCode: 404);
+                if (ShellScope.RoleOf(me) is not Roles.SuperAdmin)
+                {
+                    var tenant = TenantOf(me);
+                    var visible = (await db.Entities.AsNoTracking().Where(e => e.TenantId == tenant)
+                        .Select(e => e.Id).ToListAsync()).ToHashSet();
+                    if (ShellScope.BoundEntityIds(db, sc, me) is List<int> bound) visible.IntersectWith(bound);
+                    members = members.Where(visible.Contains).ToList();
+                }
+            }
+            else if (kind == "entity-contacts")
+            {
+                if (!await EntityVisibleAsync(db, sc, me, target))
+                    return Results.Json(new { detail = "Entity not found." }, statusCode: 404);
+                var ids = members;
+                members = await ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
+                    .Where(c => ids.Contains(c.Id)).Select(c => c.Id).ToListAsync();
+            }
             return Results.Ok(new { kind, target, member_ids = members });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("users.view", "contacts.view", "tags.view");
 
@@ -182,6 +205,50 @@ public static class BindingsEndpoints
                 return Results.Json(new { detail = "The same id cannot be added and removed." },
                                     statusCode: 400);
 
+            // ---- user tiers, as /api/v1/users: an admin manages agent-level users of
+            // their own tenant only (never an admin, a superadmin or themselves), and
+            // entity access binds agent-level users only
+            if (kind is "user-entities" or "user-teams" or "team-users" or "entity-users")
+            {
+                var userIds = kind is "user-entities" or "user-teams" ? new List<int> { target } : add.Concat(remove).ToList();
+                var profiles = await db.Profiles.AsNoTracking().Where(p => userIds.Contains(p.UserId)).ToListAsync();
+                var addedUsers = kind is "user-entities" or "user-teams" ? (add.Count > 0 ? userIds : new List<int>()) : add;
+                foreach (var profile in profiles)
+                {
+                    if (role != Roles.SuperAdmin)
+                    {
+                        if (AdminEndpoints.IsPrivilegedRole(profile.Role))
+                            return Results.Json(new { detail = "Admins can only manage agent-level users." }, statusCode: 403);
+                        if (profile.TenantId != TenantOf(me))
+                            return Results.Json(new { detail = "That user is outside your tenant." }, statusCode: 403);
+                    }
+                    if (kind is "user-entities" or "entity-users" && addedUsers.Contains(profile.UserId)
+                        && AdminEndpoints.IsPrivilegedRole(profile.Role))
+                        return Results.Json(new { detail = "Entity access applies to agent-level users (agent and custom roles) only." },
+                            statusCode: 400);
+                }
+                if (kind == "user-entities" && profiles.Count == 0)
+                    return Results.Json(new { detail = "User not found." }, statusCode: 404);
+                // the entities granted must be the caller's own
+                var entityIds = kind == "user-entities" ? add : kind == "entity-users" ? new List<int> { target } : new List<int>();
+                foreach (var eid in entityIds)
+                    if (!await EntityVisibleAsync(db, sc, me, eid))
+                        return Results.Json(new { detail = "That entity is outside your scope." }, statusCode: 403);
+            }
+            // ---- contact bindings: only contacts (and entities) in the caller's scope
+            if (kind is "contact-entities" or "entity-contacts")
+            {
+                var contactIds = kind == "contact-entities" ? new List<int> { target } : add.Concat(remove).ToList();
+                var inScope = await ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
+                    .Where(c => contactIds.Contains(c.Id)).Select(c => c.Id).ToListAsync();
+                if (contactIds.Except(inScope).Any())
+                    return Results.Json(new { detail = "Contact not found." }, statusCode: 404);
+                var entityIds = kind == "contact-entities" ? add.Concat(remove).ToList() : new List<int> { target };
+                foreach (var eid in entityIds.Distinct())
+                    if (!await EntityVisibleAsync(db, sc, me, eid))
+                        return Results.Json(new { detail = "That entity is outside your scope." }, statusCode: 403);
+            }
+
             if (def.Target == "tag")
             {
                 var tag = await db.Tags.AsNoTracking().FirstOrDefaultAsync(x => x.Id == target);
@@ -208,6 +275,21 @@ public static class BindingsEndpoints
                 member_ids = await MembersAsync(db, kind, target),
             });
         }).RequireAuthorization(AuthPolicies.AdminPlus);
+    }
+
+    private static int? TenantOf(ClaimsPrincipal me) =>
+        int.TryParse(me.FindFirstValue("tenant_id"), out var t) ? t : null;
+
+    /// <summary>An entity the caller may bind to: superadmin any; an admin their
+    /// tenant's; an entity-bound user their assigned subtrees.</summary>
+    private static async Task<bool> EntityVisibleAsync(AppDbContext db, ScopingService sc, ClaimsPrincipal me, int entityId)
+    {
+        var ent = await db.Entities.AsNoTracking().FirstOrDefaultAsync(e => e.Id == entityId);
+        if (ent == null) return false;
+        var role = ShellScope.RoleOf(me);
+        if (role == Roles.SuperAdmin) return true;
+        if (ent.TenantId != TenantOf(me)) return false;
+        return ShellScope.BoundEntityIds(db, sc, me) is not List<int> bound || bound.Contains(entityId);
     }
 
     // ---- per-kind storage ---------------------------------------------------

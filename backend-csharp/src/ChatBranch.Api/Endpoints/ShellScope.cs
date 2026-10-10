@@ -49,6 +49,34 @@ internal static class ShellScope
     }
 
     /// <summary>
+    /// The entity subtree an entity-BOUND caller (an agent or custom role with
+    /// assigned entities) is confined to, or null for "not bound" (admins,
+    /// superadmins, unassigned agents — the tenant view).
+    /// </summary>
+    internal static List<int>? BoundEntityIds(AppDbContext db, ScopingService sc, ClaimsPrincipal me)
+    {
+        if (RoleOf(me) is Roles.SuperAdmin or Roles.Admin) return null;
+        var assigned = ContactsEndpoints.AssignedEntityIds(db, me.Identity?.Name);
+        return assigned.Count > 0 ? sc.EntitySubtreeIds(assigned) : null;
+    }
+
+    /// <summary>A bound caller's assigned entities' subtrees PLUS their ancestors —
+    /// every level whose inherited rows (channel accounts, libraries) they may use.
+    /// Null when not bound.</summary>
+    internal static List<int>? BoundInheritedIds(AppDbContext db, ScopingService sc, ClaimsPrincipal me)
+    {
+        if (RoleOf(me) is Roles.SuperAdmin or Roles.Admin) return null;
+        var assigned = ContactsEndpoints.AssignedEntityIds(db, me.Identity?.Name);
+        if (assigned.Count == 0) return null;
+        return sc.EntitySubtreeIds(assigned).Concat(assigned.SelectMany(a => sc.EntityChain(a))).Distinct().ToList();
+    }
+
+    /// <summary>A picked <c>?entity=</c> outside a bound caller's scope is dropped
+    /// (narrows to their own scope instead of widening).</summary>
+    internal static int? ClampPick(List<int>? bound, int? picked) =>
+        bound != null && picked is int p && !bound.Contains(p) ? null : picked;
+
+    /// <summary>
     /// Libraries an outlet INHERITS (skills, knowledge, message + script
     /// templates, integrations…): the organization-wide rows, its ancestors'
     /// and the outlet's own. Admins and superadmins read any outlet's library (narrowed by

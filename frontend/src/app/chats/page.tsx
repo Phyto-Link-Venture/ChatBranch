@@ -208,6 +208,8 @@ function ChatsPage() {
   const [draft, setDraft] = useState('')
   const [composerMode, setComposerMode] = useState<'reply' | 'note'>('reply')
   const [agents, setAgents] = useState<UiAgent[]>([])
+  // who may own the OPEN conversation (its scope; its team first) — the assignee picker
+  const [threadAgents, setThreadAgents] = useState<UiAgent[] | null>(null)
   const [teams, setTeams] = useState<UiTeam[]>([])
   const [allAccounts, setAllAccounts] = useState<UiAccount[]>([])
   const [canned, setCanned] = useState<CannedResponse[]>([])
@@ -455,6 +457,20 @@ function ChatsPage() {
       }
     } catch {
       /* keep last good state while polling */
+    }
+  }, [activeId])
+
+  useEffect(() => {
+    setThreadAgents(null)
+    if (!activeId) return
+    let live = true
+    api<{ agents: UiAgent[] }>(
+      `messaging/agents?channel=${encodeURIComponent(activeId.channel)}&key=${encodeURIComponent(activeId.key)}`,
+    )
+      .then((r) => live && setThreadAgents(r.agents))
+      .catch(() => live && setThreadAgents(null))
+    return () => {
+      live = false
     }
   }, [activeId])
 
@@ -2088,7 +2104,7 @@ function ChatsPage() {
             onSwitchAccount={switchAccount}
             teams={teams}
             onAssignTeam={assignTeam}
-            agents={agents}
+            agents={threadAgents ?? agents}
             onAssign={assignTo}
             onSetStatus={setThreadStatus}
             onSaveLabels={saveLabels}
@@ -2132,7 +2148,7 @@ function ChatsPage() {
               onSwitchAccount={switchAccount}
               teams={teams}
               onAssignTeam={assignTeam}
-              agents={agents}
+              agents={threadAgents ?? agents}
               onAssign={assignTo}
               onSetStatus={setThreadStatus}
               onSaveLabels={saveLabels}

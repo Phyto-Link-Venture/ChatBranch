@@ -72,6 +72,7 @@ public static class AdminEndpoints
         ("ai.behaviour.manage", "AI", "Edit AI behaviour settings"),
         ("billing.view", "Review", "View the AI usage bill"),
         ("billing.manage", "Settings", "Set AI billing markup & see costs"),
+        ("billing.quotas.manage", "Review", "Set AI usage quotas"),
     };
 
     private static readonly string[] CapabilityIds =
@@ -564,6 +565,24 @@ public static class AdminEndpoints
             // (permissions_store: "missing row → the code default matrix"), so
             // degrade to it rather than 500-ing an admin page.
         }
+        return row?.Allowed ?? DefaultAllows(role, capability);
+    }
+
+    /// <summary>Does a ROLE hold a capability — the matrix alone, ignoring the
+    /// current request's API-key scopes (for checks about ANOTHER user, e.g. who
+    /// may be assigned a conversation).</summary>
+    internal static async Task<bool> RoleHasCapabilityAsync(AppDbContext db, string role, string capability)
+    {
+        if (string.IsNullOrWhiteSpace(role)) return false;
+        if (role == Roles.SuperAdmin) return true;
+        if (!CapabilitySet.Contains(capability)) return false;
+        RolePermission? row = null;
+        try
+        {
+            row = await db.RolePermissions.AsNoTracking()
+                .FirstOrDefaultAsync(r => r.Role == role && r.Capability == capability);
+        }
+        catch (Exception) { /* the code default */ }
         return row?.Allowed ?? DefaultAllows(role, capability);
     }
 

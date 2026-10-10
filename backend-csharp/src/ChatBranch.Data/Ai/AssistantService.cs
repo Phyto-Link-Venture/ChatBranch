@@ -225,8 +225,11 @@ public partial class AssistantService
 
     /// <param name="applyOutcome">false = no side effects at all (a preview /
     /// operator draft): no note, no status change, no notification.</param>
+    /// <param name="chargeTo">the signed-in person who asked for this reply (an
+    /// operator's suggest-reply) — stamped as <c>LlmUsage.UserName</c> so it counts
+    /// toward their AI quota; "" for the AI's own replies.</param>
     public async Task<AiReplyResult> GenerateReplyAsync(Thread thread, bool applyOutcome,
-        CancellationToken ct = default)
+        CancellationToken ct = default, string chargeTo = "")
     {
         try
         {
@@ -239,7 +242,7 @@ public partial class AssistantService
                 m.Direction == MessageDirection.In ? "user" : "assistant", m.Text)).ToList();
 
             var result = await RunAsync(new Spec(system, messages, thread.EntityId, thread.Channel, contact,
-                lastUser, "chat_reply", thread.Key) { ThreadId = thread.Id, Assignee = thread.Assignee }, _llm, ct);
+                lastUser, "chat_reply", thread.Key) { ThreadId = thread.Id, Assignee = thread.Assignee, ChargeTo = chargeTo ?? "" }, _llm, ct);
             if (applyOutcome)
             {
                 ApplyOutcome(thread, result);
@@ -463,6 +466,8 @@ public partial class AssistantService
         public string Assignee { get; init; } = "";
         /// <summary>No skills at all: no tools offered (built-ins included), no checks run.</summary>
         public bool SkillsOff { get; init; }
+        /// <summary>The person this generation is charged to (LlmUsage.UserName), "" = nobody.</summary>
+        public string ChargeTo { get; init; } = "";
         /// <summary>
         /// The AI playground: calendar tools preview instead of reserving, and the
         /// lessons the prompt carried are not counted as used.
@@ -761,7 +766,7 @@ public partial class AssistantService
                     Channel = spec.Channel, ContactId = spec.Contact is { Id: > 0 } c ? c.Id : null, Ref = spec.Ref,
                     EntityId = spec.EntityId,
                     // the playground is a person's own test chat — it counts toward their AI quota
-                    UserName = spec.Feature == "playground" ? AiQuota.CurrentUser() : "",
+                    UserName = spec.Feature == "playground" ? AiQuota.CurrentUser() : spec.ChargeTo,
                     PromptTokens = r.PromptTokens, CompletionTokens = r.CompletionTokens, CostUsd = r.CostUsd,
                     Detail = detail, CreatedAt = DateTime.UtcNow,
                 });

@@ -641,6 +641,11 @@ public static class WhatsAppThreadsEndpoints
                 {
                     detail = "A call is already in progress for this contact.",
                 }, statusCode: 409);
+            // AI usage quotas: the caller's own cap, then the conversation's outlet
+            if (QuotaGuard.Refusal(db, sc, me) is { } userQuota) return userQuota;
+            if (ChatBranch.Data.Ai.AiQuota.EntityBlock(db, sc, thread.EntityId) is { } entityQuota)
+                return Results.Json(new { ok = false, detail = ChatBranch.Data.Ai.AiQuota.Reason(entityQuota), quota = true },
+                    statusCode: 429);
 
             var account = await EffectiveAccount(db, wa, thread);
             // The conversation brain + STT engine are PER ACCOUNT (Settings →

@@ -165,13 +165,16 @@ public sealed class AiReviewService
         catch { /* housekeeping never fails a run */ }
     }
 
-    /// <summary>Mark runs left "running" by a dead process as failed.</summary>
+    /// <summary>Mark runs left "running" by a dead process as failed. A run being
+    /// worked heartbeats <c>updated_at</c> once per batch, so only a run whose
+    /// heartbeat went quiet for <see cref="StaleAfter"/> is expired — never a long
+    /// run still in progress.</summary>
     public int ExpireStale()
     {
         try
         {
             var cut = DateTime.UtcNow - StaleAfter;
-            return _db.AiReviewRuns.Where(r => r.Status == AiReviewStatus.Running && r.CreatedAt < cut)
+            return _db.AiReviewRuns.Where(r => r.Status == AiReviewStatus.Running && r.UpdatedAt < cut)
                 .ExecuteUpdate(u => u
                     .SetProperty(r => r.Status, AiReviewStatus.Failed)
                     .SetProperty(r => r.Error, "The review stopped before it finished (the server restarted?).")
@@ -202,6 +205,16 @@ public sealed class AiReviewService
         }
     }
 
+    private void Heartbeat(AiReviewRun run)
+    {
+        try
+        {
+            run.UpdatedAt = DateTime.UtcNow;
+            _db.SaveChanges();
+        }
+        catch { /* a missed heartbeat never fails a run */ }
+    }
+
     private void ExecuteCore(AiReviewRun run)
     {
         var items = Sample(run);
@@ -217,6 +230,8 @@ public sealed class AiReviewService
 
         foreach (var batch in items.Chunk(BatchSize))
         {
+            // heartbeat: ExpireStale leaves a run alone while this keeps moving
+            Heartbeat(run);
             Dictionary<string, AiReviewFinding>? judged = null;
             if (reviewer.Available)
             {
@@ -602,6 +617,8 @@ public sealed class AiReviewService
             {
                 Feature = Feature, Provider = r.Provider, Model = r.Model, EntityId = run.EntityId,
                 Ref = $"ai_review:{run.Id}",
+                // the person who started the review — it counts toward their AI quota
+                UserName = run.CreatedBy.Length > 150 ? run.CreatedBy[..150] : run.CreatedBy,
                 PromptTokens = r.PromptTokens, CompletionTokens = r.CompletionTokens, CostUsd = r.CostUsd,
                 Detail = new Dictionary<string, object?> { ["step"] = step, ["replies"] = replies },
                 CreatedAt = DateTime.UtcNow,
@@ -684,7 +701,7 @@ public sealed class AiReviewService
         if (factual && claims && item.Grounding.Count == 0)
             problems.Add(("unsupported_claim", "medium",
                 "The reply gives specific details (numbers, prices or times) but was not based on any knowledge item or lesson.",
-                "knowledge", $"Add a knowledge item that answers: \"{TextAnalysis.Clip(OneLine(customer), 160)}\"."));
+                "knowledge", "Add a knowledge item with the facts this kind of question needs (prices, times or numbers), so the AI answers from it."));
 
         // unanswered questions
         var questions = customer.Count(ch => ch is '?' or '？');
@@ -699,7 +716,7 @@ public sealed class AiReviewService
             if (q.Count >= 2 && a.Count >= 2 && !q.Overlaps(a))
                 problems.Add(("missed_question", "low",
                     "The reply shares no key words with the customer's question — it may not answer it.",
-                    "lesson", $"When asked \"{TextAnalysis.Clip(OneLine(customer), 160)}\", answer the question directly."));
+                    "lesson", "Answer the customer's question directly before adding anything else."));
         }
 
         // length
@@ -710,7 +727,7 @@ public sealed class AiReviewService
         // what a person did with it
         if (item.Edited.Length > 0)
             problems.Add(("other", "low", "A person rewrote this reply before it went out.",
-                "lesson", $"When a customer asks \"{TextAnalysis.Clip(OneLine(customer), 160)}\", answer like this: {TextAnalysis.Clip(OneLine(item.Edited), 400)}"));
+                "lesson", $"For this kind of question, answer the way the team did: {TextAnalysis.Clip(OneLine(item.Edited), 400)}"));
         if (item.Draft.Status == AiDraftStatus.Rejected)
             problems.Add(("other", "medium",
                 "A person rejected this reply" + (item.RejectReason.Trim().Length > 0 ? $": {TextAnalysis.Clip(OneLine(item.RejectReason), 200)}" : "."),
