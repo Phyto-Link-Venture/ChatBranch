@@ -1017,8 +1017,9 @@ When you fix one of these, update this table, `README.md` and
   and an Install button where the browser can prompt (`pwa.ts` `isIos`,
   `useInstallPrompt`); "Not now" snoozes 30 days, the sidebar's "Install app"
   reopens it (`pwa:show-install`). The body never scrolls (the shell's panes
-  do), so bare pages (`/login`, `PUBLIC_ROUTES`) get their own scroll container
-  in `Shell.tsx`. **Ask ChatBranch** (`AssistantDock`) opens from
+  do), so bare pages (`/login`, `PUBLIC_ROUTES`) scroll the DOCUMENT instead
+  (`PageScroll` in `Shell.tsx` adds `html.page-scroll`, `globals.css`; it also
+  jumps to a `#anchor` once drawn) — an inner scroll box did not scroll on iOS. **Ask ChatBranch** (`AssistantDock`) opens from
   the top bar's sparkle button, Ctrl/⌘+J, or — on desktop, while closed — a
   slim tab on the right edge (6 px peek at 42% height, slides out on hover);
   the shell owns its `open` state. Desktop can switch it between docked (the

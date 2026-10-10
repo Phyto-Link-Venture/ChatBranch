@@ -157,9 +157,10 @@ export function Shell({ children }: { children: ReactNode }) {
     router.replace('/login')
   }, [router])
 
-  // body never scrolls (the shell's panes do), so bare pages bring their own
-  // scroll container — without it /help and the manual can't scroll on a phone
-  if (isLogin || isPublic) return <div className="h-full overflow-y-auto overscroll-contain">{children}</div>
+  // body never scrolls (the shell's panes do) — bare pages scroll the DOCUMENT
+  // instead (html.page-scroll in globals.css): the only scrolling iOS Safari
+  // handles reliably (momentum, the collapsing address bar, #anchor jumps)
+  if (isLogin || isPublic) return <PageScroll>{children}</PageScroll>
 
   return (
     <TourProvider>
@@ -291,4 +292,22 @@ function BottomTabs({ user, pathname, onMore }: { user: AuthUser | null; pathnam
       </button>
     </nav>
   )
+}
+
+/** Bare pages (login, help, the manual): let the document scroll while mounted. */
+function PageScroll({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.add('page-scroll')
+    // a #anchor on first load (a manual guide link): jump once the page has drawn
+    const id = decodeURIComponent(window.location.hash.slice(1))
+    const timer = id
+      ? window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ block: 'start' }), 400)
+      : undefined
+    return () => {
+      root.classList.remove('page-scroll')
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [])
+  return <>{children}</>
 }
