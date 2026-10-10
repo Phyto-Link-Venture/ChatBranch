@@ -699,6 +699,7 @@ export const channels: Dict<typeof source> = {
     vcfDownloaded: 'contacts.vcf dimuat turun — importnya pada telefon.',
     vcfExport: 'Eksport kenalan (.vcf)',
     gatewayError: 'Gerbang WhatsApp melaporkan ralat.',
+    qrExpired: 'Kod QR tamat tempoh sebelum diimbas. Tekan Cuba lagi untuk kod baharu, kemudian imbas dari WhatsApp → Peranti dipautkan.',
     pairNeedsGateway:
       'Pemasangan QR berjalan dalam sidecar gerbang WhatsApp ({cmd}). Mulakannya dan cuba lagi — atau gunakan WhatsApp Business (Cloud API), yang tidak memerlukan gerbang.',
     connectedAs: 'Disambungkan sebagai {number}',

@@ -127,7 +127,7 @@ export function VcfTip() {
 // ── QR pairing (WhatsApp by QR) ──────────────────────────────────────────────
 
 interface BaileysState {
-  state: 'stopped' | 'starting' | 'qr' | 'connected' | 'disconnected' | 'logged_out' | 'error'
+  state: 'stopped' | 'starting' | 'qr' | 'qr_expired' | 'connected' | 'disconnected' | 'logged_out' | 'error'
   qr: string | null
   me: string | null
   error: string | null
@@ -173,6 +173,11 @@ export function BaileysPairPanel({ accountId, onConnected }: { accountId: string
         const s = await waApi<BaileysState>(`accounts/${accountId}/baileys/status`, t)
         if (cancelled) return
         setState(s)
+        if (s.state === 'qr_expired') {
+          setError(t('channels.whatsapp.qrExpired'))
+          stop()
+          return
+        }
         const gatewayError = s.error || (s.state === 'error' ? t('channels.whatsapp.gatewayError') : null)
         if (gatewayError && s.state !== 'qr' && s.state !== 'connected') {
           setError(gatewayError)
@@ -209,12 +214,14 @@ export function BaileysPairPanel({ accountId, onConnected }: { accountId: string
           <div className="text-[12.5px] font-semibold" style={{ color: 'var(--red-ink)' }}>
             {error}
           </div>
-          <p className="max-w-[340px] text-[12px] leading-relaxed text-text-muted">
-            <Trans
-              k="channels.whatsapp.pairNeedsGateway"
-              values={{ cmd: <code className="rounded bg-fill px-1">npm run dev:baileys</code> }}
-            />
-          </p>
+          {state?.state !== 'qr_expired' && (
+            <p className="max-w-[340px] text-[12px] leading-relaxed text-text-muted">
+              <Trans
+                k="channels.whatsapp.pairNeedsGateway"
+                values={{ cmd: <code className="rounded bg-fill px-1">npm run dev:baileys</code> }}
+              />
+            </p>
+          )}
           <Button variant="secondary" size="sm" onClick={() => setAttempt((n) => n + 1)}>
             <RefreshCw size={13} aria-hidden /> {t('common.actions.retry')}
           </Button>

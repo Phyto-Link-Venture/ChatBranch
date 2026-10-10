@@ -693,6 +693,7 @@ export const channels = {
     vcfDownloaded: 'contacts.vcf downloaded — import it on the phone.',
     vcfExport: 'Export contacts (.vcf)',
     gatewayError: 'The WhatsApp gateway reported an error.',
+    qrExpired: 'The QR code expired before it was scanned. Press Try again for a new one, then scan it from WhatsApp → Linked devices.',
     pairNeedsGateway:
       'QR pairing runs in the WhatsApp gateway sidecar ({cmd}). Start it and retry — or use WhatsApp Business (Cloud API), which needs no gateway.',
     connectedAs: 'Connected as {number}',

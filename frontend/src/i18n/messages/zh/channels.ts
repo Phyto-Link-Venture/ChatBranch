@@ -672,6 +672,7 @@ export const channels: Dict<typeof source> = {
     vcfDownloaded: '已下载 contacts.vcf——请在手机上导入。',
     vcfExport: '导出联系人（.vcf）',
     gatewayError: 'WhatsApp 网关报告了一个错误。',
+    qrExpired: '二维码在扫描前已过期。点击“重试”获取新的二维码，然后在 WhatsApp → 已关联的设备 中扫描。',
     pairNeedsGateway:
       '扫码配对在 WhatsApp 网关 sidecar 中运行（{cmd}）。启动后重试——或改用无需网关的 WhatsApp Business（Cloud API）。',
     connectedAs: '已连接为 {number}',

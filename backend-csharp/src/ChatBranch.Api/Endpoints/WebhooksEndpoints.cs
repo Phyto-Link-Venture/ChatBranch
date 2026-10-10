@@ -186,6 +186,8 @@ public static class WebhooksEndpoints
             var next = evt switch
             {
                 "connected" => Domain.Health.Healthy,
+                // never paired — the QR expired unscanned (nothing can arrive)
+                "qr_expired" => Domain.Health.Disconnected,
                 "logged_out" => Domain.Health.Banned,
                 "disconnected" when reason.Contains("forbidden") || reason.Contains("logged") => Domain.Health.Banned,
                 "disconnected" => Domain.Health.Degraded,

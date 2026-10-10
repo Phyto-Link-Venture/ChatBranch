@@ -274,4 +274,30 @@ public class ShellSearchLiveTests : IClassFixture<ApiFactory>
         Assert.True(summary.TryGetProperty("first_response", out _));
         Assert.True(summary.GetProperty("prior").TryGetProperty("sent", out _));
     }
+
+    [Fact]
+    public async Task Baileys_qr_expired_marks_an_unpaired_number_disconnected()
+    {
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            if (!db.ChannelAccounts.Any(a => a.ExternalId == "gw-qr-test"))
+            {
+                db.ChannelAccounts.Add(new ChannelAccount { Channel = "whatsapp", Provider = "baileys",
+                    Name = "Unpaired line", ExternalId = "gw-qr-test", CreatedAt = DateTime.UtcNow });
+                db.SaveChanges();
+            }
+        }
+        var gw = _factory.CreateClient();
+        gw.DefaultRequestHeaders.Add("X-Baileys-Secret", "baileys-local-dev");
+        var push = await gw.PostAsJsonAsync("/api/whatsapp/baileys/status-event",
+            new { account_id = "gw-qr-test", @event = "qr_expired", reason = "not paired" });
+        push.EnsureSuccessStatusCode();
+
+        using var check = _factory.Services.CreateScope();
+        var acct = check.ServiceProvider.GetRequiredService<AppDbContext>().ChannelAccounts
+            .Single(a => a.ExternalId == "gw-qr-test");
+        Assert.Equal(Health.Disconnected, acct.HealthStatus);
+        Assert.Contains("not paired", acct.HealthDetail);
+    }
 }

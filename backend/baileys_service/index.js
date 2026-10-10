@@ -351,6 +351,14 @@ async function startAccount(id) {
         rmSync(dir, { recursive: true, force: true })
         console.log(`[${id}] logged out — auth state wiped`)
         pushStatusEvent(id, 'logged_out', `${disconnectReasonName(code)} (${code})`)
+      } else if (code === 408 && !state.creds?.me) {
+        // Never paired and the QR codes ran out unscanned. Reconnecting here
+        // only mints new QRs nobody sees, forever — stop and wait for Pair.
+        a.state = 'qr_expired'
+        a.qr = null
+        a.error = null
+        console.log(`[${id}] QR not scanned in time — waiting for Pair`)
+        pushStatusEvent(id, 'qr_expired', 'not paired: the QR code was not scanned in time')
       } else {
         a.state = 'disconnected'
         a.error = lastDisconnect?.error?.message || `closed (${code})`
