@@ -247,6 +247,64 @@ const BOOKING_INK: Record<string, string> = {
 }
 
 /**
+ * The human-like touches a reply carries: the emoji reaction it makes on a
+ * customer message ("Will react 👍 on “ok thanks”" while held, "Reacted 👍"
+ * once delivered) and the message its first bubble quotes. Nothing renders for
+ * a reply without either.
+ */
+export function DraftTouches({
+  d,
+  compact = false,
+}: {
+  d: Pick<Draft, 'reactions' | 'quote' | 'content'>
+  /** No box — for the chat's review banner. */
+  compact?: boolean
+}) {
+  const t = useT()
+  const reactions = Array.isArray(d.reactions) ? d.reactions : []
+  if (!reactions.length && !d.quote) return null
+  const clip = (s: string) => (s.length > 80 ? `${s.slice(0, 80)}…` : s)
+  return (
+    <div
+      aria-label={t('ai.draft.touch.label')}
+      className={`flex flex-col gap-1 text-[12.5px] leading-snug ${
+        compact ? '' : 'rounded-lg border border-line bg-fill-subtle px-2.5 py-1.5'
+      }`}
+    >
+      {reactions.map((r) => (
+        <span key={`${r.message_id}:${r.emoji}`} className="flex flex-wrap items-baseline gap-x-1.5">
+          <span
+            className={`inline-flex items-center gap-1 rounded-full border px-2 py-px font-semibold ${
+              r.error
+                ? 'border-red/30 text-[color:var(--red-ink)]'
+                : r.done
+                  ? 'border-green/30 text-[color:var(--green-ink)]'
+                  : 'border-line-strong text-text-high'
+            }`}
+            title={r.error || undefined}
+          >
+            {r.error
+              ? t('ai.draft.touch.reactionFailed', { emoji: r.emoji })
+              : r.done
+                ? t('ai.draft.touch.reacted', { emoji: r.emoji })
+                : t('ai.draft.touch.willReact', { emoji: r.emoji })}
+          </span>
+          {r.text && <span className="min-w-0 break-words text-text-muted">{t('ai.draft.touch.onMessage', { text: clip(r.text) })}</span>}
+        </span>
+      ))}
+      {reactions.length > 0 && !d.content.trim() && (
+        <span className="text-[11.5px] text-text-muted">{t('ai.draft.touch.reactionOnly')}</span>
+      )}
+      {d.quote && (
+        <span className="min-w-0 break-words border-l-2 border-line-strong pl-2 text-text-mid">
+          {d.quote.text ? t('ai.draft.touch.quotes', { text: clip(d.quote.text) }) : t('ai.draft.touch.quotesMessage')}
+        </span>
+      )}
+    </div>
+  )
+}
+
+/**
  * "Will book: Tue 14 Oct, 3:00 PM · Google Calendar" — the calendar actions a
  * reply carries. A held reply has only RESERVED them: approving makes the
  * booking (or the cancellation), rejecting releases it — so the reviewer must

@@ -19,6 +19,9 @@ public record AiComposition(string Text, Dictionary<string, object?> Meta)
 {
     /// <summary>The assistant refused to send it (handover / block) — a person must look.</summary>
     public bool Refused => AiGate.Str(Meta, "action", AiActions.Send) is AiActions.Handover or AiActions.Block;
+
+    /// <summary>The reply reacts to a customer message (<c>reactions</c>) — with or without words.</summary>
+    public bool HasReaction => AiReaction.From(Meta).Count > 0;
 }
 
 /// <summary>
@@ -63,7 +66,7 @@ public class AiComposer
         var text = r.ShouldSend ? r.Text
             : r.Action is AiActions.Handover or AiActions.Block ? r.Draft
             : "";
-        // no text ⇒ the callers submit nothing, so nothing the tools reserved can be delivered
+        // no text ⇒ nothing the tools reserved can be delivered (a reaction alone still goes to the gate)
         if (string.IsNullOrWhiteSpace(text)) _assistant.ReleasePending(r, "The AI produced no reply to send.");
         return new AiComposition((text ?? "").Trim(), meta);
     }

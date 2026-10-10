@@ -526,7 +526,7 @@ export const ai = {
 
   aiHumanLike: {
     title: 'Make AI replies feel human',
-    summary: 'Let the AI wait for the customer to finish, show typing, split long answers into short messages and follow up when the customer goes quiet.',
+    summary: 'Let the AI wait for the customer to finish, show typing, split long answers into short messages, use emoji, reactions and quotes like a person and follow up when the customer goes quiet.',
     before: 'You need the “Edit AI behaviour settings” permission (usually admins).',
     steps: {
       s1: {
@@ -554,14 +554,18 @@ export const ai = {
         body: 'Under “Split long replies”, choose “Split replies longer than the limit” or “Always split at paragraph breaks”. Never more than 3 messages, never mid-sentence.',
       },
       s7: {
+        title: 'Emoji, reactions and quotes',
+        body: 'Under “Human-like”, pick “Emoji in replies” (Off, Light or Expressive), turn on “React to the customer’s messages” so the AI can answer “ok thanks” with 🙏 instead of words, and keep “Quote the message being answered” on Auto so a reply to several messages quotes the one it answers.',
+      },
+      s8: {
         title: 'Follow up when the customer goes quiet',
         body: 'Turn on “Follow up when the customer goes quiet”. Set “First follow-up after (hours)”, for example 4, and “Most follow-ups per silence”, for example 2. For WhatsApp, pick a “Re-engagement template for closed WhatsApp windows”.',
       },
-      s8: {
+      s9: {
         title: 'Watch the example',
         body: 'The “How it plays out” panel on the right replays a sample conversation with your settings and updates as you change them.',
       },
-      s9: {
+      s10: {
         title: 'Save',
         body: 'Click “Save changes” in the bar at the bottom. On an outlet, “Use default” next to a field puts it back to the organization’s value.',
       },
@@ -571,6 +575,7 @@ export const ai = {
       t1: 'Typing shows only where the channel supports it (WhatsApp, Telegram, Messenger and Instagram); elsewhere the AI just pauses.',
       t2: 'Follow-ups only start after the AI asked something, and stop as soon as the customer replies, opts out, the chat is resolved or a person takes over.',
       t3: 'Add “Guidance for follow-up messages”, such as “Keep it to one friendly line”, to set their tone.',
+      t4: 'Reactions and quotes work on WhatsApp and Telegram; email never gets emoji. A held reply reacts only when someone approves it, and the AI monitor shows the planned reaction on the draft.',
     },
     trouble: 'A note says a follow-up was skipped: the WhatsApp 24-hour window had closed and no re-engagement template is set — pick one. Replies feel slow: lower the wait seconds. The settings are read-only: ask an admin for the permission.',
   },

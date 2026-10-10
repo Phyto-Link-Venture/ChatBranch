@@ -528,7 +528,7 @@ export const ai: Dict<typeof source> = {
 
   aiHumanLike: {
     title: 'Jadikan balasan AI terasa seperti manusia',
-    summary: 'Biarkan AI menunggu pelanggan selesai, menunjukkan status menaip, memecahkan jawapan panjang kepada mesej pendek dan membuat susulan apabila pelanggan diam.',
+    summary: 'Biarkan AI menunggu pelanggan selesai, menunjukkan status menaip, memecahkan jawapan panjang kepada mesej pendek, menggunakan emoji, reaksi dan petikan seperti manusia dan membuat susulan apabila pelanggan diam.',
     before: 'Anda perlukan kebenaran “Sunting tetapan tingkah laku AI” (biasanya pentadbir).',
     steps: {
       s1: {
@@ -556,14 +556,18 @@ export const ai: Dict<typeof source> = {
         body: 'Di bawah “Pecahkan balasan panjang”, pilih “Pecahkan balasan yang melebihi had” atau “Sentiasa pecahkan pada perenggan”. Tidak lebih daripada 3 mesej, tidak pernah di tengah ayat.',
       },
       s7: {
+        title: 'Emoji, reaksi dan petikan',
+        body: 'Di bawah “Seperti manusia”, pilih “Emoji dalam balasan” (Tutup, Ringan atau Ekspresif), hidupkan “Beri reaksi kepada mesej pelanggan” supaya AI boleh menjawab “ok terima kasih” dengan 🙏 dan bukannya kata-kata, dan kekalkan “Petik mesej yang dijawab” pada Auto supaya balasan kepada beberapa mesej memetik mesej yang dijawabnya.',
+      },
+      s8: {
         title: 'Susulan apabila pelanggan diam',
         body: 'Hidupkan “Susulan apabila pelanggan diam”. Tetapkan “Susulan pertama selepas (jam)”, contohnya 4, dan “Bilangan susulan maksimum bagi setiap kesunyian”, contohnya 2. Untuk WhatsApp, pilih “Templat penglibatan semula untuk tetingkap WhatsApp yang ditutup”.',
       },
-      s8: {
+      s9: {
         title: 'Lihat contoh',
         body: 'Panel “Bagaimana ia berlaku” di sebelah kanan memainkan semula perbualan contoh dengan tetapan anda dan dikemas kini apabila anda mengubahnya.',
       },
-      s9: {
+      s10: {
         title: 'Simpan',
         body: 'Klik “Simpan perubahan” pada bar di bawah. Pada cawangan, “Guna lalai” di sebelah medan mengembalikannya kepada nilai organisasi.',
       },
@@ -573,6 +577,7 @@ export const ai: Dict<typeof source> = {
       t1: 'Status menaip hanya dipaparkan jika saluran menyokongnya (WhatsApp, Telegram, Messenger dan Instagram); di tempat lain AI hanya berhenti seketika.',
       t2: 'Susulan hanya bermula selepas AI bertanya sesuatu, dan berhenti sebaik sahaja pelanggan membalas, menarik diri, sembang diselesaikan atau manusia mengambil alih.',
       t3: 'Tambah “Panduan untuk mesej susulan”, seperti “Ringkaskan kepada satu baris mesra”, untuk menetapkan nadanya.',
+      t4: 'Reaksi dan petikan berfungsi di WhatsApp dan Telegram; e-mel tidak pernah mendapat emoji. Balasan yang ditahan hanya memberi reaksi apabila seseorang meluluskannya, dan Pemantau AI menunjukkan reaksi yang dirancang pada draf.',
     },
     trouble: 'Nota mengatakan susulan dilangkau: tetingkap 24 jam WhatsApp telah ditutup dan tiada templat penglibatan semula ditetapkan — pilih satu. Balasan terasa lambat: kurangkan saat menunggu. Tetapan hanya boleh dibaca: minta kebenaran daripada pentadbir.',
   },

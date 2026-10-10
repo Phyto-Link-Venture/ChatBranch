@@ -43,6 +43,15 @@ const OPTION_LABELS: Record<string, Record<string, MessageKey>> = {
     auto: 'ai.behaviour.options.split.auto',
     always: 'ai.behaviour.options.split.always',
   },
+  ai_emoji_style: {
+    off: 'ai.behaviour.options.emojiStyle.off',
+    light: 'ai.behaviour.options.emojiStyle.light',
+    expressive: 'ai.behaviour.options.emojiStyle.expressive',
+  },
+  ai_quote_replies: {
+    auto: 'ai.behaviour.options.quoteReplies.auto',
+    off: 'ai.behaviour.options.quoteReplies.off',
+  },
 }
 
 /**
@@ -72,6 +81,12 @@ const FIELD_TEXT: Record<string, { label: MessageKey; help?: MessageKey }> = {
   ai_typing_max_s: { label: 'ai.behaviour.fields.typingMax.label' },
   ai_split: { label: 'ai.behaviour.fields.split.label', help: 'ai.behaviour.fields.split.help' },
   ai_split_max_chars: { label: 'ai.behaviour.fields.splitMaxChars.label' },
+  ai_emoji_style: { label: 'ai.behaviour.fields.emojiStyle.label', help: 'ai.behaviour.fields.emojiStyle.help' },
+  ai_reactions: { label: 'ai.behaviour.fields.reactions.label', help: 'ai.behaviour.fields.reactions.help' },
+  ai_quote_replies: {
+    label: 'ai.behaviour.fields.quoteReplies.label',
+    help: 'ai.behaviour.fields.quoteReplies.help',
+  },
   ai_followup: { label: 'ai.behaviour.fields.followUp.label', help: 'ai.behaviour.fields.followUp.help' },
   ai_followup_first_hours: { label: 'ai.behaviour.fields.followUpFirstHours.label' },
   ai_followup_between_hours: { label: 'ai.behaviour.fields.followUpBetweenHours.label' },
@@ -93,6 +108,7 @@ const GROUP_TEXT: Record<string, { title: MessageKey; description: MessageKey }>
   wait: { title: 'ai.behaviour.groups.wait.title', description: 'ai.behaviour.groups.wait.description' },
   typing: { title: 'ai.behaviour.groups.typing.title', description: 'ai.behaviour.groups.typing.description' },
   split: { title: 'ai.behaviour.groups.split.title', description: 'ai.behaviour.groups.split.description' },
+  human: { title: 'ai.behaviour.groups.human.title', description: 'ai.behaviour.groups.human.description' },
   followup: { title: 'ai.behaviour.groups.followup.title', description: 'ai.behaviour.groups.followup.description' },
   learning: { title: 'ai.behaviour.groups.learning.title', description: 'ai.behaviour.groups.learning.description' },
 }
@@ -147,6 +163,10 @@ const ESSENTIAL = new Set([
   'ai_wait_seconds',
   'ai_typing',
   'ai_split',
+  // the three human-like touches are each a first-time choice: none hides under Advanced
+  'ai_emoji_style',
+  'ai_reactions',
+  'ai_quote_replies',
   'ai_followup',
   'ai_learning_mode',
 ])
@@ -593,6 +613,8 @@ function ExampleTimeline({ values: v }: { values: Record<string, string> }) {
     if (on('ai_ack_skip')) {
       const ack = (v.ai_ack_text ?? '').trim()
       if (mode !== 'shadow' && ack) out.push({ at: at + Math.max(0, wait), who: 'ai', text: ack })
+      else if (mode !== 'shadow' && on('ai_reactions'))
+        out.push({ at: at + Math.max(0, wait), who: 'note', text: t('ai.example.ackReaction', { emoji: '🙏' }) })
       else out.push({ at, who: 'note', text: t('ai.example.ackNoReply') })
     } else {
       out.push({ at: at + Math.max(0, wait), who: 'note', text: t('ai.example.repliesToAck') })

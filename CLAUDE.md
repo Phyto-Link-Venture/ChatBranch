@@ -854,6 +854,35 @@ When you fix one of these, update this table, `README.md` and
   `ai.monitor` (agents hold it) / `ai.behaviour.manage`. `AI_HUMANIZE=0` turns
   the human-like DEFAULTS off (explicit Setting rows still win) — the test host
   sets it.
+  **Human-like touches** (`Ai/HumanTouch.cs`, settings group `human`, resolved
+  inbox → entity → org → default like the rest): `ai_emoji_style` off | light
+  (default) | expressive = a `STYLE — emoji` line composed BELOW the hard rules,
+  house rules and persona ("if the persona says otherwise, follow the persona";
+  email always gets "don't use emoji"; follow-ups and flow messages get it too,
+  voice nothing). `ai_reactions` (default on) offers chat replies
+  `react_to_message(message_id, emoji)` where `HumanTouch.ReactionsPossible`
+  (WhatsApp Cloud/YCloud/Baileys, Telegram — not Twilio): ONE reaction on a
+  customer message of THIS turn (since our last outbound), the emoji validated by
+  `MessageReactions.ForAi` (one emoji; Telegram's own set, spelled without
+  U+FE0F; a few never-for-the-AI ones). `ai_quote_replies` auto (default) | off
+  offers `quote_message(message_id)` — the reply's FIRST bubble quotes it
+  (`reply_to` on the draft → `OutboundSender.Send(replyTo:)` direct or through the
+  first queued bubble's payload; ignored where quotes aren't carried). No
+  heuristic quoting: only when the model asks. The model sees ids as `[msg <id>] `
+  in front of customer messages (only when a tool can use them; stripped from any
+  reply). Results ride on `AiReplyResult.Reactions` / `ReplyToId` → the draft's
+  `reactions: [{message_id, emoji}]` / `reply_to`; `AiGate.Deliver` reacts FIRST
+  through `OutboundSender.React` + `MessageReactions.Set` (actor `ai`, "ours" like
+  a person's — `MessageReactions.IsOurs`; audit `message.react`), then the text.
+  A reaction can stand alone (`AiReplyResult.ReactionOnly`, an empty-content
+  draft); the acknowledgement skip reacts instead of staying silent when
+  reactions are on and `ai_ack_text` is blank (`Humanizer.AckReaction`: 🙏 thanks
+  EN/BM/ZH, ❤️ emoji-only, 👍 otherwise). Held / shadow / rejected / expired
+  drafts never react; approving reacts then. A refused touch never flags a reply.
+  The monitor shows `reactions` + `quote` on the draft (`DraftTouches` in
+  `DraftBits.tsx`); the playground previews both (`reaction` / `quote` by
+  transcript index, `options.emoji_style|reactions|quote_replies` overrides need
+  `ai.behaviour.manage`). Tests: `HumanTouchTests`.
 - **AI reviewer — "AI to monitor AI"** (`Ai/Review/AiReviewService.cs`,
   `Endpoints/AiReviewEndpoints.cs`, the AI monitor's "AI review" tab
   `?tab=ai-review`, `components/ai-monitor/AiReviewPanel.tsx`). ON DEMAND ONLY —
@@ -1757,7 +1786,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **844 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **855 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /

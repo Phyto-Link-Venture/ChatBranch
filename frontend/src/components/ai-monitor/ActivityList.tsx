@@ -35,6 +35,7 @@ import {
   ConversationSnippet,
   DraftBookings,
   DraftHeader,
+  DraftTouches,
   HoldReasons,
   StatusBadge,
   chatHref,
@@ -262,6 +263,7 @@ export function ActivityList({ entityQuery, canDecide }: { entityQuery: string; 
                         )}
                         <DraftBookings d={d} />
                         <DraftDocuments d={d} />
+                        <DraftTouches d={d} />
                         <ContextChips d={d} />
                         <GroundingLine d={d} />
                         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11.5px] text-text-muted">

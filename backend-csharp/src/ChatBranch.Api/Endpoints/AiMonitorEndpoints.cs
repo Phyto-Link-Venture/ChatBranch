@@ -44,6 +44,8 @@ public static class AiMonitorEndpoints
             "Show typing where the channel supports it and pause in proportion to the reply."),
         ("split", "Split long replies",
             "Long answers arrive as a few shorter messages, like a person would send them."),
+        ("human", "Human-like",
+            "Emoji, emoji reactions and quoted replies — the small touches of a person typing on their phone."),
         ("followup", "Follow up when the customer goes quiet",
             "A gentle nudge after the AI asked something and heard nothing back."),
         ("learning", "Learn from feedback",
@@ -415,6 +417,15 @@ public static class AiMonitorEndpoints
             ? new Dictionary<int, Document>()
             : await db.Documents.AsNoTracking().Where(x => docIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id);
 
+        // the human-like touches: the reaction it will make (or made) and the message it quotes
+        var touchIds = rows.SelectMany(r => AiReaction.From(r.Context).Select(x => x.MessageId)
+                .Concat(HumanTouch.ReplyTo(r.Context) is int q ? new[] { q } : Array.Empty<int>()))
+            .Distinct().ToList();
+        var touchText = touchIds.Count == 0
+            ? new Dictionary<int, string>()
+            : await db.Messages.AsNoTracking().Where(m => touchIds.Contains(m.Id))
+                .ToDictionaryAsync(m => m.Id, m => m.Text.Length <= 200 ? m.Text : m.Text.Substring(0, 200) + "…");
+
         var now = clock.GetUtcNow().UtcDateTime;
         var scoping = new ScopingService(db);
         return rows.Select(d =>
@@ -465,6 +476,18 @@ public static class AiMonitorEndpoints
                 bookings = BookingsEndpoints.MonitorItems(actionsByDraft[d.Id], bookingRows),
                 documents = docsByDraft[d.Id].Where(docRows.ContainsKey)
                     .Select(id => ChatBranch.Data.Documents.DocumentService.Payload(docRows[id])).ToList(),
+                // made when the reply is delivered (before its text) — a held reply has not reacted yet
+                reactions = AiReaction.From(d.Context).Select(x => new
+                {
+                    message_id = x.MessageId,
+                    emoji = x.Emoji,
+                    text = touchText.GetValueOrDefault(x.MessageId, ""),
+                    done = AiGate.Bool(d.Context, "reacted") == true,
+                    error = AiGate.Str(d.Context, "reaction_error", ""),
+                }).ToList(),
+                quote = HumanTouch.ReplyTo(d.Context) is int qid
+                    ? new { message_id = qid, text = touchText.GetValueOrDefault(qid, "") }
+                    : null,
             };
         }).ToList();
     }

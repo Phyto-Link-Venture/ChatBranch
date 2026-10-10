@@ -1,3 +1,4 @@
+using ChatBranch.Data.Channels;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 using Thread = ChatBranch.Domain.Thread;
@@ -11,7 +12,9 @@ namespace ChatBranch.Data.Ai;
 ///    thread whose not_before every new inbound pushes out (capped), with the
 ///    reply written at send time so a burst of messages gets one answer;
 ///  * <b>don't answer acknowledgements</b> — "ok", "thanks", a thumbs-up after an
-///    answer needs no reply (optionally a short canned acknowledgement);
+///    answer needs no reply (optionally a short canned acknowledgement); with
+///    reactions on (<c>ai_reactions</c>, a channel that has them) the AI reacts
+///    instead of staying silent — 🙏 on thanks, ❤️ on an emoji, 👍 otherwise;
 ///  * <b>every reply passes the AI monitor</b> (<see cref="AiGate"/>).
 /// Shared by the instant webhook path, the queue drain and the sandbox
 /// /simulate path, so all three behave identically.
@@ -111,22 +114,32 @@ public class AiResponder
                 && unanswered.All(m => Humanizer.IsAcknowledgement(m.Text))
                 && !Humanizer.LeavesConversationOpen(lastReply.Text))
             {
-                if (policy.AckText.Trim().Length == 0)
-                    return Out(AiGateStatus.Skipped, "Acknowledgement — no reply needed.");
-                return _gate.Submit(new AiSubmission(thread, AiDraftKind.Reply, policy.AckText,
-                    new Dictionary<string, object?>
+                var ctx = new Dictionary<string, object?>
+                {
+                    ["answering"] = unanswered.OrderBy(m => m.Id).Select(m => (object?)new Dictionary<string, object?>
                     {
-                        ["answering"] = unanswered.OrderBy(m => m.Id).Select(m => (object?)new Dictionary<string, object?>
-                        {
-                            ["id"] = m.Id, ["text"] = m.Text, ["at"] = m.CreatedAt,
-                        }).ToList(),
-                        ["acknowledgement"] = true,
-                    },
+                        ["id"] = m.Id, ["text"] = m.Text, ["at"] = m.CreatedAt,
+                    }).ToList(),
+                    ["acknowledgement"] = true,
+                };
+                if (policy.AckText.Trim().Length == 0)
+                {
+                    // a reaction instead of silence — the way a person answers "ok thanks!"
+                    var latest = unanswered.OrderByDescending(m => m.Id).First();
+                    var emoji = policy.Reactions && HumanTouch.ReactionsPossible(thread.Channel, account)
+                        ? MessageReactions.ForAi(thread.Channel, Humanizer.AckReaction(latest.Text)) : null;
+                    if (emoji == null) return Out(AiGateStatus.Skipped, "Acknowledgement — no reply needed.");
+                    ctx["reactions"] = AiReaction.ToMeta(new[] { new AiReaction(latest.Id, emoji) });
+                    return _gate.Submit(new AiSubmission(thread, AiDraftKind.Reply, "", ctx, accountId,
+                        Humanize: false, Canned: true));
+                }
+                return _gate.Submit(new AiSubmission(thread, AiDraftKind.Reply, policy.AckText, ctx,
                     accountId, Humanize: false, Canned: true));
             }
 
             var c = await _composer.ComposeReplyAsync(thread, ct);
-            if (string.IsNullOrWhiteSpace(c.Text)) return Out(AiGateStatus.Empty, "The AI produced no reply.");
+            if (string.IsNullOrWhiteSpace(c.Text) && !c.HasReaction)
+                return Out(AiGateStatus.Empty, "The AI produced no reply.");
             if (jobId is int jid) c.Meta["job_id"] = jid;
             return _gate.Submit(new AiSubmission(thread, AiDraftKind.Reply, c.Text, c.Meta, accountId));
         }

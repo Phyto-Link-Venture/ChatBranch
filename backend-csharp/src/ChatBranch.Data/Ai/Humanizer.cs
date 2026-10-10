@@ -181,6 +181,22 @@ public static class Humanizer
         return AckPhrases.Contains(squeezed);
     }
 
+    private static readonly Regex ThanksWords = new(
+        @"\b(thank|thanks|thx|tq|ty|tqvm|tysm|terima\s*kasih|trima\s*kasih|makasih|tenkiu|thank\s*you)\b|谢谢|多谢|感谢|謝謝",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// The reaction a person would put on an acknowledgement instead of a reply:
+    /// 🙏 on thanks (EN / BM / ZH), ❤️ on a message that is only emoji, 👍 on "ok", "noted"…
+    /// </summary>
+    public static string AckReaction(string? text)
+    {
+        var t = (text ?? "").Trim();
+        if (ThanksWords.IsMatch(t)) return "🙏";
+        if (t.Length > 0 && !t.Any(char.IsLetterOrDigit)) return "❤️";
+        return "👍";
+    }
+
     /// <summary>
     /// True when the message leaves the conversation open — it asks something
     /// (ends with a question mark, ignoring trailing emoji/spaces, or its last

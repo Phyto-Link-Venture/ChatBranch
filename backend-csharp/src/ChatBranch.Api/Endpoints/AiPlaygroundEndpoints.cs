@@ -29,7 +29,10 @@ namespace ChatBranch.Api.Endpoints;
 ///   generator (<see cref="AssistantService.GeneratePlaygroundAsync"/>) plus
 ///   everything the inspector shows and the production verdict
 ///   (<see cref="AiPlayground.Decide"/>). ≤ 60 turns, ≤ 4 000 chars a turn,
-///   30 calls a minute per user (429).
+///   30 calls a minute per user (429). The human-like touches run as in
+///   production (or as <c>options.emoji_style | reactions | quote_replies</c>
+///   override them); the would-be <c>reaction</c> and <c>quote</c> come back by
+///   transcript index — nothing is reacted to or quoted anywhere.
 /// * <c>POST /api/ai/playground/import</c> — a real conversation the caller can
 ///   see (<c>chats.view</c> + the inbox scope; out of scope = 404) as a
 ///   transcript. Read only.
@@ -113,6 +116,9 @@ public static class AiPlaygroundEndpoints
                     autosend_minutes = policy.AutosendMinutes,
                     split = policy.SplitMode,
                     split_max_chars = policy.SplitMaxChars,
+                    emoji_style = policy.EmojiStyle,
+                    reactions = policy.Reactions,
+                    quote_replies = policy.QuoteReplies ? "auto" : "off",
                 },
                 ai = new { enabled = ai.Enabled, rule = ai.Rule, reason = ai.Reason, forced = ai.Forced },
                 learning_mode = mode,
@@ -155,13 +161,23 @@ public static class AiPlaygroundEndpoints
                 Skills: Bool(o, "skills") ?? true,
                 Memory: Bool(o, "memory") ?? true);
             var showPrompt = Bool(o, "show_prompt") ?? false;
+            // the human-like touches for this run only: emoji style, reactions, quoted replies
+            var emojiStyle = (Str(o, "emoji_style") ?? "").Trim().ToLowerInvariant();
+            if (emojiStyle.Length > 0 && !AiBehaviourSettings.EmojiStyles.Contains(emojiStyle))
+                return Bad($"options.emoji_style must be one of {string.Join(", ", AiBehaviourSettings.EmojiStyles)}.");
+            var reactionsOverride = Bool(o, "reactions");
+            var quotesRaw = (Str(o, "quote_replies") ?? "").Trim().ToLowerInvariant();
+            if (quotesRaw.Length > 0 && !AiBehaviourSettings.QuoteModes.Contains(quotesRaw))
+                return Bad($"options.quote_replies must be one of {string.Join(", ", AiBehaviourSettings.QuoteModes)}.");
+            bool? quotesOverride = quotesRaw.Length > 0 ? quotesRaw == "auto" : Bool(o, "quote_replies");
             var overrides = provider.Length > 0 || model.Length > 0 || opts.Persona != null || !opts.Knowledge
-                            || !opts.Lessons || !opts.Skills || !opts.Memory || showPrompt;
+                            || !opts.Lessons || !opts.Skills || !opts.Memory || showPrompt
+                            || emojiStyle.Length > 0 || reactionsOverride != null || quotesOverride != null;
             if (overrides && !await ShellScope.HasCapAsync(db, me, AiMonitorEndpoints.BehaviourCap))
                 return Results.Json(new
                 {
-                    detail = "Trying changes (another model, a persona draft, parts switched off, the full prompt) "
-                             + "needs the ai.behaviour.manage capability.",
+                    detail = "Trying changes (another model, a persona draft, parts switched off, the human-like "
+                             + "touches, the full prompt) needs the ai.behaviour.manage capability.",
                 }, statusCode: 403);
             if (opts.Persona is { Length: > MaxPersona })
                 return Bad($"Keep the persona under {MaxPersona} characters.");
@@ -242,14 +258,27 @@ public static class AiPlaygroundEndpoints
             else if (model.Length > 0) return Bad("Pick the provider the model belongs to.");
             if (model.Length > 120) return Bad("That model name is too long.");
 
+            var inbox = account ?? (real?.AccountId is int ra
+                ? await db.ChannelAccounts.AsNoTracking().FirstOrDefaultAsync(x => x.Id == ra) : null);
+            var policy = AiBehaviourSettings.Resolve(sc, entityId, inbox);
+            // the touches production would use here, unless this run tries others
+            opts = opts with
+            {
+                EmojiStyle = emojiStyle.Length > 0 ? emojiStyle : policy.EmojiStyle,
+                Reactions = (reactionsOverride ?? policy.Reactions) && HumanTouch.ReactionsPossible(channel, inbox),
+                Quotes = (quotesOverride ?? policy.QuoteReplies) && HumanTouch.QuotesPossible(channel, inbox),
+            };
+
             var watch = Stopwatch.StartNew();
             var result = await assistant.GeneratePlaygroundAsync(new PlaygroundInput(entityId, channel, contactId, profile,
                 turns, opts, user, real?.Assignee is { Length: > 0 } a ? a : user), model_, ctx.RequestAborted);
             watch.Stop();
             var r = result.Reply;
-
-            var policy = AiBehaviourSettings.Resolve(sc, entityId, account ?? (real?.AccountId is int ra
-                ? await db.ChannelAccounts.AsNoTracking().FirstOrDefaultAsync(x => x.Id == ra) : null));
+            // the model's ids are transcript positions (1 = the first message sent): hand back indexes
+            object? Turn(int id) => id >= 1 && id <= turns.Count
+                ? new { message_index = id - 1, text = turns[id - 1].Text.Length <= 300 ? turns[id - 1].Text : turns[id - 1].Text[..300] + "…" }
+                : null;
+            var reaction = r.Reactions.FirstOrDefault();
             var ai = AiPlayground.Eligibility(db, sc, entityId, channel, account, result.Contact, real);
             var prior = turns.Count(t => t.Role == PlaygroundTurn.Ai);
             var production = AiPlayground.Decide(policy, ai, r, prior);
@@ -270,6 +299,15 @@ public static class AiPlaygroundEndpoints
                 bubbles,
                 action = r.Action,
                 reason = r.Reason,
+                // what production would do besides the words — performed nowhere here
+                reaction = reaction == null || Turn(reaction.MessageId) == null ? null : new
+                {
+                    message_index = reaction.MessageId - 1,
+                    emoji = reaction.Emoji,
+                    text = turns[reaction.MessageId - 1].Text,
+                },
+                quote = r.ReplyToId is int q ? Turn(q) : null,
+                touches = new { emoji_style = opts.EmojiStyle, reactions = opts.Reactions, quotes = opts.Quotes },
                 production = new
                 {
                     verdict = production.Verdict,
@@ -338,6 +376,9 @@ public static class AiPlaygroundEndpoints
                     model = model.Length > 0 ? model : null,
                     persona = opts.Persona != null,
                     knowledge = opts.Knowledge, lessons = opts.Lessons, skills = opts.Skills, memory = opts.Memory,
+                    emoji_style = emojiStyle.Length > 0 ? emojiStyle : null,
+                    reactions = reactionsOverride,
+                    quote_replies = quotesOverride is bool qo ? (qo ? "auto" : "off") : null,
                 },
                 prompt = showPrompt
                     ? new
