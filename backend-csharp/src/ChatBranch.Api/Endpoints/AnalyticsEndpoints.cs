@@ -60,14 +60,15 @@ public static class AnalyticsEndpoints
         // The organization-wide ledger at COST (USD) — what the platform pays.
         // billing.manage only (superadmin by default): companies see their marked-up
         // bill at /api/billing/ai instead, never the cost.
-        app.MapGet("/api/analytics/usage", async (string? days, AppDbContext db, ScopingService sc,
+        app.MapGet("/api/analytics/usage", async (string? days, string? entity, AppDbContext db, ScopingService sc,
             IHttpClientFactory http) =>
         {
             var window = ParseDays(days);
             try
             {
                 await ModelPriceCatalog.EnsureFreshAsync(http, sc);
-                return await UsageAsync(db, sc, window);
+                var entityId = await InboxEndpoints.EntityId(db, entity);
+                return await UsageAsync(db, sc, window, entityId);
             }
             catch (Exception)
             {
@@ -555,13 +556,25 @@ public static class AnalyticsEndpoints
         "estimated from the llm_prices table (USD per 1M tokens) over OpenRouter's public " +
         "price list. Models priced nowhere are costed at 0.";
 
-    private static async Task<IResult> UsageAsync(AppDbContext db, ScopingService sc, int days)
+    private static async Task<IResult> UsageAsync(AppDbContext db, ScopingService sc, int days, int? entityId = null)
     {
         var now = DateTime.UtcNow;
         var since = now.AddDays(-days);
         var prices = PriceTable(sc);
 
-        var rows = await db.LlmUsage.AsNoTracking().Where(u => u.CreatedAt >= since)
+        var q = db.LlmUsage.AsNoTracking().Where(u => u.CreatedAt >= since);
+        // the entity switcher: rows stamped with an entity in the picked subtrees, plus
+        // unstamped rows whose contact belongs there (the bill's own fallback); usage
+        // tied to no entity at all (skill drafting, embeddings…) shows only under All
+        if (entityId is int eid)
+        {
+            var ids = sc.PickSubtree(eid);
+            var contactIds = db.ContactEntities.AsNoTracking()
+                .Where(l => ids.Contains(l.EntityId)).Select(l => l.ContactId);
+            q = q.Where(u => (u.EntityId != null && ids.Contains(u.EntityId.Value))
+                             || (u.EntityId == null && u.ContactId != null && contactIds.Contains(u.ContactId.Value)));
+        }
+        var rows = await q
             .Select(u => new UsageRow(u.Feature, u.Provider, u.Model, u.ContactId,
                 u.Contact!.Name, u.PromptTokens, u.CompletionTokens, u.AudioPromptTokens,
                 u.AudioCompletionTokens, u.CreatedAt, u.CostUsd))

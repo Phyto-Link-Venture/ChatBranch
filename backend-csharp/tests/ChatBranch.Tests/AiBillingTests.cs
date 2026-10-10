@@ -104,6 +104,45 @@ public class AiBillingTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Usage_ledger_follows_the_entity_switcher()
+    {
+        var su = await Platform.As(_f, "superadmin", "super123");
+        Assert.Equal(HttpStatusCode.Created, (await su.PostAsJsonAsync("/api/v1/entities",
+            new { name = "Usage Co", slug = "usage-co" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await su.PostAsJsonAsync("/api/v1/entities",
+            new { name = "Usage Co Branch", slug = "usage-co-branch", parent = "usage-co" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await su.PostAsJsonAsync("/api/v1/entities",
+            new { name = "Usage Other", slug = "usage-other" })).StatusCode);
+        var now = DateTime.UtcNow.AddMinutes(-5);
+        With(db =>
+        {
+            var branch = db.Entities.Single(e => e.Slug == "usage-co-branch").Id;
+            var other = db.Entities.Single(e => e.Slug == "usage-other").Id;
+            var contact = new Contact { Name = "Usage Customer", Phone = "+60100000992", CreatedAt = now, UpdatedAt = now };
+            db.Contacts.Add(contact);
+            db.SaveChanges();
+            db.ContactEntities.Add(new ContactEntity { ContactId = contact.Id, EntityId = branch });
+            db.LlmUsage.Add(new LlmUsage { Feature = "chat_reply", Model = "usage-test-model", EntityId = branch, CostUsd = 3.0, CreatedAt = now });
+            db.LlmUsage.Add(new LlmUsage { Feature = "summary", Model = "usage-test-model", ContactId = contact.Id, CostUsd = 0.5, CreatedAt = now });
+            db.LlmUsage.Add(new LlmUsage { Feature = "skill_draft", Model = "usage-test-model", CostUsd = 7.0, CreatedAt = now });
+            db.LlmUsage.Add(new LlmUsage { Feature = "chat_reply", Model = "usage-test-model", EntityId = other, CostUsd = 11.0, CreatedAt = now });
+            db.SaveChanges();
+            return 0;
+        });
+
+        double Cost(JsonElement u) => u.GetProperty("by_model").EnumerateArray()
+            .Where(m => m.GetProperty("model").GetString() == "usage-test-model")
+            .Sum(m => m.GetProperty("est_cost_usd").GetDouble());
+
+        // the company (its branch's row + the contact's row), never another company's or unattributed work
+        Assert.Equal(3.5, Cost(await su.GetFromJsonAsync<JsonElement>("/api/analytics/usage?days=7&entity=usage-co")), 3);
+        Assert.Equal(11.0, Cost(await su.GetFromJsonAsync<JsonElement>("/api/analytics/usage?days=7&entity=usage-other")), 3);
+        // ticking both adds them up; All shows everything
+        Assert.Equal(14.5, Cost(await su.GetFromJsonAsync<JsonElement>("/api/analytics/usage?days=7&entity=usage-co,usage-other")), 3);
+        Assert.Equal(21.5, Cost(await su.GetFromJsonAsync<JsonElement>("/api/analytics/usage?days=7")), 3);
+    }
+
+    [Fact]
     public async Task A_reported_provider_cost_wins_and_unknown_models_price_from_the_catalog()
     {
         var su = await Platform.As(_f, "superadmin", "super123");

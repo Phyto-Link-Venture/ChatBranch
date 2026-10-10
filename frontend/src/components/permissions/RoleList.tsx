@@ -43,7 +43,7 @@ export function RoleList({
     groups.reduce((n, g) => (areaSummary(slug, g.caps, matrix[slug] || {}).granted > 0 ? n + 1 : n), 0)
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3.5">
+    <div className="flex flex-col gap-3.5">
       <div className="flex items-center justify-between gap-2">
         <div className="text-[12px] text-text-muted">
           {t('admin.permissions.list.summary', { count: roles.length })}

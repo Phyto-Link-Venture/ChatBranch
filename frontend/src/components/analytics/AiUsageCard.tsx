@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { useFormat, useT, type MessageKey } from '@/i18n'
+import { useEntityQuery } from '@/lib/EntityContext'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -111,10 +112,12 @@ export function AiUsageCard({ days }: { days: number }) {
   const { num, usd } = useUsageFormat()
   const [data, setData] = useState<AiUsage | null>(null)
   const [failed, setFailed] = useState(false)
+  // follows the entity switcher like every other Dashboard card
+  const entityQ = useEntityQuery()
 
   useEffect(() => {
     let cancelled = false
-    fetch(`${API}/analytics/usage?days=${days}`, { headers: authHeaders() })
+    fetch(`${API}/analytics/usage?days=${days}${entityQ && `&${entityQ}`}`, { headers: authHeaders() })
       .then((r) => {
         if (expireSessionOn401(r)) return null
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -129,7 +132,7 @@ export function AiUsageCard({ days }: { days: number }) {
     return () => {
       cancelled = true
     }
-  }, [days])
+  }, [days, entityQ])
 
   if (failed || data === null) return null
 

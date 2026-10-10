@@ -234,7 +234,7 @@ export default function PermissionsPage() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3.5">
+    <div className="flex flex-col gap-3.5">
       {/* Header */}
       <div data-tour="permissions-header" className="flex items-center gap-3">
         <div className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-xl border border-line bg-fill">

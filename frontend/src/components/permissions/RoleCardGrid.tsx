@@ -71,7 +71,7 @@ export function RoleCardGrid({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3.5">
+    <div className="flex flex-col gap-3.5">
       {/* Sub-header: back + role identity */}
       <div className="flex flex-wrap items-center gap-3">
         <button
@@ -161,7 +161,7 @@ export function RoleCardGrid({
       </div>
 
       {/* Card grid — ~4 cols, responsive down to 1 */}
-      <div data-tour="permissions-grid" className="min-h-0 flex-1 overflow-auto">
+      <div data-tour="permissions-grid">
         {filtered.length === 0 ? (
           <div className="py-10 text-center text-[12.5px] text-text-muted">
             {t('admin.permissions.grid.noMatch', { query })}
