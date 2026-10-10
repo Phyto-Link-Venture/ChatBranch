@@ -26,6 +26,7 @@ import { readySkills } from './readySkills'
 import { billing } from './billing'
 import { guide } from './guide'
 import { manual } from './manual'
+import { account } from './account'
 
 export const ms: Dict<Messages> = {
   common,
@@ -54,4 +55,5 @@ export const ms: Dict<Messages> = {
   billing,
   guide,
   manual,
+  account,
 }

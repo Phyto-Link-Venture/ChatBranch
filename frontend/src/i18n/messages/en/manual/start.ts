@@ -298,6 +298,42 @@ export const start = {
     trouble:
       'A “Sandbox” badge shows at the top: no AI model is connected, so it understands only simple requests and how-to questions — an admin adds a key in Settings → AI keys & models. A card says “Expired”: ask again. “I couldn’t reach the assistant”: check your connection and try again.',
   },
+  myAccount: {
+    title: 'Change your name or password',
+    summary: 'Set the name colleagues see, add your email, change your password and sign out devices you no longer use — all on Settings → My account.',
+    steps: {
+      s1: {
+        title: 'Open Settings → My account',
+        body: 'Click your name at the bottom of the sidebar, or click “Settings” and then “My account” under “Personal”.',
+      },
+      s2: {
+        title: 'Change your name',
+        body: 'In the “Profile” card, type your first and last name. Add your email if you like, then click “Save profile”. Your name in the sidebar updates at once.',
+      },
+      s3: {
+        title: 'Type your current password',
+        body: 'In the “Password” card, type the password you use today in “Current password”.',
+      },
+      s4: {
+        title: 'Choose a new password',
+        body: 'Type the new password in “New password” and again in “Confirm new password”. It needs at least 8 characters; the strength hint under it says how strong it is. Click the eye icon to check what you typed.',
+      },
+      s5: {
+        title: 'Click “Change password”',
+        body: 'You see “Password changed — N other devices signed out”. This browser stays signed in; everywhere else you sign in again with the new password.',
+      },
+      s6: {
+        title: 'Sign out other devices (optional)',
+        body: 'In the “Devices” card, click “Sign out other devices” to end every other session without changing your password — for example after using a shared computer.',
+      },
+    },
+    done: 'The sidebar shows your new name, and signing in elsewhere needs the new password.',
+    tips: {
+      t1: 'Your username never changes — it is what you sign in with and what the activity log records.',
+      t2: 'Forgot your password? Only an administrator can set a new one for you on the Users page.',
+    },
+    trouble: '“Your current password is wrong”: check Caps Lock and try again. “Too many wrong passwords”: wait about 15 minutes before trying again. “Another user already has that email address”: use a different email or ask an administrator.',
+  },
   myConnections: {
     title: 'Connect your own Google Calendar',
     summary: 'Link your Google Calendar to ChatBranch so the AI can check when you are free and book customer appointments straight into your calendar for chats assigned to you.',

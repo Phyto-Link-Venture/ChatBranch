@@ -300,6 +300,42 @@ export const start: Dict<typeof source> = {
     trouble:
       'Lencana “Kotak pasir” muncul di atas: tiada model AI disambungkan, jadi ia hanya memahami permintaan ringkas dan soalan cara — pentadbir menambah kunci di Tetapan → Kunci & model AI. Kad menunjukkan “Tamat tempoh”: tanya sekali lagi. “Saya tidak dapat menghubungi pembantu”: semak sambungan anda dan cuba lagi.',
   },
+  myAccount: {
+    title: 'Tukar nama atau kata laluan anda',
+    summary: 'Tetapkan nama yang dilihat rakan sekerja, tambah e-mel anda, tukar kata laluan dan log keluar peranti yang tidak lagi digunakan — semuanya di Tetapan → Akaun saya.',
+    steps: {
+      s1: {
+        title: 'Buka Tetapan → Akaun saya',
+        body: 'Klik nama anda di bahagian bawah bar sisi, atau klik “Tetapan” kemudian “Akaun saya” di bawah “Peribadi”.',
+      },
+      s2: {
+        title: 'Tukar nama anda',
+        body: 'Dalam kad “Profil”, taip nama pertama dan nama akhir anda. Tambah e-mel jika mahu, kemudian klik “Simpan profil”. Nama anda di bar sisi dikemas kini serta-merta.',
+      },
+      s3: {
+        title: 'Taip kata laluan semasa',
+        body: 'Dalam kad “Kata laluan”, taip kata laluan yang anda gunakan sekarang dalam “Kata laluan semasa”.',
+      },
+      s4: {
+        title: 'Pilih kata laluan baharu',
+        body: 'Taip kata laluan baharu dalam “Kata laluan baharu” dan sekali lagi dalam “Sahkan kata laluan baharu”. Ia memerlukan sekurang-kurangnya 8 aksara; petunjuk kekuatan di bawahnya menunjukkan kekuatannya. Klik ikon mata untuk menyemak apa yang ditaip.',
+      },
+      s5: {
+        title: 'Klik “Tukar kata laluan”',
+        body: 'Anda melihat “Kata laluan ditukar — N peranti lain dilog keluar”. Pelayar ini kekal log masuk; di tempat lain anda log masuk semula dengan kata laluan baharu.',
+      },
+      s6: {
+        title: 'Log keluar peranti lain (pilihan)',
+        body: 'Dalam kad “Peranti”, klik “Log keluar peranti lain” untuk menamatkan setiap sesi lain tanpa menukar kata laluan — contohnya selepas menggunakan komputer kongsi.',
+      },
+    },
+    done: 'Bar sisi menunjukkan nama baharu anda, dan log masuk di tempat lain memerlukan kata laluan baharu.',
+    tips: {
+      t1: 'Nama pengguna anda tidak pernah berubah — itulah yang anda gunakan untuk log masuk dan yang direkodkan dalam log aktiviti.',
+      t2: 'Lupa kata laluan? Hanya pentadbir boleh menetapkan yang baharu untuk anda di halaman Pengguna.',
+    },
+    trouble: '“Kata laluan semasa anda salah”: semak Caps Lock dan cuba lagi. “Terlalu banyak kata laluan salah”: tunggu kira-kira 15 minit sebelum mencuba lagi. “Pengguna lain sudah mempunyai alamat e-mel itu”: gunakan e-mel lain atau tanya pentadbir.',
+  },
   myConnections: {
     title: 'Sambungkan Kalendar Google anda sendiri',
     summary: 'Pautkan Kalendar Google anda kepada ChatBranch supaya AI boleh menyemak bila anda lapang dan menempah janji temu pelanggan terus ke dalam kalendar anda untuk sembang yang ditugaskan kepada anda.',

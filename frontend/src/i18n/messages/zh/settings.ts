@@ -23,6 +23,10 @@ export const settings: Dict<typeof source> = {
       ai: { lbl: 'AI', blurb: '模型与工具' },
     },
     pages: {
+      account: {
+        lbl: '我的账户',
+        blurb: '您的姓名、电子邮件和密码，以及您已登录的设备。',
+      },
       appearance: {
         lbl: '外观',
         blurb: '主题、颜色模式、文字大小、字体、间距和布局。保存在你的个人资料中，在任何设备上都会生效。',

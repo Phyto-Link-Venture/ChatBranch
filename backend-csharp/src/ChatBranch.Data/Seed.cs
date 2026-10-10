@@ -302,6 +302,10 @@ public static class Seed
             + "\"emoji\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL, "
             + "CONSTRAINT \"uniq_messagereaction_actor\" UNIQUE (\"message_id\", \"actor\")");
         AddIndexIfMissing(db, "ix_messagereaction_thread", "crm_messagereaction", "\"thread_id\"");
+        // My account: a person's own display name + email (Django's auth_user columns)
+        AddColumnIfMissing(db, "auth_user", "first_name", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "auth_user", "last_name", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "auth_user", "email", "TEXT NOT NULL DEFAULT ''");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 

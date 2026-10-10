@@ -14,6 +14,12 @@ public class AppUser
     public bool IsActive { get; set; } = true;
     public bool IsSuperuser { get; set; }
     public DateTime? LastLogin { get; set; }
+    // Django's auth_user name + email columns. Edited by the person themselves
+    // (Settings → My account, /api/auth/me/account); "" = not set, and the
+    // display name then falls back to the username.
+    public string FirstName { get; set; } = "";
+    public string LastName { get; set; } = "";
+    public string Email { get; set; } = "";
 
     public Profile? Profile { get; set; }
 }

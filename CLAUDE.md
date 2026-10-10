@@ -1277,7 +1277,10 @@ When you fix one of these, update this table, `README.md` and
 - **Settings is system configuration ONLY**, organised as SECTIONS of flat
   `/settings/<id>` pages, each with its own capability
   (`components/settings/SettingsNav.tsx` `SETTINGS_SECTIONS`, checked again
-  server-side): Personal — Appearance (incl. Language), My notifications, My connections (no
+  server-side): Personal — My account (no cap; `/settings/account`, your own
+  name / email / password / devices via `/api/auth/me/*` —
+  `Endpoints/MyAccountEndpoints.cs`, writes session-only, wrong passwords
+  throttled; also opened from the sidebar's name chip), Appearance (incl. Language), My notifications, My connections (no
   cap; `/settings/connections` connects your own Google products, see
   Integrations); Organization — Notification defaults (`notifications.manage`),
   Custom fields (`settings.custom_fields.manage`), App & provider keys

@@ -219,7 +219,7 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         "/api/notifications", "/api/notifications/preferences", "/api/views?scope=chats",
         "/api/settings/appearance", "/api/v1/entities", "/api/live", "/api/search?q=gate",
         "/api/developers/keys", "/api/integrations/mine", "/api/integrations/accounts",
-        "/api/assistant/conversations",
+        "/api/assistant/conversations", "/api/auth/me/account",
     };
 
     private string Url(string template) =>
@@ -351,6 +351,7 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ["/api/integrations/oauth/{provider}/start"] = "connect your OWN Google account; a shared row needs admin+ AND integrations.manage inside",
         ["/api/assistant/conversations"] = "the caller's own Ask ChatBranch history (the dock is on every page; owner-only rows)",
         ["/api/assistant/conversations/{id:int}"] = "one of the caller's own Ask ChatBranch conversations (someone else's answers 404)",
+        ["/api/auth/me/account"] = "Settings → My account: the caller's own name, email, role, entities and session count",
     };
 
     /// <summary>Gated, but inside the handler (no filter metadata) — each must also be in

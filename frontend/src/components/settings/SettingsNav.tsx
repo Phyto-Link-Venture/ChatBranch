@@ -15,6 +15,7 @@ import { Receipt,
   Loader2,
   Lock,
   Palette,
+  UserRound,
   type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -61,6 +62,12 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
     lbl: 'settings.nav.sections.personal.lbl',
     blurb: 'settings.nav.sections.personal.blurb',
     pages: [
+      {
+        id: 'account',
+        lbl: 'settings.nav.pages.account.lbl',
+        blurb: 'settings.nav.pages.account.blurb',
+        Icon: UserRound,
+      },
       {
         id: 'appearance',
         lbl: 'settings.nav.pages.appearance.lbl',

@@ -333,21 +333,29 @@ export function SideNav({
         </div>
 
         <div className={`mt-2 flex items-center gap-2 border-t border-line pt-2.5 ${collapsed ? 'flex-col' : ''}`}>
-          <span
-            className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary text-[11.5px] font-semibold text-on-primary"
-            title={user?.name || user?.username || t('shell.sideNav.notSignedIn')}
-            aria-hidden
+          {/* name + avatar open Settings → My account */}
+          <Link
+            href="/settings/account"
+            onClick={onCloseMobile}
+            title={t('settings.nav.pages.account.lbl')}
+            aria-label={collapsed ? t('settings.nav.pages.account.lbl') : undefined}
+            className={`flex min-w-0 items-center gap-2 rounded-lg transition-colors hover:bg-fill-hover ${collapsed ? '' : 'flex-1 -ml-1 py-0.5 pl-1'}`}
           >
-            {initials}
-          </span>
-          {!collapsed && (
-            <span className="flex min-w-0 flex-1 flex-col leading-tight">
-              <span className="truncate text-[13px] font-semibold text-text-high">
-                {user?.name || user?.username || t('shell.sideNav.notSignedIn')}
-              </span>
-              <span className="truncate text-[11.5px] text-text-muted">{ROLE_LABEL[role] ? t(ROLE_LABEL[role]) : role}</span>
+            <span
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary text-[11.5px] font-semibold text-on-primary"
+              aria-hidden
+            >
+              {initials}
             </span>
-          )}
+            {!collapsed && (
+              <span className="flex min-w-0 flex-1 flex-col leading-tight">
+                <span className="truncate text-[13px] font-semibold text-text-high">
+                  {user?.name || user?.username || t('shell.sideNav.notSignedIn')}
+                </span>
+                <span className="truncate text-[11.5px] text-text-muted">{ROLE_LABEL[role] ? t(ROLE_LABEL[role]) : role}</span>
+              </span>
+            )}
+          </Link>
           <ThemeToggle />
           <button
             onClick={onSignOut}
