@@ -22,7 +22,7 @@ export const work = {
       },
       s5: {
         title: 'Add an emoji or a ready-made answer',
-        body: 'There is no emoji button — use your keyboard’s emoji panel (Windows key + full stop on Windows, Control + Command + Space on a Mac, or the emoji key on a phone). To use a saved answer, type “/” and pick one from the “Quick replies” list.',
+        body: 'Click the smiley button, “Emoji”, left of the message box: pick a category, search (“thanks”, “terima kasih” or “谢谢” all work) or choose from “Recently used” — the emoji goes in where your cursor is. To use a saved answer, type “/” and pick one from the “Quick replies” list.',
       },
       s6: {
         title: 'Attach a file (optional)',
@@ -46,6 +46,45 @@ export const work = {
     },
     trouble:
       'The message box is greyed out and says “24h window closed”: on a WhatsApp Business number you must first send an approved template — see “Send a WhatsApp template when the 24-hour window is closed”. The paperclip is missing: this channel cannot receive files from ChatBranch (for example LINE, Viber or SMS) — send a text instead. A red “Failed” tick: the message did not arrive — ask an admin to check that channel on the Channels page.',
+  },
+  quoteAndReact: {
+    title: 'Quote a message or react with an emoji',
+    summary: 'On WhatsApp and Telegram, answer one particular message so the customer sees which one you mean, or react to it with an emoji instead of writing back.',
+    before: 'Quotes and reactions work in WhatsApp and Telegram conversations. You need to be allowed to send messages in the chat.',
+    steps: {
+      s1: {
+        title: 'Open the conversation',
+        body: 'In the sidebar, under Work, click “Chats” and pick a WhatsApp or Telegram conversation.',
+      },
+      s2: {
+        title: 'Show a message’s actions',
+        body: 'On a computer, move the mouse over the message. On a phone or tablet, press and hold it for a moment. A small bar appears above it with six emoji, a “+” (“More emoji”), “Reply” and “Copy text”.',
+      },
+      s3: {
+        title: 'React with an emoji',
+        body: 'Click one of 👍 ❤️ 😂 😮 😢 🙏, or “+” to choose any other emoji. Your reaction appears in a small chip under the message and is sent to the customer. Click the same emoji again (or your chip) to take it back; picking another one replaces it.',
+      },
+      s4: {
+        title: 'Reply to that message',
+        body: 'Click “Reply”. A “Replying to …” strip with the message appears above the message box — click its × if you change your mind.',
+      },
+      s5: {
+        title: 'Write and send',
+        body: 'Type your answer and press Enter. Your message shows the quoted message on top, and the customer’s app shows it as a reply to that message.',
+      },
+      s6: {
+        title: 'Find the original',
+        body: 'When a customer quotes an earlier message, the quote shows at the top of their bubble. Click it to jump to the original message, which flashes for a moment.',
+      },
+    },
+    done: 'Your reaction shows as a chip under the message, or your reply shows the quoted message on top.',
+    tips: {
+      t1: 'Hover over a reaction chip to see who reacted — the customer or which teammate.',
+      t2: 'The business has one reaction per message: if a teammate already reacted, yours replaces theirs.',
+      t3: 'Customers’ reactions never wake the AI or reopen a finished chat — they are just shown on the message.',
+    },
+    trouble:
+      '“WhatsApp 24h window closed — a reaction can only be sent within 24 hours…”: on a WhatsApp Business number a reaction counts as a message, so it only works within 24 hours of the customer’s last message. “REACTION_INVALID” on Telegram: Telegram only allows its own set of reaction emoji — try 👍, ❤️, 🔥 or 🙏. No “Reply” on a message: notes, system lines and other channels (email, Messenger, SMS…) don’t support quotes.',
   },
   findChats: {
     title: 'Find the right chats quickly',

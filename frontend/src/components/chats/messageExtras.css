@@ -1,0 +1,232 @@
+/* ── /chats bubble extras — quotes, reactions, the action bar, the emoji picker,
+   location / contact cards and stickers. Theme tokens only, so all three
+   themes and both modes follow. ───────────────────────────────────────── */
+
+/* a quoted message above a reply's text */
+.cb-quote {
+  display: block;
+  width: 100%;
+  margin: 0 0 5px;
+  padding: 4px 8px 5px;
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-md);
+  background-color: color-mix(in srgb, currentColor 7%, transparent);
+  text-align: left;
+  white-space: normal;
+  cursor: default;
+}
+button.cb-quote {
+  cursor: pointer;
+}
+button.cb-quote:hover {
+  background-color: color-mix(in srgb, currentColor 12%, transparent);
+}
+.cb-quote-author {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--brand-ink);
+}
+.cb-bubble-out .cb-quote-author {
+  color: inherit;
+  opacity: 0.85;
+}
+.cb-quote-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.35;
+  opacity: 0.8;
+}
+.cb-quote-composer {
+  margin: 0;
+  color: var(--text-primary);
+}
+
+/* "jump to the original" flash */
+@keyframes cb-msg-flash {
+  0%,
+  40% {
+    background-color: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.cb-msg-flash {
+  border-radius: var(--r-2xl);
+  animation: cb-msg-flash 1.8s ease-out;
+}
+
+/* the hover / long-press action bar above a bubble */
+.cb-msg-tools {
+  position: absolute;
+  bottom: calc(100% - 6px);
+  z-index: 20;
+  display: none;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background-color: var(--card);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--text-primary) 14%, transparent);
+}
+.cb-msg-tools.is-open {
+  display: flex;
+}
+@media (hover: hover) {
+  .cb-msg:hover .cb-msg-tools,
+  .cb-msg:focus-within .cb-msg-tools {
+    display: flex;
+  }
+}
+
+/* reaction chips under a bubble */
+.cb-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: min(66%, 560px);
+  margin-top: -6px;
+  padding: 0 8px;
+  position: relative;
+  z-index: 1;
+}
+@media (max-width: 640px) {
+  .cb-reactions {
+    max-width: 86%;
+  }
+}
+.cb-reaction-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background-color: var(--card);
+  color: var(--text-mid);
+  transition: border-color 0.15s;
+}
+.cb-reaction-chip:not(:disabled):hover {
+  border-color: var(--line-strong);
+}
+.cb-reaction-mine {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  background-color: color-mix(in srgb, var(--accent) 12%, var(--card));
+}
+
+/* the emoji picker: a popover on desktop, a bottom sheet on a phone */
+.cb-emoji-panel {
+  position: absolute;
+  z-index: 60;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background-color: var(--card);
+  color: var(--text-primary);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--text-primary) 18%, transparent);
+  white-space: normal;
+}
+.cb-emoji-above {
+  bottom: calc(100% + 6px);
+}
+.cb-emoji-below {
+  top: calc(100% + 6px);
+}
+.cb-emoji-left {
+  left: 0;
+}
+.cb-emoji-right {
+  right: 0;
+}
+.cb-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 1px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 0 6px 8px;
+  justify-items: center;
+}
+.cb-emoji-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 59;
+  background-color: color-mix(in srgb, var(--text-primary) 28%, transparent);
+}
+@media (max-width: 639px) {
+  .cb-emoji-panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    width: auto;
+    border-radius: var(--r-2xl) var(--r-2xl) 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .cb-emoji-grid {
+    max-height: 46vh;
+  }
+}
+
+/* location / contact cards inside a bubble */
+.cb-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 200px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  border-radius: var(--r-lg);
+  white-space: normal;
+}
+.cb-card-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, currentColor 10%, transparent);
+}
+.cb-card-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.cb-card-link:disabled {
+  opacity: 0.6;
+}
+
+/* a sticker: small, no bubble behind it */
+.cb-bubble.cb-bubble-sticker {
+  background-color: transparent;
+  border-color: transparent;
+  padding: 0;
+  color: var(--text-primary);
+}
+.cb-bubble-sticker img {
+  max-width: 132px;
+  max-height: 132px;
+  object-fit: contain;
+  border-radius: 0;
+}
+.cb-bubble-sticker .cb-bubble-time {
+  float: none;
+  top: 0;
+  margin: 2px 0 0;
+  color: var(--text-muted);
+}

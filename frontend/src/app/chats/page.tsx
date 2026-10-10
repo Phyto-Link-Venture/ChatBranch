@@ -46,7 +46,6 @@ import {
   CallTranscriptChip,
   CenterNote,
   ChannelBadge,
-  MediaAttachment,
   SipCallCard,
   StatusTick,
   type CallRec,
@@ -95,6 +94,12 @@ import IdentityBanner from '@/components/chats/IdentityBanner'
 import { subscribeChatStream } from '@/lib/chatStream'
 import { AiBubbleFeedback, useAiFeedback } from '@/components/ai-learning/BubbleFeedback'
 import { useFormat, useT, type MessageKey } from '@/i18n'
+// quoted replies, reactions, the emoji picker and message cards (bubble extras)
+import MessageActions from '@/components/chats/MessageActions'
+import MessageContent, { isSticker } from '@/components/chats/MessageContent'
+import { ReplyPreview, jumpToMessage } from '@/components/chats/QuotedBlock'
+import { EmojiButton, insertAtCursor } from '@/components/chats/EmojiPicker'
+import { REACTION_CHANNELS } from '@/components/chats/inboxTypes'
 import './chats.css'
 
 /** First page of the list; "Load more" pages by the same step. */
@@ -206,6 +211,8 @@ function ChatsPage() {
   const [active, setActive] = useState<UiThread | null>(null)
   const [activeId, setActiveId] = useState<{ channel: Channel; key: string } | null>(null)
   const [draft, setDraft] = useState('')
+  // the message the next reply quotes (WhatsApp / Telegram), cleared on send and on switching chats
+  const [replyTo, setReplyTo] = useState<UiMessage | null>(null)
   const [composerMode, setComposerMode] = useState<'reply' | 'note'>('reply')
   const [agents, setAgents] = useState<UiAgent[]>([])
   const [teams, setTeams] = useState<UiTeam[]>([])
@@ -694,6 +701,9 @@ function ChatsPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
   }, [active?.messages.length, combinedOn, combined?.messages.length])
 
+  // a quote belongs to the chat it was picked in
+  useEffect(() => setReplyTo(null), [activeId])
+
   // per-thread composer/call-pill state resets on switch
   useEffect(() => {
     setPendingFile(null)
@@ -836,9 +846,22 @@ function ChatsPage() {
       const override = isWa && active.opted_out === true
       if (override && !window.confirm(t('chats.page.confirmOptedOut'))) return
       setDraft('')
+      // a quoted reply carries the quoted message's pk (WhatsApp / Telegram)
+      const quote = replyTo?.pk != null && REACTION_CHANNELS.includes(active.channel) ? { reply_to: replyTo.pk } : {}
+      setReplyTo(null)
       await api(`${threadPath(active)}/send`, {
         method: 'POST',
-        body: JSON.stringify(override ? { text, force: true } : { text }),
+        body: JSON.stringify(override ? { text, force: true, ...quote } : { text, ...quote }),
+      })
+    })
+
+  /** Our emoji reaction on a message ("" removes it) — every channel goes through the messaging route. */
+  const reactTo = (m: UiMessage, emoji: string) =>
+    run(async () => {
+      if (!active || m.pk == null) return
+      await api(`messaging/threads/${active.channel}/${encodeURIComponent(active.key)}/messages/${m.pk}/react`, {
+        method: 'POST',
+        body: JSON.stringify({ emoji }),
       })
     })
 
@@ -1816,7 +1839,24 @@ function ChatsPage() {
                           )
                         ) : (
                           <div className={`mb-2 flex ${m.dir === 'out' ? 'justify-end' : 'justify-start'}`}>
-                            <div className={`cb-bubble ${m.private ? 'cb-bubble-note' : m.dir === 'out' ? 'cb-bubble-out' : 'cb-bubble-in'}`}>
+                            <MessageActions
+                              m={m}
+                              contactName={active.contact_name || active.name}
+                              meName={meName}
+                              canReply={!combinedOn && access.can('chats.send') && REACTION_CHANNELS.includes(active.channel)}
+                              canReact={!combinedOn && access.can('chats.send') && REACTION_CHANNELS.includes(active.channel)}
+                              onReply={(msg) => {
+                                setComposerMode('reply')
+                                setReplyTo(msg)
+                                composerRef.current?.focus()
+                              }}
+                              onReact={reactTo}
+                            >
+                            <div
+                              className={`cb-bubble ${m.private ? 'cb-bubble-note' : m.dir === 'out' ? 'cb-bubble-out' : 'cb-bubble-in'}${
+                                isSticker(m) ? ' cb-bubble-sticker' : ''
+                              }`}
+                            >
                               {combinedOn && m.channel && <ChannelBadge channel={m.channel} />}
                               {m.private && (
                                 <span className="cb-bubble-source">
@@ -1824,8 +1864,7 @@ function ChatsPage() {
                                 </span>
                               )}
                               {!m.private && m.dir === 'out' && m.source === 'ai' && <AiBubbleFeedback m={m} store={aiFeedback} />}
-                              {m.media && <MediaAttachment media={m.media} />}
-                              {m.text}
+                              <MessageContent m={m} contactName={active.contact_name || active.name} onJump={jumpToMessage} />
                               <span className="cb-bubble-time">
                                 {(multiAccount || combinedOn) && !m.private && m.account_id && (
                                   <span title={t(m.dir === 'out' ? 'chats.page.sentFrom' : 'chats.page.receivedOn', { account: acctLabel(m) })}>
@@ -1836,6 +1875,7 @@ function ChatsPage() {
                                 {m.dir === 'out' && !m.private && <StatusTick status={m.status} />}
                               </span>
                             </div>
+                            </MessageActions>
                           </div>
                         )}
                       </div>
@@ -1939,6 +1979,9 @@ function ChatsPage() {
                       ))}
                     </div>
                   )}
+                  {replyTo && !noteMode && (
+                    <ReplyPreview m={replyTo} contactName={active.contact_name || active.name} onCancel={() => setReplyTo(null)} />
+                  )}
                   {canAttach && pendingFile && (
                     <div className="mb-2 flex items-center gap-2 rounded-lg border border-line bg-card px-3 py-1.5 text-[12.5px] text-text-mid">
                       <Paperclip size={13} className="shrink-0 text-text-muted" aria-hidden />
@@ -2004,6 +2047,10 @@ function ChatsPage() {
                         />
                       </>
                     )}
+                    <EmojiButton
+                      disabled={composerLocked && !noteMode}
+                      onPick={(emoji) => insertAtCursor(composerRef.current, draft, emoji, setDraft)}
+                    />
                     <textarea
                       ref={composerRef}
                       rows={1}

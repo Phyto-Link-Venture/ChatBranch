@@ -48,6 +48,7 @@ public static class Dtos
         status = m.Status,
         mediaType = m.MediaType,
         mediaPath = m.MediaPath,
+        replyToId = m.ReplyToId,
         createdAt = m.CreatedAt,
     };
 

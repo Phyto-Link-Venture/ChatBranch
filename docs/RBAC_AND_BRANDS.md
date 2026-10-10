@@ -184,7 +184,9 @@ unassigned conversations stay visible to everyone). A conversation outside it
 answers **404**, the same as one that does not exist; a key with no
 conversation yet passes (a first send creates it). The multipart
 `POST /api/messaging/threads/{channel}/{key}/send-media`
-(`MessagingTransportEndpoints`) carries the same filter.
+(`MessagingTransportEndpoints`) carries the same filter, and so does the
+reaction route `POST /api/messaging/threads/{channel}/{key}/messages/{pk}/react`
+(`chats.send`; the message must belong to that conversation, else 404).
 
 Routes that name the conversation in the BODY apply the same rule with
 `ThreadAccessFilter.InScope`:

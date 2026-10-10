@@ -101,7 +101,34 @@ export interface UiMessage {
   /** Which provider account carried this message (sender number for outbound). */
   account_id?: string | null
   account_name?: string
+  /** The database id (reactions, quotes and AI feedback key on it). */
+  pk?: number
+  /** The message this one quotes (WhatsApp / Telegram replies). */
+  reply_to?: UiQuote | null
+  /** Emoji reactions on this message — the customer's and ours. */
+  reactions?: UiReaction[]
 }
+
+/** A quoted message as the payload carries it; `missing` = older than our history. */
+export interface UiQuote {
+  pk?: number
+  id: string
+  dir?: 'in' | 'out'
+  source?: string
+  text?: string
+  media_type?: string | null
+  missing?: boolean
+}
+
+/** One reaction: `actor` is `contact` or `user:<username>`. */
+export interface UiReaction {
+  emoji: string
+  actor: string
+  at?: string
+}
+
+/** Channels whose provider carries quoted replies + reactions both ways. */
+export const REACTION_CHANNELS: Channel[] = ['whatsapp', 'telegram']
 
 export interface WaCall {
   permission: string
