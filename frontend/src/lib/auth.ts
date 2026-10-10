@@ -74,6 +74,7 @@ export const CAPABILITY_CATALOG: { capability: string; area: string; label: stri
   { capability: 'api_keys.manage', area: 'Admin', label: 'Manage API keys & MCP', lbl: 'admin.caps.apiKeysManage' },
   { capability: 'ai.monitor', area: 'AI', label: 'See & approve AI drafts', lbl: 'admin.caps.aiMonitor' },
   { capability: 'ai.behaviour.manage', area: 'AI', label: 'Edit AI behaviour settings', lbl: 'admin.caps.aiBehaviourManage' },
+  { capability: 'settings.ai_hard_rules.manage', area: 'AI', label: "Edit the AI's safety rules", lbl: 'admin.caps.aiHardRulesManage' },
   { capability: 'billing.view', area: 'Review', label: 'View the AI usage bill', lbl: 'admin.caps.billingView' },
   { capability: 'billing.manage', area: 'Settings', label: 'Set AI billing markup & see costs', lbl: 'admin.caps.billingManage' },
   { capability: 'billing.quotas.manage', area: 'Review', label: 'Set AI usage quotas', lbl: 'admin.caps.billingQuotasManage' },

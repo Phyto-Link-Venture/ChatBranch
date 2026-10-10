@@ -238,11 +238,13 @@ When you fix one of these, update this table, `README.md` and
   because `ApiKeyAuth.UseKeyScopes` (right after `UseAuthentication`) makes them
   ambient for the request (`ApiKeyAuth.CurrentScopes`). Roles: superadmin / admin /
   agent / custom (`Role` + `RolePermission`). Capabilities are data-driven:
-  the catalog is `AdminEndpoints.Catalog` (37 entries — keep it in step with
-  `CAPABILITY_CATALOG` in `frontend/src/lib/auth.ts`); **superadmin is always
+  the catalog is `AdminEndpoints.Catalog` (38 entries — keep it in step with
+  `CAPABILITY_CATALOG` in `frontend/src/lib/auth.ts`; `PermissionCatalogTests`
+  fails when the two differ or when code gates on an id the Permissions page
+  doesn't list); **superadmin is always
   allowed in code**, a missing matrix row falls back to the code default, admin
   gets everything except `rbac.manage` / `app_keys.manage` /
-  `settings.ai_keys.manage` / `billing.manage`, agent gets `contacts.view chats.view chats.send
+  `settings.ai_keys.manage` / `billing.manage` / `settings.ai_hard_rules.manage`, agent gets `contacts.view chats.view chats.send
   flows.view analytics.view call_logs.view activity.view tags.view ai.monitor`.
   Server checks use `AdminEndpoints.HasCapabilityAsync` /
   `SettingsEndpoints.RequireCapability` on top of the coarse policies
@@ -258,7 +260,7 @@ When you fix one of these, update this table, `README.md` and
   the org-level capabilities (`rbac.manage`, `app_keys.manage`,
   `settings.ai_keys.manage`, `billing.manage`, `notifications.manage`,
   `settings.appearance.org`, `settings.custom_fields.manage`,
-  `pronunciation.manage`) for them; global library items, top-level entities,
+  `pronunciation.manage`, `settings.ai_hard_rules.manage`) for them; global library items, top-level entities,
   org-wide settings stay with org-wide admins. Only a superadmin makes an
   org-wide admin; an org-wide admin may make company admins (`entity_ids` on an
   admin). `whoami.company_admin`; details in `docs/RBAC_AND_BRANDS.md`
@@ -621,8 +623,12 @@ When you fix one of these, update this table, `README.md` and
   channel, counting conversations TOUCHED in the window, with "(unassigned)"
   reported rather than dropped; CSV fields are quoted.
 - **The AI brain** (`ChatBranch.Data/Ai/`). `AssistantService` is the
-  channel-agnostic generator: system prompt = `PersonaService.HardRules` (safety
-  floor, never overridable) + HOUSE RULES (Setting `ai_house_rules`, one rule
+  channel-agnostic generator: system prompt = the safety rules
+  (`PersonaService.HardRulesText()`: org-wide Setting `ai_hard_rules`, else the
+  built-in `HardRules`; edited only with `settings.ai_hard_rules.manage` —
+  superadmin by default, never a company admin — via `PUT /api/aicore/persona
+  {hard_rules}` ("" = the default), the "Safety rules" card; never overridable
+  by a persona or house rule) + HOUSE RULES (Setting `ai_house_rules`, one rule
   per line, ADDED UP from the organization down the entity tree —
   `PersonaService.HouseRules` / `HouseRulesBlock`; an outlet can add, never
   drop) + persona (Setting `aicore_persona`, the nearest level of the tree wins,
@@ -1847,7 +1853,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **941 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **944 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /

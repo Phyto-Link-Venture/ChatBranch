@@ -70,6 +70,7 @@ public static class AdminEndpoints
         ("api_keys.manage", "Admin", "Manage API keys & MCP"),
         ("ai.monitor", "AI", "See & approve AI drafts"),
         ("ai.behaviour.manage", "AI", "Edit AI behaviour settings"),
+        ("settings.ai_hard_rules.manage", "AI", "Edit the AI's safety rules"),
         ("billing.view", "Review", "View the AI usage bill"),
         ("billing.manage", "Settings", "Set AI billing markup & see costs"),
         ("billing.quotas.manage", "Review", "Set AI usage quotas"),
@@ -94,7 +95,7 @@ public static class AdminEndpoints
 
     /// admin gets everything EXCEPT these (kept superadmin-only).
     private static readonly HashSet<string> AdminExclude = new()
-        { "rbac.manage", "app_keys.manage", "settings.ai_keys.manage", "billing.manage" };
+        { "rbac.manage", "app_keys.manage", "settings.ai_keys.manage", "billing.manage", "settings.ai_hard_rules.manage" };
 
     /// agent's read-mostly work surface.
     private static readonly HashSet<string> AgentAllow = new()

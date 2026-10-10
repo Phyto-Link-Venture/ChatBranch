@@ -62,6 +62,7 @@ export const admin: Dict<typeof source> = {
     apiKeysManage: 'Urus kunci API & MCP',
     aiMonitor: 'Lihat & luluskan draf AI',
     aiBehaviourManage: 'Sunting tetapan tingkah laku AI',
+    aiHardRulesManage: 'Sunting peraturan keselamatan AI',
   },
   permissions: {
     system: 'Sistem',

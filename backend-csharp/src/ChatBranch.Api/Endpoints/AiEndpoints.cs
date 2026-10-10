@@ -19,7 +19,8 @@ namespace ChatBranch.Api.Endpoints;
 public static class AiEndpoints
 {
     public record PersonaWrite(string? Persona, string? Entity,
-        [property: System.Text.Json.Serialization.JsonPropertyName("house_rules")] string? HouseRules = null);
+        [property: System.Text.Json.Serialization.JsonPropertyName("house_rules")] string? HouseRules = null,
+        [property: System.Text.Json.Serialization.JsonPropertyName("hard_rules")] string? HardRules = null);
     /// <remarks>
     /// EVERY field is optional so PATCH is a real partial update: the list's
     /// on/off button sends `{"active": false}` alone, and non-nullable Kind /
@@ -59,6 +60,23 @@ public static class AiEndpoints
         {
             var (entityId, err) = await AiControlsEndpoints.EntityArg(db, body.Entity);
             if (err != null) return err;
+            // the safety rules: organization-wide, their own capability (superadmin by default)
+            if (body.HardRules != null)
+            {
+                if (!await AdminEndpoints.HasCapabilityAsync(db, ShellScope.RoleOf(me), HardRulesCap))
+                    return Results.Json(new { detail = "Only someone allowed to edit the AI's safety rules can change them." },
+                        statusCode: 403);
+                if (body.HardRules.Length > PersonaService.MaxHardRuleChars)
+                    return Results.BadRequest(new { detail = $"The safety rules are too long ({PersonaService.MaxHardRuleChars} characters at most)." });
+                var hr = body.HardRules.Trim();
+                // "" or the built-in text = back to the default (an empty global value)
+                sc.SetSetting(PersonaService.HardRulesKey, hr == PersonaService.HardRules ? "" : hr, null);
+                ChatBranch.Data.Audit.AuditTrail.Write(db, "ai.hard_rules", "global",
+                    hr.Length == 0 || hr == PersonaService.HardRules ? "Reset the AI's safety rules to the built-in default"
+                        : "Updated the AI's safety rules");
+                if (body.Persona == null && body.HouseRules == null)
+                    return Results.Ok(await PersonaPayload(db, persona, sc, me, entityId));
+            }
             if (!AiControlsEndpoints.MayEdit(db, sc, me, entityId))
                 return Results.Json(new
                 {
@@ -423,6 +441,9 @@ public static class AiEndpoints
     /// where it comes from, this level's own override, what it would inherit
     /// without one, and the house rules — inherited (read-only here) + its own.
     /// </summary>
+    /// <summary>Who may replace the built-in safety rules (superadmin unless the matrix says otherwise).</summary>
+    public const string HardRulesCap = "settings.ai_hard_rules.manage";
+
     internal static async Task<object> PersonaPayload(AppDbContext db, PersonaService persona, ScopingService sc,
         ClaimsPrincipal me, int? entityId)
     {
@@ -456,7 +477,11 @@ public static class AiEndpoints
             inherited_source = aboveValue.Length > 0 ? Level(aboveAt)
                 : new { scope = "default", entity = (string?)null, entity_name = "the built-in default" },
             @default = PersonaService.DefaultPersona,
-            hard_rules = PersonaService.HardRules,
+            hard_rules = persona.HardRulesText(),
+            hard_rules_default = PersonaService.HardRules,
+            hard_rules_custom = persona.HardRulesText() != PersonaService.HardRules,
+            hard_rules_max_chars = PersonaService.MaxHardRuleChars,
+            can_edit_hard_rules = await AdminEndpoints.HasCapabilityAsync(db, ShellScope.RoleOf(me), HardRulesCap),
             house_rules = new
             {
                 own = rules.Where(r => r.At == entityId).Select(r => r.Rule).ToList(),
