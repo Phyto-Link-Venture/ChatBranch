@@ -22,6 +22,8 @@ import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
 import { EntityPicker } from '@/components/ui/EntityPicker'
+import { useEntity } from '@/lib/EntityContext'
+import { useCompanyAdmin } from '@/lib/useCompanyAdmin'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { accountRole, type AccountRole } from '@/components/ui/Badges'
 import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
@@ -228,6 +230,15 @@ export function InboxSetupDrawer({
   onChanged: () => void
 }) {
   const t = useT()
+  const companyAdmin = useCompanyAdmin()
+  const { activeEntity, selectedEntities, entities: myEntities } = useEntity()
+  /** Where a NEW inbox lands by default: the entity being worked in (the
+   *  switcher's single pick, else its first tick); a company admin — who may
+   *  not add organization-wide numbers — falls back to their first entity. */
+  const defaultEntity =
+    activeEntity?.slug ?? selectedEntities[0]?.slug ?? (companyAdmin ? myEntities[0]?.slug : undefined) ?? null
+  const defaultEntityRef = useRef(defaultEntity)
+  defaultEntityRef.current = defaultEntity
   const [kind, setKind] = useState<InboxKind | null>(target.kind)
   const [step, setStep] = useState<Step>(target.step)
   /** The persisted inbox (opened for edit, or created in this drawer). */
@@ -302,7 +313,7 @@ export function InboxSetupDrawer({
         : WIDGET_DEFAULTS,
     )
     setName(inbox?.name ?? '')
-    setEntity(inbox?.entity ?? null)
+    setEntity(inbox ? inbox.entity ?? null : defaultEntityRef.current)
     setTeamId(inbox?.teamId != null ? String(inbox.teamId) : '')
     setRole(inbox?.wa ? accountRole(inbox.wa) : k === 'wa_qr' ? 'conversation' : 'reminder')
     setAiDefault(inbox?.aiDefault ?? '')
@@ -318,6 +329,12 @@ export function InboxSetupDrawer({
   useEffect(() => {
     if (target.kind) seed(target.kind, target.inbox)
   }, [seed, target])
+
+  // The entity list / company-admin flag can arrive after the drawer opened:
+  // fill a NEW inbox's still-empty entity once they do.
+  useEffect(() => {
+    if (!saved && defaultEntity) setEntity((cur) => cur ?? defaultEntity)
+  }, [saved, defaultEntity])
 
   // ── modal behaviour: scroll lock, Esc, focus trap, focus restore ──────────
   const panelRef = useRef<HTMLDivElement>(null)
@@ -913,7 +930,14 @@ export function InboxSetupDrawer({
 
       <label className="block">
         <Label>{t('common.fields.entity')}</Label>
-        <EntityPicker value={entity} onChange={setEntity} ariaLabel={t('channels.drawer.who.entityAria')} />
+        <EntityPicker
+          value={entity}
+          onChange={setEntity}
+          // company admins add numbers for their own companies only (the API
+          // refuses organization-wide); an old org-wide inbox still shows as such
+          allowGlobal={!companyAdmin || (editing && saved?.entity == null)}
+          ariaLabel={t('channels.drawer.who.entityAria')}
+        />
         <Help>{t('channels.drawer.who.entityHelp')}</Help>
       </label>
 
