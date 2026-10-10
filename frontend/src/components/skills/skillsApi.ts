@@ -20,6 +20,14 @@ export type OnFail = 'retry' | 'handover' | 'block'
 
 // ---- connected-app skills (kind "app") ----------------------------------------
 
+/** The ready-made apps besides the calendar (readySkills.ts holds their shapes). */
+export const TOOL_APP_IDS = ['documents', 'qr', 'payments', 'sheets'] as const
+export type ToolAppId = (typeof TOOL_APP_IDS)[number]
+const toolAppOf = (config: unknown): ToolAppId | null => {
+  const app = config && typeof config === 'object' ? (config as { app?: unknown }).app : null
+  return typeof app === 'string' && (TOOL_APP_IDS as readonly string[]).includes(app) ? (app as ToolAppId) : null
+}
+
 export type CalendarSource = 'google' | 'chatbranch'
 export type AppAction = 'availability' | 'book' | 'cancel'
 export type Weekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
@@ -243,6 +251,8 @@ export function calendarTargetLabel(calendar: string, connections: AppConnection
 
 /** The skills list's subtitle: "Connected app · Google Calendar (Assignee's calendar)". */
 export function appSkillSubtitle(config: unknown, apps: AppCatalogEntry[] | null, t: TFunction): string {
+  const tool = toolAppOf(config)
+  if (tool) return t(`readySkills.apps.${tool}.name` as MessageKey)
   const cfg = calendarConfig(config)
   const src = calendarApp(apps).sources.find((s) => s.source === cfg.source)
   const srcLabel = sourceLabel(cfg.source, t, src?.label)
@@ -306,11 +316,13 @@ export interface DraftSkill {
 }
 
 export interface DraftResponse {
-  status: 'questions' | 'draft'
+  /** `use_app`: a code skill can't do this (files, the internet) — `suggest_app` can. */
+  status: 'questions' | 'draft' | 'use_app'
   questions: string[]
-  source: 'ai' | 'template'
+  source: 'ai' | 'template' | 'rules'
   note: string
   skill: DraftSkill | null
+  suggest_app?: ToolAppId | null
 }
 
 export interface TestResult {
@@ -347,7 +359,8 @@ export async function aicore<T>(path: string, init?: RequestInit): Promise<T> {
 export async function fetchApps(): Promise<AppCatalogEntry[] | null> {
   try {
     const d = await aicore<AppsPayload>('skills/apps')
-    return Array.isArray(d.apps) ? d.apps : null
+    // the calendar entries (the other ready-made apps: readySkills.fetchToolApps)
+    return Array.isArray(d.apps) ? d.apps.filter((a) => a.app === 'calendar') : null
   } catch {
     return null
   }

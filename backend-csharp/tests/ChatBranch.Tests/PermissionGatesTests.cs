@@ -102,6 +102,7 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/aicore/skills", new[] { "settings.ai.manage", "flows.manage" }),
         ("/api/aicore/skills/apps", new[] { "settings.ai.manage" }),
         ("/api/aicore/skills/builtins", new[] { "settings.ai.manage" }),
+        ("/api/aicore/skills/documents/logo/00000000000000000000000000000000.png", new[] { "settings.ai.manage" }),
         ("/api/aicore/booking-hours", new[] { "integrations.view", "settings.ai.manage" }),
         // Analytics (home)
         ("/api/analytics/summary", new[] { "analytics.view" }),
@@ -131,6 +132,9 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/whatsapp/media/999999", new[] { "chats.view" }),
         ("/api/messaging/media/999999", new[] { "chats.view" }),
         ("/api/bookings", new[] { "chats.view" }),
+        ("/api/documents", new[] { "chats.view" }),
+        ("/api/documents/999999/file", new[] { "chats.view" }),
+        ("/api/documents/preview/00000000000000000000000000000000.pdf", new[] { "ai.monitor", "ai.behaviour.manage", "settings.ai.manage" }),
         ("/api/contacts", new[] { "contacts.view", "chats.view", "users.manage" }),
         ("/api/contacts/{c}", new[] { "contacts.view" }),
         ("/api/contacts/{c}/channels", new[] { "contacts.view", "chats.view" }),
@@ -364,6 +368,8 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         "/api/integrations/oauth/google/callback",
         "/api/widget/{token}/config", "/api/widget/{token}/messages",
         "/api/help/articles", "/api/help/articles/{slug}",
+        // a customer's document download link (the 128-bit token is the credential)
+        "/api/documents/public/{token}",
         "/api/pronunciation", "/api/voices", "/api/voice/stt-settings", "/api/voice/llm-settings",
         // /mcp and /widget.js under /api/ for /api/-only proxies (GET /api/mcp is a 405;
         // the MCP POST demands an API key inside the handler)

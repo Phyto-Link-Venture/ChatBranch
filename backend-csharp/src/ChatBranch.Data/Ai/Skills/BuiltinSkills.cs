@@ -40,6 +40,12 @@ public static class BuiltinSkills
             "{\"type\":\"object\",\"properties\":{\"time\":{\"type\":\"string\",\"description\":\"ISO date-time or HH:mm; defaults to now\"}," +
             "\"from\":{\"type\":\"string\",\"description\":\"IANA timezone of `time`; defaults to the business timezone\"}," +
             "\"to\":{\"type\":\"string\",\"description\":\"IANA timezone to convert into\"}},\"required\":[\"to\"]}"),
+        new Builtin(Calculate, "Calculator",
+            "Exact arithmetic. Call this for ANY sum, total, discount, tax, split or unit conversion instead of "
+            + "working it out yourself — prices, quantities and money must come from here. Supports + - * / ^, "
+            + "parentheses, % (\"200 + 10%\" = 220, \"200 * 8%\" = 16) and round(x, n), floor, ceil, abs, min, max.",
+            "{\"type\":\"object\",\"properties\":{\"expression\":{\"type\":\"string\",\"description\":\"e.g. (3 * 45.90 - 10%) * 1.08\"}," +
+            "\"decimals\":{\"type\":\"integer\",\"description\":\"Round the result to this many decimal places (0–10); money is 2\"}},\"required\":[\"expression\"]}"),
         new Builtin(RequestHandover, "Hand over to a person",
             "Flag this conversation for a person on the team. Call it whenever a hand-over rule in your instructions "
             + "applies (a complaint, a claim or compensation, a large or corporate order, an unhappy customer…), when "
@@ -53,6 +59,9 @@ public static class BuiltinSkills
     /// (<see cref="AiReplyResult.HandoverAsked"/>). The call itself is pure — the
     /// AI gate marks the handover when the reply is delivered.</summary>
     public const string RequestHandover = "request_handover";
+
+    /// <summary>The exact-arithmetic built-in (<see cref="Calculator"/>).</summary>
+    public const string Calculate = "calculate";
 
     private static readonly HashSet<string> Names = All.Select(b => b.Name).ToHashSet();
 
@@ -93,6 +102,7 @@ public static class BuiltinSkills
                 Arg(args, "to") is { Length: > 0 } to
                     ? ResolveTimeZone(to) ?? throw new ArgumentException($"unknown timezone '{to}'")
                     : throw new ArgumentException("`to` is required")),
+            Calculate => CalculateTool(Arg(args, "expression"), IntArg(args, "decimals")),
             RequestHandover => new
             {
                 ok = true,
@@ -209,6 +219,21 @@ public static class BuiltinSkills
             result_date = dst.ToString("yyyy-MM-dd", Inv),
             result_time = dst.ToString("HH:mm", Inv),
             result_weekday = dst.DayOfWeek.ToString(),
+        };
+    }
+
+    public static object CalculateTool(string? expression, int? decimals)
+    {
+        if (string.IsNullOrWhiteSpace(expression)) throw new ArgumentException("`expression` is required");
+        if (decimals is < 0 or > 10) throw new ArgumentException("`decimals` must be 0–10");
+        var value = Calculator.Evaluate(expression);
+        var text = Calculator.Format(value, decimals);
+        return new
+        {
+            expression = expression.Trim(),
+            result = text,
+            value = double.Parse(text, Inv),
+            rounded_to = decimals,
         };
     }
 

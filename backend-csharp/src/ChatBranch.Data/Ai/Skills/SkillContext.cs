@@ -30,6 +30,9 @@ public sealed class SkillContext
     public Contact? ContactRecord { get; init; }
     /// <summary>What this generation's app tools reserved (one book + one cancel at most).</summary>
     public Bookings.BookingService.Session Apps { get; init; } = new();
+    /// <summary>What this generation's file tools made (documents, QR codes) and the
+    /// connected-app actions deferred to delivery (Sheets rows).</summary>
+    public Documents.DocumentService.Session Docs { get; init; } = new();
 
     public DateTimeOffset LocalNow => TimeZoneInfo.ConvertTime(UtcNow, TimeZone);
 

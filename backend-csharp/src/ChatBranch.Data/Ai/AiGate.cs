@@ -1,6 +1,7 @@
 using System.Text.Json;
 using ChatBranch.Data.Bookings;
 using ChatBranch.Data.Channels;
+using ChatBranch.Data.Documents;
 using ChatBranch.Data.Stores;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -62,10 +63,15 @@ public class AiGate
     private readonly ITypingIndicator _typing;
     private readonly Routing _routing;
     private readonly BookingService _bookings;
+    private readonly DocumentService _documents;
+    private readonly Skills.ConnectedAppTools _connected;
 
     public AiGate(AppDbContext db, ScopingService scoping, ThreadStore threads, OutboundSender sender,
-        TimeProvider? clock = null, ITypingIndicator? typing = null, BookingService? bookings = null)
+        TimeProvider? clock = null, ITypingIndicator? typing = null, BookingService? bookings = null,
+        DocumentService? documents = null, Skills.ConnectedAppTools? connected = null)
     {
+        _documents = documents ?? new DocumentService(db, scoping, clock: clock);
+        _connected = connected ?? new Skills.ConnectedAppTools(db, scoping);
         _db = db;
         _scoping = scoping;
         _threads = threads;
@@ -88,7 +94,7 @@ public class AiGate
         var text = (s.Text ?? "").Trim();
         if (text.Length == 0)
         {
-            _bookings.Release(s.Context, "The AI produced no text — nothing was sent.");
+            ReleaseAll(s.Context, "The AI produced no text — nothing was sent.");
             return new AiGateOutcome(AiGateStatus.Empty, 0, Array.Empty<int>(), "The AI produced no text.");
         }
 
@@ -121,7 +127,7 @@ public class AiGate
             Save(draft);
             // shadow mode never books: a person who sends this draft later makes
             // the booking then (if the time is still free)
-            _bookings.Release(ctx, "Shadow mode — nothing is booked until a person sends the reply.");
+            ReleaseAll(ctx, "Shadow mode — nothing is booked until a person sends the reply.");
             return new AiGateOutcome(AiGateStatus.Shadow, draft.Id, Array.Empty<int>(), draft.HoldReason);
         }
 
@@ -133,7 +139,7 @@ public class AiGate
             draft.SendAfter = policy.AutosendMinutes > 0 ? now.AddMinutes(policy.AutosendMinutes) : null;
             Save(draft);
             // a held reply books nothing: its reservations wait for the decision
-            _bookings.Bind(AiPendingAction.From(ctx), draft.Id);
+            BindAll(ctx, draft.Id);
             NotifyReviewers(draft, thread, policy);
             Audit.AuditTrail.Write(_db, "ai.draft.held", $"{thread.Channel}:{thread.Key}",
                 $"draft #{draft.Id} ({draft.Kind}): {draft.HoldReason}", actor: "ai",
@@ -145,7 +151,7 @@ public class AiGate
         draft.DecidedBy = "auto";
         draft.DecidedAt = now;
         Save(draft);
-        _bookings.Bind(AiPendingAction.From(ctx), draft.Id);
+        BindAll(ctx, draft.Id);
         return Deliver(draft, thread, account, policy, humanDecision: false);
     }
 
@@ -303,7 +309,7 @@ public class AiGate
         draft.SendAfter = null;
         draft.UpdatedAt = Now;
         _db.SaveChanges();
-        _bookings.Release(draft.Context, $"The reply was rejected by {actor} — nothing was booked.");
+        ReleaseAll(draft.Context, $"The reply was rejected by {actor} — nothing was booked.");
         Learning.LearningService.OnDraftDecided(_db, _scoping, draft, AiFeedbackKind.Rejected, actor, r,
             _clock); // implicit feedback
         BumpThread(draft.ThreadId);
@@ -430,6 +436,8 @@ public class AiGate
             {
                 ["name"] = template, ["language"] = "en", ["variables"] = "", ["source"] = "ai",
             }, Now);
+            // a re-engagement template can't carry the reply's files
+            _documents.Release(draft.Context, "A re-engagement template was sent instead of the reply — no file was sent.");
             BumpThread(thread.Id);
             return Outcome(AiGateStatus.Scheduled, draft.Id, "Re-engagement template queued.");
         }
@@ -448,10 +456,73 @@ public class AiGate
             draft.SentMessageId = mid;
             draft.UpdatedAt = Now;
             _db.SaveChanges();
+            // one bubble, sent now: its files / deferred actions follow at once (a
+            // longer reply carries them on its last queued bubble — QueueService)
+            if (start.Bubbles == 1)
+                DeliverExtras(draft.Id, thread, account?.Id ?? thread.AccountId,
+                    _db.Messages.AsNoTracking().Where(m => m.Id == mid).Select(m => m.Status).FirstOrDefault());
             return new AiGateOutcome(AiGateStatus.Sent, draft.Id, new[] { mid }, start.Detail);
         }
         BumpThread(thread.Id);
         return Outcome(AiGateStatus.Scheduled, draft.Id, start.Detail);
+    }
+
+    /// <summary>
+    /// The reply's text reached the customer (its last bubble): send the files its
+    /// app tools made (Documents PDFs, QR codes — as files, or download links on
+    /// channels without files) and run its deferred actions (Sheets rows). The text
+    /// failed ⇒ the files are voided and nothing deferred runs. Idempotent: a
+    /// document is sent once, deferred actions run once.
+    /// </summary>
+    public void DeliverExtras(int draftId, Thread thread, int? accountId, string? textStatus)
+    {
+        try
+        {
+            var d = _db.AiDrafts.FirstOrDefault(x => x.Id == draftId);
+            if (d == null) return;
+            var ids = AiAttachments.From(d.Context);
+            var deferred = Items(d.Context, "deferred_actions").ToList();
+            if (ids.Count == 0 && deferred.Count == 0) return;
+            if (textStatus == "failed")
+            {
+                _documents.Release(ids, "The reply text could not be sent, so its file wasn't either.");
+                return;
+            }
+            var actor = d.Status is AiDraftStatus.Approved or AiDraftStatus.Edited && !string.IsNullOrWhiteSpace(d.DecidedBy)
+                ? d.DecidedBy! : "ai";
+            if (ids.Count > 0) _documents.Deliver(ids, thread, accountId, _sender, MessageSource.Ai, actor);
+            if (deferred.Count > 0 && Bool(d.Context, "deferred_done") != true)
+            {
+                d.Context = new Dictionary<string, object?>(d.Context) { ["deferred_done"] = true };
+                d.UpdatedAt = Now;
+                _db.SaveChanges();
+                var contact = thread.ContactId is int cid ? _db.Contacts.AsNoTracking().FirstOrDefault(c => c.Id == cid) : null;
+                foreach (var line in _connected.RunDeferred(deferred, contact, thread.EntityId))
+                    _db.Messages.Add(new Message
+                    {
+                        ThreadId = thread.Id, Direction = MessageDirection.Out, Source = MessageSource.System,
+                        Private = true, Status = "note", AccountId = thread.AccountId, CreatedAt = DateTime.UtcNow,
+                        Text = line,
+                    });
+                _db.SaveChanges();
+            }
+            BumpThread(thread.Id);
+        }
+        catch { /* the reply itself is out — extras never break delivery */ }
+    }
+
+    /// <summary>Give back everything an undelivered draft reserved: bookings and documents.</summary>
+    private void ReleaseAll(Dictionary<string, object?>? ctx, string reason)
+    {
+        _bookings.Release(ctx, reason);
+        _documents.Release(ctx, reason.Replace("nothing is booked", "nothing is booked or sent")
+            .Replace("nothing was booked", "nothing was booked or sent"));
+    }
+
+    private void BindAll(Dictionary<string, object?> ctx, int draftId)
+    {
+        _bookings.Bind(AiPendingAction.From(ctx), draftId);
+        _documents.Bind(AiAttachments.From(ctx), draftId);
     }
 
     private BookingService.ConfirmResult ConfirmBookings(AiDraft draft, string actor)
@@ -757,7 +828,7 @@ public class AiGate
         d.Error = why;
         d.SendAfter = null;
         d.UpdatedAt = Now;
-        _bookings.Release(d.Context, $"The reply expired — {why}");
+        ReleaseAll(d.Context, $"The reply expired — {why}");
     }
 
     private void Fail(AiDraft d, string why)
@@ -767,7 +838,7 @@ public class AiGate
         d.SendAfter = null;
         d.UpdatedAt = Now;
         _db.SaveChanges();
-        _bookings.Release(d.Context, $"The reply was not sent — {why}");
+        ReleaseAll(d.Context, $"The reply was not sent — {why}");
         BumpThread(d.ThreadId);
         Handover.FromFailedDraft(_db, d, why); // an unanswerable customer needs a person
     }

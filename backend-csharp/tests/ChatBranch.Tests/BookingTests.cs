@@ -1076,7 +1076,7 @@ public class BookingApiTests : IClassFixture<ApiFactory>
         });
 
         var apps = (await admin.GetFromJsonAsync<JsonElement>("/api/aicore/skills/apps")).GetProperty("apps");
-        var cal = Assert.Single(apps.EnumerateArray());
+        var cal = apps.EnumerateArray().First(); // calendar first, then documents, qr, payments, sheets
         Assert.Equal("calendar", cal.GetProperty("app").GetString());
         Assert.Equal(3, cal.GetProperty("actions").GetArrayLength());
         Assert.Equal(30, cal.GetProperty("defaults").GetProperty("duration_minutes").GetInt32());

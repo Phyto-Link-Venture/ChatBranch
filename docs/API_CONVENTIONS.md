@@ -82,6 +82,7 @@ outside the caller's scope answers **404**, exactly like one that does not exist
 | `GET /api/integrations/oauth/google/callback` | the browser returns from Google with no bearer token | the HMAC-signed, 600 s `state` (PKCE S256) |
 | `GET /api/widget.js` (and `GET /widget.js`), `GET /api/widget/{token}/config`, `POST /api/widget/{token}/session`, `GET/POST /api/widget/{token}/messages` | the website widget runs on other people's sites | permissive `widget` CORS policy; no credentials; each visitor sees only their own conversation, keyed by a server-minted 128-bit session id |
 | `GET /api/help/articles`, `GET /api/help/articles/{slug}` | the public Help Center | only `Published` knowledge items |
+| `GET /api/documents/public/{token}` | the customer's download link for a document (PDF / QR code) on a channel that can't carry files (LINE, Viber, SMS, TikTok, Douyin, the website widget) or when a file send was refused | a server-minted 128-bit random token per document; only SENT / issued documents (never pending or void), and only for 90 days; a server-rendered PDF / PNG, `nosniff` |
 | `GET /api/pronunciation`, `GET /api/voices`, `GET /api/voice/stt-settings`, `GET /api/voice/llm-settings` | read by the voice tooling | non-secret configuration |
 | `POST /api/mcp` and `POST /mcp` (and `GET`/`DELETE` on either → 405) | MCP clients authenticate inside the handler | **an API key is required** (Bearer `cbk_…` or `X-Api-Key`); anything else gets a JSON-RPC auth error |
 

@@ -38,6 +38,10 @@ builder.Services.AddScoped<ChatBranch.Data.Integrations.IntegrationActions>();
 // client (shared with the flow actions) and the reserve → make-at-delivery service
 builder.Services.AddScoped<ChatBranch.Data.Integrations.GoogleCalendarClient>();
 builder.Services.AddScoped<ChatBranch.Data.Bookings.BookingService>();
+// Documents / QR / Payments / Sheets app skills: files made for a reply (sent at
+// delivery) and the integration-backed tools
+builder.Services.AddScoped<ChatBranch.Data.Documents.DocumentService>();
+builder.Services.AddScoped<ChatBranch.Data.Ai.Skills.ConnectedAppTools>();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<ChatBranch.Data.Ai.ILlmClient, ChatBranch.Data.Ai.OpenAiLlmClient>();
 builder.Services.AddSingleton<ChatBranch.Data.Channels.IWhatsAppCloudClient, ChatBranch.Data.Channels.WhatsAppCloudClient>();
@@ -212,6 +216,7 @@ app.MapSearchEndpoints();
 app.MapLiveEndpoints();
 app.MapAiMonitorEndpoints();
 app.MapBookingsEndpoints();
+app.MapDocumentsEndpoints();
 app.MapLearningEndpoints();
 app.MapAiControlsEndpoints();
 app.MapAiPlaygroundEndpoints();

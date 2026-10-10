@@ -182,15 +182,23 @@ public class IntegrationActions
             return Skip("No spreadsheet id configured on the step or the account — skipped.");
         var range = Pick(cfg, "sheetRange", Cfg(row, "sheet_range"), "Sheet1!A:Z");
 
-        var values = new[]
+        // the AI's Sheets skill hands over its own row (rowJson); a flow step logs the fixed columns
+        object?[] cells = new object?[]
         {
-            new object?[]
-            {
-                DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
-                contact?.Name ?? "", contact?.Phone ?? "", contact?.Email ?? "",
-                Trim(text, 500),
-            },
+            DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
+            contact?.Name ?? "", contact?.Phone ?? "", contact?.Email ?? "",
+            Trim(text, 500),
         };
+        if (Get(cfg, "rowJson") is { Length: > 0 } rowJson)
+        {
+            try
+            {
+                cells = (System.Text.Json.JsonSerializer.Deserialize<List<string>>(rowJson) ?? new())
+                    .Select(c => (object?)Trim(c, 500)).Take(30).ToArray();
+            }
+            catch { return Fail("Google Sheets: the row is not a list of values."); }
+        }
+        var values = new[] { cells };
         var (ok, payload) = await SendAsync(HttpMethod.Post,
             $"https://sheets.googleapis.com/v4/spreadsheets/{sheetId}/values/"
             + $"{Uri.EscapeDataString(range)}:append?valueInputOption=USER_ENTERED",
@@ -272,7 +280,8 @@ public class IntegrationActions
     {
         var apiKey = GoogleOAuth.Cred(row, "api_key");
         if (apiKey.Length == 0) return Skip("Stripe is not connected — step skipped.");
-        var record = contact == null
+        // the AI's payment-link skill names its own amount and touches no record (skipRecord)
+        var record = contact == null || Get(cfg, "skipRecord") == "1"
             ? null
             : _db.Records.Where(r => r.ContactId == contact.Id && r.Status != "closed")
                 .OrderBy(r => r.Id).FirstOrDefault();
@@ -286,6 +295,7 @@ public class IntegrationActions
         }
         var overrideAmount = IntOr(Get(cfg, "amountCents"), 0);
         if (overrideAmount > 0) amount = overrideAmount;
+        if (Get(cfg, "currency") is { Length: 3 } cur) currency = cur.ToLowerInvariant();
         if (amount <= 0) return Skip("no amount on the record — Stripe payment link skipped");
 
         var form = new Dictionary<string, string>
@@ -296,7 +306,8 @@ public class IntegrationActions
             ["line_items[0][price_data][currency]"] = currency,
             ["line_items[0][price_data][unit_amount]"] = amount.ToString(),
             ["line_items[0][price_data][product_data][name]"] =
-                record?.Title is { Length: > 0 } t ? t : "Payment",
+                Get(cfg, "productName") is { Length: > 0 } pn ? Trim(pn, 200)
+                : record?.Title is { Length: > 0 } t ? t : "Payment",
         };
         var (ok, payload) = await SendAsync(HttpMethod.Post,
             "https://api.stripe.com/v1/checkout/sessions", apiKey, formBody: form, ct: ct);

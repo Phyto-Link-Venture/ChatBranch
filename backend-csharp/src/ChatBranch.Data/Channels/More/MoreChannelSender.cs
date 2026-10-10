@@ -71,6 +71,9 @@ public sealed class MoreChannelSender
         return ChannelWindow.Refusal(thread.Channel, state, humanAgent, everWrote: last != null);
     }
 
+    /// <summary>Whether this channel's transport can carry an uploaded file (WeChat, Zalo).</summary>
+    public bool SupportsMedia(string channel) => _transports.For(channel)?.SupportsMedia ?? false;
+
     public Message Send(Thread thread, string text, string source, int? accountId, OutboundMedia? media = null,
         bool humanAgent = false)
     {

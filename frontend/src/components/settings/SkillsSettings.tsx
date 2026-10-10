@@ -30,6 +30,7 @@ import { useRole } from '@/lib/useRole'
 import { DEFAULT_AGENT_SKILLS } from '@/lib/flow/defaultAgentSkills'
 import { AvailabilityChips, useDefaultAvailability } from '@/components/ui/AvailabilityPicker'
 import { SkillWizard, type WizardInit } from '@/components/skills/SkillWizard'
+import { ReadySkillsGallery } from '@/components/skills/ReadySkillsGallery'
 import {
   KIND_META,
   ON_FAIL_OPTIONS,
@@ -275,6 +276,13 @@ export function SkillsSettings() {
       {notice && <Banner tone="ok">{notice}</Banner>}
 
       <BuiltinsSection data={builtins} canEditTimezone={isSuper} onTimezoneSaved={load} />
+
+      {/* ready-made apps (Documents PDF, QR, payment links, Sheets) + instruction templates */}
+      <ReadySkillsGallery
+        skills={skills}
+        canManage={canManage}
+        onAdd={(pick) => open('app' in pick ? { mode: 'new', kindHint: 'app', app: pick.app } : { mode: 'new', kindHint: 'prompt', template: pick.template })}
+      />
 
       {KIND_ORDER.map((kind) => (
         <Section

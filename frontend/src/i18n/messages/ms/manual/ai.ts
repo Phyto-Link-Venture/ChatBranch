@@ -407,7 +407,7 @@ export const ai: Dict<typeof source> = {
     },
     done: 'Anda melihat “… disimpan — AI menggunakannya mulai mesej seterusnya.” dan kemahiran disenaraikan dengan suisnya hidup.',
     tips: {
-      t1: 'Arahan seperti nota kepada pekerja baharu. Aplikasi bersambung membolehkan AI menggunakan sistem lain — kini, kalendar untuk menempah temujanji.',
+      t1: 'Arahan seperti nota kepada pekerja baharu. Aplikasi bersambung membolehkan AI menggunakan sistem lain — kalendar, dokumen PDF, kod QR, pautan bayaran atau Google Sheet (lihat “Kemahiran sedia ada”). Kemahiran kod berjalan dalam kotak pasir tanpa internet dan tanpa fail, jadi ia tidak boleh membuat PDF atau menghantar permintaan — gunakan aplikasi sedia ada untuk itu.',
       t2: 'Baru bermula? Klik “Muatkan arahan permulaan” dalam bahagian Arahan yang kosong untuk contoh siap sedia.',
       t3: 'Alat terbina dalam sudah menjawab soalan masa dan tarikh dengan tepat — tiada kemahiran diperlukan untuk itu.',
       t4: 'Untuk menjeda kemahiran, matikan suisnya dan bukannya memadamnya.',
@@ -472,6 +472,58 @@ export const ai: Dict<typeof source> = {
       t3: 'Anda boleh membatalkan tempahan dari halaman Tempahan — pelanggan tidak dimaklumkan secara automatik, jadi beritahu mereka dalam sembang.',
     },
     trouble: 'Google menunjukkan belum disambungkan: sambungkannya di Integrasi — sehingga itu AI memberitahu kalendar tidak tersedia dan menawarkan rakan sepasukan; ia tidak pernah menempah dalam ChatBranch sebagai ganti. “Tiada masa lapang”: luaskan waktu bekerja, pendekkan notis minimum atau benarkan lebih banyak hari ke hadapan. Tempahan gagal semasa balasan dihantar: balasan ditahan dan sembang diserahkan kepada manusia.',
+  },
+
+  aiReadySkills: {
+    title: 'Tambah kemahiran sedia ada (invois PDF, kod QR, pautan bayaran, Sheets)',
+    summary: 'Hidupkan keupayaan sebenar tanpa kod: AI membuat invois, sebut harga, resit dan surat PDF, kod QR, pautan bayaran Stripe, atau merekod baris ke Google Sheet.',
+    before: 'Anda perlukan log masuk pentadbir. Pautan bayaran memerlukan Stripe disambungkan di Saluran → Integrasi; log Sheets memerlukan Google Sheets disambungkan di sana. Dokumen dan kod QR tidak memerlukan apa-apa lagi.',
+    steps: {
+      s1: {
+        title: 'Buka kemahiran AI',
+        body: 'Di bar sisi, buka Pustaka → “Kemahiran AI” dan tatal ke “Kemahiran sedia ada”.',
+      },
+      s2: {
+        title: 'Pilih satu dan klik Tambah',
+        body: '“Dokumen (PDF)” membuat invois, sebut harga, resit dan surat; “Kod QR” menukar pautan kepada gambar QR; “Pautan bayaran” membuat pautan Stripe; “Log Google Sheets” menulis satu baris. Klik “Tambah” pada yang anda mahu.',
+      },
+      s3: {
+        title: 'Isi kepala surat anda (Dokumen)',
+        body: 'Taip “Nama perniagaan”, “Alamat”, “Telefon” dan “E-mel”. Di bawah “Wang”, tetapkan “Mata wang”, “Nama cukai” (contohnya SST) dan “Kadar cukai (%)” — 0 bermaksud tiada baris cukai.',
+      },
+      s4: {
+        title: 'Pilih apa yang AI boleh buat',
+        body: 'Di bawah “Apa yang AI boleh buat”, hidupkan Invois, Sebut harga, Resit dan/atau Surat. Tambah butiran bank dalam “Arahan bayaran” — ia dicetak pada invois dan sebut harga.',
+      },
+      s5: {
+        title: 'Pilihan: logo, warna dan penomboran',
+        body: 'Buka “Tetapan lanjutan” untuk memuat naik logo, memilih warna aksen, menetapkan nombor pendaftaran dan cukai, bahasa cetakan, serta awalan dan nombor pertama setiap jenis (contohnya INV- bermula pada 1001).',
+      },
+      s6: {
+        title: 'Pratonton PDF',
+        body: 'Klik “Pratonton PDF”. Sampel dibuka dalam tab baharu dengan tetapan anda — tiada yang dihantar dan tiada nombor digunakan. Untuk pautan bayaran dan Sheets, “Semak sambungan” memberitahu sama ada integrasi tersedia.',
+      },
+      s7: {
+        title: 'Simpan kemahiran',
+        body: 'Klik “Simpan”. Kemahiran muncul di bawah “Aplikasi bersambung” dengan suisnya dihidupkan.',
+      },
+      s8: {
+        title: 'Cuba di taman permainan',
+        body: 'Buka Automasi → “Taman permainan AI” dan tanya “Boleh hantar invois untuk 2 potongan rambut?”. Pemeriksa menunjukkan “Akan menghantar Invois …” dengan “Buka pratonton” — PDF sebenar, tetapi tiada yang disimpan.',
+      },
+      s9: {
+        title: 'Lihat apa yang dihantar',
+        body: 'Apabila pelanggan meminta dalam sembang, AI membalas dengan nombor dokumen dan jumlah, kemudian PDF menyusul sebagai fail. Nota “📄 Invois … dihantar” muncul dalam perbualan. Dalam pemantau AI, balasan yang ditahan menyenaraikan failnya dengan “Buka”.',
+      },
+    },
+    done: 'Pelanggan menerima balasan dan kemudian PDF (atau gambar QR). Di LINE, Viber, SMS dan sembang laman web — yang tidak boleh membawa fail — mereka menerima pautan muat turun yang selamat.',
+    tips: {
+      t1: 'Pelayan membuat semua kiraan: AI hanya menghantar kuantiti dan harga, jadi jumlah dan cukai sentiasa tepat. AI juga mempunyai kalkulator terbina untuk kiraan lain.',
+      t2: 'Jika balasan ditahan untuk semakan, dokumen hanya dihantar apabila seseorang meluluskan balasan. Menolaknya membatalkan dokumen; nombornya kekal digunakan supaya tiada jurang tersembunyi.',
+      t3: 'Berikan harga kepada AI dalam pangkalan pengetahuan atau arahan kemahiran — ia tidak pernah mereka harga.',
+      t4: 'Aksara Cina hanya dicetak apabila pelayan mempunyai fon Cina (DOCUMENT_CJK_FONT); jika tidak, AI menulis dokumen dalam bahasa Inggeris atau Melayu.',
+    },
+    trouble: 'AI kata ia tidak dapat membuat dokumen: pastikan kemahiran dihidupkan dan membenarkan jenis itu, serta item mempunyai harga. Pautan bayaran kata Stripe tidak disambungkan: sambungkannya di Integrasi. Tiada fail sampai di WhatsApp: sembang menunjukkan pautan muat turun dan nota menerangkan sebab fail ditolak.',
   },
 
   aiHumanLike: {

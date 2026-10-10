@@ -33,13 +33,48 @@ public class SkillDrafter
         JsonElement Parameters, string Code, JsonElement Tests, string Instructions, string OnFail);
 
     public sealed record DraftResult(string Status, IReadOnlyList<string> Questions, DraftSkill? Skill,
-        string Source, string Note);
+        string Source, string Note)
+    {
+        /// <summary>Status "use_app": the ready-made Connected app that does this for real
+        /// (documents | qr | payments | sheets).</summary>
+        public string? SuggestApp { get; init; }
+    }
+
+    /// <summary>
+    /// What a code skill can never do — make a file, call the internet — mapped to
+    /// the ready-made Connected app that does it for real. A JavaScript tool runs in
+    /// a sandbox with no network, no files and 250 ms, so "create a PDF invoice"
+    /// drafted as code could only ever pretend.
+    /// </summary>
+    private static readonly (string App, Regex Pattern, string Note)[] AppIntents =
+    {
+        (AppSkills.Documents, new Regex(@"\b(pdf|invoices?|invois|quotations?|quotes?|sebut\s*harga|receipts?|resit|letterhead|e-?invoice|billing\s+statement)\b", RegexOptions.IgnoreCase),
+            "Code skills can't create files. Use the ready-made Documents app instead: it makes real PDF invoices, quotations, receipts and letters on your letterhead, does the sums exactly and sends the file to the customer."),
+        (AppSkills.Qr, new Regex(@"\bqr(\s*codes?)?\b", RegexOptions.IgnoreCase),
+            "Code skills can't create images. Use the ready-made QR codes app instead: it sends a real QR code picture with the AI's reply."),
+        (AppSkills.Payments, new Regex(@"\b(payment\s+links?|pay(ment)?\s+online|stripe|checkout\s+links?|pautan\s+bayaran)\b", RegexOptions.IgnoreCase),
+            "Code skills can't reach the internet. Use the ready-made Payment links app instead: it creates a real Stripe payment link through your Stripe connection."),
+        (AppSkills.Sheets, new Regex(@"\b(google\s+sheets?|spreadsheets?|log\s+(it\s+)?(to|in)\s+(a\s+)?sheet)\b", RegexOptions.IgnoreCase),
+            "Code skills can't reach the internet. Use the ready-made Google Sheets log app instead: it appends a real row when the AI's reply is sent."),
+    };
+
+    /// <summary>The Connected app a description asks for, when a code skill could not do it.</summary>
+    public static (string App, string Note)? AppIntent(string description)
+    {
+        foreach (var (app, pattern, note) in AppIntents)
+            if (pattern.IsMatch(description ?? "")) return (app, note);
+        return null;
+    }
 
     public async Task<DraftResult> DraftAsync(string description, string? kindHint,
         IReadOnlyList<Answer> answers, CancellationToken ct = default)
     {
         description = (description ?? "").Trim();
         var hint = NormalizeHint(kindHint);
+        // an instruction ABOUT invoices is a fine prompt skill; a tool or check that
+        // would have to MAKE one is steered to the app that really can
+        if (hint is not (SkillKinds.Prompt or SkillKinds.Check) && AppIntent(description) is { } intent)
+            return new DraftResult("use_app", Array.Empty<string>(), null, "rules", intent.Note) { SuggestApp = intent.App };
         if (_llm.IsConfigured)
         {
             try

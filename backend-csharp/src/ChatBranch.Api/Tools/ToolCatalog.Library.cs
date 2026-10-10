@@ -179,6 +179,35 @@ public static partial class ToolCatalog
                 A.Bool("upcoming", "Only future bookings."), A.Entity(), A.Limit(50, 500),
             }, link: (_, _) => Page("Open bookings", "/bookings"));
 
+        // ---- documents (the Documents / QR app skills) -------------------------
+        yield return T("documents", "documents_list", "List documents",
+            "PDF invoices, quotations, receipts, letters and QR codes the AI (or a teammate) made in conversations " +
+            "you can see: number, total, status (pending = waiting for its reply, sent, void, failed).",
+            "GET", "/api/documents", C("chats.view"),
+            new[]
+            {
+                A.Str("thread", "One conversation as channel:key."), A.Int("contact_id", "One contact."),
+                A.Str("type", "invoice | quotation | receipt | letter | qr."),
+                A.Str("status", "pending | sent | void | failed | issued (comma list)."), A.Entity(), A.Limit(50, 500),
+            });
+
+        yield return T("documents", "documents_create", "Create a document",
+            "Make a PDF invoice, quotation, receipt or letter in a conversation with its Documents skill " +
+            "(letterhead, tax, numbering — the server computes every amount). fields: {items:[{description, qty, " +
+            "unit_price, discount?}], notes?, reference?, due_date?, payment_method?} or, for a letter, {title, " +
+            "paragraphs:[…]}. send=true sends it to the customer now (as a file, or a download link where the " +
+            "channel can't carry files).",
+            "POST", "/api/documents", C("chats.send"),
+            new[]
+            {
+                A.Str("channel", "Conversation channel.", req: true, oneOf: EndpointTool.ChannelNames),
+                A.Str("key", "Conversation key.", req: true),
+                A.Str("type", "invoice | quotation | receipt | letter.", req: true,
+                    oneOf: new[] { "invoice", "quotation", "receipt", "letter" }),
+                A.Obj("fields", "What goes on the document (see the description).", req: true),
+                A.Bool("send", "Send it to the customer now."),
+            }, outside: true);
+
         yield return T(b, "bookings_cancel", "Cancel a booking",
             "Cancel a booking: frees the slot and deletes the Google Calendar event (attendees are notified).",
             "POST", "/api/bookings/{id:int}/cancel", C("chats.send"), new[] { A.Id("booking") },

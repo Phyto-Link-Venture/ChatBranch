@@ -96,7 +96,7 @@ public class BuiltinSkillsTests
         Assert.Equal("Asia/Kuala_Lumpur", skills.OrgTimeZone().Id);
 
         var set = skills.BuildTools(Array.Empty<AgentSkill>());
-        Assert.Equal(6, set.Tools.Count);
+        Assert.Equal(7, set.Tools.Count); // the five date tools + calculate + request_handover
         var (result, ok) = skills.ExecuteTool(set, new LlmToolCall("c1", "current_time", "{}"),
             skills.Context(null, "whatsapp", ""));
         Assert.True(ok);

@@ -85,6 +85,16 @@ export interface PlaygroundReply {
     calendar: string
     booking_id: number | null
   }[]
+  /** Documents / QR codes the reply would send — rendered for real into a throw-away preview. */
+  documents_previewed?: {
+    type: string
+    label: string
+    number: string
+    currency: string
+    total: number | null
+    url: string
+    file_name: string
+  }[]
   checks: { name: string; passed: boolean; reason: string; fix: string; error: string | null; attempt: number }[]
   checks_configured: string[]
   retries: number
