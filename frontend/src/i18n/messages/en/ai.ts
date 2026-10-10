@@ -512,7 +512,7 @@ export const ai = {
     keywordOnly: 'Keyword search only',
     semanticBody: 'Knowledge and lessons are matched by meaning, so a reworded question still finds the right answer.',
     keywordBody:
-      'Add an OpenAI, Gemini or local embedding provider in Settings → AI keys & models to match by meaning, not just words.',
+      'Add an OpenAI, Gemini, OpenRouter or local embedding provider in Settings → AI keys & models to match by meaning, not just words.',
     piecesIndexed_one: '{count} piece indexed',
     piecesIndexed_other: '{count} pieces indexed',
     piecesWaiting: '{count} waiting',
@@ -706,9 +706,10 @@ export const ai = {
   embeddings: {
     providers: {
       auto: 'Automatic',
-      autoHint: 'OpenAI → Gemini → local',
+      autoHint: 'OpenAI → Gemini → OpenRouter → local',
       openaiHint: 'uses the OpenAI key',
       googleHint: 'uses the Google key',
+      openrouterHint: 'uses the OpenRouter key (OpenRouter credits)',
       local: 'Local server',
       localHint: 'OpenAI-compatible /embeddings at the local base URL',
       off: 'Off',

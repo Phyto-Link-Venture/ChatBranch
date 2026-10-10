@@ -342,11 +342,12 @@ public static class VoiceMessagingEndpoints
         new() { key = "embedding_provider", label = "Embeddings provider (semantic search)", group = "embeddings",
                 kind = "select",
                 help = "Lets the AI find knowledge and lessons by meaning, not just matching words. Automatic " +
-                       "uses the first of OpenAI → Gemini → Local that has a key; Off keeps keyword search only. " +
-                       "Uses the API keys above." },
+                       "uses the first of OpenAI → Gemini → OpenRouter → Local that has a key; Off keeps keyword " +
+                       "search only. Uses the API keys above." },
         new() { key = "embedding_model", label = "Embeddings model", group = "embeddings", kind = "text",
-                help = "Empty = the provider's default (OpenAI text-embedding-3-small, Gemini text-embedding-004, " +
-                       "Local nomic-embed-text). Changing it re-indexes everything in the background." },
+                help = "Empty = the provider's default (OpenAI text-embedding-3-small, Gemini gemini-embedding-001, " +
+                       "OpenRouter openai/text-embedding-3-small, Local nomic-embed-text). Changing it re-indexes " +
+                       "everything in the background." },
         new() { key = "email_subject", label = "Default email subject", group = "tunables", kind = "text" },
         new() { key = "flows_tick_seconds", label = "Flow engine tick (seconds)", group = "tunables", kind = "int", min = 1 },
         new() { key = "whatsapp_health_interval", label = "Channel health check interval (seconds)",
@@ -595,7 +596,7 @@ public static class VoiceMessagingEndpoints
                 if (!ChatBranch.Data.Ai.Learning.OpenAiEmbeddingClient.Choices.Contains(emb))
                     return Results.Json(new
                     {
-                        detail = "embedding_provider must be one of openai, google, local, none or empty (automatic).",
+                        detail = "embedding_provider must be one of openai, google, openrouter, local, none or empty (automatic).",
                     }, statusCode: 400);
                 patch["embedding_provider"] = emb;
             }

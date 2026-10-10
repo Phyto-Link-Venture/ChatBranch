@@ -407,4 +407,28 @@ public class RetrievalTests
         Assert.False(DocumentExtractor.Supported("contract.docx"));
         Assert.True(DocumentExtractor.Supported("Guide.MD"));
     }
+
+    [Fact]
+    public void Embeddings_can_use_OpenRouter_and_Gemini_defaults_to_its_current_model()
+    {
+        using var t = new TestDb();
+        var sc = new ScopingService(t.Db);
+        // a deployment with only an OpenRouter key: automatic picks OpenRouter
+        sc.SetSetting("openrouter_api_key", "sk-or-test");
+        var auto = OpenAiEmbeddingClient.CurrentFor(sc);
+        Assert.True(auto.Configured);
+        Assert.Equal("openrouter", auto.Provider);
+        Assert.Equal("openai/text-embedding-3-small", auto.Model);
+
+        // Gemini wins over OpenRouter in the automatic order, on gemini-embedding-001
+        sc.SetSetting("google_api_key", "g-test");
+        var gemini = OpenAiEmbeddingClient.CurrentFor(sc);
+        Assert.Equal("google", gemini.Provider);
+        Assert.Equal("gemini-embedding-001", gemini.Model);
+
+        // and OpenRouter can be picked by name
+        sc.SetSetting("embedding_provider", "openrouter");
+        Assert.Equal("openrouter", OpenAiEmbeddingClient.CurrentFor(sc).Provider);
+        Assert.Contains("openrouter", OpenAiEmbeddingClient.Choices);
+    }
 }
