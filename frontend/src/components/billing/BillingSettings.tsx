@@ -5,6 +5,8 @@
  * every company's AI bill is computed with — the billing currency and its
  * rate against USD (the cost ledger is priced in USD), a default markup % and
  * monthly fee, and per-company overrides. GET/PUT /api/billing/ai/settings.
+ * A change bills the CURRENT month and later — earlier months keep the terms
+ * that applied to them (the server keeps the history; shown under the form).
  */
 
 import Link from 'next/link'
@@ -13,7 +15,7 @@ import { ArrowUpRight, Loader2, Save } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { aiApi } from '@/lib/aiMonitor'
-import { useT } from '@/i18n'
+import { useFormat, useT } from '@/i18n'
 
 interface Terms {
   currency: string
@@ -21,10 +23,22 @@ interface Terms {
   default_markup_pct: number
   default_monthly_fee: number
   companies: Record<string, { markup_pct?: number | null; monthly_fee?: number | null }>
+  effective_from?: string | null
+}
+
+interface HistoryRow {
+  effective_from: string | null
+  until: string | null
+  currency: string
+  usd_rate: number
+  default_markup_pct: number
+  default_monthly_fee: number
+  companies: number
 }
 
 interface Payload {
   settings: Terms
+  history?: HistoryRow[]
   companies: { id: number; name: string; slug: string; markup_pct: number | null; monthly_fee: number | null }[]
 }
 
@@ -36,6 +50,7 @@ const num = (v: string): number | null => (v.trim() === '' ? null : Number(v))
 
 export function BillingSettings() {
   const t = useT()
+  const f = useFormat()
   const [data, setData] = useState<Payload | null>(null)
   const [terms, setTerms] = useState<Terms | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -72,8 +87,12 @@ export function BillingSettings() {
     setBusy(true)
     setError(null)
     try {
-      const d = await aiApi<{ settings: Terms }>('billing/ai/settings', { method: 'PUT', body: JSON.stringify(terms) })
+      const d = await aiApi<{ settings: Terms; history: HistoryRow[] }>('billing/ai/settings', {
+        method: 'PUT',
+        body: JSON.stringify(terms),
+      })
       setTerms(d.settings)
+      setData({ ...data, history: d.history })
       setNotice(t('common.status.saved'))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -81,6 +100,10 @@ export function BillingSettings() {
       setBusy(false)
     }
   }
+
+  const monthName = (m: string | null) =>
+    m ? f.monthYear(`${m}-01T00:00:00Z`, 'UTC') : ''
+  const history = data.history ?? []
 
   const example = 10 * (1 + (terms.default_markup_pct || 0) / 100) * (terms.usd_rate || 0)
 
@@ -97,6 +120,12 @@ export function BillingSettings() {
           {t('billing.settings.defaultsTitle')}
         </CardTitle>
         <p className="mt-1 text-[12.5px] text-text-muted">{t('billing.settings.defaultsHelp')}</p>
+        <p
+          data-tour="billingset-locked"
+          className="mt-2 rounded-lg border border-line px-3 py-2 text-[12.5px] font-semibold text-text-high"
+        >
+          {t('billing.settings.lockedNote')}
+        </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="block">
             <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('billing.settings.currency')}</span>
@@ -205,6 +234,33 @@ export function BillingSettings() {
           </div>
         )}
       </Card>
+
+      {history.length > 0 && (
+        <Card className="p-5" data-tour="billingset-history">
+          <CardTitle>{t('billing.settings.historyTitle')}</CardTitle>
+          <ul className="mt-2 flex flex-col gap-1.5 text-[12.5px]">
+            {history.map((h, i) => (
+              <li key={`${h.effective_from ?? 'start'}-${i}`} className={i === 0 ? 'font-semibold text-text-high' : 'text-text-mid'}>
+                {(h.effective_from
+                  ? h.until
+                    ? t('billing.settings.historyRange', { from: monthName(h.effective_from), until: monthName(h.until) })
+                    : t('billing.settings.historySince', { from: monthName(h.effective_from) })
+                  : h.until
+                    ? t('billing.settings.historyUntil', { until: monthName(h.until) })
+                    : t('billing.settings.historyAlways')) +
+                  ' · ' +
+                  t('billing.settings.historyTerms', {
+                    markup: f.number(h.default_markup_pct),
+                    fee: f.number(h.default_monthly_fee),
+                    currency: h.currency,
+                    rate: f.number(h.usd_rate),
+                    companies: h.companies,
+                  })}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <div data-tour="billingset-save" className="flex items-center gap-3">
         <Button onClick={save} disabled={busy}>

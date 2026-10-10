@@ -235,8 +235,9 @@ public static class InboxEndpoints
 
         app.MapPost("/api/messaging/threads/{channel}/{key}/summary",
             async (string channel, string key, ThreadStore store,
-                   ChatBranch.Data.Ai.SummaryService svc) =>
+                   ChatBranch.Data.Ai.SummaryService svc, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
+            if (QuotaGuard.Refusal(db, sc, me) is { } quota) return quota;
             var thread = store.GetThread(channel, key);
             if (thread == null) return Results.NotFound(new { detail = "thread not found" });
             var brief = await svc.GenerateAsync(thread);

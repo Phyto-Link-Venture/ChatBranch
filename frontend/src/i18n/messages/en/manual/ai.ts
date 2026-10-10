@@ -318,6 +318,49 @@ export const ai = {
     trouble: 'No suggested lessons appear: the learning mode may be “Off”, or nobody wrote a correction yet. A lesson does not seem to be used: check that it is under “Active”, not “Suggested”, and that it belongs to the right outlet.',
   },
 
+  aiReviewer: {
+    title: 'Let a stronger AI review the AI’s replies',
+    summary: 'Have a stronger model check a sample of recent AI replies, see what went wrong, and turn its suggestions into lessons, knowledge or house rules.',
+    before: 'You need the “Edit AI behaviour settings” permission to start a review (anyone who can see the AI monitor can read the results). For a real review, an AI key must be set in Settings → “AI keys & models” — OpenRouter for the default reviewer model.',
+    steps: {
+      s1: {
+        title: 'Open the AI review tab',
+        body: 'In the sidebar, open Automate → “AI monitor” and click the “AI review” tab.',
+      },
+      s2: {
+        title: 'Pick the period',
+        body: 'Click “Last 7 days” or “Last 30 days”. For exact dates or a different number of replies, open “Custom period and size”.',
+      },
+      s3: {
+        title: 'Check the reviewer',
+        body: 'Under the button you see “Reviewer: …” — the model that will check the replies — and how many replies it checks at most.',
+      },
+      s4: {
+        title: 'Click Review now',
+        body: 'Click “Review now”. The button shows “Reviewing…”; a larger review can take a minute or two, and you can leave the page meanwhile.',
+      },
+      s5: {
+        title: 'Read the summary',
+        body: 'Under “Latest review”, read “What the reviewer found”, the recurring problems and the “Suggestions for your setup”.',
+      },
+      s6: {
+        title: 'Go through the issues',
+        body: 'Under “Replies checked”, each card shows how serious it is, what kind of problem, the customer’s message, the AI’s reply, why it is a problem and a suggested fix. Click “Open chat” to see the whole conversation.',
+      },
+      s7: {
+        title: 'Apply a suggestion',
+        body: 'Click “Add as lesson”, “Add to knowledge” or “Add house rule” on a card. Lessons follow your learning mode; knowledge is saved as an inactive draft for you to check and switch on.',
+      },
+    },
+    done: 'The card shows “Added as a lesson”, “Added to knowledge (inactive draft)” or “Added as a house rule”, and the review appears under “Past reviews”.',
+    tips: {
+      t1: 'Run a review after changing your knowledge or house rules to see whether the replies got better.',
+      t2: 'Pick one outlet in the entity switcher first to review only its conversations — a house rule is then added to that outlet.',
+      t3: 'Each review costs AI tokens; it shows on the AI bill as “AI review”.',
+    },
+    trouble: '“Automatic checks only”: no AI model is set up, so only simple checks ran — add a key in Settings → “AI keys & models”. “A review is already running”: wait for it to finish. The reviewer named is not the one you expected: OpenRouter is not configured, so the normal chat model reviewed; change “AI reviewer model” in Settings → “AI keys & models” → Advanced settings.',
+  },
+
   aiSkills: {
     title: 'Add an AI skill with the wizard',
     summary: 'Describe in your own words something the AI should be able to do, answer a few questions, check and save it.',

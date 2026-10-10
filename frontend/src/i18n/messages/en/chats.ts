@@ -105,6 +105,7 @@ export const chats = {
     rule: 'A rule or flow',
     manual: 'Flagged by a person',
     unknown_customer: 'Unknown customer',
+    quota: 'AI quota reached',
   },
   filterModal: {
     more: 'More',

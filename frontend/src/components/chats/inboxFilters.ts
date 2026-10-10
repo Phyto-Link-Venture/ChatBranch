@@ -225,6 +225,7 @@ const HANDOVER_KIND_KEYS = new Set([
   'rule',
   'manual',
   'unknown_customer',
+  'quota',
 ])
 
 /** One removable chip per active filter dimension (sort is not a filter). */

@@ -4,7 +4,8 @@
  * AI monitor — see (and, by policy, approve) what the AI says before it
  * reaches a customer, review everything it did, and tune how human it acts.
  * Tabs: Waiting for review · AI activity · Learning (lessons from 👍/👎 +
- * retrieval status) · Stats · Settings (the reusable
+ * retrieval status) · AI review (on-demand: a stronger model checks past
+ * replies, <AiReviewPanel />) · Stats · Settings (the reusable
  * <AiBehaviourSettings />). The tab lives in ?tab= so a refresh or a link from
  * a notification keeps the place; lists refresh live off the inbox SSE stream.
  */
@@ -19,6 +20,7 @@ import { ActivityList } from '@/components/ai-monitor/ActivityList'
 import { StatsPanel } from '@/components/ai-monitor/StatsPanel'
 import { AiBehaviourSettings } from '@/components/ai-monitor/AiBehaviourSettings'
 import { LearningPanel } from '@/components/ai-learning/LearningPanel'
+import { AiReviewPanel } from '@/components/ai-monitor/AiReviewPanel'
 import { AiMasterSwitch } from '@/components/ai-controls/AiMasterSwitch'
 import { MultiEntityNotice } from '@/components/shell/MultiEntityNotice'
 import { HandoverStats } from '@/components/ai-controls/HandoverStats'
@@ -28,11 +30,12 @@ import { subscribeChatStream } from '@/lib/chatStream'
 import { aiApi, type BehaviourPayload, type DraftList } from '@/lib/aiMonitor'
 import { useT, type MessageKey, type TFunction } from '@/i18n'
 
-type Tab = 'review' | 'activity' | 'learning' | 'stats' | 'settings'
+type Tab = 'review' | 'activity' | 'learning' | 'ai-review' | 'stats' | 'settings'
 const TABS: { id: Tab; label: MessageKey }[] = [
   { id: 'review', label: 'ai.monitor.tabs.review' },
   { id: 'activity', label: 'ai.monitor.tabs.activity' },
   { id: 'learning', label: 'ai.monitor.tabs.learning' },
+  { id: 'ai-review', label: 'ai.monitor.tabs.aiReview' },
   { id: 'stats', label: 'ai.monitor.tabs.stats' },
   { id: 'settings', label: 'shell.nav.settings' },
 ]
@@ -187,6 +190,7 @@ export default function AiMonitorPage() {
             {access.ready && tab === 'learning' && (
               <LearningPanel entityQuery={entityQ} entitySlug={activeEntity?.slug ?? null} entityName={activeEntity?.name ?? null} />
             )}
+            {access.ready && tab === 'ai-review' && <AiReviewPanel entityQuery={entityQ} />}
             {access.ready && tab === 'stats' && <StatsPanel entityQuery={entityQ} />}
             {access.ready && tab === 'stats' && <div className="mt-4"><HandoverStats entityQuery={entityQ} /></div>}
             {access.ready && tab === 'settings' && (

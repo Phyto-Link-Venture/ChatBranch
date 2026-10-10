@@ -149,6 +149,7 @@ where a write reads its body first. Notable gates:
 | Message templates / call scripts | `templates.manage` / `script_templates.manage` |
 | AI monitor / behaviour | `ai.monitor` / `ai.behaviour.manage` |
 | AI playground (`/api/ai/playground/options`, `POST …/reply`, `POST …/import`) | `ai.monitor` or `ai.behaviour.manage`; trying changes (provider / model, a persona draft, knowledge / lessons / skills / memory off, the full prompt) `ai.behaviour.manage` (else 403); the entity must sit in the caller's assigned subtree (an unassigned agent-level user keeps the tenant-wide view; organization-wide needs admin+ or no assignment), a real contact in `ScopeContacts` (404), an imported conversation needs `chats.view` + the inbox scope (404); 30 replies a minute per user (429) |
+| AI review (`POST /api/ai/review`, `GET /api/ai/review/runs[/{id}]`, `POST /api/ai/review/findings/{id}/apply`) | start a run / apply a suggestion `ai.behaviour.manage` (knowledge and house rules also `settings.ai.manage`; a house rule at the run's entity follows the persona PUT rule — org-wide admin+, an outlet in the caller's subtree); read `ai.monitor` or `ai.behaviour.manage`. Scope = the AI monitor's draft scope: a run is visible only when every entity it read sits in the caller's scope (an organization-wide run is admins' / unassigned users'), its findings are filtered again by the conversation's entity (404 outside) |
 | AI controls — master switch, schedule, never-AI tags (`/api/ai/controls`) | GET `ai.monitor`, `ai.behaviour.manage` or `chats.view`; PUT `ai.behaviour.manage` — the organization-wide value needs admin+, an outlet must sit in the caller's assigned subtree (an unassigned agent-level user keeps the tenant-wide view) |
 | A contact's AI mode (`/api/contacts/{id}/ai-mode`) | GET `contacts.view`, PUT `contacts.manage` |
 | Bulk conversation actions (`POST /api/inbox/threads/bulk`) | `chats.manage`, scoped like the list, ≤1000 |
@@ -240,6 +241,7 @@ exemption list below fails the build.
 | `/api/ai/monitor`, `/stats`, `/{id}` | `ai.monitor` | AI monitor |
 | `/api/ai/behaviour` | `ai.monitor`, `ai.behaviour.manage` | AI monitor |
 | `/api/ai/playground/options` (providers, the stored persona and `can_override` only with `ai.behaviour.manage`; `POST …/reply` and `…/import` carry the same gate — trying changes needs `ai.behaviour.manage`, importing a conversation `chats.view` + the conversation scope) | `ai.monitor`, `ai.behaviour.manage` | AI playground |
+| `/api/ai/review/runs`, `/api/ai/review/runs/{id}` (runs whose entities all sit in the caller's scope; findings filtered by the conversation's entity) | `ai.monitor`, `ai.behaviour.manage` | AI monitor → AI review |
 | `POST /api/aicore/knowledge/preview` | `settings.ai.manage`, `ai.monitor` | Knowledge, AI monitor's retrieval tester |
 | `/api/aicore/knowledge`, `/persona`, `/skills/apps`, `/skills/builtins` | `settings.ai.manage` | Knowledge base, AI skills |
 | `/api/aicore/skills` | `settings.ai.manage`, `flows.manage` | AI skills, the Journeys skill picker |
@@ -275,6 +277,7 @@ exemption list below fails the build.
 | `/api/auth/roles`, `/api/auth/permissions`, `/api/auth/audit` | admin+ | Permissions, Users |
 | `/api/analytics/usage` (the cost ledger), `/api/billing/ai/settings` | `billing.manage` | Analytics → AI usage, Settings → AI billing |
 | `/api/billing/ai` (billed amounts; cost and margin only with `billing.manage`) | `billing.view` | AI bill |
+| `/api/billing/ai/quotas` (monthly AI caps + spend in the caller's scope; PUT: company caps `billing.manage`, branch + user caps also admins with `billing.view` inside their scope) | `billing.view` or `billing.manage` | AI bill → Quotas |
 
 **Any signed-in user may read** (the exemption list in `PermissionGatesTests`;
 everything here is the caller's own data or is gated row by row inside):

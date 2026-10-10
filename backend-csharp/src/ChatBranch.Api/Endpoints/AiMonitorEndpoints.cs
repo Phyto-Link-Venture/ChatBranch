@@ -527,9 +527,9 @@ public static class AiMonitorEndpoints
     /// their own scope rather than widening. Unassigned (null-entity) drafts stay
     /// visible, as unassigned conversations do in the inbox.
     /// </summary>
-    private record DraftScope(List<int>? EntityIds);
+    internal record DraftScope(List<int>? EntityIds);
 
-    private static async Task<DraftScope> ScopeFor(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
+    internal static async Task<DraftScope> ScopeFor(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
         string? entitySlug)
     {
         var picked = await InboxEndpoints.EntityId(db, entitySlug);

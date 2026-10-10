@@ -40,6 +40,20 @@ public static partial class ToolCatalog
                 A.Num("default_monthly_fee", "Flat fee per company per month, in the currency."),
                 A.Obj("companies", "Per-company overrides keyed by top-level entity id."),
             });
+        yield return T(an, "billing_get_ai_quotas", "AI usage quotas",
+            "Monthly AI spending caps (billing currency, priced like the bill) for companies, branches and users in " +
+            "your scope, each with this month's spend, % used and status ok | warn (80%) | paused (100% — the AI " +
+            "stops answering those chats, or that person's AI features, until next month or a higher cap).",
+            "GET", "/api/billing/ai/quotas", C("billing.view", "billing.manage"));
+        yield return T(an, "billing_set_ai_quotas", "Set AI usage quotas",
+            "Set or clear monthly AI caps (merge: only the keys you send change; 0 or null clears). entities " +
+            "{\"<entity id>\": amount} and/or users {\"<username>\": amount}. Company (top-level) caps need " +
+            "billing.manage; admins may cap branches and users in their own scope.",
+            "PUT", "/api/billing/ai/quotas", C("billing.view", "billing.manage"), new[]
+            {
+                A.Obj("entities", "Caps keyed by entity id (amount in the billing currency; 0/null = no cap)."),
+                A.Obj("users", "Caps keyed by username (amount in the billing currency; 0/null = no cap)."),
+            });
         yield return T(an, "analytics_get_engagement", "Engagement tiles",
             "Conversations total, awaiting reply, replied, needing a human, follow-ups set, calls.",
             "GET", "/api/messaging/engagement", C("analytics.view"), new[] { A.Entity() });

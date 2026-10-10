@@ -760,6 +760,8 @@ public partial class AssistantService
                     // a made-up playground customer is never a stored contact
                     Channel = spec.Channel, ContactId = spec.Contact is { Id: > 0 } c ? c.Id : null, Ref = spec.Ref,
                     EntityId = spec.EntityId,
+                    // the playground is a person's own test chat — it counts toward their AI quota
+                    UserName = spec.Feature == "playground" ? AiQuota.CurrentUser() : "",
                     PromptTokens = r.PromptTokens, CompletionTokens = r.CompletionTokens, CostUsd = r.CostUsd,
                     Detail = detail, CreatedAt = DateTime.UtcNow,
                 });

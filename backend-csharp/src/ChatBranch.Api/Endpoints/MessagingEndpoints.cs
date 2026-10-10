@@ -873,6 +873,7 @@ public static class MessagingEndpoints
         app.MapPost("/api/messaging/timeline/summary", async (Dictionary<string, JsonElement>? body,
             AppDbContext db, ILlmClient llm, ScopingService sc, ClaimsPrincipal me, CancellationToken ct) =>
         {
+            if (QuotaGuard.Refusal(db, sc, me) is { } quota) return quota;
             var phone = (Str(body, "phone") ?? "").Trim();
             var email = (Str(body, "email") ?? "").Trim();
             if (phone.Length == 0 && email.Length == 0)
@@ -1092,6 +1093,19 @@ public static class MessagingEndpoints
                     text = result.Text.Trim();
                     heuristic = false;
                 }
+                try
+                {
+                    // metered like every other LLM call (the bill, the caller's AI quota)
+                    db.LlmUsage.Add(new LlmUsage
+                    {
+                        Feature = "timeline", Provider = result.Provider, Model = result.Model,
+                        ContactId = contact?.Id, Ref = "timeline", UserName = ChatBranch.Data.Ai.AiQuota.CurrentUser(),
+                        PromptTokens = result.PromptTokens, CompletionTokens = result.CompletionTokens,
+                        CostUsd = result.CostUsd, CreatedAt = DateTime.UtcNow,
+                    });
+                    await db.SaveChangesAsync(ct);
+                }
+                catch { /* metering never breaks the summary */ }
             }
             catch (Exception e)
             {

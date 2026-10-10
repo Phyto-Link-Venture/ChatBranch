@@ -262,7 +262,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `flows_enqueue_job` | Queue an outbound message | write · open-world | `flows.manage` |
 | `flows_run_due_steps` | Run due flow steps now | write · open-world | `flows.manage` |
 
-#### analytics (9)
+#### analytics (11)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -273,6 +273,8 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `billing_get_ai_bill` | AI usage bill | read | `billing.view` |
 | `billing_get_settings` | Read the AI billing terms | read | `billing.manage` |
 | `billing_set_settings` | Set the AI billing terms | write | `billing.manage` |
+| `billing_get_ai_quotas` | AI usage quotas | read | `billing.view` or `billing.manage` |
+| `billing_set_ai_quotas` | Set AI usage quotas | write | `billing.view` or `billing.manage` |
 | `analytics_get_engagement` | Engagement tiles | read | `analytics.view` |
 | `analytics_get_live` | What's live right now | read | signed in |
 
@@ -299,7 +301,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `entities_get_tags` | Get an entity's tags | read | `tags.view` |
 | `entities_set_tags` | Set an entity's tags | write | `tags.manage` |
 
-#### ai (30)
+#### ai (34)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -333,6 +335,10 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `ai_get_playground_options` | AI playground options | read | `ai.monitor` or `ai.behaviour.manage` |
 | `ai_playground_reply` | Try the AI in the playground | read | `ai.monitor` or `ai.behaviour.manage` |
 | `ai_playground_import` | Copy a conversation into the playground | read | `ai.monitor` or `ai.behaviour.manage` |
+| `ai_review_run` | Review recent AI replies | write · open-world | `ai.behaviour.manage` |
+| `ai_review_list_runs` | List AI review runs | read | `ai.monitor` or `ai.behaviour.manage` |
+| `ai_review_get_run` | Get an AI review run | read | `ai.monitor` or `ai.behaviour.manage` |
+| `ai_review_apply_finding` | Apply an AI review suggestion | write | `ai.behaviour.manage` |
 
 #### skills (7)
 

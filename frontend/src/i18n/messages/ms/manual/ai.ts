@@ -320,6 +320,49 @@ export const ai: Dict<typeof source> = {
     trouble: 'Tiada cadangan pengajaran muncul: mod pembelajaran mungkin “Tutup”, atau belum ada sesiapa menulis pembetulan. Pengajaran seolah-olah tidak digunakan: pastikan ia berada di bawah “Aktif”, bukan “Dicadangkan”, dan milik cawangan yang betul.',
   },
 
+  aiReviewer: {
+    title: 'Biar AI yang lebih kuat menyemak balasan AI',
+    summary: 'Minta model yang lebih kuat menyemak sampel balasan AI terkini, lihat apa yang salah, dan jadikan cadangannya pelajaran, pengetahuan atau peraturan rumah.',
+    before: 'Anda perlukan kebenaran “Edit tetapan tingkah laku AI” untuk memulakan semakan (sesiapa yang boleh melihat Pemantau AI boleh membaca hasilnya). Untuk semakan sebenar, kunci AI mesti ditetapkan di Tetapan → “Kunci & model AI” — OpenRouter untuk model penyemak lalai.',
+    steps: {
+      s1: {
+        title: 'Buka tab Semakan AI',
+        body: 'Di bar sisi, buka Automasi → “Pemantau AI” dan klik tab “Semakan AI”.',
+      },
+      s2: {
+        title: 'Pilih tempoh',
+        body: 'Klik “7 hari lepas” atau “30 hari lepas”. Untuk tarikh tepat atau bilangan balasan yang lain, buka “Tempoh dan saiz tersuai”.',
+      },
+      s3: {
+        title: 'Semak penyemak',
+        body: 'Di bawah butang anda nampak “Penyemak: …” — model yang akan menyemak balasan — dan berapa banyak balasan paling banyak yang disemak.',
+      },
+      s4: {
+        title: 'Klik Semak sekarang',
+        body: 'Klik “Semak sekarang”. Butang menunjukkan “Sedang menyemak…”; semakan besar boleh mengambil masa seminit dua, dan anda boleh meninggalkan halaman sementara itu.',
+      },
+      s5: {
+        title: 'Baca ringkasan',
+        body: 'Di bawah “Semakan terkini”, baca “Apa yang ditemui penyemak”, masalah berulang dan “Cadangan untuk tetapan anda”.',
+      },
+      s6: {
+        title: 'Teliti isu-isu',
+        body: 'Di bawah “Balasan yang disemak”, setiap kad menunjukkan tahap keseriusan, jenis masalah, mesej pelanggan, balasan AI, sebab ia bermasalah dan cadangan pembetulan. Klik “Buka sembang” untuk melihat keseluruhan perbualan.',
+      },
+      s7: {
+        title: 'Gunakan cadangan',
+        body: 'Klik “Tambah sebagai pelajaran”, “Tambah ke pengetahuan” atau “Tambah peraturan rumah” pada kad. Pelajaran mengikut mod pembelajaran anda; pengetahuan disimpan sebagai draf tidak aktif untuk anda semak dan hidupkan.',
+      },
+    },
+    done: 'Kad menunjukkan “Ditambah sebagai pelajaran”, “Ditambah ke pengetahuan (draf tidak aktif)” atau “Ditambah sebagai peraturan rumah”, dan semakan muncul di bawah “Semakan lalu”.',
+    tips: {
+      t1: 'Jalankan semakan selepas mengubah pengetahuan atau peraturan rumah untuk melihat sama ada balasan menjadi lebih baik.',
+      t2: 'Pilih satu cawangan dalam penukar entiti dahulu untuk menyemak perbualannya sahaja — peraturan rumah kemudian ditambah pada cawangan itu.',
+      t3: 'Setiap semakan menggunakan token AI; ia dipaparkan dalam bil AI sebagai “Semakan AI”.',
+    },
+    trouble: '“Semakan automatik sahaja”: tiada model AI disediakan, jadi hanya semakan ringkas dijalankan — tambah kunci di Tetapan → “Kunci & model AI”. “Semakan sedang berjalan”: tunggu sehingga ia selesai. Penyemak yang dinamakan bukan yang anda jangka: OpenRouter tidak dikonfigurasi, jadi model sembang biasa yang menyemak; ubah “Model penyemak AI” di Tetapan → “Kunci & model AI” → Tetapan lanjutan.',
+  },
+
   aiSkills: {
     title: 'Tambah kemahiran AI dengan wizard',
     summary: 'Huraikan dalam perkataan anda sendiri sesuatu yang patut boleh dilakukan AI, jawab beberapa soalan, semak dan simpan.',

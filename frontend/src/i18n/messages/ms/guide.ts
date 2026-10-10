@@ -468,14 +468,18 @@ export const guide: Dict<typeof source> = {
           body: 'Pelajaran yang dipelajari AI daripada ibu jari ke atas, ibu jari ke bawah dan suntingan. Bergantung pada mod pembelajaran, seseorang meluluskan setiap pelajaran sebelum AI menggunakannya.',
         },
         s5: {
+          title: 'Semakan AI',
+          body: 'Biar AI yang lebih kuat menyemak sampel balasan terkini berbanding pengetahuan, peraturan rumah dan persona anda. Ia menandakan kesilapan dan mencadangkan apa yang perlu ditambah — pelajaran, item pengetahuan atau peraturan rumah — dengan satu klik. Ia hanya berjalan apabila anda mengklik Semak sekarang.',
+        },
+        s6: {
           title: 'Statistik',
           body: 'Berapa balasan yang dihantar, ditahan atau ditolak, berapa kerap orang menyukainya, dan berapa kerap sembang diserahkan kepada manusia.',
         },
-        s6: {
+        s7: {
           title: 'Tetapan — mod semakan',
           body: 'Pilih tahap berhati-hati AI: hantar terus, tahan balasan berisiko sahaja (harga, bayaran balik, janji), tahan semua, atau mod bayangan (AI mendraf, manusia menghantar).',
         },
-        s7: {
+        s8: {
           title: 'Cuba dengan selamat',
           body: 'Membuka ruang uji AI, tempat anda bersembang dengan AI seperti pelanggan — tiada apa dihantar kepada sesiapa.',
         },
@@ -907,6 +911,10 @@ export const guide: Dict<typeof source> = {
           title: 'Cetak atau tetapkan terma',
           body: 'Cetak menyimpan penyata sebagai PDF. Pengurus bil menetapkan markup, yuran dan mata wang di Terma bil.',
         },
+        s4: {
+          title: 'Kuota',
+          body: 'Had perbelanjaan AI bulanan untuk syarikat, cawangan dan pengguna. Kuning dari 80%; pada 100% AI dijeda dan sembang diserahkan kepada orang sehingga bulan depan atau sehingga had dinaikkan.',
+        },
       },
     },
     billingSettings: {
@@ -932,6 +940,10 @@ export const guide: Dict<typeof source> = {
         s5: {
           title: 'Simpan',
           body: 'Klik Simpan terma bil untuk menggunakan perubahan anda.',
+        },
+        s6: {
+          title: 'Bulan lalu dikunci',
+          body: 'Perubahan terpakai pada bil bulan ini dan seterusnya. Bulan-bulan sebelumnya kekal dengan terma yang terpakai ketika itu — senarai menunjukkan terma bagi setiap bulan.',
         },
       },
     },

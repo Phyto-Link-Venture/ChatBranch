@@ -275,6 +275,8 @@ export const settings: Dict<typeof source> = {
         'Untuk penyedia Tempatan (Ollama / LM Studio) — cth. http://localhost:11434/v1 (Ollama) atau http://localhost:1234/v1 (LM Studio). Kemudian pilih “local” di atas dan tetapkan model sembang kepada nama model (cth. llama3.1). Pelayan mesti dapat mencapai URL ini.',
       localKey: 'Kunci API model tempatan (pilihan)',
       localKeyHelp: 'Pilihan — Ollama mengabaikannya; sesetengah get laluan memerlukannya.',
+      reviewerModel: 'Model penyemak AI',
+      reviewerModelHelp: 'Model lebih kuat yang digunakan “Semakan AI” dalam Pemantau AI untuk menyemak balasan lalu — hanya apabila seseorang mengklik Semak sekarang. Kosong = anthropic/claude-sonnet-5.5 di OpenRouter; tulis penyedia:model (contohnya openai:gpt-4.1) untuk penyedia lain. Tanpa kunci penyedia itu, model sembang biasa yang menyemak.',
       emailSubject: 'Subjek e-mel lalai',
       flowsTick: 'Detik enjin aliran (saat)',
       healthInterval: 'Selang pemeriksaan kesihatan saluran (saat)',
