@@ -76,7 +76,7 @@ is a settings exercise, not a fork — see
   dashboard feature as a tool — [docs/mcp.md](docs/mcp.md)) for AI apps, and an in-app assistant ("Ask ChatBranch") that acts as you.
 - **Integrations** — Google Calendar / Drive / Gmail / Sheets (OAuth, per user or
   shared), Shopify and Stripe (HMAC-verified webhooks).
-- **Analytics** home page, reports with CSV export, LLM usage/billing, an
+- **Analytics** home page, reports with CSV export, LLM usage/billing (per-company AI bill with month-locked terms, monthly AI quotas per company / branch / user that pause the AI at the cap), an
   activity log of who did what from where (dashboard, API, MCP, assistant, flow).
 - **Paper & Ink** design system — three themes × light/dark, per-user accent,
   text size and corners; installable PWA with a phone tab bar.

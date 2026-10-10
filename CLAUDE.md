@@ -355,7 +355,9 @@ When you fix one of these, update this table, `README.md` and
   roles:** `Config["role"]` = `reminder` (Cloud business number) or
   `conversation` (Baileys personal number), defaulting by provider. **Is the AI
   on for a conversation = ONE function, `Ai/AiEligibility.Decide`**: opted out →
-  the **master switch / schedule** (Setting `ai_enabled` on | off | schedule;
+  the **AI usage quota** (the conversation's entity or ANY ancestor at its monthly
+  cap, `Ai/AiQuota.cs` — rule `quota`, forced, reason "Off: AI quota reached for
+  <entity> (RM x of RM y this month)") → the **master switch / schedule** (Setting `ai_enabled` on | off | schedule;
   `ai_schedule` per-weekday windows + `ai_schedule_mode` inside | outside, org
   timezone; resolved UP the entity tree, nearest level wins, `off` wins) → the
   contact's `ai_mode` `never` or a **never-AI tag** (`ai_never_tags`, which add up
@@ -715,7 +717,7 @@ When you fix one of these, update this table, `README.md` and
 - **Human handover** (`Ai/Handover.cs`, the ONLY writer of `crm_thread.handover_*`).
   `Handover.Mark(db, thread, kind, reason, by)`: kinds `check_failed` ·
   `asked_for_human` · `send_blocked` · `booking_failed` · `low_confidence` ·
-  `rule` · `manual` · `unknown_customer`; `by` = `ai` · `rule:<id>` · `flow` ·
+  `rule` · `manual` · `unknown_customer` · `quota` (the AI usage quota, `standDown: false`); `by` = `ai` · `rule:<id>` · `flow` ·
   `agent:<username>` (· `identity`). It counts once while open, sets the chat
   pending, adds the private note, notifies the owners, audits `ai.handover` and
   (default `standDown`) turns the chatbot off — the identity exchange's
@@ -899,9 +901,42 @@ When you fix one of these, update this table, `README.md` and
   (`crm_llmusage.cost_usd` — OpenRouter's `usage.cost`, requested with
   `usage.include`), else tokens × `llm_prices` over OpenRouter's public price
   list (`ModelPriceCatalog`, Setting `llm_prices_catalog`, refreshed ≤ daily
-  when a report is read, `LLM_PRICE_SYNC=0` off) over the shipped defaults; terms in ONE org-wide Setting `ai_billing`
+  when a report is read, `LLM_PRICE_SYNC=0` off) over the shipped defaults (ONE
+  pricing rule, `Ai/LlmPricing.cs`, shared by the usage report, the bill and the
+  quotas); terms in ONE org-wide Setting `ai_billing`
   (`GET/PUT /api/billing/ai/settings`, `billing.manage`, Settings → AI
-  billing `/settings/billing`). `GET /api/billing/ai?month=&company=`
+  billing `/settings/billing`; model + rules in `Ai/AiBillingTerms.cs`). **Terms
+  are locked per month** (UTC months, like the bill): the Setting holds the
+  current terms + `effective_from` (yyyy-MM) + `history[]`; a PUT replaces this
+  month's terms, or moves older ones into the history and starts the new ones
+  this month (unchanged terms change nothing); the bill for month M uses the
+  latest terms with `effective_from` ≤ M (a legacy row without one = every
+  earlier month; a month older than every set uses the oldest). The settings GET
+  returns `history` (newest first, with `until`) for the "Terms by month" list.
+  **AI usage quotas** (`Ai/AiQuota.cs`, Setting `ai_quotas` {entities:{id:amount},
+  users:{username:amount}}, billing currency, 0/absent = no cap): spend = the
+  month's BILLED usage (the month's terms; the fee never counts) — a company cap
+  counts everything its bill counts (contact fallback included), a branch cap the
+  rows whose `entity_id` is in its subtree, a user cap the rows stamped with
+  `crm_llmusage.user_name` (the operator assistant, the playground, skill
+  drafting, thread + timeline summaries — `AiQuota.CurrentUser()` from the audit
+  context). Cached ≤60 s per database in-process (`AiQuota.Invalidate()` on every
+  quota / terms save; tests call it after writing usage rows); no caps = no
+  query; a read failure fails OPEN. At 100 % the AI is off for those chats (see
+  `AiEligibility` above, so every gate + payload follows) and an inbound the AI
+  would otherwise have answered gets ONE tracked handover kind `quota`
+  (`InboundProcessor.QuotaHandover`, `standDown: false` — the tick stays and the
+  AI resumes by itself); a user at cap gets 429 `{detail, quota: true}` from the
+  playground, skill drafting and summaries (`Endpoints/QuotaGuard.cs`) and the
+  assistant answers the refusal (`mode: "quota"`). `AiQuota.Sweep` warns the
+  tenant's admins (+ the person for a user cap) at 80 % and 100 %, once per scope
+  per month (Setting `ai_quota_warned`), from the AI-ops worker, the quotas GET
+  and a quota handover. `GET/PUT /api/billing/ai/quotas` (`billing.view` or
+  `billing.manage`; PUT merges, 0/null clears): billing managers set anything,
+  admins set branch caps + same-tenant users inside their scope (never a company
+  cap, never a superadmin); audited `billing.quotas`. UI: the Quotas card on
+  `/billing` (`components/billing/AiQuotas.tsx`). Tests: `AiQuotaTests`,
+  `AiBillingTermsTests`. `GET /api/billing/ai?month=&company=`
   (`billing.view`): billed amounts for the caller's companies (assigned
   entities' companies; unassigned = all); cost, markup, margin and the
   unattributed bucket only with `billing.manage`. Print hides the shell
@@ -1350,7 +1385,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **670 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **691 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /

@@ -134,7 +134,7 @@ public class SkillDrafter
         {
             _db.LlmUsage.Add(new LlmUsage
             {
-                Feature = "skill_draft", Provider = r.Provider, Model = r.Model,
+                Feature = "skill_draft", Provider = r.Provider, Model = r.Model, UserName = AiQuota.CurrentUser(),
                 PromptTokens = r.PromptTokens, CompletionTokens = r.CompletionTokens, CostUsd = r.CostUsd,
                 CreatedAt = DateTime.UtcNow,
             });

@@ -245,6 +245,8 @@ public static class Seed
             + "\"duration_ms\" INTEGER NOT NULL, \"results\" TEXT NOT NULL, "
             + "\"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL");
         AddIndexIfMissing(db, "ix_testlabrun_created", "crm_testlabrun", "\"created_at\"");
+        // AI quotas: who ran an interactive AI call themselves (a user's monthly cap)
+        AddColumnIfMissing(db, "crm_llmusage", "user_name", "TEXT NOT NULL DEFAULT ''");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 

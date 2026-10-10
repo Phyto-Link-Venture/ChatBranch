@@ -43,7 +43,7 @@ public static class AssistantEndpoints
     public static void MapAssistantEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/api/assistant/chat", async (JsonElement body, HttpContext http, ClaimsPrincipal me,
-            AppDbContext db, ILlmClient llm, IHttpClientFactory httpFactory, CancellationToken ct) =>
+            AppDbContext db, ILlmClient llm, IHttpClientFactory httpFactory, ScopingService sc, CancellationToken ct) =>
         {
             // Legacy clients send the whole history as `messages`; the dock sends
             // just the new `message` and the conversation it belongs to.
@@ -98,9 +98,16 @@ public static class AssistantEndpoints
             }
             turns.Add(new OperatorAssistant.ChatTurn("user", question));
 
-            var tools = await ToolContext.CreateAsync(http, me, AuditSources.Assistant, entity);
-            var assistant = new OperatorAssistant(tools, llm, httpFactory, path);
-            var reply = await assistant.ChatAsync(turns, ct);
+            // a person whose AI quota is used up gets that answer, not an error
+            OperatorAssistant.Reply reply;
+            if (QuotaGuard.UserBlocked(db, sc, me) is string refusal)
+                reply = new OperatorAssistant.Reply(refusal, new(), new(), new(), "quota");
+            else
+            {
+                var tools = await ToolContext.CreateAsync(http, me, AuditSources.Assistant, entity);
+                var assistant = new OperatorAssistant(tools, llm, httpFactory, path);
+                reply = await assistant.ChatAsync(turns, ct);
+            }
             var payload = AssistantHistory.ReplyPayload(reply);
             AssistantMessage? stored = null;
             if (convo != null)

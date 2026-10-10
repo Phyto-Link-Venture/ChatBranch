@@ -143,6 +143,7 @@ export type HandoverKind =
   | 'rule'
   | 'manual'
   | 'unknown_customer'
+  | 'quota'
 
 /** Labels are translation keys — render with `t(k.label)`. */
 export const HANDOVER_KINDS: { value: HandoverKind; label: MessageKey }[] = [
@@ -154,6 +155,7 @@ export const HANDOVER_KINDS: { value: HandoverKind; label: MessageKey }[] = [
   { value: 'rule', label: 'chats.handoverKinds.rule' },
   { value: 'manual', label: 'chats.handoverKinds.manual' },
   { value: 'unknown_customer', label: 'chats.handoverKinds.unknown_customer' },
+  { value: 'quota', label: 'chats.handoverKinds.quota' },
 ]
 
 /** A handover kind's label in the current language; the server's own label for kinds we don't know. */
