@@ -67,6 +67,8 @@ export const playground = {
     persona: 'Persona',
     personaUnsaved: 'Unsaved — only this playground uses it. The safety rules always stay on top.',
     personaSaved: 'The saved persona.',
+    personaSavedHint: 'The saved persona — type here to try a change, then “Save as persona”. House rules are edited on the Persona & rules page.',
+    personaOpenEditor: 'Persona & rules page',
     personaSave: 'Save as persona',
     personaSavedOk: 'Saved — every conversation for this outlet now uses this persona.',
     personaReset: 'Reset',
