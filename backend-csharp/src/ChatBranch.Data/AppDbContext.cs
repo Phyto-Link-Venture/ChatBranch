@@ -55,6 +55,8 @@ public class AppDbContext : DbContext
     public DbSet<Workflow> Workflows => Set<Workflow>();
     public DbSet<AgentSkill> AgentSkills => Set<AgentSkill>();
     public DbSet<KnowledgeItem> KnowledgeItems => Set<KnowledgeItem>();
+    /// <summary>Extra "available to" entities of a library row (Data/LibraryEntities.cs).</summary>
+    public DbSet<LibraryEntity> LibraryEntities => Set<LibraryEntity>();
     // crm — flows
     public DbSet<FlowRun> FlowRuns => Set<FlowRun>();
     public DbSet<OutboundJob> OutboundJobs => Set<OutboundJob>();
@@ -322,6 +324,13 @@ public class AppDbContext : DbContext
         b.Entity<AiReviewFinding>().ToTable("crm_aireviewfinding");
         b.Entity<AiReviewFinding>().HasIndex(f => f.RunId).HasDatabaseName("ix_aireviewfinding_run");
         Json<AiReviewFinding, List<string>>(b, x => x.Categories);
+
+        // ---- multi-entity library availability (ScopingService.LibraryVisible) --
+        b.Entity<LibraryEntity>().ToTable("crm_libraryentity");
+        b.Entity<LibraryEntity>().HasIndex(l => new { l.Kind, l.ItemId, l.EntityId })
+            .IsUnique().HasDatabaseName("uniq_libraryentity");
+        b.Entity<LibraryEntity>().HasIndex(l => new { l.Kind, l.EntityId })
+            .HasDatabaseName("ix_libraryentity_entity");
 
         // ---- snake_case columns to match Django (<field>_id for FKs) -----------
         // Django names every column snake_case; matching it is what lets this

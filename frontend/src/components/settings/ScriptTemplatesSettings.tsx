@@ -13,6 +13,8 @@ import { Loader2, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Trans, useT } from '@/i18n'
 import { hasCap } from '@/lib/auth'
+import { useEntityQuery } from '@/lib/EntityContext'
+import { availabilityOf, useDefaultAvailability, type EntityRefLite } from '@/components/ui/AvailabilityPicker'
 import {
   ConfirmDelete,
   Notice,
@@ -31,6 +33,9 @@ interface ScriptTemplate {
   created_by: string
   entity?: string | null
   entity_name?: string
+  /** "Available to" (primary first); [] + global = everyone */
+  entities?: EntityRefLite[]
+  global?: boolean
   updated_at?: string
 }
 
@@ -55,10 +60,12 @@ export function ScriptTemplatesSettings({
   const [toDelete, setToDelete] = useState<ScriptTemplate | null>(null)
   const [canManage, setCanManage] = useState(false)
   useEffect(() => setCanManage(hasCap('script_templates.manage')), [])
+  const entityQ = useEntityQuery()
+  const defaultAvailability = useDefaultAvailability()
 
   const load = useCallback(async () => {
     try {
-      const d = await api<{ templates: ScriptTemplate[] }>('calls/script-templates')
+      const d = await api<{ templates: ScriptTemplate[] }>(`calls/script-templates${entityQ ? `?${entityQ}` : ''}`)
       setList(d.templates)
       setLoadError(null)
       onCount?.(d.templates.length)
@@ -67,7 +74,7 @@ export function ScriptTemplatesSettings({
       setList(null)
       setLoadError(e)
     }
-  }, [onCount])
+  }, [onCount, entityQ])
 
   useEffect(() => {
     load()
@@ -78,13 +85,13 @@ export function ScriptTemplatesSettings({
     if (!openId || !list) return
     const st = list.find((x) => String(x.id) === openId)
     if (st && canManage)
-      setEditor({ editing: st, initial: { name: st.name, content: st.content, entity: st.entity ?? null, channels: [] } })
+      setEditor({ editing: st, initial: { name: st.name, content: st.content, entities: availabilityOf(st), channels: [] } })
     onOpened?.()
   }, [openId, list, canManage, onOpened])
 
   const save = async (draft: TemplateDraft) => {
     const editing = editor?.editing
-    const body = JSON.stringify({ name: draft.name, content: draft.content, entity: draft.entity ?? '' })
+    const body = JSON.stringify({ name: draft.name, content: draft.content, entities: draft.entities })
     if (editing) await api(`calls/script-templates/${editing.id}`, { method: 'PATCH', body })
     else await api('calls/script-templates', { method: 'POST', body })
     setEditor(null)
@@ -101,14 +108,14 @@ export function ScriptTemplatesSettings({
         type: t('library.scripts.type'),
         channels: [],
         voice: true,
-        entityName: st.entity_name ?? '',
+        availability: { entities: st.entities ?? [], global: st.global ?? (st.entities ?? []).length === 0 },
         updated: st.updated_at ?? null,
         onEdit: canManage
           ? () => {
               setNotice(null)
               setEditor({
                 editing: st,
-                initial: { name: st.name, content: st.content, entity: st.entity ?? null, channels: [] },
+                initial: { name: st.name, content: st.content, entities: availabilityOf(st), channels: [] },
               })
             }
           : undefined,
@@ -160,7 +167,8 @@ export function ScriptTemplatesSettings({
               data-tour="templates-new"
               onClick={() => {
                 setNotice(null)
-                setEditor({ editing: null, initial: { name: '', content: '', entity: null, channels: [] } })
+                setEditor({ editing: null, initial: { name: '', content: '', entities: defaultAvailability, channels: [] } })
+
               }}
             >
               <Plus size={14} aria-hidden /> {t('library.editor.newScript')}

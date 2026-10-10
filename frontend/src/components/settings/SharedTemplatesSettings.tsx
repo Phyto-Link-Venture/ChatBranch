@@ -16,6 +16,8 @@ import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { Trans, useT } from '@/i18n'
 import { hasCap } from '@/lib/auth'
+import { useEntityQuery } from '@/lib/EntityContext'
+import { availabilityOf, useDefaultAvailability, type EntityRefLite } from '@/components/ui/AvailabilityPicker'
 import {
   ConfirmDelete,
   Notice,
@@ -37,6 +39,9 @@ interface CannedResponse {
   created_by: string
   entity?: string | null
   entity_name?: string
+  /** "Available to" (primary first); [] + global = everyone */
+  entities?: EntityRefLite[]
+  global?: boolean
   updated_at?: string
 }
 
@@ -63,10 +68,12 @@ export function SharedTemplatesSettings({
   const [canManage, setCanManage] = useState(false)
   // capability read after mount (localStorage) — see the CLAUDE.md hydration rule
   useEffect(() => setCanManage(hasCap('templates.manage')), [])
+  const entityQ = useEntityQuery()
+  const defaultAvailability = useDefaultAvailability()
 
   const load = useCallback(async () => {
     try {
-      const d = await api<{ canned: CannedResponse[] }>('messaging/canned')
+      const d = await api<{ canned: CannedResponse[] }>(`messaging/canned${entityQ ? `?${entityQ}` : ''}`)
       setList(d.canned)
       setLoadError(null)
       onCount?.(d.canned.length)
@@ -74,7 +81,7 @@ export function SharedTemplatesSettings({
       setList(null)
       setLoadError(e)
     }
-  }, [onCount])
+  }, [onCount, entityQ])
 
   useEffect(() => {
     load()
@@ -87,7 +94,7 @@ export function SharedTemplatesSettings({
     if (c && canManage)
       setEditor({
         editing: c,
-        initial: { name: c.short_code, content: c.content, entity: c.entity ?? null, channels: c.channels ?? [] },
+        initial: { name: c.short_code, content: c.content, entities: availabilityOf(c), channels: c.channels ?? [] },
       })
     onOpened?.()
   }, [openId, list, canManage, onOpened])
@@ -98,7 +105,7 @@ export function SharedTemplatesSettings({
       short_code: draft.name,
       content: draft.content,
       channels: draft.channels,
-      entity: draft.entity ?? '',
+      entities: draft.entities,
     })
     if (editing) await api(`messaging/canned/${editing.id}`, { method: 'PATCH', body })
     else await api('messaging/canned', { method: 'POST', body })
@@ -118,14 +125,14 @@ export function SharedTemplatesSettings({
           preview: c.content,
           type: t('library.quickReplies.type'),
           channels: c.channels ?? [],
-          entityName: c.entity_name ?? '',
+          availability: { entities: c.entities ?? [], global: c.global ?? (c.entities ?? []).length === 0 },
           updated: c.updated_at ?? null,
           onEdit: canManage
             ? () => {
                 setNotice(null)
                 setEditor({
                   editing: c,
-                  initial: { name: c.short_code, content: c.content, entity: c.entity ?? null, channels: c.channels ?? [] },
+                  initial: { name: c.short_code, content: c.content, entities: availabilityOf(c), channels: c.channels ?? [] },
                 })
               }
             : undefined,
@@ -182,7 +189,8 @@ export function SharedTemplatesSettings({
                 data-tour="templates-new"
                 onClick={() => {
                   setNotice(null)
-                  setEditor({ editing: null, initial: { name: '', content: '', entity: null, channels: [] } })
+                  setEditor({ editing: null, initial: { name: '', content: '', entities: defaultAvailability, channels: [] } })
+
                 }}
               >
                 <Plus size={14} aria-hidden /> {t('library.editor.newQuickReply')}

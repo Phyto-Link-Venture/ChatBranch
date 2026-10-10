@@ -7,8 +7,14 @@ import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
 import { Trans, useFormat, useT, type MessageKey } from '@/i18n'
 import { authHeaders, hasCap } from '@/lib/auth'
-import { useEntity, useEntityQuery } from '@/lib/EntityContext'
-import { EntityScopeSelect } from './EntityScopeSelect'
+import { useEntityQuery } from '@/lib/EntityContext'
+import {
+  AvailabilityChips,
+  AvailabilityPicker,
+  availabilityOf,
+  useDefaultAvailability,
+  type EntityRefLite,
+} from '@/components/ui/AvailabilityPicker'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -46,6 +52,9 @@ interface Rule {
   last_fired_at: string | null
   entity: string | null
   entity_name: string
+  /** "Available to" (primary first); [] + global = everyone */
+  entities?: EntityRefLite[]
+  global?: boolean
 }
 
 interface Catalog {
@@ -139,7 +148,6 @@ export function AutomationsSettings() {
   const t = useT()
   const f = useFormat()
   const entityQ = useEntityQuery()
-  const { activeEntity } = useEntity()
   const [rules, setRules] = useState<Rule[] | null>(null)
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -154,7 +162,9 @@ export function AutomationsSettings() {
   const [description, setDescription] = useState('')
   const [evt, setEvt] = useState('message_created')
   const [active, setActive] = useState(true)
-  const [entity, setEntity] = useState<string | null>(null)
+  /** "Available to" slugs; [] = everyone */
+  const [entities, setEntities] = useState<string[]>([])
+  const defaultAvailability = useDefaultAvailability()
   const [conditions, setConditions] = useState<Condition[]>([])
   const [actions, setActions] = useState<Action[]>([])
   const [testing, setTesting] = useState<Rule | null>(null)
@@ -205,7 +215,7 @@ export function AutomationsSettings() {
     setDescription('')
     setEvt('message_created')
     setActive(true)
-    setEntity(activeEntity?.slug ?? null)
+    setEntities(defaultAvailability)
     setConditions([])
     setActions([{ type: 'add_label', value: '' }])
     setMsg(null)
@@ -218,7 +228,7 @@ export function AutomationsSettings() {
     setDescription(r.description)
     setEvt(r.event)
     setActive(r.active)
-    setEntity(r.entity)
+    setEntities(availabilityOf(r))
     setConditions(r.conditions ?? [])
     setActions(r.actions ?? [])
     setMsg(null)
@@ -234,7 +244,7 @@ export function AutomationsSettings() {
         description: description.trim(),
         event: evt,
         active,
-        entity,
+        entities,
         // strip half-filled rows rather than saving conditions that can never match
         conditions: conditions.filter((c) => c.field && c.op),
         actions: actions.filter((a) => a.type),
@@ -483,6 +493,8 @@ export function AutomationsSettings() {
                 {!r.active && (
                   <span className="rounded-full bg-fill px-2 py-px text-[10px] font-bold text-text-muted">{t('common.status.off')}</span>
                 )}
+                <AvailabilityChips entities={r.entities} global={r.global ?? r.entity === null} />
+
                 {r.times_fired > 0 && (
                   <span
                     className="text-[10px] text-text-faint"
@@ -624,15 +636,7 @@ export function AutomationsSettings() {
             />
           </label>
 
-          <label className="block">
-            <span className="mb-1 block text-[11px] font-bold text-text-high">{t('flows.automations.appliesTo')}</span>
-            <EntityScopeSelect
-              value={entity}
-              onChange={setEntity}
-              globalLabel={t('flows.automations.orgWide')}
-              className="w-full"
-            />
-          </label>
+          <AvailabilityPicker value={entities} onChange={setEntities} />
 
           {/* conditions */}
           <div className="rounded-lg border border-line bg-fill-subtle p-3">

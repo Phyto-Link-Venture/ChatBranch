@@ -243,6 +243,8 @@ public static class LabReset
         var knowledge = s.KnowledgeIds;
         db.AiEmbeddings.Where(e => e.OwnerType == "knowledge" && knowledge.Contains(e.OwnerId)).ExecuteDelete();
         Count("knowledge", db.KnowledgeItems.Where(k => knowledge.Contains(k.Id)).ExecuteDelete());
+        // "available to" ticks for the lab's entities (crm_libraryentity)
+        db.LibraryEntities.Where(l => ents.Contains(l.EntityId)).ExecuteDelete();
         Count("skills", db.AgentSkills.Where(x => x.EntityId != null && ents.Contains(x.EntityId.Value)).ExecuteDelete());
         Count("quick_replies", db.CannedResponses.Where(x => x.EntityId != null && ents.Contains(x.EntityId.Value)).ExecuteDelete());
         Count("script_templates", db.ScriptTemplates.Where(x => x.EntityId != null && ents.Contains(x.EntityId.Value)).ExecuteDelete());

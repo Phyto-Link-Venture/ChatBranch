@@ -263,6 +263,27 @@ saved filter tabs.
 Each has a pair of partial unique indexes: unique per `(key, entity_id)` where
 `entity_id IS NOT NULL`, and unique per key where `entity_id IS NULL`.
 
+**Multi-entity availability ("Available to").** Quick replies, call scripts,
+knowledge items, AI skills and automation rules can be available to SEVERAL
+entities. `entity_id` stays the **primary** entity (the first ticked one; what
+every older reader and the unique indexes see); every further entity is a row in
+`crm_libraryentity`. No entity at all (`entity_id` null, no tick rows) = global
+(everyone). A row ticked for A and B is visible to A, B and their branches, never
+to a sibling outside the ticks — ONE rule, `ScopingService.LibraryVisible`, used
+by `ScopeInherited` and `ShellScope.ScopeLibrary`. A legacy row with only
+`entity_id` behaves exactly as before (no migration).
+
+### `crm_libraryentity` — extra "available to" entities
+`kind` (`canned` \| `script` \| `knowledge` \| `skill` \| `automation` —
+`Domain/LibraryEntity.cs LibraryKinds`) · `item_id` (the library row's id) ·
+`entity_id` · `created_at`. **Unique** `(kind, item_id, entity_id)`
+(`uniq_libraryentity`), index `(kind, entity_id)`. One generic table (like
+`crm_tagassignment`'s `target_type`) rather than one per library, so the
+visibility rule is one query for every kind. Never holds the primary entity, and
+a global row has none (`Data/LibraryEntities.cs` keeps that invariant; deleting
+an entity drops its ticks and promotes another tick to primary on rows it was
+primary of; deleting an item drops its ticks).
+
 ### `crm_cannedresponse` — quick replies
 `entity_id` · `short_code` (the unique key) · `content` · **`channels`** (JSON
 list of thread channel ids; empty = every channel) · `created_by` ·

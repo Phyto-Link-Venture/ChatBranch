@@ -42,6 +42,18 @@ export const ui = {
     allEntities: 'All entities',
     main: 'Main',
   },
+  availability: {
+    label: 'Available to',
+    everyone: 'Everyone (global)',
+    everyoneHint: 'Every entity and every branch can use it.',
+    selected: 'Selected entities',
+    selectedHint: 'Only the ticked entities — and their branches — can use it.',
+    pickAria: 'Entities it is available to',
+    placeholder: 'Tick one or more entities…',
+    adminOnly: 'You are limited to particular entities — only an admin can make it available to everyone.',
+    chipEveryone: 'Everyone',
+    more: '+{count}',
+  },
   phone: {
     number: 'Phone number',
     countryCode: 'Country calling code',

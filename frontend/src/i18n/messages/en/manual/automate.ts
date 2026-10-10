@@ -299,7 +299,7 @@ export const automate = {
       },
       s5: {
         title: 'Choose where it applies (optional)',
-        body: 'Under “Applies to”, keep “Organization-wide” or pick one outlet (entity) so the rule only acts on that outlet’s conversations.',
+        body: 'Under “Available to”, keep “Everyone (global)” or choose “Selected entities” and tick one or more outlets so the rule only acts on their conversations (and their branches’).',
       },
       s6: {
         title: 'Add the If conditions',
@@ -336,7 +336,7 @@ export const automate = {
       t6: 'You can test a rule that is turned off — the result reminds you it won’t actually run until you turn it on.',
     },
     trouble:
-      'The rule never fires: click “Test” with a chat that should match — the crossed condition shows what doesn’t hold. Also check it is “On”, that “Applies to” covers the outlet the chat belongs to, and that each condition has a value (an unknown operator matches nothing). It fires too often: add a condition such as “Is the first message” = yes. Two rules fight each other: all matching rules run, top to bottom — drag one above the other, turn one off or tighten its conditions.',
+      'The rule never fires: click “Test” with a chat that should match — the crossed condition shows what doesn’t hold. Also check it is “On”, that “Available to” covers the outlet the chat belongs to, and that each condition has a value (an unknown operator matches nothing). It fires too often: add a condition such as “Is the first message” = yes. Two rules fight each other: all matching rules run, top to bottom — drag one above the other, turn one off or tighten its conditions.',
   },
   accountAssignment: {
     title: 'Choose which number each contact talks to',

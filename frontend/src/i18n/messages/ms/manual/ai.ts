@@ -73,7 +73,7 @@ export const ai: Dict<typeof source> = {
       },
       s4: {
         title: 'Pilih untuk siapa ia terpakai',
-        body: 'Dalam “Terpakai untuk”, biarkan “Semua entiti (seluruh organisasi)” supaya setiap cawangan menggunakannya, atau pilih satu cawangan supaya hanya pelanggannya mendengarnya.',
+        body: 'Di bawah “Tersedia untuk”, biarkan “Semua orang (global)” supaya setiap cawangan menggunakannya, atau pilih “Entiti terpilih” dan tanda satu atau lebih syarikat atau cawangan — setiap yang ditanda dan cawangannya menggunakannya, orang lain tidak.',
       },
       s5: {
         title: 'Tulis tajuk dan kandungan',
@@ -93,7 +93,7 @@ export const ai: Dict<typeof source> = {
       },
       s9: {
         title: 'Muat naik dokumen (pilihan)',
-        body: 'Klik “Muat naik dokumen”, kemudian seret fail PDF, teks, Markdown atau CSV (sehingga 10 MB) ke dalam kotak. Pilih “Jenis” dan “Terpakai untuk”, kemudian klik “Muat naik”. AI membaca teksnya; fail itu sendiri tidak disimpan.',
+        body: 'Klik “Muat naik dokumen”, kemudian seret fail PDF, teks, Markdown atau CSV (sehingga 10 MB) ke dalam kotak. Pilih “Jenis” dan siapa ia “Tersedia untuk”, kemudian klik “Muat naik”. AI membaca teksnya; fail itu sendiri tidak disimpan.',
       },
       s10: {
         title: 'Uji apa yang AI temui',

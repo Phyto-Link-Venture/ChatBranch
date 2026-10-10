@@ -45,11 +45,12 @@ public static class AutomationsEndpoints
             var rows = await sc.ScopeInherited(
                     db.AutomationRules.AsNoTracking().Include(r => r.Entity), entityId)
                 .OrderBy(r => r.Position).ThenBy(r => r.Id).ToListAsync();
-            return Results.Ok(new { rules = rows.Select(Payload).ToList() });
+            var scopes = LibraryEntities.Load(db, rows);
+            return Results.Ok(new { rules = rows.Select(r => Payload(r, scopes)).ToList() });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("flows.manage");
 
         // ---- create ----------------------------------------------------------
-        app.MapPost("/api/automations", async (JsonElement body, AppDbContext db, ClaimsPrincipal me) =>
+        app.MapPost("/api/automations", async (JsonElement body, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var name = (Str(body, "name") ?? "").Trim();
             if (name.Length == 0)
@@ -61,6 +62,10 @@ public static class AutomationsEndpoints
                     detail = $"event must be one of {string.Join(", ", AutomationService.Events.Select(e => e.Id))}.",
                 }, statusCode: 400);
             if (ValidationError(body) is IResult err) return err;
+            // "Available to": entities [slug|id…] (or the older single `entity`); none = everyone
+            var pick = await LibraryScope.ReadAsync(db, body);
+            if (pick.Error != null) return pick.Error;
+            if (await LibraryScope.Check(db, sc, me, null, pick.Ids) is { } denied) return denied;
 
             var row = new AutomationRule
             {
@@ -72,23 +77,33 @@ public static class AutomationsEndpoints
                 Position = Int(body, "position") ?? ((await db.AutomationRules.MaxAsync(r => (int?)r.Position) ?? -1) + 1),
                 Conditions = JsonList(body, "conditions"),
                 Actions = JsonList(body, "actions"),
-                EntityId = await InboxEndpoints.EntityId(db, Str(body, "entity")),
+                EntityId = pick.Ids.Count > 0 ? pick.Ids[0] : null,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
             };
             db.AutomationRules.Add(row);
             await Audit(db, me, "automation.create", row.Name);
             await db.SaveChangesAsync();
-            return Results.Json(Payload(row), statusCode: 201);
+            LibraryEntities.Set(db, row, pick.Ids);
+            await db.SaveChangesAsync();
+            await db.Entry(row).Reference(r => r.Entity).LoadAsync();
+            return Results.Json(Payload(row, LibraryEntities.Load(db, new[] { row })), statusCode: 201);
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         // ---- update ----------------------------------------------------------
         app.MapMethods("/api/automations/{id:int}", new[] { "PATCH" },
-            async (int id, JsonElement body, AppDbContext db, ClaimsPrincipal me) =>
+            async (int id, JsonElement body, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var row = await db.AutomationRules.FirstOrDefaultAsync(r => r.Id == id);
             if (row == null) return Results.NotFound(new { detail = "Rule not found." });
             if (ValidationError(body) is IResult err) return err;
+            var pick = await LibraryScope.ReadAsync(db, body);
+            if (pick.Error != null) return pick.Error;
+            if (pick.Given)
+            {
+                var before = LibraryEntities.Ids(db, LibraryKinds.Automation, row.Id, row.EntityId);
+                if (await LibraryScope.Check(db, sc, me, before, pick.Ids) is { } denied) return denied;
+            }
 
             if (Has(body, "name"))
             {
@@ -109,11 +124,13 @@ public static class AutomationsEndpoints
             if (Int(body, "position") is int pos) row.Position = pos;
             if (Has(body, "conditions")) row.Conditions = JsonList(body, "conditions");
             if (Has(body, "actions")) row.Actions = JsonList(body, "actions");
-            if (Has(body, "entity")) row.EntityId = await InboxEndpoints.EntityId(db, Str(body, "entity"));
+            // entities [] / entity "" = everyone (organization-wide)
+            if (pick.Given) LibraryEntities.Set(db, row, pick.Ids);
             row.UpdatedAt = DateTime.UtcNow;
             await Audit(db, me, "automation.update", row.Name);
             await db.SaveChangesAsync();
-            return Results.Ok(Payload(row));
+            await db.Entry(row).Reference(r => r.Entity).LoadAsync();
+            return Results.Ok(Payload(row, LibraryEntities.Load(db, new[] { row })));
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
         // ---- delete ----------------------------------------------------------
@@ -122,6 +139,7 @@ public static class AutomationsEndpoints
             var row = await db.AutomationRules.FirstOrDefaultAsync(r => r.Id == id);
             if (row == null) return Results.NotFound(new { detail = "Rule not found." });
             db.AutomationRules.Remove(row);
+            LibraryEntities.Clear(db, LibraryKinds.Automation, row.Id);
             await Audit(db, me, "automation.delete", row.Name);
             await db.SaveChangesAsync();
             return Results.Ok(new { ok = true });
@@ -179,13 +197,14 @@ public static class AutomationsEndpoints
             }
             await Audit(db, me, "automation.reorder", string.Join(", ", listed.Select(r => r.Name)));
             await db.SaveChangesAsync();
-            return Results.Ok(new { rules = rows.OrderBy(r => r.Position).Select(Payload) });
+            var scopes = LibraryEntities.Load(db, rows);
+            return Results.Ok(new { rules = rows.OrderBy(r => r.Position).Select(r => Payload(r, scopes)) });
         }).RequireAuthorization(AuthPolicies.AdminPlus);
     }
 
     // ---- helpers ------------------------------------------------------------
 
-    private static object Payload(AutomationRule r) => new
+    private static object Payload(AutomationRule r, Dictionary<int, List<EntityRef>> scopes) => new
     {
         id = r.Id,
         name = r.Name,
@@ -199,7 +218,11 @@ public static class AutomationsEndpoints
         last_fired_at = r.LastFiredAt,
         entity = r.Entity?.Slug,
         entity_name = r.Entity?.Name ?? "",
+        // "Available to": every entity it was ticked for (primary first); global = everyone
+        entities = LibraryEntities.Payload(scopes, r.Id),
+        global = r.EntityId == null,
     };
+
 
     /// <summary>
     /// A rule with no actions can never do anything, and an unknown action type

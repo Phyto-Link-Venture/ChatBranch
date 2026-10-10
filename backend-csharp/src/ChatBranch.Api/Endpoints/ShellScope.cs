@@ -72,7 +72,7 @@ internal static class ShellScope
                 if (pickedEntityId is int picked && allowed.Contains(picked)) return sc.ScopeInherited(qs, picked);
                 // their outlets' own rows + what those outlets inherit from above
                 var visible = allowed.Concat(assigned.SelectMany(a => sc.EntityChain(a))).Distinct().ToList();
-                return qs.Where(r => r.EntityId == null || visible.Contains(r.EntityId.Value));
+                return sc.LibraryVisible(qs, visible);
             }
         }
         return sc.ScopeInherited(qs, pickedEntityId);

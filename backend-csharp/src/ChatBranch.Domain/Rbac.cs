@@ -120,7 +120,7 @@ public class TeamMember
 /// an event that just happened — label an angry message, route billing to the
 /// billing team, reopen a resolved thread when the customer replies.
 /// </summary>
-public class AutomationRule : IEntityScoped
+public class AutomationRule : IMultiEntityItem
 {
     public int Id { get; set; }
     public int? EntityId { get; set; }

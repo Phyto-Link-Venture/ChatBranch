@@ -13,7 +13,7 @@ import { useEffect, useState } from 'react'
 import { BookOpen, ExternalLink, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
-import { EntityPicker } from '@/components/ui/EntityPicker'
+import { AvailabilityPicker } from '@/components/ui/AvailabilityPicker'
 import { aiApi } from '@/lib/aiMonitor'
 import { useT } from '@/i18n'
 
@@ -28,13 +28,14 @@ export function knowledgeAddHref(question: string): string {
 export function AddAnswerModal({
   question: initialQuestion,
   onClose,
-  defaultEntity,
+  defaultEntities,
   onAdded,
 }: {
   /** null = closed */
   question: string | null
   onClose: () => void
-  defaultEntity: string | null
+  /** "Available to" the answer starts with ([] = everyone). */
+  defaultEntities: string[]
   onAdded: (title: string) => void
 }) {
   const t = useT()
@@ -42,7 +43,7 @@ export function AddAnswerModal({
   const [question, setQuestion] = useState('')
   const [title, setTitle] = useState('')
   const [answer, setAnswer] = useState('')
-  const [entity, setEntity] = useState<string | null>(defaultEntity)
+  const [entities, setEntities] = useState<string[]>(defaultEntities)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -51,9 +52,9 @@ export function AddAnswerModal({
     setQuestion(initialQuestion)
     setTitle('')
     setAnswer('')
-    setEntity(defaultEntity)
+    setEntities(defaultEntities)
     setError(null)
-  }, [initialQuestion, defaultEntity])
+  }, [initialQuestion, defaultEntities])
 
   const save = async () => {
     if (!question.trim() || !answer.trim() || busy) return
@@ -73,7 +74,7 @@ export function AddAnswerModal({
           priority: 0,
           active: true,
           published: false,
-          entity,
+          entities,
         }),
       })
       onAdded(finalTitle)
@@ -134,16 +135,8 @@ export function AddAnswerModal({
           <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('ai.common.titleOptional')}</span>
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={question.slice(0, 80)} className={fieldCls} />
         </label>
-        <label className="block">
-          <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('ai.common.appliesTo')}</span>
-          <EntityPicker
-            ariaLabel={t('ai.common.appliesTo')}
-            value={entity}
-            onChange={setEntity}
-            globalLabel={t('ai.common.allEntitiesOrg')}
-            className="w-full"
-          />
-        </label>
+        <AvailabilityPicker value={entities} onChange={setEntities} />
+
       </div>
     </Modal>
   )

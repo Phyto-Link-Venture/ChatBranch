@@ -71,7 +71,7 @@ export const ai = {
       },
       s4: {
         title: 'Choose who it applies to',
-        body: 'In “Applies to”, leave “All entities (organization-wide)” so every outlet uses it, or pick one outlet so only its customers hear it.',
+        body: 'Under “Available to”, leave “Everyone (global)” so every outlet uses it, or choose “Selected entities” and tick one or more companies or outlets — each ticked one and its branches use it, no one else does.',
       },
       s5: {
         title: 'Write the title and content',
@@ -91,7 +91,7 @@ export const ai = {
       },
       s9: {
         title: 'Upload a document (optional)',
-        body: 'Click “Upload document”, then drag a PDF, text, Markdown or CSV file (up to 10 MB) into the box. Pick the “Type” and “Applies to”, then click “Upload”. The AI reads the text; the file itself is not kept.',
+        body: 'Click “Upload document”, then drag a PDF, text, Markdown or CSV file (up to 10 MB) into the box. Pick the “Type” and who it is “Available to”, then click “Upload”. The AI reads the text; the file itself is not kept.',
       },
       s10: {
         title: 'Test what the AI finds',
