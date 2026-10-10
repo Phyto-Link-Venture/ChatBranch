@@ -11,6 +11,7 @@ export const workGuides: GuideDef[] = [
   { id: 'sendTemplate', group: 'work', href: '/chats', steps: 8, tips: 3, before: true, trouble: true, who: 'everyone' },
   { id: 'addContact', group: 'work', href: '/contacts', tour: 'contacts', steps: 9, tips: 3, before: true, who: 'admin' },
   { id: 'importContacts', group: 'work', href: '/contacts', tour: 'contacts', steps: 9, tips: 3, before: true, trouble: true, who: 'admin' },
+  { id: 'requestContactAccess', group: 'work', href: '/contacts', tour: 'contacts', steps: 6, tips: 2, before: true, trouble: true, who: 'everyone' },
   { id: 'linkUnknownChat', group: 'work', href: '/chats', tour: 'chats', steps: 7, tips: 3, before: true, who: 'everyone' },
   { id: 'contactProfile', group: 'work', href: '/contacts', tour: 'contact', steps: 10, tips: 3, who: 'everyone' },
   { id: 'voiceCall', group: 'work', href: '/chats', steps: 8, tips: 3, before: true, trouble: true, who: 'everyone' },

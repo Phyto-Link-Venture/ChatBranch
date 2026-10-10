@@ -1046,6 +1046,11 @@ public static class ContactsEndpoints
         var message = visible
             ? $"{clash.Name} already uses that {what}."
             : $"That {what} already belongs to a contact of this company.";
+        // A NEW contact clashing with one the caller can't see (another branch of
+        // their company): an opaque, short-lived token they can turn into an
+        // access request (POST /api/contacts/access-requests) — never the id.
+        var access = !visible && excludeId == null
+            ? HiddenClashAccess(db, sc, me, clash.ContactId, entityIds) : null;
         return Results.Json(new
         {
             detail = message,
@@ -1053,7 +1058,40 @@ public static class ContactsEndpoints
             field = clash.Field,
             existing_id = visible ? clash.ContactId : (int?)null,
             existing_name = visible ? clash.Name : null,
+            request_token = access?.Token,
+            company_name = access?.CompanyName,
+            target_entity = access == null ? null : new { id = access.EntityId, name = access.EntityName },
         }, statusCode: 409);
+    }
+
+    private sealed record ClashAccess(string Token, int EntityId, string EntityName, string CompanyName);
+
+    /// <summary>The access-request offer for a hidden clash: the requester's entity
+    /// (inside the clashing contact's company and the caller's scope) + a token.</summary>
+    private static ClashAccess? HiddenClashAccess(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
+        int contactId, IReadOnlyCollection<int> entityIds)
+    {
+        try
+        {
+            var username = me.Identity?.Name ?? "";
+            if (username.Length == 0 || entityIds.Count == 0) return null;
+            var bound = ShellScope.BoundEntityIds(db, sc, me);
+            var linked = db.ContactEntities.AsNoTracking().Where(l => l.ContactId == contactId)
+                .Select(l => l.EntityId).ToList();
+            var theirs = ContactCompanies.CompaniesOf(sc, linked);
+            var target = entityIds.Where(e => bound == null || bound.Contains(e))
+                .OrderBy(e => theirs.Contains(ContactCompanies.CompanyOf(sc, e)) ? 0 : 1).FirstOrDefault();
+            if (target == 0) return null;
+            var company = ContactCompanies.CompanyOf(sc, target);
+            var names = db.Entities.AsNoTracking().Where(e => e.Id == target || e.Id == company)
+                .ToDictionary(e => e.Id, e => e.Name);
+            return new ClashAccess(ContactAccessToken.Issue(sc, contactId, target, username), target,
+                names.GetValueOrDefault(target, ""), names.GetValueOrDefault(company, ""));
+        }
+        catch
+        {
+            return null;   // the offer is a convenience — the 409 stands without it
+        }
     }
 
     /// <summary>

@@ -368,6 +368,43 @@ export const work: Dict<typeof source> = {
       t3: 'Untuk menukar butiran kemudian, klik ikon pensel dalam lajur “Tindakan” senarai.',
     },
   },
+  requestContactAccess: {
+    title: 'Minta pelanggan yang milik cawangan lain',
+    summary: 'Apabila telefon atau e-mel sudah menjadi pelanggan cawangan lain syarikat anda, minta pentadbir berkongsinya dengan cawangan anda dan bukannya menambah pendua.',
+    before: 'Anda menambah kenalan dari cawangan anda (kebenaran “Cipta & sunting kenalan”). Kelulusan memerlukan pentadbir yang mengurus kedua-dua cawangan.',
+    steps: {
+      s1: {
+        title: 'Tambah kenalan seperti biasa',
+        body: 'Di “Kenalan”, klik “Tambah kenalan”, isi nama dan telefon atau e-mel, kemudian klik “Tambah kenalan”.',
+      },
+      s2: {
+        title: 'Baca mesejnya',
+        body: 'Jika nombor itu milik pelanggan cawangan lain yang anda tidak boleh lihat, tetingkap memaparkan “Pelanggan ini sudah wujud di cawangan lain …”. Nama dan butirannya kekal tersembunyi.',
+      },
+      s3: {
+        title: 'Hantar permintaan',
+        body: 'Taip nota pilihan untuk pentadbir (contohnya mengapa pelanggan kini bersama anda) dan klik “Minta akses”.',
+      },
+      s4: {
+        title: 'Tunggu pentadbir',
+        body: 'Pentadbir syarikat anda menerima pemberitahuan. Permintaan anda dipaparkan di bawah “Permintaan akses” di bahagian atas Kenalan, di mana anda juga boleh membatalkannya.',
+      },
+      s5: {
+        title: 'Pentadbir: semak',
+        body: 'Pentadbir klik pemberitahuan atau “Permintaan akses” di Kenalan. Setiap permintaan menunjukkan siapa yang meminta, untuk cawangan mana, nama pelanggan, 4 digit terakhir telefon, cawangan semasa mereka dan nota.',
+      },
+      s6: {
+        title: 'Pentadbir: lulus atau tolak',
+        body: 'Klik “Luluskan” untuk menambah pelanggan ke cawangan yang diminta (mereka kekal di cawangan lain), atau “Tolak” dengan sebab pilihan. Peminta akan diberitahu dalam kedua-dua keadaan.',
+      },
+    },
+    done: 'Selepas diluluskan, pelanggan muncul dalam senarai Kenalan anda bersama semua sejarahnya.',
+    tips: {
+      t1: 'Meminta dua kali untuk pelanggan dan cawangan yang sama hanya menunjukkan permintaan yang sudah dihantar.',
+      t2: 'Pelanggan yang menghantar mesej ke nombor cawangan anda dipautkan kepada kenalan yang betul dengan sendirinya — tiada permintaan diperlukan.',
+    },
+    trouble: 'Jika “Minta akses” mengatakan pautan telah tamat tempoh, klik “Tambah kenalan” sekali lagi: pautan permintaan sah selama 30 minit.',
+  },
   importContacts: {
     title: 'Import kenalan daripada fail atau Google',
     summary: 'Bawa masuk buku kenalan yang anda sudah ada — sehingga 20,000 orang sekali gus — dalam empat langkah ringkas.',

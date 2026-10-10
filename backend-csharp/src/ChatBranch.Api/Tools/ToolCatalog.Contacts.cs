@@ -153,6 +153,62 @@ public static partial class ToolCatalog
             "status, amount, due_date, contact: {phone|email|name}, custom: {…}}.",
             "POST", "/api/v1/sync/records", manage,
             new[] { A.Arr("records", "The records to upsert.", req: true) });
+
+        // ---- "Request access" to a contact of another branch ----------------------
+        var askers = C("contacts.manage", "chats.send");
+        yield return T(g, "contacts_request_access", "Request access to a contact",
+            "When adding a contact fails because the phone/email belongs to a customer of ANOTHER branch of the " +
+            "same company (create_contact returns created=false with a request_token), ask an admin to share " +
+            "that customer with your branch. Nothing about the customer is shown until an admin approves. A " +
+            "second identical request returns the pending one.",
+            "POST", "/api/contacts/access-requests", askers,
+            new[]
+            {
+                A.Str("request_token", "The request_token from the failed add (valid 30 minutes).", req: true),
+                A.Str("note", "Optional note for the admin (why you need this customer)."),
+            });
+
+        yield return T(g, "contacts_list_access_requests", "List contact access requests",
+            "Access requests to share a customer with another branch: your own requests (status, branch, note — " +
+            "no customer details before approval) and, for admins, the requests you can decide (with the " +
+            "customer's name, masked phone and current entities). counts.to_decide = waiting for you.",
+            "GET", "/api/contacts/access-requests", askers,
+            new[]
+            {
+                A.Str("status", "Which requests (default pending).",
+                    oneOf: new[] { "pending", "approved", "denied", "cancelled", "all" }),
+            });
+
+        yield return Custom(g, "contacts_decide_access_request", "Approve or deny a contact access request",
+            "Approve (the customer is added to the requested branch, keeping its other entities; the requester " +
+            "is notified) or deny (with an optional reason sent to the requester) a pending access request. " +
+            "Needs an admin who manages both the customer's branch and the requested one.",
+            new[] { "POST /api/contacts/access-requests/{id:int}/approve",
+                    "POST /api/contacts/access-requests/{id:int}/deny" },
+            DecideAccessRequestAsync, manage,
+            new[]
+            {
+                A.Id("access request"),
+                A.Str("decision", "approve or deny.", req: true, oneOf: new[] { "approve", "deny" }),
+                A.Str("reason", "Why it was denied (sent to the requester)."),
+            });
+
+        yield return T(g, "contacts_cancel_access_request", "Cancel your contact access request",
+            "Withdraw one of YOUR pending access requests.",
+            "POST", "/api/contacts/access-requests/{id:int}/cancel", askers, new[] { A.Id("access request") });
+    }
+
+    private static async Task<object?> DecideAccessRequestAsync(ToolContext ctx, JsonElement a, CancellationToken ct)
+    {
+        var id = I(a, "id") ?? throw new ToolException("'id' is required.");
+        var decision = Need(a, "decision").Trim().ToLowerInvariant();
+        if (decision is not ("approve" or "deny")) throw new ToolException("decision must be approve or deny.");
+        var body = decision == "deny" ? new Dictionary<string, object?> { ["reason"] = S(a, "reason") ?? "" }
+            : new Dictionary<string, object?>();
+        var r = ToolContext.Require(await ctx.CallAsync("POST", "/api/contacts/access-requests/{id:int}/" + decision,
+            routeValues: new Dictionary<string, string> { ["id"] = id.ToString() }, body: body, ct: ct));
+        ctx.Links.Add(new ToolLink("Open access requests", $"/contacts?access={id}"));
+        return Compact(r.Body);
     }
 
     private static async Task<object?> ImportContactsAsync(ToolContext ctx, JsonElement a, CancellationToken ct)

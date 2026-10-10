@@ -16,6 +16,7 @@ import { Select } from '@/components/ui/Select'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ContactImportModal } from '@/components/contacts/ContactImportModal'
+import { AccessRequestsPanel, RequestAccessOffer } from '@/components/contacts/AccessRequestsPanel'
 import { CustomFieldsInputs } from '@/components/CustomFieldsInputs'
 import { fetchCustomFields, type FieldDef } from '@/lib/customFields'
 import { useT } from '@/i18n'
@@ -57,11 +58,14 @@ function ContactModal({
   editing,
   onClose,
   onSaved,
+  onAccessRequested,
 }: {
   open: boolean
   editing: Contact | null
   onClose: () => void
   onSaved: () => void
+  /** a "Request access" was sent from the hidden-clash offer */
+  onAccessRequested?: () => void
 }) {
   const t = useT()
   const { reloadContacts } = useApp()
@@ -80,6 +84,9 @@ function ContactModal({
   const [error, setError] = useState<string | null>(null)
   // a 409 naming a contact the caller can see: offer to add the ticked entities to it
   const [existing, setExisting] = useState<{ id: number; name: string } | null>(null)
+  // a 409 for a contact of ANOTHER branch the caller can't see: the opaque token
+  // the "Request access" offer sends (never the contact's id or name)
+  const [access, setAccess] = useState<{ token: string; company: string; entity: string } | null>(null)
   // Custom Fields (Settings → Custom Fields): the per-vertical labels defined
   // for Customers. Definitions come from the server; the VALUES live in this
   // contact's free-form `attributes` JSON, which the AI already reads.
@@ -125,6 +132,7 @@ function ContactModal({
       )
       setError(null)
       setExisting(null)
+      setAccess(null)
       setBusy(false)
     }
     // `entities` only supplies display names for slug→ref resolution; it must
@@ -136,6 +144,7 @@ function ContactModal({
     setBusy(true)
     setError(null)
     setExisting(null)
+    setAccess(null)
     try {
       const body = JSON.stringify({
         name: name.trim(),
@@ -163,8 +172,18 @@ function ContactModal({
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const d = data as { error?: { message?: string }; detail?: string; existing_id?: number | null; existing_name?: string | null }
+        const d = data as {
+          error?: { message?: string }
+          detail?: string
+          existing_id?: number | null
+          existing_name?: string | null
+          request_token?: string | null
+          company_name?: string | null
+          target_entity?: { id: number; name: string } | null
+        }
         if (res.status === 409 && !editing && d.existing_id) setExisting({ id: d.existing_id, name: d.existing_name ?? '' })
+        if (res.status === 409 && !editing && d.request_token)
+          setAccess({ token: d.request_token, company: d.company_name ?? '', entity: d.target_entity?.name ?? '' })
         throw new Error(d.error?.message || d.detail || `HTTP ${res.status}`)
       }
       await reloadContacts()
@@ -240,6 +259,15 @@ function ContactModal({
                 {t('contacts.form.addToExistingAction')}
               </Button>
             </div>
+          )}
+          {access && (
+            <RequestAccessOffer
+              key={access.token}
+              token={access.token}
+              company={access.company}
+              entity={access.entity}
+              onSent={onAccessRequested}
+            />
           )}
         </div>
       )}
@@ -437,6 +465,10 @@ function ContactsList() {
   const [editing, setEditing] = useState<Contact | null>(null)
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
   const [importOpen, setImportOpen] = useState(false)
+  // "Access requests": reloaded after the Add-contact form sends one; `?access=<id>`
+  // (a notification's link) opens it
+  const [accessRefresh, setAccessRefresh] = useState(0)
+  const accessParam = Number(searchParams.get('access') ?? '') || null
   // contacts.manage gates add/edit/delete (read after mount — localStorage)
   const [canManage, setCanManage] = useState(false)
   useEffect(() => setCanManage(hasCap('contacts.manage')), [])
@@ -663,7 +695,16 @@ function ContactsList() {
               : t('contacts.list.countAll', { count: filtered.length })
         }
         actions={
-          canManage && (
+          <span className="flex flex-wrap items-center gap-2">
+            <AccessRequestsPanel
+              openId={accessParam}
+              refreshKey={accessRefresh}
+              onChanged={() => {
+                load()
+                reloadContacts()
+              }}
+            />
+            {canManage && (
             <span data-tour="contacts-actions" className="flex flex-wrap items-center gap-2">
               <Button data-tour="contacts-import" variant="secondary" onClick={() => setImportOpen(true)}>
                 <Upload size={14} aria-hidden /> {t('contacts.list.import')}
@@ -672,7 +713,8 @@ function ContactsList() {
                 <Plus size={14} aria-hidden /> {t('contacts.list.addContact')}
               </Button>
             </span>
-          )
+            )}
+          </span>
         }
       />
 
@@ -695,7 +737,13 @@ function ContactsList() {
         </div>
       )}
 
-      <ContactModal open={modalOpen} editing={editing} onClose={() => setModalOpen(false)} onSaved={load} />
+      <ContactModal
+        open={modalOpen}
+        editing={editing}
+        onClose={() => setModalOpen(false)}
+        onSaved={load}
+        onAccessRequested={() => setAccessRefresh((n) => n + 1)}
+      />
 
       <div data-tour="contacts-list" className="lg:min-h-0 lg:flex-1">
         <DataTable

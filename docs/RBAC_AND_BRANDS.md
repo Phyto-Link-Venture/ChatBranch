@@ -197,6 +197,8 @@ where a write reads its body first. Notable gates:
 | AI learning (`/api/ai/feedback`, `/api/ai/lessons`, `/api/ai/learning/*`) | reads and rating `ai.monitor` (feedback follows the conversation scope, lessons the library scope); lesson writes and re-indexing `ai.behaviour.manage`; deleting a lesson admin+ too |
 | Contact identities (`/api/contacts/{id}/channels/discover`, `/{id}/invites`, `/identify/{channel}/{key}/contact`) | `contacts.manage` (reading invites `contacts.view`, the chat's identify banner `chats.view`); the import and `/identity-checks/run` admin+ AND `contacts.manage` |
 | Per-inbox unknown-customer mode (`/api/inboxes/{id}/identify`) | GET `channels.view`, PUT `channels.manage` |
+| Add a contact (`POST /api/v1/contacts`, the Contacts page) | `contacts.manage` (admins by default; any role granted it), new contacts linked inside the caller's scope |
+| Contact access requests (`/api/contacts/access-requests`) — a hidden-clash 409 (the phone/email belongs to a contact of another branch of the caller's company) carries an opaque `request_token` | ask / list own / cancel own: `contacts.manage` or `chats.send`, the target entity in the caller's scope, the token issued to the caller (30 min); approve / deny: `contacts.manage` AND superadmin, an organization-wide admin of the contact's tenant, or a company admin whose scope holds the target entity AND one of the contact's current entities (403 otherwise). The requester sees nothing about the contact until approved |
 | Activity log (`/api/audit*`) | `activity.view` |
 | API keys | `api_keys.manage` (admins can see and revoke their tenant's keys) |
 | Inbox, sending, dialling, contacts reads, search, live | authenticated + the matching `chats.*` / `contacts.*` capability where checked, bounded by entity scope |
@@ -325,6 +327,7 @@ Admins keep the tenant-wide view. Tests: `QaScopeFixesTests`.
 | `/api/contacts/{id}`, `/api/v1/contacts/{id}`, `/api/v1/contacts/{id}/entities` | `contacts.view` | contact page |
 | `/api/contacts/{id}/channels`, `/{id}/calls`, `/api/messaging/contacts`, `/contacts/{id}/conversation`, `/api/messaging/timeline` | `contacts.view`, `chats.view` | contact page, chat info panel |
 | `/api/v1/contacts` (now contact-scoped too) | `contacts.view`, `flows.manage` | the Journeys contact picker |
+| `/api/contacts/access-requests` | `contacts.manage`, `chats.send` — requesters see their own rows (no contact details before approval), approvers the rows they can decide | Contacts → Access requests |
 | `/api/settings/custom-fields` | `contacts.view`, `flows.manage`, `templates.manage`, `script_templates.manage`, `settings.custom_fields.manage` | contact forms, variable pickers, Custom fields |
 | `/api/tags`, `/{id}/targets`, `/assignments`, `/api/contacts/{id}/tags`, `/api/entities/{slug}/tags` | `tags.view` | Tags, contact page, Entities |
 | `/api/bindings/catalog` | `users.view`, `tags.view` — without `users.view` the users/teams/accounts pools are empty, contacts need `contacts.view` | Bindings, a tag's binding view |

@@ -141,6 +141,7 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/contacts/{c}/calls", new[] { "contacts.view", "chats.view" }),
         ("/api/contacts/{c}/ai-mode", new[] { "contacts.view" }),
         ("/api/contacts/{c}/invites", new[] { "contacts.view" }),
+        ("/api/contacts/access-requests", new[] { "contacts.manage", "chats.send" }),
         ("/api/v1/contacts", new[] { "contacts.view", "flows.manage" }),
         ("/api/v1/contacts/{c}", new[] { "contacts.view" }),
         ("/api/v1/contacts/{c}/entities", new[] { "contacts.view" }),
