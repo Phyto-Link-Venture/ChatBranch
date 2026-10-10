@@ -331,6 +331,14 @@
     overflow: hidden;
     font-feature-settings: 'ss01' on;
   }
+  /* bare pages (login, /help, the manual) scroll the document — see Shell.tsx PageScroll */
+  html.page-scroll,
+  html.page-scroll body {
+    height: auto;
+    min-height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
   ::selection {
     background: rgba(255, 90, 31, 0.25);
   }
