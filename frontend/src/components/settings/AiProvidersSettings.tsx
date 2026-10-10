@@ -100,6 +100,10 @@ const FIELD_TEXT: Record<string, { label: MessageKey; help?: MessageKey }> = {
   chat_model: { label: 'settings.aiProviders.fields.chatModel', help: 'settings.aiProviders.fields.chatModelHelp' },
   local_base_url: { label: 'settings.aiProviders.fields.localUrl', help: 'settings.aiProviders.fields.localUrlHelp' },
   local_api_key: { label: 'settings.aiProviders.fields.localKey', help: 'settings.aiProviders.fields.localKeyHelp' },
+  ai_reviewer_model: {
+    label: 'settings.aiProviders.fields.reviewerModel',
+    help: 'settings.aiProviders.fields.reviewerModelHelp',
+  },
   email_subject: { label: 'settings.aiProviders.fields.emailSubject' },
   flows_tick_seconds: { label: 'settings.aiProviders.fields.flowsTick' },
   whatsapp_health_interval: { label: 'settings.aiProviders.fields.healthInterval' },
@@ -111,7 +115,14 @@ const FIELD_TEXT: Record<string, { label: MessageKey; help?: MessageKey }> = {
 }
 /** Provider-group fields a first-time setup never needs — they live under
  *  "Advanced settings" with the embeddings and every tunable. */
-const ADVANCED_PROVIDER_KEYS = ['chat_provider_order', 'local_base_url', 'local_api_key', 'ilmu_api_key', 'elevenlabs_api_key']
+const ADVANCED_PROVIDER_KEYS = [
+  'chat_provider_order',
+  'local_base_url',
+  'local_api_key',
+  'ilmu_api_key',
+  'elevenlabs_api_key',
+  'ai_reviewer_model',
+]
 const isAdvancedField = (f: FieldMeta) => f.group !== 'providers' || ADVANCED_PROVIDER_KEYS.includes(f.key)
 
 const fieldLabel = (t: TFunction, f: FieldMeta) => (FIELD_TEXT[f.key] ? t(FIELD_TEXT[f.key].label) : f.label)

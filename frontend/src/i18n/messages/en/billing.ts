@@ -39,6 +39,7 @@ export const billing = {
     assistant: 'Ask ChatBranch',
     embedding: 'Knowledge indexing',
     skillDraft: 'Skill drafting',
+    aiReview: 'AI review',
   },
   settings: {
     openBill: 'Open the bill',

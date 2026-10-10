@@ -395,6 +395,27 @@ the prompt) · `question` · `answer` (the good answer, or the rule text) ·
 `source_count` (feedback merged into it) · `uses` · `last_used_at` ·
 `created_by` · `approved_by` · timestamps. Index `(status, entity_id)`.
 
+### `crm_aireviewrun` — one on-demand AI review ("Review now" on the AI monitor)
+`created_by` · `entity_id` (the picked entity — where "Add house rule" writes; null =
+organization-wide) · `entity_ids` (JSON: every entity the run could read; empty =
+unrestricted — a caller sees the run only when all of them sit in their scope) ·
+`period_from` / `period_to` · `limit` · `mode` (`model` \| `heuristic`) · `provider` ·
+`model` · `status` (`running` \| `done` \| `failed`) · `note` (fallbacks taken) ·
+`error` · `summary` (JSON: `summary`, `top_problems[]`, `suggestions[]`, `source`) ·
+`reviewed` · `issues` · `high_severity` · `prompt_tokens` · `completion_tokens` ·
+`cost_usd` · `created_at` · `finished_at` · `updated_at`. Index `created_at`; only
+the last 50 runs are kept (their findings go with them).
+
+### `crm_aireviewfinding` — the reviewer's verdict on one AI reply
+`run_id` · `draft_id` · `thread_id` · `channel` · `thread_key` · `entity_id` (the
+conversation's — scopes the finding) · `contact_id` · `draft_status` · `verdict`
+(`good` \| `issue`) · `severity` (`low` \| `medium` \| `high`, "" when good) ·
+`categories` (JSON list) · `explanation` · `evidence` (the knowledge / rule cited) ·
+`fix_type` (`knowledge` \| `house_rule` \| `lesson` \| `persona` \| `review_setting`
+\| `none`) · `fix_text` · `customer_excerpt` · `reply_excerpt` · `source` (`model` \|
+`heuristic`) · `applied` · `applied_as` · `applied_ref` (`lesson:12`,
+`knowledge:4`, `house_rule`) · `applied_by` · `applied_at` · `created_at`. Index `run_id`.
+
 ### `crm_embedding` — retrieval vectors
 `owner_type` (`knowledge` \| `lesson`) · `owner_id` · `chunk_index` · `text` ·
 `content_hash` · `model` · `dims` · `vector` (BLOB: float32 little-endian,

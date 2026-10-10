@@ -42,6 +42,7 @@ export const billing: Dict<typeof source> = {
     assistant: 'Tanya ChatBranch',
     embedding: 'Pengindeksan pengetahuan',
     skillDraft: 'Draf kemahiran',
+    aiReview: 'Semakan AI',
   },
   settings: {
     openBill: 'Buka bil',

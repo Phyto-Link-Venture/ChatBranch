@@ -94,6 +94,8 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/ai/learning/stats", new[] { "ai.monitor" }),
         ("/api/ai/feedback", new[] { "ai.monitor" }),
         ("/api/ai/playground/options", new[] { "ai.monitor", "ai.behaviour.manage" }),
+        ("/api/ai/review/runs", new[] { "ai.monitor", "ai.behaviour.manage" }),
+        ("/api/ai/review/runs/999999", new[] { "ai.monitor", "ai.behaviour.manage" }),
         // Library: knowledge, skills, persona
         ("/api/aicore/persona", new[] { "settings.ai.manage" }),
         ("/api/aicore/knowledge", new[] { "settings.ai.manage" }),

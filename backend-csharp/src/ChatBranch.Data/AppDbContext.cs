@@ -89,6 +89,8 @@ public class AppDbContext : DbContext
     public DbSet<IdentityRequest> IdentityRequests => Set<IdentityRequest>();
     // the Test lab's run history (the last 50 runs of scripted scenarios)
     public DbSet<TestLabRun> TestLabRuns => Set<TestLabRun>();
+    public DbSet<AiReviewRun> AiReviewRuns => Set<AiReviewRun>();
+    public DbSet<AiReviewFinding> AiReviewFindings => Set<AiReviewFinding>();
 
     /// <summary>Every AuditLog row is stamped with its request/source provenance
     /// on save (Audit/AuditStampInterceptor), so the per-file audit helpers carry
@@ -312,6 +314,14 @@ public class AppDbContext : DbContext
         // ---- Test lab run history ---------------------------------------------
         b.Entity<TestLabRun>().ToTable("crm_testlabrun");
         b.Entity<TestLabRun>().HasIndex(r => r.CreatedAt).HasDatabaseName("ix_testlabrun_created");
+
+        // ---- the on-demand AI reviewer ----------------------------------------
+        b.Entity<AiReviewRun>().ToTable("crm_aireviewrun");
+        b.Entity<AiReviewRun>().HasIndex(r => r.CreatedAt).HasDatabaseName("ix_aireviewrun_created");
+        Json<AiReviewRun, List<int>>(b, x => x.EntityIds);
+        b.Entity<AiReviewFinding>().ToTable("crm_aireviewfinding");
+        b.Entity<AiReviewFinding>().HasIndex(f => f.RunId).HasDatabaseName("ix_aireviewfinding_run");
+        Json<AiReviewFinding, List<string>>(b, x => x.Categories);
 
         // ---- snake_case columns to match Django (<field>_id for FKs) -----------
         // Django names every column snake_case; matching it is what lets this

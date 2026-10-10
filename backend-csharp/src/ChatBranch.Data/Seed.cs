@@ -247,6 +247,29 @@ public static class Seed
         AddIndexIfMissing(db, "ix_testlabrun_created", "crm_testlabrun", "\"created_at\"");
         // AI quotas: who ran an interactive AI call themselves (a user's monthly cap)
         AddColumnIfMissing(db, "crm_llmusage", "user_name", "TEXT NOT NULL DEFAULT ''");
+        // the on-demand AI reviewer: one run per "Review now", one finding per reviewed reply
+        AddTableIfMissing(db, "crm_aireviewrun",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_aireviewrun\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"created_by\" TEXT NOT NULL, \"entity_id\" INTEGER NULL, \"entity_ids\" TEXT NOT NULL, "
+            + "\"period_from\" TEXT NOT NULL, \"period_to\" TEXT NOT NULL, \"limit\" INTEGER NOT NULL, "
+            + "\"mode\" TEXT NOT NULL, \"provider\" TEXT NOT NULL, \"model\" TEXT NOT NULL, "
+            + "\"status\" TEXT NOT NULL, \"note\" TEXT NOT NULL, \"error\" TEXT NOT NULL, "
+            + "\"summary\" TEXT NOT NULL, \"reviewed\" INTEGER NOT NULL, \"issues\" INTEGER NOT NULL, "
+            + "\"high_severity\" INTEGER NOT NULL, \"prompt_tokens\" INTEGER NOT NULL, "
+            + "\"completion_tokens\" INTEGER NOT NULL, \"cost_usd\" REAL NULL, "
+            + "\"created_at\" TEXT NOT NULL, \"finished_at\" TEXT NULL, \"updated_at\" TEXT NOT NULL");
+        AddIndexIfMissing(db, "ix_aireviewrun_created", "crm_aireviewrun", "\"created_at\"");
+        AddTableIfMissing(db, "crm_aireviewfinding",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_aireviewfinding\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"run_id\" INTEGER NOT NULL, \"draft_id\" INTEGER NULL, \"thread_id\" INTEGER NULL, "
+            + "\"channel\" TEXT NOT NULL, \"thread_key\" TEXT NOT NULL, \"entity_id\" INTEGER NULL, "
+            + "\"contact_id\" INTEGER NULL, \"draft_status\" TEXT NOT NULL, \"verdict\" TEXT NOT NULL, "
+            + "\"severity\" TEXT NOT NULL, \"categories\" TEXT NOT NULL, \"explanation\" TEXT NOT NULL, "
+            + "\"evidence\" TEXT NOT NULL, \"fix_type\" TEXT NOT NULL, \"fix_text\" TEXT NOT NULL, "
+            + "\"customer_excerpt\" TEXT NOT NULL, \"reply_excerpt\" TEXT NOT NULL, \"source\" TEXT NOT NULL, "
+            + "\"applied\" INTEGER NOT NULL, \"applied_as\" TEXT NOT NULL, \"applied_ref\" TEXT NOT NULL, "
+            + "\"applied_by\" TEXT NOT NULL, \"applied_at\" TEXT NULL, \"created_at\" TEXT NOT NULL");
+        AddIndexIfMissing(db, "ix_aireviewfinding_run", "crm_aireviewfinding", "\"run_id\"");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 
