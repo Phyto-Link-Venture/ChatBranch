@@ -932,7 +932,7 @@ export const guide = {
         },
         s3: {
           title: 'Print or set terms',
-          body: 'Print saves the statement as a PDF. Billing managers set the markup, fee and currency under Billing terms.',
+          body: 'Download PDF saves the bill as a PDF file (on an iPhone it opens in a new tab — share it from there); Print sends it to a printer. Billing managers set the markup, fee and currency under Billing terms.',
         },
         s4: {
           title: 'Quotas',

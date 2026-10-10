@@ -209,7 +209,7 @@ export function Shell({ children }: { children: ReactNode }) {
       />
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="shell-column flex min-w-0 flex-1 flex-col">
         <div className="print-hide contents">
         {/* desktop "top navigation" layout only — hidden by CSS otherwise */}
         <TopNav user={user} onSignOut={() => void signOut()} />
@@ -243,18 +243,21 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
       </div>
 
-      <ErrorBoundary name="command-palette">
-        <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} user={user} />
-      </ErrorBoundary>
-      <ErrorBoundary name="campaign-modal">
-        <CampaignModal />
-      </ErrorBoundary>
-      <ErrorBoundary name="assistant-dock">
-        <AssistantDock open={assistantOpen} onOpenChange={setAssistantOpen} />
-      </ErrorBoundary>
-      <ErrorBoundary name="install-hint">
-        <InstallHint />
-      </ErrorBoundary>
+      {/* floating pieces never print */}
+      <div className="print-hide contents">
+        <ErrorBoundary name="command-palette">
+          <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} user={user} />
+        </ErrorBoundary>
+        <ErrorBoundary name="campaign-modal">
+          <CampaignModal />
+        </ErrorBoundary>
+        <ErrorBoundary name="assistant-dock">
+          <AssistantDock open={assistantOpen} onOpenChange={setAssistantOpen} />
+        </ErrorBoundary>
+        <ErrorBoundary name="install-hint">
+          <InstallHint />
+        </ErrorBoundary>
+      </div>
     </div>
     </TourProvider>
   )

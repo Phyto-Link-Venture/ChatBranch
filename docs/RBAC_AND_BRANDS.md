@@ -346,6 +346,7 @@ Admins keep the tenant-wide view. Tests: `QaScopeFixesTests`.
 | `/api/auth/roles`, `/api/auth/permissions`, `/api/auth/audit` | admin+ | Permissions, Users |
 | `/api/analytics/usage` (the cost ledger), `/api/billing/ai/settings` | `billing.manage` | Analytics → AI usage, Settings → AI billing |
 | `/api/billing/ai` (billed amounts; cost and margin only with `billing.manage`) | `billing.view` | AI bill |
+| `/api/billing/ai/pdf` (the same bill as an A4 PDF download, `?month=&company=&lang=en\|ms\|zh`; same scope and visibility rules) | `billing.view` | AI bill → Download PDF |
 | `/api/billing/ai/quotas` (monthly AI caps + spend in the caller's scope; PUT needs the WRITE capability `billing.quotas.manage` (admins by default) or `billing.manage`: company caps are the billing manager's; admins set branch + user caps inside their scope, never their OWN cap (superadmin only) and never a cap a billing manager set (`set_by_manager`); caps are ≥ 0.01 or 0 = none) | `billing.view` or `billing.manage` | AI bill → Quotas |
 
 **Any signed-in user may read** (the exemption list in `PermissionGatesTests`;

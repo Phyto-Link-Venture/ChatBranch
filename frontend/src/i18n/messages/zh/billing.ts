@@ -9,6 +9,8 @@ export const billing: Dict<typeof source> = {
   nextMonth: '下个月',
   terms: '计费条款',
   print: '打印',
+  downloadPdf: '下载 PDF',
+  pdfFailed: '无法生成 PDF：{error}',
   statement: 'AI 用量账单',
   period: '{from} – {to}',
   totalDue: '合计',

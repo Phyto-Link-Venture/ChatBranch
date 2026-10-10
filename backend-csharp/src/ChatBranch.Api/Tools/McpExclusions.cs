@@ -108,6 +108,8 @@ public static class McpExclusions
         new("POST", "/api/aicore/skills/documents/logo", "uploads a logo image (multipart) for the Documents skill's letterhead — set it from the Skills page"),
         new("POST", "/api/voice/preview", "returns synthesized audio — " + Binary),
         new("POST", "/api/voice/clone", "clones a voice from an uploaded recording — needs the speaker's own audio sample and consent"),
+        new("GET", "/api/billing/ai/pdf", "the AI bill as a PDF — " + Binary + " (billing_get_ai_bill returns the same figures)"),
+        new("POST", "/api/billing/ai/pdf/link", "mints a 5-minute signed link to the AI bill PDF for a browser that cannot send an auth header (the installed iOS app); sessions only, API keys get 403 — " + Binary),
         new("GET", "/api/audit.csv", Export + " (activity_search_log)"),
         new("GET", "/api/analytics/reports.csv", Export + " (analytics_get_reports)"),
         new("GET", "/api/messaging/contacts/vcard", Export + " (search_contacts)"),
