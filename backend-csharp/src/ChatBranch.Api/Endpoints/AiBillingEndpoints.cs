@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
+using ChatBranch.Data.Ai;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 
@@ -27,51 +28,19 @@ namespace ChatBranch.Api.Endpoints;
 /// Readers with <c>billing.view</c> see the bill of the companies in their scope
 /// (their assigned entities' companies; unassigned = every company) as BILLED
 /// amounts only. Cost, markup and margin are for <c>billing.manage</c> only.
+///
+/// Terms are locked per month (<see cref="BillingSettings"/>): a change bills
+/// the current UTC month and later, a past month keeps the terms that applied
+/// to it. The AI usage quotas (<see cref="AiQuota"/>) live here too:
+/// <c>GET/PUT /api/billing/ai/quotas</c>.
 /// </summary>
 public static class AiBillingEndpoints
 {
     public const string ViewCap = "billing.view";
     public const string ManageCap = "billing.manage";
-    public const string SettingKey = "ai_billing";
+    public const string SettingKey = AiBilling.SettingKey;
 
-    public sealed class CompanyTerms
-    {
-        [JsonPropertyName("markup_pct")] public double? MarkupPct { get; set; }
-        [JsonPropertyName("monthly_fee")] public double? MonthlyFee { get; set; }
-    }
-
-    public sealed class BillingSettings
-    {
-        [JsonPropertyName("currency")] public string Currency { get; set; } = "USD";
-        /// <summary>1 USD = this many units of <see cref="Currency"/>.</summary>
-        [JsonPropertyName("usd_rate")] public double UsdRate { get; set; } = 1;
-        [JsonPropertyName("default_markup_pct")] public double DefaultMarkupPct { get; set; }
-        [JsonPropertyName("default_monthly_fee")] public double DefaultMonthlyFee { get; set; }
-        /// <summary>Per company (top-level entity id as a string): overrides of the defaults.</summary>
-        [JsonPropertyName("companies")] public Dictionary<string, CompanyTerms> Companies { get; set; } = new();
-
-        public double MarkupFor(int companyId) =>
-            Companies.TryGetValue(companyId.ToString(CultureInfo.InvariantCulture), out var c) && c.MarkupPct is double m
-                ? m : DefaultMarkupPct;
-
-        public double FeeFor(int companyId) =>
-            Companies.TryGetValue(companyId.ToString(CultureInfo.InvariantCulture), out var c) && c.MonthlyFee is double f
-                ? f : DefaultMonthlyFee;
-    }
-
-    private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
-
-    internal static BillingSettings Load(ScopingService sc)
-    {
-        try
-        {
-            var raw = sc.SettingValue(SettingKey);
-            if (!string.IsNullOrWhiteSpace(raw))
-                return JsonSerializer.Deserialize<BillingSettings>(raw, Json) ?? new BillingSettings();
-        }
-        catch { /* a malformed row bills at the defaults rather than failing */ }
-        return new BillingSettings();
-    }
+    internal static BillingSettings Load(ScopingService sc) => AiBilling.Load(sc);
 
     public static void MapAiBillingEndpoints(this IEndpointRouteBuilder app)
     {
@@ -82,7 +51,10 @@ public static class AiBillingEndpoints
                 .OrderBy(e => e.Name).Select(e => new { e.Id, e.Name, e.Slug }).ToListAsync();
             return Results.Ok(new
             {
-                settings = s,
+                settings = s.CopyTerms(s.EffectiveFrom),
+                current_month = AiBilling.MonthKey(DateTime.UtcNow),
+                // newest first: the current terms, then what billed earlier months
+                history = History(s),
                 companies = companies.Select(c => new
                 {
                     id = c.Id, name = c.Name, slug = c.Slug,
@@ -114,16 +86,20 @@ public static class AiBillingEndpoints
                 if (terms.MarkupPct != null || terms.MonthlyFee != null)
                     companies[id.ToString(CultureInfo.InvariantCulture)] = terms;
             }
-            var clean = new BillingSettings
+            var incoming = new BillingTerms
             {
                 Currency = currency, UsdRate = body.UsdRate,
                 DefaultMarkupPct = body.DefaultMarkupPct, DefaultMonthlyFee = body.DefaultMonthlyFee,
                 Companies = companies,
             };
+            // a change bills this month and later; earlier months keep their terms
+            var stored = AiBilling.Load(sc, out var hadRow);
+            var clean = AiBilling.Apply(stored, hadRow, incoming, DateTime.UtcNow);
             sc.SetSetting(SettingKey, JsonSerializer.Serialize(clean));
+            AiQuota.Invalidate();   // quota spend is priced with these terms
             ChatBranch.Data.Audit.AuditTrail.Write(db, "billing.settings", "ai_billing",
-                $"Markup {clean.DefaultMarkupPct}% default, {companies.Count} company override(s), {currency} @ {clean.UsdRate}");
-            return Results.Ok(new { settings = clean });
+                $"Markup {clean.DefaultMarkupPct}% default, {companies.Count} company override(s), {currency} @ {clean.UsdRate}, from {clean.EffectiveFrom ?? "the start"}");
+            return Results.Ok(new { settings = clean.CopyTerms(clean.EffectiveFrom), history = History(clean) });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(ManageCap);
 
         app.MapGet("/api/billing/ai", async (string? month, string? company, AppDbContext db, ScopingService sc,
@@ -133,7 +109,8 @@ public static class AiBillingEndpoints
             if (!TryMonth(month, out var from)) return Bad("month must look like 2026-10.");
             var to = from.AddMonths(1);
             var manager = await ShellScope.HasCapAsync(db, me, ManageCap);
-            var settings = Load(sc);
+            // the terms that applied to THAT month — a later change never rewrites a past bill
+            var settings = Load(sc).TermsFor(AiBilling.MonthKey(from));
             var prices = AnalyticsEndpoints.PriceTable(sc);
 
             // ---- the tree: entity -> its company (top-level ancestor)
@@ -251,7 +228,247 @@ public static class AiBillingEndpoints
                     : null,
             });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(ViewCap);
+
+        // ---- AI usage quotas (monthly caps in the billing currency) ------------------------
+        // GET: every quota in the caller's scope with month-to-date spend. A billing
+        // manager (billing.manage / superadmin) sees and edits everything; an admin
+        // with billing.view edits branch (non-top-level) caps and users inside their
+        // own scope and sees their companies' caps read-only.
+        app.MapGet("/api/billing/ai/quotas", async (AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
+        {
+            var q = await QuotaScopeAsync(db, sc, me);
+            AiQuota.Sweep(db, sc);   // the 80 % / 100 % warnings, once per scope per month
+            var snap = AiQuota.Current(db, sc);
+            var entities = await db.Entities.AsNoTracking()
+                .Select(e => new { e.Id, e.ParentId, e.Name, e.Slug }).ToListAsync();
+            var visible = entities.Where(e => q.ReadEntities == null || q.ReadEntities.Contains(e.Id)).ToList();
+            // companies → branches, depth-first
+            var children = visible.ToLookup(e => visible.Any(p => p.Id == e.ParentId) ? e.ParentId : null);
+            var ordered = new List<(int Id, int Depth)>();
+            void Walk(int? parent, int depth)
+            {
+                foreach (var e in children[parent].OrderBy(e => e.Name))
+                {
+                    if (ordered.Count > 2000 || depth > 16) return;
+                    ordered.Add((e.Id, depth));
+                    Walk(e.Id, depth + 1);
+                }
+            }
+            Walk(null, 0);
+            var byId = entities.ToDictionary(e => e.Id);
+
+            var users = await UsersInScope(db, q);
+            object Row(AiQuotaStatus s) => new
+            {
+                cap = s.Cap > 0 ? s.Cap : (double?)null,
+                spent = s.Spent,
+                pct = s.Pct,
+                state = s.State,
+            };
+            return Results.Ok(new
+            {
+                month = snap.Month,
+                currency = snap.Currency,
+                is_manager = q.Manager,
+                can_edit = q.Manager || q.CanEditBranches,
+                entities = ordered.Select(o =>
+                {
+                    var s = snap.Config.IsEmpty ? null : snap.EntityStatus(o.Id);
+                    var e = byId[o.Id];
+                    return new
+                    {
+                        id = e.Id, name = e.Name, slug = e.Slug, parent_id = e.ParentId,
+                        company = e.ParentId == null, depth = o.Depth,
+                        cap = s is { Cap: > 0 } ? s.Cap : (double?)null,
+                        spent = s?.Spent ?? 0,
+                        pct = s?.Pct ?? 0,
+                        state = s?.State ?? AiQuotaStatus.Ok,
+                        editable = q.CanEditEntity(e.Id, e.ParentId),
+                    };
+                }).ToList(),
+                users = users.Select(u =>
+                {
+                    var s = snap.UserStatus(u.Username);
+                    return new
+                    {
+                        username = u.Username, role = u.Role,
+                        cap = s.Cap > 0 ? s.Cap : (double?)null,
+                        spent = s.Spent, pct = s.Pct, state = s.State,
+                        editable = q.Manager || q.CanEditBranches,
+                    };
+                }).ToList(),
+                counts = new
+                {
+                    paused = snap.All().Count(s => s.State == AiQuotaStatus.Paused),
+                    warn = snap.All().Count(s => s.State == AiQuotaStatus.Warn),
+                },
+                note = "Quota spend = the month's billed AI usage (same prices, markup and currency as the bill; "
+                       + "the monthly fee does not count). A company cap counts everything its bill counts; a branch "
+                       + "cap counts usage recorded for that branch and its sub-branches; a user cap counts the "
+                       + "assistant, playground, skill drafting and summaries that person runs. At 100% the AI pauses "
+                       + "until next month or until the cap is raised.",
+            });
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability(ViewCap, ManageCap);
+
+        // PUT {entities?: {"<id>": amount|null}, users?: {"<username>": amount|null}} — a MERGE:
+        // keys sent are set (0 / null clears the cap), keys left out keep theirs.
+        app.MapPut("/api/billing/ai/quotas", async (JsonElement body, AppDbContext db, ScopingService sc,
+            ClaimsPrincipal me) =>
+        {
+            if (body.ValueKind != JsonValueKind.Object)
+                return Bad("Send {entities: {\"<entity id>\": amount}, users: {\"<username>\": amount}}.");
+            var q = await QuotaScopeAsync(db, sc, me);
+            if (!q.Manager && !q.CanEditBranches)
+                return Results.Json(new { detail = "Only an admin or a billing manager can change AI quotas." }, statusCode: 403);
+            var config = AiQuota.LoadConfig(sc);
+            var changes = new List<string>();
+
+            if (body.TryGetProperty("entities", out var ents) && ents.ValueKind == JsonValueKind.Object)
+            {
+                var entities = await db.Entities.AsNoTracking()
+                    .Select(e => new { e.Id, e.ParentId, e.Name }).ToDictionaryAsync(e => e.Id);
+                foreach (var p in ents.EnumerateObject())
+                {
+                    if (!int.TryParse(p.Name, out var id) || !entities.TryGetValue(id, out var e))
+                        return Bad($"Unknown entity '{p.Name}'.");
+                    if (!TryAmount(p.Value, out var amount))
+                        return Bad("A quota must be a number of at least 0 (0 or empty = no cap).");
+                    if (!q.CanEditEntity(e.Id, e.ParentId))
+                        return Results.Json(new
+                        {
+                            detail = e.ParentId == null
+                                ? $"Only a billing manager can set the company cap of {e.Name}."
+                                : $"{e.Name} is outside your scope.",
+                        }, statusCode: 403);
+                    var key = id.ToString(CultureInfo.InvariantCulture);
+                    if (amount > 0) config.Entities[key] = amount; else config.Entities.Remove(key);
+                    changes.Add($"{e.Name}: {(amount > 0 ? amount.ToString("0.##", CultureInfo.InvariantCulture) : "no cap")}");
+                }
+            }
+            if (body.TryGetProperty("users", out var us) && us.ValueKind == JsonValueKind.Object)
+            {
+                var inScope = (await UsersInScope(db, q)).Select(u => u.Username).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var known = (await db.Users.AsNoTracking().Select(u => u.Username).ToListAsync())
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                foreach (var p in us.EnumerateObject())
+                {
+                    var name = p.Name.Trim();
+                    if (!known.Contains(name)) return Bad($"Unknown user '{name}'.");
+                    if (!TryAmount(p.Value, out var amount))
+                        return Bad("A quota must be a number of at least 0 (0 or empty = no cap).");
+                    if (!q.Manager && !inScope.Contains(name))
+                        return Results.Json(new { detail = $"{name} is outside your scope." }, statusCode: 403);
+                    if (amount > 0) config.Users[name] = amount; else config.Users.Remove(name);
+                    changes.Add($"user {name}: {(amount > 0 ? amount.ToString("0.##", CultureInfo.InvariantCulture) : "no cap")}");
+                }
+            }
+            if (changes.Count == 0) return Bad("Nothing to change — send entities and/or users.");
+            AiQuota.SaveConfig(sc, config);
+            ChatBranch.Data.Audit.AuditTrail.Write(db, "billing.quotas", AiQuota.SettingKey,
+                string.Join("; ", changes.Take(20)) + (changes.Count > 20 ? $" (+{changes.Count - 20} more)" : ""));
+            var snap = AiQuota.Current(db, sc);
+            return Results.Ok(new
+            {
+                ok = true,
+                currency = snap.Currency,
+                quotas = snap.All().Select(s => new
+                {
+                    scope = s.Scope, key = s.Key, name = s.Name, cap = s.Cap, spent = s.Spent, pct = s.Pct, state = s.State,
+                }),
+            });
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability(ViewCap, ManageCap);
     }
+
+    // ---- quota scope -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Who may see and set which quotas. <see cref="ReadEntities"/> null = every
+    /// entity. <see cref="EditEntities"/> = the branches an admin may cap (their
+    /// assigned subtrees, else their tenant's entities); company caps are the
+    /// billing manager's alone.
+    /// </summary>
+    private sealed class QuotaScope
+    {
+        public bool Manager { get; init; }
+        public bool CanEditBranches { get; init; }
+        public HashSet<int>? ReadEntities { get; init; }
+        public HashSet<int> EditEntities { get; init; } = new();
+        public int? TenantId { get; init; }
+
+        public bool CanEditEntity(int id, int? parentId) =>
+            Manager || CanEditBranches && parentId != null && EditEntities.Contains(id);
+    }
+
+    private static async Task<QuotaScope> QuotaScopeAsync(AppDbContext db, ScopingService sc, ClaimsPrincipal me)
+    {
+        var role = ShellScope.RoleOf(me);
+        var tenant = int.TryParse(me.FindFirstValue("tenant_id"), out var t) ? t : (int?)null;
+        if (role == Roles.SuperAdmin || await ShellScope.HasCapAsync(db, me, ManageCap))
+            return new QuotaScope { Manager = true, CanEditBranches = true, TenantId = tenant };
+
+        // the entities this person works in: assigned subtrees, else (admin) their tenant
+        var assigned = ContactsEndpoints.AssignedEntityIds(db, me.Identity?.Name);
+        HashSet<int> own;
+        if (assigned.Count > 0) own = sc.EntitySubtreeIds(assigned).ToHashSet();
+        else if (role == Roles.Admin && tenant is int tid)
+            own = (await db.Entities.AsNoTracking().Where(e => e.TenantId == tid).Select(e => e.Id).ToListAsync()).ToHashSet();
+        else own = new HashSet<int>();
+        // …plus the companies (and every level) above them, read-only
+        var read = new HashSet<int>(own);
+        foreach (var id in own) read.UnionWith(sc.EntityChain(id));
+        return new QuotaScope
+        {
+            Manager = false,
+            CanEditBranches = role == Roles.Admin,
+            ReadEntities = read,
+            EditEntities = own,
+            TenantId = tenant,
+        };
+    }
+
+    private sealed record QuotaUser(string Username, string Role);
+
+    /// <summary>Managers: every login. Others: the logins of their own tenant (never a superadmin).</summary>
+    private static async Task<List<QuotaUser>> UsersInScope(AppDbContext db, QuotaScope q)
+    {
+        var rows = await db.Users.AsNoTracking().Where(u => u.IsActive)
+            .Select(u => new
+            {
+                u.Username, u.IsSuperuser,
+                Role = u.Profile != null ? u.Profile.Role : "",
+                Tenant = u.Profile != null ? u.Profile.TenantId : null,
+            })
+            .OrderBy(u => u.Username).Take(500).ToListAsync();
+        return rows
+            .Where(u => q.Manager || (q.TenantId != null && u.Tenant == q.TenantId && !u.IsSuperuser && u.Role != Roles.SuperAdmin))
+            .Select(u => new QuotaUser(u.Username, u.IsSuperuser ? Roles.SuperAdmin : u.Role)).ToList();
+    }
+
+    private static bool TryAmount(JsonElement v, out double amount)
+    {
+        amount = 0;
+        if (v.ValueKind is JsonValueKind.Null) return true;
+        if (v.ValueKind == JsonValueKind.String)
+        {
+            var s = (v.GetString() ?? "").Trim();
+            if (s.Length == 0) return true;
+            if (!double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out amount)) return false;
+        }
+        else if (v.ValueKind != JsonValueKind.Number || !v.TryGetDouble(out amount)) return false;
+        return double.IsFinite(amount) && amount >= 0 && amount <= 1_000_000_000;
+    }
+
+    /// <summary>The current and earlier terms, newest first (the settings screen's "Since …" list).</summary>
+    private static List<object> History(BillingSettings s) => s.Timeline().Select(x => (object)new
+    {
+        effective_from = x.Terms.EffectiveFrom,
+        until = x.Until,
+        currency = x.Terms.Currency,
+        usd_rate = x.Terms.UsdRate,
+        default_markup_pct = x.Terms.DefaultMarkupPct,
+        default_monthly_fee = x.Terms.DefaultMonthlyFee,
+        companies = x.Terms.Companies.Count,
+    }).ToList();
 
     private sealed record BillRow(int? Company, string Feature, DateTime CreatedAt, long Tokens, double CostUsd);
 

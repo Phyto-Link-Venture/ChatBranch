@@ -39,6 +39,9 @@ public class AiOpsWorker : BackgroundService
                 scope.ServiceProvider.GetRequiredService<AiFollowUpService>().Tick();
                 // calendar reservations no reply will deliver (rejected / expired / orphaned)
                 scope.ServiceProvider.GetRequiredService<ChatBranch.Data.Bookings.BookingService>().Housekeep();
+                // AI quotas: the 80 % / 100 % warnings (once per scope per month)
+                var db = scope.ServiceProvider.GetRequiredService<ChatBranch.Data.AppDbContext>();
+                AiQuota.Sweep(db, scope.ServiceProvider.GetRequiredService<ChatBranch.Data.ScopingService>());
             }
             catch (Exception ex)
             {

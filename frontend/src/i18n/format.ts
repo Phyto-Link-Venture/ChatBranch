@@ -46,6 +46,8 @@ export function useFormat() {
     return {
       /** 9 Oct 2026 */
       date: (d: DateInput, timeZone?: string) => fmt(d, { day: 'numeric', month: 'short', year: 'numeric' }, timeZone),
+      /** Oct 2026 — billing months */
+      monthYear: (d: DateInput, timeZone?: string) => fmt(d, { month: 'short', year: 'numeric' }, timeZone),
       /** 9 Oct — chart axes, lists within one year */
       dayMonth: (d: DateInput, timeZone?: string) => fmt(d, { day: 'numeric', month: 'short' }, timeZone),
       /** 14:05 */

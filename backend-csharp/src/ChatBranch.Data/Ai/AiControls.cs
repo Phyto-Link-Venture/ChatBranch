@@ -75,6 +75,8 @@ public static class AiRules
     public const string Schedule = "schedule";
     public const string ContactNever = "contact_never";
     public const string NeverTag = "never_tag";
+    /// <summary>The conversation's entity (or an ancestor) used up its monthly AI quota.</summary>
+    public const string Quota = "quota";
     public const string ChatTick = "chat_tick";
     public const string ContactAlways = "contact_always";
     public const string InboxDefault = "inbox_default";
@@ -268,7 +270,9 @@ public sealed record AiPolicyInputs(
     TimeZoneInfo Zone,
     string ContactMode,
     IReadOnlyCollection<string> ContactTags,
-    IReadOnlyCollection<string> NeverTags);
+    IReadOnlyCollection<string> NeverTags,
+    /// <summary>Set = an AI usage quota is reached: the <c>ai_reason</c> (<see cref="AiQuota.Reason"/>).</summary>
+    string? QuotaBlock = null);
 
 /// <summary>
 /// Resolves the AI controls (master switch, schedule, never-tags) from Setting
@@ -298,6 +302,20 @@ public sealed class AiControls
 
     /// <summary>Resolve the schedule even when the switch is not on "schedule" (the settings screen).</summary>
     public bool AlwaysLoadSchedule { get; init; }
+
+    /// <summary>Leave the AI usage quota out (what would the verdict be without it?).</summary>
+    public bool IgnoreQuota { get; init; }
+
+    private readonly Dictionary<int, string?> _quota = new();
+
+    /// <summary>The quota reason for an entity's conversations (its own cap or any ancestor's), or null.</summary>
+    public string? QuotaBlock(int? entityId)
+    {
+        if (IgnoreQuota || entityId is not int id) return null;
+        if (_quota.TryGetValue(id, out var cached)) return cached;
+        var s = AiQuota.EntityBlock(_db, _sc, id, NowUtc);
+        return _quota[id] = s == null ? null : AiQuota.Reason(s);
+    }
 
     public TimeZoneInfo Zone => _zone ??= Skills.BuiltinSkills.OrgTimeZone(_sc);
 
@@ -431,7 +449,7 @@ public sealed class AiControls
 
     public AiPolicyInputs Inputs(int? entityId, string? contactMode, IReadOnlyCollection<string>? contactTags) =>
         new(Master(entityId), NowUtc, Zone, ContactAiModes.Normalize(contactMode),
-            contactTags ?? Array.Empty<string>(), NeverTags(entityId));
+            contactTags ?? Array.Empty<string>(), NeverTags(entityId), QuotaBlock(entityId));
 
     /// <summary>The full rule for a conversation whose account and contact the caller already holds.</summary>
     public AiVerdict Decide(Thread t, ChannelAccount? account, string? contactMode,

@@ -411,6 +411,9 @@ summaries.
 `feature` (`chat_reply` \| `summary` \| `timeline` \| `playground` \|
 `voice_call` \| `embedding` …) · `provider` · `model` · `channel` · `contact_id` ·
 `entity_id` (the outlet the call was for — the AI bill's company) · `ref` ·
+`user_name` (the signed-in person who ran it themselves — the operator assistant,
+the AI playground, skill drafting, on-demand / timeline summaries; "" = automated
+work; what a user's AI quota counts) ·
 `prompt_tokens` · `completion_tokens` · `audio_prompt_tokens` ·
 `audio_completion_tokens` · `cost_usd` (the provider's own price for the call when
 it reports one — OpenRouter; null = estimate at read time from Setting

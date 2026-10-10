@@ -125,10 +125,15 @@ public class InboundProcessor
         try
         {
             if (thread.OptedOut) return;
-            if (thread.ContactId != null && AiEligibility.Effective(_db, _scoping, thread))
+            if (thread.ContactId != null)
             {
-                TryAiReply(thread);
-                return;
+                var verdict = AiEligibility.Decide(_db, _scoping, thread);
+                if (verdict.Enabled)
+                {
+                    TryAiReply(thread);
+                    return;
+                }
+                if (QuotaHandover(thread, verdict)) return;
             }
             BusinessRedirect.Maybe(_db, _scoping, thread, receivingAccountId);
         }
@@ -177,8 +182,36 @@ public class InboundProcessor
         // while the visitor is being asked who they are, the AI waits
         if (IdentityStepForStored(thread) is { Linked: false, State: IdentityStates.Asking }) return;
         _responder.OnCustomerMessage(thread);
-        if (thread.OptedOut || !AiEligibility.Effective(_db, _scoping, thread)) return;
+        if (thread.OptedOut) return;
+        var verdict = AiEligibility.Decide(_db, _scoping, thread);
+        if (!verdict.Enabled)
+        {
+            QuotaHandover(thread, verdict);
+            return;
+        }
         TryAiReply(thread);
+    }
+
+    /// <summary>
+    /// The AI would have answered this customer but its usage quota is used up:
+    /// hand the chat to a person (kind <c>quota</c>, the chatbot tick left as it
+    /// was so the AI resumes by itself next month or once the cap is raised) —
+    /// once per open handover. Then warn the admins if this crossed a threshold.
+    /// Returns true when the chat is (already) with a person for this reason.
+    /// </summary>
+    private bool QuotaHandover(Thread thread, AiVerdict verdict)
+    {
+        try
+        {
+            if (verdict.Rule != AiRules.Quota) return false;
+            if (!AiEligibility.Decide(_db, _scoping, thread, null, ignoreQuota: true).Enabled) return false;
+            if (!Handover.IsOpen(thread))
+                Handover.Mark(_db, thread, HandoverKinds.Quota,
+                    verdict.Reason.StartsWith("Off: ") ? verdict.Reason[5..] : verdict.Reason, "ai", standDown: false);
+            AiQuota.Sweep(_db, _scoping);
+            return true;
+        }
+        catch { return false; }
     }
 
     /// <summary>

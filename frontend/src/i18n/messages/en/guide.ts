@@ -904,6 +904,10 @@ export const guide = {
           title: 'Print or set terms',
           body: 'Print saves the statement as a PDF. Billing managers set the markup, fee and currency under Billing terms.',
         },
+        s4: {
+          title: 'Quotas',
+          body: 'Monthly AI spending caps for companies, branches and people. Amber from 80%; at 100% the AI pauses and chats go to a person until next month or until the cap is raised.',
+        },
       },
     },
     billingSettings: {
@@ -929,6 +933,10 @@ export const guide = {
         s5: {
           title: 'Save',
           body: 'Click Save billing terms to apply your changes.',
+        },
+        s6: {
+          title: 'Earlier months are locked',
+          body: 'A change applies to this month\'s bill and later. Earlier months keep the terms that applied to them — the list shows which terms billed which months.',
         },
       },
     },

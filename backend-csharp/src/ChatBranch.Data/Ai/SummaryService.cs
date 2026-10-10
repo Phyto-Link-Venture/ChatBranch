@@ -154,7 +154,7 @@ public class SummaryService
             _db.LlmUsage.Add(new LlmUsage
             {
                 Feature = "summary", Provider = result.Provider, Model = result.Model,
-                Channel = channel, ContactId = contact?.Id, Ref = "summary",
+                Channel = channel, ContactId = contact?.Id, Ref = "summary", UserName = AiQuota.CurrentUser(),
                 PromptTokens = result.PromptTokens, CompletionTokens = result.CompletionTokens, CostUsd = result.CostUsd,
                 CreatedAt = DateTime.UtcNow,
             });

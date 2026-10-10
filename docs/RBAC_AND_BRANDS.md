@@ -275,6 +275,7 @@ exemption list below fails the build.
 | `/api/auth/roles`, `/api/auth/permissions`, `/api/auth/audit` | admin+ | Permissions, Users |
 | `/api/analytics/usage` (the cost ledger), `/api/billing/ai/settings` | `billing.manage` | Analytics → AI usage, Settings → AI billing |
 | `/api/billing/ai` (billed amounts; cost and margin only with `billing.manage`) | `billing.view` | AI bill |
+| `/api/billing/ai/quotas` (monthly AI caps + spend in the caller's scope; PUT: company caps `billing.manage`, branch + user caps also admins with `billing.view` inside their scope) | `billing.view` or `billing.manage` | AI bill → Quotas |
 
 **Any signed-in user may read** (the exemption list in `PermissionGatesTests`;
 everything here is the caller's own data or is gated row by row inside):

@@ -907,6 +907,10 @@ export const guide: Dict<typeof source> = {
           title: '打印或设置条款',
           body: '“打印”可把账单存为 PDF。计费管理员在“计费条款”中设置加价、月费和币种。',
         },
+        s4: {
+          title: '配额',
+          body: '公司、分店和人员的每月 AI 支出上限。达到 80% 显示琥珀色；达到 100% 时 AI 暂停，对话转交人工，直到下个月或上限提高。',
+        },
       },
     },
     billingSettings: {
@@ -932,6 +936,10 @@ export const guide: Dict<typeof source> = {
         s5: {
           title: '保存',
           body: '点击“保存计费条款”使更改生效。',
+        },
+        s6: {
+          title: '之前的月份已锁定',
+          body: '更改适用于本月及以后的账单。之前的月份保留当时适用的条款——列表显示每个月按哪套条款计费。',
         },
       },
     },

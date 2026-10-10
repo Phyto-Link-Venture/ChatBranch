@@ -134,6 +134,7 @@ public static class AiPlaygroundEndpoints
             if (body is not JsonElement b || b.ValueKind != JsonValueKind.Object)
                 return Bad("Send {entity, channel, contact_id | profile, messages: [{role, text}], options}.");
             var user = me.Identity?.Name ?? "";
+            if (QuotaGuard.Refusal(db, sc, me) is { } quota) return quota;
             if (!limiter.TryTake(user, DateTime.UtcNow, out var retry))
                 return Results.Json(new
                 {

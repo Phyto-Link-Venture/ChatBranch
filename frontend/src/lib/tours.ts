@@ -287,14 +287,14 @@ export const TOURS: TourDef[] = [
     href: '/billing',
     group: 'setup',
     match: exact('/billing'),
-    steps: steps('billing-controls', 'billing-statement', ''),
+    steps: steps('billing-controls', 'billing-statement', '', 'billing-quotas'),
   },
   {
     id: 'billingSettings',
     href: '/settings/billing',
     group: 'setup',
     match: exact('/settings/billing'),
-    steps: steps('settings-page-header', 'billingset-defaults', 'billingset-example', 'billingset-companies', 'billingset-save'),
+    steps: steps('settings-page-header', 'billingset-defaults', 'billingset-example', 'billingset-companies', 'billingset-save', 'billingset-locked'),
   },
   {
     id: 'activity',

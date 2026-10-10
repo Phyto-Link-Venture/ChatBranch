@@ -30,7 +30,8 @@ namespace ChatBranch.Data.Ai;
 /// inbox's default is stamped onto it when the conversation is created.
 ///
 /// Above and around that tick sit the AI controls (<see cref="Decide(Thread, ChannelAccount?, bool, AiPolicyInputs)"/>),
-/// in this order: opted out → the master switch / schedule (<c>off</c> wins) →
+/// in this order: opted out → the AI usage quota (<see cref="AiQuota"/>: the
+/// conversation's entity or any ancestor at its monthly cap) → the master switch / schedule (<c>off</c> wins) →
 /// the contact's <c>never</c> mode / a never-AI tag → the per-chat tick → the
 /// contact's <c>always</c> mode → the inbox's <c>ai_default</c> → the role default.
 /// Every verdict carries the reason the dashboard shows (<c>ai_reason</c>).
@@ -71,7 +72,14 @@ public static class AiEligibility
         Decide(db, scoping, t, nowUtc).Enabled;
 
     /// <summary><see cref="Effective(AppDbContext, ScopingService, Thread, DateTime?)"/> with its reason.</summary>
-    public static AiVerdict Decide(AppDbContext db, ScopingService scoping, Thread t, DateTime? nowUtc = null)
+    public static AiVerdict Decide(AppDbContext db, ScopingService scoping, Thread t, DateTime? nowUtc = null) =>
+        Decide(db, scoping, t, nowUtc, ignoreQuota: false);
+
+    /// <summary>
+    /// <paramref name="ignoreQuota"/> = what the verdict WOULD be without the AI
+    /// usage quota (the inbound path asks, to hand a chat the quota silenced to a person).
+    /// </summary>
+    public static AiVerdict Decide(AppDbContext db, ScopingService scoping, Thread t, DateTime? nowUtc, bool ignoreQuota)
     {
         try
         {
@@ -79,7 +87,7 @@ public static class AiEligibility
             if (t.Channel == ChatBranch.Domain.Channels.WhatsApp && t.AccountId is int accountId)
                 account = t.Account?.Id == accountId ? t.Account : db.ChannelAccounts.Find(accountId);
             var (mode, tags) = ContactInputs(db, t);
-            return new AiControls(db, scoping, nowUtc).Decide(t, account, mode, tags);
+            return new AiControls(db, scoping, nowUtc) { IgnoreQuota = ignoreQuota }.Decide(t, account, mode, tags);
         }
         catch
         {
@@ -99,7 +107,7 @@ public static class AiEligibility
     }
 
     /// <summary>
-    /// THE precedence rule (pure): opted out → master switch / schedule →
+    /// THE precedence rule (pure): opted out → AI quota reached → master switch / schedule →
     /// contact never / never-AI tag → per-chat tick → contact always → inbox
     /// default → role default. Rules above the tick are <see cref="AiVerdict.Forced"/>.
     /// </summary>
@@ -107,6 +115,8 @@ public static class AiEligibility
     {
         if (t.OptedOut)
             return new AiVerdict(false, AiRules.OptedOut, "Off: this contact opted out (STOP)", true);
+        if (!string.IsNullOrEmpty(p.QuotaBlock))
+            return new AiVerdict(false, AiRules.Quota, p.QuotaBlock, true);
         if (p.Master.Mode == AiMasterModes.Off)
             return new AiVerdict(false, AiRules.MasterOff, $"Off: AI is switched off for {p.Master.ScopeName}", true);
         if (p.Master.Mode == AiMasterModes.Schedule && !p.Master.AllowsAt(p.NowUtc, p.Zone))

@@ -180,8 +180,9 @@ public static class AiSkillsEndpoints
 
         // ---- describe → clarify → code ----------------------------------------
         app.MapPost("/api/aicore/skills/draft", async (DraftRequest body, SkillDrafter drafter,
-            CancellationToken ct) =>
+            AppDbContext db, ScopingService sc, System.Security.Claims.ClaimsPrincipal me, CancellationToken ct) =>
         {
+            if (QuotaGuard.Refusal(db, sc, me) is { } quota) return quota;
             var description = (body.Description ?? "").Trim();
             if (description.Length == 0) return Bad("Describe what the skill should do.");
             if (description.Length > 4000) return Bad("Keep the description under 4,000 characters.");

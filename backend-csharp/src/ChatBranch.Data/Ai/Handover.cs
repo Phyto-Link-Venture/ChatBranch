@@ -24,9 +24,11 @@ public static class HandoverKinds
     public const string Manual = "manual";
     /// <summary>An unknown customer could not be matched to one contact (the identity exchange).</summary>
     public const string UnknownCustomer = "unknown_customer";
+    /// <summary>The AI usage quota of the conversation's outlet (or its company) is used up (<see cref="AiQuota"/>).</summary>
+    public const string Quota = "quota";
 
     public static readonly string[] All =
-        { CheckFailed, AskedForHuman, SendBlocked, BookingFailed, LowConfidence, Rule, Manual, UnknownCustomer };
+        { CheckFailed, AskedForHuman, SendBlocked, BookingFailed, LowConfidence, Rule, Manual, UnknownCustomer, Quota };
 
     public static string Label(string? kind) => kind switch
     {
@@ -38,6 +40,7 @@ public static class HandoverKinds
         Rule => "A rule or flow handed it over",
         Manual => "Flagged by a person",
         UnknownCustomer => "Unknown customer",
+        Quota => "AI quota reached",
         _ => "Handed over",
     };
 }

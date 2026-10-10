@@ -35,6 +35,10 @@ public class LlmUsage
     /// entity). Null = not known at write time — the bill falls back to the contact's entity.</summary>
     public int? EntityId { get; set; }
     public string Ref { get; set; } = "";
+    /// <summary>The signed-in person who ran the call themselves (the operator assistant,
+    /// the AI playground, skill drafting, on-demand summaries) — what a user's AI quota
+    /// counts. "" = automated work (customer replies, flows, embeddings, voice).</summary>
+    public string UserName { get; set; } = "";
     public int PromptTokens { get; set; }
     public int CompletionTokens { get; set; }
     public int AudioPromptTokens { get; set; }

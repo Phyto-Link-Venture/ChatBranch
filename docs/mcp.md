@@ -262,7 +262,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `flows_enqueue_job` | Queue an outbound message | write · open-world | `flows.manage` |
 | `flows_run_due_steps` | Run due flow steps now | write · open-world | `flows.manage` |
 
-#### analytics (9)
+#### analytics (11)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -273,6 +273,8 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `billing_get_ai_bill` | AI usage bill | read | `billing.view` |
 | `billing_get_settings` | Read the AI billing terms | read | `billing.manage` |
 | `billing_set_settings` | Set the AI billing terms | write | `billing.manage` |
+| `billing_get_ai_quotas` | AI usage quotas | read | `billing.view` or `billing.manage` |
+| `billing_set_ai_quotas` | Set AI usage quotas | write | `billing.view` or `billing.manage` |
 | `analytics_get_engagement` | Engagement tiles | read | `analytics.view` |
 | `analytics_get_live` | What's live right now | read | signed in |
 
