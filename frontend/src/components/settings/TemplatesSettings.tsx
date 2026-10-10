@@ -43,7 +43,9 @@ interface WaTemplate {
 
 interface WaAccount {
   id: string
-  provider: 'cloud' | 'baileys'
+  provider: 'cloud' | 'baileys' | 'ycloud' | 'twilio'
+  /** A live registry: Meta's / YCloud's WABA, or Twilio's Content API. */
+  template_registry?: boolean
   name: string
   phone_number_id: string
   waba_id?: string
@@ -52,6 +54,9 @@ interface WaAccount {
   number?: string
   external_id?: string
 }
+
+/** Does this number read a live template registry? (older payloads: a WABA id) */
+const hasRegistry = (a: WaAccount) => a.template_registry ?? !!a.waba_id
 
 /** Meta language codes (sent as is) → their label keys. */
 const LANGUAGES: { value: string; lbl: MessageKey }[] = [
@@ -244,16 +249,17 @@ export function TemplatesSettings({
   const [formError, setFormError] = useState<string | null>(null)
   const [toDelete, setToDelete] = useState<WaTemplate | null>(null)
 
-  // Cloud accounts with a WABA hold live templates; the rest is the sandbox set.
+  // Official numbers (Cloud API, YCloud, Twilio) with a live registry hold real
+  // templates; the rest is the sandbox set. Baileys has none.
   useEffect(() => {
     api<{ accounts: WaAccount[] }>('whatsapp/accounts')
       .then((d) => {
         setAllAccounts(d.accounts)
-        const cloud = d.accounts.filter((a) => a.provider === 'cloud')
+        const cloud = d.accounts.filter((a) => a.provider !== 'baileys')
         setAccounts(cloud)
         setAccountId((cur) => {
           if (cur && cloud.some((a) => a.id === cur)) return cur
-          return (cloud.find((a) => a.configured && a.waba_id) || cloud[0])?.id ?? ''
+          return (cloud.find((a) => a.configured && hasRegistry(a)) || cloud[0])?.id ?? ''
         })
       })
       .catch(() => {
@@ -470,7 +476,7 @@ export function TemplatesSettings({
             value={accountId}
             onChange={chooseAccount}
             size="md"
-            options={accounts.map((a) => ({ value: a.id, label: a.name, hint: a.waba_id ? '' : t('library.wa.noWaba') }))}
+            options={accounts.map((a) => ({ value: a.id, label: a.name, hint: hasRegistry(a) ? '' : t('library.wa.noWaba') }))}
             className="w-full sm:w-[260px]"
             ariaLabel={t('library.wa.accountAria')}
           />

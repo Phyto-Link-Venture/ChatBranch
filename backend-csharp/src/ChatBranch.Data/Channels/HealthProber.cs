@@ -86,6 +86,8 @@ public sealed record HealthRunSummary(int Checked, int Skipped, string? GlobalEm
 ///
 ///  * WhatsApp Cloud — Graph token ping (<c>GET /{phone_number_id}</c>); Meta's
 ///    error code decides banned / disconnected / degraded / transient.
+///  * WhatsApp YCloud / Twilio — the provider's own authenticated GET
+///    (<see cref="IWhatsAppCloudClient.ProbeBspAsync"/>).
 ///  * WhatsApp Baileys — the gateway's own view of the session
 ///    (<c>GET /accounts/{id}/status</c>): connected → healthy; not paired / QR
 ///    waiting or expired / logged out → disconnected; gateway unreachable →
@@ -119,13 +121,16 @@ public sealed class ChannelHealthProber
     private readonly IGraphHealthProbe _graph;
     /// <summary>LINE, Viber, SMS, WeChat, TikTok, Douyin, Zalo — each transport's own probe.</summary>
     private readonly ChannelTransports? _more;
+    /// <summary>WhatsApp through a BSP (YCloud, Twilio) — the provider's own probe.</summary>
+    private readonly IWhatsAppCloudClient? _whatsapp;
     private readonly ChatBranch.Data.Sidecars.IBaileysGateway? _baileys;
 
     public ChannelHealthProber(AppDbContext db, ScopingService scoping, ITelegramClient telegram,
         IEmailTransport email, IGraphHealthProbe graph, ChannelTransports? more = null,
-        ChatBranch.Data.Sidecars.IBaileysGateway? baileys = null)
+        IWhatsAppCloudClient? whatsapp = null, ChatBranch.Data.Sidecars.IBaileysGateway? baileys = null)
     {
         _more = more;
+        _whatsapp = whatsapp;
         _baileys = baileys;
         _db = db;
         _scoping = scoping;
@@ -139,7 +144,7 @@ public sealed class ChannelHealthProber
     {
         ChannelIds.WhatsApp => a.Provider == Providers.Baileys
             ? a.ExternalId.Length > 0
-            : a.AccessToken.Length > 0 && a.ExternalId.Length > 0,
+            : WhatsAppProviders.IsOfficial(a) && WhatsAppProviders.Configured(a),
         ChannelIds.Telegram => TelegramBot.Configured(a),
         ChannelIds.Email => EmailConfig.AccountConfigured(a),
         ChannelIds.Facebook or ChannelIds.Instagram => a.AccessToken.Length > 0,
@@ -169,6 +174,9 @@ public sealed class ChannelHealthProber
                     return _more?.For(more) is { } transport
                         ? (await transport.ProbeAsync(a, ct)).Verdict
                         : null;
+                case ChannelIds.WhatsApp when WhatsAppProviders.IsBsp(a):
+                    // YCloud: the number's profile / balance; Twilio: GET /Accounts/{sid}.json
+                    return _whatsapp == null ? null : (await _whatsapp.ProbeBspAsync(a, ct))?.Verdict;
                 case ChannelIds.Email:
                 {
                     var r = await _email.ProbeAsync(EmailConfig.ForAccount(a, _scoping), ct);

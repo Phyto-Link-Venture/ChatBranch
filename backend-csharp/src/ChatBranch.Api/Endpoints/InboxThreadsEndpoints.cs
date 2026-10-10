@@ -603,6 +603,10 @@ public static class InboxThreadsEndpoints
         }
 
         public bool IsBaileys(int? accountId) => Account(accountId)?.Provider == Providers.Baileys;
+
+        /// <summary>The WhatsApp provider of the conversation's number (cloud / baileys / ycloud / twilio).</summary>
+        public string Provider(int? accountId) =>
+            Account(accountId) is { } a ? ChatBranch.Data.Channels.WhatsAppProviders.Of(a) : Providers.Cloud;
     }
 
     // =========================================================================
@@ -675,7 +679,7 @@ public static class InboxThreadsEndpoints
                 ["entity"] = t.Entity?.Slug,
                 ["account_id"] = t.AccountId?.ToString(),
                 ["account_name"] = account?.Name ?? "",
-                ["provider"] = isWa ? (wa.IsBaileys(t.AccountId) ? Providers.Baileys : Providers.Cloud) : null,
+                ["provider"] = isWa ? wa.Provider(t.AccountId) : null,
                 ["window_open"] = open,
                 ["window_expires_at"] = expires,
                 ["opted_out"] = t.OptedOut,

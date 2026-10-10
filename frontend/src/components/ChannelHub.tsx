@@ -40,7 +40,7 @@ export interface ChannelIdentity {
   name: string
   account_id: string | null
   account_name: string | null
-  account_provider: 'cloud' | 'baileys' | null
+  account_provider: 'cloud' | 'baileys' | 'ycloud' | 'twilio' | null
   account_health: HealthStatus
   last_active: string | null
   message_count: number

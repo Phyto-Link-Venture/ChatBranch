@@ -39,8 +39,9 @@ public static class AccountRoles
 ///         actually uses that role (some configured number has it): a
 ///         conversational send never fails over onto the business number, but
 ///         a Cloud-only setup still routes.</item>
-///   <item><see cref="Provider"/> — hard: a template needs a Cloud number and
-///         NEVER fails over to Baileys.</item>
+///   <item><see cref="Provider"/> — hard: a template needs an OFFICIAL number
+///         (<see cref="WhatsAppProviders.AnyOfficial"/>: Cloud API, YCloud or Twilio)
+///         and NEVER fails over to Baileys.</item>
 ///   <item><see cref="PreferRole"/> — soft: among eligible accounts, prefer this role.</item>
 /// </list>
 /// </summary>
@@ -48,15 +49,15 @@ public sealed record RouteNeed(string? Role = null, string? Provider = null, str
 {
     /// <summary>Free text, AI replies, queued text jobs.</summary>
     public static readonly RouteNeed Conversation = new(Role: AccountRoles.Conversation);
-    /// <summary>A WhatsApp template: a Cloud number, the business (reminder) one first.</summary>
-    public static readonly RouteNeed Template = new(Provider: Providers.Cloud, PreferRole: AccountRoles.Reminder);
+    /// <summary>A WhatsApp template: an official number (Cloud API / YCloud / Twilio), the business (reminder) one first.</summary>
+    public static readonly RouteNeed Template = new(Provider: WhatsAppProviders.AnyOfficial, PreferRole: AccountRoles.Reminder);
     public static readonly RouteNeed Any = new();
 
     public bool IsTemplate => Provider != null;
 
     /// <summary>
     /// What a send on <paramref name="channel"/> needs: roles and providers are
-    /// WhatsApp concepts (a template needs a Cloud number, free text / AI a
+    /// WhatsApp concepts (a template needs an official number, free text / AI a
     /// conversation number); every other channel takes any eligible account.
     /// </summary>
     public static RouteNeed For(string channel, bool template = false) =>
@@ -133,7 +134,7 @@ public class Routing
     public static bool IsConfigured(ChannelAccount a)
     {
         if (a.Channel == ChatBranch.Domain.Channels.WhatsApp)
-            return a.Provider == Providers.Baileys || (a.AccessToken != "" && a.ExternalId != "");
+            return WhatsAppProviders.Configured(a);
         if (a.Channel == ChatBranch.Domain.Channels.Email)
             return EmailConfig.AccountConfigured(a);
         if (MoreChannels.Handles(a.Channel)) return MoreChannels.Configured(a);
@@ -170,8 +171,7 @@ public class Routing
     public static string ProviderOf(ChannelAccount a) =>
         string.IsNullOrEmpty(a.Provider) ? Providers.Cloud : a.Provider;
 
-    private static bool Satisfies(ChannelAccount a, RouteNeed need) =>
-        need.Provider == null || ProviderOf(a) == need.Provider;
+    private static bool Satisfies(ChannelAccount a, RouteNeed need) => WhatsAppProviders.Matches(a, need.Provider);
 
     /// <summary>
     /// The accounts of <paramref name="channel"/> a conversation of this entity
@@ -202,7 +202,7 @@ public class Routing
     {
         var configured = Pool(channel, entityId).Where(IsConfigured).ToList();
         if (need.Provider is string provider)
-            configured = configured.Where(a => ProviderOf(a) == provider).ToList();
+            configured = configured.Where(a => WhatsAppProviders.Matches(a, provider)).ToList();
         var whatsapp = channel == ChatBranch.Domain.Channels.WhatsApp;
         if (whatsapp && need.Role is string role && configured.Any(a => AccountRoles.Of(a) == role))
             configured = configured.Where(a => AccountRoles.Of(a) == role).ToList();
@@ -305,9 +305,9 @@ public class Routing
         var configured = Pool(thread.Channel, thread.EntityId).Where(IsConfigured).ToList();
         // nothing to route between: the zero-credential sandbox
         if (configured.Count == 0) return new RouteResult(current, "sandbox");
-        // a template in an organization with no Cloud number at all: it goes out
+        // a template in an organization with no official number at all: it goes out
         // on whatever number the conversation would use (Baileys renders it as text)
-        if (need.Provider is string p && !configured.Any(a => ProviderOf(a) == p))
+        if (need.Provider is string p && !configured.Any(a => WhatsAppProviders.Matches(a, p)))
             return ForThread(thread, need with { Provider = null, PreferRole = null }, preferredAccountId, apply);
 
         RouteResult r;
@@ -396,8 +396,8 @@ public class Routing
             : "";
         string detail;
         if (need.IsTemplate)
-            detail = $"No healthy WhatsApp Cloud (business) number can carry a template{why}. "
-                     + "Templates never fall back to a Baileys number — reconnect a Cloud number under Channels.";
+            detail = $"No healthy official WhatsApp business number (Cloud API, YCloud or Twilio) can carry a template{why}. "
+                     + "Templates never fall back to a Baileys number — reconnect a business number under Channels.";
         else if (channel == ChatBranch.Domain.Channels.WhatsApp && need.Role == AccountRoles.Conversation)
             detail = $"No healthy WhatsApp conversation number is available{why}. "
                      + "Reconnect it or link another under Channels.";

@@ -77,6 +77,18 @@ export const channels: Dict<typeof source> = {
       channelLabel: 'WhatsApp Cloud API',
       connectTitle: 'Sambungkan nombor',
     },
+    waYcloud: {
+      label: 'WhatsApp melalui YCloud',
+      blurb: 'BSP rasmi · templat · kunci API',
+      channelLabel: 'WhatsApp (YCloud)',
+      connectTitle: 'Sambungkan nombor YCloud',
+    },
+    waTwilio: {
+      label: 'WhatsApp melalui Twilio',
+      blurb: 'Penghantar rasmi · templat Content',
+      channelLabel: 'WhatsApp (Twilio)',
+      connectTitle: 'Sambungkan penghantar Twilio',
+    },
     waQr: {
       label: 'WhatsApp melalui QR',
       blurb: 'Pasangkan nombor peribadi · demo sahaja',
@@ -330,6 +342,8 @@ export const channels: Dict<typeof source> = {
       register: 'Daftar',
       pointPlatform: 'Halakan {platform} ke ChatBranch',
       webhookUrl: 'URL webhook',
+      bspSecretMissing: 'Belum ada rahsia tandatangan webhook — mesej masuk ditolak sehingga anda menambahnya di langkah 2.',
+      twilioPublic: 'Twilio mengambil fail yang anda hantar dari API ini, jadi ia perlukan alamat https awam (Tetapan → Kunci aplikasi & penyedia → URL asas awam).',
       wechatNote:
         'Gunakan Token yang sama yang anda masukkan di sini. Mod teks biasa dan mod selamat kedua-duanya berfungsi — mod selamat memerlukan EncodingAESKey di atas.',
       windowNote:
@@ -410,6 +424,12 @@ export const channels: Dict<typeof source> = {
       sipUsername: 'Nama pengguna SIP',
       sipPassword: 'Kata laluan SIP',
       terminationUri: 'Termination URI',
+      businessNumber: 'Nombor perniagaan WhatsApp',
+      ycloudApiKey: 'Kunci API YCloud',
+      webhookSigningSecret: 'Rahsia tandatangan webhook',
+      whatsappSender: 'Penghantar WhatsApp',
+      apiKeySid: 'API Key SID',
+      apiKeySecret: 'Rahsia API Key',
     },
     placeholders: {
       signatureChecks: 'Mendayakan semakan tandatangan webhook',
@@ -431,8 +451,23 @@ export const channels: Dict<typeof source> = {
       learnedOnTest: 'Diperoleh semasa Uji',
       sipUsername: 'nama pengguna SIP Twilio anda',
       sipPassword: 'kata laluan SIP Twilio anda',
+      fromYcloud: 'Daripada konsol YCloud',
     },
     help: {
+      waYcloud: {
+        phoneNumber: 'Nombor WhatsApp yang didaftarkan di YCloud, dalam format antarabangsa (+60123456789).',
+        accessToken: 'Konsol YCloud → Developers → API Keys.',
+        appSecret: 'Konsol YCloud → Developers → Webhooks → endpoint anda → signing secret. Cipta endpoint dengan URL dari langkah terakhir, kemudian tampal rahsianya di sini — mesej masuk ditolak sehingga ia ditetapkan.',
+        wabaId: 'Konsol YCloud → WhatsApp → Accounts. Diperlukan untuk menyenarai, mencipta dan menghantar templat.',
+      },
+      waTwilio: {
+        accountSid: 'Twilio Console → Account info → Account SID.',
+        accessToken: 'Twilio Console → Account info → Auth token. Ia juga menandatangani webhook yang dihantar Twilio ke sini.',
+        fromNumber: 'Penghantar yang didayakan WhatsApp, cth. +14155238886 (nombor sandbox) atau nombor anda yang diluluskan.',
+        messagingServiceSid: 'Selain penghantar: Messaging Service yang memegang penghantar WhatsApp anda.',
+        apiKeySid: 'Pilihan: hantar dengan API key dan bukan Auth token (Auth token masih menyemak webhook).',
+        apiKeySecret: 'Rahsia yang ditunjukkan sekali semasa API key dicipta.',
+      },
       waCloud: {
         phoneNumberId:
           'Meta App Dashboard → WhatsApp → API Setup. ID panjang di bawah nombor telefon — bukan nombor itu sendiri.',
@@ -537,8 +572,22 @@ export const channels: Dict<typeof source> = {
       wechatToken: 'Token ialah 3–32 huruf dan digit.',
       encodingAesKey: 'EncodingAESKey mestilah tepat 43 huruf dan digit.',
       smsOneOf: 'Tetapkan Nombor penghantar atau Messaging Service SID.',
+      apiKeySid: 'API Key SID ialah SK diikuti 32 aksara heksadesimal.',
+      waTwilioOneOf: 'Tetapkan penghantar WhatsApp atau Messaging Service SID.',
     },
     guides: {
+      waYcloud: {
+        s1: 'Log masuk di ycloud.com dan sambungkan nombor WhatsApp Business anda.',
+        s2: 'Developers → API Keys: salin kunci API.',
+        s3: 'Catat WABA ID di WhatsApp → Accounts jika anda akan menghantar templat.',
+        s4: 'Selepas menyimpan, cipta endpoint webhook dengan URL dari langkah terakhir dan tampal signing secret-nya di sini.',
+      },
+      waTwilio: {
+        s1: 'Dalam Twilio Console, buka Messaging → Senders → WhatsApp senders (atau cuba sandbox WhatsApp).',
+        s2: 'Salin Account SID dan Auth token dari halaman utama Console.',
+        s3: 'Masukkan nombor penghantar — atau Messaging Service SID yang memegangnya.',
+        s4: 'Selepas menyimpan, tampal URL webhook dari langkah terakhir dalam tetapan mesej masuk penghantar. Templat datang dari Content Template Builder.',
+      },
       waCloud: {
         s1: 'Buka developers.facebook.com → My Apps → aplikasi anda → WhatsApp → API Setup.',
         s2: 'Salin Phone number ID dan WhatsApp Business Account ID yang dipaparkan di sana.',
@@ -619,6 +668,8 @@ export const channels: Dict<typeof source> = {
     defaultNames: {
       waCloud: 'WhatsApp Business',
       waQr: 'WhatsApp (QR)',
+      waYcloud: 'WhatsApp (YCloud)',
+      waTwilio: 'WhatsApp (Twilio)',
       email: 'Peti mel sokongan',
       telegram: 'Bot Telegram',
       messenger: 'Halaman Facebook',
@@ -634,6 +685,8 @@ export const channels: Dict<typeof source> = {
       zalo: 'Zalo OA',
     },
     webhookHelp: {
+      waYcloud: 'Konsol YCloud → Developers → Webhooks → Add endpoint: URL ini, dengan peristiwa whatsapp.inbound_message.received dan whatsapp.message.updated. Kemudian salin signing secret endpoint ke peti masuk ini (langkah 2).',
+      waTwilio: 'Twilio Console → Messaging → Senders → WhatsApp senders → penghantar anda → “Webhook URL for incoming messages” (HTTP POST). Status penghantaran kembali ke URL yang sama.',
       line: 'LINE Developers → saluran → Messaging API → Webhook URL, kemudian hidupkan “Use webhook”. Atau daftarkannya dari sini.',
       viber: 'Viber memerlukan webhook ditetapkan melalui API-nya — daftarkannya dari sini (ia menyemak URL serta-merta).',
       sms: 'Twilio Console → Phone numbers → nombor anda → Messaging configuration → “A message comes in”: Webhook, HTTP POST.',

@@ -70,7 +70,15 @@ const channelLabel = (t: TFunction, c: string) => {
   return l.includes('.') ? t(l as MessageKey) : l
 }
 const providerLabel = (t: TFunction, p: string, channel: string) =>
-  p === 'baileys' ? 'Baileys' : p === 'cloud' ? 'Cloud API' : p || channelLabel(t, channel)
+  p === 'baileys'
+    ? 'Baileys'
+    : p === 'cloud'
+      ? 'Cloud API'
+      : p === 'ycloud'
+        ? 'YCloud'
+        : p === 'twilio'
+          ? 'Twilio'
+          : p || channelLabel(t, channel)
 
 const key = (r: Assignment) => String(r.contact_id)
 

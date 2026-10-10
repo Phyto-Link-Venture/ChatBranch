@@ -267,12 +267,21 @@ export function RoutingRulesSettings() {
     ;(async () => {
       try {
         const a = await api<{
-          accounts: { id: string; provider: string; role?: string; waba_id?: string; configured: boolean }[]
+          accounts: {
+            id: string
+            provider: string
+            role?: string
+            waba_id?: string
+            template_registry?: boolean
+            configured: boolean
+          }[]
         }>('accounts')
-        const cloud = a.accounts.filter((x) => x.provider === 'cloud')
+        // official numbers (Cloud API, YCloud, Twilio) carry templates; Baileys never does
+        const cloud = a.accounts.filter((x) => x.provider !== 'baileys')
+        const live = (x: (typeof cloud)[number]) => x.template_registry ?? !!x.waba_id
         const src =
-          cloud.find((x) => (x.role ?? 'reminder') === 'reminder' && x.configured && x.waba_id) ||
-          cloud.find((x) => x.waba_id) ||
+          cloud.find((x) => (x.role ?? 'reminder') === 'reminder' && x.configured && live(x)) ||
+          cloud.find(live) ||
           cloud[0]
         const qs = src ? `?account_id=${encodeURIComponent(src.id)}` : ''
         const tpl = await api<{ templates: { name: string; status: string }[] }>(`templates${qs}`)

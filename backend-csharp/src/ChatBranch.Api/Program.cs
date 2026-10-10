@@ -44,7 +44,8 @@ builder.Services.AddScoped<ChatBranch.Data.Documents.DocumentService>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.Skills.ConnectedAppTools>();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<ChatBranch.Data.Ai.ILlmClient, ChatBranch.Data.Ai.OpenAiLlmClient>();
-builder.Services.AddSingleton<ChatBranch.Data.Channels.IWhatsAppCloudClient, ChatBranch.Data.Channels.WhatsAppCloudClient>();
+// WhatsApp: Meta's Cloud API, YCloud and Twilio behind one router (WhatsAppClientRouter)
+builder.Services.AddWhatsAppProviders();
 builder.Services.AddScoped<ChatBranch.Data.Channels.OutboundSender>();
 builder.Services.AddScoped<ChatBranch.Data.Channels.InboundProcessor>();
 builder.Services.AddScoped<ChatBranch.Data.Flows.QueueService>();
@@ -233,6 +234,7 @@ app.MapApiV1Endpoints();
 app.MapWebhookEndpoints();
 app.MapTelegramWebhookEndpoints();
 app.MapMoreChannelWebhookEndpoints();
+app.MapWhatsAppBspWebhookEndpoints();
 app.MapMessagingTransportEndpoints();
 app.MapMessageReactionEndpoints();
 app.MapMetaWebhookEndpoints();

@@ -63,6 +63,9 @@ public sealed class FakeProviderHttp : HttpMessageHandler, IHttpClientFactory
 
     public static readonly byte[] Jpeg = { 0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 4 };
 
+    /// <summary>The one Content template the fake Twilio Content API lists.</summary>
+    public const string TwilioContentSid = "HX0123456789abcdef0123456789abcdef";
+
     private HttpResponseMessage Default(Call c) => (c.Host, c.Path) switch
     {
         ("api.line.me", var p) when p.EndsWith("/message/push") || p.EndsWith("/message/reply") =>
@@ -106,6 +109,45 @@ public sealed class FakeProviderHttp : HttpMessageHandler, IHttpClientFactory
         ("oauth.zaloapp.com", _) => Json(new { access_token = "ZALO-NEW", refresh_token = "REFRESH-NEW", expires_in = "90000" }),
 
         ("cdn.example.test", _) => File(Jpeg),
+
+        // WhatsApp through YCloud (api.ycloud.com/v2) and Twilio's Content API
+        ("api.ycloud.com", "/v2/whatsapp/messages/sendDirectly") =>
+            Json(new { id = Id("yc"), wamid = $"wamid.YC{Id("")}", status = "sent" }),
+        ("api.ycloud.com", var p) when p.StartsWith("/v2/whatsapp/media/") && p.EndsWith("/upload") =>
+            Json(new { id = Id("ycmedia") }),
+        ("api.ycloud.com", var p) when p.StartsWith("/v2/whatsapp/media/download") => File(Jpeg),
+        ("api.ycloud.com", "/v2/whatsapp/templates") => Json(new
+        {
+            items = new[]
+            {
+                new
+                {
+                    wabaId = "WABA-YC", name = "order_update", language = "en", category = "UTILITY", status = "APPROVED",
+                    components = new object[] { new { type = "BODY", text = "Hi {{1}}, order {{2}} is ready." } },
+                },
+            },
+            total = 1,
+        }),
+        ("api.ycloud.com", var p) when p.StartsWith("/v2/whatsapp/phoneNumbers/") => Json(new
+        {
+            phoneNumber = "+60123450000", displayPhoneNumber = "+60 12-345 0000", verifiedName = "YC Shop",
+            qualityRating = "GREEN", status = "CONNECTED",
+        }),
+        ("api.ycloud.com", "/v2/balance") => Json(new { amount = 10.5, currency = "USD" }),
+        ("content.twilio.com", "/v1/ContentAndApprovals") => Json(new
+        {
+            contents = new[]
+            {
+                new
+                {
+                    sid = TwilioContentSid, friendly_name = "order_ready", language = "en",
+                    variables = new Dictionary<string, string> { ["1"] = "name", ["2"] = "order" },
+                    types = new Dictionary<string, object> { ["twilio/text"] = new { body = "Hi {{1}}, your order {{2}} is ready." } },
+                    approval_requests = new { name = "order_ready", category = "UTILITY", status = "approved" },
+                },
+            },
+            meta = new { next_page_url = (string?)null },
+        }),
         _ => new HttpResponseMessage(HttpStatusCode.NotFound),
     };
 }
