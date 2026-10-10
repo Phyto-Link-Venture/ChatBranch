@@ -119,7 +119,7 @@ export const contacts: Dict<typeof source> = {
     googleContacts: 'Google Contacts',
     googleHint: '你自己的 Google 通讯录（只读）。',
     connectGoogle: '请先连接 Google——打开{link}，允许访问你的联系人，然后回到这里。',
-    googleLink: '集成 → Google Contacts',
+    googleLink: '设置 → 我的连接',
     rowsFound_one: '找到 {count} 行。请检查每一列的内容——我们根据标题做了推测。',
     rowsFound_other: '找到 {count} 行。请检查每一列的内容——我们根据标题做了推测。',
     emptyColumn: '空',

@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/Button'
 import { Select, type SelectOption } from '@/components/ui/Select'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { TagListInput } from '@/components/ui/TagListInput'
+import { Advanced } from '@/components/ui/Advanced'
 import { Toggle } from '@/components/ui/Toggle'
 import { useEntity } from '@/lib/EntityContext'
 import { cApi, downloadIssuesCsv, errText, type ImportResult } from '@/lib/contactIdentity'
@@ -81,6 +82,9 @@ export function ContactImportModal({
   useEffect(() => {
     if (open) setOpts((o) => ({ ...o, entity: activeEntity?.slug ?? null }))
   }, [open, activeEntity])
+  // Entity (default: the top bar's outlet) and tags (default none) sit under
+  // Advanced in step 3 — opened when either differs from its default.
+  const advancedCount = (opts.entity !== (activeEntity?.slug ?? null) ? 1 : 0) + (opts.tags.length > 0 ? 1 : 0)
 
   useEffect(() => {
     if (!open) {
@@ -332,7 +336,7 @@ export function ContactImportModal({
                 k="contacts.import.connectGoogle"
                 values={{
                   link: (
-                    <Link href="/integrations" className="font-semibold underline underline-offset-2">
+                    <Link href="/settings/connections" className="font-semibold underline underline-offset-2">
                       {t('contacts.import.googleLink')}
                     </Link>
                   ),
@@ -432,25 +436,6 @@ export function ContactImportModal({
             </p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="flex flex-col gap-1">
-              <span className="text-[11.5px] font-semibold text-text-mid">{t('contacts.import.addTo')}</span>
-              <EntityPicker
-                value={opts.entity}
-                onChange={(v) => setOpt({ entity: v })}
-                globalLabel={t('contacts.import.noEntity')}
-                ariaLabel={t('contacts.import.entityAria')}
-              />
-            </label>
-            <div className="flex flex-col gap-1">
-              <span className="text-[11.5px] font-semibold text-text-mid">{t('contacts.import.tagEvery')}</span>
-              <TagListInput
-                value={opts.tags}
-                onChange={(tags) => setOpt({ tags })}
-                placeholder={t('contacts.import.tagPlaceholder')}
-              />
-            </div>
-          </div>
           <div className="flex items-start justify-between gap-3 rounded-xl border border-line px-3 py-2.5">
             <div>
               <div className="text-[12.5px] font-semibold text-text-high">{t('contacts.import.findChannels')}</div>
@@ -458,6 +443,27 @@ export function ContactImportModal({
             </div>
             <Toggle on={opts.discover} onChange={(v) => setOpt({ discover: v })} label={t('contacts.import.findChannels')} />
           </div>
+          <Advanced count={advancedCount} forceOpen={advancedCount > 0}>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-[11.5px] font-semibold text-text-mid">{t('contacts.import.addTo')}</span>
+                <EntityPicker
+                  value={opts.entity}
+                  onChange={(v) => setOpt({ entity: v })}
+                  globalLabel={t('contacts.import.noEntity')}
+                  ariaLabel={t('contacts.import.entityAria')}
+                />
+              </label>
+              <div className="flex flex-col gap-1">
+                <span className="text-[11.5px] font-semibold text-text-mid">{t('contacts.import.tagEvery')}</span>
+                <TagListInput
+                  value={opts.tags}
+                  onChange={(tags) => setOpt({ tags })}
+                  placeholder={t('contacts.import.tagPlaceholder')}
+                />
+              </div>
+            </div>
+          </Advanced>
 
           {preview.created + preview.updated === 0 && (
             <p className="text-[12px] font-semibold text-text-mid">

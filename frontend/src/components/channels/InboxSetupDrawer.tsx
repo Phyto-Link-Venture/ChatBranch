@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { createPortal } from 'react-dom'
 import { AlertTriangle, BadgeCheck, Check, ChevronDown, Loader2, Plug, RefreshCw, Webhook, X } from 'lucide-react'
 import { UnknownCustomersField, useInboxIdentify } from '@/components/channels/UnknownCustomersField'
+import { Advanced } from '@/components/ui/Advanced'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
@@ -89,6 +90,8 @@ const SOCIAL_CHANNEL: Partial<Record<InboxKind, 'facebook' | 'instagram' | 'tele
   instagram: 'instagram',
   telegram: 'telegram',
 }
+
+const isWaKind = (k: InboxKind | null) => k === 'wa_cloud' || k === 'wa_qr'
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -244,7 +247,6 @@ export function InboxSetupDrawer({
   const [aiDefault, setAiDefault] = useState<AiDefault>('')
   const [reviewMode, setReviewMode] = useState<ReviewMode>('')
   const [delivery, setDelivery] = useState<DeliveryState>(() => deliveryStateFrom(null))
-  const [showDelivery, setShowDelivery] = useState(false)
   // validation + status
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [touched, setTouched] = useState<Record<string, boolean>>({})
@@ -659,22 +661,25 @@ export function InboxSetupDrawer({
   const teamName = (id: number | null) => teams.find((tm) => tm.id === id)?.name
   const voiceLocked = kind === 'voice' && !isSuper
 
+  /** The masked stored value of a secret field ("" when none / not a secret). */
+  const currentSecret = (f: FieldSpec): string =>
+    (f.secret && saved
+      ? f.key === 'access_token'
+        ? saved.wa?.access_token_masked || saved.msg?.access_token_masked
+        : f.key === 'app_secret'
+          ? saved.wa?.app_secret_masked || saved.msg?.app_secret_masked
+          : f.key === 'password'
+            ? saved.msg?.config?.password_masked
+            : f.key === 'sip_password'
+              ? saved.voice?.sip_password_masked
+              : // the newer channels: `<key>_masked` on the account or in its config
+                saved.msg?.[`${f.key}_masked`] || String(saved.msg?.config?.[`${f.key}_masked`] ?? '')
+    : '') || ''
+
   const renderField = (f: FieldSpec) => {
     const v = creds[f.key] ?? ''
     const err = touched[f.key] ? errors[f.key] : undefined
-    const current =
-      f.secret && saved
-        ? f.key === 'access_token'
-          ? saved.wa?.access_token_masked || saved.msg?.access_token_masked
-          : f.key === 'app_secret'
-            ? saved.wa?.app_secret_masked || saved.msg?.app_secret_masked
-            : f.key === 'password'
-              ? saved.msg?.config?.password_masked
-              : f.key === 'sip_password'
-                ? saved.voice?.sip_password_masked
-                : // the newer channels: `<key>_masked` on the account or in its config
-                  saved.msg?.[`${f.key}_masked`] || String(saved.msg?.config?.[`${f.key}_masked`] ?? '')
-        : ''
+    const current = currentSecret(f)
     return (
       <label key={f.key} className={`block ${f.half ? '' : 'sm:col-span-2'}`}>
         <Label optional={f.optional}>
@@ -709,6 +714,34 @@ export function InboxSetupDrawer({
       </label>
     )
   }
+
+  // Step 2: required fields up front; optional ones (and the email ports + TLS,
+  // which have defaults) under Advanced — except a "one of these" pair (SMS),
+  // where one of the two is needed.
+  const oneOfKeys = (kind && ONE_OF[kind]?.keys) || []
+  const isAdvancedField = (f: FieldSpec) =>
+    (f.optional || f.key === 'port' || f.key === 'imap_port') && !f.recommended && !oneOfKeys.includes(f.key)
+  const basicFields = fields.filter((f) => !isAdvancedField(f))
+  const advancedFields = fields.filter(isAdvancedField)
+  /** An advanced field holding something other than its default (or a stored secret). */
+  const fieldCustomised = (f: FieldSpec) => {
+    const v = (creds[f.key] ?? '').trim()
+    if (kind === 'email' && f.key === 'port') return v !== '' && v !== '587'
+    return v !== '' || !!currentSecret(f)
+  }
+  const connectAdvancedCount =
+    advancedFields.filter(fieldCustomised).length + (kind === 'email' && !tls ? 1 : 0)
+  const connectAdvancedError = advancedFields.some((f) => !!errors[f.key])
+
+  // Step 3: what sits under Advanced, and whether any of it is customised.
+  const deliveryCustomised =
+    delivery.perDay || Object.values(delivery.delivery).some((v) => String(v ?? '').trim() !== '')
+  const whoAdvancedCount =
+    (teamId ? 1 : 0) + (reviewMode ? 1 : 0) + (identify.value.mode ? 1 : 0) + (isWaKind(kind) && deliveryCustomised ? 1 : 0)
+
+  // Step 4: the public-base-URL registration is developer setup; keep it open
+  // once something was typed or registered (never hide a result or an error).
+  const devSetupOpen = tgBase.trim() !== '' || tgResult !== null
 
   // ── step bodies ────────────────────────────────────────────────────────
   const chooseStep = (
@@ -805,16 +838,25 @@ export function InboxSetupDrawer({
         </div>
       )}
 
-      {fields.length > 0 && <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">{fields.map(renderField)}</div>}
+      {basicFields.length > 0 && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">{basicFields.map(renderField)}</div>
+      )}
 
-      {kind === 'email' && (
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5">
-          <span>
-            <span className="block text-[12.5px] font-semibold text-text-high">{t('channels.drawer.useTls')}</span>
-            <span className="block text-[11.5px] text-text-muted">{t('channels.drawer.useTlsHint')}</span>
-          </span>
-          <Toggle on={tls} onChange={setTls} label={t('channels.drawer.useTls')} />
-        </div>
+      {(advancedFields.length > 0 || kind === 'email') && (
+        <Advanced count={connectAdvancedCount} forceOpen={connectAdvancedCount > 0 || connectAdvancedError}>
+          {advancedFields.length > 0 && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">{advancedFields.map(renderField)}</div>
+          )}
+          {kind === 'email' && (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5">
+              <span>
+                <span className="block text-[12.5px] font-semibold text-text-high">{t('channels.drawer.useTls')}</span>
+                <span className="block text-[11.5px] text-text-muted">{t('channels.drawer.useTlsHint')}</span>
+              </span>
+              <Toggle on={tls} onChange={setTls} label={t('channels.drawer.useTls')} />
+            </div>
+          )}
+        </Advanced>
       )}
 
       {GUIDES[kind] && (
@@ -845,7 +887,7 @@ export function InboxSetupDrawer({
     </div>
   )
 
-  const isWa = kind === 'wa_cloud' || kind === 'wa_qr'
+  const isWa = isWaKind(kind)
 
   const whoStep = !kind ? null : kind === 'voice' ? (
     <div className="flex flex-col gap-3 text-[12.5px] leading-relaxed text-text-mid">
@@ -873,25 +915,6 @@ export function InboxSetupDrawer({
         <Label>{t('common.fields.entity')}</Label>
         <EntityPicker value={entity} onChange={setEntity} ariaLabel={t('channels.drawer.who.entityAria')} />
         <Help>{t('channels.drawer.who.entityHelp')}</Help>
-      </label>
-
-      <label className="block">
-        <Label optional>{t('channels.drawer.who.team')}</Label>
-        <Select
-          value={teamId}
-          onChange={setTeamId}
-          size="md"
-          ariaLabel={t('channels.drawer.who.teamAria')}
-          options={[
-            { value: '', label: t('channels.drawer.who.noTeam'), hint: t('channels.drawer.who.noTeamHint') },
-            ...teams.map((tm) => ({
-              value: String(tm.id),
-              label: tm.name,
-              hint: tm.auto_assign === false ? t('channels.drawer.who.noRoundRobin') : undefined,
-            })),
-          ]}
-        />
-        <Help>{teams.length === 0 ? t('channels.drawer.who.noTeams') : t('channels.drawer.who.teamHelp')}</Help>
       </label>
 
       {isWa && (
@@ -935,55 +958,61 @@ export function InboxSetupDrawer({
         </Help>
       </div>
 
-      <div>
-        <Label>{t('channels.drawer.who.review')}</Label>
-        <Select
-          size="md"
-          value={reviewMode}
-          onChange={(v) => setReviewMode(v as ReviewMode)}
-          ariaLabel={t('channels.drawer.who.reviewAria')}
-          options={[
-            { value: '', label: t('channels.drawer.who.reviewInherit'), hint: t('channels.drawer.who.reviewInheritHint') },
-            { value: 'auto', label: t('channels.drawer.who.reviewAuto') },
-            { value: 'review_flagged', label: t('channels.drawer.who.reviewFlagged') },
-            { value: 'review_all', label: t('channels.drawer.who.reviewAll') },
-            { value: 'shadow', label: t('channels.drawer.who.reviewShadow') },
-          ]}
+      <Advanced count={whoAdvancedCount} forceOpen={whoAdvancedCount > 0}>
+        <label className="block">
+          <Label optional>{t('channels.drawer.who.team')}</Label>
+          <Select
+            value={teamId}
+            onChange={setTeamId}
+            size="md"
+            ariaLabel={t('channels.drawer.who.teamAria')}
+            options={[
+              { value: '', label: t('channels.drawer.who.noTeam'), hint: t('channels.drawer.who.noTeamHint') },
+              ...teams.map((tm) => ({
+                value: String(tm.id),
+                label: tm.name,
+                hint: tm.auto_assign === false ? t('channels.drawer.who.noRoundRobin') : undefined,
+              })),
+            ]}
+          />
+          <Help>{teams.length === 0 ? t('channels.drawer.who.noTeams') : t('channels.drawer.who.teamHelp')}</Help>
+        </label>
+
+        <div>
+          <Label>{t('channels.drawer.who.review')}</Label>
+          <Select
+            size="md"
+            value={reviewMode}
+            onChange={(v) => setReviewMode(v as ReviewMode)}
+            ariaLabel={t('channels.drawer.who.reviewAria')}
+            options={[
+              { value: '', label: t('channels.drawer.who.reviewInherit'), hint: t('channels.drawer.who.reviewInheritHint') },
+              { value: 'auto', label: t('channels.drawer.who.reviewAuto') },
+              { value: 'review_flagged', label: t('channels.drawer.who.reviewFlagged') },
+              { value: 'review_all', label: t('channels.drawer.who.reviewAll') },
+              { value: 'shadow', label: t('channels.drawer.who.reviewShadow') },
+            ]}
+          />
+          <Help>{t('channels.drawer.who.reviewHelp')}</Help>
+        </div>
+
+        <UnknownCustomersField
+          value={identify.value}
+          onChange={identify.setValue}
+          defaults={identify.defaults}
+          inherited={identify.inherited}
         />
-        <Help>{t('channels.drawer.who.reviewHelp')}</Help>
-      </div>
 
-      <UnknownCustomersField
-        value={identify.value}
-        onChange={identify.setValue}
-        defaults={identify.defaults}
-        inherited={identify.inherited}
-      />
-
-      {isWa && (
-        <div className="rounded-lg border border-line">
-          <button
-            type="button"
-            onClick={() => setShowDelivery((v) => !v)}
-            aria-expanded={showDelivery}
-            className="flex w-full cursor-pointer items-center gap-2 px-3 py-2.5 text-left"
-          >
-            <ChevronDown
-              size={14}
-              aria-hidden
-              className="shrink-0 text-text-muted transition-transform"
-              style={{ transform: showDelivery ? 'none' : 'rotate(-90deg)' }}
-            />
-            <span className="text-[12.5px] font-semibold text-text-high">{t('channels.drawer.who.delivery')}</span>
-            <span className="truncate text-[11.5px] text-text-muted">{t('channels.drawer.who.deliveryHint')}</span>
-          </button>
-          {showDelivery && (
-            <div className="border-t border-line px-3 py-3">
+        {isWa && (
+          <div>
+            <Label>{t('channels.drawer.who.delivery')}</Label>
+            <Help>{t('channels.drawer.who.deliveryHint')}</Help>
+            <div className="mt-2">
               <DeliveryEditor value={delivery} onChange={setDelivery} />
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        )}
+      </Advanced>
     </div>
   )
 
@@ -1071,20 +1100,22 @@ export function InboxSetupDrawer({
                   }}
                 />
               </p>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <input
-                  className={inputCls}
-                  inputMode="url"
-                  value={tgBase}
-                  onChange={(e) => setTgBase(e.target.value)}
-                  placeholder="https://your-tunnel.example.com"
-                  aria-label={t('channels.drawer.test.publicBaseUrl')}
-                />
-                <Button variant="secondary" onClick={registerTelegram} className="shrink-0">
-                  <Webhook size={13} aria-hidden /> {t('channels.drawer.test.register')}
-                </Button>
-              </div>
-              {tgResult && <ResultLine result={tgResult} />}
+              <Advanced label={t('channels.drawer.developerSetup')} forceOpen={devSetupOpen}>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    className={inputCls}
+                    inputMode="url"
+                    value={tgBase}
+                    onChange={(e) => setTgBase(e.target.value)}
+                    placeholder="https://your-tunnel.example.com"
+                    aria-label={t('channels.drawer.test.publicBaseUrl')}
+                  />
+                  <Button variant="secondary" onClick={registerTelegram} className="shrink-0">
+                    <Webhook size={13} aria-hidden /> {t('channels.drawer.test.register')}
+                  </Button>
+                </div>
+                {tgResult && <ResultLine result={tgResult} />}
+              </Advanced>
             </Section>
           )}
 
@@ -1098,7 +1129,7 @@ export function InboxSetupDrawer({
                 <p className="text-[11.5px] leading-relaxed text-text-muted">{t('channels.drawer.test.wechatNote')}</p>
               )}
               {saved.msg.can_set_webhook && (
-                <>
+                <Advanced label={t('channels.drawer.developerSetup')} forceOpen={devSetupOpen}>
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <input
                       className={inputCls}
@@ -1113,7 +1144,7 @@ export function InboxSetupDrawer({
                     </Button>
                   </div>
                   {tgResult && <ResultLine result={tgResult} />}
-                </>
+                </Advanced>
               )}
               {saved.msg.window_hours ? (
                 <p className="text-[11.5px] leading-relaxed text-text-muted">
@@ -1176,9 +1207,11 @@ export function InboxSetupDrawer({
                   />
                 </li>
               </ol>
-              <CopyRow label={t('channels.drawer.test.trunkSetup')} value="npm --prefix backend/voice_agent run setup-trunk" />
-              <p className="text-[12.5px] leading-relaxed text-text-mid">{t('channels.drawer.test.agentThen')}</p>
-              <CopyRow label={t('channels.drawer.test.runWorker')} value="npm run dev:agent" />
+              <Advanced label={t('channels.drawer.developerSetup')}>
+                <CopyRow label={t('channels.drawer.test.trunkSetup')} value="npm --prefix backend/voice_agent run setup-trunk" />
+                <p className="text-[12.5px] leading-relaxed text-text-mid">{t('channels.drawer.test.agentThen')}</p>
+                <CopyRow label={t('channels.drawer.test.runWorker')} value="npm run dev:agent" />
+              </Advanced>
             </Section>
           )}
         </>

@@ -144,7 +144,7 @@ export function TagsManager() {
 
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-2">
-        <div role="tablist" aria-label={t('admin.tags.manager.show')} className="flex flex-wrap rounded-lg border border-line-strong bg-card p-0.5">
+        <div data-tour="tags-kinds" role="tablist" aria-label={t('admin.tags.manager.show')} className="flex flex-wrap rounded-lg border border-line-strong bg-card p-0.5">
           {(['all', ...KINDS] as Filter[]).map((k) => (
             <button
               key={k}
@@ -171,7 +171,7 @@ export function TagsManager() {
           />
         </label>
         {canManage && (
-          <Button onClick={() => setCreating(filter === 'all' ? 'contact' : filter)}>
+          <Button data-tour="tags-new" onClick={() => setCreating(filter === 'all' ? 'contact' : filter)}>
             <Plus size={14} aria-hidden /> {t('admin.tags.manager.newTag')}
           </Button>
         )}
@@ -268,7 +268,7 @@ function KindSection({
   }, [tags])
 
   return (
-    <section aria-labelledby={`tags-${kind}`} className="flex flex-col gap-3">
+    <section data-tour="tags-section" aria-labelledby={`tags-${kind}`} className="flex flex-col gap-3">
       <div className="flex flex-wrap items-end justify-between gap-2 border-b border-line pb-2">
         <div className="min-w-0">
           <h2 id={`tags-${kind}`} className="display text-[22px] leading-tight text-text-heading">
@@ -388,7 +388,7 @@ function TagRow({
       <span className="truncate text-[12px] text-text-mid" title={tag.entity_name || t('admin.bindings.orgWide')}>
         {tag.entity_name || t('admin.bindings.orgWide')}
       </span>
-      <div className="flex shrink-0 items-center gap-1 md:justify-end">
+      <div data-tour="tags-row-actions" className="flex shrink-0 items-center gap-1 md:justify-end">
         {tag.applies_to === 'conversation' ? (
           <Link
             href="/chats"

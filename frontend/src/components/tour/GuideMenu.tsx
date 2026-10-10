@@ -1,20 +1,25 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { BookOpenText, CircleHelp, Compass, PlayCircle } from 'lucide-react'
+import { BookOpenText, CircleHelp, Compass, ListChecks, PlayCircle } from 'lucide-react'
+import { usePathname } from 'next/navigation'
 import { Toggle } from '@/components/ui/Toggle'
 import { getAuth } from '@/lib/auth'
 import { setToursAuto, toursAuto, tourKey } from '@/lib/tours'
+import { guideKey, guidesFor } from '@/lib/guides'
 import { useT } from '@/i18n'
 import { useTour } from './TourProvider'
 
 /**
- * The top bar's Guide button: replay this page's guide, take the tour of the
- * app, open the manual, or stop guides from starting by themselves.
+ * The top bar's Guide button: replay this page's guide, open the step-by-step
+ * how-to guides done on this page, take the tour of the app, open the manual,
+ * or stop guides from starting by themselves.
  */
 export function GuideMenu() {
   const t = useT()
   const { pageTour, start } = useTour()
+  const pathname = usePathname() || '/'
+  const howTos = guidesFor(pathname).slice(0, 6)
   const [open, setOpen] = useState(false)
   const [auto, setAuto] = useState(true)
   const ref = useRef<HTMLDivElement>(null)
@@ -56,7 +61,7 @@ export function GuideMenu() {
         <CircleHelp size={18} strokeWidth={1.7} aria-hidden />
       </button>
       {open && (
-        <div className="absolute right-0 top-[calc(100%+6px)] z-[60] w-[280px] rounded-xl border border-line-strong bg-card p-1.5 shadow-pop">
+        <div className="absolute right-0 top-[calc(100%+6px)] z-[60] w-[300px] rounded-xl border border-line-strong bg-card p-1.5 shadow-pop">
           {pageTour && (
             <button
               type="button"
@@ -72,6 +77,26 @@ export function GuideMenu() {
                 <span className="block truncate text-[11.5px] text-text-muted">{t(tourKey(pageTour.id, 'title'))}</span>
               </span>
             </button>
+          )}
+          {howTos.length > 0 && (
+            <div className="my-1 border-y border-line py-1">
+              <div className="px-2.5 pb-1 pt-1.5 text-[10.5px] font-bold uppercase tracking-[0.06em] text-text-muted">
+                {t('manual.ui.forThisPage')}
+              </div>
+              {howTos.map((g) => (
+                <a
+                  key={g.id}
+                  href={`/help/manual#${g.id}`}
+                  target="_blank"
+                  rel="noopener"
+                  className={item}
+                  onClick={() => setOpen(false)}
+                >
+                  <ListChecks size={15} className="shrink-0 text-text-muted" aria-hidden />
+                  <span className="min-w-0 truncate">{t(guideKey(g.id, 'title'))}</span>
+                </a>
+              ))}
+            </div>
           )}
           <button
             type="button"

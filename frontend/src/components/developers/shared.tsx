@@ -150,14 +150,17 @@ export function Section({
   description,
   actions,
   children,
+  'data-tour': tour,
 }: {
   title: string
   description?: ReactNode
   actions?: ReactNode
   children: ReactNode
+  /** A page-guide target (lib/tours.ts). */
+  'data-tour'?: string
 }) {
   return (
-    <section className="rounded-xl border border-line bg-card">
+    <section data-tour={tour} className="rounded-xl border border-line bg-card">
       <header className="flex flex-wrap items-start gap-3 border-b border-line px-4 py-3.5 sm:px-5">
         <div className="min-w-[min(100%,260px)] flex-1">
           <h2 className="display text-[19px] leading-tight text-text-heading">{title}</h2>

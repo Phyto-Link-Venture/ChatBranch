@@ -154,6 +154,7 @@ export function ApiKeysCard({ onCreated }: { onCreated: (token: string) => void 
 
   return (
     <Section
+      data-tour="dev-keys"
       title={t('admin.developers.keys.title')}
       description={
         <Trans
@@ -178,7 +179,7 @@ export function ApiKeysCard({ onCreated }: { onCreated: (token: string) => void 
             />
           )}
           {data?.can_create && (
-            <Button size="sm" onClick={openCreate}>
+            <Button data-tour="dev-create-key" size="sm" onClick={openCreate}>
               <Plus size={13} aria-hidden /> {t('admin.developers.keys.create')}
             </Button>
           )}

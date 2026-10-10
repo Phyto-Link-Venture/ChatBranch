@@ -121,6 +121,7 @@ export default function ChatListPane({
             )}
           </label>
           <button
+            data-tour="chats-filter"
             type="button"
             onClick={onOpenFilters}
             className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 text-[13px] font-semibold text-on-primary transition-opacity hover:opacity-90"

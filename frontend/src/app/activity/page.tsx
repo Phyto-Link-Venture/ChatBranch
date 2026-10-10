@@ -324,7 +324,7 @@ export default function ActivityPage() {
             >
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} aria-hidden /> {t('common.actions.refresh')}
             </Button>
-            <Button variant="secondary" size="sm" onClick={exportCsv} disabled={exporting || !data?.total}>
+            <Button data-tour="activity-export" variant="secondary" size="sm" onClick={exportCsv} disabled={exporting || !data?.total}>
               {exporting ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Download size={13} aria-hidden />}
               {t('review.activity.exportCsv')}
             </Button>
@@ -333,9 +333,9 @@ export default function ActivityPage() {
       />
 
       {/* ---- filters ------------------------------------------------------ */}
-      <section className="flex flex-col gap-3 rounded-xl border border-line bg-card p-3 sm:p-4" aria-label={t('review.activity.filters')}>
+      <section data-tour="activity-filters" className="flex flex-col gap-3 rounded-xl border border-line bg-card p-3 sm:p-4" aria-label={t('review.activity.filters')}>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex flex-wrap gap-1 rounded-lg bg-well p-0.5" role="group" aria-label={t('review.activity.timeRange')}>
+          <div data-tour="activity-range" className="flex flex-wrap gap-1 rounded-lg bg-well p-0.5" role="group" aria-label={t('review.activity.timeRange')}>
             {PRESETS.map((p) => (
               <button
                 key={p.id}
@@ -469,7 +469,7 @@ export default function ActivityPage() {
             : t('review.activity.unavailable', { error })}
         </div>
       ) : (
-        <section className="overflow-hidden rounded-xl border border-line bg-card" aria-label={t('review.activity.entriesAria')}>
+        <section data-tour="activity-entries" className="overflow-hidden rounded-xl border border-line bg-card" aria-label={t('review.activity.entriesAria')}>
           <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-4 py-2.5">
             <span className="text-[12.5px] text-text-muted">
               {data

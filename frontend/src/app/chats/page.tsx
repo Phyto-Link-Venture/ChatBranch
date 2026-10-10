@@ -1412,7 +1412,7 @@ function ChatsPage() {
                           : 'border-line bg-card text-text-muted'
                       }`}
                     >
-                      AI
+                      {t('chats.page.aiLabel')}
                       <span
                         className={`relative inline-flex h-3.5 w-6 items-center rounded-full transition-colors ${
                           active.ai_enabled && !optedOut ? 'bg-primary' : 'bg-fill-hover'
@@ -1426,6 +1426,15 @@ function ChatsPage() {
                         />
                       </span>
                     </button>
+                  )}
+                  {/* the AI only answers chats linked to a contact — say so instead of looking broken */}
+                  {active.channel !== 'email' && active.ai_enabled && !optedOut && !active.contact_id && (
+                    <span
+                      title={t('chats.page.aiNeedsContactHint')}
+                      className="inline-flex h-8 shrink-0 items-center rounded-full border border-line px-2.5 text-[11px] font-semibold text-[var(--amber-ink)]"
+                    >
+                      {t('chats.page.aiNeedsContact')}
+                    </span>
                   )}
                   {callPill && (
                     <span

@@ -315,7 +315,7 @@ export default function BookingsPage() {
       ) : (
         <div className="flex flex-col gap-4 pb-10">
           <div className="-mx-1 overflow-x-auto px-1">
-            <div role="tablist" aria-label={t('shell.nav.bookings')} className="flex min-w-max gap-5 border-b border-line">
+            <div data-tour="bookings-tabs" role="tablist" aria-label={t('shell.nav.bookings')} className="flex min-w-max gap-5 border-b border-line">
               {TABS.map((x) => {
                 const active = tab === x.id
                 return (
@@ -370,6 +370,7 @@ export default function BookingsPage() {
             </div>
           ) : (
             <DataTable
+              data-tour="bookings-table"
               key={tab}
               columns={columns}
               rows={visible}
@@ -394,7 +395,7 @@ export default function BookingsPage() {
                     ariaLabel={t('bookings.page.calendarAria')}
                     className="w-[148px] sm:w-[170px]"
                   />
-                  <Button variant="ghost" size="sm" onClick={() => void load()} disabled={loading} aria-label={t('common.actions.refresh')}>
+                  <Button data-tour="bookings-refresh" variant="ghost" size="sm" onClick={() => void load()} disabled={loading} aria-label={t('common.actions.refresh')}>
                     <RefreshCw size={13} className={loading ? 'animate-spin' : ''} aria-hidden />
                   </Button>
                 </>

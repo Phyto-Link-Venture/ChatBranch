@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { AlertCircle, CalendarCheck, CalendarSearch, Clock, Info, Loader2, Plus, X } from 'lucide-react'
+import { Advanced } from '@/components/ui/Advanced'
 import { Button } from '@/components/ui/Button'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { Select, type SelectOption } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
 import {
+  CALENDAR_DEFAULTS,
   WEEKDAYS,
   actionLabel,
   calendarTargetLabel,
@@ -198,6 +200,23 @@ export function AppSkillForm({
       : []),
   ]
 
+  // What sits under Advanced, counted when it differs from the app's defaults
+  // (the server's when known) — those sections then open by themselves.
+  const defs = { ...CALENDAR_DEFAULTS, ...app.defaults }
+  const calendarCustom = [c.calendar !== defs.calendar, (c.calendar_id || 'primary') !== (defs.calendar_id || 'primary')].filter(
+    Boolean,
+  ).length
+  const rulesCustom = [
+    c.slot_step_minutes !== c.duration_minutes && c.slot_step_minutes !== defs.slot_step_minutes,
+    c.buffer_minutes !== defs.buffer_minutes,
+    c.min_notice_minutes !== defs.min_notice_minutes,
+    c.max_days_ahead !== defs.max_days_ahead,
+    c.max_active_per_contact !== defs.max_active_per_contact,
+    // an empty title is an error — never hide it
+    !c.event_title.trim() || c.event_title !== defs.event_title,
+    c.event_description !== defs.event_description,
+  ].filter(Boolean).length
+
   return (
     <div className="flex flex-col gap-6">
       {/* ---- calendar source ---------------------------------------------------- */}
@@ -251,27 +270,29 @@ export function AppSkillForm({
         </div>
 
         {c.source === 'google' && (
-          <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_200px]">
-            <Field label={t('ai.app.whoseCalendar')}>
-              <Select
-                value={c.calendar}
-                disabled={readOnly}
-                onChange={(v) => set({ calendar: v })}
-                options={calendarOptions}
-                size="md"
-                ariaLabel={t('ai.app.whoseCalendar')}
-              />
-            </Field>
-            <Field label={t('ai.app.calendarId')} hint={t('ai.app.calendarIdHint')}>
-              <input
-                value={c.calendar_id}
-                disabled={readOnly}
-                onChange={(e) => set({ calendar_id: e.target.value })}
-                placeholder="primary"
-                className={input}
-              />
-            </Field>
-          </div>
+          <Advanced className="mt-3" count={calendarCustom} forceOpen={calendarCustom > 0}>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_200px]">
+              <Field label={t('ai.app.whoseCalendar')}>
+                <Select
+                  value={c.calendar}
+                  disabled={readOnly}
+                  onChange={(v) => set({ calendar: v })}
+                  options={calendarOptions}
+                  size="md"
+                  ariaLabel={t('ai.app.whoseCalendar')}
+                />
+              </Field>
+              <Field label={t('ai.app.calendarId')} hint={t('ai.app.calendarIdHint')}>
+                <input
+                  value={c.calendar_id}
+                  disabled={readOnly}
+                  onChange={(e) => set({ calendar_id: e.target.value })}
+                  placeholder="primary"
+                  className={input}
+                />
+              </Field>
+            </div>
+          </Advanced>
         )}
         {c.source === 'google' && c.calendar === 'assignee' && (
           <p className="mt-2 text-[11.5px] leading-snug text-text-muted">
@@ -444,62 +465,66 @@ export function AppSkillForm({
               })
             }
           />
-          <NumField
-            label={t('ai.app.startEvery')}
-            suffix={t('ai.units.min')}
-            value={c.slot_step_minutes}
-            min={5}
-            max={480}
-            disabled={readOnly}
-            hint={t('ai.app.startHint')}
-            onChange={(v) => set({ slot_step_minutes: v })}
-          />
-          <NumField
-            label={t('ai.app.buffer')}
-            suffix={t('ai.units.min')}
-            value={c.buffer_minutes}
-            min={0}
-            max={240}
-            disabled={readOnly}
-            onChange={(v) => set({ buffer_minutes: v })}
-          />
-          <NoticeField value={c.min_notice_minutes} disabled={readOnly} onChange={(v) => set({ min_notice_minutes: v })} />
-          <NumField
-            label={t('ai.app.bookUpTo')}
-            suffix={t('ai.app.daysAhead')}
-            value={c.max_days_ahead}
-            min={1}
-            max={90}
-            disabled={readOnly}
-            onChange={(v) => set({ max_days_ahead: v })}
-          />
-          <NumField
-            label={t('ai.app.perCustomer')}
-            value={c.max_active_per_contact}
-            min={1}
-            max={20}
-            disabled={readOnly}
-            hint={t('ai.app.perCustomerHint')}
-            onChange={(v) => set({ max_active_per_contact: v })}
-          />
         </div>
-      </Section>
-
-      {/* ---- the event ------------------------------------------------------------- */}
-      <Section title={t('ai.app.event')}>
-        <EventTitleField value={c.event_title} disabled={readOnly} onChange={(v) => set({ event_title: v })} />
-        <div className="mt-3">
-          <Field label={t('ai.app.eventNotes')} hint={t('ai.app.eventNotesHint')}>
-            <textarea
-              rows={2}
-              value={c.event_description}
+        {/* the rest has working defaults; the event is part of it */}
+        <Advanced className="mt-3" count={rulesCustom} forceOpen={rulesCustom > 0}>
+          <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+            <NumField
+              label={t('ai.app.startEvery')}
+              suffix={t('ai.units.min')}
+              value={c.slot_step_minutes}
+              min={5}
+              max={480}
               disabled={readOnly}
-              onChange={(e) => set({ event_description: e.target.value })}
-              placeholder={t('ai.app.eventNotesPlaceholder')}
-              className={`${input} resize-y leading-[1.55]`}
+              hint={t('ai.app.startHint')}
+              onChange={(v) => set({ slot_step_minutes: v })}
             />
-          </Field>
-        </div>
+            <NumField
+              label={t('ai.app.buffer')}
+              suffix={t('ai.units.min')}
+              value={c.buffer_minutes}
+              min={0}
+              max={240}
+              disabled={readOnly}
+              onChange={(v) => set({ buffer_minutes: v })}
+            />
+            <NoticeField value={c.min_notice_minutes} disabled={readOnly} onChange={(v) => set({ min_notice_minutes: v })} />
+            <NumField
+              label={t('ai.app.bookUpTo')}
+              suffix={t('ai.app.daysAhead')}
+              value={c.max_days_ahead}
+              min={1}
+              max={90}
+              disabled={readOnly}
+              onChange={(v) => set({ max_days_ahead: v })}
+            />
+            <NumField
+              label={t('ai.app.perCustomer')}
+              value={c.max_active_per_contact}
+              min={1}
+              max={20}
+              disabled={readOnly}
+              hint={t('ai.app.perCustomerHint')}
+              onChange={(v) => set({ max_active_per_contact: v })}
+            />
+          </div>
+          <div className="border-t border-line pt-4">
+            <h3 className="eyebrow mb-2.5">{t('ai.app.event')}</h3>
+            <EventTitleField value={c.event_title} disabled={readOnly} onChange={(v) => set({ event_title: v })} />
+            <div className="mt-3">
+              <Field label={t('ai.app.eventNotes')} hint={t('ai.app.eventNotesHint')}>
+                <textarea
+                  rows={2}
+                  value={c.event_description}
+                  disabled={readOnly}
+                  onChange={(e) => set({ event_description: e.target.value })}
+                  placeholder={t('ai.app.eventNotesPlaceholder')}
+                  className={`${input} resize-y leading-[1.55]`}
+                />
+              </Field>
+            </div>
+          </div>
+        </Advanced>
       </Section>
 
       <AvailabilityPreview config={c} />

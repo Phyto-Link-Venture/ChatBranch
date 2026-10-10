@@ -19,6 +19,7 @@ import {
   Wrench,
   XCircle,
 } from 'lucide-react'
+import { Advanced } from '@/components/ui/Advanced'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { MultiSelect, Select } from '@/components/ui/Select'
@@ -511,6 +512,78 @@ export function SkillWizard({
     )
   })()
 
+  // Review-step fields that move between the essentials and Advanced by kind.
+  const kindField = form && (
+    <Field label={t('ai.common.kind')}>
+      {form.kind === 'app' ? (
+        // an app skill holds settings, not code — it can't become another kind
+        <div className="flex h-[38px] items-center gap-2 rounded-lg border border-line bg-fill-subtle px-3 text-[13px] text-text-high">
+          <CalendarClock size={14} className="shrink-0 text-text-muted" aria-hidden />
+          <span className="truncate">
+            {t(KIND_META.app.label)} · <span className="text-text-muted">{appLabel(calendarApp(apps.list), t)}</span>
+          </span>
+        </div>
+      ) : (
+        <Select
+          value={form.kind}
+          disabled={readOnly}
+          onChange={(v) => {
+            const next = v as SkillKind
+            const cur = form.kind
+            if (next === cur) return
+            // tool ↔ check: carry the test cases across in the new shape
+            const carried =
+              isCodeKind(cur) && isCodeKind(next) ? testsToRows(next, rowsToTests(cur, form.rows, t).tests) : form.rows
+            patch({ kind: next, rows: isCodeKind(next) ? carried : [] })
+          }}
+          size="md"
+          ariaLabel={t('ai.common.kind')}
+          options={(['prompt', 'tool', 'check'] as SkillKind[]).map((k) => ({
+            value: k,
+            label: t(KIND_META[k].label),
+            hint: k === 'prompt' ? t('ai.wizard.noCode') : undefined,
+          }))}
+        />
+      )}
+    </Field>
+  )
+  const channelsField = form && (
+    <Field label={t('ai.common.channels')}>
+      <MultiSelect
+        value={form.channels}
+        disabled={readOnly}
+        onChange={(channels) => patch({ channels })}
+        options={channelOptions(t)}
+        placeholder={t('ai.common.allChannels')}
+        size="md"
+        ariaLabel={t('ai.common.channels')}
+      />
+    </Field>
+  )
+  const argsField = form && (
+    <Field label={t('ai.wizard.args')} hint={t('ai.wizard.argsHint')}>
+      <CodeEditor
+        value={form.params}
+        readOnly={readOnly}
+        minRows={4}
+        maxRows={12}
+        ariaLabel={t('ai.wizard.argsAria')}
+        onChange={(v) => patch({ params: v })}
+      />
+    </Field>
+  )
+  const testsField = form && (
+    <Field label={t('ai.wizard.testCases')}>
+      <TestCasesEditor
+        kind={form.kind === 'check' ? 'check' : 'tool'}
+        rows={form.rows}
+        readOnly={readOnly}
+        results={stale ? null : run?.results}
+        onChange={(rows) => patch({ rows })}
+      />
+    </Field>
+  )
+
   return (
     <Modal open onClose={onClose} title={title} subtitle={subtitle[step]} size="xl" closeOnScrim={false} footer={footer}>
       {error && (
@@ -642,38 +715,7 @@ export function SkillWizard({
                 </span>
               )}
             </Field>
-            <Field label={t('ai.common.kind')}>
-              {form.kind === 'app' ? (
-                // an app skill holds settings, not code — it can't become another kind
-                <div className="flex h-[38px] items-center gap-2 rounded-lg border border-line bg-fill-subtle px-3 text-[13px] text-text-high">
-                  <CalendarClock size={14} className="shrink-0 text-text-muted" aria-hidden />
-                  <span className="truncate">
-                    {t(KIND_META.app.label)} · <span className="text-text-muted">{appLabel(calendarApp(apps.list), t)}</span>
-                  </span>
-                </div>
-              ) : (
-                <Select
-                  value={form.kind}
-                  disabled={readOnly}
-                  onChange={(v) => {
-                    const next = v as SkillKind
-                    const cur = form.kind
-                    if (next === cur) return
-                    // tool ↔ check: carry the test cases across in the new shape
-                    const carried =
-                      isCodeKind(cur) && isCodeKind(next) ? testsToRows(next, rowsToTests(cur, form.rows, t).tests) : form.rows
-                    patch({ kind: next, rows: isCodeKind(next) ? carried : [] })
-                  }}
-                  size="md"
-                  ariaLabel={t('ai.common.kind')}
-                  options={(['prompt', 'tool', 'check'] as SkillKind[]).map((k) => ({
-                    value: k,
-                    label: t(KIND_META[k].label),
-                    hint: k === 'prompt' ? t('ai.wizard.noCode') : undefined,
-                  }))}
-                />
-              )}
-            </Field>
+            {isCodeKind(form.kind) && kindField}
             <Field label={t('ai.wizard.useWhen')} hint={t('ai.wizard.useWhenHint')}>
               <input
                 value={form.useWhen}
@@ -747,18 +789,6 @@ export function SkillWizard({
                   ariaLabel={t('ai.wizard.codeAria')}
                 />
               </Field>
-              {form.kind === 'tool' && (
-                <Field label={t('ai.wizard.args')} hint={t('ai.wizard.argsHint')}>
-                  <CodeEditor
-                    value={form.params}
-                    readOnly={readOnly}
-                    minRows={4}
-                    maxRows={12}
-                    ariaLabel={t('ai.wizard.argsAria')}
-                    onChange={(v) => patch({ params: v })}
-                  />
-                </Field>
-              )}
               {form.kind === 'check' && (
                 <Field label={t('ai.wizard.whenFails')}>
                   <Select
@@ -771,32 +801,12 @@ export function SkillWizard({
                   />
                 </Field>
               )}
-              <Field label={t('ai.wizard.testCases')}>
-                <TestCasesEditor
-                  kind={form.kind === 'check' ? 'check' : 'tool'}
-                  rows={form.rows}
-                  readOnly={readOnly}
-                  results={stale ? null : run?.results}
-                  onChange={(rows) => patch({ rows })}
-                />
-              </Field>
             </>
           )}
 
-          <div className="grid grid-cols-1 gap-4 border-t border-line pt-4 md:grid-cols-[1fr_1fr_auto]">
+          <div className="grid grid-cols-1 gap-4 border-t border-line pt-4 md:grid-cols-[1fr_auto]">
             <Field label={t('ai.wizard.whoUses')}>
               <EntityPicker value={form.scope} disabled={readOnly} onChange={(scope) => patch({ scope })} />
-            </Field>
-            <Field label={t('ai.common.channels')}>
-              <MultiSelect
-                value={form.channels}
-                disabled={readOnly}
-                onChange={(channels) => patch({ channels })}
-                options={channelOptions(t)}
-                placeholder={t('ai.common.allChannels')}
-                size="md"
-                ariaLabel={t('ai.common.channels')}
-              />
             </Field>
             {!isCodeKind(form.kind) && (
               <Field label={t('common.status.active')}>
@@ -814,6 +824,19 @@ export function SkillWizard({
               </Field>
             )}
           </div>
+
+          {isCodeKind(form.kind) ? (
+            <Advanced key="code" forceOpen>
+              {form.kind === 'tool' && argsField}
+              {testsField}
+              {channelsField}
+            </Advanced>
+          ) : (
+            <Advanced key="plain" count={form.channels.length ? 1 : 0} forceOpen={form.channels.length > 0}>
+              {kindField}
+              {channelsField}
+            </Advanced>
+          )}
         </div>
       )}
 

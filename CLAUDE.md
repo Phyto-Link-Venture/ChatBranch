@@ -1028,7 +1028,24 @@ When you fix one of these, update this table, `README.md` and
   Download HTML (one self-contained file in the reader's language) and an
   iframe embed snippet (`?embed=1` drops the chrome). A new page = a `TOURS`
   entry + its `guide.tours.<id>` words in 3 locales + `data-tour` targets
-  (`PageHeader` carries `page-header`; `Card` forwards `data-tour`).
+  (`PageHeader` carries `page-header`; `Card`, `DataTable` and `Advanced`
+  forward `data-tour`). Every sidebar page has a tour. **Step-by-step guides**
+  (the manual's "baby guide" half) are data in `lib/guides/<group>.ts` (start ·
+  channels · work · ai · automate · admin; `GuideDef` = href, tour, step / tip
+  counts, before / trouble, who) with words in the `manual` namespace
+  (`i18n/messages/<locale>/manual/<group>.ts`, keys in `lib/guides/types.ts`);
+  troubleshooting + glossary ids in `lib/guides/help.ts`; `QUICK_START` is the
+  "Your first day" checklist. `/help/manual` renders them all with a search box,
+  and the Guide menu lists the guides done on the current page (`guidesFor`). A
+  UI change that renames a button or moves a field = update the guide that
+  quotes it.
+- **Simple first, Advanced on click.** A form, drawer or settings card shows
+  only what a first-time user needs; everything else sits in
+  `components/ui/Advanced.tsx` ("Advanced settings", closed by default, `count`
+  of customised values, `forceOpen` when a value inside is non-default or has an
+  error — never hide a problem). A moved field must have a working default; a
+  field that is optional to save but breaks things when empty (Meta's app
+  secret) stays up front (`FieldSpec.recommended`).
 - **`src/lib/AppContext.tsx`** holds shared state + the real-call seams. API
   base = `NEXT_PUBLIC_API_URL` (default `http://localhost:8090/api` in
   `next.config.js` and `frontend/.env.example` — no longer the Django-era 8000;

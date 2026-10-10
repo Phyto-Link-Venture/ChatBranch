@@ -107,6 +107,7 @@ export const chats: Dict<typeof source> = {
     unknown_customer: 'Pelanggan tidak dikenali',
   },
   filterModal: {
+    more: 'Lagi',
     title: 'Tapis perbualan',
     matches_one: '{count} padanan',
     matches_other: '{count} padanan',
@@ -407,6 +408,9 @@ export const chats: Dict<typeof source> = {
     backAria: 'Kembali ke perbualan',
     optedOutHint: 'Pelanggan telah menarik diri daripada menerima mesej — penghantaran memerlukan pengatasan manual',
     via: 'melalui {name}',
+    aiLabel: 'AI',
+    aiNeedsContact: 'AI menunggu kenalan',
+    aiNeedsContactHint: 'AI hanya menjawab perbualan yang dipautkan kepada kenalan. Pautkan perbualan ini kepada kenalan (atau cipta kenalan) dalam panel butiran, dan AI akan mula membalas.',
     aiOptedOut: 'Pelanggan telah menarik diri — AI dinyahdayakan',
     turnAiOff: 'Matikan AI',
     turnAiOn: 'Hidupkan AI',

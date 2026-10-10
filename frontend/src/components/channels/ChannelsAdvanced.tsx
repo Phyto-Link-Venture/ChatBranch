@@ -258,7 +258,7 @@ export function ChannelsAdvanced({ verifyToken, isSuper }: { verifyToken: string
   const t = useT()
   const [open, setOpen] = useState(false)
   return (
-    <section className="rounded-xl border border-line bg-card">
+    <section data-tour="channels-advanced" className="rounded-xl border border-line bg-card">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

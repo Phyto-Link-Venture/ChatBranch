@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { MultiSelect, Select, type SelectOption } from '@/components/ui/Select'
 import { EntityMultiPicker } from '@/components/ui/EntityPicker'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
+import { Advanced } from '@/components/ui/Advanced'
 import { useTags } from '@/lib/tags'
 import { HANDOVER_KINDS } from '@/lib/aiControls'
 import { useT } from '@/i18n'
@@ -218,6 +219,21 @@ export default function ChatFilterModal({
 
   const set = (patch: Partial<InboxFilters>) => setDraft((d) => ({ ...d, ...patch }))
 
+  // How many of the tucked-away filters are set — opens "Advanced" so a
+  // saved view's team / entity / handover filter is never hidden.
+  const advancedCount = [
+    draft.teams.length > 0,
+    draft.entities !== null,
+    draft.accounts.length > 0,
+    draft.tags.length > 0,
+    draft.created.preset !== '',
+    draft.call !== '',
+    draft.linked !== '',
+    draft.sort !== 'newest',
+    draft.handover !== '',
+    draft.handoverKinds.length > 0,
+  ].filter(Boolean).length
+
   const accountOptions: SelectOption[] = [
     ...accounts.map((a) => ({
       value: a.id,
@@ -375,50 +391,6 @@ export default function ChatFilterModal({
           />
         </Field>
 
-        <Field label={t('chats.filterModal.team')}>
-          <MultiSelect
-            value={draft.teams}
-            onChange={(v) => set({ teams: v })}
-            options={teamOptions}
-            placeholder={t('chats.filterModal.anyTeam')}
-            size="md"
-            ariaLabel={t('chats.filterModal.team')}
-          />
-        </Field>
-
-        <Field
-          label={t('common.fields.entity')}
-          aside={
-            draft.entities !== null && (
-              <button
-                type="button"
-                onClick={() => set({ entities: null })}
-                className="text-[11.5px] font-semibold text-text-muted hover:text-text-high"
-              >
-                {t('chats.filterModal.followTopBar')}
-              </button>
-            )
-          }
-        >
-          <EntityMultiPicker
-            value={draft.entities ?? topEntities}
-            onChange={(slugs) => set({ entities: slugs })}
-            placeholder={t('chats.filterModal.allEntities')}
-            ariaLabel={t('common.fields.entity')}
-          />
-        </Field>
-
-        <Field label={t('chats.filterModal.account')}>
-          <MultiSelect
-            value={draft.accounts}
-            onChange={(v) => set({ accounts: v })}
-            options={accountOptions}
-            placeholder={t('chats.filterModal.anyAccount')}
-            size="md"
-            ariaLabel={t('chats.filterModal.accountAria')}
-          />
-        </Field>
-
         <Field
           label={t('chats.filterModal.labels')}
           aside={
@@ -449,20 +421,7 @@ export default function ChatFilterModal({
           />
         </Field>
 
-        <Field label={t('chats.filterModal.contactTags')}>
-          <MultiSelect
-            value={draft.tags}
-            onChange={(v) => set({ tags: v })}
-            options={tagOptions}
-            placeholder={t(tagOptions.length ? 'chats.filterModal.anyTag' : 'chats.filterModal.noContactTags')}
-            size="md"
-            ariaLabel={t('chats.filterModal.contactTags')}
-            searchable
-          />
-        </Field>
-
         <DateRangeField label={t('chats.filterModal.lastActivity')} value={draft.active} onChange={(r) => set({ active: r })} />
-        <DateRangeField label={t('common.fields.created')} value={draft.created} onChange={(r) => set({ created: r })} />
 
         <Field label={t('chats.filterModal.state')} wide>
           <label className="flex cursor-pointer items-center gap-2 text-[13px] text-text-high">
@@ -505,65 +464,132 @@ export default function ChatFilterModal({
                 { value: 'no', label: t('common.status.no') },
               ]}
             />
-            <Segmented
-              label={t('chats.filterModal.calls')}
-              value={draft.call}
-              onChange={(v) => set({ call: v })}
-              options={[
-                { value: '', label: t('chats.filterModal.any') },
-                { value: 'any', label: t('chats.filterModal.hasCall') },
-                { value: 'live', label: t('chats.filterModal.liveNow') },
-              ]}
-            />
-            <Segmented
-              label={t('chats.filterModal.contact')}
-              value={draft.linked}
-              onChange={(v) => set({ linked: v })}
-              options={[
-                { value: '', label: t('chats.filterModal.any') },
-                { value: 'yes', label: t('chats.filterModal.linked') },
-                { value: 'no', label: t('chats.filterModal.notLinked') },
-              ]}
-            />
-            <div className="flex min-w-0 flex-col gap-1.5">
-              <span className="text-[12px] font-semibold text-text-mid">{t('chats.filterModal.sort')}</span>
-              <Select
-                value={draft.sort}
-                onChange={(v) => set({ sort: v as InboxFilters['sort'] })}
-                options={SORTS.map((s) => ({ value: s.value, label: t(s.label) }))}
-                ariaLabel={t('chats.filterModal.sort')}
-              />
-            </div>
           </div>
         </Field>
 
-        {/* human handover (Ai/Handover): the AI — or a rule, a flow, a person — passed it on */}
-        <Field label={t('chats.filterModal.handedToHuman')} wide>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Segmented
-              label={t('chats.filterModal.handover')}
-              value={draft.handover}
-              onChange={(v) => set({ handover: v })}
-              options={[
-                { value: '', label: t('chats.filterModal.any') },
-                { value: 'open', label: t('chats.filterModal.needsHuman') },
-                { value: 'any', label: t('chats.filterModal.ever') },
-                { value: 'none', label: t('common.status.never') },
-              ]}
-            />
-            <div className="flex min-w-0 flex-col gap-1.5">
-              <span className="text-[12px] font-semibold text-text-mid">{t('chats.filterModal.why')}</span>
+        <Advanced count={advancedCount} forceOpen={advancedCount > 0} className="sm:col-span-2">
+          <div className="grid grid-cols-1 gap-x-[22px] gap-y-[18px] sm:grid-cols-2">
+            <Field label={t('chats.filterModal.team')}>
               <MultiSelect
-                value={draft.handoverKinds}
-                onChange={(v) => set({ handoverKinds: v })}
-                options={HANDOVER_KINDS.map((k) => ({ value: k.value, label: t(k.label) }))}
-                placeholder={t('chats.filterModal.anyReason')}
+                value={draft.teams}
+                onChange={(v) => set({ teams: v })}
+                options={teamOptions}
+                placeholder={t('chats.filterModal.anyTeam')}
                 size="md"
-                ariaLabel={t('chats.filterModal.handoverReason')}
+                ariaLabel={t('chats.filterModal.team')}
               />
-            </div>
+            </Field>
+
+            <Field
+              label={t('common.fields.entity')}
+              aside={
+                draft.entities !== null && (
+                  <button
+                    type="button"
+                    onClick={() => set({ entities: null })}
+                    className="text-[11.5px] font-semibold text-text-muted hover:text-text-high"
+                  >
+                    {t('chats.filterModal.followTopBar')}
+                  </button>
+                )
+              }
+            >
+              <EntityMultiPicker
+                value={draft.entities ?? topEntities}
+                onChange={(slugs) => set({ entities: slugs })}
+                placeholder={t('chats.filterModal.allEntities')}
+                ariaLabel={t('common.fields.entity')}
+              />
+            </Field>
+
+            <Field label={t('chats.filterModal.account')}>
+              <MultiSelect
+                value={draft.accounts}
+                onChange={(v) => set({ accounts: v })}
+                options={accountOptions}
+                placeholder={t('chats.filterModal.anyAccount')}
+                size="md"
+                ariaLabel={t('chats.filterModal.accountAria')}
+              />
+            </Field>
+
+            <Field label={t('chats.filterModal.contactTags')}>
+              <MultiSelect
+                value={draft.tags}
+                onChange={(v) => set({ tags: v })}
+                options={tagOptions}
+                placeholder={t(tagOptions.length ? 'chats.filterModal.anyTag' : 'chats.filterModal.noContactTags')}
+                size="md"
+                ariaLabel={t('chats.filterModal.contactTags')}
+                searchable
+              />
+            </Field>
+
+            <DateRangeField label={t('common.fields.created')} value={draft.created} onChange={(r) => set({ created: r })} />
+
+            <Field label={t('chats.filterModal.more')} wide>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <Segmented
+                  label={t('chats.filterModal.calls')}
+                  value={draft.call}
+                  onChange={(v) => set({ call: v })}
+                  options={[
+                    { value: '', label: t('chats.filterModal.any') },
+                    { value: 'any', label: t('chats.filterModal.hasCall') },
+                    { value: 'live', label: t('chats.filterModal.liveNow') },
+                  ]}
+                />
+                <Segmented
+                  label={t('chats.filterModal.contact')}
+                  value={draft.linked}
+                  onChange={(v) => set({ linked: v })}
+                  options={[
+                    { value: '', label: t('chats.filterModal.any') },
+                    { value: 'yes', label: t('chats.filterModal.linked') },
+                    { value: 'no', label: t('chats.filterModal.notLinked') },
+                  ]}
+                />
+                <div className="flex min-w-0 flex-col gap-1.5">
+                  <span className="text-[12px] font-semibold text-text-mid">{t('chats.filterModal.sort')}</span>
+                  <Select
+                    value={draft.sort}
+                    onChange={(v) => set({ sort: v as InboxFilters['sort'] })}
+                    options={SORTS.map((s) => ({ value: s.value, label: t(s.label) }))}
+                    ariaLabel={t('chats.filterModal.sort')}
+                  />
+                </div>
+              </div>
+            </Field>
+
+            {/* human handover (Ai/Handover): the AI — or a rule, a flow, a person — passed it on */}
+            <Field label={t('chats.filterModal.handedToHuman')} wide>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Segmented
+                  label={t('chats.filterModal.handover')}
+                  value={draft.handover}
+                  onChange={(v) => set({ handover: v })}
+                  options={[
+                    { value: '', label: t('chats.filterModal.any') },
+                    { value: 'open', label: t('chats.filterModal.needsHuman') },
+                    { value: 'any', label: t('chats.filterModal.ever') },
+                    { value: 'none', label: t('common.status.never') },
+                  ]}
+                />
+                <div className="flex min-w-0 flex-col gap-1.5">
+                  <span className="text-[12px] font-semibold text-text-mid">{t('chats.filterModal.why')}</span>
+                  <MultiSelect
+                    value={draft.handoverKinds}
+                    onChange={(v) => set({ handoverKinds: v })}
+                    options={HANDOVER_KINDS.map((k) => ({ value: k.value, label: t(k.label) }))}
+                    placeholder={t('chats.filterModal.anyReason')}
+                    size="md"
+                    ariaLabel={t('chats.filterModal.handoverReason')}
+                  />
+                </div>
+              </div>
+            </Field>
           </div>
-        </Field>
+        </Advanced>
       </div>
     </Modal>
   )

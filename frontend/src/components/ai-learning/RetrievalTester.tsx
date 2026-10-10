@@ -56,7 +56,7 @@ export function RetrievalTester({ entity }: { entity: string | null }) {
   const top = result?.hits.reduce((m, h) => Math.max(m, h.score), 0) || 1
 
   return (
-    <div className="rounded-xl border border-line bg-card p-4">
+    <div data-tour="knowledge-test" className="rounded-xl border border-line bg-card p-4">
       <div className="mb-1 flex items-center gap-2 text-[12.5px] font-bold text-text-high">
         <Search size={14} className="text-text-muted" aria-hidden /> {t('ai.retrieval.title')}
       </div>

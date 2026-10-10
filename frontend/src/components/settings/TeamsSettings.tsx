@@ -269,7 +269,7 @@ export function TeamsSettings() {
             align: 'right' as const,
             width: 90,
             render: (team: Team) => (
-              <div className="flex items-center justify-end gap-1">
+              <div data-tour="teams-row-actions" className="flex items-center justify-end gap-1">
                 <button
                   onClick={() => openEdit(team)}
                   disabled={busy}
@@ -297,7 +297,7 @@ export function TeamsSettings() {
 
   return (
     <div className="flex flex-col gap-5 pt-4">
-      <p className="max-w-[760px] text-[13px] leading-relaxed text-text-mid">
+      <p data-tour="teams-intro" className="max-w-[760px] text-[13px] leading-relaxed text-text-mid">
         <Trans
           k="admin.teams.intro"
           values={{
@@ -317,6 +317,7 @@ export function TeamsSettings() {
       )}
 
       <DataTable
+        data-tour="teams-table"
         columns={columns}
         rows={teams}
         rowKey={(team) => team.id}
@@ -325,7 +326,7 @@ export function TeamsSettings() {
         empty={t('admin.teams.empty')}
         toolbarRight={
           canManage ? (
-            <Button onClick={openCreate}>
+            <Button data-tour="teams-add" onClick={openCreate}>
               <Plus size={14} aria-hidden /> {t('admin.teams.add')}
             </Button>
           ) : undefined

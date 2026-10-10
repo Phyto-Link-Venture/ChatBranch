@@ -164,6 +164,10 @@ function ErrorBox({ text }: { text: string }) {
  * Entity access uses the Permissions-page card pattern: one card per main
  * entity holding it and its sub-entities.
  */
+
+/** Agent and every custom role: bound to the entities they're given (admins see the whole tenant). */
+const agentLevel = (role: string) => role !== 'admin' && role !== 'superadmin'
+
 export function UsersSettings() {
   const t = useT()
   const f = useFormat()
@@ -333,7 +337,7 @@ export function UsersSettings() {
           name: newName.trim(),
           password: newPassword,
           role: newRole,
-          entity_ids: newRole === 'agent' ? newEntityIds : [],
+          entity_ids: agentLevel(newRole) ? newEntityIds : [],
         }),
       })
       setNewUsername('')
@@ -510,9 +514,9 @@ export function UsersSettings() {
       align: 'right',
       render: (u) => (
         // Compact icon actions (with tooltips) so the row never wraps
-        <div className="flex items-center justify-end gap-1">
+        <div data-tour="users-row-actions" className="flex items-center justify-end gap-1">
           {/* the users API grants entity access to agents only */}
-          {u.role === 'agent' && canManage(u) && (
+          {agentLevel(u.role) && canManage(u) && (
             <button
               disabled={busy}
               onClick={() => {
@@ -576,7 +580,7 @@ export function UsersSettings() {
       </p>
 
       {/* what each built-in role can do */}
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div data-tour="users-roles" className="grid gap-3 sm:grid-cols-3">
         {ROLE_CARDS.map((c) => (
           <div key={c.slug} className="rounded-xl border border-line bg-card p-3.5">
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${ROLE_CHIP[c.slug]}`}>
@@ -609,6 +613,7 @@ export function UsersSettings() {
       )}
 
       <DataTable
+        data-tour="users-table"
         columns={columns}
         rows={users}
         rowKey={(u) => u.id}
@@ -618,6 +623,7 @@ export function UsersSettings() {
         pageSize={15}
         toolbarRight={
           <Button
+            data-tour="users-add"
             onClick={() => {
               setMsg(null)
               setShowAdd(true)
@@ -687,7 +693,7 @@ export function UsersSettings() {
               <span className="mt-1 block text-[11px] leading-relaxed text-text-muted">{t('admin.users.roleHint')}</span>
             </div>
           </div>
-          {newRole === 'agent' && (
+          {agentLevel(newRole) && (
             <div className="border-t border-line pt-4">
               <span className="block text-[11.5px] font-bold text-text-high">{t('admin.users.entityAccess')}</span>
               <span className="mb-2.5 mt-0.5 block text-[11px] leading-relaxed text-text-muted">

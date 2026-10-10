@@ -22,6 +22,8 @@ export interface FieldSpec {
   help: MessageKey
   secret?: boolean
   optional?: boolean
+  /** Optional to save, but things break without it (e.g. Meta's app secret: no inbound) — shown up front, never under Advanced. */
+  recommended?: boolean
   inputMode?: 'numeric' | 'email' | 'url' | 'text'
   /** Format check; return a message, or null when fine. Only runs on non-empty values. */
   check?: (v: string, t: TFunction) => string | null
@@ -75,7 +77,7 @@ export const CRED_FIELDS: Partial<Record<InboxKind, FieldSpec[]>> = {
     },
     {
       key: 'app_secret', label: `${L}.appSecret`, placeholderKey: `${P}.signatureChecks`, secret: true,
-      optional: true, help: `${H}.waCloud.appSecret`,
+      optional: true, recommended: true, help: `${H}.waCloud.appSecret`,
     },
   ],
   email: [
@@ -126,7 +128,7 @@ export const CRED_FIELDS: Partial<Record<InboxKind, FieldSpec[]>> = {
     },
     {
       key: 'app_secret', label: `${L}.appSecret`, placeholderKey: `${P}.fromAppSettings`, secret: true,
-      optional: true, help: `${H}.meta.appSecret`,
+      optional: true, recommended: true, help: `${H}.meta.appSecret`,
     },
   ],
   instagram: [
@@ -140,7 +142,7 @@ export const CRED_FIELDS: Partial<Record<InboxKind, FieldSpec[]>> = {
     },
     {
       key: 'app_secret', label: `${L}.appSecret`, placeholderKey: `${P}.fromAppSettings`, secret: true,
-      optional: true, help: `${H}.meta.appSecret`,
+      optional: true, recommended: true, help: `${H}.meta.appSecret`,
     },
   ],
   line: [

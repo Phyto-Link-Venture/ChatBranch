@@ -255,6 +255,7 @@ export const channels: Dict<typeof source> = {
     voiceLocked: '语音中继凭据由超级管理员管理——你可以在此查看。',
     useTls: '使用 TLS',
     useTlsHint: '除非服务商另有说明，否则请保持开启。',
+    developerSetup: '开发者设置',
     whereToFind: '在哪里找到这些信息？',
     who: {
       voiceIntro:

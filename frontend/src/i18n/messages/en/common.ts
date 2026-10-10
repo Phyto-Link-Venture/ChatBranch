@@ -42,6 +42,12 @@ export const common = {
     showLess: 'Show less',
     signOut: 'Sign out',
   },
+  advanced: {
+    title: 'Advanced settings',
+    hint: 'Optional — the defaults work for most businesses.',
+    show: 'Show',
+    hide: 'Hide',
+  },
   status: {
     loading: 'Loading…',
     saving: 'Saving…',

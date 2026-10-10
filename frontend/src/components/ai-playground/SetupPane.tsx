@@ -10,6 +10,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { GitCompare, History, Loader2, RotateCcw, Save, Search, UserRound, X } from 'lucide-react'
+import { Advanced } from '@/components/ui/Advanced'
 import { Button } from '@/components/ui/Button'
 import { ChannelLogo, channelLabelFor } from '@/components/ui/ChannelLogo'
 import { EntityPicker } from '@/components/ui/EntityPicker'
@@ -19,6 +20,7 @@ import { Toggle } from '@/components/ui/Toggle'
 import { useTags } from '@/lib/tags'
 import { aiApi } from '@/lib/aiMonitor'
 import {
+  isOverride,
   profileLanguage,
   type PlaygroundField,
   type PlaygroundOptions,
@@ -395,6 +397,14 @@ export function SetupPane({
   const channelOptions = channels.map((c) => ({ value: c, label: channelLabelFor(c, t) }))
   const languages = options?.languages ?? ['en', 'ms', 'zh']
   const comparing = variants.length > 1
+  // The made-up customer's extras (language, tags, custom fields) sit under
+  // Advanced; opened whenever one of them is set.
+  const profileExtras =
+    (setup.profile.language ? 1 : 0) +
+    (setup.profile.tags.length > 0 ? 1 : 0) +
+    Object.values(setup.profile.fields).filter((v) => (Array.isArray(v) ? v.length > 0 : v !== '' && v != null && v !== false))
+      .length
+  const changesActive = comparing || variants.some(isOverride)
 
   return (
     <div className="flex flex-col gap-4">
@@ -471,52 +481,54 @@ export function SetupPane({
                 className={fieldCls}
               />
             </div>
-            <div>
-              <Label>{t('playground.setup.language')}</Label>
-              <Select
-                value={profileLanguage(setup, locale)}
-                onChange={(v) => setProfile({ language: v })}
-                options={languages.map((l) => ({ value: l, label: LANG_LABEL[l] ? t(LANG_LABEL[l]) : l }))}
-                ariaLabel={t('playground.setup.language')}
-                size="md"
-              />
-            </div>
-            <div>
-              <Label>{t('playground.setup.tags')}</Label>
-              <TagListInput
-                value={setup.profile.tags}
-                onChange={(tags) => setProfile({ tags: tags.slice(0, 30) })}
-                placeholder={t('playground.setup.tagsPlaceholder')}
-              />
-              {suggestions.length > 0 && (
-                <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                  <span className="text-[11px] text-text-muted">{t('playground.setup.tagSuggestions')}</span>
-                  {suggestions.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => setProfile({ tags: [...setup.profile.tags, s] })}
-                      className="rounded-full border border-line-strong px-2 py-0.5 text-[11px] font-semibold text-text-mid hover:bg-fill-hover"
-                    >
-                      + {s}
-                    </button>
+            <Advanced count={profileExtras} forceOpen={profileExtras > 0}>
+              <div>
+                <Label>{t('playground.setup.language')}</Label>
+                <Select
+                  value={profileLanguage(setup, locale)}
+                  onChange={(v) => setProfile({ language: v })}
+                  options={languages.map((l) => ({ value: l, label: LANG_LABEL[l] ? t(LANG_LABEL[l]) : l }))}
+                  ariaLabel={t('playground.setup.language')}
+                  size="md"
+                />
+              </div>
+              <div>
+                <Label>{t('playground.setup.tags')}</Label>
+                <TagListInput
+                  value={setup.profile.tags}
+                  onChange={(tags) => setProfile({ tags: tags.slice(0, 30) })}
+                  placeholder={t('playground.setup.tagsPlaceholder')}
+                />
+                {suggestions.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                    <span className="text-[11px] text-text-muted">{t('playground.setup.tagSuggestions')}</span>
+                    {suggestions.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => setProfile({ tags: [...setup.profile.tags, s] })}
+                        className="rounded-full border border-line-strong px-2 py-0.5 text-[11px] font-semibold text-text-mid hover:bg-fill-hover"
+                      >
+                        + {s}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {options && options.custom_fields.length > 0 && (
+                <div className="flex flex-col gap-2.5">
+                  <div className="text-[12px] font-semibold text-text-high">{t('playground.setup.fields')}</div>
+                  {options.custom_fields.slice(0, 6).map((f) => (
+                    <FieldInput
+                      key={f.key}
+                      f={f}
+                      value={setup.profile.fields[f.key]}
+                      onChange={(v) => setProfile({ fields: { ...setup.profile.fields, [f.key]: v } })}
+                    />
                   ))}
                 </div>
               )}
-            </div>
-            {options && options.custom_fields.length > 0 && (
-              <div className="flex flex-col gap-2.5">
-                <div className="text-[12px] font-semibold text-text-high">{t('playground.setup.fields')}</div>
-                {options.custom_fields.slice(0, 6).map((f) => (
-                  <FieldInput
-                    key={f.key}
-                    f={f}
-                    value={setup.profile.fields[f.key]}
-                    onChange={(v) => setProfile({ fields: { ...setup.profile.fields, [f.key]: v } })}
-                  />
-                ))}
-              </div>
-            )}
+            </Advanced>
           </>
         )}
 
@@ -548,35 +560,36 @@ export function SetupPane({
       </Section>
 
       {options?.can_override ? (
-        <Section title={t('playground.changes.title')}>
-          <p className="-mt-1 text-[11.5px] text-text-muted">{t('playground.changes.hint')}</p>
-          <Button
-            size="sm"
-            variant="secondary"
-            className="w-full"
-            onClick={() => onVariants(comparing ? variants.slice(0, 1) : [variants[0], { ...variants[0] }])}
-          >
-            <GitCompare size={13} aria-hidden />
-            <span className="truncate">
-              {comparing ? t('playground.changes.stopCompare') : t('playground.changes.compare')}
-            </span>
-          </Button>
-          {variants.map((v, i) => (
-            <div key={i} className={comparing ? 'rounded-xl border border-line p-3' : ''}>
-              {comparing && (
-                <div className="eyebrow mb-2">{i === 0 ? t('playground.changes.setupA') : t('playground.changes.setupB')}</div>
-              )}
-              <VariantEditor
-                options={options}
-                variant={v}
-                idPrefix={`pg-v${i}`}
-                entity={setup.entity}
-                onPersonaSaved={onPersonaSaved}
-                onChange={(next) => onVariants(variants.map((x, j) => (j === i ? next : x)))}
-              />
-            </div>
-          ))}
-        </Section>
+        <section className="border-t border-line pt-3">
+          <Advanced label={t('playground.changes.title')} hint={t('playground.changes.hint')} forceOpen={changesActive}>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="w-full"
+              onClick={() => onVariants(comparing ? variants.slice(0, 1) : [variants[0], { ...variants[0] }])}
+            >
+              <GitCompare size={13} aria-hidden />
+              <span className="truncate">
+                {comparing ? t('playground.changes.stopCompare') : t('playground.changes.compare')}
+              </span>
+            </Button>
+            {variants.map((v, i) => (
+              <div key={i} className={comparing ? 'rounded-xl border border-line p-3' : ''}>
+                {comparing && (
+                  <div className="eyebrow mb-2">{i === 0 ? t('playground.changes.setupA') : t('playground.changes.setupB')}</div>
+                )}
+                <VariantEditor
+                  options={options}
+                  variant={v}
+                  idPrefix={`pg-v${i}`}
+                  entity={setup.entity}
+                  onPersonaSaved={onPersonaSaved}
+                  onChange={(next) => onVariants(variants.map((x, j) => (j === i ? next : x)))}
+                />
+              </div>
+            ))}
+          </Advanced>
+        </section>
       ) : options ? (
         <p className="border-t border-line pt-3 text-[11.5px] text-text-muted">{t('playground.changes.adminOnly')}</p>
       ) : failed ? null : (

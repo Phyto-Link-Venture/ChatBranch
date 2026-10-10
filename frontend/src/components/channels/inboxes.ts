@@ -122,8 +122,8 @@ export const KINDS: KindMeta[] = [
   { kind: 'line', logo: 'line', ...texts('line'), filter: 'line', group: 'messaging' },
   { kind: 'viber', logo: 'viber', ...texts('viber'), filter: 'viber', group: 'messaging' },
   { kind: 'zalo', logo: 'zalo', ...texts('zalo'), filter: 'zalo', group: 'messaging' },
-  { kind: 'messenger', logo: 'messenger', ...texts('messenger'), filter: 'messenger', badge: 'Beta', group: 'social' },
-  { kind: 'instagram', logo: 'instagram', ...texts('instagram'), filter: 'instagram', badge: 'Beta', group: 'social' },
+  { kind: 'messenger', logo: 'messenger', ...texts('messenger'), filter: 'messenger', group: 'social' },
+  { kind: 'instagram', logo: 'instagram', ...texts('instagram'), filter: 'instagram', group: 'social' },
   {
     kind: 'tiktok', logo: 'tiktok', ...texts('tiktok'),
     filter: 'tiktok', badge: 'Beta', group: 'social', approval: true,

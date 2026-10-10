@@ -61,6 +61,7 @@ export const voice: Dict<typeof source> = {
     stopRecording: '停止录音',
     consent: '添加声音即表示你确认已获得说话者同意克隆其声音。',
     orImport: '或导入现有的 ElevenLabs 声音',
+    importTitle: '导入现有的 ElevenLabs 声音',
     voiceIdPlaceholder: 'ElevenLabs 声音 ID',
     namePlaceholder: '名称（可选）',
     import: '导入',

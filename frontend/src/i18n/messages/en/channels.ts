@@ -257,6 +257,7 @@ export const channels = {
     voiceLocked: 'Voice trunk credentials are managed by the super admin — you can review them here.',
     useTls: 'Use TLS',
     useTlsHint: 'Leave on unless your provider says otherwise.',
+    developerSetup: 'Developer setup',
     whereToFind: 'Where do I find these?',
     who: {
       voiceIntro:

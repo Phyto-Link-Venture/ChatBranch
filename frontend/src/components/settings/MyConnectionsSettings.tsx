@@ -162,7 +162,7 @@ export function MyConnectionsSettings() {
         </div>
       )}
 
-      <Card className="p-4 sm:p-5">
+      <Card className="p-4 sm:p-5" data-tour="connections-card">
         <CardTitle right={<span className="text-text-muted">{t('settings.connections.onlyYou')}</span>}>
           {t('settings.connections.title')}
         </CardTitle>
@@ -170,7 +170,7 @@ export function MyConnectionsSettings() {
         {mine && !mine.google_configured && (
           <p className="mt-3 rounded-lg bg-fill px-3 py-2 text-[12.5px] text-text-mid">{t('settings.connections.notConfigured')}</p>
         )}
-        <div className="mt-3 divide-y divide-line border-t border-line">
+        <div data-tour="connections-list" className="mt-3 divide-y divide-line border-t border-line">
           {mine === null ? (
             <div className="flex items-center gap-2 py-4 text-[12.5px] text-text-muted">
               <Loader2 size={14} className="animate-spin" aria-hidden /> {t('common.status.loading')}
@@ -205,7 +205,7 @@ export function MyConnectionsSettings() {
                       {USED_FOR[p.provider] ? t(USED_FOR[p.provider]) : p.used_for || p.blurb}
                     </div>
                   </div>
-                  <div className="flex shrink-0 gap-2">
+                  <div data-tour="connections-actions" className="flex shrink-0 gap-2">
                     {on ? (
                       <>
                         <Button
@@ -241,7 +241,7 @@ export function MyConnectionsSettings() {
         </div>
       </Card>
 
-      <p className="text-[12.5px] text-text-muted">
+      <p data-tour="connections-order" className="text-[12.5px] text-text-muted">
         {t('settings.connections.order')}{' '}
         <Trans
           k="settings.connections.shared"

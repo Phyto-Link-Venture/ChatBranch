@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Play, Trash2, X } from 'lucide-react'
+import { Advanced } from '@/components/ui/Advanced'
 import { Button } from '@/components/ui/Button'
 import { MultiSelect, Select, type SelectOption } from '@/components/ui/Select'
 import { Trans, useT } from '@/i18n'
@@ -24,6 +25,7 @@ import {
   actionType,
   channelsOf,
   choiceOptions,
+  durationText,
   isChatbotStep,
   type ActionType,
 } from '@/lib/flow/nodeConfig'
@@ -162,7 +164,11 @@ function TriggerForm({ cfg, set, onPatch, flowId }: { cfg: FlowConfig; set: SetF
       ? (cfg.contactLabels as Record<string, string>)
       : {}
   const audience = (str(cfg.audience) || (contacts.length ? 'some' : str(cfg.onlyTag) ? 'tag' : 'all')) as 'all' | 'tag' | 'some'
-  const repeat = str(cfg.repeat) || (when === 'Message received' ? 'Every time' : 'Once')
+  const defaultRepeat = when === 'Message received' ? 'Every time' : 'Once'
+  const repeat = str(cfg.repeat) || defaultRepeat
+  const showAudience = when !== 'Manual / API'
+  const showRepeat = when !== 'Scheduled' && when !== 'Manual / API' && when !== 'Contact created'
+  const advancedSet = (showAudience && audience !== 'all' ? 1 : 0) + (showRepeat && repeat !== defaultRepeat ? 1 : 0)
   const repeatOptions: SelectOption[] = [
     ...choiceOptions(t, REPEAT_OPTIONS),
     ...(LEGACY_REPEATS[repeat] ? [{ value: repeat, label: t(LEGACY_REPEATS[repeat]) }] : []),
@@ -264,46 +270,50 @@ function TriggerForm({ cfg, set, onPatch, flowId }: { cfg: FlowConfig; set: SetF
         </Field>
       )}
 
-      {when !== 'Manual / API' && (
-        <div className="flex flex-col gap-3 rounded-lg border border-line bg-well p-3">
-          <Field label={t('flows.config.whoCanEnter')}>
-            <Segmented
-              ariaLabel={t('flows.config.audience')}
-              value={audience}
-              onChange={(v) => {
-                if (v === 'all') onPatch({ audience: 'all', contacts: [], contactLabels: undefined, onlyTag: '' })
-                if (v === 'tag') onPatch({ audience: 'tag', contacts: [], contactLabels: undefined })
-                if (v === 'some') onPatch({ audience: 'some', onlyTag: '' })
-              }}
-              options={[
-                { value: 'all', label: t('flows.config.audienceAll') },
-                { value: 'tag', label: t('flows.config.audienceTag') },
-                { value: 'some', label: t('flows.config.audienceSome') },
-              ]}
-            />
-          </Field>
-          {audience === 'tag' && (
-            <TextInput value={str(cfg.onlyTag)} onChange={(v) => set('onlyTag', v)} placeholder={t('flows.config.onlyTagged')} ariaLabel={t('flows.config.onlyTagged')} />
-          )}
-          {audience === 'some' && (
-            <>
-              <ContactScopePicker
-                selected={contacts}
-                labels={contactLabels}
-                onChange={(ids, labels) => onPatch({ contacts: ids, contactLabels: labels })}
-              />
-              {contacts.length === 0 && (
-                <div className="text-[11.5px] text-[color:var(--amber-ink)]">{t('flows.config.pickAtLeastOne')}</div>
+      {(showAudience || showRepeat) && (
+        <Advanced count={advancedSet} forceOpen={advancedSet > 0}>
+          {showAudience && (
+            <div className="flex flex-col gap-3 rounded-lg border border-line bg-well p-3">
+              <Field label={t('flows.config.whoCanEnter')}>
+                <Segmented
+                  ariaLabel={t('flows.config.audience')}
+                  value={audience}
+                  onChange={(v) => {
+                    if (v === 'all') onPatch({ audience: 'all', contacts: [], contactLabels: undefined, onlyTag: '' })
+                    if (v === 'tag') onPatch({ audience: 'tag', contacts: [], contactLabels: undefined })
+                    if (v === 'some') onPatch({ audience: 'some', onlyTag: '' })
+                  }}
+                  options={[
+                    { value: 'all', label: t('flows.config.audienceAll') },
+                    { value: 'tag', label: t('flows.config.audienceTag') },
+                    { value: 'some', label: t('flows.config.audienceSome') },
+                  ]}
+                />
+              </Field>
+              {audience === 'tag' && (
+                <TextInput value={str(cfg.onlyTag)} onChange={(v) => set('onlyTag', v)} placeholder={t('flows.config.onlyTagged')} ariaLabel={t('flows.config.onlyTagged')} />
               )}
-            </>
+              {audience === 'some' && (
+                <>
+                  <ContactScopePicker
+                    selected={contacts}
+                    labels={contactLabels}
+                    onChange={(ids, labels) => onPatch({ contacts: ids, contactLabels: labels })}
+                  />
+                  {contacts.length === 0 && (
+                    <div className="text-[11.5px] text-[color:var(--amber-ink)]">{t('flows.config.pickAtLeastOne')}</div>
+                  )}
+                </>
+              )}
+            </div>
           )}
-        </div>
-      )}
 
-      {when !== 'Scheduled' && when !== 'Manual / API' && when !== 'Contact created' && (
-        <Field label={t('flows.config.ifAgain')}>
-          <Select value={repeat} onChange={(v) => set('repeat', v)} options={repeatOptions} size="md" ariaLabel={t('flows.config.repeat')} />
-        </Field>
+          {showRepeat && (
+            <Field label={t('flows.config.ifAgain')}>
+              <Select value={repeat} onChange={(v) => set('repeat', v)} options={repeatOptions} size="md" ariaLabel={t('flows.config.repeat')} />
+            </Field>
+          )}
+        </Advanced>
       )}
       {lookups.fields.length === 0 && when === 'Date field' && (
         <div className="text-[11.5px] text-text-muted">{t('flows.config.noDateFields')}</div>
@@ -380,6 +390,7 @@ function FieldPicker({ value, onChange }: { value: string; onChange: (v: string)
 
 // ---- SEND / AI / CALL / APP -----------------------------------------------------------------
 
+/** What the chosen channels need on screen (template mode, email subject) — always visible. */
 function DeliveryFields({
   cfg,
   onPatch,
@@ -393,36 +404,8 @@ function DeliveryFields({
 }) {
   const t = useT()
   const deliver = channels.filter((c) => c !== AI_MESSAGE)
-  const allLinked = bool(cfg.allLinked ?? cfg.waAllNumbers)
-  const opts = ai
-    ? choiceOptions(t, SEND_CHANNELS.filter((c) => c.value !== 'SMS'))
-    : [...choiceOptions(t, SEND_CHANNELS), { value: TEAM_PUSH, label: t('flows.channels.teamPush') }]
   return (
     <>
-      <Field label={t('flows.config.sendOn')} help={ai ? t('flows.config.sendOnHelpAi') : t('flows.config.sendOnHelp')}>
-        <MultiSelect
-          value={deliver}
-          onChange={(v) => onPatch({ channels: ai ? [AI_MESSAGE, ...v] : v })}
-          options={opts}
-          size="md"
-          placeholder={ai ? t('flows.config.latestChannel') : t('flows.config.chooseChannel')}
-          ariaLabel={t('flows.config.channels')}
-          maxChips={3}
-        />
-      </Field>
-      {(deliver.includes('WhatsApp') || deliver.includes('Email')) && (
-        <Field label={t('flows.config.sendTo')} help={allLinked ? t('flows.config.sendToAllHelp') : t('flows.config.sendToPrimaryHelp')}>
-          <Segmented
-            ariaLabel={t('flows.config.sendTo')}
-            value={allLinked ? 'all' : 'primary'}
-            onChange={(v) => onPatch({ allLinked: v === 'all' ? true : undefined, waAllNumbers: undefined })}
-            options={[
-              { value: 'primary', label: t('flows.config.sendToPrimary') },
-              { value: 'all', label: t('flows.config.sendToAll') },
-            ]}
-          />
-        </Field>
-      )}
       {deliver.includes('WhatsApp') && (
         <WaTemplateConfig
           config={cfg}
@@ -442,6 +425,80 @@ function DeliveryFields({
         </Field>
       )}
     </>
+  )
+}
+
+/**
+ * The step's Advanced settings: which channels it sends on (default WhatsApp), who receives it
+ * (default the primary number / address), human-like typing (default off) and any `extra`
+ * step-specific fields (`extraSet` = how many of those are customised).
+ */
+function DeliveryAdvanced({
+  cfg,
+  onPatch,
+  set,
+  channels,
+  ai,
+  children,
+  extraSet = 0,
+}: {
+  cfg: FlowConfig
+  onPatch: (p: FlowConfig) => void
+  set: SetFn
+  channels: string[]
+  ai: boolean
+  children?: ReactNode
+  extraSet?: number
+}) {
+  const t = useT()
+  const deliver = channels.filter((c) => c !== AI_MESSAGE)
+  const allLinked = bool(cfg.allLinked ?? cfg.waAllNumbers)
+  const opts = ai
+    ? choiceOptions(t, SEND_CHANNELS.filter((c) => c.value !== 'SMS'))
+    : [...choiceOptions(t, SEND_CHANNELS), { value: TEAM_PUSH, label: t('flows.channels.teamPush') }]
+  const showSendTo = deliver.includes('WhatsApp') || deliver.includes('Email')
+  const channelsSet = !(deliver.length === 1 && deliver[0] === 'WhatsApp')
+  const count = (channelsSet ? 1 : 0) + (showSendTo && allLinked ? 1 : 0) + (bool(cfg.humanize) ? 1 : 0) + extraSet
+  const names = deliver.map((c) => opts.find((o) => o.value === c)?.label ?? c).join(', ')
+  return (
+    <Advanced
+      count={count}
+      forceOpen={count > 0}
+      hint={
+        names
+          ? t('flows.config.deliveryHint', { channels: names })
+          : ai
+            ? t('flows.config.deliveryHint', { channels: t('flows.config.latestChannel') })
+            : undefined
+      }
+    >
+      <Field label={t('flows.config.sendOn')} help={ai ? t('flows.config.sendOnHelpAi') : t('flows.config.sendOnHelp')}>
+        <MultiSelect
+          value={deliver}
+          onChange={(v) => onPatch({ channels: ai ? [AI_MESSAGE, ...v] : v })}
+          options={opts}
+          size="md"
+          placeholder={ai ? t('flows.config.latestChannel') : t('flows.config.chooseChannel')}
+          ariaLabel={t('flows.config.channels')}
+          maxChips={3}
+        />
+      </Field>
+      {showSendTo && (
+        <Field label={t('flows.config.sendTo')} help={allLinked ? t('flows.config.sendToAllHelp') : t('flows.config.sendToPrimaryHelp')}>
+          <Segmented
+            ariaLabel={t('flows.config.sendTo')}
+            value={allLinked ? 'all' : 'primary'}
+            onChange={(v) => onPatch({ allLinked: v === 'all' ? true : undefined, waAllNumbers: undefined })}
+            options={[
+              { value: 'primary', label: t('flows.config.sendToPrimary') },
+              { value: 'all', label: t('flows.config.sendToAll') },
+            ]}
+          />
+        </Field>
+      )}
+      {children}
+      <HumanizeRow cfg={cfg} set={set} />
+    </Advanced>
   )
 }
 
@@ -519,7 +576,7 @@ function ActionForm({ cfg, onPatch, set }: { cfg: FlowConfig; onPatch: (p: FlowC
             placeholder={t('flows.config.messagePlaceholder')}
             help={cfg.waMode === 'template' ? t('flows.config.messageTemplateHelp') : undefined}
           />
-          <HumanizeRow cfg={cfg} set={set} />
+          <DeliveryAdvanced cfg={cfg} onPatch={onPatch} set={set} channels={channels} ai={false} />
         </>
       )}
 
@@ -540,7 +597,7 @@ function ActionForm({ cfg, onPatch, set }: { cfg: FlowConfig; onPatch: (p: FlowC
             help={t('flows.config.aiBriefHelp')}
           />
           <DeliveryFields cfg={cfg} onPatch={onPatch} channels={channels} ai />
-          <HumanizeRow cfg={cfg} set={set} />
+          <DeliveryAdvanced cfg={cfg} onPatch={onPatch} set={set} channels={channels} ai />
         </>
       )}
 
@@ -709,6 +766,9 @@ function DurationRow({
 function WaitForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
   const t = useT()
   const mode = cfg.mode === 'reply' ? 'reply' : 'time'
+  // A new step gives up after 2 days (nodeConfig STEP_CHOICES); anything else is a customised value.
+  const giveUp = durationText(t, cfg.timeoutAmount, cfg.timeoutUnit)
+  const giveUpSet = !(Number(cfg.timeoutAmount) === 2 && (str(cfg.timeoutUnit) || 'days') === 'days')
   return (
     <>
       <Field label={t('flows.config.waitFor')}>
@@ -728,15 +788,21 @@ function WaitForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
         </Field>
       ) : (
         <>
-          <Field label={t('flows.config.giveUpAfter')} help={t('flows.config.giveUpAfterHelp')}>
-            <DurationRow
-              amount={cfg.timeoutAmount}
-              unit={cfg.timeoutUnit}
-              onAmount={(v) => set('timeoutAmount', v)}
-              onUnit={(v) => set('timeoutUnit', v)}
-              label={t('flows.config.giveUpAfter')}
-            />
-          </Field>
+          <Advanced
+            count={giveUpSet ? 1 : 0}
+            forceOpen={giveUpSet}
+            hint={giveUp ? t('flows.config.giveUpHint', { duration: giveUp }) : t('flows.config.giveUpNeverHint')}
+          >
+            <Field label={t('flows.config.giveUpAfter')} help={t('flows.config.giveUpAfterHelp')}>
+              <DurationRow
+                amount={cfg.timeoutAmount}
+                unit={cfg.timeoutUnit}
+                onAmount={(v) => set('timeoutAmount', v)}
+                onUnit={(v) => set('timeoutUnit', v)}
+                label={t('flows.config.giveUpAfter')}
+              />
+            </Field>
+          </Advanced>
           <Notice>
             <Trans
               k="flows.config.waitMovesOn"
@@ -811,11 +877,12 @@ function FollowUpForm({ cfg, set, onPatch }: { cfg: FlowConfig; set: SetFn; onPa
         <div className="text-[12px] font-semibold text-text-mid">{t('flows.config.stopWhen')}</div>
         <SwitchRow label={t('flows.config.theyReply')} help={t('flows.config.theyReplyHelp')} on onChange={() => {}} locked />
         <SwitchRow label={t('flows.config.resolved')} on={bool(cfg.stopOnResolved)} onChange={(v) => set('stopOnResolved', v)} />
+      </div>
+      <DeliveryAdvanced cfg={cfg} onPatch={onPatch} set={set} channels={channels} ai={ai} extraSet={str(cfg.stopTag).trim() ? 1 : 0}>
         <Field label={t('flows.config.stopTag')}>
           <TextInput value={str(cfg.stopTag)} onChange={(v) => set('stopTag', v)} placeholder={t('flows.config.stopTagPlaceholder')} ariaLabel={t('flows.config.stopTag')} />
         </Field>
-      </div>
-      <HumanizeRow cfg={cfg} set={set} />
+      </DeliveryAdvanced>
       <Notice>{t('flows.config.quietHoursNotice')}</Notice>
     </>
   )
@@ -827,6 +894,8 @@ function HandoverForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
   const t = useT()
   const { lookups } = useFlowView()
   const team = str(cfg.team)
+  const priority = str(cfg.priority) || 'Normal'
+  const prioritySet = priority !== 'Normal'
   const options: SelectOption[] = [
     { value: '', label: t('flows.config.adminsNoTeam') },
     ...lookups.teams.map((tm) => ({ value: String(tm.id), label: tm.name })),
@@ -837,19 +906,21 @@ function HandoverForm({ cfg, set }: { cfg: FlowConfig; set: SetFn }) {
       <Field label={t('flows.config.handOverTo')} help={t('flows.config.handOverToHelp')}>
         <Select value={team} onChange={(v) => set('team', v)} options={options} size="md" ariaLabel={t('flows.config.team')} />
       </Field>
-      <Field label={t('flows.config.priority')}>
-        <Segmented
-          ariaLabel={t('flows.config.priority')}
-          value={(str(cfg.priority) || 'Normal') as 'Normal' | 'High' | 'Urgent'}
-          onChange={(v) => set('priority', v)}
-          options={[
-            { value: 'Normal', label: t('flows.priority.normal') },
-            { value: 'High', label: t('flows.priority.high') },
-            { value: 'Urgent', label: t('flows.priority.urgent') },
-          ]}
-        />
-      </Field>
       <VariableTextarea label={t('flows.config.whyNote')} rows={3} value={str(cfg.reason)} onChange={(v) => set('reason', v)} />
+      <Advanced count={prioritySet ? 1 : 0} forceOpen={prioritySet}>
+        <Field label={t('flows.config.priority')}>
+          <Segmented
+            ariaLabel={t('flows.config.priority')}
+            value={priority as 'Normal' | 'High' | 'Urgent'}
+            onChange={(v) => set('priority', v)}
+            options={[
+              { value: 'Normal', label: t('flows.priority.normal') },
+              { value: 'High', label: t('flows.priority.high') },
+              { value: 'Urgent', label: t('flows.priority.urgent') },
+            ]}
+          />
+        </Field>
+      </Advanced>
       <Notice>{t('flows.config.handoverNotice')}</Notice>
     </>
   )

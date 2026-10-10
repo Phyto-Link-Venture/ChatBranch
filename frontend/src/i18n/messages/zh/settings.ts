@@ -246,7 +246,7 @@ export const settings: Dict<typeof source> = {
       providers: {
         title: '服务商密钥、对话服务商与模型',
         blurb:
-          '文本自动回复和摘要背后的密钥、服务商和模型。服务商 = 由哪个 AI 服务处理回复；模型 = 可选——该服务商中的具体模型（留空则使用服务商默认值）。控制台中的值优先于 backend/.env；清空则回退到 env 默认值。',
+          '粘贴一个密钥即可启用 AI。服务商保持“自动”、模型留空即可使用合理的默认值。',
       },
       tunables: {
         title: '后台与定时器参数',
