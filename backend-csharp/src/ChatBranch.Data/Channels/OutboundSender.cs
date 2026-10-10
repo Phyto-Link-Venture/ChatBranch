@@ -26,6 +26,14 @@ namespace ChatBranch.Data.Channels;
 /// an ACCOUNT-level Meta error moves the account's health (per-recipient codes
 /// never do), a success heals it, and 131047 closes the 24h window.
 /// </summary>
+/// <summary>
+/// The provider's answer to one reaction: <see cref="Live"/> = it went to a real
+/// provider (false = sandbox, stored only); <see cref="Conflict"/> = refused for a
+/// reason the operator can't retry past (closed window, no provider id, channel
+/// without reactions) — a 409 rather than a 502.
+/// </summary>
+public sealed record ReactionSend(bool Ok, bool Live, string Detail, bool Conflict = false);
+
 public class OutboundSender
 {
     private readonly AppDbContext _db;
@@ -93,13 +101,19 @@ public class OutboundSender
 
     /// <param name="subject">Email only: an explicit subject (else "Re: &lt;last subject&gt;" / the default).</param>
     /// <param name="media">Email / Telegram: a stored file to attach (messaging media root).</param>
+    /// <param name="replyTo">The message this one quotes (same thread). WhatsApp Cloud sends
+    /// <c>context.message_id</c>, Baileys a quoted message, Telegram <c>reply_parameters</c>;
+    /// other channels send the text normally. A quote never fails a send.</param>
     public Message Send(Thread thread, string text, string source, int? accountId = null,
-        string? subject = null, OutboundMedia? media = null)
+        string? subject = null, OutboundMedia? media = null, Message? replyTo = null)
     {
+        if (replyTo != null && (replyTo.ThreadId != thread.Id || !MessageReactions.Supports(thread.Channel)))
+            replyTo = null;
         if (thread.Channel == ChatBranch.Domain.Channels.Email && _email != null)
             return _email.Send(thread, text, source, accountId ?? thread.AccountId, subject, media);
         if (thread.Channel == ChatBranch.Domain.Channels.Telegram && _telegram != null)
-            return _telegram.Send(thread, text, source, accountId ?? thread.AccountId, media);
+            return LinkReply(_telegram.Send(thread, text, source, accountId ?? thread.AccountId, media,
+                replyTo?.ExternalId), replyTo);
         if (MoreChannels.Handles(thread.Channel) && _more != null)
             return _more.Send(thread, text, source, accountId ?? thread.AccountId, media);
 
@@ -110,25 +124,91 @@ public class OutboundSender
         // The account's ExternalId is the gateway's account id.
         if (BaileysLive(thread, account))
         {
-            var r = _baileys.SendTextAsync(account!.ExternalId, thread.Key, text).GetAwaiter().GetResult();
+            var quote = replyTo is { ExternalId.Length: > 0 }
+                ? new ChatBranch.Data.Sidecars.BaileysQuote(replyTo.ExternalId,
+                    replyTo.Direction == MessageDirection.Out, replyTo.Text)
+                : null;
+            var r = (quote == null
+                    ? _baileys.SendTextAsync(account!.ExternalId, thread.Key, text)
+                    : _baileys.SendTextAsync(account!.ExternalId, thread.Key, text, quote))
+                .GetAwaiter().GetResult();
             if (r.Ok)
-                return _threads.AppendMessage(thread, MessageDirection.Out, source, text,
-                    status: "sent", externalId: r.ExternalId, accountId: account.Id);
+                return LinkReply(_threads.AppendMessage(thread, MessageDirection.Out, source, text,
+                    status: "sent", externalId: r.ExternalId, accountId: account.Id), replyTo);
             return _threads.AppendMessage(thread, MessageDirection.Out, MessageSource.System,
                 $"[send failed: {r.Detail}] {text}", status: "failed", accountId: account.Id);
         }
 
         if (CloudLive(thread, account))
-            return Record(thread, account!, source, text,
-                _whatsapp.SendTextAsync(account!, thread.Key, text).GetAwaiter().GetResult());
+            return LinkReply(Record(thread, account!, source, text,
+                (replyTo is { ExternalId.Length: > 0 }
+                    ? _whatsapp.SendReplyTextAsync(account!, thread.Key, text, replyTo.ExternalId)
+                    : _whatsapp.SendTextAsync(account!, thread.Key, text)).GetAwaiter().GetResult()), replyTo);
 
         if (SocialLive(thread, account))
             return SocialSend(thread, account!, source, text, humanAgent: false,
                 tag => _meta!.SendTextAsync(account!, thread.Key, text, tag).GetAwaiter().GetResult());
 
         // sandbox (no configured account)
-        return _threads.AppendMessage(thread, MessageDirection.Out, source, text,
-            status: "sandbox", accountId: acctId);
+        return LinkReply(_threads.AppendMessage(thread, MessageDirection.Out, source, text,
+            status: "sandbox", accountId: acctId), replyTo);
+    }
+
+    /// <summary>Record which message a delivered (or sandbox) reply quoted — a failed send keeps none.</summary>
+    private Message LinkReply(Message msg, Message? replyTo)
+    {
+        if (replyTo == null || msg.Status == "failed" || msg.ReplyToId != null) return msg;
+        msg.ReplyToId = replyTo.Id;
+        msg.ReplyToExternalId = replyTo.ExternalId;
+        _db.SaveChanges();
+        return msg;
+    }
+
+    /// <summary>
+    /// Put OUR reaction (<paramref name="emoji"/>, "" = remove) on <paramref name="target"/>
+    /// at the provider: WhatsApp Cloud <c>type: reaction</c> (inside the 24h window —
+    /// Meta refuses it after), Baileys <c>react</c>, Telegram <c>setMessageReaction</c>.
+    /// A conversation with no live account is sandbox (stored only). The caller
+    /// stores the reaction when this answers Ok.
+    /// </summary>
+    public ReactionSend React(Thread thread, Message target, string emoji)
+    {
+        if (!MessageReactions.Supports(thread.Channel))
+            return new ReactionSend(false, false, $"Reactions aren't supported on {thread.Channel}.", Conflict: true);
+        if (thread.Channel == ChatBranch.Domain.Channels.Telegram)
+        {
+            if (_telegram == null) return new ReactionSend(true, false, "sandbox");
+            var (live, ok, detail) = _telegram.React(thread, target.ExternalId, emoji);
+            return new ReactionSend(ok, live, detail, Conflict: live && !ok && target.ExternalId.Length == 0);
+        }
+        var account = Account(thread.AccountId) ?? Account(target.AccountId);
+        var baileys = BaileysLive(thread, account);
+        var cloud = CloudLive(thread, account);
+        if (!baileys && !cloud) return new ReactionSend(true, false, "sandbox");
+        if (target.ExternalId.Length == 0 || target.ExternalId.StartsWith("db-", StringComparison.Ordinal))
+            return new ReactionSend(false, true,
+                "That message has no WhatsApp id (it never left this inbox), so it can't carry a reaction.",
+                Conflict: true);
+        if (baileys)
+        {
+            var r = _baileys.ReactAsync(account!.ExternalId, thread.Key,
+                new ChatBranch.Data.Sidecars.BaileysQuote(target.ExternalId, target.Direction == MessageDirection.Out),
+                emoji).GetAwaiter().GetResult();
+            return new ReactionSend(r.Ok, true, r.Ok ? "sent" : r.Detail);
+        }
+        // Meta refuses a reaction outside the customer-service window — say so up front
+        var lastIn = _db.Messages.Where(m => m.ThreadId == thread.Id && m.Direction == MessageDirection.In)
+            .Max(m => (DateTime?)m.CreatedAt);
+        if (lastIn is not DateTime ts || DateTime.UtcNow >= ts.AddHours(WhatsAppWindow.Hours))
+            return new ReactionSend(false, true,
+                "WhatsApp 24h window closed — a reaction can only be sent within 24 hours of the customer's last message.",
+                Conflict: true);
+        var outcome = _whatsapp.SendReactionAsync(account!, thread.Key, target.ExternalId, emoji)
+            .GetAwaiter().GetResult();
+        if (outcome.Ok) MetaErrors.MarkHealthy(_db, account!, "reaction sent");
+        else MetaErrors.ApplyToAccount(_db, account!, outcome.ErrorCode, outcome.ErrorSubcode, outcome.Detail);
+        return new ReactionSend(outcome.Ok, true, outcome.Ok ? "sent" : outcome.Detail,
+            Conflict: outcome.ErrorCode == MetaErrors.WindowClosed);
     }
 
     /// <summary>

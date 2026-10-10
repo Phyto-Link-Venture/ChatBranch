@@ -47,7 +47,7 @@ public class InboundProcessor
     }
 
     public Message ProcessInbound(string channel, string key, string text, string? name = null,
-        int? accountId = null, string wamid = "", DateTime? providerTs = null)
+        int? accountId = null, string wamid = "", DateTime? providerTs = null, string replyToExternalId = "")
     {
         var thread = _threads.GetOrCreateThread(channel, key, name, accountId);
         // invite links ("[ref:CODE]", "(ref:CODE)", "/start CODE"…) bind the chat to
@@ -70,7 +70,8 @@ public class InboundProcessor
         InboxSettings.ApplyToNewThread(_db, thread);
 
         var msg = _threads.AppendMessage(thread, MessageDirection.In, MessageSource.Customer,
-            text, status: "received", externalId: wamid, accountId: accountId, providerTs: providerTs);
+            text, status: "received", externalId: wamid, accountId: accountId, providerTs: providerTs,
+            replyToExternalId: replyToExternalId);
         Invites.Complete(invite, thread, msg);
 
         // STOP / UNSUBSCRIBE / BERHENTI (+ configured words) opt the conversation

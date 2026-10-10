@@ -46,7 +46,9 @@ public static class WhatsAppThreadsEndpoints
         string? Phone, string? Key, string? Channel, string? Name,
         [property: JsonPropertyName("account_id")] string? AccountId);
 
-    public record SendTextRequest(string? Text, bool Force = false);
+    /// <summary><c>reply_to</c> = the pk of the message this one quotes (same conversation).</summary>
+    public record SendTextRequest(string? Text, bool Force = false,
+        [property: JsonPropertyName("reply_to")] int? ReplyTo = null);
 
     /// <summary>
     /// <c>variables</c> fill the body's {{1}}…{{n}} (positional). A TEXT header and
@@ -245,13 +247,17 @@ public static class WhatsAppThreadsEndpoints
                 routing.ForThread(thread, RouteNeed.Conversation, apply: true);
             // OutboundSender is the one live-or-sandbox seam: configured account →
             // graph.facebook.com, otherwise stored locally with status "sandbox".
-            var msg = sender.Send(thread, text, MessageSource.Agent, account?.Id);
+            // a quote of a message of THIS conversation (anything else is ignored, never a failure)
+            var quoted = body.ReplyTo is int replyPk
+                ? await db.Messages.FirstOrDefaultAsync(m => m.Id == replyPk && m.ThreadId == thread.Id)
+                : null;
+            var msg = sender.Send(thread, text, MessageSource.Agent, account?.Id, replyTo: quoted);
             AiControlsEndpoints.HumanReplied(db, thread, msg, me); // answers an open handover
             if (coldNote.Length > 0)
                 store.AppendMessage(thread, MessageDirection.Out, MessageSource.System, coldNote,
                     status: live ? "sent" : "sandbox", accountId: account?.Id);
             await Audit(db, ctx, me, "message.send", $"whatsapp:{thread.Key}", Cap(text, 200));
-            return Results.Ok(new { message = MessagePayload(msg, account) });
+            return Results.Ok(new { message = MessageExtras.Decorate(db, msg, MessagePayload(msg, account)) });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
 
         // ---- send: template --------------------------------------------------
@@ -882,8 +888,8 @@ public static class WhatsAppThreadsEndpoints
                 status = thread.CallStatus,
                 room = thread.CallRoom,
             },
-            messages = page.Select(m => MessagePayload(
-                m, names.TryGetValue(m.AccountId ?? -1, out var n) ? n : null)).ToList(),
+            messages = Decorated(db, page, page.Select(m => MessagePayload(
+                m, names.TryGetValue(m.AccountId ?? -1, out var n) ? n : null)).ToList()),
             has_more = hasMore,
             created = thread.CreatedAt.ToString("o"),
             updated = thread.UpdatedAt.ToString("o"),
@@ -891,10 +897,18 @@ public static class WhatsAppThreadsEndpoints
     }
 
     /// <summary>store._serialize_message — the bubble the chat column renders.</summary>
-    private static object MessagePayload(Message m, ChannelAccount? account) =>
+    private static Dictionary<string, object?> MessagePayload(Message m, ChannelAccount? account) =>
         MessagePayload(m, account?.Name);
 
-    private static object MessagePayload(Message m, string? accountName)
+    /// <summary>Quotes + reactions on a page of bubbles (<see cref="MessageExtras"/>).</summary>
+    private static List<Dictionary<string, object?>> Decorated(AppDbContext db, List<Message> page,
+        List<Dictionary<string, object?>> payloads)
+    {
+        MessageExtras.Decorate(db, page, payloads);
+        return payloads;
+    }
+
+    private static Dictionary<string, object?> MessagePayload(Message m, string? accountName)
     {
         var payload = new Dictionary<string, object?>
         {

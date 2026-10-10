@@ -47,6 +47,7 @@ public class AppDbContext : DbContext
     public DbSet<Setting> Settings => Set<Setting>();
     public DbSet<Thread> Threads => Set<Thread>();
     public DbSet<Message> Messages => Set<Message>();
+    public DbSet<MessageReaction> MessageReactions => Set<MessageReaction>();
     public DbSet<AccountAssignment> AccountAssignments => Set<AccountAssignment>();
     public DbSet<EmailHeader> EmailHeaders => Set<EmailHeader>();
     // crm — content libraries
@@ -148,6 +149,10 @@ public class AppDbContext : DbContext
         b.Entity<Setting>().ToTable("crm_setting");
         b.Entity<Thread>().ToTable("crm_thread");
         b.Entity<Message>().ToTable("crm_message");
+        b.Entity<MessageReaction>().ToTable("crm_messagereaction");
+        b.Entity<MessageReaction>().HasIndex(r => new { r.MessageId, r.Actor })
+            .IsUnique().HasDatabaseName("uniq_messagereaction_actor");
+        b.Entity<MessageReaction>().HasIndex(r => r.ThreadId).HasDatabaseName("ix_messagereaction_thread");
         b.Entity<AccountAssignment>().ToTable("crm_accountassignment");
         b.Entity<EmailHeader>().ToTable("crm_emailheader");
         b.Entity<EmailHeader>().HasIndex(h => h.ThreadId).HasDatabaseName("ix_emailheader_thread");

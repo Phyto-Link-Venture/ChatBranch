@@ -48,6 +48,19 @@ public static class TelegramWebhookEndpoints
             try { root = await JsonSerializer.DeserializeAsync<JsonElement>(ctx.Request.Body); }
             catch { return Results.Ok(new { ok = true }); } // never NACK on garbage
 
+            // a reaction (message_reaction) lands on the message it targets — no
+            // bubble, no AI, no flows, no reopen (MessageReactions)
+            if (TelegramInbound.ParseReaction(root) is { } reaction)
+            {
+                try
+                {
+                    MessageReactions.ApplyInbound(db, ChannelIds.Telegram, reaction.ChatId, reaction.MessageId,
+                        reaction.Emoji);
+                }
+                catch { }
+                return Results.Ok(new { ok = true });
+            }
+
             var update = TelegramInbound.Parse(root);
             if (update == null) return Results.Ok(new { ok = true, ignored = true });
 
@@ -60,7 +73,7 @@ public static class TelegramWebhookEndpoints
                 if (known) return Results.Ok(new { ok = true, duplicate = true });
 
                 var msg = processor.ProcessInbound(ChannelIds.Telegram, update.ChatId, update.Text,
-                    update.Name, account.Id, update.MessageId, update.Date);
+                    update.Name, account.Id, update.MessageId, update.Date, replyToExternalId: update.ReplyTo);
 
                 // an inbound update proves the bot (and its webhook) work
                 account.LastInboundAt = DateTime.UtcNow;

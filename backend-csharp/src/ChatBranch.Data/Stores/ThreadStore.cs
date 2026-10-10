@@ -94,7 +94,7 @@ public class ThreadStore
     /// </summary>
     public Message AppendMessage(Thread thread, string direction, string source, string text,
         string status = "sent", string externalId = "", int? accountId = null,
-        bool priv = false, DateTime? providerTs = null)
+        bool priv = false, DateTime? providerTs = null, string replyToExternalId = "")
     {
         if (!string.IsNullOrEmpty(externalId))
         {
@@ -115,6 +115,12 @@ public class ThreadStore
             Private = priv,
             CreatedAt = providerTs ?? DateTime.UtcNow,
         };
+        // a quoted reply: keep the provider's id, and link our own row when we hold it
+        if (!string.IsNullOrWhiteSpace(replyToExternalId))
+        {
+            msg.ReplyToExternalId = replyToExternalId.Trim();
+            msg.ReplyToId = ResolveExternal(thread.Id, msg.ReplyToExternalId);
+        }
         _db.Messages.Add(msg);
 
         // Inbound re-opens a resolved/snoozed thread.
@@ -124,6 +130,15 @@ public class ThreadStore
         _db.Threads.Update(thread);
         _db.SaveChanges();
         return msg;
+    }
+
+    /// <summary>The local message of <paramref name="threadId"/> carrying a provider id (null = not held).</summary>
+    public int? ResolveExternal(int threadId, string externalId)
+    {
+        if (string.IsNullOrWhiteSpace(externalId)) return null;
+        return _db.Messages.AsNoTracking()
+            .Where(m => m.ThreadId == threadId && m.ExternalId == externalId)
+            .Select(m => (int?)m.Id).FirstOrDefault();
     }
 
     /// <summary>Paginated messages, oldest→newest, with a `before` id cursor.</summary>

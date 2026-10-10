@@ -169,7 +169,8 @@ public static class MetaWebhookEndpoints
         var account = await db.ChannelAccounts.FirstOrDefaultAsync(a => a.Channel == ev.Channel
                                                                         && a.ExternalId == ev.PageId);
         var isNew = !await db.Threads.AnyAsync(t => t.Channel == ev.Channel && t.Key == ev.SenderId);
-        var msg = processor.ProcessInbound(ev.Channel, ev.SenderId, ev.Text, null, account?.Id, ev.Mid, ev.Timestamp);
+        var msg = processor.ProcessInbound(ev.Channel, ev.SenderId, ev.Text, null, account?.Id, ev.Mid, ev.Timestamp,
+            replyToExternalId: ev.ReplyTo);
 
         // attachments: the first rides on the message itself, every further one is
         // its own row (one media per message), each downloaded off the ack

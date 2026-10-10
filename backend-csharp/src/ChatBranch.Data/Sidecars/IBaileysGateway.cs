@@ -19,6 +19,13 @@ public record BaileysStatus(string State, string? Qr, string? Me, string? Error)
 public record BaileysCheck(bool? Exists, string? Jid, string Error = "");
 
 /// <summary>
+/// A message another one refers to (a quote or a reaction target): its WhatsApp
+/// id, whether WE sent it, and its text — enough for the gateway to rebuild the
+/// quoted message when its own key map no longer holds it (after a restart).
+/// </summary>
+public record BaileysQuote(string Id, bool FromMe, string Text = "");
+
+/// <summary>
 /// The Node Baileys gateway (unofficial WhatsApp Web, <c>backend/baileys_service</c>)
 /// stays a sidecar — no C# port exists. This is the HTTP contract the backend
 /// uses to drive it, mirroring Django's <c>whatsapp/client.py baileys_request</c>:
@@ -37,6 +44,17 @@ public interface IBaileysGateway
     string BaseUrl { get; }
     Task<BaileysResult> SendTextAsync(string accountExternalId, string toWaId, string text,
         CancellationToken ct = default);
+    /// <summary>A text quoting an earlier message (the gateway's <c>quoted_id</c>; it keeps a
+    /// small key map and falls back to <paramref name="quote"/>'s text/direction to build the
+    /// quote). The default sends the plain text — a quote never fails a send.</summary>
+    Task<BaileysResult> SendTextAsync(string accountExternalId, string toWaId, string text, BaileysQuote? quote,
+        CancellationToken ct = default) =>
+        SendTextAsync(accountExternalId, toWaId, text, ct);
+    /// <summary>An emoji reaction (<c>POST /accounts/{id}/react</c>) on <paramref name="target"/>;
+    /// an empty emoji removes ours.</summary>
+    Task<BaileysResult> ReactAsync(string accountExternalId, string toWaId, BaileysQuote target, string emoji,
+        CancellationToken ct = default) =>
+        Task.FromResult(new BaileysResult(false, "this Baileys gateway does not support reactions"));
     /// <summary>
     /// An image / video / audio / document (POST /accounts/{id}/send-media: the
     /// file travels base64 in the body — never a path — capped at
@@ -205,10 +223,31 @@ public class HttpBaileysGateway : IBaileysGateway
         return ok ? ToStatus(body, "") with { State = "logged_out" } : new BaileysStatus("error", null, null, err);
     }
 
-    public async Task<BaileysResult> SendTextAsync(string a, string toWaId, string text, CancellationToken ct = default)
+    public Task<BaileysResult> SendTextAsync(string a, string toWaId, string text, CancellationToken ct = default) =>
+        SendTextAsync(a, toWaId, text, null, ct);
+
+    public async Task<BaileysResult> SendTextAsync(string a, string toWaId, string text, BaileysQuote? quote,
+        CancellationToken ct = default)
     {
+        object payload = quote is { Id.Length: > 0 }
+            ? new
+            {
+                to = toWaId, text, quoted_id = quote.Id, quoted_from_me = quote.FromMe,
+                quoted_text = quote.Text.Length > 500 ? quote.Text[..500] : quote.Text,
+            }
+            : new { to = toWaId, text };
         var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/send",
-            new { to = toWaId, text }, ct);
+            payload, ct);
+        if (!ok) return new BaileysResult(false, err);
+        var id = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("id", out var i) ? i.ToString() : "";
+        return new BaileysResult(true, "sent", id);
+    }
+
+    public async Task<BaileysResult> ReactAsync(string a, string toWaId, BaileysQuote target, string emoji,
+        CancellationToken ct = default)
+    {
+        var (ok, body, err) = await CallAsync(HttpMethod.Post, $"/accounts/{Uri.EscapeDataString(a)}/react",
+            new { to = toWaId, msg_id = target.Id, from_me = target.FromMe, emoji = emoji ?? "" }, ct);
         if (!ok) return new BaileysResult(false, err);
         var id = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("id", out var i) ? i.ToString() : "";
         return new BaileysResult(true, "sent", id);

@@ -9,7 +9,9 @@
  *
  *   GET  /accounts/:id/status      -> { state, qr?, me?, error? }
  *   POST /accounts/:id/start       -> begin/refresh pairing (emits a QR)
- *   POST /accounts/:id/send        -> { to, text } -> { id }
+ *   POST /accounts/:id/send        -> { to, text, quoted_id?, quoted_from_me?, quoted_text? } -> { id }
+ *                                     (quoted_* = a reply quoting that message; messages.js)
+ *   POST /accounts/:id/react       -> { to, msg_id, from_me?, emoji } -> { id }  ("" removes ours)
  *   POST /accounts/:id/send-media  -> { to, media_type: image|video|audio|document,
  *                                     file_b64, mime?, filename?, caption? } -> { id }
  *                                     (≤16 MB, base64 in the body — never a path/URL; media.js)
@@ -34,6 +36,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import pino from 'pino'
 import { buildMediaMessage, MediaRequestError, MAX_SEND_MEDIA_BODY, readJsonBodyCapped } from './media.js'
+import { buildQuoted, buildReact, KeyStore, parseInbound, unwrap } from './messages.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
@@ -147,26 +150,14 @@ function acct(id) {
 // Envelopes that carry no user content (session setup, receipts-of-sorts).
 // An inbound whose message object is empty or protocol-only must be skipped,
 // not shown as a "[message]" bubble.
+// (reactionMessage is handled on its own: pushed as a reaction, never a bubble)
 const PROTOCOL_KEYS = new Set(['protocolMessage', 'senderKeyDistributionMessage',
                                'messageContextInfo', 'reactionMessage'])
 const hasContent = (msg) => !!msg && Object.keys(msg).some((k) => !PROTOCOL_KEYS.has(k))
 
-function extractText(msg) {
-  if (!msg) return '[message]'
-  return (
-    msg.conversation ||
-    msg.extendedTextMessage?.text ||
-    msg.imageMessage?.caption ||
-    msg.videoMessage?.caption ||
-    (msg.imageMessage && '[image]') ||
-    (msg.videoMessage && '[video]') ||
-    (msg.audioMessage && '[audio]') ||
-    (msg.documentMessage && '[document]') ||
-    (msg.stickerMessage && '[sticker]') ||
-    (msg.locationMessage && '[location]') ||
-    '[message]'
-  )
-}
+// Recent messages by id (inbound + what we sent), so a reply can quote the real
+// message; an id we no longer hold is rebuilt from the API's text (messages.js).
+const recentMessages = new KeyStore(2000)
 
 // Downloadable envelope kinds -> our media_type + a fallback extension.
 // Stickers are webp images (animated webp still renders in <img>).
@@ -220,7 +211,8 @@ async function pushInboundMedia(id, m, waId, media) {
 }
 
 async function pushInbound(id, m) {
-  if (!hasContent(m.message)) return // session-setup / protocol-only envelope
+  const parsed = parseInbound(m.message)
+  if (!parsed.reaction && !hasContent(unwrap(m.message))) return // session-setup / protocol-only envelope
   const jid = m.key?.remoteJid || ''
   let waId = ''
   if (jid.endsWith('@s.whatsapp.net')) {
@@ -239,13 +231,18 @@ async function pushInbound(id, m) {
   } else {
     return // groups/broadcast/status
   }
-  const body = {
-    account_id: id,
-    wa_id: waId,
-    name: m.pushName || '',
-    text: extractText(m.message),
-    msg_id: m.key?.id || '',
-  }
+  // a reaction lands on the message it targets — the API never makes a bubble of it
+  const body = parsed.reaction
+    ? { account_id: id, wa_id: waId, reaction: parsed.reaction }
+    : {
+        account_id: id,
+        wa_id: waId,
+        name: m.pushName || '',
+        text: parsed.text,
+        msg_id: m.key?.id || '',
+        reply_to: parsed.replyTo,
+      }
+  if (!parsed.reaction) recentMessages.remember(m)
   try {
     await fetch(`${API_URL}/api/whatsapp/baileys/inbound`, {
       method: 'POST',
@@ -255,9 +252,10 @@ async function pushInbound(id, m) {
   } catch (e) {
     console.error(`[${id}] inbound push failed:`, e.message)
   }
+  if (parsed.reaction) return
   // attachment (image/pdf/sticker/…): download + attach AFTER the text push
   // so the message row exists to hang the media on; fire-and-forget
-  const media = mediaKind(m.message)
+  const media = mediaKind(unwrap(m.message))
   if (media) pushInboundMedia(id, m, waId, media)
 }
 
@@ -466,11 +464,22 @@ async function humanPause(a, jid) {
   } catch { /* presence is best-effort */ }
 }
 
-async function sendText(id, to, text, rawJid = null) {
+async function sendText(id, to, text, rawJid = null, quote = null) {
   const { a, d, jid } = await resolveTarget(id, to, rawJid)
   await humanPause(a, jid)
-  const result = await a.sock.sendMessage(jid, { text })
-  logEvent('send', { acct: id, to: d, jid, id: result?.key?.id || '' })
+  const quoted = quote ? buildQuoted({ jid, ...quote }, recentMessages) : null
+  const result = await a.sock.sendMessage(jid, { text }, quoted ? { quoted } : undefined)
+  if (result) recentMessages.remember(result)
+  logEvent('send', { acct: id, to: d, jid, id: result?.key?.id || '', quoted: quote?.id || '' })
+  return result?.key?.id || ''
+}
+
+/** An emoji reaction on a message of the chat ("" removes ours). No typing pause:
+ *  a reaction is a tap, not a message. */
+async function sendReaction(id, to, msgId, fromMe, emoji, rawJid = null) {
+  const { a, d, jid } = await resolveTarget(id, to, rawJid)
+  const result = await a.sock.sendMessage(jid, buildReact({ jid, id: msgId, fromMe, emoji }))
+  logEvent('react', { acct: id, to: d, jid, target: msgId, emoji: emoji || '(removed)' })
   return result?.key?.id || ''
 }
 
@@ -572,7 +581,7 @@ const readBody = (req) =>
 http
   .createServer(async (req, res) => {
     if (req.headers['x-baileys-secret'] !== SECRET) return json(res, 403, { detail: 'bad secret' })
-    const m = req.url.match(/^\/accounts\/([\w-]+)\/(status|start|send|send-media|presence|logout|check|call|call-end|call-status)$/)
+    const m = req.url.match(/^\/accounts\/([\w-]+)\/(status|start|send|send-media|react|presence|logout|check|call|call-end|call-status)$/)
     if (!m) return json(res, 404, { detail: 'not found' })
     const [, id, action] = m
     try {
@@ -592,9 +601,18 @@ http
         return json(res, 200, { ok: true, state: acct(id).state })
       }
       if (action === 'send') {
-        const { to, text, raw_jid } = await readBody(req)
+        const { to, text, raw_jid, quoted_id, quoted_from_me, quoted_text } = await readBody(req)
         if (!to || !text) return json(res, 400, { detail: 'to and text are required' })
-        return json(res, 200, { id: await sendText(id, to, text, raw_jid || null) })
+        const quote = typeof quoted_id === 'string' && quoted_id
+          ? { id: quoted_id, fromMe: !!quoted_from_me, text: typeof quoted_text === 'string' ? quoted_text : '' }
+          : null
+        return json(res, 200, { id: await sendText(id, to, text, raw_jid || null, quote) })
+      }
+      if (action === 'react') {
+        const { to, msg_id, from_me, emoji, raw_jid } = await readBody(req)
+        if (!to || !msg_id) return json(res, 400, { detail: 'to and msg_id are required' })
+        if (emoji != null && typeof emoji !== 'string') return json(res, 400, { detail: 'emoji must be a string' })
+        return json(res, 200, { id: await sendReaction(id, to, msg_id, !!from_me, emoji || '', raw_jid || null) })
       }
       if (action === 'send-media') {
         // capped read: a file rides in this body (base64, ≤16 MB) — never a path or URL

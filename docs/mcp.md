@@ -180,7 +180,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `contacts_summarize_timeline` | Summarize a contact's history | read · open-world | `contacts.view` or `chats.view` |
 | `contacts_sync_records` | Sync business records | write | `contacts.manage` |
 
-#### conversations (30)
+#### conversations (31)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -199,6 +199,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `conversations_send_media` | Send a file or image | write · open-world | `chats.send` |
 | `conversations_set_ai` | Switch the AI on/off for a conversation | write | `chats.send` |
 | `conversations_set_labels` | Set conversation labels | write | `chats.send` |
+| `conversations_react_to_message` | React to a message with an emoji | write | `chats.send` |
 | `conversations_link_contact` | Link a conversation to a contact | write | `chats.send` |
 | `conversations_handover` | Take over or hand back a conversation | write | `chats.send` |
 | `conversations_bulk_update` | Bulk-update conversations | write · **destructive** | `chats.manage` |
