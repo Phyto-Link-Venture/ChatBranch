@@ -105,9 +105,9 @@ public static class InboxEndpoints
             // and everything beneath those entities. Asking for an outlet outside
             // that scope narrows to their own rather than widening the inbox.
             var role = me.FindFirstValue(System.Security.Claims.ClaimTypes.Role) ?? "";
-            if (role is not (Roles.SuperAdmin or Roles.Admin))
+            // superadmin + org-wide admins: unbound; company admins, agents: their entities
             {
-                var assigned = ContactsEndpoints.AssignedEntityIds(db, me.Identity?.Name);
+                var assigned = ShellScope.ScopeRoots(db, me);
                 if (assigned.Count > 0)
                 {
                     var allowed = sc.EntitySubtreeIds(assigned);
@@ -336,6 +336,8 @@ public static class InboxEndpoints
             if (!await CanManageTemplates(db, me)) return CannedForbidden();
             var row = await db.CannedResponses.FirstOrDefaultAsync(c => c.Id == id);
             if (row == null) return Results.NotFound(new { detail = "Template not found." });
+            if (LibraryScope.CheckExisting(db, sc, me,
+                    LibraryEntities.Ids(db, LibraryKinds.Canned, row.Id, row.EntityId)) is { } locked) return locked;
 
             if (CStr(body, "short_code") is string rawCode)
             {
@@ -376,11 +378,13 @@ public static class InboxEndpoints
             return Results.Ok(CannedPayload(row, null, LibraryEntities.Load(db, new[] { row })));
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
-        app.MapDelete("/api/messaging/canned/{id:int}", async (int id, AppDbContext db,
+        app.MapDelete("/api/messaging/canned/{id:int}", async (int id, AppDbContext db, ScopingService sc,
             ClaimsPrincipal me, HttpContext ctx) =>
         {
             if (!await CanManageTemplates(db, me)) return CannedForbidden();
             var row = await db.CannedResponses.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id);
+            if (row != null && LibraryScope.CheckExisting(db, sc, me,
+                    LibraryEntities.Ids(db, LibraryKinds.Canned, row.Id, row.EntityId)) is { } locked) return locked;
             await db.CannedResponses.Where(c => c.Id == id).ExecuteDeleteAsync();
             LibraryEntities.Clear(db, LibraryKinds.Canned, id);
             await db.SaveChangesAsync();

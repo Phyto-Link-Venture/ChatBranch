@@ -21,8 +21,8 @@ public static class AssistantGuide
             "must open with an approved template."),
         new("Contacts", "/contacts", "contacts.view",
             new[] { "contact", "contacts", "customer", "customers", "import", "csv", "phone", "people" },
-            "Contacts are the people you talk to. Add one with a name and phone in international format " +
-            "(+60123456789), or import a CSV from Contacts → Import. Link a chat to its contact from the chat's " +
+            "Contacts are the people you talk to. Add one with a name and a phone in international format " +
+            "(+60123456789) or an email (either is enough), or import a CSV from Contacts → Import. Link a chat to its contact from the chat's " +
             "Contact panel. Each contact page shows every channel they use, their records and history."),
         new("Custom fields", "/settings/custom-fields", "settings.ai.manage",
             new[] { "custom", "field", "fields", "attribute", "attributes", "variable", "variables" },

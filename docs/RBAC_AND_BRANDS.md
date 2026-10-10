@@ -58,9 +58,45 @@ starts with every capability OFF).
 | Role | Sees | Manages |
 |---|---|---|
 | **superadmin** | everything, every tenant | everyone and everything; always passes every capability check in code (anti-lockout) |
-| **admin** | their tenant | agent-level users (agents + custom roles) in their own tenant; never assigns admin/superadmin |
+| **admin** (organization-wide — no assigned entities) | their tenant | agent-level users (agents + custom roles) in their own tenant, and COMPANY admins; never superadmins or other org-wide admins |
+| **admin** with assigned entities = **company admin** | their assigned entities' subtrees (a company and its branches) — exactly like a bound agent | agent-level users bound inside their companies; branches under their companies; channels, library items, teams, tags and settings overrides of their own entities; never organization-wide items or settings |
 | **agent** | their assigned entities' subtrees (or the tenant when unassigned) | nothing in the user list |
 | custom roles | like agents (bounded by assigned entities) | whatever the matrix grants |
+
+### Company admins
+
+An **admin with assigned entities** is a *company admin*: admin capabilities,
+bounded by those entities' subtrees. An admin with none stays organization-wide
+(the old behaviour). ONE rule decides it, in `Endpoints/ShellScope.cs`:
+
+- `ShellScope.ScopeRoots(db, me)` — the assigned entity ids that bound the caller;
+  empty for superadmin (never bound), org-wide admins and unassigned agents.
+- `ShellScope.IsCompanyAdmin` / `IsOrgWideAdmin` (superadmin, or an admin with no
+  entities) / `AdminMayAct(entityId)` / `CompanyLevelError(entityId)` (the 403 for
+  a company admin acting at the organization level or on another company).
+- `BoundEntityIds`, `BoundInheritedIds`, `ThreadEntityIds`, `ScopeLibrary`,
+  `ContactsEndpoints.ScopeContacts`, `AdminEndpoints.AccessibleEntitiesAsync`
+  (their companies + branches — the entity switcher), `ToolScope` (MCP) and
+  `LibraryScope.MayGoGlobal` / `CheckExisting` all build on `ScopeRoots`, so every
+  read (contacts, conversations, drafts, analytics, channel lists + health,
+  libraries, bookings, call logs, activity, the AI bill and quotas, AI review
+  runs, search, live) is bounded like an entity-bound agent's.
+- `Auth/CompanyAdminScope.cs` (middleware after the key scopes) drops the
+  ORGANIZATION-LEVEL capabilities for a company admin in every check, whatever
+  the matrix says: `rbac.manage`, `app_keys.manage`, `settings.ai_keys.manage`,
+  `billing.manage`, `notifications.manage`, `settings.appearance.org`,
+  `settings.custom_fields.manage`, `pronunciation.manage`; org-wide voice and
+  default-mail writes carry `.OrgWideOnly()`.
+- Writes: entity create = a branch under their companies only (no top-level
+  company, no promoting a branch); library items never "Everyone (global)", and
+  an existing item is editable only when every entity it serves is theirs
+  (`LibraryScope.CheckExisting`); channel accounts, widgets, teams, tags, routing
+  rules, booking hours, AI behaviour / persona / controls only at their own
+  entities; shared integrations only for their entities. Admin notifications
+  (inbound, handovers) reach a company admin only for their own entities.
+- `GET /api/v1/whoami` and the users list carry `company_admin`; `/users` shows a
+  "Company admin" badge and lets an org-wide admin or superadmin pick companies
+  for an Admin. Tests: `CompanyAdminTests`.
 
 Role hygiene: `Message.source = "agent"` is a message origin, not a role, and
 `lib/auth.ts` maps a cached legacy `'collector'` session to `'agent'`.
@@ -339,17 +375,21 @@ logged with source `api` / `mcp`.
 `/api/v1/users` (+ `/{id}`, DELETE = deactivate) holds the tiered rules:
 
 - **superadmin** — any user, any role, any tenant (`tenant` slug on create).
-- **admin** — only agent-level users (agents and custom roles) in their own
-  tenant; may not change roles to/from admin/superadmin or touch
-  admins/superadmins (403). A custom role granted `users.manage` is tiered the
-  same way.
+- **organization-wide admin** — agent-level users (agents and custom roles) in
+  their own tenant, plus COMPANY admins (role admin WITH `entity_ids`); never
+  superadmins, other org-wide admins, or an admin without entities (403).
+- **company admin** — only agent-level users bound inside their own companies
+  (a new one must be given entities there; an unassigned, tenant-wide user is
+  not theirs); never admins. A custom role granted `users.manage` and bound to
+  entities is tiered the same way.
 - everyone else — 403 on `users.manage`.
 
 Other rules: passwords ≥ 8 characters; `entity_ids` (create and update) applies
-to agent-level users — agents AND custom roles — and must sit in one tenant,
+to agent-level users — agents AND custom roles — and to admins (= company
+admins; never superadmins), and must sit in one tenant,
 bounded by the creator's scope (their tenant; a custom-role manager who is
 itself bound to entities only within those subtrees); switching agent ↔ custom
-role keeps the binding, promotion to admin drops it; an agent-level user
+role ↔ admin keeps the binding, promotion to superadmin drops it; an agent-level user
 created without entities inherits the creating manager's tenant; a login can be
 bound to a Contact (`contact_id` — a **customer login**). Deactivation kills the
 user's sessions. UI: `/users` (Users & roles), `/teams`, `/entities`,

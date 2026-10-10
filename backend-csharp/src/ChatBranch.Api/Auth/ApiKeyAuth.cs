@@ -163,7 +163,7 @@ public static class ApiKeyAuth
     public static async Task<HashSet<string>> EffectiveCapabilitiesAsync(AppDbContext db, ClaimsPrincipal me)
     {
         var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
-        var caps = (await AdminEndpoints.CapabilitiesForAsync(db, role)).ToHashSet();
+        var caps = CompanyAdminScope.Filter(await AdminEndpoints.CapabilitiesForAsync(db, role), CompanyAdminScope.Current).ToHashSet();
         if (Scopes(me) is { } scopes) caps.IntersectWith(scopes);
         return caps;
     }

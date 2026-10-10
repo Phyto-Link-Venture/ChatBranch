@@ -39,11 +39,13 @@ public static class AutomationsEndpoints
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("flows.manage");
 
         // ---- list ------------------------------------------------------------
-        app.MapGet("/api/automations", async (string? entity, AppDbContext db, ScopingService sc) =>
+        app.MapGet("/api/automations", async (string? entity, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
-            var rows = await sc.ScopeInherited(
-                    db.AutomationRules.AsNoTracking().Include(r => r.Entity), entityId)
+            // the library rule: a bound caller (company admin, assigned agent) sees
+            // the org-wide rules + their own entities' — never another company's
+            var rows = await ShellScope.ScopeLibrary(
+                    db.AutomationRules.AsNoTracking().Include(r => r.Entity), db, sc, me, entityId)
                 .OrderBy(r => r.Position).ThenBy(r => r.Id).ToListAsync();
             var scopes = LibraryEntities.Load(db, rows);
             return Results.Ok(new { rules = rows.Select(r => Payload(r, scopes)).ToList() });
@@ -96,6 +98,8 @@ public static class AutomationsEndpoints
         {
             var row = await db.AutomationRules.FirstOrDefaultAsync(r => r.Id == id);
             if (row == null) return Results.NotFound(new { detail = "Rule not found." });
+            if (LibraryScope.CheckExisting(db, sc, me,
+                    LibraryEntities.Ids(db, LibraryKinds.Automation, row.Id, row.EntityId)) is { } locked) return locked;
             if (ValidationError(body) is IResult err) return err;
             var pick = await LibraryScope.ReadAsync(db, body);
             if (pick.Error != null) return pick.Error;
@@ -134,10 +138,12 @@ public static class AutomationsEndpoints
         }).RequireAuthorization(AuthPolicies.AdminPlus).RequireCapability("flows.manage");
 
         // ---- delete ----------------------------------------------------------
-        app.MapDelete("/api/automations/{id:int}", async (int id, AppDbContext db, ClaimsPrincipal me) =>
+        app.MapDelete("/api/automations/{id:int}", async (int id, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var row = await db.AutomationRules.FirstOrDefaultAsync(r => r.Id == id);
             if (row == null) return Results.NotFound(new { detail = "Rule not found." });
+            if (LibraryScope.CheckExisting(db, sc, me,
+                    LibraryEntities.Ids(db, LibraryKinds.Automation, row.Id, row.EntityId)) is { } locked) return locked;
             db.AutomationRules.Remove(row);
             LibraryEntities.Clear(db, LibraryKinds.Automation, row.Id);
             await Audit(db, me, "automation.delete", row.Name);

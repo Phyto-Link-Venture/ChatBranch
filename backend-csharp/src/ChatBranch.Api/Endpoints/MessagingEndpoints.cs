@@ -545,9 +545,16 @@ public static class MessagingEndpoints
             // caller may see is linked: starting a chat never reaches into another
             // outlet's contact book.
             var visible = ContactsEndpoints.ScopeContacts(db.Contacts, me, db, sc);
+            // several contacts may share the address (one per company): the one
+            // of the conversation's entity wins (ContactCompanies.Pick)
+            var forEntity = existing?.EntityId ?? await InboxEndpoints.EntityId(db, Str(body, "entity"));
             var matched = channel == Channels.Email
-                ? await visible.FirstOrDefaultAsync(c => c.Email.ToLower() == to.ToLower())
-                : channel == Channels.Sms ? PhoneMatch.Find(visible.AsNoTracking().AsEnumerable(), to)
+                ? ChatBranch.Data.Contacts.ContactCompanies.Pick(db, sc,
+                    await visible.Where(c => c.Email.ToLower() == to.ToLower()).ToListAsync(), forEntity)
+                : channel == Channels.Sms && PhoneMatch.Tail(to) is string smsTail
+                    ? ChatBranch.Data.Contacts.ContactCompanies.Pick(db, sc,
+                        visible.Where(c => c.Phone != "").AsEnumerable()
+                            .Where(c => PhoneMatch.Tail(c.Phone) == smsTail).ToList(), forEntity)
                 : null;
 
             var thread = store.GetOrCreateThread(channel, to, Str(body, "name"),

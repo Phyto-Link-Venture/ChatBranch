@@ -426,6 +426,8 @@ public static class AiBillingEndpoints
         public bool CanEditBranches { get; init; }
         public HashSet<int>? ReadEntities { get; init; }
         public HashSet<int> EditEntities { get; init; } = new();
+        // a bound caller (company admin, assigned agent): only users bound inside these
+        public HashSet<int>? UserEntities { get; init; }
         public int? TenantId { get; init; }
 
         public bool CanEditEntity(int id, int? parentId) =>
@@ -457,6 +459,7 @@ public static class AiBillingEndpoints
             ReadEntities = read,
             EditEntities = own,
             TenantId = tenant,
+            UserEntities = assigned.Count > 0 ? own : null,
         };
     }
 
@@ -471,10 +474,14 @@ public static class AiBillingEndpoints
                 u.Username, u.IsSuperuser,
                 Role = u.Profile != null ? u.Profile.Role : "",
                 Tenant = u.Profile != null ? u.Profile.TenantId : null,
+                Entities = u.Profile != null ? u.Profile.Entities.Select(e => e.Id).ToList() : new List<int>(),
             })
             .OrderBy(u => u.Username).Take(500).ToListAsync();
         return rows
             .Where(u => q.Manager || (q.TenantId != null && u.Tenant == q.TenantId && !u.IsSuperuser && u.Role != Roles.SuperAdmin))
+            // a company admin's quota list: only the users bound inside their companies
+            .Where(u => q.Manager || q.UserEntities == null
+                        || (u.Entities.Count > 0 && u.Entities.All(q.UserEntities.Contains)))
             .Select(u => new QuotaUser(u.Username, u.IsSuperuser ? Roles.SuperAdmin : u.Role)).ToList();
     }
 

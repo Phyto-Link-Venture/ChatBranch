@@ -279,8 +279,19 @@ public class ContactIdentityTests : IdentityApiBase, IClassFixture<IdentityFacto
             .Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(1, again.GetProperty("queued").GetInt32());
 
-        // the same number on another contact reuses the verdict without a lookup
-        var twinId = await CreateContact(admin, "Twin On", "0" + on[2..]);
+        // the same number on another contact (another company's — one per company)
+        // reuses the verdict without a lookup
+        var otherCo = $"twin-co-{Guid.NewGuid():N}"[..20];
+        InScope((_, db) =>
+        {
+            db.Entities.Add(new Entity { TenantId = db.Tenants.First().Id, Name = "Twin Co", Slug = otherCo,
+                CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+            return db.SaveChanges();
+        });
+        var twinRes = await admin.PostAsJsonAsync("/api/v1/contacts",
+            new { name = "Twin On", phone = "0" + on[2..], entity_slugs = new[] { otherCo } });
+        twinRes.EnsureSuccessStatusCode();
+        var twinId = (await twinRes.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
         Assert.Equal("verified", Verdict(await Hub(admin, twinId)));
         Assert.Equal(checksBefore, Factory.Gateway.Checks.Count(c => c.Number == on));
     }

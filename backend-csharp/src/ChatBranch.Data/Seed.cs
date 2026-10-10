@@ -365,10 +365,35 @@ public static class Seed
         }
     }
 
+    /// <summary>The Setting that marks the one-time contact → entity backfill as done.</summary>
+    public const string ContactEntityBackfillKey = "contacts_entity_backfill_v1";
+
+    /// <summary>
+    /// ONE time per database: link every contact with no entity to the entities
+    /// of its conversations (contacts made from chats before contacts were linked
+    /// on creation were invisible under every entity). Marked done by a Setting,
+    /// so a link someone removes later is never put back. Never throws.
+    /// </summary>
+    public static void BackfillContactEntities(AppDbContext db)
+    {
+        try
+        {
+            if (db.Settings.Any(s => s.Key == ContactEntityBackfillKey && s.EntityId == null)) return;
+            var added = Contacts.ContactCompanies.Backfill(db);
+            db.Settings.Add(new Setting
+            {
+                Key = ContactEntityBackfillKey, Value = $"done ({added} link(s))", UpdatedAt = DateTime.UtcNow,
+            });
+            db.SaveChanges();
+        }
+        catch { /* a fresh / odd database: nothing to backfill */ }
+    }
+
     public static void Run(AppDbContext db)
     {
         db.Database.EnsureCreated();
         UpgradeSchema(db);
+        BackfillContactEntities(db);
 
         // Production is clean by default: only the essential bootstrap (tenant,
         // entity, roles, one superadmin login, custom-field schema) is seeded.

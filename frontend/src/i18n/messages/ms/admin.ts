@@ -132,7 +132,7 @@ export const admin: Dict<typeof source> = {
       loading: 'Memuatkan kebenaran…',
       action: 'tindakan',
       footnote:
-        'Akses mengawal {action}; skop entiti dan pemilikan masih terpakai di atasnya (pentadbir hanya mengurus pengguna organisasinya sendiri, dsb.). Pentadbir super sentiasa memegang {cap} supaya akses tidak boleh dibuang sepenuhnya. Peranan tersuai bermula tanpa akses — berikan kebenaran, kemudian {save}.',
+        'Akses mengawal {action}; skop entiti dan pemilikan masih terpakai di atasnya (pentadbir hanya mengurus pengguna organisasinya sendiri — atau, sebagai pentadbir syarikat dengan entiti dipilih di /users, syarikat tersebut sahaja — dsb.). Pentadbir super sentiasa memegang {cap} supaya akses tidak boleh dibuang sepenuhnya. Peranan tersuai bermula tanpa akses — berikan kebenaran, kemudian {save}.',
     },
   },
   bindings: {
@@ -556,6 +556,12 @@ export const admin: Dict<typeof source> = {
     entityAccess: 'Akses entiti',
     allEntities: 'Semua entiti',
     wholeOrg: 'Seluruh organisasi',
+    companyAdmin: 'Pentadbir syarikat',
+    orgAdmin: 'Seluruh organisasi',
+    adminEntityHint:
+      'Biarkan kosong untuk pentadbir seluruh organisasi, atau pilih syarikat untuk menjadikannya pentadbir syarikat yang hanya melihat dan mengurus syarikat tersebut.',
+    adminEntityRequired: 'Pilih sekurang-kurangnya satu syarikat — hanya pentadbir super boleh mencipta pentadbir seluruh organisasi.',
+    introCompanyAdmin: 'Sebagai pentadbir syarikat, anda mengurus pengguna setaraf ejen bagi syarikat anda sendiri dan cawangannya.',
     contactFor: 'Kenalan untuk {user}',
     entityAccessFor: 'Akses entiti untuk {user}',
     resetPassword: 'Tetapkan semula kata laluan',
@@ -581,7 +587,7 @@ export const admin: Dict<typeof source> = {
     password: 'Kata laluan',
     passwordPlaceholder: 'min. 8 aksara',
     passwordHint: 'Kongsikan dengan pengguna melalui saluran lain; anda boleh menetapkannya semula di sini bila-bila masa.',
-    roleHint: 'Pentadbir super: semua · Pentadbir: organisasi sendiri · Ejen & tersuai: entiti yang ditugaskan sahaja.',
+    roleHint: 'Pentadbir super: semua · Pentadbir: seluruh organisasi, atau syarikat yang dipilih sahaja · Ejen & tersuai: entiti yang ditugaskan sahaja.',
     entityAccessHint:
       'Ejen hanya melihat kenalan dan sembang entiti yang ditanda di sini — dan semua di bawahnya. Tiada yang ditanda = seluruh organisasi. Ubahnya kemudian dengan butang entiti pada barisnya.',
     resetPasswordTitle: 'Tetapkan semula kata laluan — {user}',

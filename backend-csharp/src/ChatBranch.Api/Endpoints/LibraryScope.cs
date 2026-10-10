@@ -105,7 +105,7 @@ internal static class LibraryScope
         var changed = after.Except(prev).Concat(prev.Except(after)).Distinct().ToList();
         if (changed.Count == 0) return null;
         List<int>? tenantIds = null;
-        if (ShellScope.RoleOf(me) == Roles.Admin)
+        if (ShellScope.RoleOf(me) == Roles.Admin)   // an admin: their tenant (a company admin: their companies)
             tenantIds = (await AdminEndpoints.AccessibleEntitiesAsync(db, me)).Select(e => e.Id).ToList();
         foreach (var id in changed)
         {
@@ -119,14 +119,35 @@ internal static class LibraryScope
     }
 
     /// <summary>
-    /// Organization-wide library rows: admins, and a holder of the library's
-    /// capability with NO assigned entities (they already hold the tenant-wide
-    /// view — the library writes have always followed the capability, not the
-    /// role). Someone assigned to entities stays inside them.
+    /// Organization-wide library rows: superadmins, org-wide admins, and a holder
+    /// of the library's capability with NO assigned entities (they already hold
+    /// the tenant-wide view — the library writes have always followed the
+    /// capability, not the role). Someone assigned to entities — a company admin
+    /// included — stays inside them.
     /// </summary>
     internal static bool MayGoGlobal(AppDbContext db, ClaimsPrincipal me) =>
-        ShellScope.RoleOf(me) is Roles.SuperAdmin or Roles.Admin
-        || ContactsEndpoints.AssignedEntityIds(db, me.Identity?.Name).Count == 0;
+        // superadmin, an org-wide admin, or any unassigned holder — a COMPANY
+        // admin (assigned entities) stays inside their companies
+        ShellScope.ScopeRoots(db, me).Count == 0;
+
+    /// <summary>
+    /// May the caller edit or delete an EXISTING item whose availability is
+    /// <paramref name="current"/> (empty = organization-wide)? An unbound caller
+    /// (superadmin, an org-wide admin, an unassigned holder) yes; a bound one — a
+    /// company admin, an assigned agent — only when every entity the item serves
+    /// lies inside their own subtrees: an org-wide item, or one shared with
+    /// another company, is read-only to them. null = yes, else the 403.
+    /// </summary>
+    internal static IResult? CheckExisting(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
+        IReadOnlyCollection<int> current)
+    {
+        if (ShellScope.BoundEntityIds(db, sc, me) is not List<int> bound) return null;
+        if (current.Count == 0)
+            return Forbidden("This item is available to everyone (organization-wide) — only an organization-wide admin can change it.");
+        if (current.Any(id => !bound.Contains(id)))
+            return Forbidden("This item is also available outside your entities — only an organization-wide admin can change it.");
+        return null;
+    }
 
     private static IResult Forbidden(string detail) => Results.Json(new { detail }, statusCode: 403);
 }

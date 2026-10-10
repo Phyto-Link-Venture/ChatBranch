@@ -108,6 +108,8 @@ public static class TagsEndpoints
             if (await Denied(db, me, "tags.manage") is IResult denied) return denied;
             var row = await VisibleTags(db, sc, me, track: true).FirstOrDefaultAsync(t => t.Id == id);
             if (row == null) return NotFound("Tag not found.");
+            if (LibraryScope.CheckExisting(db, sc, me, row.EntityId is int te ? new[] { te } : Array.Empty<int>()) is { } locked)
+                return locked;
             var usage = TagService.UsageCounts(db, new[] { row }).GetValueOrDefault(row.Id);
             var changed = new List<string>();
             var renamed = false;
@@ -185,6 +187,8 @@ public static class TagsEndpoints
             if (await Denied(db, me, "tags.manage") is IResult denied) return denied;
             var row = await VisibleTags(db, sc, me, track: true).FirstOrDefaultAsync(t => t.Id == id);
             if (row == null) return NotFound("Tag not found.");
+            if (LibraryScope.CheckExisting(db, sc, me, row.EntityId is int te ? new[] { te } : Array.Empty<int>()) is { } locked)
+                return locked;
             var usage = TagService.UsageCounts(db, new[] { row }).GetValueOrDefault(row.Id);
             var forced = (force ?? "").Trim().ToLowerInvariant() is "1" or "true" or "yes";
             if (usage > 0 && !forced)
@@ -358,8 +362,7 @@ public static class TagsEndpoints
     {
         IQueryable<Tag> q = track ? db.Tags : db.Tags.AsNoTracking();
         var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
-        if (role is Roles.SuperAdmin or Roles.Admin) return q;
-        var assigned = ContactsEndpoints.AssignedEntityIds(db, me.Identity?.Name);
+        var assigned = ShellScope.ScopeRoots(db, me);   // empty for superadmin + org-wide admins
         if (assigned.Count == 0) return q;
         var ids = sc.EntitySubtreeIds(assigned);
         return q.Where(t => t.EntityId == null || ids.Contains(t.EntityId.Value));
@@ -368,7 +371,11 @@ public static class TagsEndpoints
     /// <summary>"" / null → organization-wide; a slug must resolve to an entity the caller can see.</summary>
     private static async Task<(int?, IResult?)> ResolveEntityAsync(AppDbContext db, ClaimsPrincipal me, string? slug)
     {
-        if (string.IsNullOrWhiteSpace(slug) || slug is "all" or "__all__") return (null, null);
+        if (string.IsNullOrWhiteSpace(slug) || slug is "all" or "__all__")
+            // organization-wide: not for a caller bound to entities (a company admin)
+            return LibraryScope.MayGoGlobal(db, me)
+                ? (null, null)
+                : (null, Results.Json(new { detail = "Only an organization-wide admin can make an organization-wide tag — pick one of your entities." }, statusCode: 403));
         var entity = await FindEntityAsync(db, me, slug);
         return entity == null
             ? (null, Bad($"Unknown entity '{slug}'."))

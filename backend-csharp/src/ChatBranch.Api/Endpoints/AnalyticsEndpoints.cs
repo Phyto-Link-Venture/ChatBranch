@@ -513,6 +513,9 @@ public static class AnalyticsEndpoints
         {
             if (tenantId is not int tid) return new List<Entity>();
             q = q.Where(e => e.TenantId == tid);
+            // a company admin: their companies and every branch beneath them
+            if (ShellScope.BoundEntityIds(db, new ScopingService(db), me) is List<int> bound)
+                q = q.Where(e => bound.Contains(e.Id));
         }
         else
         {

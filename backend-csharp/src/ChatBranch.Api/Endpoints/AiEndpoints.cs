@@ -166,12 +166,14 @@ public static class AiEndpoints
         {
             var row = await db.KnowledgeItems.FindAsync(id);
             if (row == null) return Results.NotFound();
+            var current = LibraryEntities.Ids(db, LibraryKinds.Knowledge, row.Id, row.EntityId);
+            if (LibraryScope.CheckExisting(db, sc, me, current) is { } locked) return locked;
             // "Available to": entities [] / entity "" = everyone (organization-wide)
             var pick = await LibraryScope.ReadAsync(db, b);
             if (pick.Error != null) return pick.Error;
             if (pick.Given)
             {
-                var before = LibraryEntities.Ids(db, LibraryKinds.Knowledge, row.Id, row.EntityId);
+                var before = current;
                 if (await LibraryScope.Check(db, sc, me, before, pick.Ids) is { } denied) return denied;
                 LibraryEntities.Set(db, row, pick.Ids);
             }
@@ -195,8 +197,14 @@ public static class AiEndpoints
                 LibraryEntities.Load(db, new[] { row })));
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
-        app.MapDelete("/api/aicore/knowledge/{id:int}", async (int id, AppDbContext db) =>
+        app.MapDelete("/api/aicore/knowledge/{id:int}", async (int id, AppDbContext db, ScopingService sc,
+            ClaimsPrincipal me) =>
         {
+            var existing = await db.KnowledgeItems.AsNoTracking().FirstOrDefaultAsync(k => k.Id == id);
+            if (existing != null
+                && LibraryScope.CheckExisting(db, sc, me,
+                    LibraryEntities.Ids(db, LibraryKinds.Knowledge, existing.Id, existing.EntityId)) is { } locked)
+                return locked;
             await db.KnowledgeItems.Where(k => k.Id == id).ExecuteDeleteAsync();
             await db.LibraryEntities.Where(l => l.Kind == LibraryKinds.Knowledge && l.ItemId == id).ExecuteDeleteAsync();
             await db.AiEmbeddings.Where(e => e.OwnerType == EmbeddingOwner.Knowledge && e.OwnerId == id).ExecuteDeleteAsync();
@@ -327,9 +335,10 @@ public static class AiEndpoints
           // the booking-hours card on Integrations, or the AI configuration
           .RequireAnyCapability("integrations.view", "settings.ai.manage");
 
-        app.MapPut("/api/aicore/booking-hours", async (string? entity, HttpContext ctx, AppDbContext db, ScopingService sc) =>
+        app.MapPut("/api/aicore/booking-hours", async (string? entity, HttpContext ctx, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
+            if (ShellScope.CompanyLevelError(db, sc, me, entityId) is { } outside) return outside;
             JsonElement body;
             try { body = await ctx.Request.ReadFromJsonAsync<JsonElement>(); }
             catch { return Results.Json(new { detail = "invalid body" }, statusCode: 400); }
@@ -339,9 +348,10 @@ public static class AiEndpoints
             return Results.Ok(BookingHoursPayload(sc, entityId, entity));
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
-        app.MapDelete("/api/aicore/booking-hours", async (string? entity, AppDbContext db, ScopingService sc) =>
+        app.MapDelete("/api/aicore/booking-hours", async (string? entity, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
+            if (ShellScope.CompanyLevelError(db, sc, me, entityId) is { } outside) return outside;
             if (entityId == null)
                 return Results.Json(new { detail = "Select an entity to remove its override. The organization default is edited, not deleted." }, statusCode: 400);
             sc.ClearSetting("booking_hours", entityId);

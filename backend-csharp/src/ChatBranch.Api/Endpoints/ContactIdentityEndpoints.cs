@@ -345,8 +345,7 @@ public static class ContactIdentityEndpoints
         var tenant = TenantId(me);
         var tenantIds = await db.Entities.AsNoTracking()
             .Where(e => tenant == null || e.TenantId == tenant).Select(e => e.Id).ToListAsync();
-        if (role == Roles.Admin) return tenantIds.ToHashSet();
-        var assigned = ContactsEndpoints.AssignedEntityIds(db, me.Identity?.Name);
+        var assigned = ShellScope.ScopeRoots(db, me);   // a company admin: their companies
         if (assigned.Count == 0) return tenantIds.ToHashSet();
         return sc.EntitySubtreeIds(assigned).ToHashSet();
     }

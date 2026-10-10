@@ -416,7 +416,7 @@ public static class AdminEndpoints
         // HasCapability.for_("users.manage")); the tiering below then bounds
         // the ROWS: superadmin everyone, admin their own tenant, anyone else
         // just themselves.
-        app.MapGet("/api/v1/users", async (ClaimsPrincipal me, AppDbContext db) =>
+        app.MapGet("/api/v1/users", async (ClaimsPrincipal me, AppDbContext db, ScopingService sc) =>
         {
             var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
             if (!await HasCapabilityAsync(db, role, "users.manage"))
@@ -433,7 +433,15 @@ public static class AdminEndpoints
                 .Include(u => u.Profile!).ThenInclude(p => p.Contact)
                 .AsQueryable();
             if (role == Roles.Admin)
+            {
                 q = q.Where(u => u.Profile != null && u.Profile.TenantId == tenantId);
+                // A company admin sees themselves plus the users bound inside
+                // their companies — never org-wide users or other companies'.
+                if (ShellScope.BoundEntityIds(db, sc, me) is List<int> bound)
+                    q = q.Where(u => u.Username == username
+                        || (u.Profile!.Role != Roles.SuperAdmin && u.Profile.Entities.Any()
+                            && u.Profile.Entities.All(e => bound.Contains(e.Id))));
+            }
             else if (role != Roles.SuperAdmin)
                 q = q.Where(u => u.Username == username);
             var rows = await q.OrderBy(u => u.Username).ToListAsync();
@@ -458,6 +466,8 @@ public static class AdminEndpoints
         tenant = u.Profile?.Tenant?.Slug,
         entities = (u.Profile?.Entities ?? new List<Entity>())
             .Select(e => new { id = e.Id, name = e.Name, slug = e.Slug }),
+        // An admin bound to entities manages only those companies (and branches).
+        company_admin = RoleOf(u) == Roles.Admin && (u.Profile?.Entities.Count ?? 0) > 0,
         // Customer login: the Contact this user signs in as (integrations are
         // connected per registered user, against their own contact record).
         contact_id = u.Profile?.ContactId,
@@ -551,6 +561,8 @@ public static class AdminEndpoints
     {
         if (string.IsNullOrWhiteSpace(role)) return false;
         if (ApiKeyAuth.CurrentScopes is { } scopes && !scopes.Contains(capability)) return false;
+        // a company admin never holds the organization-level capabilities
+        if (CompanyAdminScope.Current && CompanyAdminScope.OrgLevelCapabilities.Contains(capability)) return false;
         if (role == Roles.SuperAdmin) return true;
         if (!CapabilitySet.Contains(capability)) return false;
         RolePermission? row = null;
@@ -651,6 +663,14 @@ public static class AdminEndpoints
         {
             if (tenantId is not int tid) return new List<Entity>();
             q = q.Where(e => e.TenantId == tid);
+            // A COMPANY admin (assigned entities) sees those companies and every
+            // branch beneath them; an admin with none sees the whole tenant.
+            var ids = await AssignedEntityIdsAsync(db, me.Identity?.Name);
+            if (ids.Count > 0)
+            {
+                var subtree = await SubtreeIdsAsync(db, tid, ids);
+                q = q.Where(e => subtree.Contains(e.Id));
+            }
         }
         else
         {
@@ -661,6 +681,22 @@ public static class AdminEndpoints
             q = q.Where(e => ids.Contains(e.Id) && e.TenantId == atid);
         }
         return await q.OrderBy(e => e.Tenant!.Slug).ThenBy(e => e.Slug).ToListAsync();
+    }
+
+    /// <summary>The given entities plus every descendant, within one tenant.</summary>
+    private static async Task<List<int>> SubtreeIdsAsync(AppDbContext db, int tenantId, List<int> roots)
+    {
+        var rows = await db.Entities.AsNoTracking().Where(e => e.TenantId == tenantId)
+            .Select(e => new { e.Id, e.ParentId }).ToListAsync();
+        var result = new HashSet<int>(roots.Where(r => rows.Any(x => x.Id == r)));
+        var frontier = new Queue<int>(result);
+        while (frontier.Count > 0)
+        {
+            var cur = frontier.Dequeue();
+            foreach (var child in rows.Where(x => x.ParentId == cur))
+                if (result.Add(child.Id)) frontier.Enqueue(child.Id);
+        }
+        return result.ToList();
     }
 
     private static async Task<List<int>> AssignedEntityIdsAsync(AppDbContext db, string? username)

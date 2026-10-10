@@ -239,12 +239,29 @@ When you fix one of these, update this table, `README.md` and
   flows.view analytics.view call_logs.view activity.view tags.view ai.monitor`.
   Server checks use `AdminEndpoints.HasCapabilityAsync` /
   `SettingsEndpoints.RequireCapability` on top of the coarse policies
-  (`authenticated` / `admin+` / `superadmin`). **There is no fallback policy:
+  (`authenticated` / `admin+` / `superadmin`). **Company admins:** an admin
+  WITH assigned entities is a company admin — admin capabilities bounded by
+  those entities' subtrees exactly like a bound agent (contacts, inbox, drafts,
+  analytics, channels, libraries, bookings, activity, the AI bill/quotas, users,
+  the entity switcher); an admin with none stays organization-wide. ONE rule:
+  `ShellScope.ScopeRoots(db, me)` (empty = unbound: superadmin, org-wide admin,
+  unassigned agent) with `IsCompanyAdmin` / `IsOrgWideAdmin` / `AdminMayAct` /
+  `CompanyLevelError`; every scope helper builds on it — never test
+  `role == Roles.Admin` for a scope shortcut. `Auth/CompanyAdminScope.cs` drops
+  the org-level capabilities (`rbac.manage`, `app_keys.manage`,
+  `settings.ai_keys.manage`, `billing.manage`, `notifications.manage`,
+  `settings.appearance.org`, `settings.custom_fields.manage`,
+  `pronunciation.manage`) for them; global library items, top-level entities,
+  org-wide settings stay with org-wide admins. Only a superadmin makes an
+  org-wide admin; an org-wide admin may make company admins (`entity_ids` on an
+  admin). `whoami.company_admin`; details in `docs/RBAC_AND_BRANDS.md`
+  ("Company admins"), tests `CompanyAdminTests`. **There is no fallback policy:
   every route must carry `RequireAuthorization(...)` or an explicit
   `AllowAnonymous()`** — the anonymous set is listed in
   `docs/API_CONVENTIONS.md`. User management (`/api/v1/users`) is tiered:
-  superadmin manages everyone; admin lists their own tenant and manages only
-  agents there. A login may be bound to a Contact (`Profile.ContactId`,
+  superadmin manages everyone; an org-wide admin lists their own tenant and
+  manages agents (and company admins) there; a company admin only the
+  agent-level users bound inside their companies. A login may be bound to a Contact (`Profile.ContactId`,
   "customer login"). The `X-Role` header only works while NO Profile rows exist
   (pre-seed bootstrap). **Per-conversation routes**
   (`/api/whatsapp/threads/{key}/…`, `/api/messaging/threads/{channel}/{key}/…`,
@@ -1247,6 +1264,19 @@ When you fix one of these, update this table, `README.md` and
   `{role, ready}`), or `useState(false)` + `useEffect`. `lib/auth.ts` still
   migrates the legacy `chatwood-auth` / `ai-collector-auth` session keys and a
   cached `'collector'` role.
+- **Contact identity is per COMPANY** (`Data/Contacts/ContactCompanies.cs`): a
+  contact needs a name AND a phone or an email; the same phone (last-8 rule) or
+  email may exist once per company (top-level entity + branches) — create,
+  edit and import check only the companies the contact belongs to (no entity =
+  the org-wide contacts), and a 409 names the existing contact (+
+  `existing_id`) only when the caller can see it (the Add form then offers "add
+  this entity to that contact instead"). Inbound matching
+  (`InboundProcessor.MatchContact`, the SMS start, the identity exchange) picks
+  the receiving entity's contact, else its company's, else an org-wide one —
+  never another company's. Chat-made contacts are linked to their
+  conversation's entity; `Seed.BackfillContactEntities` linked the old ones once
+  (Setting `contacts_entity_backfill_v1`). The contacts list under an entity
+  also shows contacts with a conversation there; `?entity=__none__` = no entity.
 - **Contacts:** `/contacts` is a list (the kanban board is gone) with a 4-step
   **import wizard** (`components/contacts/ContactImportModal.tsx`: a .csv / .xlsx
   / .vcf file or your own Google Contacts → map columns → duplicates skip / fill
@@ -1510,7 +1540,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **725 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **736 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /

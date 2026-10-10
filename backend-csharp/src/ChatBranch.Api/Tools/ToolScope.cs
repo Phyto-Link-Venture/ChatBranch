@@ -9,8 +9,8 @@ namespace ChatBranch.Api.Tools;
 
 /// <summary>
 /// Entity scope for tools, the same rule the inbox applies: superadmin sees
-/// everything; an admin (and an agent with no entity assignment) sees their
-/// tenant; an agent with assignments sees their entities' subtrees plus the
+/// everything; an org-wide admin (and an agent with no entity assignment) sees their
+/// tenant; a company admin or an agent with assignments sees their entities' subtrees plus the
 /// shared "unassigned" bucket. Out-of-scope reads as "not found" — a tool never
 /// confirms that something it may not show exists.
 /// </summary>
@@ -26,15 +26,10 @@ public static class ToolScope
                 .ToList();
 
     /// <summary>Entity ids the caller is bounded to, or null when they are not
-    /// bounded below their tenant (superadmin, admin, unassigned agent).</summary>
-    public static List<int>? BoundedEntityIds(ToolContext ctx)
-    {
-        if (Caller.IsAdminPlus(ctx.User)) return null;
-        var assigned = AssignedEntityIds(ctx.Db, ctx.Username);
-        if (assigned.Count == 0) return null;
-        var sc = ctx.Services.GetRequiredService<ScopingService>();
-        return sc.EntitySubtreeIds(assigned);
-    }
+    /// bounded below their tenant (superadmin, org-wide admin, unassigned agent)
+    /// — <see cref="ShellScope.BoundEntityIds"/>, so a company admin is bounded.</summary>
+    public static List<int>? BoundedEntityIds(ToolContext ctx) =>
+        ShellScope.BoundEntityIds(ctx.Db, ctx.Services.GetRequiredService<ScopingService>(), ctx.User);
 
     public static async Task<bool> CanSeeThreadAsync(ToolContext ctx, Thread t, List<int>? bounded = null)
     {

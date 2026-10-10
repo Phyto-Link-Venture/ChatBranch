@@ -552,13 +552,12 @@ public static class FlowsEndpoints
             qs = qs.Where(c => c.TenantId == tid);
             narrowed = true;
         }
-        if (role != Roles.SuperAdmin && role != Roles.Admin)
         {
-            var assigned = ContactsEndpoints.AssignedEntityIds(db, me.Identity?.Name);
+            var assigned = ShellScope.ScopeRoots(db, me);   // company admins + agents
             if (assigned.Count > 0)
             {
                 var ids = sc.EntitySubtreeIds(assigned);
-                qs = qs.Where(c => c.EntityLinks.Any(l => ids.Contains(l.EntityId)));
+                qs = ContactsEndpoints.InEntities(qs, ids);
                 narrowed = true;
             }
         }

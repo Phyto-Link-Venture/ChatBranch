@@ -130,7 +130,7 @@ export const admin = {
       loading: 'Loading permissions…',
       action: 'action',
       footnote:
-        'Access gates the {action}; entity and ownership scoping still apply on top (an admin manages only their own organization’s users, etc.). Super admin keeps {cap} locked on so access can never be fully removed. Custom roles start with no access — grant capabilities, then {save}.',
+        'Access gates the {action}; entity and ownership scoping still apply on top (an admin manages only their own organization’s users — or, as a company admin with entities picked on /users, only those companies’ — etc.). Super admin keeps {cap} locked on so access can never be fully removed. Custom roles start with no access — grant capabilities, then {save}.',
     },
   },
   bindings: {
@@ -554,6 +554,12 @@ export const admin = {
     entityAccess: 'Entity access',
     allEntities: 'All entities',
     wholeOrg: 'Whole organization',
+    companyAdmin: 'Company admin',
+    orgAdmin: 'Organization-wide',
+    adminEntityHint:
+      'Leave empty for an organization-wide admin, or pick companies to make a company admin who only sees and manages those.',
+    adminEntityRequired: 'Pick at least one company — only a super admin can make an organization-wide admin.',
+    introCompanyAdmin: 'As a company admin you manage the agent-level users of your own companies and their branches.',
     contactFor: 'Contact for {user}',
     entityAccessFor: 'Entity access for {user}',
     resetPassword: 'Reset password',
@@ -579,7 +585,7 @@ export const admin = {
     password: 'Password',
     passwordPlaceholder: 'min 8 characters',
     passwordHint: 'Share it with the user out-of-band; you can reset it here any time.',
-    roleHint: 'Super admin: everything · Admin: own organization · Agent & custom: assigned entities only.',
+    roleHint: 'Super admin: everything · Admin: whole organization, or only the companies picked · Agent & custom: assigned entities only.',
     entityAccessHint:
       'An agent sees only the contacts and chats of the entities ticked here — and everything beneath them. None ticked = the whole organization. Change it later with the entity button on their row.',
     resetPasswordTitle: 'Reset password — {user}',

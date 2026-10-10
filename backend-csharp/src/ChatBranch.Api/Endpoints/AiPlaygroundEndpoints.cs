@@ -411,8 +411,8 @@ public static class AiPlaygroundEndpoints
         ClaimsPrincipal me, string? slug)
     {
         var role = ShellScope.RoleOf(me);
-        var admin = role is Roles.SuperAdmin or Roles.Admin;
-        var assigned = admin ? new List<int>() : ContactsEndpoints.AssignedEntityIds(db, me.Identity?.Name);
+        var admin = ShellScope.IsOrgWideAdmin(db, me);   // a company admin is bound like an agent
+        var assigned = admin ? new List<int>() : ShellScope.ScopeRoots(db, me);
         if (string.IsNullOrWhiteSpace(slug) || slug is "all" or "__all__")
             return admin || assigned.Count == 0
                 ? (null, null)
@@ -428,8 +428,8 @@ public static class AiPlaygroundEndpoints
     /// <summary>An inbox the caller may test against: org-wide, or in their assigned subtree.</summary>
     private static bool AccountVisible(AppDbContext db, ScopingService sc, ClaimsPrincipal me, ChannelAccount a)
     {
-        if (a.EntityId is not int eid || ShellScope.RoleOf(me) is Roles.SuperAdmin or Roles.Admin) return true;
-        var assigned = ContactsEndpoints.AssignedEntityIds(db, me.Identity?.Name);
+        if (a.EntityId is not int eid) return true;
+        var assigned = ShellScope.ScopeRoots(db, me);
         return assigned.Count == 0 || sc.EntitySubtreeIds(assigned).Contains(eid);
     }
 

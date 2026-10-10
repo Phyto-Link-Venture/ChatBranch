@@ -142,7 +142,15 @@ public class IdentityRequestTests : IdentityApiBase, IClassFixture<IdentityFacto
         var admin = await Authed();
         var n = NewNumber();
         await CreateContact(admin, "Twin One", "+" + n);
-        await CreateContact(admin, "Twin Two", "+65" + n[3..]);    // same last 8 digits
+        // same last 8 digits — a twin the API now refuses (one per company), so it
+        // is planted directly, the way older data still holds such pairs
+        InScope((_, db) =>
+        {
+            var tid = db.Contacts.Single(c => c.Name == "Twin One").TenantId;
+            db.Contacts.Add(new Contact { Name = "Twin Two", Phone = "+65" + n[3..], TenantId = tid,
+                CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+            return db.SaveChanges();
+        });
         var inbox = Inbox(IdentifyModes.AskAndCreate);
         var key = Key();
         Say("telegram", key, "hello", inbox);
