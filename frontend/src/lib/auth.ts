@@ -57,7 +57,7 @@ export const CAPABILITY_CATALOG: { capability: string; area: string; label: stri
   { capability: 'templates.manage', area: 'Library', label: 'Manage message templates', lbl: 'admin.caps.templatesManage' },
   { capability: 'script_templates.manage', area: 'Library', label: 'Manage script templates', lbl: 'admin.caps.scriptTemplatesManage' },
   { capability: 'notifications.manage', area: 'Settings', label: 'Manage organization notification defaults', lbl: 'admin.caps.notificationsManage' },
-  { capability: 'analytics.view', area: 'Review', label: 'View analytics', lbl: 'admin.caps.analyticsView' },
+  { capability: 'analytics.view', area: 'Review', label: 'View dashboard', lbl: 'admin.caps.analyticsView' },
   { capability: 'call_logs.view', area: 'Review', label: 'View call logs', lbl: 'admin.caps.callLogsView' },
   { capability: 'activity.view', area: 'Review', label: 'View activity log', lbl: 'admin.caps.activityView' },
   { capability: 'settings.ai.manage', area: 'Settings', label: 'Manage AI configuration', lbl: 'admin.caps.settingsAiManage' },

@@ -67,12 +67,12 @@ export const guide = {
       },
     },
     analytics: {
-      title: 'Analytics — your home page',
+      title: 'Dashboard — your home page',
       intro: 'How conversations, calls and the AI are doing.',
       steps: {
         s1: {
           title: 'Your home page',
-          body: 'Analytics is the first thing you see after signing in: a summary of the period you choose, for the outlet you picked.',
+          body: 'The Dashboard is the first thing you see after signing in: a summary of the period you choose, for the outlet you picked.',
         },
         s2: {
           title: 'Choose the period',
@@ -320,7 +320,7 @@ export const guide = {
         },
         s3: {
           title: 'Your journeys',
-          body: 'Choose which journey to open from this list. The pencil renames it; the ••• menu duplicates, exports, imports or deletes it.',
+          body: 'Journeys opens on this list of every journey: what starts it, whether it is live and how many people entered. Click Open (or the row) to edit one. Inside a journey, All journeys brings you back here; the pencil renames it and the ••• menu duplicates, exports or deletes it.',
         },
         s4: {
           title: 'Steps or canvas',

@@ -293,7 +293,7 @@ public static class DataScenarios
     {
         var owner = ctx.As(ctx.Lab.HqAgent);
         var other = ctx.As(ctx.Lab.NorthAgent);
-        ctx.Link("Ask ChatBranch (bottom-right on every page)", "/analytics");
+        ctx.Link("Ask ChatBranch (bottom-right on every page)", "/dashboard");
         var chat = await ctx.Api(owner, "POST", "/api/assistant/chat", new { message = "How do I hand a chat to a person?" });
         var id = LabContext.Int(chat.Body, "conversation_id");
         ctx.Check("The question is answered and stored", chat.Ok && id != null, $"HTTP {chat.Status} {chat.Detail()}");

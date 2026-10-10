@@ -7,7 +7,7 @@ shell's route guard (`components/shell/RouteGuard.tsx`) renders a "You don't
 have access" panel instead of any page whose sidebar entry (`nav.ts routeDef`,
 detail routes and `alsoActive` aliases included) the caller can't see, so the
 page never mounts or fetches; nothing renders until the session has been read,
-and someone without Analytics lands on the first page they can open
+and someone without the Dashboard lands on the first page they can open
 (`firstVisibleHref`). Settings gates its own sub-pages. For the concepts
 themselves see [DOMAIN_MODEL.md](DOMAIN_MODEL.md).
 
@@ -233,7 +233,7 @@ exemption list below fails the build.
 | Read (GET unless noted) | Capability (any of) | Read by |
 |---|---|---|
 | `/api/analytics/summary`, `/reports`, `/reports.csv`, `/api/messaging/engagement` | `analytics.view` | Analytics (home) |
-| `/api/whatsapp/channels/health` | `analytics.view`, `channels.view` | Analytics health card, Channels |
+| `/api/whatsapp/channels/health` | `analytics.view`, `channels.view` | Dashboard health card, Channels |
 | `/api/analytics/flows`, `/api/flows/library`, `/runs`, `/runs/{id}`, `/{flowId}/stats` | `flows.view` | Analytics flows card, Journeys, runs panel |
 | `/api/flows/queue` (every outbound job, unscoped) | `flows.manage` | queue inspection |
 | `/api/automations`, `/catalog` | `flows.manage` | Automations |
@@ -267,7 +267,7 @@ exemption list below fails the build.
 | `/api/whatsapp/accounts/{id}/baileys/status`, `/api/whatsapp/voice-settings`, `/api/messaging/accounts`, `/api/messaging/settings`, `/api/widgets`, `/api/inboxes/{id}/identify` | `channels.view` | Channels |
 | `/api/whatsapp/settings` (carries the webhook verify token) | `channels.view`, `app_keys.manage` | Channels (Meta webhook rows), App & provider keys |
 | `/api/whatsapp/assignments`, `/routing-rules` | `account_assignment.manage` | Account assignment |
-| `/api/whatsapp/recovery` (the down-number alarm) | `account_assignment.manage`, `analytics.view` | Account assignment, Analytics health card |
+| `/api/whatsapp/recovery` (the down-number alarm) | `account_assignment.manage`, `analytics.view` | Account assignment, Dashboard health card |
 | `/api/integrations/mcp`, `/api/developers/mcp` | `api_keys.manage` | API keys & MCP |
 | `/api/auth/notification-prefs` | `notifications.manage` | Settings → Notification defaults |
 | `/api/settings/ai-providers` | `settings.ai_keys.manage` | Settings → AI keys & models |

@@ -43,7 +43,7 @@ export const admin: Dict<typeof source> = {
     templatesManage: '管理消息模板',
     scriptTemplatesManage: '管理脚本模板',
     notificationsManage: '管理组织通知默认设置',
-    analyticsView: '查看分析',
+    analyticsView: '查看仪表板',
     callLogsView: '查看通话记录',
     activityView: '查看活动记录',
     settingsAiManage: '管理 AI 配置',

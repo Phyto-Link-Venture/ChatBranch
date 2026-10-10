@@ -108,7 +108,7 @@ export function Shell({ children }: { children: ReactNode }) {
     if (!isLogin && !isPublic && !getAuth()) router.replace('/login')
   }, [isLogin, isPublic, pathname, router])
 
-  // Home (where sign-in lands) is Analytics; someone without it starts on
+  // Home (where sign-in lands) is the Dashboard; someone without it starts on
   // the first page they can open instead of a "no access" panel.
   useEffect(() => {
     if (!authReady || !user || pathname !== HOME) return

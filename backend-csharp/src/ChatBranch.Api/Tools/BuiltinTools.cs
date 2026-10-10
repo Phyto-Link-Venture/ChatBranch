@@ -667,7 +667,7 @@ public static class BuiltinTools
         {"type":"object","properties":{
           "days":{"type":"integer","enum":[7,30,90],"default":30},"entity":{"type":"string"}}}
         """;
-        public override string Summarize(JsonElement a) => $"Analytics for the last {Int(a, "days") ?? 30} days";
+        public override string Summarize(JsonElement a) => $"Dashboard summary for the last {Int(a, "days") ?? 30} days";
 
         public override async Task<object?> ExecuteAsync(ToolContext ctx, JsonElement a, CancellationToken ct)
         {
@@ -677,7 +677,7 @@ public static class BuiltinTools
                 {
                     ["days"] = (Int(a, "days") ?? 30).ToString(), ["entity"] = ent?.Slug,
                 }, ct: ct));
-            ctx.Links.Add(new ToolLink("Open analytics", "/analytics"));
+            ctx.Links.Add(new ToolLink("Open the dashboard", "/dashboard"));
             if (r.Body.ValueKind != JsonValueKind.Object) return r.Body;
             return r.Body.EnumerateObject().Where(p => !Bulky.Contains(p.Name))
                 .ToDictionary(p => p.Name, p => (object?)p.Value.Clone());

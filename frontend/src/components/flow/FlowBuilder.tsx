@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { addEdge, applyEdgeChanges, applyNodeChanges, type Connection, type EdgeChange, type NodeChange } from '@xyflow/react'
 import {
   Activity,
@@ -54,13 +54,17 @@ import AddStepModal from './AddStepModal'
 import CanvasView from './CanvasView'
 import ConfigPanel from './ConfigPanel'
 import EdgeConfigPanel from './EdgeConfigPanel'
+import JourneyList from './JourneyList'
 import { EMPTY_LOOKUPS, FlowViewContext, type FlowLookups, type FlowView } from './FlowViewContext'
 import RunsPanel from './RunsPanel'
 import StepsView, { type InsertAt } from './StepsView'
 import TemplateGallery from './TemplateGallery'
 
 /**
- * Journeys (the flow builder). One workflow, two views of the same nodes/edges graph:
+ * Journeys (the flow builder). `/journeys` lists every journey (JourneyList);
+ * `/journeys?flow=<id>` opens one in the editor, and its Back button returns to
+ * the list — the URL carries the selection so refresh and browser Back work.
+ * One workflow, two views of the same nodes/edges graph:
  *  - Steps (default): a plain-language list with "+" between steps and one
  *    column per outcome under branch steps (YES / NO, or one per AI option);
  *  - Advanced canvas: React Flow, for free-form layout and line timings.
@@ -98,10 +102,13 @@ type Insert = (InsertAt & { mode: 'steps' }) | { mode: 'edge'; edgeId: string; h
 
 export default function FlowBuilder() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const t = useT()
   const f = useFormat()
   const [workflows, setWorkflows] = useState<WorkflowDef[]>([])
-  const [activeId, setActiveId] = useState<string | null>(null)
+  const flowParam = searchParams?.get('flow') ?? null
+  // the open journey lives in the URL; an unknown id shows the list
+  const activeId = flowParam && workflows.some((w) => w.id === flowParam) ? flowParam : null
   const [sync, setSync] = useState<SyncState>('loading')
   const [view, setView] = useState<'steps' | 'canvas'>('steps')
   const [period, setPeriod] = useState(7)
@@ -121,8 +128,20 @@ export default function FlowBuilder() {
   const reachable = useRef(false)
   const [version, setVersion] = useState(0)
   const fileInput = useRef<HTMLInputElement>(null)
+  /** a step panel to keep open across the URL change that opens a new journey */
+  const pendingPanel = useRef<string | null>(null)
 
   const active = workflows.find((w) => w.id === activeId) ?? null
+
+  /** Open a journey in the editor (null = back to the list of journeys). */
+  const openFlow = useCallback(
+    (id: string | null, replace = false) => {
+      const href = id ? `/journeys?flow=${encodeURIComponent(id)}` : '/journeys'
+      if (replace) router.replace(href)
+      else router.push(href)
+    },
+    [router],
+  )
   const graph: Graph = useMemo(() => ({ nodes: active?.nodes ?? [], edges: active?.edges ?? [] }), [active])
 
   /** Mutate the library and schedule an autosave. */
@@ -151,7 +170,7 @@ export default function FlowBuilder() {
   useEffect(() => {
     const user = getAuth()
     viewKey.current = `flow-builder-view:${user?.username ?? 'anon'}`
-    let saved: { workflows?: WorkflowDef[]; activeWorkflowId?: string } = {}
+    let saved: { workflows?: WorkflowDef[] } = {}
     try {
       const v = localStorage.getItem(viewKey.current)
       if (v === 'canvas' || v === 'steps') setView(v)
@@ -163,7 +182,6 @@ export default function FlowBuilder() {
       const wfs = lib ? lib.workflows : (saved.workflows ?? [])
       reachable.current = !!lib
       setWorkflows(wfs)
-      setActiveId((wfs.find((w) => w.id === saved.activeWorkflowId) ?? wfs[0])?.id ?? null)
       setSync(lib ? 'synced' : 'local')
       hydrated.current = true
     })
@@ -183,7 +201,7 @@ export default function FlowBuilder() {
     if (!hydrated.current || version === 0) return
     const timer = setTimeout(async () => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ workflows, activeWorkflowId: activeId }))
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ workflows }))
       } catch {
         /* storage full/blocked */
       }
@@ -200,15 +218,15 @@ export default function FlowBuilder() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version])
 
-  // remember which flow is open (no server push for that)
+  // a ?flow= that names no journey (deleted, or another scope's) falls back to the list
   useEffect(() => {
-    if (!hydrated.current) return
-    try {
-      const cur = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...cur, activeWorkflowId: activeId }))
-    } catch {
-      /* ignore */
-    }
+    if (sync !== 'loading' && flowParam && !activeId) openFlow(null, true)
+  }, [sync, flowParam, activeId, openFlow])
+
+  // a different journey (or the list) starts with no side panel open
+  useEffect(() => {
+    setPanel((p) => (p && p.kind === 'node' && pendingPanel.current === p.id ? p : null))
+    pendingPanel.current = null
   }, [activeId])
 
   // ---- statistics for the selected period ------------------------------------------
@@ -241,8 +259,10 @@ export default function FlowBuilder() {
   const createFromTemplate = (tpl: StarterTemplate | null) => {
     const wf = workflowFromTemplate(tpl, freshId('wf'), t)
     mutate((wfs) => [...wfs, wf])
-    setActiveId(wf.id)
-    setPanel(tpl ? null : { kind: 'node', id: wf.nodes[0]?.id ?? '' })
+    const first = tpl ? null : (wf.nodes[0]?.id ?? null)
+    pendingPanel.current = first
+    setPanel(first ? { kind: 'node', id: first } : null)
+    openFlow(wf.id)
     setGallery(false)
   }
 
@@ -255,7 +275,7 @@ export default function FlowBuilder() {
       active: false,
     }
     mutate((wfs) => [...wfs, copy])
-    setActiveId(copy.id)
+    openFlow(copy.id)
     setPanel(null)
   }
 
@@ -263,7 +283,7 @@ export default function FlowBuilder() {
     if (!active) return
     const rest = workflows.filter((w) => w.id !== active.id)
     mutate(() => rest)
-    setActiveId(rest[0]?.id ?? null)
+    openFlow(null, true)
     setPanel(null)
     setConfirmFlowDelete(false)
   }
@@ -308,7 +328,7 @@ export default function FlowBuilder() {
         const g = autoLayout({ nodes: flow.nodes, edges: Array.isArray(flow.edges) ? flow.edges : [] })
         const wf: WorkflowDef = { id, name: flow.name || file.name.replace(/\.json$/i, ''), hint: flow.hint ?? '', active: false, ...g }
         mutate((wfs) => [...wfs, wf])
-        setActiveId(id)
+        openFlow(id)
         setPanel(null)
       } catch {
         setImportError(t('flows.builder.importNotAFlow'))
@@ -433,30 +453,54 @@ export default function FlowBuilder() {
   const selectedEdge = panel?.kind === 'edge' ? graph.edges.find((e) => e.id === panel.id) : undefined
   const panelOpen = !!selectedNode || !!selectedEdge || panel?.kind === 'runs'
 
+  const syncNote = (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11.5px] text-text-muted" title={t(SYNC_LABEL[sync])}>
+      {sync === 'local' || sync === 'readonly' ? <CloudOff size={12} aria-hidden /> : <Cloud size={12} aria-hidden />}
+      {t(SYNC_LABEL[sync])}
+    </span>
+  )
+
   return (
     <FlowViewContext.Provider value={flowView}>
+      <input ref={fileInput} type="file" accept="application/json" className="hidden" aria-hidden tabIndex={-1} onChange={importJson} />
+      {sync === 'loading' ? (
+        <div className="flow-studio grid h-full place-items-center bg-app text-[13px] text-text-muted">{t('flows.builder.loadingFlows')}</div>
+      ) : !active ? (
+        <div className="flow-studio h-full min-h-0 bg-app">
+          <JourneyList
+            workflows={workflows}
+            period={period}
+            periods={PERIODS}
+            periodLabel={t(PERIOD_LABEL[period] ?? 'flows.builder.periodLast7')}
+            onPeriod={setPeriod}
+            syncNote={syncNote}
+            onOpen={(id) => openFlow(id)}
+            onNew={() => setGallery(true)}
+            onImport={() => fileInput.current?.click()}
+            onPickTemplate={createFromTemplate}
+          />
+        </div>
+      ) : (
       <div className="flow-studio flex h-full min-h-0 flex-col bg-app">
         {/* ---- header ---- */}
         <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-surface px-3 py-2.5 sm:px-4">
           <button
+            data-tour="journeys-list"
             type="button"
-            onClick={() => router.push('/analytics')}
-            title={t('flows.builder.backToAnalytics')}
-            className="inline-flex h-8 items-center gap-1 rounded-lg px-2 text-[12.5px] font-semibold text-text-mid hover:bg-fill-hover hover:text-text-high"
+            onClick={() => openFlow(null)}
+            title={t('flows.builder.allJourneys')}
+            className="inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-lg px-2 text-[12.5px] font-semibold text-text-mid hover:bg-fill-hover hover:text-text-high"
           >
-            <ArrowLeft size={15} aria-hidden /> {t('common.actions.back')}
+            <ArrowLeft size={15} aria-hidden /> {t('flows.builder.allJourneys')}
           </button>
           {/* min width: longer translations wrap the header instead of squeezing the flow picker away */}
-          <div data-tour="journeys-list" className="flex min-w-[min(100%,260px)] flex-1 items-center gap-2">
+          <div className="flex min-w-[min(100%,260px)] flex-1 items-center gap-2">
             {workflows.length > 0 && <span className="eyebrow hidden shrink-0 whitespace-nowrap sm:inline">{t('flows.builder.flow')}</span>}
             {workflows.length > 0 && (
               <div className="min-w-0 flex-1 sm:max-w-[260px]">
                 <Select
                   value={activeId ?? ''}
-                  onChange={(id) => {
-                    setActiveId(id)
-                    setPanel(null)
-                  }}
+                  onChange={(id) => openFlow(id)}
                   options={workflows.map((w) => ({ value: w.id, label: w.name, badge: w.active ? t('flows.builder.liveBadge') : undefined }))}
                   searchable={workflows.length > 6}
                   ariaLabel={t('flows.builder.openFlow')}
@@ -474,10 +518,7 @@ export default function FlowBuilder() {
                 <Pencil size={14} aria-hidden />
               </button>
             )}
-            <span className="hidden shrink-0 items-center gap-1 whitespace-nowrap text-[11.5px] text-text-muted md:inline-flex" title={t(SYNC_LABEL[sync])}>
-              {sync === 'local' || sync === 'readonly' ? <CloudOff size={12} aria-hidden /> : <Cloud size={12} aria-hidden />}
-              {t(SYNC_LABEL[sync])}
-            </span>
+            <span className="hidden shrink-0 md:inline-flex">{syncNote}</span>
           </div>
 
           {active && (
@@ -577,7 +618,6 @@ export default function FlowBuilder() {
                 </>
               )}
             </div>
-            <input ref={fileInput} type="file" accept="application/json" className="hidden" aria-hidden tabIndex={-1} onChange={importJson} />
           </div>
         </header>
 
@@ -595,11 +635,7 @@ export default function FlowBuilder() {
         {/* ---- body ---- */}
         <div className="relative flex min-h-0 flex-1">
           <main data-tour="journeys-canvas" className="min-h-0 min-w-0 flex-1">
-            {sync === 'loading' ? (
-              <div className="grid h-full place-items-center text-[13px] text-text-muted">{t('flows.builder.loadingFlows')}</div>
-            ) : !active ? (
-              <EmptyState onPick={createFromTemplate} />
-            ) : view === 'steps' ? (
+            {view === 'steps' ? (
               <StepsView
                 graph={graph}
                 centerKey={`${active.id}:${panelOpen}`}
@@ -668,6 +704,7 @@ export default function FlowBuilder() {
           )}
         </div>
       </div>
+      )}
 
       {/* ---- dialogs ---- */}
       <AddStepModal
@@ -782,20 +819,5 @@ export default function FlowBuilder() {
         </div>
       </Modal>
     </FlowViewContext.Provider>
-  )
-}
-
-function EmptyState({ onPick }: { onPick: (t: StarterTemplate | null) => void }) {
-  const t = useT()
-  return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-[980px] px-4 py-8 sm:px-8 sm:py-12">
-        <div className="eyebrow">{t('flows.builder.emptyEyebrow')}</div>
-        <h1 className="display mt-1 text-[30px] leading-tight text-text-heading sm:text-[36px]">{t('flows.builder.emptyTitle')}</h1>
-        <p className="mt-3 max-w-[680px] text-[14px] leading-relaxed text-text-mid">{t('flows.builder.emptyBody')}</p>
-        <div className="eyebrow mb-3 mt-8">{t('flows.builder.startFromTemplate')}</div>
-        <TemplateGallery onPick={onPick} />
-      </div>
-    </div>
   )
 }

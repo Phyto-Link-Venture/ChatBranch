@@ -495,7 +495,7 @@ export const channels: Dict<typeof source> = {
       },
       s4: {
         title: 'Semak semuanya serentak',
-        body: 'Buka “Analitik” (halaman utama). Pada kad “Kesihatan saluran”, klik “Semak sekarang” untuk menyemak setiap akaun; “Urus” membawa anda kembali ke halaman Peti masuk.',
+        body: 'Buka “Papan pemuka” (halaman utama). Pada kad “Kesihatan saluran”, klik “Semak sekarang” untuk menyemak setiap akaun; “Urus” membawa anda kembali ke halaman Peti masuk.',
       },
       s5: {
         title: 'Baiki peti masuk yang terputus',
@@ -521,6 +521,6 @@ export const channels: Dict<typeof source> = {
       t3: 'Menyimpan kelayakan baharu menetapkan semula label kepada “Tidak diketahui” dan menyemak semula di latar belakang — tunggu seketika atau klik “Uji”.',
     },
     trouble:
-      'Kad memaparkan “Tidak dipantau”: peti masuk itu tiada semakan kesihatan langsung (contohnya trunk suara) — gunakan “Uji”. Label kekal “Tidak diketahui”: klik “Semak sekarang” pada Analitik. “Terjejas” pada Telegram, LINE atau Viber: webhook belum didaftarkan — buka “Tetapan”, pergi ke “Uji dan selesai” dan klik “Daftar” sekali lagi.',
+      'Kad memaparkan “Tidak dipantau”: peti masuk itu tiada semakan kesihatan langsung (contohnya trunk suara) — gunakan “Uji”. Label kekal “Tidak diketahui”: klik “Semak sekarang” pada Papan pemuka. “Terjejas” pada Telegram, LINE atau Viber: webhook belum didaftarkan — buka “Tetapan”, pergi ke “Uji dan selesai” dan klik “Daftar” sekali lagi.',
   },
 }

@@ -246,10 +246,14 @@ public static class SearchEndpoints
             .Where(w => EF.Functions.Like(w.Name, like, "\\") || EF.Functions.Like(w.Hint, like, "\\"))
             .OrderBy(w => w.Position).ThenBy(w => w.Id).Take(per)
             .Select(w => new { w.Id, w.FlowId, w.Name, w.Hint, w.Active }).ToListAsync();
-        return rows.Select(w => new SearchHit("flow", w.FlowId.Length > 0 ? w.FlowId : w.Id.ToString(),
-            w.Name.Length > 0 ? w.Name : "Untitled flow",
-            (w.Active ? "Live" : "Draft") + (w.Hint.Length > 0 ? " · " + ShellScope.Snip(w.Hint, 70) : ""),
-            "/journeys")).ToList();
+        return rows.Select(w =>
+        {
+            var id = w.FlowId.Length > 0 ? w.FlowId : w.Id.ToString();
+            return new SearchHit("flow", id,
+                w.Name.Length > 0 ? w.Name : "Untitled flow",
+                (w.Active ? "Live" : "Draft") + (w.Hint.Length > 0 ? " · " + ShellScope.Snip(w.Hint, 70) : ""),
+                "/journeys?flow=" + Uri.EscapeDataString(id)); // opens that journey in the editor
+        }).ToList();
     }
 
     // ---- admin -----------------------------------------------------------------
