@@ -130,7 +130,8 @@ internal sealed class AiTaskRig : IDisposable
         if (file is { } f)
         {
             var row = Db.Messages.Find(msg.Id)!;
-            row.MediaPath = Media.SaveAsync(Channels.Telegram, key, f.Bytes, f.Ext).GetAwaiter().GetResult();
+            // off the xUnit sync context: blocking on it here deadlocks a 2-core run
+            row.MediaPath = System.Threading.Tasks.Task.Run(() => Media.SaveAsync(Channels.Telegram, key, f.Bytes, f.Ext)).GetAwaiter().GetResult();
             row.MediaType = f.Type;
             Db.SaveChanges();
         }
