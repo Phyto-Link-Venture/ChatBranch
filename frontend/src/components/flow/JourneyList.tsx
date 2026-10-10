@@ -43,6 +43,7 @@ export default function JourneyList({
   onOpen,
   onNew,
   onImport,
+  readOnly = false,
   onPickTemplate,
 }: {
   workflows: WorkflowDef[]
@@ -54,6 +55,8 @@ export default function JourneyList({
   onOpen: (id: string) => void
   onNew: () => void
   onImport: () => void
+  /** view only: no New / Import, no template gallery */
+  readOnly?: boolean
   onPickTemplate: (tpl: StarterTemplate | null) => void
 }) {
   const t = useT()
@@ -203,12 +206,16 @@ export default function JourneyList({
                   ))}
                 </div>
               )}
-              <Button variant="secondary" size="sm" onClick={onImport}>
-                <Upload size={13} aria-hidden /> {t('flows.builder.importJson')}
-              </Button>
-              <Button data-tour="journeys-new" size="sm" onClick={onNew}>
-                <Plus size={13} aria-hidden /> {t('flows.builder.newFlow')}
-              </Button>
+              {!readOnly && (
+                <>
+                  <Button variant="secondary" size="sm" onClick={onImport}>
+                    <Upload size={13} aria-hidden /> {t('flows.builder.importJson')}
+                  </Button>
+                  <Button data-tour="journeys-new" size="sm" onClick={onNew}>
+                    <Plus size={13} aria-hidden /> {t('flows.builder.newFlow')}
+                  </Button>
+                </>
+              )}
             </>
           }
         />
@@ -217,8 +224,12 @@ export default function JourneyList({
           <div data-tour="journeys-list">
             <h2 className="display text-[24px] leading-tight text-text-heading">{t('flows.builder.emptyTitle')}</h2>
             <p className="mt-2 max-w-[680px] text-[14px] leading-relaxed text-text-mid">{t('flows.builder.emptyBody')}</p>
-            <div className="eyebrow mb-3 mt-6">{t('flows.builder.startFromTemplate')}</div>
-            <TemplateGallery onPick={onPickTemplate} />
+            {!readOnly && (
+              <>
+                <div className="eyebrow mb-3 mt-6">{t('flows.builder.startFromTemplate')}</div>
+                <TemplateGallery onPick={onPickTemplate} />
+              </>
+            )}
           </div>
         ) : (
           <DataTable

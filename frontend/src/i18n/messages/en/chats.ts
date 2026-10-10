@@ -221,6 +221,7 @@ export const chats = {
     asking: 'Unknown customer — asking who they are',
     askingN: 'Unknown customer — asking who they are (asked {count} of {max})',
     ambiguous: 'Unknown customer matches several contacts — link the right one',
+    linkOne: 'Link to:',
     ambiguousSaid: 'Unknown customer ({said}) matches several contacts — link the right one',
     needsContact: 'Unknown customer — no matching contact',
     needsContactSaid: 'Unknown customer: {said} — no matching contact',
@@ -404,6 +405,10 @@ export const chats = {
   page: {
     conversationAria: 'Conversation',
     pickConversation: 'Pick a conversation',
+    notFound: 'Conversation not found',
+    notFoundHint: 'This link points to a conversation that doesn’t exist or that you can’t see. Pick one from the list.',
+    placeholdersLeft: 'This message still has unfilled placeholders — replace them before sending.',
+    placeholdersNoContact: 'This message still has placeholders, and this chat has no linked contact to fill them — replace them before sending.',
     pickHint:
       'One inbox for WhatsApp, Messenger, Instagram, Telegram, email and your website — use Filter to narrow it down, and save the filters you reach for as a view.',
     backAria: 'Back to conversations',
@@ -561,6 +566,7 @@ export const chats = {
       from: '{day} from',
       to: '{day} to',
       removeWindow: 'Remove {day} window',
+      badTime: 'Enter each time as HH:MM between 00:00 and 23:59 — a window with an unreadable time can’t be saved.',
       copyHint: 'Copy Monday’s hours to Tuesday–Friday',
       copyLabel: '{from}→{to}',
       addHours: 'Hours',

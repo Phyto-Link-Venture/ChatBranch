@@ -37,6 +37,8 @@ export type Contact = {
   language?: string
   tags: string[]
   attributes: Record<string, unknown>
+  /** Free-text notes about the contact (crm_contact.notes). */
+  notes?: string
   /**
    * Entities this contact belongs to (0..many). Two shapes on the wire:
    * /api/contacts sends slugs, /api/v1/contacts/<id> sends {slug,name} —

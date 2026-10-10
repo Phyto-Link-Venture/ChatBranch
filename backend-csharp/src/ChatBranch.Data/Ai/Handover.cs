@@ -98,7 +98,9 @@ public static class Handover
             row.HandoverReason = why;
             row.HandoverKind = kind;
             row.HandoverBy = by;
-            if (row.Status is ThreadStatus.Open or ThreadStatus.Snoozed) row.Status = ThreadStatus.Pending;
+            // a handover needs a person, so it surfaces the chat — a resolved one
+            // reopens as pending too (it would otherwise stay out of every queue)
+            if (row.Status is ThreadStatus.Open or ThreadStatus.Snoozed or ThreadStatus.Resolved) row.Status = ThreadStatus.Pending;
             if (standDown) AiEligibility.Set(row, false);
             row.UpdatedAt = now;   // the SSE change token — the inbox refreshes
             Mirror(row, thread);

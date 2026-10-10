@@ -33,6 +33,7 @@ export default function StepsView({
   onInsert,
   onDelete,
   onMove,
+  readOnly = false,
 }: {
   graph: Graph
   /** re-centre the main path on the first step when this changes */
@@ -41,13 +42,15 @@ export default function StepsView({
   onInsert: (at: InsertAt) => void
   onDelete: (id: string) => void
   onMove: (id: string, dir: 'up' | 'down') => void
+  /** view only (flows.view without flows.manage): no add / move / delete */
+  readOnly?: boolean
 }) {
   const t = useT()
   const forest = useMemo(() => buildStepTree(graph.nodes, graph.edges), [graph])
   const { describeCtx } = useFlowView()
   const titleOf = (n: FlowNode) => describeStep(t, n, describeCtx).title
 
-  const ctx = { graph, onSelect, onInsert, onDelete, onMove, titleOf }
+  const ctx = { graph, onSelect, onInsert, onDelete, onMove, titleOf, readOnly }
 
   // a wide branch tree scrolls sideways inside this box — open it with the
   // starting point in the middle rather than the far-left column
@@ -103,6 +106,7 @@ interface Ctx {
   onDelete: (id: string) => void
   onMove: (id: string, dir: 'up' | 'down') => void
   titleOf: (n: FlowNode) => string
+  readOnly: boolean
 }
 
 function Chain({ tree, ctx }: { tree: StepTree; ctx: Ctx }) {
@@ -138,6 +142,7 @@ function Chain({ tree, ctx }: { tree: StepTree; ctx: Ctx }) {
         <>
           <Connector
             edge={tree.nextEdge}
+            readOnly={ctx.readOnly}
             onAdd={() =>
               ctx.onInsert({
                 source: tree.node.id,
@@ -177,6 +182,7 @@ function Branches({ branches, ctx }: { branches: BranchTree[]; ctx: Ctx }) {
             <BranchPill branch={b} />
             <Connector
               edge={b.edge}
+              readOnly={ctx.readOnly}
               onAdd={() =>
                 ctx.onInsert({
                   source: b.source,
@@ -220,7 +226,7 @@ function BranchPill({ branch }: { branch: BranchTree }) {
   )
 }
 
-function Connector({ edge, onAdd }: { edge: FlowEdge | null; onAdd: () => void }) {
+function Connector({ edge, onAdd, readOnly }: { edge: FlowEdge | null; onAdd: () => void; readOnly?: boolean }) {
   const t = useT()
   const timing = timingText(t, edge ?? undefined)
   return (
@@ -232,6 +238,9 @@ function Connector({ edge, onAdd }: { edge: FlowEdge | null; onAdd: () => void }
           <div className="h-2 w-px bg-line-strong" aria-hidden />
         </>
       )}
+      {readOnly ? (
+        <div className="h-3 w-px bg-line-strong" aria-hidden />
+      ) : (
       <button
         type="button"
         onClick={onAdd}
@@ -241,6 +250,7 @@ function Connector({ edge, onAdd }: { edge: FlowEdge | null; onAdd: () => void }
       >
         <Plus size={14} strokeWidth={2.25} aria-hidden />
       </button>
+      )}
       <div className="h-3 w-px bg-line-strong" aria-hidden />
     </div>
   )
@@ -311,6 +321,7 @@ function StepCard({ node, ctx, canUp, canDown }: { node: FlowNode; ctx: Ctx; can
           </div>
         </div>
       </div>
+      {!ctx.readOnly && (
       <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100">
         {canUp && (
           <IconBtn label={t('flows.stepsView.moveUp')} onClick={() => ctx.onMove(node.id, 'up')}>
@@ -328,6 +339,7 @@ function StepCard({ node, ctx, canUp, canDown }: { node: FlowNode; ctx: Ctx; can
           </IconBtn>
         )}
       </div>
+      )}
     </div>
   )
 }

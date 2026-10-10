@@ -220,7 +220,9 @@ public static class WidgetEndpoints
         id = m.Id,
         direction = m.Direction,          // "in" = the visitor, "out" = us
         text = m.Text,
-        created_at = m.CreatedAt,
+        // stored UTC; a row read back from SQLite has Kind=Unspecified and would
+        // serialize without the Z (the widget then read it as local time)
+        created_at = DateTime.SpecifyKind(m.CreatedAt, DateTimeKind.Utc),
     };
 
     private static string Cfg(ChannelAccount a, string key, string dflt)
@@ -306,7 +308,7 @@ public static class WidgetEndpoints
   function save(v) { try { if (v) localStorage.setItem(KEY, v); else localStorage.removeItem(KEY); } catch (e) {} }
 
   var host = document.createElement('div');
-  host.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:2147483000';
+  host.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:2147483000;display:flex;flex-direction:column;align-items:flex-end;gap:12px';
   document.body.appendChild(host);
   var root = host.attachShadow({ mode: 'open' });
 

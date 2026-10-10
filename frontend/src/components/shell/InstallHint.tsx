@@ -10,11 +10,18 @@
  * Shown once a person is signed in, never inside the installed app; "Not now"
  * hides it for 30 days (per browser). The sidebar's "Install app" reopens it
  * any time (`window` event `pwa:show-install`).
+ * It never stacks with a page guide: it waits while a guide (or its replay tip)
+ * is on screen, and does not open by itself on the first visit to a page whose
+ * guide starts by itself. Only its buttons take touches — a swipe over the card
+ * still scrolls the page under it.
  */
 
 import { useEffect, useState } from 'react'
 import { Download, Share, SquarePlus, X } from 'lucide-react'
 import { useT } from '@/i18n'
+import { getAuth } from '@/lib/auth'
+import { tourSeen, toursAuto } from '@/lib/tours'
+import { useTour } from '@/components/tour/TourProvider'
 import { useInstallPrompt } from './pwa'
 import { BranchMark } from './Logo'
 
@@ -35,14 +42,17 @@ export function InstallHint() {
   const t = useT()
   const { canInstall, iosHint, install } = useInstallPrompt()
   const [open, setOpen] = useState(false)
+  const { busy, pageTour } = useTour()
 
-  // show by itself once the browser can install (or on iOS), unless snoozed
+  // show by itself once the browser can install (or on iOS), unless snoozed —
+  // and not on the first visit to a page whose guide is about to start
   useEffect(() => {
-    if ((canInstall || iosHint) && !snoozed()) {
-      const timer = window.setTimeout(() => setOpen(true), 4000) // let the page settle first
-      return () => window.clearTimeout(timer)
-    }
-  }, [canInstall, iosHint])
+    if (!(canInstall || iosHint) || snoozed()) return
+    const user = getAuth()?.username
+    if (pageTour && user && toursAuto(user) && !tourSeen(user, pageTour.id)) return
+    const timer = window.setTimeout(() => setOpen(true), 4000) // let the page settle first
+    return () => window.clearTimeout(timer)
+  }, [canInstall, iosHint, pageTour])
 
   useEffect(() => {
     const show = () => setOpen(true)
@@ -50,7 +60,7 @@ export function InstallHint() {
     return () => window.removeEventListener(SHOW_INSTALL_EVENT, show)
   }, [])
 
-  if (!open || (!canInstall && !iosHint)) return null
+  if (!open || busy || (!canInstall && !iosHint)) return null
 
   const dismiss = () => {
     setOpen(false)
@@ -65,7 +75,7 @@ export function InstallHint() {
     <div
       role="dialog"
       aria-label={t('shell.install.title')}
-      className="print-hide fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[70] rounded-2xl border border-line-strong bg-card p-4 shadow-pop lg:inset-x-auto lg:bottom-4 lg:right-4 lg:w-[360px]"
+      className="print-hide pointer-events-none fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[70] rounded-2xl border border-line-strong bg-card p-4 shadow-pop lg:inset-x-auto lg:bottom-4 lg:right-4 lg:w-[360px] [&_button]:pointer-events-auto"
     >
       <div className="flex items-start gap-3">
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-fill">

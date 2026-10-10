@@ -161,6 +161,12 @@ public class IdentityRequestTests : IdentityApiBase, IClassFixture<IdentityFacto
         Assert.Contains("Twin Two", note);
         Assert.True(InScope((_, db) => db.Notifications.Any(x => x.Title.Contains("several contacts"))));
 
+        // the banner lists the matches as one-click links
+        var banner = await admin.GetFromJsonAsync<JsonElement>($"/api/contacts/identify/telegram/{key}");
+        var names = banner.GetProperty("candidates").EnumerateArray().Select(c => c.GetProperty("name").GetString()).ToList();
+        Assert.Contains("Twin One", names);
+        Assert.Contains("Twin Two", names);
+
         // a person picks the right one with the chat's ordinary link picker: the
         // request closes and the "unknown customer" handover clears
         var twinOne = InScope((_, db) => db.Contacts.Single(c => c.Name == "Twin One").Id);
@@ -242,6 +248,37 @@ public class IdentityRequestTests : IdentityApiBase, IClassFixture<IdentityFacto
         var agent = await Authed("agent", "agent123");
         Assert.Equal(HttpStatusCode.Forbidden, (await agent.PostAsJsonAsync(
             $"/api/contacts/identify/telegram/{key}/contact", new { name = "Nope" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Creating_from_an_account_less_chat_takes_the_conversations_entity()
+    {
+        var admin = await Authed();
+        var key = "web-noacct-" + Guid.NewGuid().ToString("N")[..8];
+        var entityId = InScope((_, db) =>
+        {
+            var tenant = db.Tenants.First();
+            var now = DateTime.UtcNow;
+            var ent = new Entity { TenantId = tenant.Id, Name = "Noacct Outlet", Slug = "noacct-" + key[^8..], CreatedAt = now, UpdatedAt = now };
+            db.Entities.Add(ent);
+            db.SaveChanges();
+            var t = new ChatBranch.Domain.Thread { Channel = "website", Key = key, Address = key, Name = "Visitor",
+                EntityId = ent.Id, CreatedAt = now, UpdatedAt = now };
+            db.Threads.Add(t);
+            db.SaveChanges();
+            db.Messages.Add(new Message { ThreadId = t.Id, Direction = MessageDirection.In, Source = MessageSource.Customer,
+                Text = "hello", CreatedAt = now });
+            db.SaveChanges();
+            return ent.Id;
+        });
+        // "The inbox's entity" (entity = "") on a chat with no receiving account → the chat's own entity
+        var res = await admin.PostAsJsonAsync($"/api/contacts/identify/website/{key}/contact",
+            new { name = "Walk In", email = $"{key}@example.org", entity = "" });
+        res.EnsureSuccessStatusCode();
+        var cid = (await res.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("contact_id").GetInt32();
+        Assert.Contains(entityId, InScope((_, db) => db.ContactEntities.AsNoTracking()
+            .Where(l => l.ContactId == cid).Select(l => l.EntityId).ToList()));
+        Assert.Equal(entityId, ThreadOf("website", key).EntityId);
     }
 
     [Fact]

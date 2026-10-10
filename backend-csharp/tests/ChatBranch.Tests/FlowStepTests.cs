@@ -116,6 +116,18 @@ public class FlowStepTests
         Assert.Equal("true", job.Payload["humanize"]!.ToString()!.ToLowerInvariant());
         Assert.Contains("Hi Ana!", job.Payload["text"]!.ToString());
 
+        // a message that arrives while the journey's own message is still queued
+        // is not an answer to it: the run stays parked on the reply
+        Assert.Equal(0, engine.OnInboundMessage("whatsapp", "60120000001", "earlier message"));
+        Assert.Equal(FlowRunStatus.Waiting, t.Fresh().FlowRuns.Single().Status);
+        using (var db = t.Fresh())
+        {
+            var sentJob = db.OutboundJobs.Single();
+            sentJob.Status = JobStatus.Sent;
+            sentJob.SentAt = DateTime.UtcNow;
+            db.SaveChanges();
+        }
+
         Assert.Equal(1, engine.OnInboundMessage("whatsapp", "60120000001", "hello there"));
 
         var done = t.Fresh().FlowRuns.Single();

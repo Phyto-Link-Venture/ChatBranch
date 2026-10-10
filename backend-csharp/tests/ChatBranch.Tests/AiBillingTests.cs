@@ -36,6 +36,8 @@ public class AiBillingTests : IClassFixture<ApiFactory>
         var month = new DateTime(2026, 3, 10, 12, 0, 0, DateTimeKind.Utc);
         With(db =>
         {
+            // the company has existed since February 2026 (it is billed a fee from then on)
+            db.Entities.Single(e => e.Id == company).CreatedAt = new DateTime(2026, 2, 15, 0, 0, 0, DateTimeKind.Utc);
             var contact = new Contact { Name = "Bill Customer", Phone = "+60100000991", CreatedAt = month, UpdatedAt = month };
             db.Contacts.Add(contact);
             db.SaveChanges();
@@ -81,6 +83,13 @@ public class AiBillingTests : IClassFixture<ApiFactory>
             var lines = bill.GetProperty("company").GetProperty("lines").EnumerateArray().ToList();
             Assert.Equal("chat_reply", lines[0].GetProperty("feature").GetString());
             Assert.InRange(lines[0].GetProperty("amount").GetDouble(), 23.62, 23.63); // 3.50 × 1.5 × 4.5 = 23.625
+            Assert.Equal("provider_cost_markup_fee", bill.GetProperty("pricing_note_code").GetString());
+
+            // no monthly fee for a month that ended before the company existed
+            var before = await su.GetFromJsonAsync<JsonElement>("/api/billing/ai?month=2026-01&company=bill-co");
+            Assert.Equal(0.0, before.GetProperty("company").GetProperty("summary").GetProperty("monthly_fee").GetDouble(), 2);
+            var firstMonth = await su.GetFromJsonAsync<JsonElement>("/api/billing/ai?month=2026-02&company=bill-co");
+            Assert.Equal(100.0, firstMonth.GetProperty("company").GetProperty("summary").GetProperty("monthly_fee").GetDouble(), 2);
 
             // the company's view: billed amounts only
             var theirs = await admin.GetFromJsonAsync<JsonElement>("/api/billing/ai?month=2026-03&company=bill-co");

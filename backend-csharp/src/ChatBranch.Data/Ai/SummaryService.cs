@@ -31,6 +31,21 @@ public class SummaryService
 
     public record Brief(string Summary, bool Heuristic, int MessageCount, DateTime AsOf, DateTime GeneratedAt);
 
+    // Briefs of conversations with NO linked contact. crm_conversationsummary
+    // needs a contact (it is contact memory), so these live in-process, keyed by
+    // database + thread ref — enough that GET right after POST finds the brief
+    // and the chat panel stops regenerating it. Bounded; lost on restart.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string Text, bool Heuristic, DateTime At)>
+        Contactless = new();
+    private const int ContactlessCap = 2000;
+
+    private string CacheKey(Thread thread)
+    {
+        string db;
+        try { db = _db.Database.GetConnectionString() ?? ""; } catch { db = ""; }
+        return $"{db}|{RefFor(thread)}";
+    }
+
     /// <summary>The stored brief for a thread, or null when none exists yet.</summary>
     public Brief? Stored(Thread thread)
     {
@@ -38,10 +53,20 @@ public class SummaryService
             .Where(s => s.Ref == RefFor(thread))
             .OrderByDescending(s => s.Id)
             .FirstOrDefault();
-        if (row == null) return null;
+        if (row == null)
+        {
+            if (!Contactless.TryGetValue(CacheKey(thread), out var hit)) return null;
+            var (n, at) = Extent(thread);
+            return new Brief(hit.Text, hit.Heuristic, n, at, hit.At);
+        }
         var (count, asOf) = Extent(thread);
         return new Brief(row.Summary, row.Sentiment == "heuristic", count, asOf, row.CreatedAt);
     }
+
+    // Private notes (and any internal "note" row) are never part of the
+    // conversation the customer had — not counted, not summarised.
+    private IQueryable<Message> Visible(Thread thread) =>
+        _db.Messages.AsNoTracking().Where(m => m.ThreadId == thread.Id && !m.Private && m.Status != "note");
 
     /// <summary>
     /// A summary is stale once messages have arrived since it was generated —
@@ -56,17 +81,15 @@ public class SummaryService
 
     public (int count, DateTime asOf) Extent(Thread thread)
     {
-        var count = _db.Messages.Count(m => m.ThreadId == thread.Id && !m.Private);
-        var asOf = _db.Messages.Where(m => m.ThreadId == thread.Id && !m.Private)
-            .Max(m => (DateTime?)m.CreatedAt) ?? thread.UpdatedAt;
+        var count = Visible(thread).Count();
+        var asOf = Visible(thread).Max(m => (DateTime?)m.CreatedAt) ?? thread.UpdatedAt;
         return (count, asOf);
     }
 
     /// <summary>Generate (and store) a fresh brief for this thread.</summary>
     public async Task<Brief?> GenerateAsync(Thread thread, CancellationToken ct = default)
     {
-        var history = _db.Messages.AsNoTracking()
-            .Where(m => m.ThreadId == thread.Id && !m.Private)
+        var history = Visible(thread)
             .OrderByDescending(m => m.Id).Take(40).ToList();
         history.Reverse();
         if (history.Count == 0) return null;
@@ -84,9 +107,17 @@ public class SummaryService
         // A summary row is contact memory (crm_conversationsummary.contact_id is
         // a required FK), so a conversation with no linked contact gets its
         // brief back without storing one — writing ContactId 0 used to fail the
-        // FK and turn the whole request into a 500.
+        // FK and turn the whole request into a 500. It is cached in-process
+        // instead, so the next GET finds it.
         if (contact == null)
+        {
+            if (Contactless.Count >= ContactlessCap)
+                foreach (var old in Contactless.OrderBy(kv => kv.Value.At).Take(ContactlessCap / 4).ToList())
+                    Contactless.TryRemove(old.Key, out _);
+            Contactless[CacheKey(thread)] = (text, heuristic, now);
             return new Brief(text, heuristic, count, asOf, now);
+        }
+        Contactless.TryRemove(CacheKey(thread), out _);
 
         // one row per thread — replace rather than pile up revisions
         var existing = _db.ConversationSummaries

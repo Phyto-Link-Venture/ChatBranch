@@ -17,6 +17,7 @@ export const billing = {
   managerLine: 'Cost {cost} · markup {markup}% · margin {margin}. Only billing managers see this line.',
   companiesTitle: 'Companies — {month}',
   unattributed: '{requests} requests ({cost}) belong to no company — skill drafting, embeddings and the operator assistant. They are not billed.',
+  pricingNote: 'Cost = what the provider charged per call (OpenRouter reports it); calls without a reported price are estimated from your price table over OpenRouter’s public price list (USD per 1M tokens). Bill = cost × (1 + markup) × the exchange rate + the monthly fee.',
   cols: {
     item: 'Item',
     requests: 'Requests',

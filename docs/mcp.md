@@ -266,9 +266,9 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
-| `get_analytics_summary` | Get the analytics summary | read | `analytics.view` |
+| `get_analytics_summary` | Get the dashboard summary | read | `analytics.view` |
 | `analytics_get_reports` | Get reports | read | `analytics.view` |
-| `analytics_get_flows` | Flow analytics | read | `flows.view` |
+| `analytics_get_flows` | Journey statistics | read | `flows.view` |
 | `analytics_get_usage` | AI usage and cost | read | `billing.manage` |
 | `billing_get_ai_bill` | AI usage bill | read | `billing.view` |
 | `billing_get_settings` | Read the AI billing terms | read | `billing.manage` |

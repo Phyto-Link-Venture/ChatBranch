@@ -162,4 +162,20 @@ public class SkillDrafterTests
         Assert.Equal("template", d.Source);          // the model's garbage → template fallback
         Assert.Equal(2, t.Fresh().LlmUsage.Count(u => u.Feature == "skill_draft"));
     }
+
+    [Theory]
+    [InlineData("When a customer asks about", 80, "When a customer asks")]
+    [InlineData("Quote the delivery fee for the customer's postcode and weight", 30, "Quote the delivery fee")]
+    [InlineData("Opening hours", 80, "Opening hours")]
+    public void Drafted_names_end_on_a_whole_meaningful_word(string raw, int max, string expected) =>
+        Assert.Equal(expected, SkillDrafter.ShortName(raw, max));
+
+    [Fact]
+    public void A_sandbox_name_is_never_cut_mid_phrase()
+    {
+        var d = Draft("When a customer asks about refunds, explain the 14 day policy and never promise cash", "prompt");
+        var name = d.Skill!.Name;
+        Assert.True(name.Length <= 40, name);
+        Assert.DoesNotMatch(@"\b(about|the|a|to|for|of|and)$", name.ToLowerInvariant());
+    }
 }

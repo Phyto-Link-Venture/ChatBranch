@@ -178,6 +178,25 @@ public static class AiReviewEndpoints
             var text = (Str(body, "text") is { } edited && edited.Trim().Length > 0 ? edited : finding.FixText).Trim();
             if (text.Length == 0) return Results.BadRequest(new { detail = "There is no suggestion to add — write the text." });
             if (text.Length > 2000) return Results.BadRequest(new { detail = "Keep it under 2000 characters." });
+            // optional `level`: the entity slug the lesson / knowledge / house rule
+            // belongs to ("" = organization-wide). Absent = the conversation's entity.
+            // The dashboard's confirm dialog always sends the level the person picked.
+            var hasLevel = body is JsonElement bj && bj.ValueKind == JsonValueKind.Object
+                           && bj.TryGetProperty("level", out var lv0)
+                           && lv0.ValueKind is JsonValueKind.String or JsonValueKind.Null;
+            int? entityLevel = finding.EntityId;
+            if (hasLevel)
+            {
+                entityLevel = null;
+                var slug = (Str(body, "level") ?? "").Trim();
+                if (slug.Length > 0 && slug is not ("organization" or "global"))
+                {
+                    // only an entity the caller may see (their tenant / assigned subtree)
+                    entityLevel = (await AdminEndpoints.SwitcherEntitiesAsync(db, me))
+                        .Where(e => e.Slug == slug).Select(e => (int?)e.Id).FirstOrDefault();
+                    if (entityLevel == null) return Results.NotFound(new { detail = $"Unknown entity '{slug}'." });
+                }
+            }
             var actor = learning.ActorFor(me.Identity?.Name);
             var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
             var now = DateTime.UtcNow;
@@ -188,18 +207,19 @@ public static class AiReviewEndpoints
             // ---- permission checks first, then an ATOMIC claim (… WHERE applied = 0),
             // so parallel applies of one finding can never all succeed
             var mayManageAi = await AdminEndpoints.HasCapabilityAsync(db, role, "settings.ai.manage");
-            // a house rule goes to the CONVERSATION's level (its outlet), never the run's
-            var level = finding.EntityId;
+            // a house rule goes to the CONVERSATION's level (its outlet) unless the
+            // person picked another, never the run's
+            var level = entityLevel;
             switch (asWhat)
             {
                 case "lesson":
-                    if (!MayWriteEntity(db, sc, me, finding.EntityId))
+                    if (!MayWriteEntity(db, sc, me, entityLevel))
                         return Results.Json(new { detail = "That conversation's entity is outside your scope." }, statusCode: 403);
                     break;
                 case "knowledge":
                     if (!mayManageAi)
                         return Results.Json(new { detail = "You need the 'settings.ai.manage' permission." }, statusCode: 403);
-                    if (!MayWriteEntity(db, sc, me, finding.EntityId))
+                    if (!MayWriteEntity(db, sc, me, entityLevel))
                         return Results.Json(new { detail = "That conversation's entity is outside your scope." }, statusCode: 403);
                     break;
                 default:
@@ -234,7 +254,7 @@ public static class AiReviewEndpoints
                     var status = AiLessonStatus.Suggested;
                     var lesson = new AiLesson
                     {
-                        EntityId = finding.EntityId, Kind = AiLessonKind.Rule, Status = status,
+                        EntityId = entityLevel, Kind = AiLessonKind.Rule, Status = status,
                         Question = "", Answer = text, Note = note,
                         SourceCount = 0, CreatedBy = actor.Username,
                         ApprovedBy = "",
@@ -243,7 +263,7 @@ public static class AiReviewEndpoints
                     db.AiLessons.Add(lesson);
                     await db.SaveChangesAsync();
                     AuditTrail.Add(db, "ai.lesson.created", $"lesson:{lesson.Id}", $"rule (from AI review): {TextAnalysis.Clip(text, 200)}",
-                        actor: actor.Username, entityId: finding.EntityId, userId: actor.UserId);
+                        actor: actor.Username, entityId: entityLevel, userId: actor.UserId);
                     EmbeddingWorker.Kick();
                     appliedRef = $"lesson:{lesson.Id}";
                     result = new
@@ -258,7 +278,7 @@ public static class AiReviewEndpoints
                     var question = TextAnalysis.Clip(finding.CustomerExcerpt.Replace('\n', ' ').Trim(), 300);
                     var item = new KnowledgeItem
                     {
-                        EntityId = finding.EntityId,
+                        EntityId = entityLevel,
                         Kind = question.Length > 0 ? "faq" : "fact",
                         Title = TextAnalysis.Clip(text.Replace('\n', ' '), 120),
                         Question = question,
@@ -269,7 +289,7 @@ public static class AiReviewEndpoints
                     db.KnowledgeItems.Add(item);
                     await db.SaveChangesAsync();
                     AuditTrail.Add(db, "knowledge.created", $"knowledge:{item.Id}", $"draft from AI review: {TextAnalysis.Clip(item.Title, 200)}",
-                        actor: actor.Username, entityId: finding.EntityId, userId: actor.UserId);
+                        actor: actor.Username, entityId: entityLevel, userId: actor.UserId);
                     EmbeddingWorker.Kick();
                     appliedRef = $"knowledge:{item.Id}";
                     result = new

@@ -389,6 +389,11 @@ public class AiControlsApiTests : IClassFixture<ApiFactory>
         Assert.Equal(2, (await Row(admin, "email", "ho-one@example.com")).GetProperty("handover").GetProperty("count").GetInt32());
         (await admin.PostAsJsonAsync("/api/messaging/threads/email/ho-one@example.com/status", new { status = "resolved" })).EnsureSuccessStatusCode();
         Assert.False((await Row(admin, "email", "ho-one@example.com")).GetProperty("handover").GetProperty("open").GetBoolean());
+        // flagging a RESOLVED chat reopens it as pending (else it stays out of every queue)
+        var reflag = await admin.PostAsJsonAsync("/api/inbox/threads/email/ho-one@example.com/handover", new { action = "flag", reason = "again" });
+        reflag.EnsureSuccessStatusCode();
+        Assert.Equal("pending", (await reflag.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("status").GetString());
+        Assert.True((await Row(admin, "email", "ho-one@example.com")).GetProperty("handover").GetProperty("open").GetBoolean());
 
         // Let AI continue: clears + the chatbot back on
         (await admin.PostAsJsonAsync("/api/inbox/threads/email/ho-two@example.com/handover", new { action = "flag", reason = "check" }))

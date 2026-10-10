@@ -505,9 +505,11 @@ export default function PersonaPage() {
               >
                 {!editing && (
                   <div className="absolute right-2.5 top-2.5 flex items-center gap-1">
-                    {v.tag ? (
+                    {/* the DEFAULT badge follows the organization's saved voice (the
+                        preset's own "Default" tag only named the factory default) */}
+                    {sel || (v.tag && v.tag !== 'Default') ? (
                       <span className="rounded-full bg-green/15 px-1.5 py-px text-[9px] font-bold uppercase text-green-300">
-                        {v.tag}
+                        {sel ? t('voice.chatPersona.default') : v.tag}
                       </span>
                     ) : (
                       <span className="rounded-full bg-purple/15 px-1.5 py-px text-[9px] font-bold uppercase text-purple-300">

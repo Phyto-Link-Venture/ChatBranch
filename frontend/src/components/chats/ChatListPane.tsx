@@ -80,7 +80,9 @@ export default function ChatListPane({
   return (
     <section
       aria-label={t('chats.list.sectionAria')}
-      className={`min-h-0 w-full shrink-0 flex-col border-r border-line bg-surface lg:w-[320px] xl:w-[340px] ${
+      // a phone on its side (short and below lg): the header + list scroll as ONE
+      // pane — a sticky header left the list a sliver of a scroll box
+      className={`min-h-0 w-full shrink-0 flex-col border-r border-line bg-surface max-lg:[@media(max-height:560px)]:overflow-y-auto lg:w-[320px] xl:w-[340px] ${
         hidden ? 'hidden lg:flex' : 'flex'
       }`}
     >
@@ -212,7 +214,10 @@ export default function ChatListPane({
         </div>
       )}
 
-      <div data-tour="chats-list" className="min-h-0 flex-1 overflow-y-auto">
+      <div
+        data-tour="chats-list"
+        className="min-h-0 flex-1 overflow-y-auto max-lg:[@media(max-height:560px)]:flex-none max-lg:[@media(max-height:560px)]:overflow-visible"
+      >
         {loading && rows.length === 0 && (
           <div className="flex items-center justify-center gap-2 px-4 py-10 text-[12.5px] text-text-muted">
             <Loader2 size={14} className="animate-spin" aria-hidden /> {t('chats.list.loading')}
@@ -324,10 +329,21 @@ export default function ChatListPane({
                     {(row.labels ?? []).length > 3 && (
                       <span className="text-[10.5px] text-text-muted">+{(row.labels ?? []).length - 3}</span>
                     )}
-                    {row.ai_enabled && !row.opted_out && (
-                      <span className="inline-flex items-center gap-0.5 rounded-full bg-brand/15 px-1.5 text-[10.5px] font-semibold leading-[17px] text-brand-300">
-                        <Bot size={9} aria-hidden /> {t('chats.list.aiOn')}
+                    {row.ai_enabled && !row.opted_out && !row.pending && row.channel !== 'email' && !row.contact_id ? (
+                      // same state as the chat header: the AI only answers a chat linked to a contact
+                      <span
+                        title={t('chats.page.aiNeedsContactHint')}
+                        className="inline-flex items-center gap-0.5 rounded-full border border-line px-1.5 text-[10.5px] font-semibold leading-[17px] text-[var(--amber-ink)]"
+                      >
+                        <Bot size={9} aria-hidden /> {t('chats.page.aiNeedsContact')}
                       </span>
+                    ) : (
+                      row.ai_enabled &&
+                      !row.opted_out && (
+                        <span className="inline-flex items-center gap-0.5 rounded-full bg-brand/15 px-1.5 text-[10.5px] font-semibold leading-[17px] text-brand-300">
+                          <Bot size={9} aria-hidden /> {t('chats.list.aiOn')}
+                        </span>
+                      )
                     )}
                     {row.opted_out && (
                       <span className="rounded-full bg-red/10 px-1.5 text-[10.5px] font-semibold leading-[17px] text-red-300">

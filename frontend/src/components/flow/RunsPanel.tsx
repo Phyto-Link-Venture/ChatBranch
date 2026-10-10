@@ -188,6 +188,10 @@ function Overview({
   const f = useFormat()
   const { describeCtx } = useFlowView()
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes])
+  // a step right under a branch step (decision / follow-up) gets only the people
+  // who took its outcome
+  const branchParents = new Set((stats?.order ?? []).filter((x) => x.type === 'decision' || x.type === 'followup').map((x) => x.nodeId))
+  const branchChild = (o: { parent: string | null }) => !!o.parent && branchParents.has(o.parent)
   const depth = useMemo(() => {
     const d = new Map<string, number>()
     for (const o of stats?.order ?? []) d.set(o.nodeId, o.parent ? (d.get(o.parent) ?? 0) + 1 : 0)
@@ -258,8 +262,18 @@ function Overview({
                         {f.number(o.entered)}
                       </button>
                     </td>
-                    <td className={`px-2 py-1.5 text-right tabular-nums ${o.dropPct && o.dropPct >= 50 ? 'text-[color:var(--amber-ink)]' : 'text-text-muted'}`}>
-                      {o.dropPct === null ? '—' : f.percent(o.dropPct / 100)}
+                    {/* a step on one outcome of a branch: people going the other way is not a
+                        drop-off — an untaken path reads "Not taken", neutrally */}
+                    <td
+                      className={`px-2 py-1.5 text-right tabular-nums ${
+                        !branchChild(o) && o.dropPct && o.dropPct >= 50 ? 'text-[color:var(--amber-ink)]' : 'text-text-muted'
+                      }`}
+                    >
+                      {branchChild(o) && o.entered === 0
+                        ? t('flows.runs.notTaken')
+                        : o.dropPct === null || branchChild(o)
+                          ? '—'
+                          : f.percent(o.dropPct / 100)}
                     </td>
                     <td className="px-2.5 py-1.5 text-right tabular-nums text-text-muted">
                       {s?.waitingNow ? (

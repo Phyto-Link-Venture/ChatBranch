@@ -290,7 +290,7 @@ export function ChannelsSettings() {
     }`
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
+    <div className="flex shrink-0 flex-col gap-4 lg:min-h-0 lg:flex-1 lg:shrink">
       <PageHeader
         eyebrow={t('shell.groups.channels')}
         title={t('channels.page.title')}
@@ -304,7 +304,7 @@ export function ChannelsSettings() {
         }
       />
 
-      <div className="flex min-h-0 flex-1 flex-col gap-9 overflow-y-auto pb-6">
+      <div className="flex flex-col gap-9 pb-6 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
         {pageMsg && (
           <div role="status" className="text-[12.5px] font-semibold" style={{ color: 'var(--green-ink)' }}>
             {pageMsg}

@@ -49,6 +49,8 @@ interface Bill {
   unattributed: { requests: number; tokens: number; cost_usd: number } | null
   usd_rate: number | null
   pricing_note: string | null
+  /** translated by the dashboard (pricing_note stays English for API callers) */
+  pricing_note_code?: string | null
 }
 
 export const FEATURE_LABELS: Record<string, MessageKey> = {
@@ -280,7 +282,8 @@ export function AiBill() {
             <table className="w-full min-w-[560px] text-[13px]">
               <thead>
                 <tr className="border-b border-line text-left text-[11.5px] uppercase tracking-[0.05em] text-text-muted">
-                  <th className="py-2 pr-3 font-semibold">{t('billing.company')}</th>
+                  {/* the company column stays put while the figures scroll sideways on a phone */}
+                  <th className="sticky left-0 z-[1] bg-card py-2 pr-3 font-semibold">{t('billing.company')}</th>
                   <th className="py-2 pr-3 text-right font-semibold">{t('billing.cols.requests')}</th>
                   {manager && <th className="py-2 pr-3 text-right font-semibold">{t('billing.cols.cost')}</th>}
                   {manager && <th className="py-2 pr-3 text-right font-semibold">{t('billing.cols.markup')}</th>}
@@ -291,8 +294,8 @@ export function AiBill() {
               <tbody>
                 {bill.companies.map((c) => (
                   <tr key={c.id} className="border-b border-line">
-                    <td className="py-2 pr-3">
-                      <button type="button" onClick={() => setCompany(c.slug)} className="font-semibold text-text-high hover:underline">
+                    <td className="sticky left-0 z-[1] max-w-[46vw] bg-card py-2 pr-3 sm:max-w-none">
+                      <button type="button" onClick={() => setCompany(c.slug)} className="break-words text-left font-semibold text-text-high hover:underline">
                         {c.name}
                       </button>
                     </td>
@@ -314,7 +317,11 @@ export function AiBill() {
               })}
             </p>
           )}
-          {bill.pricing_note && <p className="mt-2 text-[11.5px] text-text-faint">{bill.pricing_note}</p>}
+          {(bill.pricing_note_code || bill.pricing_note) && (
+            <p className="mt-2 text-[11.5px] text-text-faint">
+              {bill.pricing_note_code === 'provider_cost_markup_fee' ? t('billing.pricingNote') : bill.pricing_note}
+            </p>
+          )}
         </Card>
       )}
     </div>

@@ -3,7 +3,7 @@ import type { Dict } from '../../types'
 
 export const contacts: Dict<typeof source> = {
   recordTypes: {
-    any: 'Mana-mana rekod',
+    any: 'Semua rekod',
     order: 'Pesanan',
     shipment: 'Penghantaran',
     invoice: 'Invois',
@@ -56,7 +56,7 @@ export const contacts: Dict<typeof source> = {
     empty: 'Belum ada kenalan — tambah satu atau import CSV.',
     allEntities: 'Semua entiti',
     filterEntity: 'Tapis mengikut entiti',
-    anyTag: 'Mana-mana tag',
+    anyTag: 'Semua tag',
     filterTag: 'Tapis mengikut tag',
     filterRecord: 'Tapis mengikut jenis rekod',
   },

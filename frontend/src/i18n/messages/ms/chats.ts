@@ -221,6 +221,7 @@ export const chats: Dict<typeof source> = {
     asking: 'Pelanggan tidak dikenali — sedang bertanya siapa mereka',
     askingN: 'Pelanggan tidak dikenali — sedang bertanya siapa mereka (ditanya {count} daripada {max})',
     ambiguous: 'Pelanggan tidak dikenali sepadan dengan beberapa kenalan — pautkan yang betul',
+    linkOne: 'Pautkan kepada:',
     ambiguousSaid: 'Pelanggan tidak dikenali ({said}) sepadan dengan beberapa kenalan — pautkan yang betul',
     needsContact: 'Pelanggan tidak dikenali — tiada kenalan yang sepadan',
     needsContactSaid: 'Pelanggan tidak dikenali: {said} — tiada kenalan yang sepadan',
@@ -404,6 +405,10 @@ export const chats: Dict<typeof source> = {
   page: {
     conversationAria: 'Perbualan',
     pickConversation: 'Pilih perbualan',
+    notFound: 'Perbualan tidak dijumpai',
+    notFoundHint: 'Pautan ini menuju ke perbualan yang tidak wujud atau yang tidak boleh anda lihat. Pilih satu daripada senarai.',
+    placeholdersLeft: 'Mesej ini masih mempunyai ruang isian yang belum diisi — gantikannya sebelum menghantar.',
+    placeholdersNoContact: 'Mesej ini masih mempunyai ruang isian, dan perbualan ini tiada kenalan dipautkan untuk mengisinya — gantikannya sebelum menghantar.',
     pickHint:
       'Satu peti masuk untuk WhatsApp, Messenger, Instagram, Telegram, e-mel dan laman web anda — guna Tapis untuk mengecilkannya, dan simpan penapis yang kerap digunakan sebagai paparan.',
     backAria: 'Kembali ke perbualan',
@@ -561,6 +566,7 @@ export const chats: Dict<typeof source> = {
       from: '{day} dari',
       to: '{day} hingga',
       removeWindow: 'Buang tempoh {day}',
+      badTime: 'Masukkan setiap masa sebagai HH:MM antara 00:00 dan 23:59 — tetingkap dengan masa yang tidak dapat dibaca tidak boleh disimpan.',
       copyHint: 'Salin waktu Isnin ke Selasa–Jumaat',
       copyLabel: '{from}→{to}',
       addHours: 'Waktu',

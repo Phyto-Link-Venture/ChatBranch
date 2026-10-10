@@ -258,7 +258,7 @@ export default function AiPlaygroundPage() {
   const pane = (id: Tab) => (tab === id ? 'flex' : 'hidden lg:flex')
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
+    <div className="flex shrink-0 flex-col gap-3 lg:min-h-0 lg:flex-1 lg:shrink">
       <PageHeader
         eyebrow={
           <span className="inline-flex items-center gap-1.5">
@@ -351,8 +351,10 @@ export default function AiPlaygroundPage() {
         ))}
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] gap-3 lg:grid-cols-[minmax(250px,290px)_minmax(0,1fr)_minmax(270px,330px)]">
-        <Card className={`${pane('setup')} min-h-0 flex-col overflow-y-auto p-4`}>
+      {/* below lg one pane at a time at its natural height (the chat keeps a
+          screen-tall box so its log scrolls and the composer stays reachable) */}
+      <div className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(250px,290px)_minmax(0,1fr)_minmax(270px,330px)] lg:grid-rows-[minmax(0,1fr)]">
+        <Card className={`${pane('setup')} flex-col p-4 lg:min-h-0 lg:overflow-y-auto`}>
           <div id="pg-pane-setup" data-tour="pg-setup" role="tabpanel" aria-labelledby="pg-tab-setup">
             {ready && (
               <SetupPane
@@ -369,7 +371,7 @@ export default function AiPlaygroundPage() {
           </div>
         </Card>
 
-        <div id="pg-pane-chat" data-tour="pg-chat" role="tabpanel" aria-labelledby="pg-tab-chat" className={`${pane('chat')} min-h-0 flex-col`}>
+        <div id="pg-pane-chat" data-tour="pg-chat" role="tabpanel" aria-labelledby="pg-tab-chat" className={`${pane('chat')} h-[calc(100dvh-13rem)] min-h-[360px] flex-col lg:h-auto lg:min-h-0`}>
           {ready && (
             <ChatPane
               entries={entries}
@@ -392,7 +394,7 @@ export default function AiPlaygroundPage() {
           )}
         </div>
 
-        <Card className={`${pane('inspector')} min-h-0 flex-col overflow-y-auto p-4`}>
+        <Card className={`${pane('inspector')} flex-col p-4 lg:min-h-0 lg:overflow-y-auto`}>
           <div id="pg-pane-inspector" data-tour="pg-inspector" role="tabpanel" aria-labelledby="pg-tab-inspector">
             <h2 className="eyebrow mb-3">{t('playground.inspector.title')}</h2>
             <InspectorPane

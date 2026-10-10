@@ -4,6 +4,15 @@ import { Copy, Plus, X } from 'lucide-react'
 import { useFormat, useT } from '@/i18n'
 import { WEEKDAYS, weekdayDate, type AiSchedule, type Weekday } from '@/lib/aiControls'
 
+/** "H:mm" / "HH:mm", 00:00–23:59, or 24:00 (the end of the day) — what the server reads (AiControls). */
+const TIME_RE = /^(?:([01]?\d|2[0-3]):[0-5]\d|24:00)$/
+export const validTime = (v: string) => TIME_RE.test((v ?? '').trim())
+
+/** True when any window holds a time the server would drop (empty, "25:00"…). */
+export function scheduleHasErrors(s: AiSchedule): boolean {
+  return WEEKDAYS.some((d) => (s[d] ?? []).some(([a, b]) => !validTime(a) || !validTime(b)))
+}
+
 const timeCls =
   'h-8 w-[122px] rounded-md border border-line-strong bg-card px-2 text-[12.5px] tabular-nums text-text-primary outline-none focus:border-text-primary disabled:opacity-60'
 
@@ -35,6 +44,7 @@ export function AiScheduleEditor({
     <div className="flex flex-col divide-y divide-line rounded-lg border border-line">
       {WEEKDAYS.map((d) => {
         const windows = value[d] ?? []
+        const bad = windows.some(([a, b]) => !validTime(a) || !validTime(b))
         return (
           <div key={d} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2">
             <span className="w-9 shrink-0 text-[12.5px] font-semibold text-text-high">{day(d)}</span>
@@ -47,8 +57,9 @@ export function AiScheduleEditor({
                     value={start}
                     disabled={disabled}
                     aria-label={t('chats.aiControls.editor.from', { day: day(d) })}
+                    aria-invalid={!validTime(start)}
                     onChange={(e) => setDay(d, windows.map((w, j) => (j === i ? [e.target.value, w[1]] : w)))}
-                    className={timeCls}
+                    className={`${timeCls} ${validTime(start) ? '' : '!border-[color:var(--red-ink)]'}`}
                   />
                   <span className="text-text-muted">–</span>
                   <input
@@ -56,8 +67,9 @@ export function AiScheduleEditor({
                     value={end}
                     disabled={disabled}
                     aria-label={t('chats.aiControls.editor.to', { day: day(d) })}
+                    aria-invalid={!validTime(end)}
                     onChange={(e) => setDay(d, windows.map((w, j) => (j === i ? [w[0], e.target.value] : w)))}
-                    className={timeCls}
+                    className={`${timeCls} ${validTime(end) ? '' : '!border-[color:var(--red-ink)]'}`}
                   />
                   {!disabled && (
                     <button
@@ -71,6 +83,11 @@ export function AiScheduleEditor({
                   )}
                 </span>
               ))}
+              {bad && (
+                <span role="alert" className="basis-full text-[11.5px] text-[color:var(--red-ink)]">
+                  {t('chats.aiControls.editor.badTime')}
+                </span>
+              )}
             </div>
             {!disabled && (
               <div className="ml-auto flex shrink-0 items-center gap-1">

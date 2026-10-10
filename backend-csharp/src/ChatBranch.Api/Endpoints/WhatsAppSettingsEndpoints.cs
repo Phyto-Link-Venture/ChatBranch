@@ -809,7 +809,10 @@ public static class WhatsAppSettingsEndpoints
             return Results.Json(new
             {
                 ok = false,
-                detail = $"Meta refused the credentials: {r.Detail}",
+                // an error code = Meta answered and said no; none = Meta was never reached
+                detail = r.ErrorCode != null
+                    ? $"Meta refused the credentials: {r.Detail}"
+                    : $"Couldn't check the credentials — {r.Detail}. Try again in a moment.",
                 health_status = row.HealthStatus,
             }, statusCode: r.ErrorCode != null ? 400 : 502);
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");   // a Test talks to the provider (and can send mail)

@@ -40,7 +40,7 @@ public static class ApiV1Endpoints
                 if (TenantId(me) is int tid)
                     tenant = await db.Tenants.AsNoTracking().Where(t => t.Id == tid)
                         .Select(t => t.Slug).FirstOrDefaultAsync();
-                entities = (await AdminEndpoints.AccessibleEntitiesAsync(db, me))
+                entities = (await AdminEndpoints.SwitcherEntitiesAsync(db, me))
                     .Select(e => e.Slug).ToList();
                 capabilities = await AdminEndpoints.CapabilitiesForAsync(db, role);
             }
@@ -1193,6 +1193,7 @@ public static class ApiV1Endpoints
         external_id = c.ExternalId,
         tags = c.Tags,
         attributes = c.Attributes,
+        notes = c.Notes,
         last_synced_at = c.LastSyncedAt,
         created_at = c.CreatedAt,
         updated_at = c.UpdatedAt,

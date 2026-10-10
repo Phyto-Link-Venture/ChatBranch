@@ -23,6 +23,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
 import { useFormat, useT, type MessageKey } from '@/i18n'
 import { getAuth } from '@/lib/auth'
+import { useAccess } from '@/lib/useAccess'
 import { fetchCustomFields } from '@/lib/customFields'
 import {
   cleanEdges,
@@ -105,6 +106,12 @@ export default function FlowBuilder() {
   const searchParams = useSearchParams()
   const t = useT()
   const f = useFormat()
+  // flows.view without flows.manage opens Journeys read-only: nothing edits,
+  // nothing saves (the library PUT would refuse — and it prunes)
+  const access = useAccess()
+  const readOnly = access.ready && !access.can('flows.manage')
+  const readOnlyRef = useRef(false)
+  readOnlyRef.current = readOnly
   const [workflows, setWorkflows] = useState<WorkflowDef[]>([])
   const flowParam = searchParams?.get('flow') ?? null
   // the open journey lives in the URL; an unknown id shows the list
@@ -146,6 +153,7 @@ export default function FlowBuilder() {
 
   /** Mutate the library and schedule an autosave. */
   const mutate = useCallback((fn: (wfs: WorkflowDef[]) => WorkflowDef[]) => {
+    if (readOnlyRef.current) return
     setWorkflows(fn)
     setVersion((v) => v + 1)
   }, [])
@@ -404,6 +412,7 @@ export default function FlowBuilder() {
     (changes: NodeChange<FlowNode>[]) => {
       // measurement + selection are runtime-only; never a reason to save
       const meaningful = changes.some((c) => c.type !== 'dimensions' && c.type !== 'select')
+      if (meaningful && readOnlyRef.current) return
       setWorkflows((wfs) => wfs.map((w) => (w.id === activeId ? { ...w, nodes: applyNodeChanges(changes, w.nodes) } : w)))
       if (meaningful) setVersion((v) => v + 1)
       if (changes.some((c) => c.type === 'remove')) setPanel(null)
@@ -413,6 +422,7 @@ export default function FlowBuilder() {
   const onEdgesChange = useCallback(
     (changes: EdgeChange<FlowEdge>[]) => {
       const meaningful = changes.some((c) => c.type !== 'select')
+      if (meaningful && readOnlyRef.current) return
       setWorkflows((wfs) => wfs.map((w) => (w.id === activeId ? { ...w, edges: applyEdgeChanges(changes, w.edges) } : w)))
       if (meaningful) setVersion((v) => v + 1)
     },
@@ -478,6 +488,7 @@ export default function FlowBuilder() {
             onNew={() => setGallery(true)}
             onImport={() => fileInput.current?.click()}
             onPickTemplate={createFromTemplate}
+            readOnly={readOnly}
           />
         </div>
       ) : (
@@ -507,7 +518,7 @@ export default function FlowBuilder() {
                 />
               </div>
             )}
-            {active && (
+            {active && !readOnly && (
               <button
                 type="button"
                 onClick={() => setRenaming(true)}
@@ -563,6 +574,7 @@ export default function FlowBuilder() {
               <button
                 data-tour="journeys-live"
                 type="button"
+                disabled={readOnly}
                 onClick={() => (active.active ? setLive(false) : nIssues ? setConfirmLive(true) : setLive(true))}
                 title={active.active ? t('flows.builder.liveTitle') : t('flows.builder.pausedTitle')}
                 className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[12.5px] font-semibold ${
@@ -575,9 +587,11 @@ export default function FlowBuilder() {
             </div>
           )}
           <div className="flex items-center gap-2">
-            <Button data-tour="journeys-new" variant={active ? 'secondary' : 'primary'} size="sm" onClick={() => setGallery(true)}>
-              <Plus size={13} aria-hidden /> {t('flows.builder.newFlow')}
-            </Button>
+            {!readOnly && (
+              <Button data-tour="journeys-new" variant={active ? 'secondary' : 'primary'} size="sm" onClick={() => setGallery(true)}>
+                <Plus size={13} aria-hidden /> {t('flows.builder.newFlow')}
+              </Button>
+            )}
             <div className="relative">
               <button
                 type="button"
@@ -597,7 +611,9 @@ export default function FlowBuilder() {
                       { id: 'export', label: t('flows.builder.exportJson'), Icon: Download, run: exportJson, off: !active },
                       { id: 'import', label: t('flows.builder.importJson'), Icon: Upload, run: () => fileInput.current?.click(), off: false },
                       { id: 'delete', label: t('flows.builder.deleteFlow'), Icon: Trash2, run: () => setConfirmFlowDelete(true), off: !active, danger: true },
-                    ].map((it) => (
+                    ]
+                      .filter((it) => !readOnly || it.id === 'export')
+                      .map((it) => (
                       <button
                         key={it.id}
                         type="button"
@@ -621,6 +637,11 @@ export default function FlowBuilder() {
           </div>
         </header>
 
+        {readOnly && (
+          <div role="status" className="border-b border-line bg-panel px-4 py-1.5 text-[12px] font-semibold text-text-mid">
+            {t('flows.builder.viewOnly')}
+          </div>
+        )}
         {active && (active.hint || nIssues > 0) && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-panel px-4 py-1.5 text-[12px]">
             {active.hint && <span className="text-text-muted">{active.hint}</span>}
@@ -643,6 +664,7 @@ export default function FlowBuilder() {
                 onInsert={(at) => setInsert({ ...at, mode: 'steps' })}
                 onDelete={requestDelete}
                 onMove={move}
+                readOnly={readOnly}
               />
             ) : (
               <CanvasView

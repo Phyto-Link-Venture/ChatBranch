@@ -97,7 +97,16 @@ function ContactModal({
       setEmail(editing?.email ?? '')
       setCompany(editing?.company ?? '')
       setTags((editing?.tags ?? []).join(', '))
-      setNotes(editing && typeof editing.attributes.notes === 'string' ? editing.attributes.notes : '')
+      // `notes` is the contact's own column; very old rows kept it in attributes
+      setNotes(
+        editing
+          ? typeof editing.notes === 'string' && editing.notes
+            ? editing.notes
+            : typeof editing.attributes.notes === 'string'
+              ? editing.attributes.notes
+              : ''
+          : '',
+      )
       // Keep the whole attributes object — the custom-field inputs edit their
       // own keys inside it, so unrelated keys survive a save untouched.
       setAttributes({ ...(editing?.attributes ?? {}) })
@@ -591,7 +600,7 @@ function ContactsList() {
     (entityFilter == null && selectedEntities.length > 1 ? selectedEntities.map((e) => e.name).join(', ') : undefined)
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
+    <div className="flex shrink-0 flex-col gap-4 lg:min-h-0 lg:flex-1 lg:shrink">
       <PageHeader
         eyebrow={t('shell.groups.work')}
         title={t('shell.nav.contacts')}
@@ -637,7 +646,7 @@ function ContactsList() {
 
       <ContactModal open={modalOpen} editing={editing} onClose={() => setModalOpen(false)} onSaved={load} />
 
-      <div data-tour="contacts-list" className="min-h-0 flex-1">
+      <div data-tour="contacts-list" className="lg:min-h-0 lg:flex-1">
         <DataTable
           columns={contactColumns}
           rows={filtered}
@@ -673,7 +682,7 @@ function ContactsList() {
                 onChange={setTag}
                 options={[{ value: '', label: t('contacts.list.anyTag') }, ...allTags.map((x) => ({ value: x, label: x }))]}
                 ariaLabel={t('contacts.list.filterTag')}
-                className="w-[140px]"
+                className="w-[160px]"
                 searchable={allTags.length > 8}
               />
               <Select
@@ -681,7 +690,7 @@ function ContactsList() {
                 onChange={setRecordType}
                 options={RECORD_TYPE_OPTS.map((o) => ({ value: o.value, label: t(o.label) }))}
                 ariaLabel={t('contacts.list.filterRecord')}
-                className="w-[140px]"
+                className="w-[160px]"
               />
               {hasFilters && (
                 <Button variant="ghost" size="sm" onClick={clear}>

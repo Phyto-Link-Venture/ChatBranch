@@ -147,6 +147,9 @@ export const analytics: Dict<typeof source> = {
     received: '收到',
     empty: '此时间段内没有对话。',
     emptyLabels: '还没有添加标记。',
+    unassigned: '（未分配）',
+    noTeam: '（无团队）',
+    noLabel: '（无标签）',
   },
   funnel: {
     title: '消息漏斗',
