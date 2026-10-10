@@ -136,19 +136,19 @@ export const guide = {
         },
         s4: {
           title: 'Theme',
-          body: 'Three looks: Paper & Ink, Graphite Pro and Soft Blocks. Click one to try it — you can always switch back.',
+          body: 'Ten looks — Paper & Ink, Graphite Pro, Soft Blocks, Ocean, Forest, Midnight, Rose, Sand, Nord and High contrast. Each card is a small preview; click one to try it — you can always switch back.',
         },
         s5: {
           title: 'Mode',
           body: 'Light, Dark, or System to follow your phone or computer’s own setting.',
         },
         s6: {
-          title: 'Accent colour',
-          body: 'The highlight colour of buttons and links. ChatBranch adjusts it a little if needed so text stays easy to read.',
+          title: 'Text size',
+          body: 'Click S, M, L or XL, or drag the slider for any size between 85 % and 130 %. Everything on screen grows or shrinks.',
         },
         s7: {
-          title: 'Text size, corners and font',
-          body: 'Make the text bigger or smaller, the corners rounder or sharper, and choose the heading font.',
+          title: 'Advanced settings',
+          body: 'Open it for the accent colour, the body and heading fonts, line height, spacing (density, page width and margins, card padding), the layout (sidebar left or right, or a top bar on a computer), corners, card style and motion.',
         },
         s8: {
           title: 'Reset or share',

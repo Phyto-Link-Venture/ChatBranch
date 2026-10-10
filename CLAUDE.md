@@ -1230,11 +1230,24 @@ When you fix one of these, update this table, `README.md` and
 
 Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
-- **Three switchable themes × light/dark**, all CSS variables on `<html>`
+- **Ten switchable themes × light/dark**, all CSS variables on `<html>`
   defined in `src/app/globals.css`: `theme-paper` = **Paper & Ink** (default:
   warm paper, ink type, Fraunces serif headings, ONE tangerine accent),
   `theme-graphite` = Graphite Pro (neutral, violet accent, compact),
-  `theme-soft` = Soft Blocks (pastel, round). Mode = `.light` / `.dark` class
+  `theme-soft` = Soft Blocks (pastel, round), `theme-ocean` (sea blue, Plus
+  Jakarta Sans), `theme-forest` (sage + deep green, Lora headings),
+  `theme-midnight` (deep navy/indigo, best dark), `theme-rose` (blush +
+  raspberry, Fraunces), `theme-sand` (desert linen + terracotta, Source Serif
+  headings), `theme-nord` (frosted grey-blue, IBM Plex Sans), `theme-contrast`
+  (High contrast — black/white, 7:1 text). Every theme defines the SAME token
+  set in both modes (a dark block must redefine every colour its light block
+  sets, or the light value leaks through — `:root.theme-x` and `:root.dark`
+  tie on specificity). `npm run check:contrast`
+  (`frontend/scripts/check-theme-contrast.mjs`) resolves the cascade per theme ×
+  mode and fails on any text ink under 4.5:1 on app/panel/surface/card/well, or
+  on-primary / on-accent / nav-active pairs — run it after touching a palette.
+  The picker's preview swatches mirror the tokens in `lib/theme.ts THEMES`
+  (keep them in step). Mode = `.light` / `.dark` class
   (Tailwind `darkMode: 'class'`). Every semantic Tailwind colour resolves to a
   var — surfaces `app / surface / panel / card / well`, text `text-primary /
   text-heading / text-high / text-mid / text-muted / text-faint`, `line /
@@ -1246,22 +1259,47 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   = fills/dots/borders, 400 = stronger fill/border, 300/200 = readable TEXT ink.
   For inline text colour use the `--brand-ink / --green-ink / --amber-ink /
   --red-ink / --blue-ink / --purple-ink / --cyan-ink` vars. `brand` is
-  TANGERINE (not emerald, not blue). On Paper & Ink the primary action is INK;
-  on the other two it is the accent.
-- **Appearance prefs** (`lib/theme.ts`): theme, mode (light/dark/system),
-  accent override (with **contrast correction** — `accentVars` walks lightness
-  until text inks reach 4.5:1 and fills 3:1 against the theme's ground), text
-  size (`--ui-zoom`: the shell applies `zoom` and divides its height by it),
-  corner radius (`--r-md…--r-3xl`), heading font (`--font-display`).
-  `applyAppearance` sets the classes + inline vars and caches the resolved set
-  in localStorage (`ui-appearance`); the pre-paint script
-  (`lib/themeScript.ts PREPAINT_SCRIPT`, inlined by `app/layout.tsx`, whose
-  `<html className="theme-paper light" suppressHydrationWarning>` swap is an
-  intentional pre-hydration mutation) re-applies it before first paint.
-  Persistence: the user's own choice at `GET/PUT /api/auth/preferences`
+  TANGERINE on Paper & Ink (each theme brings its own brand hue). On Paper &
+  Ink, Midnight and High contrast the primary action is INK (`THEMES[].inkPrimary`);
+  on the others it is the accent.
+- **Appearance prefs** (`lib/theme.ts` `Appearance`, every key also validated
+  server-side in `SettingsEndpoints.Appearance.cs` — keep the vocabularies in
+  step; old saved looks load, missing keys take `DEFAULT_APPEARANCE`): theme,
+  mode (light/dark/system), accent override (with **contrast correction** —
+  `accentVars` walks lightness until text inks reach 4.5:1 and fills 3:1
+  against the theme's ground), text size (S–XL presets or a free `fontScale`
+  85–130 % → `--ui-zoom`: the shell applies `zoom` and divides its height by
+  it), corner radius (theme/square/sharp/round → `--r-md…--r-3xl`), body font
+  (`--font-sans`) and heading font (`--font-display`; legacy `serif`/`sans`
+  still accepted) from 14 self-hosted faces (`FONTS`; @fontsource-variable
+  imported in `app/layout.tsx` — @font-face only downloads what renders; Noto
+  Sans SC's ~100 KB stylesheet is imported on demand by `applyAppearance`),
+  line height (`--lh` on body), **density** (compact/comfortable/spacious or a
+  free `spacing` 70–140 % → `--space`; Tailwind's `padding` / `margin` / `gap`
+  / `space` scales are `calc(<rem> * var(--sp))` in `tailwind.config.js`, so
+  every page follows without edits — widths/heights don't scale), card padding
+  (`--card-pad`, applied inside `.ui-card` = `Card` and `DataTable`), page width
+  + margins (`--content-max` / `--gutter`, read by `.shell-content`, the
+  shell's page column), and layout/motion/surfaces as **data attributes** on
+  `<html>`: `data-nav="top"` (desktop top navigation, `components/shell/
+  TopNav.tsx`, built from `nav.ts`), `data-nav-side="right"`, `--nav-w`
+  (sidebar width), `navStart` (rail starts collapsed unless the browser has
+  its own toggle), `data-motion` (reduce/full; default follows
+  `prefers-reduced-motion`), `data-surface` (flat/bordered/shadow cards). All
+  layout switches are CSS (globals.css, end of file) so they apply before
+  hydration; phones (below lg) always keep the drawer + bottom tab bar.
+  `applyAppearance` sets classes + inline vars + attributes and caches them
+  in localStorage (`ui-appearance`: prefs, vars, attrs, cls); the pre-paint
+  script (`lib/themeScript.ts PREPAINT_SCRIPT`, inlined by `app/layout.tsx`,
+  whose `<html className="theme-paper light" suppressHydrationWarning>` swap is
+  an intentional pre-hydration mutation) re-applies all of it before first
+  paint. Persistence: the user's own choice at `GET/PUT /api/auth/preferences`
   (`Profile.Preferences`), the organization default at
   `GET/PUT /api/settings/appearance` (`settings.appearance.org`); the shell
-  syncs once per sign-in. UI: Settings → Appearance.
+  syncs once per sign-in. UI: Settings → Appearance — language, theme, mode
+  and text size up front; accent, typography, spacing, layout and details
+  under `Advanced`; "Reset to organization default"; admins publish the
+  current look as the org default.
 - **Typography helpers:** `.display` (the theme's display family/weight/
   tracking — page titles) and `.eyebrow` (the small uppercase label above a
   title). `tint(color, alpha)` (`lib/color.ts`) makes a translucent version of
@@ -1432,7 +1470,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **698 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **699 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /

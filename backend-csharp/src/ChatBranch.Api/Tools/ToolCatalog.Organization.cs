@@ -152,7 +152,7 @@ public static partial class ToolCatalog
             "PUT", "/api/auth/preferences", null,
             new[]
             {
-                A.Obj("appearance", "{theme: paper|graphite|soft, mode: light|dark|system, accent, text_size, radius, heading_font} or null."),
+                A.Obj("appearance", "{theme: paper|graphite|soft|ocean|forest|midnight|rose|sand|nord|contrast, mode: light|dark|system, accent, textSize, fontScale (85-130|null), radius, headingFont, bodyFont, lineHeight, density, spacing (70-140|null), contentWidth, gutter, cardPadding, navLayout, navSide, navWidth, navStart, motion, surface} or null."),
                 A.Any("locale", "en | ms | zh, or null."),
             }, idempotent: true);
         yield return T(st, "settings_get_org_appearance", "Read the organisation's default look",

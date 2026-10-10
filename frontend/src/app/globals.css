@@ -8,8 +8,14 @@
               .theme-graphite      = Graphite Pro
               .theme-soft          = Soft Blocks
      mode   : .light (default) / .dark
+     + seven more looks below (ocean, forest, midnight, rose, sand, nord,
+       contrast) — 10 in all, each light + dark, checked for contrast by
+       scripts/check-theme-contrast.mjs (npm run check:contrast)
    lib/theme.ts applies the classes plus any per-user overrides (accent
-   colour, text size, corner style, heading font) as inline vars on <html>.
+   colour, text scale, corner style, fonts, line height, density, page width,
+   card padding, sidebar width) as inline vars on <html>, and the layout
+   choices as data attributes (data-nav, data-nav-side, data-motion,
+   data-surface) read by the rules at the end of this file.
    Every semantic Tailwind colour (app, surface, card, text-*, line, fill) AND the
    accent scales (brand, green, amber, red, purple, cyan, blue) resolve here,
    so no component carries per-theme overrides.
@@ -64,7 +70,7 @@
   --shadow-pop: 0 12px 32px rgba(26, 26, 26, 0.12);
   --scrim: rgba(26, 20, 12, 0.38);
 
-  --brand-ink: #c2410c;
+  --brand-ink: #b93d0b;
   --amber-ink: #8a5a12;
   --green-ink: #1f6b3e;
   --red-ink: #b42318;
@@ -74,7 +80,7 @@
 
   --c-brand: 224 72 15;
   --c-brand-400: 194 65 12;
-  --c-brand-300: 194 65 12;
+  --c-brand-300: 185 61 11;
   --c-brand-200: 154 52 18;
   --c-green: 47 125 79;
   --c-green-600: 31 107 62;
@@ -228,7 +234,7 @@
   --fill-subtle: rgba(255, 255, 255, 0.025);
   --nav-active-bg: #221f3d;
   --nav-active-text: #c4bdff;
-  --primary: #7c6dff;
+  --primary: #6a5af2;
   --on-primary: #ffffff;
   --accent: #8b7dff;
   --on-accent: #0e0e10;
@@ -264,7 +270,7 @@
   --text-high: #2f2b4a;
   --text-mid: #4e4a6b;
   --text-muted: #6e6a85;
-  --text-faint: #a8a4bf;
+  --text-faint: #a29dbb;
   --line: #e7e3f4;
   --line-strong: #d6d0ec;
   --fill: rgba(91, 71, 214, 0.05);
@@ -318,6 +324,941 @@
   --c-brand-200: 215 208 255;
 }
 
+/* Layout + density knobs (Settings → Appearance → Advanced). lib/theme.ts
+   overrides them inline on <html>; these are the defaults (= the classic look).
+     --space     density: Tailwind padding / margin / gap / space-* scale by it
+                 (tailwind.config.js), via --sp
+     --card-pad  extra scale inside a <Card> (.ui-card) and DataTable
+     --gutter    page margin around the content (.shell-content)
+     --content-max  page width cap (.shell-content centres the column)
+     --lh        body line height
+     --nav-w     expanded sidebar width */
+:root {
+  --space: 1;
+  --sp: var(--space);
+  --card-pad: 1;
+  --gutter: 1;
+  --content-max: 100%;
+  --lh: 1.5;
+  --nav-w: 248px;
+  --shadow-card: 0 1px 2px rgba(26, 20, 12, 0.06), 0 4px 14px rgba(26, 20, 12, 0.06);
+}
+:root.dark {
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 18px rgba(0, 0, 0, 0.32);
+}
+
+/* ── Seven more looks (Settings → Appearance). Same token set as the three
+   above; every text ink is checked by scripts/check-theme-contrast.mjs. ── */
+/* Ocean — light: crisp sea blue, sky accent */
+:root.theme-ocean {
+  --font-sans: 'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-display: 'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --display-weight: 700;
+  --display-tracking: -0.025em;
+  --r-md: 6px;
+  --r-lg: 8px;
+  --r-xl: 10px;
+  --r-2xl: 12px;
+  --r-3xl: 16px;
+
+  --app: #f4f8fb;
+  --surface: #ffffff;
+  --panel: #f4f8fb;
+  --card: #ffffff;
+  --well: #eaf1f7;
+  --text-primary: #0f2233;
+  --text-heading: #0a1a28;
+  --text-high: #1c3346;
+  --text-mid: #3e566b;
+  --text-muted: #586c7f;
+  --text-faint: #8b9eb0;
+  --line: #dce6ee;
+  --line-strong: #c3d2de;
+  --fill: rgba(15, 60, 100, 0.05);
+  --fill-hover: rgba(15, 60, 100, 0.09);
+  --fill-subtle: rgba(15, 60, 100, 0.03);
+  --nav-active-bg: #e1eefa;
+  --nav-active-text: #0b5394;
+  --primary: #0b66c3;
+  --on-primary: #ffffff;
+  --accent: #0ea5e9;
+  --on-accent: #082f49;
+  --focus: #0b66c3;
+  --shadow-pop: 0 12px 32px rgba(10, 40, 70, 0.12);
+  --scrim: rgba(8, 26, 44, 0.4);
+  --brand-ink: #0b5bad;
+  --amber-ink: #8a5a0a;
+  --green-ink: #17704a;
+  --red-ink: #b42318;
+  --blue-ink: #1d4ed8;
+  --purple-ink: #6237a0;
+  --cyan-ink: #0b6e7d;
+  --c-brand: 11 102 195;
+  --c-brand-400: 11 91 173;
+  --c-brand-300: 11 91 173;
+  --c-brand-200: 9 75 142;
+  --c-green: 31 138 91;
+  --c-green-600: 27 125 83;
+  --c-green-300: 23 112 74;
+  --c-amber: 201 138 18;
+  --c-amber-600: 170 114 14;
+  --c-amber-400: 138 90 10;
+  --c-amber-300: 138 90 10;
+  --c-red: 208 65 58;
+  --c-red-400: 180 35 24;
+  --c-red-300: 180 35 24;
+  --c-purple: 124 77 189;
+  --c-purple-600: 111 66 175;
+  --c-purple-700: 86 48 141;
+  --c-purple-400: 98 55 160;
+  --c-purple-300: 98 55 160;
+  --c-cyan: 15 155 176;
+  --c-cyan-600: 13 133 151;
+  --c-cyan-300: 11 110 125;
+  --c-blue: 37 99 235;
+  --c-blue-400: 29 78 216;
+  --c-blue-300: 29 78 216;
+}
+:root.theme-ocean.dark {
+  --app: #0b1622;
+  --surface: #0f1c2a;
+  --panel: #0b1622;
+  --card: #132233;
+  --well: #0d1926;
+  --text-primary: #e6eef6;
+  --text-heading: #ffffff;
+  --text-high: #d5e1ec;
+  --text-mid: #a9bccd;
+  --text-muted: #8da2b6;
+  --text-faint: #5b7086;
+  --line: #1f3144;
+  --line-strong: #2b415a;
+  --fill: rgba(180, 215, 255, 0.05);
+  --fill-hover: rgba(180, 215, 255, 0.09);
+  --fill-subtle: rgba(180, 215, 255, 0.03);
+  --nav-active-bg: #17324d;
+  --nav-active-text: #bfe0ff;
+  --primary: #4da3f5;
+  --on-primary: #0b1622;
+  --accent: #38bdf8;
+  --on-accent: #04121f;
+  --focus: #4da3f5;
+  --shadow-pop: 0 14px 36px rgba(0, 0, 0, 0.5);
+  --scrim: rgba(0, 0, 0, 0.58);
+  --brand-ink: #8cc8ff;
+  --amber-ink: #f0c46e;
+  --green-ink: #7ad9aa;
+  --red-ink: #ff9f98;
+  --blue-ink: #9cc4ff;
+  --purple-ink: #cfb2f5;
+  --cyan-ink: #7fdceb;
+  --c-brand: 77 163 245;
+  --c-brand-400: 109 182 250;
+  --c-brand-300: 140 200 255;
+  --c-brand-200: 180 219 255;
+  --c-green: 76 195 138;
+  --c-green-600: 70 179 127;
+  --c-green-300: 122 217 170;
+  --c-amber: 224 169 59;
+  --c-amber-600: 206 155 54;
+  --c-amber-400: 232 183 85;
+  --c-amber-300: 240 196 110;
+  --c-red: 240 122 114;
+  --c-red-400: 248 141 133;
+  --c-red-300: 255 159 152;
+  --c-purple: 177 138 232;
+  --c-purple-600: 163 127 213;
+  --c-purple-700: 150 117 197;
+  --c-purple-400: 192 158 239;
+  --c-purple-300: 207 178 245;
+  --c-cyan: 60 200 220;
+  --c-cyan-600: 55 184 202;
+  --c-cyan-300: 127 220 235;
+  --c-blue: 106 168 255;
+  --c-blue-400: 131 182 255;
+  --c-blue-300: 156 196 255;
+}
+
+/* Forest — light: sage paper, deep green, serif headings */
+:root.theme-forest {
+  --font-sans: 'DM Sans Variable', 'DM Sans', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-display: 'Lora Variable', 'Lora', Georgia, serif;
+  --display-weight: 600;
+  --display-tracking: -0.01em;
+  --r-md: 5px;
+  --r-lg: 6px;
+  --r-xl: 8px;
+  --r-2xl: 10px;
+  --r-3xl: 14px;
+
+  --app: #f5f7f2;
+  --surface: #eef2e9;
+  --panel: #f5f7f2;
+  --card: #fcfdfb;
+  --well: #ebf0e5;
+  --text-primary: #17241a;
+  --text-heading: #101a12;
+  --text-high: #233328;
+  --text-mid: #435448;
+  --text-muted: #5b6b5e;
+  --text-faint: #909e92;
+  --line: #dce3d6;
+  --line-strong: #c5cfbe;
+  --fill: rgba(30, 70, 40, 0.05);
+  --fill-hover: rgba(30, 70, 40, 0.09);
+  --fill-subtle: rgba(30, 70, 40, 0.03);
+  --nav-active-bg: #e0ebdc;
+  --nav-active-text: #1e5631;
+  --primary: #1e6b3a;
+  --on-primary: #ffffff;
+  --accent: #8bc34a;
+  --on-accent: #13260f;
+  --focus: #1e6b3a;
+  --shadow-pop: 0 12px 32px rgba(20, 40, 24, 0.12);
+  --scrim: rgba(16, 26, 18, 0.4);
+  --brand-ink: #1e6b3a;
+  --amber-ink: #80590c;
+  --green-ink: #1f6b3e;
+  --red-ink: #a8261a;
+  --blue-ink: #1f5a8f;
+  --purple-ink: #653d78;
+  --cyan-ink: #1d6b66;
+  --c-brand: 42 128 72;
+  --c-brand-400: 30 107 58;
+  --c-brand-300: 30 107 58;
+  --c-brand-200: 25 88 48;
+  --c-green: 47 125 79;
+  --c-green-600: 39 116 71;
+  --c-green-300: 31 107 62;
+  --c-amber: 192 138 30;
+  --c-amber-600: 160 114 21;
+  --c-amber-400: 128 89 12;
+  --c-amber-300: 128 89 12;
+  --c-red: 192 57 43;
+  --c-red-400: 168 38 26;
+  --c-red-300: 168 38 26;
+  --c-purple: 122 78 140;
+  --c-purple-600: 112 70 130;
+  --c-purple-700: 89 54 106;
+  --c-purple-400: 101 61 120;
+  --c-purple-300: 101 61 120;
+  --c-cyan: 46 125 116;
+  --c-cyan-600: 38 116 109;
+  --c-cyan-300: 29 107 102;
+  --c-blue: 47 111 168;
+  --c-blue-400: 31 90 143;
+  --c-blue-300: 31 90 143;
+}
+:root.theme-forest.dark {
+  --app: #111812;
+  --surface: #151e16;
+  --panel: #111812;
+  --card: #1a251c;
+  --well: #131b14;
+  --text-primary: #e5eee3;
+  --text-heading: #f7fbf5;
+  --text-high: #d3ded0;
+  --text-mid: #adbdaa;
+  --text-muted: #91a28e;
+  --text-faint: #5f6e5d;
+  --line: #263327;
+  --line-strong: #344536;
+  --fill: rgba(200, 240, 200, 0.05);
+  --fill-hover: rgba(200, 240, 200, 0.09);
+  --fill-subtle: rgba(200, 240, 200, 0.03);
+  --nav-active-bg: #21362a;
+  --nav-active-text: #bfe8c8;
+  --primary: #6ccb8a;
+  --on-primary: #111812;
+  --accent: #a5d66b;
+  --on-accent: #142106;
+  --focus: #6ccb8a;
+  --shadow-pop: 0 14px 36px rgba(0, 0, 0, 0.5);
+  --scrim: rgba(0, 0, 0, 0.58);
+  --brand-ink: #8fdca6;
+  --amber-ink: #ecc77f;
+  --green-ink: #8cd6a8;
+  --red-ink: #f6aaa1;
+  --blue-ink: #a9caf2;
+  --purple-ink: #d8bce5;
+  --cyan-ink: #9ad8d0;
+  --c-brand: 108 203 138;
+  --c-brand-400: 126 212 152;
+  --c-brand-300: 143 220 166;
+  --c-brand-200: 182 232 197;
+  --c-green: 107 197 143;
+  --c-green-600: 98 181 132;
+  --c-green-300: 140 214 168;
+  --c-amber: 227 178 90;
+  --c-amber-600: 209 164 83;
+  --c-amber-400: 232 189 109;
+  --c-amber-300: 236 199 127;
+  --c-red: 240 138 126;
+  --c-red-400: 243 154 144;
+  --c-red-300: 246 170 161;
+  --c-purple: 201 162 218;
+  --c-purple-600: 185 149 201;
+  --c-purple-700: 171 138 185;
+  --c-purple-400: 209 175 224;
+  --c-purple-300: 216 188 229;
+  --c-cyan: 124 201 192;
+  --c-cyan-600: 114 185 177;
+  --c-cyan-300: 154 216 208;
+  --c-blue: 141 184 236;
+  --c-blue-400: 155 193 239;
+  --c-blue-300: 169 202 242;
+}
+
+/* Midnight — light: cool slate with indigo; dark: deep navy */
+:root.theme-midnight {
+  --font-sans: 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-display: 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --display-weight: 650;
+  --display-tracking: -0.03em;
+  --r-md: 6px;
+  --r-lg: 7px;
+  --r-xl: 9px;
+  --r-2xl: 11px;
+  --r-3xl: 14px;
+
+  --app: #f3f5fa;
+  --surface: #ffffff;
+  --panel: #f3f5fa;
+  --card: #ffffff;
+  --well: #eceff7;
+  --text-primary: #141a33;
+  --text-heading: #0b1026;
+  --text-high: #222a47;
+  --text-mid: #444d6e;
+  --text-muted: #5c6485;
+  --text-faint: #9198b5;
+  --line: #dfe3ef;
+  --line-strong: #c8cee0;
+  --fill: rgba(20, 30, 80, 0.05);
+  --fill-hover: rgba(20, 30, 80, 0.09);
+  --fill-subtle: rgba(20, 30, 80, 0.03);
+  --nav-active-bg: #e6e9fb;
+  --nav-active-text: #2b36b8;
+  --primary: #1e2a78;
+  --on-primary: #ffffff;
+  --accent: #4f5bff;
+  --on-accent: #ffffff;
+  --focus: #4f5bff;
+  --shadow-pop: 0 12px 32px rgba(11, 16, 38, 0.13);
+  --scrim: rgba(7, 11, 26, 0.45);
+  --brand-ink: #3440d0;
+  --amber-ink: #86570a;
+  --green-ink: #13734a;
+  --red-ink: #b3243a;
+  --blue-ink: #1f55bf;
+  --purple-ink: #6d35b5;
+  --cyan-ink: #0b6e7d;
+  --c-brand: 79 91 255;
+  --c-brand-400: 52 64 208;
+  --c-brand-300: 52 64 208;
+  --c-brand-200: 43 52 171;
+  --c-green: 31 143 95;
+  --c-green-600: 25 129 85;
+  --c-green-300: 19 115 74;
+  --c-amber: 201 138 18;
+  --c-amber-600: 168 113 14;
+  --c-amber-400: 134 87 10;
+  --c-amber-300: 134 87 10;
+  --c-red: 210 63 79;
+  --c-red-400: 179 36 58;
+  --c-red-300: 179 36 58;
+  --c-purple: 139 79 216;
+  --c-purple-600: 124 66 199;
+  --c-purple-700: 96 47 159;
+  --c-purple-400: 109 53 181;
+  --c-purple-300: 109 53 181;
+  --c-cyan: 15 155 176;
+  --c-cyan-600: 13 133 151;
+  --c-cyan-300: 11 110 125;
+  --c-blue: 47 111 224;
+  --c-blue-400: 31 85 191;
+  --c-blue-300: 31 85 191;
+}
+:root.theme-midnight.dark {
+  --app: #070b1a;
+  --surface: #0b1024;
+  --panel: #070b1a;
+  --card: #10172f;
+  --well: #0a0f22;
+  --text-primary: #e4e8fa;
+  --text-heading: #ffffff;
+  --text-high: #d2d8f2;
+  --text-mid: #a6aed2;
+  --text-muted: #8c94bc;
+  --text-faint: #545c82;
+  --line: #1b2342;
+  --line-strong: #283158;
+  --fill: rgba(170, 185, 255, 0.05);
+  --fill-hover: rgba(170, 185, 255, 0.09);
+  --fill-subtle: rgba(170, 185, 255, 0.03);
+  --nav-active-bg: #1a2152;
+  --nav-active-text: #c7cdff;
+  --primary: #7c87ff;
+  --on-primary: #070b1a;
+  --accent: #5eead4;
+  --on-accent: #04201b;
+  --focus: #7c87ff;
+  --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.6);
+  --scrim: rgba(0, 0, 0, 0.62);
+  --brand-ink: #a9b0ff;
+  --amber-ink: #f7cf80;
+  --green-ink: #7ae8b8;
+  --red-ink: #ff9aa8;
+  --blue-ink: #94bfff;
+  --purple-ink: #d0b3ff;
+  --cyan-ink: #7fe6f2;
+  --c-brand: 124 135 255;
+  --c-brand-400: 147 156 255;
+  --c-brand-300: 169 176 255;
+  --c-brand-200: 199 204 255;
+  --c-green: 61 220 151;
+  --c-green-600: 56 202 139;
+  --c-green-300: 122 232 184;
+  --c-amber: 242 184 75;
+  --c-amber-600: 223 169 69;
+  --c-amber-400: 245 196 102;
+  --c-amber-300: 247 207 128;
+  --c-red: 255 107 127;
+  --c-red-400: 255 131 148;
+  --c-red-300: 255 154 168;
+  --c-purple: 183 140 255;
+  --c-purple-600: 168 129 235;
+  --c-purple-700: 156 119 217;
+  --c-purple-400: 196 160 255;
+  --c-purple-300: 208 179 255;
+  --c-cyan: 47 212 232;
+  --c-cyan-600: 43 195 213;
+  --c-cyan-300: 127 230 242;
+  --c-blue: 92 157 255;
+  --c-blue-400: 120 174 255;
+  --c-blue-300: 148 191 255;
+}
+
+/* Rose — light: blush paper, raspberry, serif headings */
+:root.theme-rose {
+  --font-sans: 'Manrope Variable', 'Manrope', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-display: 'Fraunces Variable', 'Fraunces', Georgia, serif;
+  --display-weight: 500;
+  --display-tracking: -0.02em;
+  --r-md: 8px;
+  --r-lg: 10px;
+  --r-xl: 12px;
+  --r-2xl: 16px;
+  --r-3xl: 20px;
+
+  --app: #fcf6f7;
+  --surface: #ffffff;
+  --panel: #fcf6f7;
+  --card: #ffffff;
+  --well: #f8ecef;
+  --text-primary: #2a1a1f;
+  --text-heading: #1f1216;
+  --text-high: #3a262c;
+  --text-mid: #5e464d;
+  --text-muted: #765b62;
+  --text-faint: #ae949b;
+  --line: #f0dfe3;
+  --line-strong: #e2c8cf;
+  --fill: rgba(120, 30, 60, 0.05);
+  --fill-hover: rgba(120, 30, 60, 0.09);
+  --fill-subtle: rgba(120, 30, 60, 0.03);
+  --nav-active-bg: #f9e1e8;
+  --nav-active-text: #a3204f;
+  --primary: #b8285a;
+  --on-primary: #ffffff;
+  --accent: #f472a0;
+  --on-accent: #3b0a1c;
+  --focus: #b8285a;
+  --shadow-pop: 0 14px 36px rgba(90, 20, 45, 0.12);
+  --scrim: rgba(42, 26, 31, 0.4);
+  --brand-ink: #a3204f;
+  --amber-ink: #86570a;
+  --green-ink: #1f6e45;
+  --red-ink: #b0231c;
+  --blue-ink: #2452aa;
+  --purple-ink: #7d3594;
+  --cyan-ink: #156b6b;
+  --c-brand: 214 51 108;
+  --c-brand-400: 163 32 79;
+  --c-brand-300: 163 32 79;
+  --c-brand-200: 134 26 65;
+  --c-green: 47 138 90;
+  --c-green-600: 39 124 80;
+  --c-green-300: 31 110 69;
+  --c-amber: 201 138 18;
+  --c-amber-600: 168 113 14;
+  --c-amber-400: 134 87 10;
+  --c-amber-300: 134 87 10;
+  --c-red: 208 51 43;
+  --c-red-400: 176 35 28;
+  --c-red-300: 176 35 28;
+  --c-purple: 156 74 181;
+  --c-purple-600: 141 64 165;
+  --c-purple-700: 110 47 130;
+  --c-purple-400: 125 53 148;
+  --c-purple-300: 125 53 148;
+  --c-cyan: 31 140 140;
+  --c-cyan-600: 26 124 124;
+  --c-cyan-300: 21 107 107;
+  --c-blue: 51 102 204;
+  --c-blue-400: 36 82 170;
+  --c-blue-300: 36 82 170;
+}
+:root.theme-rose.dark {
+  --app: #1a1014;
+  --surface: #201419;
+  --panel: #1a1014;
+  --card: #26181e;
+  --well: #1d1217;
+  --text-primary: #f7e8ec;
+  --text-heading: #ffffff;
+  --text-high: #ebd6dc;
+  --text-mid: #c9aeb6;
+  --text-muted: #ae939b;
+  --text-faint: #765d65;
+  --line: #3a262d;
+  --line-strong: #4b323a;
+  --fill: rgba(255, 200, 215, 0.05);
+  --fill-hover: rgba(255, 200, 215, 0.09);
+  --fill-subtle: rgba(255, 200, 215, 0.03);
+  --nav-active-bg: #3a1f29;
+  --nav-active-text: #ffc6d6;
+  --primary: #f27aa3;
+  --on-primary: #1a1014;
+  --accent: #f9a8c4;
+  --on-accent: #3b0a1c;
+  --focus: #f27aa3;
+  --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);
+  --scrim: rgba(0, 0, 0, 0.58);
+  --brand-ink: #ff9dbe;
+  --amber-ink: #ecc77f;
+  --green-ink: #8cd6a8;
+  --red-ink: #ffaaa3;
+  --blue-ink: #a9caf2;
+  --purple-ink: #e3bdef;
+  --cyan-ink: #9ad8d0;
+  --c-brand: 242 122 163;
+  --c-brand-400: 249 140 177;
+  --c-brand-300: 255 157 190;
+  --c-brand-200: 255 191 213;
+  --c-green: 107 197 143;
+  --c-green-600: 98 181 132;
+  --c-green-300: 140 214 168;
+  --c-amber: 227 178 90;
+  --c-amber-600: 209 164 83;
+  --c-amber-400: 232 189 109;
+  --c-amber-300: 236 199 127;
+  --c-red: 255 138 128;
+  --c-red-400: 255 154 146;
+  --c-red-300: 255 170 163;
+  --c-purple: 214 162 230;
+  --c-purple-600: 197 149 212;
+  --c-purple-700: 182 138 196;
+  --c-purple-400: 221 176 235;
+  --c-purple-300: 227 189 239;
+  --c-cyan: 124 201 192;
+  --c-cyan-600: 114 185 177;
+  --c-cyan-300: 154 216 208;
+  --c-blue: 141 184 236;
+  --c-blue-400: 155 193 239;
+  --c-blue-300: 169 202 242;
+}
+
+/* Sand — light: desert linen, terracotta, book-serif headings */
+:root.theme-sand {
+  --font-sans: 'Schibsted Grotesk Variable', 'Schibsted Grotesk', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-display: 'Source Serif 4 Variable', 'Source Serif 4', Georgia, serif;
+  --display-weight: 600;
+  --display-tracking: -0.015em;
+  --r-md: 4px;
+  --r-lg: 5px;
+  --r-xl: 7px;
+  --r-2xl: 9px;
+  --r-3xl: 12px;
+
+  --app: #f7f1e6;
+  --surface: #f1e8d8;
+  --panel: #f7f1e6;
+  --card: #fdf9f2;
+  --well: #efe5d3;
+  --text-primary: #2b2116;
+  --text-heading: #20180f;
+  --text-high: #3a2e20;
+  --text-mid: #5a4a37;
+  --text-muted: #6f5e49;
+  --text-faint: #a59278;
+  --line: #e5d8c2;
+  --line-strong: #d3c2a6;
+  --fill: rgba(110, 75, 30, 0.05);
+  --fill-hover: rgba(110, 75, 30, 0.09);
+  --fill-subtle: rgba(110, 75, 30, 0.03);
+  --nav-active-bg: #eadbc2;
+  --nav-active-text: #7a3e10;
+  --primary: #9a4a12;
+  --on-primary: #ffffff;
+  --accent: #d9893b;
+  --on-accent: #2b1606;
+  --focus: #9a4a12;
+  --shadow-pop: 0 12px 32px rgba(60, 40, 15, 0.13);
+  --scrim: rgba(43, 33, 22, 0.4);
+  --brand-ink: #9a4a12;
+  --amber-ink: #7e570b;
+  --green-ink: #3c6a2a;
+  --red-ink: #9f2f1e;
+  --blue-ink: #2e5a80;
+  --purple-ink: #713f61;
+  --cyan-ink: #2d6a62;
+  --c-brand: 196 106 40;
+  --c-brand-400: 154 74 18;
+  --c-brand-300: 154 74 18;
+  --c-brand-200: 126 61 15;
+  --c-green: 79 127 58;
+  --c-green-600: 70 117 50;
+  --c-green-300: 60 106 42;
+  --c-amber: 192 138 30;
+  --c-amber-600: 159 113 21;
+  --c-amber-400: 126 87 11;
+  --c-amber-300: 126 87 11;
+  --c-red: 184 67 47;
+  --c-red-400: 159 47 30;
+  --c-red-300: 159 47 30;
+  --c-purple: 138 82 119;
+  --c-purple-600: 126 73 108;
+  --c-purple-700: 99 55 85;
+  --c-purple-400: 113 63 97;
+  --c-purple-300: 113 63 97;
+  --c-cyan: 63 128 119;
+  --c-cyan-600: 54 117 109;
+  --c-cyan-300: 45 106 98;
+  --c-blue: 63 111 150;
+  --c-blue-400: 46 90 128;
+  --c-blue-300: 46 90 128;
+}
+:root.theme-sand.dark {
+  --app: #1b1712;
+  --surface: #221d16;
+  --panel: #1b1712;
+  --card: #29231b;
+  --well: #1e1914;
+  --text-primary: #f3e9da;
+  --text-heading: #fff9ef;
+  --text-high: #e6dac6;
+  --text-mid: #c4b49c;
+  --text-muted: #a89880;
+  --text-faint: #72654f;
+  --line: #3a3226;
+  --line-strong: #4c4232;
+  --fill: rgba(255, 230, 190, 0.05);
+  --fill-hover: rgba(255, 230, 190, 0.09);
+  --fill-subtle: rgba(255, 230, 190, 0.03);
+  --nav-active-bg: #3a2e1e;
+  --nav-active-text: #f7d3a6;
+  --primary: #e8a465;
+  --on-primary: #1b1712;
+  --accent: #e8a465;
+  --on-accent: #2b1606;
+  --focus: #e8a465;
+  --shadow-pop: 0 14px 36px rgba(0, 0, 0, 0.5);
+  --scrim: rgba(0, 0, 0, 0.55);
+  --brand-ink: #f0b47c;
+  --amber-ink: #ecc77f;
+  --green-ink: #b5d69a;
+  --red-ink: #f5b3a0;
+  --blue-ink: #afcae1;
+  --purple-ink: #e0bcd5;
+  --cyan-ink: #a8d4ca;
+  --c-brand: 232 164 101;
+  --c-brand-400: 236 172 113;
+  --c-brand-300: 240 180 124;
+  --c-brand-200: 245 206 170;
+  --c-green: 156 199 127;
+  --c-green-600: 144 183 117;
+  --c-green-300: 181 214 154;
+  --c-amber: 227 178 90;
+  --c-amber-600: 209 164 83;
+  --c-amber-400: 232 189 109;
+  --c-amber-300: 236 199 127;
+  --c-red: 239 154 128;
+  --c-red-400: 242 167 144;
+  --c-red-300: 245 179 160;
+  --c-purple: 210 163 196;
+  --c-purple-600: 193 150 180;
+  --c-purple-700: 179 139 167;
+  --c-purple-400: 217 176 205;
+  --c-purple-300: 224 188 213;
+  --c-cyan: 140 196 184;
+  --c-cyan-600: 129 180 169;
+  --c-cyan-300: 168 212 202;
+  --c-blue: 148 184 214;
+  --c-blue-400: 162 193 220;
+  --c-blue-300: 175 202 225;
+}
+
+/* Nord — light: frost grey-blue; dark: polar night */
+:root.theme-nord {
+  --font-sans: 'IBM Plex Sans Variable', 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-display: 'IBM Plex Sans Variable', 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --display-weight: 600;
+  --display-tracking: -0.02em;
+  --r-md: 4px;
+  --r-lg: 5px;
+  --r-xl: 6px;
+  --r-2xl: 8px;
+  --r-3xl: 10px;
+
+  --app: #eceff4;
+  --surface: #e5e9f0;
+  --panel: #eceff4;
+  --card: #f8f9fb;
+  --well: #e3e7ee;
+  --text-primary: #2e3440;
+  --text-heading: #242933;
+  --text-high: #3b4252;
+  --text-mid: #4c566a;
+  --text-muted: #566073;
+  --text-faint: #8c96a7;
+  --line: #d8dee9;
+  --line-strong: #c2cad8;
+  --fill: rgba(46, 52, 64, 0.05);
+  --fill-hover: rgba(46, 52, 64, 0.09);
+  --fill-subtle: rgba(46, 52, 64, 0.03);
+  --nav-active-bg: #d8e2ee;
+  --nav-active-text: #2e5a88;
+  --primary: #3b6e9e;
+  --on-primary: #ffffff;
+  --accent: #88c0d0;
+  --on-accent: #1f2a33;
+  --focus: #5e81ac;
+  --shadow-pop: 0 12px 32px rgba(46, 52, 64, 0.14);
+  --scrim: rgba(36, 41, 51, 0.42);
+  --brand-ink: #3a6893;
+  --amber-ink: #7f5f12;
+  --green-ink: #436f2e;
+  --red-ink: #a03d48;
+  --blue-ink: #3a6893;
+  --purple-ink: #7d5379;
+  --cyan-ink: #2e6c78;
+  --c-brand: 94 129 172;
+  --c-brand-400: 58 104 147;
+  --c-brand-300: 58 104 147;
+  --c-brand-200: 48 85 121;
+  --c-green: 106 154 79;
+  --c-green-600: 87 133 63;
+  --c-green-300: 67 111 46;
+  --c-amber: 199 154 58;
+  --c-amber-600: 163 125 38;
+  --c-amber-400: 127 95 18;
+  --c-amber-300: 127 95 18;
+  --c-red: 191 97 106;
+  --c-red-400: 160 61 72;
+  --c-red-300: 160 61 72;
+  --c-purple: 154 111 150;
+  --c-purple-600: 140 97 136;
+  --c-purple-700: 110 73 106;
+  --c-purple-400: 125 83 121;
+  --c-purple-300: 125 83 121;
+  --c-cyan: 79 154 168;
+  --c-cyan-600: 63 131 144;
+  --c-cyan-300: 46 108 120;
+  --c-blue: 94 129 172;
+  --c-blue-400: 58 104 147;
+  --c-blue-300: 58 104 147;
+}
+:root.theme-nord.dark {
+  --app: #2e3440;
+  --surface: #2a303b;
+  --panel: #2e3440;
+  --card: #3b4252;
+  --well: #333a47;
+  --text-primary: #eceff4;
+  --text-heading: #ffffff;
+  --text-high: #e5e9f0;
+  --text-mid: #d8dee9;
+  --text-muted: #b8c1d1;
+  --text-faint: #7a8599;
+  --line: #434c5e;
+  --line-strong: #4c566a;
+  --fill: rgba(236, 239, 244, 0.05);
+  --fill-hover: rgba(236, 239, 244, 0.09);
+  --fill-subtle: rgba(236, 239, 244, 0.03);
+  --nav-active-bg: #434c5e;
+  --nav-active-text: #a3d3e0;
+  --primary: #88c0d0;
+  --on-primary: #2e3440;
+  --accent: #8fbcbb;
+  --on-accent: #2e3440;
+  --focus: #88c0d0;
+  --shadow-pop: 0 14px 36px rgba(0, 0, 0, 0.4);
+  --scrim: rgba(15, 18, 24, 0.55);
+  --brand-ink: #a3d3e0;
+  --amber-ink: #f0d8a6;
+  --green-ink: #bcd4a8;
+  --red-ink: #f0b0b6;
+  --blue-ink: #a9c2dd;
+  --purple-ink: #d3b4cd;
+  --cyan-ink: #acd2d1;
+  --c-brand: 136 192 208;
+  --c-brand-400: 150 202 216;
+  --c-brand-300: 163 211 224;
+  --c-brand-200: 195 226 235;
+  --c-green: 163 190 140;
+  --c-green-600: 150 175 129;
+  --c-green-300: 188 212 168;
+  --c-amber: 235 203 139;
+  --c-amber-600: 216 187 128;
+  --c-amber-400: 238 210 153;
+  --c-amber-300: 240 216 166;
+  --c-red: 217 143 151;
+  --c-red-400: 229 160 167;
+  --c-red-300: 240 176 182;
+  --c-purple: 180 142 173;
+  --c-purple-600: 166 131 159;
+  --c-purple-700: 153 121 147;
+  --c-purple-400: 196 161 189;
+  --c-purple-300: 211 180 205;
+  --c-cyan: 143 188 187;
+  --c-cyan-600: 132 173 172;
+  --c-cyan-300: 172 210 209;
+  --c-blue: 129 161 193;
+  --c-blue-400: 149 178 207;
+  --c-blue-300: 169 194 221;
+}
+
+/* High contrast — accessibility: black on white / white on black, AAA-level inks */
+:root.theme-contrast {
+  --font-sans: 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-display: 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --display-weight: 800;
+  --display-tracking: -0.02em;
+  --r-md: 3px;
+  --r-lg: 4px;
+  --r-xl: 5px;
+  --r-2xl: 6px;
+  --r-3xl: 8px;
+
+  --app: #ffffff;
+  --surface: #ffffff;
+  --panel: #ffffff;
+  --card: #ffffff;
+  --well: #f0f0f0;
+  --text-primary: #000000;
+  --text-heading: #000000;
+  --text-high: #000000;
+  --text-mid: #1f1f1f;
+  --text-muted: #333333;
+  --text-faint: #595959;
+  --line: #767676;
+  --line-strong: #000000;
+  --fill: rgba(0, 0, 0, 0.06);
+  --fill-hover: rgba(0, 0, 0, 0.12);
+  --fill-subtle: rgba(0, 0, 0, 0.04);
+  --nav-active-bg: #000000;
+  --nav-active-text: #ffffff;
+  --primary: #000000;
+  --on-primary: #ffffff;
+  --accent: #0040b0;
+  --on-accent: #ffffff;
+  --focus: #0040b0;
+  --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.3);
+  --scrim: rgba(0, 0, 0, 0.6);
+  --brand-ink: #00379a;
+  --amber-ink: #6b4200;
+  --green-ink: #005a1f;
+  --red-ink: #a00000;
+  --blue-ink: #00379a;
+  --purple-ink: #5a0f7a;
+  --cyan-ink: #00585a;
+  --c-brand: 0 64 176;
+  --c-brand-400: 0 55 154;
+  --c-brand-300: 0 55 154;
+  --c-brand-200: 0 45 126;
+  --c-green: 0 112 42;
+  --c-green-600: 0 101 37;
+  --c-green-300: 0 90 31;
+  --c-amber: 138 86 0;
+  --c-amber-600: 123 76 0;
+  --c-amber-400: 107 66 0;
+  --c-amber-300: 107 66 0;
+  --c-red: 192 0 0;
+  --c-red-400: 160 0 0;
+  --c-red-300: 160 0 0;
+  --c-purple: 106 27 154;
+  --c-purple-600: 98 21 138;
+  --c-purple-700: 79 13 107;
+  --c-purple-400: 90 15 122;
+  --c-purple-300: 90 15 122;
+  --c-cyan: 0 107 110;
+  --c-cyan-600: 0 98 100;
+  --c-cyan-300: 0 88 90;
+  --c-blue: 0 64 176;
+  --c-blue-400: 0 55 154;
+  --c-blue-300: 0 55 154;
+}
+:root.theme-contrast.dark {
+  --app: #000000;
+  --surface: #000000;
+  --panel: #000000;
+  --card: #0a0a0a;
+  --well: #141414;
+  --text-primary: #ffffff;
+  --text-heading: #ffffff;
+  --text-high: #ffffff;
+  --text-mid: #ebebeb;
+  --text-muted: #d0d0d0;
+  --text-faint: #a6a6a6;
+  --line: #8a8a8a;
+  --line-strong: #ffffff;
+  --fill: rgba(255, 255, 255, 0.08);
+  --fill-hover: rgba(255, 255, 255, 0.16);
+  --fill-subtle: rgba(255, 255, 255, 0.05);
+  --nav-active-bg: #ffffff;
+  --nav-active-text: #000000;
+  --primary: #ffffff;
+  --on-primary: #000000;
+  --accent: #ffd60a;
+  --on-accent: #000000;
+  --focus: #ffd60a;
+  --shadow-pop: 0 14px 36px rgba(0, 0, 0, 0.85);
+  --scrim: rgba(0, 0, 0, 0.75);
+  --brand-ink: #ffd60a;
+  --amber-ink: #ffc23d;
+  --green-ink: #5cff8a;
+  --red-ink: #ff9c9c;
+  --blue-ink: #9cc4ff;
+  --purple-ink: #e6b8ff;
+  --cyan-ink: #5cf2f2;
+  --c-brand: 255 214 10;
+  --c-brand-400: 255 214 10;
+  --c-brand-300: 255 214 10;
+  --c-brand-200: 255 228 96;
+  --c-green: 92 255 138;
+  --c-green-600: 85 235 127;
+  --c-green-300: 92 255 138;
+  --c-amber: 255 194 61;
+  --c-amber-600: 235 178 56;
+  --c-amber-400: 255 194 61;
+  --c-amber-300: 255 194 61;
+  --c-red: 255 138 138;
+  --c-red-400: 255 147 147;
+  --c-red-300: 255 156 156;
+  --c-purple: 224 168 255;
+  --c-purple-600: 206 155 235;
+  --c-purple-700: 190 143 217;
+  --c-purple-400: 227 176 255;
+  --c-purple-300: 230 184 255;
+  --c-cyan: 92 242 242;
+  --c-cyan-600: 85 223 223;
+  --c-cyan-300: 92 242 242;
+  --c-blue: 138 184 255;
+  --c-blue-400: 147 190 255;
+  --c-blue-300: 156 196 255;
+}
+
 @layer base {
   html,
   body {
@@ -330,6 +1271,7 @@
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
     font-feature-settings: 'ss01' on;
+    line-height: var(--lh);
   }
   /* bare pages (login, /help, the manual) scroll the document — see Shell.tsx PageScroll */
   html.page-scroll,
@@ -518,4 +1460,82 @@
   .shell-root { display: block !important; height: auto !important; overflow: visible !important; zoom: 1 !important; }
   .shell-root main,
   .shell-root main > div { overflow: visible !important; }
+}
+
+
+/* ── Appearance: layout, density, surfaces, motion ─────────────────────────
+   Driven by lib/theme.ts (inline vars + data attributes on <html>, re-applied
+   by the pre-paint script, so none of this flashes). */
+
+/* The page column of the shell: margins scale with --gutter, and a
+   --content-max narrower than the pane centres the column (the scrollbar
+   stays at the pane's edge). */
+.shell-content {
+  padding: calc(1.25rem * var(--gutter)) max(calc(1rem * var(--gutter)), calc((100% - var(--content-max)) / 2));
+}
+@media (min-width: 640px) {
+  .shell-content {
+    padding: calc(1.75rem * var(--gutter)) max(calc(1.75rem * var(--gutter)), calc((100% - var(--content-max)) / 2));
+  }
+}
+
+/* Cards: their own padding scale on top of the density (never compounding
+   inside a nested card — both read the root --space). */
+.ui-card {
+  --sp: calc(var(--space) * var(--card-pad));
+}
+html[data-surface='flat'] .ui-card {
+  border-color: transparent;
+}
+html[data-surface='bordered'] .ui-card {
+  border-color: var(--line-strong);
+}
+html[data-surface='shadow'] .ui-card {
+  border-color: transparent;
+  box-shadow: var(--shadow-card);
+}
+
+/* Navigation: sidebar on the right, or a top bar instead of the sidebar —
+   desktop only; below lg the drawer + bottom tab bar never change. */
+.top-nav {
+  display: none;
+}
+@media (min-width: 1024px) {
+  html[data-nav-side='right'] .side-nav {
+    order: 99;
+    border-right-width: 0;
+    border-left-width: 1px;
+  }
+  html[data-nav-side='right'] .rail-tip {
+    left: auto;
+    right: 100%;
+    margin-left: 0;
+    margin-right: 0.5rem;
+  }
+  html[data-nav='top'] .side-nav {
+    display: none;
+  }
+  html[data-nav='top'] .top-nav {
+    display: flex;
+  }
+}
+
+/* Reduced motion: the user's choice, else the device's. */
+html[data-motion='reduce'] *,
+html[data-motion='reduce'] *::before,
+html[data-motion='reduce'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='full']) *,
+  html:not([data-motion='full']) *::before,
+  html:not([data-motion='full']) *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

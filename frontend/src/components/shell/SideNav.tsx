@@ -3,9 +3,10 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, Download, LogOut, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react'
+import { ChevronDown, Download, LogOut, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, X } from 'lucide-react'
 import type { AuthUser } from '@/lib/auth'
 import { useEntityQuery } from '@/lib/EntityContext'
+import { storedAppearance } from '@/lib/theme'
 import { BranchMark, Logo } from './Logo'
 import { ThemeToggle } from './ThemeToggle'
 import { EntitySwitcher } from './EntitySwitcher'
@@ -36,7 +37,9 @@ const foldKey = (user: AuthUser | null) => `nav-groups:${user?.username ?? 'anon
  * folds its modules, remembered per user in localStorage — and a footer with
  * Settings, Install app, the signed-in user, the theme switch and sign out.
  *
- * Desktop (lg+): a flush rail that collapses to icons only (64px) — group
+ * Desktop (lg+): a flush rail (width --nav-w, on the left or — Settings →
+ * Appearance — the right; hidden in the top-navigation layout, see TopNav)
+ * that collapses to icons only (64px) — group
  * titles become hairline dividers and every icon gets a tooltip. Below lg it
  * is an off-canvas drawer (always expanded) opened from the top bar or the
  * phone tab bar's "More".
@@ -74,6 +77,18 @@ export function SideNav({
     return () => mq.removeEventListener('change', sync)
   }, [])
   const collapsed = isDesktop && collapsedProp
+
+  // Which side the rail sits on (Settings → Appearance; the placement itself is
+  // CSS — this only picks the matching collapse icon).
+  const [onRight, setOnRight] = useState(false)
+  useEffect(() => {
+    const sync = () => setOnRight(storedAppearance()?.navSide === 'right')
+    sync()
+    window.addEventListener('appearance-change', sync)
+    return () => window.removeEventListener('appearance-change', sync)
+  }, [])
+  const CollapseIcon = onRight ? PanelRightClose : PanelLeftClose
+  const ExpandIcon = onRight ? PanelRightOpen : PanelLeftOpen
 
   const groups = useMemo(() => visibleGroups(user), [user])
 
@@ -200,11 +215,11 @@ export function SideNav({
   return (
     <aside
       ref={asideRef}
-      className={`flex shrink-0 flex-col border-r border-line bg-surface
+      className={`side-nav flex shrink-0 flex-col border-r border-line bg-surface
         fixed inset-y-0 left-0 z-50 w-[272px] shadow-pop transition-transform duration-200
         ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
         lg:relative lg:z-auto lg:h-full lg:translate-x-0 lg:shadow-none lg:transition-[width]
-        ${collapsed ? 'lg:w-[64px]' : 'lg:w-[248px]'}`}
+        ${collapsed ? 'lg:w-[64px]' : 'lg:w-[var(--nav-w)]'}`}
       aria-label={t('shell.sideNav.mainNavigation')}
       aria-hidden={!mobileOpen && !isDesktop ? true : undefined}
     >
@@ -231,7 +246,7 @@ export function SideNav({
               collapsed ? '' : 'ml-auto'
             }`}
           >
-            {collapsed ? <PanelLeftOpen size={16} strokeWidth={1.75} /> : <PanelLeftClose size={16} strokeWidth={1.75} />}
+            {collapsed ? <ExpandIcon size={16} strokeWidth={1.75} /> : <CollapseIcon size={16} strokeWidth={1.75} />}
           </button>
         )}
         <button
@@ -288,7 +303,7 @@ export function SideNav({
       {collapsed && tip && (
         <div
           role="tooltip"
-          className="pointer-events-none absolute left-full z-50 ml-2 -translate-y-1/2 whitespace-nowrap rounded-md bg-primary px-2 py-1 text-[12px] font-medium text-on-primary shadow-pop"
+          className="rail-tip pointer-events-none absolute left-full z-50 ml-2 -translate-y-1/2 whitespace-nowrap rounded-md bg-primary px-2 py-1 text-[12px] font-medium text-on-primary shadow-pop"
           style={{ top: tip.top }}
         >
           {tip.label}
