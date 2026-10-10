@@ -606,7 +606,7 @@ public class TransportOtherTests : IClassFixture<TransportFactory>
         Assert.Equal(Health.Unknown, mailDown.HealthStatus);  // transient: counted, not yet degraded
         Assert.Equal(1, mailDown.FailStreak);
         Assert.Equal(Health.Banned, waBanned.HealthStatus);
-        Assert.Equal(Health.Degraded, baileys.HealthStatus);  // event-driven: untouched
+        Assert.Equal(Health.Degraded, baileys.HealthStatus);  // no gateway attached: untouched
         Assert.Equal(Health.Healthy, fb.HealthStatus);
         Assert.Equal(9, summary.Checked);
         Assert.Equal(Health.Healthy, summary.GlobalEmail);

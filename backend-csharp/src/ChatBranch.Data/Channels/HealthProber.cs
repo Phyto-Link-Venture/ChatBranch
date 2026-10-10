@@ -86,7 +86,11 @@ public sealed record HealthRunSummary(int Checked, int Skipped, string? GlobalEm
 ///
 ///  * WhatsApp Cloud — Graph token ping (<c>GET /{phone_number_id}</c>); Meta's
 ///    error code decides banned / disconnected / degraded / transient.
-///  * WhatsApp Baileys — skipped: the gateway pushes its own lifecycle.
+///  * WhatsApp Baileys — the gateway's own view of the session
+///    (<c>GET /accounts/{id}/status</c>): connected → healthy; not paired / QR
+///    waiting or expired / logged out → disconnected; gateway unreachable →
+///    disconnected naming the URL; reconnecting → transient. Its lifecycle
+///    pushes still land in between.
 ///  * Telegram — <c>getMe</c> (revoked token → disconnected) then
 ///    <c>getWebhookInfo</c> (no webhook, a recent delivery error or a stuck
 ///    backlog → degraded).
@@ -115,11 +119,14 @@ public sealed class ChannelHealthProber
     private readonly IGraphHealthProbe _graph;
     /// <summary>LINE, Viber, SMS, WeChat, TikTok, Douyin, Zalo — each transport's own probe.</summary>
     private readonly ChannelTransports? _more;
+    private readonly ChatBranch.Data.Sidecars.IBaileysGateway? _baileys;
 
     public ChannelHealthProber(AppDbContext db, ScopingService scoping, ITelegramClient telegram,
-        IEmailTransport email, IGraphHealthProbe graph, ChannelTransports? more = null)
+        IEmailTransport email, IGraphHealthProbe graph, ChannelTransports? more = null,
+        ChatBranch.Data.Sidecars.IBaileysGateway? baileys = null)
     {
         _more = more;
+        _baileys = baileys;
         _db = db;
         _scoping = scoping;
         _telegram = telegram;
@@ -130,8 +137,9 @@ public sealed class ChannelHealthProber
     /// <summary>Does this account have something to probe?</summary>
     public static bool Probeable(ChannelAccount a) => a.Channel switch
     {
-        ChannelIds.WhatsApp => a.Provider != Providers.Baileys
-                             && a.AccessToken.Length > 0 && a.ExternalId.Length > 0,
+        ChannelIds.WhatsApp => a.Provider == Providers.Baileys
+            ? a.ExternalId.Length > 0
+            : a.AccessToken.Length > 0 && a.ExternalId.Length > 0,
         ChannelIds.Telegram => TelegramBot.Configured(a),
         ChannelIds.Email => EmailConfig.AccountConfigured(a),
         ChannelIds.Facebook or ChannelIds.Instagram => a.AccessToken.Length > 0,
@@ -139,12 +147,19 @@ public sealed class ChannelHealthProber
         _ => false,
     };
 
+    /// <summary><see cref="Probeable"/> AND this prober has the means: a QR
+    /// number needs an attached gateway.</summary>
+    private bool CanProbe(ChannelAccount a) =>
+        Probeable(a) && (a.Provider != Providers.Baileys || _baileys is { IsConfigured: true });
+
     /// <summary>The network half: never touches the DbContext, never throws.</summary>
     public async Task<ProbeVerdict?> ProbeAsync(ChannelAccount a, CancellationToken ct = default)
     {
         if (!Probeable(a)) return null;
         try
         {
+            if (a.Channel == ChannelIds.WhatsApp && a.Provider == Providers.Baileys)
+                return _baileys is { IsConfigured: true } gw ? BaileysVerdict(a, await gw.StatusAsync(a.ExternalId, ct)) : null;
             switch (a.Channel)
             {
                 case ChannelIds.Telegram:
@@ -177,6 +192,24 @@ public sealed class ChannelHealthProber
         {
             return new ProbeVerdict(null, $"health check failed: {ex.GetType().Name}", Transient: true);
         }
+    }
+
+    /// <summary>The gateway's session state → a verdict. A banned number stays
+    /// banned unless the gateway says it is connected again.</summary>
+    public static ProbeVerdict BaileysVerdict(ChannelAccount a, ChatBranch.Data.Sidecars.BaileysStatus st)
+    {
+        if (st.State == "connected")
+            return new ProbeVerdict(Health.Healthy, "");
+        if (a.HealthStatus == Health.Banned || st.State is "starting" or "disconnected")
+            return new ProbeVerdict(null, $"gateway: {st.State}", Transient: true);
+        return st.State switch
+        {
+            "qr" => new ProbeVerdict(Health.Disconnected, "not paired — a QR code is waiting to be scanned (Channels → Pair)"),
+            "qr_expired" or "stopped" => new ProbeVerdict(Health.Disconnected,
+                "not paired — open Channels and press Pair, then scan the QR from WhatsApp → Linked devices"),
+            "logged_out" => new ProbeVerdict(Health.Disconnected, "logged out on the phone — pair it again"),
+            _ => new ProbeVerdict(Health.Disconnected, st.Error is { Length: > 0 } e ? e : $"gateway: {st.State}"),
+        };
     }
 
     private async Task<ProbeVerdict> ProbeTelegramAsync(ChannelAccount a, CancellationToken ct)
@@ -219,7 +252,7 @@ public sealed class ChannelHealthProber
     public async Task<bool> CheckAccountAsync(int accountId, CancellationToken ct = default)
     {
         var a = await _db.ChannelAccounts.FirstOrDefaultAsync(x => x.Id == accountId, ct);
-        if (a == null || !Probeable(a)) return false;
+        if (a == null || !CanProbe(a)) return false;
         Apply(a, await ProbeAsync(a, ct));
         await _db.SaveChangesAsync(ct);
         return true;
@@ -235,7 +268,7 @@ public sealed class ChannelHealthProber
         var query = _db.ChannelAccounts.AsQueryable();
         if (accountIds != null) query = query.Where(a => accountIds.Contains(a.Id));
         var accounts = await query.OrderBy(a => a.Id).ToListAsync(ct);
-        var targets = accounts.Where(Probeable).ToList();
+        var targets = accounts.Where(CanProbe).ToList();
 
         using var gate = new SemaphoreSlim(8);
         var verdicts = await Task.WhenAll(targets.Select(async a =>

@@ -300,4 +300,24 @@ public class ShellSearchLiveTests : IClassFixture<ApiFactory>
         Assert.Equal(Health.Disconnected, acct.HealthStatus);
         Assert.Contains("not paired", acct.HealthDetail);
     }
+
+    [Fact]
+    public void Baileys_probe_reads_the_gateway_session_state()
+    {
+        var a = new ChannelAccount { Channel = "whatsapp", Provider = "baileys", ExternalId = "1" };
+        Assert.True(ChatBranch.Data.Channels.ChannelHealthProber.Probeable(a));
+        Assert.False(ChatBranch.Data.Channels.ChannelHealthProber.Probeable(
+            new ChannelAccount { Channel = "whatsapp", Provider = "baileys", ExternalId = "" }));
+        ChatBranch.Data.Channels.ProbeVerdict V(string state, string? err = null) =>
+            ChatBranch.Data.Channels.ChannelHealthProber.BaileysVerdict(a,
+                new ChatBranch.Data.Sidecars.BaileysStatus(state, null, null, err));
+        Assert.Equal(Health.Healthy, V("connected").Status);
+        Assert.Contains("not paired", V("stopped").Detail);
+        Assert.Equal(Health.Disconnected, V("qr_expired").Status);
+        Assert.True(V("disconnected").Transient);
+        Assert.Contains("unreachable", V("error", "Baileys gateway unreachable at http://x").Detail);
+        a.HealthStatus = Health.Banned;
+        Assert.True(V("stopped").Transient);      // a ban is not overwritten by "not paired"
+        Assert.Equal(Health.Healthy, V("connected").Status);
+    }
 }
