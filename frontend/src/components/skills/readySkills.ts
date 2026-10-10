@@ -1,6 +1,7 @@
 import type { MessageKey, TFunction } from '@/i18n'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import { TOOL_APP_IDS, aicore, type ToolAppId } from './skillsApi'
+import type { DocTemplate } from './documentTemplate'
 
 /**
  * The ready-made "Connected app" skills besides the calendar — Documents (PDF
@@ -43,6 +44,8 @@ export interface DocumentsConfig {
   accent: string
   logo: string
   language: 'auto' | 'en' | 'ms'
+  /** The designed look (the template designer); absent / null = the classic layout. */
+  template?: DocTemplate | null
 }
 export interface QrConfig {
   app: 'qr'
@@ -146,6 +149,8 @@ export interface ToolAppCatalogEntry {
   connected: boolean
   provider_label?: string
   cjk_font?: boolean
+  /** Documents: the designer's "Start from…" presets (canonical templates). */
+  template_presets?: Record<string, DocTemplate>
 }
 
 export async function fetchToolApps(): Promise<ToolAppCatalogEntry[] | null> {

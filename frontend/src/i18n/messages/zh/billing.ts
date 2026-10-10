@@ -45,6 +45,7 @@ export const billing: Dict<typeof source> = {
     assistant: '问 ChatBranch',
     embedding: '知识索引',
     skillDraft: '技能起草',
+    documentTemplate: '文档模板',
     aiReview: 'AI 审查',
   },
   settings: {

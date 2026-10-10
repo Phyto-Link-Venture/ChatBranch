@@ -76,6 +76,7 @@ export const FEATURE_LABELS: Record<string, MessageKey> = {
   assistant: 'billing.features.assistant',
   embedding: 'billing.features.embedding',
   skill_draft: 'billing.features.skillDraft',
+  document_template: 'billing.features.documentTemplate',
   ai_review: 'billing.features.aiReview',
 }
 

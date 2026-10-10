@@ -782,9 +782,10 @@ When you fix one of these, update this table, `README.md` and
   the running number (series `<skill entity | org>:<skill id>:<type>`, prefix +
   zero-padded, `start_numbers` the floor, a partial unique index on
   `(series, seq)`); the tool answers with the number and totals at once so the
-  reply quotes them. The PDF (A4, MigraDoc/PDFsharp 6 — MIT — with Liberation
-  Sans embedded from `Documents/Fonts/`, SIL OFL; letterhead, logo, accent =
-  a tag palette key, EN or BM labels by the contact's language) is stored as
+  reply quotes them. The PDF (A4 or Letter, MigraDoc/PDFsharp 6 — MIT — with
+  Liberation Sans + Serif embedded from `Documents/Fonts/`, SIL OFL; letterhead,
+  logo, accent = a tag palette key, EN or BM labels by the contact's language,
+  laid out by the skill's TEMPLATE — see below) is stored as
   conversation media (`MediaStore`) and recorded in `crm_document` as `pending`;
   its id rides on the reply (`AiReplyResult.Attachments` → the draft's
   `attachments: [{type:"document", document_id}]`). **Delivery**
@@ -819,6 +820,51 @@ When you fix one of these, update this table, `README.md` and
   (`components/ai-monitor/DraftDocuments.tsx` — review queue, activity, the
   chat's pending-draft banner, "Open" fetches the auth-gated file); the
   playground inspector lists `documents_previewed`. Tests: `DocumentTests`.
+  **The template designer.** `config.template` (`Documents/DocumentTemplate.cs`,
+  snake_case, `version` 1) = preset classic | modern | minimal | bold (fills
+  every key not given) + page (A4 | Letter, margins mm), fonts (sans | serif,
+  size), hex colours (`accent` "" = the config's palette accent), header
+  (layout split | stacked | centered, plain | band, logo position / size, which
+  business lines, `extra_lines`, tagline, rule), title, info arrangement
+  (meta_in_header | side_by_side | stacked), table (columns ⊇ description +
+  amount, labels, header style / colour, zebra, border), totals (position,
+  style), notes (`terms`, `bank_details`), footer, `sections` (the body order),
+  `letterhead {file, pages: all|first}` and `overrides {invoice|quotation|receipt|letter:
+  partial}` (fonts … sections only). ONE strict normalizer, `DocumentTemplate.From`
+  (unknown keys refused, the first problem returned — the skills PUT 400s on it);
+  `ToDictionary` is canonical. **A config WITHOUT a template renders exactly as
+  before** (= the classic preset; `DocumentTemplateTests` compares every word's
+  position with golden fixtures captured from the old renderer). The renderer
+  (`DocumentRenderer`) reads `cfg.TemplateFor(type)`; an uploaded letterhead
+  (`data/documents/letterhead/{32hex}.pdf`, the FIRST page of the upload,
+  `DocumentService.SaveLetterhead`) is drawn UNDER the content with `XPdfForm`
+  (`XGraphicsPdfPageOptions.Prepend`). API (all `settings.ai.manage`; MCP
+  exclusions except assist): `POST/GET /api/aicore/skills/documents/letterhead[/{name}]`;
+  `POST …/documents/template/analyze` (multipart: a PDF ≤ 10 MB or PNG / JPEG ≤
+  5 MB by magic bytes, optional `template` / `config` JSON, `keep_letterhead`) →
+  `DocumentTemplateAi.AnalyzeAsync`: the chat model with VISION (OpenAI
+  `image_url` data-URL parts — `LlmMessage.Images`; a PDF's first page via
+  `pdftoppm` when the server has it, env `DOCUMENT_PDF_RASTERIZER` = a path or
+  `off`, else its embedded images) + the PdfPig text layer (lines with band /
+  side / size / colour), strict JSON through the same normalizer, one retry with
+  the refusal; no model / a model that fails (non-vision) / never valid → a
+  deterministic heuristic over the text layer (`mode: heuristic`); returns
+  `{mode, template, business, summary, note, letterhead, preview{url}}`;
+  `POST …/template/assist {template, instruction}` (MCP
+  `skills_assist_document_template`) → the edited template + a one-line summary,
+  sandbox = a small rule set (presets, colour words / hex, logo / title sides,
+  zebra, borders, fonts, page size, page numbers, "bank details in the footer").
+  Both quota-guarded (`QuotaGuard`, 429) and metered as `LlmUsage` feature
+  `document_template`; nothing is saved until the skill is. `/skills/apps`'
+  documents entry carries `template_presets`. Previews of an edited template go
+  through `/skills/test`'s documents dry run. UI: "Look → Design template" on the
+  Documents form opens `components/skills/DocumentDesigner.tsx` (full screen,
+  panels left — simple first, the rest under Advanced, section order up/down;
+  "Editing" all documents or one type = an override — live preview right, an
+  iframe of the auth-fetched blob + "Open preview" for iOS; top: preset
+  thumbnails, "Upload my design", "Ask AI", Undo); client model
+  `components/skills/documentTemplate.ts`, words `readySkills.designer`. Tests:
+  `DocumentTemplateTests`, `DocumentTemplateApiTests`.
 - **AI monitor + human-like behaviour** (`/ai-monitor`, `/api/ai/monitor*`,
   `/api/ai/behaviour`). EVERY AI-written outbound (instant reply, queued
   ai_reply, follow-up, flow job with payload `source:"ai"`) goes through
@@ -1689,7 +1735,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **827 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **875 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /
@@ -1706,7 +1752,9 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   search/live, the platform (audit, API keys, MCP — every route a tool or a
   documented exclusion, `McpCoverageTests` — assistant), the AI playground
   (`AiPlaygroundTests`), the Documents / QR / payments / Sheets apps + the calculator
-  (`DocumentTests`), the Test lab and the LiveKit
+  (`DocumentTests`), the document template designer — normalizer, presets, the
+  pre-template golden layout, letterhead, upload-your-design + Ask AI against a fake
+  vision model (`DocumentTemplateTests`, `DocumentTemplateApiTests`) —, the Test lab and the LiveKit
   control plane. Keep them green. The test host (`ApiFactory` in
   `ApiSmokeTests.cs`) sets its own env: `QUEUE_WORKER=0`, `FLOWS_WORKER=0`,
   `AI_FOLLOWUP_WORKER=0`, `HEALTH_WORKER=0`, `EMBEDDING_WORKER=0`,

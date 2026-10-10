@@ -381,7 +381,7 @@ internal static class AiBillPdf
                 ["chat_reply"] = "Chat replies", ["follow_up"] = "Follow-ups", ["flow_message"] = "Journey messages",
                 ["flow_decision"] = "Journey decisions", ["voice_call"] = "Voice calls", ["summary"] = "AI summaries",
                 ["timeline"] = "Timeline summaries", ["playground"] = "AI playground", ["assistant"] = "Ask ChatBranch",
-                ["embedding"] = "Knowledge indexing", ["skill_draft"] = "Skill drafting", ["ai_review"] = "AI review",
+                ["embedding"] = "Knowledge indexing", ["skill_draft"] = "Skill drafting", ["document_template"] = "Document templates", ["ai_review"] = "AI review",
             });
 
         public static readonly Labels Ms = new("ms", "Bil penggunaan AI", "Semua syarikat", "Syarikat", "Syarikat",
@@ -394,7 +394,7 @@ internal static class AiBillPdf
                 ["chat_reply"] = "Balasan chat", ["follow_up"] = "Susulan", ["flow_message"] = "Mesej perjalanan",
                 ["flow_decision"] = "Keputusan perjalanan", ["voice_call"] = "Panggilan suara", ["summary"] = "Ringkasan AI",
                 ["timeline"] = "Ringkasan garis masa", ["playground"] = "Ruang uji AI", ["assistant"] = "Tanya ChatBranch",
-                ["embedding"] = "Pengindeksan pengetahuan", ["skill_draft"] = "Draf kemahiran", ["ai_review"] = "Semakan AI",
+                ["embedding"] = "Pengindeksan pengetahuan", ["skill_draft"] = "Draf kemahiran", ["document_template"] = "Templat dokumen", ["ai_review"] = "Semakan AI",
             });
 
         public static readonly Labels Zh = new("zh", "AI 用量账单", "所有公司", "公司", "公司",
@@ -407,7 +407,7 @@ internal static class AiBillPdf
                 ["chat_reply"] = "聊天回复", ["follow_up"] = "跟进", ["flow_message"] = "旅程消息",
                 ["flow_decision"] = "旅程判断", ["voice_call"] = "语音通话", ["summary"] = "AI 摘要",
                 ["timeline"] = "时间线摘要", ["playground"] = "AI 试验场", ["assistant"] = "问 ChatBranch",
-                ["embedding"] = "知识索引", ["skill_draft"] = "技能起草", ["ai_review"] = "AI 审查",
+                ["embedding"] = "知识索引", ["skill_draft"] = "技能起草", ["document_template"] = "文档模板", ["ai_review"] = "AI 审查",
             });
 
         public static Labels For(string language) => language switch { "ms" => Ms, "zh" => Zh, _ => En };

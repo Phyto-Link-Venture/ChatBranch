@@ -310,7 +310,7 @@ Admins keep the tenant-wide view. Tests: `QaScopeFixesTests`.
 | `/api/ai/playground/options` (providers, the stored persona and `can_override` only with `ai.behaviour.manage`; `POST …/reply` and `…/import` carry the same gate — trying changes needs `ai.behaviour.manage`, importing a conversation `chats.view` + the conversation scope) | `ai.monitor`, `ai.behaviour.manage` | AI playground |
 | `/api/ai/review/runs`, `/api/ai/review/runs/{id}` (runs whose entities all sit in the caller's scope; findings filtered by the conversation's entity) | `ai.monitor`, `ai.behaviour.manage` | AI monitor → AI review |
 | `POST /api/aicore/knowledge/preview` | `settings.ai.manage`, `ai.monitor` | Knowledge, AI monitor's retrieval tester |
-| `/api/aicore/knowledge`, `/persona`, `/skills/apps`, `/skills/builtins`, `/skills/documents/logo/{name}` | `settings.ai.manage` | Knowledge base, AI skills (the Documents app's logo) |
+| `/api/aicore/knowledge`, `/persona`, `/skills/apps`, `/skills/builtins`, `/skills/documents/logo/{name}`, `/skills/documents/letterhead/{name}` | `settings.ai.manage` | Knowledge base, AI skills (the Documents app's logo and template letterhead background) |
 | `/api/documents/preview/{id}` | `ai.monitor`, `ai.behaviour.manage`, `settings.ai.manage` | AI playground previews, the Documents skill's "Preview PDF" |
 | `/api/aicore/skills` | `settings.ai.manage`, `flows.manage` | AI skills, the Journeys skill picker |
 | `/api/aicore/booking-hours` | `integrations.view`, `settings.ai.manage` | Integrations (booking hours) |
