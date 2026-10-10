@@ -90,6 +90,7 @@ public class AppDbContext : DbContext
     // contacts — identity registry, invite links, "who are you?" requests
     public DbSet<ContactIdentity> ContactIdentities => Set<ContactIdentity>();
     public DbSet<ContactInvite> ContactInvites => Set<ContactInvite>();
+    public DbSet<ContactAccessRequest> ContactAccessRequests => Set<ContactAccessRequest>();
     public DbSet<IdentityRequest> IdentityRequests => Set<IdentityRequest>();
     // the Test lab's run history (the last 50 runs of scripted scenarios)
     public DbSet<TestLabRun> TestLabRuns => Set<TestLabRun>();
@@ -322,6 +323,11 @@ public class AppDbContext : DbContext
             .HasDatabaseName("ix_contactidentity_address");
         b.Entity<ContactInvite>().ToTable("crm_contactinvite");
         b.Entity<ContactInvite>().HasIndex(i => i.Code).IsUnique().HasDatabaseName("uniq_contactinvite_code");
+        // "Request access": one PENDING request per (contact, entity)
+        b.Entity<ContactAccessRequest>().ToTable("crm_contactaccessrequest");
+        b.Entity<ContactAccessRequest>().HasIndex(r => new { r.ContactId, r.EntityId })
+            .IsUnique().HasFilter("[status] = 'pending'").HasDatabaseName("uniq_contactaccess_pending");
+        b.Entity<ContactAccessRequest>().HasIndex(r => r.Status).HasDatabaseName("ix_contactaccess_status");
         b.Entity<IdentityRequest>().ToTable("crm_identityrequest");
         b.Entity<IdentityRequest>().HasIndex(r => r.ThreadId).IsUnique().HasDatabaseName("uniq_identityrequest_thread");
         Json<IdentityRequest, Dictionary<string, object?>>(b, x => x.Collected);

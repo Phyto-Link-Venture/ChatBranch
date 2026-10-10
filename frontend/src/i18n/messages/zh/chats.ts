@@ -487,6 +487,7 @@ export const chats: Dict<typeof source> = {
     platformClosedNote: '{channel} 的回复窗口已关闭——在客户再次发来消息之前无法发送任何内容。',
     unsupportedFile: '不支持的文件类型——请使用 jpg、png、webp、pdf、mp4、ogg 或 mp3。',
     fileTooLarge: '文件太大——附件上限为 16 MB。',
+    sendAnyway: '仍然发送',
     confirmOptedOut: '客户已退订——仍要以手动强制方式发送吗？',
     switchOtherContact: '现在与此联系人的另一个渠道对话——{channel} {address}。在客户那边，这是一个独立的对话，没有共享的历史记录。',
     switchBaileysSeen: '已切换发送号码——现经由 {account}（个人号码，无需模板）。此号码之前与客户聊过天。',

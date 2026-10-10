@@ -111,7 +111,7 @@ public static class WhatsAppThreadsEndpoints
     private const string ColdTextBlockDetail =
         "This number has never received a message from this contact. Cold free-text "
         + "from a personal number carries ban risk — open with an approved template, "
-        + "or have the contact message first. Admins may override with force=true.";
+        + "or have the contact message first. An admin may press Send anyway (API: force=true).";
 
     private const string ColdTextWarnNote =
         "[Cold outbound: this contact has never messaged this number. Ban risk is "
@@ -234,7 +234,9 @@ public static class WhatsAppThreadsEndpoints
             {
                 var guard = Rule(sc, "cold_text_guard", "block");
                 if (guard == "block" && !(body.Force && IsAdminPlus(me)))
-                    return Results.Json(new { detail = ColdTextBlockDetail }, statusCode: 409);
+                    // code + can_override let the composer offer an admin "Send anyway"
+                    return Results.Json(new { detail = ColdTextBlockDetail, code = "cold_text",
+                        can_override = IsAdminPlus(me) }, statusCode: 409);
                 if (guard == "warn") coldNote = ColdTextWarnNote;
             }
             if (live && !WindowOpen(db, thread, account))
@@ -663,8 +665,9 @@ public static class WhatsAppThreadsEndpoints
                 return Results.Json(new
                 {
                     ok = false,
-                    detail = "WhatsApp Cloud API calling is not available in this build (its call bridge "
-                             + "was removed); calls run over a linked Baileys (WhatsApp Web) number.",
+                    detail = $"{WhatsAppProviders.Label(account.Provider)} calling is not available in this build "
+                             + "(the official business APIs need a separate calling bridge); calls run over a "
+                             + "linked Baileys (WhatsApp Web) number.",
                 }, statusCode: 501);
 
             if (account is { Provider: Providers.Baileys, ExternalId.Length: > 0 } && baileys.IsConfigured)
@@ -871,7 +874,7 @@ public static class WhatsAppThreadsEndpoints
             phone = thread.Address.Length > 0 ? thread.Address : $"+{thread.Key}",
             name = thread.Name.Length > 0 ? thread.Name : $"+{thread.Key}",
             account_id = thread.AccountId?.ToString(),
-            provider = isBaileys ? Providers.Baileys : Providers.Cloud,
+            provider = account != null ? WhatsAppProviders.Of(account) : Providers.Cloud,
             ai_enabled = aiVerdict.Enabled,
             ai_reason = aiVerdict.Reason,
             ai_rule = aiVerdict.Rule,

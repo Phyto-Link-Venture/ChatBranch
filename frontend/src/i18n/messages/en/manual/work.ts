@@ -366,6 +366,43 @@ export const work = {
       t3: 'To change details later, click the pencil icon in the “Actions” column of the list.',
     },
   },
+  requestContactAccess: {
+    title: 'Ask for a customer who belongs to another branch',
+    summary: 'When a phone or email is already a customer of another branch of your company, ask an admin to share them with your branch instead of adding a duplicate.',
+    before: 'You add contacts from your branch (the “Create & edit contacts” permission). Approving needs an admin who manages both branches.',
+    steps: {
+      s1: {
+        title: 'Add the contact as usual',
+        body: 'In “Contacts”, click “Add contact”, fill in the name and the phone or email, and click “Add contact”.',
+      },
+      s2: {
+        title: 'Read the message',
+        body: 'If the number belongs to a customer of another branch you can’t see, the window says “This customer already exists in another branch of …”. Their name and details stay hidden.',
+      },
+      s3: {
+        title: 'Send the request',
+        body: 'Type an optional note for the admin (for example why the customer is now with you) and click “Request access”.',
+      },
+      s4: {
+        title: 'Wait for the admin',
+        body: 'An admin of your company gets a notification. Your request shows under “Access requests” at the top of Contacts, where you can also cancel it.',
+      },
+      s5: {
+        title: 'Admins: review',
+        body: 'Admins click the notification or “Access requests” on Contacts. Each request shows who asked, for which branch, the customer’s name, the last 4 digits of the phone, the branches they are in now and the note.',
+      },
+      s6: {
+        title: 'Admins: approve or deny',
+        body: 'Click “Approve” to add the customer to the requested branch (they stay in their other branches), or “Deny” and give an optional reason. The person who asked is notified either way.',
+      },
+    },
+    done: 'Once approved, the customer appears in your Contacts list with all their history.',
+    tips: {
+      t1: 'Asking twice for the same customer and branch just shows the request you already sent.',
+      t2: 'A customer who writes in on your branch’s number links to the right contact by themselves — no request needed.',
+    },
+    trouble: 'If “Request access” says the link expired, click “Add contact” again: the request link lasts 30 minutes.',
+  },
   importContacts: {
     title: 'Import contacts from a file or Google',
     summary: 'Bring in a contact book you already have — up to 20,000 people at once — in four short steps.',

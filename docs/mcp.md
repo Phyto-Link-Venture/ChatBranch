@@ -150,7 +150,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 
 <!-- tools:start -->
 
-#### contacts (25)
+#### contacts (29)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -179,6 +179,10 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `contacts_get_timeline` | Get a communications timeline | read | `contacts.view` or `chats.view` |
 | `contacts_summarize_timeline` | Summarize a contact's history | read · open-world | `contacts.view` or `chats.view` |
 | `contacts_sync_records` | Sync business records | write | `contacts.manage` |
+| `contacts_request_access` | Request access to a contact | write | `contacts.manage` or `chats.send` |
+| `contacts_list_access_requests` | List contact access requests | read | `contacts.manage` or `chats.send` |
+| `contacts_decide_access_request` | Approve or deny a contact access request | write | `contacts.manage` |
+| `contacts_cancel_access_request` | Cancel your contact access request | write | `contacts.manage` or `chats.send` |
 
 #### conversations (31)
 
@@ -581,8 +585,8 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `POST /api/integrations/mcp` | external MCP server definitions carry auth tokens/headers — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
 | `PATCH /api/integrations/mcp/{id:int}` | external MCP server definitions carry auth tokens/headers — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
 | `DELETE /api/integrations/mcp/{id:int}` | external MCP servers are managed with their credentials by a person at /developers |
-| `POST /api/whatsapp/accounts` | WhatsApp number create (access token, app secret) — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
-| `POST /api/whatsapp/accounts/{id:int}` | WhatsApp number update (access token, app secret) — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
+| `POST /api/whatsapp/accounts` | WhatsApp number create (Cloud API / YCloud / Twilio credentials) — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
+| `POST /api/whatsapp/accounts/{id:int}` | WhatsApp number update (Cloud API / YCloud / Twilio credentials) — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
 | `DELETE /api/whatsapp/accounts/{id:int}` | removing a number is part of the credential lifecycle at /channels (its conversations stay) |
 | `POST /api/messaging/accounts` | inbox create (bot tokens, page tokens, SMTP/IMAP passwords) — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
 | `PATCH /api/messaging/accounts/{id}` | inbox update (bot tokens, page tokens, SMTP/IMAP passwords) — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
@@ -619,6 +623,8 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `POST /api/aicore/skills/documents/logo` | uploads a logo image (multipart) for the Documents skill's letterhead — set it from the Skills page |
 | `POST /api/voice/preview` | returns synthesized audio — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
 | `POST /api/voice/clone` | clones a voice from an uploaded recording — needs the speaker's own audio sample and consent |
+| `GET /api/billing/ai/pdf` | the AI bill as a PDF — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file (billing_get_ai_bill returns the same figures) |
+| `POST /api/billing/ai/pdf/link` | mints a 5-minute signed link to the AI bill PDF for a browser that cannot send an auth header (the installed iOS app); sessions only, API keys get 403 — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
 | `GET /api/audit.csv` | file export (CSV / vCard) of data a JSON tool already returns (activity_search_log) |
 | `GET /api/analytics/reports.csv` | file export (CSV / vCard) of data a JSON tool already returns (analytics_get_reports) |
 | `GET /api/messaging/contacts/vcard` | file export (CSV / vCard) of data a JSON tool already returns (search_contacts) |

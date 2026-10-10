@@ -491,6 +491,7 @@ export const chats: Dict<typeof source> = {
     platformClosedNote: 'Tetingkap balasan {channel} telah ditutup — tiada apa-apa boleh dihantar sehingga pelanggan menulis semula.',
     unsupportedFile: 'Jenis fail tidak disokong — guna jpg, png, webp, pdf, mp4, ogg atau mp3.',
     fileTooLarge: 'Fail terlalu besar — lampiran dihadkan kepada 16 MB.',
+    sendAnyway: 'Hantar juga',
     confirmOptedOut: 'Pelanggan telah menarik diri — hantar juga sebagai pengatasan manual?',
     switchOtherContact:
       'Kini bersembang dengan saluran lain kenalan ini — {channel} {address}. Di pihak pelanggan, ini sembang berasingan tanpa sejarah bersama.',

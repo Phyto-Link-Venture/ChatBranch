@@ -54,6 +54,41 @@ public class ContactEntity
     public DateTime CreatedAt { get; set; }
 }
 
+/// <summary>
+/// "Request access" (crm_contactaccessrequest): a user bound to a branch tried to
+/// add a phone / email that already belongs to a contact of their company under a
+/// branch they can't see, and asked an admin to share that contact with
+/// <see cref="EntityId"/>. Approving links the contact there (a
+/// <see cref="ContactEntity"/> row; its other entities stay). At most one PENDING
+/// request per (contact, entity).
+/// </summary>
+public class ContactAccessRequest
+{
+    public int Id { get; set; }
+    public int ContactId { get; set; }
+    public Contact? Contact { get; set; }
+    /// <summary>The branch the requester wants the contact added to.</summary>
+    public int EntityId { get; set; }
+    public string RequestedBy { get; set; } = "";
+    public string Note { get; set; } = "";
+    /// <summary>See <see cref="ContactAccessStatus"/>.</summary>
+    public string Status { get; set; } = ContactAccessStatus.Pending;
+    public string DecidedBy { get; set; } = "";
+    /// <summary>A denial's reason (shown to the requester).</summary>
+    public string Reason { get; set; } = "";
+    public DateTime? DecidedAt { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+public static class ContactAccessStatus
+{
+    public const string Pending = "pending";
+    public const string Approved = "approved";
+    public const string Denied = "denied";
+    public const string Cancelled = "cancelled";
+    public static readonly string[] All = { Pending, Approved, Denied, Cancelled };
+}
+
 public class Record
 {
     public int Id { get; set; }

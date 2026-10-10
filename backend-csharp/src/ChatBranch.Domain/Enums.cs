@@ -41,6 +41,10 @@ public static class Providers
 {
     public const string Cloud = "cloud";
     public const string Baileys = "baileys";
+    /// <summary>YCloud — an official WhatsApp Business Solution Provider (Meta-shaped API).</summary>
+    public const string YCloud = "ycloud";
+    /// <summary>Twilio's WhatsApp sender (Programmable Messaging + the Content API).</summary>
+    public const string Twilio = "twilio";
 }
 
 public static class Health

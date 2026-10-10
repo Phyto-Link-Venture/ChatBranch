@@ -53,8 +53,10 @@ internal static class MetaWebhookAuth
     public static List<string> KnownSecrets(AppDbContext db, ScopingService sc)
     {
         var secrets = db.ChannelAccounts.AsNoTracking()
-            .Where(a => a.AppSecret != "" && (a.Channel == Channels.WhatsApp || a.Channel == Channels.Facebook
-                                              || a.Channel == Channels.Instagram))
+            // a WhatsApp row's secret is a Meta app secret only on a Cloud API number (a YCloud
+            // row keeps its own webhook signing secret there — never a Meta credential)
+            .Where(a => a.AppSecret != "" && ((a.Channel == Channels.WhatsApp && (a.Provider == Providers.Cloud || a.Provider == ""))
+                                              || a.Channel == Channels.Facebook || a.Channel == Channels.Instagram))
             .Select(a => a.AppSecret).ToList();
         secrets.Add(sc.SettingValue("meta_app_secret"));
         secrets.Add(Environment.GetEnvironmentVariable("META_APP_SECRET") ?? "");

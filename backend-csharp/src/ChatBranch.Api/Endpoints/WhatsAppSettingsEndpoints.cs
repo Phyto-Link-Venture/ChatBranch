@@ -170,7 +170,15 @@ public static class WhatsAppSettingsEndpoints
     /// (health.reset_on_reconfigure).
     /// </summary>
     private static readonly string[] CredentialKeys =
-        { "access_token", "phone_number_id", "app_secret", "api_version", "provider", "waba_id" };
+    {
+        "access_token", "phone_number_id", "app_secret", "api_version", "provider", "waba_id",
+        // YCloud / Twilio (WhatsAppProviders)
+        "phone_number", "account_sid", "from_number", "messaging_service_sid", "api_key_sid", "api_key_secret",
+    };
+
+    /// <summary>Twilio's plain settings and its one Config secret (masked on the way out).</summary>
+    private static readonly string[] TwilioPlainKeys = { "account_sid", "from_number", "messaging_service_sid", "api_key_sid" };
+    private const string TwilioSecretKey = "api_key_secret";
 
     // =========================================================================
 
@@ -566,7 +574,7 @@ public static class WhatsAppSettingsEndpoints
         {
             var body = await ReadBody(ctx);
             var provider = (AsString(body, "provider") ?? "").Trim().ToLowerInvariant();
-            if (provider != Providers.Baileys) provider = Providers.Cloud;
+            if (!WhatsAppProviders.Known(provider)) provider = Providers.Cloud;
             var name = (AsString(body, "name") ?? "").Trim();
             var pnid = (AsString(body, "phone_number_id") ?? "").Trim();
             var token = (AsString(body, "access_token") ?? "").Trim();
@@ -578,6 +586,12 @@ public static class WhatsAppSettingsEndpoints
                 if (name == "")
                     return Results.Json(new { detail = "name is required for a Baileys account." },
                                         statusCode: 400);
+            }
+            else if (WhatsAppProviders.IsBsp(provider))
+            {
+                // YCloud / Twilio: their own credential shapes (BspCredentialError)
+                if (BspCredentialError(provider, body, creating: true, current: null) is string bspErr)
+                    return Results.Json(new { detail = bspErr }, statusCode: 400);
             }
             else if (pnid == "" || token == "")
             {
@@ -613,6 +627,7 @@ public static class WhatsAppSettingsEndpoints
             // a company admin links numbers for their own companies only
             if (ShellScope.CompanyLevelError(db, ctx.RequestServices.GetRequiredService<ScopingService>(), me, row.EntityId) is { } outside)
                 return outside;
+            if (WhatsAppProviders.IsBsp(provider)) ApplyBsp(row, body);
             if (ApplyDelivery(row, body) is IResult deliveryErr) return deliveryErr;
             // inbox "who answers it" keys: owning team + AI reply default
             if (InboxSettings.Apply(db, row, AsString(body, InboxSettings.TeamKey),
@@ -621,6 +636,8 @@ public static class WhatsAppSettingsEndpoints
                 return Results.Json(new { detail = inboxErr }, statusCode: 400);
             db.ChannelAccounts.Add(row);
             await db.SaveChangesAsync();
+            // Twilio: per-message StatusCallback = this account's own webhook (needs the id)
+            if (StampStatusCallback(row, ctx)) await db.SaveChangesAsync();
             // a first real verdict within seconds (Cloud: Graph token ping; Baileys: no-op)
             _ = ctx.RequestServices.GetRequiredService<ChatBranch.Api.Workers.HealthRecheck>().Schedule(row.Id);
 
@@ -667,7 +684,21 @@ public static class WhatsAppSettingsEndpoints
             Patch("app_secret", () => row.AppSecret, v => row.AppSecret = v);
             Patch("api_version", () => row.ApiVersion, v => row.ApiVersion = v);
             Patch("owner", () => row.Owner, v => row.Owner = v);
-            Patch("provider", () => row.Provider, v => row.Provider = v);
+            Patch("provider", () => row.Provider, v =>
+            {
+                if (WhatsAppProviders.Known(v)) row.Provider = v.ToLowerInvariant();
+            });
+            if (WhatsAppProviders.IsBsp(row))
+            {
+                // YCloud's number (E.164 → digits) and Twilio's Config keys; a masked secret = untouched
+                if (BspCredentialError(row.Provider, body, creating: false, current: row) is string bspErr)
+                    return Results.Json(new { detail = bspErr }, statusCode: 400);
+                foreach (var key in new[] { "phone_number" }.Concat(TwilioPlainKeys).Append(TwilioSecretKey))
+                    if (TryString(body, key, out var raw) && !raw.Contains("••") && CredentialKeys.Contains(key))
+                        credsChanged |= BspValue(row, key) != raw.Trim();
+                ApplyBsp(row, body);
+                StampStatusCallback(row, ctx);
+            }
 
             var role = (AsString(body, "role") ?? "").Trim().ToLowerInvariant();
             if (Has(body, "role") && AccountRoles.Contains(role))
@@ -787,6 +818,37 @@ public static class WhatsAppSettingsEndpoints
                 .FirstOrDefaultAsync(a => a.Id == id && a.Channel == Channels.WhatsApp, ct);
             if (row == null || !IsConfigured(row))
                 return Results.Json(new { detail = "Account not configured." }, statusCode: 400);
+            if (WhatsAppProviders.IsBsp(row))
+            {
+                // YCloud: the number's profile (or the balance); Twilio: the account — each
+                // provider's own authenticated GET, the same probe the health checker runs
+                var probe = await wa.ProbeBspAsync(row, ct);
+                if (probe == null)
+                    return Results.Json(new { detail = "Account not configured." }, statusCode: 400);
+                var label = WhatsAppProviders.Label(row.Provider);
+                var v = probe.Verdict;
+                if (v.Status == Health.Healthy) MetaErrors.MarkHealthy(db, row, "account test passed", actor: "user");
+                else if (v.Status != null) AccountHealth.SetStatus(db, row, v.Status, v.Detail, actor: "user");
+                await db.SaveChangesAsync(ct);
+                if (v.Status == Health.Healthy)
+                    return Results.Ok(new
+                    {
+                        ok = true,
+                        display_phone_number = probe.Number,
+                        verified_name = probe.Name,
+                        quality_rating = probe.Quality,
+                        detail = $"{label} accepted the credentials.",
+                        webhook_path = WhatsAppProviders.WebhookPath(row),
+                    });
+                return Results.Json(new
+                {
+                    ok = false,
+                    detail = v.Transient
+                        ? $"Couldn't check the credentials — {v.Detail}. Try again in a moment."
+                        : $"{label}: {v.Detail}",
+                    health_status = row.HealthStatus,
+                }, statusCode: v.Transient ? 502 : 400);
+            }
             if (row.Provider == Providers.Baileys || !wa.IsConfigured(row))
             {
                 var number = Cfg(row, "number");
@@ -908,13 +970,14 @@ public static class WhatsAppSettingsEndpoints
             if (buttons == null) return Results.Json(new { detail = ButtonsError }, statusCode: 400);
 
             var account = await TemplateAccount(db, account_id ?? AsString(body, "account_id"));
+            if (ReadOnlyRegistry(account) is { } readOnly) return readOnly;
             if (account != null)
             {
-                // live: submit to Meta for review
+                // live: submit to Meta for review (YCloud relays it to Meta)
                 var created = await wa.CreateTemplateAsync(account,
                     MetaTemplatePayload(name, language, category, templateBody, buttons, Examples(body)));
                 if (!created.Ok)
-                    return Results.Json(new { detail = $"Meta rejected the template: {created.Detail}" },
+                    return Results.Json(new { detail = $"{RegistryName(account)} rejected the template: {created.Detail}" },
                                         statusCode: created.ErrorCode != null ? 400 : 502);
                 WhatsAppTemplateCatalog.Invalidate(account.Id);
                 SaveBindings(sc, BindingsScope(account), name, bindings);
@@ -994,6 +1057,7 @@ public static class WhatsAppSettingsEndpoints
                     };
                     SaveCustomTemplates(sc, existing);
                 }
+                else if (ReadOnlyRegistry(account) is { } readOnly) return readOnly;
                 else if (account != null)
                 {
                     // live: edit at Meta (re-enters review) — by the id the page
@@ -1011,7 +1075,7 @@ public static class WhatsAppSettingsEndpoints
                     payload.Remove("language");
                     var edited = await wa.EditTemplateAsync(account, templateId.Trim(), payload);
                     if (!edited.Ok)
-                        return Results.Json(new { detail = $"Meta rejected the edit: {edited.Detail}" },
+                        return Results.Json(new { detail = $"{RegistryName(account)} rejected the edit: {edited.Detail}" },
                                             statusCode: edited.ErrorCode != null ? 400 : 502);
                     WhatsAppTemplateCatalog.Invalidate(account.Id);
                 }
@@ -1046,12 +1110,13 @@ public static class WhatsAppSettingsEndpoints
             var where = "local";
             if (remaining.Count != existing.Count)
                 SaveCustomTemplates(sc, remaining);
+            else if (ReadOnlyRegistry(account) is { } readOnly) return readOnly;
             else if (account != null)
             {
                 // live: remove it from the WABA (every language of that name)
                 var deleted = await wa.DeleteTemplateAsync(account, name, id);
                 if (!deleted.Ok)
-                    return Results.Json(new { detail = $"Meta refused the delete: {deleted.Detail}" },
+                    return Results.Json(new { detail = $"{RegistryName(account)} refused the delete: {deleted.Detail}" },
                                         statusCode: deleted.ErrorCode != null ? 400 : 502);
                 WhatsAppTemplateCatalog.Invalidate(account.Id);
                 where = "meta";
@@ -1412,13 +1477,14 @@ public static class WhatsAppSettingsEndpoints
             if (!int.TryParse(accountId, out var id)) return null;
             var one = await db.ChannelAccounts.AsNoTracking()
                 .FirstOrDefaultAsync(a => a.Id == id && a.Channel == Channels.WhatsApp);
-            return one != null && IsConfigured(one) && one.WabaId != "" ? one : null;
+            return one != null && IsConfigured(one) && WhatsAppProviders.HasTemplateRegistry(one) ? one : null;
         }
 
+        // Cloud API / YCloud with a WABA id, Twilio (its Content API) — never Baileys
         var capable = (await db.ChannelAccounts.AsNoTracking()
-                .Where(a => a.Channel == Channels.WhatsApp && a.WabaId != "")
+                .Where(a => a.Channel == Channels.WhatsApp)
                 .OrderBy(a => a.Id).ToListAsync())
-            .Where(IsConfigured).ToList();
+            .Where(a => IsConfigured(a) && WhatsAppProviders.HasTemplateRegistry(a)).ToList();
         if (capable.Count == 0) return null;
         return capable.FirstOrDefault(a => AccountRole(a) == "reminder") ?? capable[0];
     }
@@ -1428,7 +1494,25 @@ public static class WhatsAppSettingsEndpoints
     /// names are per-WABA); everything without a live WABA shares "sandbox".
     /// </summary>
     private static string BindingsScope(ChannelAccount? account) =>
-        account != null && account.WabaId.Length > 0 ? account.Id.ToString() : "sandbox";
+        account != null && WhatsAppProviders.HasTemplateRegistry(account) ? account.Id.ToString() : "sandbox";
+
+    /// <summary>Who owns a live template registry, for the operator's error text.</summary>
+    private static string RegistryName(ChannelAccount a) => WhatsAppProviders.Of(a) switch
+    {
+        Providers.YCloud => "YCloud",
+        Providers.Twilio => "Twilio",
+        _ => "Meta",
+    };
+
+    /// <summary>Twilio's Content templates are listed (and sent) here, but authored in Twilio's console.</summary>
+    private static IResult? ReadOnlyRegistry(ChannelAccount? a) =>
+        a != null && WhatsAppProviders.Of(a) == Providers.Twilio
+            ? Results.Json(new
+            {
+                detail = "Twilio Content templates are read-only here — create, edit or delete them in the Twilio "
+                         + "console (Messaging → Content Template Builder); they appear in this list once saved.",
+            }, statusCode: 409)
+            : null;
 
     /// <summary>
     /// views._valid_bindings — one entry per {{n}} slot, "" = the operator fills
@@ -1738,7 +1822,129 @@ public static class WhatsAppSettingsEndpoints
         team_id = InboxSettings.TeamId(a),
         ai_default = InboxSettings.AiDefaultWire(a),
         ai_review_mode = InboxSettings.ReviewModeWire(a),
+        // official = template-capable + bound by the 24h window (Cloud API, YCloud, Twilio)
+        official = WhatsAppProviders.IsOfficial(a),
+        provider_label = WhatsAppProviders.Label(a.Provider),
+        template_registry = WhatsAppProviders.HasTemplateRegistry(a),
+        supports_reactions = WhatsAppProviders.SupportsReactions(a),
+        supports_quotes = WhatsAppProviders.SupportsQuotes(a),
+        // YCloud / Twilio: this account's own signed webhook + its provider settings
+        webhook_path = WhatsAppProviders.WebhookPath(a),
+        bsp = BspPayload(a),
     };
+
+    /// <summary>The provider-specific, non-secret settings of a YCloud / Twilio account (secrets masked).</summary>
+    internal static Dictionary<string, object?>? BspPayload(ChannelAccount a) => WhatsAppProviders.Of(a) switch
+    {
+        Providers.YCloud => new Dictionary<string, object?>
+        {
+            ["phone_number"] = WhatsAppProviders.E164(a.ExternalId),
+            ["api_key_masked"] = Mask(a.AccessToken),
+            ["webhook_secret_masked"] = Mask(a.AppSecret),
+        },
+        Providers.Twilio => new Dictionary<string, object?>
+        {
+            ["account_sid"] = WhatsAppProviders.Cfg(a, "account_sid"),
+            ["from_number"] = WhatsAppProviders.Cfg(a, "from_number"),
+            ["messaging_service_sid"] = WhatsAppProviders.Cfg(a, "messaging_service_sid"),
+            ["api_key_sid"] = WhatsAppProviders.Cfg(a, "api_key_sid"),
+            ["api_key_secret_masked"] = Mask(WhatsAppProviders.Cfg(a, TwilioSecretKey)),
+            ["auth_token_masked"] = Mask(a.AccessToken),
+        },
+        _ => null,
+    };
+
+    /// <summary>
+    /// What a YCloud / Twilio account write needs: YCloud a business number (E.164) + API
+    /// key; Twilio an Account SID (AC…), an Auth Token or an API Key SID + secret, and a
+    /// WhatsApp sender number or a Messaging Service SID (MG…). On an edit only what the
+    /// body changes is checked, against what the row already holds.
+    /// </summary>
+    private static string? BspCredentialError(string provider, JsonElement body, bool creating, ChannelAccount? current)
+    {
+        string Val(string key, string existing) =>
+            TryString(body, key, out var raw) && !raw.Contains("••") ? raw.Trim() : creating ? "" : existing;
+        if (WhatsAppProviders.Normalize(provider) == Providers.YCloud)
+        {
+            var phone = Val("phone_number", current == null ? "" : WhatsAppProviders.E164(current.ExternalId));
+            if (phone.Length == 0) phone = Val("phone_number_id", "");
+            var key = Val("access_token", current?.AccessToken ?? "");
+            if (WhatsAppProviders.Digits(phone).Length is < 7 or > 15)
+                return "phone_number is required — the WhatsApp business number in E.164 form (+60123456789).";
+            if (key.Length == 0) return "access_token (the YCloud API key) is required.";
+            return null;
+        }
+        string Cfg(string k) => current == null ? "" : WhatsAppProviders.Cfg(current, k);
+        var sid = Val("account_sid", Cfg("account_sid"));
+        var token = Val("access_token", current?.AccessToken ?? "");
+        var keySid = Val("api_key_sid", Cfg("api_key_sid"));
+        var keySecret = Val(TwilioSecretKey, Cfg(TwilioSecretKey));
+        var from = Val("from_number", Cfg("from_number"));
+        var service = Val("messaging_service_sid", Cfg("messaging_service_sid"));
+        if (!System.Text.RegularExpressions.Regex.IsMatch(sid, "^AC[0-9a-fA-F]{32}$"))
+            return "account_sid must be your Twilio Account SID (AC followed by 32 hex characters).";
+        if (token.Length == 0 && (keySid.Length == 0 || keySecret.Length == 0))
+            return "access_token (the Twilio Auth Token) — or api_key_sid + api_key_secret — is required.";
+        if (keySid.Length > 0 && !System.Text.RegularExpressions.Regex.IsMatch(keySid, "^SK[0-9a-fA-F]{32}$"))
+            return "api_key_sid must be a Twilio API Key SID (SK followed by 32 hex characters).";
+        var fromDigits = WhatsAppProviders.Digits(from.StartsWith("whatsapp:", StringComparison.OrdinalIgnoreCase) ? from[9..] : from);
+        if (from.Length > 0 && fromDigits.Length is < 7 or > 15)
+            return "from_number must be the WhatsApp sender in E.164 form (+14155238886 or whatsapp:+14155238886).";
+        if (service.Length > 0 && !System.Text.RegularExpressions.Regex.IsMatch(service, "^MG[0-9a-fA-F]{32}$"))
+            return "messaging_service_sid must be a Messaging Service SID (MG followed by 32 hex characters).";
+        if (from.Length == 0 && service.Length == 0)
+            return "Set the WhatsApp sender (from_number) or a messaging_service_sid.";
+        return null;
+    }
+
+    /// <summary>The stored value behind a BSP write key (to tell a real change from a re-send).</summary>
+    private static string BspValue(ChannelAccount row, string key) => key switch
+    {
+        "phone_number" => WhatsAppProviders.E164(row.ExternalId),
+        _ => WhatsAppProviders.Cfg(row, key),
+    };
+
+    /// <summary>
+    /// Store a YCloud / Twilio write. YCloud: the number → ExternalId (digits). Twilio: the SID,
+    /// sender, service, API key in Config (a masked secret = untouched), ExternalId = the sender's
+    /// digits (else the service SID). The token / secret / WABA keys go through the shared fields.
+    /// </summary>
+    private static void ApplyBsp(ChannelAccount row, JsonElement body)
+    {
+        if (WhatsAppProviders.Of(row) == Providers.YCloud)
+        {
+            var phone = TryString(body, "phone_number", out var p) ? p : TryString(body, "phone_number_id", out var q) ? q : "";
+            if (WhatsAppProviders.Digits(phone).Length > 0) row.ExternalId = WhatsAppProviders.Digits(phone);
+            return;
+        }
+        var cfg = new Dictionary<string, object?>(row.Config);
+        foreach (var key in TwilioPlainKeys)
+            if (TryString(body, key, out var raw)) cfg[key] = raw.Trim();
+        if (TryString(body, TwilioSecretKey, out var secret) && !secret.Contains("••")) cfg[TwilioSecretKey] = secret.Trim();
+        if (EmailConfig.Cfg(cfg, "from_number") is { Length: > 0 } from)
+        {
+            var bare = from.StartsWith("whatsapp:", StringComparison.OrdinalIgnoreCase) ? from[9..] : from;
+            cfg["from_number"] = WhatsAppProviders.E164(bare);
+        }
+        row.Config = cfg;
+        var fromNumber = EmailConfig.Cfg(cfg, "from_number");
+        row.ExternalId = fromNumber.Length > 0 ? WhatsAppProviders.Digits(fromNumber) : EmailConfig.Cfg(cfg, "messaging_service_sid");
+    }
+
+    /// <summary>
+    /// Twilio sends delivery statuses to a per-message StatusCallback: this account's own
+    /// webhook, when the API knows a public https address for itself. True when it changed.
+    /// </summary>
+    private static bool StampStatusCallback(ChannelAccount row, HttpContext ctx)
+    {
+        if (WhatsAppProviders.Of(row) != Providers.Twilio || row.Id == 0) return false;
+        var sc = ctx.RequestServices.GetRequiredService<ScopingService>();
+        var b = MessagingAccountTransport.PublicBaseUrl(null, sc, ctx);
+        var url = MediaLinks.Reachable(b) ? b + WhatsAppProviders.WebhookPath(row) : "";
+        if (WhatsAppProviders.Cfg(row, "status_callback") == url) return false;
+        row.Config = new Dictionary<string, object?>(row.Config) { ["status_callback"] = url };
+        return true;
+    }
 
     internal static Dictionary<string, string> DeliveryPayload(ChannelAccount a) =>
         AccountDelivery.Keys.ToDictionary(k => k, k => AccountDelivery.Own(a, k));

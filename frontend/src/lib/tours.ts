@@ -90,7 +90,7 @@ export const TOURS: TourDef[] = [
     href: '/contacts',
     group: 'work',
     match: exact('/contacts'),
-    steps: steps('page-header', 'contacts-import', 'contacts-add', 'contacts-filters', 'contacts-list', 'contacts-row-actions'),
+    steps: steps('page-header', 'contacts-import', 'contacts-add', 'contacts-filters', 'contacts-list', 'contacts-row-actions', 'contacts-access'),
   },
   {
     id: 'contact',

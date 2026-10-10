@@ -84,6 +84,7 @@ the message is stored with `status="sandbox"` and never leaves the machine.
 | Area | Real | Still missing |
 |---|---|---|
 | WhatsApp Cloud | inbound webhook (verify token; `X-Hub-Signature-256` **required once any Cloud account is configured**; wamid dedup; Meta's own timestamps; text, media, button/interactive replies, location); **delivery statuses** (sent → delivered → read / failed + `Message.Error`, forward-only; 131047 closes the window; account-level codes → `AccountHealth.SetStatus`, per-recipient codes never — `Channels/MetaErrors.cs`); **text, real TEMPLATE messages** (header/body/URL-button parameters, rendered body stored) and **media** (upload → send by id) via Graph (`OutboundSender`, queue template jobs too); inbound media downloaded off the ack (`MediaFetcher`); live template registry when the account has a `waba_id` (paged list + create/edit/delete, `Channels/MetaTemplates.cs`); account Test = `GET /{phone_number_id}`; typing/read indicator; **quoted replies** (inbound `context.id` → `Message.ReplyToId` / `ReplyToExternalId`, outbound `context.message_id` from `…/send {reply_to: pk}`) + **emoji reactions** (inbound `type: reaction` → `crm_messagereaction` — never a bubble, the AI, flows/automations or a reopen; outbound `type: reaction` via `POST /api/messaging/threads/{channel}/{key}/messages/{pk}/react`, 24h window else 409 — `Channels/MessageReactions.cs`) | no Cloud voice calls (`call/start` on a Cloud account → 501) — Meta Business Calling is a gated beta and its WebRTC bridge (Python aiortc) went with Django; not planned until a calling-enabled number exists to build against |
+| WhatsApp YCloud / Twilio ⚠ | official BSP numbers, **unverified against the live APIs** (`Channels/WhatsAppBsp/`: `WhatsAppProviders` = the one provider vocabulary, `WhatsAppClientRouter` routes every `IWhatsAppCloudClient` call by provider); one signed webhook per account `/api/messaging/webhook/whatsapp-{ycloud,twilio}/{account_id}` (`Endpoints/WhatsAppBspWebhookEndpoints.cs`: `YCloud-Signature` t=…,s=… HMAC-SHA256 of `t.body`, 5-min window / `X-Twilio-Signature` with the Auth Token; no secret ⇒ 503, bad ⇒ 401, unknown ⇒ 404) → `InboundProcessor` (text, media off the ack, location, buttons, quotes, reactions); delivery statuses forward-only (YCloud `whatsapp.message.updated`, Twilio `MessageStatus` + a stamped `StatusCallback`; Twilio codes mapped to Meta's); text, templates (YCloud = Meta templates + live registry with a WABA id; Twilio = `ContentSid` + Content API list, read-only — 409 on create/edit/delete) and media (YCloud upload → id, link fallback; Twilio by a signed 6 h public link `GET /api/media/public/{token}`, `MediaLinks`, needs a public https base URL); 24h window, reminder role and `RouteNeed.Template` (`WhatsAppProviders.AnyOfficial`) like Cloud; Test + prober (YCloud number profile / balance, Twilio `Accounts/{sid}`); YCloud typing indicator | no calls (501); Twilio: no reactions out (409), quotes go out unquoted, no typing indicator, templates authored in Twilio's console |
 | WhatsApp Baileys | inbound text **+ media** (`/baileys/media` attaches the decrypted file to the `/inbound` placeholder), message-status ticks, lifecycle → health, **text + media send** (media: the gateway's `POST /accounts/{id}/send-media` — base64 in the body, ≤16 MB, never a path/URL, `backend/baileys_service/media.js`; `IBaileysGateway.SendMediaAsync`; the cold-text guard covers files too), presence, **voice calls** (call/start, call-event) + **call recordings** (paired transcript written on `ended`, listed per thread, WAV streamed); **number lookups** for the contact identity checker (`IBaileysGateway.CheckNumberAsync` → the gateway's `/accounts/{id}/check`; never sends a message); **quoted replies + reactions** both ways (the gateway pushes `reply_to` / `{reaction: {msg_id, emoji}}` on `/inbound`; `send` takes `quoted_id`, `POST /accounts/{id}/react`; `messages.js`, self-tested) | templates go out as rendered text (WhatsApp Web has no template messages) |
 | Telegram | inbound webhook `/api/messaging/webhook/telegram/{token}` (token compared in constant time, unknown → 404; `X-Telegram-Bot-Api-Secret-Token` required once registered from the dashboard; text + media via getFile, off the ack; inbound heals health); **send** text/photo/document (`Channels/TelegramClient.cs` `TelegramChannel`; the thread keeps its own bot, a bot-less thread is routed); **typing indicator** (`sendChatAction` during the AI's typing pause — `Ai/TypingIndicator.cs` `TelegramTypingIndicator`, routed by `ChannelTypingIndicator`); **quoted replies** (`reply_to_message` in, `reply_parameters` out) + **reactions** (`message_reaction` updates in — setWebhook asks for them; `setMessageReaction` out, Telegram's own emoji set); Register webhook (setWebhook + secret_token) and Test (getMe) | — |
 | Email | account CRUD (masked SMTP + optional IMAP creds); **SMTP send** via MailKit (`Channels/EmailChannel.cs`) as **multipart/alternative** — the text as typed + an escaped HTML rendering (`EmailHtml`: paragraphs, `<br>`, http(s)/email auto-links, never raw HTML; multipart/mixed with attachments); the mailbox is chosen by `Routing.ForThread` like a WhatsApp number (thread's healthy mailbox → sticky assignment → least-loaded auto-assign → failover off disconnected/banned with note + audit + notification, the outlet's own first; all down ⇒ failed, none configured ⇒ default SMTP settings ⇒ sandbox); Message-ID / In-Reply-To / References + "Re: <subject>" from `crm_emailheader`; `Auto-Submitted` on AI mail; **IMAP pull** `POST /api/messaging/email/sync` (`Channels/ImapSync.cs`: 30 s throttle, known-sender filter, \Seen, Message-ID dedup, HTML-only mail flattened to readable text, attachments, normal inbound pipeline); Test = SMTP login (+ test mail) | no HTML compose (the HTML part is rendered from the plain text) |
@@ -98,7 +99,7 @@ the message is stored with `status="sandbox"` and never leaves the machine.
 | Website widget | full (internal transport) | — |
 | SIP voice | dial / live / say / hangup / escalate through LiveKit | — |
 | Media serving | `/api/whatsapp/media/{id}` + `/api/messaging/media/{id}` (`chats.view` + the conversation's entity scope, Range, non-renderable types as downloads; files under `data/{whatsapp,messaging}/media/`, `Channels/WhatsAppMediaStore.cs`), `/api/whatsapp/calls/recording/{name}` (gateway WAV or the agent's), `/api/calls/recording/{call_id}` (SIP); AI-generated documents (PDF / QR, see Documents) live in the same media roots, `/api/documents/{id}/file` (`chats.view`, scoped) + the customer's anonymous `/api/documents/public/{token}` link, sent as a FILE on WhatsApp, Messenger/IG, Telegram, email, WeChat, Zalo and as that LINK on LINE, Viber, SMS, TikTok, Douyin and the website widget | — |
-| Channel health | writer `AccountHealth.SetStatus` (one audit row + an admin `account_health` bell per problem/recovery transition); periodic prober `Workers/HealthProbeWorker` (`WHATSAPP_HEALTH_INTERVAL` s, default 300; `HEALTH_WORKER=0` off) via `Channels/HealthProber.cs`: Cloud Graph ping, Telegram getMe + getWebhookInfo, SMTP login, Messenger/IG `GET /me`, the newer channels' own probes (`IChannelTransport.ProbeAsync`), default SMTP → `email_health`; Meta send / status / test results classified by `Channels/MetaErrors.cs`; "Check now" runs the prober for the caller's scope; saving credentials resets to unknown + re-probes in the background | SIP voice stays config-presence only (by design) |
+| Channel health | writer `AccountHealth.SetStatus` (one audit row + an admin `account_health` bell per problem/recovery transition); periodic prober `Workers/HealthProbeWorker` (`WHATSAPP_HEALTH_INTERVAL` s, default 300; `HEALTH_WORKER=0` off) via `Channels/HealthProber.cs`: Cloud Graph ping, Baileys = the gateway's own session state (`connected` → healthy; not paired / QR expired / logged out / gateway unreachable → disconnected; a banned number stays banned — `ChannelHealthProber.BaileysVerdict`), Telegram getMe + getWebhookInfo, SMTP login, Messenger/IG `GET /me`, the newer channels' own probes (`IChannelTransport.ProbeAsync`), default SMTP → `email_health`; Meta send / status / test results classified by `Channels/MetaErrors.cs`; "Check now" runs the prober for the caller's scope; saving credentials resets to unknown + re-probes in the background | SIP voice stays config-presence only (by design) |
 | Routing | `Channels/Routing.cs` at SEND time (queue drain, manual sends, email mailbox + Telegram bot choice, and the AI gate — instant / approved / auto-sent AI replies, follow-ups): thread's healthy number → sticky `AccountAssignment` → least-loaded auto-assign → failover off banned/disconnected (pin cleared, thread moved, note + audit + notification); roles/providers/templates are WhatsApp-only (`RouteNeed.For`; templates → Cloud, never Baileys; 409 when none); account-bound channels (Telegram, Messenger/IG, widget, LINE, Viber, WeChat, TikTok, Douyin, Zalo) keep their own account, email and SMS spread even contactless threads; inbound re-attribution; `business_redirect` (`Channels/BusinessRedirect.cs`); recovery one-click + auto (`Channels/Recovery.cs`, hooked in `AccountHealth.SetStatus`) | — |
 | Compliance | STOP/UNSUBSCRIBE/BERHENTI (+ `opt_out_keywords`) → `Thread.OptedOut` on every inbound channel, START/UNSTOP/MULA opts back in (`Channels/OptOut.cs`); platform signals set it too (Viber unsubscribed, LINE / WeChat / Zalo unfollow, Twilio `OptOutType` and error 21610 — `ChannelOptOut` in `Channels/More/MoreChannels.cs`); queued jobs cancelled; manual sends need `force`; cold-text guard (manual + queued WhatsApp text), cold-call guard, do-not-call | — (the opt-out lives on the conversation by design: consent is per channel, as in the original spec) |
 
@@ -396,8 +397,9 @@ When you fix one of these, update this table, `README.md` and
   `Ai/AiEligibility.Decide` AND not opted out) → AI reply (debounced/queued or instant,
   see AI monitor); else on a reminder number the business redirect. Nothing in
   it may throw into a webhook.
-- **WhatsApp specifics.** Accounts are `ChannelAccount` rows (provider `cloud`
-  or `baileys`); `WHATSAPP_*` env keys surface as a read-only `env-default`
+- **WhatsApp specifics.** Accounts are `ChannelAccount` rows (provider `cloud`,
+  `ycloud`, `twilio` — the three OFFICIAL ones, `WhatsAppProviders.IsOfficial` —
+  or `baileys`; ask `WhatsAppProviders`, never compare to `"cloud"`); `WHATSAPP_*` env keys surface as a read-only `env-default`
   account. The Cloud webhook routes by `metadata.phone_number_id`; the verify
   token lives in Setting `whatsapp_verify_token` (legacy `verify_token` is kept
   in sync). **24h-window truth:** inbound rows store Meta's own timestamp,
@@ -1129,8 +1131,24 @@ When you fix one of these, update this table, `README.md` and
   `AiBillingTermsTests`. `GET /api/billing/ai?month=&company=`
   (`billing.view`): billed amounts for the caller's companies (assigned
   entities' companies; unassigned = all); cost, markup, margin and the
-  unattributed bucket only with `billing.manage`. Print hides the shell
-  (`.print-hide` + `@media print` in `globals.css`). Tests: `AiBillingTests`.
+  unattributed bucket only with `billing.manage`. **Download PDF** =
+  `GET /api/billing/ai/pdf?month=&company=&lang=en|ms|zh` (same gate, scope and
+  visibility as the JSON — both built by `AiBillingEndpoints.BuildBillAsync`;
+  A4 MigraDoc with the Documents fonts, `Endpoints/AiBillPdf.cs`; one company =
+  summary + lines by feature + days with usage, "All companies" = every visible
+  company + a total row; `zh` falls back to English without a CJK font; an MCP
+  exclusion, binary) — the dashboard fetches it as a Blob and saves it. On an
+  iPhone / iPad (`pwa.ts isIos`), where `window.print()` does nothing inside the
+  installed app, Print is hidden and Download PDF opens the PDF in a new tab
+  through a **signed link**: `POST /api/billing/ai/pdf/link` (`billing.view`,
+  sessions only — an API key gets 403) mints `GET /api/billing/ai/pdf/s/{token}`
+  (ANONYMOUS; `Endpoints/BillLink.cs`: HMAC-SHA256 with a per-process key, binds
+  profile + username + month + company + language, 5 minutes; on open the person
+  must still be active with `billing.view` and the bill is rebuilt AS them).
+  Print (desktop) hides the shell (`.print-hide` + `@media print` in
+  `globals.css`: html/body/the shell column/scroll panes un-clipped, floating
+  pieces and the Quotas card hidden, ink on white whatever the theme, rows never
+  split). Tests: `AiBillingTests`, `AiBillPdfTests`.
   `/api/analytics/reports`, `/api/analytics/flows`, `/api/live` (waiting
   conversations + active calls + `needs_human_count`).
 - **Integrations** (`/integrations`, `/api/integrations/*`,
@@ -1381,7 +1399,18 @@ When you fix one of these, update this table, `README.md` and
   edit and import check only the companies the contact belongs to (no entity =
   the org-wide contacts), and a 409 names the existing contact (+
   `existing_id`) only when the caller can see it (the Add form then offers "add
-  this entity to that contact instead"). Inbound matching
+  this entity to that contact instead"). When the caller CAN'T see it, a new
+  contact's 409 names no one and carries an opaque `request_token`
+  (`Contacts/ContactAccessToken.cs`: AES-GCM, the caller + the target entity,
+  30 min) → **Request access** (`Endpoints/ContactAccessEndpoints.cs`,
+  `crm_contactaccessrequest`, `/api/contacts/access-requests`, ask with
+  `contacts.manage` or `chats.send`): the admins who can see the contact AND
+  manage the target branch get a notification + audit `contact.access_requested`;
+  approve links the contact to that entity (its others stay), deny notifies the
+  requester with the reason; nothing about the contact reaches the requester
+  before approval. UI: `components/contacts/AccessRequestsPanel.tsx` on
+  `/contacts` (`?access=<id>` opens it) + the Add form's offer. Tests:
+  `ContactAccessTests`. Inbound matching
   (`InboundProcessor.MatchContact`, the SMS start, the identity exchange) picks
   the receiving entity's contact, else its company's, else an org-wide one —
   never another company's. Chat-made contacts are linked to their
@@ -1655,18 +1684,19 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **796 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **826 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /
-  Zalo, media, recordings, the health prober), routing + failover + STOP/START,
+  Zalo, WhatsApp through YCloud / Twilio — `WhatsAppBspTests` —, media,
+  recordings, the health prober), routing + failover + STOP/START,
   contacts (identities, WhatsApp lookups, invites, unknown customers, import),
   tags, templates + inbox settings, flows + step events + stats + decision
   conditions + AI decisions (`FlowDecisionTests`), the outbound
   queue + queued calls, the AI (tool loop, skills runtime/drafter/API, built-ins,
   AI monitor + human-like behaviour, AI controls + handover, calendar booking —
   availability, reserve → make-at-delivery, a fake Google Calendar — retrieval and
-  learning), integrations (+ My connections, shared/personal scope and
+  learning), contact access requests (`ContactAccessTests`), integrations (+ My connections, shared/personal scope and
   up-the-tree resolution — `IntegrationScopeTests`), notifications + settings,
   search/live, the platform (audit, API keys, MCP — every route a tool or a
   documented exclusion, `McpCoverageTests` — assistant), the AI playground

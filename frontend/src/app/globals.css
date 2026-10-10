@@ -1454,14 +1454,47 @@
 }
 
 /* Printing (the AI bill's Print button): only the page content — no sidebar,
-   top bar or tab bar — and let the shell grow to the content's height. */
+   top bar, tab bar or floating panels. The app normally never scrolls the
+   document (body overflow hidden, a 100dvh shell, scrolling panes), which on
+   paper clips everything to one blank-ish page — so un-clip every level and let
+   the content flow onto as many pages as it needs. Ink on white whatever the
+   theme or mode. (The server-rendered PDF is the dependable route, above all on
+   iOS, where window.print() does nothing inside the installed app.) */
 @media print {
+  @page { margin: 14mm; }
   .print-hide { display: none !important; }
-  .shell-root { display: block !important; height: auto !important; overflow: visible !important; zoom: 1 !important; }
+  html,
+  body {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+    zoom: 1 !important;
+  }
+  .shell-root,
+  .shell-root .shell-column,
   .shell-root main,
-  .shell-root main > div { overflow: visible !important; }
+  .shell-root main > div,
+  .shell-content {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    zoom: 1 !important;
+    position: static !important;
+  }
+  .shell-content { padding: 0 !important; }
+  /* wide tables print whole instead of scrolling sideways */
+  .shell-content .overflow-x-auto { overflow: visible !important; }
+  .shell-content table { min-width: 0 !important; }
+  .shell-content tr,
+  .shell-content .ui-card { break-inside: avoid; }
+  .shell-content .ui-card { box-shadow: none !important; border-color: #ccc !important; background: #fff !important; }
+  .shell-content,
+  .shell-content * { color: #111 !important; }
+  .shell-content .sticky { position: static !important; background: transparent !important; }
 }
-
 
 /* ── Appearance: layout, density, surfaces, motion ─────────────────────────
    Driven by lib/theme.ts (inline vars + data attributes on <html>, re-applied

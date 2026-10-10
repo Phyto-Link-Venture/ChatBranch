@@ -660,6 +660,38 @@ public class GapsMediaApiTests : IClassFixture<MetaApiFactory>
     }
 
     [Fact]
+    public async Task Cold_text_refusal_tells_an_admin_they_may_send_anyway()
+    {
+        Platform.WithDb(_f, db =>
+        {
+            var qr = new ChannelAccount
+            {
+                Channel = "whatsapp", Provider = Providers.Baileys, Name = "QR cold text", ExternalId = "gw-cold-text",
+                CreatedAt = DateTime.UtcNow,
+            };
+            db.ChannelAccounts.Add(qr);
+            db.SaveChanges();
+            db.Threads.Add(new Thread
+            {
+                Channel = "whatsapp", Key = "60199900002", Name = "Cold text", AccountId = qr.Id,
+                CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+            });
+            return db.SaveChanges();
+        });
+        var admin = await Platform.As(_f, "admin", "admin123");
+
+        var res = await admin.PostAsJsonAsync("/api/whatsapp/threads/60199900002/send", new { text = "Hello" });
+        Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
+        var body = await res.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("cold_text", body.GetProperty("code").GetString());
+        Assert.True(body.GetProperty("can_override").GetBoolean());
+
+        // the admin's "Send anyway" passes the guard
+        var forced = await admin.PostAsJsonAsync("/api/whatsapp/threads/60199900002/send", new { text = "Hello", force = true });
+        Assert.NotEqual(HttpStatusCode.Conflict, forced.StatusCode);
+    }
+
+    [Fact]
     public void The_host_registers_the_per_channel_typing_dispatcher()
     {
         using var scope = _f.Services.CreateScope();

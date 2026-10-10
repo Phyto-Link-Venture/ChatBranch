@@ -225,6 +225,10 @@ export const guide: Dict<typeof source> = {
           title: 'Butang baris',
           body: 'Lihat membuka profil penuh. Pensel menyunting kenalan dan tong sampah memadamnya — anda sentiasa ditanya dahulu.',
         },
+        s7: {
+          title: 'Permintaan akses',
+          body: 'Diminta berkongsi pelanggan yang sudah milik cawangan lain? Permintaan yang menunggu anda (atau permintaan anda sendiri) dikira di sini. Buka untuk meluluskan, menolak atau membatalkan.',
+        },
       },
     },
     contact: {
@@ -931,7 +935,7 @@ export const guide: Dict<typeof source> = {
         },
         s3: {
           title: 'Cetak atau tetapkan terma',
-          body: 'Cetak menyimpan penyata sebagai PDF. Pengurus bil menetapkan markup, yuran dan mata wang di Terma bil.',
+          body: 'Muat turun PDF menyimpan bil sebagai fail PDF (pada iPhone ia dibuka dalam tab baharu — kongsi dari situ); Cetak menghantarnya ke pencetak. Pengurus bil menetapkan markup, yuran dan mata wang di Terma bil.',
         },
         s4: {
           title: 'Kuota',

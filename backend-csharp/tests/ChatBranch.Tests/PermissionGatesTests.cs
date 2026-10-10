@@ -113,6 +113,7 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/whatsapp/channels/health", new[] { "analytics.view", "channels.view" }),
         ("/api/analytics/usage", new[] { "billing.manage" }),
         ("/api/billing/ai", new[] { "billing.view" }),
+        ("/api/billing/ai/pdf", new[] { "billing.view" }),
         ("/api/billing/ai/settings", new[] { "billing.manage" }),
         ("/api/billing/ai/quotas", new[] { "billing.view", "billing.manage" }),
         // Activity
@@ -141,6 +142,7 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/contacts/{c}/calls", new[] { "contacts.view", "chats.view" }),
         ("/api/contacts/{c}/ai-mode", new[] { "contacts.view" }),
         ("/api/contacts/{c}/invites", new[] { "contacts.view" }),
+        ("/api/contacts/access-requests", new[] { "contacts.manage", "chats.send" }),
         ("/api/v1/contacts", new[] { "contacts.view", "flows.manage" }),
         ("/api/v1/contacts/{c}", new[] { "contacts.view" }),
         ("/api/v1/contacts/{c}/entities", new[] { "contacts.view" }),
@@ -371,6 +373,10 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         "/api/help/articles", "/api/help/articles/{slug}",
         // a customer's document download link (the 128-bit token is the credential)
         "/api/documents/public/{token}",
+        // a provider (Twilio, YCloud) fetching an outbound attachment: the signed, expiring token is the credential
+        "/api/media/public/{token}",
+        // the AI bill PDF for the installed iOS app: a 5-minute HMAC-signed link bound to one person
+        "/api/billing/ai/pdf/s/{token}",
         "/api/pronunciation", "/api/voices", "/api/voice/stt-settings", "/api/voice/llm-settings",
         // /mcp and /widget.js under /api/ for /api/-only proxies (GET /api/mcp is a 405;
         // the MCP POST demands an API key inside the handler)

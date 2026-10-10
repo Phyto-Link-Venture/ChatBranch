@@ -222,6 +222,10 @@ export const guide = {
           title: 'Row buttons',
           body: 'View opens the full profile. The pencil edits the contact and the bin deletes it — you are always asked first.',
         },
+        s7: {
+          title: 'Access requests',
+          body: 'Asked to share a customer who already belongs to another branch? Requests waiting for you (or your own pending ones) are counted here. Open it to approve, deny or cancel.',
+        },
       },
     },
     contact: {
@@ -928,7 +932,7 @@ export const guide = {
         },
         s3: {
           title: 'Print or set terms',
-          body: 'Print saves the statement as a PDF. Billing managers set the markup, fee and currency under Billing terms.',
+          body: 'Download PDF saves the bill as a PDF file (on an iPhone it opens in a new tab — share it from there); Print sends it to a printer. Billing managers set the markup, fee and currency under Billing terms.',
         },
         s4: {
           title: 'Quotas',

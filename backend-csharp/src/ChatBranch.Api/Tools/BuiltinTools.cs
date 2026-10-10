@@ -172,7 +172,21 @@ public static class BuiltinTools
                 ["language"] = Str(a, "language") is { Length: > 0 } l ? l : "en",
                 ["tags"] = StrList(a, "tags") ?? new List<string>(),
             };
-            var r = ToolContext.Require(await ctx.CallAsync("POST", "/api/contacts", body: body, ct: ct));
+            var res = await ctx.CallAsync("POST", "/api/contacts", body: body, ct: ct);
+            // the number belongs to a contact of another branch the caller can't
+            // see: hand back the opaque token contacts_request_access takes
+            if (res.Status == 409 && res.Body.ValueKind == JsonValueKind.Object
+                && res.Body.TryGetProperty("request_token", out var rt) && rt.ValueKind == JsonValueKind.String)
+                return new
+                {
+                    created = false,
+                    detail = res.Detail(),
+                    request_token = rt.GetString(),
+                    next = "This customer already exists in another branch of the company. To ask an admin to " +
+                           "share them with your branch, call contacts_request_access with this request_token " +
+                           "(valid 30 minutes).",
+                };
+            var r = ToolContext.Require(res);
             var card = ContactCard(r.Body);
             LinkContact(ctx, card);
             return new { created = true, contact = card };

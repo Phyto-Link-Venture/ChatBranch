@@ -578,7 +578,7 @@ public static class InboxEndpoints
                 status = t.Status,
                 account_id = t.AccountId?.ToString(),
                 account_name = t.Account?.Name ?? "",
-                provider = baileys ? Providers.Baileys : Providers.Cloud,
+                provider = account != null ? ChatBranch.Data.Channels.WhatsAppProviders.Of(account) : Providers.Cloud,
                 ai_enabled = aiVerdict.Enabled,
                 ai_reason = aiVerdict.Reason,
                 handover = AiControlsEndpoints.HandoverPayload(t),

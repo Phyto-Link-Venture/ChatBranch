@@ -76,6 +76,18 @@ export const channels: Dict<typeof source> = {
       channelLabel: 'WhatsApp Cloud API',
       connectTitle: '连接号码',
     },
+    waYcloud: {
+      label: 'WhatsApp（YCloud）',
+      blurb: '官方 BSP · 模板 · API 密钥',
+      channelLabel: 'WhatsApp（YCloud）',
+      connectTitle: '连接 YCloud 号码',
+    },
+    waTwilio: {
+      label: 'WhatsApp（Twilio）',
+      blurb: '官方发送方 · Content 模板',
+      channelLabel: 'WhatsApp（Twilio）',
+      connectTitle: '连接 Twilio 发送方',
+    },
     waQr: {
       label: 'WhatsApp 扫码',
       blurb: '配对个人号码 · 仅供演示',
@@ -321,6 +333,8 @@ export const channels: Dict<typeof source> = {
       register: '注册',
       pointPlatform: '将 {platform} 指向 ChatBranch',
       webhookUrl: 'Webhook URL',
+      bspSecretMissing: '尚未保存 webhook 签名密钥——在第 2 步添加之前会拒收入站消息。',
+      twilioPublic: 'Twilio 会从此 API 拉取你发送的文件，因此需要公网 https 地址（设置 → 应用与服务商密钥 → 公共基础 URL）。',
       wechatNote: '使用你在此处填写的同一个 Token。明文模式和安全模式均可——安全模式需要上方的 EncodingAESKey。',
       windowNote: '客户最后一条消息后的 {window}内允许回复——超过后，消息编辑器、AI 和流程都会被拒绝，直到客户再次发消息。',
       days_one: '{count} 天',
@@ -397,6 +411,12 @@ export const channels: Dict<typeof source> = {
       sipUsername: 'SIP 用户名',
       sipPassword: 'SIP 密码',
       terminationUri: 'Termination URI',
+      businessNumber: 'WhatsApp 商业号码',
+      ycloudApiKey: 'YCloud API 密钥',
+      webhookSigningSecret: 'Webhook 签名密钥',
+      whatsappSender: 'WhatsApp 发送方',
+      apiKeySid: 'API Key SID',
+      apiKeySecret: 'API Key 密钥',
     },
     placeholders: {
       signatureChecks: '启用 Webhook 签名校验',
@@ -418,8 +438,23 @@ export const channels: Dict<typeof source> = {
       learnedOnTest: '测试时自动获取',
       sipUsername: '你的 Twilio SIP 用户名',
       sipPassword: '你的 Twilio SIP 密码',
+      fromYcloud: '来自 YCloud 控制台',
     },
     help: {
+      waYcloud: {
+        phoneNumber: '在 YCloud 注册的 WhatsApp 号码，国际格式（+60123456789）。',
+        accessToken: 'YCloud 控制台 → Developers → API Keys。',
+        appSecret: 'YCloud 控制台 → Developers → Webhooks → 你的 endpoint → signing secret。用最后一步的 URL 创建 endpoint，再把密钥粘贴到这里——设置之前会拒收入站消息。',
+        wabaId: 'YCloud 控制台 → WhatsApp → Accounts。列出、创建和发送模板时需要。',
+      },
+      waTwilio: {
+        accountSid: 'Twilio Console → Account info → Account SID。',
+        accessToken: 'Twilio Console → Account info → Auth token。Twilio 发到这里的 webhook 也用它签名。',
+        fromNumber: '已开通 WhatsApp 的发送方，例如 +14155238886（沙盒号码）或你已获批的号码。',
+        messagingServiceSid: '也可以不填发送方：填写包含 WhatsApp 发送方的 Messaging Service。',
+        apiKeySid: '可选：用 API key 代替 Auth token 发送（webhook 仍由 Auth token 校验）。',
+        apiKeySecret: '创建 API key 时只显示一次的密钥。',
+      },
       waCloud: {
         phoneNumberId: 'Meta 应用面板 → WhatsApp → API Setup。电话号码下方的长 ID——不是号码本身。',
         wabaId: '同一 API Setup 页面，位于号码上方。用于列出和发送 Meta 审批过的模板。',
@@ -514,8 +549,22 @@ export const channels: Dict<typeof source> = {
       wechatToken: 'Token 为 3–32 位字母和数字。',
       encodingAesKey: 'EncodingAESKey 必须正好是 43 位字母和数字。',
       smsOneOf: '请设置发送号码或 Messaging Service SID。',
+      apiKeySid: 'API Key SID 为 SK 加 32 位十六进制字符。',
+      waTwilioOneOf: '请设置 WhatsApp 发送方或 Messaging Service SID。',
     },
     guides: {
+      waYcloud: {
+        s1: '登录 ycloud.com 并连接你的 WhatsApp Business 号码。',
+        s2: 'Developers → API Keys：复制 API 密钥。',
+        s3: '如需发送模板，记下 WhatsApp → Accounts 中的 WABA ID。',
+        s4: '保存后，用最后一步的 URL 创建 webhook endpoint，并把它的 signing secret 粘贴回这里。',
+      },
+      waTwilio: {
+        s1: '在 Twilio Console 打开 Messaging → Senders → WhatsApp senders（或试用 WhatsApp 沙盒）。',
+        s2: '从 Console 首页复制 Account SID 和 Auth token。',
+        s3: '填写发送方号码——或包含它的 Messaging Service SID。',
+        s4: '保存后，把最后一步的 webhook URL 粘贴到发送方的入站消息设置中。模板来自 Content Template Builder。',
+      },
       waCloud: {
         s1: '打开 developers.facebook.com → My Apps → 你的应用 → WhatsApp → API Setup。',
         s2: '复制那里显示的电话号码 ID 和 WhatsApp Business 账号 ID。',
@@ -596,6 +645,8 @@ export const channels: Dict<typeof source> = {
     defaultNames: {
       waCloud: 'WhatsApp Business',
       waQr: 'WhatsApp（扫码）',
+      waYcloud: 'WhatsApp（YCloud）',
+      waTwilio: 'WhatsApp（Twilio）',
       email: '客服邮箱',
       telegram: 'Telegram 机器人',
       messenger: 'Facebook 主页',
@@ -611,6 +662,8 @@ export const channels: Dict<typeof source> = {
       zalo: 'Zalo OA',
     },
     webhookHelp: {
+      waYcloud: 'YCloud 控制台 → Developers → Webhooks → Add endpoint：填写此 URL，订阅 whatsapp.inbound_message.received 和 whatsapp.message.updated 事件。然后把 endpoint 的 signing secret 填到此收件箱（第 2 步）。',
+      waTwilio: 'Twilio Console → Messaging → Senders → WhatsApp senders → 你的发送方 → “Webhook URL for incoming messages”（HTTP POST）。送达状态也会回到同一个 URL。',
       line: 'LINE Developers → 该频道 → Messaging API → Webhook URL，然后开启“Use webhook”。也可以在这里直接注册。',
       viber: 'Viber 需要通过其 API 设置 Webhook——请在这里注册（它会立即校验 URL）。',
       sms: 'Twilio Console → Phone numbers → 你的号码 → Messaging configuration → “A message comes in”：Webhook，HTTP POST。',
@@ -672,6 +725,7 @@ export const channels: Dict<typeof source> = {
     vcfDownloaded: '已下载 contacts.vcf——请在手机上导入。',
     vcfExport: '导出联系人（.vcf）',
     gatewayError: 'WhatsApp 网关报告了一个错误。',
+    qrExpired: '二维码在扫描前已过期。点击“重试”获取新的二维码，然后在 WhatsApp → 已关联的设备 中扫描。',
     pairNeedsGateway:
       '扫码配对在 WhatsApp 网关 sidecar 中运行（{cmd}）。启动后重试——或改用无需网关的 WhatsApp Business（Cloud API）。',
     connectedAs: '已连接为 {number}',

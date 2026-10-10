@@ -77,6 +77,18 @@ export const channels = {
       channelLabel: 'WhatsApp Cloud API',
       connectTitle: 'Connect the number',
     },
+    waYcloud: {
+      label: 'WhatsApp via YCloud',
+      blurb: 'Official BSP · templates · API key',
+      channelLabel: 'WhatsApp (YCloud)',
+      connectTitle: 'Connect the YCloud number',
+    },
+    waTwilio: {
+      label: 'WhatsApp via Twilio',
+      blurb: 'Official sender · Content templates',
+      channelLabel: 'WhatsApp (Twilio)',
+      connectTitle: 'Connect the Twilio sender',
+    },
     waQr: {
       label: 'WhatsApp by QR',
       blurb: 'Pair a personal number · demo only',
@@ -328,6 +340,8 @@ export const channels = {
       register: 'Register',
       pointPlatform: 'Point {platform} at ChatBranch',
       webhookUrl: 'Webhook URL',
+      bspSecretMissing: 'No webhook signing secret saved yet — inbound messages are refused until you add it in step 2.',
+      twilioPublic: 'Twilio fetches the files you send from this API, so it needs a public https address (Settings → App & provider keys → public base URL).',
       wechatNote:
         'Use the same Token you entered here. Plaintext and safe mode both work — safe mode needs the EncodingAESKey above.',
       windowNote:
@@ -407,6 +421,12 @@ export const channels = {
       sipUsername: 'SIP username',
       sipPassword: 'SIP password',
       terminationUri: 'Termination URI',
+      businessNumber: 'WhatsApp business number',
+      ycloudApiKey: 'YCloud API key',
+      webhookSigningSecret: 'Webhook signing secret',
+      whatsappSender: 'WhatsApp sender',
+      apiKeySid: 'API Key SID',
+      apiKeySecret: 'API Key secret',
     },
     placeholders: {
       signatureChecks: 'Enables webhook signature checks',
@@ -428,8 +448,23 @@ export const channels = {
       learnedOnTest: 'Learned on Test',
       sipUsername: 'your Twilio SIP username',
       sipPassword: 'your Twilio SIP password',
+      fromYcloud: 'From the YCloud console',
     },
     help: {
+      waYcloud: {
+        phoneNumber: 'The WhatsApp number registered in YCloud, in international form (+60123456789).',
+        accessToken: 'YCloud console → Developers → API Keys.',
+        appSecret: 'YCloud console → Developers → Webhooks → your endpoint → signing secret. Create the endpoint with the URL from the last step, then paste its secret here — inbound messages are refused until it is set.',
+        wabaId: 'YCloud console → WhatsApp → Accounts. Needed to list, create and send templates.',
+      },
+      waTwilio: {
+        accountSid: 'Twilio Console → Account info → Account SID.',
+        accessToken: 'Twilio Console → Account info → Auth token. It also signs the webhooks Twilio sends here.',
+        fromNumber: 'The WhatsApp-enabled sender, e.g. +14155238886 (the sandbox number) or your approved number.',
+        messagingServiceSid: 'Instead of a sender: a Messaging Service that holds your WhatsApp sender.',
+        apiKeySid: 'Optional: send with an API key instead of the Auth token (the Auth token still checks webhooks).',
+        apiKeySecret: 'The secret shown once when the API key was created.',
+      },
       waCloud: {
         phoneNumberId:
           'Meta App Dashboard → WhatsApp → API Setup. The long ID under the phone number — not the number itself.',
@@ -533,8 +568,22 @@ export const channels = {
       wechatToken: 'The Token is 3–32 letters and digits.',
       encodingAesKey: 'The EncodingAESKey is exactly 43 letters and digits.',
       smsOneOf: 'Set a From number or a Messaging Service SID.',
+      apiKeySid: 'An API Key SID is SK followed by 32 hexadecimal characters.',
+      waTwilioOneOf: 'Set the WhatsApp sender or a Messaging Service SID.',
     },
     guides: {
+      waYcloud: {
+        s1: 'Sign in at ycloud.com and connect your WhatsApp Business number.',
+        s2: 'Developers → API Keys: copy the API key.',
+        s3: 'Note the WABA ID under WhatsApp → Accounts if you will send templates.',
+        s4: 'After saving, create a webhook endpoint with the URL from the last step and paste its signing secret back here.',
+      },
+      waTwilio: {
+        s1: 'In the Twilio Console, open Messaging → Senders → WhatsApp senders (or try the WhatsApp sandbox).',
+        s2: 'Copy the Account SID and Auth token from the Console home page.',
+        s3: 'Enter the sender number — or a Messaging Service SID that holds it.',
+        s4: 'After saving, paste the webhook URL from the last step into the sender’s incoming-message setting. Templates come from the Content Template Builder.',
+      },
       waCloud: {
         s1: 'Open developers.facebook.com → My Apps → your app → WhatsApp → API Setup.',
         s2: 'Copy the Phone number ID and the WhatsApp Business Account ID shown there.',
@@ -615,6 +664,8 @@ export const channels = {
     defaultNames: {
       waCloud: 'WhatsApp Business',
       waQr: 'WhatsApp (QR)',
+      waYcloud: 'WhatsApp (YCloud)',
+      waTwilio: 'WhatsApp (Twilio)',
       email: 'Support mailbox',
       telegram: 'Telegram bot',
       messenger: 'Facebook page',
@@ -630,6 +681,8 @@ export const channels = {
       zalo: 'Zalo OA',
     },
     webhookHelp: {
+      waYcloud: 'YCloud console → Developers → Webhooks → Add endpoint: this URL, with the events whatsapp.inbound_message.received and whatsapp.message.updated. Then copy the endpoint’s signing secret into this inbox (step 2).',
+      waTwilio: 'Twilio Console → Messaging → Senders → WhatsApp senders → your sender → “Webhook URL for incoming messages” (HTTP POST). Delivery statuses come back to the same URL.',
       line: 'LINE Developers → the channel → Messaging API → Webhook URL, then switch on “Use webhook”. Or register it from here.',
       viber: 'Viber needs the webhook set through its API — register it from here (it checks the URL straight away).',
       sms: 'Twilio Console → Phone numbers → your number → Messaging configuration → “A message comes in”: Webhook, HTTP POST.',
@@ -693,6 +746,7 @@ export const channels = {
     vcfDownloaded: 'contacts.vcf downloaded — import it on the phone.',
     vcfExport: 'Export contacts (.vcf)',
     gatewayError: 'The WhatsApp gateway reported an error.',
+    qrExpired: 'The QR code expired before it was scanned. Press Try again for a new one, then scan it from WhatsApp → Linked devices.',
     pairNeedsGateway:
       'QR pairing runs in the WhatsApp gateway sidecar ({cmd}). Start it and retry — or use WhatsApp Business (Cloud API), which needs no gateway.',
     connectedAs: 'Connected as {number}',

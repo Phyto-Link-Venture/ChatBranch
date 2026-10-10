@@ -306,6 +306,17 @@ public static class Seed
         AddColumnIfMissing(db, "auth_user", "first_name", "TEXT NOT NULL DEFAULT ''");
         AddColumnIfMissing(db, "auth_user", "last_name", "TEXT NOT NULL DEFAULT ''");
         AddColumnIfMissing(db, "auth_user", "email", "TEXT NOT NULL DEFAULT ''");
+        // "Request access" to a contact of another branch of the same company
+        AddTableIfMissing(db, "crm_contactaccessrequest",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_contactaccessrequest\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"contact_id\" INTEGER NOT NULL, \"entity_id\" INTEGER NOT NULL, \"requested_by\" TEXT NOT NULL, "
+            + "\"note\" TEXT NOT NULL, \"status\" TEXT NOT NULL, \"decided_by\" TEXT NOT NULL, "
+            + "\"reason\" TEXT NOT NULL, \"decided_at\" TEXT NULL, \"created_at\" TEXT NOT NULL, "
+            + "CONSTRAINT \"FK_crm_contactaccessrequest_crm_contact_contact_id\" FOREIGN KEY (\"contact_id\") "
+            + "REFERENCES \"crm_contact\" (\"id\") ON DELETE CASCADE");
+        AddUniqueIndexIfMissing(db, "uniq_contactaccess_pending", "crm_contactaccessrequest",
+            "\"contact_id\", \"entity_id\"", "\"status\" = 'pending'");
+        AddIndexIfMissing(db, "ix_contactaccess_status", "crm_contactaccessrequest", "\"status\"");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 

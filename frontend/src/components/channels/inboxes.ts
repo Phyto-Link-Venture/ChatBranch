@@ -41,6 +41,8 @@ export const txt = (m: string | Msg, t: TFunction): string => (typeof m === 'str
 export type InboxKind =
   | 'wa_cloud'
   | 'wa_qr'
+  | 'wa_ycloud'
+  | 'wa_twilio'
   | 'email'
   | 'telegram'
   | 'messenger'
@@ -61,7 +63,25 @@ export type MoreKind = (typeof MORE_KINDS)[number]
 export const isMoreKind = (k: InboxKind | null | undefined): k is MoreKind =>
   !!k && (MORE_KINDS as readonly string[]).includes(k)
 
-/** Filter buckets on the Connected section (both WhatsApp kinds share one). */
+/** Every WhatsApp kind: Meta's Cloud API, a QR-paired number, and the two official BSPs. */
+export const WA_KINDS = ['wa_cloud', 'wa_qr', 'wa_ycloud', 'wa_twilio'] as const
+export type WaKind = (typeof WA_KINDS)[number]
+export const isWaKind = (k: InboxKind | null | undefined): k is WaKind =>
+  !!k && (WA_KINDS as readonly string[]).includes(k)
+
+/** WhatsApp through a Business Solution Provider: its own signed webhook per account. */
+export const isBspKind = (k: InboxKind | null | undefined): k is 'wa_ycloud' | 'wa_twilio' =>
+  k === 'wa_ycloud' || k === 'wa_twilio'
+
+/** The API's `provider` for each WhatsApp kind. */
+export const WA_PROVIDER: Record<WaKind, WaProvider> = {
+  wa_cloud: 'cloud',
+  wa_qr: 'baileys',
+  wa_ycloud: 'ycloud',
+  wa_twilio: 'twilio',
+}
+
+/** Filter buckets on the Connected section (every WhatsApp kind shares one). */
 export type ChannelFilter =
   | 'all'
   | 'whatsapp'
@@ -116,6 +136,8 @@ const texts = (id: KindId): Pick<KindMeta, 'label' | 'blurb' | 'channelLabel' | 
 
 export const KINDS: KindMeta[] = [
   { kind: 'wa_cloud', logo: 'whatsapp', ...texts('waCloud'), filter: 'whatsapp', group: 'messaging' },
+  { kind: 'wa_ycloud', logo: 'whatsapp', ...texts('waYcloud'), filter: 'whatsapp', group: 'messaging' },
+  { kind: 'wa_twilio', logo: 'whatsapp', ...texts('waTwilio'), filter: 'whatsapp', group: 'messaging' },
   { kind: 'wa_qr', logo: 'whatsapp', ...texts('waQr'), filter: 'whatsapp', badge: 'Demo', group: 'messaging' },
   { kind: 'email', logo: 'email', ...texts('email'), filter: 'email', group: 'sms_voice' },
   { kind: 'telegram', logo: 'telegram', ...texts('telegram'), filter: 'telegram', group: 'messaging' },
@@ -194,9 +216,32 @@ export const EMPTY_DELIVERY: AccountDelivery = {
 
 export type AiDefault = '' | 'on' | 'off'
 
+/** cloud = Meta's Cloud API · baileys = QR-paired (unofficial) · ycloud / twilio = official BSPs. */
+export type WaProvider = 'cloud' | 'baileys' | 'ycloud' | 'twilio'
+
+/** A YCloud / Twilio account's own settings (secrets come back masked). */
+export interface WaBspSettings {
+  phone_number?: string
+  api_key_masked?: string
+  webhook_secret_masked?: string
+  account_sid?: string
+  from_number?: string
+  messaging_service_sid?: string
+  api_key_sid?: string
+  api_key_secret_masked?: string
+  auth_token_masked?: string
+}
+
 export interface WaAccount {
   id: string
-  provider: 'cloud' | 'baileys'
+  provider: WaProvider
+  /** YCloud / Twilio: this account's own signed webhook path. */
+  webhook_path?: string | null
+  bsp?: WaBspSettings | null
+  /** Cloud API / YCloud / Twilio: template-capable and bound by the 24h window. */
+  official?: boolean
+  /** A live template registry is behind this number (Meta's / YCloud's WABA, Twilio's Content API). */
+  template_registry?: boolean
   name: string
   phone_number_id: string
   waba_id?: string
@@ -381,18 +426,39 @@ function moreAddress(a: MessagingAccount): string | Msg {
   }
 }
 
+const WA_KIND_OF: Record<WaProvider, WaKind> = {
+  cloud: 'wa_cloud',
+  baileys: 'wa_qr',
+  ycloud: 'wa_ycloud',
+  twilio: 'wa_twilio',
+}
+
+function waAddress(a: WaAccount): string | Msg {
+  switch (a.provider) {
+    case 'baileys':
+      return msg(a.configured ? 'channels.address.qrPaired' : 'channels.address.notPaired')
+    case 'ycloud':
+      return a.bsp?.phone_number || msg('channels.address.numberNotSet')
+    case 'twilio':
+      return a.bsp?.from_number
+        ? a.bsp.from_number
+        : a.bsp?.messaging_service_sid
+          ? msg('channels.address.smsService', { id: a.bsp.messaging_service_sid })
+          : msg('channels.address.numberNotSet')
+    default:
+      return a.phone_number_id
+        ? msg('channels.address.numberId', { id: a.phone_number_id })
+        : msg('channels.address.numberIdNotSet')
+  }
+}
+
 export function fromWa(a: WaAccount): Inbox {
-  const qr = a.provider === 'baileys'
   return {
     key: `wa:${a.id}`,
-    kind: qr ? 'wa_qr' : 'wa_cloud',
+    kind: WA_KIND_OF[a.provider] ?? 'wa_cloud',
     id: a.id,
     name: a.name,
-    address: qr
-      ? msg(a.configured ? 'channels.address.qrPaired' : 'channels.address.notPaired')
-      : a.phone_number_id
-        ? msg('channels.address.numberId', { id: a.phone_number_id })
-        : msg('channels.address.numberIdNotSet'),
+    address: waAddress(a),
     entity: a.entity ?? null,
     entityName: a.entity_name ?? '',
     teamId: a.team_id ?? null,
@@ -517,7 +583,7 @@ export interface TestResult {
 /** Run the channel's own test endpoint and phrase the answer for a human. */
 export async function testInbox(inbox: Inbox, t: TFunction): Promise<TestResult> {
   try {
-    if (inbox.kind === 'wa_cloud' || inbox.kind === 'wa_qr') {
+    if (isWaKind(inbox.kind)) {
       const r = await api<{ ok: boolean; display_phone_number: string; verified_name: string; quality_rating: string }>(
         `whatsapp/accounts/${inbox.id}/test`,
         { method: 'POST' },
@@ -614,7 +680,7 @@ export async function loadInboxes(entityQ = ''): Promise<InboxesSnapshot> {
 
 /** Remove an inbox through its own endpoint. */
 export async function deleteInbox(inbox: Inbox): Promise<void> {
-  if (inbox.kind === 'wa_cloud' || inbox.kind === 'wa_qr') {
+  if (isWaKind(inbox.kind)) {
     // best-effort unpair first — the account row goes regardless
     if (inbox.kind === 'wa_qr')
       await api(`whatsapp/accounts/${inbox.id}/baileys/logout`, { method: 'POST' }).catch(() => {})

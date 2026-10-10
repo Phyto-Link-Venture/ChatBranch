@@ -44,12 +44,16 @@ public static class WebhooksEndpoints
             catch { return Results.Ok(new { ok = true }); } // never NACK on garbage (no side effects)
 
             var pnids = MetaWebhook.PhoneNumberIds(root);
+            // Meta's own Cloud API numbers only — YCloud / Twilio numbers have their own
+            // signed webhooks (WhatsAppBspWebhookEndpoints) and never route through here
             var accounts = await db.ChannelAccounts
-                .Where(a => a.Channel == "whatsapp" && a.Provider != "baileys" && pnids.Contains(a.ExternalId))
+                .Where(a => a.Channel == "whatsapp" && (a.Provider == "cloud" || a.Provider == "")
+                            && pnids.Contains(a.ExternalId))
                 .ToListAsync();
             var env = MetaWebhookAuth.EnvCloudAccount();
             var required = env != null || accounts.Any(a => a.AppSecret != "")
-                           || await db.ChannelAccounts.AnyAsync(a => a.Channel == "whatsapp" && a.Provider != "baileys"
+                           || await db.ChannelAccounts.AnyAsync(a => a.Channel == "whatsapp"
+                                                                     && (a.Provider == "cloud" || a.Provider == "")
                                                                      && a.AccessToken != "" && a.ExternalId != "");
             var signature = ctx.Request.Headers["X-Hub-Signature-256"].ToString();
             if (required || signature.Length > 0)
@@ -186,6 +190,8 @@ public static class WebhooksEndpoints
             var next = evt switch
             {
                 "connected" => Domain.Health.Healthy,
+                // never paired — the QR expired unscanned (nothing can arrive)
+                "qr_expired" => Domain.Health.Disconnected,
                 "logged_out" => Domain.Health.Banned,
                 "disconnected" when reason.Contains("forbidden") || reason.Contains("logged") => Domain.Health.Banned,
                 "disconnected" => Domain.Health.Degraded,

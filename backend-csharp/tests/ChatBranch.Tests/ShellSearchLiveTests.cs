@@ -274,4 +274,50 @@ public class ShellSearchLiveTests : IClassFixture<ApiFactory>
         Assert.True(summary.TryGetProperty("first_response", out _));
         Assert.True(summary.GetProperty("prior").TryGetProperty("sent", out _));
     }
+
+    [Fact]
+    public async Task Baileys_qr_expired_marks_an_unpaired_number_disconnected()
+    {
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            if (!db.ChannelAccounts.Any(a => a.ExternalId == "gw-qr-test"))
+            {
+                db.ChannelAccounts.Add(new ChannelAccount { Channel = "whatsapp", Provider = "baileys",
+                    Name = "Unpaired line", ExternalId = "gw-qr-test", CreatedAt = DateTime.UtcNow });
+                db.SaveChanges();
+            }
+        }
+        var gw = _factory.CreateClient();
+        gw.DefaultRequestHeaders.Add("X-Baileys-Secret", "baileys-local-dev");
+        var push = await gw.PostAsJsonAsync("/api/whatsapp/baileys/status-event",
+            new { account_id = "gw-qr-test", @event = "qr_expired", reason = "not paired" });
+        push.EnsureSuccessStatusCode();
+
+        using var check = _factory.Services.CreateScope();
+        var acct = check.ServiceProvider.GetRequiredService<AppDbContext>().ChannelAccounts
+            .Single(a => a.ExternalId == "gw-qr-test");
+        Assert.Equal(Health.Disconnected, acct.HealthStatus);
+        Assert.Contains("not paired", acct.HealthDetail);
+    }
+
+    [Fact]
+    public void Baileys_probe_reads_the_gateway_session_state()
+    {
+        var a = new ChannelAccount { Channel = "whatsapp", Provider = "baileys", ExternalId = "1" };
+        Assert.True(ChatBranch.Data.Channels.ChannelHealthProber.Probeable(a));
+        Assert.False(ChatBranch.Data.Channels.ChannelHealthProber.Probeable(
+            new ChannelAccount { Channel = "whatsapp", Provider = "baileys", ExternalId = "" }));
+        ChatBranch.Data.Channels.ProbeVerdict V(string state, string? err = null) =>
+            ChatBranch.Data.Channels.ChannelHealthProber.BaileysVerdict(a,
+                new ChatBranch.Data.Sidecars.BaileysStatus(state, null, null, err));
+        Assert.Equal(Health.Healthy, V("connected").Status);
+        Assert.Contains("not paired", V("stopped").Detail);
+        Assert.Equal(Health.Disconnected, V("qr_expired").Status);
+        Assert.True(V("disconnected").Transient);
+        Assert.Contains("unreachable", V("error", "Baileys gateway unreachable at http://x").Detail);
+        a.HealthStatus = Health.Banned;
+        Assert.True(V("stopped").Transient);      // a ban is not overwritten by "not paired"
+        Assert.Equal(Health.Healthy, V("connected").Status);
+    }
 }

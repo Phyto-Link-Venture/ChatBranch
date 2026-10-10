@@ -191,7 +191,9 @@ public static class ApiV1Endpoints
             var saved = await db.Contacts.Include(c => c.EntityLinks).ThenInclude(l => l.Entity)
                 .FirstAsync(c => c.Id == row.Id);
             return Results.Json(ContactPayload(saved), statusCode: 201);
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("contacts.manage");
+          // "Manage contacts" opens it (the Contacts page shows Add contact on that
+          // same capability): admins by default, plus any role granted it.
 
         // ---- GET /api/v1/contacts/{id} ----------------------------------------
         // The contact-detail read (api/views.py ContactDetailView). Scoped like

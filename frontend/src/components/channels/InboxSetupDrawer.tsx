@@ -22,6 +22,8 @@ import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
 import { EntityPicker } from '@/components/ui/EntityPicker'
+import { useEntity } from '@/lib/EntityContext'
+import { useCompanyAdmin } from '@/lib/useCompanyAdmin'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { accountRole, type AccountRole } from '@/components/ui/Badges'
 import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
@@ -53,7 +55,10 @@ import {
   fromWa,
   fromWidget,
   inboxName,
+  isBspKind,
   isMoreKind,
+  isWaKind,
+  WA_PROVIDER,
   kindMeta,
   testInbox,
   type AiDefault,
@@ -91,7 +96,6 @@ const SOCIAL_CHANNEL: Partial<Record<InboxKind, 'facebook' | 'instagram' | 'tele
   telegram: 'telegram',
 }
 
-const isWaKind = (k: InboxKind | null) => k === 'wa_cloud' || k === 'wa_qr'
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -228,6 +232,15 @@ export function InboxSetupDrawer({
   onChanged: () => void
 }) {
   const t = useT()
+  const companyAdmin = useCompanyAdmin()
+  const { activeEntity, selectedEntities, entities: myEntities } = useEntity()
+  /** Where a NEW inbox lands by default: the entity being worked in (the
+   *  switcher's single pick, else its first tick); a company admin — who may
+   *  not add organization-wide numbers — falls back to their first entity. */
+  const defaultEntity =
+    activeEntity?.slug ?? selectedEntities[0]?.slug ?? (companyAdmin ? myEntities[0]?.slug : undefined) ?? null
+  const defaultEntityRef = useRef(defaultEntity)
+  defaultEntityRef.current = defaultEntity
   const [kind, setKind] = useState<InboxKind | null>(target.kind)
   const [step, setStep] = useState<Step>(target.step)
   /** The persisted inbox (opened for edit, or created in this drawer). */
@@ -269,6 +282,10 @@ export function InboxSetupDrawer({
     if (inbox?.wa) {
       c.phone_number_id = inbox.wa.phone_number_id || ''
       c.waba_id = inbox.wa.waba_id || ''
+      // YCloud / Twilio: their non-secret settings
+      const bsp = inbox.wa.bsp ?? {}
+      for (const key of ['phone_number', 'account_sid', 'from_number', 'messaging_service_sid', 'api_key_sid'] as const)
+        if (bsp[key]) c[key] = String(bsp[key])
     }
     if (inbox?.msg) {
       const cfg = inbox.msg.config ?? {}
@@ -302,7 +319,7 @@ export function InboxSetupDrawer({
         : WIDGET_DEFAULTS,
     )
     setName(inbox?.name ?? '')
-    setEntity(inbox?.entity ?? null)
+    setEntity(inbox ? inbox.entity ?? null : defaultEntityRef.current)
     setTeamId(inbox?.teamId != null ? String(inbox.teamId) : '')
     setRole(inbox?.wa ? accountRole(inbox.wa) : k === 'wa_qr' ? 'conversation' : 'reminder')
     setAiDefault(inbox?.aiDefault ?? '')
@@ -318,6 +335,12 @@ export function InboxSetupDrawer({
   useEffect(() => {
     if (target.kind) seed(target.kind, target.inbox)
   }, [seed, target])
+
+  // The entity list / company-admin flag can arrive after the drawer opened:
+  // fill a NEW inbox's still-empty entity once they do.
+  useEffect(() => {
+    if (!saved && defaultEntity) setEntity((cur) => cur ?? defaultEntity)
+  }, [saved, defaultEntity])
 
   // ── modal behaviour: scroll lock, Esc, focus trap, focus restore ──────────
   const panelRef = useRef<HTMLDivElement>(null)
@@ -438,9 +461,18 @@ export function InboxSetupDrawer({
       return inbox
     }
 
-    if (kind === 'wa_cloud' || kind === 'wa_qr') {
+    if (isWaKind(kind)) {
       const body: Record<string, string> = { name: name.trim(), role, ...who(), ...deliveryPatch(delivery, t) }
-      if (kind === 'wa_cloud') {
+      if (isBspKind(kind)) {
+        // YCloud / Twilio — keys mirror the accounts API; a blank secret keeps the stored one
+        if (!id) body.provider = WA_PROVIDER[kind]
+        for (const f of fields) {
+          const v = c(f.key)
+          if (f.secret) {
+            if (v) body[f.key] = v
+          } else body[f.key] = v
+        }
+      } else if (kind === 'wa_cloud') {
         if (c('phone_number_id')) body.phone_number_id = c('phone_number_id')
         body.waba_id = c('waba_id')
         // secrets: blank = keep the stored value (never send an empty string)
@@ -668,7 +700,9 @@ export function InboxSetupDrawer({
         ? saved.wa?.access_token_masked || saved.msg?.access_token_masked
         : f.key === 'app_secret'
           ? saved.wa?.app_secret_masked || saved.msg?.app_secret_masked
-          : f.key === 'password'
+          : f.key === 'api_key_secret' && saved.wa
+            ? saved.wa.bsp?.api_key_secret_masked
+            : f.key === 'password'
             ? saved.msg?.config?.password_masked
             : f.key === 'sip_password'
               ? saved.voice?.sip_password_masked
@@ -913,7 +947,14 @@ export function InboxSetupDrawer({
 
       <label className="block">
         <Label>{t('common.fields.entity')}</Label>
-        <EntityPicker value={entity} onChange={setEntity} ariaLabel={t('channels.drawer.who.entityAria')} />
+        <EntityPicker
+          value={entity}
+          onChange={setEntity}
+          // company admins add numbers for their own companies only (the API
+          // refuses organization-wide); an old org-wide inbox still shows as such
+          allowGlobal={!companyAdmin || (editing && saved?.entity == null)}
+          ariaLabel={t('channels.drawer.who.entityAria')}
+        />
         <Help>{t('channels.drawer.who.entityHelp')}</Help>
       </label>
 
@@ -1116,6 +1157,23 @@ export function InboxSetupDrawer({
                 </div>
                 {tgResult && <ResultLine result={tgResult} />}
               </Advanced>
+            </Section>
+          )}
+
+          {isBspKind(kind) && saved.wa && (
+            <Section title={t('channels.drawer.test.pointPlatform', { platform: meta ? t(meta.label) : '' })}>
+              {WEBHOOK_HELP[kind] && (
+                <p className="text-[12.5px] leading-relaxed text-text-mid">{t(WEBHOOK_HELP[kind]!)}</p>
+              )}
+              <CopyRow label={t('channels.drawer.test.webhookUrl')} value={`${API_ORIGIN}${saved.wa.webhook_path ?? ''}`} />
+              {kind === 'wa_ycloud' && !saved.wa.app_secret_masked && (
+                <p className="text-[11.5px] leading-relaxed" style={{ color: 'var(--amber-ink)' }}>
+                  {t('channels.drawer.test.bspSecretMissing')}
+                </p>
+              )}
+              {kind === 'wa_twilio' && (
+                <p className="text-[11.5px] leading-relaxed text-text-muted">{t('channels.drawer.test.twilioPublic')}</p>
+              )}
             </Section>
           )}
 

@@ -47,6 +47,9 @@ const pattern =
 
 const e164 = pattern(/^\+[1-9]\d{6,14}$/, 'channels.setup.checks.e164')
 
+/** Twilio's WhatsApp sender: E.164, optionally written as `whatsapp:+…`. */
+const waSender = pattern(/^(whatsapp:)?\+[1-9]\d{6,14}$/i, 'channels.setup.checks.e164')
+
 const host = pattern(
   /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i,
   'channels.setup.checks.host',
@@ -78,6 +81,53 @@ export const CRED_FIELDS: Partial<Record<InboxKind, FieldSpec[]>> = {
     {
       key: 'app_secret', label: `${L}.appSecret`, placeholderKey: `${P}.signatureChecks`, secret: true,
       optional: true, recommended: true, help: `${H}.waCloud.appSecret`,
+    },
+  ],
+  wa_ycloud: [
+    {
+      key: 'phone_number', label: `${L}.businessNumber`, placeholder: '+60123456789', inputMode: 'text',
+      help: `${H}.waYcloud.phoneNumber`, check: e164,
+    },
+    {
+      key: 'access_token', label: `${L}.ycloudApiKey`, placeholderKey: `${P}.fromYcloud`, secret: true,
+      help: `${H}.waYcloud.accessToken`,
+    },
+    {
+      key: 'app_secret', label: `${L}.webhookSigningSecret`, placeholderKey: `${P}.signatureChecks`, secret: true,
+      optional: true, recommended: true, help: `${H}.waYcloud.appSecret`,
+    },
+    {
+      key: 'waba_id', label: `${L}.wabaId`, placeholder: '102938475610293', inputMode: 'numeric',
+      optional: true, help: `${H}.waYcloud.wabaId`, check: digits(`${L}.wabaIdShort`),
+    },
+  ],
+  wa_twilio: [
+    {
+      key: 'account_sid', label: `${L}.accountSid`, placeholder: 'AC…', inputMode: 'text',
+      help: `${H}.waTwilio.accountSid`,
+      check: pattern(/^AC[0-9a-f]{32}$/i, 'channels.setup.checks.accountSid'),
+    },
+    {
+      key: 'access_token', label: `${L}.authToken`, placeholderKey: `${P}.fromTwilio`, secret: true,
+      help: `${H}.waTwilio.accessToken`,
+    },
+    {
+      key: 'from_number', label: `${L}.whatsappSender`, placeholder: '+14155238886', half: true, optional: true,
+      help: `${H}.waTwilio.fromNumber`, check: waSender,
+    },
+    {
+      key: 'messaging_service_sid', label: `${L}.messagingServiceSid`, placeholder: 'MG…', half: true, optional: true,
+      help: `${H}.waTwilio.messagingServiceSid`,
+      check: pattern(/^MG[0-9a-f]{32}$/i, 'channels.setup.checks.messagingServiceSid'),
+    },
+    {
+      key: 'api_key_sid', label: `${L}.apiKeySid`, placeholder: 'SK…', half: true, optional: true,
+      help: `${H}.waTwilio.apiKeySid`,
+      check: pattern(/^SK[0-9a-f]{32}$/i, 'channels.setup.checks.apiKeySid'),
+    },
+    {
+      key: 'api_key_secret', label: `${L}.apiKeySecret`, placeholderKey: `${P}.fromTwilio`, secret: true, half: true,
+      optional: true, help: `${H}.waTwilio.apiKeySecret`,
     },
   ],
   email: [
@@ -299,6 +349,8 @@ const G = 'channels.setup.guides' as const
 /** "Where do I find these?" — the short walk-through per channel (translation keys). */
 export const GUIDES: Partial<Record<InboxKind, MessageKey[]>> = {
   wa_cloud: [`${G}.waCloud.s1`, `${G}.waCloud.s2`, `${G}.waCloud.s3`, `${G}.waCloud.s4`],
+  wa_ycloud: [`${G}.waYcloud.s1`, `${G}.waYcloud.s2`, `${G}.waYcloud.s3`, `${G}.waYcloud.s4`],
+  wa_twilio: [`${G}.waTwilio.s1`, `${G}.waTwilio.s2`, `${G}.waTwilio.s3`, `${G}.waTwilio.s4`],
   email: [`${G}.email.s1`, `${G}.email.s2`, `${G}.email.s3`, `${G}.email.s4`],
   telegram: [`${G}.telegram.s1`, `${G}.telegram.s2`, `${G}.telegram.s3`, `${G}.telegram.s4`],
   messenger: [`${G}.messenger.s1`, `${G}.messenger.s2`, `${G}.messenger.s3`],
@@ -319,6 +371,8 @@ const N = 'channels.setup.defaultNames' as const
 export const DEFAULT_NAME: Record<InboxKind, MessageKey> = {
   wa_cloud: `${N}.waCloud`,
   wa_qr: `${N}.waQr`,
+  wa_ycloud: `${N}.waYcloud`,
+  wa_twilio: `${N}.waTwilio`,
   email: `${N}.email`,
   telegram: `${N}.telegram`,
   messenger: `${N}.messenger`,
@@ -337,12 +391,15 @@ export const DEFAULT_NAME: Record<InboxKind, MessageKey> = {
 /** Channel-wide rules on top of the per-field checks (step 2). */
 export const ONE_OF: Partial<Record<InboxKind, { keys: string[]; message: MessageKey }>> = {
   sms: { keys: ['from_number', 'messaging_service_sid'], message: 'channels.setup.checks.smsOneOf' },
+  wa_twilio: { keys: ['from_number', 'messaging_service_sid'], message: 'channels.setup.checks.waTwilioOneOf' },
 }
 
 const W = 'channels.setup.webhookHelp' as const
 
 /** Where the webhook URL goes on each platform (the test step shows it with a copy button). */
 export const WEBHOOK_HELP: Partial<Record<InboxKind, MessageKey>> = {
+  wa_ycloud: `${W}.waYcloud`,
+  wa_twilio: `${W}.waTwilio`,
   line: `${W}.line`,
   viber: `${W}.viber`,
   sms: `${W}.sms`,

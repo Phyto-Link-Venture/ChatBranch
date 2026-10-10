@@ -164,7 +164,7 @@ export interface UiThreadSummary {
   entity?: string | null
   account_id?: string | null
   account_name?: string
-  provider?: 'cloud' | 'baileys' | null
+  provider?: 'cloud' | 'baileys' | 'ycloud' | 'twilio' | null
   window_open?: boolean
   window_expires_at?: string | null
   /** Messenger / Instagram: a person may still reply (Meta's 7-day HUMAN_AGENT window) */
@@ -210,7 +210,7 @@ export interface InboxRow {
   entity?: string | null
   account_id: string | null
   account_name: string
-  provider: 'cloud' | 'baileys' | null
+  provider: 'cloud' | 'baileys' | 'ycloud' | 'twilio' | null
   window_open: boolean
   window_expires_at: string | null
   opted_out: boolean
@@ -286,7 +286,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   })
   const data = await res.json().catch(() => ({}))
   if (expireSessionOn401(res)) throw new Error('Session expired — redirecting to login…')
-  if (!res.ok) throw new ApiError((data as { detail?: string }).detail || `HTTP ${res.status}`, res.status)
+  if (!res.ok) throw new ApiError((data as { detail?: string }).detail || `HTTP ${res.status}`, res.status, data)
   return data as T
 }
 
@@ -295,6 +295,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
+    /** The refusal's body (e.g. `{code, can_override}`). */
+    public body: Record<string, unknown> = {},
   ) {
     super(message)
   }

@@ -6,6 +6,8 @@ export const billing = {
   nextMonth: 'Next month',
   terms: 'Billing terms',
   print: 'Print',
+  downloadPdf: 'Download PDF',
+  pdfFailed: 'Could not make the PDF: {error}',
   statement: 'AI usage statement',
   period: '{from} – {to}',
   totalDue: 'Total',

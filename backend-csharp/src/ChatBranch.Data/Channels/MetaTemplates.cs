@@ -129,10 +129,12 @@ public class WhatsAppTemplateCatalog
             Cache.TryRemove(key, out _);
     }
 
-    /// <summary>True when this account talks to Meta's template registry.</summary>
+    /// <summary>True when this account talks to a live template registry: Meta's (Cloud API) or
+    /// YCloud's for a WABA, Twilio's Content API (<see cref="WhatsAppProviders.HasTemplateRegistry"/>).</summary>
     public bool IsLive(ChannelAccount? account) =>
         account != null && account.Channel == ChatBranch.Domain.Channels.WhatsApp
-        && account.Provider != Providers.Baileys && _wa.IsConfigured(account) && account.WabaId.Length > 0;
+        && WhatsAppProviders.IsOfficial(account) && _wa.IsConfigured(account)
+        && WhatsAppProviders.HasTemplateRegistry(account);
 
     /// <summary>The operator-made templates (one Setting row, so the flow works offline).</summary>
     public List<WaTemplateDef> Custom()

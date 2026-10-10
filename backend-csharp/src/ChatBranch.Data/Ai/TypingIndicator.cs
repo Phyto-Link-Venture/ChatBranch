@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using ChatBranch.Data.Channels;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 using Thread = ChatBranch.Domain.Thread;
@@ -147,6 +148,8 @@ public sealed class TelegramTypingIndicator : ITypingIndicator
 
 /// <summary>
 /// The live indicator:
+///  * WhatsApp YCloud — <c>POST /whatsapp/inboundMessages/{wamid}/typingIndicator</c>;
+///    Twilio has none (nothing is sent).
 ///  * WhatsApp Cloud — marks the customer's latest message as read and shows the
 ///    typing indicator (Graph <c>/{phone_number_id}/messages</c> with
 ///    <c>status: read</c> + <c>typing_indicator</c>; Meta clears it on the next
@@ -193,11 +196,27 @@ public sealed class LiveTypingIndicator : ITypingIndicator
             }
 
             if (string.IsNullOrEmpty(account.AccessToken) || string.IsNullOrEmpty(account.ExternalId)) return;
+            // Twilio's WhatsApp API has no typing indicator: nothing to send
+            var provider = WhatsAppProviders.Of(account);
+            if (provider == Providers.Twilio) return;
             // the typing indicator rides on the read receipt of the customer's latest message
             var wamid = _db.Messages.AsNoTracking()
                 .Where(m => m.ThreadId == thread.Id && m.Direction == MessageDirection.In && m.ExternalId != "")
                 .OrderByDescending(m => m.Id).Select(m => m.ExternalId).FirstOrDefault();
             if (string.IsNullOrEmpty(wamid)) return;
+            if (provider == Providers.YCloud)
+            {
+                // YCloud: POST /whatsapp/inboundMessages/{wamid}/typingIndicator (also marks it read)
+                var key = account.AccessToken;
+                var url = $"{YCloudWhatsAppClient.ApiBase}/whatsapp/inboundMessages/{Uri.EscapeDataString(wamid)}/typingIndicator";
+                Fire(async client =>
+                {
+                    using var req = new HttpRequestMessage(HttpMethod.Post, url);
+                    req.Headers.TryAddWithoutValidation(YCloudWhatsAppClient.KeyHeader, key);
+                    using var _ = await client.SendAsync(req);
+                });
+                return;
+            }
             var version = string.IsNullOrEmpty(account.ApiVersion) ? "v23.0" : account.ApiVersion;
             var graph = $"https://graph.facebook.com/{version}/{account.ExternalId}/messages";
             var token = account.AccessToken;
