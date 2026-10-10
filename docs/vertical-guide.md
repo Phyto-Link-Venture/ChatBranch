@@ -343,9 +343,18 @@ AI couldn't answer — your next knowledge items.
 - **Wait for the customer to finish** (`ai_wait_seconds`, default 25 s, capped
   by `ai_wait_max_seconds`) so three short messages get one answer.
 - **Acknowledgements don't need a reply** — "ok", "thanks", 👍 after an answer
-  get silence (or a short `ai_ack_text`).
+  get silence (or a short `ai_ack_text`, or — with reactions on — an emoji
+  reaction instead).
 - **Typing** — shows "typing…" on WhatsApp and pauses in proportion to length.
 - **Split long replies** into at most 3 messages at sentence boundaries.
+- **Human-like touches** (group "Human-like"): `ai_emoji_style` off / light
+  (default) / expressive — a style line below your persona, so a persona that
+  says "no emoji" still wins, and email never gets emoji; `ai_reactions` lets
+  the AI react to the customer's latest message on WhatsApp and Telegram (🙏 on
+  "thanks", 👍 on a confirmation — a reaction can replace an "ok thanks" reply
+  altogether); `ai_quote_replies` auto lets a reply to several messages quote
+  the one it answers. A held reply reacts only once a person approves it. A
+  formal vertical (legal, medical) usually wants emoji off and reactions on.
 - **Follow-ups when the customer goes quiet** (off by default): only after the
   AI asked something or left the conversation open; first after
   `ai_followup_first_hours`, then every `ai_followup_between_hours`, at most
@@ -460,6 +469,23 @@ own calendar at Settings → My connections — that is the calendar a booking s
 set to "the assigned agent's calendar" books into. These mappings are fixture-tested against
 documented payloads, never against a live provider — treat your first real
 connection as an integration test and watch the flow's Runs panel.
+
+**Background AI tasks** (`/ai-tasks`, Automate) are silent AI workers for the
+paperwork customers send in a chat: they read each new inbound message (and its
+PDF or image attachment) and act through the tools you tick — a Google Sheets
+row, the file saved to Drive, a calendar event, an external MCP server's tool, a
+signed webhook to your own system, a private note, a label, a contact field or a
+handover — but they never write to the customer. For a store: a task "Save
+supplier invoices" (attachment = PDF, keywords "invoice, invois") that appends
+supplier / number / date / total / currency to an Invoices sheet and files the
+PDF; a task "Log payment slips" that logs the transfer and labels the chat
+`payment-received`, handing it to a person when the amount can't be read. Start
+from the templates, write the instructions in your own words, and use **Test it**
+(a dry run — tools that change something are previewed) on a real invoice before
+switching it on. Each run is listed under **Runs** with what it extracted and
+every tool call, and leaves a "🤖" private note in the chat. Tasks run whether the
+chatbot is on or off for a chat, but stop when the AI master switch is off or the
+AI quota is used up; their model usage is billed as `ai_task`.
 
 ### 2.11 Go live
 

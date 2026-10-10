@@ -1,6 +1,7 @@
 import {
   Activity,
   BookOpen,
+  Bot,
   CalendarCheck,
   Bell,
   Building2,
@@ -88,6 +89,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/journeys', lbl: 'shell.nav.flowBuilder', Icon: Workflow, alsoActive: ['/flow-builder'], cap: ['flows.view', 'flows.manage'], roles: ADMINS, keywords: 'journeys flow flows flow builder workflow workflows campaigns automation perjalanan aliran 客户旅程 流程' },
       { href: '/ai-monitor', lbl: 'shell.nav.aiMonitor', Icon: ScanEye, cap: 'ai.monitor', keywords: 'drafts approve review bot' },
       { href: '/ai-playground', lbl: 'shell.nav.aiPlayground', Icon: FlaskRound, cap: ['ai.monitor', 'ai.behaviour.manage'], keywords: 'playground test ai try simulate sandbox prompt persona model compare ruang uji cuba simulasi 试验场 测试 试用 模拟 提示词' },
+      { href: '/ai-tasks', lbl: 'shell.nav.aiTasks', Icon: Bot, cap: ['ai.monitor', 'settings.ai.manage'], keywords: 'background ai tasks invoice receipt extract silent worker sheets drive mcp tugas latar belakang invois resit 后台 任务 发票 收据' },
       { href: '/automations', lbl: 'shell.nav.automations', Icon: Zap, cap: 'flows.manage', roles: ADMINS, keywords: 'rules triggers' },
       { href: '/persona', lbl: 'shell.nav.voice', Icon: Mic, cap: 'settings.ai.manage', roles: ADMINS, keywords: 'voice persona calling' },
     ],

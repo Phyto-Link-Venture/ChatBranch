@@ -319,6 +319,27 @@ public static class Seed
         AddUniqueIndexIfMissing(db, "uniq_contactaccess_pending", "crm_contactaccessrequest",
             "\"contact_id\", \"entity_id\"", "\"status\" = 'pending'");
         AddIndexIfMissing(db, "ix_contactaccess_status", "crm_contactaccessrequest", "\"status\"");
+        // background AI tasks: silent AI workers (definitions + one run per task × message)
+        AddTableIfMissing(db, "crm_aitask",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_aitask\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"entity_id\" INTEGER NULL, \"name\" TEXT NOT NULL, \"enabled\" INTEGER NOT NULL, "
+            + "\"channels\" TEXT NOT NULL, \"trigger\" TEXT NOT NULL, \"attachment\" TEXT NOT NULL, "
+            + "\"keywords\" TEXT NOT NULL, \"linked\" TEXT NOT NULL, \"instructions\" TEXT NOT NULL, "
+            + "\"tools\" TEXT NOT NULL, \"config\" TEXT NOT NULL, \"run_count\" INTEGER NOT NULL, "
+            + "\"last_run_at\" TEXT NULL, \"created_by\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL, "
+            + "\"updated_at\" TEXT NOT NULL");
+        AddTableIfMissing(db, "crm_aitaskrun",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_aitaskrun\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"task_id\" INTEGER NOT NULL, \"thread_id\" INTEGER NOT NULL, \"message_id\" INTEGER NOT NULL, "
+            + "\"entity_id\" INTEGER NULL, \"channel\" TEXT NOT NULL, \"thread_key\" TEXT NOT NULL, "
+            + "\"status\" TEXT NOT NULL, \"due_at\" TEXT NOT NULL, \"extracted\" TEXT NOT NULL, "
+            + "\"steps\" TEXT NOT NULL, \"summary\" TEXT NOT NULL, \"error\" TEXT NOT NULL, "
+            + "\"provider\" TEXT NOT NULL, \"model\" TEXT NOT NULL, \"prompt_tokens\" INTEGER NOT NULL, "
+            + "\"completion_tokens\" INTEGER NOT NULL, \"cost_usd\" REAL NULL, \"created_at\" TEXT NOT NULL, "
+            + "\"started_at\" TEXT NULL, \"finished_at\" TEXT NULL, "
+            + "CONSTRAINT \"uniq_aitaskrun_task_message\" UNIQUE (\"task_id\", \"message_id\")");
+        AddIndexIfMissing(db, "ix_aitaskrun_status_due", "crm_aitaskrun", "\"status\", \"due_at\"");
+        AddIndexIfMissing(db, "ix_aitaskrun_thread", "crm_aitaskrun", "\"thread_id\"");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 

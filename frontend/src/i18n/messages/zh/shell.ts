@@ -12,6 +12,7 @@ export const shell: Dict<typeof source> = {
     flowBuilder: '客户旅程',
     aiMonitor: 'AI 监控',
     aiPlayground: 'AI 试验场',
+    aiTasks: '后台 AI 任务',
     automations: '自动化规则',
     voice: '语音与通话',
     templates: '模板',

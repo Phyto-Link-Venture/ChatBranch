@@ -367,6 +367,8 @@ public static class AiSkillsEndpoints
                         accents = DocumentAppConfig.Accents.Keys.ToList(),
                         cjk_font = DocumentFonts.CjkAvailable,
                         defaults = DocumentAppConfig.Defaults(),
+                        // the template designer's "Start from…" gallery (canonical templates)
+                        template_presets = DocumentTemplate.PresetCatalog(),
                     },
                     new
                     {
@@ -419,6 +421,9 @@ public static class AiSkillsEndpoints
                 ? Results.NotFound(new { detail = "Logo not found." })
                 : Results.File(path, name.EndsWith(".png") ? "image/png" : "image/jpeg");
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
+
+        // the Documents app's template designer (letterhead upload, upload-your-design, Ask AI)
+        DocumentTemplateEndpoints.Map(app);
 
         // ---- built-ins (read-only; always offered to the model as tools) --------
         app.MapGet("/api/aicore/skills/builtins", (SkillService skills) =>

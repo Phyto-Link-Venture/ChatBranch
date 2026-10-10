@@ -97,6 +97,8 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/ai/review/runs", new[] { "ai.monitor", "ai.behaviour.manage" }),
         ("/api/ai/review/runs/999999", new[] { "ai.monitor", "ai.behaviour.manage" }),
         ("/api/ai/review/options", new[] { "ai.behaviour.manage" }),
+        ("/api/ai/tasks", new[] { "ai.monitor", "settings.ai.manage" }),
+        ("/api/ai/tasks/999999/runs", new[] { "ai.monitor", "settings.ai.manage" }),
         // Library: knowledge, skills, persona
         ("/api/aicore/persona", new[] { "settings.ai.manage" }),
         ("/api/aicore/knowledge", new[] { "settings.ai.manage" }),
@@ -104,6 +106,7 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/aicore/skills/apps", new[] { "settings.ai.manage" }),
         ("/api/aicore/skills/builtins", new[] { "settings.ai.manage" }),
         ("/api/aicore/skills/documents/logo/00000000000000000000000000000000.png", new[] { "settings.ai.manage" }),
+        ("/api/aicore/skills/documents/letterhead/00000000000000000000000000000000.pdf", new[] { "settings.ai.manage" }),
         ("/api/aicore/booking-hours", new[] { "integrations.view", "settings.ai.manage" }),
         // Analytics (home)
         ("/api/analytics/summary", new[] { "analytics.view" }),

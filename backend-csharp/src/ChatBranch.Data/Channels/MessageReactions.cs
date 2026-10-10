@@ -16,7 +16,7 @@ namespace ChatBranch.Data.Channels;
 /// One reaction per message × actor: reacting again replaces it, an empty emoji
 /// removes it. On our side the business is ONE sender to the provider (WhatsApp
 /// and Telegram keep one reaction per sender), so a person's reaction replaces
-/// any colleague's on the same message.
+/// any colleague's — or the AI's (actor <c>ai</c>) — on the same message.
 /// </summary>
 public static class MessageReactions
 {
@@ -25,6 +25,53 @@ public static class MessageReactions
     public const int MaxEmojiLength = 32;
 
     public static string UserActor(string username) => UserPrefix + (username ?? "").Trim();
+
+    /// <summary>The AI's own reactions (react_to_message, delivered by the AI gate) — ours, like a person's.</summary>
+    public const string AiActor = "ai";
+
+    /// <summary>A reaction the BUSINESS made (a person or the AI): one sender at the provider.</summary>
+    public static bool IsOurs(string actor) =>
+        actor == AiActor || actor.StartsWith(UserPrefix, StringComparison.Ordinal);
+
+    /// <summary>
+    /// The emoji Telegram's Bot API accepts as a reaction (<c>ReactionTypeEmoji</c>) —
+    /// anything else is refused with REACTION_INVALID. Kept without the U+FE0F
+    /// variation selector, the way Telegram spells them.
+    /// </summary>
+    public static readonly IReadOnlySet<string> TelegramEmoji = new HashSet<string>
+    {
+        "👍", "👎", "❤", "🔥", "🥰", "👏", "😁", "🤔", "🤯", "😱", "🤬", "😢", "🎉", "🤩", "🤮", "💩", "🙏",
+        "👌", "🕊", "🤡", "🥱", "🥴", "😍", "🐳", "❤‍🔥", "🌚", "🌭", "💯", "🤣", "⚡", "🍌", "🏆", "💔",
+        "🤨", "😐", "🍓", "🍾", "💋", "🖕", "😈", "😴", "😭", "🤓", "👻", "👨‍💻", "👀", "🎃", "🙈", "😇",
+        "😨", "🤝", "✍", "🤗", "🫡", "🎅", "🎄", "☃", "💅", "🤪", "🗿", "🆒", "💘", "🙉", "🦄", "😘", "💊",
+        "🙊", "😎", "👾", "🤷‍♂", "🤷", "🤷‍♀", "😡",
+    };
+
+    /// <summary>Reactions the AI never makes, whatever the channel allows (rude, crude or cold).</summary>
+    private static readonly HashSet<string> NotForAi = new()
+    {
+        "🖕", "💩", "🤮", "🤬", "😈", "💋", "🍆", "🍑", "💊", "🤡", "😡", "👎", "🥱", "🌭", "🍌",
+    };
+
+    private static string Bare(string e) => e.Replace("️", "");
+
+    /// <summary>
+    /// The emoji the AI may react with on <paramref name="channel"/>, spelled the way
+    /// that channel takes it (Telegram: its own set, no variation selector) — null
+    /// when it isn't ONE emoji, the channel has no reactions, the channel's set
+    /// doesn't hold it, or it is one the AI never uses.
+    /// </summary>
+    public static string? ForAi(string channel, string? emoji)
+    {
+        if (!Supports(channel)) return null;
+        var e = Normalize(emoji);
+        if (string.IsNullOrEmpty(e)) return null;
+        if (new System.Globalization.StringInfo(e).LengthInTextElements != 1) return null;
+        if (NotForAi.Contains(Bare(e))) return null;
+        if (channel == ChatBranch.Domain.Channels.Telegram)
+            return TelegramEmoji.Contains(Bare(e)) ? Bare(e) : null;
+        return e;
+    }
 
     /// <summary>Channels whose provider carries reactions both ways (sandbox threads included).</summary>
     public static bool Supports(string channel) =>
@@ -73,9 +120,9 @@ public static class MessageReactions
     public static bool Set(AppDbContext db, Thread thread, Message msg, string actor, string emoji)
     {
         var rows = db.MessageReactions.Where(r => r.MessageId == msg.Id).ToList();
-        var ours = actor.StartsWith(UserPrefix, StringComparison.Ordinal);
+        var ours = IsOurs(actor);
         var changed = false;
-        foreach (var r in rows.Where(r => r.Actor != actor && ours && r.Actor.StartsWith(UserPrefix, StringComparison.Ordinal)))
+        foreach (var r in rows.Where(r => r.Actor != actor && ours && IsOurs(r.Actor)))
         {
             db.MessageReactions.Remove(r);
             changed = true;

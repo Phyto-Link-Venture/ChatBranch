@@ -41,6 +41,7 @@ builder.Services.AddScoped<ChatBranch.Data.Bookings.BookingService>();
 // Documents / QR / Payments / Sheets app skills: files made for a reply (sent at
 // delivery) and the integration-backed tools
 builder.Services.AddScoped<ChatBranch.Data.Documents.DocumentService>();
+builder.Services.AddScoped<ChatBranch.Data.Documents.DocumentTemplateAi>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.Skills.ConnectedAppTools>();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<ChatBranch.Data.Ai.ILlmClient, ChatBranch.Data.Ai.OpenAiLlmClient>();
@@ -127,6 +128,13 @@ builder.Services.AddScoped<ChatBranch.Data.Ai.Learning.LearningService>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.Review.AiReviewService>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.Learning.EmbeddingIndexer>();
 builder.Services.AddHostedService<ChatBranch.Api.Workers.EmbeddingWorker>();
+// background AI tasks: silent AI workers queued by the inbound path, run here
+builder.Services.AddScoped(sp => new ChatBranch.Data.Ai.Tasks.AiTaskService(
+    sp.GetRequiredService<ChatBranch.Data.AppDbContext>(), sp.GetRequiredService<ChatBranch.Data.ScopingService>(),
+    sp.GetRequiredService<ChatBranch.Data.Ai.ILlmClient>(),
+    sp.GetRequiredService<ChatBranch.Data.Integrations.IntegrationActions>(),
+    sp.GetRequiredService<IHttpClientFactory>(), sp.GetRequiredService<ChatBranch.Data.Channels.MediaStore>()));
+builder.Services.AddHostedService<ChatBranch.Api.Workers.AiTaskWorker>();
 // Contacts: identity registry + WhatsApp lookups (IdentityCheckWorker), invite
 // links, unknown-customer "who are you?", contact-book import (+ Google Contacts)
 builder.Services.AddContactIdentity();
@@ -224,6 +232,7 @@ app.MapLearningEndpoints();
 app.MapAiControlsEndpoints();
 app.MapAiPlaygroundEndpoints();
 app.MapAiReviewEndpoints();
+app.MapAiTaskEndpoints();
 app.MapClientErrorEndpoints();
 
 // Inbound conversations route themselves to a team. The hook lives here so the

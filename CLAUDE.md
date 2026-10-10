@@ -167,7 +167,7 @@ When you fix one of these, update this table, `README.md` and
   analytics). `entityId == null` means "All entities" for the Scope* helpers and
   "the global value" for the setting helpers.
   **Multi-entity libraries ("Available to").** Quick replies, call scripts,
-  knowledge, AI skills and automation rules (`IMultiEntityItem`) may be ticked
+  knowledge, AI skills, automation rules and background AI tasks (`IMultiEntityItem`) may be ticked
   for SEVERAL entities: `EntityId` stays the PRIMARY (first tick), the others
   are `crm_libraryentity` rows (`kind`, `item_id`, `entity_id`); none = global.
   Visibility is ONE rule, `ScopingService.LibraryVisible` (global, or the
@@ -782,9 +782,10 @@ When you fix one of these, update this table, `README.md` and
   the running number (series `<skill entity | org>:<skill id>:<type>`, prefix +
   zero-padded, `start_numbers` the floor, a partial unique index on
   `(series, seq)`); the tool answers with the number and totals at once so the
-  reply quotes them. The PDF (A4, MigraDoc/PDFsharp 6 — MIT — with Liberation
-  Sans embedded from `Documents/Fonts/`, SIL OFL; letterhead, logo, accent =
-  a tag palette key, EN or BM labels by the contact's language) is stored as
+  reply quotes them. The PDF (A4 or Letter, MigraDoc/PDFsharp 6 — MIT — with
+  Liberation Sans + Serif embedded from `Documents/Fonts/`, SIL OFL; letterhead,
+  logo, accent = a tag palette key, EN or BM labels by the contact's language,
+  laid out by the skill's TEMPLATE — see below) is stored as
   conversation media (`MediaStore`) and recorded in `crm_document` as `pending`;
   its id rides on the reply (`AiReplyResult.Attachments` → the draft's
   `attachments: [{type:"document", document_id}]`). **Delivery**
@@ -819,6 +820,51 @@ When you fix one of these, update this table, `README.md` and
   (`components/ai-monitor/DraftDocuments.tsx` — review queue, activity, the
   chat's pending-draft banner, "Open" fetches the auth-gated file); the
   playground inspector lists `documents_previewed`. Tests: `DocumentTests`.
+  **The template designer.** `config.template` (`Documents/DocumentTemplate.cs`,
+  snake_case, `version` 1) = preset classic | modern | minimal | bold (fills
+  every key not given) + page (A4 | Letter, margins mm), fonts (sans | serif,
+  size), hex colours (`accent` "" = the config's palette accent), header
+  (layout split | stacked | centered, plain | band, logo position / size, which
+  business lines, `extra_lines`, tagline, rule), title, info arrangement
+  (meta_in_header | side_by_side | stacked), table (columns ⊇ description +
+  amount, labels, header style / colour, zebra, border), totals (position,
+  style), notes (`terms`, `bank_details`), footer, `sections` (the body order),
+  `letterhead {file, pages: all|first}` and `overrides {invoice|quotation|receipt|letter:
+  partial}` (fonts … sections only). ONE strict normalizer, `DocumentTemplate.From`
+  (unknown keys refused, the first problem returned — the skills PUT 400s on it);
+  `ToDictionary` is canonical. **A config WITHOUT a template renders exactly as
+  before** (= the classic preset; `DocumentTemplateTests` compares every word's
+  position with golden fixtures captured from the old renderer). The renderer
+  (`DocumentRenderer`) reads `cfg.TemplateFor(type)`; an uploaded letterhead
+  (`data/documents/letterhead/{32hex}.pdf`, the FIRST page of the upload,
+  `DocumentService.SaveLetterhead`) is drawn UNDER the content with `XPdfForm`
+  (`XGraphicsPdfPageOptions.Prepend`). API (all `settings.ai.manage`; MCP
+  exclusions except assist): `POST/GET /api/aicore/skills/documents/letterhead[/{name}]`;
+  `POST …/documents/template/analyze` (multipart: a PDF ≤ 10 MB or PNG / JPEG ≤
+  5 MB by magic bytes, optional `template` / `config` JSON, `keep_letterhead`) →
+  `DocumentTemplateAi.AnalyzeAsync`: the chat model with VISION (OpenAI
+  `image_url` data-URL parts — `LlmMessage.Images`; a PDF's first page via
+  `pdftoppm` when the server has it, env `DOCUMENT_PDF_RASTERIZER` = a path or
+  `off`, else its embedded images) + the PdfPig text layer (lines with band /
+  side / size / colour), strict JSON through the same normalizer, one retry with
+  the refusal; no model / a model that fails (non-vision) / never valid → a
+  deterministic heuristic over the text layer (`mode: heuristic`); returns
+  `{mode, template, business, summary, note, letterhead, preview{url}}`;
+  `POST …/template/assist {template, instruction}` (MCP
+  `skills_assist_document_template`) → the edited template + a one-line summary,
+  sandbox = a small rule set (presets, colour words / hex, logo / title sides,
+  zebra, borders, fonts, page size, page numbers, "bank details in the footer").
+  Both quota-guarded (`QuotaGuard`, 429) and metered as `LlmUsage` feature
+  `document_template`; nothing is saved until the skill is. `/skills/apps`'
+  documents entry carries `template_presets`. Previews of an edited template go
+  through `/skills/test`'s documents dry run. UI: "Look → Design template" on the
+  Documents form opens `components/skills/DocumentDesigner.tsx` (full screen,
+  panels left — simple first, the rest under Advanced, section order up/down;
+  "Editing" all documents or one type = an override — live preview right, an
+  iframe of the auth-fetched blob + "Open preview" for iOS; top: preset
+  thumbnails, "Upload my design", "Ask AI", Undo); client model
+  `components/skills/documentTemplate.ts`, words `readySkills.designer`. Tests:
+  `DocumentTemplateTests`, `DocumentTemplateApiTests`.
 - **AI monitor + human-like behaviour** (`/ai-monitor`, `/api/ai/monitor*`,
   `/api/ai/behaviour`). EVERY AI-written outbound (instant reply, queued
   ai_reply, follow-up, flow job with payload `source:"ai"`) goes through
@@ -854,6 +900,35 @@ When you fix one of these, update this table, `README.md` and
   `ai.monitor` (agents hold it) / `ai.behaviour.manage`. `AI_HUMANIZE=0` turns
   the human-like DEFAULTS off (explicit Setting rows still win) — the test host
   sets it.
+  **Human-like touches** (`Ai/HumanTouch.cs`, settings group `human`, resolved
+  inbox → entity → org → default like the rest): `ai_emoji_style` off | light
+  (default) | expressive = a `STYLE — emoji` line composed BELOW the hard rules,
+  house rules and persona ("if the persona says otherwise, follow the persona";
+  email always gets "don't use emoji"; follow-ups and flow messages get it too,
+  voice nothing). `ai_reactions` (default on) offers chat replies
+  `react_to_message(message_id, emoji)` where `HumanTouch.ReactionsPossible`
+  (WhatsApp Cloud/YCloud/Baileys, Telegram — not Twilio): ONE reaction on a
+  customer message of THIS turn (since our last outbound), the emoji validated by
+  `MessageReactions.ForAi` (one emoji; Telegram's own set, spelled without
+  U+FE0F; a few never-for-the-AI ones). `ai_quote_replies` auto (default) | off
+  offers `quote_message(message_id)` — the reply's FIRST bubble quotes it
+  (`reply_to` on the draft → `OutboundSender.Send(replyTo:)` direct or through the
+  first queued bubble's payload; ignored where quotes aren't carried). No
+  heuristic quoting: only when the model asks. The model sees ids as `[msg <id>] `
+  in front of customer messages (only when a tool can use them; stripped from any
+  reply). Results ride on `AiReplyResult.Reactions` / `ReplyToId` → the draft's
+  `reactions: [{message_id, emoji}]` / `reply_to`; `AiGate.Deliver` reacts FIRST
+  through `OutboundSender.React` + `MessageReactions.Set` (actor `ai`, "ours" like
+  a person's — `MessageReactions.IsOurs`; audit `message.react`), then the text.
+  A reaction can stand alone (`AiReplyResult.ReactionOnly`, an empty-content
+  draft); the acknowledgement skip reacts instead of staying silent when
+  reactions are on and `ai_ack_text` is blank (`Humanizer.AckReaction`: 🙏 thanks
+  EN/BM/ZH, ❤️ emoji-only, 👍 otherwise). Held / shadow / rejected / expired
+  drafts never react; approving reacts then. A refused touch never flags a reply.
+  The monitor shows `reactions` + `quote` on the draft (`DraftTouches` in
+  `DraftBits.tsx`); the playground previews both (`reaction` / `quote` by
+  transcript index, `options.emoji_style|reactions|quote_replies` overrides need
+  `ai.behaviour.manage`). Tests: `HumanTouchTests`.
 - **AI reviewer — "AI to monitor AI"** (`Ai/Review/AiReviewService.cs`,
   `Endpoints/AiReviewEndpoints.cs`, the AI monitor's "AI review" tab
   `?tab=ai-review`, `components/ai-monitor/AiReviewPanel.tsx`). ON DEMAND ONLY —
@@ -903,6 +978,62 @@ When you fix one of these, update this table, `README.md` and
   the customer. An optional `level` (entity slug, "" = organization) overrides
   where it lands — the panel's confirm dialog always sends it (editable text,
   defaulting to the conversation's entity). Tests: `AiReviewTests`.
+- **Background AI tasks — silent AI workers** (`/ai-tasks`, Automate;
+  `Data/Ai/Tasks/AiTaskService.cs` + `AiTaskTools.cs`, `Endpoints/AiTaskEndpoints.cs`,
+  `Workers/AiTaskWorker.cs`, `components/ai-tasks/AiTasks.tsx`, words in the
+  `aiTasks` namespace). An AI that keeps READING customers' inbound messages and
+  acts through tools but NEVER writes to the customer — there is no send tool by
+  construction. `AiTask` (`crm_aitask`) is a multi-entity library row (kind
+  `ai_task`, "Available to" like skills): channels (empty = all), trigger
+  `inbound_message` + conditions (attachment "" | any | pdf | image, ANY keyword,
+  linked contact yes/no), free-text `instructions`, an explicit tool ALLOWLIST
+  (`AiTaskTools`: `add_private_note`, `add_conversation_label`, `set_contact_field`
+  (defined custom fields only), `hand_over_to_person` (a tracked handover, kind
+  `rule`, by `ai_task:<id>`, `standDown: false`), `sheets_append_row` (time + name +
+  phone in front), `drive_upload_attachment` (the message's file —
+  `IntegrationActions.UploadDriveBytesAsync`, never reachable from a flow step),
+  `calendar_create_event` (no attendee), `webhook_post` (https, a public host, a
+  ≥16-char secret or refused; `X-ChatBranch-Signature: t=…,v1=<HMAC-SHA256 of
+  "t.body">`), `mcp:<server>__<tool>` = an external MCP server's tool exactly as
+  the operator assistant offers it (`ExternalMcpTools`)) and per-tool `config`
+  (the webhook secret leaves masked; a masked value sent back keeps it). The
+  inbound path (`InboundProcessor` after the message is stored, and `/simulate`)
+  only QUEUES a pending `AiTaskRun` (`crm_aitaskrun`, unique per task × message —
+  idempotent) for enabled in-scope tasks on the channel matching the keywords,
+  `AI_TASK_DELAY_SECONDS` (default 10) ahead; `AiTaskService.Enqueue` never
+  throws. `RunDueAsync` (the worker, every 10 s, `AI_TASK_WORKER=0` off;
+  `POST /api/ai/tasks/tick` is the manual seam) waits ≤90 s for a needed
+  attachment (fetched off the ack), drops a run whose attachment / linked
+  condition fails (no row), claims pending→running atomically, then SKIPS (said
+  in `error`) when the task was switched off or left the scope, the AI master
+  switch is `off` (schedule mode doesn't stop it), the entity's AI quota is
+  reached, or no model is configured — it runs whether the chatbot is on or off
+  for the chat, and on opted-out chats (it messages no one). Input: the message
+  text fenced as data + the attachment (PDF / .txt / .csv text via PdfPig
+  `DocumentExtractor`, ≤20 000 chars; an image ≤4 MB as an OpenAI-compatible
+  `image_url` data URL when `ILlmClient.SupportsVision` — OpenRouter / OpenAI /
+  Gemini — else noted "not readable without a vision model"; `LlmMessage.Images`),
+  the `ToolLoop` with ≤6 tool calls at temperature 0.1, and a closing JSON
+  `{relevant, extracted, summary}` (`ParseFinal`, lenient). Status ok | failed (a
+  tool failed — its error kept) | skipped (not relevant and no calls: no note);
+  each run stores the extracted JSON, every tool call + result (redacted —
+  `AiTaskTools.Redact` — and capped), tokens, provider/model; a run that did
+  something writes a "🤖 <task>: <summary>" private note and audit `ai_task.run`
+  (source automation); usage metered as `LlmUsage` feature `ai_task` (entity =
+  the conversation's; `user_name` only on a dry run). API: `GET /api/ai/tasks`
+  (+ the tool catalog with `connected` per integration and the ready MCP
+  servers' tools; `ai.monitor` | `settings.ai.manage`), `POST/PUT/DELETE`
+  (`settings.ai.manage`), `GET …/{id}/runs` (scoped like conversations),
+  `POST …/{id}/test {text, attachment?: {name, mime, base64}, task?}` = a DRY RUN
+  (unsaved edits ride as `task`; tools that change something answer "preview",
+  a read-only MCP tool runs; nothing stored but the usage row; the caller's user
+  quota → 429). MCP `ai_tasks_*`. UI: list (trigger summary, Available to, tools,
+  last runs, on/off) → editor (name, `AvailabilityPicker`, attachment,
+  instructions; channels / keywords / sender under `Advanced`; the allowlist
+  grouped In ChatBranch · Connected apps · Your own system · External MCP with
+  "Not connected" shown; per-tool settings; the Test box) → Runs modal; templates
+  "Save invoices" and "Log receipts / payment slips". Tests: `AiTaskTests`,
+  `AiTaskApiTests`.
 - **Human handover** (`Ai/Handover.cs`, the ONLY writer of `crm_thread.handover_*`).
   `Handover.Mark(db, thread, kind, reason, by)`: kinds `check_failed` ·
   `asked_for_human` · `send_blocked` · `booking_failed` · `low_confidence` ·
@@ -1701,7 +1832,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **830 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **903 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /
@@ -1717,12 +1848,14 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   up-the-tree resolution — `IntegrationScopeTests`), notifications + settings,
   search/live, the platform (audit, API keys, MCP — every route a tool or a
   documented exclusion, `McpCoverageTests` — assistant), the AI playground
-  (`AiPlaygroundTests`), the Documents / QR / payments / Sheets apps + the calculator
-  (`DocumentTests`), the Test lab and the LiveKit
+  (`AiPlaygroundTests`), background AI tasks (`AiTaskTests`), the Documents / QR / payments / Sheets apps + the calculator
+  (`DocumentTests`), the document template designer — normalizer, presets, the
+  pre-template golden layout, letterhead, upload-your-design + Ask AI against a fake
+  vision model (`DocumentTemplateTests`, `DocumentTemplateApiTests`) —, the Test lab and the LiveKit
   control plane. Keep them green. The test host (`ApiFactory` in
   `ApiSmokeTests.cs`) sets its own env: `QUEUE_WORKER=0`, `FLOWS_WORKER=0`,
   `AI_FOLLOWUP_WORKER=0`, `HEALTH_WORKER=0`, `EMBEDDING_WORKER=0`,
-  `IDENTITY_CHECK_WORKER=0` (drains, probes, indexing and lookups are driven
+  `IDENTITY_CHECK_WORKER=0`, `AI_TASK_WORKER=0` (drains, probes, indexing, lookups and AI task runs are driven
   explicitly — no timing races),
   `AI_HUMANIZE=0` (sandbox answers inline), `LLM_PRICE_SYNC=0`, `PASSWORD_HASH_ITERATIONS=1000` (fast
   hashes for the seeded logins — 600 000 rounds per sign-in saturated a 2-vCPU

@@ -279,6 +279,39 @@ export function VariantEditor({
     { key: 'skills', label: 'playground.changes.skills' },
     { key: 'memory', label: 'playground.changes.memory' },
   ]
+  // the human-like touches: '' = the saved setting (named), else this run's choice
+  const p = options.policy
+  const emojiName = (v: string): string =>
+    v === 'off' || v === 'light' || v === 'expressive' ? t(`ai.behaviour.options.emojiStyle.${v}`) : v
+  const saved = (value: string) => ({ value: '', label: t('playground.changes.saved', { value }) })
+  const touches: { key: 'emojiStyle' | 'reactions' | 'quotes'; label: MessageKey; options: SelectOption[] }[] = [
+    {
+      key: 'emojiStyle',
+      label: 'playground.changes.emojiStyle',
+      options: [
+        saved(emojiName(p.emoji_style ?? 'light')),
+        ...(['off', 'light', 'expressive'] as const).map((v) => ({ value: v, label: emojiName(v) })),
+      ],
+    },
+    {
+      key: 'reactions',
+      label: 'playground.changes.reactions',
+      options: [
+        saved(p.reactions === false ? t('playground.changes.off') : t('playground.changes.on')),
+        { value: 'on', label: t('playground.changes.on') },
+        { value: 'off', label: t('playground.changes.off') },
+      ],
+    },
+    {
+      key: 'quotes',
+      label: 'playground.changes.quotes',
+      options: [
+        saved(p.quote_replies === 'off' ? t('playground.changes.off') : t('ai.behaviour.options.quoteReplies.auto')),
+        { value: 'auto', label: t('ai.behaviour.options.quoteReplies.auto') },
+        { value: 'off', label: t('playground.changes.off') },
+      ],
+    },
+  ]
 
   return (
     <div className="flex flex-col gap-3">
@@ -366,6 +399,26 @@ export function VariantEditor({
               label={t('playground.changes.showPrompt')}
             />
           </div>
+        </div>
+      </div>
+
+      <div>
+        <div className="text-[12px] font-semibold text-text-high">{t('playground.changes.touches')}</div>
+        <p className="mb-1.5 text-[11.5px] text-text-muted">{t('playground.changes.touchesHint')}</p>
+        <div className="flex flex-col gap-2">
+          {touches.map((row) => (
+            <div key={row.key} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+              <span className="text-[12.5px] text-text-mid">{t(row.label)}</span>
+              <Select
+                value={variant[row.key]}
+                onChange={(v) => set({ [row.key]: v } as Partial<Variant>)}
+                options={row.options}
+                ariaLabel={t(row.label)}
+                size="md"
+                className="w-full sm:w-[220px]"
+              />
+            </div>
+          ))}
         </div>
       </div>
     </div>

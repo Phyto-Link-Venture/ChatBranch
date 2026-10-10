@@ -135,6 +135,16 @@ export const ai: Dict<typeof source> = {
     flowMessageCount_other: '{count} mesej aliran',
   },
   draft: {
+    touch: {
+      label: 'Reaksi dan petikan dalam balasan ini',
+      willReact: 'Akan memberi reaksi {emoji}',
+      reacted: 'Memberi reaksi {emoji}',
+      reactionFailed: 'Reaksi {emoji} tidak dihantar',
+      onMessage: 'pada “{text}”',
+      reactionOnly: 'Reaksi sahaja — tiada teks dihantar.',
+      quotes: 'Memetik “{text}”',
+      quotesMessage: 'Memetik mesej terdahulu',
+    },
     tool: 'alat',
     check: 'semakan',
     toolTitle: 'Alat {name}',
@@ -279,6 +289,15 @@ export const ai: Dict<typeof source> = {
 
   behaviour: {
     options: {
+      emojiStyle: {
+        off: 'Tutup — tiada emoji',
+        light: 'Ringan — emoji sekali-sekala',
+        expressive: 'Ekspresif — lebih mesra, lebih kerap sedikit',
+      },
+      quoteReplies: {
+        auto: 'Auto — petik apabila membantu',
+        off: 'Tutup — jangan sekali-kali memetik',
+      },
       reviewMode: {
         auto: 'Hantar serta-merta',
         reviewFlagged: 'Semak balasan berisiko',
@@ -330,6 +349,10 @@ export const ai: Dict<typeof source> = {
     inherits: 'Mewarisi lalai organisasi',
     inheritsOverrides: 'Mewarisi lalai organisasi (menindih apabila disimpan)',
     groups: {
+      human: {
+        title: 'Seperti manusia',
+        description: 'Emoji, reaksi emoji dan balasan berpetik — sentuhan kecil seseorang yang menaip di telefonnya.',
+      },
       review: {
         title: 'Semak sebelum menghantar',
         description: 'Tentukan mesej AI yang disemak oleh manusia sebelum sampai kepada pelanggan.',
@@ -356,6 +379,21 @@ export const ai: Dict<typeof source> = {
       },
     },
     fields: {
+      emojiStyle: {
+        label: 'Emoji dalam balasan',
+        help:
+          'Tutup: tiada emoji. Ringan: emoji sekali-sekala di tempat yang sesuai — paling banyak satu setiap mesej, tidak sekali-kali dalam aduan atau permohonan maaf, dan sedikit sahaja jika pelanggan tidak menggunakannya. Ekspresif: lebih mesra dan lebih kerap sedikit. E-mel tidak pernah mendapat emoji, dan persona yang menyatakan sebaliknya diutamakan.',
+      },
+      reactions: {
+        label: 'Beri reaksi kepada mesej pelanggan',
+        help:
+          'Di WhatsApp dan Telegram, AI boleh memberi reaksi kepada mesej terkini pelanggan — 👍 pada “ok”, 🙏 pada “terima kasih”, ❤️ pada gambar — paling banyak satu reaksi setiap balasan. Reaksi sahaja boleh menjawab akuan terima yang ringkas, bukannya berdiam diri. Ia ditambah apabila balasan dihantar, bukan semasa ia ditahan.',
+      },
+      quoteReplies: {
+        label: 'Petik mesej yang dijawab',
+        help:
+          'Auto: apabila pelanggan menghantar beberapa mesej sekali gus, atau jawapan merujuk kepada mesej yang lebih lama, balasan memetik mesej yang dijawabnya (WhatsApp dan Telegram). Tutup: jangan sekali-kali memetik.',
+      },
       reviewMode: {
         label: 'Siapa menyemak AI sebelum ia menghantar',
         help:
@@ -398,7 +436,7 @@ export const ai: Dict<typeof source> = {
       ackText: {
         label: 'Akuan ringkas (pilihan)',
         help:
-          'Jika ditetapkan, dihantar sebagai ganti balasan penuh kepada akuan terima (contohnya “Baik, terima kasih!”). Biarkan kosong untuk berdiam diri.',
+          'Jika ditetapkan, dihantar sebagai ganti balasan penuh kepada akuan terima (contohnya “Baik, terima kasih!”). Biarkan kosong untuk berdiam diri — atau untuk memberi reaksi emoji apabila reaksi dihidupkan.',
       },
       typing: {
         label: 'Tunjukkan status menaip dan berhenti seketika sebelum menghantar',
@@ -469,6 +507,7 @@ export const ai: Dict<typeof source> = {
     waitsApproval: 'Menunggu sehingga manusia meluluskannya (ditunjukkan seolah-olah diluluskan serta-merta)',
     typing: 'sedang menaip… ({seconds}s)',
     ackNoReply: 'Hanya akuan terima — tidak perlu dibalas',
+    ackReaction: 'AI memberi reaksi {emoji} dan bukannya membalas',
     repliesToAck: 'AI turut membalas akuan terima itu',
     followUp: 'Susulan {n}, ditulis oleh AI',
     ifNoAnswer: 'Jika AI bertanya sesuatu dan tiada jawapan',

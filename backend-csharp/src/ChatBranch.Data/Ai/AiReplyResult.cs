@@ -68,6 +68,16 @@ public sealed record AiReplyResult
         Array.Empty<Dictionary<string, object?>>();
     /// <summary>The knowledge items / chunks and lessons the prompt carried (retrieval).</summary>
     public IReadOnlyList<AiGrounding> Grounding { get; init; } = Array.Empty<AiGrounding>();
+    /// <summary>
+    /// The emoji reaction the model chose (<c>react_to_message</c>, at most one) —
+    /// made on delivery, BEFORE the text; a held / shadow / rejected reply never reacts.
+    /// </summary>
+    public IReadOnlyList<AiReaction> Reactions { get; init; } = Array.Empty<AiReaction>();
+    /// <summary>The customer message the reply's first bubble quotes (<c>quote_message</c>).</summary>
+    public int? ReplyToId { get; init; }
+
+    /// <summary>A reaction with no words: the whole answer is the emoji (an acknowledgement).</summary>
+    public bool ReactionOnly => Action == AiActions.Send && string.IsNullOrWhiteSpace(Text) && Reactions.Count > 0;
 
     /// <summary>A reply check asked for a human (or retries ran out).</summary>
     public bool HandoverRequested => Action == AiActions.Handover;
@@ -97,6 +107,8 @@ public sealed record AiReplyResult
         if (PendingActions.Count > 0) meta["pending_actions"] = AiPendingAction.ToMeta(PendingActions);
         if (Attachments.Count > 0) meta["attachments"] = Documents.AiAttachments.ToMeta(Attachments);
         if (Deferred.Count > 0) meta["deferred_actions"] = Deferred.ToList();
+        if (Reactions.Count > 0) meta["reactions"] = AiReaction.ToMeta(Reactions);
+        if (ReplyToId is int quote) meta["reply_to"] = quote;
         return meta;
     }
 

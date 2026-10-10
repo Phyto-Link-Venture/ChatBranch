@@ -21,6 +21,7 @@ import { assistant } from './assistant'
 import { help } from './help'
 import { testlab } from './testlab'
 import { playground } from './playground'
+import { aiTasks } from './aiTasks'
 import { readySkills } from './readySkills'
 import { billing } from './billing'
 import { guide } from './guide'
@@ -50,6 +51,7 @@ export const en = {
   help,
   testlab,
   playground,
+  aiTasks,
   readySkills,
   billing,
   guide,

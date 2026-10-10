@@ -14,6 +14,7 @@ export const bubble: Dict<typeof source> = {
   reactions: {
     you: '你',
     customer: '客户',
+    ai: 'AI',
     by: '{names} 回应了 {emoji}',
     removeYours: '点击移除你的回应',
     addSame: '点击回应 {emoji}',

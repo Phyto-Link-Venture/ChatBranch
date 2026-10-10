@@ -75,6 +75,10 @@ public class InboundProcessor
             replyToExternalId: replyToExternalId);
         Invites.Complete(invite, thread, msg);
 
+        // background AI tasks (silent workers that read the message and act through
+        // tools, never answering the customer) are QUEUED here and run by their worker
+        Ai.Tasks.AiTaskService.Enqueue(_db, _scoping, thread, msg);
+
         // STOP / UNSUBSCRIBE / BERHENTI (+ configured words) opt the conversation
         // out of everything automated; START / UNSTOP / MULA opts it back in
         ApplyOptOut(thread, text);

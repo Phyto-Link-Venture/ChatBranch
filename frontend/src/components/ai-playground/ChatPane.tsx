@@ -9,7 +9,7 @@
  * tokens (app/chats/chats.css).
  */
 
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import {
   Check,
   Loader2,
@@ -24,7 +24,8 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useT } from '@/i18n'
-import { resultText, type ColumnResult, type Entry } from '@/lib/aiPlayground'
+import { plannedReactions, resultText, type ColumnResult, type Entry } from '@/lib/aiPlayground'
+import '@/components/chats/messageExtras.css'
 import { ProductionChip } from './ProductionChip'
 import { fieldCls } from './SetupPane'
 
@@ -88,14 +89,30 @@ function AiCell({
   return (
     <div className="flex flex-col items-end gap-1.5">
       {bubbles.length === 0 ? (
-        <div className="text-[12px] italic text-text-muted">{t('playground.chat.noText')}</div>
+        <div className="text-[12px] italic text-text-muted">
+          {r.reaction
+            ? t('playground.chat.reactionOnly', { emoji: r.reaction.emoji })
+            : t('playground.chat.noText')}
+        </div>
       ) : (
         bubbles.map((b, i) => (
           <div key={i} className={`cb-bubble cb-bubble-out ${sent ? '' : 'opacity-75'}`} style={{ maxWidth: '100%' }}>
             {i === 0 && <span className="cb-bubble-source">{t('playground.chat.ai')}</span>}
+            {/* the quote production would send with the first bubble — shown, never sent */}
+            {i === 0 && r.quote && (
+              <span className="cb-quote" title={t('playground.chat.wouldQuote')}>
+                <span className="cb-quote-author">{t('playground.chat.customer')}</span>
+                <span className="cb-quote-text">{r.quote.text}</span>
+              </span>
+            )}
             {b}
           </div>
         ))
+      )}
+      {r.reaction && bubbles.length > 0 && (
+        <span className="text-[11px] text-text-muted">
+          {t('playground.chat.wouldReact', { emoji: r.reaction.emoji })}
+        </span>
       )}
       <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
         {!sent && bubbles.length > 0 && (
@@ -201,6 +218,8 @@ export function ChatPane({
   const last = entries[entries.length - 1]
   // every entry is one turn of the transcript the next reply sends
   const full = entries.length >= maxTurns
+  // the reactions the AI turns would make, on the customer bubbles they target
+  const reactions = useMemo(() => plannedReactions(entries), [entries])
 
   // keep the newest turn in view
   useEffect(() => {
@@ -277,6 +296,23 @@ export function ChatPane({
                           <span className="cb-bubble-source">{t('playground.chat.customer')}</span>
                           {e.text}
                         </div>
+                        {reactions.get(e.id)?.length ? (
+                          <div className="cb-reactions justify-start">
+                            {reactions.get(e.id)!.map((x) => (
+                              <span
+                                key={`${x.column}:${x.emoji}`}
+                                className="cb-reaction-chip cb-reaction-mine"
+                                title={
+                                  columns > 1
+                                    ? `${columnNames[x.column] ?? ''} — ${t('playground.chat.wouldReact', { emoji: x.emoji })}`
+                                    : t('playground.chat.wouldReact', { emoji: x.emoji })
+                                }
+                              >
+                                <span className="text-[13px] leading-none">{x.emoji}</span>
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                         <button
                           type="button"
                           onClick={() => setEditing({ id: e.id, text: e.text })}

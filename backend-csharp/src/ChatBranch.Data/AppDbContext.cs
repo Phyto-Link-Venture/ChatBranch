@@ -96,6 +96,9 @@ public class AppDbContext : DbContext
     public DbSet<TestLabRun> TestLabRuns => Set<TestLabRun>();
     public DbSet<AiReviewRun> AiReviewRuns => Set<AiReviewRun>();
     public DbSet<AiReviewFinding> AiReviewFindings => Set<AiReviewFinding>();
+    // background AI tasks: silent AI workers that read inbound messages and act through tools
+    public DbSet<AiTask> AiTasks => Set<AiTask>();
+    public DbSet<AiTaskRun> AiTaskRuns => Set<AiTaskRun>();
 
     /// <summary>Every AuditLog row is stamped with its request/source provenance
     /// on save (Audit/AuditStampInterceptor), so the per-file audit helpers carry
@@ -343,6 +346,18 @@ public class AppDbContext : DbContext
         b.Entity<AiReviewFinding>().ToTable("crm_aireviewfinding");
         b.Entity<AiReviewFinding>().HasIndex(f => f.RunId).HasDatabaseName("ix_aireviewfinding_run");
         Json<AiReviewFinding, List<string>>(b, x => x.Categories);
+
+        // ---- background AI tasks (Ai/Tasks/AiTaskService) ------------------------
+        b.Entity<AiTask>().ToTable("crm_aitask");
+        Json<AiTask, List<string>>(b, x => x.Channels);
+        Json<AiTask, List<string>>(b, x => x.Keywords);
+        Json<AiTask, List<string>>(b, x => x.Tools);
+        Json<AiTask, Dictionary<string, object?>>(b, x => x.Config);
+        b.Entity<AiTaskRun>().ToTable("crm_aitaskrun");
+        b.Entity<AiTaskRun>().HasIndex(r => new { r.TaskId, r.MessageId }).IsUnique()
+            .HasDatabaseName("uniq_aitaskrun_task_message");
+        b.Entity<AiTaskRun>().HasIndex(r => new { r.Status, r.DueAt }).HasDatabaseName("ix_aitaskrun_status_due");
+        b.Entity<AiTaskRun>().HasIndex(r => r.ThreadId).HasDatabaseName("ix_aitaskrun_thread");
 
         // ---- multi-entity library availability (ScopingService.LibraryVisible) --
         b.Entity<LibraryEntity>().ToTable("crm_libraryentity");

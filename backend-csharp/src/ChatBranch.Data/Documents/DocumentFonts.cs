@@ -8,7 +8,9 @@ namespace ChatBranch.Data.Documents;
 /// The fonts generated documents are written in. PDFsharp's cross-platform
 /// build reads no system fonts, so the text face — Liberation Sans Regular +
 /// Bold (SIL OFL 1.1, <c>Documents/Fonts/LICENSE-OFL.txt</c>) — is EMBEDDED in
-/// this assembly: a bare container renders the same PDF as a laptop. It covers
+/// this assembly: a bare container renders the same PDF as a laptop. A
+/// document template may pick Liberation Serif (same licence, also embedded)
+/// for its body or headings. It covers
 /// English, Bahasa Melayu and other Latin / Greek / Cyrillic text.
 ///
 /// Chinese, Japanese and Korean need a CJK font, far too large to ship (10 MB+).
@@ -22,6 +24,8 @@ namespace ChatBranch.Data.Documents;
 public static class DocumentFonts
 {
     public const string Sans = "DocSans";
+    /// <summary>Liberation Serif (Regular + Bold, SIL OFL) — a template's <c>serif</c> font.</summary>
+    public const string Serif = "DocSerif";
     public const string Cjk = "DocCJK";
 
     private static readonly object Gate = new();
@@ -106,11 +110,15 @@ public static class DocumentFonts
     {
         private readonly Lazy<byte[]> _regular = new(() => Embedded("LiberationSans-Regular.ttf"));
         private readonly Lazy<byte[]> _bold = new(() => Embedded("LiberationSans-Bold.ttf"));
+        private readonly Lazy<byte[]> _serif = new(() => Embedded("LiberationSerif-Regular.ttf"));
+        private readonly Lazy<byte[]> _serifBold = new(() => Embedded("LiberationSerif-Bold.ttf"));
 
         public FontResolverInfo? ResolveTypeface(string familyName, bool bold, bool italic)
         {
             if (string.Equals(familyName, Cjk, StringComparison.OrdinalIgnoreCase) && _cjkPath != null)
                 return new FontResolverInfo("cjk", bold, italic);
+            if (string.Equals(familyName, Serif, StringComparison.OrdinalIgnoreCase))
+                return bold ? new FontResolverInfo("serif-bold", false, italic) : new FontResolverInfo("serif", false, italic);
             // everything else (incl. MigraDoc's default "Arial"/"Courier New") → the embedded sans;
             // italics are simulated (no italic face is shipped)
             return bold ? new FontResolverInfo("sans-bold", false, italic) : new FontResolverInfo("sans", false, italic);
@@ -119,6 +127,8 @@ public static class DocumentFonts
         public byte[]? GetFont(string faceName) => faceName switch
         {
             "sans-bold" => _bold.Value,
+            "serif" => _serif.Value,
+            "serif-bold" => _serifBold.Value,
             "cjk" => _cjkBytes ??= File.ReadAllBytes(_cjkPath!),
             _ => _regular.Value,
         };

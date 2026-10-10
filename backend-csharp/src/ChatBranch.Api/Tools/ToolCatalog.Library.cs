@@ -166,6 +166,17 @@ public static partial class ToolCatalog
                 A.Entity("app: as this entity.", ArgIn.Body),
             }, write: false);
 
+        yield return T(s, "skills_assist_document_template", "Edit a document template from words",
+            "Ask the AI to change a Documents skill's PDF template (\"make it minimal with a navy header and put " +
+            "bank details in the footer\"): returns the edited, validated template and a one-line summary. Saves " +
+            "nothing — put the template in the skill's config.template with skills_save_skill.",
+            "POST", "/api/aicore/skills/documents/template/assist", ai,
+            new[]
+            {
+                A.Obj("template", "The current template (the skill config's template; omit for the classic layout)."),
+                A.Str("instruction", "What to change.", req: true),
+            }, write: false, outside: true);
+
         // ---- bookings ---------------------------------------------------------
         const string b = "bookings";
         yield return T(b, "bookings_list", "List bookings",

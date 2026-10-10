@@ -10,6 +10,7 @@ export const shell = {
     flowBuilder: 'Journeys',
     aiMonitor: 'AI monitor',
     aiPlayground: 'AI playground',
+    aiTasks: 'Background AI tasks',
     automations: 'Automations',
     voice: 'Voice & calls',
     templates: 'Templates',

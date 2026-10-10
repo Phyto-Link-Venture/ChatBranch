@@ -511,6 +511,36 @@ export const guide: Dict<typeof source> = {
         },
       },
     },
+    aiTasks: {
+      title: 'Tugas AI latar belakang',
+      intro: 'Pekerja AI senyap yang membaca apa yang pelanggan hantar dan memfailkannya dalam aplikasi anda yang lain — tanpa pernah membalas.',
+      steps: {
+        s1: {
+          title: 'Pekerja yang tidak pernah membalas',
+          body: 'Tugas latar belakang membaca mesej baharu pelanggan — invois, resit, slip bayaran — dan menguruskan kertas kerja dengan aplikasi anda. Pelanggan tidak pernah menerima mesej daripadanya.',
+        },
+        s2: {
+          title: 'Apa yang dilakukannya',
+          body: 'Baris ini menerangkannya dalam satu ayat. Ia berjalan sama ada chatbot hidup atau mati untuk sesuatu sembang, tetapi berhenti apabila suis utama AI dimatikan atau kuota AI habis.',
+        },
+        s3: {
+          title: 'Mula daripada templat',
+          body: 'Pilih “Simpan invois” atau “Log resit”, atau mula kosong. Nyatakan dengan perkataan anda sendiri apa yang perlu dicari dan dilakukan, tandakan alat yang boleh digunakan, dan uji pada contoh sebelum menghidupkannya.',
+        },
+        s4: {
+          title: 'Tugas anda',
+          body: 'Setiap kad menunjukkan bila ia berjalan, alat yang boleh digunakan, siapa yang boleh menggunakannya dan bagaimana larian terakhirnya.',
+        },
+        s5: {
+          title: 'Hidup, mati dan larian',
+          body: 'Hidupkan atau matikan tugas, buka Larian untuk melihat apa yang diekstrak dan alat yang dipanggil bagi setiap mesej, atau suntingnya.',
+        },
+        s6: {
+          title: 'Di mana anda melihatnya dalam sembang',
+          body: 'Setiap larian yang melakukan sesuatu meninggalkan nota peribadi 🤖 dalam perbualan, supaya pasukan anda tahu apa yang telah difailkan.',
+        },
+      },
+    },
     persona: {
       title: 'Persona & peraturan rumah',
       intro: 'Cara AI memperkenalkan diri, dan peraturan yang sentiasa dipatuhinya.',

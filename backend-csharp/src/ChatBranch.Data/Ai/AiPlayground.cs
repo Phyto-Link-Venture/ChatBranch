@@ -77,7 +77,8 @@ public static class AiPlayground
             new(verdict, why, rule, kind, policy.ReviewMode, shadow, flags, ai);
 
         if (!ai.Enabled) return P(Verdicts.AiOff, ai.Reason, ai.Rule);
-        if (r.Action is AiActions.Empty or AiActions.Error || string.IsNullOrWhiteSpace(text))
+        // a reaction alone ("ok thanks!" → 👍) is a whole answer, judged like any reply
+        if (!r.ReactionOnly && (r.Action is AiActions.Empty or AiActions.Error || string.IsNullOrWhiteSpace(text)))
             return P(Verdicts.Blocked, r.Reason.Length > 0 ? $"The AI produced no reply: {r.Reason}" : "The AI produced no reply.");
 
         var review = AiGate.Review(policy, flags, r.Action, canned: false);

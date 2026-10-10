@@ -29,7 +29,10 @@ public sealed record AiBehaviour(
     double FollowUpBetweenHours,
     int FollowUpMax,
     string FollowUpTemplate,
-    string FollowUpGuidance);
+    string FollowUpGuidance,
+    string EmojiStyle = "light",
+    bool Reactions = true,
+    bool QuoteReplies = true);
 
 /// <summary>
 /// Setting keys for the AI monitor (review policy) and the human-like
@@ -75,9 +78,15 @@ public static class AiBehaviourSettings
     public const string FollowUpGuidance = "ai_followup_guidance";
     /// <summary>How feedback becomes lessons (Ai/Learning/LearningService.cs).</summary>
     public const string LearningMode = "ai_learning_mode";
+    /// <summary>Human-like touches (Ai/HumanTouch.cs): emoji in the words, reactions, quoted replies.</summary>
+    public const string EmojiStyle = "ai_emoji_style";
+    public const string Reactions = "ai_reactions";
+    public const string QuoteReplies = "ai_quote_replies";
 
     public static readonly string[] ReviewModes = { "auto", "review_flagged", "review_all", "shadow" };
     public static readonly string[] SplitModes = { "off", "auto", "always" };
+    public static readonly string[] EmojiStyles = { "off", "light", "expressive" };
+    public static readonly string[] QuoteModes = { "auto", "off" };
     public static readonly string[] LearningModes = { "review", "auto", "off" };
 
     public const string DefaultKeywords =
@@ -117,7 +126,7 @@ public static class AiBehaviourSettings
             + "the AI stays quiet instead of replying to it.", Humanize: true),
         new(AckText, "wait", "text", "", "Optional short acknowledgement",
             "If set, sent instead of a full reply to an acknowledgement (for example \"Noted, thanks!\"). "
-            + "Leave blank to stay silent."),
+            + "Leave blank to stay silent — or to react with an emoji when reactions are on."),
 
         // ---- typing like a person -------------------------------------------
         new(Typing, "typing", "bool", "true", "Show typing and pause before sending",
@@ -135,6 +144,22 @@ public static class AiBehaviourSettings
             SplitModes, Humanize: true),
         new(SplitMaxChars, "split", "number", "320", "Longest single message (characters)", "",
             Min: 80, Max: 4000),
+
+        // ---- human-like touches: emoji, reactions, quoted replies ------------
+        new(EmojiStyle, "human", "select", "light", "Emoji in replies",
+            "Off: no emoji. Light: an occasional emoji where a person would use one — at most one per message, "
+            + "never in a complaint or an apology, and few when the customer uses none. Expressive: warmer and "
+            + "a little more often. Email never gets emoji, and a persona that says otherwise wins.",
+            EmojiStyles, Humanize: true),
+        new(Reactions, "human", "bool", "true", "React to the customer's messages",
+            "On WhatsApp and Telegram the AI may react to the customer's latest message — 👍 on \"ok\", 🙏 on "
+            + "\"thanks\", ❤️ on a photo — at most one reaction per reply. A reaction alone can answer a simple "
+            + "acknowledgement instead of silence. It is added when the reply is sent, never while it is held.",
+            Humanize: true),
+        new(QuoteReplies, "human", "select", "auto", "Quote the message being answered",
+            "Auto: when the customer sent several messages at once, or the answer refers to an older message, "
+            + "the reply quotes the message it answers (WhatsApp and Telegram). Off: never quote.",
+            QuoteModes, Humanize: true),
 
         // ---- follow-ups when the customer goes quiet ------------------------
         new(FollowUp, "followup", "bool", "false", "Follow up when the customer goes quiet",
@@ -207,6 +232,8 @@ public static class AiBehaviourSettings
         if (!SplitModes.Contains(split)) split = "off";
         var min = Math.Max(0, I(TypingMin));
         var max = Math.Max(min, I(TypingMax));
+        var emoji = S(EmojiStyle).ToLowerInvariant();
+        if (!EmojiStyles.Contains(emoji)) emoji = DefaultFor(EmojiStyle);
 
         return new AiBehaviour(
             ReviewMode: mode,
@@ -229,7 +256,10 @@ public static class AiBehaviourSettings
             FollowUpBetweenHours: Math.Max(0, D(FollowUpBetweenHours)),
             FollowUpMax: Math.Max(0, I(FollowUpMax)),
             FollowUpTemplate: S(FollowUpTemplate),
-            FollowUpGuidance: S(FollowUpGuidance));
+            FollowUpGuidance: S(FollowUpGuidance),
+            EmojiStyle: emoji,
+            Reactions: B(Reactions),
+            QuoteReplies: S(QuoteReplies).ToLowerInvariant() != "off");
     }
 
     /// <summary>

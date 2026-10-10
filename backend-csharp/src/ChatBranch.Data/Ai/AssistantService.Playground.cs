@@ -20,8 +20,11 @@ public sealed record PlaygroundProfile(string Name, string Language, IReadOnlyLi
 /// replaces the stored one (the hard rules always stay) and parts of the prompt
 /// switched off. Defaults = exactly what a real reply gets.
 /// </summary>
+/// <param name="EmojiStyle">the emoji style this run uses (off | light | expressive; "" = no style line).</param>
+/// <param name="Reactions">offer <c>react_to_message</c> (where the channel has reactions).</param>
+/// <param name="Quotes">offer <c>quote_message</c> (where the channel quotes).</param>
 public sealed record PlaygroundOptions(string? Persona = null, bool Knowledge = true, bool Lessons = true,
-    bool Skills = true, bool Memory = true)
+    bool Skills = true, bool Memory = true, string EmojiStyle = "", bool Reactions = false, bool Quotes = false)
 {
     public static readonly PlaygroundOptions Defaults = new();
 }
@@ -69,17 +72,28 @@ public partial class AssistantService
         var lastUser = turns.LastOrDefault(t => t.Role == PlaygroundTurn.Customer)?.Text ?? "";
 
         var o = input.Options;
+        // the reaction / quote tools see transcript POSITIONS as message ids (1 = the first turn sent):
+        // the playground is stateless, so the browser maps them back to its own bubbles
+        var human = new HumanTurn(input.Channel, o.Reactions, o.Quotes);
+        var lastAi = turns.FindLastIndex(t => t.Role != PlaygroundTurn.Customer);
+        for (var i = 0; i < turns.Count; i++)
+        {
+            if (turns[i].Role != PlaygroundTurn.Customer) continue;
+            human.Known[i + 1] = turns[i].Text;
+            if (i > lastAi) human.Current.Add(i + 1);
+        }
         var parts = new PromptParts(string.IsNullOrWhiteSpace(o.Persona) ? null : o.Persona, o.Skills, o.Knowledge,
-            o.Lessons, o.Memory);
+            o.Lessons, o.Memory, o.EmojiStyle ?? "", human.Guidance());
         var system = BuildSystemPrompt(input.EntityId, input.Channel, contact, RetrievalQuery.FromHistory(history), parts);
         var hits = _lastComposition.Hits.ToList();
-        var messages = turns.Select(t => new LlmMessage(
-            t.Role == PlaygroundTurn.Customer ? "user" : "assistant", t.Text)).ToList();
+        var messages = turns.Select((t, i) => new LlmMessage(
+            t.Role == PlaygroundTurn.Customer ? "user" : "assistant",
+            human.TagsMessages && t.Role == PlaygroundTurn.Customer ? HumanTouch.Tag(i + 1) + t.Text : t.Text)).ToList();
 
         var spec = new Spec(system, messages.ToList(), input.EntityId, input.Channel, contact, lastUser,
             PlaygroundFeature, Trim($"playground:{input.Actor}", 120))
         {
-            Assignee = input.Assignee, SkillsOff = !o.Skills, Playground = true,
+            Assignee = input.Assignee, SkillsOff = !o.Skills, Playground = true, Human = human,
         };
         var (result, ctx, offered, checks) = await RunWithContextAsync(spec, llmOverride ?? _llm, ct);
         // belt and braces: a preview reserves nothing, but nothing may ever stay held
