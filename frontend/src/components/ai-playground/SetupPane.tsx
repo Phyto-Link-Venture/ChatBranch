@@ -8,8 +8,9 @@
  * of the prompt, per set-up (A, and B when comparing).
  */
 
+import Link from 'next/link'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { GitCompare, History, Loader2, RotateCcw, Save, Search, UserRound, X } from 'lucide-react'
+import { ExternalLink, GitCompare, History, Loader2, RotateCcw, Save, Search, UserRound, X } from 'lucide-react'
 import { Advanced } from '@/components/ui/Advanced'
 import { Button } from '@/components/ui/Button'
 import { ChannelLogo, channelLabelFor } from '@/components/ui/ChannelLogo'
@@ -306,6 +307,14 @@ export function VariantEditor({
           <label htmlFor={`${idPrefix}-persona`} className="text-[12px] font-semibold text-text-high">
             {t('playground.changes.persona')}
           </label>
+          {variant.persona == null && (
+            <Link
+              href="/ai-persona"
+              className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-text-muted hover:text-text-high"
+            >
+              <ExternalLink size={11} aria-hidden /> {t('playground.changes.personaOpenEditor')}
+            </Link>
+          )}
           {variant.persona != null && (
             <button
               type="button"
@@ -325,7 +334,7 @@ export function VariantEditor({
           className={`${fieldCls} resize-y font-mono text-[12px]`}
         />
         <p className={`mt-1 text-[11.5px] ${variant.persona != null ? 'text-amber-300' : 'text-text-muted'}`}>
-          {variant.persona != null ? t('playground.changes.personaUnsaved') : t('playground.changes.personaSaved')}
+          {variant.persona != null ? t('playground.changes.personaUnsaved') : t('playground.changes.personaSavedHint')}
         </p>
         {variant.persona != null && (
           <Button size="sm" variant="secondary" className="mt-1.5" onClick={savePersona} disabled={saving}>

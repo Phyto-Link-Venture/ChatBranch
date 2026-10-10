@@ -162,6 +162,22 @@ public class ApiFactory : WebApplicationFactory<Program>
         return base.CreateHost(builder);
     }
 
+    /// <summary>
+    /// Every test class boots its own host, and a host's FIRST request builds
+    /// all of its ~1 000 minimal-API endpoints (RequestDelegateFactory compiles
+    /// each handler). On a 2-vCPU CI runner several classes do that at once, so
+    /// a request can sit in the CPU queue past HttpClient's default 100 s —
+    /// slow, not hung (a 2-core reproduction's dumps show the endpoint compile
+    /// still running). A test that is really stuck still fails, just later.
+    /// </summary>
+    public static readonly TimeSpan ClientTimeout = TimeSpan.FromMinutes(6);
+
+    protected override void ConfigureClient(HttpClient client)
+    {
+        base.ConfigureClient(client);
+        client.Timeout = ClientTimeout;
+    }
+
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);

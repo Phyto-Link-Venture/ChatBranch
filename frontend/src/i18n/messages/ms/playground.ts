@@ -67,6 +67,8 @@ export const playground: Dict<typeof source> = {
     persona: 'Persona',
     personaUnsaved: 'Belum disimpan — hanya ruang uji ini menggunakannya. Peraturan keselamatan sentiasa kekal di atas.',
     personaSaved: 'Persona yang disimpan.',
+    personaSavedHint: 'Persona yang disimpan — taip di sini untuk mencuba perubahan, kemudian “Simpan sebagai persona”. Peraturan rumah disunting di halaman Persona & peraturan.',
+    personaOpenEditor: 'Halaman Persona & peraturan',
     personaSave: 'Simpan sebagai persona',
     personaSavedOk: 'Disimpan — setiap perbualan untuk cawangan ini kini menggunakan persona ini.',
     personaReset: 'Set semula',
