@@ -102,8 +102,10 @@ export function AiBill() {
     void load()
   }, [load])
 
-  const money = (n: number | null | undefined) => f.currency(n ?? 0, bill?.currency || 'USD')
-  const usd = (n: number | null | undefined) => f.currency(n ?? 0, 'USD')
+  // a light month is fractions of a cent: show up to 4 decimals below 1 so it never reads as 0
+  const digits = (n: number) => (n !== 0 && Math.abs(n) < 1 ? 4 : undefined)
+  const money = (n: number | null | undefined) => f.currency(n ?? 0, bill?.currency || 'USD', digits(n ?? 0))
+  const usd = (n: number | null | undefined) => f.currency(n ?? 0, 'USD', digits(n ?? 0))
   const featureLabel = (k: string) => (FEATURE_LABELS[k] ? t(FEATURE_LABELS[k]) : k)
   const monthLabel = useMemo(
     () => new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${month}-01T00:00:00Z`)),

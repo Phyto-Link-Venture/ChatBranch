@@ -170,8 +170,10 @@ function ChatsPage() {
   const t = useT()
   const f = useFormat()
   const { contacts, calls, hangupCall, sendSay: sendSipSay, escalateCall: escalateSipCall, setHumanControl } = useApp()
-  const { activeEntity, entities } = useEntity()
-  const topEntity = activeEntity?.slug ?? null
+  const { selectedEntities, entities } = useEntity()
+  // the top bar's ticked entities ([] = all); the filter's own entity pick narrows within them
+  const topEntities = useMemo(() => selectedEntities.map((e) => e.slug), [selectedEntities])
+  const topEntity = topEntities.join(',') || null
   const searchParams = useSearchParams()
 
   const [status, setStatus] = useState<InboxStatus | null>(null)
@@ -278,7 +280,7 @@ function ChatsPage() {
   }, [spDraft])
 
   // ── the list request ──
-  const listParams = useMemo(() => filtersToParams(filters, { q, entity: topEntity }).toString(), [filters, q, topEntity])
+  const listParams = useMemo(() => filtersToParams(filters, { q, entities: topEntities }).toString(), [filters, q, topEntities])
 
   const refreshThreads = useCallback(async () => {
     const seq = ++listSeq.current
@@ -561,7 +563,7 @@ function ChatsPage() {
   // Switching the entity scope (top bar, or the filter's entity pick) closes a
   // conversation the new scope no longer contains — asked of the server by id,
   // so a chat that is merely below the loaded page is not closed by mistake.
-  const scopeKey = JSON.stringify(filters.entities ?? (topEntity ? [topEntity] : []))
+  const scopeKey = JSON.stringify(filters.entities ?? topEntities)
   const scopeRef = useRef(scopeKey)
   useEffect(() => {
     if (scopeRef.current === scopeKey) return
@@ -2056,7 +2058,7 @@ function ChatsPage() {
         onClose={() => setFilterOpen(false)}
         initial={filters}
         q={q}
-        topEntity={topEntity}
+        topEntities={topEntities}
         agents={agents}
         teams={teams}
         accounts={allAccounts}

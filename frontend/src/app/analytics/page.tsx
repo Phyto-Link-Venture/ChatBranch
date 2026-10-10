@@ -104,7 +104,7 @@ export default function AnalyticsPage() {
   const fmt = useFormat()
   const pct = (rate: number) => fmt.percent(rate, 1)
   const entityQ = useEntityQuery()
-  const { activeEntity } = useEntity()
+  const { selectedEntities } = useEntity()
   const { role, ready } = useRole()
   const isAdmin = role === 'admin' || role === 'superadmin'
   const [canChannels, setCanChannels] = useState(false)
@@ -137,7 +137,7 @@ export default function AnalyticsPage() {
     }
   }, [days, entityQ])
 
-  const scope = activeEntity ? activeEntity.name : t('analytics.page.allEntities')
+  const scope = selectedEntities.length ? selectedEntities.map((e) => e.name).join(' · ') : t('analytics.page.allEntities')
   const f = data?.funnel
   const noSends = !f || f.sent === 0
   const flows = FLOWS_SLOT(days, entityQ)

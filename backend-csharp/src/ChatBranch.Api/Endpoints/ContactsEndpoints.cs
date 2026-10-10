@@ -68,9 +68,8 @@ public static class ContactsEndpoints
             {
                 // Narrow to the picked outlet AND everything under it: a contact
                 // on a child branch is visible to its parent, never the reverse.
-                var picked = await db.Entities.AsNoTracking()
-                    .FirstOrDefaultAsync(e => e.Slug == entity);
-                var ids = picked == null ? new List<int>() : sc.EntitySubtreeIds(picked.Id);
+                var picked = await InboxEndpoints.EntityId(db, entity);
+                var ids = picked is int pid ? sc.PickSubtree(pid) : new List<int>();
                 query = query.Where(c => c.EntityLinks.Any(l => ids.Contains(l.EntityId)));
             }
             if (!string.IsNullOrWhiteSpace(q))

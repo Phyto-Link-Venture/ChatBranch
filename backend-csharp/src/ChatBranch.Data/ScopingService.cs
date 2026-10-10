@@ -244,8 +244,11 @@ public class ScopingService
     public IQueryable<T> ScopeInherited<T>(IQueryable<T> qs, int? entityId)
         where T : class, IEntityScoped
     {
-        if (entityId is not int) return qs;
-        var chain = EntityChain(entityId);
+        if (entityId is not int eid) return qs;
+        // a multi-selection (EntitySelection) = what ANY ticked entity inherits
+        var chain = EntitySelection.Covers(eid)
+            ? EntitySelection.Current!.SelectMany(id => EntityChain(id)).Distinct().ToList()
+            : EntityChain(eid);
         return qs.Where(r => r.EntityId == null || chain.Contains(r.EntityId.Value));
     }
 
@@ -262,7 +265,7 @@ public class ScopingService
         where T : class, IEntityScoped
     {
         if (entityId is not int eid) return qs;
-        var ids = EntitySubtreeIds(eid);
+        var ids = PickSubtree(eid);
         if (includeUnassigned)
             return qs.Where(r => r.EntityId == null || (r.EntityId != null && ids.Contains(r.EntityId.Value)));
         return qs.Where(r => r.EntityId != null && ids.Contains(r.EntityId.Value));
@@ -288,6 +291,15 @@ public class ScopingService
         }
         return ids;
     }
+
+    /// <summary>
+    /// The subtree of the entity a request PICKED (<c>?entity=</c>): its own subtree, or —
+    /// when it is one of several ticked entities (<see cref="EntitySelection"/>) — the union
+    /// of every ticked entity's subtree. Use it only for a picked filter, never for an
+    /// assignment or a permission check.
+    /// </summary>
+    public List<int> PickSubtree(int entityId) =>
+        EntitySelection.Covers(entityId) ? EntitySubtreeIds(EntitySelection.Current!) : EntitySubtreeIds(entityId);
 
     /// <summary>The subtrees of several entities, deduped (a user's whole scope).</summary>
     public List<int> EntitySubtreeIds(IEnumerable<int> entityIds)

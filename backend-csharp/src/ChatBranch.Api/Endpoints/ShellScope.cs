@@ -41,11 +41,11 @@ internal static class ShellScope
             {
                 var allowed = sc.EntitySubtreeIds(assigned);
                 return pickedEntityId is int picked && allowed.Contains(picked)
-                    ? sc.EntitySubtreeIds(picked)
+                    ? sc.PickSubtree(picked).Where(allowed.Contains).ToList()
                     : allowed;
             }
         }
-        return pickedEntityId is int eid ? sc.EntitySubtreeIds(eid) : null;
+        return pickedEntityId is int eid ? sc.PickSubtree(eid) : null;
     }
 
     /// <summary>
@@ -68,6 +68,7 @@ internal static class ShellScope
             if (assigned.Count > 0)
             {
                 var allowed = sc.EntitySubtreeIds(assigned);
+                // a multi-selection is already cut to the caller's entities (UseEntitySelection)
                 if (pickedEntityId is int picked && allowed.Contains(picked)) return sc.ScopeInherited(qs, picked);
                 // their outlets' own rows + what those outlets inherit from above
                 var visible = allowed.Concat(assigned.SelectMany(a => sc.EntityChain(a))).Distinct().ToList();

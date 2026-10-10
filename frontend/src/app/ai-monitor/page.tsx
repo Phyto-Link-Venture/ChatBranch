@@ -20,6 +20,7 @@ import { StatsPanel } from '@/components/ai-monitor/StatsPanel'
 import { AiBehaviourSettings } from '@/components/ai-monitor/AiBehaviourSettings'
 import { LearningPanel } from '@/components/ai-learning/LearningPanel'
 import { AiMasterSwitch } from '@/components/ai-controls/AiMasterSwitch'
+import { MultiEntityNotice } from '@/components/shell/MultiEntityNotice'
 import { HandoverStats } from '@/components/ai-controls/HandoverStats'
 import { hasCap } from '@/lib/auth'
 import { useEntity, useEntityQuery } from '@/lib/EntityContext'
@@ -186,7 +187,12 @@ export default function AiMonitorPage() {
             )}
             {access.ready && tab === 'stats' && <StatsPanel entityQuery={entityQ} />}
             {access.ready && tab === 'stats' && <div className="mt-4"><HandoverStats entityQuery={entityQ} /></div>}
-            {access.ready && tab === 'settings' && <AiBehaviourSettings initialEntity={activeEntity?.slug ?? null} />}
+            {access.ready && tab === 'settings' && (
+              <>
+                <MultiEntityNotice className="mb-3" />
+                <AiBehaviourSettings initialEntity={activeEntity?.slug ?? null} />
+              </>
+            )}
           </div>
         </div>
       )}

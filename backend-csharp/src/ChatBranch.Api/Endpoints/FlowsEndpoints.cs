@@ -541,7 +541,7 @@ public static class FlowsEndpoints
         }
         if (await InboxEndpoints.EntityId(db, entity) is int eid)
         {
-            var sub = sc.EntitySubtreeIds(eid);
+            var sub = sc.PickSubtree(eid);
             qs = qs.Where(c => c.EntityLinks.Any(l => sub.Contains(l.EntityId)));
             narrowed = true;
         }

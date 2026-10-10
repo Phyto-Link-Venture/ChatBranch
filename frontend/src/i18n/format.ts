@@ -72,8 +72,11 @@ export function useFormat() {
       number: (n: number | null | undefined, o?: Intl.NumberFormatOptions) =>
         n == null || Number.isNaN(n) ? '' : new Intl.NumberFormat(tag, o).format(n),
       /** RM 12.50 */
-      currency: (n: number | null | undefined, currency = 'MYR') =>
-        n == null || Number.isNaN(n) ? '' : new Intl.NumberFormat(tag, { style: 'currency', currency }).format(n),
+      /** `maxDigits` widens the fraction (e.g. 4 for sub-cent amounts); the minimum stays the currency's own. */
+      currency: (n: number | null | undefined, currency = 'MYR', maxDigits?: number) =>
+        n == null || Number.isNaN(n)
+          ? ''
+          : new Intl.NumberFormat(tag, maxDigits ? { style: 'currency', currency, maximumFractionDigits: maxDigits } : { style: 'currency', currency }).format(n),
       /** 42% (pass 0.42) */
       percent: (n: number | null | undefined, digits = 0) =>
         n == null || Number.isNaN(n)

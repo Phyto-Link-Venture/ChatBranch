@@ -164,7 +164,8 @@ export function rangeBounds(r: DateRange, now = new Date()): { from?: string; to
 const rangeActive = (r: DateRange) => r.preset !== '' && (r.preset !== 'custom' || !!r.from || !!r.to)
 
 /** GET /api/inbox/threads parameters for these filters. */
-export function filtersToParams(f: InboxFilters, opts: { q?: string; entity?: string | null } = {}): URLSearchParams {
+/** `entities` = the top bar's ticked entities, used when the filters pick none. */
+export function filtersToParams(f: InboxFilters, opts: { q?: string; entities?: string[] } = {}): URLSearchParams {
   const p = new URLSearchParams()
   const list = (k: string, v: string[]) => v.length && p.set(k, v.join(','))
   if (opts.q?.trim()) p.set('q', opts.q.trim())
@@ -173,7 +174,7 @@ export function filtersToParams(f: InboxFilters, opts: { q?: string; entity?: st
   list('account', f.accounts)
   list('assignee', f.assignees)
   list('team', f.teams)
-  list('entity', f.entities ?? (opts.entity ? [opts.entity] : []))
+  list('entity', f.entities ?? opts.entities ?? [])
   if (f.labels.length) {
     list('labels', f.labels)
     if (f.labelsMode === 'all') p.set('labels_mode', 'all')

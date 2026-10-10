@@ -358,7 +358,9 @@ function ContactsList() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { reloadContacts } = useApp()
-  const { activeEntity, entities: entityList } = useEntity()
+  const { activeEntity, selectedEntities, multipleEntities, entities: entityList } = useEntity()
+  // the top bar's ticked entities ("" = all) — the page's own entity filter narrows within them
+  const topSlugs = selectedEntities.map((e) => e.slug).join(',')
 
   // Filters: entity (defaults to the top-bar entity), contact tag, record type.
   // Search is the table's own box, seeded by a `?q=` deep link ("Search all").
@@ -366,7 +368,7 @@ function ContactsList() {
   const [tag, setTag] = useState(searchParams.get('tag') ?? '')
   const [recordType, setRecordType] = useState('')
   const q = searchParams.get('q') ?? undefined
-  useEffect(() => setEntityFilter(activeEntity?.slug ?? null), [activeEntity?.slug])
+  useEffect(() => setEntityFilter(activeEntity?.slug ?? null), [activeEntity?.slug, topSlugs])
   useEffect(() => {
     const fromUrl = searchParams.get('tag')
     if (fromUrl !== null) setTag(fromUrl)
@@ -386,7 +388,8 @@ function ContactsList() {
   // The tag is ALSO applied here, so the list is right before the API knows it.
   const load = useCallback(async () => {
     const p = new URLSearchParams({ limit: '2000' })
-    if (entityFilter) p.set('entity', entityFilter)
+    const entity = entityFilter ?? topSlugs
+    if (entity) p.set('entity', entity)
     if (tag) p.set('tag', tag)
     try {
       const res = await fetch(`${API}/contacts?${p}`, { headers: authHeaders() })
@@ -398,7 +401,7 @@ function ContactsList() {
     } finally {
       setLoading(false)
     }
-  }, [entityFilter, tag])
+  }, [entityFilter, topSlugs, tag])
   useEffect(() => {
     load()
   }, [load])
@@ -583,7 +586,9 @@ function ContactsList() {
     },
   ]
 
-  const entityName = entityList.find((e) => e.slug === entityFilter)?.name
+  const entityName =
+    entityList.find((e) => e.slug === entityFilter)?.name ??
+    (entityFilter == null && selectedEntities.length > 1 ? selectedEntities.map((e) => e.name).join(', ') : undefined)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -654,7 +659,11 @@ function ContactsList() {
               <EntityPicker
                 value={entityFilter}
                 onChange={setEntityFilter}
-                globalLabel={t('contacts.list.allEntities')}
+                globalLabel={
+                  multipleEntities
+                    ? t('shell.entitySwitcher.selected', { count: selectedEntities.length })
+                    : t('contacts.list.allEntities')
+                }
                 size="sm"
                 ariaLabel={t('contacts.list.filterEntity')}
                 className="w-[170px]"
