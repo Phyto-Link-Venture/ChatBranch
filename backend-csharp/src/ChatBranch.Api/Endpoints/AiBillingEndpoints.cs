@@ -110,124 +110,42 @@ public static class AiBillingEndpoints
         app.MapGet("/api/billing/ai", async (string? month, string? company, AppDbContext db, ScopingService sc,
             ClaimsPrincipal me, IHttpClientFactory http) =>
         {
-            await ModelPriceCatalog.EnsureFreshAsync(http, sc);
-            if (!TryMonth(month, out var from)) return Bad("month must look like 2026-10 (years 2000–2200).");
-            var to = from.AddMonths(1);
-            var manager = await ShellScope.HasCapAsync(db, me, ManageCap);
-            // the terms that applied to THAT month — a later change never rewrites a past bill
-            var settings = Load(sc).TermsFor(AiBilling.MonthKey(from));
-            var prices = AnalyticsEndpoints.PriceTable(sc);
-
-            // ---- the tree: entity -> its company (top-level ancestor)
-            var entities = await db.Entities.AsNoTracking()
-                .Select(e => new { e.Id, e.ParentId, e.Name, e.Slug, e.CreatedAt }).ToListAsync();
-            var byId = entities.ToDictionary(e => e.Id);
-            int? CompanyOf(int? entityId)
+            var (bill, error) = await BuildBillAsync(month, company, db, sc, me, http);
+            if (bill == null) return error!;
+            object Summary(BillCompany c) => new
             {
-                var cur = entityId;
-                for (var i = 0; i < 32 && cur is int id && byId.TryGetValue(id, out var e); i++)
-                {
-                    if (e.ParentId == null) return e.Id;
-                    cur = e.ParentId;
-                }
-                return null;
-            }
-            var contactCompany = (await db.ContactEntities.AsNoTracking()
-                    .Select(l => new { l.ContactId, l.EntityId }).ToListAsync())
-                .GroupBy(l => l.ContactId)
-                .Select(g => (g.Key, Companies: g.Select(l => CompanyOf(l.EntityId)).Distinct().ToList()))
-                .Where(x => x.Companies.Count == 1 && x.Companies[0] != null)
-                .ToDictionary(x => x.Key, x => x.Companies[0]!.Value);
-
-            // ---- who may see which company
-            var scope = await VisibleCompanies(db, sc, me, manager, CompanyOf);
-            var companies = entities.Where(e => e.ParentId == null && (scope == null || scope.Contains(e.Id)))
-                .OrderBy(e => e.Name).ToList();
-            var picked = string.IsNullOrWhiteSpace(company) ? null
-                : companies.FirstOrDefault(c => c.Slug == company || c.Id.ToString(CultureInfo.InvariantCulture) == company);
-            if (!string.IsNullOrWhiteSpace(company) && picked == null)
-                return Results.NotFound(new { detail = $"Unknown company '{company}'." });
-            if (picked == null && !manager && companies.Count == 1) picked = companies[0];
-
-            // ---- the month's ledger, priced per row
-            var rows = (await db.LlmUsage.AsNoTracking().Where(u => u.CreatedAt >= from && u.CreatedAt < to)
-                    .Select(u => new
-                    {
-                        u.Feature, u.Model, u.EntityId, u.ContactId, u.CreatedAt,
-                        u.PromptTokens, u.CompletionTokens, u.AudioPromptTokens, u.AudioCompletionTokens, u.CostUsd,
-                    }).ToListAsync())
-                .Select(u =>
-                {
-                    var cost = AnalyticsEndpoints.RowCost(prices, u.Model, u.PromptTokens, u.CompletionTokens,
-                        u.AudioPromptTokens, u.AudioCompletionTokens, u.CostUsd);
-                    var co = CompanyOf(u.EntityId)
-                             ?? (u.ContactId is int cid && contactCompany.TryGetValue(cid, out var cc) ? cc : (int?)null);
-                    return new BillRow(co, u.Feature, u.CreatedAt,
-                        (long)u.PromptTokens + u.CompletionTokens + u.AudioPromptTokens + u.AudioCompletionTokens, cost);
-                }).ToList();
-
-            double Billed(int companyId, double costUsd) =>
-                // 4 decimals: a light month is fractions of a cent, which must not read as 0
-                Math.Round(costUsd * (1 + settings.MarkupFor(companyId) / 100d) * settings.UsdRate, 4, MidpointRounding.AwayFromZero);
-
-            object Summary(int companyId, string name, string slug)
-            {
-                var mine = rows.Where(r => r.Company == companyId).ToList();
-                var cost = mine.Sum(r => r.CostUsd);
-                var usage = Billed(companyId, cost);
-                // no monthly fee for a month that ended before the company existed
-                var existed = !byId.TryGetValue(companyId, out var row) || row.CreatedAt == default || row.CreatedAt < to;
-                var fee = existed ? Math.Round(settings.FeeFor(companyId), 2) : 0d;
-                return new
-                {
-                    id = companyId, name, slug,
-                    requests = mine.Count,
-                    tokens = mine.Sum(r => r.Tokens),
-                    usage_amount = usage,
-                    monthly_fee = fee,
-                    total = Math.Round(usage + fee, 4),
-                    // billing managers only
-                    cost_usd = manager ? Math.Round(cost, 4) : (double?)null,
-                    markup_pct = manager ? settings.MarkupFor(companyId) : (double?)null,
-                    margin = manager ? Math.Round(usage + fee - cost * settings.UsdRate, 4) : (double?)null,
-                };
-            }
-
-            object? Detail()
-            {
-                if (picked == null) return null;
-                var mine = rows.Where(r => r.Company == picked.Id).ToList();
-                var lines = mine.GroupBy(r => r.Feature).Select(g => new
-                {
-                    feature = g.Key,
-                    requests = g.Count(),
-                    tokens = g.Sum(r => r.Tokens),
-                    amount = Billed(picked.Id, g.Sum(r => r.CostUsd)),
-                    cost_usd = manager ? Math.Round(g.Sum(r => r.CostUsd), 4) : (double?)null,
-                }).OrderByDescending(l => l.amount).ThenByDescending(l => l.requests).ToList();
-                var daily = Enumerable.Range(0, (to - from).Days).Select(i => from.AddDays(i)).Select(d => new
-                {
-                    date = d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-                    amount = Billed(picked.Id, mine.Where(r => r.CreatedAt.Date == d).Sum(r => r.CostUsd)),
-                }).ToList();
-                return new { summary = Summary(picked.Id, picked.Name, picked.Slug), lines, daily };
-            }
-
-            var unattributed = rows.Where(r => r.Company == null).ToList();
+                id = c.Id, name = c.Name, slug = c.Slug,
+                requests = c.Requests,
+                tokens = c.Tokens,
+                usage_amount = c.UsageAmount,
+                monthly_fee = c.MonthlyFee,
+                total = c.Total,
+                // billing managers only
+                cost_usd = c.CostUsd,
+                markup_pct = c.MarkupPct,
+                margin = c.Margin,
+            };
+            var manager = bill.Manager;
             return Results.Ok(new
             {
-                month = from.ToString("yyyy-MM", CultureInfo.InvariantCulture),
-                from = from.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-                to = to.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-                currency = settings.Currency,
+                month = bill.Month,
+                from = bill.From.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                to = bill.To.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                currency = bill.Currency,
                 is_manager = manager,
-                companies = companies.Select(c => Summary(c.Id, c.Name, c.Slug)).ToList(),
-                company = Detail(),
-                unattributed = manager
-                    ? new { requests = unattributed.Count, tokens = unattributed.Sum(r => r.Tokens),
-                            cost_usd = Math.Round(unattributed.Sum(r => r.CostUsd), 4) }
-                    : null,
-                usd_rate = manager ? settings.UsdRate : (double?)null,
+                companies = bill.Companies.Select(Summary).ToList(),
+                company = bill.Company == null ? null : new
+                {
+                    summary = Summary(bill.Company.Summary),
+                    lines = bill.Company.Lines.Select(l => new
+                    {
+                        feature = l.Feature, requests = l.Requests, tokens = l.Tokens, amount = l.Amount, cost_usd = l.CostUsd,
+                    }).ToList(),
+                    daily = bill.Company.Daily.Select(d => new { date = d.Date, amount = d.Amount }).ToList(),
+                },
+                unattributed = bill.Unattributed == null ? null
+                    : new { requests = bill.Unattributed.Requests, tokens = bill.Unattributed.Tokens, cost_usd = bill.Unattributed.CostUsd },
+                usd_rate = bill.UsdRate,
                 pricing_note = manager
                     ? "Cost = what the provider charged per call (OpenRouter reports it); calls without a reported "
                       + "price are estimated from llm_prices over OpenRouter's public price list (USD per 1M tokens). "
@@ -237,6 +155,83 @@ public static class AiBillingEndpoints
                 pricing_note_code = manager ? "provider_cost_markup_fee" : null,
             });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(ViewCap);
+
+        // The same bill as a PDF (A4, MigraDoc) — the dependable way to print or save it,
+        // above all on an iPhone, where window.print() does nothing inside the installed
+        // app. Same gate, scope and visibility rules as the JSON above.
+        app.MapGet("/api/billing/ai/pdf", async (string? month, string? company, string? lang, AppDbContext db,
+            ScopingService sc, ClaimsPrincipal me, IHttpClientFactory http) =>
+        {
+            var (bill, error) = await BuildBillAsync(month, company, db, sc, me, http);
+            if (bill == null) return error!;
+            var issuer = sc.SettingValue("business_name").Trim();
+            var bytes = AiBillPdf.Render(bill, issuer, lang, DateTime.UtcNow);
+            var who = bill.Company?.Summary.Slug is { Length: > 0 } slug ? SafeFile(slug) : "all";
+            return Results.File(bytes, "application/pdf", $"ai-bill-{who}-{bill.Month}.pdf");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(ViewCap);
+
+        // A short-lived signed link to the same PDF, for the installed iOS app: a
+        // standalone PWA can neither print nor reliably open a blob URL, but it can
+        // NAVIGATE to a plain https URL (Safari's viewer → the share sheet: save,
+        // share, print). The link carries no auth header, so it is signed instead:
+        // bound to this person (re-checked when it is opened — deactivated, demoted
+        // or out of scope = refused), to this month / company / language, and
+        // valid for BillLink.Lifetime (5 minutes). Sessions only — an API key has
+        // the authenticated GET above.
+        app.MapPost("/api/billing/ai/pdf/link", async (BillLinkRequest? body, AppDbContext db, ScopingService sc,
+            ClaimsPrincipal me, IHttpClientFactory http) =>
+        {
+            if (ApiKeyAuth.IsApiKey(me))
+                return Results.Json(new { detail = "API keys download the bill with GET /api/billing/ai/pdf." }, statusCode: 403);
+            if (!int.TryParse(me.FindFirstValue("profile_id"), out var profileId))
+                return Results.Json(new { detail = "Sign in to download the bill." }, statusCode: 403);
+            var month = body?.Month;
+            var company = body?.Company;
+            // validate now (bad month = 400, out-of-scope company = 404), so the link never 404s later
+            var (bill, error) = await BuildBillAsync(month, company, db, sc, me, http);
+            if (bill == null) return error!;
+            var expires = DateTimeOffset.UtcNow.Add(BillLink.Lifetime);
+            var token = BillLink.Sign(new BillLink.Claims(profileId, me.Identity?.Name ?? "", bill.Month,
+                (company ?? "").Trim(), NormalizeLang(body?.Lang), expires.ToUnixTimeSeconds()));
+            return Results.Ok(new { path = $"/api/billing/ai/pdf/s/{token}", expires_at = expires.UtcDateTime });
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(ViewCap)
+          .WithMetadata(new ChatBranch.Api.Audit.SkipRequestAuditAttribute());
+
+        // The signed link itself: anonymous at the door, the signature IS the credential;
+        // the bill is then built AS the person who asked for it, with the same rules.
+        app.MapGet("/api/billing/ai/pdf/s/{token}", async (string token, AppDbContext db, ScopingService sc,
+            IHttpClientFactory http, HttpContext ctx) =>
+        {
+            var claims = BillLink.Verify(token, DateTimeOffset.UtcNow);
+            if (claims == null)
+                return Results.Json(new { detail = "This download link has expired — open the bill and tap Download PDF again." }, statusCode: 410);
+            var profile = await db.Profiles.AsNoTracking().Include(p => p.User)
+                .FirstOrDefaultAsync(p => p.Id == claims.ProfileId);
+            if (profile?.User is not { IsActive: true } user
+                || !string.Equals(user.Username, claims.Username, StringComparison.Ordinal))
+                return Results.Json(new { detail = "This download link is no longer valid." }, statusCode: 403);
+            var identity = new ClaimsIdentity(new List<Claim>
+            {
+                new(ClaimTypes.Name, user.Username),
+                new(ClaimTypes.Role, profile.Role),
+                new("profile_id", profile.Id.ToString(CultureInfo.InvariantCulture)),
+            }.Concat(profile.TenantId is int tid
+                ? new[] { new Claim("tenant_id", tid.ToString(CultureInfo.InvariantCulture)) }
+                : Array.Empty<Claim>()), "bill-link");
+            var asUser = new ClaimsPrincipal(identity);
+            if (!await ShellScope.HasCapAsync(db, asUser, ViewCap))
+                return Results.Json(new { detail = "You no longer have access to the AI bill." }, statusCode: 403);
+            var (bill, error) = await BuildBillAsync(claims.Month, claims.Company, db, sc, asUser, http);
+            if (bill == null) return error!;
+            var bytes = AiBillPdf.Render(bill, sc.SettingValue("business_name").Trim(), claims.Lang, DateTime.UtcNow);
+            var who = bill.Company?.Summary.Slug is { Length: > 0 } slug ? SafeFile(slug) : "all";
+            // inline: iOS shows it in the viewer, whose share button saves, shares or prints it
+            ctx.Response.Headers.ContentDisposition = $"inline; filename=\"ai-bill-{who}-{bill.Month}.pdf\"";
+            ctx.Response.Headers.CacheControl = "private, no-store";
+            ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
+            ctx.Response.Headers["Referrer-Policy"] = "no-referrer";
+            return Results.Bytes(bytes, "application/pdf");
+        }).AllowAnonymous();
 
         // ---- AI usage quotas (monthly caps in the billing currency) ------------------------
         // GET: every quota in the caller's scope with month-to-date spend. A billing
@@ -515,6 +510,123 @@ public static class AiBillingEndpoints
         default_monthly_fee = x.Terms.DefaultMonthlyFee,
         companies = x.Terms.Companies.Count,
     }).ToList();
+
+    /// <summary>
+    /// The month's bill as the caller may see it — the ONE computation behind
+    /// <c>GET /api/billing/ai</c> and its PDF. Returns the bill, or the error to answer.
+    /// </summary>
+    internal static async Task<(BillReport? Bill, IResult? Error)> BuildBillAsync(string? month, string? company,
+        AppDbContext db, ScopingService sc, ClaimsPrincipal me, IHttpClientFactory http)
+    {
+        await ModelPriceCatalog.EnsureFreshAsync(http, sc);
+        if (!TryMonth(month, out var from)) return (null, Bad("month must look like 2026-10 (years 2000–2200)."));
+        var to = from.AddMonths(1);
+        var manager = await ShellScope.HasCapAsync(db, me, ManageCap);
+        // the terms that applied to THAT month — a later change never rewrites a past bill
+        var settings = Load(sc).TermsFor(AiBilling.MonthKey(from));
+        var prices = AnalyticsEndpoints.PriceTable(sc);
+
+        // ---- the tree: entity -> its company (top-level ancestor)
+        var entities = await db.Entities.AsNoTracking()
+            .Select(e => new { e.Id, e.ParentId, e.Name, e.Slug, e.CreatedAt }).ToListAsync();
+        var byId = entities.ToDictionary(e => e.Id);
+        int? CompanyOf(int? entityId)
+        {
+            var cur = entityId;
+            for (var i = 0; i < 32 && cur is int id && byId.TryGetValue(id, out var e); i++)
+            {
+                if (e.ParentId == null) return e.Id;
+                cur = e.ParentId;
+            }
+            return null;
+        }
+        var contactCompany = (await db.ContactEntities.AsNoTracking()
+                .Select(l => new { l.ContactId, l.EntityId }).ToListAsync())
+            .GroupBy(l => l.ContactId)
+            .Select(g => (g.Key, Companies: g.Select(l => CompanyOf(l.EntityId)).Distinct().ToList()))
+            .Where(x => x.Companies.Count == 1 && x.Companies[0] != null)
+            .ToDictionary(x => x.Key, x => x.Companies[0]!.Value);
+
+        // ---- who may see which company
+        var scope = await VisibleCompanies(db, sc, me, manager, CompanyOf);
+        var companies = entities.Where(e => e.ParentId == null && (scope == null || scope.Contains(e.Id)))
+            .OrderBy(e => e.Name).ToList();
+        var picked = string.IsNullOrWhiteSpace(company) ? null
+            : companies.FirstOrDefault(c => c.Slug == company || c.Id.ToString(CultureInfo.InvariantCulture) == company);
+        if (!string.IsNullOrWhiteSpace(company) && picked == null)
+            return (null, Results.NotFound(new { detail = $"Unknown company '{company}'." }));
+        if (picked == null && !manager && companies.Count == 1) picked = companies[0];
+
+        // ---- the month's ledger, priced per row
+        var rows = (await db.LlmUsage.AsNoTracking().Where(u => u.CreatedAt >= from && u.CreatedAt < to)
+                .Select(u => new
+                {
+                    u.Feature, u.Model, u.EntityId, u.ContactId, u.CreatedAt,
+                    u.PromptTokens, u.CompletionTokens, u.AudioPromptTokens, u.AudioCompletionTokens, u.CostUsd,
+                }).ToListAsync())
+            .Select(u =>
+            {
+                var cost = AnalyticsEndpoints.RowCost(prices, u.Model, u.PromptTokens, u.CompletionTokens,
+                    u.AudioPromptTokens, u.AudioCompletionTokens, u.CostUsd);
+                var co = CompanyOf(u.EntityId)
+                         ?? (u.ContactId is int cid && contactCompany.TryGetValue(cid, out var cc) ? cc : (int?)null);
+                return new BillRow(co, u.Feature, u.CreatedAt,
+                    (long)u.PromptTokens + u.CompletionTokens + u.AudioPromptTokens + u.AudioCompletionTokens, cost);
+            }).ToList();
+
+        double Billed(int companyId, double costUsd) =>
+            // 4 decimals: a light month is fractions of a cent, which must not read as 0
+            Math.Round(costUsd * (1 + settings.MarkupFor(companyId) / 100d) * settings.UsdRate, 4, MidpointRounding.AwayFromZero);
+
+        BillCompany Summary(int companyId, string name, string slug)
+        {
+            var mine = rows.Where(r => r.Company == companyId).ToList();
+            var cost = mine.Sum(r => r.CostUsd);
+            var usage = Billed(companyId, cost);
+            // no monthly fee for a month that ended before the company existed
+            var existed = !byId.TryGetValue(companyId, out var row) || row.CreatedAt == default || row.CreatedAt < to;
+            var fee = existed ? Math.Round(settings.FeeFor(companyId), 2) : 0d;
+            return new BillCompany(companyId, name, slug, mine.Count, mine.Sum(r => r.Tokens), usage, fee,
+                Math.Round(usage + fee, 4),
+                // billing managers only
+                manager ? Math.Round(cost, 4) : null,
+                manager ? settings.MarkupFor(companyId) : null,
+                manager ? Math.Round(usage + fee - cost * settings.UsdRate, 4) : null);
+        }
+
+        BillDetail? Detail()
+        {
+            if (picked == null) return null;
+            var mine = rows.Where(r => r.Company == picked.Id).ToList();
+            var lines = mine.GroupBy(r => r.Feature).Select(g => new BillLine(
+                    g.Key, g.Count(), g.Sum(r => r.Tokens), Billed(picked.Id, g.Sum(r => r.CostUsd)),
+                    manager ? Math.Round(g.Sum(r => r.CostUsd), 4) : null))
+                .OrderByDescending(l => l.Amount).ThenByDescending(l => l.Requests).ToList();
+            var daily = Enumerable.Range(0, (to - from).Days).Select(i => from.AddDays(i)).Select(d => new BillDay(
+                d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                Billed(picked.Id, mine.Where(r => r.CreatedAt.Date == d).Sum(r => r.CostUsd)))).ToList();
+            return new BillDetail(Summary(picked.Id, picked.Name, picked.Slug), lines, daily);
+        }
+
+        var unattributed = rows.Where(r => r.Company == null).ToList();
+        return (new BillReport(
+            from.ToString("yyyy-MM", CultureInfo.InvariantCulture), from, to, settings.Currency, manager,
+            companies.Select(c => Summary(c.Id, c.Name, c.Slug)).ToList(),
+            Detail(),
+            manager ? new BillUnattributed(unattributed.Count, unattributed.Sum(r => r.Tokens),
+                Math.Round(unattributed.Sum(r => r.CostUsd), 4)) : null,
+            manager ? settings.UsdRate : null), null);
+    }
+
+    private static string NormalizeLang(string? lang) =>
+        (lang ?? "").Trim().ToLowerInvariant() is "ms" or "zh" ? lang!.Trim().ToLowerInvariant() : "en";
+
+    /// <summary>A slug as a file-name part: letters, digits, '-' and '_' only.</summary>
+    private static string SafeFile(string s)
+    {
+        var clean = new string(s.Select(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_' ? ch : '-').ToArray()).Trim('-');
+        return clean.Length > 0 ? clean[..Math.Min(clean.Length, 60)] : "company";
+    }
 
     private sealed record BillRow(int? Company, string Feature, DateTime CreatedAt, long Tokens, double CostUsd);
 

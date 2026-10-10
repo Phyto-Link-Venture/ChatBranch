@@ -619,6 +619,8 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `POST /api/aicore/skills/documents/logo` | uploads a logo image (multipart) for the Documents skill's letterhead — set it from the Skills page |
 | `POST /api/voice/preview` | returns synthesized audio — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
 | `POST /api/voice/clone` | clones a voice from an uploaded recording — needs the speaker's own audio sample and consent |
+| `GET /api/billing/ai/pdf` | the AI bill as a PDF — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file (billing_get_ai_bill returns the same figures) |
+| `POST /api/billing/ai/pdf/link` | mints a 5-minute signed link to the AI bill PDF for a browser that cannot send an auth header (the installed iOS app); sessions only, API keys get 403 — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
 | `GET /api/audit.csv` | file export (CSV / vCard) of data a JSON tool already returns (activity_search_log) |
 | `GET /api/analytics/reports.csv` | file export (CSV / vCard) of data a JSON tool already returns (analytics_get_reports) |
 | `GET /api/messaging/contacts/vcard` | file export (CSV / vCard) of data a JSON tool already returns (search_contacts) |
