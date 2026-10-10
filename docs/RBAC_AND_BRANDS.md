@@ -156,6 +156,7 @@ where a write reads its body first. Notable gates:
 | Take / hand back / flag a conversation (`POST /api/inbox/threads/{channel}/{key}/handover`) | `chats.send` + the per-conversation scope (below) |
 | Handover stats (`GET /api/ai/handovers/stats`) | `ai.monitor` or `chats.view` |
 | Bookings (`GET /api/bookings`, `POST /api/bookings/{id}/cancel`) | `chats.view` / `chats.send`, rows scoped like conversations |
+| Documents (`GET /api/documents`, `GET /api/documents/{id}/file`, `POST /api/documents`) | `chats.view` / `chats.send`, rows scoped like conversations; `POST` also needs the conversation in scope (404 otherwise). `GET /api/documents/public/{token}` is anonymous (the customer's link — see API_CONVENTIONS) |
 | AI learning (`/api/ai/feedback`, `/api/ai/lessons`, `/api/ai/learning/*`) | reads and rating `ai.monitor` (feedback follows the conversation scope, lessons the library scope); lesson writes and re-indexing `ai.behaviour.manage`; deleting a lesson admin+ too |
 | Contact identities (`/api/contacts/{id}/channels/discover`, `/{id}/invites`, `/identify/{channel}/{key}/contact`) | `contacts.manage` (reading invites `contacts.view`, the chat's identify banner `chats.view`); the import and `/identity-checks/run` admin+ AND `contacts.manage` |
 | Per-inbox unknown-customer mode (`/api/inboxes/{id}/identify`) | GET `channels.view`, PUT `channels.manage` |
@@ -243,14 +244,15 @@ exemption list below fails the build.
 | `/api/ai/playground/options` (providers, the stored persona and `can_override` only with `ai.behaviour.manage`; `POST …/reply` and `…/import` carry the same gate — trying changes needs `ai.behaviour.manage`, importing a conversation `chats.view` + the conversation scope) | `ai.monitor`, `ai.behaviour.manage` | AI playground |
 | `/api/ai/review/runs`, `/api/ai/review/runs/{id}` (runs whose entities all sit in the caller's scope; findings filtered by the conversation's entity) | `ai.monitor`, `ai.behaviour.manage` | AI monitor → AI review |
 | `POST /api/aicore/knowledge/preview` | `settings.ai.manage`, `ai.monitor` | Knowledge, AI monitor's retrieval tester |
-| `/api/aicore/knowledge`, `/persona`, `/skills/apps`, `/skills/builtins` | `settings.ai.manage` | Knowledge base, AI skills |
+| `/api/aicore/knowledge`, `/persona`, `/skills/apps`, `/skills/builtins`, `/skills/documents/logo/{name}` | `settings.ai.manage` | Knowledge base, AI skills (the Documents app's logo) |
+| `/api/documents/preview/{id}` | `ai.monitor`, `ai.behaviour.manage`, `settings.ai.manage` | AI playground previews, the Documents skill's "Preview PDF" |
 | `/api/aicore/skills` | `settings.ai.manage`, `flows.manage` | AI skills, the Journeys skill picker |
 | `/api/aicore/booking-hours` | `integrations.view`, `settings.ai.manage` | Integrations (booking hours) |
 | `POST /api/aicore/reply` | `chats.send` | operator-requested AI draft |
 | `/api/audit`, `/audit.csv`, `/audit/facets` | `activity.view` (+ the handler's API-key-scope check and row tiering) | Activity |
 | `/api/call-logs`, `/api/calls/recording/{call_id}` | `call_logs.view` | Call logs |
 | `/api/calls/{room}`, `/{room}/live`, `/api/whatsapp/calls/recording/{name}` | `chats.view`, `call_logs.view` | live call in the inbox, call logs |
-| `/api/inbox/threads`, `/api/whatsapp/threads`, `/api/messaging/threads`, `/api/messaging/agents`, `/api/whatsapp/media/{id}`, `/api/messaging/media/{id}`, `/api/bookings` | `chats.view` | Chats, Bookings |
+| `/api/inbox/threads`, `/api/whatsapp/threads`, `/api/messaging/threads`, `/api/messaging/agents`, `/api/whatsapp/media/{id}`, `/api/messaging/media/{id}`, `/api/bookings`, `/api/documents`, `/api/documents/{id}/file` | `chats.view` (documents scoped like conversations) | Chats, Bookings, the AI monitor's document links |
 | `/api/messaging/canned` | `chats.view`, `chats.send`, `templates.manage` | composer quick replies, Templates |
 | `/api/whatsapp/templates` | `chats.send`, `templates.manage`, `flows.manage` | template picker, Templates, Journeys |
 | `/api/calls/script-templates` | `chats.send`, `script_templates.manage`, `flows.manage` | Script call button, Templates, Journeys |

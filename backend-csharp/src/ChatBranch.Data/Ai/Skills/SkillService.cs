@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using ChatBranch.Data.Bookings;
+using ChatBranch.Data.Documents;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,18 +21,28 @@ public class SkillService
     private readonly ScopingService _scoping;
     private readonly TimeProvider _clock;
     private readonly BookingService _bookings;
+    private readonly DocumentService _documents;
+    private readonly ConnectedAppTools _connected;
 
     public SkillService(AppDbContext db, ScopingService scoping, TimeProvider? clock = null,
-        BookingService? bookings = null)
+        BookingService? bookings = null, DocumentService? documents = null, ConnectedAppTools? connected = null)
     {
         _db = db;
         _scoping = scoping;
         _clock = clock ?? TimeProvider.System;
         _bookings = bookings ?? new BookingService(db, scoping, clock: _clock);
+        _documents = documents ?? new DocumentService(db, scoping, clock: _clock);
+        _connected = connected ?? new ConnectedAppTools(db, scoping);
     }
 
     /// <summary>The calendar booking service app tools run on (shared with the AI gate in DI).</summary>
     public BookingService Bookings => _bookings;
+
+    /// <summary>The Documents / QR app tools (files made for a reply, sent at delivery).</summary>
+    public DocumentService Documents => _documents;
+
+    /// <summary>The Payments / Sheets app tools.</summary>
+    public ConnectedAppTools Connected => _connected;
 
     public DateTimeOffset UtcNow => _clock.GetUtcNow();
 
@@ -96,6 +107,18 @@ public class SkillService
         public Dictionary<string, BookingService.ToolBinding> Apps { get; } = new();
         /// <summary>App skill SkillId → the base name of its tools ("calendar", "calendar_2"…).</summary>
         public Dictionary<string, string> AppBases { get; } = new();
+        /// <summary>Documents / QR app tools: tool name → what it makes.</summary>
+        public Dictionary<string, DocumentService.ToolBinding> Files { get; } = new();
+        /// <summary>Payments / Sheets app tools: tool name → what it runs.</summary>
+        public Dictionary<string, ConnectedAppTools.ToolBinding> Connected { get; } = new();
+    }
+
+    /// <summary>The first free base name: "document", then "document_2", "document_3"…</summary>
+    private static string FreeBase(string stem, HashSet<string> taken, Func<string, IEnumerable<string>> namesFor)
+    {
+        var b = stem;
+        for (var i = 2; namesFor(b).Any(taken.Contains); i++) b = $"{stem}_{i}";
+        return b;
     }
 
     /// <summary>Built-ins + the enabled tool skills + the enabled app skills given, with unique names.</summary>
@@ -115,6 +138,13 @@ public class SkillService
         }
         foreach (var s in list.Where(s => s.Kind == SkillKinds.App && s.Enabled))
         {
+            var app = AppSkills.AppOf(s.Config);
+            if (app != AppSkills.Calendar)
+            {
+                try { AddAppTools(set, taken, s, app); }
+                catch { /* a broken app config offers no tools rather than breaking the reply */ }
+                continue;
+            }
             try
             {
                 var cfg = CalendarAppConfig.From(s.Config);
@@ -136,13 +166,91 @@ public class SkillService
         return set;
     }
 
+    /// <summary>The tools of one non-calendar app skill (documents, qr, payments, sheets).</summary>
+    private void AddAppTools(ToolSet set, HashSet<string> taken, AgentSkill s, string app)
+    {
+        switch (app)
+        {
+            case AppSkills.Documents:
+            {
+                var cfg = DocumentAppConfig.From(s.Config);
+                if (cfg.AllowedActions.Count == 0) return;
+                var b = FreeBase("document", taken, x => DocumentService.ToolDefinitions(x, cfg).Select(t => t.Name));
+                set.AppBases[s.SkillId] = b;
+                foreach (var (name, action, tool) in DocumentService.ToolDefinitions(b, cfg))
+                {
+                    taken.Add(name);
+                    set.Files[name] = new DocumentService.ToolBinding(s, app, action, b, cfg, null);
+                    set.Tools.Add(tool);
+                }
+                break;
+            }
+            case AppSkills.Qr:
+            {
+                var cfg = QrAppConfig.From(s.Config);
+                var b = FreeBase("qr", taken, x => DocumentService.QrToolDefinitions(x).Select(t => t.Name));
+                set.AppBases[s.SkillId] = b;
+                foreach (var (name, action, tool) in DocumentService.QrToolDefinitions(b))
+                {
+                    taken.Add(name);
+                    set.Files[name] = new DocumentService.ToolBinding(s, app, action, b, null, cfg);
+                    set.Tools.Add(tool);
+                }
+                break;
+            }
+            case AppSkills.Payments:
+            {
+                var cfg = PaymentAppConfig.From(s.Config);
+                var b = FreeBase("payment", taken, x => ConnectedAppTools.PaymentToolDefinitions(x, cfg).Select(t => t.Name));
+                set.AppBases[s.SkillId] = b;
+                foreach (var (name, action, tool) in ConnectedAppTools.PaymentToolDefinitions(b, cfg))
+                {
+                    taken.Add(name);
+                    set.Connected[name] = new ConnectedAppTools.ToolBinding(s, app, action, b, cfg, null);
+                    set.Tools.Add(tool);
+                }
+                break;
+            }
+            case AppSkills.Sheets:
+            {
+                var cfg = SheetsAppConfig.From(s.Config);
+                var b = FreeBase("sheets", taken, x => ConnectedAppTools.SheetsToolDefinitions(x, cfg).Select(t => t.Name));
+                set.AppBases[s.SkillId] = b;
+                foreach (var (name, action, tool) in ConnectedAppTools.SheetsToolDefinitions(b, cfg))
+                {
+                    taken.Add(name);
+                    set.Connected[name] = new ConnectedAppTools.ToolBinding(s, app, action, b, null, cfg);
+                    set.Tools.Add(tool);
+                }
+                break;
+            }
+        }
+    }
+
     /// <summary>
-    /// Run one call the model made — app tools (calendar) asynchronously, every
-    /// other tool through <see cref="ExecuteTool"/>. Never throws.
+    /// Run one call the model made — app tools (calendar, documents, QR, payments,
+    /// sheets) asynchronously, every other tool through <see cref="ExecuteTool"/>.
+    /// Never throws.
     /// </summary>
     public async Task<(string result, bool ok)> ExecuteToolAsync(ToolSet set, LlmToolCall call, SkillContext ctx,
         CancellationToken ct = default)
     {
+        if (set.Files.TryGetValue(call.Name, out var file))
+        {
+            try
+            {
+                var r = await _documents.ExecuteToolAsync(file, call.ArgumentsJson, ctx, ct);
+                return (r.Json, r.Ok);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex) { return ($"error: {ex.Message}", false); }
+        }
+        if (set.Connected.TryGetValue(call.Name, out var connected))
+        {
+            try { return await _connected.ExecuteAsync(connected, call.ArgumentsJson, ctx, ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex) { return ($"error: {ex.Message}", false); }
+        }
         if (!set.Apps.TryGetValue(call.Name, out var binding)) return ExecuteTool(set, call, ctx);
         try
         {

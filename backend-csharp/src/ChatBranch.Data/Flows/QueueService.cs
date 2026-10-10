@@ -376,6 +376,10 @@ public class QueueService
             if (draftId is int sentDraft) _gate.MarkDraftSent(sentDraft, msg.Id);
             Sent(job, msg.Id);
             if (job.Payload.ContainsKey("rest")) _gate.ContinueHumanSend(job, thread);
+            // the reply's LAST bubble went out: its files (documents, QR codes) and
+            // deferred actions (Sheets rows) follow right after the text
+            if (draftId is int lastDraft && AiGate.StrList(job.Payload, "rest").Count == 0)
+                _gate.DeliverExtras(lastDraft, thread, job.AccountId, msg.Status);
             return true;
         }
         catch (Exception ex)

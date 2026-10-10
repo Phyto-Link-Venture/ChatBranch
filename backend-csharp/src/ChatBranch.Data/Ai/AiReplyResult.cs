@@ -57,6 +57,15 @@ public sealed record AiReplyResult
     /// rejected, superseded, expired or shadowed (see Bookings.BookingService).
     /// </summary>
     public IReadOnlyList<AiPendingAction> PendingActions { get; init; } = Array.Empty<AiPendingAction>();
+    /// <summary>
+    /// Files this reply's app tools made (Documents PDFs, QR codes — crm_document
+    /// ids). They are sent as files right after the reply text when it is
+    /// delivered, and voided when it is not (see Documents.DocumentService).
+    /// </summary>
+    public IReadOnlyList<int> Attachments { get; init; } = Array.Empty<int>();
+    /// <summary>Connected-app actions that run only when the reply is delivered (Sheets rows).</summary>
+    public IReadOnlyList<Dictionary<string, object?>> Deferred { get; init; } =
+        Array.Empty<Dictionary<string, object?>>();
     /// <summary>The knowledge items / chunks and lessons the prompt carried (retrieval).</summary>
     public IReadOnlyList<AiGrounding> Grounding { get; init; } = Array.Empty<AiGrounding>();
 
@@ -86,6 +95,8 @@ public sealed record AiReplyResult
     {
         var meta = BaseMeta();
         if (PendingActions.Count > 0) meta["pending_actions"] = AiPendingAction.ToMeta(PendingActions);
+        if (Attachments.Count > 0) meta["attachments"] = Documents.AiAttachments.ToMeta(Attachments);
+        if (Deferred.Count > 0) meta["deferred_actions"] = Deferred.ToList();
         return meta;
     }
 

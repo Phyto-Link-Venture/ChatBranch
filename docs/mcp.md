@@ -363,6 +363,13 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `bookings_set_hours` | Set booking hours | write | `integrations.manage` or `settings.ai.manage` |
 | `bookings_reset_hours` | Reset booking hours | write · **destructive** | `integrations.manage` or `settings.ai.manage` |
 
+#### documents (2)
+
+| Tool | What it does | Kind | Needs |
+|---|---|---|---|
+| `documents_list` | List documents | read | `chats.view` |
+| `documents_create` | Create a document | write · open-world | `chats.send` |
+
 #### automations (7)
 
 | Tool | What it does | Kind | Needs |
@@ -601,6 +608,10 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `GET /api/messaging/media/{id:int}` | binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
 | `GET /api/calls/recording/{callId}` | binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
 | `GET /api/whatsapp/calls/recording/{name}` | binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
+| `GET /api/documents/{id:int}/file` | binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file (documents_list gives each document's number, total and status) |
+| `GET /api/documents/preview/{id}` | a throw-away preview file from the AI playground / the skill form — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
+| `GET /api/aicore/skills/documents/logo/{name}` | the Documents skill's uploaded logo image — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
+| `POST /api/aicore/skills/documents/logo` | uploads a logo image (multipart) for the Documents skill's letterhead — set it from the Skills page |
 | `POST /api/voice/preview` | returns synthesized audio — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
 | `POST /api/voice/clone` | clones a voice from an uploaded recording — needs the speaker's own audio sample and consent |
 | `GET /api/audit.csv` | file export (CSV / vCard) of data a JSON tool already returns (activity_search_log) |

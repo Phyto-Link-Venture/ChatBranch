@@ -38,6 +38,7 @@ import {
   chatHref,
   displayName,
 } from './DraftBits'
+import { DraftDocuments } from './DraftDocuments'
 import { DraftFeedback, GroundingLine } from '@/components/ai-learning/DraftLearning'
 
 
@@ -393,6 +394,11 @@ export function ReviewQueue({
                 {d.bookings && d.bookings.length > 0 && (
                   <div className="mt-2">
                     <DraftBookings d={d} />
+                  </div>
+                )}
+                {d.documents && d.documents.length > 0 && (
+                  <div className="mt-2">
+                    <DraftDocuments d={d} />
                   </div>
                 )}
                 <div className="mt-2">

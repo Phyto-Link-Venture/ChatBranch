@@ -39,7 +39,8 @@ public sealed record PlaygroundResult(
     IReadOnlyList<BookingService.BookingPreview> Bookings,
     IReadOnlyList<string> ToolsOffered,
     IReadOnlyList<string> ChecksConfigured,
-    Contact? Contact);
+    Contact? Contact,
+    IReadOnlyList<Documents.DocumentService.DocumentPreview>? Documents = null);
 
 /// <summary>
 /// The AI playground's seam into the generator: the SAME prompt assembly and
@@ -83,7 +84,9 @@ public partial class AssistantService
         var (result, ctx, offered, checks) = await RunWithContextAsync(spec, llmOverride ?? _llm, ct);
         // belt and braces: a preview reserves nothing, but nothing may ever stay held
         if (ctx.Apps.Actions.Count > 0) _skills.Bookings.Release(ctx.Apps.Actions, "AI playground — nothing is booked.");
-        return new PlaygroundResult(result, system, messages, hits, ctx.Apps.Previews.ToList(), offered, checks, contact);
+        if (ctx.Docs.DocumentIds.Count > 0) _skills.Documents.Release(ctx.Docs.DocumentIds, "AI playground — nothing is sent.");
+        return new PlaygroundResult(result, system, messages, hits, ctx.Apps.Previews.ToList(), offered, checks, contact,
+            ctx.Docs.Previews.ToList());
     }
 
     /// <summary>The made-up customer as a contact the prompt and the skills can read — never attached, never saved.</summary>

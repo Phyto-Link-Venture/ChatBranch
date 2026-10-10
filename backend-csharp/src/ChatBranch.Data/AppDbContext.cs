@@ -69,6 +69,7 @@ public class AppDbContext : DbContext
     public DbSet<AiConversationState> AiConversationStates => Set<AiConversationState>();
     // crm — calendar bookings made by app skills (reserved → made at delivery)
     public DbSet<Booking> Bookings => Set<Booking>();
+    public DbSet<Document> Documents => Set<Document>();
     // integrations
     public DbSet<Integration> Integrations => Set<Integration>();
     // crm — per-user saved list views (the inbox's saved filter tabs)
@@ -174,6 +175,12 @@ public class AppDbContext : DbContext
         b.Entity<Booking>().ToTable("crm_booking");
         b.Entity<Booking>().HasIndex(x => new { x.ContactId, x.Status }).HasDatabaseName("ix_booking_contact_status");
         b.Entity<Booking>().HasIndex(x => new { x.CalendarKey, x.StartUtc }).HasDatabaseName("ix_booking_calendar_start");
+        // Documents app skill: generated PDFs / QR codes (one running number per series)
+        b.Entity<Document>().ToTable("crm_document");
+        b.Entity<Document>().HasIndex(x => new { x.Series, x.Seq }).IsUnique()
+            .HasFilter("[seq] > 0").HasDatabaseName("uniq_document_series_seq");
+        b.Entity<Document>().HasIndex(x => x.ThreadId).HasDatabaseName("ix_document_thread");
+        b.Entity<Document>().HasIndex(x => x.PublicToken).HasDatabaseName("ix_document_public_token");
         b.Entity<Integration>().ToTable("integrations_integration");
         b.Entity<SavedView>().ToTable("crm_savedview");
         // Per-user grants: deleting a login must not delete the connection row
@@ -294,6 +301,7 @@ public class AppDbContext : DbContext
         Json<AgentSkill, Dictionary<string, object?>>(b, x => x.Config);
         Json<ApiKey, List<string>>(b, x => x.Scopes);
         Json<AiDraft, Dictionary<string, object?>>(b, x => x.Context);
+        Json<Document, Dictionary<string, object?>>(b, x => x.Data);
         Json<Tag, List<TagAttribute>>(b, x => x.Attributes);
         Json<TagAssignment, Dictionary<string, object?>>(b, x => x.Values);
         Json<AiFeedback, List<string>>(b, x => x.Reasons);

@@ -405,7 +405,7 @@ export const ai = {
     },
     done: 'You see “… saved — the AI uses it from the next message.” and the skill is listed with its switch on.',
     tips: {
-      t1: 'Instructions are like a note to a new staff member. A connected app lets the AI use another system — today, a calendar to book appointments.',
+      t1: 'Instructions are like a note to a new staff member. A connected app lets the AI use another system — a calendar, PDF documents, QR codes, payment links or a Google Sheet (see “Ready-made skills”). Code skills run in a sandbox with no internet and no files, so they can never make a PDF or send a request — use a ready-made app for that.',
       t2: 'New here? Click “Load starter instructions” in the empty Instructions section for ready-made examples.',
       t3: 'The built-in tools already answer time and date questions exactly — no skill needed for those.',
       t4: 'To pause a skill, flip its switch off instead of deleting it.',
@@ -470,6 +470,58 @@ export const ai = {
       t3: 'You can cancel a booking from the Bookings page — the customer is not messaged automatically, so tell them in the chat.',
     },
     trouble: 'Google shows “Not connected”: connect it in Integrations — until then the AI says the calendar is unavailable and offers a teammate; it never books into ChatBranch instead. “No free times”: widen the working hours, shorten the minimum notice or allow more days ahead. A booking failed when the reply was sent: the reply is held and the chat is handed to a person.',
+  },
+
+  aiReadySkills: {
+    title: 'Add a ready-made skill (PDF invoices, QR codes, payment links, Sheets)',
+    summary: 'Switch on real capabilities without code: the AI creates PDF invoices, quotations, receipts and letters, QR codes, Stripe payment links, or logs rows to a Google Sheet.',
+    before: 'You need an admin login. Payment links need Stripe connected at Channels → Integrations; the Sheets log needs Google Sheets connected there. Documents and QR codes need nothing else.',
+    steps: {
+      s1: {
+        title: 'Open AI skills',
+        body: 'In the sidebar, open Library → “AI skills” and scroll to “Ready-made skills”.',
+      },
+      s2: {
+        title: 'Pick one and click Add',
+        body: '“Documents (PDF)” makes invoices, quotations, receipts and letters; “QR codes” turns a link into a QR picture; “Payment links” creates a Stripe link; “Google Sheets log” writes a row. Click “Add” on the one you want.',
+      },
+      s3: {
+        title: 'Fill in your letterhead (Documents)',
+        body: 'Type your “Business name”, “Address”, “Phone” and “Email”. Under “Money”, set the “Currency”, the “Tax name” (for example SST) and the “Tax rate (%)” — 0 means no tax line.',
+      },
+      s4: {
+        title: 'Choose what the AI may create',
+        body: 'Under “What the AI may create”, switch on Invoices, Quotations, Receipts and/or Letters. Add your bank details in “Payment instructions” — they are printed on invoices and quotations.',
+      },
+      s5: {
+        title: 'Optional: logo, colour and numbering',
+        body: 'Open “Advanced settings” to upload a logo, pick the accent colour, set registration and tax numbers, the printed language, and each type’s prefix and first number (for example INV- starting at 1001).',
+      },
+      s6: {
+        title: 'Preview the PDF',
+        body: 'Click “Preview PDF”. A sample opens in a new tab with your settings — nothing is sent and no number is used. For payment links and Sheets, “Check connection” tells you whether the integration is there.',
+      },
+      s7: {
+        title: 'Save the skill',
+        body: 'Click “Save”. The skill appears under “Connected apps” with its switch on.',
+      },
+      s8: {
+        title: 'Try it in the playground',
+        body: 'Open Automate → “AI playground” and ask “Can you send me an invoice for 2 haircuts?”. The inspector shows “Would send Invoice …” with “Open preview” — the real PDF, but nothing is kept.',
+      },
+      s9: {
+        title: 'See what was sent',
+        body: 'When a customer asks in a chat, the AI replies with the document number and total, then the PDF follows as a file. A “📄 Invoice … sent” note appears in the conversation. In the AI monitor, a held reply lists its files with “Open”.',
+      },
+    },
+    done: 'The customer receives the reply and then the PDF (or QR picture). On LINE, Viber, SMS and the website chat — which can’t carry files — they get a secure download link instead.',
+    tips: {
+      t1: 'The server does every sum: the AI only sends quantities and prices, so totals and tax are always exact. The AI also has a built-in calculator for any other sums.',
+      t2: 'If replies are held for review, the document is only sent when someone approves the reply. Rejecting it voids the document; its number stays used so there are no silent gaps.',
+      t3: 'Give the AI the prices in your knowledge base or the skill’s instructions — it never invents a price.',
+      t4: 'Chinese characters print only when the server has a Chinese font installed (DOCUMENT_CJK_FONT); otherwise the AI writes the document in English or Malay.',
+    },
+    trouble: 'The AI says it can’t create the document: check the skill is switched on and allows that type, and that the items have prices. Payment links say Stripe is not connected: connect it at Integrations. No file arrived on WhatsApp: the chat shows a download link instead and the note says why the file was refused.',
   },
 
   aiHumanLike: {

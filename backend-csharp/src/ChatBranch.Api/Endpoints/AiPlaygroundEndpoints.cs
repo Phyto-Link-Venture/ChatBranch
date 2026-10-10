@@ -305,6 +305,14 @@ public static class AiPlaygroundEndpoints
                     type = x.Type, label = x.Label, start = x.Start, timezone = x.Timezone, calendar = x.Calendar,
                     booking_id = x.BookingId,
                 }).ToList(),
+                // Documents / QR app skills: the real file, rendered into a throw-away
+                // preview (no number taken, nothing stored on a conversation)
+                documents_previewed = (result.Documents ?? Array.Empty<ChatBranch.Data.Documents.DocumentService.DocumentPreview>())
+                    .Select(x => new
+                    {
+                        type = x.Type, label = x.Label, number = x.Number, currency = x.Currency,
+                        total = x.Type is "letter" or "qr" ? (decimal?)null : x.Total, url = x.Url, file_name = x.FileName,
+                    }).ToList(),
                 checks = r.Checks.Select(c => new
                 {
                     name = c.Name, passed = c.Ok, reason = c.Reason, fix = c.Fix, error = c.Error, attempt = c.Attempt,

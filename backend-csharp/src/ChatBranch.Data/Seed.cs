@@ -270,6 +270,22 @@ public static class Seed
             + "\"applied\" INTEGER NOT NULL, \"applied_as\" TEXT NOT NULL, \"applied_ref\" TEXT NOT NULL, "
             + "\"applied_by\" TEXT NOT NULL, \"applied_at\" TEXT NULL, \"created_at\" TEXT NOT NULL");
         AddIndexIfMissing(db, "ix_aireviewfinding_run", "crm_aireviewfinding", "\"run_id\"");
+        // the Documents app skill: AI / operator generated PDFs and QR codes
+        AddTableIfMissing(db, "crm_document",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_document\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"entity_id\" INTEGER NULL, \"contact_id\" INTEGER NULL, \"thread_id\" INTEGER NULL, "
+            + "\"skill_id\" TEXT NOT NULL, \"type\" TEXT NOT NULL, \"series\" TEXT NOT NULL, "
+            + "\"seq\" INTEGER NOT NULL, \"number\" TEXT NOT NULL, \"title\" TEXT NOT NULL, "
+            + "\"currency\" TEXT NOT NULL, \"subtotal\" TEXT NOT NULL, \"discount\" TEXT NOT NULL, "
+            + "\"tax\" TEXT NOT NULL, \"total\" TEXT NOT NULL, \"data\" TEXT NOT NULL, "
+            + "\"file_path\" TEXT NOT NULL, \"file_channel\" TEXT NOT NULL, \"file_name\" TEXT NOT NULL, "
+            + "\"mime\" TEXT NOT NULL, \"size_bytes\" INTEGER NOT NULL, \"status\" TEXT NOT NULL, "
+            + "\"created_by\" TEXT NOT NULL, \"draft_id\" INTEGER NULL, \"message_id\" INTEGER NULL, "
+            + "\"public_token\" TEXT NOT NULL, \"detail\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL, "
+            + "\"updated_at\" TEXT NOT NULL, \"sent_at\" TEXT NULL");
+        AddUniqueIndexIfMissing(db, "uniq_document_series_seq", "crm_document", "\"series\", \"seq\"", "\"seq\" > 0");
+        AddIndexIfMissing(db, "ix_document_thread", "crm_document", "\"thread_id\"");
+        AddIndexIfMissing(db, "ix_document_public_token", "crm_document", "\"public_token\"");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 

@@ -16,6 +16,7 @@ import Link from 'next/link'
 import { Check, Loader2, ScanEye, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { DraftBookings } from '@/components/ai-monitor/DraftBits'
+import { DraftDocuments } from '@/components/ai-monitor/DraftDocuments'
 import { aiApi, decide, decisionFromError, type Draft, type DraftList } from '@/lib/aiMonitor'
 import { useT } from '@/i18n'
 
@@ -97,6 +98,12 @@ export default function PendingDraftBanner({
       {draft.bookings && draft.bookings.length > 0 && (
         <div className="mt-1.5">
           <DraftBookings d={draft} compact />
+        </div>
+      )}
+      {/* …and the files it will send after its text (Documents PDFs, QR codes) */}
+      {draft.documents && draft.documents.length > 0 && (
+        <div className="mt-1.5">
+          <DraftDocuments d={draft} compact />
         </div>
       )}
       {error && (

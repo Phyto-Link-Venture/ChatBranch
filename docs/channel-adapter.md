@@ -30,6 +30,7 @@ another.
 | Templates | ✅ real template messages; live registry (list/create/edit/delete) with a `waba_id` | rendered as free text | — | — | — | — |
 | Send media | ✅ upload → send by id | ✅ gateway `send-media` (base64, ≤16 MB) | — | ✅ sendPhoto / sendDocument | ✅ uploaded file (multipart) or public URL | ✅ attachment |
 | Receive media | ✅ downloaded off the ack | ✅ `/baileys/media` (two-phase) | — | ✅ getFile, off the ack | ✅ CDN url, downloaded off the ack | ✅ attachments (≤5, 10 MB) |
+| AI documents (PDF / QR, after the reply text) | ✅ document / image | ✅ document / image | 🔗 download link (`/api/documents/public/{token}`) | ✅ sendDocument / sendPhoto | ✅ uploaded file | ✅ attachment (a second mail) |
 | Delivery receipts | ✅ `statuses` (forward-only; failed + error code) | ✅ `/baileys/message-status` | — | — | ✅ delivery / read | — |
 | Typing / read | ✅ Graph `typing_indicator` | ✅ gateway presence | — | ✅ `sendChatAction` (typing) | ✅ `mark_seen` + `typing_on` (24h window only) | — |
 | 24h window | ✅ enforced (409 → use a template); 131047 closes it | none | none | none | ✅ ≤24h anything; 24h–7d a person only (`HUMAN_AGENT` tag), AI/automation refused; >7d refused | — |
@@ -48,6 +49,7 @@ bad signature ⇒ 401, unknown account ⇒ 404:
 | Send text | ✅ reply token (≤50 s) else push | ✅ `send_message` | ✅ ≤1600 chars | ✅ Customer Service message | ✅ (unverified) | ✅ reply to the latest message (unverified) | ✅ consultation message |
 | Send media | ❌ public URL only — refused | ❌ public URL only — refused | ❌ MMS needs a public URL — refused | ✅ images | ❌ | ❌ | ✅ images |
 | Receive media | ✅ off the ack | ✅ Viber CDN | ✅ MMS (Basic auth) | ✅ `media/get` | ❌ | ❌ | ✅ https URL |
+| AI documents (PDF / QR) | 🔗 download link | 🔗 download link | 🔗 download link | ✅ image file (QR); PDF via the transport's media send | 🔗 download link | 🔗 download link | ✅ image file (QR); PDF via the transport's media send |
 | Delivery receipts | — | ✅ delivered / seen / failed | — (no status callbacks yet) | — | — | — | — |
 | Reply window | none | none | none | 48 h (45015) | 48 h | 48 h | 7 days (-230) |
 | Opt-out | STOP words + unfollow | STOP words + unsubscribed | STOP words + Twilio `OptOutType` / 21610 | STOP words + unsubscribe | STOP words | STOP words | STOP words + unfollow |

@@ -11,6 +11,7 @@ export const aiGuides: GuideDef[] = [
   { id: 'aiReviewer', group: 'ai', href: '/ai-monitor?tab=ai-review', tour: 'aiMonitor', steps: 7, tips: 3, before: true, trouble: true, who: 'admin' },
   { id: 'aiSkills', group: 'ai', href: '/skills', tour: 'skills', steps: 9, tips: 4, before: true, trouble: true, who: 'admin' },
   { id: 'aiCalendar', group: 'ai', href: '/skills', tour: 'skills', steps: 11, tips: 3, before: true, trouble: true, who: 'admin' },
+  { id: 'aiReadySkills', group: 'ai', href: '/skills', tour: 'skills', steps: 9, tips: 4, before: true, trouble: true, who: 'admin' },
   { id: 'aiHumanLike', group: 'ai', href: '/ai-monitor?tab=settings', tour: 'aiMonitor', steps: 9, tips: 3, before: true, trouble: true, who: 'admin' },
   { id: 'aiKeys', group: 'ai', href: '/settings/ai-providers', tour: 'settings', steps: 8, tips: 4, before: true, trouble: true, who: 'superadmin' },
   { id: 'aiVoice', group: 'ai', href: '/persona', steps: 8, tips: 3, before: true, trouble: true, who: 'admin' },

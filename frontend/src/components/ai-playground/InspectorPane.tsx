@@ -9,7 +9,8 @@
  */
 
 import { useState, type ReactNode } from 'react'
-import { BookOpen, CalendarCheck, CalendarX, Check, Copy, GraduationCap, Wrench, X } from 'lucide-react'
+import { BookOpen, CalendarCheck, CalendarX, Check, Copy, ExternalLink, FileText, GraduationCap, Wrench, X } from 'lucide-react'
+import { openAuthed } from '@/components/skills/readySkills'
 import { useFormat, useT, type MessageKey } from '@/i18n'
 import type { ColumnResult, PlaygroundReply } from '@/lib/aiPlayground'
 import { ProductionChip } from './ProductionChip'
@@ -188,6 +189,22 @@ export function InspectorPane({
                 ? t('playground.inspector.wouldCancel', { label: b.label, timezone: b.timezone })
                 : t('playground.inspector.wouldBook', { label: b.label, timezone: b.timezone })}
             </span>
+          </div>
+        ))}
+        {(r.documents_previewed ?? []).map((doc, i) => (
+          <div key={`doc-${i}`} className="mb-2 flex flex-wrap items-center gap-1.5 rounded-lg border border-line bg-fill-subtle px-2.5 py-2 text-[12px] text-text-high">
+            <FileText size={13} className="shrink-0 text-text-muted" aria-hidden />
+            <span className="min-w-0">
+              {t('readySkills.playground.wouldSend', { label: `${doc.label} ${doc.number}`.trim() })}
+              {doc.total != null && <span className="text-text-muted"> · {doc.currency} {doc.total.toFixed(2)}</span>}
+            </span>
+            <button
+              type="button"
+              onClick={() => openAuthed(doc.url).catch(() => undefined)}
+              className="ml-auto inline-flex items-center gap-1 font-semibold text-text-mid hover:text-text-heading"
+            >
+              <ExternalLink size={12} aria-hidden /> {t('readySkills.playground.open')}
+            </button>
           </div>
         ))}
         {r.tools.length === 0 ? (

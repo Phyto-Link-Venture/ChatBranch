@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\ChatBranch.Domain\ChatBranch.Domain.csproj" />
@@ -16,6 +16,15 @@
   <ItemGroup>
     <PackageReference Include="ExcelDataReader" Version="3.7.0" />
     <PackageReference Include="QRCoder" Version="1.6.0" />
+  </ItemGroup>
+
+  <!-- PDF documents for the Documents app skill (invoices, quotations, receipts,
+       letters) — PDFsharp + MigraDoc, MIT. The text font (Liberation Sans, SIL OFL
+       1.1, Documents/Fonts/LICENSE-OFL.txt) is embedded so a bare container needs
+       no system fonts. -->
+  <ItemGroup>
+    <PackageReference Include="PDFsharp-MigraDoc" Version="6.2.4" />
+    <EmbeddedResource Include="Documents/Fonts/*.ttf" />
   </ItemGroup>
 
   <PropertyGroup>

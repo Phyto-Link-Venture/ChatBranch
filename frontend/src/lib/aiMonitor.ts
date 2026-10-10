@@ -111,6 +111,23 @@ export interface Draft {
   /** Calendar reservations this reply carries (from context.pending_actions):
    *  approving/sending it MAKES them; rejecting releases them. */
   bookings?: DraftBooking[]
+  /** Files this reply's tools made (Documents PDFs, QR codes) — sent right after
+   *  its text on delivery; a rejected reply voids them. */
+  documents?: DraftDocument[]
+}
+
+/** One document a draft carries (`DocumentService.Payload`). `url` is auth-gated. */
+export interface DraftDocument {
+  id: number
+  type: 'invoice' | 'quotation' | 'receipt' | 'letter' | 'qr' | string
+  label: string
+  number: string
+  status: 'pending' | 'sent' | 'void' | 'failed' | 'issued' | string
+  currency: string
+  total: number | null
+  file_name: string
+  url: string
+  detail: string
 }
 
 /** One booking a draft will make or cancel when delivered. `status` is the

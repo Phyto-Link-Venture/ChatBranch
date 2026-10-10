@@ -28,6 +28,18 @@ import { Toggle } from '@/components/ui/Toggle'
 import { CodeEditor } from './CodeEditor'
 import { TestCasesEditor, rowsToTests, testsToRows, type TestRow } from './TestCasesEditor'
 import { AppSkillForm, calendarConfigProblem } from './AppSkillForm'
+import { ToolAppForm } from './ToolAppForm'
+import {
+  fetchToolApps,
+  isToolAppConfig,
+  readyApp,
+  toolAppConfig,
+  toolAppProblem,
+  type PromptTemplateId,
+  type ToolAppCatalogEntry,
+  type ToolAppConfig,
+  type ToolAppId,
+} from './readySkills'
 import {
   KIND_META,
   ON_FAIL_OPTIONS,
@@ -70,7 +82,16 @@ import { useFormat, useT, type MessageKey, type TFunction } from '@/i18n'
  * straight to Set up, a settings form (<AppSkillForm/>) with no code or tests.
  */
 
-export type WizardInit = { mode: 'new'; kindHint?: SkillKind | '' } | { mode: 'edit'; skill: Skill }
+export type WizardInit =
+  | {
+      mode: 'new'
+      kindHint?: SkillKind | ''
+      /** A ready-made app (Documents, QR, Payments, Sheets): straight to Set up with its defaults. */
+      app?: ToolAppId
+      /** An instruction template from the gallery: straight to Review, prefilled. */
+      template?: PromptTemplateId
+    }
+  | { mode: 'edit'; skill: Skill }
 
 type Step = 'describe' | 'clarify' | 'review' | 'test'
 /** The describe step's kind cards — code/prompt kinds only; an app is picked apart. */
@@ -110,6 +131,8 @@ interface Form {
   position: number
   /** Connected-app settings — app skills only. */
   config: CalendarAppConfig | null
+  /** A ready-made app's settings (Documents, QR, Payments, Sheets) — instead of `config`. */
+  toolConfig?: ToolAppConfig | null
 }
 
 const isCodeKind = (k: SkillKind): k is 'tool' | 'check' => k === 'tool' || k === 'check'
@@ -130,7 +153,52 @@ function formFromSkill(s: Skill): Form {
     channels: s.channels ?? [],
     enabled: s.enabled,
     position: s.position,
-    config: s.kind === 'app' ? calendarConfig(s.config) : null,
+    config: s.kind === 'app' && !isToolAppConfig(s.config) ? calendarConfig(s.config) : null,
+    toolConfig: s.kind === 'app' && isToolAppConfig(s.config) ? toolAppConfig(s.config) : null,
+  }
+}
+
+/** A fresh ready-made app skill (Documents, QR, Payments, Sheets), words in the dashboard's language. */
+function newToolAppForm(scope: string | null, app: ToolAppId, t: TFunction): Form {
+  const meta = readyApp(app)
+  return {
+    id: newSkillId(),
+    name: t(meta.name),
+    kind: 'app',
+    useWhen: t(meta.useWhen),
+    description: t(meta.blurb),
+    instructions: t(meta.instructions),
+    code: '',
+    params: '',
+    rows: [],
+    onFail: 'retry',
+    scope,
+    channels: [],
+    enabled: true,
+    position: 9999,
+    config: null,
+    toolConfig: toolAppConfig({}, app),
+  }
+}
+
+/** An instruction (prompt) skill from the gallery's templates. */
+function templateForm(scope: string | null, id: PromptTemplateId, t: TFunction): Form {
+  return {
+    id: newSkillId(),
+    name: t(`readySkills.templates.${id}.name`),
+    kind: 'prompt',
+    useWhen: t(`readySkills.templates.${id}.useWhen`),
+    description: '',
+    instructions: t(`readySkills.templates.${id}.instructions`),
+    code: '',
+    params: '',
+    rows: [],
+    onFail: 'retry',
+    scope,
+    channels: [],
+    enabled: true,
+    position: 9999,
+    config: null,
   }
 }
 
@@ -174,17 +242,30 @@ export function SkillWizard({
   const t = useT()
   const editing = init.mode === 'edit'
   const original = init.mode === 'edit' ? init.skill : null
-  // "New connected app" opens straight on Set up — there is nothing to describe
-  const directApp = init.mode === 'new' && init.kindHint === 'app'
+  // "New connected app" opens straight on Set up — there is nothing to describe;
+  // a ready-made app or an instruction template from the gallery likewise
+  const readyInit = init.mode === 'new' && (!!init.app || !!init.template)
+  const directApp = init.mode === 'new' && (init.kindHint === 'app' || !!init.app)
 
-  const [step, setStep] = useState<Step>(editing || directApp ? 'review' : 'describe')
+  const [step, setStep] = useState<Step>(editing || directApp || readyInit ? 'review' : 'describe')
   const [description, setDescription] = useState('')
   const [hint, setHint] = useState<Hint>(init.mode === 'new' && init.kindHint !== 'app' ? init.kindHint ?? '' : '')
   const [qa, setQa] = useState<{ question: string; answer: string }[]>([])
   const [round, setRound] = useState(0) // index in qa where the current batch starts
   const [form, setForm] = useState<Form | null>(
-    original ? formFromSkill(original) : directApp ? newAppForm(defaultScope, calendarApp(null), t) : null,
+    original
+      ? formFromSkill(original)
+      : init.mode === 'new' && init.app
+        ? newToolAppForm(defaultScope, init.app, t)
+        : init.mode === 'new' && init.template
+          ? templateForm(defaultScope, init.template, t)
+          : directApp
+            ? newAppForm(defaultScope, calendarApp(null), t)
+            : null,
   )
+  // the describe step's "a code skill can't do this — use the ready-made app" offer
+  const [suggestApp, setSuggestApp] = useState<ToolAppId | null>(null)
+  const [toolApps, setToolApps] = useState<ToolAppCatalogEntry[] | null>(null)
   const [note, setNote] = useState<{ text: string; source: string } | null>(null)
   const [busy, setBusy] = useState<false | 'draft' | 'test' | 'save'>(false)
   const [error, setError] = useState<string | null>(null)
@@ -211,6 +292,7 @@ export function SkillWizard({
     // "loading" must not cancel the request it just started
     if (!isApp || appsRequested.current) return
     appsRequested.current = true
+    fetchToolApps().then((list) => mounted.current && setToolApps(list))
     setApps({ state: 'loading', list: null })
     fetchApps().then((list) => {
       if (!mounted.current) return
@@ -233,6 +315,14 @@ export function SkillWizard({
     setStep('review')
   }
 
+  const startToolApp = (app: ToolAppId) => {
+    setError(null)
+    setNote(null)
+    setSuggestApp(null)
+    setForm(newToolAppForm(defaultScope, app, t))
+    setStep('review')
+  }
+
   // Any edit to code/tests invalidates the last run.
   const patch = (p: Partial<Form>) => {
     setForm((f) => (f ? { ...f, ...p } : f))
@@ -251,6 +341,14 @@ export function SkillWizard({
         method: 'POST',
         body: JSON.stringify({ description, kind_hint: hint || null, answers }),
       })
+      setSuggestApp(null)
+      if (d.status === 'use_app') {
+        // a code skill can't make files or reach the internet — offer the app that can
+        setNote(d.note ? { text: d.note, source: d.source } : null)
+        setSuggestApp(d.suggest_app ?? null)
+        setStep('describe')
+        return
+      }
       if (d.status === 'questions') {
         setRound(answers.length)
         setQa([...answers, ...d.questions.map((q) => ({ question: q, answer: '' }))])
@@ -345,7 +443,12 @@ export function SkillWizard({
     }
     const tp = testsPayload()
     const p = paramsPayload()
-    const appProblem = form.kind === 'app' && form.config ? calendarConfigProblem(form.config, t) : null
+    const appProblem =
+      form.kind === 'app' && form.toolConfig
+        ? toolAppProblem(form.toolConfig, t)
+        : form.kind === 'app' && form.config
+          ? calendarConfigProblem(form.config, t)
+          : null
     if (tp.error || p.error || appProblem) {
       setError(tp.error || p.error || appProblem)
       return
@@ -370,6 +473,7 @@ export function SkillWizard({
           channels: form.channels,
           onFail: form.onFail,
           ...(form.kind === 'app' && form.config ? { config: { ...form.config } } : {}),
+          ...(form.kind === 'app' && form.toolConfig ? { config: { ...form.toolConfig } } : {}),
         },
         form.scope,
         original ? original.entity ?? null : undefined,
@@ -399,7 +503,7 @@ export function SkillWizard({
       out.push({ id: 'review', label: t('ai.wizard.steps.setUp') })
       return out
     }
-    if (!editing)
+    if (!editing && !readyInit)
       out.push(
         { id: 'describe', label: t('ai.wizard.steps.describe') },
         { id: 'clarify', label: t('ai.wizard.steps.clarify') },
@@ -407,7 +511,7 @@ export function SkillWizard({
     out.push({ id: 'review', label: isCode ? t('ai.wizard.steps.reviewCode') : t('ai.wizard.steps.review') })
     if (isCode) out.push({ id: 'test', label: t('ai.wizard.steps.runTests') })
     return out
-  }, [editing, isCode, isApp, directApp, t])
+  }, [editing, isCode, isApp, directApp, readyInit, t])
 
   const title = editing
     ? readOnly
@@ -470,7 +574,7 @@ export function SkillWizard({
     if (step === 'review')
       return (
         <>
-          {!editing && !(isApp && directApp) && (
+          {!editing && !(isApp && directApp) && !readyInit && (
             <Button
               variant="ghost"
               onClick={() => setStep(qa.length && !isApp ? 'clarify' : 'describe')}
@@ -520,7 +624,10 @@ export function SkillWizard({
         <div className="flex h-[38px] items-center gap-2 rounded-lg border border-line bg-fill-subtle px-3 text-[13px] text-text-high">
           <CalendarClock size={14} className="shrink-0 text-text-muted" aria-hidden />
           <span className="truncate">
-            {t(KIND_META.app.label)} · <span className="text-text-muted">{appLabel(calendarApp(apps.list), t)}</span>
+            {t(KIND_META.app.label)} ·{' '}
+            <span className="text-text-muted">
+              {form.toolConfig ? t(readyApp(form.toolConfig.app).name) : appLabel(calendarApp(apps.list), t)}
+            </span>
           </span>
         </div>
       ) : (
@@ -610,6 +717,16 @@ export function SkillWizard({
               className={`${input} resize-y leading-[1.6]`}
             />
           </label>
+          {suggestApp && (
+            // "create a PDF / invoice / QR…": code can't — the ready-made app can
+            <div role="status" className="flex flex-wrap items-start gap-3 rounded-lg border border-line bg-fill-subtle px-3 py-2.5">
+              <Info size={14} className="mt-0.5 shrink-0 text-text-muted" aria-hidden />
+              <span className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-text-mid">{note?.text ?? t('readySkills.gallery.codeLimit')}</span>
+              <Button size="sm" onClick={() => startToolApp(suggestApp)}>
+                {t('ai.wizard.setUp')} · {t(readyApp(suggestApp).name)} <ArrowRight size={13} aria-hidden />
+              </Button>
+            </div>
+          )}
           <div className="flex flex-wrap gap-1.5">
             <span className="mr-1 self-center text-[11.5px] text-text-muted">{t('ai.wizard.try')}</span>
             {EXAMPLES.map((x) => (
@@ -763,6 +880,16 @@ export function SkillWizard({
                   className={`${input} resize-y leading-[1.6]`}
                 />
               </Field>
+              {form.toolConfig && (
+                <div className="border-t border-line pt-4">
+                  <ToolAppForm
+                    config={form.toolConfig}
+                    onChange={(toolConfig) => patch({ toolConfig })}
+                    entry={toolApps?.find((a) => a.app === form.toolConfig?.app) ?? null}
+                    readOnly={readOnly}
+                  />
+                </div>
+              )}
               {form.config && (
                 <div className="border-t border-line pt-4">
                   <AppSkillForm
