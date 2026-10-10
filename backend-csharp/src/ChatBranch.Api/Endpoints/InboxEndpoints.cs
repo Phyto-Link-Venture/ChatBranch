@@ -577,9 +577,21 @@ public static class InboxEndpoints
         return outv;
     }
 
+    /// <summary>
+    /// <c>?entity=</c> → one entity id (null = every entity). A comma list (the
+    /// dashboard's multi-select) resolves to its first pick the caller may see; the
+    /// scoping helpers widen that id to every pick (<see cref="EntitySelection"/>).
+    /// </summary>
     internal static async Task<int?> EntityId(AppDbContext db, string? slug)
     {
         if (string.IsNullOrWhiteSpace(slug) || slug is "all" or "__all__") return null;
+        if (slug.Contains(','))
+        {
+            if (EntitySelection.Current is { Count: > 0 } picks) return picks[0];
+            slug = slug.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .FirstOrDefault(s => s is not ("all" or "__all__"));
+            if (string.IsNullOrEmpty(slug)) return null;
+        }
         var ent = await db.Entities.AsNoTracking().FirstOrDefaultAsync(e => e.Slug == slug);
         return ent?.Id;
     }

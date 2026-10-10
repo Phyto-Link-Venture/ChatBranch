@@ -96,8 +96,12 @@ public static class AnalyticsEndpoints
         var links = await db.ContactEntities.AsNoTracking()
             .Select(l => new EntityLink(l.ContactId, l.EntityId)).ToListAsync();
         // Contacts the entity owns — the join Django spells `contact__entity_links__entity`.
-        HashSet<int>? entityContacts = entityId is int ceid
-            ? links.Where(l => l.EntityId == ceid).Select(l => l.ContactId).ToHashSet()
+        // the picked entity — or every ticked one (EntitySelection)
+        HashSet<int>? picks = entityId is int pe
+            ? (EntitySelection.Covers(pe) ? EntitySelection.Current!.ToHashSet() : new HashSet<int> { pe })
+            : null;
+        HashSet<int>? entityContacts = picks != null
+            ? links.Where(l => picks.Contains(l.EntityId)).Select(l => l.ContactId).ToHashSet()
             : null;
 
         var msgs = (await db.Messages.AsNoTracking().Where(m => m.CreatedAt >= since)
@@ -154,11 +158,11 @@ public static class AnalyticsEndpoints
             .Select(a => new { a.Id, a.EntityId, a.Name, a.Channel, a.Provider, a.HealthStatus })
             .ToListAsync();
         var acctScoped = acctAll;
-        if (entityId is int aeid)
+        if (picks != null)
         {
             // accounts_for_entity: a PREFERENCE, not a union — an outlet with its
             // own numbers never falls back to the shared organization pool.
-            var own = acctAll.Where(a => a.EntityId == aeid).ToList();
+            var own = acctAll.Where(a => a.EntityId is int ae && picks.Contains(ae)).ToList();
             acctScoped = own.Count > 0 ? own : acctAll.Where(a => a.EntityId == null).ToList();
         }
         var acctMeta = acctScoped.ToDictionary(a => a.Id);

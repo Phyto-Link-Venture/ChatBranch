@@ -186,6 +186,20 @@ When you fix one of these, update this table, `README.md` and
   Frontend: `useEntityQuery()` (`lib/EntityContext`) is the only way pages build
   the parameter, and it belongs in the fetching effect's dependency array —
   omitting it is what leaves a page showing the previous outlet's data.
+  **The switcher is multi-select** (`EntitySwitcher.tsx`): a name shows only that
+  entity, its checkbox adds it to the view; each ticked entity brings its
+  branches; the pick is remembered per browser (localStorage
+  `chatbranch-entities`) and a first visit starts on the first company, never
+  "All". `useEntityQuery()` sends `entity=a,b`; on a GET the API's
+  `UseEntitySelection` middleware publishes the ticked ids — cut to the caller's
+  `AccessibleEntitiesAsync` — as `EntitySelection` (Data, async-flow like the key
+  scopes); `InboxEndpoints.EntityId` returns the first pick and `ScopeOwned` /
+  `ScopeInherited` / `ScopingService.PickSubtree` widen it to every pick (use
+  `PickSubtree` for a picked filter, never for an assignment). Pages that read
+  or EDIT one level (persona, AI behaviour + learning mode) use
+  `useEntityLevelQuery()` (the single ticked entity, else the organization) +
+  `<MultiEntityNotice />`; `activeEntity` is null unless exactly one is ticked.
+  Tests: `EntitySelectionTests`.
   Tests: `ScopingServiceTests.cs`.
 - **Auth + RBAC.** `POST /api/auth/login` issues a bearer token stored as one
   `AuthToken` row per session (concurrent sessions allowed; `Profile.Token` is a
@@ -873,7 +887,8 @@ When you fix one of these, update this table, `README.md` and
   → its contact's entity when every link shares one company → unattributed
   (skill drafting, embeddings, the operator assistant — shown to managers,
   billed to nobody). Bill = cost × (1 + markup %) × the exchange rate + a
-  monthly fee; cost = the provider's own price per call where it reports one
+  monthly fee (amounts kept to 4 decimals, shown so below 1 — a light month is
+  fractions of a cent); cost = the provider's own price per call where it reports one
   (`crm_llmusage.cost_usd` — OpenRouter's `usage.cost`, requested with
   `usage.include`), else tokens × `llm_prices` over OpenRouter's public price
   list (`ModelPriceCatalog`, Setting `llm_prices_catalog`, refreshed ≤ daily

@@ -185,7 +185,8 @@ public static class AiBillingEndpoints
                 }).ToList();
 
             double Billed(int companyId, double costUsd) =>
-                Math.Round(costUsd * (1 + settings.MarkupFor(companyId) / 100d) * settings.UsdRate, 2, MidpointRounding.AwayFromZero);
+                // 4 decimals: a light month is fractions of a cent, which must not read as 0
+                Math.Round(costUsd * (1 + settings.MarkupFor(companyId) / 100d) * settings.UsdRate, 4, MidpointRounding.AwayFromZero);
 
             object Summary(int companyId, string name, string slug)
             {
@@ -200,11 +201,11 @@ public static class AiBillingEndpoints
                     tokens = mine.Sum(r => r.Tokens),
                     usage_amount = usage,
                     monthly_fee = fee,
-                    total = Math.Round(usage + fee, 2),
+                    total = Math.Round(usage + fee, 4),
                     // billing managers only
                     cost_usd = manager ? Math.Round(cost, 4) : (double?)null,
                     markup_pct = manager ? settings.MarkupFor(companyId) : (double?)null,
-                    margin = manager ? Math.Round(usage + fee - cost * settings.UsdRate, 2) : (double?)null,
+                    margin = manager ? Math.Round(usage + fee - cost * settings.UsdRate, 4) : (double?)null,
                 };
             }
 
@@ -244,7 +245,8 @@ public static class AiBillingEndpoints
                     : null,
                 usd_rate = manager ? settings.UsdRate : (double?)null,
                 pricing_note = manager
-                    ? "Cost = the LlmUsage ledger priced by llm_prices (USD per 1M tokens; unpriced models cost 0). "
+                    ? "Cost = what the provider charged per call (OpenRouter reports it); calls without a reported "
+                      + "price are estimated from llm_prices over OpenRouter's public price list (USD per 1M tokens). "
                       + "Bill = cost × (1 + markup) × the exchange rate + the monthly fee."
                     : null,
             });

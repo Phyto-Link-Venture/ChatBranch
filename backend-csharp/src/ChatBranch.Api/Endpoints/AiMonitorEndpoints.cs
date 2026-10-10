@@ -540,11 +540,11 @@ public static class AiMonitorEndpoints
             if (assigned.Count > 0)
             {
                 var allowed = sc.EntitySubtreeIds(assigned);
-                if (picked is int p && allowed.Contains(p)) return new DraftScope(sc.EntitySubtreeIds(p));
+                if (picked is int p && allowed.Contains(p)) return new DraftScope(sc.PickSubtree(p).Where(allowed.Contains).ToList());
                 return new DraftScope(allowed);
             }
         }
-        return new DraftScope(picked is int pk ? sc.EntitySubtreeIds(pk) : null);
+        return new DraftScope(picked is int pk ? sc.PickSubtree(pk) : null);
     }
 
     private static IQueryable<AiDraft> Scoped(IQueryable<AiDraft> q, DraftScope scope) =>

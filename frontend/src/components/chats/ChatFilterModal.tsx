@@ -151,7 +151,7 @@ export default function ChatFilterModal({
   onClose,
   initial,
   q,
-  topEntity,
+  topEntities,
   agents,
   teams,
   accounts,
@@ -163,7 +163,7 @@ export default function ChatFilterModal({
   onClose: () => void
   initial: InboxFilters
   q: string
-  topEntity: string | null
+  topEntities: string[]
   agents: UiAgent[]
   teams: UiTeam[]
   accounts: UiAccount[]
@@ -195,10 +195,10 @@ export default function ChatFilterModal({
   }, [open, initial])
 
   const params = useMemo(() => {
-    const p = filtersToParams(draft, { q, entity: topEntity })
+    const p = filtersToParams(draft, { q, entities: topEntities })
     p.set('count_only', '1')
     return p.toString()
-  }, [draft, q, topEntity])
+  }, [draft, q, topEntities])
 
   useEffect(() => {
     if (!open) return
@@ -401,7 +401,7 @@ export default function ChatFilterModal({
           }
         >
           <EntityMultiPicker
-            value={draft.entities ?? (topEntity ? [topEntity] : [])}
+            value={draft.entities ?? topEntities}
             onChange={(slugs) => set({ entities: slugs })}
             placeholder={t('chats.filterModal.allEntities')}
             ariaLabel={t('common.fields.entity')}

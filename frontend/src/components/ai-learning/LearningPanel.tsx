@@ -21,6 +21,8 @@ import { Button } from '@/components/ui/Button'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { Select } from '@/components/ui/Select'
 import { useAccess } from '@/lib/useAccess'
+import { useEntityLevelQuery } from '@/lib/EntityContext'
+import { MultiEntityNotice } from '@/components/shell/MultiEntityNotice'
 import { ApiError, aiApi, type BehaviourField, type BehaviourPayload } from '@/lib/aiMonitor'
 import {
   LEARNING_MODES,
@@ -301,6 +303,8 @@ export function LearningPanel({
   entityName: string | null
 }) {
   const t = useT()
+  // the learning mode and status are ONE level's settings; the lesson list follows every ticked entity
+  const levelQuery = useEntityLevelQuery()
   const { ready, can, role } = useAccess()
   const canManage = ready && can('ai.behaviour.manage')
   const canDelete = canManage && (role === 'admin' || role === 'superadmin')
@@ -335,8 +339,8 @@ export function LearningPanel({
   }, [q])
 
   const loadStatus = useCallback(async () => {
-    setLearning(await learningApi.status(entityQuery))
-  }, [entityQuery])
+    setLearning(await learningApi.status(levelQuery))
+  }, [levelQuery])
 
   useEffect(() => {
     void loadStatus()
@@ -444,8 +448,9 @@ export function LearningPanel({
 
   return (
     <div className="flex flex-col gap-4">
+      <MultiEntityNotice />
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
-        <ModeCard entityQuery={entityQuery} entityName={entityName} canManage={canManage} statusMode={learning?.mode ?? null} />
+        <ModeCard entityQuery={levelQuery} entityName={entityName} canManage={canManage} statusMode={learning?.mode ?? null} />
         <RetrievalCard status={learning} canManage={canManage} onReindexed={() => void loadStatus()} />
       </div>
 

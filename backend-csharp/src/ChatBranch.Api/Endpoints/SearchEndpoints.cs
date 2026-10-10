@@ -103,8 +103,8 @@ public static class SearchEndpoints
         {
             // Same narrowing as GET /api/contacts?entity=: the picked outlet and
             // everything under it, intersected with the caller's own scope.
-            var picked = await db.Entities.AsNoTracking().FirstOrDefaultAsync(e => e.Slug == entity);
-            var ids = picked == null ? new List<int>() : sc.EntitySubtreeIds(picked.Id);
+            var picked = await InboxEndpoints.EntityId(db, entity);
+            var ids = picked is int pid ? sc.PickSubtree(pid) : new List<int>();
             query = query.Where(c => c.EntityLinks.Any(l => ids.Contains(l.EntityId)));
         }
         var rows = await query

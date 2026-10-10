@@ -23,7 +23,8 @@ import { Button } from '@/components/ui/Button'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { Toggle } from '@/components/ui/Toggle'
 import { aicore } from '@/components/skills/skillsApi'
-import { useEntity, useEntityQuery } from '@/lib/EntityContext'
+import { useEntity, useEntityLevelQuery } from '@/lib/EntityContext'
+import { MultiEntityNotice } from '@/components/shell/MultiEntityNotice'
 import { useT } from '@/i18n'
 
 interface Level {
@@ -52,7 +53,7 @@ const fieldCls =
 
 export function PersonaRules() {
   const t = useT()
-  const entityQ = useEntityQuery()
+  const entityQ = useEntityLevelQuery()
   const { activeEntity } = useEntity()
   const [data, setData] = useState<PersonaPayload | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -137,6 +138,7 @@ export function PersonaRules() {
 
   return (
     <div className="flex flex-col gap-4">
+      <MultiEntityNotice />
       <p className="text-[13px] text-text-mid">
         {t('ai.persona.editingFor', { level: levelName })}{' '}
         {!isOrg && t('ai.persona.switcherHint')}
