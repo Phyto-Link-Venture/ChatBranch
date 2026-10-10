@@ -280,7 +280,8 @@ public static class InboxEndpoints
                 if (contact != null)
                     try { variables = flows.VariablesFor(contact); } catch { }
             }
-            return Results.Ok(new { canned = rows.Select(c => CannedPayload(c, variables)) });
+            var scopes = LibraryEntities.Load(db, rows);
+            return Results.Ok(new { canned = rows.Select(c => CannedPayload(c, variables, scopes)) });
         }).RequireAuthorization(AuthPolicies.Authenticated)
           // the chat composer's quick replies + Templates → Messages
           .RequireAnyCapability("chats.view", "chats.send", "templates.manage");
@@ -288,7 +289,7 @@ public static class InboxEndpoints
         // Writes are gated on the templates.manage CAPABILITY (admin by default,
         // grantable to custom roles from the permission matrix), checked here
         // rather than by a role policy so the matrix stays the single source.
-        app.MapPost("/api/messaging/canned", async (JsonElement body, AppDbContext db,
+        app.MapPost("/api/messaging/canned", async (JsonElement body, AppDbContext db, ScopingService sc,
             ClaimsPrincipal me, HttpContext ctx) =>
         {
             if (!await CanManageTemplates(db, me)) return CannedForbidden();
@@ -298,7 +299,11 @@ public static class InboxEndpoints
             if (content.Length == 0) return CannedBad("content is required.");
             var (channels, chErr) = ChatBranch.Data.Channels.TemplateChannels.Parse(CList(body, "channels"));
             if (chErr != null) return CannedBad(chErr);
-            var entityId = await EntityId(db, CStr(body, "entity"));
+            // "Available to": entities [slug|id…] (or the older single `entity`); none = everyone
+            var pick = await LibraryScope.ReadAsync(db, body);
+            if (pick.Error != null) return pick.Error;
+            if (await LibraryScope.Check(db, sc, me, null, pick.Ids) is { } denied) return denied;
+            var entityId = pick.Ids.Count > 0 ? pick.Ids[0] : (int?)null;
             if (await db.CannedResponses.AnyAsync(c => c.ShortCode == shortCode && c.EntityId == entityId))
                 return Results.Json(new { detail = "duplicate short_code" }, statusCode: 409);
             var row = new CannedResponse
@@ -309,14 +314,16 @@ public static class InboxEndpoints
             };
             db.CannedResponses.Add(row);
             await db.SaveChangesAsync();
+            LibraryEntities.Set(db, row, pick.Ids);
+            await db.SaveChangesAsync();
             await db.Entry(row).Reference(c => c.Entity).LoadAsync();
             await CannedAudit(db, me, ctx, "canned.create", row);
-            return Results.Ok(CannedPayload(row, null));
+            return Results.Ok(CannedPayload(row, null, LibraryEntities.Load(db, new[] { row })));
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // Partial update: only the keys the body carries change.
         app.MapMethods("/api/messaging/canned/{id:int}", new[] { "PATCH" },
-            async (int id, JsonElement body, AppDbContext db, ClaimsPrincipal me, HttpContext ctx) =>
+            async (int id, JsonElement body, AppDbContext db, ScopingService sc, ClaimsPrincipal me, HttpContext ctx) =>
         {
             if (!await CanManageTemplates(db, me)) return CannedForbidden();
             var row = await db.CannedResponses.FirstOrDefaultAsync(c => c.Id == id);
@@ -340,9 +347,15 @@ public static class InboxEndpoints
                 if (chErr != null) return CannedBad(chErr);
                 row.Channels = channels;
             }
-            if (CHas(body, "entity"))
-                // "" / null moves it back to organization-wide. Only the FK moves.
-                row.EntityId = await EntityId(db, CStr(body, "entity"));
+            // entities [] / entity "" moves it back to organization-wide (everyone)
+            var pick = await LibraryScope.ReadAsync(db, body);
+            if (pick.Error != null) return pick.Error;
+            if (pick.Given)
+            {
+                var before = LibraryEntities.Ids(db, LibraryKinds.Canned, row.Id, row.EntityId);
+                if (await LibraryScope.Check(db, sc, me, before, pick.Ids) is { } denied) return denied;
+                LibraryEntities.Set(db, row, pick.Ids);
+            }
 
             if (await db.CannedResponses.AnyAsync(c => c.Id != row.Id && c.ShortCode == row.ShortCode
                                                        && c.EntityId == row.EntityId))
@@ -352,7 +365,7 @@ public static class InboxEndpoints
             await db.SaveChangesAsync();
             await db.Entry(row).Reference(c => c.Entity).LoadAsync();
             await CannedAudit(db, me, ctx, "canned.update", row);
-            return Results.Ok(CannedPayload(row, null));
+            return Results.Ok(CannedPayload(row, null, LibraryEntities.Load(db, new[] { row })));
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         app.MapDelete("/api/messaging/canned/{id:int}", async (int id, AppDbContext db,
@@ -361,6 +374,8 @@ public static class InboxEndpoints
             if (!await CanManageTemplates(db, me)) return CannedForbidden();
             var row = await db.CannedResponses.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id);
             await db.CannedResponses.Where(c => c.Id == id).ExecuteDeleteAsync();
+            LibraryEntities.Clear(db, LibraryKinds.Canned, id);
+            await db.SaveChangesAsync();
             if (row != null) await CannedAudit(db, me, ctx, "canned.delete", row);
             return Results.Ok(new { ok = true });
         }).RequireAuthorization(AuthPolicies.Authenticated);
@@ -441,7 +456,8 @@ public static class InboxEndpoints
     // ======================= payload builders ================================
 
     /// <summary>messaging/views._canned_payload — snake_case, `rendered` last.</summary>
-    private static object CannedPayload(CannedResponse c, Dictionary<string, string>? variables) => new
+    private static object CannedPayload(CannedResponse c, Dictionary<string, string>? variables,
+        Dictionary<int, List<EntityRef>> scopes) => new
     {
         id = c.Id,
         short_code = c.ShortCode,
@@ -452,8 +468,12 @@ public static class InboxEndpoints
         entity_id = c.EntityId,
         entity = c.Entity?.Slug,
         entity_name = c.Entity?.Name ?? "",
+        // "Available to": every entity it was ticked for (primary first); global = everyone
+        entities = LibraryEntities.Payload(scopes, c.Id),
+        global = c.EntityId == null,
         created_at = DateTime.SpecifyKind(c.CreatedAt, DateTimeKind.Utc),
         updated_at = DateTime.SpecifyKind(c.UpdatedAt ?? c.CreatedAt, DateTimeKind.Utc),
+
         // Contact-bound quick reply: {{name}}/{{amount}}/… filled from the CRM
         // (same variable catalog as the flow builder). Raw content when unlinked.
         rendered = variables != null ? FlowEngine.Render(c.Content, variables) : c.Content,

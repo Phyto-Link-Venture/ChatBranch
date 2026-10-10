@@ -12,8 +12,8 @@ import { AlertCircle, CheckCircle, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { DataTable, type Column } from '@/components/ui/DataTable'
-import { EntityPicker } from '@/components/ui/EntityPicker'
 import { Advanced } from '@/components/ui/Advanced'
+import { AvailabilityChips, AvailabilityPicker, type EntityRefLite } from '@/components/ui/AvailabilityPicker'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { TemplateVariablePicker } from '@/components/settings/TemplateVariablePicker'
 import { useFormat, useT, type MessageKey, type TFunction } from '@/i18n'
@@ -171,8 +171,8 @@ export interface TemplateRow {
   type: string
   channels: string[]
   voice?: boolean
-  /** null = not applicable for this kind of template. */
-  entityName: string | null
+  /** Who can use it ("Available to"); null = not applicable for this kind of template. */
+  availability: { entities: EntityRefLite[]; global: boolean } | null
   updated: string | null
   onEdit?: () => void
   onDelete?: () => void
@@ -222,15 +222,21 @@ export function TemplateTable({
     },
     {
       key: 'entity',
-      header: t('common.fields.entity'),
+      header: t('ui.availability.label'),
       sortable: true,
-      width: 170,
-      value: (r) => r.entityName ?? '',
-      render: (r) => (
-        <span className="whitespace-nowrap text-[12.5px] text-text-mid">
-          {r.entityName === null ? '—' : r.entityName || t('library.table.orgWide')}
-        </span>
-      ),
+      width: 190,
+      value: (r) =>
+        r.availability === null
+          ? ''
+          : r.availability.global
+            ? t('ui.availability.chipEveryone')
+            : r.availability.entities.map((e) => e.name || e.slug).join(' '),
+      render: (r) =>
+        r.availability === null ? (
+          <span className="text-[12.5px] text-text-mid">—</span>
+        ) : (
+          <AvailabilityChips entities={r.availability.entities} global={r.availability.global} />
+        ),
     },
     {
       key: 'updated',
@@ -318,7 +324,8 @@ export function Notice({ tone, children }: { tone: 'ok' | 'error'; children: Rea
 export interface TemplateDraft {
   name: string
   content: string
-  entity: string | null
+  /** "Available to": entity slugs; [] = everyone (organization-wide). */
+  entities: string[]
   channels: string[]
 }
 
@@ -355,9 +362,9 @@ export function TemplateEditorModal({
   const caret = useRef<{ start: number; end: number } | null>(null)
 
   const isMsg = kind === 'message'
-  // Entity (default organization-wide) and channels (default every channel)
-  // sit under Advanced — opened when either is set.
-  const advancedCount = (draft.entity ? 1 : 0) + (isMsg && draft.channels.length > 0 ? 1 : 0)
+  // "Available to" is up front (who can use it is a first decision); channels
+  // (default every channel) sit under Advanced — opened when set.
+  const advancedCount = isMsg && draft.channels.length > 0 ? 1 : 0
   const normName = (v: string) => (isMsg ? v.trim().toLowerCase().replace(/^\/+/, '') : v.trim())
 
   const checkName = (v: string): string | null => {
@@ -504,17 +511,10 @@ export function TemplateEditorModal({
         </label>
         <TemplateVariablePicker onInsert={insert} />
 
+        <AvailabilityPicker value={draft.entities} onChange={(entities) => setDraft({ ...draft, entities })} />
+
+        {isMsg && (
         <Advanced count={advancedCount} forceOpen={advancedCount > 0}>
-          <label className="block">
-            <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('common.fields.entity')}</span>
-            <EntityPicker
-              value={draft.entity}
-              onChange={(entity) => setDraft({ ...draft, entity })}
-              globalLabel={t('library.editor.orgWideEvery')}
-              ariaLabel={t('library.editor.entityAria')}
-            />
-            <span className="mt-1 block text-[11.5px] text-text-muted">{t('library.editor.orgWideHint')}</span>
-          </label>
           {isMsg && (
             <div>
               <span className="mb-1.5 block text-[12px] font-semibold text-text-high">{t('library.table.channels')}</span>
@@ -527,6 +527,8 @@ export function TemplateEditorModal({
             </div>
           )}
         </Advanced>
+        )}
+
       </div>
     </Modal>
   )

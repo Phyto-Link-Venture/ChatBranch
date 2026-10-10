@@ -165,6 +165,25 @@ When you fix one of these, update this table, `README.md` and
   (records that belong to exactly ONE outlet — contacts, threads, AI drafts,
   analytics). `entityId == null` means "All entities" for the Scope* helpers and
   "the global value" for the setting helpers.
+  **Multi-entity libraries ("Available to").** Quick replies, call scripts,
+  knowledge, AI skills and automation rules (`IMultiEntityItem`) may be ticked
+  for SEVERAL entities: `EntityId` stays the PRIMARY (first tick), the others
+  are `crm_libraryentity` rows (`kind`, `item_id`, `entity_id`); none = global.
+  Visibility is ONE rule, `ScopingService.LibraryVisible` (global, or the
+  primary, or a tick in the reader's set), which `ScopeInherited` and
+  `ShellScope.ScopeLibrary` both call — so a row ticked for A and B reaches A,
+  B and their branches, never a sibling; a legacy single-`EntityId` row works
+  unchanged. Writes: `entities: [slug|id…]` (or the older `entity`) through
+  `Endpoints/LibraryScope.cs` (parse + permission: every added/removed entity
+  must pass `AiControlsEndpoints.MayEdit`; going global — or narrowing a global
+  row — needs `MayGoGlobal`: admin+, or a capability holder with NO assigned
+  entities), stored by `Data/LibraryEntities.Set` (also `Load` for payloads
+  `entities: [{id, slug, name}]` + `global`, `Clear` on delete,
+  `OnEntityDeleted`). The skills PUT keeps the scope it is saved in as the
+  primary. UI: `components/ui/AvailabilityPicker.tsx` (◉ Everyone / ◯ Selected
+  entities + `EntityMultiPicker`, up front in every editor; `AvailabilityChips`
+  in the lists; `useDefaultAvailability` = Everyone for admins, else the
+  caller's entity). Tests: `MultiEntityLibraryTests`.
   **`Setting` is not key-unique**: a nullable `EntityId` with two partial unique
   indexes (one global row per key; one override per `(key, entity)`), so a raw
   read MUST say `EntityId == null` or another outlet's override leaks into the
@@ -1432,7 +1451,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **698 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **704 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /

@@ -461,12 +461,13 @@ public static class ContactsEndpoints
             }
             // Frontend (ScriptTemplatesSettings) reads `templates` — a `scripts`
             // key left it undefined and crashed on `sorted.length`.
-            return Results.Ok(new { templates = rows.Select(t => ScriptItem(t, variables)) });
+            var scopes = LibraryEntities.Load(db, rows);
+            return Results.Ok(new { templates = rows.Select(t => ScriptItem(t, variables, scopes)) });
         }).RequireAuthorization(AuthPolicies.Authenticated)
           // Templates → Call scripts, the chat's Script call button, the flow builder's call step
           .RequireAnyCapability("script_templates.manage", "chats.send", "flows.manage");
 
-        app.MapPost("/api/calls/script-templates", async (JsonElement body, AppDbContext db,
+        app.MapPost("/api/calls/script-templates", async (JsonElement body, AppDbContext db, ScopingService sc,
             ClaimsPrincipal me, HttpContext ctx) =>
         {
             if (!await CanManageScripts(db, me)) return ScriptsForbidden();
@@ -476,23 +477,29 @@ public static class ContactsEndpoints
             if (content.Length == 0) return Bad("content is required.");
             if (await db.ScriptTemplates.AnyAsync(s => s.Name == name))
                 return Conflict($"A script template named \"{name}\" already exists.");
+            // "Available to": entities [slug|id…] (or the older single `entity`); none = everyone
+            var pick = await LibraryScope.ReadAsync(db, body);
+            if (pick.Error != null) return pick.Error;
+            if (await LibraryScope.Check(db, sc, me, null, pick.Ids) is { } denied) return denied;
 
             var row = new ScriptTemplate
             {
                 Name = name, Content = content,
-                EntityId = await InboxEndpoints.EntityId(db, AsString(body, "entity")),
+                EntityId = pick.Ids.Count > 0 ? pick.Ids[0] : null,
                 CreatedBy = me.Identity?.Name ?? "",
                 CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
             };
             db.ScriptTemplates.Add(row);
             await db.SaveChangesAsync();
+            LibraryEntities.Set(db, row, pick.Ids);
+            await db.SaveChangesAsync();
             await db.Entry(row).Reference(s => s.Entity).LoadAsync();
             Audit(db, me, ctx, "script_template.create", name, "");
-            return Results.Ok(ScriptItem(row, null));
+            return Results.Ok(ScriptItem(row, null, LibraryEntities.Load(db, new[] { row })));
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         app.MapMethods("/api/calls/script-templates/{id:int}", new[] { "PATCH" },
-            async (int id, JsonElement body, AppDbContext db, ClaimsPrincipal me, HttpContext ctx) =>
+            async (int id, JsonElement body, AppDbContext db, ScopingService sc, ClaimsPrincipal me, HttpContext ctx) =>
         {
             if (!await CanManageScripts(db, me)) return ScriptsForbidden();
             var row = await db.ScriptTemplates.FirstOrDefaultAsync(s => s.Id == id);
@@ -512,14 +519,20 @@ public static class ContactsEndpoints
                 if (content.Length == 0) return Bad("content is required.");
                 row.Content = content;
             }
-            if (Has(body, "entity"))
-                // "" / null moves the script back to organization-wide.
-                row.EntityId = await InboxEndpoints.EntityId(db, AsString(body, "entity"));
+            // entities [] / entity "" moves the script back to organization-wide (everyone)
+            var pick = await LibraryScope.ReadAsync(db, body);
+            if (pick.Error != null) return pick.Error;
+            if (pick.Given)
+            {
+                var before = LibraryEntities.Ids(db, LibraryKinds.Script, row.Id, row.EntityId);
+                if (await LibraryScope.Check(db, sc, me, before, pick.Ids) is { } denied) return denied;
+                LibraryEntities.Set(db, row, pick.Ids);
+            }
             row.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
             await db.Entry(row).Reference(s => s.Entity).LoadAsync();
             Audit(db, me, ctx, "script_template.update", row.Name, "");
-            return Results.Ok(ScriptItem(row, null));
+            return Results.Ok(ScriptItem(row, null, LibraryEntities.Load(db, new[] { row })));
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         app.MapDelete("/api/calls/script-templates/{id:int}", async (int id, AppDbContext db,
@@ -530,6 +543,7 @@ public static class ContactsEndpoints
             if (row == null) return NotFound("Script template not found.");
             var name = row.Name;
             db.ScriptTemplates.Remove(row);
+            LibraryEntities.Clear(db, LibraryKinds.Script, id);
             await db.SaveChangesAsync();
             Audit(db, me, ctx, "script_template.delete", name, "");
             return Results.Ok(new { ok = true });
@@ -923,7 +937,8 @@ public static class ContactsEndpoints
 
     // ======================= script templates ================================
 
-    private static object ScriptItem(ScriptTemplate t, Dictionary<string, string>? variables) => new
+    private static object ScriptItem(ScriptTemplate t, Dictionary<string, string>? variables,
+        Dictionary<int, List<EntityRef>> scopes) => new
     {
         id = t.Id,
         name = t.Name,
@@ -932,6 +947,10 @@ public static class ContactsEndpoints
         entity_id = t.EntityId,
         entity = t.Entity?.Slug,
         entity_name = t.Entity?.Name ?? "",
+        // "Available to": every entity it was ticked for (primary first); global = everyone
+        entities = LibraryEntities.Payload(scopes, t.Id),
+        global = t.EntityId == null,
+
         updated_at = DateTime.SpecifyKind(t.UpdatedAt == default ? t.CreatedAt : t.UpdatedAt,
             DateTimeKind.Utc),
         // Contact-bound preview: {{name}}/{{record_title}}/… filled from the CRM.

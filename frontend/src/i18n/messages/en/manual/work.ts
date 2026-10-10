@@ -217,7 +217,7 @@ export const work = {
       },
       s7: {
         title: 'Fill in the form',
-        body: '“Short code”: what agents will type after “/”, for example “delivery-update” (lowercase letters, digits and dashes). Leave “Entity” as “Organization-wide (every entity)” and “Channels” as “All channels” unless the reply only fits one branch or app. Write the text under “Message” — the variable buttons insert things like the customer’s name.',
+        body: '“Short code”: what agents will type after “/”, for example “delivery-update” (lowercase letters, digits and dashes). Leave “Available to” on “Everyone (global)” unless the reply only fits some companies or branches — then choose “Selected entities” and tick them (each with its branches). Under “Advanced settings”, leave “Channels” on “All channels” unless it only fits one app. Write the text under “Message” — the variable buttons insert things like the customer’s name.',
       },
       s8: {
         title: 'Save it',

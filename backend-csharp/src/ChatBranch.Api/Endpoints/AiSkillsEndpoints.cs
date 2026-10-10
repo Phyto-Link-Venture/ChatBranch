@@ -35,7 +35,10 @@ public static class AiSkillsEndpoints
     public record SkillDto(string? Id, string? Name, string? UseWhen, string? Instructions, int Position,
         string? Kind = null, string? Description = null, string? Code = null, JsonElement? Parameters = null,
         JsonElement? Tests = null, bool? Enabled = null, List<string>? Channels = null, string? OnFail = null,
-        JsonElement? Config = null);
+        JsonElement? Config = null,
+        // "Available to": [slug|id…] — the scope the skill is saved in (the PUT's
+        // `entity`) is always one of them; absent = keep. A global PUT takes none.
+        JsonElement? Entities = null);
 
     public record SkillsWrite(string? Entity, List<SkillDto>? Skills);
     public record DraftAnswer(string? Question, string? Answer);
@@ -62,7 +65,7 @@ public static class AiSkillsEndpoints
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
             // bounded by the caller's assigned outlets (ShellScope.ScopeLibrary)
-            return Results.Ok(new { skills = List(ShellScope.ScopeLibrary(db.AgentSkills.AsNoTracking(), db, sc, me, entityId)) });
+            return Results.Ok(new { skills = List(db, ShellScope.ScopeLibrary(db.AgentSkills.AsNoTracking(), db, sc, me, entityId)) });
         }).RequireAuthorization(AuthPolicies.Authenticated)
           // the Skills page, and the flow builder's step skill picker
           .RequireAnyCapability("settings.ai.manage", "flows.manage");
@@ -83,12 +86,34 @@ public static class AiSkillsEndpoints
 
             // 1) validate everything before touching a row
             var seen = new HashSet<string>();
+            // "Available to" per skill: the full set (this scope first) when the skill sent one
+            var picks = new Dictionary<string, List<int>>();
             foreach (var s in body.Skills)
             {
                 var skillId = SkillId(s.Id);
                 if (skillId.Length == 0) continue;
                 if (!seen.Add(skillId)) return Bad($"Skill id '{skillId}' appears twice.");
                 var current = existing.FirstOrDefault(e => e.SkillId == skillId);
+                {
+                    var pick = await LibraryScope.ParseAsync(db, s.Entities, null, false);
+                    if (pick.Error != null) return pick.Error;
+                    List<int>? after = null;
+                    if (pick.Given)
+                    {
+                        if (entityId == null && pick.Ids.Count > 0)
+                            return Bad($"Skill '{s.Name}': a skill limited to entities is saved under one of them, not organization-wide.");
+                        after = pick.Ids.Where(i => i != entityId).ToList();
+                        if (entityId is int home) after.Insert(0, home);
+                        picks[skillId] = after;
+                    }
+                    else if (current == null) after = entityId is int home ? new List<int> { home } : new List<int>();
+                    if (after != null)
+                    {
+                        var before = current == null ? null
+                            : LibraryEntities.Ids(db, LibraryKinds.Skill, current.Id, current.EntityId);
+                        if (await LibraryScope.Check(db, sc, me, before, after) is { } denied) return denied;
+                    }
+                }
                 var kind = s.Kind is null ? current?.Kind ?? SkillKinds.Prompt : s.Kind.Trim().ToLowerInvariant();
                 if (!Kinds.Contains(kind)) return Bad($"Skill '{s.Name}': kind must be prompt, tool, check or app.");
                 if (kind == SkillKinds.App)
@@ -168,7 +193,18 @@ public static class AiSkillsEndpoints
             }
             var removed = existing.Where(e => !keep.Contains(e.SkillId)).ToList();
             db.AgentSkills.RemoveRange(removed);
+            LibraryEntities.Clear(db, LibraryKinds.Skill, removed.Select(r => r.Id));
             await db.SaveChangesAsync();
+            // the extra entity ticks need the rows' ids, so they go in after the first save
+            if (picks.Count > 0)
+            {
+                foreach (var (skillId, ids) in picks)
+                {
+                    var row = db.AgentSkills.Local.FirstOrDefault(r => r.SkillId == skillId && r.EntityId == entityId);
+                    if (row != null) LibraryEntities.Set(db, row, ids, entityId);
+                }
+                await db.SaveChangesAsync();
+            }
             if (created + updated + removed.Count > 0)
                 Audit(db, me, ctx, "skills.update", body.Entity is { Length: > 0 } slug ? slug : "organization",
                     $"created {created}, updated {updated}, removed {removed.Count}"
@@ -339,14 +375,17 @@ public static class AiSkillsEndpoints
     // ---- helpers ------------------------------------------------------------------
 
     private static List<object> List(AppDbContext db, ScopingService sc, int? entityId) =>
-        List(sc.ScopeInherited(db.AgentSkills.AsNoTracking(), entityId));
+        List(db, sc.ScopeInherited(db.AgentSkills.AsNoTracking(), entityId));
 
-    private static List<object> List(IQueryable<AgentSkill> scoped) =>
-        scoped
+    private static List<object> List(AppDbContext db, IQueryable<AgentSkill> scoped)
+    {
+        var rows = scoped
             .Include(s => s.Entity)
             .OrderBy(s => s.EntityId == null ? 0 : 1).ThenBy(s => s.Position).ThenBy(s => s.Id)
-            .ToList()
-            .Select(Dto).ToList();
+            .ToList();
+        var scopes = LibraryEntities.Load(db, rows);
+        return rows.Select(s => Dto(s, scopes)).ToList();
+    }
 
     /// <summary>
     /// Port of aicore/views.py <c>_skill_payload</c> plus the code-skill fields:
@@ -354,7 +393,7 @@ public static class AiSkillsEndpoints
     /// it); `kind` + `enabled` let the flow builder's picker group them;
     /// `entity`/`scope` say whose skill it is (inherited vs this outlet's own).
     /// </summary>
-    private static object Dto(AgentSkill s) => new
+    private static object Dto(AgentSkill s, Dictionary<int, List<EntityRef>> scopes) => new
     {
         id = s.SkillId,
         name = s.Name,
@@ -376,7 +415,11 @@ public static class AiSkillsEndpoints
         entity = s.Entity?.Slug,
         entity_name = s.Entity?.Name ?? "",
         scope = s.EntityId != null ? "entity" : "global",
+        // "Available to": every entity it was ticked for (the scope it is saved in first)
+        entities = LibraryEntities.Payload(scopes, s.Id),
+        global = s.EntityId == null,
     };
+
 
     private static JsonElement? ParseOrNull(string raw)
     {

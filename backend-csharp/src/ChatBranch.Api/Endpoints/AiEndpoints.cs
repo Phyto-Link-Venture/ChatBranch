@@ -31,7 +31,9 @@ public static class AiEndpoints
         DateTime? StartsAt, DateTime? EndsAt, string? Entity,
         // Help Center: Published is PUBLIC readability, distinct from Active
         // (whether the AI may use it).
-        bool? Published = null, string? Slug = null, string? Category = null);
+        bool? Published = null, string? Slug = null, string? Category = null,
+        // "Available to": [slug|id…]; [] = everyone. Wins over the older single `entity`.
+        JsonElement? Entities = null);
     /// <summary>`text` is what the dashboard's preview box posts; `query` is the
     /// Django name. Accept both — binding only `query` made the preview silently
     /// ignore the message you typed and always return the whole block.</summary>
@@ -115,10 +117,11 @@ public static class AiEndpoints
                 new { id = "notice", label = "Sudden notice" },
             };
             var counts = kinds.ToDictionary(k => k.id, k => rows.Count(r => r.Kind == k.id));
+            var scopes = LibraryEntities.Load(db, rows);
             var now = DateTime.UtcNow;
             return Results.Ok(new
             {
-                items = rows.Select(k => KnowledgeDto(k, now)),
+                items = rows.Select(k => KnowledgeDto(k, now, null, scopes)),
                 counts,
                 kinds,
                 budget = 1800,
@@ -127,9 +130,13 @@ public static class AiEndpoints
             });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
-        app.MapPost("/api/aicore/knowledge", async (KnowledgeWrite b, AppDbContext db) =>
+        app.MapPost("/api/aicore/knowledge", async (KnowledgeWrite b, AppDbContext db, ScopingService sc,
+            ClaimsPrincipal me) =>
         {
-            var entityId = await InboxEndpoints.EntityId(db, b.Entity);
+            var pick = await LibraryScope.ParseAsync(db, b.Entities, b.Entity, b.Entity != null);
+            if (pick.Error != null) return pick.Error;
+            if (await LibraryScope.Check(db, sc, me, null, pick.Ids) is { } denied) return denied;
+            var entityId = pick.Ids.Count > 0 ? pick.Ids[0] : (int?)null;
             var row = new KnowledgeItem
             {
                 EntityId = entityId, Kind = b.Kind ?? "fact", Title = b.Title ?? "",
@@ -144,18 +151,30 @@ public static class AiEndpoints
             };
             db.KnowledgeItems.Add(row);
             await db.SaveChangesAsync();
+            LibraryEntities.Set(db, row, pick.Ids);
+            await db.SaveChangesAsync();
             Workers.EmbeddingWorker.Kick(); // semantic index catches up off the request
-            return Results.Ok(KnowledgeDto(row, DateTime.UtcNow, await EntityRow(db, row.EntityId)));
+            return Results.Ok(KnowledgeDto(row, DateTime.UtcNow, await EntityRow(db, row.EntityId),
+                LibraryEntities.Load(db, new[] { row })));
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
         // Bound as raw JSON, not a DTO: a PATCH must tell "field absent" (leave
         // it) from "field null/empty" (clear it) — the date window is cleared by
         // sending "", and the list's on/off button sends `{"active": …}` alone.
         app.MapMethods("/api/aicore/knowledge/{id:int}", new[] { "PATCH" },
-            async (int id, JsonElement b, AppDbContext db) =>
+            async (int id, JsonElement b, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var row = await db.KnowledgeItems.FindAsync(id);
             if (row == null) return Results.NotFound();
+            // "Available to": entities [] / entity "" = everyone (organization-wide)
+            var pick = await LibraryScope.ReadAsync(db, b);
+            if (pick.Error != null) return pick.Error;
+            if (pick.Given)
+            {
+                var before = LibraryEntities.Ids(db, LibraryKinds.Knowledge, row.Id, row.EntityId);
+                if (await LibraryScope.Check(db, sc, me, before, pick.Ids) is { } denied) return denied;
+                LibraryEntities.Set(db, row, pick.Ids);
+            }
             if (KStr(b, "kind") is string kind && kind.Length > 0) row.Kind = kind;
             if (KStr(b, "title") is string title) row.Title = title;
             if (KStr(b, "question") is string question) row.Question = question;
@@ -172,12 +191,14 @@ public static class AiEndpoints
             row.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
             Workers.EmbeddingWorker.Kick();
-            return Results.Ok(KnowledgeDto(row, DateTime.UtcNow, await EntityRow(db, row.EntityId)));
+            return Results.Ok(KnowledgeDto(row, DateTime.UtcNow, await EntityRow(db, row.EntityId),
+                LibraryEntities.Load(db, new[] { row })));
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
         app.MapDelete("/api/aicore/knowledge/{id:int}", async (int id, AppDbContext db) =>
         {
             await db.KnowledgeItems.Where(k => k.Id == id).ExecuteDeleteAsync();
+            await db.LibraryEntities.Where(l => l.Kind == LibraryKinds.Knowledge && l.ItemId == id).ExecuteDeleteAsync();
             await db.AiEmbeddings.Where(e => e.OwnerType == EmbeddingOwner.Knowledge && e.OwnerId == id).ExecuteDeleteAsync();
             return Results.Ok(new { ok = true });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
@@ -224,7 +245,8 @@ public static class AiEndpoints
         // ---- document upload: PDF / .txt / .md / .csv → one knowledge item ---------
         // The text is extracted and kept; the file itself never is. Read with
         // ReadFormAsync (no IFormFile binding → no antiforgery metadata).
-        app.MapPost("/api/aicore/knowledge/upload", async (HttpContext ctx, AppDbContext db, ClaimsPrincipal me) =>
+        app.MapPost("/api/aicore/knowledge/upload", async (HttpContext ctx, AppDbContext db, ScopingService sc,
+            ClaimsPrincipal me) =>
         {
             if (!ctx.Request.HasFormContentType)
                 return Results.BadRequest(new { detail = "Upload a file (multipart/form-data, field 'file')." });
@@ -255,7 +277,15 @@ public static class AiEndpoints
             var kind = form["kind"].ToString().Trim().ToLowerInvariant();
             if (!kinds.Contains(kind)) kind = "fact";
             var title = form["title"].ToString().Trim();
-            var entityId = await InboxEndpoints.EntityId(db, form["entity"].ToString());
+            // "Available to": `entities` (comma list of slugs/ids; "" = everyone) or the older `entity`
+            var pick = form.ContainsKey("entities")
+                ? await LibraryScope.Resolve(db, form["entities"].ToString()
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                : await LibraryScope.Resolve(db, new[] { form["entity"].ToString() }
+                    .Where(s => !string.IsNullOrWhiteSpace(s)));
+            if (pick.Error != null) return pick.Error;
+            if (await LibraryScope.Check(db, sc, me, null, pick.Ids) is { } denied) return denied;
+            var entityId = pick.Ids.Count > 0 ? pick.Ids[0] : (int?)null;
             var channels = form["channels"].ToString()
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct().ToList();
             var now = DateTime.UtcNow;
@@ -267,12 +297,14 @@ public static class AiEndpoints
             };
             db.KnowledgeItems.Add(row);
             await db.SaveChangesAsync();
+            LibraryEntities.Set(db, row, pick.Ids);
+            await db.SaveChangesAsync();
             ChatBranch.Data.Audit.AuditTrail.Write(db, "knowledge.upload", $"knowledge:{row.Id}",
                 $"{name} ({doc.Text.Length} chars)", entityId: entityId);
             Workers.EmbeddingWorker.Kick();
             return Results.Ok(new
             {
-                item = KnowledgeDto(row, now, await EntityRow(db, row.EntityId)),
+                item = KnowledgeDto(row, now, await EntityRow(db, row.EntityId), LibraryEntities.Load(db, new[] { row })),
                 chunks = RetrievalService.ChunksFor(row).Count,
                 chars = doc.Text.Length,
                 pages = doc.Pages,
@@ -436,7 +468,8 @@ public static class AiEndpoints
     /// Knowledge Base page parses. live/expired/scheduled are precomputed here so
     /// the UI's chip agrees with what retrieval will actually do with the row.
     /// </summary>
-    private static object KnowledgeDto(KnowledgeItem k, DateTime now, Entity? ent = null)
+    private static object KnowledgeDto(KnowledgeItem k, DateTime now, Entity? ent = null,
+        Dictionary<int, List<EntityRef>>? scopes = null)
     {
         var owner = ent ?? k.Entity;
         var started = k.StartsAt == null || k.StartsAt <= now;
@@ -457,6 +490,10 @@ public static class AiEndpoints
             // "global" = authored organization-wide and inherited by every outlet;
             // "entity" = this outlet's own. Drives the inherited/local badge.
             scope = k.EntityId != null ? "entity" : "global",
+            // "Available to": every entity it was ticked for (primary first); global = everyone
+            entities = scopes != null ? LibraryEntities.Payload(scopes, k.Id) : Array.Empty<object>(),
+            global = k.EntityId == null,
+
             live = k.Active && started && !ended,
             expired = ended,
             scheduled = !started,

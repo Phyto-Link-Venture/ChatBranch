@@ -449,7 +449,7 @@ export function TemplatesSettings({
       ),
       type: category ? t(category.lbl) : tp.category,
       channels: ['whatsapp'],
-      entityName: null,
+      availability: null,
       updated: null,
       onEdit: canManage && tp.custom ? () => openEdit(tp) : undefined,
       onDelete: canManage && tp.custom ? () => setToDelete(tp) : undefined,

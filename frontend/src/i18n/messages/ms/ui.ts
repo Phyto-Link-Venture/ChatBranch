@@ -44,6 +44,18 @@ export const ui: Dict<typeof source> = {
     allEntities: 'Semua entiti',
     main: 'Utama',
   },
+  availability: {
+    label: 'Tersedia untuk',
+    everyone: 'Semua orang (global)',
+    everyoneHint: 'Setiap entiti dan setiap cawangan boleh menggunakannya.',
+    selected: 'Entiti terpilih',
+    selectedHint: 'Hanya entiti yang ditanda — dan cawangannya — boleh menggunakannya.',
+    pickAria: 'Entiti yang boleh menggunakannya',
+    placeholder: 'Tanda satu atau lebih entiti…',
+    adminOnly: 'Anda terhad kepada entiti tertentu — hanya pentadbir boleh menjadikannya tersedia untuk semua orang.',
+    chipEveryone: 'Semua orang',
+    more: '+{count}',
+  },
   phone: {
     number: 'Nombor telefon',
     countryCode: 'Kod panggilan negara',

@@ -301,7 +301,7 @@ export const automate: Dict<typeof source> = {
       },
       s5: {
         title: 'Pilih di mana ia terpakai (pilihan)',
-        body: 'Di bawah “Terpakai kepada”, kekalkan “Seluruh organisasi” atau pilih satu cawangan (entiti) supaya peraturan hanya bertindak pada perbualan cawangan itu.',
+        body: 'Di bawah “Tersedia untuk”, kekalkan “Semua orang (global)” atau pilih “Entiti terpilih” dan tanda satu atau lebih cawangan supaya peraturan hanya bertindak pada perbualan mereka (dan cawangan mereka).',
       },
       s6: {
         title: 'Tambah syarat Jika',
@@ -338,7 +338,7 @@ export const automate: Dict<typeof source> = {
       t6: 'Anda boleh menguji peraturan yang dimatikan — keputusan ujian mengingatkan bahawa ia tidak akan berjalan sehingga anda menghidupkannya.',
     },
     trouble:
-      'Peraturan tidak pernah dicetuskan: klik “Uji” dengan sembang yang sepatutnya padan — syarat yang dipangkah menunjukkan apa yang tidak dipenuhi. Pastikan juga ia “Hidup”, “Terpakai kepada” merangkumi cawangan sembang itu, dan setiap syarat ada nilai (pengendali yang tidak dikenali tidak padan dengan apa-apa). Ia dicetuskan terlalu kerap: tambah syarat seperti “Mesej pertama” = Ya. Dua peraturan bercanggah: semua peraturan yang padan akan berjalan, dari atas ke bawah — seret satu ke atas yang lain, matikan satu atau ketatkan syaratnya.',
+      'Peraturan tidak pernah dicetuskan: klik “Uji” dengan sembang yang sepatutnya padan — syarat yang dipangkah menunjukkan apa yang tidak dipenuhi. Pastikan juga ia “Hidup”, “Tersedia untuk” merangkumi cawangan sembang itu, dan setiap syarat ada nilai (pengendali yang tidak dikenali tidak padan dengan apa-apa). Ia dicetuskan terlalu kerap: tambah syarat seperti “Mesej pertama” = Ya. Dua peraturan bercanggah: semua peraturan yang padan akan berjalan, dari atas ke bawah — seret satu ke atas yang lain, matikan satu atau ketatkan syaratnya.',
   },
   accountAssignment: {
     title: 'Pilih nombor yang digunakan oleh setiap kenalan',
