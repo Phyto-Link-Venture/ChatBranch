@@ -157,6 +157,18 @@ lookup verdict is cached 30 days) · `checked_account_id` · timestamps. **Uniqu
 list — an any-channel code binds once per channel). Bound by the inbound path
 before contact matching (`Contacts/ContactInvites.cs`).
 
+### `crm_contactaccessrequest` — "Request access" to another branch's contact
+`contact_id` (FK, cascade) · `entity_id` (the branch to add the contact to) ·
+`requested_by` (username) · `note` · `status` (`pending` \| `approved` \|
+`denied` \| `cancelled`) · `decided_by` · `reason` (a denial's reason, shown to
+the requester) · `decided_at` · `created_at`. **Partial unique** index
+`(contact_id, entity_id) WHERE status = 'pending'` — at most one pending request
+per contact × branch (a repeat returns it). Approving adds a
+`crm_contactentity` link (the contact's other entities stay). Written only by
+`Endpoints/ContactAccessEndpoints.cs`; the 409's `request_token` is
+`Contacts/ContactAccessToken.cs` (AES-GCM, 30 min, Setting
+`contact_access_secret`).
+
 ### `crm_identityrequest` — "who are you?" with an unknown customer
 `thread_id` (FK, cascade; **unique** — one per conversation) · `state` (`armed`
 \| `asking` \| `linked` \| `created` \| `needs_contact` \| `ambiguous` \|

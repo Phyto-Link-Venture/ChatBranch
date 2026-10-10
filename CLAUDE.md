@@ -1381,7 +1381,18 @@ When you fix one of these, update this table, `README.md` and
   edit and import check only the companies the contact belongs to (no entity =
   the org-wide contacts), and a 409 names the existing contact (+
   `existing_id`) only when the caller can see it (the Add form then offers "add
-  this entity to that contact instead"). Inbound matching
+  this entity to that contact instead"). When the caller CAN'T see it, a new
+  contact's 409 names no one and carries an opaque `request_token`
+  (`Contacts/ContactAccessToken.cs`: AES-GCM, the caller + the target entity,
+  30 min) → **Request access** (`Endpoints/ContactAccessEndpoints.cs`,
+  `crm_contactaccessrequest`, `/api/contacts/access-requests`, ask with
+  `contacts.manage` or `chats.send`): the admins who can see the contact AND
+  manage the target branch get a notification + audit `contact.access_requested`;
+  approve links the contact to that entity (its others stay), deny notifies the
+  requester with the reason; nothing about the contact reaches the requester
+  before approval. UI: `components/contacts/AccessRequestsPanel.tsx` on
+  `/contacts` (`?access=<id>` opens it) + the Add form's offer. Tests:
+  `ContactAccessTests`. Inbound matching
   (`InboundProcessor.MatchContact`, the SMS start, the identity exchange) picks
   the receiving entity's contact, else its company's, else an org-wide one —
   never another company's. Chat-made contacts are linked to their
@@ -1655,7 +1666,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **796 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **799 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /
@@ -1666,7 +1677,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   queue + queued calls, the AI (tool loop, skills runtime/drafter/API, built-ins,
   AI monitor + human-like behaviour, AI controls + handover, calendar booking —
   availability, reserve → make-at-delivery, a fake Google Calendar — retrieval and
-  learning), integrations (+ My connections, shared/personal scope and
+  learning), contact access requests (`ContactAccessTests`), integrations (+ My connections, shared/personal scope and
   up-the-tree resolution — `IntegrationScopeTests`), notifications + settings,
   search/live, the platform (audit, API keys, MCP — every route a tool or a
   documented exclusion, `McpCoverageTests` — assistant), the AI playground

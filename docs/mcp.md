@@ -150,7 +150,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 
 <!-- tools:start -->
 
-#### contacts (25)
+#### contacts (29)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -179,6 +179,10 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `contacts_get_timeline` | Get a communications timeline | read | `contacts.view` or `chats.view` |
 | `contacts_summarize_timeline` | Summarize a contact's history | read · open-world | `contacts.view` or `chats.view` |
 | `contacts_sync_records` | Sync business records | write | `contacts.manage` |
+| `contacts_request_access` | Request access to a contact | write | `contacts.manage` or `chats.send` |
+| `contacts_list_access_requests` | List contact access requests | read | `contacts.manage` or `chats.send` |
+| `contacts_decide_access_request` | Approve or deny a contact access request | write | `contacts.manage` |
+| `contacts_cancel_access_request` | Cancel your contact access request | write | `contacts.manage` or `chats.send` |
 
 #### conversations (31)
 

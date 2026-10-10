@@ -222,6 +222,10 @@ export const guide = {
           title: 'Row buttons',
           body: 'View opens the full profile. The pencil edits the contact and the bin deletes it — you are always asked first.',
         },
+        s7: {
+          title: 'Access requests',
+          body: 'Asked to share a customer who already belongs to another branch? Requests waiting for you (or your own pending ones) are counted here. Open it to approve, deny or cancel.',
+        },
       },
     },
     contact: {
