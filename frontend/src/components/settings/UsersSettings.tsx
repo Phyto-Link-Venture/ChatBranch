@@ -11,6 +11,7 @@ import { orderEntityTree } from '@/components/bindings/groups'
 import { roleHeaders } from '@/lib/role'
 import { expireSessionOn401, getAuth, authHeaders, roleDisplayName } from '@/lib/auth'
 import { useRole } from '@/lib/useRole'
+import { useCompanyAdmin } from '@/lib/useCompanyAdmin'
 import { useFormat, useT, type MessageKey } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
@@ -33,6 +34,8 @@ interface ManagedUser {
   last_login: string | null
   tenant: string | null
   entities: UserEntity[]
+  /** An admin bound to entities: manages only those companies (and branches). */
+  company_admin?: boolean
   /** Contact this login IS — a registered customer who signs in to use the
    *  integrations connected against their own record. null/absent = unbound. */
   contact_id?: number | null
@@ -165,8 +168,10 @@ function ErrorBox({ text }: { text: string }) {
  * entity holding it and its sub-entities.
  */
 
-/** Agent and every custom role: bound to the entities they're given (admins see the whole tenant). */
+/** Agent and every custom role: bound to the entities they're given. */
 const agentLevel = (role: string) => role !== 'admin' && role !== 'superadmin'
+/** Roles that take entity access: agent-level, and admin (entities = a COMPANY admin; none = organization-wide). */
+const takesEntities = (role: string) => role !== 'superadmin'
 
 export function UsersSettings() {
   const t = useT()
@@ -174,6 +179,8 @@ export function UsersSettings() {
   const { role: myRole, ready } = useRole()
   const [me, setMe] = useState<string | undefined>(undefined)
   useEffect(() => setMe(getAuth()?.username), [])
+  // am I a COMPANY admin (an admin bound to entities)? — read after mount
+  const iAmCompanyAdmin = useCompanyAdmin()
   const [users, setUsers] = useState<ManagedUser[] | null>(null)
   // Seed with the built-ins so the role selectors never flash empty before the
   // /api/auth/roles fetch (which adds any custom roles) resolves.
@@ -231,10 +238,14 @@ export function UsersSettings() {
 
   const roleLabel = (slug: string) => roleDisplayName(t, slug, roleOptions.find((r) => r.slug === slug)?.label)
   const roleChip = (slug: string) => ROLE_CHIP[slug] || CUSTOM_ROLE_CHIP
-  /** Roles the CURRENT operator may assign. Superadmin: all. Admin: agent-level
-   *  only (agent + any custom) — never admin/superadmin. */
+  /** Roles the CURRENT operator may assign. Superadmin: all. An organization-wide
+   *  admin: agent-level + admin (a COMPANY admin — companies required). A company
+   *  admin: agent-level only. Never superadmin. */
+  const orgWideMe = myRole === 'superadmin' || (myRole === 'admin' && !iAmCompanyAdmin)
   const assignableRoles = (): RoleRow[] =>
-    myRole === 'superadmin' ? roleOptions : roleOptions.filter((r) => r.slug !== 'admin' && r.slug !== 'superadmin')
+    myRole === 'superadmin'
+      ? roleOptions
+      : roleOptions.filter((r) => r.slug !== 'superadmin' && (r.slug !== 'admin' || orgWideMe))
 
   const roleSelectOptions: SelectOption[] = roleOptions.map((r) => ({
     value: r.slug,
@@ -267,7 +278,8 @@ export function UsersSettings() {
   const isSuper = myRole === 'superadmin'
   /** Admins manage agent-level users (agent + custom), never other admins /
    *  superadmins (server-enforced too). */
-  const canManage = (u: ManagedUser) => isSuper || (u.role !== 'admin' && u.role !== 'superadmin')
+  const canManage = (u: ManagedUser) =>
+    isSuper || agentLevel(u.role) || (u.role === 'admin' && !!u.company_admin && orgWideMe)
 
   const setRole = (u: ManagedUser, role: string) =>
     run(
@@ -329,6 +341,10 @@ export function UsersSettings() {
       setMsg({ ok: false, text: t('admin.users.passwordTooShort') })
       return
     }
+    if (newRole === 'admin' && !isSuper && newEntityIds.length === 0) {
+      setMsg({ ok: false, text: t('admin.users.adminEntityRequired') })
+      return
+    }
     run(async () => {
       await api('users', {
         method: 'POST',
@@ -337,7 +353,7 @@ export function UsersSettings() {
           name: newName.trim(),
           password: newPassword,
           role: newRole,
-          entity_ids: agentLevel(newRole) ? newEntityIds : [],
+          entity_ids: takesEntities(newRole) ? newEntityIds : [],
         }),
       })
       setNewUsername('')
@@ -392,6 +408,11 @@ export function UsersSettings() {
           <div className="flex items-center gap-2">
             <span className="text-[13.5px] font-semibold text-text-heading">{u.username}</span>
             {u.username === me && <span className="text-[11px] font-semibold text-text-muted">{t('admin.users.you')}</span>}
+            {u.company_admin && (
+              <span className="rounded-full bg-brand-400/10 px-1.5 py-px text-[10.5px] font-semibold text-[color:var(--brand-ink)]">
+                {t('admin.users.companyAdmin')}
+              </span>
+            )}
           </div>
           {u.name && u.name !== u.username && <div className="mt-0.5 text-[11.5px] text-text-muted">{u.name}</div>}
         </div>
@@ -442,7 +463,7 @@ export function UsersSettings() {
       width: 220,
       value: (u) => u.entities.map((e) => e.name).join(' '),
       render: (u) =>
-        u.role === 'admin' || u.role === 'superadmin' ? (
+        u.role === 'superadmin' || (u.role === 'admin' && u.entities.length === 0) ? (
           <span className="text-[12px] text-text-muted">{t('admin.users.allEntities')}</span>
         ) : u.entities.length === 0 ? (
           <span className="text-[12px] text-text-muted">{t('admin.users.wholeOrg')}</span>
@@ -515,8 +536,8 @@ export function UsersSettings() {
       render: (u) => (
         // Compact icon actions (with tooltips) so the row never wraps
         <div data-tour="users-row-actions" className="flex items-center justify-end gap-1">
-          {/* the users API grants entity access to agents only */}
-          {agentLevel(u.role) && canManage(u) && (
+          {/* entity access: agent-level users and company admins */}
+          {takesEntities(u.role) && canManage(u) && (
             <button
               disabled={busy}
               onClick={() => {
@@ -576,7 +597,7 @@ export function UsersSettings() {
     <div className="flex flex-col gap-5 pt-4">
       <p className="max-w-[760px] text-[13px] leading-relaxed text-text-mid">
         {t('admin.users.intro')}
-        {!isSuper && ` ${t('admin.users.introAdmin')}`}
+        {!isSuper && ` ${t(iAmCompanyAdmin ? 'admin.users.introCompanyAdmin' : 'admin.users.introAdmin')}`}
       </p>
 
       {/* what each built-in role can do */}
@@ -693,11 +714,11 @@ export function UsersSettings() {
               <span className="mt-1 block text-[11px] leading-relaxed text-text-muted">{t('admin.users.roleHint')}</span>
             </div>
           </div>
-          {agentLevel(newRole) && (
+          {takesEntities(newRole) && (
             <div className="border-t border-line pt-4">
               <span className="block text-[11.5px] font-bold text-text-high">{t('admin.users.entityAccess')}</span>
               <span className="mb-2.5 mt-0.5 block text-[11px] leading-relaxed text-text-muted">
-                {t('admin.users.entityAccessHint')}
+                {newRole === 'admin' ? t('admin.users.adminEntityHint') : t('admin.users.entityAccessHint')}
               </span>
               <EntityAccessGrid entities={entityPool} value={newEntityIds} onChange={setNewEntityIds} disabled={busy} />
             </div>

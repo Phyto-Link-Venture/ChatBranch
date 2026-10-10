@@ -144,7 +144,8 @@ public static class BuiltinTools
         public override string Name => "create_contact";
         public override string Title => "Create a contact";
         public override string Description =>
-            "Add a new contact. Name and phone (E.164, e.g. +60123456789) are required.";
+            "Add a new contact. A name and a phone (E.164, e.g. +60123456789) or an email are required — " +
+            "either is enough. The same phone or email can belong to one contact per company.";
         public override string? Capability => "contacts.manage";
         public override string Domain => "contacts";
         public override IReadOnlyList<RouteRef> Covers => R("POST /api/contacts");
@@ -155,17 +156,17 @@ public static class BuiltinTools
           "email":{"type":"string"},"company":{"type":"string"},
           "language":{"type":"string","description":"en, ms, zh…"},
           "tags":{"type":"array","items":{"type":"string"}}},
-         "required":["name","phone"]}
+         "required":["name"]}
         """;
         public override string Summarize(JsonElement a) =>
-            $"Create contact {Str(a, "name") ?? "?"} ({Str(a, "phone") ?? "no phone"})";
+            $"Create contact {Str(a, "name") ?? "?"} ({(Str(a, "phone") is { Length: > 0 } p ? p : Str(a, "email") ?? "no phone")})";
 
         public override async Task<object?> ExecuteAsync(ToolContext ctx, JsonElement a, CancellationToken ct)
         {
             var body = new Dictionary<string, object?>
             {
                 ["name"] = Req(a, "name"),
-                ["phone"] = Req(a, "phone"),
+                ["phone"] = Str(a, "phone") ?? "",
                 ["email"] = Str(a, "email") ?? "",
                 ["companyName"] = Str(a, "company") ?? "",
                 ["language"] = Str(a, "language") is { Length: > 0 } l ? l : "en",

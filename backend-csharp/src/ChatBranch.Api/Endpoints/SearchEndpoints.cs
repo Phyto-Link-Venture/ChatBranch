@@ -269,6 +269,14 @@ public static class SearchEndpoints
         {
             var tenantId = int.TryParse(me.FindFirstValue("tenant_id"), out var t) ? t : (int?)null;
             q = q.Where(u => u.Profile != null && u.Profile.TenantId == tenantId);
+            // a company admin: themselves + users bound inside their companies
+            if (ShellScope.BoundEntityIds(db, new ScopingService(db), me) is List<int> bound)
+            {
+                var self = me.Identity?.Name ?? "";
+                q = q.Where(u => u.Username == self
+                    || (u.Profile!.Role != Roles.SuperAdmin && u.Profile.Entities.Any()
+                        && u.Profile.Entities.All(e => bound.Contains(e.Id))));
+            }
         }
         else if (role != Roles.SuperAdmin)
         {

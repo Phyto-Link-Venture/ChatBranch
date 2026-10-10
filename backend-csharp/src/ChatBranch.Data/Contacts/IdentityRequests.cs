@@ -399,7 +399,7 @@ public class IdentityRequestService
         CancelPendingAsk(req);
         var c = Collected(req);
         var tenantId = TenantOf(thread, account);
-        var candidates = Candidates(c, tenantId);
+        var candidates = Candidates(c, tenantId, account?.EntityId ?? thread.EntityId);
         if (candidates.Count == 1)
         {
             var match = candidates[0];
@@ -457,20 +457,42 @@ public class IdentityRequestService
     }
 
     /// <summary>Contacts in the tenant matching the phone (last 8), else the exact email.</summary>
-    public List<Contact> Candidates(IdentityDetails c, int? tenantId)
+    public List<Contact> Candidates(IdentityDetails c, int? tenantId, int? entityId = null)
     {
         IQueryable<Contact> q = _db.Contacts;
         if (tenantId is int tid) q = q.Where(x => x.TenantId == tid);
         var outv = new List<Contact>();
         if (PhoneMatch.Tail(c.Phone) is string tail)
-            outv = q.Where(x => x.Phone != "").AsEnumerable()
-                .Where(x => PhoneMatch.Tail(x.Phone) == tail).OrderBy(x => x.Id).ToList();
+            outv = ForEntity(q.Where(x => x.Phone != "").AsEnumerable()
+                .Where(x => PhoneMatch.Tail(x.Phone) == tail).OrderBy(x => x.Id).ToList(), entityId);
         if (outv.Count == 0 && c.Email.Length > 0)
         {
             var e = c.Email.ToLower();
-            outv = q.Where(x => x.Email.ToLower() == e).OrderBy(x => x.Id).ToList();
+            outv = ForEntity(q.Where(x => x.Email.ToLower() == e).OrderBy(x => x.Id).ToList(), entityId);
         }
         return outv;
+    }
+
+    /// <summary>
+    /// The matches that belong to the conversation's entity, per company
+    /// (<see cref="ContactCompanies"/>): those linked inside its subtree, else
+    /// inside its company, else the organization-wide ones — never another
+    /// company's contact. No entity = every match (the old behaviour).
+    /// </summary>
+    private List<Contact> ForEntity(List<Contact> matches, int? entityId)
+    {
+        if (entityId is not int eid || matches.Count == 0) return matches;
+        var ids = matches.Select(m => m.Id).ToList();
+        var links = _db.ContactEntities.AsNoTracking().Where(l => ids.Contains(l.ContactId))
+            .Select(l => new { l.ContactId, l.EntityId }).ToList();
+        var subtree = _sc.EntitySubtreeIds(eid).ToHashSet();
+        var companyTree = _sc.EntitySubtreeIds(ContactCompanies.CompanyOf(_sc, eid)).ToHashSet();
+        List<int> Of(int id) => links.Where(l => l.ContactId == id).Select(l => l.EntityId).ToList();
+        var inSubtree = matches.Where(m => Of(m.Id).Any(subtree.Contains)).ToList();
+        if (inSubtree.Count > 0) return inSubtree;
+        var inCompany = matches.Where(m => Of(m.Id).Any(companyTree.Contains)).ToList();
+        if (inCompany.Count > 0) return inCompany;
+        return matches.Where(m => Of(m.Id).Count == 0).ToList();
     }
 
     /// <summary>

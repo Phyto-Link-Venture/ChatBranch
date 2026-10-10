@@ -255,9 +255,9 @@ public static class InboxThreadsEndpoints
         // everything beneath those. Asking for an outlet outside that scope
         // narrows to their own rather than widening the inbox; an agent with NO
         // assignment keeps the tenant-wide view (unchanged behaviour).
-        if (role is not (Roles.SuperAdmin or Roles.Admin))
+        // superadmin + org-wide admins: unbound; company admins, agents: their entities
         {
-            var assigned = ContactsEndpoints.AssignedEntityIds(db, me.Identity?.Name);
+            var assigned = ShellScope.ScopeRoots(db, me);
             if (assigned.Count > 0)
             {
                 var allowed = sc.EntitySubtreeIds(assigned).ToHashSet();

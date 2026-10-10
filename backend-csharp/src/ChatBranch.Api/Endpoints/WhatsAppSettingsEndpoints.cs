@@ -227,8 +227,8 @@ public static class WhatsAppSettingsEndpoints
                         $"keys: {string.Join(", ", patch.Keys.OrderBy(k => k))}");
             return Results.Ok(await GlobalPayload(db, sc));
         };
-        app.MapPost("/api/whatsapp/settings", saveSettings).RequireAuthorization(AuthPolicies.Authenticated);
-        app.MapPut("/api/whatsapp/settings", saveSettings).RequireAuthorization(AuthPolicies.Authenticated);
+        app.MapPost("/api/whatsapp/settings", saveSettings).RequireAuthorization(AuthPolicies.Authenticated).OrgWideOnly();
+        app.MapPut("/api/whatsapp/settings", saveSettings).RequireAuthorization(AuthPolicies.Authenticated).OrgWideOnly();
 
         // ---- routing rules (client operating model) ------------------------
         app.MapGet("/api/whatsapp/routing-rules", async (string? entity, AppDbContext db,
@@ -245,6 +245,7 @@ public static class WhatsAppSettingsEndpoints
             if (await SettingsEndpoints.RequireCapability(db, me, AssignmentsEndpoints.Capability) is { } denied)
                 return denied;
             var entityId = await InboxEndpoints.EntityId(db, entity);
+            if (ShellScope.CompanyLevelError(db, sc, me, entityId) is { } outside) return outside;
             var body = await ReadBody(ctx);
             var patch = new Dictionary<string, string>();
 
@@ -542,6 +543,7 @@ public static class WhatsAppSettingsEndpoints
             var row = await db.ChannelAccounts
                 .FirstOrDefaultAsync(a => a.Id == accountId && a.Channel == Channels.WhatsApp);
             if (row == null) return Results.NotFound(new { detail = "Account not found." });
+            if (ShellScope.CompanyLevelError(db, sc, me, row.EntityId) is { } outside) return outside;
 
             // Same path as recovery_mode = auto (Recovery.Enqueue): one template
             // job per assigned contact (wa_id-keyed, deduped per 24h, opted-out
@@ -608,6 +610,9 @@ public static class WhatsAppSettingsEndpoints
                 EntityId = await InboxEndpoints.EntityId(db, AsString(body, "entity")),
                 CreatedAt = DateTime.UtcNow,
             };
+            // a company admin links numbers for their own companies only
+            if (ShellScope.CompanyLevelError(db, ctx.RequestServices.GetRequiredService<ScopingService>(), me, row.EntityId) is { } outside)
+                return outside;
             if (ApplyDelivery(row, body) is IResult deliveryErr) return deliveryErr;
             // inbox "who answers it" keys: owning team + AI reply default
             if (InboxSettings.Apply(db, row, AsString(body, InboxSettings.TeamKey),
@@ -640,6 +645,7 @@ public static class WhatsAppSettingsEndpoints
                                                  statusCode: 400);
             var body = await ReadBody(ctx);
             if (RoleError(body) is IResult roleErr) return roleErr;
+            if (ShellScope.CompanyLevelError(db, sc, me, row.EntityId) is { } outside) return outside;
 
             var oldRole = AccountRole(row);
             var credsChanged = false;
@@ -683,6 +689,7 @@ public static class WhatsAppSettingsEndpoints
                 // Only the FK moves — EF fixes the navigation up, and touching it
                 // by hand would attach a second copy of the Entity.
                 var newEntityId = await InboxEndpoints.EntityId(db, AsString(body, "entity"));
+                if (ShellScope.CompanyLevelError(db, sc, me, newEntityId) is { } outsideNew) return outsideNew;
                 entityChanged = row.EntityId != newEntityId;
                 row.EntityId = newEntityId;
             }
@@ -749,6 +756,8 @@ public static class WhatsAppSettingsEndpoints
                 .FirstOrDefaultAsync(a => a.Id == id && a.Channel == Channels.WhatsApp);
             if (row == null) return Results.Json(new { detail = "Account not found." },
                                                  statusCode: 400);
+            if (ShellScope.CompanyLevelError(db, ctx.RequestServices.GetRequiredService<ScopingService>(), me, row.EntityId) is { } outside)
+                return outside;
             // Chats stay: the threads (and their message history) go back to
             // sandbox rather than vanishing with the number. Detaching first is
             // also what keeps the optional FKs from blocking the delete.

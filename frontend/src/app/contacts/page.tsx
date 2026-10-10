@@ -22,6 +22,8 @@ import { useT } from '@/i18n'
 import { RECORD_TYPE_OPTS, languageOptions, recordTypeLabel } from '@/lib/contactIdentity'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
+/** The contacts entity filter's "Unassigned (no entity)" value (server: ContactsEndpoints.NoEntity). */
+const NO_ENTITY = '__none__'
 
 function AddField({
   label, value, onChange, placeholder, type = 'text', required = false,
@@ -76,6 +78,8 @@ function ContactModal({
   const [selectedEntities, setSelectedEntities] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // a 409 naming a contact the caller can see: offer to add the ticked entities to it
+  const [existing, setExisting] = useState<{ id: number; name: string } | null>(null)
   // Custom Fields (Settings → Custom Fields): the per-vertical labels defined
   // for Customers. Definitions come from the server; the VALUES live in this
   // contact's free-form `attributes` JSON, which the AI already reads.
@@ -120,6 +124,7 @@ function ContactModal({
             : [],
       )
       setError(null)
+      setExisting(null)
       setBusy(false)
     }
     // `entities` only supplies display names for slug→ref resolution; it must
@@ -130,6 +135,7 @@ function ContactModal({
   const save = async () => {
     setBusy(true)
     setError(null)
+    setExisting(null)
     try {
       const body = JSON.stringify({
         name: name.trim(),
@@ -157,14 +163,41 @@ function ContactModal({
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(
-          (data as { error?: { message?: string } }).error?.message || `HTTP ${res.status}`,
-        )
+        const d = data as { error?: { message?: string }; detail?: string; existing_id?: number | null; existing_name?: string | null }
+        if (res.status === 409 && !editing && d.existing_id) setExisting({ id: d.existing_id, name: d.existing_name ?? '' })
+        throw new Error(d.error?.message || d.detail || `HTTP ${res.status}`)
       }
       await reloadContacts()
       onSaved()
       onClose()
     } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // "This number belongs to X — add these entities to that contact instead?"
+  const addToExisting = async () => {
+    if (!existing) return
+    setBusy(true)
+    try {
+      for (const slug of selectedEntities) {
+        const res = await fetch(`${API}/v1/contacts/${existing.id}/entities`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({ entity: slug }),
+        })
+        if (!res.ok) {
+          const d = (await res.json().catch(() => ({}))) as { error?: { message?: string }; detail?: string }
+          throw new Error(d.error?.message || d.detail || `HTTP ${res.status}`)
+        }
+      }
+      await reloadContacts()
+      onSaved()
+      onClose()
+    } catch (e) {
+      setExisting(null)
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(false)
@@ -183,7 +216,7 @@ function ContactModal({
           <Button variant="secondary" onClick={onClose}>
             {t('common.actions.cancel')}
           </Button>
-          <Button variant="primary" onClick={save} disabled={busy || !name.trim() || !phone.trim()}>
+          <Button variant="primary" onClick={save} disabled={busy || !name.trim() || (!phone.trim() && !email.trim())}>
             {busy && <Loader2 size={13} className="animate-spin" aria-hidden />}{' '}
             {t(editing ? 'contacts.form.saveChanges' : 'contacts.form.addContact')}
           </Button>
@@ -193,6 +226,21 @@ function ContactModal({
       {error && (
         <div role="alert" className="mb-3 rounded-lg border border-red/30 bg-red/10 px-3 py-2 text-[12.5px] font-semibold text-red-300">
           {error}
+          {existing && selectedEntities.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 font-normal text-text-mid">
+              <span>
+                {t('contacts.form.addToExisting', {
+                  name: existing.name,
+                  entity: selectedEntities
+                    .map((s) => entities.find((e) => e.slug === s)?.name ?? s)
+                    .join(', '),
+                })}
+              </span>
+              <Button size="sm" variant="secondary" onClick={addToExisting} disabled={busy}>
+                {t('contacts.form.addToExistingAction')}
+              </Button>
+            </div>
+          )}
         </div>
       )}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -206,7 +254,7 @@ function ContactModal({
         <label className="block">
           <span className="mb-1 block text-[11px] font-bold text-text-high">
             {t('common.fields.phone')}
-            <span className="text-red-300"> *</span>
+            <span className="font-normal text-text-muted"> · {t('contacts.form.phoneOrEmail')}</span>
           </span>
           {/* Country picker + national number — the stored value stays E.164. */}
           <PhoneInput value={phone} onChange={setPhone} ariaLabel={t('contacts.form.phoneAria')} />
@@ -595,8 +643,11 @@ function ContactsList() {
     },
   ]
 
+  // "Unassigned (no entity)": contacts linked to no entity, found so they can be given one
+  const noEntityOption = useMemo(() => [{ value: NO_ENTITY, label: t('contacts.list.noEntity') }], [t])
   const entityName =
     entityList.find((e) => e.slug === entityFilter)?.name ??
+    (entityFilter === NO_ENTITY ? t('contacts.list.noEntity') : undefined) ??
     (entityFilter == null && selectedEntities.length > 1 ? selectedEntities.map((e) => e.name).join(', ') : undefined)
 
   return (
@@ -668,6 +719,7 @@ function ContactsList() {
               <EntityPicker
                 value={entityFilter}
                 onChange={setEntityFilter}
+                extraOptions={noEntityOption}
                 globalLabel={
                   multipleEntities
                     ? t('shell.entitySwitcher.selected', { count: selectedEntities.length })

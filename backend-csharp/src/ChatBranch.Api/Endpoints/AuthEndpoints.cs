@@ -110,7 +110,7 @@ public static class AuthEndpoints
                 role,
                 tenant_id = me.FindFirstValue("tenant_id"),
                 // (an API key with scopes reports only what its scopes leave)
-                capabilities = (await AdminEndpoints.CapabilitiesForAsync(db, role))
+                capabilities = CompanyAdminScope.Filter(await AdminEndpoints.CapabilitiesForAsync(db, role), CompanyAdminScope.Current)
                     .Where(c => ApiKeyAuth.Scopes(me) is not { } s || s.Contains(c)).ToList(),
                 auth_source = ApiKeyAuth.IsApiKey(me) ? "api" : "session",
             });

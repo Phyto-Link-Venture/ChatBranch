@@ -56,11 +56,12 @@ public class InboundProcessor
         if (invite != null) text = invite.Stripped;
         if (thread.ContactId == null)
         {
-            var contact = MatchContact(channel, key);
+            var contact = MatchContact(channel, key, ReceivingEntity(thread, accountId));
             if (contact != null)
             {
                 thread.ContactId = contact.Id;
                 _db.SaveChanges();
+                try { _scoping.SyncThreadEntity(thread); _db.SaveChanges(); } catch { }
             }
         }
         // the number that RECEIVES a message decides attribution: a conversation
@@ -274,15 +275,26 @@ public class InboundProcessor
     /// by hand (or by email from the widget's pre-chat form). Public so the
     /// sandbox <c>/simulate</c> links threads exactly like a real webhook does.
     /// </summary>
-    public Contact? MatchContact(string channel, string key)
+    public Contact? MatchContact(string channel, string key, int? entityId = null)
     {
+        // Several contacts may share a phone / email (one per company): the one
+        // in the receiving number's entity wins, never another company's
+        // (ContactCompanies.Pick). No entity = the oldest match, as before.
         if (channel == "email")
-            return _db.Contacts.FirstOrDefault(c => c.Email.ToLower() == key.ToLower());
+            return ContactCompanies.MatchEmail(_db, _scoping, key, entityId);
         // SMS is phone-keyed too (MoreChannels.PhoneKeyed)
         if (channel != ChatBranch.Domain.Channels.WhatsApp && !MoreChannels.PhoneKeyed(channel)) return null;
         if (PhoneMatch.Tail(key) == null) return null;
-        return PhoneMatch.Find(_db.Contacts.AsEnumerable(), key);
+        return ContactCompanies.MatchPhone(_db, _scoping, key, entityId);
     }
+
+    /// <summary>The entity a conversation's contact should belong to: the
+    /// receiving account's, else the thread's own.</summary>
+    private int? ReceivingEntity(Thread thread, int? accountId) =>
+        accountId is int a
+            ? _db.ChannelAccounts.AsNoTracking().Where(x => x.Id == a).Select(x => x.EntityId).FirstOrDefault()
+              ?? thread.EntityId
+            : thread.EntityId;
 
     // ---- contacts: invite binder + "who are you?" ------------------------------
 

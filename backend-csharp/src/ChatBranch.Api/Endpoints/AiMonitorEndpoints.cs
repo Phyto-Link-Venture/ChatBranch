@@ -302,6 +302,10 @@ public static class AiMonitorEndpoints
             if (!await Can(db, me, BehaviourCap)) return Forbidden(BehaviourCap);
             var (entityId, err) = await BehaviourEntity(db, entity);
             if (err != null) return err;
+            if (!AiControlsEndpoints.MayEdit(db, sc, me, entityId))
+                return Results.Json(new { detail = entityId == null
+                    ? "Only an organization-wide admin can change the organization's AI behaviour."
+                    : "That entity is outside your scope." }, statusCode: 403);
             var body = await ReadJson(ctx);
             if (body is not JsonElement root || root.ValueKind != JsonValueKind.Object)
                 return Results.Json(new { detail = "Send {values: {key: value}}." }, statusCode: 400);
@@ -344,6 +348,8 @@ public static class AiMonitorEndpoints
                 {
                     detail = "Pick an entity to remove its overrides. Organization defaults are edited, not deleted.",
                 }, statusCode: 400);
+            if (!AiControlsEndpoints.MayEdit(db, sc, me, entityId))
+                return Results.Json(new { detail = "That entity is outside your scope." }, statusCode: 403);
             var keys = string.IsNullOrWhiteSpace(key) ? AiBehaviourSettings.Keys.ToList() : new List<string> { key };
             if (keys.Any(k => !AiBehaviourSettings.ByKey.ContainsKey(k)))
                 return Results.Json(new { detail = $"Unknown setting '{key}'." }, statusCode: 400);
@@ -543,9 +549,9 @@ public static class AiMonitorEndpoints
     {
         var picked = await InboxEndpoints.EntityId(db, entitySlug);
         var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
-        if (role is not (Roles.SuperAdmin or Roles.Admin))
+        // superadmin + org-wide admins: unbound; company admins, agents: their entities
         {
-            var assigned = ContactsEndpoints.AssignedEntityIds(db, me.Identity?.Name);
+            var assigned = ShellScope.ScopeRoots(db, me);
             if (assigned.Count > 0)
             {
                 var allowed = sc.EntitySubtreeIds(assigned);

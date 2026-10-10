@@ -578,19 +578,43 @@ public class ContactImporter
         var existing = scope.AsNoTracking()
             .Select(c => new { c.Id, c.Phone, c.Email, c.ExternalId }).ToList();
         var exTail = existing.Where(c => PhoneMatch.Tail(c.Phone) != null)
-            .GroupBy(c => PhoneMatch.Tail(c.Phone)!).ToDictionary(g => g.Key, g => g.Min(c => c.Id));
+            .GroupBy(c => PhoneMatch.Tail(c.Phone)!).ToDictionary(g => g.Key, g => g.Select(c => c.Id).OrderBy(i => i).ToList());
         var exEmail = existing.Where(c => c.Email.Length > 0)
-            .GroupBy(c => c.Email.Trim().ToLowerInvariant()).ToDictionary(g => g.Key, g => g.Min(c => c.Id));
+            .GroupBy(c => c.Email.Trim().ToLowerInvariant()).ToDictionary(g => g.Key, g => g.Select(c => c.Id).OrderBy(i => i).ToList());
         var exExt = existing.Where(c => c.ExternalId.Length > 0)
-            .GroupBy(c => c.ExternalId).ToDictionary(g => g.Key, g => g.Min(c => c.Id));
+            .GroupBy(c => c.ExternalId).ToDictionary(g => g.Key, g => g.Select(c => c.Id).OrderBy(i => i).ToList());
+
+        // "The same person" is per COMPANY (ContactCompanies): a row only matches
+        // an existing contact of one of the companies it is imported into (or,
+        // imported with no entity, an organization-wide contact) — a contact of
+        // another company is a different record, so the row is created.
+        var exLinks = new Dictionary<int, List<int>>();
+        foreach (var chunk in existing.Select(c => c.Id).Chunk(BatchSize))
+            foreach (var l in _db.ContactEntities.AsNoTracking().Where(l => chunk.Contains(l.ContactId))
+                         .Select(l => new { l.ContactId, l.EntityId }))
+                (exLinks.TryGetValue(l.ContactId, out var list) ? list : exLinks[l.ContactId] = new List<int>()).Add(l.EntityId);
+        var companyCache = new Dictionary<int, int>();
+        int Company(int e) => companyCache.TryGetValue(e, out var co) ? co : companyCache[e] = ContactCompanies.CompanyOf(_sc, e);
+        HashSet<int> CompaniesOfContact(int id) =>
+            exLinks.TryGetValue(id, out var ls) ? ls.Select(Company).ToHashSet() : new HashSet<int>();
+        // …and an UNASSIGNED contact (no entity at all) is adopted: the import
+        // links it to the entity instead of creating a twin
+        int? SameCompany(List<int>? ids, HashSet<int> mine) =>
+            ids?.Cast<int?>().FirstOrDefault(id =>
+            {
+                var theirs = CompaniesOfContact(id!.Value);
+                return mine.Count == 0 ? theirs.Count == 0 : theirs.Overlaps(mine);
+            })
+            ?? ids?.Cast<int?>().FirstOrDefault(id => CompaniesOfContact(id!.Value).Count == 0);
 
         var plan = new List<(Rec Rec, int? ExistingId)>();
         foreach (var r in unique)
         {
+            var mine = new[] { opt.EntityId, r.EntityId }.OfType<int>().Select(Company).ToHashSet();
             int? id = null;
-            if (r.ExternalId.Length > 0 && exExt.TryGetValue(r.ExternalId, out var a)) id = a;
-            else if (r.Tail.Length > 0 && exTail.TryGetValue(r.Tail, out var b)) id = b;
-            else if (r.Email.Length > 0 && exEmail.TryGetValue(r.Email, out var c)) id = c;
+            if (r.ExternalId.Length > 0) id = SameCompany(exExt.GetValueOrDefault(r.ExternalId), mine);
+            if (id == null && r.Tail.Length > 0) id = SameCompany(exTail.GetValueOrDefault(r.Tail), mine);
+            if (id == null && r.Email.Length > 0) id = SameCompany(exEmail.GetValueOrDefault(r.Email), mine);
             plan.Add((r, id));
         }
         report.Duplicates = plan.Count(p => p.ExistingId != null);

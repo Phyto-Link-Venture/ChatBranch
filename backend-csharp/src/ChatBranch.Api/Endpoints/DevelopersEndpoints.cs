@@ -34,7 +34,7 @@ public static class DevelopersEndpoints
         {
             var uid = await Caller.UserIdAsync(db, me);
             var caps = await ApiKeyAuth.EffectiveCapabilitiesAsync(db, me);
-            var canManageOthers = caps.Contains(Capability) && Caller.IsAdminPlus(me);
+            var canManageOthers = caps.Contains(Capability) && ShellScope.IsOrgWideAdmin(db, me);   // never a company admin
             var q = db.ApiKeys.AsNoTracking().Include(k => k.User).AsQueryable();
             if (scope == "tenant" && canManageOthers)
             {
@@ -115,7 +115,8 @@ public static class DevelopersEndpoints
             {
                 var caps = await ApiKeyAuth.EffectiveCapabilitiesAsync(db, me);
                 var allowed = caps.Contains(Capability) && (Caller.Role(me) == Roles.SuperAdmin
-                    || (Caller.Role(me) == Roles.Admin && key.User?.Profile?.TenantId == Caller.TenantId(me)
+                    || (Caller.Role(me) == Roles.Admin && ShellScope.IsOrgWideAdmin(db, me)
+                        && key.User?.Profile?.TenantId == Caller.TenantId(me)
                         && Caller.TenantId(me) != null));
                 // Out of reach reads as missing — never confirm another tenant's key exists.
                 if (!allowed) return Results.NotFound(new { detail = "No such key." });
