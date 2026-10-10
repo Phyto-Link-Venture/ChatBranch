@@ -41,6 +41,7 @@ builder.Services.AddScoped<ChatBranch.Data.Bookings.BookingService>();
 // Documents / QR / Payments / Sheets app skills: files made for a reply (sent at
 // delivery) and the integration-backed tools
 builder.Services.AddScoped<ChatBranch.Data.Documents.DocumentService>();
+builder.Services.AddScoped<ChatBranch.Data.Documents.DocumentTemplateAi>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.Skills.ConnectedAppTools>();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<ChatBranch.Data.Ai.ILlmClient, ChatBranch.Data.Ai.OpenAiLlmClient>();

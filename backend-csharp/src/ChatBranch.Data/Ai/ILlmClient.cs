@@ -17,9 +17,12 @@ public record LlmToolCall(string Id, string Name, string ArgumentsJson);
 
 /// <summary>A chat turn for tool-aware conversations. Roles: system | user |
 /// assistant | tool. An assistant turn may carry <see cref="ToolCalls"/>; a tool
-/// turn answers one call via <see cref="ToolCallId"/>.</summary>
+/// turn answers one call via <see cref="ToolCallId"/>. A user turn may carry
+/// <see cref="Images"/> (data: URLs) for a vision model — sent as OpenAI
+/// <c>image_url</c> content parts after the text.</summary>
 public record LlmMessage(string Role, string? Content,
-    IReadOnlyList<LlmToolCall>? ToolCalls = null, string? ToolCallId = null);
+    IReadOnlyList<LlmToolCall>? ToolCalls = null, string? ToolCallId = null,
+    IReadOnlyList<string>? Images = null);
 
 public record LlmChatResult(string Text, IReadOnlyList<LlmToolCall> ToolCalls,
     int PromptTokens, int CompletionTokens, string Provider, string Model, double? CostUsd = null);

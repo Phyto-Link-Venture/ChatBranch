@@ -217,7 +217,7 @@ public class DocumentService
             // the playground: the number this would get, nothing taken or kept
             var next = NextSeq(SeriesFor(b.Skill, type), cfg.StartNumber(type));
             content = content.With(cfg.FormatNumber(type, next));
-            var bytes = DocumentRenderer.Render(content, cfg, logo);
+            var bytes = DocumentRenderer.Render(content, cfg, logo, LoadLetterhead(cfg));
             var (url, file) = await SavePreviewAsync(bytes, ".pdf", content.Number, ct);
             ctx.Docs.Previews.Add(new DocumentPreview(type, DocumentTypes.Label(type), content.Number, content.Currency,
                 content.Totals.Total, url, file));
@@ -357,7 +357,8 @@ public class DocumentService
     {
         var texts = new[] { c.Title, c.Notes, c.Reference, c.PaymentMethod, c.Closing, c.Customer.Name, c.Customer.Company,
                 c.Customer.Address, cfg.BusinessName, cfg.Address, cfg.PaymentInstructions, cfg.FooterNote }
-            .Concat(c.Lines.Select(l => l.Description)).Concat(c.Paragraphs);
+            .Concat(c.Lines.Select(l => l.Description)).Concat(c.Paragraphs)
+            .Concat(cfg.Template == null ? Array.Empty<string>() : DocumentRenderer.TemplateText(cfg.TemplateFor(c.Type)));
         if (texts.Any(DocumentFonts.HasCjk) && !DocumentFonts.CjkAvailable)
             return new BuildResult(null,
                 "Chinese / Japanese / Korean characters can't be printed in documents on this server (no CJK font is installed).",
@@ -389,7 +390,7 @@ public class DocumentService
         {
             var seq = NextSeq(series, cfg.StartNumber(type));
             var numbered = content.With(cfg.FormatNumber(type, seq));
-            var bytes = DocumentRenderer.Render(numbered, cfg, logo ?? LoadLogo(cfg.Logo));
+            var bytes = DocumentRenderer.Render(numbered, cfg, logo ?? LoadLogo(cfg.Logo), LoadLetterhead(cfg));
             var row = new Document
             {
                 Type = type, SkillId = skill.SkillId, Series = series, Seq = seq, Number = numbered.Number,
@@ -748,7 +749,7 @@ public class DocumentService
             });
         var build = Build(type, sample, cfg, null, utcNow, tz, cfg.FormatNumber(type, cfg.StartNumber(type)));
         if (build.Error != null) return new SamplePreview(null, "", null, build.Error);
-        var bytes = DocumentRenderer.Render(build.Content!, cfg, LoadLogo(cfg.Logo));
+        var bytes = DocumentRenderer.Render(build.Content!, cfg, LoadLogo(cfg.Logo), LoadLetterhead(cfg));
         var (url, _) = await SavePreviewAsync(bytes, ".pdf", build.Content!.Number, ct);
         return new SamplePreview(url, build.Content.Number, type == DocumentTypes.Letter ? null : build.Content.Totals.Total, null);
     }
@@ -803,6 +804,64 @@ public class DocumentService
         Directory.CreateDirectory(LogoDir);
         var name = Guid.NewGuid().ToString("N") + ext;
         File.WriteAllBytes(Path.Combine(LogoDir, name), bytes);
+        return name;
+    }
+
+    // ---- the letterhead background (a template's uploaded PDF, first page only) -----------
+
+    public const long MaxLetterheadBytes = 10 * 1024 * 1024;
+
+    private string LetterheadDir => Path.Combine(_media.DataDir, "documents", "letterhead");
+
+    public static bool IsLetterheadName(string name) => Regex.IsMatch(name ?? "", @"^[a-f0-9]{32}\.pdf$");
+
+    public static bool IsPdf(byte[] bytes) =>
+        bytes.Length > 4 && bytes[0] == 0x25 && bytes[1] == 0x50 && bytes[2] == 0x44 && bytes[3] == 0x46; // %PDF
+
+    public string? LetterheadPath(string name)
+    {
+        if (!IsLetterheadName(name)) return null;
+        var p = Path.Combine(LetterheadDir, name);
+        return File.Exists(p) ? p : null;
+    }
+
+    private byte[]? LoadLetterhead(DocumentAppConfig cfg)
+    {
+        var name = cfg.Template?.Letterhead.File ?? "";
+        if (name.Length == 0) return null;
+        try { return LetterheadPath(name) is { } p ? File.ReadAllBytes(p) : null; }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Keep an uploaded PDF's FIRST page as a letterhead background (≤ 10 MB, %PDF by its magic
+    /// bytes, not encrypted); the name goes in the template's <c>letterhead.file</c>.
+    /// </summary>
+    public string? SaveLetterhead(byte[] bytes, out string? error)
+    {
+        error = null;
+        if (bytes.Length == 0 || bytes.Length > MaxLetterheadBytes) { error = "The letterhead must be a PDF up to 10 MB."; return null; }
+        if (!IsPdf(bytes)) { error = "The letterhead must be a PDF file."; return null; }
+        byte[] firstPage;
+        try
+        {
+            using var src = new MemoryStream(bytes);
+            using var input = PdfSharp.Pdf.IO.PdfReader.Open(src, PdfSharp.Pdf.IO.PdfDocumentOpenMode.Import);
+            if (input.PageCount == 0) { error = "That PDF has no pages."; return null; }
+            using var output = new PdfSharp.Pdf.PdfDocument();
+            output.AddPage(input.Pages[0]);
+            using var ms = new MemoryStream();
+            output.Save(ms, false);
+            firstPage = ms.ToArray();
+        }
+        catch (Exception ex)
+        {
+            error = $"That PDF can't be used as a letterhead ({(ex.Message.Contains("password", StringComparison.OrdinalIgnoreCase) ? "it is password-protected" : "it could not be read")}).";
+            return null;
+        }
+        Directory.CreateDirectory(LetterheadDir);
+        var name = Guid.NewGuid().ToString("N") + ".pdf";
+        File.WriteAllBytes(Path.Combine(LetterheadDir, name), firstPage);
         return name;
     }
 

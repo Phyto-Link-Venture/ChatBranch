@@ -345,7 +345,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `ai_review_get_run` | Get an AI review run | read | `ai.monitor` or `ai.behaviour.manage` |
 | `ai_review_apply_finding` | Apply an AI review suggestion | write | `ai.behaviour.manage` |
 
-#### skills (7)
+#### skills (8)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -356,6 +356,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `skills_list_builtins` | List built-in AI tools | read | `settings.ai.manage` |
 | `skills_draft_skill` | Draft a skill from a description | read · open-world | `settings.ai.manage` |
 | `skills_test_skill` | Test a skill | read | `settings.ai.manage` |
+| `skills_assist_document_template` | Edit a document template from words | read · open-world | `settings.ai.manage` |
 
 #### bookings (6)
 
@@ -621,6 +622,9 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `GET /api/documents/preview/{id}` | a throw-away preview file from the AI playground / the skill form — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
 | `GET /api/aicore/skills/documents/logo/{name}` | the Documents skill's uploaded logo image — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
 | `POST /api/aicore/skills/documents/logo` | uploads a logo image (multipart) for the Documents skill's letterhead — set it from the Skills page |
+| `GET /api/aicore/skills/documents/letterhead/{name}` | the Documents template's uploaded letterhead background PDF — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
+| `POST /api/aicore/skills/documents/letterhead` | uploads a letterhead background PDF (multipart) for the Documents template — set it from the template designer on the Skills page |
+| `POST /api/aicore/skills/documents/template/analyze` | reads an uploaded design (multipart PDF / PNG / JPEG) into a proposed Documents template — a file upload for the template designer; skills_assist_document_template edits a template from words |
 | `POST /api/voice/preview` | returns synthesized audio — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
 | `POST /api/voice/clone` | clones a voice from an uploaded recording — needs the speaker's own audio sample and consent |
 | `GET /api/billing/ai/pdf` | the AI bill as a PDF — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file (billing_get_ai_bill returns the same figures) |

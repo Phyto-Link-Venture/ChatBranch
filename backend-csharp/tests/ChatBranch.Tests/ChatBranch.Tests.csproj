@@ -30,4 +30,9 @@
     <ProjectReference Include="..\..\src\ChatBranch.Api\ChatBranch.Api.csproj" />
   </ItemGroup>
 
+  <!-- golden files (the pre-template PDF layout, DocumentTemplateTests) -->
+  <ItemGroup>
+    <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

@@ -103,6 +103,7 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/aicore/skills/apps", new[] { "settings.ai.manage" }),
         ("/api/aicore/skills/builtins", new[] { "settings.ai.manage" }),
         ("/api/aicore/skills/documents/logo/00000000000000000000000000000000.png", new[] { "settings.ai.manage" }),
+        ("/api/aicore/skills/documents/letterhead/00000000000000000000000000000000.pdf", new[] { "settings.ai.manage" }),
         ("/api/aicore/booking-hours", new[] { "integrations.view", "settings.ai.manage" }),
         // Analytics (home)
         ("/api/analytics/summary", new[] { "analytics.view" }),

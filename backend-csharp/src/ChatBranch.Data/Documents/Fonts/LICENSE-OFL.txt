@@ -1,4 +1,4 @@
-Liberation Sans (Regular, Bold) - Copyright (c) 2012 Red Hat, Inc. with Reserved Font Name Liberation.
+Liberation Sans and Liberation Serif (Regular, Bold) - Copyright (c) 2012 Red Hat, Inc. with Reserved Font Name Liberation.
 Licensed under the SIL Open Font License, Version 1.1 (below).
 
 SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007

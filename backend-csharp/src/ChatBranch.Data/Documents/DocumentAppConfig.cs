@@ -11,7 +11,8 @@ namespace ChatBranch.Data.Documents;
 /// the letterhead (business name, address, registration / tax numbers,
 /// contacts, logo, accent colour), money rules (currency, tax label + rate),
 /// the words printed on every document (payment instructions, footer) and the
-/// numbering (prefix + first number per type). Snake_case on the wire;
+/// numbering (prefix + first number per type), and optionally the designed
+/// look (<c>template</c>, <see cref="DocumentTemplate"/>). Snake_case on the wire;
 /// <see cref="From(JsonElement, out string?)"/> is what the skills PUT refuses a
 /// bad config with.
 /// </summary>
@@ -62,6 +63,12 @@ public sealed class DocumentAppConfig
     public string Logo { get; init; } = "";
     /// <summary>The printed labels: auto (the contact's language: ms → Malay, else English), en, ms.</summary>
     public string Language { get; init; } = "auto";
+    /// <summary>The designed look (<see cref="DocumentTemplate"/>); null = the classic
+    /// layout, exactly as before the template designer existed.</summary>
+    public DocumentTemplate? Template { get; init; }
+
+    /// <summary>The template a document of <paramref name="type"/> prints with.</summary>
+    public DocumentTemplate TemplateFor(string type) => Template?.ForType(type) ?? DocumentTemplate.Classic();
 
     public bool Allows(string type) => AllowedActions.Contains(type);
 
@@ -84,7 +91,14 @@ public sealed class DocumentAppConfig
 
     public static Dictionary<string, object?> Defaults() => new DocumentAppConfig().ToDictionary();
 
-    public Dictionary<string, object?> ToDictionary() => new()
+    public Dictionary<string, object?> ToDictionary()
+    {
+        var d = Fields();
+        if (Template != null) d["template"] = Template.ToDictionary();
+        return d;
+    }
+
+    private Dictionary<string, object?> Fields() => new()
     {
         ["app"] = AppId,
         ["actions"] = AllowedActions.ToList(),
@@ -179,6 +193,13 @@ public sealed class DocumentAppConfig
         var language = (AppSkills.Str(el, "language") ?? "auto").Trim().ToLowerInvariant();
         if (!Languages.Contains(language)) { errors.Add("language must be auto, en or ms."); language = "auto"; }
 
+        DocumentTemplate? template = null;
+        if (el.TryGetProperty("template", out var tpl) && tpl.ValueKind != JsonValueKind.Null)
+        {
+            template = DocumentTemplate.From(tpl, out var tplError);
+            if (tplError != null) errors.Add(tplError);
+        }
+
         var taxLabel = T("tax_label", d.TaxLabel, 20);
         var cfg = new DocumentAppConfig
         {
@@ -204,6 +225,7 @@ public sealed class DocumentAppConfig
             Accent = accent,
             Logo = logo,
             Language = language,
+            Template = template,
         };
         error = errors.FirstOrDefault();
         return cfg;

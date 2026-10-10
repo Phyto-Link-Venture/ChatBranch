@@ -368,6 +368,13 @@ public class OpenAiLlmClient : ILlmClient
                     function = new { name = t.Name, arguments = t.ArgumentsJson },
                 }).ToList(),
             };
+        if (m.Images is { Count: > 0 })
+        {
+            // a vision turn: the text, then each picture as an image_url part
+            var parts = new List<object> { new { type = "text", text = m.Content ?? "" } };
+            parts.AddRange(m.Images.Select(url => (object)new { type = "image_url", image_url = new { url } }));
+            return new { role = m.Role, content = parts };
+        }
         return new { role = m.Role, content = m.Content ?? "" };
     }
 }
