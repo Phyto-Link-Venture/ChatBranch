@@ -17,7 +17,7 @@ public static class ProviderHttp
     public static async Task<Response> SendAsync(IHttpClientFactory http, HttpMethod method, string url,
         string token, Dictionary<string, object?>? jsonBody = null, Dictionary<string, string>? formBody = null,
         string? rawBody = null, string? rawContentType = null,
-        Dictionary<string, string>? headers = null, CancellationToken ct = default)
+        Dictionary<string, string>? headers = null, CancellationToken ct = default, byte[]? bytes = null)
     {
         try
         {
@@ -34,6 +34,11 @@ public static class ProviderHttp
                 req.Content = new FormUrlEncodedContent(formBody);
             else if (rawBody != null)
                 req.Content = new StringContent(rawBody, Encoding.UTF8, rawContentType ?? "text/plain");
+            else if (bytes != null)
+            {
+                req.Content = new ByteArrayContent(bytes);
+                req.Content.Headers.ContentType = new MediaTypeHeaderValue(rawContentType ?? "application/octet-stream");
+            }
 
             using var resp = await client.SendAsync(req, ct);
             var text = resp.Content == null ? "" : await resp.Content.ReadAsStringAsync(ct);

@@ -170,6 +170,53 @@ public class IntegrationActions
         return Done($"uploaded {filename} to Drive", new() { ["file_id"] = fileId });
     }
 
+    /// <summary>
+    /// Upload a FILE (a customer's attachment) to the resolved Google Drive
+    /// connection — for the background AI tasks, never reachable from a flow
+    /// step's config (a step names no server file). Same invariants as
+    /// <see cref="RunAsync"/>: no connection skips, a provider error fails, it
+    /// never throws, and it lands in the activity log.
+    /// </summary>
+    public async Task<Result> UploadDriveBytesAsync(byte[] bytes, string fileName, string mime, string folderId,
+        int? entityId, CancellationToken ct = default)
+    {
+        var row = _resolver.Active("google_drive", entityId, null);
+        if (row == null) return Skip("Google Drive is not connected — file not uploaded.");
+        try
+        {
+            var token = await _oauth.AccessTokenAsync(row, ct);
+            if (token.Length == 0) return Skip("Google Drive is not connected — file not uploaded.");
+            var name = Trim(string.IsNullOrWhiteSpace(fileName) ? "attachment" : fileName.Trim(), 120);
+            var folder = folderId.Length > 0 ? folderId : Cfg(row, "folder_id");
+            var metadata = new Dictionary<string, object?> { ["name"] = name, ["mimeType"] = mime };
+            if (folder.Length > 0) metadata["parents"] = new[] { folder };
+
+            var (ok, created) = await SendAsync(HttpMethod.Post,
+                "https://www.googleapis.com/drive/v3/files?fields=id,webViewLink", token, jsonBody: metadata, ct: ct);
+            RecordResult(row, ok, ok ? "" : created);
+            if (!ok) return Fail($"Google Drive: {created}");
+            var fileId = JsonField(created, "id");
+            var r = await ProviderHttp.SendAsync(_http, HttpMethod.Patch,
+                $"https://www.googleapis.com/upload/drive/v3/files/{fileId}?uploadType=media", token,
+                rawContentType: mime, ct: ct, bytes: bytes);
+            var result = r.Ok
+                ? Done($"uploaded {name} to Drive", new()
+                {
+                    ["file_id"] = fileId,
+                    ["link"] = JsonField(created, "webViewLink"),
+                })
+                : Fail($"Google Drive upload: {r.Body}");
+            ChatBranch.Data.Audit.AuditTrail.Write(_db, "integration.action", "Upload attachment to Drive (Google Drive)",
+                $"{(result.Ok ? "ok" : "failed")}: {result.Detail}", entityId: entityId);
+            return result;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception e)
+        {
+            return Fail($"Google Drive: {e.GetType().Name}");
+        }
+    }
+
     // ---- Google Sheets ------------------------------------------------------
 
     private async Task<Result> AppendSheetRowAsync(Integration row, Contact? contact,
