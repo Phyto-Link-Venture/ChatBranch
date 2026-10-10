@@ -60,6 +60,16 @@ export const shell: Dict<typeof source> = {
     orgSaved: '组织默认语言已更新。',
     reviewNote: '译文由机器辅助生成——如有措辞不当，请告诉我们。',
   },
+  install: {
+    title: '安装 ChatBranch',
+    body: '添加到主屏幕：像应用一样全屏打开，更快，并可接收通知。',
+    iosBody: '添加到主屏幕——像应用一样全屏打开。',
+    iosStep1: '点按 Safari 工具栏中的“分享”按钮',
+    iosStep2: '向下滚动，点按“添加到主屏幕”',
+    iosStep3: '点按“添加”——ChatBranch 就会出现在主屏幕上',
+    install: '安装',
+    notNow: '以后再说',
+  },
   sideNav: {
     mainNavigation: '主导航',
     primaryTabs: '主标签栏',

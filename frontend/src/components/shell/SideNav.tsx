@@ -14,6 +14,7 @@ import { useT, type MessageKey } from '@/i18n'
 import { useNotifications } from './notificationsStore'
 import { useLive } from './liveStore'
 import { useInstallPrompt } from './pwa'
+import { SHOW_INSTALL_EVENT } from './InstallHint'
 
 export { NAV_GROUPS, type NavDef } from './nav'
 
@@ -60,7 +61,7 @@ export function SideNav({
   const entityQ = useEntityQuery()
   const { unread } = useNotifications()
   const { data: live } = useLive(entityQ)
-  const { canInstall, install } = useInstallPrompt()
+  const { canInstall, iosHint, install } = useInstallPrompt()
 
   // The icon rail is a DESKTOP affordance. Resolved after mount so the server
   // and first client render agree (expanded).
@@ -298,10 +299,11 @@ export function SideNav({
       <div className={`shrink-0 border-t border-line ${collapsed ? 'px-2 py-2' : 'px-3 py-2.5'}`}>
         <div className="flex flex-col gap-0.5">
           {row(SETTINGS_NAV)}
-          {canInstall && (
+          {(canInstall || iosHint) && (
             <button
               type="button"
-              onClick={() => void install()}
+              // iPhone/iPad can't be prompted — open the Share-sheet steps instead
+              onClick={() => (canInstall ? void install() : window.dispatchEvent(new Event(SHOW_INSTALL_EVENT)))}
               aria-label={collapsed ? t('shell.sideNav.installApp') : undefined}
               onMouseEnter={(e) => showTip(e.currentTarget, t('shell.sideNav.installApp'))}
               onMouseLeave={hideTip}

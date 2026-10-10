@@ -58,6 +58,16 @@ export const shell = {
     orgSaved: 'Organization default updated.',
     reviewNote: 'Translations are machine-assisted — tell us where a word reads wrong.',
   },
+  install: {
+    title: 'Install ChatBranch',
+    body: 'Add it to your home screen: it opens full screen like an app, faster, with notifications.',
+    iosBody: 'Add it to your home screen — it opens full screen like an app.',
+    iosStep1: 'Tap the Share button in Safari’s toolbar',
+    iosStep2: 'Scroll down and tap “Add to Home Screen”',
+    iosStep3: 'Tap “Add” — ChatBranch appears on your home screen',
+    install: 'Install',
+    notNow: 'Not now',
+  },
   sideNav: {
     mainNavigation: 'Main navigation',
     primaryTabs: 'Primary',

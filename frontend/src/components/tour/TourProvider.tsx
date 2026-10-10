@@ -14,7 +14,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
-import { X } from 'lucide-react'
+import { CircleHelp, X } from 'lucide-react'
 import { getAuth } from '@/lib/auth'
 import { markTourSeen, stepKey, tourById, tourFor, tourSeen, toursAuto, type TourDef } from '@/lib/tours'
 import { useT } from '@/i18n'
@@ -43,11 +43,28 @@ export function TourProvider({ children }: { children: ReactNode }) {
   const pageTour = useMemo(() => tourFor(pathname), [pathname])
   const [tour, setTour] = useState<TourDef | null>(null)
   const [index, setIndex] = useState(0)
+  // after a guide closes: a short "replay it any time from the ? button" reminder
+  const [replayTip, setReplayTip] = useState(false)
+  useEffect(() => {
+    if (!replayTip) return
+    const timer = window.setTimeout(() => setReplayTip(false), 6000)
+    return () => window.clearTimeout(timer)
+  }, [replayTip])
 
   const stop = useCallback(() => {
     if (tour) {
       const user = getAuth()?.username
       if (user) markTourSeen(user, tour.id)
+      // the reminder only for the first few guides — after that people know
+      try {
+        const n = Number(localStorage.getItem('tour-replay-tip') || 0)
+        if (n < 3) {
+          localStorage.setItem('tour-replay-tip', String(n + 1))
+          setReplayTip(true)
+        }
+      } catch {
+        /* storage blocked: the last step already says it */
+      }
     }
     setTour(null)
   }, [tour])
@@ -91,6 +108,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
     <Ctx.Provider value={value}>
       {children}
       {tour && <TourOverlay tour={tour} index={index} setIndex={setIndex} onClose={stop} />}
+      {!tour && replayTip && <ReplayTip onClose={() => setReplayTip(false)} />}
     </Ctx.Provider>
   )
 }
@@ -214,6 +232,7 @@ function TourOverlay({
           {t(stepKey(tour.id, current.n, 'title'))}
         </h2>
         <p className="mt-1.5 text-[13px] leading-relaxed text-text-mid">{t(stepKey(tour.id, current.n, 'body'))}</p>
+        {last && <p className="mt-2 text-[12px] text-text-muted">{t('guide.ui.replayHint')}</p>}
         <div className="mt-4 flex items-center gap-2">
           <button type="button" onClick={onClose} className="text-[12.5px] font-semibold text-text-muted hover:text-text-high">
             {t('guide.ui.skip')}
@@ -239,6 +258,23 @@ function TourOverlay({
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+/** The toast after a guide closes: where to replay it. Points at the ? button. */
+function ReplayTip({ onClose }: { onClose: () => void }) {
+  const t = useT()
+  return (
+    <div
+      role="status"
+      className="print-hide fixed right-3 top-[60px] z-[90] flex max-w-[300px] items-start gap-2 rounded-xl border border-line-strong bg-card px-3 py-2.5 text-[12.5px] text-text-high shadow-pop"
+    >
+      <CircleHelp size={15} className="mt-0.5 shrink-0 text-[var(--brand-ink)]" aria-hidden />
+      <span className="min-w-0 flex-1">{t('guide.ui.replayHint')}</span>
+      <button type="button" onClick={onClose} aria-label={t('guide.ui.close')} className="shrink-0 text-text-muted hover:text-text-high">
+        <X size={13} aria-hidden />
+      </button>
     </div>
   )
 }

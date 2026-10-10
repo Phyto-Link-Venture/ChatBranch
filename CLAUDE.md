@@ -1011,7 +1011,14 @@ When you fix one of these, update this table, `README.md` and
   (`/help`, `/offline`) and `/login` render bare. **PWA:** `app/manifest.ts`,
   hand-written `public/sw.js` (never caches `/api/*` or the stream; offline
   navigations land on `/offline?from=`), icons in `public/icons/` rendered from
-  `Logo.tsx`'s `brandMarkSvg`. **Ask ChatBranch** (`AssistantDock`) opens from
+  `Logo.tsx`'s `brandMarkSvg`. **Install:** iPhone/iPad browsers never fire
+  `beforeinstallprompt`, so `InstallHint.tsx` (in the Shell, signed-in only,
+  never in the installed app) shows the Share → "Add to Home Screen" steps there
+  and an Install button where the browser can prompt (`pwa.ts` `isIos`,
+  `useInstallPrompt`); "Not now" snoozes 30 days, the sidebar's "Install app"
+  reopens it (`pwa:show-install`). The body never scrolls (the shell's panes
+  do), so bare pages (`/login`, `PUBLIC_ROUTES`) get their own scroll container
+  in `Shell.tsx`. **Ask ChatBranch** (`AssistantDock`) opens from
   the top bar's sparkle button, Ctrl/⌘+J, or — on desktop, while closed — a
   slim tab on the right edge (6 px peek at 42% height, slides out on hover);
   the shell owns its `open` state. Desktop can switch it between docked (the

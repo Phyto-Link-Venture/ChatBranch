@@ -16,6 +16,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { ArrowUpRight, BookOpenText, Check, Copy, Download, PlayCircle, Printer, Search } from 'lucide-react'
 import { LanguageSwitcher } from '@/components/i18n/LanguageSwitcher'
+import { getAuth } from '@/lib/auth'
 import { TOURS, stepKey, tourKey, type TourDef } from '@/lib/tours'
 import {
   FAQ_IDS,
@@ -41,6 +42,9 @@ export default function ManualPage() {
   const [embed, setEmbed] = useState(false)
   const [copied, setCopied] = useState(false)
   const [q, setQ] = useState('')
+  // a signed-in reader came from the app — give them a way straight back
+  const [signedIn, setSignedIn] = useState(false)
+  useEffect(() => setSignedIn(!!getAuth()), [])
 
   useEffect(() => {
     setOrigin(window.location.origin)
@@ -109,9 +113,19 @@ nav ul{columns:2;padding-left:18px} .noexport{display:none!important} li{margin:
     <main className="mx-auto max-w-[860px] px-5 py-10 print:max-w-none print:px-0 print:py-0">
       {!embed && (
         <div className="mb-6 flex flex-wrap items-center gap-2 print:hidden">
-          <Link href="/help" className="text-[12.5px] font-semibold text-text-muted hover:text-text-high">
-            ← {t('help.title')}
-          </Link>
+          {signedIn ? (
+            <button
+              type="button"
+              onClick={() => (window.history.length > 1 ? window.history.back() : window.location.assign('/analytics'))}
+              className="text-[12.5px] font-semibold text-text-muted hover:text-text-high"
+            >
+              ← {t('guide.manual.backToApp')}
+            </button>
+          ) : (
+            <Link href="/help" className="text-[12.5px] font-semibold text-text-muted hover:text-text-high">
+              ← {t('help.title')}
+            </Link>
+          )}
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <LanguageSwitcher />
             <button
