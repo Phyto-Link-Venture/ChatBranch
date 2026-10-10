@@ -71,17 +71,17 @@ public static class WhatsAppMediaEndpoints
                 if (!await CanSeeThread(db, sc, me, thread)) return NotFound();
             }
             else if (!await ShellScope.HasCapAsync(db, me, "call_logs.view")
-                     || !await CallInScope(db, me, Path.GetFileNameWithoutExtension(name)))
+                     || !await CallInScope(db, sc, me, Path.GetFileNameWithoutExtension(name)))
                 return NotFound();
             return Audio(ctx, full);
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("chats.view", "call_logs.view");
 
-        app.MapGet("/api/calls/recording/{callId}", async (string callId, AppDbContext db,
+        app.MapGet("/api/calls/recording/{callId}", async (string callId, AppDbContext db, ScopingService sc,
             CallRecordings recordings, ClaimsPrincipal me, HttpContext ctx) =>
         {
             var full = recordings.ResolveAgentCall(callId);
             if (full == null) return NotFound();
-            if (!await ShellScope.HasCapAsync(db, me, "call_logs.view") || !await CallInScope(db, me, callId))
+            if (!await ShellScope.HasCapAsync(db, me, "call_logs.view") || !await CallInScope(db, sc, me, callId))
                 return NotFound();
             return Audio(ctx, full);
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("call_logs.view");
@@ -142,11 +142,11 @@ public static class WhatsAppMediaEndpoints
     }
 
     /// <summary>A recorded call's contact must be one the caller may see (no contact = org-level row).</summary>
-    private static async Task<bool> CallInScope(AppDbContext db, ClaimsPrincipal me, string callId)
+    private static async Task<bool> CallInScope(AppDbContext db, ScopingService sc, ClaimsPrincipal me, string callId)
     {
         var record = await db.CallRecords.AsNoTracking().FirstOrDefaultAsync(r => r.CallId == callId);
         if (record?.ContactId is not int contactId) return true;
-        return await ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db)
+        return await ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
             .AnyAsync(c => c.Id == contactId);
     }
 }

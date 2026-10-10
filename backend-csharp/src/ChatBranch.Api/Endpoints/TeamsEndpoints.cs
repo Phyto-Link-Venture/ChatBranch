@@ -110,7 +110,9 @@ public static class TeamsEndpoints
             var channel = (Str(body, "channel") ?? "").Trim();
             var key = (Str(body, "key") ?? "").Trim();
             var thread = await db.Threads.FirstOrDefaultAsync(t => t.Channel == channel && t.Key == key);
-            if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
+            // a conversation outside the caller's entity scope is a 404, like every per-thread route
+            if (thread == null || !ChatBranch.Api.Auth.ThreadAccessFilter.InScope(db, sc, me, thread.EntityId))
+                return Results.NotFound(new { detail = "Thread not found." });
 
             var teamId = Int(body, "team_id");
             if (teamId is null or 0)
@@ -119,7 +121,9 @@ public static class TeamsEndpoints
             }
             else
             {
-                var team = await db.Teams.Include(t => t.Members).ThenInclude(m => m.User)
+                // only a team this conversation's outlet may use (its own, its ancestors', org-wide)
+                var team = await sc.ScopeInherited(db.Teams, thread.EntityId)
+                    .Include(t => t.Members).ThenInclude(m => m.User)
                     .FirstOrDefaultAsync(t => t.Id == teamId);
                 if (team == null) return Results.Json(new { detail = "Team not found." }, statusCode: 400);
                 thread.TeamId = team.Id;
@@ -131,7 +135,7 @@ public static class TeamsEndpoints
             await Audit(db, me, "thread.team", $"{thread.Channel}:{thread.Key}",
                         thread.TeamId == null ? "unassigned" : $"team #{thread.TeamId}");
             return Results.Ok(new { ok = true, team_id = thread.TeamId, assignee = thread.Assignee });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.send");
     }
 
     // ---- round robin --------------------------------------------------------

@@ -804,7 +804,7 @@ public static class WhatsAppSettingsEndpoints
                 detail = $"Meta refused the credentials: {r.Detail}",
                 health_status = row.HealthStatus,
             }, statusCode: r.ErrorCode != null ? 400 : 502);
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");   // a Test talks to the provider (and can send mail)
 
         // ---- Baileys pairing control (proxied to the Node gateway) ---------
         // Baileys is a supported channel: start/status/logout drive the sidecar
@@ -1152,7 +1152,7 @@ public static class WhatsAppSettingsEndpoints
                     detail = detail != "" ? detail : "SIP username and password are required.",
                 }, statusCode: 400);
             return Results.Ok(new { ok = true, health, detail = "SIP trunk creds are set." });
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");   // a Test talks to the provider (and can send mail)
     }
 
     /// <summary>
