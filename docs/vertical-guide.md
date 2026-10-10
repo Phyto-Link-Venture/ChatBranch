@@ -461,6 +461,23 @@ set to "the assigned agent's calendar" books into. These mappings are fixture-te
 documented payloads, never against a live provider — treat your first real
 connection as an integration test and watch the flow's Runs panel.
 
+**Background AI tasks** (`/ai-tasks`, Automate) are silent AI workers for the
+paperwork customers send in a chat: they read each new inbound message (and its
+PDF or image attachment) and act through the tools you tick — a Google Sheets
+row, the file saved to Drive, a calendar event, an external MCP server's tool, a
+signed webhook to your own system, a private note, a label, a contact field or a
+handover — but they never write to the customer. For a store: a task "Save
+supplier invoices" (attachment = PDF, keywords "invoice, invois") that appends
+supplier / number / date / total / currency to an Invoices sheet and files the
+PDF; a task "Log payment slips" that logs the transfer and labels the chat
+`payment-received`, handing it to a person when the amount can't be read. Start
+from the templates, write the instructions in your own words, and use **Test it**
+(a dry run — tools that change something are previewed) on a real invoice before
+switching it on. Each run is listed under **Runs** with what it extracted and
+every tool call, and leaves a "🤖" private note in the chat. Tasks run whether the
+chatbot is on or off for a chat, but stop when the AI master switch is off or the
+AI quota is used up; their model usage is billed as `ai_task`.
+
 ### 2.11 Go live
 
 - Boot without `SEED_DEMO` (no demo logins or sample contact) and with

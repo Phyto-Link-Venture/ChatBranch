@@ -303,7 +303,7 @@ by `ScopeInherited` and `ShellScope.ScopeLibrary`. A legacy row with only
 `entity_id` behaves exactly as before (no migration).
 
 ### `crm_libraryentity` — extra "available to" entities
-`kind` (`canned` \| `script` \| `knowledge` \| `skill` \| `automation` —
+`kind` (`canned` \| `script` \| `knowledge` \| `skill` \| `automation` \| `ai_task` —
 `Domain/LibraryEntity.cs LibraryKinds`) · `item_id` (the library row's id) ·
 `entity_id` · `created_at`. **Unique** `(kind, item_id, entity_id)`
 (`uniq_libraryentity`), index `(kind, entity_id)`. One generic table (like
@@ -487,6 +487,32 @@ conversation's — scopes the finding) · `contact_id` · `draft_status` · `ver
 `heuristic`) · `applied` · `applied_as` · `applied_ref` (`lesson:12`,
 `knowledge:4`, `house_rule`) · `applied_by` · `applied_at` · `created_at`. Index `run_id`.
 
+### `crm_aitask` — a background AI task (a silent AI worker; a library: `entity_id` null = org-wide)
+`entity_id` (primary "Available to"; further ticks are `crm_libraryentity` rows of
+kind `ai_task`) · `name` · `enabled` · `channels` (JSON; empty = every channel) ·
+`trigger` (`inbound_message`) · `attachment` ("" \| `any` \| `pdf` \| `image`) ·
+`keywords` (JSON; ANY must appear, empty = no condition) · `linked` ("" \| `yes`
+\| `no`) · `instructions` · `tools` (JSON allowlist: `add_private_note`,
+`add_conversation_label`, `set_contact_field`, `hand_over_to_person`,
+`sheets_append_row`, `drive_upload_attachment`, `calendar_create_event`,
+`webhook_post`, `mcp:<server>__<tool>`) · `config` (JSON: `spreadsheet_id`,
+`sheet_range`, `sheet_columns`, `drive_folder_id`, `calendar_id`, `webhook_url`,
+`webhook_secret` — the secret only leaves masked) · `run_count` · `last_run_at` ·
+`created_by` · `created_at` · `updated_at`.
+
+### `crm_aitaskrun` — one run of a task on one inbound message
+`task_id` · `thread_id` · `message_id` · `entity_id` (the conversation's when
+queued — scopes who may read it) · `channel` · `thread_key` · `status` (`pending`
+\| `running` \| `ok` \| `failed` \| `skipped`) · `due_at` (the inbound path
+queues it a few seconds ahead — attachments are fetched off the ack) ·
+`extracted` (JSON object) · `steps` (JSON: `[{tool, args, result, ok, preview}]`,
+redacted and capped) · `summary` (also the "🤖" private note) · `error` ·
+`provider` · `model` · `prompt_tokens` · `completion_tokens` · `cost_usd` ·
+`created_at` · `started_at` · `finished_at`. **Unique** `(task_id, message_id)`
+(`uniq_aitaskrun_task_message` — a redelivered message never runs a task twice);
+indexes `(status, due_at)`, `thread_id`. A message that fails the attachment /
+linked condition at run time leaves no row.
+
 ### `crm_embedding` — retrieval vectors
 `owner_type` (`knowledge` \| `lesson`) · `owner_id` · `chunk_index` · `text` ·
 `content_hash` · `model` · `dims` · `vector` (BLOB: float32 little-endian,
@@ -501,7 +527,7 @@ summaries.
 
 ### `crm_llmusage` — metering ledger
 `feature` (`chat_reply` \| `summary` \| `timeline` \| `playground` \|
-`voice_call` \| `embedding` …) · `provider` · `model` · `channel` · `contact_id` ·
+`voice_call` \| `embedding` \| `ai_task` …) · `provider` · `model` · `channel` · `contact_id` ·
 `entity_id` (the outlet the call was for — the AI bill's company) · `ref` ·
 `user_name` (the signed-in person who ran it themselves — the operator assistant,
 the AI playground, skill drafting, on-demand / timeline summaries; "" = automated
