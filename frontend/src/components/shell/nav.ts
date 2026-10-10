@@ -138,7 +138,7 @@ export const SETTINGS_NAV: NavDef = {
   lbl: 'shell.nav.settings',
   Icon: Settings,
   alsoActive: ['/settings/'],
-  keywords: 'preferences appearance theme configuration',
+  keywords: 'preferences appearance theme configuration account profile password',
 }
 
 /** Where "home" is: the post-login landing page and the phone tab bar's Home. */

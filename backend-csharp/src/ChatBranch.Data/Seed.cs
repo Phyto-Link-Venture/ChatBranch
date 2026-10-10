@@ -277,6 +277,10 @@ public static class Seed
             + "\"created_at\" TEXT NOT NULL, "
             + "CONSTRAINT \"uniq_libraryentity\" UNIQUE (\"kind\", \"item_id\", \"entity_id\")");
         AddIndexIfMissing(db, "ix_libraryentity_entity", "crm_libraryentity", "\"kind\", \"entity_id\"");
+        // My account: a person's own display name + email (Django's auth_user columns)
+        AddColumnIfMissing(db, "auth_user", "first_name", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "auth_user", "last_name", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "auth_user", "email", "TEXT NOT NULL DEFAULT ''");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 

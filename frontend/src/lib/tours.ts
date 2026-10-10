@@ -36,7 +36,7 @@ const prefix = (p: string) => (path: string) => path === p || path.startsWith(p 
 const steps = (...targets: string[]): TourStep[] => targets.map((t) => (t ? { target: t } : {}))
 
 /** Settings pages that carry a tour of their own (the generic `settings` tour covers the rest). */
-const SETTINGS_TOURS = ['appearance', 'connections', 'ai-providers', 'billing']
+const SETTINGS_TOURS = ['account', 'appearance', 'connections', 'ai-providers', 'billing']
 
 // Order matters: `tourFor` picks the FIRST match, so specific tours sit before
 // any generic prefix one (the settings sub-pages before `settings`).
@@ -234,6 +234,13 @@ export const TOURS: TourDef[] = [
     group: 'setup',
     match: exact('/integrations'),
     steps: steps('page-header', 'integrations-reach', 'integrations-providers', 'integrations-connect', 'integrations-accounts'),
+  },
+  {
+    id: 'account',
+    href: '/settings/account',
+    group: 'start',
+    match: exact('/settings/account'),
+    steps: steps('settings-page-header', 'account-profile', 'account-password', 'account-sessions'),
   },
   {
     id: 'connections',

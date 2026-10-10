@@ -140,6 +140,7 @@ where a write reads its body first. Notable gates:
 | Knowledge base and AI skills writes (`/api/aicore/knowledge*`, `PUT /api/aicore/skills`, skill draft/test) | `settings.ai.manage` |
 | Integrations — read (`GET /api/integrations`, `/providers`, `/accounts`, `/settings`) | `integrations.view` (settings also `app_keys.manage`); without it a person still lists **their own** connections |
 | Integrations — add / delete / shared connect (`POST/DELETE /api/integrations/accounts*` — `entity` = that entity and its branches, none = the whole organization —, `GET /api/integrations/oauth/{provider}/start?for=shared[&entity=slug]`, `POST /api/integrations/{provider}/connect`) | admin+ (`{provider}/connect`: superadmin) AND `integrations.manage`; an unknown entity is a 404 |
+| Your own account — Settings → My account (`GET/PATCH /api/auth/me/account`, `POST /api/auth/me/password`, `POST /api/auth/me/sessions/revoke-others`) | any signed-in user, always THEMSELVES (no id in the route — another user's account is unreachable); the writes are session-only (an API key → 403); wrong current passwords: 5 per 15 min → 429 |
 | Integrations — connect / disconnect your **own** Google account (`GET /api/integrations/mine`, `GET /api/integrations/oauth/{provider}/start` — `?return=connections` brings the callback back to Settings → My connections —, `POST …/accounts/{id}/disconnect`) | any signed-in user for their own row, no capability; someone else's personal row is invisible to non-admins; a shared row needs admin+ AND `integrations.manage` |
 | Integrations — run an action (`POST /api/integrations/action`: mail, charge, book…) | `integrations.manage` OR `flows.manage`, and the contact must be in the caller's scope |
 | WhatsApp global settings incl. the verify token (`POST/PUT /api/whatsapp/settings`) | `app_keys.manage` |
@@ -318,7 +319,8 @@ token, no data), `/api/developers/keys` (own keys; `?scope=tenant` needs
 `api_keys.manage`), `/api/integrations/mine`, `/api/integrations/accounts`
 (own connections without `integrations.view`),
 `/api/integrations/oauth/{provider}/start` (connect your own Google account),
-`/api/assistant/conversations[/{id}]` (your own Ask ChatBranch history).
+`/api/assistant/conversations[/{id}]` (your own Ask ChatBranch history),
+`/api/auth/me/account` (your own name, email, role, entities and session count).
 The anonymous GETs are the documented list in `API_CONVENTIONS.md`.
 
 ## API keys and scopes

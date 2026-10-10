@@ -35,6 +35,9 @@ public static class McpExclusions
         "RBAC: roles and the permission matrix are changed by a person (rbac.manage), never by an AI acting as one";
     private const string Assistant =
         "Ask ChatBranch itself (chat / confirm / cancel) — a tool calling the assistant would recurse";
+    private const string OwnAccount =
+        "credentials / own account: Settings → My account (name, email, password, sessions) is the person at the " +
+        "keyboard — the writes refuse API keys (403), so an AI acting as them never changes them";
     private const string Binary =
         "binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file";
     private const string Export =
@@ -82,6 +85,10 @@ public static class McpExclusions
         new("POST", "/api/developers/keys", "mints an API key: the secret is shown once, to a person — an AI never creates keys"),
         new("POST", "/api/developers/mcp/test", "the dashboard's self-probe of this very MCP endpoint"),
         new("POST", "/api/auth/logout", "ends a dashboard session; an API key has no session to end"),
+        new("GET", "/api/auth/me/account", OwnAccount),
+        new("PATCH", "/api/auth/me/account", OwnAccount),
+        new("POST", "/api/auth/me/password", OwnAccount),
+        new("POST", "/api/auth/me/sessions/revoke-others", OwnAccount),
         new("POST", "/api/client-errors", "the dashboard's own crash reporter (a browser telling the server it broke) — not an operator action"),
 
         // ---- the assistant itself -------------------------------------------

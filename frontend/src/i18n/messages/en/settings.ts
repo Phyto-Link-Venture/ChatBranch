@@ -21,6 +21,10 @@ export const settings = {
       ai: { lbl: 'AI', blurb: 'Models and tools' },
     },
     pages: {
+      account: {
+        lbl: 'My account',
+        blurb: 'Your name, email and password, and the devices you are signed in on.',
+      },
       appearance: {
         lbl: 'Appearance',
         blurb: 'Theme, colour mode, text size, fonts, spacing and layout. Saved to your profile, so it follows you to any device.',

@@ -76,7 +76,10 @@ parent's tenant. The `/api/v1/brands` endpoints read and write these rows.
 
 ### `auth_user`
 `username` · `password` (Django-format `pbkdf2_sha256$…`, verified by
-`DjangoPasswordHasher`) · `is_active` · `is_superuser` · `last_login`.
+`DjangoPasswordHasher`) · `is_active` · `is_superuser` · `last_login` ·
+`first_name` / `last_name` / `email` (Django's columns, added by
+`UpgradeSchema`; edited by the person themselves at Settings → My account —
+display name = first + last, else the username; email unique across users when set).
 
 ### `crm_profile` (+ `crm_profile_entities`)
 | Column | Notes |

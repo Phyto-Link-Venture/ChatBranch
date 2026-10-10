@@ -35,6 +35,17 @@ Two kinds of credential are accepted on every authenticated route:
   `POST /api/auth/logout` revokes it. `GET /api/auth/whoami` /
   `GET /api/v1/whoami` return the user, role, tenant, accessible entity slugs
   and resolved **capabilities**.
+- **Your own account** (Settings → My account, any signed-in user, always the
+  CALLER — no id in the route): `GET /api/auth/me/account` (username, first /
+  last / display name, email, role, entities, last sign-in, active sessions),
+  `PATCH /api/auth/me/account {first_name?, last_name?, email?}` (email
+  validated and unique across users → 409; the username never changes),
+  `POST /api/auth/me/password {current_password, new_password}` (≥ 8
+  characters, ≠ the current one; signs out every OTHER session and answers
+  `{signed_out}`; 5 wrong current passwords per 15 min per user → 429; audit
+  `user.password_changed`, no secret in it) and
+  `POST /api/auth/me/sessions/revoke-others`. The three writes are
+  **session-only** — an API key gets 403 — and none of them is an MCP tool.
 - **API keys** — `cbk_<prefix>_<secret>`, created at **API keys & MCP**
   (`/developers`, `POST /api/developers/keys`, capability `api_keys.manage`) and
   shown once. Send as `Authorization: Bearer cbk_…` or `X-Api-Key: cbk_…`. A key

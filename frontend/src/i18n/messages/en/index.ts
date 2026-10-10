@@ -23,6 +23,7 @@ import { playground } from './playground'
 import { billing } from './billing'
 import { guide } from './guide'
 import { manual } from './manual'
+import { account } from './account'
 
 export const en = {
   common,
@@ -49,6 +50,7 @@ export const en = {
   billing,
   guide,
   manual,
+  account,
 }
 
 export type Messages = typeof en
