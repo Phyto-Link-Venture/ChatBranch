@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using ChatBranch.Data;
@@ -104,6 +105,69 @@ public class EntitySelectionTests : IClassFixture<ApiFactory>
         var repeated = DraftIds(await admin.GetFromJsonAsync<JsonElement>("/api/ai/monitor?entity=sel-b&entity=sel-c&page_size=200"));
         Assert.Contains(s.Drafts["c"], repeated);
         Assert.DoesNotContain(s.Drafts["a"], repeated);
+    }
+
+    [Fact]
+    public async Task An_entity_bound_agent_cannot_reach_another_entitys_contact_or_conversation()
+    {
+        var s = Seed();
+        WithDb(db =>
+        {
+            var profile = db.Profiles.Include(p => p.Entities).Include(p => p.User).First(p => p.User!.Username == "agent");
+            if (!profile.Entities.Any(e => e.Id == s.A)) profile.Entities.Add(db.Entities.First(e => e.Id == s.A));
+            return db.SaveChanges();
+        });
+        try
+        {
+            var agent = await Platform.As(_f, "agent", "agent123");
+            // its own entity and its branch: readable
+            Assert.Equal(HttpStatusCode.OK, (await agent.GetAsync($"/api/contacts/{s.Contacts["a"]}")).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await agent.GetAsync($"/api/contacts/{s.Contacts["akl"]}")).StatusCode);
+            // another company's contact by id: not found, on every contact route
+            foreach (var path in new[] { "", "/channels", "/calls" })
+                Assert.Equal(HttpStatusCode.NotFound,
+                    (await agent.GetAsync($"/api/contacts/{s.Contacts["c"]}{path}")).StatusCode);
+            // nor can it move another company's conversation to a team
+            var cKey = WithDb(db => db.Threads.First(t => t.ContactId == s.Contacts["c"]).Key);
+            var res = await agent.PostAsJsonAsync("/api/teams/assign", new { channel = "whatsapp", key = cKey, team_id = 0 });
+            Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
+            // and channel Tests (which reach the provider and can send mail) need channels.manage
+            Assert.Equal(HttpStatusCode.Forbidden, (await agent.PostAsJsonAsync("/api/messaging/settings/test", new { to = "x@example.invalid" })).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await agent.PostAsync("/api/messaging/accounts/1/test", null)).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await agent.PostAsync("/api/whatsapp/accounts/1/test", null)).StatusCode);
+        }
+        finally
+        {
+            WithDb(db =>
+            {
+                var profile = db.Profiles.Include(p => p.Entities).Include(p => p.User).First(p => p.User!.Username == "agent");
+                foreach (var e in profile.Entities.Where(e => e.Id == s.A).ToList()) profile.Entities.Remove(e);
+                return db.SaveChanges();
+            });
+        }
+    }
+
+    [Fact]
+    public void An_unassigned_conversation_gets_only_organization_wide_knowledge()
+    {
+        var s = Seed();
+        WithDb(db =>
+        {
+            var now = DateTime.UtcNow;
+            db.KnowledgeItems.Add(new KnowledgeItem { Title = "Sel-B secret hours", Content = "B only", Kind = "fact",
+                Active = true, EntityId = s.B, CreatedAt = now, UpdatedAt = now });
+            db.KnowledgeItems.Add(new KnowledgeItem { Title = "Sel org hours", Content = "everyone", Kind = "fact",
+                Active = true, CreatedAt = now, UpdatedAt = now });
+            return db.SaveChanges();
+        });
+        using var scope = _f.Services.CreateScope();
+        var knowledge = scope.ServiceProvider.GetRequiredService<ChatBranch.Data.Ai.KnowledgeService>();
+        var unassigned = knowledge.LiveItems(null, null).Select(k => k.Title).ToList();
+        Assert.Contains("Sel org hours", unassigned);
+        Assert.DoesNotContain("Sel-B secret hours", unassigned);
+        Assert.Contains("Sel-B secret hours", knowledge.LiveItems(s.B, null).Select(k => k.Title));
+        // an operator's search across All entities still finds it
+        Assert.Contains("Sel-B secret hours", knowledge.LiveItems(null, null, everyEntityWhenUnscoped: true).Select(k => k.Title));
     }
 
     [Fact]

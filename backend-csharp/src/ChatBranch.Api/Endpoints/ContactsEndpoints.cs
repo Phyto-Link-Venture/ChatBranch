@@ -114,19 +114,19 @@ public static class ContactsEndpoints
             return Results.Ok((await ContactItemsAsync(db, new List<Contact> { row })).First());
         }).RequireAuthorization(AuthPolicies.AdminPlus);
 
-        app.MapGet("/api/contacts/{id:int}", async (int id, AppDbContext db, ClaimsPrincipal me) =>
+        app.MapGet("/api/contacts/{id:int}", async (int id, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
-            var c = await ScopeContacts(db.Contacts.AsNoTracking(), me, db)
+            var c = await ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
                 .FirstOrDefaultAsync(x => x.Id == id);
             if (c == null) return NotFound("Contact not found.");
             return Results.Ok((await ContactItemsAsync(db, new List<Contact> { c })).First());
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("contacts.view");
 
         app.MapMethods("/api/contacts/{id:int}", new[] { "PATCH" },
-            async (int id, ContactWrite b, AppDbContext db, ClaimsPrincipal me,
+            async (int id, ContactWrite b, AppDbContext db, ScopingService sc, ClaimsPrincipal me,
                 ChatBranch.Data.Contacts.ContactIdentityService identities) =>
         {
-            var c = await ScopeContacts(db.Contacts, me, db).FirstOrDefaultAsync(x => x.Id == id);
+            var c = await ScopeContacts(db.Contacts, me, db, sc).FirstOrDefaultAsync(x => x.Id == id);
             if (c == null) return NotFound("Contact not found.");
             var (phoneBefore, emailBefore) = (c.Phone, c.Email);
             if (b.Name != null) c.Name = b.Name;
@@ -154,10 +154,10 @@ public static class ContactsEndpoints
         // phone fallback for WhatsApp threads created before linking, each
         // identity's carrying account (+ its health), last activity and history
         // counts, with a voice section built from CallRecord.
-        app.MapGet("/api/contacts/{id:int}/channels", async (int id, AppDbContext db, ClaimsPrincipal me,
+        app.MapGet("/api/contacts/{id:int}/channels", async (int id, AppDbContext db, ScopingService sc, ClaimsPrincipal me,
             ChatBranch.Data.Contacts.ContactIdentityService identityRegistry) =>
         {
-            var contact = await ScopeContacts(db.Contacts.AsNoTracking(), me, db)
+            var contact = await ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
                 .FirstOrDefaultAsync(c => c.Id == id);
             if (contact == null) return NotFound("Contact not found.");
             // registered identities (discovered from the phone / email, with the
@@ -397,10 +397,10 @@ public static class ContactsEndpoints
         // Read-only: the transcript + outcome per AI voice call, rendered inline in
         // the /chats message stream and on the contact detail page. Kept cheap so
         // it stays pollable (no LiveKit/agent plumbing on this path).
-        app.MapGet("/api/contacts/{id:int}/calls", async (int id, AppDbContext db, ClaimsPrincipal me,
+        app.MapGet("/api/contacts/{id:int}/calls", async (int id, AppDbContext db, ScopingService sc, ClaimsPrincipal me,
             ChatBranch.Data.Channels.CallRecordings recordings) =>
         {
-            var contact = await ScopeContacts(db.Contacts.AsNoTracking(), me, db)
+            var contact = await ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
                 .FirstOrDefaultAsync(c => c.Id == id);
             if (contact == null) return NotFound("Contact not found.");
 
@@ -953,7 +953,7 @@ public static class ContactsEndpoints
     /// superadmin is unscoped, everyone else sees only their own tenant's rows.
     /// </summary>
     internal static IQueryable<Contact> ScopeContacts(IQueryable<Contact> qs, ClaimsPrincipal me,
-        AppDbContext db, ScopingService? sc = null)
+        AppDbContext db, ScopingService sc)
     {
         var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
         if (role == Roles.SuperAdmin) return qs;
@@ -962,7 +962,7 @@ public static class ContactsEndpoints
         // An admin manages the whole tenant. Everyone else (agents, custom roles)
         // sees ONLY the entities assigned to them — plus everything beneath those
         // entities, since scope flows up the tree, not down.
-        if (role == Roles.Admin || sc == null) return qs;
+        if (role == Roles.Admin) return qs;
         var assigned = AssignedEntityIds(db, me.Identity?.Name);
         if (assigned.Count == 0) return qs;   // unassigned agent keeps the tenant view
         var ids = sc.EntitySubtreeIds(assigned);

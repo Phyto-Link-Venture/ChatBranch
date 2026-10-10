@@ -63,10 +63,16 @@ public class KnowledgeService
     public RetrievalService Retrieval => _retrieval;
 
     /// <summary>Live rows visible to this entity/channel, honouring the date window.</summary>
-    public List<KnowledgeItem> LiveItems(int? entityId, string? channel)
+    /// <param name="everyEntityWhenUnscoped">an operator's search across "All entities" (true);
+    /// the AI's prompt passes false — a conversation with no entity gets ONLY the
+    /// organization-wide items, like lessons, never another outlet's</param>
+    public List<KnowledgeItem> LiveItems(int? entityId, string? channel, bool everyEntityWhenUnscoped = false)
     {
         var now = DateTime.UtcNow;
-        var rows = _scoping.ScopeInherited(_db.KnowledgeItems.AsNoTracking(), entityId)
+        var all = _db.KnowledgeItems.AsNoTracking();
+        var rows = (entityId is int || everyEntityWhenUnscoped
+                ? _scoping.ScopeInherited(all, entityId)
+                : all.Where(k => k.EntityId == null))
             .Where(k => k.Active)
             .Where(k => k.StartsAt == null || k.StartsAt <= now)
             .Where(k => k.EndsAt == null || k.EndsAt >= now)

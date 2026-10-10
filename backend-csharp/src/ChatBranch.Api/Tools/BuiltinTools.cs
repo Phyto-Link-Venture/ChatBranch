@@ -593,7 +593,7 @@ public static class BuiltinTools
             var words = query.ToLowerInvariant()
                 .Split(new[] { ' ', ',', '.', '?', '!', ';', ':', '\n' }, StringSplitOptions.RemoveEmptyEntries)
                 .Where(w => w.Length >= 3).ToHashSet();
-            var hits = knowledge.LiveItems(ent?.Id, null)
+            var hits = knowledge.LiveItems(ent?.Id, null, everyEntityWhenUnscoped: true)
                 .Select(k =>
                 {
                     var hay = $"{k.Title} {k.Question} {k.Content} {k.Category} {string.Join(" ", k.Tags)}"

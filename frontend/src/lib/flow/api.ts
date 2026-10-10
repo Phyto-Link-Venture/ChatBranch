@@ -40,7 +40,9 @@ export async function fetchFlowLibrary(): Promise<{ workflows: WorkflowDef[] } |
     name: w.name || 'Untitled flow',
     hint: w.hint ?? '',
     active: !!w.active,
-    nodes: Array.isArray(w.nodes) ? w.nodes : [],
+    // a flow written outside the editor (Test lab, API, MCP, an import) may carry
+    // nodes with no position — give them one so the canvas and the next save work
+    nodes: Array.isArray(w.nodes) ? w.nodes.map((n, i) => (n.position ? n : { ...n, position: { x: 0, y: i * 120 } })) : [],
     edges: Array.isArray(w.edges) ? w.edges : [],
   }))
   return { workflows }
@@ -52,7 +54,7 @@ export function cleanNodes(nodes: FlowNode[]): FlowNode[] {
   return nodes.map(({ id, type, position, data, width, height, parentId }) => ({
     id,
     type,
-    position: { x: Math.round(position.x), y: Math.round(position.y) },
+    position: { x: Math.round(position?.x ?? 0), y: Math.round(position?.y ?? 0) },
     data,
     ...(width ? { width } : {}),
     ...(height ? { height } : {}),

@@ -1085,7 +1085,7 @@ public static class VoiceMessagingEndpoints
                       "testing is not wired up in this backend yet."
                     : $"This {account.Channel} account is not fully configured yet.",
             }, statusCode: 501);
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");   // a Test talks to the provider (and can send mail)
 
         // ---- POST /api/messaging/accounts/{id}/set-webhook ----
         app.MapPost("/api/messaging/accounts/{id}/set-webhook", async (string id,
@@ -1248,6 +1248,6 @@ public static class VoiceMessagingEndpoints
             if (!to.Contains('@'))
                 return Results.Json(new { detail = "Valid 'to' email required." }, statusCode: 400);
             return await MessagingAccountTransport.DefaultSmtpTestAsync(to, ctx);
-        }).RequireAuthorization(AuthPolicies.Authenticated);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");   // a Test talks to the provider (and can send mail)
     }
 }
