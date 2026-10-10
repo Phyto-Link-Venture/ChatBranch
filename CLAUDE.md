@@ -920,8 +920,10 @@ When you fix one of these, update this table, `README.md` and
   `/api/analytics/*` routes keep their names):
   `GET /api/analytics/summary?days=` (funnel, per-account volumes, call
   outcomes, health events, daily series, KPI deltas),
-  `GET /api/analytics/usage?days=` (LLM metering at COST, `billing.manage` —
-  companies never see it), **the AI bill** (`/billing`, Review;
+  `GET /api/analytics/usage?days=&entity=` (LLM metering at COST, `billing.manage` —
+  companies never see it; follows the entity switcher: rows stamped in the picked
+  subtrees + unstamped rows whose contact belongs there, entity-less usage only
+  under All), **the AI bill** (`/billing`, Review;
   `Endpoints/AiBillingEndpoints.cs`): per calendar month, per COMPANY = a
   top-level entity (branches roll up). A usage row's company = its
   `crm_llmusage.entity_id` (stamped by the AI brain from the reply's entity)
@@ -1432,7 +1434,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **698 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **699 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /
