@@ -365,7 +365,8 @@ export interface UploadResult {
  */
 export function uploadKnowledge(
   file: File,
-  fields: { kind?: string; title?: string; entity?: string | null },
+  /** `entities` = "Available to" slugs ([] = everyone); `entity` = the older single pick. */
+  fields: { kind?: string; title?: string; entity?: string | null; entities?: string[] },
   t: TFunction,
   onProgress?: (fraction: number) => void,
 ): { promise: Promise<UploadResult>; abort: () => void } {
@@ -375,7 +376,8 @@ export function uploadKnowledge(
     form.append('file', file, file.name)
     if (fields.kind) form.append('kind', fields.kind)
     if (fields.title) form.append('title', fields.title)
-    if (fields.entity) form.append('entity', fields.entity)
+    if (fields.entities) form.append('entities', fields.entities.join(','))
+    else if (fields.entity) form.append('entity', fields.entity)
     xhr.open('POST', `${API}/aicore/knowledge/upload`)
     for (const [k, v] of Object.entries(authHeaders())) xhr.setRequestHeader(k, v)
     xhr.upload.onprogress = (e) => {

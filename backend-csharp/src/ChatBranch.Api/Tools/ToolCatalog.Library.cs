@@ -7,7 +7,11 @@ namespace ChatBranch.Api.Tools;
 public static partial class ToolCatalog
 {
     private static readonly string[] KnowledgeKinds = { "fact", "policy", "faq", "event", "notice" };
-    private static readonly string[] TagColours = { "tangerine", "ink", "teal", "plum", "ochre", "blue", "green", "rose" };
+    /// <summary>The "Available to" argument of every multi-entity library write.</summary>
+    internal const string EntitiesDesc =
+        "Available to these entity slugs (each with its branches); [] = everyone (organisation-wide). " +
+        "Wins over entity. Omit on an update to keep.";
+    private static readonly string[] TagColours ={ "tangerine", "ink", "teal", "plum", "ochre", "blue", "green", "rose" };
 
     private static IEnumerable<IChatBranchTool> Library()
     {
@@ -32,10 +36,12 @@ public static partial class ToolCatalog
             A.Bool("published", "Also show it in the public Help Center."),
             A.Str("category", "Help Center category."),
             A.Str("slug", "Help Center URL slug."),
+            A.StrList("entities", EntitiesDesc),
         };
         yield return T(k, "knowledge_create", "Add a knowledge item",
             "Add to the knowledge base: kind fact | policy | faq | event | notice. Events and notices can carry " +
-            "starts_at / ends_at and expire on their own. entity = only that outlet (and its branches).",
+            "starts_at / ends_at and expire on their own. entities = only those entities (and their branches); " +
+            "none = everyone (organisation-wide).",
             "POST", "/api/aicore/knowledge", ai,
             new[]
             {
@@ -84,6 +90,7 @@ public static partial class ToolCatalog
                 A.Str("kind", "Kind (default faq).", oneOf: KnowledgeKinds),
                 A.StrList("channels", "Only on these channels."),
                 A.Entity("Entity slug; omit for organisation-wide."),
+                A.StrList("entities", EntitiesDesc),
             });
 
         // ---- skills -----------------------------------------------------------
@@ -109,7 +116,9 @@ public static partial class ToolCatalog
             A.StrList("channels", "Only on these channels."),
             A.Str("on_fail", "check: retry_then_handover | handover | block."),
             A.Obj("config", "app: the connected-app config (skills_list_apps shows the shape)."),
-            A.Entity("Entity slug; omit for organisation-wide."),
+            A.Entity("Entity slug the skill is saved under; omit for organisation-wide."),
+            A.StrList("entities", "Also available to these entity slugs (and their branches); the skill's own entity " +
+                "is always included. Omit to keep; an organisation-wide skill takes none."),
         };
         yield return Custom(s, "skills_save_skill", "Create or update an AI skill",
             "Create a skill or update one by id — only that skill changes; the rest of its scope's library is kept. " +
@@ -216,6 +225,7 @@ public static partial class ToolCatalog
             A.Str("short_code", "The /code operators type."), A.Str("content", "The text ({{first_name}}, {{cf_*}}, {{tag_*}} variables work)."),
             A.StrList("channels", "Only offered on these channels (empty = all)."),
             A.Entity("Entity slug; omit for organisation-wide.", ArgIn.Body),
+            A.StrList("entities", EntitiesDesc),
         };
         yield return T(tp, "templates_create_quick_reply", "Create a quick reply",
             "Add a quick reply (a canned response operators insert with /short_code in the composer).", "POST", "/api/messaging/canned", tplManage, cannedFields);
@@ -235,6 +245,7 @@ public static partial class ToolCatalog
         {
             A.Str("name", "Name."), A.Str("content", "The script ({{variables}} work)."),
             A.Entity("Entity slug; omit for organisation-wide.", ArgIn.Body),
+            A.StrList("entities", EntitiesDesc),
         };
         yield return T(tp, "templates_create_call_script", "Create a call script",
             "Add a call script template (the text a 'Script call' flow step reads aloud).", "POST", "/api/calls/script-templates", scripts, scriptFields);
@@ -348,6 +359,7 @@ public static partial class ToolCatalog
             ["entity"] = S(a, "entity"),
             ["channels"] = ChatBranchTool.StrList(a, "channels") is { Count: > 0 } ch ? string.Join(",", ch) : null,
         };
+        if (ChatBranchTool.StrList(a, "entities") is { Count: > 0 } ents) fields["entities"] = string.Join(",", ents);
         var r = ToolContext.Require(await ctx.CallAsync("POST", "/api/aicore/knowledge/upload", ct: ct,
             form: Form(fields, "file", name, bytes)));
         ctx.Links.Add(new ToolLink("Open knowledge", "/knowledge"));
@@ -397,6 +409,8 @@ public static partial class ToolCatalog
         Map("kind", "kind"); Map("use_when", "useWhen"); Map("instructions", "instructions");
         Map("description", "description"); Map("code", "code"); Map("parameters", "parameters"); Map("tests", "tests");
         Map("enabled", "enabled"); Map("channels", "channels"); Map("on_fail", "onFail"); Map("config", "config");
+        Map("entities", "entities");
+
 
         var payload = new JsonObject { ["entity"] = entity, ["skills"] = new JsonArray(skills.Select(x => (JsonNode)x).ToArray()) };
         var r = ToolContext.Require(await ctx.CallAsync("PUT", "/api/aicore/skills", body: payload, ct: ct));

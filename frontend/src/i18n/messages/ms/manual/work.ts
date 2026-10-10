@@ -219,7 +219,7 @@ export const work: Dict<typeof source> = {
       },
       s7: {
         title: 'Isi borang',
-        body: '“Kod pendek”: apa yang ejen taip selepas “/”, contohnya “kemaskini-penghantaran” (huruf kecil, digit dan sengkang). Biarkan “Entiti” sebagai “Seluruh organisasi (setiap entiti)” dan “Saluran” sebagai “Semua saluran” melainkan balasan itu hanya sesuai untuk satu cawangan atau aplikasi. Tulis teks di bawah “Mesej” — butang pemboleh ubah memasukkan perkara seperti nama pelanggan.',
+        body: '“Kod pendek”: apa yang ejen taip selepas “/”, contohnya “kemaskini-penghantaran” (huruf kecil, digit dan sengkang). Biarkan “Tersedia untuk” pada “Semua orang (global)” melainkan balasan itu hanya sesuai untuk sesetengah syarikat atau cawangan — kemudian pilih “Entiti terpilih” dan tandakannya (setiap satu dengan cawangannya). Di bawah “Tetapan lanjutan”, biarkan “Saluran” pada “Semua saluran” melainkan ia hanya sesuai untuk satu aplikasi. Tulis teks di bawah “Mesej” — butang pemboleh ubah memasukkan perkara seperti nama pelanggan.',
       },
       s8: {
         title: 'Simpan',

@@ -4,6 +4,15 @@
 // modifiers (bg-brand-400/10) keep working and the scale flips with the theme.
 const rgbVar = (name) => `rgb(var(${name}) / <alpha-value>)`
 
+// Density (Settings → Appearance → Advanced): padding, margins, gaps and
+// space-* scale by --sp (= the user's --space, times --card-pad inside a card;
+// globals.css). Widths, heights and insets keep the stock scale, so controls
+// keep their size and only the air around them changes. 0 and px stay exact.
+const defaultSpacing = require('tailwindcss/defaultTheme').spacing
+const densitySpacing = Object.fromEntries(
+  Object.entries(defaultSpacing).map(([k, v]) => [k, /rem$/.test(v) ? `calc(${v} * var(--sp, 1))` : v]),
+)
+
 module.exports = {
   darkMode: 'class', // html.dark / html.light — set by the pre-paint script + ThemeToggle
   content: [
@@ -12,6 +21,12 @@ module.exports = {
     './src/app/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   theme: {
+    padding: densitySpacing,
+    margin: { auto: 'auto', ...densitySpacing },
+    gap: densitySpacing,
+    space: densitySpacing,
+    scrollMargin: densitySpacing,
+    scrollPadding: densitySpacing,
     extend: {
       colors: {
         // Surfaces (theme-aware — resolve to CSS vars set in globals.css)

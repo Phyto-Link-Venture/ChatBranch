@@ -249,8 +249,51 @@ public class ScopingService
         var chain = EntitySelection.Covers(eid)
             ? EntitySelection.Current!.SelectMany(id => EntityChain(id)).Distinct().ToList()
             : EntityChain(eid);
-        return qs.Where(r => r.EntityId == null || chain.Contains(r.EntityId.Value));
+        return LibraryVisible(qs, chain);
     }
+
+    /// <summary>
+    /// THE multi-entity library rule, in one place: a row is visible to a set of
+    /// entity ids when it is GLOBAL (no entity), its primary
+    /// <see cref="IEntityScoped.EntityId"/> is in the set, or — for the
+    /// multi-entity library kinds (<see cref="LibraryKinds"/>) — one of its extra
+    /// "available to" ticks (<c>crm_libraryentity</c>) is. Callers pass the set an
+    /// outlet may read: <see cref="ScopeInherited"/> passes the outlet's chain
+    /// (itself + ancestors — so a tick for head office reaches its branches, and
+    /// a sibling outside the ticks never sees the row), ShellScope passes an
+    /// assigned user's visible ids. A legacy row with only EntityId (no tick rows)
+    /// behaves exactly as before.
+    /// </summary>
+    public IQueryable<T> LibraryVisible<T>(IQueryable<T> qs, IReadOnlyCollection<int> entityIds)
+        where T : class, IEntityScoped
+    {
+        var ids = entityIds.Distinct().ToList();
+        System.Linq.Expressions.Expression<Func<T, bool>> basePred =
+            r => r.EntityId == null || ids.Contains(r.EntityId.Value);
+        var kind = LibraryKinds.For(typeof(T));
+        if (kind == null || ids.Count == 0) return qs.Where(basePred);
+        List<int> extra;
+        try
+        {
+            extra = _db.LibraryEntities.AsNoTracking()
+                .Where(l => l.Kind == kind && ids.Contains(l.EntityId))
+                .Select(l => l.ItemId).Distinct().ToList();
+        }
+        catch { extra = new List<int>(); } // a table hiccup degrades to the primary entity only
+        if (extra.Count == 0) return qs.Where(basePred);
+        var p = basePred.Parameters[0];
+        var holder = new ExtraIds { Ids = extra };
+        var contains = System.Linq.Expressions.Expression.Call(typeof(Enumerable), nameof(Enumerable.Contains),
+            new[] { typeof(int) },
+            System.Linq.Expressions.Expression.Property(
+                System.Linq.Expressions.Expression.Constant(holder), nameof(ExtraIds.Ids)),
+            System.Linq.Expressions.Expression.Property(p, "Id"));
+        var body = System.Linq.Expressions.Expression.OrElse(basePred.Body, contains);
+        return qs.Where(System.Linq.Expressions.Expression.Lambda<Func<T, bool>>(body, p));
+    }
+
+    /// <summary>Closure-like holder so EF parameterizes the id list instead of inlining it.</summary>
+    private sealed class ExtraIds { public List<int> Ids { get; init; } = new(); }
 
     /// <summary>
     /// Records that belong to exactly one entity. entityId == null does not

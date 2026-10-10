@@ -4,7 +4,7 @@ namespace ChatBranch.Domain;
 // templates, workflows, agent skills, knowledge items (Django app: crm). Each
 // carries a nullable Entity (null = global, inherited by every entity).
 
-public class CannedResponse : IEntityScoped
+public class CannedResponse : IMultiEntityItem
 {
     public int Id { get; set; }
     public int? EntityId { get; set; }
@@ -24,7 +24,7 @@ public class CannedResponse : IEntityScoped
     public DateTime? UpdatedAt { get; set; }
 }
 
-public class ScriptTemplate : IEntityScoped
+public class ScriptTemplate : IMultiEntityItem
 {
     public int Id { get; set; }
     public int? EntityId { get; set; }
@@ -59,7 +59,7 @@ public class Workflow : IEntityScoped
     public ICollection<FlowRun> Runs { get; set; } = new List<FlowRun>();
 }
 
-public class AgentSkill : IEntityScoped
+public class AgentSkill : IMultiEntityItem
 {
     public int Id { get; set; }
     public int? EntityId { get; set; }
@@ -118,7 +118,7 @@ public static class SkillKinds
     public static bool IsCode(string? kind) => kind is Tool or Check;
 }
 
-public class KnowledgeItem : IEntityScoped
+public class KnowledgeItem : IMultiEntityItem
 {
     public int Id { get; set; }
     public int? TenantId { get; set; }

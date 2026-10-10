@@ -1,18 +1,23 @@
 'use client'
 
 /**
- * Appearance: which look (theme), light/dark mode, and the per-user overrides
- * (accent colour, text size, corner style, heading font).
+ * Appearance: which look (theme), light/dark mode, and the per-user overrides —
+ * accent colour, text size (presets or a free scale), corner style, body and
+ * heading fonts, line height, density (padding / gaps / margins), page width
+ * and margins, card padding, the navigation layout (sidebar left / right, or a
+ * top bar on desktop), reduced motion and the card surface style.
  *
- * Everything resolves to classes + CSS variables on <html> (globals.css holds
- * the three theme palettes). The resolved variable set is cached in
- * localStorage next to the choice so the pre-paint script in layout.tsx can
- * apply it before React hydrates — no flash, and no colour maths in the
- * inline script.
+ * Everything resolves to classes, data attributes and CSS variables on <html>
+ * (globals.css holds the ten theme palettes and the rules that read the
+ * attributes). The resolved set is cached in localStorage next to the choice
+ * so the pre-paint script (lib/themeScript.ts) can apply it before React
+ * hydrates — no flash, and no colour maths in the inline script.
  *
  * Persistence: localStorage for the instant path, the user's server profile
  * (`/api/auth/preferences`) so the choice follows them across devices, and an
  * organization default (`/api/settings/appearance`) for users who never chose.
+ * The server validates every key against the same vocabularies
+ * (SettingsEndpoints.Appearance.cs — keep both in step).
  */
 
 import { authHeaders, getAuth } from './auth'
@@ -20,11 +25,31 @@ import type { MessageKey } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
-export type ThemeName = 'paper' | 'graphite' | 'soft'
+export const THEME_IDS = ['paper', 'graphite', 'soft', 'ocean', 'forest', 'midnight', 'rose', 'sand', 'nord', 'contrast'] as const
+export type ThemeName = (typeof THEME_IDS)[number]
 export type Mode = 'light' | 'dark' | 'system'
 export type TextSize = 'sm' | 'md' | 'lg' | 'xl'
-export type RadiusStyle = 'theme' | 'sharp' | 'round'
-export type HeadingFont = 'theme' | 'serif' | 'sans'
+export type RadiusStyle = 'theme' | 'square' | 'sharp' | 'round'
+
+export const FONT_IDS = [
+  'system', 'inter', 'schibsted', 'geist', 'jakarta', 'manrope', 'dmsans', 'plex', 'space', 'nunito', 'notosc',
+  'fraunces', 'sourceserif', 'lora',
+] as const
+export type FontId = (typeof FONT_IDS)[number]
+export type BodyFont = 'theme' | FontId
+/** `serif` (Fraunces) and `sans` (= the body font) are the pre-2026-10 values, still accepted. */
+export type HeadingFont = 'theme' | 'serif' | 'sans' | FontId
+export type LineHeight = 'tight' | 'normal' | 'relaxed'
+export type Density = 'compact' | 'comfortable' | 'spacious'
+export type ContentWidth = 'narrow' | 'normal' | 'wide' | 'full'
+export type Gutter = 'sm' | 'md' | 'lg'
+export type CardPadding = 'sm' | 'md' | 'lg'
+export type NavLayout = 'side' | 'top'
+export type NavSide = 'left' | 'right'
+export type NavWidth = 'narrow' | 'normal' | 'wide'
+export type NavStart = 'expanded' | 'collapsed'
+export type Motion = 'system' | 'reduce' | 'full'
+export type SurfaceStyle = 'theme' | 'flat' | 'bordered' | 'shadow'
 
 export interface Appearance {
   theme: ThemeName
@@ -32,25 +57,179 @@ export interface Appearance {
   /** Hex override for the accent, or null for the theme's own. */
   accent: string | null
   textSize: TextSize
+  /** Free text scale in percent (FONT_SCALE_RANGE), or null = the `textSize` preset. */
+  fontScale: number | null
   radius: RadiusStyle
   headingFont: HeadingFont
+  bodyFont: BodyFont
+  lineHeight: LineHeight
+  density: Density
+  /** Free spacing scale in percent (SPACING_RANGE), or null = the `density` preset. */
+  spacing: number | null
+  contentWidth: ContentWidth
+  gutter: Gutter
+  cardPadding: CardPadding
+  navLayout: NavLayout
+  navSide: NavSide
+  navWidth: NavWidth
+  navStart: NavStart
+  motion: Motion
+  surface: SurfaceStyle
 }
 
+/** The look before anyone chooses — the values ChatBranch always had. */
 export const DEFAULT_APPEARANCE: Appearance = {
   theme: 'paper',
   mode: 'light',
   accent: null,
   textSize: 'md',
+  fontScale: null,
   radius: 'theme',
   headingFont: 'theme',
+  bodyFont: 'theme',
+  lineHeight: 'normal',
+  density: 'comfortable',
+  spacing: null,
+  contentWidth: 'full',
+  gutter: 'md',
+  cardPadding: 'md',
+  navLayout: 'side',
+  navSide: 'left',
+  navWidth: 'normal',
+  navStart: 'expanded',
+  motion: 'system',
+  surface: 'theme',
 }
 
-/** `name` / `blurb` are translation keys — render with `t(theme.name)`. */
-export const THEMES: { id: ThemeName; name: MessageKey; blurb: MessageKey; swatch: string[] }[] = [
-  { id: 'paper', name: 'settings.appearance.themes.paper.name', blurb: 'settings.appearance.themes.paper.blurb', swatch: ['#FAF7F2', '#1A1A1A', '#FF5A1F'] },
-  { id: 'graphite', name: 'settings.appearance.themes.graphite.name', blurb: 'settings.appearance.themes.graphite.blurb', swatch: ['#FFFFFF', '#18181B', '#6D5DFC'] },
-  { id: 'soft', name: 'settings.appearance.themes.soft.name', blurb: 'settings.appearance.themes.soft.blurb', swatch: ['#F6F4FD', '#5B47D6', '#8AD9B5'] },
+export const FONT_SCALE_RANGE = { min: 85, max: 130 } as const
+export const SPACING_RANGE = { min: 70, max: 140 } as const
+
+/** A theme's mini preview: page ground, card, heading ink, primary action, accent, hairline. */
+export interface Swatch {
+  app: string
+  card: string
+  ink: string
+  primary: string
+  accent: string
+  line: string
+}
+
+export interface ThemeDef {
+  id: ThemeName
+  /** Translation keys — render with `t(theme.name)`. */
+  name: MessageKey
+  blurb: MessageKey
+  light: Swatch
+  dark: Swatch
+  /** Preview geometry: corner radius (px) and the heading face. */
+  radius: number
+  font: string
+  weight: number
+  /** The primary action is ink (not the accent) — an accent override keeps it. */
+  inkPrimary?: boolean
+}
+
+const sw = (app: string, card: string, ink: string, primary: string, accent: string, line: string): Swatch => ({ app, card, ink, primary, accent, line })
+const CJK = "'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC Variable', 'Noto Sans CJK SC', sans-serif"
+const SANS_TAIL = `system-ui, -apple-system, 'Segoe UI', ${CJK}`
+const SERIF_TAIL = `Georgia, 'Songti SC', 'Noto Serif CJK SC', ${CJK}`
+
+// Swatch hex values mirror the theme tokens in globals.css (theme data, not component colours).
+export const THEMES: ThemeDef[] = [
+  {
+    id: 'paper', name: 'settings.appearance.themes.paper.name', blurb: 'settings.appearance.themes.paper.blurb',
+    light: sw('#FAF7F2', '#FFFDF9', '#141210', '#1A1A1A', '#FF5A1F', '#E4DDD1'),
+    dark: sw('#1C1A17', '#26231E', '#FBF8F2', '#F2EDE4', '#FF7A45', '#38332C'),
+    radius: 3, font: `'Fraunces Variable', 'Fraunces', ${SERIF_TAIL}`, weight: 500, inkPrimary: true,
+  },
+  {
+    id: 'graphite', name: 'settings.appearance.themes.graphite.name', blurb: 'settings.appearance.themes.graphite.blurb',
+    light: sw('#F7F7F8', '#FFFFFF', '#0F0F11', '#6D5DFC', '#6D5DFC', '#E6E6EA'),
+    dark: sw('#0E0E10', '#18181B', '#FFFFFF', '#6A5AF2', '#8B7DFF', '#26262B'),
+    radius: 6, font: `'Geist Variable', 'Geist', ${SANS_TAIL}`, weight: 650,
+  },
+  {
+    id: 'soft', name: 'settings.appearance.themes.soft.name', blurb: 'settings.appearance.themes.soft.blurb',
+    light: sw('#F6F4FD', '#FFFFFF', '#1B1830', '#5B47D6', '#8AD9B5', '#E7E3F4'),
+    dark: sw('#17152A', '#23203D', '#FFFFFF', '#A99BFF', '#8AD9B5', '#312D52'),
+    radius: 12, font: `'Nunito Variable', 'Nunito', ${SANS_TAIL}`, weight: 800,
+  },
+  {
+    id: 'ocean', name: 'settings.appearance.themes.ocean.name', blurb: 'settings.appearance.themes.ocean.blurb',
+    light: sw('#F4F8FB', '#FFFFFF', '#0A1A28', '#0B66C3', '#0EA5E9', '#DCE6EE'),
+    dark: sw('#0B1622', '#132233', '#FFFFFF', '#4DA3F5', '#38BDF8', '#1F3144'),
+    radius: 8, font: `'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', ${SANS_TAIL}`, weight: 700,
+  },
+  {
+    id: 'forest', name: 'settings.appearance.themes.forest.name', blurb: 'settings.appearance.themes.forest.blurb',
+    light: sw('#F5F7F2', '#FCFDFB', '#101A12', '#1E6B3A', '#8BC34A', '#DCE3D6'),
+    dark: sw('#111812', '#1A251C', '#F7FBF5', '#6CCB8A', '#A5D66B', '#263327'),
+    radius: 5, font: `'Lora Variable', 'Lora', ${SERIF_TAIL}`, weight: 600,
+  },
+  {
+    id: 'midnight', name: 'settings.appearance.themes.midnight.name', blurb: 'settings.appearance.themes.midnight.blurb',
+    light: sw('#F3F5FA', '#FFFFFF', '#0B1026', '#1E2A78', '#4F5BFF', '#DFE3EF'),
+    dark: sw('#070B1A', '#10172F', '#FFFFFF', '#7C87FF', '#5EEAD4', '#1B2342'),
+    radius: 7, font: `'Inter Variable', 'Inter', ${SANS_TAIL}`, weight: 650, inkPrimary: true,
+  },
+  {
+    id: 'rose', name: 'settings.appearance.themes.rose.name', blurb: 'settings.appearance.themes.rose.blurb',
+    light: sw('#FCF6F7', '#FFFFFF', '#1F1216', '#B8285A', '#F472A0', '#F0DFE3'),
+    dark: sw('#1A1014', '#26181E', '#FFFFFF', '#F27AA3', '#F9A8C4', '#3A262D'),
+    radius: 12, font: `'Fraunces Variable', 'Fraunces', ${SERIF_TAIL}`, weight: 500,
+  },
+  {
+    id: 'sand', name: 'settings.appearance.themes.sand.name', blurb: 'settings.appearance.themes.sand.blurb',
+    light: sw('#F7F1E6', '#FDF9F2', '#20180F', '#9A4A12', '#D9893B', '#E5D8C2'),
+    dark: sw('#1B1712', '#29231B', '#FFF9EF', '#E8A465', '#E8A465', '#3A3226'),
+    radius: 4, font: `'Source Serif 4 Variable', 'Source Serif 4', ${SERIF_TAIL}`, weight: 600,
+  },
+  {
+    id: 'nord', name: 'settings.appearance.themes.nord.name', blurb: 'settings.appearance.themes.nord.blurb',
+    light: sw('#ECEFF4', '#F8F9FB', '#242933', '#3B6E9E', '#88C0D0', '#D8DEE9'),
+    dark: sw('#2E3440', '#3B4252', '#FFFFFF', '#88C0D0', '#8FBCBB', '#434C5E'),
+    radius: 5, font: `'IBM Plex Sans Variable', 'IBM Plex Sans', ${SANS_TAIL}`, weight: 600,
+  },
+  {
+    id: 'contrast', name: 'settings.appearance.themes.contrast.name', blurb: 'settings.appearance.themes.contrast.blurb',
+    light: sw('#FFFFFF', '#FFFFFF', '#000000', '#000000', '#0040B0', '#767676'),
+    dark: sw('#000000', '#0A0A0A', '#FFFFFF', '#FFFFFF', '#FFD60A', '#8A8A8A'),
+    radius: 3, font: `'Inter Variable', 'Inter', ${SANS_TAIL}`, weight: 800, inkPrimary: true,
+  },
 ]
+
+export interface FontDef {
+  id: FontId
+  /** The font's own name (a proper noun, shown as is), or a translation key for "System". */
+  label: string | MessageKey
+  translate?: boolean
+  stack: string
+  kind: 'sans' | 'serif'
+  /** Heading weight / tracking when used as the heading face. */
+  weight: number
+  tracking: string
+}
+
+/** Every face is self-hosted (@fontsource-variable, imported in app/layout.tsx;
+ *  the browser only downloads a face once something renders in it). Noto Sans
+ *  SC's stylesheet is large, so lib/theme.ts loads it only when chosen. */
+export const FONTS: FontDef[] = [
+  { id: 'system', label: 'settings.appearance.fontNames.system', translate: true, stack: `${SANS_TAIL}`, kind: 'sans', weight: 700, tracking: '-0.02em' },
+  { id: 'inter', label: 'Inter', stack: `'Inter Variable', 'Inter', ${SANS_TAIL}`, kind: 'sans', weight: 700, tracking: '-0.025em' },
+  { id: 'schibsted', label: 'Schibsted Grotesk', stack: `'Schibsted Grotesk Variable', 'Schibsted Grotesk', ${SANS_TAIL}`, kind: 'sans', weight: 700, tracking: '-0.02em' },
+  { id: 'geist', label: 'Geist', stack: `'Geist Variable', 'Geist', ${SANS_TAIL}`, kind: 'sans', weight: 650, tracking: '-0.03em' },
+  { id: 'jakarta', label: 'Plus Jakarta Sans', stack: `'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', ${SANS_TAIL}`, kind: 'sans', weight: 700, tracking: '-0.025em' },
+  { id: 'manrope', label: 'Manrope', stack: `'Manrope Variable', 'Manrope', ${SANS_TAIL}`, kind: 'sans', weight: 700, tracking: '-0.02em' },
+  { id: 'dmsans', label: 'DM Sans', stack: `'DM Sans Variable', 'DM Sans', ${SANS_TAIL}`, kind: 'sans', weight: 700, tracking: '-0.02em' },
+  { id: 'plex', label: 'IBM Plex Sans', stack: `'IBM Plex Sans Variable', 'IBM Plex Sans', ${SANS_TAIL}`, kind: 'sans', weight: 600, tracking: '-0.02em' },
+  { id: 'space', label: 'Space Grotesk', stack: `'Space Grotesk Variable', 'Space Grotesk', ${SANS_TAIL}`, kind: 'sans', weight: 600, tracking: '-0.02em' },
+  { id: 'nunito', label: 'Nunito', stack: `'Nunito Variable', 'Nunito', ${SANS_TAIL}`, kind: 'sans', weight: 800, tracking: '-0.015em' },
+  { id: 'notosc', label: 'Noto Sans SC · 思源黑体', stack: `'Noto Sans SC Variable', 'Noto Sans SC', ${SANS_TAIL}`, kind: 'sans', weight: 700, tracking: '-0.01em' },
+  { id: 'fraunces', label: 'Fraunces', stack: `'Fraunces Variable', 'Fraunces', ${SERIF_TAIL}`, kind: 'serif', weight: 500, tracking: '-0.02em' },
+  { id: 'sourceserif', label: 'Source Serif 4', stack: `'Source Serif 4 Variable', 'Source Serif 4', ${SERIF_TAIL}`, kind: 'serif', weight: 600, tracking: '-0.015em' },
+  { id: 'lora', label: 'Lora', stack: `'Lora Variable', 'Lora', ${SERIF_TAIL}`, kind: 'serif', weight: 600, tracking: '-0.01em' },
+]
+export const fontDef = (id: string): FontDef | undefined => FONTS.find((f) => f.id === id)
 
 /** Option names shown in Settings → Appearance (translation keys; the stored values stay the ids). */
 export const MODE_LABELS: Record<Mode, MessageKey> = {
@@ -66,28 +245,29 @@ export const TEXT_SIZE_LABELS: Record<TextSize, MessageKey> = {
 }
 export const RADIUS_LABELS: Record<RadiusStyle, MessageKey> = {
   theme: 'settings.appearance.radii.theme',
+  square: 'settings.appearance.radii.square',
   sharp: 'settings.appearance.radii.sharp',
   round: 'settings.appearance.radii.round',
-}
-export const HEADING_FONT_LABELS: Record<HeadingFont, MessageKey> = {
-  theme: 'settings.appearance.fonts.theme',
-  serif: 'settings.appearance.fonts.serif',
-  sans: 'settings.appearance.fonts.sans',
 }
 
 export const ACCENT_PRESETS = ['#FF5A1F', '#6D5DFC', '#2F7D4F', '#1F6FD1', '#D6336C', '#C8891A', '#0F8C83', '#1A1A1A']
 
 const ZOOM: Record<TextSize, number> = { sm: 0.92, md: 1, lg: 1.08, xl: 1.16 }
+const SPACE: Record<Density, number> = { compact: 0.8, comfortable: 1, spacious: 1.2 }
 const RADII: Record<Exclude<RadiusStyle, 'theme'>, number[]> = {
+  square: [0, 0, 0, 0, 0],
   sharp: [3, 4, 5, 6, 8],
   round: [10, 12, 16, 20, 26],
 }
-/** Page ground per theme/mode — the background accent text must read on. */
-const GROUND: Record<ThemeName, { light: string; dark: string }> = {
-  paper: { light: '#FAF7F2', dark: '#1C1A17' },
-  graphite: { light: '#F7F7F8', dark: '#0E0E10' },
-  soft: { light: '#F6F4FD', dark: '#17152A' },
-}
+const LINE_HEIGHT: Record<LineHeight, number> = { tight: 1.35, normal: 1.5, relaxed: 1.7 }
+const CONTENT_MAX: Record<ContentWidth, string> = { narrow: '960px', normal: '1200px', wide: '1480px', full: '100%' }
+const GUTTER: Record<Gutter, number> = { sm: 0.6, md: 1, lg: 1.5 }
+const CARD_PAD: Record<CardPadding, number> = { sm: 0.8, md: 1, lg: 1.25 }
+const NAV_W: Record<NavWidth, string> = { narrow: '216px', normal: '248px', wide: '288px' }
+
+/** The text scale (percent) a preset stands for — the slider starts there. */
+export const presetScale = (s: TextSize) => Math.round(ZOOM[s] * 100)
+export const densityScale = (d: Density) => Math.round(SPACE[d] * 100)
 
 export const STORE_KEY = 'ui-appearance'
 
@@ -167,7 +347,8 @@ const hex = (c: RGB) => '#' + c.map((v) => v.toString(16).padStart(2, '0')).join
 export function accentVars(accentHex: string, theme: ThemeName, dark: boolean): Record<string, string> {
   const base = hexToRgb(accentHex)
   if (!base) return {}
-  const ground = hexToRgb(dark ? GROUND[theme].dark : GROUND[theme].light)!
+  const def = THEMES.find((th) => th.id === theme) ?? THEMES[0]
+  const ground = hexToRgb(dark ? def.dark.app : def.light.app)!
   const white: RGB = [255, 255, 255]
   const ink: RGB = [17, 17, 17]
   const fill = towardContrast(base, ground, 3, dark)
@@ -185,9 +366,9 @@ export function accentVars(accentHex: string, theme: ThemeName, dark: boolean): 
     '--c-brand-200': trip(text200),
     '--brand-ink': hex(text),
   }
-  // Paper & Ink keeps its ink primary (that IS the look); the other two
-  // paint primary actions in the accent.
-  if (theme !== 'paper') {
+  // Ink-primary looks (Paper & Ink, Midnight, High contrast) keep their ink
+  // primary (that IS the look); the others paint primary actions in the accent.
+  if (!def.inkPrimary) {
     const primary = contrast(fill, white) >= 4.5 ? fill : towardContrast(base, white, 4.5, false)
     vars['--primary'] = hex(dark ? fill : primary)
     vars['--on-primary'] = contrast(dark ? fill : primary, white) >= 4.5 ? '#ffffff' : '#111111'
@@ -204,40 +385,93 @@ export function resolveDark(mode: Mode): boolean {
   return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-color-scheme: dark)').matches
 }
 
+/** The effective text scale (1 = 100 %). */
+export function textScale(a: Appearance): number {
+  return a.fontScale != null ? a.fontScale / 100 : ZOOM[a.textSize] ?? 1
+}
+
+/** The effective spacing scale (1 = 100 %). */
+export function spaceScale(a: Appearance): number {
+  return a.spacing != null ? a.spacing / 100 : SPACE[a.density] ?? 1
+}
+
 export function resolveVars(a: Appearance, dark: boolean): Record<string, string> {
-  const vars: Record<string, string> = { '--ui-zoom': String(ZOOM[a.textSize] ?? 1) }
+  const vars: Record<string, string> = {}
+  const set = (k: string, v: string, dflt: string) => {
+    if (v !== dflt) vars[k] = v
+  }
+  set('--ui-zoom', String(textScale(a)), '1')
+  set('--space', String(spaceScale(a)), '1')
+  set('--lh', String(LINE_HEIGHT[a.lineHeight] ?? 1.5), '1.5')
+  set('--content-max', CONTENT_MAX[a.contentWidth] ?? '100%', '100%')
+  set('--gutter', String(GUTTER[a.gutter] ?? 1), '1')
+  set('--card-pad', String(CARD_PAD[a.cardPadding] ?? 1), '1')
+  set('--nav-w', NAV_W[a.navWidth] ?? '248px', '248px')
   if (a.radius !== 'theme') {
     const r = RADII[a.radius]
     ;['--r-md', '--r-lg', '--r-xl', '--r-2xl', '--r-3xl'].forEach((k, i) => (vars[k] = `${r[i]}px`))
   }
-  if (a.headingFont === 'serif') {
-    vars['--font-display'] = "'Fraunces Variable', 'Fraunces', Georgia, serif"
-    vars['--display-weight'] = '500'
-    vars['--display-tracking'] = '-0.02em'
-  } else if (a.headingFont === 'sans') {
+  const body = a.bodyFont !== 'theme' ? fontDef(a.bodyFont) : undefined
+  if (body) vars['--font-sans'] = body.stack
+  if (a.headingFont === 'sans') {
     vars['--font-display'] = 'var(--font-sans)'
     vars['--display-weight'] = '700'
     vars['--display-tracking'] = '-0.02em'
+  } else if (a.headingFont !== 'theme') {
+    const h = fontDef(a.headingFont === 'serif' ? 'fraunces' : a.headingFont)
+    if (h) {
+      vars['--font-display'] = h.stack
+      vars['--display-weight'] = String(h.weight)
+      vars['--display-tracking'] = h.tracking
+    }
   }
   if (a.accent) Object.assign(vars, accentVars(a.accent, a.theme, dark))
   return vars
 }
 
+/** Data attributes on <html> that globals.css reads (layout, motion, surfaces).
+ *  Defaults are left off so an untouched look carries no attributes. */
+export function resolveAttrs(a: Appearance): Record<string, string> {
+  const attrs: Record<string, string> = {}
+  if (a.navLayout === 'top') attrs['data-nav'] = 'top'
+  if (a.navSide === 'right') attrs['data-nav-side'] = 'right'
+  if (a.motion !== 'system') attrs['data-motion'] = a.motion
+  if (a.surface !== 'theme') attrs['data-surface'] = a.surface
+  return attrs
+}
+const ATTRS = ['data-nav', 'data-nav-side', 'data-motion', 'data-surface']
+
 let applied: string[] = []
+let cjkLoaded = false
+
+/** Noto Sans SC's stylesheet is ~100 KB of unicode ranges — only fetched when chosen. */
+function loadLazyFonts(a: Appearance): void {
+  if (cjkLoaded || (a.bodyFont !== 'notosc' && a.headingFont !== 'notosc')) return
+  cjkLoaded = true
+  void import('@fontsource-variable/noto-sans-sc/wght.css').catch(() => {
+    cjkLoaded = false
+  })
+}
 
 export function applyAppearance(a: Appearance): void {
   if (typeof document === 'undefined') return
   const root = document.documentElement
   const dark = resolveDark(a.mode)
-  root.classList.remove('theme-paper', 'theme-graphite', 'theme-soft', 'light', 'dark')
+  root.classList.remove(...THEME_IDS.map((id) => `theme-${id}`), 'light', 'dark')
   root.classList.add(`theme-${a.theme}`, dark ? 'dark' : 'light')
   for (const k of applied) root.style.removeProperty(k)
   const vars = resolveVars(a, dark)
   for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v)
   applied = Object.keys(vars)
+  const attrs = resolveAttrs(a)
+  for (const k of ATTRS) {
+    if (attrs[k]) root.setAttribute(k, attrs[k])
+    else root.removeAttribute(k)
+  }
   root.style.colorScheme = dark ? 'dark' : 'light'
+  loadLazyFonts(a)
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ prefs: a, dark, vars, cls: `theme-${a.theme}` }))
+    localStorage.setItem(STORE_KEY, JSON.stringify({ prefs: a, dark, vars, attrs, cls: `theme-${a.theme}` }))
     localStorage.setItem('theme', dark ? 'dark' : 'light')
   } catch {
     /* storage disabled: the look still applies for this session */
@@ -245,16 +479,37 @@ export function applyAppearance(a: Appearance): void {
   window.dispatchEvent(new CustomEvent('appearance-change', { detail: a }))
 }
 
+const clampPct = (v: unknown, r: { min: number; max: number }): number | null =>
+  typeof v === 'number' && Number.isFinite(v) ? Math.min(r.max, Math.max(r.min, Math.round(v))) : null
+
+/** Any stored / server value → a complete Appearance. Unknown values fall back
+ *  to the defaults, so a look saved by an older or newer build always loads. */
 export function normalize(raw: unknown): Appearance {
-  const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<Appearance>
-  const pick = <T extends string>(v: unknown, ok: readonly T[], d: T): T => (ok.includes(v as T) ? (v as T) : d)
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const d = DEFAULT_APPEARANCE
+  const pick = <T extends string>(v: unknown, ok: readonly T[], dflt: T): T => (ok.includes(v as T) ? (v as T) : dflt)
+  const heading = r.headingFont === 'serif' ? 'fraunces' : r.headingFont
   return {
-    theme: pick(r.theme, ['paper', 'graphite', 'soft'] as const, DEFAULT_APPEARANCE.theme),
-    mode: pick(r.mode, ['light', 'dark', 'system'] as const, DEFAULT_APPEARANCE.mode),
+    theme: pick(r.theme, THEME_IDS, d.theme),
+    mode: pick(r.mode, ['light', 'dark', 'system'] as const, d.mode),
     accent: typeof r.accent === 'string' && hexToRgb(r.accent) ? r.accent : null,
-    textSize: pick(r.textSize, ['sm', 'md', 'lg', 'xl'] as const, 'md'),
-    radius: pick(r.radius, ['theme', 'sharp', 'round'] as const, 'theme'),
-    headingFont: pick(r.headingFont, ['theme', 'serif', 'sans'] as const, 'theme'),
+    textSize: pick(r.textSize, ['sm', 'md', 'lg', 'xl'] as const, d.textSize),
+    fontScale: clampPct(r.fontScale, FONT_SCALE_RANGE),
+    radius: pick(r.radius, ['theme', 'square', 'sharp', 'round'] as const, d.radius),
+    headingFont: pick<HeadingFont>(heading, ['theme', 'sans', ...FONT_IDS], d.headingFont),
+    bodyFont: pick<BodyFont>(r.bodyFont, ['theme', ...FONT_IDS], d.bodyFont),
+    lineHeight: pick(r.lineHeight, ['tight', 'normal', 'relaxed'] as const, d.lineHeight),
+    density: pick(r.density, ['compact', 'comfortable', 'spacious'] as const, d.density),
+    spacing: clampPct(r.spacing, SPACING_RANGE),
+    contentWidth: pick(r.contentWidth, ['narrow', 'normal', 'wide', 'full'] as const, d.contentWidth),
+    gutter: pick(r.gutter, ['sm', 'md', 'lg'] as const, d.gutter),
+    cardPadding: pick(r.cardPadding, ['sm', 'md', 'lg'] as const, d.cardPadding),
+    navLayout: pick(r.navLayout, ['side', 'top'] as const, d.navLayout),
+    navSide: pick(r.navSide, ['left', 'right'] as const, d.navSide),
+    navWidth: pick(r.navWidth, ['narrow', 'normal', 'wide'] as const, d.navWidth),
+    navStart: pick(r.navStart, ['expanded', 'collapsed'] as const, d.navStart),
+    motion: pick(r.motion, ['system', 'reduce', 'full'] as const, d.motion),
+    surface: pick(r.surface, ['theme', 'flat', 'bordered', 'shadow'] as const, d.surface),
   }
 }
 
@@ -270,6 +525,15 @@ export function storedAppearance(): Appearance | null {
     /* ignore */
   }
   return null
+}
+
+/** How many of the Advanced settings differ from the defaults. */
+export function customisedCount(a: Appearance): number {
+  const keys: (keyof Appearance)[] = [
+    'radius', 'headingFont', 'bodyFont', 'lineHeight', 'density', 'spacing', 'contentWidth', 'gutter',
+    'cardPadding', 'navLayout', 'navSide', 'navWidth', 'navStart', 'motion', 'surface',
+  ]
+  return keys.filter((k) => a[k] !== DEFAULT_APPEARANCE[k]).length
 }
 
 // ── server persistence ───────────────────────────────────────────────────────

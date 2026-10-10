@@ -613,6 +613,8 @@ public static class ApiV1Endpoints
             var label = $"{entity.Tenant?.Slug}/{entity.Slug}";
             // the tags ON this entity (inner/outside company…) go with it
             db.TagAssignments.RemoveRange(db.TagAssignments.Where(a => a.TargetType == "entity" && a.TargetId == id));
+            // library rows also available to other entities keep those (a remaining tick becomes primary)
+            ChatBranch.Data.LibraryEntities.OnEntityDeleted(db, id);
             db.Entities.Remove(entity);
             db.AuditLogs.Add(new AuditLog
             {

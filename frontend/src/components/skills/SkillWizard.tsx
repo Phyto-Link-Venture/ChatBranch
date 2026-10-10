@@ -23,7 +23,7 @@ import { Advanced } from '@/components/ui/Advanced'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { MultiSelect, Select } from '@/components/ui/Select'
-import { EntityPicker } from '@/components/ui/EntityPicker'
+import { AvailabilityPicker, availabilityOf } from '@/components/ui/AvailabilityPicker'
 import { Toggle } from '@/components/ui/Toggle'
 import { CodeEditor } from './CodeEditor'
 import { TestCasesEditor, rowsToTests, testsToRows, type TestRow } from './TestCasesEditor'
@@ -104,7 +104,8 @@ interface Form {
   params: string
   rows: TestRow[]
   onFail: OnFail
-  scope: string | null
+  /** "Available to" slugs; [] = everyone. The skill is saved under one of them (skillScope). */
+  entities: string[]
   channels: string[]
   enabled: boolean
   position: number
@@ -113,6 +114,13 @@ interface Form {
 }
 
 const isCodeKind = (k: SkillKind): k is 'tool' | 'check' => k === 'tool' || k === 'check'
+
+/** The scope a skill is SAVED under (the PUT's library): its current one while
+ *  still ticked, else the first ticked entity; null = organization-wide. */
+function skillScope(entities: string[], current: string | null | undefined): string | null {
+  if (entities.length === 0) return null
+  return current && entities.includes(current) ? current : entities[0]
+}
 
 function formFromSkill(s: Skill): Form {
   return {
@@ -126,7 +134,7 @@ function formFromSkill(s: Skill): Form {
     params: s.parameters ? pretty(s.parameters) : '',
     rows: isCodeKind(s.kind) ? testsToRows(s.kind, s.tests ?? []) : [],
     onFail: s.onFail,
-    scope: s.entity ?? null,
+    entities: availabilityOf(s),
     channels: s.channels ?? [],
     enabled: s.enabled,
     position: s.position,
@@ -135,7 +143,7 @@ function formFromSkill(s: Skill): Form {
 }
 
 /** A fresh Calendar booking skill, prefilled (in the dashboard's language) — the server's defaults when known. */
-function newAppForm(scope: string | null, app: AppCatalogEntry, t: TFunction): Form {
+function newAppForm(entities: string[], app: AppCatalogEntry, t: TFunction): Form {
   return {
     id: newSkillId(),
     name: t('ai.wizard.appDefaults.name'),
@@ -147,7 +155,7 @@ function newAppForm(scope: string | null, app: AppCatalogEntry, t: TFunction): F
     params: '',
     rows: [],
     onFail: 'retry',
-    scope,
+    entities,
     channels: [],
     enabled: true,
     position: 9999,
@@ -157,14 +165,15 @@ function newAppForm(scope: string | null, app: AppCatalogEntry, t: TFunction): F
 
 export function SkillWizard({
   init,
-  defaultScope,
+  defaultEntities,
   readOnly = false,
   orgTimezone,
   onClose,
   onSaved,
 }: {
   init: WizardInit
-  defaultScope: string | null
+  /** "Available to" a new skill starts with ([] = everyone). */
+  defaultEntities: string[]
   readOnly?: boolean
   /** The organisation's timezone (shown as the app skills' default). */
   orgTimezone?: string
@@ -183,7 +192,7 @@ export function SkillWizard({
   const [qa, setQa] = useState<{ question: string; answer: string }[]>([])
   const [round, setRound] = useState(0) // index in qa where the current batch starts
   const [form, setForm] = useState<Form | null>(
-    original ? formFromSkill(original) : directApp ? newAppForm(defaultScope, calendarApp(null), t) : null,
+    original ? formFromSkill(original) : directApp ? newAppForm(defaultEntities, calendarApp(null), t) : null,
   )
   const [note, setNote] = useState<{ text: string; source: string } | null>(null)
   const [busy, setBusy] = useState<false | 'draft' | 'test' | 'save'>(false)
@@ -229,7 +238,7 @@ export function SkillWizard({
   const startApp = () => {
     setError(null)
     setNote(null)
-    setForm(newAppForm(defaultScope, calendarApp(apps.list), t))
+    setForm(newAppForm(defaultEntities, calendarApp(apps.list), t))
     setStep('review')
   }
 
@@ -271,7 +280,7 @@ export function SkillWizard({
         params: kind === 'tool' && s.parameters ? pretty(s.parameters) : '',
         rows: isCodeKind(kind) ? testsToRows(kind, s.tests ?? []) : [],
         onFail: s.on_fail || 'retry',
-        scope: defaultScope,
+        entities: defaultEntities,
         channels: [],
         enabled: true,
         position: 9999,
@@ -370,8 +379,9 @@ export function SkillWizard({
           channels: form.channels,
           onFail: form.onFail,
           ...(form.kind === 'app' && form.config ? { config: { ...form.config } } : {}),
+          entities: form.entities,
         },
-        form.scope,
+        skillScope(form.entities, original?.entity),
         original ? original.entity ?? null : undefined,
       )
       onSaved(
@@ -805,9 +815,13 @@ export function SkillWizard({
           )}
 
           <div className="grid grid-cols-1 gap-4 border-t border-line pt-4 md:grid-cols-[1fr_auto]">
-            <Field label={t('ai.wizard.whoUses')}>
-              <EntityPicker value={form.scope} disabled={readOnly} onChange={(scope) => patch({ scope })} />
-            </Field>
+            <AvailabilityPicker
+              label={t('ai.wizard.whoUses')}
+              value={form.entities}
+              disabled={readOnly}
+              onChange={(entities) => patch({ entities })}
+            />
+
             {!isCodeKind(form.kind) && (
               <Field label={t('common.status.active')}>
                 <div className="flex h-[38px] items-center gap-2">

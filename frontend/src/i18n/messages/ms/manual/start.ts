@@ -164,31 +164,31 @@ export const start: Dict<typeof source> = {
       },
       s3: {
         title: 'Pilih tema',
-        body: 'Di bawah “Tema”, klik salah satu daripada tiga kad: “Kertas & Dakwat” (kertas hangat, lalai), “Grafit Pro” (neutral dan padat) atau “Blok Lembut” (pastel dan bulat). Aplikasi bertukar serta-merta — tiada butang Simpan.',
+        body: 'Di bawah “Tema”, klik salah satu daripada sepuluh kad — contohnya “Kertas & Dakwat” (kertas hangat, lalai), “Lautan”, “Tengah Malam” (cantik dalam mod gelap) atau “Kontras tinggi” (paling mudah dibaca). Setiap kad menunjukkan pratonton kecil. Aplikasi berubah serta-merta — tiada butang Simpan.',
       },
       s4: {
         title: 'Pilih cerah atau gelap',
         body: 'Di bawah “Mod”, klik “Cerah”, “Gelap” atau “Sistem”. “Sistem” mengikut tetapan komputer atau telefon anda, bertukar gelap pada waktu malam jika peranti anda berbuat demikian.',
       },
       s5: {
-        title: 'Pilih warna aksen (pilihan)',
-        body: 'Di bawah “Warna aksen”, klik salah satu titik warna, atau “Lalai tema” untuk kembali. ChatBranch melaraskannya sedikit supaya teks kekal mudah dibaca.',
+        title: 'Besarkan atau kecilkan teks',
+        body: 'Di bawah “Saiz teks”, klik S, M, L atau XL, atau seret peluncur ke sebarang saiz antara 85 % dan 130 %. Semua di skrin membesar atau mengecil — cuba L jika teks terasa kecil.',
       },
       s6: {
-        title: 'Besarkan atau kecilkan teks',
-        body: 'Di bawah “Saiz teks”, klik S, M, L atau XL. Semua di skrin membesar atau mengecil — cuba L jika teks terasa kecil.',
+        title: 'Pilih warna aksen (pilihan)',
+        body: 'Klik “Tetapan lanjutan” untuk membukanya. Di bawah “Warna aksen”, klik salah satu titik warna, atau “Lalai tema” untuk kembali. ChatBranch melaraskannya sedikit supaya teks kekal mudah dibaca.',
       },
       s7: {
-        title: 'Sentuhan tambahan (pilihan)',
-        body: '“Bucu” (Tema, Tajam, Bulat) dan “Fon tajuk” (Tema, Serif, Sans) mengubah butiran halus. Kad pratonton di atas menunjukkan rupanya.',
+        title: 'Fon, jarak dan susun atur (pilihan)',
+        body: 'Juga dalam “Tetapan lanjutan”: “Tipografi” (fon badan, fon tajuk, tinggi baris), “Jarak” (kepadatan, lebar halaman, margin halaman, lapik kad), “Susun atur” (bar sisi di kiri atau kanan, atau bar atas — komputer sahaja) dan “Butiran” (bucu, gaya kad, gerakan). Kad pratonton di atas menunjukkan rupanya.',
       },
       s8: {
         title: 'Tukar cerah/gelap dengan pantas',
         body: 'Di mana-mana dalam aplikasi, klik butang matahari/bulan di bahagian bawah bar sisi, di sebelah nama anda. Ia bertukar antara cerah dan gelap tanpa mengubah rupa lain anda.',
       },
       s9: {
-        title: 'Mula semula jika tidak berkenan',
-        body: 'Di bahagian bawah halaman Rupa, klik “Tetapkan semula kepada lalai” untuk kembali kepada rupa organisasi (atau Kertas & Dakwat, cerah).',
+        title: 'Mula semula jika anda tidak suka',
+        body: 'Di bahagian bawah halaman Rupa, klik “Tetapkan semula kepada lalai organisasi” (atau “Tetapkan semula kepada lalai” jika organisasi anda tiada lalai) untuk kembali kepada rupa organisasi (atau Kertas & Dakwat, cerah).',
       },
     },
     done: 'Papan pemuka memaparkan bahasa dan warna pilihan anda, dan ia kekal apabila anda log masuk pada peranti lain.',

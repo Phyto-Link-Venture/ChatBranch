@@ -10,8 +10,10 @@ using Microsoft.EntityFrameworkCore;
 namespace ChatBranch.Api.Endpoints;
 
 /// <summary>
-/// Appearance: each user's chosen look (theme, mode, accent, text size, corner
-/// style, heading font — lib/theme.ts <c>Appearance</c>) stored under
+/// Appearance: each user's chosen look (theme, mode, accent, text size / scale,
+/// corner style, fonts, line height, density / spacing, page width and margins,
+/// card padding, navigation layout, motion, card style — lib/theme.ts
+/// <c>Appearance</c>) stored under
 /// <c>appearance</c> in their Profile.preferences JSON, plus one organization
 /// default (global Setting <c>appearance_default</c>) for users who never chose.
 ///
@@ -35,15 +37,36 @@ public static partial class SettingsEndpoints
     /// <summary>The dashboard languages (frontend/src/i18n/locales.ts — keep in step).</summary>
     internal static readonly string[] SupportedLocales = { "en", "ms", "zh" };
 
-    private static readonly Dictionary<string, string[]> AppearanceChoices = new()
+    /// <summary>The fonts Settings → Appearance offers (lib/theme.ts FONT_IDS — keep in step).</summary>
+    private static readonly string[] AppearanceFonts =
     {
-        ["theme"] = new[] { "paper", "graphite", "soft" },
-        ["mode"] = new[] { "light", "dark", "system" },
-        ["textSize"] = new[] { "sm", "md", "lg", "xl" },
-        ["radius"] = new[] { "theme", "sharp", "round" },
-        ["headingFont"] = new[] { "theme", "serif", "sans" },
+        "system", "inter", "schibsted", "geist", "jakarta", "manrope", "dmsans", "plex", "space", "nunito",
+        "notosc", "fraunces", "sourceserif", "lora",
     };
 
+    private static readonly Dictionary<string, string[]> AppearanceChoices = new()
+    {
+        ["theme"] = new[] { "paper", "graphite", "soft", "ocean", "forest", "midnight", "rose", "sand", "nord", "contrast" },
+        ["mode"] = new[] { "light", "dark", "system" },
+        ["textSize"] = new[] { "sm", "md", "lg", "xl" },
+        ["radius"] = new[] { "theme", "square", "sharp", "round" },
+        // "serif" / "sans" are the original two choices, still accepted
+        ["headingFont"] = new[] { "theme", "serif", "sans" }.Concat(AppearanceFonts).ToArray(),
+        ["bodyFont"] = new[] { "theme" }.Concat(AppearanceFonts).ToArray(),
+        ["lineHeight"] = new[] { "tight", "normal", "relaxed" },
+        ["density"] = new[] { "compact", "comfortable", "spacious" },
+        ["contentWidth"] = new[] { "narrow", "normal", "wide", "full" },
+        ["gutter"] = new[] { "sm", "md", "lg" },
+        ["cardPadding"] = new[] { "sm", "md", "lg" },
+        ["navLayout"] = new[] { "side", "top" },
+        ["navSide"] = new[] { "left", "right" },
+        ["navWidth"] = new[] { "narrow", "normal", "wide" },
+        ["navStart"] = new[] { "expanded", "collapsed" },
+        ["motion"] = new[] { "system", "reduce", "full" },
+        ["surface"] = new[] { "theme", "flat", "bordered", "shadow" },
+    };
+
+    /// <summary>The look before anyone chooses (lib/theme.ts DEFAULT_APPEARANCE).</summary>
     private static readonly Dictionary<string, string> AppearanceDefaults = new()
     {
         ["theme"] = "paper",
@@ -51,6 +74,25 @@ public static partial class SettingsEndpoints
         ["textSize"] = "md",
         ["radius"] = "theme",
         ["headingFont"] = "theme",
+        ["bodyFont"] = "theme",
+        ["lineHeight"] = "normal",
+        ["density"] = "comfortable",
+        ["contentWidth"] = "full",
+        ["gutter"] = "md",
+        ["cardPadding"] = "md",
+        ["navLayout"] = "side",
+        ["navSide"] = "left",
+        ["navWidth"] = "normal",
+        ["navStart"] = "expanded",
+        ["motion"] = "system",
+        ["surface"] = "theme",
+    };
+
+    /// <summary>Free percentage scales (null = the preset): text size and spacing.</summary>
+    private static readonly Dictionary<string, (int Min, int Max)> AppearanceScales = new()
+    {
+        ["fontScale"] = (85, 130),
+        ["spacing"] = (70, 140),
     };
 
     private static readonly Regex HexColour = new("^#[0-9a-fA-F]{6}$", RegexOptions.Compiled);
@@ -164,6 +206,7 @@ public static partial class SettingsEndpoints
         var outv = new JsonObject();
         foreach (var (key, fallback) in AppearanceDefaults) outv[key] = fallback;
         outv["accent"] = null;
+        foreach (var key in AppearanceScales.Keys) outv[key] = null;
 
         foreach (var prop in raw.EnumerateObject())
         {
@@ -174,6 +217,15 @@ public static partial class SettingsEndpoints
                 if (!HexColour.IsMatch(hex))
                     return (null, "accent must be a #rrggbb colour or null.");
                 outv["accent"] = hex.ToUpperInvariant();
+                continue;
+            }
+            if (AppearanceScales.TryGetValue(prop.Name, out var range))
+            {
+                if (prop.Value.ValueKind == JsonValueKind.Null) { outv[prop.Name] = null; continue; }
+                if (prop.Value.ValueKind != JsonValueKind.Number || !prop.Value.TryGetDouble(out var pct)
+                    || double.IsNaN(pct) || pct < range.Min || pct > range.Max)
+                    return (null, $"{prop.Name} must be a number from {range.Min} to {range.Max} (percent), or null.");
+                outv[prop.Name] = (int)Math.Round(pct);
                 continue;
             }
             if (!AppearanceChoices.TryGetValue(prop.Name, out var allowed))

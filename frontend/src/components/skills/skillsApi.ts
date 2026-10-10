@@ -273,6 +273,9 @@ export interface Skill {
   entity: string | null
   entity_name: string
   scope: 'global' | 'entity'
+  /** "Available to": every entity it is ticked for (its own scope first); [] = everyone. */
+  entities?: { id?: number; slug: string; name: string }[]
+  global?: boolean
 }
 
 export interface Builtin {
@@ -380,7 +383,8 @@ export function toWire(s: Skill) {
   }
 }
 
-export type WireSkill = ReturnType<typeof toWire>
+/** `entities` (the full "Available to" set) is sent only by the editor; absent = keep. */
+export type WireSkill = ReturnType<typeof toWire> & { entities?: string[] }
 
 const scopeQuery = (scope: string | null) => (scope ? `?entity=${encodeURIComponent(scope)}` : '')
 

@@ -113,6 +113,7 @@ public static partial class ToolCatalog
             A.Arr("actions", "[{type, value}] e.g. assign_team, add_label, hand_over, ask_identity, send_message."),
             A.Bool("active", "On/off."), A.Int("position", "Order."), A.Str("description", "Description."),
             A.Entity("Entity slug; omit for organisation-wide.", ArgIn.Body),
+            A.StrList("entities", EntitiesDesc),
         };
         yield return T(au, "automations_create", "Create an automation rule", "Add a conversation automation rule (admin): event + conditions + actions, in position order.",
             "POST", "/api/automations", flowsManage, ruleFields);

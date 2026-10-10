@@ -28,7 +28,7 @@ import { useEntity, useEntityQuery } from '@/lib/EntityContext'
 import { authHeaders } from '@/lib/auth'
 import { useRole } from '@/lib/useRole'
 import { DEFAULT_AGENT_SKILLS } from '@/lib/flow/defaultAgentSkills'
-import { ScopeBadge } from './EntityScopeSelect'
+import { AvailabilityChips, useDefaultAvailability } from '@/components/ui/AvailabilityPicker'
 import { SkillWizard, type WizardInit } from '@/components/skills/SkillWizard'
 import {
   KIND_META,
@@ -149,6 +149,7 @@ export function SkillsSettings() {
   }, [skills])
 
   const defaultScope = activeEntity?.slug ?? null
+  const defaultAvailability = useDefaultAvailability()
 
   const open = (init: WizardInit, readOnly = false) => {
     setError(null)
@@ -238,7 +239,6 @@ export function SkillsSettings() {
   const rowProps = {
     canManage,
     busyId,
-    activeEntityName: activeEntity?.name ?? null,
     apps,
     onToggle: toggle,
     onEdit: (s: Skill) => open({ mode: 'edit', skill: s }, !canManage),
@@ -304,7 +304,8 @@ export function SkillsSettings() {
       {wizard && (
         <SkillWizard
           init={wizard}
-          defaultScope={defaultScope}
+          defaultEntities={defaultAvailability}
+
           readOnly={readOnlyWizard}
           orgTimezone={builtins?.timezone}
           onClose={() => setWizard(null)}
@@ -421,7 +422,6 @@ function SkillRow({
   skill: s,
   canManage,
   busyId,
-  activeEntityName,
   apps,
   onToggle,
   onEdit,
@@ -430,7 +430,6 @@ function SkillRow({
   skill: Skill
   canManage: boolean
   busyId: string | null
-  activeEntityName: string | null
   apps: AppCatalogEntry[] | null
   onToggle: (s: Skill, on: boolean) => void
   onEdit: (s: Skill) => void
@@ -470,15 +469,10 @@ function SkillRow({
               {t('common.status.off')}
             </span>
           )}
-          {activeEntityName ? (
-            <ScopeBadge scope={s.scope} entityName={s.entity_name || activeEntityName} />
-          ) : (
-            s.entity && (
-              <span className="rounded-md bg-brand-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-[color:var(--brand-ink)]">
-                {s.entity_name || s.entity}
-              </span>
-            )
-          )}
+          <AvailabilityChips
+            entities={s.entities ?? (s.entity ? [{ slug: s.entity, name: s.entity_name }] : [])}
+            global={s.global ?? !s.entity}
+          />
         </div>
         {appCfg && (
           <p className="mt-0.5 flex items-start gap-1.5 text-[12px] font-medium leading-snug text-text-mid">

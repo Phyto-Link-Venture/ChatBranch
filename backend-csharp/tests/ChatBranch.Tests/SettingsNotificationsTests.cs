@@ -543,6 +543,69 @@ public class SettingsCapabilityTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Appearance_accepts_the_ten_themes_fonts_spacing_and_layout_and_keeps_old_looks_loading()
+    {
+        var admin = await SettingsTestKit.Client(_f, "admin", "admin123");
+
+        // the full vocabulary round-trips (lib/theme.ts Appearance)
+        var full = new
+        {
+            appearance = new
+            {
+                theme = "midnight", mode = "dark", accent = (string?)null, textSize = "md", fontScale = 112.4,
+                radius = "square", headingFont = "lora", bodyFont = "notosc", lineHeight = "relaxed",
+                density = "compact", spacing = 90, contentWidth = "wide", gutter = "lg", cardPadding = "sm",
+                navLayout = "top", navSide = "right", navWidth = "wide", navStart = "collapsed",
+                motion = "reduce", surface = "shadow",
+            },
+        };
+        var saved = await admin.PutAsJsonAsync("/api/auth/preferences", full);
+        saved.EnsureSuccessStatusCode();
+        var a = (await saved.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("appearance");
+        Assert.Equal("midnight", a.GetProperty("theme").GetString());
+        Assert.Equal(112, a.GetProperty("fontScale").GetInt32());   // rounded to a whole percent
+        Assert.Equal(90, a.GetProperty("spacing").GetInt32());
+        Assert.Equal("notosc", a.GetProperty("bodyFont").GetString());
+        Assert.Equal("top", a.GetProperty("navLayout").GetString());
+        Assert.Equal("shadow", a.GetProperty("surface").GetString());
+
+        foreach (var theme in new[] { "paper", "graphite", "soft", "ocean", "forest", "midnight", "rose", "sand", "nord", "contrast" })
+            Assert.Equal(HttpStatusCode.OK,
+                (await admin.PutAsJsonAsync("/api/auth/preferences", new { appearance = new { theme } })).StatusCode);
+
+        // a look saved before these keys existed still loads, with the new keys at their defaults
+        var old = await admin.PutAsJsonAsync("/api/auth/preferences",
+            new { appearance = new { theme = "soft", mode = "light", textSize = "xl", radius = "sharp", headingFont = "serif" } });
+        old.EnsureSuccessStatusCode();
+        var o = (await old.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("appearance");
+        Assert.Equal("serif", o.GetProperty("headingFont").GetString());
+        Assert.Equal("theme", o.GetProperty("bodyFont").GetString());
+        Assert.Equal("comfortable", o.GetProperty("density").GetString());
+        Assert.Equal("side", o.GetProperty("navLayout").GetString());
+        Assert.Equal(JsonValueKind.Null, o.GetProperty("fontScale").ValueKind);
+        Assert.Equal(JsonValueKind.Null, o.GetProperty("spacing").ValueKind);
+
+        // out-of-range scales and unknown values are refused
+        foreach (var bad in new object[]
+                 {
+                     new { appearance = new { fontScale = 200 } },
+                     new { appearance = new { fontScale = "big" } },
+                     new { appearance = new { spacing = 10 } },
+                     new { appearance = new { bodyFont = "comic-sans" } },
+                     new { appearance = new { navSide = "top" } },
+                     new { appearance = new { surface = "glass" } },
+                 })
+            Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutAsJsonAsync("/api/auth/preferences", bad)).StatusCode);
+
+        // the organization default takes the same vocabulary
+        (await admin.PutAsJsonAsync("/api/settings/appearance", full)).EnsureSuccessStatusCode();
+        var org = await admin.GetFromJsonAsync<JsonElement>("/api/settings/appearance");
+        Assert.Equal("lora", org.GetProperty("appearance").GetProperty("headingFont").GetString());
+        (await admin.PutAsJsonAsync("/api/settings/appearance", new { appearance = (object?)null })).EnsureSuccessStatusCode();
+        (await admin.PutAsJsonAsync("/api/auth/preferences", new { appearance = (object?)null })).EnsureSuccessStatusCode();
+    }
+
+    [Fact]
     public async Task Language_preference_round_trips_validates_and_falls_back_to_the_org_default()
     {
         var agent = await SettingsTestKit.Client(_f, "agent", "agent123");

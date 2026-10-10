@@ -44,6 +44,18 @@ export const ui: Dict<typeof source> = {
     allEntities: '全部实体',
     main: '主',
   },
+  availability: {
+    label: '适用于',
+    everyone: '所有人（全局）',
+    everyoneHint: '每个实体及其所有分支都可以使用。',
+    selected: '选定的实体',
+    selectedHint: '只有勾选的实体（及其分支）可以使用。',
+    pickAria: '可使用的实体',
+    placeholder: '勾选一个或多个实体…',
+    adminOnly: '您仅限于特定实体——只有管理员可以设为所有人可用。',
+    chipEveryone: '所有人',
+    more: '+{count}',
+  },
   phone: {
     number: '电话号码',
     countryCode: '国家/地区区号',

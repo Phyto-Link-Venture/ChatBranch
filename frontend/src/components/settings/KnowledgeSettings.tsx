@@ -20,7 +20,13 @@ import { TagListInput } from '@/components/ui/TagListInput'
 import { roleHeaders } from '@/lib/role'
 import { useRole } from '@/lib/useRole'
 import { useEntity, useEntityQuery } from '@/lib/EntityContext'
-import { EntityScopeSelect, ScopeBadge } from './EntityScopeSelect'
+import {
+  AvailabilityChips,
+  AvailabilityPicker,
+  availabilityOf,
+  useDefaultAvailability,
+  type EntityRefLite,
+} from '@/components/ui/AvailabilityPicker'
 import { expireSessionOn401 } from '@/lib/auth'
 import { KnowledgeUploadButton } from '@/components/ai-learning/KnowledgeUpload'
 import { RetrievalTester } from '@/components/ai-learning/RetrievalTester'
@@ -49,6 +55,9 @@ interface Item {
   entity_name: string
   /** "global" = inherited from the organization, "entity" = this outlet's own. */
   scope: 'global' | 'entity'
+  /** "Available to": every entity it was ticked for (primary first); [] = everyone. */
+  entities?: EntityRefLite[]
+  global?: boolean
   starts_at: string | null
   ends_at: string | null
   live: boolean
@@ -151,7 +160,8 @@ function StateChip({ item }: { item: Item }) {
   )
 }
 
-type Draft = Partial<Item> & { id?: number }
+/** `pick` = the "Available to" slugs being edited ([] = everyone). */
+type Draft = Partial<Item> & { id?: number; pick?: string[] }
 
 /** ISO <-> the value a datetime-local input wants. */
 const toLocalInput = (iso: string | null | undefined) => (iso ? iso.slice(0, 16) : '')
@@ -174,10 +184,11 @@ const fromLocalInput = (v: string) => (v ? new Date(v).toISOString() : '')
 export function KnowledgeSettings() {
   const t = useT()
   // Entity scope. With an outlet selected the list shows the organization's
-  // knowledge PLUS that outlet's own, each labelled — and new items default to
-  // that outlet unless the scope picker says otherwise.
+  // knowledge PLUS that outlet's own, each labelled with who can use it. New
+  // items start "Available to: Everyone" for an admin, else the caller's entity.
   const entityQ = useEntityQuery()
   const { activeEntity } = useEntity()
+  const defaultAvailability = useDefaultAvailability()
   const { role, ready } = useRole()
   const canManage = role === 'admin' || role === 'superadmin'
 
@@ -250,8 +261,8 @@ export function KnowledgeSettings() {
         category: draft.category || '',
         starts_at: draft.starts_at || '',
         ends_at: draft.ends_at || '',
-        // Explicit scope: null = organization-wide (every outlet inherits it).
-        entity: draft.entity ?? null,
+        // "Available to": [] = organization-wide (every outlet inherits it)
+        entities: draft.pick ?? availabilityOf(draft),
       }
       if (draft.id) {
         await api(`knowledge/${draft.id}`, { method: 'PATCH', body: JSON.stringify(body) })
@@ -307,9 +318,9 @@ export function KnowledgeSettings() {
       title: question.slice(0, 80),
       active: true,
       priority: 0,
-      entity: activeEntity?.slug ?? null,
+      pick: defaultAvailability,
     })
-  }, [ready, canManage, data, activeEntity])
+  }, [ready, canManage, data, defaultAvailability])
 
   if (!ready || (data === null && !loadError)) {
     return (
@@ -353,11 +364,11 @@ export function KnowledgeSettings() {
           <div data-tour="knowledge-add" className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
             <KnowledgeUploadButton
               kinds={kinds}
-              defaultEntity={activeEntity?.slug ?? null}
+              defaultEntities={defaultAvailability}
               // the modal itself confirms the upload; the list just refreshes underneath
               onUploaded={() => void load()}
             />
-            <Button onClick={() => setDraft({ kind: kind || 'fact', active: true, priority: 0, entity: activeEntity?.slug ?? null })}>
+            <Button onClick={() => setDraft({ kind: kind || 'fact', active: true, priority: 0, pick: defaultAvailability })}>
               <Plus size={13} aria-hidden /> {t('ai.knowledge.newEntry')}
             </Button>
           </div>
@@ -468,18 +479,11 @@ export function KnowledgeSettings() {
           {/* Scope: organization-wide knowledge every outlet inherits, or one
               outlet's own. A branch-specific notice ("Studio 2 closed") must
               never reach another branch's customers. */}
-          <label className="mt-3 block">
-            <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.common.appliesTo')}</span>
-            <EntityScopeSelect
-              value={draft.entity ?? null}
-              onChange={(slug) => setDraft({ ...draft, entity: slug })}
-              globalLabel={t('ai.common.allEntitiesOrg')}
-              className="w-full"
-            />
-            <span className="mt-1 block text-[10.5px] text-text-muted">
-              {draft.entity ? t('ai.knowledge.onlyCustomers') : t('ai.knowledge.everyInheritsThis')}
-            </span>
-          </label>
+          <AvailabilityPicker
+            className="mt-3"
+            value={draft.pick ?? availabilityOf(draft)}
+            onChange={(pick) => setDraft({ ...draft, pick })}
+          />
 
           <Advanced key={draft.id ?? 'new'} className="mt-3" count={advCount} forceOpen={advCount > 0}>
             <div className="grid gap-3 md:grid-cols-2">
@@ -655,9 +659,8 @@ export function KnowledgeSettings() {
             </button>
             {/* Only meaningful while viewing one outlet: says whether this row
                 is inherited from the organization or belongs to this outlet. */}
-            {activeEntity && (
-              <ScopeBadge scope={item.scope} entityName={item.entity_name || activeEntity.name} />
-            )}
+            <AvailabilityChips entities={item.entities} global={item.global ?? item.entity_id === null} />
+
             {item.source_file && (
               <span
                 className="hidden min-w-0 max-w-[180px] shrink items-center gap-1 rounded-full bg-fill px-2 py-px text-[9.5px] font-bold text-text-muted sm:inline-flex"

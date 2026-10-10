@@ -24,10 +24,10 @@ import { ExternalLink, Lightbulb, Loader2, Plus, Table2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { useAccess } from '@/lib/useAccess'
-import { useEntity } from '@/lib/EntityContext'
 import { ApiError, parseUtc } from '@/lib/aiMonitor'
 import { learningApi, reasonLabel, threadHref, type LearningStats as Stats } from '@/lib/aiLearning'
 import { AddAnswerModal } from './AddAnswerModal'
+import { useDefaultAvailability } from '@/components/ui/AvailabilityPicker'
 import { useFormat, useT } from '@/i18n'
 
 const VIZ_CSS = `
@@ -273,7 +273,7 @@ export function LearningStats({ entityQuery, days }: { entityQuery: string; days
   const t = useT()
   const f = useFormat()
   const { ready, can } = useAccess()
-  const { activeEntity } = useEntity()
+  const defaultAvailability = useDefaultAvailability()
   const [stats, setStats] = useState<Stats | null>(null)
   const [hidden, setHidden] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -414,7 +414,7 @@ export function LearningStats({ entityQuery, days }: { entityQuery: string; days
       <AddAnswerModal
         question={answering}
         onClose={() => setAnswering(null)}
-        defaultEntity={activeEntity?.slug ?? null}
+        defaultEntities={defaultAvailability}
         onAdded={(title) => setNotice(t('ai.learningStats.added', { title }))}
       />
     </section>

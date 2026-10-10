@@ -270,6 +270,13 @@ public static class Seed
             + "\"applied\" INTEGER NOT NULL, \"applied_as\" TEXT NOT NULL, \"applied_ref\" TEXT NOT NULL, "
             + "\"applied_by\" TEXT NOT NULL, \"applied_at\" TEXT NULL, \"created_at\" TEXT NOT NULL");
         AddIndexIfMissing(db, "ix_aireviewfinding_run", "crm_aireviewfinding", "\"run_id\"");
+        // multi-entity library availability: the extra entity ticks of a library row
+        AddTableIfMissing(db, "crm_libraryentity",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_libraryentity\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"kind\" TEXT NOT NULL, \"item_id\" INTEGER NOT NULL, \"entity_id\" INTEGER NOT NULL, "
+            + "\"created_at\" TEXT NOT NULL, "
+            + "CONSTRAINT \"uniq_libraryentity\" UNIQUE (\"kind\", \"item_id\", \"entity_id\")");
+        AddIndexIfMissing(db, "ix_libraryentity_entity", "crm_libraryentity", "\"kind\", \"entity_id\"");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 

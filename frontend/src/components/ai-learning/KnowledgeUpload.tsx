@@ -13,7 +13,7 @@ import { CheckCircle, FileText, Loader2, Upload, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
-import { EntityPicker } from '@/components/ui/EntityPicker'
+import { AvailabilityPicker } from '@/components/ui/AvailabilityPicker'
 import { UPLOAD_ACCEPT, uploadKnowledge, uploadProblem, type UploadResult } from '@/lib/aiLearning'
 import { Trans, useFormat, useT } from '@/i18n'
 
@@ -23,11 +23,12 @@ const fieldCls =
 /** The "Upload document" button + its modal. */
 export function KnowledgeUploadButton({
   kinds,
-  defaultEntity,
+  defaultEntities,
   onUploaded,
 }: {
   kinds: { id: string; label: string }[]
-  defaultEntity: string | null
+  /** "Available to" a new upload starts with ([] = everyone). */
+  defaultEntities: string[]
   onUploaded: (r: UploadResult) => void
 }) {
   const t = useT()
@@ -37,7 +38,7 @@ export function KnowledgeUploadButton({
       <Button variant="secondary" onClick={() => setOpen(true)}>
         <Upload size={13} aria-hidden /> {t('ai.upload.button')}
       </Button>
-      <UploadModal open={open} onClose={() => setOpen(false)} kinds={kinds} defaultEntity={defaultEntity} onUploaded={onUploaded} />
+      <UploadModal open={open} onClose={() => setOpen(false)} kinds={kinds} defaultEntities={defaultEntities} onUploaded={onUploaded} />
     </>
   )
 }
@@ -46,13 +47,13 @@ function UploadModal({
   open,
   onClose,
   kinds,
-  defaultEntity,
+  defaultEntities,
   onUploaded,
 }: {
   open: boolean
   onClose: () => void
   kinds: { id: string; label: string }[]
-  defaultEntity: string | null
+  defaultEntities: string[]
   onUploaded: (r: UploadResult) => void
 }) {
   const t = useT()
@@ -67,7 +68,7 @@ function UploadModal({
   const [file, setFile] = useState<File | null>(null)
   const [kind, setKind] = useState('fact')
   const [title, setTitle] = useState('')
-  const [entity, setEntity] = useState<string | null>(defaultEntity)
+  const [entities, setEntities] = useState<string[]>(defaultEntities)
   const [dragging, setDragging] = useState(false)
   const [progress, setProgress] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -93,8 +94,8 @@ function UploadModal({
     setDone(null)
     setDragging(false)
     setKind('fact')
-    setEntity(defaultEntity)
-  }, [open, defaultEntity])
+    setEntities(defaultEntities)
+  }, [open, defaultEntities])
 
   const busy = progress !== null
 
@@ -116,7 +117,7 @@ function UploadModal({
     if (!file || busy) return
     setError(null)
     setProgress(0)
-    const { promise, abort } = uploadKnowledge(file, { kind, title: title.trim(), entity }, t, (p) => setProgress(p))
+    const { promise, abort } = uploadKnowledge(file, { kind, title: title.trim(), entities }, t, (p) => setProgress(p))
     abortRef.current = abort
     try {
       const r = await promise
@@ -301,17 +302,8 @@ function UploadModal({
               />
             </label>
           </div>
-          <label className="block">
-            <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('ai.common.appliesTo')}</span>
-            <EntityPicker
-              ariaLabel={t('ai.common.appliesTo')}
-              value={entity}
-              onChange={setEntity}
-              disabled={busy}
-              globalLabel={t('ai.common.allEntitiesOrg')}
-              className="w-full"
-            />
-          </label>
+          <AvailabilityPicker value={entities} onChange={setEntities} disabled={busy} />
+
           <p className="text-[11.5px] leading-relaxed text-text-muted">{t('ai.upload.scanned')}</p>
         </div>
       )}

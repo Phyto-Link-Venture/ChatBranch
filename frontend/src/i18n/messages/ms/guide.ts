@@ -139,19 +139,19 @@ export const guide: Dict<typeof source> = {
         },
         s4: {
           title: 'Tema',
-          body: 'Tiga rupa: Kertas & Dakwat, Grafit Pro dan Blok Lembut. Klik satu untuk mencubanya — anda sentiasa boleh menukar semula.',
+          body: 'Sepuluh rupa — Kertas & Dakwat, Grafit Pro, Blok Lembut, Lautan, Hutan, Tengah Malam, Mawar, Pasir, Nord dan Kontras tinggi. Setiap kad ialah pratonton kecil; klik satu untuk mencubanya — anda sentiasa boleh menukar semula.',
         },
         s5: {
           title: 'Mod',
           body: 'Cerah, Gelap, atau Sistem untuk mengikut tetapan telefon atau komputer anda.',
         },
         s6: {
-          title: 'Warna aksen',
-          body: 'Warna sorotan butang dan pautan. ChatBranch melaraskannya sedikit jika perlu supaya teks kekal mudah dibaca.',
+          title: 'Saiz teks',
+          body: 'Klik S, M, L atau XL, atau seret peluncur untuk sebarang saiz antara 85 % dan 130 %. Semua di skrin membesar atau mengecil.',
         },
         s7: {
-          title: 'Saiz teks, bucu dan fon',
-          body: 'Besarkan atau kecilkan teks, jadikan bucu lebih bulat atau tajam, dan pilih fon tajuk.',
+          title: 'Tetapan lanjutan',
+          body: 'Bukanya untuk warna aksen, fon badan dan tajuk, tinggi baris, jarak (kepadatan, lebar dan margin halaman, lapik kad), susun atur (bar sisi kiri atau kanan, atau bar atas pada komputer), bucu, gaya kad dan gerakan.',
         },
         s8: {
           title: 'Tetapkan semula atau kongsi',

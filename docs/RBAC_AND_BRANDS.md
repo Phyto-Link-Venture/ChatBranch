@@ -221,6 +221,17 @@ entities' subtrees — an out-of-scope `?entity=` narrows to their own scope, it
 never widens; an agent with no assignment keeps the tenant-wide view. Rendering
 a template for a `?contact_id=` only fills in a contact the caller may see.
 
+**"Available to" (multi-entity libraries).** A quick reply, call script,
+knowledge item, AI skill or automation rule may be ticked for several entities
+(`entities: [slug|id…]`, `[]` = everyone); each ticked entity and its branches
+read it, a sibling outside the ticks never does (`ScopingService.LibraryVisible`).
+Who may tick what (`Endpoints/LibraryScope.cs`): every entity ADDED or REMOVED
+must be one the caller may edit — admins any entity of their tenant, an assigned
+user only inside their assigned subtree, an unassigned user the tenant-wide
+view; making an item global, or narrowing a global one, needs admin+ or a
+capability holder with no assigned entities. Refusals are 403 with a `detail`;
+an unknown entity is a 400 (never a silent "global").
+
 ### Read gates
 
 Hiding a sidebar link is cosmetic: a person who types a page's URL still makes
