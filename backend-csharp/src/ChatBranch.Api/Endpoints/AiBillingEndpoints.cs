@@ -127,8 +127,9 @@ public static class AiBillingEndpoints
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(ManageCap);
 
         app.MapGet("/api/billing/ai", async (string? month, string? company, AppDbContext db, ScopingService sc,
-            ClaimsPrincipal me) =>
+            ClaimsPrincipal me, IHttpClientFactory http) =>
         {
+            await ModelPriceCatalog.EnsureFreshAsync(http, sc);
             if (!TryMonth(month, out var from)) return Bad("month must look like 2026-10.");
             var to = from.AddMonths(1);
             var manager = await ShellScope.HasCapAsync(db, me, ManageCap);
@@ -171,15 +172,12 @@ public static class AiBillingEndpoints
                     .Select(u => new
                     {
                         u.Feature, u.Model, u.EntityId, u.ContactId, u.CreatedAt,
-                        u.PromptTokens, u.CompletionTokens, u.AudioPromptTokens, u.AudioCompletionTokens,
+                        u.PromptTokens, u.CompletionTokens, u.AudioPromptTokens, u.AudioCompletionTokens, u.CostUsd,
                     }).ToListAsync())
                 .Select(u =>
                 {
-                    var cost = 0d;
-                    if (prices.TryGetValue(u.Model ?? "", out var p))
-                        cost += (u.PromptTokens * p.In + u.CompletionTokens * p.Out) / 1_000_000d;
-                    if (prices.TryGetValue((u.Model ?? "") + ":audio", out var a))
-                        cost += (u.AudioPromptTokens * a.In + u.AudioCompletionTokens * a.Out) / 1_000_000d;
+                    var cost = AnalyticsEndpoints.RowCost(prices, u.Model, u.PromptTokens, u.CompletionTokens,
+                        u.AudioPromptTokens, u.AudioCompletionTokens, u.CostUsd);
                     var co = CompanyOf(u.EntityId)
                              ?? (u.ContactId is int cid && contactCompany.TryGetValue(cid, out var cc) ? cc : (int?)null);
                     return new BillRow(co, u.Feature, u.CreatedAt,

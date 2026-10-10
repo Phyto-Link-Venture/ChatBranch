@@ -409,10 +409,13 @@ summaries.
 
 ### `crm_llmusage` — metering ledger
 `feature` (`chat_reply` \| `summary` \| `timeline` \| `playground` \|
-`voice_call` \| `embedding` …) · `provider` · `model` · `channel` · `contact_id` · `ref` ·
+`voice_call` \| `embedding` …) · `provider` · `model` · `channel` · `contact_id` ·
+`entity_id` (the outlet the call was for — the AI bill's company) · `ref` ·
 `prompt_tokens` · `completion_tokens` · `audio_prompt_tokens` ·
-`audio_completion_tokens` · `detail` (JSON) · `created_at`. Costs are NOT
-stored — estimated at read time from Setting `llm_prices`.
+`audio_completion_tokens` · `cost_usd` (the provider's own price for the call when
+it reports one — OpenRouter; null = estimate at read time from Setting
+`llm_prices` over OpenRouter's public list `llm_prices_catalog`) · `detail` (JSON) ·
+`created_at`.
 
 ### `crm_callrecord`
 `call_id` (**unique**) · `contact_id` · `phone` · `name` · `started_at` /

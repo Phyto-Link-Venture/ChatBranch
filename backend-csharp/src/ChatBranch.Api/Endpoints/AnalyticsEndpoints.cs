@@ -35,7 +35,7 @@ public static class AnalyticsEndpoints
     private record EntityLink(int ContactId, int EntityId);
     private record UsageRow(string Feature, string Provider, string Model, int? ContactId,
         string? ContactName, int PromptTokens, int CompletionTokens, int AudioPromptTokens,
-        int AudioCompletionTokens, DateTime CreatedAt);
+        int AudioCompletionTokens, DateTime CreatedAt, double? CostUsd);
 
     public static void MapAnalyticsEndpoints(this IEndpointRouteBuilder app)
     {
@@ -60,11 +60,13 @@ public static class AnalyticsEndpoints
         // The organization-wide ledger at COST (USD) — what the platform pays.
         // billing.manage only (superadmin by default): companies see their marked-up
         // bill at /api/billing/ai instead, never the cost.
-        app.MapGet("/api/analytics/usage", async (string? days, AppDbContext db, ScopingService sc) =>
+        app.MapGet("/api/analytics/usage", async (string? days, AppDbContext db, ScopingService sc,
+            IHttpClientFactory http) =>
         {
             var window = ParseDays(days);
             try
             {
+                await ModelPriceCatalog.EnsureFreshAsync(http, sc);
                 return await UsageAsync(db, sc, window);
             }
             catch (Exception)
@@ -545,8 +547,9 @@ public static class AnalyticsEndpoints
     // ---- usage -------------------------------------------------------------
 
     private const string PricingNote =
-        "Estimates from the llm_prices table (USD per 1M tokens). " +
-        "Unpriced models are costed at 0.";
+        "The provider's own price per call where it reports one (OpenRouter); otherwise " +
+        "estimated from the llm_prices table (USD per 1M tokens) over OpenRouter's public " +
+        "price list. Models priced nowhere are costed at 0.";
 
     // USD per 1M tokens: model -> (input, output). ":audio" rows price the audio
     // tokens of realtime speech models. Mirrors usage.PRICES_DEFAULT — a floor of
@@ -571,7 +574,7 @@ public static class AnalyticsEndpoints
         var rows = await db.LlmUsage.AsNoTracking().Where(u => u.CreatedAt >= since)
             .Select(u => new UsageRow(u.Feature, u.Provider, u.Model, u.ContactId,
                 u.Contact!.Name, u.PromptTokens, u.CompletionTokens, u.AudioPromptTokens,
-                u.AudioCompletionTokens, u.CreatedAt))
+                u.AudioCompletionTokens, u.CreatedAt, u.CostUsd))
             .ToListAsync();
 
         // Unknown models cost 0 (reported as `priced: false` rather than guessed).
@@ -589,8 +592,10 @@ public static class AnalyticsEndpoints
         // A feature/contact/day mixes models, so cost must be priced PER MODEL
         // before the tokens are collapsed — otherwise the whole group is billed
         // at one model's rate.
+        // A row the provider priced keeps that price; the rest are estimated per model.
         double CostOf(IEnumerable<UsageRow> group) =>
-            Math.Round(group.GroupBy(r => r.Model).Sum(g => Cost(g.Key, Sum(g))), 6);
+            Math.Round(group.Where(r => r.CostUsd != null).Sum(r => r.CostUsd!.Value)
+                       + group.Where(r => r.CostUsd == null).GroupBy(r => r.Model).Sum(g => Cost(g.Key, Sum(g))), 6);
 
         var byModel = rows.GroupBy(r => new { r.Model, r.Provider }).Select(g =>
         {
@@ -604,8 +609,8 @@ public static class AnalyticsEndpoints
                 audio_prompt_tokens = t.AudioPrompt,
                 audio_completion_tokens = t.AudioCompletion,
                 requests = t.Requests,
-                est_cost_usd = Cost(g.Key.Model, t),
-                priced = prices.ContainsKey(g.Key.Model ?? ""),
+                est_cost_usd = CostOf(g),
+                priced = g.All(r => r.CostUsd != null) || prices.ContainsKey(g.Key.Model ?? ""),
             };
         }).OrderByDescending(r => r.est_cost_usd).ToList();
 
@@ -702,19 +707,40 @@ public static class AnalyticsEndpoints
 
     /// <summary>
     /// Effective per-model prices: Setting <c>llm_prices</c> (JSON
-    /// {"model": [in, out]}) merged over the shipped defaults. The key is NOT
+    /// {"model": [in, out]}) over OpenRouter's public list
+    /// (<see cref="ModelPriceCatalog"/>) over the shipped defaults. The key is NOT
     /// entity-scoped by design, so this always resolves the organization row.
     /// Malformed entries are ignored rather than failing the report.
     /// </summary>
     internal static Dictionary<string, (double In, double Out)> PriceTable(ScopingService sc)
     {
         var merged = new Dictionary<string, (double In, double Out)>(PricesDefault);
+        Merge(merged, sc.SettingValue(ModelPriceCatalog.SettingKey));   // OpenRouter's list
+        Merge(merged, sc.SettingValue("llm_prices"));                    // the operator's own wins
+        return merged;
+    }
+
+    /// <summary>The cost of one usage row: the provider's own price when it reported one,
+    /// else tokens × the table (text + ":audio" rows). Unknown models cost 0.</summary>
+    internal static double RowCost(Dictionary<string, (double In, double Out)> prices, string? model,
+        long prompt, long completion, long audioPrompt, long audioCompletion, double? reported)
+    {
+        if (reported is double r) return r;
+        var cost = 0d;
+        if (prices.TryGetValue(model ?? "", out var p))
+            cost += (prompt * p.In + completion * p.Out) / 1_000_000d;
+        if (prices.TryGetValue((model ?? "") + ":audio", out var a))
+            cost += (audioPrompt * a.In + audioCompletion * a.Out) / 1_000_000d;
+        return cost;
+    }
+
+    private static void Merge(Dictionary<string, (double In, double Out)> merged, string? raw)
+    {
         try
         {
-            var raw = sc.SettingValue("llm_prices");
-            if (string.IsNullOrWhiteSpace(raw)) return merged;
+            if (string.IsNullOrWhiteSpace(raw)) return;
             using var doc = JsonDocument.Parse(raw);
-            if (doc.RootElement.ValueKind != JsonValueKind.Object) return merged;
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return;
             foreach (var entry in doc.RootElement.EnumerateObject())
             {
                 if (entry.Value.ValueKind != JsonValueKind.Array || entry.Value.GetArrayLength() < 2)
@@ -726,7 +752,6 @@ public static class AnalyticsEndpoints
             }
         }
         catch (Exception) { /* degrade to the defaults — never fail the report */ }
-        return merged;
     }
 
     private record struct Totals(long Prompt, long Completion, long AudioPrompt,

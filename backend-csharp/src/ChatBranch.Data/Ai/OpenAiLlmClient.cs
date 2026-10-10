@@ -206,7 +206,7 @@ public class OpenAiLlmClient : ILlmClient
     {
         var r = await ChatAsync(system, messages.Select(m => new LlmMessage(m.role, m.content)).ToList(),
             null, null, 0.5, ct);
-        return new LlmResult(r.Text, r.PromptTokens, r.CompletionTokens, r.Provider, r.Model);
+        return new LlmResult(r.Text, r.PromptTokens, r.CompletionTokens, r.Provider, r.Model, r.CostUsd);
     }
 
     public async Task<LlmChatResult> ChatAsync(string system, IReadOnlyList<LlmMessage> messages,
@@ -263,6 +263,8 @@ public class OpenAiLlmClient : ILlmClient
         if (provider.Name == "openrouter")
             body["max_tokens"] = int.TryParse(S("openrouter_max_tokens", "OPENROUTER_MAX_TOKENS"), out var mt) && mt > 0
                 ? mt : OpenRouterMaxTokensDefault;
+        // ask OpenRouter for the call's real cost (usage.cost) so the bill needs no price table
+        if (provider.Name == "openrouter") body["usage"] = new { include = true };
         if (tools is { Count: > 0 })
         {
             body["tools"] = tools.Select(t => new
@@ -314,14 +316,32 @@ public class OpenAiLlmClient : ILlmClient
             }
         }
         int pin = 0, pout = 0;
+        double? cost = null;
         if (json.TryGetProperty("usage", out var usage) && usage.ValueKind == JsonValueKind.Object)
         {
             pin = usage.TryGetProperty("prompt_tokens", out var p) && p.ValueKind == JsonValueKind.Number ? p.GetInt32() : 0;
             pout = usage.TryGetProperty("completion_tokens", out var q) && q.ValueKind == JsonValueKind.Number ? q.GetInt32() : 0;
+            cost = UsageCost(usage);
         }
         var usedModel = json.TryGetProperty("model", out var m) && m.ValueKind == JsonValueKind.String
             ? m.GetString() ?? model : model;
-        return new LlmChatResult(StripThinking(text).Trim(), calls, pin, pout, provider.Name, usedModel);
+        return new LlmChatResult(StripThinking(text).Trim(), calls, pin, pout, provider.Name, usedModel, cost);
+    }
+
+    /// <summary>
+    /// The provider's own price for the call (OpenRouter: <c>usage.cost</c>, USD). On a
+    /// bring-your-own-key call OpenRouter's cost is its fee only, and the model's price
+    /// is <c>cost_details.upstream_inference_cost</c> — both count. Null = not reported.
+    /// </summary>
+    public static double? UsageCost(JsonElement usage)
+    {
+        double? cost = null;
+        if (usage.TryGetProperty("cost", out var c) && c.ValueKind == JsonValueKind.Number) cost = c.GetDouble();
+        if (usage.TryGetProperty("cost_details", out var d) && d.ValueKind == JsonValueKind.Object
+            && d.TryGetProperty("upstream_inference_cost", out var u) && u.ValueKind == JsonValueKind.Number
+            && usage.TryGetProperty("is_byok", out var b) && b.ValueKind == JsonValueKind.True)
+            cost = (cost ?? 0) + u.GetDouble();
+        return cost is double v && v >= 0 ? v : null;
     }
 
     private static readonly Regex ThinkBlock =

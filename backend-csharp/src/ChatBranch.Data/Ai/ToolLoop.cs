@@ -14,7 +14,7 @@ public static class ToolLoop
     public record Step(string Tool, string ArgumentsJson, string Result, bool Ok);
 
     public record Outcome(string Text, IReadOnlyList<Step> Steps, int PromptTokens,
-        int CompletionTokens, string Provider, string Model, bool RoundsExhausted);
+        int CompletionTokens, string Provider, string Model, bool RoundsExhausted, double? CostUsd = null);
 
     public static async Task<Outcome> RunAsync(ILlmClient llm, string system,
         List<LlmMessage> messages, IReadOnlyList<LlmTool> tools,
@@ -25,6 +25,7 @@ public static class ToolLoop
         var steps = new List<Step>();
         int pin = 0, pout = 0;
         string provider = "", usedModel = "";
+        double? cost = null;
         for (var round = 0; round < maxRounds; round++)
         {
             // Last round: withhold tools so the model must answer in text.
@@ -32,10 +33,11 @@ public static class ToolLoop
             var r = await llm.ChatAsync(system, messages, offer?.Count > 0 ? offer : null, model, temperature, ct);
             pin += r.PromptTokens;
             pout += r.CompletionTokens;
+            if (r.CostUsd is double c) cost = (cost ?? 0) + c;
             provider = r.Provider;
             usedModel = r.Model;
             if (r.ToolCalls.Count == 0)
-                return new Outcome(r.Text, steps, pin, pout, provider, usedModel, false);
+                return new Outcome(r.Text, steps, pin, pout, provider, usedModel, false, cost);
 
             messages.Add(new LlmMessage("assistant", string.IsNullOrEmpty(r.Text) ? null : r.Text, r.ToolCalls));
             foreach (var call in r.ToolCalls)
@@ -54,6 +56,6 @@ public static class ToolLoop
                 messages.Add(new LlmMessage("tool", result, ToolCallId: call.Id));
             }
         }
-        return new Outcome("", steps, pin, pout, provider, usedModel, true);
+        return new Outcome("", steps, pin, pout, provider, usedModel, true, cost);
     }
 }

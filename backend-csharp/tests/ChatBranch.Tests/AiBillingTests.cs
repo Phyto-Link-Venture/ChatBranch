@@ -102,4 +102,66 @@ public class AiBillingTests : IClassFixture<ApiFactory>
             await su.PutAsJsonAsync("/api/billing/ai/settings", new { currency = "USD", usd_rate = 1 });
         }
     }
+
+    [Fact]
+    public async Task A_reported_provider_cost_wins_and_unknown_models_price_from_the_catalog()
+    {
+        var su = await Platform.As(_f, "superadmin", "super123");
+        Assert.Equal(HttpStatusCode.Created, (await su.PostAsJsonAsync("/api/v1/entities",
+            new { name = "Paid Co", slug = "paid-co" })).StatusCode);
+        var company = With(db => db.Entities.Single(e => e.Slug == "paid-co").Id);
+        var month = new DateTime(2026, 4, 10, 12, 0, 0, DateTimeKind.Utc);
+        With(db =>
+        {
+            // OpenRouter said what it charged: that is the cost, whatever the table says
+            db.LlmUsage.Add(new LlmUsage { Feature = "chat_reply", Model = "gpt-4o", EntityId = company,
+                PromptTokens = 1_000_000, CostUsd = 0.25, CreatedAt = month });
+            // an old row of a model the shipped table doesn't know: priced from the catalog
+            db.LlmUsage.Add(new LlmUsage { Feature = "chat_reply", Model = "acme/haiku-test", EntityId = company,
+                PromptTokens = 1_000_000, CompletionTokens = 100_000, CreatedAt = month });
+            db.SaveChanges();
+            return 0;
+        });
+        With(db =>
+        {
+            new ScopingService(db).SetSetting(ChatBranch.Api.Endpoints.ModelPriceCatalog.SettingKey,
+                "{\"acme/haiku-test\":[1.0,5.0]}");
+            return 0;
+        });
+        try
+        {
+            var bill = await su.GetFromJsonAsync<JsonElement>("/api/billing/ai?month=2026-04&company=paid-co");
+            // 0.25 reported + (1M × $1 + 0.1M × $5) / 1M = 1.75
+            Assert.Equal(1.75, bill.GetProperty("company").GetProperty("summary").GetProperty("cost_usd").GetDouble(), 4);
+        }
+        finally
+        {
+            With(db =>
+            {
+                new ScopingService(db).SetSetting(ChatBranch.Api.Endpoints.ModelPriceCatalog.SettingKey, "");
+                return 0;
+            });
+        }
+    }
+
+    [Fact]
+    public void OpenRouter_cost_and_price_list_are_read()
+    {
+        var usage = JsonDocument.Parse("{\"prompt_tokens\":10,\"completion_tokens\":5,\"cost\":0.00042}").RootElement;
+        Assert.Equal(0.00042, ChatBranch.Data.Ai.OpenAiLlmClient.UsageCost(usage)!.Value, 8);
+        var byok = JsonDocument.Parse("{\"cost\":0.0001,\"is_byok\":true,\"cost_details\":{\"upstream_inference_cost\":0.002}}").RootElement;
+        Assert.Equal(0.0021, ChatBranch.Data.Ai.OpenAiLlmClient.UsageCost(byok)!.Value, 8);
+        Assert.Null(ChatBranch.Data.Ai.OpenAiLlmClient.UsageCost(JsonDocument.Parse("{\"prompt_tokens\":1}").RootElement));
+
+        var list = JsonDocument.Parse("""
+            {"data":[
+              {"id":"anthropic/claude-haiku-5.5","pricing":{"prompt":"0.000001","completion":"0.000005"}},
+              {"id":"openrouter/auto","pricing":{"prompt":"-1","completion":"-1"}},
+              {"id":"broken"}
+            ]}
+            """).RootElement;
+        var prices = ChatBranch.Api.Endpoints.ModelPriceCatalog.Parse(list);
+        Assert.Single(prices);
+        Assert.Equal(new[] { 1.0, 5.0 }, prices["anthropic/claude-haiku-5.5"]);
+    }
 }

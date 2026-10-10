@@ -42,6 +42,8 @@ public sealed record AiReplyResult
     public string Model { get; init; } = "";
     public int PromptTokens { get; init; }
     public int CompletionTokens { get; init; }
+    /// <summary>The provider's own price for every call behind this reply (USD); null = not reported.</summary>
+    public double? CostUsd { get; init; }
     /// <summary>chat_reply | flow_message | follow_up | flow_static.</summary>
     public string Feature { get; init; } = "chat_reply";
     /// <summary>The skill a flow step composed with (SkillId), if any.</summary>

@@ -157,7 +157,7 @@ public sealed class FlowAiDecision
             {
                 Feature = Feature, Provider = r.Provider, Model = r.Model, Channel = req.Channel,
                 ContactId = req.Contact?.Id, Ref = req.Ref,
-                PromptTokens = r.PromptTokens, CompletionTokens = r.CompletionTokens,
+                PromptTokens = r.PromptTokens, CompletionTokens = r.CompletionTokens, CostUsd = r.CostUsd,
                 Detail = new Dictionary<string, object?>
                 {
                     ["kind"] = req.Kind,

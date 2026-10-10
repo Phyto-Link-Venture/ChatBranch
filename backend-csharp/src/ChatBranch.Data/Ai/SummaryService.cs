@@ -155,7 +155,7 @@ public class SummaryService
             {
                 Feature = "summary", Provider = result.Provider, Model = result.Model,
                 Channel = channel, ContactId = contact?.Id, Ref = "summary",
-                PromptTokens = result.PromptTokens, CompletionTokens = result.CompletionTokens,
+                PromptTokens = result.PromptTokens, CompletionTokens = result.CompletionTokens, CostUsd = result.CostUsd,
                 CreatedAt = DateTime.UtcNow,
             });
             return (AssistantService.RenderPlaceholders(text, contact), false);
