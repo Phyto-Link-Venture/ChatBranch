@@ -20,7 +20,7 @@ namespace ChatBranch.Api.Endpoints;
 /// serialization byte-for-byte; do NOT route these through a PascalCase DTO.
 ///
 /// Both handlers are total: any failure degrades to the same shape with zeros
-/// and empty lists, because /analytics renders the response unconditionally and
+/// and empty lists, because /dashboard renders the response unconditionally and
 /// a 500 blanks the whole page.
 /// </summary>
 public static class AnalyticsEndpoints

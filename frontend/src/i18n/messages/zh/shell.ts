@@ -3,7 +3,7 @@ import type { Dict } from '../../types'
 
 export const shell: Dict<typeof source> = {
   nav: {
-    analytics: '分析',
+    dashboard: '仪表板',
     notifications: '通知',
     chats: '对话',
     contacts: '联系人',

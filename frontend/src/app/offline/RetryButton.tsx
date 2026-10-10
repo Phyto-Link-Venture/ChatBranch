@@ -5,14 +5,14 @@ import { useT } from '@/i18n'
 
 /** Only same-app paths — never bounce to another origin off a query string. */
 function safeFrom(raw: string | null): string {
-  return raw && raw.startsWith('/') && !raw.startsWith('//') && !raw.startsWith('/offline') ? raw : '/analytics'
+  return raw && raw.startsWith('/') && !raw.startsWith('//') && !raw.startsWith('/offline') ? raw : '/dashboard'
 }
 
 /** "Try again": back to the page the user was opening (?from=), and
  *  automatically as soon as the browser reports it's online again. */
 export function RetryButton() {
   const t = useT()
-  const [target, setTarget] = useState('/analytics')
+  const [target, setTarget] = useState('/dashboard')
 
   useEffect(() => {
     const to = safeFrom(new URLSearchParams(window.location.search).get('from'))

@@ -86,7 +86,7 @@ export function FlowsCard({ days = 30, entityQ = '' }: { days?: number; entityQ?
             return (
               <li key={fl.flowId}>
                 <Link
-                  href="/journeys"
+                  href={`/journeys?flow=${encodeURIComponent(fl.flowId)}`}
                   className="group block"
                   title={t('analytics.flows.tooltip', {
                     name: fl.name,

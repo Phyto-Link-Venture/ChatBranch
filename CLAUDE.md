@@ -246,7 +246,7 @@ When you fix one of these, update this table, `README.md` and
   `components/shell/RouteGuard.tsx` renders a "no access" panel instead of any
   page whose sidebar entry (`nav.ts routeDef`, detail routes + `alsoActive`
   included) the caller can't see, so the page never mounts or fetches; nothing
-  renders until the session is read, and someone without Analytics lands on
+  renders until the session is read, and someone without the Dashboard lands on
   `firstVisibleHref`. **Libraries** (skills, knowledge, quick replies, call scripts,
   integrations) are read through `ShellScope.ScopeLibrary` — the org-wide rows
   plus the caller's assigned outlets for agents/custom roles, never another
@@ -440,13 +440,13 @@ When you fix one of these, update this table, `README.md` and
 - **Channel health.** `Channels/AccountHealth.SetStatus` is the ONLY writer of
   `ChannelAccount.HealthStatus` (unknown/healthy/degraded/disconnected/banned):
   one `account.health` AuditLog row per real transition (detail
-  `"prev → next — reason"`, which the Analytics health card parses). Writers
+  `"prev → next — reason"`, which the Dashboard's health card parses). Writers
   today: Baileys lifecycle pushes (`/api/whatsapp/baileys/status-event`),
   inbound traffic (heals), email/Telegram send outcomes and the periodic
   prober (`Channels/HealthProber.cs`, `HealthRecorder` decides the verdict —
   per-recipient failures never touch an account). Saving new credentials
   resets an account to `unknown` silently and re-probes it (`HealthRecheck`).
-  `GET /api/whatsapp/channels/health` feeds the Analytics channel-health card;
+  `GET /api/whatsapp/channels/health` feeds the Dashboard's channel-health card;
   SIP voice health is config-presence only (`/api/whatsapp/voice-settings`, PUT
   superadmin, masked round-trip, Setting `voice_twilio_settings` with
   `TWILIO_*` env fallback).
@@ -883,7 +883,9 @@ When you fix one of these, update this table, `README.md` and
   "Invite to another app" = `POST /api/contacts/{id}/invites` (8-character codes,
   30 days; wa.me / `t.me?start=` / `m.me?ref=` / ig.me / mailto links + a QR SVG
   via QRCoder). Routes in `Endpoints/ContactIdentityEndpoints.cs`.
-  Analytics (`/analytics`, the HOME page):
+  The Dashboard (`/dashboard`, the HOME page; the word "Analytics" is never
+  shown to users — `/analytics` redirects, the `analytics.*` capability ids and
+  `/api/analytics/*` routes keep their names):
   `GET /api/analytics/summary?days=` (funnel, per-account volumes, call
   outcomes, health events, daily series, KPI deltas),
   `GET /api/analytics/usage?days=` (LLM metering at COST, `billing.manage` —
@@ -987,23 +989,24 @@ When you fix one of these, update this table, `README.md` and
 ## Frontend conventions
 
 - **Shell (`components/shell/`).** The sidebar IA lives in `nav.ts`
-  (`NAV_GROUPS`: Analytics + Notifications, then Work (Chats · Contacts ·
+  (`NAV_GROUPS`: Dashboard + Notifications, then Work (Chats · Contacts ·
   Bookings · Account assignment) · Automate · Library · Channels · Admin ·
   Review; Settings is the footer link) — **a new page = one entry there**, which
   also gates it: `RouteGuard.tsx` shows a "no access" panel instead of a page
   whose entry (`routeDef`) the caller can't see. Groups are collapsible and the
   whole rail collapses (`nav-collapsed`). Items are gated by `cap` (a string, or
   an array = ANY of them) with a `roles` fallback for sessions without a
-  capability list (`canSee`). **Analytics is home** (`HOME = '/analytics'`; `/`,
-  post-login and `/dashboard` redirect there — there is no Dashboard page;
-  someone without `analytics.view` is sent to `firstVisibleHref`). Ctrl/⌘+K opens the
+  capability list (`canSee`). **The Dashboard is home** (`HOME = '/dashboard'`, the page
+  is `app/dashboard/page.tsx`; `/` and the old `/analytics` redirect there —
+  next.config.js on the server, `LegacyRedirect` as the client fallback — and
+  post-login lands there; someone without `analytics.view` is sent to `firstVisibleHref`). Ctrl/⌘+K opens the
   command palette (`CommandPalette.tsx`): the visible nav pages plus
   `GET /api/search` (contacts, conversations, templates, knowledge, flows, users,
   entities — each type gated by the capability of the page it opens and scoped
   like that page's list endpoint). The top bar's **Live chip** (`LiveChip.tsx`)
   shows the SSE connection status dot + "N calls · N waiting" from `/api/live`
   (`liveStore.ts`: refreshed every 15 s AND on every stream `change`, keyed by
-  entity; also feeds the sidebar's Chats counter and Analytics' waiting card);
+  entity; also feeds the sidebar's Chats counter and the Dashboard's waiting card);
   its popover carries the AI quick toggle (`components/ai-controls/AiQuickToggle.tsx`).
   Below `lg` the rail becomes a drawer and a **bottom tab bar** (Home · Chats ·
   Contacts · More) takes over. `Shell.FULL_BLEED` (`/chats`, `/journeys`,
@@ -1278,6 +1281,12 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   only the offline fallback. ⚠ **The PUT PRUNES** server-side workflows (in its
   scope) missing from the browser's copy — after creating a Workflow row
   outside the UI, refresh `/journeys` before its next sync.
+- **List first.** `/journeys` opens on the list of every journey
+  (`JourneyList.tsx`: trigger summary from `describe.ts`, live / paused, steps,
+  people entered in the period + in it now from `/api/analytics/flows`, Open);
+  `/journeys?flow=<flowId>` opens the editor (the URL is the selection — refresh
+  and browser Back work; an unknown id falls back to the list), and the
+  editor's "All journeys" button returns to the list.
 - **Two views, one graph.** **Steps** (default, `StepsView.tsx`) reads
   nodes/edges as a tree (`lib/flow/steps.ts buildStepTree`, mirroring the
   engine's edge picking) and edits it with insert / delete / move +

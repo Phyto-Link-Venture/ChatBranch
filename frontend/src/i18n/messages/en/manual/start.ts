@@ -23,8 +23,8 @@ export const start = {
         body: 'The button turns active once both boxes are filled. A short spinner shows while ChatBranch checks your details.',
       },
       s5: {
-        title: 'You land on Analytics',
-        body: 'Analytics is the home page: a summary of conversations, calls and the AI for the last few days. If your role can’t see Analytics, you land on the first page you are allowed to use instead (often Chats).',
+        title: 'You land on the Dashboard',
+        body: 'The Dashboard is the home page: a summary of conversations, calls and the AI for the last few days. If your role can’t see the Dashboard, you land on the first page you are allowed to use instead (often Chats).',
       },
       s6: {
         title: 'Follow (or skip) the page guide',
@@ -43,7 +43,7 @@ export const start = {
         body: 'At the bottom of the sidebar, next to your name and role, click the door-with-arrow icon (“Sign out”). On a phone, tap “More” first to open the menu. Always sign out on a shared computer.',
       },
     },
-    done: 'You see your name and role at the bottom-left of the sidebar and the Analytics page in the middle of the screen.',
+    done: 'You see your name and role at the bottom-left of the sidebar and the Dashboard page in the middle of the screen.',
     tips: {
       t1: 'Once signed in, change your language for good in Settings → Appearance — it then follows you to any device.',
       t2: 'Bookmark the address, or on a phone use “Install app” at the bottom of the menu to get a ChatBranch icon on your home screen.',
@@ -58,7 +58,7 @@ export const start = {
     steps: {
       s1: {
         title: 'Look at the sidebar',
-        body: 'On the left is the sidebar. At the top are “Analytics” and “Notifications”, then groups: “Work” (Chats, Contacts, Bookings…), “Automate”, “Library”, “Channels”, “Admin” and “Review”. You only see the pages your role allows.',
+        body: 'On the left is the sidebar. At the top are “Dashboard” and “Notifications”, then groups: “Work” (Chats, Contacts, Bookings…), “Automate”, “Library”, “Channels”, “Admin” and “Review”. You only see the pages your role allows.',
       },
       s2: {
         title: 'Fold a group you don’t use',

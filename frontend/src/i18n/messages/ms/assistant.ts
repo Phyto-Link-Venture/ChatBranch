@@ -36,7 +36,7 @@ export const assistant: Dict<typeof source> = {
       findContact: 'Cari kenalan…',
       activity: 'Tunjukkan aktiviti terkini',
       connectWhatsapp: 'Bagaimana saya menyambungkan WhatsApp?',
-      analytics: 'Pergi ke analitik',
+      analytics: 'Pergi ke papan pemuka',
     },
   },
   action: {

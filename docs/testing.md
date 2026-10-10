@@ -175,14 +175,14 @@ passwords — reset one at Users if you want to sign in as a branch agent.
 
 **Agent**
 
-- [ ] Sidebar shows Analytics, Notifications, Chats, Contacts, Bookings, AI monitor, Tags (read-only), Activity, Call logs — no Flow builder, Channels, Users or Test lab.
+- [ ] Sidebar shows Dashboard, Notifications, Chats, Contacts, Bookings, AI monitor, Tags (read-only), Activity, Call logs — no Flow builder, Channels, Users or Test lab.
 - [ ] Chats: sees only conversations in their assigned entities (assign one to a branch to check); can reply, add a note, take a handover; cannot bulk-act or manage accounts.
 - [ ] Opening `/users`, `/channels`, `/settings/appkeys` by URL shows "no access".
 
 **No capability** (custom role, every box off)
 
 - [ ] Lands on the first page they can see (or an empty shell), every sidebar page is hidden.
-- [ ] Every deep link (`/chats`, `/contacts/1`, `/analytics`) renders "no access"; the API answers 403 (the `read-gates-no-capability` scenario checks the API side).
+- [ ] Every deep link (`/chats`, `/contacts/1`, `/dashboard`) renders "no access"; the API answers 403 (the `read-gates-no-capability` scenario checks the API side).
 
 **Every role**
 

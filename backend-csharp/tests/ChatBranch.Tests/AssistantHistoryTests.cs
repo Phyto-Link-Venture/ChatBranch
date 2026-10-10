@@ -68,7 +68,7 @@ public class AssistantHistoryTests : IClassFixture<AssistantHistoryFactory>
             message = text,
             conversation_id = conversationId,
             messages = legacyMessages,
-            context = new { path = "/analytics" },
+            context = new { path = "/dashboard" },
         }));
 
     private static async Task<JsonElement> Get(HttpClient c, int id) =>

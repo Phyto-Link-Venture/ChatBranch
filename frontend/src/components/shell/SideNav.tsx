@@ -30,7 +30,7 @@ const DEFAULT_FOLDED: MessageKey[] = ['shell.groups.library', 'shell.groups.chan
 const foldKey = (user: AuthUser | null) => `nav-groups:${user?.username ?? 'anon'}`
 
 /**
- * The sidebar rail (Paper & Ink): logo, the ungrouped head (Analytics,
+ * The sidebar rail (Paper & Ink): logo, the ungrouped head (Dashboard,
  * Notifications), then collapsible groups — each group title is a button that
  * folds its modules, remembered per user in localStorage — and a footer with
  * Settings, Install app, the signed-in user, the theme switch and sign out.
@@ -56,7 +56,7 @@ export function SideNav({
   onSignOut: () => void
 }) {
   const t = useT()
-  const pathname = usePathname() || '/analytics'
+  const pathname = usePathname() || '/dashboard'
   const entityQ = useEntityQuery()
   const { unread } = useNotifications()
   const { data: live } = useLive(entityQ)
@@ -214,7 +214,7 @@ export function SideNav({
         }`}
       >
         <Link
-          href="/analytics"
+          href="/dashboard"
           onClick={onCloseMobile}
           className="flex min-w-0 items-center rounded-md"
           aria-label={t('shell.sideNav.homeLink')}

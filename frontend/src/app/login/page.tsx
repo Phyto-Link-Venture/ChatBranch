@@ -35,7 +35,7 @@ export default function LoginPage() {
     setError(null)
     try {
       await login(username.trim(), password)
-      router.replace('/analytics')
+      router.replace('/dashboard')
     } catch (err) {
       // a server refusal says why (its detail, as written); a failed fetch is the network
       setError(err instanceof TypeError ? t('common.errors.network') : err instanceof Error ? err.message : String(err))

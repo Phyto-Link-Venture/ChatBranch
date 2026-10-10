@@ -43,7 +43,7 @@ export const automate: Dict<typeof source> = {
       },
       s9: {
         title: 'Pastikan ia berjalan',
-        body: 'Butang bertukar hijau dan tertulis “Aktif” dengan titik berdenyut, dan perjalanan menunjukkan lencana “AKTIF” dalam senarai perjalanan. Klik “Aktif” sekali lagi pada bila-bila masa untuk menjedanya.',
+        body: 'Butang bertukar hijau dan tertulis “Aktif” dengan titik berdenyut, dan perjalanan dipaparkan sebagai “Aktif” dalam senarai perjalanan. Klik “Aktif” sekali lagi pada bila-bila masa untuk menjedanya.',
       },
     },
     done: 'Butang hijau “Aktif” menyala, dan selepas kenalan pertama masuk, kad langkah mula menunjukkan “1 dicapai”.',
@@ -62,7 +62,7 @@ export const automate: Dict<typeof source> = {
     steps: {
       s1: {
         title: 'Buka perjalanan',
-        body: 'Di bar sisi, buka Automasi → Perjalanan dan pilih perjalanan daripada senarai “Perjalanan” di bahagian atas. Pastikan “Langkah” (bukan “Kanvas lanjutan”) dipilih.',
+        body: 'Di bar sisi, buka Automasi → Perjalanan. Senarai semua perjalanan dibuka; klik “Buka” di sebelah perjalanan itu (atau klik barisnya). Pastikan “Langkah” (bukan “Kanvas lanjutan”) dipilih.',
       },
       s2: {
         title: 'Klik + untuk menambah langkah',

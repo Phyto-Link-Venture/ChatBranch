@@ -1,7 +1,7 @@
 // English source for the `shell` namespace (the app shell: sidebar, top bar, guard, language).
 export const shell = {
   nav: {
-    analytics: 'Analytics',
+    dashboard: 'Dashboard',
     notifications: 'Notifications',
     chats: 'Chats',
     contacts: 'Contacts',

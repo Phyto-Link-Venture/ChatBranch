@@ -41,7 +41,7 @@ export const automate = {
       },
       s9: {
         title: 'Check it is running',
-        body: 'The button turns green and reads “Live” with a pulsing dot, and the journey shows a “LIVE” badge in the journey picker. Click “Live” again at any time to pause it.',
+        body: 'The button turns green and reads “Live” with a pulsing dot, and the journey shows as “Live” in the list of journeys. Click “Live” again at any time to pause it.',
       },
     },
     done: 'The green “Live” button is on, and after the first contact enters, the step cards start showing “1 reached”.',
@@ -60,7 +60,7 @@ export const automate = {
     steps: {
       s1: {
         title: 'Open the journey',
-        body: 'In the sidebar, open Automate → Journeys and pick the journey from the “Journey” list at the top. Make sure “Steps” (not “Advanced canvas”) is selected.',
+        body: 'In the sidebar, open Automate → Journeys. The list of all journeys opens; click “Open” next to the journey (or click its row). Make sure “Steps” (not “Advanced canvas”) is selected.',
       },
       s2: {
         title: 'Click a + to add a step',

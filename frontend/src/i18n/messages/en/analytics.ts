@@ -1,5 +1,5 @@
 // English source for the `analytics` namespace (owner: channels-review): the
-// Analytics home page and its cards. Other locales mirror it key for key.
+// Dashboard (home page) and its cards. Other locales mirror it key for key.
 export const analytics = {
   page: {
     eyebrow: 'Overview',
@@ -10,9 +10,9 @@ export const analytics = {
     periodShort_one: '{count}d',
     periodShort_other: '{count}d',
     exportCsv: 'Export CSV',
-    unavailable: 'Analytics unavailable',
+    unavailable: 'Dashboard unavailable',
     unavailableBody: 'Could not reach the API — is the backend running?',
-    loading: 'Loading analytics…',
+    loading: 'Loading the dashboard…',
     dailyVolume: 'Daily volume',
     dailyVolumeSub: 'inbound · outbound messages per day',
     byEntity: 'By entity',

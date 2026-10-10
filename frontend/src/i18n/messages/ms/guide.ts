@@ -68,12 +68,12 @@ export const guide: Dict<typeof source> = {
       },
     },
     analytics: {
-      title: 'Analitik — halaman utama anda',
+      title: 'Papan pemuka — halaman utama anda',
       intro: 'Prestasi perbualan, panggilan dan AI.',
       steps: {
         s1: {
           title: 'Halaman utama anda',
-          body: 'Analitik ialah perkara pertama yang anda lihat selepas log masuk: ringkasan tempoh yang anda pilih, untuk cawangan yang anda pilih.',
+          body: 'Papan pemuka ialah perkara pertama yang anda lihat selepas log masuk: ringkasan tempoh yang anda pilih, untuk cawangan yang anda pilih.',
         },
         s2: {
           title: 'Pilih tempoh',
@@ -321,7 +321,7 @@ export const guide: Dict<typeof source> = {
         },
         s3: {
           title: 'Perjalanan anda',
-          body: 'Pilih perjalanan yang hendak dibuka daripada senarai ini. Pensel menamakannya semula; menu ••• menyalin, mengeksport, mengimport atau memadamnya.',
+          body: 'Perjalanan dibuka pada senarai semua perjalanan ini: apa yang memulakannya, sama ada ia aktif dan berapa ramai yang masuk. Klik Buka (atau barisnya) untuk menyuntingnya. Di dalam perjalanan, Semua perjalanan membawa anda kembali ke sini; pensel menamakannya semula dan menu ••• menyalin, mengeksport atau memadamnya.',
         },
         s4: {
           title: 'Langkah atau kanvas',

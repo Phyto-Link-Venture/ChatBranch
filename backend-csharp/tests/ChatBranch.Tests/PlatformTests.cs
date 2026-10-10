@@ -616,7 +616,7 @@ public class AssistantTests : IClassFixture<AssistantFactory>
 
         var nav = await Say("go to analytics");
         Assert.Contains(nav.GetProperty("navigation").EnumerateArray(),
-            n => n.GetProperty("href").GetString() == "/analytics");
+            n => n.GetProperty("href").GetString() == "/dashboard");
 
         var howto = await Say("how do I connect WhatsApp?");
         Assert.Contains(howto.GetProperty("navigation").EnumerateArray(),

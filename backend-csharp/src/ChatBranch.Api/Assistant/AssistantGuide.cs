@@ -77,9 +77,9 @@ public static class AssistantGuide
             new[] { "entity", "entities", "branch", "branches", "outlet", "outlets", "location", "tenant", "brand" },
             "Entities are your outlets or branches, arranged as a tree. Head office sees its branches' data; a " +
             "branch never sees head office's. The switcher in the top bar narrows every page to one entity."),
-        new("Analytics and reports", "/analytics", "analytics.view",
-            new[] { "analytics", "report", "reports", "stats", "statistics", "metrics", "numbers", "usage", "cost" },
-            "Analytics shows the message funnel, engagement, call outcomes, per-account volume and AI usage; " +
+        new("Dashboard and reports", "/dashboard", "analytics.view",
+            new[] { "dashboard", "analytics", "report", "reports", "stats", "statistics", "metrics", "numbers", "usage", "cost" },
+            "The Dashboard (the home page) shows the message funnel, engagement, call outcomes, per-account volume and AI usage; " +
             "Reports break conversations down by agent, team, label and channel."),
         new("Activity log", "/activity", "activity.view",
             new[] { "activity", "audit", "log", "logs", "history", "happened", "changed", "who" },
@@ -107,7 +107,7 @@ public static class AssistantGuide
     /// <summary>Every page the assistant may suggest, for chips and "go to …".</summary>
     public static readonly (string Name, string Href, string Capability, string[] Aliases)[] Pages =
     {
-        ("Dashboard", "/dashboard", "", new[] { "dashboard", "home", "overview" }),
+        ("Dashboard", "/dashboard", "analytics.view", new[] { "dashboard", "home", "overview", "analytics", "reports", "stats" }),
         ("Chats", "/chats", "chats.view", new[] { "chats", "chat", "inbox", "conversations", "messages" }),
         ("Contacts", "/contacts", "contacts.view", new[] { "contacts", "contact", "customers", "people" }),
         ("Journeys", "/journeys", "flows.manage", new[] { "journeys", "journey", "flow builder", "flows", "flow", "workflows" }),
@@ -123,7 +123,6 @@ public static class AssistantGuide
         ("AI Skills", "/skills", "settings.ai.manage", new[] { "ai skills", "skills" }),
         ("Message Templates", "/templates", "templates.manage", new[] { "message templates", "templates", "canned responses" }),
         ("Script Templates", "/script-templates", "script_templates.manage", new[] { "script templates", "scripts" }),
-        ("Analytics", "/analytics", "analytics.view", new[] { "analytics", "reports", "stats" }),
         ("Call Logs", "/call-logs", "call_logs.view", new[] { "call logs", "calls", "call history" }),
         ("Activity", "/activity", "activity.view", new[] { "activity", "activity log", "audit log", "audit" }),
         ("Notifications", "/notifications", "notifications.manage", new[] { "notifications", "notification settings" }),

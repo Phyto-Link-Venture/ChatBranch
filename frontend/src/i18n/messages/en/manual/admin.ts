@@ -127,7 +127,7 @@ export const admin = {
       },
       s6: {
         title: 'Know what stays per branch',
-        body: 'Contacts, conversations, AI drafts and analytics belong to exactly one branch. The company sees all of its branches’ conversations; a branch never sees the company’s or a sibling’s. Passwords and provider keys are always organization-wide.',
+        body: 'Contacts, conversations, AI drafts and dashboard figures belong to exactly one branch. The company sees all of its branches’ conversations; a branch never sees the company’s or a sibling’s. Passwords and provider keys are always organization-wide.',
       },
       s7: {
         title: 'Connect numbers to a branch',

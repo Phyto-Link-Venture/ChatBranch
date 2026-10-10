@@ -73,7 +73,7 @@ public static class OperationScenarios
         new LabScenario("read-gates-no-capability", "access",
             "A role with no capabilities is refused every gated page",
             "Knowing a page's URL isn't enough: each gated API answers 403 to a role without its capability, while the shell still loads.",
-            new[] { "The lab's no-access role calls the APIs behind Contacts, Chats, AI monitor, Flows, Analytics and Tags." },
+            new[] { "The lab's no-access role calls the APIs behind Contacts, Chats, AI monitor, Flows, Dashboard and Tags." },
             new[] { "Each answers 403; whoami answers 200 with no capabilities; the Live chip shows nothing waiting." },
             ReadGatesAsync),
 

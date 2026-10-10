@@ -346,7 +346,7 @@ quiet hours and an atomic claim.
 `ChannelAccount.HealthStatus`, recording one `account.health` audit row (and an
 admin `account_health` bell for a problem or a recovery) per real transition.
 `healthy`/`degraded` accounts are usable; `disconnected`/`banned` show red on
-the Analytics channel-health card. Signals: the Baileys gateway's lifecycle
+the Dashboard channel-health card. Signals: the Baileys gateway's lifecycle
 pushes, inbound traffic, send outcomes (Meta results classified by
 `Channels/MetaErrors.cs`; email/Telegram by their transports), and the periodic
 prober (`HealthProbeWorker`, every `WHATSAPP_HEALTH_INTERVAL` s, default 300;
