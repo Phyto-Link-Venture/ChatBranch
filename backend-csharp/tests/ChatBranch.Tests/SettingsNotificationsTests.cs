@@ -497,6 +497,35 @@ public class SettingsCapabilityTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Page_guide_memory_follows_the_person_across_sign_ins()
+    {
+        var admin = await SettingsTestKit.Client(_f, "admin", "admin123");
+        // a clean slate for this login (the suite shares one database)
+        (await admin.PutAsJsonAsync("/api/auth/preferences", new { guides = new { reset = true, auto = true } }))
+            .EnsureSuccessStatusCode();
+
+        // closing two guides adds them; the same id twice is kept once; other preferences stay
+        (await admin.PutAsJsonAsync("/api/auth/preferences", new { guides = new { seen = new[] { "chats" } } }))
+            .EnsureSuccessStatusCode();
+        (await admin.PutAsJsonAsync("/api/auth/preferences", new { guides = new { seen = new[] { "contacts", "chats" } } }))
+            .EnsureSuccessStatusCode();
+        (await admin.PutAsJsonAsync("/api/auth/preferences", new { guides = new { auto = false } }))
+            .EnsureSuccessStatusCode();
+
+        // a NEW session (another device) reads the same memory
+        var other = await SettingsTestKit.Client(_f, "admin", "admin123");
+        var g = (await other.GetFromJsonAsync<JsonElement>("/api/auth/preferences")).GetProperty("guides");
+        Assert.False(g.GetProperty("auto").GetBoolean());
+        Assert.Equal(new[] { "chats", "contacts" },
+            g.GetProperty("seen").EnumerateArray().Select(x => x.GetString()).ToArray());
+
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await other.PutAsJsonAsync("/api/auth/preferences", new { guides = new { seen = new[] { "<script>" } } })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await other.PutAsJsonAsync("/api/auth/preferences", new { guides = new { auto = "no" } })).StatusCode);
+    }
+
+    [Fact]
     public async Task Appearance_preferences_round_trip_validate_and_fall_back_to_the_org_default()
     {
         var agent = await SettingsTestKit.Client(_f, "agent", "agent123");

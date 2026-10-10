@@ -1282,7 +1282,12 @@ When you fix one of these, update this table, `README.md` and
   (in the Shell) spotlights one target at a time (missing targets are skipped,
   no target = a centred card), starts by itself on a person's FIRST visit to a
   page (localStorage `tour-seen:<user>:<id>`, off via the Guide menu's
-  `tour-auto:<user>`), and on `?tour=<id>`; the top bar's ? button
+  `tour-auto:<user>` — both mirrored to the ACCOUNT as `Profile.Preferences`
+  `guides {auto, seen[]}` through `PUT /api/auth/preferences {guides: {auto?,
+  seen?, reset?}}` (seen ids add up) and copied back into the browser once per
+  sign-in by `syncGuidesFromServer`, so a closed guide stays closed on every
+  device and after a re-login; an iPhone keeps Safari's and the installed app's
+  storage apart), and on `?tour=<id>`; the top bar's ? button
   (`GuideMenu.tsx`) replays the page's guide, the app tour (`shell`) or opens
   the manual. `/help/manual` (public, like `/help`) prints every tour as a
   chapter with "Show me in the app" (`<href>?tour=<id>`), Download PDF (print),
@@ -1684,7 +1689,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **826 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **827 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /

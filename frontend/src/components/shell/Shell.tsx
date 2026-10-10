@@ -15,6 +15,7 @@ import { HOME, canSee, firstVisibleHref, isActive, NAV_GROUPS, routeDef } from '
 import { RouteGuard } from './RouteGuard'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { syncLocaleFromServer, useT, type MessageKey } from '@/i18n'
+import { syncGuidesFromServer } from '@/lib/tours'
 import { resetNotifications } from './notificationsStore'
 import { useLive } from './liveStore'
 import { CampaignModal } from '@/components/CampaignModal'
@@ -118,6 +119,7 @@ export function Shell({ children }: { children: ReactNode }) {
       void syncAppearanceFromServer() // a 404 on an older API is harmless
       void syncLocaleFromServer() // the user's own language, else the organization default
       void refreshIdentity()
+      void syncGuidesFromServer(u.username) // closed page guides stay closed on every device
     }
   }, [pathname])
 

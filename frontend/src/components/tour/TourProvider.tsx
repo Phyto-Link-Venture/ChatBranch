@@ -99,6 +99,8 @@ export function TourProvider({ children }: { children: ReactNode }) {
     const user = getAuth()?.username
     if (!user || !toursAuto(user) || tourSeen(user, pageTour.id)) return
     const timer = window.setTimeout(() => {
+      // the sign-in sync may have brought this guide's "seen" from another device meanwhile
+      if (!toursAuto(user) || tourSeen(user, pageTour.id)) return
       if (pageTour.steps.some((s) => !s.target || findTarget(s.target))) start(pageTour.id)
     }, 1600)
     return () => window.clearTimeout(timer)
