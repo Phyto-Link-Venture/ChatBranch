@@ -137,7 +137,7 @@ public class SkillDrafter
         Respond with ONE JSON object and nothing else, either
           {"status":"questions","questions":["...", "..."]}
         or
-          {"status":"draft","skill":{"name":"...","kind":"tool|check|prompt",
+          {"status":"draft","skill":{"name":"<a short title, 2-5 words, no trailing 'about/for/when'>","kind":"tool|check|prompt",
             "use_when":"...","description":"...","parameters":{JSON schema for args, tools only},
             "code":"...","tests":[...],"instructions":"... (prompt kind only)",
             "on_fail":"retry|handover|block (checks only)"}}
@@ -204,7 +204,7 @@ public class SkillDrafter
         var tests = sk.TryGetProperty("tests", out var t) && t.ValueKind == JsonValueKind.Array ? t.Clone() : Json("[]");
         var name = S(sk, "name") is { Length: > 0 } n ? n : "New skill";
         return new DraftResult("draft", Array.Empty<string>(), new DraftSkill(
-            name.Length > 80 ? name[..80] : name, kind, S(sk, "use_when"), S(sk, "description"),
+            ShortName(name, 80), kind, S(sk, "use_when"), S(sk, "description"),
             kind == SkillKinds.Tool ? parameters : Json("{}"), SkillKinds.IsCode(kind) ? code : "",
             SkillKinds.IsCode(kind) ? tests : Json("[]"),
             kind == SkillKinds.Prompt ? (S(sk, "instructions") is { Length: > 0 } ins ? ins : S(sk, "description")) : "",
@@ -313,9 +313,39 @@ public class SkillDrafter
             "Sandbox mode: your description becomes the instructions — refine the wording and the use-when trigger.");
     }
 
+    // words a title must not END on ("When a customer asks about" read as cut off)
+    private static readonly HashSet<string> Dangling = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "a", "an", "the", "to", "for", "of", "about", "and", "or", "but", "with", "in", "on", "at", "by",
+        "from", "into", "if", "when", "that", "which", "who", "is", "are", "be", "as", "their", "our", "your", "my",
+    };
+
+    /// <summary>A title cut at a word boundary (never mid-word), without a dangling last word.</summary>
+    public static string ShortName(string name, int max)
+    {
+        name = Regex.Replace(name ?? "", @"\s+", " ").Trim().TrimEnd('.', ',', ';', ':');
+        if (name.Length > max)
+        {
+            var cut = name[..max];
+            var space = cut.LastIndexOf(' ');
+            name = space > 0 ? cut[..space] : cut;
+        }
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        while (words.Count > 1 && Dangling.Contains(words[^1].Trim(',', '.', ';', ':'))) words.RemoveAt(words.Count - 1);
+        return string.Join(" ", words).TrimEnd(',', '.', ';', ':');
+    }
+
     private static string NameFrom(string description, string fallback)
     {
-        var words = Regex.Matches(description, @"[A-Za-z0-9']+").Select(x => x.Value).Take(5).ToList();
+        // up to 6 words / 40 characters, ending on a meaningful word
+        var all = Regex.Matches(description, @"[A-Za-z0-9']+").Select(x => x.Value).ToList();
+        var words = new List<string>();
+        foreach (var w in all)
+        {
+            if (words.Count >= 6 || string.Join(" ", words.Append(w)).Length > 40) break;
+            words.Add(w);
+        }
+        while (words.Count > 1 && Dangling.Contains(words[^1])) words.RemoveAt(words.Count - 1);
         if (words.Count == 0) return fallback;
         var name = string.Join(" ", words);
         return char.ToUpperInvariant(name[0]) + name[1..];

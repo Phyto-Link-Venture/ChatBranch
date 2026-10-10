@@ -1,8 +1,9 @@
 'use client'
 
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
+  AlertTriangle,
   Ban,
   CheckCircle2,
   ChevronLeft,
@@ -54,6 +55,7 @@ import {
 import {
   CHANNELS,
   CHANNEL_META,
+  ApiError,
   api,
   apiUpload,
   channelName,
@@ -180,6 +182,7 @@ function ChatsPage() {
   const topEntities = useMemo(() => selectedEntities.map((e) => e.slug), [selectedEntities])
   const topEntity = topEntities.join(',') || null
   const searchParams = useSearchParams()
+  const router = useRouter()
 
   const [status, setStatus] = useState<InboxStatus | null>(null)
   // ── list state (server-filtered) ──
@@ -220,6 +223,11 @@ function ChatsPage() {
   const [teams, setTeams] = useState<UiTeam[]>([])
   const [allAccounts, setAllAccounts] = useState<UiAccount[]>([])
   const [canned, setCanned] = useState<CannedResponse[]>([])
+  // the "/shortcut" picker: highlighted row + closed by Esc until the next keystroke
+  const [cannedIndex, setCannedIndex] = useState(0)
+  const [cannedClosed, setCannedClosed] = useState(false)
+  // the opened ?thread= did not resolve (deleted, out of scope, mistyped)
+  const [missingRef, setMissingRef] = useState<string | null>(null)
   const [linkContacts, setLinkContacts] = useState<LinkContact[]>([])
   const [linkSel, setLinkSel] = useState('')
   const [combinedOn, setCombinedOn] = useState(false)
@@ -236,7 +244,7 @@ function ChatsPage() {
     activeId !== null &&
     summarizingFor === `messaging/threads/${activeId.channel}/${activeId.key}/summary`
   const [summaryOpen, setSummaryOpen] = useState(true)
-  const lastAutoGen = useRef(0)
+  const lastAutoGen = useRef('')
   const [infoOpen, setInfoOpen] = useState(true)
   // below xl the details panel is a drawer (assign, link a contact, labels… on phones too)
   const [infoDrawer, setInfoDrawer] = useState(false)
@@ -288,10 +296,45 @@ function ChatsPage() {
   const spChannel = searchParams.get('channel')
   const spKey = searchParams.get('key')
   const spQ = searchParams.get('q')
+  const urlThreadRef = useRef<string | null>(null)
   useEffect(() => {
     const ref = parseThreadRef(spThread) ?? (spChannel && spKey ? parseThreadRef(`${spChannel}:${spKey}`) : null)
     if (ref) setActiveId((cur) => (cur && cur.channel === ref.channel && cur.key === ref.key ? cur : ref))
+    else if (urlThreadRef.current && !spThread) {
+      // the URL lost its ?thread= (the browser's Back on a phone): back to the list
+      setActiveId(null)
+      setActive(null)
+    }
+    urlThreadRef.current = spThread
   }, [spThread, spChannel, spKey])
+  // …and the other way: the open chat IS the URL, so a refresh or a shared
+  // link reopens what is on screen — never a stale ?thread=. Opening a chat on
+  // a phone PUSHES (Back returns to the list); everything else replaces.
+  const prevActiveRef = useRef<string | null | undefined>(undefined)
+  useEffect(() => {
+    const want = activeId ? `${activeId.channel}:${activeId.key}` : null
+    if (prevActiveRef.current === undefined) {
+      // first render: the URL is the source; don't wipe a ?thread= not yet applied
+      prevActiveRef.current = want ?? spThread
+      return
+    }
+    if (prevActiveRef.current === want) return
+    const was = prevActiveRef.current
+    prevActiveRef.current = want
+    const have = new URLSearchParams(window.location.search)
+    if ((have.get('thread') ?? null) === want && !have.has('channel')) return
+    have.delete('channel')
+    have.delete('key')
+    if (want) have.set('thread', want)
+    else have.delete('thread')
+    const qs = have.toString()
+    const url = `${window.location.pathname}${qs ? `?${qs}` : ''}`
+    const phone = window.matchMedia('(max-width: 1023px)').matches
+    if (want && !was && phone) router.push(url, { scroll: false })
+    else router.replace(url, { scroll: false })
+    // spThread is read only on the first render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, router])
   useEffect(() => {
     if (spQ !== null) {
       setSearch(spQ)
@@ -462,8 +505,15 @@ function ChatsPage() {
           messages: th.messages,
         })
       }
-    } catch {
-      /* keep last good state while polling */
+      setMissingRef(null)
+    } catch (e) {
+      // a conversation that does not exist (or is out of scope) says so rather
+      // than leaving the empty "pick a conversation" placeholder
+      if (e instanceof ApiError && e.status === 404) {
+        setActive(null)
+        setMissingRef(`${activeId.channel}:${activeId.key}`)
+      }
+      /* otherwise keep last good state while polling */
     }
   }, [activeId])
 
@@ -623,17 +673,23 @@ function ChatsPage() {
 
   // quick replies: rendered against the linked contact AND limited to the
   // templates allowed on this conversation's channel
+  // …and to the replies the conversation's OWN entity may use (its own, its
+  // parents', the organization's — never a sibling outlet's)
   const quickReplyContactId = active?.contact_id ?? null
   const quickReplyChannel = active?.channel ?? null
+  const quickReplyEntity = active
+    ? (threads.find((x) => x.channel === active.channel && x.key === active.key)?.entity ?? null)
+    : null
   useEffect(() => {
     const p = new URLSearchParams()
     if (quickReplyContactId) p.set('contact_id', String(quickReplyContactId))
     if (quickReplyChannel) p.set('channel', quickReplyChannel)
+    if (quickReplyEntity) p.set('entity', quickReplyEntity)
     const qs = p.toString()
     api<{ canned: CannedResponse[] }>(`messaging/canned${qs ? `?${qs}` : ''}`)
       .then((r) => setCanned(r.canned))
       .catch(() => setCanned([]))
-  }, [quickReplyContactId, quickReplyChannel])
+  }, [quickReplyContactId, quickReplyChannel, quickReplyEntity])
 
   // always-on chat summary: load the CACHED summary, auto-generate only when
   // none exists yet; a "stale" flag shows when it's behind.
@@ -644,7 +700,7 @@ function ChatsPage() {
       return
     }
     let cancelled = false
-    lastAutoGen.current = 0
+    lastAutoGen.current = ''
     const path = `messaging/threads/${activeId.channel}/${activeId.key}/summary`
     summaryPathRef.current = path
     const check = async () => {
@@ -653,8 +709,11 @@ function ChatsPage() {
         if (cancelled) return
         setSummaryState(s)
         const needsRegen = s.message_count > 0 && !s.summary
-        if (needsRegen && Date.now() - lastAutoGen.current > 300000) {
-          lastAutoGen.current = Date.now()
+        // one automatic attempt per thread per message count: a failed or
+        // empty generation is not retried until the conversation changes
+        const attempt = `${path}|${s.message_count}`
+        if (needsRegen && lastAutoGen.current !== attempt) {
+          lastAutoGen.current = attempt
           setSummarizingFor(path)
           try {
             const r = await api<SummaryState>(path, { method: 'POST', body: '{}' })
@@ -1188,9 +1247,17 @@ function ChatsPage() {
   // canned-response picker: type "/" (Chatwoot's shortcut) in reply mode
   const cannedQuery = composerMode === 'reply' && draft.startsWith('/') ? draft.slice(1).toLowerCase() : null
   const cannedMatches =
-    cannedQuery === null
+    cannedQuery === null || cannedClosed
       ? []
       : canned.filter((c) => c.short_code.startsWith(cannedQuery) || c.content.toLowerCase().includes(cannedQuery)).slice(0, 6)
+  const cannedPick = cannedMatches.length ? Math.min(cannedIndex, cannedMatches.length - 1) : -1
+  const insertCanned = (c: CannedResponse) => {
+    setDraft(c.rendered || c.content)
+    setCannedIndex(0)
+    composerRef.current?.focus()
+  }
+  // a reply that still holds {{placeholders}} would go out with the braces in it
+  const unfilledPlaceholders = composerMode === 'reply' && /\{\{\s*[^{}]+?\s*\}\}/.test(draft)
 
   // combined mode swaps the single thread for the contact's merged timeline
   type TimelineItem = UiMessage & {
@@ -1303,6 +1370,7 @@ function ChatsPage() {
   }
 
   const noteMode = composerMode === 'note'
+  const showMissing = !!activeId && missingRef === `${activeId.channel}:${activeId.key}`
 
   // multi-select: a merged row (one contact, several channels) stands for all of its conversations
   const toggleSelect = (row: UiThreadSummary) => {
@@ -1385,9 +1453,28 @@ function ChatsPage() {
         {/* ── conversation (paper) ── */}
         <section
           aria-label={t('chats.page.conversationAria')}
-          className={`cb-paper min-w-0 flex-1 flex-col lg:min-w-[380px] ${active ? 'flex' : 'hidden lg:flex'}`}
+          className={`cb-paper min-w-0 flex-1 flex-col lg:min-w-[380px] ${active || showMissing ? 'flex' : 'hidden lg:flex'}`}
         >
-          {!active ? (
+          {!active && showMissing ? (
+            <div className="grid flex-1 place-content-center px-6 text-center">
+              <div className="display text-[26px] text-text-heading">{t('chats.page.notFound')}</div>
+              <div className="mx-auto mt-2 max-w-[340px] text-[13px] leading-relaxed text-text-muted">
+                {t('chats.page.notFoundHint')}
+              </div>
+              <div className="mt-4">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setActiveId(null)
+                    setMissingRef(null)
+                  }}
+                >
+                  {t('chats.page.backAria')}
+                </Button>
+              </div>
+            </div>
+          ) : !active ? (
             <div className="grid flex-1 place-content-center px-6 text-center">
               <div className="display text-[26px] text-text-heading">{t('chats.page.pickConversation')}</div>
               <div className="mx-auto mt-2 max-w-[340px] text-[13px] leading-relaxed text-text-muted">
@@ -1966,11 +2053,14 @@ function ChatsPage() {
                   {cannedMatches.length > 0 && (
                     <div className="mb-2 overflow-hidden rounded-lg border border-line bg-card shadow-pop">
                       <div className="eyebrow border-b border-line px-3 py-1.5">{t('chats.page.quickReplies')}</div>
-                      {cannedMatches.map((c) => (
+                      {cannedMatches.map((c, i) => (
                         <button
                           key={c.id}
-                          onClick={() => setDraft(c.rendered || c.content)}
-                          className="block w-full px-3 py-1.5 text-left transition-colors hover:bg-fill"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => insertCanned(c)}
+                          onMouseEnter={() => setCannedIndex(i)}
+                          aria-current={i === cannedPick ? true : undefined}
+                          className={`block w-full px-3 py-1.5 text-left transition-colors hover:bg-fill ${i === cannedPick ? 'bg-fill' : ''}`}
                         >
                           <span className="font-mono text-[11.5px] font-bold text-text-high">/{c.short_code}</span>
                           <span className="ml-2 text-[12px] text-text-muted">
@@ -2071,9 +2161,32 @@ function ChatsPage() {
                       ref={composerRef}
                       rows={1}
                       value={draft}
-                      onChange={(e) => setDraft(e.target.value)}
-                      // Enter sends; Shift+Enter starts a new line (and an IME composition is never sent mid-word)
+                      onChange={(e) => {
+                        setDraft(e.target.value)
+                        setCannedClosed(false)
+                        setCannedIndex(0)
+                      }}
+                      // Enter sends; Shift+Enter starts a new line (and an IME composition is never sent mid-word).
+                      // While the "/shortcut" picker shows matches: ↑/↓ move, Enter/Tab insert, Esc closes.
                       onKeyDown={(e) => {
+                        if (cannedMatches.length > 0 && !e.nativeEvent.isComposing) {
+                          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                            e.preventDefault()
+                            const n = cannedMatches.length
+                            setCannedIndex((cannedPick + (e.key === 'ArrowDown' ? 1 : n - 1)) % n)
+                            return
+                          }
+                          if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
+                            e.preventDefault()
+                            insertCanned(cannedMatches[Math.max(0, cannedPick)])
+                            return
+                          }
+                          if (e.key === 'Escape') {
+                            e.preventDefault()
+                            setCannedClosed(true)
+                            return
+                          }
+                        }
                         if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                           e.preventDefault()
                           sendMessage()
@@ -2109,6 +2222,12 @@ function ChatsPage() {
                       {noteMode ? <StickyNote size={14} aria-hidden /> : <Send size={14} aria-hidden />}
                     </button>
                   </div>
+                  {unfilledPlaceholders && (
+                    <div role="status" className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-[var(--amber-ink)]">
+                      <AlertTriangle size={12} className="shrink-0" aria-hidden />
+                      {t(active.contact_id ? 'chats.page.placeholdersLeft' : 'chats.page.placeholdersNoContact')}
+                    </div>
+                  )}
                   {windowClosed && !noteMode && (
                     <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-amber-300">
                       <Clock size={12} className="shrink-0" aria-hidden />

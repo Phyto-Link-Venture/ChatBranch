@@ -103,9 +103,10 @@ export const reviewApi = {
   get: (id: number) => aiApi<{ run: ReviewRunDetail }>(`ai/review/runs/${id}`),
   start: (body: { from?: string; to?: string; days?: number; entity?: string; limit?: number }) =>
     aiApi<{ run: ReviewRunDetail }>('ai/review', { method: 'POST', body: JSON.stringify(body) }),
-  apply: (findingId: number, as: ApplyAs, text?: string) =>
+  /** `level` = the entity slug it belongs to, "" = organization-wide (omitted = the server's default). */
+  apply: (findingId: number, as: ApplyAs, text?: string, level?: string) =>
     aiApi<{ ok: boolean; applied_as: ApplyAs; result: { message?: string }; finding: ReviewFinding }>(
       `ai/review/findings/${findingId}/apply`,
-      { method: 'POST', body: JSON.stringify({ as, text }) },
+      { method: 'POST', body: JSON.stringify(level === undefined ? { as, text } : { as, text, level }) },
     ),
 }

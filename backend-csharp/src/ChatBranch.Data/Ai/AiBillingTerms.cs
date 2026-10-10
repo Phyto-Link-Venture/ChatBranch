@@ -80,7 +80,7 @@ public sealed class BillingSettings : BillingTerms
     /// <summary>The current and past terms, newest first, with the month each ran until.</summary>
     public List<(BillingTerms Terms, string? Until)> Timeline()
     {
-        var ordered = History.Append(this).OrderBy(t => t.EffectiveFrom ?? "", StringComparer.Ordinal).ToList();
+        var ordered = AiBilling.Collapse(History.Append(this).OrderBy(t => t.EffectiveFrom ?? "", StringComparer.Ordinal));
         var outv = new List<(BillingTerms, string?)>();
         for (var i = 0; i < ordered.Count; i++)
         {
@@ -153,8 +153,25 @@ public static class AiBilling
             if (stored.SameTermsAs(incoming)) next.EffectiveFrom = stored.EffectiveFrom;   // nothing changed
             else next.History.Add(stored.CopyTerms(stored.EffectiveFrom));
         }
-        next.History = next.History.OrderBy(h => h.EffectiveFrom ?? "", StringComparer.Ordinal)
+        next.History = Collapse(next.History.OrderBy(h => h.EffectiveFrom ?? "", StringComparer.Ordinal))
             .TakeLast(MaxHistory).ToList();
+        // back to the terms that ran just before (changed, then changed back):
+        // one period, not two identical ones
+        if (next.History.Count > 0 && next.History[^1].SameTermsAs(next))
+        {
+            next.EffectiveFrom = next.History[^1].EffectiveFrom;
+            next.History.RemoveAt(next.History.Count - 1);
+        }
         return next;
+    }
+
+    /// <summary>Consecutive periods with identical terms are ONE period that
+    /// started at the earlier month (oldest first in, oldest first out).</summary>
+    public static List<BillingTerms> Collapse(IEnumerable<BillingTerms> ordered)
+    {
+        var outv = new List<BillingTerms>();
+        foreach (var t in ordered)
+            if (outv.Count == 0 || !outv[^1].SameTermsAs(t)) outv.Add(t);
+        return outv;
     }
 }

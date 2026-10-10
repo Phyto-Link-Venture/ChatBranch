@@ -143,6 +143,7 @@ export const flows: Dict<typeof source> = {
   builder: {
     syncLocal: '离线——已保存在此浏览器',
     syncReadonly: '仅查看',
+    viewOnly: '仅查看——你可以查看此客户旅程及其运行记录，但修改需要“搭建和编辑流程”权限。',
     period: '时间范围',
     period7: '7 天',
     period30: '30 天',
@@ -576,6 +577,7 @@ export const flows: Dict<typeof source> = {
     colStep: '步骤',
     colReached: '到达',
     colDrop: '流失',
+    notTaken: '未经过',
     colNow: '当前',
     seeWhoReached: '查看到达此步骤的人',
     dropExplainer: '流失 = 完成上一步的人中，从未到达这里的比例（在分支上：走了另一条路径的比例）。仍在等待的人不计为流失。',
@@ -687,6 +689,7 @@ export const flows: Dict<typeof source> = {
     pickTeam: '选择团队……',
     agent: '客服',
     pickAgent: '选择客服……',
+    pickAssignee: '保存前，请为每个“分配给……”操作选择团队或客服。',
     noMatchingContact: '没有匹配的联系人时',
     identityAsk: '询问——若无匹配的联系人则留下备注',
     identityAskCreate: '询问并创建联系人',

@@ -51,7 +51,7 @@ export const automate = {
       t3: 'Next, read “Add, move and delete steps” to change a template to fit your business.',
     },
     trouble:
-      'Nothing is sent: check the journey is “Live”, that the channel in the message step is connected under Channels, and that the WhatsApp message type suits the situation (free text only reaches people who wrote to you in the last 24 hours — use a template otherwise). Can’t see Journeys in the sidebar: your role does not have the journeys permission; ask an admin.',
+      'Nothing is sent: check the journey is “Live”, that the channel in the message step is connected under Channels, and that the WhatsApp message type suits the situation (free text only reaches people who wrote to you in the last 24 hours — use a template otherwise). Can’t see Journeys in the sidebar: your role has no journeys permission; ask an admin. “View only” at the top: you can look at journeys and their runs, but changing them needs “Build & edit flows”.',
   },
   journeyEdit: {
     title: 'Add, move and delete steps in a journey',
@@ -242,7 +242,7 @@ export const automate = {
       },
       s4: {
         title: 'Find where people drop off',
-        body: 'Under “Each step”, every row shows “Reached”, “Drop” and “Now”. A high “Drop” means many people did not get from the step before to this one (on a branch: they went the other way). People still waiting are not counted as dropped.',
+        body: 'Under “Each step”, every row shows “Reached”, “Drop” and “Now”. A high “Drop” means many people did not get from the step before to this one. A step on one outcome of a branch shows no drop — its untaken path reads “Not taken”. People still waiting are not counted as dropped.',
       },
       s5: {
         title: 'See what went wrong',

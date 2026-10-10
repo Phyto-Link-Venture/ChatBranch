@@ -1665,6 +1665,14 @@ public partial class FlowEngine
                      && (r.Status == FlowRunStatus.Waiting || r.Status == FlowRunStatus.Running)).ToList())
         {
             if (started.Contains(run.Id)) continue;
+            // A message the run queued has not gone out yet (pacing, quiet hours):
+            // this reply cannot be an answer to it, so it neither wakes a "wait
+            // for a reply" nor counts as "they replied".
+            if (MessageNotSentYet(run))
+            {
+                Log(run, run.CurrentNode, $"a message on {channel} arrived before the journey's own message was sent — not counted as a reply");
+                continue;
+            }
             SetCtx(run, "last_reply", Trim(text, 500));
             SetCtx(run, "last_reply_channel", channel);
             SetCtx(run, "last_reply_key", key);
@@ -1682,6 +1690,22 @@ public partial class FlowEngine
             resumed++;
         }
         return resumed;
+    }
+
+    /// <summary>True while one of the run's own message steps (an action
+    /// step's text / template / AI message — not a call, not a follow-up nudge,
+    /// which answers the earlier message) is still queued or sending.</summary>
+    private bool MessageNotSentYet(FlowRun run)
+    {
+        var pending = _db.OutboundJobs.AsNoTracking()
+            .Where(j => j.FlowRunId == run.Id && j.Kind != JobKind.Call
+                        && (j.Status == JobStatus.Queued || j.Status == "sending"))
+            .Select(j => j.FlowNode).Distinct().ToList();
+        if (pending.Count == 0) return false;
+        var wf = _db.Workflows.AsNoTracking().FirstOrDefault(w => w.Id == run.WorkflowId);
+        if (wf == null) return false;
+        var actions = Nodes(wf).Where(n => Str(n, "type") == "action").Select(n => Str(n, "id")).ToHashSet();
+        return pending.Any(actions.Contains);
     }
 
     private Contact? ContactFor(string channel, string key)

@@ -235,7 +235,10 @@ export function AutomationsSettings() {
     setOpen(true)
   }
 
+  // an "Assign to …" action with nobody picked would save a rule that does nothing
+  const unpickedAssign = actions.some((a) => (a.type === 'assign_team' || a.type === 'assign_agent') && !a.value)
   const save = async () => {
+    if (unpickedAssign) return
     setBusy(true)
     setMsg(null)
     try {
@@ -383,7 +386,13 @@ export function AutomationsSettings() {
   const actionChip = (a: Action) => {
     const name = label(ACTION_LABELS, catalog?.actions, a.type)
     if (NO_VALUE_ACTIONS.includes(a.type) || !a.value) return t('flows.automations.actionChip', { action: name })
-    const value = a.type === 'set_status' ? statusLabel(a.value) : a.value
+    // a team is stored by id — show its name
+    const value =
+      a.type === 'set_status'
+        ? statusLabel(a.value)
+        : a.type === 'assign_team'
+          ? (catalog?.teams.find((tm) => String(tm.id) === String(a.value))?.name ?? a.value)
+          : a.value
     return t('flows.automations.actionChipValue', { action: name, value })
   }
 
@@ -587,7 +596,7 @@ export function AutomationsSettings() {
             <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
               {t('common.actions.cancel')}
             </Button>
-            <Button variant="primary" onClick={save} disabled={busy || !name.trim()}>
+            <Button variant="primary" onClick={save} disabled={busy || !name.trim() || unpickedAssign}>
               {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Workflow size={13} aria-hidden />}{' '}
               {editing ? t('flows.automations.saveChanges') : t('flows.automations.createRule')}
             </Button>
@@ -595,6 +604,11 @@ export function AutomationsSettings() {
         }
       >
         <div className="flex flex-col gap-3">
+          {unpickedAssign && (
+            <div role="alert" className="rounded-lg border border-amber/30 bg-amber/10 px-3 py-2 text-[12px] text-[var(--amber-ink)]">
+              {t('flows.automations.pickAssignee')}
+            </div>
+          )}
           {msg && !msg.ok && (
             <div
               role="alert"

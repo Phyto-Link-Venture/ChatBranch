@@ -157,8 +157,21 @@ public static class ContactIdentityEndpoints
             if (thread == null) return NotFound("Conversation not found.");
             var req = identity.For(thread.Id);
             var suggest = identity.Suggest(thread, req);
+            // "matches several contacts": the matches the caller may see, so the
+            // banner can offer each as a one-click link
+            var candidates = new List<object>();
+            if (req?.State == IdentityStates.Ambiguous && thread.ContactId == null)
+            {
+                var ids = identity.Candidates(IdentityRequestService.Collected(req), identity.TenantFor(thread))
+                    .Select(c => c.Id).Take(20).ToList();
+                candidates = (await ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
+                        .Where(c => ids.Contains(c.Id)).OrderBy(c => c.Id).Take(6)
+                        .Select(c => new { c.Id, c.Name, c.Phone, c.Email }).ToListAsync())
+                    .Select(c => (object)new { id = c.Id, name = c.Name, phone = c.Phone, email = c.Email }).ToList();
+            }
             return Results.Ok(new
             {
+                candidates,
                 channel = thread.Channel,
                 key = thread.Key,
                 linked = thread.ContactId != null,

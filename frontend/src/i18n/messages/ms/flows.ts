@@ -143,6 +143,7 @@ export const flows: Dict<typeof source> = {
   builder: {
     syncLocal: 'Luar talian — disimpan dalam pelayar ini',
     syncReadonly: 'Lihat sahaja',
+    viewOnly: 'Lihat sahaja — anda boleh melihat perjalanan ini dan lariannya, tetapi mengubah perjalanan memerlukan kebenaran “Bina & sunting aliran”.',
     period: 'Tempoh',
     period7: '7 hari',
     period30: '30 hari',
@@ -587,6 +588,7 @@ export const flows: Dict<typeof source> = {
     colStep: 'Langkah',
     colReached: 'Dicapai',
     colDrop: 'Gugur',
+    notTaken: 'Tidak diambil',
     colNow: 'Kini',
     seeWhoReached: 'Lihat siapa yang mencapai langkah ini',
     dropExplainer:
@@ -699,6 +701,7 @@ export const flows: Dict<typeof source> = {
     pickTeam: 'Pilih pasukan…',
     agent: 'Ejen',
     pickAgent: 'Pilih ejen…',
+    pickAssignee: 'Pilih pasukan atau ejen bagi setiap tindakan “Tugaskan kepada …” sebelum menyimpan.',
     noMatchingContact: 'Apabila tiada kenalan yang sepadan',
     identityAsk: 'Tanya — tinggalkan nota jika tiada kenalan yang sepadan',
     identityAskCreate: 'Tanya dan cipta kenalan',

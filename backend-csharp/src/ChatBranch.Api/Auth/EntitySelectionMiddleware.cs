@@ -6,7 +6,7 @@ namespace ChatBranch.Api.Auth;
 /// <summary>
 /// Publishes a GET's multi-entity filter (<c>?entity=a,b</c> or repeated
 /// <c>entity=</c>) as <see cref="EntitySelection"/>, cut down to the entities the
-/// caller may see (the switcher's own list, <c>AdminEndpoints.AccessibleEntitiesAsync</c>)
+/// caller may see (the switcher's own list, <c>AdminEndpoints.SwitcherEntitiesAsync</c>)
 /// so a ticked slug can never widen anyone's scope. Writes never carry a selection:
 /// a setting or a new row belongs to ONE level.
 /// </summary>
@@ -26,7 +26,7 @@ public static class EntitySelectionMiddleware
                 if (slugs.Count > 1)
                 {
                     var db = ctx.RequestServices.GetRequiredService<AppDbContext>();
-                    var visible = (await AdminEndpoints.AccessibleEntitiesAsync(db, ctx.User))
+                    var visible = (await AdminEndpoints.SwitcherEntitiesAsync(db, ctx.User))
                         .ToDictionary(e => e.Slug, e => e.Id);
                     EntitySelection.Set(slugs.Where(visible.ContainsKey).Select(s => visible[s]).ToList());
                 }

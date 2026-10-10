@@ -656,7 +656,7 @@ public static class BuiltinTools
         private static readonly HashSet<string> Bulky = new() { "daily", "health_events" };
 
         public override string Name => "get_analytics_summary";
-        public override string Title => "Get the analytics summary";
+        public override string Title => "Get the dashboard summary";
         public override string Description =>
             "Headline numbers for a period: message funnel (sent, delivered, read, replied), " +
             "contacts engaged, call outcomes, per-account volume and per-entity breakdown.";

@@ -88,9 +88,11 @@ export default function ContactTagsCard({ contactId }: { contactId: number }) {
     <div className="rounded-2xl border border-line bg-card p-4">
       <div className="mb-3 flex items-baseline justify-between gap-2">
         <div className="text-[12px] font-bold uppercase tracking-[0.06em] text-text-mid">{t('common.fields.tags')}</div>
-        <Link href="/tags" className="text-[11px] font-semibold text-text-muted hover:text-text-high hover:underline">
-          {t('contacts.tagsCard.manage')}
-        </Link>
+        {canManage && (
+          <Link href="/tags" className="text-[11px] font-semibold text-text-muted hover:text-text-high hover:underline">
+            {t('contacts.tagsCard.manage')}
+          </Link>
+        )}
       </div>
 
       {loading ? (

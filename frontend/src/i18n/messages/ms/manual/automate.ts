@@ -53,7 +53,7 @@ export const automate: Dict<typeof source> = {
       t3: 'Seterusnya, baca “Tambah, alih dan padam langkah” untuk menyesuaikan templat dengan perniagaan anda.',
     },
     trouble:
-      'Tiada apa yang dihantar: pastikan perjalanan “Aktif”, saluran dalam langkah mesej disambungkan di Saluran, dan jenis mesej WhatsApp sesuai (teks bebas hanya sampai kepada orang yang menghantar mesej kepada anda dalam 24 jam lalu — gunakan templat jika tidak). Tidak nampak Perjalanan di bar sisi: peranan anda tiada kebenaran perjalanan; minta bantuan pentadbir.',
+      'Tiada apa yang dihantar: pastikan perjalanan “Aktif”, saluran dalam langkah mesej disambungkan di Saluran, dan jenis mesej WhatsApp sesuai (teks bebas hanya sampai kepada orang yang menghantar mesej kepada anda dalam 24 jam lalu — gunakan templat jika tidak). Tidak nampak Perjalanan di bar sisi: peranan anda tiada kebenaran perjalanan; minta bantuan pentadbir. “Lihat sahaja” di bahagian atas: anda boleh melihat perjalanan dan lariannya, tetapi mengubahnya memerlukan “Bina & sunting aliran”.',
   },
   journeyEdit: {
     title: 'Tambah, alih dan padam langkah dalam perjalanan',
@@ -244,7 +244,7 @@ export const automate: Dict<typeof source> = {
       },
       s4: {
         title: 'Cari di mana orang tercicir',
-        body: 'Di bawah “Setiap langkah”, setiap baris menunjukkan “Dicapai”, “Gugur” dan “Kini”. “Gugur” yang tinggi bermaksud ramai orang tidak sampai dari langkah sebelumnya ke langkah ini (pada cabang: mereka mengikut laluan lain). Orang yang masih menunggu tidak dikira sebagai gugur.',
+        body: 'Di bawah “Setiap langkah”, setiap baris menunjukkan “Dicapai”, “Gugur” dan “Kini”. “Gugur” yang tinggi bermaksud ramai orang tidak sampai dari langkah sebelumnya ke langkah ini. Langkah pada satu hasil cabang tidak menunjukkan gugur — laluan yang tidak diambil tertulis “Tidak diambil”. Orang yang masih menunggu tidak dikira sebagai gugur.',
       },
       s5: {
         title: 'Lihat apa yang tidak kena',

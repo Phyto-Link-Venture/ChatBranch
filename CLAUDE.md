@@ -209,9 +209,15 @@ When you fix one of these, update this table, `README.md` and
   entity, its checkbox adds it to the view; each ticked entity brings its
   branches; the pick is remembered per browser (localStorage
   `chatbranch-entities`) and a first visit starts on the first company, never
-  "All". `useEntityQuery()` sends `entity=a,b`; on a GET the API's
+  "All"; it re-loads on every sign-in / sign-out (`auth-change`, fired by
+  `login()` / `clearAuth()`) and on a `storage` event from another tab. Its
+  list is `AdminEndpoints.SwitcherEntitiesAsync` (whoami + `GET /api/v1/entities`):
+  admins = `AccessibleEntitiesAsync`; an ASSIGNED agent = their entities PLUS
+  every branch under them (never wider than `ScopeOwned` already reads — it only
+  lets them narrow to a branch); an unassigned agent = the tenant's entities.
+  `useEntityQuery()` sends `entity=a,b`; on a GET the API's
   `UseEntitySelection` middleware publishes the ticked ids — cut to the caller's
-  `AccessibleEntitiesAsync` — as `EntitySelection` (Data, async-flow like the key
+  `SwitcherEntitiesAsync` — as `EntitySelection` (Data, async-flow like the key
   scopes); `InboxEndpoints.EntityId` returns the first pick and `ScopeOwned` /
   `ScopeInherited` / `ScopingService.PickSubtree` widen it to every pick (use
   `PickSubtree` for a picked filter, never for an assignment). Pages that read
@@ -320,7 +326,12 @@ When you fix one of these, update this table, `README.md` and
   `ai_off` | `resolve` | `reopen` | `assign`). Messaging payloads carry `pk` (the
   message id) so AI bubbles get 👍/👎 (`components/ai-learning/BubbleFeedback.tsx`,
   see AI learning). Deep links: `/chats?thread=<channel>:<key>`,
-  `/chats?q=<text>`. The page does NOT poll — `lib/chatStream.ts` holds ONE SSE
+  `/chats?q=<text>`; the open chat IS the URL (opening one replaces `?thread=`,
+  pushes on a phone so Back returns to the list; an unknown or out-of-scope
+  `?thread=` shows "Conversation not found"). The composer's `/shortcut` picker:
+  ↑/↓ move, Enter/Tab insert, Esc closes (Enter never sends the shortcut); quick
+  replies are fetched for the conversation's own entity, and a reply still
+  holding `{{…}}` placeholders gets an inline warning. The page does NOT poll — `lib/chatStream.ts` holds ONE SSE
   connection per tab to `GET /api/whatsapp/stream` (all channels; the change
   token is `ThreadStore.ChangeToken()` = thread `UpdatedAt` + message count),
   ref-counted with a 2 s close grace so page navigation doesn't drop it, and
@@ -638,7 +649,10 @@ When you fix one of these, update this table, `README.md` and
   metered into `LlmUsage` at every call site; costs are estimated at READ time
   from Setting `llm_prices` (`AnalyticsService`). Case summaries
   (`SummaryService`, `/api/messaging/threads/{channel}/{key}/summary`) are
-  on-demand, persisted as `ConversationSummary`, heuristic without an LLM.
+  on-demand, persisted as `ConversationSummary` (a conversation with no contact
+  keeps its brief in-process, keyed by thread — the table needs a contact; private
+  notes are never counted or summarised; the chat panel auto-generates once per
+  message count), heuristic without an LLM.
   Knowledge API: `/api/aicore/knowledge` (+ `/preview` `{query}` = the exact
   knowledge + learned blocks the AI receives plus every scored hit — the
   "Test retrieval" view, `RetrievalTester.tsx`; `/upload` = a PDF / .txt / .md /
@@ -855,13 +869,15 @@ When you fix one of these, update this table, `README.md` and
   applies succeed once). One run at a time is a process-wide lock around the
   check + insert; a run heartbeats `updated_at` per batch and `ExpireStale` only
   fails a run whose heartbeat went quiet. Heuristic fix suggestions never quote
-  the customer. Tests: `AiReviewTests`.
+  the customer. An optional `level` (entity slug, "" = organization) overrides
+  where it lands — the panel's confirm dialog always sends it (editable text,
+  defaulting to the conversation's entity). Tests: `AiReviewTests`.
 - **Human handover** (`Ai/Handover.cs`, the ONLY writer of `crm_thread.handover_*`).
   `Handover.Mark(db, thread, kind, reason, by)`: kinds `check_failed` ·
   `asked_for_human` · `send_blocked` · `booking_failed` · `low_confidence` ·
   `rule` · `manual` · `unknown_customer` · `quota` (the AI usage quota, `standDown: false`); `by` = `ai` · `rule:<id>` · `flow` ·
   `agent:<username>` (· `identity`). It counts once while open, sets the chat
-  pending, adds the private note, notifies the owners, audits `ai.handover` and
+  pending (a RESOLVED chat reopens as pending too), adds the private note, notifies the owners, audits `ai.handover` and
   (default `standDown`) turns the chatbot off — the identity exchange's
   `unknown_customer` handover leaves the chatbot as it was, and a person linking
   or creating the contact through the identity banner (`POST
@@ -1042,7 +1058,8 @@ When you fix one of these, update this table, `README.md` and
   → its contact's entity when every link shares one company → unattributed
   (skill drafting, embeddings, the operator assistant — shown to managers,
   billed to nobody). Bill = cost × (1 + markup %) × the exchange rate + a
-  monthly fee (amounts kept to 4 decimals, shown so below 1 — a light month is
+  monthly fee — never for a month that ended before the company's
+  `created_at` — (amounts kept to 4 decimals, shown so below 1 — a light month is
   fractions of a cent); cost = the provider's own price per call where it reports one
   (`crm_llmusage.cost_usd` — OpenRouter's `usage.cost`, requested with
   `usage.include`), else tokens × `llm_prices` over OpenRouter's public price
@@ -1058,7 +1075,10 @@ When you fix one of these, update this table, `README.md` and
   this month (unchanged terms change nothing); the bill for month M uses the
   latest terms with `effective_from` ≤ M (a legacy row without one = every
   earlier month; a month older than every set uses the oldest). The settings GET
-  returns `history` (newest first, with `until`) for the "Terms by month" list.
+  returns `history` (newest first, with `until`) for the "Terms by month" list;
+  consecutive identical periods are ONE period (`AiBilling.Collapse`, applied on
+  save and when listing). The bill's `pricing_note` stays English for API
+  callers; the dashboard translates `pricing_note_code`.
   **AI usage quotas** (`Ai/AiQuota.cs`, Setting `ai_quotas` {entities:{id:amount},
   users:{username:amount}}, billing currency, 0/absent = no cap): spend = the
   month's BILLED usage (the month's terms; the fee never counts) — a company cap
@@ -1205,7 +1225,9 @@ When you fix one of these, update this table, `README.md` and
   never in the installed app) shows the Share → "Add to Home Screen" steps there
   and an Install button where the browser can prompt (`pwa.ts` `isIos`,
   `useInstallPrompt`); "Not now" snoozes 30 days, the sidebar's "Install app"
-  reopens it (`pwa:show-install`). The body never scrolls (the shell's panes
+  reopens it (`pwa:show-install`). It never stacks with a page guide (waits
+  while `useTour().busy`, and does not open by itself on the first visit to a
+  page whose guide auto-starts), and only its buttons take touches. The body never scrolls (the shell's panes
   do), so bare pages (`/login`, `PUBLIC_ROUTES`) scroll the DOCUMENT instead
   (`PageScroll` in `Shell.tsx` adds `html.page-scroll`, `globals.css`; it also
   jumps to a `#anchor` once drawn) — an inner scroll box did not scroll on iOS. **Ask ChatBranch** (`AssistantDock`) opens from
@@ -1520,7 +1542,9 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   save from "All entities" never duplicates an outlet's flow as a global one).
   ⚠ **The PUT PRUNES** the rows the same GET would have loaded that are missing
   from the browser's copy — after creating a Workflow row outside the UI,
-  refresh `/journeys` before its next sync.
+  refresh `/journeys` before its next sync. `flows.view` without
+  `flows.manage` opens `/journeys` READ-ONLY (no New / Import / Go live / rename /
+  step edits, and nothing is ever PUT).
 - **List first.** `/journeys` opens on the list of every journey
   (`JourneyList.tsx`: trigger summary from `describe.ts`, live / paused, steps,
   people entered in the period + in it now from `/api/analytics/flows`, Open);
@@ -1548,7 +1572,9 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   message** = the `AI message` marker channel + a `skill` id, composed by
   `ComposeActionTextAsync` and sent through the AI gate (skipped with a note while
   the AI controls say no) · call = AI voice call or Script call, `callVia` `Phone (SIP)` |
-  `WhatsApp (Baileys)` · app action) · wait (time, or until they reply) ·
+  `WhatsApp (Baileys)` · app action) · wait (time, or until they reply — a
+  reply that arrives while the run's own message step is still queued is NOT
+  an answer and wakes nothing, `FlowEngine.MessageNotSentYet`) ·
   **followup** ("Follow up if no reply": yes = replied, no = no reply; up to 5
   nudges, stops on resolve) · decision (see Decisions below) · handover (to a team; a tracked handover,
   kind `rule`) · update (add/remove tag, set a field, **Set chatbot on/off** =

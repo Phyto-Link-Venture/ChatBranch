@@ -22,7 +22,7 @@ import {
   type AiScheduleMode,
   type Weekday,
 } from '@/lib/aiControls'
-import { AiScheduleEditor } from './AiScheduleEditor'
+import { AiScheduleEditor, scheduleHasErrors } from './AiScheduleEditor'
 import { Trans, useFormat, useT, type MessageKey } from '@/i18n'
 
 const MODES: { value: AiMasterMode; label: MessageKey }[] = [
@@ -347,7 +347,8 @@ export function AiMasterSwitch() {
               </Button>
               <Button
                 size="sm"
-                disabled={busy}
+                // an unreadable window ("25:00", a half-typed time) would be dropped silently by the server
+                disabled={busy || (mode === 'schedule' && scheduleHasErrors(schedule))}
                 onClick={() =>
                   save(
                     {

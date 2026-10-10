@@ -242,7 +242,7 @@ export const work: Dict<typeof source> = {
       },
       s3: {
         title: 'Pilih satu dan hantar',
-        body: 'Klik balasan yang anda mahu. Teksnya mengisi kotak, dengan butiran seperti nama pelanggan sudah diisi. Ubah apa-apa yang anda suka, kemudian tekan Enter.',
+        body: 'Klik balasan yang anda mahu — atau gerak dengan kekunci ↑ dan ↓ dan tekan Enter atau Tab (Esc menutup senarai). Teksnya mengisi kotak, dengan butiran seperti nama pelanggan sudah diisi. Jika masih ada {{ruang isian}} (perbualan tanpa kenalan dipautkan), amaran dipaparkan di bawah kotak: gantikannya, kemudian tekan Enter.',
       },
       s4: {
         title: 'Atau gunakan butang pintasan',

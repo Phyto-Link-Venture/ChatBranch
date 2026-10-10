@@ -240,7 +240,7 @@ export const work = {
       },
       s3: {
         title: 'Pick one and send',
-        body: 'Click the reply you want. Its text fills the box, with details like the customer’s name already filled in. Change anything you like, then press Enter.',
+        body: 'Click the reply you want — or move with the ↑ and ↓ keys and press Enter or Tab (Esc closes the list). Its text fills the box, with details like the customer’s name already filled in. If a {{placeholder}} is left (a chat with no linked contact), a warning shows under the box: replace it, then press Enter.',
       },
       s4: {
         title: 'Or use the shortcut buttons',

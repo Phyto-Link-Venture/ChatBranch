@@ -200,4 +200,53 @@ public class EntitySelectionTests : IClassFixture<ApiFactory>
             });
         }
     }
+
+    private static List<string> Slugs(JsonElement j) =>
+        j.GetProperty("entities").EnumerateArray().Select(e => e.ValueKind == JsonValueKind.String
+            ? e.GetString()! : e.GetProperty("slug").GetString()!).ToList();
+
+    [Fact]
+    public async Task The_switcher_offers_an_assigned_agent_its_branches_and_an_unassigned_one_the_tenant()
+    {
+        var s = Seed();
+        // unassigned agent: tenant-wide, so the switcher lists the tenant's entities
+        var free = await Platform.As(_f, "agent", "agent123");
+        var who0 = Slugs(await free.GetFromJsonAsync<JsonElement>("/api/v1/whoami"));
+        Assert.Contains("sel-a", who0);
+        Assert.Contains("sel-b", who0);
+        Assert.Contains("sel-a-kl", Slugs(await free.GetFromJsonAsync<JsonElement>("/api/v1/entities")));
+
+        WithDb(db =>
+        {
+            var profile = db.Profiles.Include(p => p.Entities).Include(p => p.User).First(p => p.User!.Username == "agent");
+            if (!profile.Entities.Any(e => e.Id == s.A)) profile.Entities.Add(db.Entities.First(e => e.Id == s.A));
+            return db.SaveChanges();
+        });
+        try
+        {
+            var agent = await Platform.As(_f, "agent", "agent123");
+            var who = Slugs(await agent.GetFromJsonAsync<JsonElement>("/api/v1/whoami"));
+            Assert.Contains("sel-a", who);
+            Assert.Contains("sel-a-kl", who);   // the branch under the assignment
+            Assert.DoesNotContain("sel-b", who);
+            var list = Slugs(await agent.GetFromJsonAsync<JsonElement>("/api/v1/entities"));
+            Assert.Contains("sel-a-kl", list);
+            Assert.DoesNotContain("sel-c", list);
+
+            // narrowing to the branch alone (or the branch + an outsider) keeps it in scope
+            var branch = DraftIds(await agent.GetFromJsonAsync<JsonElement>("/api/ai/monitor?entity=sel-a-kl,sel-c&page_size=200"));
+            Assert.Contains(s.Drafts["akl"], branch);
+            Assert.DoesNotContain(s.Drafts["a"], branch);
+            Assert.DoesNotContain(s.Drafts["c"], branch);
+        }
+        finally
+        {
+            WithDb(db =>
+            {
+                var profile = db.Profiles.Include(p => p.Entities).Include(p => p.User).First(p => p.User!.Username == "agent");
+                foreach (var e in profile.Entities.Where(e => e.Id == s.A).ToList()) profile.Entities.Remove(e);
+                return db.SaveChanges();
+            });
+        }
+    }
 }

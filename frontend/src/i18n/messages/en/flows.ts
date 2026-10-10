@@ -147,6 +147,7 @@ export const flows = {
   builder: {
     syncLocal: 'Offline — saved in this browser',
     syncReadonly: 'View only',
+    viewOnly: 'View only — you can see this journey and its runs, but changing journeys needs the “Build & edit flows” permission.',
     period: 'Period',
     period7: '7 days',
     period30: '30 days',
@@ -592,6 +593,7 @@ export const flows = {
     colStep: 'Step',
     colReached: 'Reached',
     colDrop: 'Drop',
+    notTaken: 'Not taken',
     colNow: 'Now',
     seeWhoReached: 'See who reached this step',
     dropExplainer:
@@ -706,6 +708,7 @@ export const flows = {
     pickTeam: 'Pick a team…',
     agent: 'Agent',
     pickAgent: 'Pick an agent…',
+    pickAssignee: 'Pick the team or agent for each “Assign to …” action before saving.',
     noMatchingContact: 'When there is no matching contact',
     identityAsk: 'Ask — leave a note if no contact matches',
     identityAskCreate: 'Ask and create the contact',

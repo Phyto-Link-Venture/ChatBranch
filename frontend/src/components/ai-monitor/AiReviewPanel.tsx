@@ -16,6 +16,9 @@ import { AlertCircle, CheckCircle2, ExternalLink, Loader2, Sparkles } from 'luci
 import { Button } from '@/components/ui/Button'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { Advanced } from '@/components/ui/Advanced'
+import { Modal } from '@/components/ui/Modal'
+import { EntityPicker } from '@/components/ui/EntityPicker'
+import { useEntity } from '@/lib/EntityContext'
 import { useChannelLabel } from '@/components/ui/ChannelLogo'
 import { hasCap } from '@/lib/auth'
 import { reviewApi, type ApplyAs, type ReviewFinding, type ReviewRun, type ReviewRunDetail, type Reviewer } from '@/lib/aiReview'
@@ -72,6 +75,12 @@ export function AiReviewPanel({ entityQuery }: { entityQuery: string }) {
   const [issuesOnly, setIssuesOnly] = useState(true)
   const [applying, setApplying] = useState<number | null>(null)
   const [applyMsg, setApplyMsg] = useState<Record<number, { ok: boolean; text: string }>>({})
+  // the confirm dialog: what is added, as what, at which level of the tree
+  const { entities } = useEntity()
+  const [confirm, setConfirm] = useState<{ finding: ReviewFinding; as: ApplyAs; text: string; level: string | null } | null>(
+    null,
+  )
+  const [confirmError, setConfirmError] = useState<string | null>(null)
 
   // capabilities are read after mount (hydration-safe)
   useEffect(() => {
@@ -152,16 +161,33 @@ export function AiReviewPanel({ entityQuery }: { entityQuery: string }) {
     }
   }
 
-  async function apply(finding: ReviewFinding, as: ApplyAs) {
+  // Opens the confirm dialog — nothing is added until the person checks the
+  // wording and the level. Default level: the conversation's own entity.
+  function apply(finding: ReviewFinding, as: ApplyAs) {
+    const own = finding.entity_id != null ? entities.find((e) => e.id === finding.entity_id)?.slug ?? null : null
+    setConfirmError(null)
+    setConfirm({ finding, as, text: finding.fix.text, level: own })
+  }
+
+  async function confirmApply() {
+    if (!confirm) return
+    const { finding, as, text, level } = confirm
+    if (!text.trim()) {
+      setConfirmError(t('ai.reviewer.confirm.empty'))
+      return
+    }
     setApplying(finding.id)
+    setConfirmError(null)
     try {
-      const r = await reviewApi.apply(finding.id, as)
+      const r = await reviewApi.apply(finding.id, as, text.trim(), level ?? '')
       setDetail((cur) =>
         cur ? { ...cur, findings: cur.findings.map((x) => (x.id === finding.id ? r.finding : x)) } : cur,
       )
       setApplyMsg((m) => ({ ...m, [finding.id]: { ok: true, text: r.result?.message || t('ai.reviewer.added') } }))
+      setConfirm(null)
     } catch (e) {
-      setApplyMsg((m) => ({ ...m, [finding.id]: { ok: false, text: (e as Error).message } }))
+      // the error stays INSIDE the dialog (a page-level line would sit under the scrim)
+      setConfirmError((e as Error).message)
     } finally {
       setApplying(null)
     }
@@ -530,6 +556,47 @@ export function AiReviewPanel({ entityQuery }: { entityQuery: string }) {
           </ul>
         )}
       </Card>
+      <Modal
+        open={!!confirm}
+        onClose={() => setConfirm(null)}
+        title={confirm ? t(`ai.reviewer.confirm.title.${confirm.as}` as MessageKey) : ''}
+        subtitle={t('ai.reviewer.confirm.subtitle')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setConfirm(null)}>
+              {t('common.actions.cancel')}
+            </Button>
+            <Button onClick={confirmApply} disabled={!confirm || applying === confirm.finding.id || !confirm.text.trim()}>
+              {t('ai.reviewer.confirm.add')}
+            </Button>
+          </>
+        }
+      >
+        {confirm && (
+          <div className="flex flex-col gap-3">
+            {confirmError && <ErrorLine text={confirmError} />}
+            <label className="flex flex-col gap-1">
+              <span className="text-[12px] font-semibold text-text-mid">{t('ai.reviewer.confirm.text')}</span>
+              <textarea
+                value={confirm.text}
+                onChange={(e) => setConfirm({ ...confirm, text: e.target.value })}
+                rows={4}
+                maxLength={2000}
+                className="w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[13px] text-text-primary outline-none focus:border-brand-400"
+              />
+            </label>
+            <div className="flex flex-col gap-1">
+              <span className="text-[12px] font-semibold text-text-mid">{t('ai.reviewer.confirm.level')}</span>
+              <EntityPicker
+                value={confirm.level}
+                onChange={(slug) => setConfirm({ ...confirm, level: slug })}
+                ariaLabel={t('ai.reviewer.confirm.level')}
+              />
+              <span className="text-[11.5px] text-text-muted">{t('ai.reviewer.confirm.levelHint')}</span>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }

@@ -141,7 +141,16 @@ public static class MetaGraph
         }
         catch (HttpRequestException ex)
         {
-            return new GraphRead(false, default, $"could not reach Meta ({ex.Message})");
+            // the exception text can carry an internal proxy / host address — say
+            // what happened (a network problem), never where it happened
+            var why = ex.HttpRequestError switch
+            {
+                HttpRequestError.NameResolutionError => "the address could not be resolved",
+                HttpRequestError.ConnectionError or HttpRequestError.ProxyTunnelError => "the connection failed",
+                HttpRequestError.SecureConnectionError => "the secure connection failed",
+                _ => "a network error",
+            };
+            return new GraphRead(false, default, $"could not reach Meta ({why})");
         }
         finally
         {

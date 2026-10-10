@@ -432,5 +432,17 @@ public class AiBillingTermsTests : IClassFixture<ApiFactory>
         Assert.Single(later.History);
         Assert.Equal(10, later.TermsFor("2026-11").DefaultMarkupPct);
         Assert.Equal(40, later.TermsFor("2026-12").DefaultMarkupPct);
+
+        // changed, then changed back in the same month: ONE period, not two identical rows
+        var back = AiBilling.Apply(later, true, new BillingTerms { DefaultMarkupPct = 10 },
+            new DateTime(2026, 12, 20, 0, 0, 0, DateTimeKind.Utc));
+        Assert.Empty(back.History);
+        Assert.Equal("2026-10", back.EffectiveFrom);
+        Assert.Single(back.Timeline());
+        // a stored history that already holds identical neighbours lists them once
+        var dup = new BillingSettings { DefaultMarkupPct = 10, EffectiveFrom = "2026-12",
+            History = new() { new BillingTerms { DefaultMarkupPct = 10, EffectiveFrom = "2026-10" } } };
+        Assert.Single(dup.Timeline());
+        Assert.Equal("2026-10", dup.Timeline()[0].Terms.EffectiveFrom);
     }
 }

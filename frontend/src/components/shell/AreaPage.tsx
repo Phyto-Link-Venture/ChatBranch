@@ -70,7 +70,9 @@ export function AreaPage({
   const t = useT()
   return (
     <SettingsDirtyProvider>
-      <div className="flex min-h-0 flex-1 flex-col gap-4">
+      {/* below lg: natural height, scrolling with the page pane (a capped flex
+          column made a tiny nested scroll box on phones and in landscape) */}
+      <div className="flex shrink-0 flex-col gap-4 lg:min-h-0 lg:flex-1 lg:shrink">
         <PageHeader
           eyebrow={
             <span className="inline-flex items-center gap-1.5">
@@ -88,9 +90,9 @@ export function AreaPage({
           }
         />
 
-        {/* Height-capped (flex-1) so tall content scrolls inside the page body
-            while the masthead and its Save/Discard stay in view. */}
-        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+        {/* From lg: height-capped (flex-1) so tall content scrolls inside the page
+            body while the masthead and its Save/Discard stay in view. */}
+        <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">{children}</div>
       </div>
     </SettingsDirtyProvider>
   )

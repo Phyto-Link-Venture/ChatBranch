@@ -24,6 +24,8 @@ const SELECTED_KEY = 'chatbranch-entities' // JSON: string[] of slugs, or ["__al
 const ALL = '__all__' // sentinel: view across every entity
 
 export interface Entity {
+  /** Row id (GET /api/v1/entities sends it). */
+  id?: number
   slug: string
   name: string
   tenant: string
@@ -142,8 +144,39 @@ export function EntityProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // Load on mount AND whenever the signed-in session changes: the provider
+  // mounts on /login (no token yet), so without this the switcher stayed on a
+  // disabled "All entities" until a full reload. A session swap in another
+  // tab arrives as a `storage` event.
   useEffect(() => {
+    let lastToken = getAuth()?.token ?? null
     void load()
+    const onAuth = () => {
+      const token = getAuth()?.token ?? null
+      if (token === lastToken) return
+      lastToken = token
+      if (!token) {
+        setTenant(null)
+        setEntities([])
+        setSelected([])
+        return
+      }
+      setLoading(true)
+      void load()
+    }
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === null || e.key === 'chatbranch-auth') onAuth()
+      else if (e.key === SELECTED_KEY) {
+        const stored = readStored()
+        if (stored) setSelected(stored.includes(ALL) ? [] : stored)
+      }
+    }
+    window.addEventListener('auth-change', onAuth)
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener('auth-change', onAuth)
+      window.removeEventListener('storage', onStorage)
+    }
   }, [load])
 
   const setActiveEntity = useCallback((slug: string | null) => {

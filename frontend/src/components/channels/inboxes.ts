@@ -415,7 +415,9 @@ export function fromMessaging(a: MessagingAccount): Inbox {
       : kind === 'telegram'
         ? a.external_id
           ? msg('channels.address.bot', { id: a.external_id })
-          : msg('channels.address.botTokenLinked')
+          : a.access_token_masked
+            ? msg('channels.address.botTokenLinked')
+            : msg('channels.address.noBotToken')
         : a.external_id
           ? msg(kind === 'messenger' ? 'channels.address.page' : 'channels.address.account', { id: a.external_id })
           : msg('channels.address.idNotSet')

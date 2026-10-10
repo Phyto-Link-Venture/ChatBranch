@@ -63,7 +63,7 @@ export function TemplatesModule() {
   const setScripts = useCallback((n: number) => setCounts((c) => ({ ...c, scripts: n })), [])
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
+    <div className="flex shrink-0 flex-col gap-4 lg:min-h-0 lg:flex-1 lg:shrink">
       <PageHeader eyebrow={t('shell.groups.library')} title={t('shell.nav.templates')} subtitle={t('library.module.subtitle')} />
 
       <div
@@ -97,7 +97,7 @@ export function TemplatesModule() {
         })}
       </div>
 
-      <div data-tour="templates-panel" className="min-h-0 flex-1 overflow-y-auto pb-6" role="tabpanel">
+      <div data-tour="templates-panel" className="pb-6 lg:min-h-0 lg:flex-1 lg:overflow-y-auto" role="tabpanel">
         {tab === 'messages' && <SharedTemplatesSettings onCount={setMessages} openId={openId} onOpened={opened} />}
         {tab === 'scripts' && <ScriptTemplatesSettings onCount={setScripts} openId={openId} onOpened={opened} />}
         {tab === 'whatsapp' && (

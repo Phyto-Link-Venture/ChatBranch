@@ -386,7 +386,7 @@ public static class AdminEndpoints
         // admin their own tenant, agent only their assigned entities.
         app.MapGet("/api/v1/entities", async (ClaimsPrincipal me, AppDbContext db) =>
         {
-            var rows = await AccessibleEntitiesAsync(db, me);
+            var rows = await SwitcherEntitiesAsync(db, me);
             return Results.Ok(new
             {
                 entities = rows.Select(e => new
@@ -661,6 +661,40 @@ public static class AdminEndpoints
             q = q.Where(e => ids.Contains(e.Id) && e.TenantId == atid);
         }
         return await q.OrderBy(e => e.Tenant!.Slug).ThenBy(e => e.Slug).ToListAsync();
+    }
+
+    /// <summary>
+    /// The entities the topbar switcher offers (whoami, GET /api/v1/entities and
+    /// the multi-pick cut in <c>EntitySelectionMiddleware</c>). Superadmin/admin =
+    /// <see cref="AccessibleEntitiesAsync"/>. An agent / custom role ASSIGNED to
+    /// entities also gets every branch under them — scope flows UP the tree
+    /// (<c>ScopeOwned</c> already lets head office read its branches), so this is
+    /// never wider than what their lists return; it only lets them NARROW to a
+    /// branch. An agent with no assignment is tenant-wide, so their tenant's
+    /// entities are offered.
+    /// </summary>
+    internal static async Task<List<Entity>> SwitcherEntitiesAsync(AppDbContext db, ClaimsPrincipal me)
+    {
+        var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
+        if (role == Roles.SuperAdmin || role == Roles.Admin) return await AccessibleEntitiesAsync(db, me);
+        if (TenantId(me) is not int tid) return new List<Entity>();
+        var all = await db.Entities.AsNoTracking().Include(e => e.Tenant).Include(e => e.Parent)
+            .Where(e => e.TenantId == tid).ToListAsync();
+        var assigned = (await AssignedEntityIdsAsync(db, me.Identity?.Name)).ToHashSet();
+        IEnumerable<Entity> rows = all;
+        if (assigned.Count > 0)
+        {
+            var keep = all.Where(e => assigned.Contains(e.Id)).Select(e => e.Id).ToHashSet();
+            // walk down: add the children of anything kept until nothing changes
+            for (var grew = true; grew;)
+            {
+                grew = false;
+                foreach (var e in all)
+                    if (e.ParentId is int p && keep.Contains(p) && keep.Add(e.Id)) grew = true;
+            }
+            rows = all.Where(e => keep.Contains(e.Id));
+        }
+        return rows.OrderBy(e => e.Tenant?.Slug).ThenBy(e => e.Slug).ToList();
     }
 
     private static async Task<List<int>> AssignedEntityIdsAsync(AppDbContext db, string? username)

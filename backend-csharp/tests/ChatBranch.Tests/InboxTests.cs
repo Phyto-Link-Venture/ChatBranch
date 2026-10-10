@@ -33,6 +33,38 @@ public class InboxTests : IClassFixture<ApiFactory>
         Assert.Equal(System.Net.HttpStatusCode.OK, res.StatusCode);
         var body = await res.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(JsonValueKind.Object, body.GetProperty("summary").ValueKind);
+
+        // the contactless brief is kept: GET right after POST finds it (the panel
+        // used to regenerate it every few minutes), and private notes never count
+        (await c.PostAsJsonAsync($"/api/messaging/threads/whatsapp/{key}/note", new { text = "internal only" }))
+            .EnsureSuccessStatusCode();
+        var got = await c.GetFromJsonAsync<JsonElement>($"/api/messaging/threads/whatsapp/{key}/summary");
+        Assert.Equal(JsonValueKind.Object, got.GetProperty("summary").ValueKind);
+        Assert.Equal(body.GetProperty("summary").GetProperty("summary").GetString(),
+            got.GetProperty("summary").GetProperty("summary").GetString());
+        Assert.Equal(1, got.GetProperty("message_count").GetInt32());
+        Assert.False(got.GetProperty("stale").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Contact_notes_round_trip_on_every_contact_payload()
+    {
+        var c = await AuthedClient();
+        var made = await c.PostAsJsonAsync("/api/v1/contacts",
+            new { name = "Notes Person", phone = "+60177770123", notes = "Prefers mornings" });
+        Assert.Equal(System.Net.HttpStatusCode.Created, made.StatusCode);
+        var id = (await made.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
+
+        var one = await c.GetFromJsonAsync<JsonElement>($"/api/v1/contacts/{id}");
+        Assert.Equal("Prefers mornings", one.GetProperty("notes").GetString());
+        var list = await c.GetFromJsonAsync<JsonElement>("/api/contacts?limit=500");
+        var row = list.GetProperty("contacts").EnumerateArray().First(x => x.GetProperty("id").GetInt32() == id);
+        Assert.Equal("Prefers mornings", row.GetProperty("notes").GetString());
+
+        var patch = new HttpRequestMessage(HttpMethod.Patch, $"/api/v1/contacts/{id}")
+        { Content = JsonContent.Create(new { notes = "Evenings now" }) };
+        (await c.SendAsync(patch)).EnsureSuccessStatusCode();
+        Assert.Equal("Evenings now", (await c.GetFromJsonAsync<JsonElement>($"/api/v1/contacts/{id}")).GetProperty("notes").GetString());
     }
 
     [Fact]

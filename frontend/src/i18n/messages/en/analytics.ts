@@ -146,6 +146,9 @@ export const analytics = {
     received: 'Received',
     empty: 'No conversations in this window.',
     emptyLabels: 'Nothing labelled yet.',
+    unassigned: '(unassigned)',
+    noTeam: '(no team)',
+    noLabel: '(no label)',
   },
   funnel: {
     title: 'Message funnel',

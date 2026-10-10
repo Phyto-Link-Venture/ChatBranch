@@ -20,6 +20,7 @@ export const billing: Dict<typeof source> = {
   managerLine: 'Kos {cost} · markup {markup}% · margin {margin}. Hanya pengurus bil melihat baris ini.',
   companiesTitle: 'Syarikat — {month}',
   unattributed: '{requests} permintaan ({cost}) bukan milik mana-mana syarikat — draf kemahiran, pengindeksan dan pembantu operator. Ia tidak dibilkan.',
+  pricingNote: 'Kos = caj pembekal bagi setiap panggilan (dilaporkan oleh OpenRouter); panggilan tanpa harga yang dilaporkan dianggarkan daripada jadual harga anda berdasarkan senarai harga awam OpenRouter (USD bagi setiap 1J token). Bil = kos × (1 + markup) × kadar pertukaran + yuran bulanan.',
   cols: {
     item: 'Perkara',
     requests: 'Permintaan',

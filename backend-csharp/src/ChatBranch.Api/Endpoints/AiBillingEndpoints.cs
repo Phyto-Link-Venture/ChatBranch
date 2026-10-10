@@ -120,7 +120,7 @@ public static class AiBillingEndpoints
 
             // ---- the tree: entity -> its company (top-level ancestor)
             var entities = await db.Entities.AsNoTracking()
-                .Select(e => new { e.Id, e.ParentId, e.Name, e.Slug }).ToListAsync();
+                .Select(e => new { e.Id, e.ParentId, e.Name, e.Slug, e.CreatedAt }).ToListAsync();
             var byId = entities.ToDictionary(e => e.Id);
             int? CompanyOf(int? entityId)
             {
@@ -175,7 +175,9 @@ public static class AiBillingEndpoints
                 var mine = rows.Where(r => r.Company == companyId).ToList();
                 var cost = mine.Sum(r => r.CostUsd);
                 var usage = Billed(companyId, cost);
-                var fee = Math.Round(settings.FeeFor(companyId), 2);
+                // no monthly fee for a month that ended before the company existed
+                var existed = !byId.TryGetValue(companyId, out var row) || row.CreatedAt == default || row.CreatedAt < to;
+                var fee = existed ? Math.Round(settings.FeeFor(companyId), 2) : 0d;
                 return new
                 {
                     id = companyId, name, slug,
@@ -231,6 +233,8 @@ public static class AiBillingEndpoints
                       + "price are estimated from llm_prices over OpenRouter's public price list (USD per 1M tokens). "
                       + "Bill = cost × (1 + markup) × the exchange rate + the monthly fee."
                     : null,
+                // the dashboard translates the note by this code (the text above stays for API callers)
+                pricing_note_code = manager ? "provider_cost_markup_fee" : null,
             });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(ViewCap);
 

@@ -169,6 +169,16 @@ export function BreakdownReports({ days, entityQ }: { days: number; entityQ: str
     </Card>
   )
 
+  // the API's fixed "nobody" buckets (kept as-is in the CSV) read in the viewer's language
+  const none = (name: string) =>
+    name === '(unassigned)'
+      ? t('analytics.reports.unassigned')
+      : name === '(no team)'
+        ? t('analytics.reports.noTeam')
+        : name === '(none)'
+          ? t('analytics.reports.noLabel')
+          : name
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line pb-2">
@@ -186,7 +196,7 @@ export function BreakdownReports({ days, entityQ }: { days: number; entityQ: str
             t('analytics.reports.resolved'),
             t('analytics.reports.sent'),
           ]}
-          rows={data.agents.map((a) => [a.name, a.conversations, a.resolved, a.messagesSent])}
+          rows={data.agents.map((a) => [none(a.name), a.conversations, a.resolved, a.messagesSent])}
           empty={t('analytics.reports.empty')}
         />
         <Section
@@ -198,14 +208,14 @@ export function BreakdownReports({ days, entityQ }: { days: number; entityQ: str
             t('analytics.reports.open'),
             t('analytics.reports.resolved'),
           ]}
-          rows={data.teams.map((tm) => [tm.name, tm.conversations, tm.open, tm.resolved])}
+          rows={data.teams.map((tm) => [none(tm.name), tm.conversations, tm.open, tm.resolved])}
           empty={t('analytics.reports.empty')}
         />
         <Section
           title={t('analytics.reports.byLabel')}
           report="labels"
           head={[t('analytics.reports.label'), t('analytics.reports.conversations')]}
-          rows={data.labels.map((l) => [l.name, l.conversations])}
+          rows={data.labels.map((l) => [none(l.name), l.conversations])}
           empty={t('analytics.reports.emptyLabels')}
         />
         <Section

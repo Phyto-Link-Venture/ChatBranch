@@ -597,6 +597,7 @@ public static class ContactsEndpoints
                 ["language"] = c.Language.Length > 0 ? c.Language : "en",
                 ["tags"] = c.Tags,
                 ["attributes"] = c.Attributes,
+                ["notes"] = c.Notes,
                 // Entity slugs this contact is linked to — a tenant's contacts are
                 // shared across its entities; this powers the topbar switcher.
                 ["entities"] = slugsBy.TryGetValue(c.Id, out var sl) ? sl : new List<string>(),

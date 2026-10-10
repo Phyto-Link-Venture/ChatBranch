@@ -147,6 +147,9 @@ export const analytics: Dict<typeof source> = {
     received: 'Diterima',
     empty: 'Tiada perbualan dalam tempoh ini.',
     emptyLabels: 'Belum ada yang dilabelkan.',
+    unassigned: '(belum ditugaskan)',
+    noTeam: '(tiada pasukan)',
+    noLabel: '(tiada label)',
   },
   funnel: {
     title: 'Corong mesej',

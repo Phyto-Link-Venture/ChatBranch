@@ -213,6 +213,7 @@ export function clearAuth(): void {
   }
   clearAssistantCache()
   clearPlaygroundCache()
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('auth-change'))
 }
 
 export function getRole(): Role {
@@ -309,6 +310,8 @@ export async function login(username: string, password: string): Promise<AuthUse
   clearAssistantCache()
   clearPlaygroundCache()
   setAuth(user)
+  // listeners (the entity switcher, the shell) re-read the new session
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('auth-change'))
   return user
 }
 
