@@ -306,7 +306,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `entities_get_tags` | Get an entity's tags | read | `tags.view` |
 | `entities_set_tags` | Set an entity's tags | write | `tags.manage` |
 
-#### ai (35)
+#### ai (42)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -345,6 +345,13 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `ai_review_list_runs` | List AI review runs | read | `ai.monitor` or `ai.behaviour.manage` |
 | `ai_review_get_run` | Get an AI review run | read | `ai.monitor` or `ai.behaviour.manage` |
 | `ai_review_apply_finding` | Apply an AI review suggestion | write | `ai.behaviour.manage` |
+| `ai_tasks_list` | List background AI tasks | read | `ai.monitor` or `settings.ai.manage` |
+| `ai_tasks_create` | Create a background AI task | write | `settings.ai.manage` |
+| `ai_tasks_update` | Update a background AI task | write | `settings.ai.manage` |
+| `ai_tasks_delete` | Delete a background AI task | write · **destructive** | `settings.ai.manage` |
+| `ai_tasks_list_runs` | List a background AI task's runs | read | `ai.monitor` or `settings.ai.manage` |
+| `ai_tasks_test` | Dry-run a background AI task | read | `settings.ai.manage` |
+| `ai_tasks_run_due` | Run due background AI tasks now | write | `settings.ai.manage` |
 
 #### skills (7)
 
