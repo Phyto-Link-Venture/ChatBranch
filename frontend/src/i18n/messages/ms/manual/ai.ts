@@ -496,8 +496,8 @@ export const ai: Dict<typeof source> = {
         body: 'Di bawah “Apa yang AI boleh buat”, hidupkan Invois, Sebut harga, Resit dan/atau Surat. Tambah butiran bank dalam “Arahan bayaran” — ia dicetak pada invois dan sebut harga.',
       },
       s5: {
-        title: 'Pilihan: logo, warna dan penomboran',
-        body: 'Buka “Tetapan lanjutan” untuk memuat naik logo, memilih warna aksen, menetapkan nombor pendaftaran dan cukai, bahasa cetakan, serta awalan dan nombor pertama setiap jenis (contohnya INV- bermula pada 1001).',
+        title: 'Pilihan: rupa, logo dan penomboran',
+        body: 'Di bawah “Rupa”, klik “Reka templat”: mula daripada Klasik, Moden, Minimal atau Tegas, klik “Muat naik reka bentuk saya” untuk menyalin invois atau kepala surat yang anda sudah guna (PDF, PNG atau JPEG — hidupkan “Guna juga PDF saya sebagai latar halaman” untuk mencetaknya di bawah setiap halaman), atau taip permintaan di “Tanya AI” seperti “jadikan minimal dengan kepala biru tua” (“Buat asal” membatalkannya). Setiap panel di kiri mengubah satu blok; pratonton di kanan dikemas kini serta-merta, dan “Menyunting” boleh mengubah satu jenis dokumen sahaja. Klik “Guna”. “Tetapan lanjutan” pada borang menyimpan logo, warna aksen, nombor pendaftaran dan cukai, bahasa cetakan, serta awalan dan nombor pertama setiap jenis (contohnya INV- bermula pada 1001).',
       },
       s6: {
         title: 'Pratonton PDF',

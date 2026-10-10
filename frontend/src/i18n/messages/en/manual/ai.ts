@@ -494,8 +494,8 @@ export const ai = {
         body: 'Under “What the AI may create”, switch on Invoices, Quotations, Receipts and/or Letters. Add your bank details in “Payment instructions” — they are printed on invoices and quotations.',
       },
       s5: {
-        title: 'Optional: logo, colour and numbering',
-        body: 'Open “Advanced settings” to upload a logo, pick the accent colour, set registration and tax numbers, the printed language, and each type’s prefix and first number (for example INV- starting at 1001).',
+        title: 'Optional: the look, logo and numbering',
+        body: 'Under “Look”, click “Design template”: start from Classic, Modern, Minimal or Bold, click “Upload my design” to copy an invoice or letterhead you already use (PDF, PNG or JPEG — switch on “Also use my PDF as the page background” to print it under every page), or type a request in “Ask AI” such as “make it minimal with a navy header” (“Undo” takes it back). Each panel on the left changes one block; the preview on the right updates as you go, and “Editing” can change one document type only. Click “Apply”. “Advanced settings” on the form holds the logo, accent colour, registration and tax numbers, the printed language, and each type’s prefix and first number (for example INV- starting at 1001).',
       },
       s6: {
         title: 'Preview the PDF',

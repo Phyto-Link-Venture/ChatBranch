@@ -314,7 +314,7 @@ Admins keep the tenant-wide view. Tests: `QaScopeFixesTests`.
 | `/api/ai/review/options` (the reviewer picker: providers — never keys — with suggested models, the default, `can_set_default` = `settings.ai_keys.manage`) | `ai.behaviour.manage` | AI monitor → AI review |
 | `/api/ai/tasks` (the library rule + the tool catalog; `can_manage` says whether the caller may edit), `/api/ai/tasks/{id}/runs` (runs of conversations in the caller's scope) | `ai.monitor`, `settings.ai.manage` | Background AI tasks |
 | `POST /api/aicore/knowledge/preview` | `settings.ai.manage`, `ai.monitor` | Knowledge, AI monitor's retrieval tester |
-| `/api/aicore/knowledge`, `/persona`, `/skills/apps`, `/skills/builtins`, `/skills/documents/logo/{name}` | `settings.ai.manage` | Knowledge base, AI skills (the Documents app's logo) |
+| `/api/aicore/knowledge`, `/persona`, `/skills/apps`, `/skills/builtins`, `/skills/documents/logo/{name}`, `/skills/documents/letterhead/{name}` | `settings.ai.manage` | Knowledge base, AI skills (the Documents app's logo and template letterhead background) |
 | `/api/documents/preview/{id}` | `ai.monitor`, `ai.behaviour.manage`, `settings.ai.manage` | AI playground previews, the Documents skill's "Preview PDF" |
 | `/api/aicore/skills` | `settings.ai.manage`, `flows.manage` | AI skills, the Journeys skill picker |
 | `/api/aicore/booking-hours` | `integrations.view`, `settings.ai.manage` | Integrations (booking hours) |

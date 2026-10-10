@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { AlertCircle, CheckCircle2, FileText, ImagePlus, Info, Loader2, PlugZap, QrCode, X } from 'lucide-react'
+import { AlertCircle, CheckCircle2, FileText, ImagePlus, Info, Loader2, Palette, PlugZap, QrCode, X } from 'lucide-react'
 import { Advanced } from '@/components/ui/Advanced'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
@@ -24,6 +24,8 @@ import {
   type ToolAppCatalogEntry,
   type ToolAppConfig,
 } from './readySkills'
+import { DocumentDesigner } from './DocumentDesigner'
+import type { DocTemplate } from './documentTemplate'
 
 /**
  * Settings of a ready-made Connected app skill other than the calendar —
@@ -89,7 +91,13 @@ export function ToolAppForm({
         <Note tone="amber">{t('readySkills.form.connectAt', { provider: entry.provider_label })}</Note>
       )}
       {config.app === 'documents' && (
-        <DocumentsFields c={config} set={(p) => onChange({ ...config, ...p })} readOnly={readOnly} cjk={entry?.cjk_font} />
+        <DocumentsFields
+          c={config}
+          set={(p) => onChange({ ...config, ...p })}
+          readOnly={readOnly}
+          cjk={entry?.cjk_font}
+          presets={entry?.template_presets}
+        />
       )}
       {config.app === 'qr' && <QrFields c={config} set={(p) => onChange({ ...config, ...p })} readOnly={readOnly} />}
       {config.app === 'payments' && (
@@ -122,14 +130,18 @@ function DocumentsFields({
   set,
   readOnly,
   cjk,
+  presets,
 }: {
   c: DocumentsConfig
   set: (p: Partial<DocumentsConfig>) => void
   readOnly: boolean
   cjk?: boolean
+  presets?: Record<string, DocTemplate>
 }) {
   const t = useT()
   const d = TOOL_DEFAULTS.documents
+  const [designing, setDesigning] = useState(false)
+  const overridden = c.template ? DOCUMENT_TYPES.filter((x) => c.template?.overrides?.[x] && Object.keys(c.template.overrides[x]!).length) : []
   const customised = [
     c.registration_no, c.tax_no, c.website, c.logo,
     c.footer_note !== d.footer_note ? 'x' : '', c.accent !== d.accent ? 'x' : '', c.language !== d.language ? 'x' : '',
@@ -173,6 +185,40 @@ function DocumentsFields({
             />
           </Field>
         </div>
+      </Section>
+
+      <Section title={t('readySkills.designer.lookLabel')}>
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-line px-3 py-2.5">
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] font-semibold text-text-high">
+              {c.template
+                ? t('readySkills.designer.lookCustom', { preset: t(`readySkills.designer.presets.${c.template.preset}`) })
+                : t('readySkills.designer.lookClassic')}
+            </div>
+            <div className="text-[11.5px] leading-snug text-text-muted">
+              {overridden.length
+                ? t('readySkills.designer.lookOverrides', { types: overridden.map((x) => t(TYPE_LABEL[x])).join(', ') })
+                : t('readySkills.designer.lookHint')}
+            </div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => setDesigning(true)}>
+            <Palette size={13} aria-hidden /> {t('readySkills.designer.open')}
+          </Button>
+          {c.template && !readOnly && (
+            <Button variant="ghost" size="sm" onClick={() => set({ template: null })}>
+              {t('readySkills.designer.useClassic')}
+            </Button>
+          )}
+        </div>
+        {designing && (
+          <DocumentDesigner
+            config={c}
+            presets={presets}
+            readOnly={readOnly}
+            onClose={() => setDesigning(false)}
+            onApply={({ template, business }) => set({ ...business, template })}
+          />
+        )}
       </Section>
 
       <Section title={t('readySkills.form.money')}>
