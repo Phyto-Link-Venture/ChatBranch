@@ -4,6 +4,10 @@
  * AI review — "AI to monitor AI". On demand only: an admin clicks Review now,
  * a stronger model (Settings → AI keys & models → AI reviewer model) checks a
  * sample of the AI's recent replies and suggests changes to the team's setup.
+ * The "Reviewer model" picker (GET /api/ai/review/options) preselects that
+ * default; another configured model is sent as `model` for that run only, and
+ * a settings.ai_keys.manage holder can "Make this the default" (PUT
+ * /api/settings/ai-providers `ai_reviewer_model`).
  * Shows the reviewer that would run, the latest (or picked) run's summary and
  * suggestions, its findings (issue cards with one-click "Add as lesson / to
  * knowledge / house rule"), and past runs. A run that is still going is
@@ -21,7 +25,17 @@ import { EntityPicker } from '@/components/ui/EntityPicker'
 import { useEntity } from '@/lib/EntityContext'
 import { useChannelLabel } from '@/components/ui/ChannelLogo'
 import { hasCap } from '@/lib/auth'
-import { reviewApi, type ApplyAs, type ReviewFinding, type ReviewRun, type ReviewRunDetail, type Reviewer } from '@/lib/aiReview'
+import { Select, type SelectOption } from '@/components/ui/Select'
+import {
+  parseReviewerModel,
+  reviewApi,
+  type ApplyAs,
+  type ReviewFinding,
+  type ReviewRun,
+  type ReviewRunDetail,
+  type Reviewer,
+  type ReviewerOptions,
+} from '@/lib/aiReview'
 import { useFormat, useT, type MessageKey } from '@/i18n'
 
 const SEVERITY_CLS: Record<string, string> = {
@@ -42,6 +56,9 @@ const inputCls =
   'h-9 w-full rounded-lg border border-line-strong bg-card px-3 text-[12.5px] text-text-primary outline-none transition-colors focus:border-brand-400'
 
 const isoDay = (d: Date) => d.toISOString().slice(0, 10)
+
+/** The picker's "Custom…" entry (never a real model value: those carry a ':'). */
+const CUSTOM = '__custom__'
 
 function ErrorLine({ text }: { text: string }) {
   return (
@@ -81,12 +98,84 @@ export function AiReviewPanel({ entityQuery }: { entityQuery: string }) {
     null,
   )
   const [confirmError, setConfirmError] = useState<string | null>(null)
+  // the reviewer model for the next run: a suggestion ("provider:model"), or CUSTOM + free text
+  const [modelOpts, setModelOpts] = useState<ReviewerOptions | null>(null)
+  const [modelError, setModelError] = useState<string | null>(null)
+  const [pick, setPick] = useState('')
+  const [customModel, setCustomModel] = useState('')
+  const [savingDefault, setSavingDefault] = useState(false)
+  const [defaultMsg, setDefaultMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   // capabilities are read after mount (hydration-safe)
   useEffect(() => {
     setCanRun(hasCap('ai.behaviour.manage'))
     setCanKnowledge(hasCap('settings.ai.manage'))
   }, [])
+
+  const loadModels = useCallback(async () => {
+    try {
+      const o = await reviewApi.options()
+      setModelOpts(o)
+      setModelError(null)
+      // the default is preselected (and stays the pick until the person changes it)
+      setPick((cur) => cur || o.default.value)
+      return o
+    } catch (e) {
+      setModelError((e as Error).message)
+      return null
+    }
+  }, [])
+
+  useEffect(() => {
+    if (canRun) void loadModels()
+  }, [canRun, loadModels])
+
+  const modelOptions = useMemo<SelectOption[]>(() => {
+    if (!modelOpts) return []
+    const out: SelectOption[] = []
+    for (const p of modelOpts.providers) {
+      const group = p.configured ? p.label : t('ai.reviewer.model.notConfigured', { provider: p.label })
+      for (const m of p.models) {
+        out.push({
+          value: m.value,
+          label: m.model,
+          hint: m.is_default ? t('ai.reviewer.model.defaultTag') : undefined,
+          group,
+          disabled: !p.configured,
+        })
+      }
+    }
+    out.push({ value: CUSTOM, label: t('ai.reviewer.model.custom'), group: t('ai.reviewer.model.customGroup') })
+    return out
+  }, [modelOpts, t])
+
+  // what the next run sends: undefined = the default (the server resolves it, fallbacks included)
+  const chosen = pick === CUSTOM ? customModel.trim() : pick
+  const isDefault = !!modelOpts && chosen === modelOpts.default.value
+  const chosenProvider = chosen ? parseReviewerModel(chosen).provider : ''
+  const chosenProviderInfo = modelOpts?.providers.find((p) => p.id === chosenProvider)
+  // a custom id on a provider with no key: the server would refuse it (400) — say so first
+  const chosenMissing = !!modelOpts && !!chosen && !isDefault && chosenProviderInfo?.configured !== true
+  const someMissing = !!modelOpts && modelOpts.providers.some((p) => !p.configured)
+  const customEmpty = pick === CUSTOM && chosen === ''
+
+  async function makeDefault() {
+    if (!chosen || chosenMissing) return
+    setSavingDefault(true)
+    setDefaultMsg(null)
+    try {
+      await reviewApi.setDefault(chosen)
+      const o = await loadModels()
+      if (o) setPick(o.default.value)
+      setCustomModel('')
+      setDefaultMsg({ ok: true, text: t('ai.reviewer.model.savedDefault') })
+      void loadList()
+    } catch (e) {
+      setDefaultMsg({ ok: false, text: (e as Error).message })
+    } finally {
+      setSavingDefault(false)
+    }
+  }
 
   const loadList = useCallback(async () => {
     try {
@@ -145,10 +234,12 @@ export function AiReviewPanel({ entityQuery }: { entityQuery: string }) {
     setStarting(true)
     try {
       const entity = new URLSearchParams(entityQuery).get('entity') || undefined
+      // the default is not sent: the server resolves it (and its fallback) itself
+      const model = chosen && !isDefault ? chosen : undefined
       const body =
         days === 0
-          ? { from: from || undefined, to: to || undefined, entity, limit: size }
-          : { days, entity, limit: size }
+          ? { from: from || undefined, to: to || undefined, entity, limit: size, model }
+          : { days, entity, limit: size, model }
       const d = await reviewApi.start(body)
       setDetail(d.run)
       setSelected(d.run.id)
@@ -236,13 +327,75 @@ export function AiReviewPanel({ entityQuery }: { entityQuery: string }) {
                   {n === 7 ? t('ai.reviewer.last7') : t('ai.reviewer.last30')}
                 </button>
               ))}
-              <Button className="ml-auto" onClick={start} disabled={starting || running}>
+              <Button className="ml-auto" onClick={start} disabled={starting || running || chosenMissing || customEmpty}>
                 {starting || running ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Sparkles size={14} aria-hidden />}
                 {starting || running ? t('ai.reviewer.running') : t('ai.reviewer.reviewNow')}
               </Button>
             </div>
+            {/* ---- the reviewer model: the default preselected, any configured one for this run ---- */}
+            {modelOpts && (
+              <div className="flex flex-col gap-1.5" data-tour="ai-review-model">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[12px] font-semibold text-text-high">{t('ai.reviewer.model.label')}</span>
+                  <Select
+                    value={pick}
+                    onChange={(v) => {
+                      setPick(v)
+                      setDefaultMsg(null)
+                    }}
+                    options={modelOptions}
+                    ariaLabel={t('ai.reviewer.model.label')}
+                    className="w-full sm:w-[320px]"
+                    searchable
+                  />
+                  {pick === CUSTOM && (
+                    <input
+                      value={customModel}
+                      onChange={(e) => {
+                        setCustomModel(e.target.value)
+                        setDefaultMsg(null)
+                      }}
+                      maxLength={modelOpts.max_chars}
+                      placeholder={t('ai.reviewer.model.customPlaceholder')}
+                      aria-label={t('ai.reviewer.model.customPlaceholder')}
+                      className={`${inputCls} sm:w-[300px]`}
+                    />
+                  )}
+                  {modelOpts.can_set_default && !isDefault && chosen !== '' && !chosenMissing && (
+                    <Button size="sm" variant="ghost" onClick={makeDefault} disabled={savingDefault}>
+                      {savingDefault ? t('ai.reviewer.model.savingDefault') : t('ai.reviewer.model.makeDefault')}
+                    </Button>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-text-muted">
+                  {pick === CUSTOM && <span>{t('ai.reviewer.model.customHint')}</span>}
+                  {!isDefault && chosen !== '' && !chosenMissing && <span>{t('ai.reviewer.model.thisRunOnly')}</span>}
+                  {!modelOpts.can_set_default && (
+                    <span>
+                      {t('ai.reviewer.model.defaultIs', { model: modelOpts.default.model })}{' '}
+                      {t('ai.reviewer.model.defaultWhere')}
+                    </span>
+                  )}
+                  {someMissing && !chosenMissing && <span>{t('ai.reviewer.model.someMissing')}</span>}
+                </div>
+                {chosenMissing && (
+                  <p className="text-[11.5px]" style={{ color: 'var(--amber-ink)' }}>
+                    {t('ai.reviewer.model.pickedMissing', { provider: chosenProviderInfo?.label ?? chosenProvider })}
+                  </p>
+                )}
+                {defaultMsg &&
+                  (defaultMsg.ok ? (
+                    <p className="flex items-center gap-1.5 text-[11.5px]" style={{ color: 'var(--green-ink)' }}>
+                      <CheckCircle2 size={12} aria-hidden /> {defaultMsg.text}
+                    </p>
+                  ) : (
+                    <ErrorLine text={defaultMsg.text} />
+                  ))}
+              </div>
+            )}
+            {modelError && <ErrorLine text={t('ai.reviewer.model.optionsError', { error: modelError })} />}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-text-muted">
-              {reviewer && (
+              {reviewer && (!modelOpts || isDefault) && (
                 <span>
                   {reviewer.mode === 'model'
                     ? t('ai.reviewer.willUse', { model: modelName(reviewer) })
@@ -250,7 +403,7 @@ export function AiReviewPanel({ entityQuery }: { entityQuery: string }) {
                 </span>
               )}
               <span>{t('ai.reviewer.upTo', { count: size })}</span>
-              {reviewer?.note && reviewer.mode === 'model' && <span>{reviewer.note}</span>}
+              {reviewer?.note && reviewer.mode === 'model' && (isDefault || !modelOpts) && <span>{reviewer.note}</span>}
             </div>
             {(starting || running) && <p className="text-[11.5px] text-text-muted">{t('ai.reviewer.runningHint')}</p>}
             {runError && <ErrorLine text={runError} />}
@@ -325,6 +478,9 @@ export function AiReviewPanel({ entityQuery }: { entityQuery: string }) {
               {detail.mode === 'model'
                 ? t('ai.reviewer.reviewedBy', { model: modelName(detail) })
                 : t('ai.reviewer.heuristicBadge')}
+              {detail.requested_model && (
+                <span className="ml-1 font-normal text-text-muted">· {t('ai.reviewer.model.pickedForRun')}</span>
+              )}
             </span>
             <span>{t('ai.reviewer.ranBy', { date: f.dateTime(detail.created_at), user: detail.created_by || '—' })}</span>
             {detail.status === 'done' && (
@@ -543,6 +699,7 @@ export function AiReviewPanel({ entityQuery }: { entityQuery: string }) {
                 </span>
                 <span className="text-text-faint">
                   {r.mode === 'model' ? modelName(r) : t('ai.reviewer.heuristicBadge')}
+                  {r.requested_model && ` · ${t('ai.reviewer.model.pickedForRun')}`}
                 </span>
                 {selected === r.id ? (
                   <span className="ml-auto text-[12px] font-semibold text-text-mid">{t('ai.reviewer.showing')}</span>

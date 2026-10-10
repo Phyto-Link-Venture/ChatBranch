@@ -270,6 +270,8 @@ public static class Seed
             + "\"applied\" INTEGER NOT NULL, \"applied_as\" TEXT NOT NULL, \"applied_ref\" TEXT NOT NULL, "
             + "\"applied_by\" TEXT NOT NULL, \"applied_at\" TEXT NULL, \"created_at\" TEXT NOT NULL");
         AddIndexIfMissing(db, "ix_aireviewfinding_run", "crm_aireviewfinding", "\"run_id\"");
+        // the AI reviewer: the model the person picked for one run ("" = the default)
+        AddColumnIfMissing(db, "crm_aireviewrun", "requested_model", "TEXT NOT NULL DEFAULT ''");
         // multi-entity library availability: the extra entity ticks of a library row
         AddTableIfMissing(db, "crm_libraryentity",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_libraryentity\" PRIMARY KEY AUTOINCREMENT, "

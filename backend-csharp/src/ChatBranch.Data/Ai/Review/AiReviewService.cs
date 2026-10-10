@@ -20,6 +20,10 @@ public sealed class AiReviewRequest
     public List<int>? EntityIds { get; init; }
     public int Limit { get; init; } = AiReviewService.DefaultLimit;
     public string CreatedBy { get; init; } = "";
+    /// <summary>The reviewer picked for this run only ("provider:model" or a bare
+    /// OpenRouter id) — null/empty = the default. Validate it with
+    /// <see cref="AiReviewService.CheckModel"/> first.</summary>
+    public string? Model { get; init; }
 }
 
 /// <summary>Which model reviews, and why (a fallback is said out loud).</summary>
@@ -57,6 +61,17 @@ public sealed class AiReviewService
     public const int MaxLimit = 100;
     public const int BatchSize = 5;
     public const int KeepRuns = 50;
+    public const int MaxModelChars = 200;
+
+    /// <summary>A few sensible reviewer models per provider for the panel's picker
+    /// (the first OpenRouter one is the built-in default). A provider that is
+    /// configured but not listed here offers its own default model.</summary>
+    public static readonly IReadOnlyDictionary<string, string[]> SuggestedModels = new Dictionary<string, string[]>
+    {
+        ["openrouter"] = new[] { DefaultModel, "anthropic/claude-opus-5.5", "openai/gpt-5", "google/gemini-2.5-pro" },
+        ["google"] = new[] { "gemini-2.5-pro" },
+        ["openai"] = new[] { "gpt-5" },
+    };
     /// <summary>A run still "running" after this long is treated as dead (process restart).</summary>
     public static readonly TimeSpan StaleAfter = TimeSpan.FromMinutes(30);
 
@@ -82,11 +97,25 @@ public sealed class AiReviewService
     // ---- the reviewer model -----------------------------------------------------------
 
     /// <summary>The configured reviewer model as (provider, model).</summary>
-    public (string Provider, string Model) ConfiguredModel()
+    public (string Provider, string Model) ConfiguredModel() => ParseModel(ConfiguredSource().Raw);
+
+    /// <summary>The default reviewer as written, and where it came from:
+    /// setting (Settings → AI keys &amp; models) | env (<c>AI_REVIEWER_MODEL</c>) | builtin.</summary>
+    public (string Raw, string Source) ConfiguredSource()
     {
         var raw = _sc.SettingValue(ModelKey).Trim();
-        if (raw.Length == 0) raw = (Environment.GetEnvironmentVariable(ModelEnv) ?? "").Trim();
-        if (raw.Length == 0) raw = DefaultModel;
+        if (raw.Length > 0) return (raw, "setting");
+        raw = (Environment.GetEnvironmentVariable(ModelEnv) ?? "").Trim();
+        if (raw.Length > 0) return (raw, "env");
+        return (DefaultModel, "builtin");
+    }
+
+    /// <summary>"provider:model" or a bare OpenRouter id → (provider, model). A
+    /// prefix that is not a known provider (an OpenRouter id like
+    /// <c>meta-llama/llama-3:free</c>) leaves the whole text as an OpenRouter model.</summary>
+    public static (string Provider, string Model) ParseModel(string? raw)
+    {
+        raw = (raw ?? "").Trim();
         var colon = raw.IndexOf(':');
         if (colon > 0)
         {
@@ -98,14 +127,40 @@ public sealed class AiReviewService
         return (DefaultProvider, raw);
     }
 
+    /// <summary>The one way a reviewer choice is written: "provider:model".</summary>
+    public static string Canonical(string provider, string model) => $"{provider}:{model}";
+
+    /// <summary>
+    /// Check a per-run reviewer choice: (canonical "provider:model", null) when
+    /// it can run, else (null, a plain-language reason — the endpoint's 400).
+    /// The provider must have a key, exactly like <see cref="OpenAiLlmClient.Pinned"/>.
+    /// </summary>
+    public (string? Canonical, string? Error) CheckModel(string? raw)
+    {
+        raw = (raw ?? "").Trim();
+        if (raw.Length == 0) return (null, "model is empty.");
+        if (raw.Length > MaxModelChars) return (null, $"model is too long ({MaxModelChars} characters at most).");
+        if (raw.Any(c => char.IsWhiteSpace(c) || char.IsControl(c)))
+            return (null, "model must be one id with no spaces, like openrouter:anthropic/claude-sonnet-5.5.");
+        var (provider, model) = ParseModel(raw);
+        if (model.Length == 0) return (null, "Write the model after the provider, like openai:gpt-5.");
+        var label = OpenAiLlmClient.Labels.TryGetValue(provider, out var l) ? l : provider;
+        var configured = _llm is OpenAiLlmClient oai
+            ? oai.Pinned(provider, model) != null
+            : _llm != null && _llm.IsConfigured;
+        if (!configured)
+            return (null, $"{label} isn't configured — add its API key at Settings → AI keys & models, or pick another reviewer model.");
+        return (Canonical(provider, model), null);
+    }
+
     /// <summary>
     /// The client that reviews: the configured provider pinned to the reviewer
     /// model; else the normal chat provider order with its own model (noted);
     /// else none (heuristic mode).
     /// </summary>
-    public AiReviewer Reviewer()
+    public AiReviewer Reviewer(string? requested = null)
     {
-        var (provider, model) = ConfiguredModel();
+        var (provider, model) = string.IsNullOrWhiteSpace(requested) ? ConfiguredModel() : ParseModel(requested);
         if (_llm is OpenAiLlmClient oai)
         {
             var pinned = oai.Pinned(provider, model);
@@ -129,7 +184,8 @@ public sealed class AiReviewService
     public AiReviewRun Start(AiReviewRequest req)
     {
         var now = DateTime.UtcNow;
-        var reviewer = Reviewer();
+        var requested = string.IsNullOrWhiteSpace(req.Model) ? "" : req.Model.Trim();
+        var reviewer = Reviewer(requested);
         var run = new AiReviewRun
         {
             CreatedBy = req.CreatedBy,
@@ -141,6 +197,7 @@ public sealed class AiReviewService
             Mode = reviewer.Available ? AiReviewMode.Model : AiReviewMode.Heuristic,
             Provider = reviewer.Provider,
             Model = reviewer.Model,
+            RequestedModel = requested,
             Note = reviewer.Note,
             Status = AiReviewStatus.Running,
             CreatedAt = now,
@@ -218,7 +275,8 @@ public sealed class AiReviewService
     private void ExecuteCore(AiReviewRun run)
     {
         var items = Sample(run);
-        var reviewer = Reviewer();
+        // the model picked for this run (if any), else the default — the same rule as Start
+        var reviewer = Reviewer(run.RequestedModel);
         var notes = new List<string>();
         if (run.Note.Length > 0) notes.Add(run.Note);
         var findings = new List<AiReviewFinding>();

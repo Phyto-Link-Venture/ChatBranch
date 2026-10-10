@@ -86,12 +86,12 @@ public static class AiPlaygroundEndpoints
                 can_teach = canOverride,
                 can_import = canImport,
                 can_manage_keys = await ShellScope.HasCapAsync(db, me, "settings.ai_keys.manage"),
-                providers = canOverride && real != null
-                    ? real.Configured().Select(p => new
+                providers = canOverride
+                    ? AiProviderChoices.Configured(llm).Select(p => new
                     {
-                        id = p.Name,
-                        label = OpenAiLlmClient.Labels.TryGetValue(p.Name, out var l) ? l : p.Name,
-                        default_model = p.Model,
+                        id = p.Id,
+                        label = p.Label,
+                        default_model = p.DefaultModel,
                     }).ToList<object>()
                     : new List<object>(),
                 default_route = route == null ? null : new

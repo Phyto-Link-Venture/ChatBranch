@@ -360,7 +360,7 @@ export const ai: Dict<typeof source> = {
       t2: 'Pilih satu cawangan dalam penukar entiti dahulu untuk menyemak perbualannya sahaja — peraturan rumah kemudian ditambah pada cawangan itu.',
       t3: 'Setiap semakan menggunakan token AI; ia dipaparkan dalam bil AI sebagai “Semakan AI”.',
     },
-    trouble: '“Semakan automatik sahaja”: tiada model AI disediakan, jadi hanya semakan ringkas dijalankan — tambah kunci di Tetapan → “Kunci & model AI”. “Semakan sedang berjalan”: tunggu sehingga ia selesai. Penyemak yang dinamakan bukan yang anda jangka: OpenRouter tidak dikonfigurasi, jadi model sembang biasa yang menyemak; ubah “Model penyemak AI” di Tetapan → “Kunci & model AI” → Tetapan lanjutan.',
+    trouble: '“Semakan automatik sahaja”: tiada model AI disediakan, jadi hanya semakan ringkas dijalankan — tambah kunci di Tetapan → “Kunci & model AI”. “Semakan sedang berjalan”: tunggu sehingga ia selesai. Penyemak yang dinamakan bukan yang anda jangka: OpenRouter tidak dikonfigurasi, jadi model sembang biasa yang menyemak; pilih model lain di “Model penyemak” di sebelah “Semak sekarang” (model pembekal tanpa kunci dikelabukan), atau tukar lalai dengan “Jadikan lalai” di situ atau “Model penyemak AI” di Tetapan → “Kunci & model AI” → Tetapan lanjutan.',
   },
 
   aiSkills: {

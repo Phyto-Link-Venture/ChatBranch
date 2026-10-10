@@ -55,6 +55,8 @@ export interface ReviewRun {
   mode: 'model' | 'heuristic'
   provider: string
   model: string
+  /** The reviewer picked for this run ("provider:model"), "" = the default. */
+  requested_model: string
   note: string
   error: string
   created_by: string
@@ -98,10 +100,64 @@ export interface RunList {
   running: boolean
 }
 
+/** The reviewer picker (GET /api/ai/review/options, ai.behaviour.manage). */
+export interface ReviewerModelOption {
+  /** "provider:model" — what POST /api/ai/review takes as `model`. */
+  value: string
+  model: string
+  is_default: boolean
+}
+
+export interface ReviewerProviderOption {
+  id: string
+  label: string
+  /** false = no API key: its models can't be picked. */
+  configured: boolean
+  models: ReviewerModelOption[]
+}
+
+export interface ReviewerOptions {
+  providers: ReviewerProviderOption[]
+  default: {
+    value: string
+    raw: string
+    provider: string
+    label: string
+    model: string
+    source: 'setting' | 'env' | 'builtin'
+    configured: boolean
+  }
+  reviewer: { mode: 'model' | 'heuristic'; provider: string; model: string; note: string }
+  /** settings.ai_keys.manage: may save a pick as the Setting ai_reviewer_model. */
+  can_set_default: boolean
+  setting_key: string
+  max_chars: number
+}
+
+/** The server's rule (AiReviewService.ParseModel): a known provider prefix, else OpenRouter. */
+export const REVIEW_PROVIDERS = ['openrouter', 'openai', 'ilmu', 'google', 'local'] as const
+
+export function parseReviewerModel(raw: string): { provider: string; model: string } {
+  const text = raw.trim()
+  const colon = text.indexOf(':')
+  if (colon > 0) {
+    let prefix = text.slice(0, colon).trim().toLowerCase()
+    if (prefix === 'gemini') prefix = 'google'
+    if ((REVIEW_PROVIDERS as readonly string[]).includes(prefix)) {
+      return { provider: prefix, model: text.slice(colon + 1).trim() }
+    }
+  }
+  return { provider: 'openrouter', model: text }
+}
+
 export const reviewApi = {
   list: (entityQuery: string) => aiApi<RunList>(`ai/review/runs?limit=20${entityQuery ? `&${entityQuery}` : ''}`),
   get: (id: number) => aiApi<{ run: ReviewRunDetail }>(`ai/review/runs/${id}`),
-  start: (body: { from?: string; to?: string; days?: number; entity?: string; limit?: number }) =>
+  options: () => aiApi<ReviewerOptions>('ai/review/options'),
+  /** Save the default reviewer (Setting ai_reviewer_model) — settings.ai_keys.manage. */
+  setDefault: (value: string) =>
+    aiApi<unknown>('settings/ai-providers', { method: 'PUT', body: JSON.stringify({ ai_reviewer_model: value }) }),
+  start: (body: { from?: string; to?: string; days?: number; entity?: string; limit?: number; model?: string }) =>
     aiApi<{ run: ReviewRunDetail }>('ai/review', { method: 'POST', body: JSON.stringify(body) }),
   /** `level` = the entity slug it belongs to, "" = organization-wide (omitted = the server's default). */
   apply: (findingId: number, as: ApplyAs, text?: string, level?: string) =>

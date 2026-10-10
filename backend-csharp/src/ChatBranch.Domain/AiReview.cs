@@ -53,6 +53,10 @@ public class AiReviewRun
     public string Provider { get; set; } = "";
     /// <summary>The model that reviewed ("" in heuristic mode).</summary>
     public string Model { get; set; } = "";
+    /// <summary>The reviewer the person picked for THIS run, as "provider:model"
+    /// ("" = the default: Setting <c>ai_reviewer_model</c> → env → built-in).
+    /// <see cref="Provider"/> / <see cref="Model"/> say what actually reviewed.</summary>
+    public string RequestedModel { get; set; } = "";
     /// <summary>running | done | failed.</summary>
     public string Status { get; set; } = AiReviewStatus.Running;
     /// <summary>Plain-language notes (fallbacks taken, batches that failed…).</summary>
