@@ -286,7 +286,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   })
   const data = await res.json().catch(() => ({}))
   if (expireSessionOn401(res)) throw new Error('Session expired — redirecting to login…')
-  if (!res.ok) throw new ApiError((data as { detail?: string }).detail || `HTTP ${res.status}`, res.status)
+  if (!res.ok) throw new ApiError((data as { detail?: string }).detail || `HTTP ${res.status}`, res.status, data)
   return data as T
 }
 
@@ -295,6 +295,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
+    /** The refusal's body (e.g. `{code, can_override}`). */
+    public body: Record<string, unknown> = {},
   ) {
     super(message)
   }

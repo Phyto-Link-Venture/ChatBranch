@@ -111,7 +111,7 @@ public static class WhatsAppThreadsEndpoints
     private const string ColdTextBlockDetail =
         "This number has never received a message from this contact. Cold free-text "
         + "from a personal number carries ban risk — open with an approved template, "
-        + "or have the contact message first. Admins may override with force=true.";
+        + "or have the contact message first. An admin may press Send anyway (API: force=true).";
 
     private const string ColdTextWarnNote =
         "[Cold outbound: this contact has never messaged this number. Ban risk is "
@@ -234,7 +234,9 @@ public static class WhatsAppThreadsEndpoints
             {
                 var guard = Rule(sc, "cold_text_guard", "block");
                 if (guard == "block" && !(body.Force && IsAdminPlus(me)))
-                    return Results.Json(new { detail = ColdTextBlockDetail }, statusCode: 409);
+                    // code + can_override let the composer offer an admin "Send anyway"
+                    return Results.Json(new { detail = ColdTextBlockDetail, code = "cold_text",
+                        can_override = IsAdminPlus(me) }, statusCode: 409);
                 if (guard == "warn") coldNote = ColdTextWarnNote;
             }
             if (live && !WindowOpen(db, thread, account))

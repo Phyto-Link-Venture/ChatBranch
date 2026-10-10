@@ -491,6 +491,7 @@ export const chats = {
     platformClosedNote: '{channel}’s reply window has closed — nothing can be sent until the customer writes again.',
     unsupportedFile: 'Unsupported file type — use jpg, png, webp, pdf, mp4, ogg or mp3.',
     fileTooLarge: 'File too large — attachments are limited to 16 MB.',
+    sendAnyway: 'Send anyway',
     confirmOptedOut: 'Customer opted out — send anyway as a manual override?',
     switchOtherContact:
       'Now chatting with this contact’s other contact — {channel} {address}. On the customer’s side this is a separate chat with no shared history.',

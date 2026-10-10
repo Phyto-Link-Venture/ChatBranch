@@ -256,6 +256,8 @@ function ChatsPage() {
   }, [infoDrawer])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** A WhatsApp text the cold-message guard refused that this admin may send anyway. */
+  const [coldRetry, setColdRetry] = useState<{ text: string; quote: { reply_to?: number } } | null>(null)
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [tplOpen, setTplOpen] = useState(false)
   const [endedFlash, setEndedFlash] = useState(false)
@@ -924,9 +926,32 @@ function ChatsPage() {
       // a quoted reply carries the quoted message's pk (WhatsApp / Telegram)
       const quote = replyTo?.pk != null && REACTION_CHANNELS.includes(active.channel) ? { reply_to: replyTo.pk } : {}
       setReplyTo(null)
+      setColdRetry(null)
+      try {
+        await api(`${threadPath(active)}/send`, {
+          method: 'POST',
+          body: JSON.stringify(override ? { text, force: true, ...quote } : { text, ...quote }),
+        })
+      } catch (e) {
+        // the cold-message guard: give the text back and, for admins, a "Send anyway"
+        if (e instanceof ApiError && e.body.code === 'cold_text') {
+          setDraft(text)
+          if (e.body.can_override === true) setColdRetry({ text, quote })
+        }
+        throw e
+      }
+    })
+
+  /** An admin's explicit override of the cold-message guard. */
+  const sendColdAnyway = () =>
+    run(async () => {
+      if (!active || !coldRetry) return
+      const { text, quote } = coldRetry
+      setColdRetry(null)
+      setDraft('')
       await api(`${threadPath(active)}/send`, {
         method: 'POST',
-        body: JSON.stringify(override ? { text, force: true, ...quote } : { text, ...quote }),
+        body: JSON.stringify({ text, force: true, ...quote }),
       })
     })
 
@@ -1990,7 +2015,12 @@ function ChatsPage() {
               {error && (
                 <div role="alert" className="flex items-center gap-2 border-t border-red/30 bg-red/10 px-4 py-1.5 text-[12px] text-red-300">
                   <span className="min-w-0 flex-1">{error}</span>
-                  <button onClick={() => setError(null)} aria-label={t('chats.page.dismiss')} className="shrink-0 hover:text-text-high">
+                  {coldRetry && (
+                    <Button variant="danger" size="sm" disabled={busy} onClick={sendColdAnyway} className="shrink-0">
+                      {t('chats.page.sendAnyway')}
+                    </Button>
+                  )}
+                  <button onClick={() => { setError(null); setColdRetry(null) }} aria-label={t('chats.page.dismiss')} className="shrink-0 hover:text-text-high">
                     <X size={12} aria-hidden />
                   </button>
                 </div>
