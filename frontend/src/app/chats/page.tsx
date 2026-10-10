@@ -427,7 +427,7 @@ function ChatsPage() {
           team_id?: number | null
           call: WaCall
           account_id?: string | null
-          provider?: 'cloud' | 'baileys'
+          provider?: 'cloud' | 'baileys' | 'ycloud' | 'twilio'
           window_open?: boolean
           window_expires_at?: string | null
           opted_out?: boolean

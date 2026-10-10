@@ -164,7 +164,7 @@ export interface UiThreadSummary {
   entity?: string | null
   account_id?: string | null
   account_name?: string
-  provider?: 'cloud' | 'baileys' | null
+  provider?: 'cloud' | 'baileys' | 'ycloud' | 'twilio' | null
   window_open?: boolean
   window_expires_at?: string | null
   /** Messenger / Instagram: a person may still reply (Meta's 7-day HUMAN_AGENT window) */
@@ -210,7 +210,7 @@ export interface InboxRow {
   entity?: string | null
   account_id: string | null
   account_name: string
-  provider: 'cloud' | 'baileys' | null
+  provider: 'cloud' | 'baileys' | 'ycloud' | 'twilio' | null
   window_open: boolean
   window_expires_at: string | null
   opted_out: boolean

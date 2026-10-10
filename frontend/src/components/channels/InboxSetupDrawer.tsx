@@ -53,7 +53,10 @@ import {
   fromWa,
   fromWidget,
   inboxName,
+  isBspKind,
   isMoreKind,
+  isWaKind,
+  WA_PROVIDER,
   kindMeta,
   testInbox,
   type AiDefault,
@@ -91,7 +94,6 @@ const SOCIAL_CHANNEL: Partial<Record<InboxKind, 'facebook' | 'instagram' | 'tele
   telegram: 'telegram',
 }
 
-const isWaKind = (k: InboxKind | null) => k === 'wa_cloud' || k === 'wa_qr'
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -269,6 +271,10 @@ export function InboxSetupDrawer({
     if (inbox?.wa) {
       c.phone_number_id = inbox.wa.phone_number_id || ''
       c.waba_id = inbox.wa.waba_id || ''
+      // YCloud / Twilio: their non-secret settings
+      const bsp = inbox.wa.bsp ?? {}
+      for (const key of ['phone_number', 'account_sid', 'from_number', 'messaging_service_sid', 'api_key_sid'] as const)
+        if (bsp[key]) c[key] = String(bsp[key])
     }
     if (inbox?.msg) {
       const cfg = inbox.msg.config ?? {}
@@ -438,9 +444,18 @@ export function InboxSetupDrawer({
       return inbox
     }
 
-    if (kind === 'wa_cloud' || kind === 'wa_qr') {
+    if (isWaKind(kind)) {
       const body: Record<string, string> = { name: name.trim(), role, ...who(), ...deliveryPatch(delivery, t) }
-      if (kind === 'wa_cloud') {
+      if (isBspKind(kind)) {
+        // YCloud / Twilio — keys mirror the accounts API; a blank secret keeps the stored one
+        if (!id) body.provider = WA_PROVIDER[kind]
+        for (const f of fields) {
+          const v = c(f.key)
+          if (f.secret) {
+            if (v) body[f.key] = v
+          } else body[f.key] = v
+        }
+      } else if (kind === 'wa_cloud') {
         if (c('phone_number_id')) body.phone_number_id = c('phone_number_id')
         body.waba_id = c('waba_id')
         // secrets: blank = keep the stored value (never send an empty string)
@@ -668,7 +683,9 @@ export function InboxSetupDrawer({
         ? saved.wa?.access_token_masked || saved.msg?.access_token_masked
         : f.key === 'app_secret'
           ? saved.wa?.app_secret_masked || saved.msg?.app_secret_masked
-          : f.key === 'password'
+          : f.key === 'api_key_secret' && saved.wa
+            ? saved.wa.bsp?.api_key_secret_masked
+            : f.key === 'password'
             ? saved.msg?.config?.password_masked
             : f.key === 'sip_password'
               ? saved.voice?.sip_password_masked
@@ -1116,6 +1133,23 @@ export function InboxSetupDrawer({
                 </div>
                 {tgResult && <ResultLine result={tgResult} />}
               </Advanced>
+            </Section>
+          )}
+
+          {isBspKind(kind) && saved.wa && (
+            <Section title={t('channels.drawer.test.pointPlatform', { platform: meta ? t(meta.label) : '' })}>
+              {WEBHOOK_HELP[kind] && (
+                <p className="text-[12.5px] leading-relaxed text-text-mid">{t(WEBHOOK_HELP[kind]!)}</p>
+              )}
+              <CopyRow label={t('channels.drawer.test.webhookUrl')} value={`${API_ORIGIN}${saved.wa.webhook_path ?? ''}`} />
+              {kind === 'wa_ycloud' && !saved.wa.app_secret_masked && (
+                <p className="text-[11.5px] leading-relaxed" style={{ color: 'var(--amber-ink)' }}>
+                  {t('channels.drawer.test.bspSecretMissing')}
+                </p>
+              )}
+              {kind === 'wa_twilio' && (
+                <p className="text-[11.5px] leading-relaxed text-text-muted">{t('channels.drawer.test.twilioPublic')}</p>
+              )}
             </Section>
           )}
 

@@ -17,7 +17,7 @@ export interface HealthAccount {
   id: string
   name: string
   channel: string // whatsapp | facebook | instagram | telegram | email | …
-  provider: string // 'cloud' | 'baileys' for whatsapp; other channels use their own (e.g. 'smtp')
+  provider: string // 'cloud' | 'baileys' | 'ycloud' | 'twilio' for whatsapp; other channels use their own (e.g. 'smtp')
   /** Owning outlet slug; null = a global account the organization shares. */
   entity?: string | null
   entity_name?: string
