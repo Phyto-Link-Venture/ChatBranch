@@ -580,6 +580,8 @@ public partial class AssistantService
             Model = metered.Calls.Count > 0 ? metered.Calls[^1].Result.Model : "",
             PromptTokens = metered.Calls.Sum(c => c.Result.PromptTokens),
             CompletionTokens = metered.Calls.Sum(c => c.Result.CompletionTokens),
+            CostUsd = metered.Calls.Any(c => c.Result.CostUsd != null)
+                ? metered.Calls.Sum(c => c.Result.CostUsd ?? 0) : null,
             Feature = spec.Feature,
             PendingActions = ctx.Apps.Actions.ToList(),
         };
@@ -758,7 +760,7 @@ public partial class AssistantService
                     // a made-up playground customer is never a stored contact
                     Channel = spec.Channel, ContactId = spec.Contact is { Id: > 0 } c ? c.Id : null, Ref = spec.Ref,
                     EntityId = spec.EntityId,
-                    PromptTokens = r.PromptTokens, CompletionTokens = r.CompletionTokens,
+                    PromptTokens = r.PromptTokens, CompletionTokens = r.CompletionTokens, CostUsd = r.CostUsd,
                     Detail = detail, CreatedAt = DateTime.UtcNow,
                 });
             }

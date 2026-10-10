@@ -872,8 +872,12 @@ When you fix one of these, update this table, `README.md` and
   `crm_llmusage.entity_id` (stamped by the AI brain from the reply's entity)
   → its contact's entity when every link shares one company → unattributed
   (skill drafting, embeddings, the operator assistant — shown to managers,
-  billed to nobody). Bill = cost (llm_prices, USD) × (1 + markup %) × the
-  exchange rate + a monthly fee; terms in ONE org-wide Setting `ai_billing`
+  billed to nobody). Bill = cost × (1 + markup %) × the exchange rate + a
+  monthly fee; cost = the provider's own price per call where it reports one
+  (`crm_llmusage.cost_usd` — OpenRouter's `usage.cost`, requested with
+  `usage.include`), else tokens × `llm_prices` over OpenRouter's public price
+  list (`ModelPriceCatalog`, Setting `llm_prices_catalog`, refreshed ≤ daily
+  when a report is read, `LLM_PRICE_SYNC=0` off) over the shipped defaults; terms in ONE org-wide Setting `ai_billing`
   (`GET/PUT /api/billing/ai/settings`, `billing.manage`, Settings → AI
   billing `/settings/billing`). `GET /api/billing/ai?month=&company=`
   (`billing.view`): billed amounts for the caller's companies (assigned
@@ -1324,7 +1328,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   `AI_FOLLOWUP_WORKER=0`, `HEALTH_WORKER=0`, `EMBEDDING_WORKER=0`,
   `IDENTITY_CHECK_WORKER=0` (drains, probes, indexing and lookups are driven
   explicitly — no timing races),
-  `AI_HUMANIZE=0` (sandbox answers inline), `PASSWORD_HASH_ITERATIONS=1000` (fast
+  `AI_HUMANIZE=0` (sandbox answers inline), `LLM_PRICE_SYNC=0`, `PASSWORD_HASH_ITERATIONS=1000` (fast
   hashes for the seeded logins — 600 000 rounds per sign-in saturated a 2-vCPU
   runner; production keeps Django's default), `SEED_DEMO=1` (the suite signs in as
   admin/agent), a throwaway `CHATBRANCH_DATA_DIR` and SQLite file, and a LiveKit

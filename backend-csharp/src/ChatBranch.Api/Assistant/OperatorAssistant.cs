@@ -208,7 +208,7 @@ public sealed class OperatorAssistant
             db.LlmUsage.Add(new LlmUsage
             {
                 Feature = "assistant", Provider = o.Provider, Model = o.Model, Channel = "dashboard",
-                Ref = _ctx.Username, PromptTokens = o.PromptTokens, CompletionTokens = o.CompletionTokens,
+                Ref = _ctx.Username, PromptTokens = o.PromptTokens, CompletionTokens = o.CompletionTokens, CostUsd = o.CostUsd,
                 Detail = new Dictionary<string, object?> { ["tool_calls"] = o.Steps.Count },
                 CreatedAt = DateTime.UtcNow,
             });

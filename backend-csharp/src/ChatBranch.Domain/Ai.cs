@@ -39,6 +39,9 @@ public class LlmUsage
     public int CompletionTokens { get; set; }
     public int AudioPromptTokens { get; set; }
     public int AudioCompletionTokens { get; set; }
+    /// <summary>The provider's own price for the call (USD), when it reports one
+    /// (OpenRouter). Null = estimate from the <c>llm_prices</c> table.</summary>
+    public double? CostUsd { get; set; }
     public Dictionary<string, object?> Detail { get; set; } = new();
     public DateTime CreatedAt { get; set; }
 }

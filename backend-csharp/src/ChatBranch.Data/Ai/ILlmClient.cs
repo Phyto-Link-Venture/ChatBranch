@@ -2,8 +2,10 @@ using System.Text.Json;
 
 namespace ChatBranch.Data.Ai;
 
+/// <summary><see cref="CostUsd"/> = what the provider says the call cost (OpenRouter's
+/// <c>usage.cost</c>); null = it didn't say, so reports estimate from <c>llm_prices</c>.</summary>
 public record LlmResult(string Text, int PromptTokens, int CompletionTokens,
-    string Provider, string Model);
+    string Provider, string Model, double? CostUsd = null);
 
 /// <summary>A function the model may call: name, description and a JSON-schema
 /// object describing its arguments (OpenAI "tools" format).</summary>
@@ -20,7 +22,7 @@ public record LlmMessage(string Role, string? Content,
     IReadOnlyList<LlmToolCall>? ToolCalls = null, string? ToolCallId = null);
 
 public record LlmChatResult(string Text, IReadOnlyList<LlmToolCall> ToolCalls,
-    int PromptTokens, int CompletionTokens, string Provider, string Model);
+    int PromptTokens, int CompletionTokens, string Provider, string Model, double? CostUsd = null);
 
 /// <summary>
 /// The pluggable LLM boundary. The real implementation posts to an

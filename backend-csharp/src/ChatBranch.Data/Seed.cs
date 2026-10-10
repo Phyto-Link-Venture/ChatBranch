@@ -190,6 +190,7 @@ public static class Seed
         AddColumnIfMissing(db, "crm_thread", "handover_count", "INTEGER NOT NULL DEFAULT 0");
         // AI billing: which outlet an LLM call was made for
         AddColumnIfMissing(db, "crm_llmusage", "entity_id", "INTEGER NULL");
+        AddColumnIfMissing(db, "crm_llmusage", "cost_usd", "REAL NULL");
         AddIndexIfMissing(db, "ix_thread_handover", "crm_thread", "\"handover_at\", \"handover_resolved_at\"");
         // contacts: identity registry (+ WhatsApp lookup verdicts), invite links,
         // unknown-customer "who are you?" requests

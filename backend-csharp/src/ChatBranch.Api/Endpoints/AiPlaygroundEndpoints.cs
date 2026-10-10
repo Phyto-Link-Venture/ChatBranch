@@ -257,7 +257,8 @@ public static class AiPlaygroundEndpoints
                 ? new List<string>()
                 : Humanizer.Split(said, policy.SplitMode, policy.SplitMaxChars) is { Count: > 0 } split ? split
                 : new List<string> { said.Trim() };
-            var (cost, priced) = EstimateCost(sc, r.Model, r.PromptTokens, r.CompletionTokens);
+            var (cost, priced) = r.CostUsd is double paid ? (Math.Round(paid, 6), true)
+                : EstimateCost(sc, r.Model, r.PromptTokens, r.CompletionTokens);
             var used = r.Grounding.Select(g => (g.Type, g.Id)).ToHashSet();
             var previewing = result.Bookings.Count > 0;
 

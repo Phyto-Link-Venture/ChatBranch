@@ -135,7 +135,7 @@ public class SkillDrafter
             _db.LlmUsage.Add(new LlmUsage
             {
                 Feature = "skill_draft", Provider = r.Provider, Model = r.Model,
-                PromptTokens = r.PromptTokens, CompletionTokens = r.CompletionTokens,
+                PromptTokens = r.PromptTokens, CompletionTokens = r.CompletionTokens, CostUsd = r.CostUsd,
                 CreatedAt = DateTime.UtcNow,
             });
             _db.SaveChanges();
