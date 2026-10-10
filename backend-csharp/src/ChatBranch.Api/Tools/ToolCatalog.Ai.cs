@@ -314,5 +314,76 @@ public static partial class ToolCatalog
                 A.Str("as", "lesson | knowledge | house_rule.", req: true, oneOf: new[] { "lesson", "knowledge", "house_rule" }),
                 A.Str("text", "The text to add instead of the suggestion as written."),
             });
+
+        // ---- background AI tasks (silent workers: read inbound messages, act through tools) ----
+        var tasksRead = C("ai.monitor", "settings.ai.manage");
+        var tasksManage = C("settings.ai.manage");
+        var taskId = A.Id("background AI task");
+        ToolArg[] TaskFields(bool create) => new[]
+        {
+            A.Str("name", "The task's name, e.g. Save invoices.", req: create),
+            A.Str("instructions", "What to look for in a customer's message and what to do with it, e.g. \"If the " +
+                                  "customer sends an invoice, extract supplier, invoice number, date, total and currency, " +
+                                  "append a row to the Invoices sheet and save the file to Drive.\"", req: create),
+            A.Bool("enabled", "On (default) or off."),
+            A.StrList("channels", "Channels whose inbound messages it reads; empty = every channel."),
+            A.Str("attachment", "Only messages with an attachment: any | pdf | image; '' = no condition.",
+                oneOf: new[] { "", "any", "pdf", "image" }),
+            A.StrList("keywords", "Only messages containing ANY of these words; empty = no condition."),
+            A.Str("linked", "Only conversations linked to a contact (yes) or not (no); '' = no condition.",
+                oneOf: new[] { "", "yes", "no" }),
+            A.StrList("tools", "The allowlist: add_private_note, add_conversation_label, set_contact_field, " +
+                               "hand_over_to_person, sheets_append_row, drive_upload_attachment, calendar_create_event, " +
+                               "webhook_post, or mcp:<server>__<tool> (see ai_tasks_list's catalog)."),
+            A.Obj("config", "Tool settings: spreadsheet_id, sheet_range, sheet_columns, drive_folder_id, calendar_id, " +
+                            "webhook_url (https), webhook_secret (≥16 characters)."),
+            A.StrList("entities", "Available to these entity slugs (and their branches); empty = everyone."),
+        };
+
+        yield return T(g, "ai_tasks_list", "List background AI tasks",
+            "Background AI tasks: silent AI workers that read customers' inbound messages (and their PDF or image " +
+            "attachments) and act through tools — a Google Sheet row, the file to Drive, an external MCP tool, a signed " +
+            "webhook, a note, a label — but never write to the customer. Lists each task with its trigger, tools and " +
+            "last runs, plus the tool catalog (what is connected).",
+            "GET", "/api/ai/tasks", tasksRead, new[] { A.Entity() },
+            link: (_, _) => Page("Open background AI tasks", "/ai-tasks"));
+
+        yield return T(g, "ai_tasks_create", "Create a background AI task",
+            "Create a silent AI worker. It runs on inbound messages that match its channels and conditions, " +
+            "only calls the tools on its allowlist and never messages the customer.",
+            "POST", "/api/ai/tasks", tasksManage, TaskFields(true));
+
+        yield return T(g, "ai_tasks_update", "Update a background AI task",
+            "Change a background AI task (only the fields given change; a masked webhook secret keeps the stored one).",
+            "PUT", "/api/ai/tasks/{id:int}", tasksManage, new[] { taskId }.Concat(TaskFields(false)).ToArray());
+
+        yield return T(g, "ai_tasks_delete", "Delete a background AI task",
+            "Delete a background AI task and its run history (notes it wrote in chats stay). Destructive — confirm first.",
+            "DELETE", "/api/ai/tasks/{id:int}", tasksManage, new[] { taskId }, destructive: true);
+
+        yield return T(g, "ai_tasks_list_runs", "List a background AI task's runs",
+            "What a background AI task did, newest first: per inbound message the status (ok | failed | skipped), what " +
+            "it extracted, each tool call and result, tokens and the chat link. Scoped like conversations.",
+            "GET", "/api/ai/tasks/{id:int}/runs", tasksRead,
+            new[]
+            {
+                taskId, A.Str("status", "ok | failed | skipped | pending; omit for all."),
+                A.Limit(50, 200),
+            });
+
+        yield return T(g, "ai_tasks_test", "Dry-run a background AI task",
+            "Show what a task WOULD extract from a sample message and which tools it would call — tools that change " +
+            "something are previewed only (a read-only MCP tool may run), nothing is stored. Costs model tokens.",
+            "POST", "/api/ai/tasks/{id:int}/test", tasksManage,
+            new[]
+            {
+                taskId, A.Str("text", "The sample customer message."),
+                A.Obj("attachment", "Optional sample file: {name, mime, base64} (≤10 MB)."),
+                A.Obj("task", "Unsaved changes to try (same fields as ai_tasks_update)."),
+            }, write: false);
+
+        yield return T(g, "ai_tasks_run_due", "Run due background AI tasks now",
+            "Run the background AI task runs that are due now instead of waiting for the worker.",
+            "POST", "/api/ai/tasks/tick", tasksManage);
     }
 }

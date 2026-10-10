@@ -170,6 +170,8 @@ public static class InboxEndpoints
                 body.Text, status: "received");
             // STOP / START work in the sandbox exactly as on a live webhook
             inbound.ApplyOptOut(thread, body.Text);
+            // background AI tasks read a simulated message like a real one (queued, run by their worker)
+            ChatBranch.Data.Ai.Tasks.AiTaskService.Enqueue(db, new ScopingService(db), thread, msg);
             // event axis: resume any flow runs parked on a reply from this contact
             engine.OnInboundMessage(body.Channel, body.Key, body.Text);
             // A simulated inbound is still an INBOUND: route it to a team the

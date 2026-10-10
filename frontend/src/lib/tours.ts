@@ -173,6 +173,13 @@ export const TOURS: TourDef[] = [
     steps: steps('pg-setup', 'pg-chat', 'pg-inspector', ''),
   },
   {
+    id: 'aiTasks',
+    href: '/ai-tasks',
+    group: 'ai',
+    match: exact('/ai-tasks'),
+    steps: steps('page-header', 'ai-tasks-intro', 'ai-tasks-add', 'ai-tasks-list', 'ai-tasks-actions', ''),
+  },
+  {
     id: 'persona',
     href: '/ai-persona',
     group: 'ai',

@@ -167,7 +167,7 @@ When you fix one of these, update this table, `README.md` and
   analytics). `entityId == null` means "All entities" for the Scope* helpers and
   "the global value" for the setting helpers.
   **Multi-entity libraries ("Available to").** Quick replies, call scripts,
-  knowledge, AI skills and automation rules (`IMultiEntityItem`) may be ticked
+  knowledge, AI skills, automation rules and background AI tasks (`IMultiEntityItem`) may be ticked
   for SEVERAL entities: `EntityId` stays the PRIMARY (first tick), the others
   are `crm_libraryentity` rows (`kind`, `item_id`, `entity_id`); none = global.
   Visibility is ONE rule, `ScopingService.LibraryVisible` (global, or the
@@ -903,6 +903,62 @@ When you fix one of these, update this table, `README.md` and
   the customer. An optional `level` (entity slug, "" = organization) overrides
   where it lands — the panel's confirm dialog always sends it (editable text,
   defaulting to the conversation's entity). Tests: `AiReviewTests`.
+- **Background AI tasks — silent AI workers** (`/ai-tasks`, Automate;
+  `Data/Ai/Tasks/AiTaskService.cs` + `AiTaskTools.cs`, `Endpoints/AiTaskEndpoints.cs`,
+  `Workers/AiTaskWorker.cs`, `components/ai-tasks/AiTasks.tsx`, words in the
+  `aiTasks` namespace). An AI that keeps READING customers' inbound messages and
+  acts through tools but NEVER writes to the customer — there is no send tool by
+  construction. `AiTask` (`crm_aitask`) is a multi-entity library row (kind
+  `ai_task`, "Available to" like skills): channels (empty = all), trigger
+  `inbound_message` + conditions (attachment "" | any | pdf | image, ANY keyword,
+  linked contact yes/no), free-text `instructions`, an explicit tool ALLOWLIST
+  (`AiTaskTools`: `add_private_note`, `add_conversation_label`, `set_contact_field`
+  (defined custom fields only), `hand_over_to_person` (a tracked handover, kind
+  `rule`, by `ai_task:<id>`, `standDown: false`), `sheets_append_row` (time + name +
+  phone in front), `drive_upload_attachment` (the message's file —
+  `IntegrationActions.UploadDriveBytesAsync`, never reachable from a flow step),
+  `calendar_create_event` (no attendee), `webhook_post` (https, a public host, a
+  ≥16-char secret or refused; `X-ChatBranch-Signature: t=…,v1=<HMAC-SHA256 of
+  "t.body">`), `mcp:<server>__<tool>` = an external MCP server's tool exactly as
+  the operator assistant offers it (`ExternalMcpTools`)) and per-tool `config`
+  (the webhook secret leaves masked; a masked value sent back keeps it). The
+  inbound path (`InboundProcessor` after the message is stored, and `/simulate`)
+  only QUEUES a pending `AiTaskRun` (`crm_aitaskrun`, unique per task × message —
+  idempotent) for enabled in-scope tasks on the channel matching the keywords,
+  `AI_TASK_DELAY_SECONDS` (default 10) ahead; `AiTaskService.Enqueue` never
+  throws. `RunDueAsync` (the worker, every 10 s, `AI_TASK_WORKER=0` off;
+  `POST /api/ai/tasks/tick` is the manual seam) waits ≤90 s for a needed
+  attachment (fetched off the ack), drops a run whose attachment / linked
+  condition fails (no row), claims pending→running atomically, then SKIPS (said
+  in `error`) when the task was switched off or left the scope, the AI master
+  switch is `off` (schedule mode doesn't stop it), the entity's AI quota is
+  reached, or no model is configured — it runs whether the chatbot is on or off
+  for the chat, and on opted-out chats (it messages no one). Input: the message
+  text fenced as data + the attachment (PDF / .txt / .csv text via PdfPig
+  `DocumentExtractor`, ≤20 000 chars; an image ≤4 MB as an OpenAI-compatible
+  `image_url` data URL when `ILlmClient.SupportsVision` — OpenRouter / OpenAI /
+  Gemini — else noted "not readable without a vision model"; `LlmMessage.Images`),
+  the `ToolLoop` with ≤6 tool calls at temperature 0.1, and a closing JSON
+  `{relevant, extracted, summary}` (`ParseFinal`, lenient). Status ok | failed (a
+  tool failed — its error kept) | skipped (not relevant and no calls: no note);
+  each run stores the extracted JSON, every tool call + result (redacted —
+  `AiTaskTools.Redact` — and capped), tokens, provider/model; a run that did
+  something writes a "🤖 <task>: <summary>" private note and audit `ai_task.run`
+  (source automation); usage metered as `LlmUsage` feature `ai_task` (entity =
+  the conversation's; `user_name` only on a dry run). API: `GET /api/ai/tasks`
+  (+ the tool catalog with `connected` per integration and the ready MCP
+  servers' tools; `ai.monitor` | `settings.ai.manage`), `POST/PUT/DELETE`
+  (`settings.ai.manage`), `GET …/{id}/runs` (scoped like conversations),
+  `POST …/{id}/test {text, attachment?: {name, mime, base64}, task?}` = a DRY RUN
+  (unsaved edits ride as `task`; tools that change something answer "preview",
+  a read-only MCP tool runs; nothing stored but the usage row; the caller's user
+  quota → 429). MCP `ai_tasks_*`. UI: list (trigger summary, Available to, tools,
+  last runs, on/off) → editor (name, `AvailabilityPicker`, attachment,
+  instructions; channels / keywords / sender under `Advanced`; the allowlist
+  grouped In ChatBranch · Connected apps · Your own system · External MCP with
+  "Not connected" shown; per-tool settings; the Test box) → Runs modal; templates
+  "Save invoices" and "Log receipts / payment slips". Tests: `AiTaskTests`,
+  `AiTaskApiTests`.
 - **Human handover** (`Ai/Handover.cs`, the ONLY writer of `crm_thread.handover_*`).
   `Handover.Mark(db, thread, kind, reason, by)`: kinds `check_failed` ·
   `asked_for_human` · `send_blocked` · `booking_failed` · `low_confidence` ·
@@ -1701,7 +1757,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **830 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **844 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /
@@ -1717,12 +1773,12 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   up-the-tree resolution — `IntegrationScopeTests`), notifications + settings,
   search/live, the platform (audit, API keys, MCP — every route a tool or a
   documented exclusion, `McpCoverageTests` — assistant), the AI playground
-  (`AiPlaygroundTests`), the Documents / QR / payments / Sheets apps + the calculator
+  (`AiPlaygroundTests`), background AI tasks (`AiTaskTests`), the Documents / QR / payments / Sheets apps + the calculator
   (`DocumentTests`), the Test lab and the LiveKit
   control plane. Keep them green. The test host (`ApiFactory` in
   `ApiSmokeTests.cs`) sets its own env: `QUEUE_WORKER=0`, `FLOWS_WORKER=0`,
   `AI_FOLLOWUP_WORKER=0`, `HEALTH_WORKER=0`, `EMBEDDING_WORKER=0`,
-  `IDENTITY_CHECK_WORKER=0` (drains, probes, indexing and lookups are driven
+  `IDENTITY_CHECK_WORKER=0`, `AI_TASK_WORKER=0` (drains, probes, indexing, lookups and AI task runs are driven
   explicitly — no timing races),
   `AI_HUMANIZE=0` (sandbox answers inline), `LLM_PRICE_SYNC=0`, `PASSWORD_HASH_ITERATIONS=1000` (fast
   hashes for the seeded logins — 600 000 rounds per sign-in saturated a 2-vCPU

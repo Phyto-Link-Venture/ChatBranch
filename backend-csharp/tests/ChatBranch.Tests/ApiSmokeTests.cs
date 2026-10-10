@@ -135,6 +135,8 @@ public class ApiFactory : WebApplicationFactory<Program>
         Environment.SetEnvironmentVariable("EMBEDDING_WORKER", "0");
         // no background WhatsApp number lookups (POST /api/contacts/identity-checks/run drives them)
         Environment.SetEnvironmentVariable("IDENTITY_CHECK_WORKER", "0");
+        // no background AI task passes (POST /api/ai/tasks/tick or AiTaskService.RunDueAsync drive them)
+        Environment.SetEnvironmentVariable("AI_TASK_WORKER", "0");
         // no fetch of OpenRouter's public price list — reports price from the seeded table only
         Environment.SetEnvironmentVariable("LLM_PRICE_SYNC", "0");
         Environment.SetEnvironmentVariable("AI_HUMANIZE", "0");

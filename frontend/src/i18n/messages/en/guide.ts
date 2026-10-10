@@ -508,6 +508,36 @@ export const guide = {
         },
       },
     },
+    aiTasks: {
+      title: 'Background AI tasks',
+      intro: 'Silent AI workers that read what customers send and file it in your other apps — without ever replying.',
+      steps: {
+        s1: {
+          title: 'A worker that never replies',
+          body: 'A background task reads new customer messages — an invoice, a receipt, a payment slip — and does the paperwork with your apps. The customer never gets a message from it.',
+        },
+        s2: {
+          title: 'What it does',
+          body: 'This line explains it in one sentence. It works whether the chatbot is on or off for a chat, but stops when the AI master switch is off or the AI quota is used up.',
+        },
+        s3: {
+          title: 'Start from a template',
+          body: 'Pick “Save invoices” or “Log receipts”, or start blank. Say in your own words what to look for and what to do, tick the tools it may use, and test it on a sample before switching it on.',
+        },
+        s4: {
+          title: 'Your tasks',
+          body: 'Each card shows when it runs, which tools it may use, who it is available to and how its last runs went.',
+        },
+        s5: {
+          title: 'On, off and runs',
+          body: 'Switch a task on or off, open Runs to see what it extracted and which tools it called for each message, or edit it.',
+        },
+        s6: {
+          title: 'Where you see it in chats',
+          body: 'Every run that did something leaves a private 🤖 note in the conversation, so your team sees what was filed.',
+        },
+      },
+    },
     persona: {
       title: 'Persona & house rules',
       intro: 'How the AI introduces itself, and the rules it always follows.',

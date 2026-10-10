@@ -258,11 +258,12 @@ public static class Handover
         by == "ai" ? "The AI"
         : by == "flow" ? "A flow"
         : by.StartsWith("rule:") ? "An automation rule"
+        : by.StartsWith("ai_task:") ? "A background AI task"
         : by.StartsWith("agent:") ? by[6..]
         : by;
 
     private static string SourceOf(string by) =>
-        by.StartsWith("rule:") ? AuditSources.Automation
+        by.StartsWith("rule:") || by.StartsWith("ai_task:") ? AuditSources.Automation
         : by == "flow" ? AuditSources.Flow
         : by.StartsWith("agent:") ? (AuditContext.Current?.Source is { Length: > 0 } s ? s : AuditSources.User)
         : AuditSources.System;

@@ -74,6 +74,12 @@ public class OpenAiLlmClient : ILlmClient
 
     public bool IsConfigured => Candidates().Count > 0;
 
+    /// <summary>The providers whose OpenAI-compatible endpoint takes <c>image_url</c> content parts.</summary>
+    public static readonly string[] VisionProviders = { "openrouter", "openai", "google" };
+
+    /// <summary>The provider that would answer first reads images (OpenRouter / OpenAI / Gemini).</summary>
+    public bool SupportsVision => Candidates().FirstOrDefault() is { } p && VisionProviders.Contains(p.Name);
+
     /// <summary>
     /// The last provider failure this client swallowed (e.g. "openai: Response
     /// status code does not indicate success: 401 (Unauthorized).") — "" after a
@@ -368,6 +374,13 @@ public class OpenAiLlmClient : ILlmClient
                     function = new { name = t.Name, arguments = t.ArgumentsJson },
                 }).ToList(),
             };
+        if (m.Images is { Count: > 0 } images)
+        {
+            // OpenAI-compatible multimodal turn: the text, then each image as a data URL
+            var parts = new List<object> { new { type = "text", text = m.Content ?? "" } };
+            parts.AddRange(images.Select(url => (object)new { type = "image_url", image_url = new { url } }));
+            return new { role = m.Role, content = parts };
+        }
         return new { role = m.Role, content = m.Content ?? "" };
     }
 }

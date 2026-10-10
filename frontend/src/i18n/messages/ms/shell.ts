@@ -12,6 +12,7 @@ export const shell: Dict<typeof source> = {
     flowBuilder: 'Perjalanan',
     aiMonitor: 'Pemantau AI',
     aiPlayground: 'Ruang uji AI',
+    aiTasks: 'Tugas AI latar belakang',
     automations: 'Automasi',
     voice: 'Suara & panggilan',
     templates: 'Templat',
