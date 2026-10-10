@@ -41,10 +41,24 @@ export function isStandalone(): boolean {
   )
 }
 
+/**
+ * iPhone / iPad: Safari (and every iOS browser) never fires
+ * `beforeinstallprompt` — installing is "Share → Add to Home Screen", which the
+ * app has to explain itself. iPadOS reports itself as a Mac, so a touch Mac counts.
+ */
+export function isIos(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent || ''
+  return /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && (navigator.maxTouchPoints ?? 0) > 1)
+}
+
 /** `canInstall` is false until the browser says the app is installable, and
- *  stays false inside the installed app. */
-export function useInstallPrompt(): { canInstall: boolean; install: () => Promise<void> } {
+ *  stays false inside the installed app. `iosHint` = an iPhone/iPad browser
+ *  outside the installed app, where only the Share-sheet steps work. */
+export function useInstallPrompt(): { canInstall: boolean; iosHint: boolean; install: () => Promise<void> } {
   const [canInstall, setCanInstall] = useState(false)
+  const [iosHint, setIosHint] = useState(false)
+  useEffect(() => setIosHint(isIos() && !isStandalone()), [])
   useEffect(() => {
     const sync = () => setCanInstall(!!deferred && !isStandalone())
     sync()
@@ -61,7 +75,7 @@ export function useInstallPrompt(): { canInstall: boolean; install: () => Promis
     await ev.prompt()
     await ev.userChoice.catch(() => undefined)
   }
-  return { canInstall, install }
+  return { canInstall, iosHint, install }
 }
 
 /** Service worker on in production builds, or in dev with NEXT_PUBLIC_SW_DEV=1.

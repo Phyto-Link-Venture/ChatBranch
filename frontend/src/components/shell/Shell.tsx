@@ -18,6 +18,7 @@ import { resetNotifications } from './notificationsStore'
 import { useLive } from './liveStore'
 import { CampaignModal } from '@/components/CampaignModal'
 import { AssistantDock } from '@/components/assistant/AssistantDock'
+import { InstallHint } from './InstallHint'
 import { TourProvider } from '@/components/tour/TourProvider'
 
 /**
@@ -156,7 +157,9 @@ export function Shell({ children }: { children: ReactNode }) {
     router.replace('/login')
   }, [router])
 
-  if (isLogin || isPublic) return <>{children}</>
+  // body never scrolls (the shell's panes do), so bare pages bring their own
+  // scroll container — without it /help and the manual can't scroll on a phone
+  if (isLogin || isPublic) return <div className="h-full overflow-y-auto overscroll-contain">{children}</div>
 
   return (
     <TourProvider>
@@ -223,6 +226,9 @@ export function Shell({ children }: { children: ReactNode }) {
       </ErrorBoundary>
       <ErrorBoundary name="assistant-dock">
         <AssistantDock open={assistantOpen} onOpenChange={setAssistantOpen} />
+      </ErrorBoundary>
+      <ErrorBoundary name="install-hint">
+        <InstallHint />
       </ErrorBoundary>
     </div>
     </TourProvider>

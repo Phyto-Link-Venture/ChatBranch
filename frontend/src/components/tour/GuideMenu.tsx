@@ -87,8 +87,6 @@ export function GuideMenu() {
                 <a
                   key={g.id}
                   href={`/help/manual#${g.id}`}
-                  target="_blank"
-                  rel="noopener"
                   className={item}
                   onClick={() => setOpen(false)}
                 >
@@ -109,7 +107,7 @@ export function GuideMenu() {
             <Compass size={15} className="shrink-0 text-text-muted" aria-hidden />
             {t('guide.ui.appTour')}
           </button>
-          <a href="/help/manual" target="_blank" rel="noopener" className={item} onClick={() => setOpen(false)}>
+          <a href="/help/manual" className={item} onClick={() => setOpen(false)}>
             <BookOpenText size={15} className="shrink-0 text-text-muted" aria-hidden />
             {t('guide.ui.manual')}
           </a>

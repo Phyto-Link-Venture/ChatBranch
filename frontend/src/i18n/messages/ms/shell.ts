@@ -60,6 +60,16 @@ export const shell: Dict<typeof source> = {
     orgSaved: 'Lalai organisasi dikemas kini.',
     reviewNote: 'Terjemahan dibantu mesin — beritahu kami jika ada perkataan yang janggal.',
   },
+  install: {
+    title: 'Pasang ChatBranch',
+    body: 'Tambahkan ke skrin utama anda: ia dibuka skrin penuh seperti aplikasi, lebih pantas, dengan pemberitahuan.',
+    iosBody: 'Tambahkan ke skrin utama anda — ia dibuka skrin penuh seperti aplikasi.',
+    iosStep1: 'Ketik butang Kongsi pada bar alat Safari',
+    iosStep2: 'Tatal ke bawah dan ketik “Tambah ke Skrin Utama”',
+    iosStep3: 'Ketik “Tambah” — ChatBranch muncul di skrin utama anda',
+    install: 'Pasang',
+    notNow: 'Bukan sekarang',
+  },
   sideNav: {
     mainNavigation: 'Navigasi utama',
     primaryTabs: 'Tab utama',
