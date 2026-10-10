@@ -181,12 +181,12 @@ public class ConnectedAppTools
                     contact?.Name ?? "", contact?.Phone ?? "", contact?.Email ?? "",
                 };
                 row.AddRange(values);
-                var r = _actions.RunAsync("Append row to Sheet", contact, new Dictionary<string, string>
+                var r = Task.Run(() => _actions.RunAsync("Append row to Sheet", contact, new Dictionary<string, string>
                 {
                     ["spreadsheetId"] = AiGate.Str(d, "spreadsheet_id", ""),
                     ["sheetRange"] = AiGate.Str(d, "sheet_range", "Sheet1!A:Z"),
                     ["rowJson"] = JsonSerializer.Serialize(row),
-                }, "", entityId, null).GetAwaiter().GetResult();
+                }, "", entityId, null)).GetAwaiter().GetResult();
                 done.Add(r.Ok ? "📊 Row logged to Google Sheets" : $"📊 Google Sheets row not logged: {r.Detail}");
             }
             catch (Exception ex)

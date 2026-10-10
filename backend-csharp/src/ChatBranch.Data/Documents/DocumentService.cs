@@ -415,7 +415,8 @@ public class DocumentService
     {
         var channel = thread?.Channel ?? "documents";
         var key = thread?.Key ?? (row.ContactId is int cid ? $"contact-{cid}" : "unassigned");
-        row.FilePath = _media.SaveAsync(channel, key, bytes, ext).GetAwaiter().GetResult();
+        // Task.Run: off any captured sync context, so the blocking wait can never deadlock
+        row.FilePath = Task.Run(() => _media.SaveAsync(channel, key, bytes, ext)).GetAwaiter().GetResult();
         row.FileChannel = channel;
         row.SizeBytes = bytes.LongLength;
         row.PublicToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
@@ -608,8 +609,8 @@ public class DocumentService
             // for this conversation; otherwise copy it there first
             var rel = doc.FilePath;
             if (doc.FileChannel != thread.Channel || _media.Resolve(thread.Channel, rel) == null)
-                rel = _media.SaveAsync(thread.Channel, thread.Key, File.ReadAllBytes(full),
-                    Path.GetExtension(doc.FileName)).GetAwaiter().GetResult();
+                rel = Task.Run(() => _media.SaveAsync(thread.Channel, thread.Key, File.ReadAllBytes(full),
+                    Path.GetExtension(doc.FileName))).GetAwaiter().GetResult();
             var abs = _media.Resolve(thread.Channel, rel)!;
             var caption = doc.Type == DocumentTypes.Qr ? doc.Title : $"📄 {label}";
             msg = thread.Channel is ChatBranch.Domain.Channels.Email or ChatBranch.Domain.Channels.Telegram
