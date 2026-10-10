@@ -929,6 +929,21 @@ When you fix one of these, update this table, `README.md` and
   `DraftBits.tsx`); the playground previews both (`reaction` / `quote` by
   transcript index, `options.emoji_style|reactions|quote_replies` overrides need
   `ai.behaviour.manage`). Tests: `HumanTouchTests`.
+  **Channel formatting + honest booking claims** (in the reply loop of
+  `AssistantService.GenerateAsync`, AI text only — a person's message is never
+  rewritten). `Ai/ChannelFormatter.ForChannel` turns the model's Markdown into
+  what the channel shows: WhatsApp gets its own markup (`**x**`/`__x__` → `*x*`,
+  `~~x~~` → `~x~`, `# Heading` → `*Heading*`); SMS, Messenger, Instagram, LINE,
+  Viber, WeChat, Zalo, TikTok, Douyin and Telegram (sent without `parse_mode`) get
+  plain text; `[text](url)` → `text: url` on both; email and the widget are left
+  as written. Only matched pairs around text change — never `2*3` or a masked IC
+  `******-**-1234` — and it is idempotent; it runs BEFORE the checks. The built-in
+  check `builtin:no_false_booking_claim` (`Ai/BookingClaims.cs`, only when a
+  calendar app skill is in scope) fails a draft that says an appointment HAS
+  BEEN cancelled / booked / confirmed when no `*_cancel` (`cancel_pending`) /
+  `*_book` (`reserved`) tool call of this reply did it — retry, then a person
+  (quoting an existing booking has no claim verb and passes). Tests:
+  `ChannelFormatterTests`.
 - **AI reviewer — "AI to monitor AI"** (`Ai/Review/AiReviewService.cs`,
   `Endpoints/AiReviewEndpoints.cs`, the AI monitor's "AI review" tab
   `?tab=ai-review`, `components/ai-monitor/AiReviewPanel.tsx`). ON DEMAND ONLY —

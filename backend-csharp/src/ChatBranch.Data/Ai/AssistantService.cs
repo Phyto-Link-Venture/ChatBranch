@@ -633,6 +633,11 @@ public partial class AssistantService
         var human = spec.Human;
         // the human-like touches (react / quote) ride next to the skills' tools
         var offer = human == null ? toolSet.Tools : toolSet.Tools.Concat(human.Tools()).ToList();
+        // a reply may only say a booking was made / cancelled when a calendar tool did it
+        var guardBookingClaims = inScope.Any(s => s.Kind == SkillKinds.App && s.Enabled
+                                                  && AppSkills.AppOf(s.Config) == AppSkills.Calendar);
+        var booked = false;
+        var cancelled = false;
 
         for (; attempt <= MaxCheckRetries; attempt++)
         {
@@ -646,8 +651,18 @@ public partial class AssistantService
                 maxRounds: MaxToolRounds, ct: ct);
             tools.AddRange(outcome.Steps.Select(s => new AiToolCall(s.Tool, Trim(s.ArgumentsJson, 500),
                 Trim(s.Result, 500), s.Ok)));
+            foreach (var step in outcome.Steps.Where(s => s.Ok))
+            {
+                if (step.Tool.EndsWith("_book", StringComparison.Ordinal) && BookingClaims.HasStatus(step.Result, "reserved"))
+                    booked = true;
+                if (step.Tool.EndsWith("_cancel", StringComparison.Ordinal) && BookingClaims.HasStatus(step.Result, "cancel_pending"))
+                    cancelled = true;
+            }
             // the [msg id] tags the model was shown never reach the customer
             var text = RenderPlaceholders(HumanTouch.StripTags((outcome.Text ?? "").Trim()), spec.Contact);
+            // Markdown → what the customer's channel shows (in code: a prompt rule alone
+            // loses to the style of earlier replies in the history). AI text only.
+            text = ChannelFormatter.ForChannel(text, spec.Channel);
             if (text.Length == 0)
             {
                 // nothing on a retry = the model could not fix the draft → fall
@@ -673,6 +688,10 @@ public partial class AssistantService
                 runs.Add(new SkillService.CheckRun("builtin:no_repeat", "Not a repeat", false,
                     "The follow-up repeats the previous message word for word.", "Write a different, shorter nudge.",
                     null, 0, "retry"));
+            if (guardBookingClaims && BookingClaims.Unbacked(draft, booked, cancelled) is { } claim)
+                runs.Add(new SkillService.CheckRun("builtin:no_false_booking_claim", "Booking claims match the calendar",
+                    false, $"The reply says a booking was {claim} but no calendar tool did it.",
+                    "Call the calendar tool first, or don't say it is done.", null, 0, "retry"));
             checks.AddRange(runs.Select(r => new AiCheckRun(r.SkillId, r.Name, r.Ok, r.Reason, r.Fix, r.Error, attempt)));
             failing = runs.Where(r => !r.Ok).ToList();
             if (failing.Count == 0) { action = AiActions.Send; break; }
