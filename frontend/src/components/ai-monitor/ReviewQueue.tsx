@@ -33,6 +33,7 @@ import {
   Countdown,
   DraftBookings,
   DraftHeader,
+  DraftTouches,
   HoldReasons,
   Kbd,
   chatHref,
@@ -399,6 +400,11 @@ export function ReviewQueue({
                 {d.documents && d.documents.length > 0 && (
                   <div className="mt-2">
                     <DraftDocuments d={d} />
+                  </div>
+                )}
+                {(d.reactions?.length || d.quote) && (
+                  <div className="mt-2">
+                    <DraftTouches d={d} />
                   </div>
                 )}
                 <div className="mt-2">

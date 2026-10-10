@@ -15,6 +15,7 @@ export const bubble = {
   reactions: {
     you: 'You',
     customer: 'Customer',
+    ai: 'AI',
     by: '{names} reacted with {emoji}',
     removeYours: 'Click to remove your reaction',
     addSame: 'Click to react with {emoji}',

@@ -137,6 +137,16 @@ export const ai = {
     flowMessageCount_other: '{count} flow messages',
   },
   draft: {
+    touch: {
+      label: 'Reaction and quote in this reply',
+      willReact: 'Will react {emoji}',
+      reacted: 'Reacted {emoji}',
+      reactionFailed: 'Reaction {emoji} not sent',
+      onMessage: 'on “{text}”',
+      reactionOnly: 'A reaction only — no text is sent.',
+      quotes: 'Quotes “{text}”',
+      quotesMessage: 'Quotes an earlier message',
+    },
     tool: 'tool',
     check: 'check',
     toolTitle: 'Tool {name}',
@@ -282,6 +292,15 @@ export const ai = {
   // ---- AI behaviour settings ---------------------------------------------------
   behaviour: {
     options: {
+      emojiStyle: {
+        off: 'Off — no emoji',
+        light: 'Light — an occasional emoji',
+        expressive: 'Expressive — warmer, a little more often',
+      },
+      quoteReplies: {
+        auto: 'Auto — quote when it helps',
+        off: 'Off — never quote',
+      },
       reviewMode: {
         auto: 'Send straight away',
         reviewFlagged: 'Review risky replies',
@@ -333,6 +352,10 @@ export const ai = {
     inherits: 'Inherits organization default',
     inheritsOverrides: 'Inherits organization default (overrides when saved)',
     groups: {
+      human: {
+        title: 'Human-like',
+        description: 'Emoji, emoji reactions and quoted replies — the small touches of a person typing on their phone.',
+      },
       review: {
         title: 'Review before sending',
         description: 'Decide which AI messages a person checks before they reach the customer.',
@@ -359,6 +382,21 @@ export const ai = {
       },
     },
     fields: {
+      emojiStyle: {
+        label: 'Emoji in replies',
+        help:
+          'Off: no emoji. Light: an occasional emoji where a person would use one — at most one per message, never in a complaint or an apology, and few when the customer uses none. Expressive: warmer and a little more often. Email never gets emoji, and a persona that says otherwise wins.',
+      },
+      reactions: {
+        label: 'React to the customer’s messages',
+        help:
+          'On WhatsApp and Telegram the AI may react to the customer’s latest message — 👍 on “ok”, 🙏 on “thanks”, ❤️ on a photo — at most one reaction per reply. A reaction alone can answer a simple acknowledgement instead of silence. It is added when the reply is sent, never while it is held.',
+      },
+      quoteReplies: {
+        label: 'Quote the message being answered',
+        help:
+          'Auto: when the customer sent several messages at once, or the answer refers to an older message, the reply quotes the message it answers (WhatsApp and Telegram). Off: never quote.',
+      },
       reviewMode: {
         label: 'Who checks the AI before it sends',
         help:
@@ -401,7 +439,7 @@ export const ai = {
       ackText: {
         label: 'Optional short acknowledgement',
         help:
-          'If set, sent instead of a full reply to an acknowledgement (for example “Noted, thanks!”). Leave blank to stay silent.',
+          'If set, sent instead of a full reply to an acknowledgement (for example “Noted, thanks!”). Leave blank to stay silent — or to react with an emoji when reactions are on.',
       },
       typing: {
         label: 'Show typing and pause before sending',
@@ -472,6 +510,7 @@ export const ai = {
     waitsApproval: 'Waits until a person approves it (shown as if approved right away)',
     typing: 'typing… ({seconds}s)',
     ackNoReply: 'Just an acknowledgement — no reply needed',
+    ackReaction: 'The AI reacts {emoji} instead of replying',
     repliesToAck: 'The AI replies to the acknowledgement too',
     followUp: 'Follow-up {n}, written by the AI',
     ifNoAnswer: 'If the AI asks something and hears nothing',

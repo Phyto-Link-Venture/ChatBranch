@@ -134,6 +134,16 @@ export const ai: Dict<typeof source> = {
     flowMessageCount_other: '{count} 条流程消息',
   },
   draft: {
+    touch: {
+      label: '此回复中的表情回应和引用',
+      willReact: '将回应 {emoji}',
+      reacted: '已回应 {emoji}',
+      reactionFailed: '回应 {emoji} 未发送',
+      onMessage: '于“{text}”',
+      reactionOnly: '只有表情回应——不发送文字。',
+      quotes: '引用“{text}”',
+      quotesMessage: '引用一条较早的消息',
+    },
     tool: '工具',
     check: '检查',
     toolTitle: '工具 {name}',
@@ -277,6 +287,15 @@ export const ai: Dict<typeof source> = {
 
   behaviour: {
     options: {
+      emojiStyle: {
+        off: '关闭——不用表情',
+        light: '少量——偶尔一个表情',
+        expressive: '活泼——更热情，稍多一些',
+      },
+      quoteReplies: {
+        auto: '自动——有帮助时引用',
+        off: '关闭——从不引用',
+      },
       reviewMode: {
         auto: '立即发送',
         reviewFlagged: '审核有风险的回复',
@@ -328,6 +347,10 @@ export const ai: Dict<typeof source> = {
     inherits: '继承组织默认值',
     inheritsOverrides: '继承组织默认值（保存后覆盖）',
     groups: {
+      human: {
+        title: '像真人一样',
+        description: '表情、表情回应和引用回复——就像真人在手机上打字时的小细节。',
+      },
       review: {
         title: '发送前审核',
         description: '决定哪些 AI 消息需要人工检查后才能送达客户。',
@@ -354,6 +377,21 @@ export const ai: Dict<typeof source> = {
       },
     },
     fields: {
+      emojiStyle: {
+        label: '回复中的表情',
+        help:
+          '关闭：不用表情。少量：在真人会用的地方偶尔用一个——每条消息最多一个，投诉或道歉时绝不使用，客户不用表情时也少用。活泼：更热情，稍多一些。电子邮件从不使用表情；若人设另有说明，以人设为准。',
+      },
+      reactions: {
+        label: '对客户的消息做出回应',
+        help:
+          '在 WhatsApp 和 Telegram 上，AI 可以对客户最新的消息做出表情回应——“好的”回 👍，“谢谢”回 🙏，照片回 ❤️——每条回复最多一个。对简单的回应，一个表情就能代替沉默。表情在回复发送时才加上，回复被暂扣时不会加。',
+      },
+      quoteReplies: {
+        label: '引用所回答的消息',
+        help:
+          '自动：当客户一次发来多条消息，或回答涉及较早的消息时，回复会引用它所回答的那条消息（WhatsApp 和 Telegram）。关闭：从不引用。',
+      },
       reviewMode: {
         label: '发送前由谁检查 AI',
         help: '立即发送、只拦下看起来有风险的回复、全部拦下交由人工，或影子模式（AI 只写草稿从不发送——用于安全试用）。',
@@ -388,7 +426,7 @@ export const ai: Dict<typeof source> = {
       },
       ackText: {
         label: '可选的简短回应',
-        help: '如果设置，会用它代替完整回复来回应简单回应（例如“收到，谢谢！”）。留空则保持沉默。',
+        help: '如果设置，会用它代替完整回复来回应简单回应（例如“收到，谢谢！”）。留空则保持沉默——开启表情回应时则改为回一个表情。',
       },
       typing: {
         label: '发送前显示正在输入并停顿',
@@ -452,6 +490,7 @@ export const ai: Dict<typeof source> = {
     waitsApproval: '等待人工批准（此处按立即批准演示）',
     typing: '正在输入…（{seconds}秒）',
     ackNoReply: '只是简单回应——无需回复',
+    ackReaction: 'AI 回一个 {emoji}，而不是回复文字',
     repliesToAck: 'AI 也会回复这条简单回应',
     followUp: '第 {n} 次跟进，由 AI 撰写',
     ifNoAnswer: '如果 AI 提问后没有回音',

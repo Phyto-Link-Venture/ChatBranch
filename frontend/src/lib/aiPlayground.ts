@@ -38,7 +38,17 @@ export interface PlaygroundOptions {
   persona_is_default: boolean | null
   channels: string[]
   languages: string[]
-  policy: { review_mode: string; first_n: number; autosend_minutes: number; split: string; split_max_chars: number }
+  policy: {
+    review_mode: string
+    first_n: number
+    autosend_minutes: number
+    split: string
+    split_max_chars: number
+    /** The human-like touches production uses here (AI monitor → Settings → Human-like). */
+    emoji_style?: string
+    reactions?: boolean
+    quote_replies?: string
+  }
   ai: { enabled: boolean; rule: string; reason: string; forced: boolean }
   learning_mode: string
   teach_status: 'active' | 'suggested'
@@ -54,6 +64,13 @@ export interface PlaygroundReply {
   bubbles: string[]
   action: 'send' | 'handover' | 'block' | 'empty' | 'error' | string
   reason: string
+  /** The emoji reaction production would put on a customer message — `message_index` is the
+   *  position in the transcript this call sent. Nothing is performed here. */
+  reaction?: { message_index: number; emoji: string; text: string } | null
+  /** The customer message the reply's first bubble would quote. */
+  quote?: { message_index: number; text: string } | null
+  /** The touches this run used (the setting, or this run's override; off where the channel has none). */
+  touches?: { emoji_style: string; reactions: boolean; quotes: boolean }
   production: {
     verdict: Verdict
     why: string
@@ -141,6 +158,10 @@ export interface Variant {
   skills: boolean
   memory: boolean
   showPrompt: boolean
+  /** Human-like touches for this run — '' = the saved setting. */
+  emojiStyle: '' | 'off' | 'light' | 'expressive'
+  reactions: '' | 'on' | 'off'
+  quotes: '' | 'auto' | 'off'
 }
 
 export const DEFAULT_VARIANT: Variant = {
@@ -152,11 +173,15 @@ export const DEFAULT_VARIANT: Variant = {
   skills: true,
   memory: true,
   showPrompt: false,
+  emojiStyle: '',
+  reactions: '',
+  quotes: '',
 }
 
 /** Anything beyond the defaults (the server refuses it without ai.behaviour.manage). */
 export const isOverride = (v: Variant) =>
   !!v.provider || !!v.model || v.persona != null || !v.knowledge || !v.lessons || !v.skills || !v.memory || v.showPrompt
+  || !!v.emojiStyle || !!v.reactions || !!v.quotes
 
 export interface MadeUpProfile {
   name: string
@@ -230,6 +255,34 @@ export function transcriptFor(entries: Entry[], upTo: number, column: number): {
   return out
 }
 
+/** The entry ids behind {@link transcriptFor}'s turns, position for position. */
+export function transcriptEntryIds(entries: Entry[], upTo: number, column: number): string[] {
+  const out: string[] = []
+  for (const e of entries.slice(0, upTo)) {
+    if (e.kind !== 'ai') out.push(e.id)
+    else if (resultText(e.results[column]) || resultText(e.results[0])) out.push(e.id)
+  }
+  return out
+}
+
+/**
+ * The reactions the AI turns would put on customer messages, by entry id —
+ * mapped back from the transcript positions each reply was generated against.
+ */
+export function plannedReactions(entries: Entry[]): Map<string, { emoji: string; column: number }[]> {
+  const out = new Map<string, { emoji: string; column: number }[]>()
+  entries.forEach((e, i) => {
+    if (e.kind !== 'ai') return
+    e.results.forEach((r, column) => {
+      const reaction = r?.reply?.reaction
+      if (!reaction) return
+      const id = transcriptEntryIds(entries, i, column)[reaction.message_index]
+      if (id) out.set(id, [...(out.get(id) ?? []), { emoji: reaction.emoji, column }])
+    })
+  })
+  return out
+}
+
 // ---- API -----------------------------------------------------------------------------------
 
 export const fetchOptions = (entity: string | null) =>
@@ -247,6 +300,9 @@ export function requestReply(setup: Setup, variant: Variant, messages: { role: s
   if (variant.persona != null) options.persona = variant.persona
   for (const k of ['knowledge', 'lessons', 'skills', 'memory'] as const) if (!variant[k]) options[k] = false
   if (variant.showPrompt) options.show_prompt = true
+  if (variant.emojiStyle) options.emoji_style = variant.emojiStyle
+  if (variant.reactions) options.reactions = variant.reactions === 'on'
+  if (variant.quotes) options.quote_replies = variant.quotes
   const fields: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(setup.profile.fields))
     if (v !== '' && !(Array.isArray(v) && v.length === 0)) fields[k] = v

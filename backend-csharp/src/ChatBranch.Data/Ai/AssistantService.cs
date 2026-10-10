@@ -61,7 +61,11 @@ public partial class AssistantService
     /// playground switches some off or swaps the persona for an unsaved draft.
     /// <see cref="PersonaService.HardRules"/> are not a part: they always lead.
     /// </summary>
-    private sealed record PromptParts(string? Persona, bool Skills, bool Knowledge, bool Lessons, bool Memory)
+    /// <param name="EmojiStyle">the emoji STYLE (off | light | expressive) — null = the entity's
+    /// setting (<c>ai_emoji_style</c>), "" = no style line at all.</param>
+    /// <param name="Touches">the human-like tool guidance of a chat reply (<see cref="HumanTurn.Guidance"/>).</param>
+    private sealed record PromptParts(string? Persona, bool Skills, bool Knowledge, bool Lessons, bool Memory,
+        string? EmojiStyle = null, string Touches = "")
     {
         public static readonly PromptParts All = new(null, true, true, true, true);
     }
@@ -73,6 +77,9 @@ public partial class AssistantService
         sb.AppendLine(parts.Persona is { } persona
             ? _persona.Preamble(entityId, persona)
             : _persona.SystemPreamble(entityId));
+        // the emoji STYLE sits below the hard rules, house rules and persona — and says the persona wins
+        var style = parts.EmojiStyle ?? SafeEmojiStyle(entityId);
+        if (style.Length > 0) sb.AppendLine().AppendLine(HumanTouch.EmojiLine(style, channel));
 
         if (parts.Skills)
         {
@@ -100,7 +107,58 @@ public partial class AssistantService
                           + $"take it from here, call {BuiltinSkills.RequestHandover} with the reason — staff are only "
                           + "alerted through that call.");
         }
+        if (parts.Touches.Length > 0) sb.AppendLine().AppendLine(parts.Touches);
         return sb.ToString().TrimEnd();
+    }
+
+    private string SafeEmojiStyle(int? entityId)
+    {
+        try { return AiBehaviourSettings.Resolve(_scoping, entityId).EmojiStyle; }
+        catch { return ""; }
+    }
+
+    /// <summary>
+    /// The human-like touches of one chat reply: what the settings allow on this
+    /// conversation's channel / number, the customer messages of this turn (since
+    /// our last outbound — what may get a reaction) and every customer message the
+    /// model sees (what may be quoted).
+    /// </summary>
+    private static HumanTurn TurnFor(string channel, ChannelAccount? account, AiBehaviour policy, IReadOnlyList<Message> history)
+    {
+        var turn = new HumanTurn(channel,
+            policy.Reactions && HumanTouch.ReactionsPossible(channel, account),
+            policy.QuoteReplies && HumanTouch.QuotesPossible(channel, account));
+        var lastOut = -1;
+        for (var i = 0; i < history.Count; i++)
+            if (history[i].Direction == MessageDirection.Out) lastOut = i;
+        for (var i = 0; i < history.Count; i++)
+        {
+            var m = history[i];
+            if (m.Direction != MessageDirection.In || m.Id <= 0) continue;
+            turn.Known[m.Id] = m.Text;
+            if (i > lastOut) turn.Current.Add(m.Id);
+        }
+        return turn;
+    }
+
+    /// <summary>The conversation as model turns — customer messages tagged with their ids when a touch can use them.</summary>
+    private static List<LlmMessage> Transcript(IEnumerable<Message> history, HumanTurn? human) =>
+        history.Select(m => new LlmMessage(
+            m.Direction == MessageDirection.In ? "user" : "assistant",
+            human is { TagsMessages: true } && m.Direction == MessageDirection.In && human.Known.ContainsKey(m.Id)
+                ? HumanTouch.Tag(m.Id) + m.Text
+                : m.Text)).ToList();
+
+    private (ChannelAccount? Account, AiBehaviour Policy) PolicyFor(Thread thread)
+    {
+        ChannelAccount? account = null;
+        try
+        {
+            account = thread.AccountId is int aid
+                ? _db.ChannelAccounts.AsNoTracking().FirstOrDefault(a => a.Id == aid) : null;
+        }
+        catch { /* no account = the entity's settings */ }
+        return (account, AiBehaviourSettings.Resolve(_scoping, thread.EntityId, account));
     }
 
     private string ClockLine()
@@ -269,13 +327,18 @@ public partial class AssistantService
             var history = History(thread.Id, 20);
             var lastUser = history.LastOrDefault(m => m.Direction == MessageDirection.In)?.Text ?? "";
 
-            var system = BuildSystemPrompt(thread.EntityId, thread.Channel, contact, RetrievalQuery.FromHistory(history));
-            var messages = history.Select(m => new LlmMessage(
-                m.Direction == MessageDirection.In ? "user" : "assistant", m.Text)).ToList();
+            var (account, policy) = PolicyFor(thread);
+            var human = TurnFor(thread.Channel, account, policy, history);
+            var system = BuildSystemPrompt(thread.EntityId, thread.Channel, contact, RetrievalQuery.FromHistory(history),
+                PromptParts.All with { EmojiStyle = policy.EmojiStyle, Touches = human.Guidance() });
+            var messages = Transcript(history, human);
             AddQuotedContext(history, messages);
 
             var result = await RunAsync(new Spec(system, messages, thread.EntityId, thread.Channel, contact,
-                lastUser, "chat_reply", thread.Key) { ThreadId = thread.Id, Assignee = thread.Assignee, ChargeTo = chargeTo ?? "" }, _llm, ct);
+                lastUser, "chat_reply", thread.Key)
+            {
+                ThreadId = thread.Id, Assignee = thread.Assignee, ChargeTo = chargeTo ?? "", Human = human,
+            }, _llm, ct);
             if (applyOutcome)
             {
                 ApplyOutcome(thread, result);
@@ -310,7 +373,9 @@ public partial class AssistantService
             var lastUser = history.LastOrDefault(m => m.Direction == MessageDirection.In)?.Text ?? "";
             var lastOut = history.LastOrDefault(m => m.Direction == MessageDirection.Out)?.Text ?? "";
 
-            var system = BuildSystemPrompt(thread.EntityId, thread.Channel, contact, RetrievalQuery.FromHistory(history)) + "\n\n" +
+            var (_, policy) = PolicyFor(thread);
+            var system = BuildSystemPrompt(thread.EntityId, thread.Channel, contact, RetrievalQuery.FromHistory(history),
+                             PromptParts.All with { EmojiStyle = policy.EmojiStyle }) + "\n\n" +
                 $"FOLLOW-UP: The customer has not replied to your last message. Write follow-up #{attempt}: "
                 + "one or two short, natural sentences that refer to the open question or request in this "
                 + "conversation. Never repeat your previous message word for word, don't pressure, don't "
@@ -508,6 +573,8 @@ public partial class AssistantService
         /// lessons the prompt carried are not counted as used.
         /// </summary>
         public bool Playground { get; init; }
+        /// <summary>Chat replies: the reaction / quote tools and what the model chose with them.</summary>
+        public HumanTurn? Human { get; init; }
     }
 
     private async Task<AiReplyResult> RunAsync(Spec spec, ILlmClient llm, CancellationToken ct) =>
@@ -521,7 +588,8 @@ public partial class AssistantService
         var ctx = _skills.Context(spec.Contact, spec.Channel, spec.LastMessage, spec.ThreadId, spec.EntityId,
             spec.Assignee);
         if (spec.Playground) { ctx.Apps.Preview = true; ctx.Docs.Preview = true; }
-        var offered = toolSet.Tools.Select(t => t.Name).ToList();
+        var offered = toolSet.Tools.Select(t => t.Name)
+            .Concat(spec.Human?.Tools().Select(t => t.Name) ?? Enumerable.Empty<string>()).ToList();
         var checkNames = inScope.Where(s => s.Kind == SkillKinds.Check && !string.IsNullOrWhiteSpace(s.Code))
             .Select(s => s.Name).ToList();
         try
@@ -562,23 +630,35 @@ public partial class AssistantService
         var action = "";        // "" after the loop = checks never passed
         var reason = "";
         var attempt = 0;
+        var human = spec.Human;
+        // the human-like touches (react / quote) ride next to the skills' tools
+        var offer = human == null ? toolSet.Tools : toolSet.Tools.Concat(human.Tools()).ToList();
 
         for (; attempt <= MaxCheckRetries; attempt++)
         {
             metered.Attempt = attempt;
             var messages = new List<LlmMessage>(spec.Messages);
             if (attempt > 0) messages.Add(new LlmMessage("system", Feedback(draft, failing)));
-            var outcome = await ToolLoop.RunAsync(metered, spec.System, messages, toolSet.Tools,
-                (call, token) => _skills.ExecuteToolAsync(toolSet, call, ctx, token),
+            var outcome = await ToolLoop.RunAsync(metered, spec.System, messages, offer,
+                (call, token) => human != null && human.Handles(call.Name)
+                    ? Task.FromResult(human.Execute(call))
+                    : _skills.ExecuteToolAsync(toolSet, call, ctx, token),
                 maxRounds: MaxToolRounds, ct: ct);
             tools.AddRange(outcome.Steps.Select(s => new AiToolCall(s.Tool, Trim(s.ArgumentsJson, 500),
                 Trim(s.Result, 500), s.Ok)));
-            var text = RenderPlaceholders((outcome.Text ?? "").Trim(), spec.Contact);
+            // the [msg id] tags the model was shown never reach the customer
+            var text = RenderPlaceholders(HumanTouch.StripTags((outcome.Text ?? "").Trim()), spec.Contact);
             if (text.Length == 0)
             {
                 // nothing on a retry = the model could not fix the draft → fall
                 // through to the failing-checks outcome with the last real draft
-                if (attempt == 0)
+                if (attempt == 0 && human?.Reaction != null)
+                {
+                    // a reaction can stand alone: "ok thanks!" → 👍, no words
+                    action = AiActions.Send;
+                    reason = "A reaction says it all — no text.";
+                }
+                else if (attempt == 0)
                 {
                     action = AiActions.Empty;
                     reason = outcome.RoundsExhausted ? "The model kept calling tools and never answered." : "The model returned nothing.";
@@ -633,6 +713,9 @@ public partial class AssistantService
             PendingActions = ctx.Apps.Actions.ToList(),
             Attachments = ctx.Docs.DocumentIds.ToList(),
             Deferred = ctx.Docs.Deferred.ToList(),
+            Reactions = human?.Reaction is { } reaction ? new[] { reaction } : Array.Empty<AiReaction>(),
+            // a reaction alone has no bubble to carry a quote
+            ReplyToId = draft.Length > 0 ? human?.ReplyTo : null,
         };
         RecordUsage(metered, spec, result);
         return result;

@@ -114,6 +114,21 @@ export interface Draft {
   /** Files this reply's tools made (Documents PDFs, QR codes) — sent right after
    *  its text on delivery; a rejected reply voids them. */
   documents?: DraftDocument[]
+  /** The emoji reaction this reply makes on a customer message — added on delivery, before
+   *  the text (`done` once made); a held / rejected reply never reacts. */
+  reactions?: DraftReaction[]
+  /** The customer message the reply's first bubble quotes (WhatsApp / Telegram). */
+  quote?: { message_id: number; text: string } | null
+}
+
+export interface DraftReaction {
+  message_id: number
+  emoji: string
+  /** The customer message it goes on. */
+  text: string
+  done: boolean
+  /** Why the provider refused it (the reply's text still went). */
+  error: string
 }
 
 /** One document a draft carries (`DocumentService.Payload`). `url` is auth-gated. */

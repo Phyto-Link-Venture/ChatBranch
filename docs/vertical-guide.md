@@ -343,9 +343,18 @@ AI couldn't answer — your next knowledge items.
 - **Wait for the customer to finish** (`ai_wait_seconds`, default 25 s, capped
   by `ai_wait_max_seconds`) so three short messages get one answer.
 - **Acknowledgements don't need a reply** — "ok", "thanks", 👍 after an answer
-  get silence (or a short `ai_ack_text`).
+  get silence (or a short `ai_ack_text`, or — with reactions on — an emoji
+  reaction instead).
 - **Typing** — shows "typing…" on WhatsApp and pauses in proportion to length.
 - **Split long replies** into at most 3 messages at sentence boundaries.
+- **Human-like touches** (group "Human-like"): `ai_emoji_style` off / light
+  (default) / expressive — a style line below your persona, so a persona that
+  says "no emoji" still wins, and email never gets emoji; `ai_reactions` lets
+  the AI react to the customer's latest message on WhatsApp and Telegram (🙏 on
+  "thanks", 👍 on a confirmation — a reaction can replace an "ok thanks" reply
+  altogether); `ai_quote_replies` auto lets a reply to several messages quote
+  the one it answers. A held reply reacts only once a person approves it. A
+  formal vertical (legal, medical) usually wants emoji off and reactions on.
 - **Follow-ups when the customer goes quiet** (off by default): only after the
   AI asked something or left the conversation open; first after
   `ai_followup_first_hours`, then every `ai_followup_between_hours`, at most

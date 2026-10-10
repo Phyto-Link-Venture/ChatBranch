@@ -92,7 +92,8 @@ public class AiGate
     public AiGateOutcome Submit(AiSubmission s)
     {
         var text = (s.Text ?? "").Trim();
-        if (text.Length == 0)
+        // a reaction can be the whole answer ("ok thanks!" → 👍): no words, still a draft
+        if (text.Length == 0 && AiReaction.From(s.Context).Count == 0)
         {
             ReleaseAll(s.Context, "The AI produced no text — nothing was sent.");
             return new AiGateOutcome(AiGateStatus.Empty, 0, Array.Empty<int>(), "The AI produced no text.");
@@ -229,7 +230,9 @@ public class AiGate
                 reasons.Add($"Check failed: {Str(check, "name", "check")}{(why.Length > 0 ? $" — {why}" : "")}");
             }
         foreach (var tool in Items(ctx, "tools"))
-            if (Bool(tool, "ok") == false)
+            // a refused reaction / quote is cosmetic — the model is told and carries on
+            if (Bool(tool, "ok") == false
+                && Str(tool, "name", "") is not (HumanTouch.ReactTool or HumanTouch.QuoteTool))
                 reasons.Add($"Tool failed: {Str(tool, "name", "tool")}");
         if (Num(ctx, "retries") is double r && r > 0)
             reasons.Add($"The AI needed {r:0} retr{(r == 1 ? "y" : "ies")}");
@@ -273,6 +276,9 @@ public class AiGate
                 "A teammate replied after this draft was written. Approve again with force to send it anyway.");
 
         var content = editedContent?.Trim();
+        // a reaction-only draft has no words to keep: approving it as it is reacts
+        if (content is { Length: 0 } && draft.Content.Trim().Length == 0 && AiReaction.From(draft.Context).Count > 0)
+            content = null;
         if (content is { Length: 0 })
             return Outcome(AiGateStatus.Conflict, draft.Id, "The reply is empty.");
         var edited = content != null && content != draft.Content;
@@ -442,8 +448,23 @@ public class AiGate
             return Outcome(AiGateStatus.Scheduled, draft.Id, "Re-engagement template queued.");
         }
 
+        // the reply's emoji reaction goes first — the way a person taps 👍 and then types —
+        // through the same send path as the inbox's reaction bar
+        var reacted = ApplyReactions(draft, thread, humanDecision ? draft.DecidedBy : "ai");
+        if (draft.Content.Trim().Length == 0)
+        {
+            // a reaction was the whole answer: nothing to type
+            draft.SentAt = reacted.Ok ? Now : null;
+            if (!reacted.Ok) draft.Error = reacted.Detail;
+            draft.UpdatedAt = Now;
+            _db.SaveChanges();
+            BumpThread(thread.Id);
+            return Outcome(reacted.Ok ? AiGateStatus.Sent : AiGateStatus.Skipped, draft.Id, reacted.Detail);
+        }
+
         var humanize = Bool(draft.Context, "humanize") != false;
-        var start = StartHumanSend(thread, draft.Content, MessageSource.Ai, account, policy, humanize, extra);
+        var start = StartHumanSend(thread, draft.Content, MessageSource.Ai, account, policy, humanize, extra,
+            replyTo: HumanTouch.ReplyTo(draft.Context));
         // the activity log's "the AI said something" row (a person's approval is
         // audited by the endpoint that took the decision)
         if (!humanDecision)
@@ -509,6 +530,56 @@ public class AiGate
             BumpThread(thread.Id);
         }
         catch { /* the reply itself is out — extras never break delivery */ }
+    }
+
+    public sealed record ReactionResult(bool Ok, string Detail);
+
+    /// <summary>
+    /// Put the draft's planned reaction (<c>reactions</c>, at most one) on the
+    /// customer's message — <see cref="OutboundSender.React"/> then
+    /// <see cref="MessageReactions.Set"/> as actor <c>ai</c>, exactly the inbox's
+    /// reaction path. Only an inbound message of this conversation, only an emoji
+    /// the channel takes; a refusal is recorded on the draft and never stops the text.
+    /// </summary>
+    private ReactionResult ApplyReactions(AiDraft draft, Thread thread, string? actor)
+    {
+        var planned = AiReaction.From(draft.Context);
+        if (planned.Count == 0) return new ReactionResult(false, "No reaction planned.");
+        var r = planned[0];
+        try
+        {
+            var msg = _db.Messages.FirstOrDefault(m => m.Id == r.MessageId && m.ThreadId == thread.Id
+                && m.Direction == MessageDirection.In && !m.Private);
+            var emoji = MessageReactions.ForAi(thread.Channel, r.Emoji);
+            string? refused = msg == null ? "the message to react to is not in this conversation"
+                : emoji == null ? $"{r.Emoji} can't be used as a reaction on {thread.Channel}"
+                : null;
+            ReactionSend? sent = null;
+            if (refused == null)
+            {
+                sent = _sender.React(thread, msg!, emoji!);
+                if (!sent.Ok) refused = sent.Detail;
+            }
+            if (refused != null)
+            {
+                draft.Context = new Dictionary<string, object?>(draft.Context) { ["reaction_error"] = refused };
+                draft.UpdatedAt = Now;
+                _db.SaveChanges();
+                return new ReactionResult(false, $"Reaction not sent — {refused}.");
+            }
+            MessageReactions.Set(_db, thread, msg!, MessageReactions.AiActor, emoji!);
+            draft.Context = new Dictionary<string, object?>(draft.Context) { ["reacted"] = true };
+            draft.UpdatedAt = Now;
+            _db.SaveChanges();
+            Audit.AuditTrail.Write(_db, "message.react", $"{thread.Channel}:{thread.Key}",
+                $"message {msg!.Id} {emoji} (AI)", actor: string.IsNullOrWhiteSpace(actor) ? "ai" : actor!,
+                source: AuditSources.System, entityId: thread.EntityId);
+            return new ReactionResult(true, sent!.Live ? $"Reacted {emoji}." : $"Reacted {emoji} (sandbox).");
+        }
+        catch (Exception ex)
+        {
+            return new ReactionResult(false, $"Reaction not sent — {ex.GetType().Name}.");
+        }
     }
 
     /// <summary>Give back everything an undelivered draft reserved: bookings and documents.</summary>
@@ -592,8 +663,10 @@ public class AiGate
     /// Later bubbles chain through the queue (<see cref="ContinueHumanSend"/>), so
     /// their order is guaranteed and nothing ever sleeps on a request thread.
     /// </summary>
+    /// <param name="replyTo">a message of this conversation the FIRST bubble quotes (WhatsApp / Telegram;
+    /// ignored elsewhere — <see cref="OutboundSender.Send"/>).</param>
     public HumanSendStart StartHumanSend(Thread thread, string text, string source, ChannelAccount? account,
-        AiBehaviour policy, bool humanize, Dictionary<string, object?> extra)
+        AiBehaviour policy, bool humanize, Dictionary<string, object?> extra, int? replyTo = null)
     {
         var bubbles = humanize
             ? Humanizer.Split(text, policy.SplitMode, policy.SplitMaxChars)
@@ -605,10 +678,12 @@ public class AiGate
         {
             ["source"] = source, ["typing"] = typing, ["bubbles"] = bubbles.Count,
         };
+        payload.Remove("reply_to");
 
         if (!typing && !quiet)
         {
-            var msg = _sender.Send(thread, bubbles[0], source, account?.Id ?? thread.AccountId);
+            var msg = _sender.Send(thread, bubbles[0], source, account?.Id ?? thread.AccountId,
+                replyTo: QuotedMessage(thread, replyTo));
             if (bubbles.Count > 1)
                 EnqueueBubbles(thread, account, bubbles.Skip(1).ToList(), 2, payload,
                     TimeSpan.FromSeconds(BubbleGapSeconds));
@@ -620,6 +695,8 @@ public class AiGate
             ? Humanizer.TypingDelay(bubbles[0], policy.TypingCps, policy.TypingMinSeconds, policy.TypingMaxSeconds)
             : TimeSpan.Zero;
         if (typing && !quiet) StartTyping(thread, account);
+        // only the first bubble quotes (ContinueHumanSend never carries reply_to on)
+        if (replyTo is int quoted) payload["reply_to"] = quoted;
         EnqueueBubbles(thread, account, bubbles, 1, payload, delay);
         return new HumanSendStart(null, bubbles.Count, quiet
             ? "Quiet hours — it will be sent when they end."
@@ -640,7 +717,7 @@ public class AiGate
         if (typing) StartTyping(thread, account);
         var carry = new Dictionary<string, object?>();
         foreach (var (k, v) in job.Payload)
-            if (k is not ("text" or "rest" or "bubble")) carry[k] = v;
+            if (k is not ("text" or "rest" or "bubble" or "reply_to")) carry[k] = v;
         var index = (int)(Num(job.Payload, "bubble") ?? 1) + 1;
         EnqueueBubbles(thread, account, rest, index, carry, delay);
     }
@@ -668,6 +745,17 @@ public class AiGate
             Status = JobStatus.Queued, NotBefore = notBefore, CreatedAt = now, UpdatedAt = now,
         });
         _db.SaveChanges();
+    }
+
+    /// <summary>The message a reply quotes — a non-private message of THIS conversation, else none.</summary>
+    public Message? QuotedMessage(Thread thread, int? messageId)
+    {
+        if (messageId is not int id || !MessageReactions.Supports(thread.Channel)) return null;
+        try
+        {
+            return _db.Messages.FirstOrDefault(m => m.Id == id && m.ThreadId == thread.Id && !m.Private);
+        }
+        catch { return null; }
     }
 
     private void StartTyping(Thread thread, ChannelAccount? account)

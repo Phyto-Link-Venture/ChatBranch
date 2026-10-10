@@ -11,10 +11,13 @@ import { QUICK_REACTIONS } from '@/lib/emoji/data'
 import type { UiReaction } from './inboxTypes'
 import './messageExtras.css'
 
-/** Our current reaction on a message (the business is one sender: any `user:` row). */
+/** A reaction the business made — a person (`user:<name>`) or the AI (`ai`). */
+export const isOurReaction = (actor: string) => actor === 'ai' || actor.startsWith('user:')
+
+/** Our current reaction on a message (the business is one sender: any `user:` or `ai` row). */
 export const myReaction = (reactions: UiReaction[] | undefined, meName: string | null): string =>
   reactions?.find((r) => meName && r.actor === `user:${meName}`)?.emoji ??
-  reactions?.find((r) => r.actor.startsWith('user:'))?.emoji ??
+  reactions?.find((r) => isOurReaction(r.actor))?.emoji ??
   ''
 
 export function ReactionChips({
@@ -39,13 +42,15 @@ export function ReactionChips({
   const who = (r: UiReaction) =>
     r.actor === 'contact'
       ? contactName || t('bubble.reactions.customer')
-      : meName && r.actor === `user:${meName}`
-        ? t('bubble.reactions.you')
-        : r.actor.replace(/^user:/, '')
+      : r.actor === 'ai'
+        ? t('bubble.reactions.ai')
+        : meName && r.actor === `user:${meName}`
+          ? t('bubble.reactions.you')
+          : r.actor.replace(/^user:/, '')
   return (
     <div className={`cb-reactions ${align === 'end' ? 'justify-end' : 'justify-start'}`}>
       {[...groups.entries()].map(([emoji, rs]) => {
-        const ours = rs.some((r) => r.actor.startsWith('user:'))
+        const ours = rs.some((r) => isOurReaction(r.actor))
         const label = t('bubble.reactions.by', { names: rs.map(who).join(', '), emoji })
         const hint = onReact ? (ours && mine === emoji ? t('bubble.reactions.removeYours') : t('bubble.reactions.addSame', { emoji })) : ''
         return (

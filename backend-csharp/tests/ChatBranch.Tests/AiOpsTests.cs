@@ -122,6 +122,8 @@ internal sealed class AiRig : IDisposable
         Set("ai_ack_skip", "false");
         Set("ai_followup", "false");
         Set("ai_reply_mode", "instant");
+        Set("ai_reactions", "false");
+        Set("ai_quote_replies", "off");
     }
 
     public void Set(string key, string value) => Sc.SetSetting(key, value);

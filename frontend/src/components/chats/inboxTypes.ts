@@ -120,7 +120,7 @@ export interface UiQuote {
   missing?: boolean
 }
 
-/** One reaction: `actor` is `contact` or `user:<username>`. */
+/** One reaction: `actor` is `contact`, `user:<username>` or `ai` (the AI's own, made with its reply). */
 export interface UiReaction {
   emoji: string
   actor: string
