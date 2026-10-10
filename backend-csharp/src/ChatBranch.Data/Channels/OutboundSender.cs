@@ -70,6 +70,9 @@ public class OutboundSender
         IsSocial(thread) && account != null && account.Channel == thread.Channel
         && _meta != null && _meta.IsConfigured(account);
 
+    /// <summary>LINE, Viber, SMS…: whether the channel's transport can carry an uploaded file.</summary>
+    public bool ChannelCarriesFiles(string channel) => _more?.SupportsMedia(channel) ?? false;
+
     private ChannelAccount? Account(int? id) => id is int pk ? _db.ChannelAccounts.Find(pk) : null;
 
     /// <summary>

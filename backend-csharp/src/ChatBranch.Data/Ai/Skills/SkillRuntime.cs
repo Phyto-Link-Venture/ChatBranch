@@ -85,6 +85,7 @@ public static class SkillRuntime
         catch (Exception ex)
         {
             var (kind2, msg) = Classify(ex, Limits.Default);
+            msg = Explain(msg);
             return kind2 == "syntax" ? $"Syntax error: {msg}" : msg;
         }
     }
@@ -213,10 +214,35 @@ public static class SkillRuntime
             var errName = js.Error is Jint.Native.Object.ObjectInstance o ? o.Get("name").ToString() : "";
             var kind = errName == "SyntaxError" || msg.StartsWith("SyntaxError", StringComparison.Ordinal)
                 ? "syntax" : "runtime";
-            return (kind, msg + where);
+            return (kind, Explain(msg) + where);
         }
         if (ex is RegexMatchTimeoutException) return ("timeout", "Stopped: a regular expression took too long.");
         return ("runtime", ex.Message);
+    }
+
+    /// <summary>What a skill reaches for when it tries something the sandbox can never do.</summary>
+    private static readonly Regex Impossible = new(
+        @"\b(fetch|XMLHttpRequest|WebSocket|require|process|fs|Buffer|jsPDF|PDFDocument|pdfkit|PDFLib|QRCode|"
+        + @"window|document|navigator|localStorage|sessionStorage|setTimeout|setInterval|FileReader|Blob)\b is not defined",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// The sandbox's limits, said plainly next to the engine's error: a skill that
+    /// calls <c>fetch</c>, <c>require('fs')</c> or a PDF library gets "X is not
+    /// defined" — this adds WHY and what to use instead.
+    /// </summary>
+    public const string SandboxLimits =
+        "Code skills run in a sandbox with no internet, no files and no browser or Node.js libraries (250 ms), "
+        + "so they can't make a PDF, an image or a web request. Use a ready-made Connected app instead "
+        + "(Documents for PDF invoices / quotations / receipts / letters, QR codes, Payment links, Google Sheets log).";
+
+    public static string Explain(string message)
+    {
+        if (Impossible.IsMatch(message ?? "")
+            || (message ?? "").Contains("Cannot use import", StringComparison.OrdinalIgnoreCase)
+            || (message ?? "").Contains("import declarations", StringComparison.OrdinalIgnoreCase))
+            return $"{message} — {SandboxLimits}";
+        return message ?? "";
     }
 
     private static double Ms(Stopwatch sw) => Math.Round(sw.Elapsed.TotalMilliseconds, 1);

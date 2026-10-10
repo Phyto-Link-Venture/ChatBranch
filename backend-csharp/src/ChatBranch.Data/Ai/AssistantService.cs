@@ -136,12 +136,43 @@ public partial class AssistantService
             {
                 if (apps == null || !apps.AppBases.TryGetValue(s.SkillId, out var b)) continue;
                 sb.AppendLine($"- {s.Name}{when}: {s.Instructions}".TrimEnd(' ', ':'));
-                sb.AppendLine(CalendarHowTo(b, CalendarAppConfig.From(s.Config)));
+                sb.AppendLine(Skills.AppSkills.AppOf(s.Config) == Skills.AppSkills.Calendar
+                    ? CalendarHowTo(b, CalendarAppConfig.From(s.Config))
+                    : AppHowTo(b, s));
                 continue;
             }
             sb.AppendLine($"- {s.Name}{when}: {s.Instructions}");
         }
         return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>How to use one Documents / QR / Payments / Sheets skill's tools.</summary>
+    private static string AppHowTo(string b, AgentSkill s)
+    {
+        switch (Skills.AppSkills.AppOf(s.Config))
+        {
+            case Skills.AppSkills.Documents:
+            {
+                var cfg = Documents.DocumentAppConfig.From(s.Config);
+                var kinds = string.Join(", ", cfg.AllowedActions.Select(a => $"{b}_create_{a}"));
+                return $"  Documents ({kinds}): make the PDF only when the customer asked for it and the details are "
+                       + "clear (items, quantities and prices from your instructions or knowledge — never invented). "
+                       + "Send quantities and unit prices; the tool computes every amount and the number. In your reply "
+                       + "quote the document number and the total exactly as the tool returned them and say the PDF "
+                       + "follows. If it returns ok:false, follow its advice; never claim a document was sent unless the "
+                       + "tool returned ok.";
+            }
+            case Skills.AppSkills.Qr:
+                return $"  QR codes ({b}_create): the picture is sent right after your reply; mention it briefly.";
+            case Skills.AppSkills.Payments:
+                return $"  Payment links ({b}_create_link): only for an agreed amount; paste the returned url exactly. "
+                       + "If it returns ok:false (e.g. Stripe not connected), say a teammate will send the payment details.";
+            case Skills.AppSkills.Sheets:
+                return $"  Google Sheets log ({b}_append_row): log once the details are known; the row is written when "
+                       + "your reply is sent. Don't mention it unless asked.";
+            default:
+                return "";
+        }
     }
 
     /// <summary>How to use one calendar skill's tools — the part of the prompt
@@ -179,7 +210,8 @@ public partial class AssistantService
     /// delivered as written: a preview, a refused flow message, an empty reply).
     /// </summary>
     public int ReleasePending(AiReplyResult result, string reason) =>
-        result.PendingActions.Count == 0 ? 0 : _skills.Bookings.Release(result.PendingActions, reason);
+        (result.PendingActions.Count == 0 ? 0 : _skills.Bookings.Release(result.PendingActions, reason))
+        + (result.Attachments.Count == 0 ? 0 : _skills.Documents.Release(result.Attachments, reason));
 
     private static string ContactBlock(Contact c, bool withMemory = true)
     {
@@ -374,8 +406,10 @@ public partial class AssistantService
                         sb.AppendLine($": the message must satisfy this rule — {FirstNonEmpty(skill.Description, skill.UseWhen, skill.Name)}.");
                         break;
                     case SkillKinds.App:
-                        sb.AppendLine(": use its calendar tools as the SKILLS section describes (check availability "
-                                      + "and offer times; book only a time the customer already chose).");
+                        sb.AppendLine(Skills.AppSkills.AppOf(skill.Config) == Skills.AppSkills.Calendar
+                            ? ": use its calendar tools as the SKILLS section describes (check availability "
+                              + "and offer times; book only a time the customer already chose)."
+                            : ": use its tools as the SKILLS section describes.");
                         if (!string.IsNullOrWhiteSpace(skill.Instructions)) sb.AppendLine(skill.Instructions.Trim());
                         break;
                     default:
@@ -485,7 +519,7 @@ public partial class AssistantService
         var toolSet = spec.SkillsOff ? new SkillService.ToolSet() : _skills.BuildTools(inScope);
         var ctx = _skills.Context(spec.Contact, spec.Channel, spec.LastMessage, spec.ThreadId, spec.EntityId,
             spec.Assignee);
-        if (spec.Playground) ctx.Apps.Preview = true;
+        if (spec.Playground) { ctx.Apps.Preview = true; ctx.Docs.Preview = true; }
         var offered = toolSet.Tools.Select(t => t.Name).ToList();
         var checkNames = inScope.Where(s => s.Kind == SkillKinds.Check && !string.IsNullOrWhiteSpace(s.Code))
             .Select(s => s.Name).ToList();
@@ -495,14 +529,21 @@ public partial class AssistantService
             // nothing to deliver ⇒ nothing reserved may stay held. (Handover / block
             // drafts are kept: the AI gate holds them for a person, whose approval
             // makes the booking and whose rejection releases it.)
-            if (result.Action is AiActions.Empty or AiActions.Error && ctx.Apps.Actions.Count > 0)
-                _skills.Bookings.Release(ctx.Apps.Actions, $"The AI produced no reply ({result.Action}).");
+            if (result.Action is AiActions.Empty or AiActions.Error)
+            {
+                if (ctx.Apps.Actions.Count > 0)
+                    _skills.Bookings.Release(ctx.Apps.Actions, $"The AI produced no reply ({result.Action}).");
+                if (ctx.Docs.DocumentIds.Count > 0)
+                    _skills.Documents.Release(ctx.Docs.DocumentIds, $"The AI produced no reply ({result.Action}).");
+            }
             return (result, ctx, offered, checkNames);
         }
         catch
         {
             if (ctx.Apps.Actions.Count > 0)
                 _skills.Bookings.Release(ctx.Apps.Actions, "The AI reply failed before it was written.");
+            if (ctx.Docs.DocumentIds.Count > 0)
+                _skills.Documents.Release(ctx.Docs.DocumentIds, "The AI reply failed before it was written.");
             throw;
         }
     }
@@ -589,6 +630,8 @@ public partial class AssistantService
                 ? metered.Calls.Sum(c => c.Result.CostUsd ?? 0) : null,
             Feature = spec.Feature,
             PendingActions = ctx.Apps.Actions.ToList(),
+            Attachments = ctx.Docs.DocumentIds.ToList(),
+            Deferred = ctx.Docs.Deferred.ToList(),
         };
         RecordUsage(metered, spec, result);
         return result;

@@ -21,6 +21,7 @@ import { assistant } from './assistant'
 import { help } from './help'
 import { testlab } from './testlab'
 import { playground } from './playground'
+import { readySkills } from './readySkills'
 import { billing } from './billing'
 import { guide } from './guide'
 import { manual } from './manual'
@@ -47,6 +48,7 @@ export const ms: Dict<Messages> = {
   help,
   testlab,
   playground,
+  readySkills,
   billing,
   guide,
   manual,

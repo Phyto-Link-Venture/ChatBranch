@@ -398,6 +398,27 @@ AI-written outbound, sent or held.
 Indexes `(contact_id, status)`, `(calendar_key, start_utc)`; no foreign keys.
 Every rule lives in `Bookings/BookingService.cs`.
 
+### `crm_document` — generated documents (Documents / QR app skills, operators)
+| Column | Notes |
+|---|---|
+| `entity_id`, `contact_id`, `thread_id` | the conversation's outlet (owned, scoped like threads), the contact, the conversation |
+| `skill_id` | the app skill (`crm_agentskill.skill_id`) whose letterhead / numbering it used |
+| `type` | `invoice` \| `quotation` \| `receipt` \| `letter` \| `qr` |
+| `series`, `seq`, `number` | the running-number series `<skill entity id \| org>:<skill id>:<type>`, the number in it (0 for a QR code), and the printed number (`INV-0012` = prefix + zero-padded seq) |
+| `title`, `currency` | a letter's subject / a quotation's heading; ISO currency |
+| `subtotal`, `discount`, `tax`, `total` | decimals (stored as TEXT), computed by the SERVER (`Documents/DocumentMath.cs`) — never the model |
+| `data` | JSON: what was printed (issue / due / valid-until dates, customer, lines, tax label + rate, notes, reference, payment method, letter paragraphs, language) |
+| `file_path`, `file_channel`, `file_name`, `mime`, `size_bytes` | the stored PDF / PNG under the channel's media root (`MediaStore`) |
+| `status` | `pending` (made by an undelivered reply) \| `sent` \| `void` (its reply never went out — the number stays used) \| `failed` \| `issued` (made by hand, not sent) |
+| `created_by` | `ai` \| `agent:<username>` |
+| `draft_id`, `message_id` | the AI draft whose delivery sends it; the message that carried the file (or the link) |
+| `public_token` | 128-bit random hex — the customer's download link `/api/documents/public/{token}` (sent / issued only, 90 days) |
+| `detail`, `created_at`, `updated_at`, `sent_at` | how it went out (`file` \| `link`) or why it was voided / failed |
+
+Partial **unique** index `uniq_document_series_seq` on `(series, seq) WHERE seq > 0`
+(two replies racing for a number: one takes the next); indexes on `thread_id` and
+`public_token`. Every rule lives in `Documents/DocumentService.cs`.
+
 ### `crm_aifeedback` — judgements of AI replies
 `entity_id` · `thread_id` · `message_id` · `draft_id` · `contact_id` · `channel`
 · `rating` (+1 \| −1) · `weight` (explicit 1.0, approved / edited 0.5) · `kind`

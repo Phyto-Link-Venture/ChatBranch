@@ -5,6 +5,7 @@ using ChatBranch.Api.Auth;
 using ChatBranch.Data;
 using ChatBranch.Data.Ai.Skills;
 using ChatBranch.Data.Bookings;
+using ChatBranch.Data.Documents;
 using ChatBranch.Data.Integrations;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -51,7 +52,8 @@ public static class AiSkillsEndpoints
         [property: JsonPropertyName("app_action")] string? AppAction = null,
         [property: JsonPropertyName("from_date")] string? FromDate = null,
         [property: JsonPropertyName("to_date")] string? ToDate = null,
-        string? Entity = null);
+        string? Entity = null,
+        [property: JsonPropertyName("document_type")] string? DocumentType = null);
 
     private static readonly HashSet<string> Kinds = new()
     {
@@ -182,9 +184,9 @@ public static class AiSkillsEndpoints
                 // connected-app skills store their config normalized (defaults filled in)
                 if (row.Kind == SkillKinds.App && (s.Config is JsonElement { ValueKind: JsonValueKind.Object } || isNew
                                                    || row.Config.Count == 0))
-                    row.Config = CalendarAppConfig.From(
+                    row.Config = AppSkills.Normalize(
                         s.Config is JsonElement { ValueKind: JsonValueKind.Object } cfgEl ? cfgEl
-                            : JsonSerializer.SerializeToElement(row.Config), out _).ToDictionary();
+                            : JsonSerializer.SerializeToElement(row.Config), out _);
                 // Position comes from LIST ORDER, not the payload field — the
                 // settings page reorders by dragging rows and never sends one.
                 row.Position = pos++;
@@ -233,6 +235,9 @@ public static class AiSkillsEndpoints
                 questions = r.Questions,
                 source = r.Source,
                 note = r.Note,
+                // "make a PDF / invoice / QR / payment link": a ready-made Connected app
+                // does this for real — a code skill can't (no files, no network)
+                suggest_app = r.SuggestApp,
                 skill = r.Skill == null ? null : new
                 {
                     name = r.Skill.Name,
@@ -253,7 +258,13 @@ public static class AiSkillsEndpoints
             ClaimsPrincipal me, BookingService bookings, CancellationToken ct) =>
         {
             var kind = (body.Kind ?? SkillKinds.Tool).Trim().ToLowerInvariant();
-            if (kind == SkillKinds.App) return await AppDryRunAsync(body, db, me, bookings, ct);
+            if (kind == SkillKinds.App)
+            {
+                var app = body.Config is JsonElement ce ? AppSkills.AppOf(ce) : AppSkills.Calendar;
+                return app == AppSkills.Calendar
+                    ? await AppDryRunAsync(body, db, me, bookings, ct)
+                    : await ToolAppDryRunAsync(body, app, db, skills, ct);
+            }
             if (!SkillKinds.IsCode(kind)) return Bad("Only tool and check skills have code to test.");
             var code = body.Code ?? "";
             var invalid = SkillRuntime.Validate(code, kind);
@@ -307,9 +318,15 @@ public static class AiSkillsEndpoints
                 calendar_id = GoogleCalendarClient.CalendarIdFor(i, null),
                 status = i.Status,
             }).ToList();
+            var sharedNow = new IntegrationResolver(db, sc);
+            bool Connected(string provider)
+            {
+                try { return sharedNow.Active(provider, entityId, null) != null; }
+                catch { return false; }
+            }
             return Results.Ok(new
             {
-                apps = new[]
+                apps = new object[]
                 {
                     new
                     {
@@ -332,8 +349,67 @@ public static class AiSkillsEndpoints
                         },
                         defaults = CalendarAppConfig.Defaults(),
                     },
+                    new
+                    {
+                        app = DocumentAppConfig.AppId,
+                        label = "Documents (PDF)",
+                        description = "Let the AI create PDF invoices, quotations, receipts and letters on your letterhead and send them to the customer as a file. The server does every sum and numbers each document.",
+                        connected = true,
+                        actions = DocumentAppConfig.AllActions.Select(a => new { id = a, label = DocumentTypes.Label(a) }).ToList(),
+                        accents = DocumentAppConfig.Accents.Keys.ToList(),
+                        cjk_font = DocumentFonts.CjkAvailable,
+                        defaults = DocumentAppConfig.Defaults(),
+                    },
+                    new
+                    {
+                        app = QrAppConfig.AppId,
+                        label = "QR codes",
+                        description = "Let the AI turn a link or short text into a QR code picture sent with its reply.",
+                        connected = true,
+                        defaults = QrAppConfig.Defaults(),
+                    },
+                    new
+                    {
+                        app = PaymentAppConfig.AppId,
+                        label = "Payment links",
+                        description = "Let the AI create a secure Stripe payment link for an agreed amount.",
+                        connected = Connected("stripe"),
+                        provider_label = "Stripe",
+                        defaults = PaymentAppConfig.Defaults(),
+                    },
+                    new
+                    {
+                        app = SheetsAppConfig.AppId,
+                        label = "Google Sheets log",
+                        description = "Let the AI log a row (a lead, an order) to a Google Sheet when its reply is sent.",
+                        connected = Connected("google_sheets"),
+                        provider_label = "Google Sheets",
+                        defaults = SheetsAppConfig.Defaults(),
+                    },
                 },
             });
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
+
+        // ---- the Documents app's logo (printed on the letterhead) ---------------
+        app.MapPost("/api/aicore/skills/documents/logo", async (HttpContext ctx, DocumentService documents) =>
+        {
+            if (!ctx.Request.HasFormContentType) return Bad("file is required (multipart/form-data).");
+            var form = await ctx.Request.ReadFormAsync();
+            var file = form.Files["file"];
+            if (file == null || file.Length == 0) return Bad("file is required (multipart/form-data).");
+            if (file.Length > DocumentService.MaxLogoBytes) return Bad("The logo must be a PNG or JPEG up to 1 MB.");
+            using var ms = new MemoryStream();
+            await file.CopyToAsync(ms);
+            var name = documents.SaveLogo(ms.ToArray(), out var error);
+            return name == null ? Bad(error ?? "Upload failed.") : Results.Ok(new { logo = name, url = $"/api/aicore/skills/documents/logo/{name}" });
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage").DisableAntiforgery();
+
+        app.MapGet("/api/aicore/skills/documents/logo/{name}", (string name, DocumentService documents) =>
+        {
+            var path = documents.LogoPath(name);
+            return path == null
+                ? Results.NotFound(new { detail = "Logo not found." })
+                : Results.File(path, name.EndsWith(".png") ? "image/png" : "image/jpeg");
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage");
 
         // ---- built-ins (read-only; always offered to the model as tools) --------
@@ -354,6 +430,7 @@ public static class AiSkillsEndpoints
                 ["days_between"] = $"{{\"from\":\"{TimeZoneInfo.ConvertTime(now, tz).AddDays(-30):yyyy-MM-dd}\"}}",
                 ["convert_timezone"] = "{\"to\":\"Europe/London\"}",
                 [BuiltinSkills.RequestHandover] = "{\"reason\":\"The customer asks for compensation above the standard limit\"}",
+                [BuiltinSkills.Calculate] = "{\"expression\":\"3 * 45.90 + 8%\",\"decimals\":2}",
             };
             return Results.Ok(new
             {
@@ -411,7 +488,8 @@ public static class AiSkillsEndpoints
         updatedAt = s.UpdatedAt,
         tool_name = s.Kind == SkillKinds.Tool ? SkillService.ToolName(s) : null,
         // connected-app skills: the full config (defaults filled in); {} for other kinds
-        config = s.Kind == SkillKinds.App ? CalendarAppConfig.From(s.Config).ToDictionary() : s.Config,
+        config = s.Kind == SkillKinds.App ? AppSkills.Normalize(s.Config) : s.Config,
+        app = s.Kind == SkillKinds.App ? AppSkills.AppOf(s.Config) : null,
         entity = s.Entity?.Slug,
         entity_name = s.Entity?.Name ?? "",
         scope = s.EntityId != null ? "entity" : "global",
@@ -480,8 +558,11 @@ public static class AiSkillsEndpoints
             el = given;
         }
         else el = JsonSerializer.SerializeToElement(current?.Config ?? new Dictionary<string, object?>());
-        var cfg = CalendarAppConfig.From(el, out var error);
+        // every app validates its own config; only a calendar names a connection to check
+        AppSkills.Normalize(el, out var error);
         if (error != null) return error;
+        if (AppSkills.AppOf(el) != AppSkills.Calendar) return null;
+        var cfg = CalendarAppConfig.From(el, out _);
         if (cfg.Source != BookingSources.Google || cfg.IntegrationId is not int iid) return null;
 
         var before = current == null ? null : CalendarAppConfig.From(current.Config);
@@ -594,6 +675,62 @@ public static class AiSkillsEndpoints
         catch (Exception ex)
         {
             return Answer(false, cfg.Source, orgTz, $"The preview failed ({ex.GetType().Name}).");
+        }
+    }
+
+    /// <summary>
+    /// The dry run of a non-calendar app skill being configured — nothing reaches
+    /// a customer: Documents renders a SAMPLE document with the unsaved settings
+    /// into a throw-away preview (no number taken), QR renders a sample code, and
+    /// Payments / Sheets say whether their connection is there. Always 200 with
+    /// {ok, detail, url?, number?, total?}.
+    /// </summary>
+    private static async Task<IResult> ToolAppDryRunAsync(TestRequest body, string app, AppDbContext db,
+        SkillService skills, CancellationToken ct)
+    {
+        var el = body.Config is JsonElement c && c.ValueKind == JsonValueKind.Object
+            ? c : JsonSerializer.SerializeToElement(new Dictionary<string, object?>());
+        AppSkills.Normalize(el, out var error);
+        if (error != null) return Results.Ok(new { ok = false, detail = error });
+        try
+        {
+            var entityId = await InboxEndpoints.EntityId(db, body.Entity);
+            switch (app)
+            {
+                case AppSkills.Documents:
+                {
+                    var cfg = DocumentAppConfig.From(el, out _);
+                    var type = DocumentAppConfig.AllActions.Contains(body.DocumentType ?? "") ? body.DocumentType!
+                        : cfg.AllowedActions.FirstOrDefault() ?? DocumentTypes.Invoice;
+                    var r = await skills.Documents.PreviewSampleAsync(type, cfg, skills.UtcNow, skills.OrgTimeZone(), ct);
+                    return Results.Ok(new
+                    {
+                        ok = r.Error == null, detail = r.Error ?? $"A sample {DocumentTypes.Label(type).ToLowerInvariant()} "
+                            + "with your settings. Nothing was sent and no number was used.",
+                        url = r.Url, number = r.Number, total = r.Total, currency = cfg.Currency,
+                    });
+                }
+                case AppSkills.Qr:
+                {
+                    var r = await skills.Documents.PreviewQrAsync("https://example.com", QrAppConfig.From(el, out _), ct);
+                    return Results.Ok(new { ok = true, detail = "A sample QR code (it opens https://example.com).", url = r });
+                }
+                default:
+                {
+                    var provider = app == AppSkills.Payments ? "stripe" : "google_sheets";
+                    var label = app == AppSkills.Payments ? "Stripe" : "Google Sheets";
+                    var row = new IntegrationResolver(db, new ScopingService(db)).Active(provider, entityId, null);
+                    if (row == null)
+                        return Results.Ok(new { ok = false, detail = $"{label} is not connected for this outlet — connect it at Integrations. Until then the AI says it can't do this and nothing is pretended." });
+                    if (app == AppSkills.Sheets && SheetsAppConfig.From(el, out _).SpreadsheetId.Length == 0)
+                        return Results.Ok(new { ok = false, detail = "Google Sheets is connected — now paste the spreadsheet's link or id." });
+                    return Results.Ok(new { ok = true, detail = $"{label} is connected ({(row.EntityId != null ? "this outlet's connection" : "the organization's connection")}). Nothing was created." });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            return Results.Ok(new { ok = false, detail = $"The preview failed ({ex.GetType().Name})." });
         }
     }
 

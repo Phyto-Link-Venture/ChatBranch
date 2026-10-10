@@ -402,6 +402,13 @@ public static class AiMonitorEndpoints
             ? new Dictionary<int, Booking>()
             : await db.Bookings.AsNoTracking().Where(b => bookingIds.Contains(b.Id)).ToDictionaryAsync(b => b.Id);
 
+        // files the draft's tools made (Documents PDFs, QR codes) — sent after the text on delivery
+        var docsByDraft = rows.ToDictionary(r => r.Id, r => ChatBranch.Data.Documents.AiAttachments.From(r.Context));
+        var docIds = docsByDraft.Values.SelectMany(x => x).Distinct().ToList();
+        var docRows = docIds.Count == 0
+            ? new Dictionary<int, Document>()
+            : await db.Documents.AsNoTracking().Where(x => docIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id);
+
         var now = clock.GetUtcNow().UtcDateTime;
         var scoping = new ScopingService(db);
         return rows.Select(d =>
@@ -450,6 +457,8 @@ public static class AiMonitorEndpoints
                 superseded = d.Status == AiDraftStatus.Pending && lastHuman is DateTime lh && lh > d.CreatedAt,
                 recent = d.ThreadId is int rt && recentByThread.TryGetValue(rt, out var rec) ? rec : null,
                 bookings = BookingsEndpoints.MonitorItems(actionsByDraft[d.Id], bookingRows),
+                documents = docsByDraft[d.Id].Where(docRows.ContainsKey)
+                    .Select(id => ChatBranch.Data.Documents.DocumentService.Payload(docRows[id])).ToList(),
             };
         }).ToList();
     }

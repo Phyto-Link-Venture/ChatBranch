@@ -97,7 +97,7 @@ the message is stored with `status="sandbox"` and never leaves the machine.
 | Zalo OA | **webhook** (`X-ZEvent-Signature` mac; text, image, file, sticker, link, location; follow / unfollow → opt-in / opt-out; OA echoes ignored); **send** consultation text + images (upload → media template) inside a **7-day** window (Zalo's -230 = the same refusal); an expired access token is refreshed once with the rotating refresh token; Test = `getoa` | — |
 | Website widget | full (internal transport) | — |
 | SIP voice | dial / live / say / hangup / escalate through LiveKit | — |
-| Media serving | `/api/whatsapp/media/{id}` + `/api/messaging/media/{id}` (`chats.view` + the conversation's entity scope, Range, non-renderable types as downloads; files under `data/{whatsapp,messaging}/media/`, `Channels/WhatsAppMediaStore.cs`), `/api/whatsapp/calls/recording/{name}` (gateway WAV or the agent's), `/api/calls/recording/{call_id}` (SIP) | — |
+| Media serving | `/api/whatsapp/media/{id}` + `/api/messaging/media/{id}` (`chats.view` + the conversation's entity scope, Range, non-renderable types as downloads; files under `data/{whatsapp,messaging}/media/`, `Channels/WhatsAppMediaStore.cs`), `/api/whatsapp/calls/recording/{name}` (gateway WAV or the agent's), `/api/calls/recording/{call_id}` (SIP); AI-generated documents (PDF / QR, see Documents) live in the same media roots, `/api/documents/{id}/file` (`chats.view`, scoped) + the customer's anonymous `/api/documents/public/{token}` link, sent as a FILE on WhatsApp, Messenger/IG, Telegram, email, WeChat, Zalo and as that LINK on LINE, Viber, SMS, TikTok, Douyin and the website widget | — |
 | Channel health | writer `AccountHealth.SetStatus` (one audit row + an admin `account_health` bell per problem/recovery transition); periodic prober `Workers/HealthProbeWorker` (`WHATSAPP_HEALTH_INTERVAL` s, default 300; `HEALTH_WORKER=0` off) via `Channels/HealthProber.cs`: Cloud Graph ping, Telegram getMe + getWebhookInfo, SMTP login, Messenger/IG `GET /me`, the newer channels' own probes (`IChannelTransport.ProbeAsync`), default SMTP → `email_health`; Meta send / status / test results classified by `Channels/MetaErrors.cs`; "Check now" runs the prober for the caller's scope; saving credentials resets to unknown + re-probes in the background | SIP voice stays config-presence only (by design) |
 | Routing | `Channels/Routing.cs` at SEND time (queue drain, manual sends, email mailbox + Telegram bot choice, and the AI gate — instant / approved / auto-sent AI replies, follow-ups): thread's healthy number → sticky `AccountAssignment` → least-loaded auto-assign → failover off banned/disconnected (pin cleared, thread moved, note + audit + notification); roles/providers/templates are WhatsApp-only (`RouteNeed.For`; templates → Cloud, never Baileys; 409 when none); account-bound channels (Telegram, Messenger/IG, widget, LINE, Viber, WeChat, TikTok, Douyin, Zalo) keep their own account, email and SMS spread even contactless threads; inbound re-attribution; `business_redirect` (`Channels/BusinessRedirect.cs`); recovery one-click + auto (`Channels/Recovery.cs`, hooked in `AccountHealth.SetStatus`) | — |
 | Compliance | STOP/UNSUBSCRIBE/BERHENTI (+ `opt_out_keywords`) → `Thread.OptedOut` on every inbound channel, START/UNSTOP/MULA opts back in (`Channels/OptOut.cs`); platform signals set it too (Viber unsubscribed, LINE / WeChat / Zalo unfollow, Twilio `OptOutType` and error 21610 — `ChannelOptOut` in `Channels/More/MoreChannels.cs`); queued jobs cancelled; manual sends need `force`; cold-text guard (manual + queued WhatsApp text), cold-call guard, do-not-call | — (the opt-out lives on the conversation by design: consent is per channel, as in the original spec) |
@@ -638,13 +638,32 @@ When you fix one of these, update this table, `README.md` and
 - **AI skills (`/skills`).** `AgentSkill.Kind` = **prompt** (`use_when` +
   `instructions` in the SKILLS block) | **tool** (JS `run(args, ctx)` the model
   CALLS) | **check** (JS `check(reply, ctx)` run on EVERY draft) | **app** (a
-  "Connected app": `AgentSkill.Config`, snake_case JSON, today only `app:
-  "calendar"` — see Calendar booking; the form is
-  `components/skills/AppSkillForm.tsx`). JS runs in
+  "Connected app" — a READY-MADE capability switched on without code:
+  `AgentSkill.Config`, snake_case JSON, `app` = `calendar` (see Calendar
+  booking; form `components/skills/AppSkillForm.tsx`) | `documents` | `qr` |
+  `payments` | `sheets` (see Documents; form `components/skills/ToolAppForm.tsx`);
+  ONE dispatcher `Ai/Skills/AppSkills.cs` validates / normalizes every app's
+  config, a config without `app` is a calendar). JS runs in
   `Ai/Skills/SkillRuntime.cs` (Jint: fresh engine per run, no CLR interop, no
-  eval, 250 ms / 8 MB / statement + recursion caps; faults come back as data).
+  eval, 250 ms / 8 MB / statement + recursion caps; faults come back as data) —
+  it can NEVER make a file or call the network, so a run that reaches for
+  `fetch` / `require` / a PDF library gets "X is not defined — Code skills run
+  in a sandbox with no internet, no files…" pointing at the ready-made apps
+  (`SkillRuntime.Explain`), and the wizard's `/skills/draft` answers status
+  `use_app` + `suggest_app` (documents | qr | payments | sheets) instead of
+  drafting a JS tool for "create a PDF / invoice / QR / payment link / sheet
+  row" (`SkillDrafter.AppIntent`; a prompt or check hint is never steered).
+  The Skills page's **Ready-made skills** gallery
+  (`components/skills/ReadySkillsGallery.tsx`, words in the `readySkills`
+  namespace) adds those apps and 4 instruction templates (quote → invoice,
+  collect order details, polite follow-up, payment reminder) by opening the
+  wizard prefilled (`WizardInit.app` / `.template`).
   Built-in C# tools are always offered (`BuiltinSkills.cs`: current_time,
-  current_week, date_add, days_between, convert_timezone; zone = Setting
+  current_week, date_add, days_between, convert_timezone, **calculate**
+  (`Ai/Skills/Calculator.cs`: exact `decimal` arithmetic, a recursive-descent
+  parser — never eval — `+ - * / ^`, parentheses, `%` with the calculator
+  convention "200 + 10%" = 220, round/floor/ceil/abs/min/max, "RM 1,250.50 x 3"
+  accepted, half-away-from-zero rounding to `decimals`); zone = Setting
   `org_timezone` → TZ → UTC — plus `request_handover(reason)`: the model's
   structured hand-over signal, `AiReplyResult.HandoverAsked` → meta
   `handover_asked` → the gate marks an `asked_for_human` handover while the
@@ -656,14 +675,22 @@ When you fix one of these, update this table, `README.md` and
   /api/aicore/skills` is the ONLY writer of `AgentSkill`** (PUT
   `settings.ai.manage`, prunes within its own scope, refuses an ENABLED code
   skill whose code/tests changed unless its tests pass, and refuses an invalid
-  app config — `Bookings/CalendarAppConfig.cs`; an app row sent without `config`
-  keeps the stored one); the flow library PUT ignores the `agentSkills` it
+  app config — `AppSkills.Normalize` → `Bookings/CalendarAppConfig.cs`,
+  `Documents/DocumentAppConfig.cs`, `QrAppConfig` / `PaymentAppConfig` /
+  `SheetsAppConfig`; an app row sent without `config` keeps the stored one);
+  the flow library PUT ignores the `agentSkills` it
   receives. Authoring: `POST /api/aicore/skills/draft` (describe → up to 4
   clarifying questions → draft; sandbox = a deterministic template library),
   `/skills/test` (`{kind:"app", config, app_action:"availability"}` is a DRY RUN
-  that books nothing), `GET /skills/builtins`, `GET /skills/apps` (the
-  connected-app catalog: sources with the Google Calendar connections the CALLER
-  may see, actions, defaults); the wizard is `components/skills/SkillWizard.tsx`.
+  that books nothing; a documents config renders a SAMPLE PDF into a
+  throw-away preview — no number used —, qr a sample code, payments / sheets
+  report whether their connection is there), `GET /skills/builtins`,
+  `GET /skills/apps` (the connected-app catalog — calendar first, then
+  documents (+ `cjk_font`), qr, payments, sheets with `connected` — sources
+  with the Google Calendar connections the CALLER may see, actions, defaults),
+  `POST /skills/documents/logo` + `GET /skills/documents/logo/{name}` (the
+  letterhead logo, PNG/JPEG ≤ 1 MB by magic bytes, `settings.ai.manage`);
+  the wizard is `components/skills/SkillWizard.tsx`.
 - **Calendar booking** (app skills, `ChatBranch.Data/Bookings/`). An enabled
   calendar skill gives the model `calendar_availability` / `_book` / `_cancel` /
   `_my_bookings` (enabled actions only; a second skill becomes `calendar_2_…`),
@@ -700,6 +727,56 @@ When you fix one of these, update this table, `README.md` and
   `booking_hours`) is stored and edited but READ BY NOTHING in the C# port —
   booking skills carry their own hours and the flow "Find free slot" action
   searches free/busy without working hours. Tests: `BookingTests.cs`.
+- **Documents, QR codes, payment links, Sheets** (app skills `documents` / `qr` /
+  `payments` / `sheets`; `ChatBranch.Data/Documents/`,
+  `Ai/Skills/ConnectedAppTools.cs`). The model of a calendar booking — MADE while
+  the reply is written, DELIVERED with it. `documents` gives the model
+  `document_create_invoice|quotation|receipt|letter` (enabled actions only; a
+  second skill → `document_2_…`) and `qr` `qr_create(text, caption?)`, run by
+  `DocumentService` through `SkillService.ExecuteToolAsync` with the conversation
+  in the `SkillContext` (`ctx.Docs`). **The server does the maths**
+  (`DocumentMath`: items `{description, qty, unit_price, discount: 5 | "10%"}`,
+  each line rounded half away from zero, tax once on the subtotal) and hands out
+  the running number (series `<skill entity | org>:<skill id>:<type>`, prefix +
+  zero-padded, `start_numbers` the floor, a partial unique index on
+  `(series, seq)`); the tool answers with the number and totals at once so the
+  reply quotes them. The PDF (A4, MigraDoc/PDFsharp 6 — MIT — with Liberation
+  Sans embedded from `Documents/Fonts/`, SIL OFL; letterhead, logo, accent =
+  a tag palette key, EN or BM labels by the contact's language) is stored as
+  conversation media (`MediaStore`) and recorded in `crm_document` as `pending`;
+  its id rides on the reply (`AiReplyResult.Attachments` → the draft's
+  `attachments: [{type:"document", document_id}]`). **Delivery**
+  (`AiGate.DeliverExtras`): right after the reply's text — the single inline
+  bubble, or the LAST queued bubble (`QueueService`) — through the channel's real
+  media send (WhatsApp Cloud/Baileys, Messenger/Instagram, WeChat, Zalo
+  `SendMedia`; email / Telegram as an attachment); LINE, Viber, SMS, TikTok,
+  Douyin and the website widget (no outbound files) get a link to the anonymous
+  `GET /api/documents/public/{token}` (128-bit token, sent/issued only, 90 days;
+  base = Setting `public_base_url` → `PUBLIC_BASE_URL` → `FRONTEND_URL`), which is
+  also the fallback when a file send is refused — never silent. Each sent
+  document writes audit `document.sent|failed` and a private note "📄 Invoice
+  INV-0012 sent (MYR 117.72)". A held / shadow / rejected / expired / blocked /
+  failed reply VOIDS its documents (`ReleaseAll`; the number stays used — no
+  silent gaps); a re-engagement template voids them too. The playground
+  (`ctx.Docs.Preview`) renders the real PDF into `data/documents/preview/`
+  (`GET /api/documents/preview/{id}`, a day) — no row, no number, no media.
+  Chinese/Japanese/Korean: only with a TrueType CJK font (env
+  `DOCUMENT_CJK_FONT`, else a few system paths); without one the tool refuses
+  CJK text with "write it in English or Malay" (`DocumentFonts.CjkAvailable`).
+  `payments` → `payment_create_link(amount, currency?, description)` runs the
+  flow action "Create Stripe payment link" at once (shared connection, entity →
+  parents → org; `max_amount` guard; no connection = `{ok:false, skipped}`; the
+  playground never creates one). `sheets` → `sheets_append_row({values})` is
+  DEFERRED: recorded as the draft's `deferred_actions` and appended ("Append row
+  to Sheet", `rowJson` = [time, name, phone, email, …columns]) only when the reply
+  is delivered (`deferred_done`, a 📊 note). API: `GET /api/documents`
+  (`chats.view`, scoped like conversations), `GET /api/documents/{id}/file`,
+  `POST /api/documents` (`chats.send` + the conversation in scope: an operator
+  makes one with the conversation's Documents skill, `send: true` sends it now);
+  MCP `documents_list` / `documents_create`. UI: drafts carry `documents[]`
+  (`components/ai-monitor/DraftDocuments.tsx` — review queue, activity, the
+  chat's pending-draft banner, "Open" fetches the auth-gated file); the
+  playground inspector lists `documents_previewed`. Tests: `DocumentTests`.
 - **AI monitor + human-like behaviour** (`/ai-monitor`, `/api/ai/monitor*`,
   `/api/ai/behaviour`). EVERY AI-written outbound (instant reply, queued
   ai_reply, follow-up, flow job with payload `source:"ai"`) goes through
@@ -1510,7 +1587,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **725 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **736 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /
@@ -1525,7 +1602,8 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   up-the-tree resolution — `IntegrationScopeTests`), notifications + settings,
   search/live, the platform (audit, API keys, MCP — every route a tool or a
   documented exclusion, `McpCoverageTests` — assistant), the AI playground
-  (`AiPlaygroundTests`), the Test lab and the LiveKit
+  (`AiPlaygroundTests`), the Documents / QR / payments / Sheets apps + the calculator
+  (`DocumentTests`), the Test lab and the LiveKit
   control plane. Keep them green. The test host (`ApiFactory` in
   `ApiSmokeTests.cs`) sets its own env: `QUEUE_WORKER=0`, `FLOWS_WORKER=0`,
   `AI_FOLLOWUP_WORKER=0`, `HEALTH_WORKER=0`, `EMBEDDING_WORKER=0`,
