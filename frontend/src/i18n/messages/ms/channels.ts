@@ -258,6 +258,7 @@ export const channels: Dict<typeof source> = {
     voiceLocked: 'Kelayakan trunk suara diuruskan oleh pentadbir super — anda boleh menyemaknya di sini.',
     useTls: 'Guna TLS',
     useTlsHint: 'Biarkan hidup melainkan penyedia anda menyatakan sebaliknya.',
+    developerSetup: 'Persediaan pembangun',
     whereToFind: 'Di mana saya boleh mendapatkannya?',
     who: {
       voiceIntro:

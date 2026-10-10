@@ -62,6 +62,7 @@ export const voice = {
     stopRecording: 'Stop recording',
     consent: 'By adding a voice you confirm you have the speaker’s consent to clone it.',
     orImport: 'or import an existing ElevenLabs voice',
+    importTitle: 'Import an existing ElevenLabs voice',
     voiceIdPlaceholder: 'ElevenLabs voice ID',
     namePlaceholder: 'Name (optional)',
     import: 'Import',

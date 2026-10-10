@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { EntityPicker } from '@/components/ui/EntityPicker'
+import { Advanced } from '@/components/ui/Advanced'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { TemplateVariablePicker } from '@/components/settings/TemplateVariablePicker'
 import { useFormat, useT, type MessageKey, type TFunction } from '@/i18n'
@@ -354,6 +355,9 @@ export function TemplateEditorModal({
   const caret = useRef<{ start: number; end: number } | null>(null)
 
   const isMsg = kind === 'message'
+  // Entity (default organization-wide) and channels (default every channel)
+  // sit under Advanced — opened when either is set.
+  const advancedCount = (draft.entity ? 1 : 0) + (isMsg && draft.channels.length > 0 ? 1 : 0)
   const normName = (v: string) => (isMsg ? v.trim().toLowerCase().replace(/^\/+/, '') : v.trim())
 
   const checkName = (v: string): string | null => {
@@ -434,7 +438,7 @@ export function TemplateEditorModal({
       <div className="flex flex-col gap-5">
         {error && <Notice tone="error">{error}</Notice>}
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
           <label className="block">
             <span className="mb-1 block text-[12px] font-semibold text-text-high">
               {isMsg ? t('library.editor.shortCode') : t('common.fields.name')}
@@ -467,29 +471,7 @@ export function TemplateEditorModal({
               </span>
             )}
           </label>
-          <label className="block">
-            <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('common.fields.entity')}</span>
-            <EntityPicker
-              value={draft.entity}
-              onChange={(entity) => setDraft({ ...draft, entity })}
-              globalLabel={t('library.editor.orgWideEvery')}
-              ariaLabel={t('library.editor.entityAria')}
-            />
-            <span className="mt-1 block text-[11.5px] text-text-muted">{t('library.editor.orgWideHint')}</span>
-          </label>
         </div>
-
-        {isMsg && (
-          <div>
-            <span className="mb-1.5 block text-[12px] font-semibold text-text-high">{t('library.table.channels')}</span>
-            <ChannelsPicker value={draft.channels} onChange={(channels) => setDraft({ ...draft, channels })} />
-            <span className="mt-1.5 block text-[11.5px] text-text-muted">
-              {draft.channels.length === 0
-                ? t('library.editor.everyChannelHint')
-                : t('library.editor.onlyChannelsHint', { channels: f.list(draft.channels.map((c) => channelName(t, c))) })}
-            </span>
-          </div>
-        )}
 
         <label className="block">
           <span className="mb-1 flex items-baseline justify-between gap-2">
@@ -521,6 +503,30 @@ export function TemplateEditorModal({
           )}
         </label>
         <TemplateVariablePicker onInsert={insert} />
+
+        <Advanced count={advancedCount} forceOpen={advancedCount > 0}>
+          <label className="block">
+            <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('common.fields.entity')}</span>
+            <EntityPicker
+              value={draft.entity}
+              onChange={(entity) => setDraft({ ...draft, entity })}
+              globalLabel={t('library.editor.orgWideEvery')}
+              ariaLabel={t('library.editor.entityAria')}
+            />
+            <span className="mt-1 block text-[11.5px] text-text-muted">{t('library.editor.orgWideHint')}</span>
+          </label>
+          {isMsg && (
+            <div>
+              <span className="mb-1.5 block text-[12px] font-semibold text-text-high">{t('library.table.channels')}</span>
+              <ChannelsPicker value={draft.channels} onChange={(channels) => setDraft({ ...draft, channels })} />
+              <span className="mt-1.5 block text-[11.5px] text-text-muted">
+                {draft.channels.length === 0
+                  ? t('library.editor.everyChannelHint')
+                  : t('library.editor.onlyChannelsHint', { channels: f.list(draft.channels.map((c) => channelName(t, c))) })}
+              </span>
+            </div>
+          )}
+        </Advanced>
       </div>
     </Modal>
   )

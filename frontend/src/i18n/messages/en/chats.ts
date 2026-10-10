@@ -107,6 +107,7 @@ export const chats = {
     unknown_customer: 'Unknown customer',
   },
   filterModal: {
+    more: 'More',
     title: 'Filter conversations',
     matches_one: '{count} match',
     matches_other: '{count} matches',
@@ -407,6 +408,9 @@ export const chats = {
     backAria: 'Back to conversations',
     optedOutHint: 'Customer opted out of messaging — sends require a manual override',
     via: 'via {name}',
+    aiLabel: 'AI',
+    aiNeedsContact: 'AI waits for a contact',
+    aiNeedsContactHint: 'The AI only answers chats linked to a contact. Link this chat to a contact (or create one) in the details panel, and it will start replying.',
     aiOptedOut: 'Customer opted out — AI disabled',
     turnAiOff: 'Turn AI off',
     turnAiOn: 'Turn AI on',

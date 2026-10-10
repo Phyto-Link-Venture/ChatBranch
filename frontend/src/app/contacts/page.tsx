@@ -544,7 +544,7 @@ function ContactsList() {
       align: 'right',
       width: canManage ? 150 : 80,
       render: (d) => (
-        <div className="flex items-center justify-end gap-1">
+        <div data-tour="contacts-row-actions" className="flex items-center justify-end gap-1">
           <Button
             variant="ghost"
             size="sm"
@@ -605,10 +605,10 @@ function ContactsList() {
         actions={
           canManage && (
             <span data-tour="contacts-actions" className="flex flex-wrap items-center gap-2">
-              <Button variant="secondary" onClick={() => setImportOpen(true)}>
+              <Button data-tour="contacts-import" variant="secondary" onClick={() => setImportOpen(true)}>
                 <Upload size={14} aria-hidden /> {t('contacts.list.import')}
               </Button>
-              <Button variant="primary" onClick={openCreate}>
+              <Button data-tour="contacts-add" variant="primary" onClick={openCreate}>
                 <Plus size={14} aria-hidden /> {t('contacts.list.addContact')}
               </Button>
             </span>
@@ -655,7 +655,7 @@ function ContactsList() {
           }
           onRowClick={(d) => router.push(`/contacts/${d.id}`)}
           toolbarRight={
-            <div className="flex flex-wrap items-center gap-2">
+            <div data-tour="contacts-filters" className="flex flex-wrap items-center gap-2">
               <EntityPicker
                 value={entityFilter}
                 onChange={setEntityFilter}

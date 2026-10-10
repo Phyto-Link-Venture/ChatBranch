@@ -119,7 +119,7 @@ export const contacts: Dict<typeof source> = {
     googleContacts: 'Google Contacts',
     googleHint: 'Buku alamat Google anda sendiri (baca sahaja).',
     connectGoogle: 'Sambungkan Google dahulu — buka {link}, benarkan akses kepada kenalan anda, kemudian kembali ke sini.',
-    googleLink: 'Integrasi → Google Contacts',
+    googleLink: 'Tetapan → Sambungan saya',
     rowsFound_one: '{count} baris ditemui. Semak kandungan setiap lajur — kami meneka berdasarkan tajuknya.',
     rowsFound_other: '{count} baris ditemui. Semak kandungan setiap lajur — kami meneka berdasarkan tajuknya.',
     emptyColumn: 'kosong',

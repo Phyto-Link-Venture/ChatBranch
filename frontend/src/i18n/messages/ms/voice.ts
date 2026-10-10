@@ -61,6 +61,7 @@ export const voice: Dict<typeof source> = {
     stopRecording: 'Henti rakaman',
     consent: 'Dengan menambah suara, anda mengesahkan anda mendapat persetujuan penutur untuk mengklonnya.',
     orImport: 'atau import suara ElevenLabs sedia ada',
+    importTitle: 'Import suara ElevenLabs sedia ada',
     voiceIdPlaceholder: 'ID suara ElevenLabs',
     namePlaceholder: 'Nama (pilihan)',
     import: 'Import',

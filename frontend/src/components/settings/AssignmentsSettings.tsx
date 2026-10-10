@@ -168,7 +168,7 @@ export function AssignmentsSettings() {
   return (
     <div className="flex flex-col gap-4">
       {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div data-tour="assign-toolbar" className="flex flex-wrap items-center gap-2">
         <Select
           value={channel}
           onChange={(v) => {
@@ -203,6 +203,7 @@ export function AssignmentsSettings() {
           </Button>
           {canManage && (
             <Button
+              data-tour="assign-rebalance"
               variant="secondary"
               size="sm"
               onClick={() => setConfirmRebalance(true)}
@@ -243,7 +244,7 @@ export function AssignmentsSettings() {
           {t('admin.assignments.noAccounts', { channel: channelLabel(t, channel) })}
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div data-tour="assign-accounts" className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {accounts.map((a) => {
             const rows = byAccount.get(a.id) ?? []
             const pinned = rows.filter((r) => r.pinned).length

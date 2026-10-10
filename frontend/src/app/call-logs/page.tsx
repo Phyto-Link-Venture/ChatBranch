@@ -66,7 +66,7 @@ export default function CallLogsPage() {
   return (
     <div className="flex flex-col gap-3.5">
       {/* Tabs */}
-      <div className="flex items-center gap-1.5">
+      <div data-tour="calllogs-tabs" className="flex items-center gap-1.5">
         {TABS.map((tb) => {
           const active = tab === tb.id
           const n = tb.id === 'all' ? rows.length : rows.filter((l) => l.type === tb.id).length
@@ -88,7 +88,7 @@ export default function CallLogsPage() {
       </div>
 
       {/* Log cards */}
-      <div className="flex flex-col gap-2">
+      <div data-tour="calllogs-list" className="flex flex-col gap-2">
         {logs === null && (
           <div className="rounded-2xl border border-line bg-card px-4 py-8 text-center text-[12.5px] text-text-muted">
             {t('review.callLogs.loading')}
@@ -112,6 +112,7 @@ export default function CallLogsPage() {
               }}
             >
               <div
+                data-tour="calllogs-row"
                 className="flex cursor-pointer items-center gap-3 px-[18px] py-3.5"
                 onClick={() => setExpanded(isExp ? null : log.id)}
               >

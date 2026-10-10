@@ -86,7 +86,7 @@ export function BillingSettings() {
 
   return (
     <div className="flex max-w-[860px] flex-col gap-4">
-      <Card className="p-5">
+      <Card className="p-5" data-tour="billingset-defaults">
         <CardTitle
           right={
             <Link href="/billing" className="inline-flex items-center gap-1 font-semibold text-[var(--brand-ink)] hover:underline">
@@ -145,7 +145,7 @@ export function BillingSettings() {
             />
           </label>
         </div>
-        <p className="mt-3 rounded-lg bg-fill-subtle px-3 py-2 text-[12.5px] text-text-mid">
+        <p data-tour="billingset-example" className="mt-3 rounded-lg bg-fill-subtle px-3 py-2 text-[12.5px] text-text-mid">
           {t('billing.settings.example', {
             amount: Number.isFinite(example) ? example.toFixed(2) : '—',
             currency: terms.currency,
@@ -154,7 +154,7 @@ export function BillingSettings() {
         </p>
       </Card>
 
-      <Card className="p-5">
+      <Card className="p-5" data-tour="billingset-companies">
         <CardTitle>{t('billing.settings.companiesTitle')}</CardTitle>
         <p className="mt-1 text-[12.5px] text-text-muted">{t('billing.settings.companiesHelp')}</p>
         {data.companies.length === 0 ? (
@@ -206,7 +206,7 @@ export function BillingSettings() {
         )}
       </Card>
 
-      <div className="flex items-center gap-3">
+      <div data-tour="billingset-save" className="flex items-center gap-3">
         <Button onClick={save} disabled={busy}>
           {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Save size={13} aria-hidden />}
           {t('billing.settings.save')}

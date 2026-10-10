@@ -7,6 +7,7 @@ import { Modal } from '@/components/ui/Modal'
 import { MultiSelect, Select } from '@/components/ui/Select'
 import { TagListInput } from '@/components/ui/TagListInput'
 import { Toggle } from '@/components/ui/Toggle'
+import { Advanced } from '@/components/ui/Advanced'
 import { useRole } from '@/lib/useRole'
 import { useT, type MessageKey } from '@/i18n'
 import { Notice, Section, api, inputCls, useAgo } from './shared'
@@ -203,6 +204,7 @@ export function McpServersCard() {
 
   return (
     <Section
+      data-tour="dev-mcp"
       title={t('admin.developers.mcp.title')}
       description={t('admin.developers.mcp.description')}
       actions={
@@ -344,30 +346,15 @@ export function McpServersCard() {
                 {modalError}
               </div>
             )}
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block">
-                <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('common.fields.name')}</span>
-                <input
-                  value={draft.name}
-                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                  placeholder="Google Workspace"
-                  className={inputCls}
-                />
-              </label>
-              <div>
-                <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('admin.developers.mcp.transport')}</span>
-                <Select
-                  value={draft.transport}
-                  onChange={(v) => setDraft({ ...draft, transport: v })}
-                  size="md"
-                  ariaLabel={t('admin.developers.mcp.transport')}
-                  options={[
-                    { value: 'streamable-http', label: 'Streamable HTTP' },
-                    { value: 'sse', label: t('admin.developers.mcp.sseLegacy'), hint: t('admin.developers.mcp.sseHint') },
-                  ]}
-                />
-              </div>
-            </div>
+            <label className="block">
+              <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('common.fields.name')}</span>
+              <input
+                value={draft.name}
+                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                placeholder="Google Workspace"
+                className={inputCls}
+              />
+            </label>
             <label className="block">
               <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('admin.developers.mcp.serverUrl')}</span>
               <input
@@ -377,55 +364,79 @@ export function McpServersCard() {
                 className={`${inputCls} font-mono text-[12.5px]`}
               />
             </label>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block">
-                <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('admin.developers.mcp.authHeader')}</span>
-                <input
-                  value={draft.auth_header}
-                  onChange={(e) => setDraft({ ...draft, auth_header: e.target.value })}
-                  placeholder="Authorization"
-                  className={inputCls}
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('admin.developers.mcp.token')}</span>
-                <input
-                  type="password"
-                  value={draft.auth_token}
-                  onChange={(e) => setDraft({ ...draft, auth_token: e.target.value })}
-                  placeholder={
-                    editing?.has_auth_token
-                      ? t('admin.developers.mcp.unchanged', { masked: editing.auth_token_masked })
-                      : t('common.status.optional')
-                  }
-                  autoComplete="off"
-                  className={inputCls}
-                />
-              </label>
-            </div>
-            <p className="-mt-1.5 text-[11.5px] text-text-muted">
-              {t('admin.developers.mcp.tokenNote')}
-            </p>
-            <div>
-              <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('admin.developers.mcp.toolsToOffer')}</span>
-              {draft.known_tools.length > 0 ? (
-                <MultiSelect
-                  value={draft.tool_allowlist}
-                  onChange={(tool_allowlist) => setDraft({ ...draft, tool_allowlist })}
-                  options={draft.known_tools.map((name) => ({ value: name, label: name }))}
-                  placeholder={t('admin.developers.mcp.allTools')}
-                  size="md"
-                  ariaLabel={t('admin.developers.mcp.toolsToOffer')}
-                />
-              ) : (
-                <TagListInput
-                  value={draft.tool_allowlist}
-                  onChange={(tool_allowlist) => setDraft({ ...draft, tool_allowlist })}
-                  placeholder={t('admin.developers.mcp.toolPlaceholder')}
-                  addLabel={t('admin.developers.mcp.addTool')}
-                />
-              )}
-            </div>
+            <label className="block">
+              <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('admin.developers.mcp.token')}</span>
+              <input
+                type="password"
+                value={draft.auth_token}
+                onChange={(e) => setDraft({ ...draft, auth_token: e.target.value })}
+                placeholder={
+                  editing?.has_auth_token
+                    ? t('admin.developers.mcp.unchanged', { masked: editing.auth_token_masked })
+                    : t('common.status.optional')
+                }
+                autoComplete="off"
+                className={inputCls}
+              />
+              <span className="mt-1 block text-[11.5px] text-text-muted">{t('admin.developers.mcp.tokenNote')}</span>
+            </label>
+            {(() => {
+              // transport, header name and allowlist all have working defaults
+              // (Streamable HTTP, Authorization, every tool) — open when changed
+              const advancedCount = [
+                draft.transport !== EMPTY_DRAFT.transport,
+                !!draft.auth_header.trim() && draft.auth_header.trim() !== EMPTY_DRAFT.auth_header,
+                draft.tool_allowlist.length > 0,
+              ].filter(Boolean).length
+              return (
+                <Advanced key={draft.id ?? 'new'} count={advancedCount} forceOpen={advancedCount > 0}>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('admin.developers.mcp.transport')}</span>
+                      <Select
+                        value={draft.transport}
+                        onChange={(v) => setDraft({ ...draft, transport: v })}
+                        size="md"
+                        ariaLabel={t('admin.developers.mcp.transport')}
+                        options={[
+                          { value: 'streamable-http', label: 'Streamable HTTP' },
+                          { value: 'sse', label: t('admin.developers.mcp.sseLegacy'), hint: t('admin.developers.mcp.sseHint') },
+                        ]}
+                      />
+                    </div>
+                    <label className="block">
+                      <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('admin.developers.mcp.authHeader')}</span>
+                      <input
+                        value={draft.auth_header}
+                        onChange={(e) => setDraft({ ...draft, auth_header: e.target.value })}
+                        placeholder="Authorization"
+                        className={inputCls}
+                      />
+                    </label>
+                  </div>
+                  <div>
+                    <span className="mb-1 block text-[12px] font-semibold text-text-high">{t('admin.developers.mcp.toolsToOffer')}</span>
+                    {draft.known_tools.length > 0 ? (
+                      <MultiSelect
+                        value={draft.tool_allowlist}
+                        onChange={(tool_allowlist) => setDraft({ ...draft, tool_allowlist })}
+                        options={draft.known_tools.map((name) => ({ value: name, label: name }))}
+                        placeholder={t('admin.developers.mcp.allTools')}
+                        size="md"
+                        ariaLabel={t('admin.developers.mcp.toolsToOffer')}
+                      />
+                    ) : (
+                      <TagListInput
+                        value={draft.tool_allowlist}
+                        onChange={(tool_allowlist) => setDraft({ ...draft, tool_allowlist })}
+                        placeholder={t('admin.developers.mcp.toolPlaceholder')}
+                        addLabel={t('admin.developers.mcp.addTool')}
+                      />
+                    )}
+                  </div>
+                </Advanced>
+              )
+            })()}
             <div className="flex items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5">
               <div>
                 <div className="text-[12.5px] font-semibold text-text-high">{t('admin.developers.mcp.offer')}</div>

@@ -7,6 +7,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Toggle } from '@/components/ui/Toggle'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { EntityPicker } from '@/components/ui/EntityPicker'
+import { Advanced } from '@/components/ui/Advanced'
 import { TagChip } from '@/components/tags/TagChip'
 import { TagAssignEditor, type TagValueItem } from '@/components/tags/TagAssignEditor'
 import { orderEntityTree } from '@/components/bindings/groups'
@@ -397,7 +398,7 @@ export function EntitiesSettings() {
 
   return (
     <div className="flex flex-col gap-5 pt-4">
-      <p className="max-w-[760px] text-[13px] leading-relaxed text-text-mid">
+      <p data-tour="entities-intro" className="max-w-[760px] text-[13px] leading-relaxed text-text-mid">
         <Trans
           k="admin.entities.intro"
           values={{
@@ -407,7 +408,7 @@ export function EntitiesSettings() {
         />
       </p>
 
-      <div className="flex flex-wrap gap-x-6 gap-y-1 text-[12.5px] text-text-muted">
+      <div data-tour="entities-counts" className="flex flex-wrap gap-x-6 gap-y-1 text-[12.5px] text-text-muted">
         <span>
           <b className="text-text-heading">{f.number(mains)}</b> {t('admin.entities.mainCount', { count: mains })}
         </span>
@@ -429,6 +430,7 @@ export function EntitiesSettings() {
       )}
 
       <DataTable
+        data-tour="entities-table"
         columns={columns}
         rows={ordered.map((o) => o.row)}
         rowKey={(b) => b.id}
@@ -438,7 +440,7 @@ export function EntitiesSettings() {
         pageSize={25}
         toolbarRight={
           canManage ? (
-            <Button onClick={openCreate}>
+            <Button data-tour="entities-add" onClick={openCreate}>
               <Plus size={14} aria-hidden /> {t('admin.entities.add')}
             </Button>
           ) : undefined
@@ -479,7 +481,7 @@ export function EntitiesSettings() {
             </div>
           )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <label className="block">
+            <label className="block sm:col-span-2">
               <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">{t('admin.entities.name')}</span>
               <input
                 type="text"
@@ -491,20 +493,6 @@ export function EntitiesSettings() {
                 placeholder={t('admin.entities.namePlaceholder')}
                 className={inputCls}
               />
-            </label>
-            <label className="block">
-              <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">{t('admin.entities.slug')}</span>
-              <input
-                type="text"
-                value={slug}
-                onChange={(e) => {
-                  setSlugTouched(true)
-                  setSlug(slugify(e.target.value))
-                }}
-                placeholder={t('admin.entities.slugPlaceholder')}
-                className={inputCls}
-              />
-              <span className="mt-1 block text-[11px] leading-relaxed text-text-muted">{t('admin.entities.slugHint')}</span>
             </label>
             <div className="sm:col-span-2">
               <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">{t('admin.entities.sitsUnder')}</span>
@@ -528,25 +516,54 @@ export function EntitiesSettings() {
             )}
           </div>
 
-          {entityTags && (
-            <div className="border-t border-line pt-4">
-              <span className="block text-[11.5px] font-bold text-text-high">{t('common.fields.tags')}</span>
-              <span className="mb-2.5 mt-0.5 block text-[11px] leading-relaxed text-text-muted">
-                {t('admin.entities.tagsHint')}
-              </span>
-              {entityTags.length === 0 ? (
-                <p className="text-[12px] text-text-muted">{t('admin.entities.noTags')}</p>
-              ) : (
-                <TagAssignEditor
-                  available={entityTags}
-                  value={tagDraft}
-                  onChange={setTagDraft}
-                  disabled={!canTag || busy}
-                  noun="entity"
-                />
-              )}
-            </div>
-          )}
+          {(() => {
+            // the slug follows the name (or keeps the stored one) and tags are
+            // optional — open when the slug was changed by hand, a tag is
+            // picked, or the last save failed
+            const slugCustom = !!slug && slug !== (editing ? editing.slug : slugify(name))
+            const advancedCount = [slugCustom || (!!name.trim() && !slug), tagDraft.length > 0].filter(Boolean).length
+            return (
+              <Advanced
+                key={editing?.id ?? 'new'}
+                count={advancedCount}
+                forceOpen={advancedCount > 0 || (!!msg && !msg.ok)}
+              >
+                <label className="block sm:max-w-[50%]">
+                  <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">{t('admin.entities.slug')}</span>
+                  <input
+                    type="text"
+                    value={slug}
+                    onChange={(e) => {
+                      setSlugTouched(true)
+                      setSlug(slugify(e.target.value))
+                    }}
+                    placeholder={t('admin.entities.slugPlaceholder')}
+                    className={inputCls}
+                  />
+                  <span className="mt-1 block text-[11px] leading-relaxed text-text-muted">{t('admin.entities.slugHint')}</span>
+                </label>
+                {entityTags && (
+                  <div>
+                    <span className="block text-[11.5px] font-bold text-text-high">{t('common.fields.tags')}</span>
+                    <span className="mb-2.5 mt-0.5 block text-[11px] leading-relaxed text-text-muted">
+                      {t('admin.entities.tagsHint')}
+                    </span>
+                    {entityTags.length === 0 ? (
+                      <p className="text-[12px] text-text-muted">{t('admin.entities.noTags')}</p>
+                    ) : (
+                      <TagAssignEditor
+                        available={entityTags}
+                        value={tagDraft}
+                        onChange={setTagDraft}
+                        disabled={!canTag || busy}
+                        noun="entity"
+                      />
+                    )}
+                  </div>
+                )}
+              </Advanced>
+            )
+          })()}
         </div>
       </Modal>
     </div>

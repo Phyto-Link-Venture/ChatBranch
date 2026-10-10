@@ -152,6 +152,7 @@ export function ConnectAiCard({ freshToken }: { freshToken: string | null }) {
 
   return (
     <Section
+      data-tour="dev-connect"
       title={t('admin.developers.connect.title')}
       description={t('admin.developers.connect.description')}
     >

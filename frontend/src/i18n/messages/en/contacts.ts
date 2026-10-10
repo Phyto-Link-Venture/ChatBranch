@@ -119,7 +119,7 @@ export const contacts = {
     googleContacts: 'Google Contacts',
     googleHint: 'Your own Google address book (read-only).',
     connectGoogle: 'Connect Google first — open {link}, allow access to your contacts, then come back here.',
-    googleLink: 'Integrations → Google Contacts',
+    googleLink: 'Settings → My connections',
     rowsFound_one: '{count} row found. Check what each column holds — we guessed from the headings.',
     rowsFound_other: '{count} rows found. Check what each column holds — we guessed from the headings.',
     emptyColumn: 'empty',

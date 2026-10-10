@@ -14,9 +14,21 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { BookOpenText, Check, Copy, Download, PlayCircle, Printer } from 'lucide-react'
+import { ArrowUpRight, BookOpenText, Check, Copy, Download, PlayCircle, Printer, Search } from 'lucide-react'
 import { LanguageSwitcher } from '@/components/i18n/LanguageSwitcher'
 import { TOURS, stepKey, tourKey, type TourDef } from '@/lib/tours'
+import {
+  FAQ_IDS,
+  GLOSSARY_IDS,
+  GUIDES,
+  GUIDE_GROUPS,
+  QUICK_START,
+  guideById,
+  guideKey,
+  guideStepKey,
+  guideTipKey,
+  type GuideDef,
+} from '@/lib/guides'
 import { useFormat, useT, type MessageKey } from '@/i18n'
 
 const GROUPS: TourDef['group'][] = ['start', 'work', 'ai', 'setup']
@@ -28,6 +40,7 @@ export default function ManualPage() {
   const [origin, setOrigin] = useState('')
   const [embed, setEmbed] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [q, setQ] = useState('')
 
   useEffect(() => {
     setOrigin(window.location.origin)
@@ -73,6 +86,25 @@ nav ul{columns:2;padding-left:18px} .noexport{display:none!important} li{margin:
     URL.revokeObjectURL(url)
   }
 
+  // the search box narrows guides, tours, questions and terms by their words
+  const needle = q.trim().toLowerCase()
+  const has = (...keys: MessageKey[]) => !needle || keys.some((k) => t(k).toLowerCase().includes(needle))
+  const guideText = (g: GuideDef): MessageKey[] => [
+    guideKey(g.id, 'title'),
+    guideKey(g.id, 'summary'),
+    ...Array.from({ length: g.steps }, (_, i) => guideStepKey(g.id, i + 1, 'body')),
+  ]
+  const guidesShown = GUIDES.filter((g) => has(...guideText(g)))
+  const toursShown = chapters
+    .map((c) => ({ ...c, tours: c.tours.filter((x) => has(tourKey(x.id, 'title'), tourKey(x.id, 'intro'))) }))
+    .filter((c) => c.tours.length > 0)
+  const faqShown = FAQ_IDS.filter((id) => has(`manual.faq.${id}.q` as MessageKey, `manual.faq.${id}.a` as MessageKey))
+  const termsShown = GLOSSARY_IDS.filter((id) =>
+    has(`manual.glossary.${id}.term` as MessageKey, `manual.glossary.${id}.def` as MessageKey),
+  )
+  const quick = QUICK_START.map(guideById).filter((g): g is GuideDef => Boolean(g))
+  const nothing = needle && !guidesShown.length && !toursShown.length && !faqShown.length && !termsShown.length
+
   return (
     <main className="mx-auto max-w-[860px] px-5 py-10 print:max-w-none print:px-0 print:py-0">
       {!embed && (
@@ -112,61 +144,175 @@ nav ul{columns:2;padding-left:18px} .noexport{display:none!important} li{margin:
           <p className="mt-1 text-[11.5px] text-text-faint">{t('guide.manual.generated', { date: f.date(new Date()) })}</p>
         </header>
 
-        <nav aria-label={t('guide.manual.contents')} className="mb-8 rounded-xl border border-line bg-card p-4 print:border-0 print:p-0">
-          <div className="eyebrow mb-2">{t('guide.manual.contents')}</div>
-          <ul className="grid gap-x-6 gap-y-1 text-[13.5px] sm:grid-cols-2">
-            {chapters.flatMap(({ tours }) => tours).map((tour, i) => (
-              <li key={tour.id}>
-                <a href={`#${tour.id}`} className="text-text-high hover:underline">
-                  {i + 1}. {t(tourKey(tour.id, 'title'))}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
+        <label className="noexport mb-6 flex items-center gap-2 rounded-xl border border-line-strong bg-card px-3 py-2.5 print:hidden">
+          <Search size={16} className="shrink-0 text-text-muted" aria-hidden />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder={t('manual.ui.searchPlaceholder')}
+            aria-label={t('manual.ui.searchPlaceholder')}
+            className="min-w-0 flex-1 bg-transparent text-[14px] text-text-primary outline-none placeholder:text-text-faint"
+          />
+        </label>
+        {nothing && <p className="mb-8 text-[13.5px] text-text-muted">{t('manual.ui.noResults', { q: q.trim() })}</p>}
 
-        {(() => {
-          let n = 0
-          return chapters.map(({ group, tours }) => (
-            <section key={group} className="mb-4">
-              <div className="eyebrow mt-8">{t(`guide.manual.groups.${group}` as MessageKey)}</div>
-              {tours.map((tour) => {
-                n += 1
-                return (
-                  <section key={tour.id} id={tour.id} className="mt-5 scroll-mt-6 break-inside-avoid-page">
-                    <div className="flex flex-wrap items-baseline justify-between gap-2">
-                      <h2 className="display text-[22px] leading-tight text-text-heading">
-                        {n}. {t(tourKey(tour.id, 'title'))}
-                      </h2>
-                      {!embed && (
-                        <a
-                          href={`${tour.href}?tour=${tour.id}`}
-                          className="noexport inline-flex items-center gap-1 text-[12.5px] font-semibold text-[var(--brand-ink)] hover:underline print:hidden"
-                        >
-                          <PlayCircle size={13} aria-hidden /> {t('guide.manual.showMe')}
-                        </a>
-                      )}
-                    </div>
-                    <p className="mt-1 text-[13.5px] text-text-mid">{t(tourKey(tour.id, 'intro'))}</p>
-                    <ol className="mt-3 flex flex-col gap-3">
-                      {tour.steps.map((_, i) => (
-                        <li key={i} className="flex gap-3">
-                          <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-fill text-[12px] font-semibold text-text-high">
-                            {i + 1}
-                          </span>
-                          <div className="min-w-0">
-                            <h3 className="text-[14px] font-semibold text-text-heading">{t(stepKey(tour.id, i + 1, 'title'))}</h3>
-                            <p className="text-[13.5px] leading-relaxed text-text-mid">{t(stepKey(tour.id, i + 1, 'body'))}</p>
-                          </div>
-                        </li>
-                      ))}
-                    </ol>
-                  </section>
-                )
-              })}
-            </section>
-          ))
-        })()}
+        {!needle && (
+          <nav aria-label={t('guide.manual.contents')} className="mb-8 rounded-xl border border-line bg-card p-4 print:border-0 print:p-0">
+            <div className="eyebrow mb-2">{t('guide.manual.contents')}</div>
+            <ol className="grid gap-x-6 gap-y-1.5 text-[13.5px] sm:grid-cols-2">
+              {quick.length > 0 && (
+                <li>
+                  <a href="#quick-start" className="font-semibold text-text-high hover:underline">{t('manual.ui.sections.quickStart')}</a>
+                </li>
+              )}
+              {GUIDE_GROUPS.filter((g) => GUIDES.some((x) => x.group === g)).map((g) => (
+                <li key={g}>
+                  <a href={`#guides-${g}`} className="text-text-high hover:underline">
+                    {t('manual.ui.sections.guides')} · {t(`manual.ui.groups.${g}` as MessageKey)}
+                  </a>
+                </li>
+              ))}
+              <li>
+                <a href="#tours" className="text-text-high hover:underline">{t('manual.ui.sections.tours')}</a>
+              </li>
+              {FAQ_IDS.length > 0 && (
+                <li>
+                  <a href="#faq" className="text-text-high hover:underline">{t('manual.ui.sections.faq')}</a>
+                </li>
+              )}
+              {GLOSSARY_IDS.length > 0 && (
+                <li>
+                  <a href="#glossary" className="text-text-high hover:underline">{t('manual.ui.sections.glossary')}</a>
+                </li>
+              )}
+            </ol>
+          </nav>
+        )}
+
+        {/* ---- your first day: the quick-start checklist ---- */}
+        {!needle && quick.length > 0 && (
+          <section id="quick-start" className="mb-10 scroll-mt-6 rounded-xl border border-line bg-card p-5 print:border-0 print:p-0">
+            <h2 className="display text-[24px] leading-tight text-text-heading">{t('manual.ui.sections.quickStart')}</h2>
+            <p className="mt-1 text-[13.5px] text-text-mid">{t('manual.ui.quickStartIntro')}</p>
+            <ol className="mt-4 flex flex-col gap-2.5">
+              {quick.map((g, i) => (
+                <li key={g.id} className="flex items-start gap-3">
+                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary text-[12px] font-semibold text-on-primary">
+                    {i + 1}
+                  </span>
+                  <div className="min-w-0">
+                    <a href={`#${g.id}`} className="text-[14px] font-semibold text-text-heading hover:underline">
+                      {t(guideKey(g.id, 'title'))}
+                    </a>
+                    <p className="text-[13px] text-text-mid">{t(guideKey(g.id, 'summary'))}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+
+        {/* ---- step-by-step guides ---- */}
+        {guidesShown.length > 0 && (
+          <section className="mb-10">
+            <h2 className="display text-[26px] leading-tight text-text-heading">{t('manual.ui.sections.guides')}</h2>
+            <p className="mt-1 text-[13.5px] text-text-mid">{t('manual.ui.guidesIntro')}</p>
+            {GUIDE_GROUPS.map((group) => {
+              const list = guidesShown.filter((g) => g.group === group)
+              if (!list.length) return null
+              return (
+                <div key={group} id={`guides-${group}`} className="scroll-mt-6">
+                  <div className="eyebrow mt-8">{t(`manual.ui.groups.${group}` as MessageKey)}</div>
+                  {list.map((g) => (
+                    <GuideArticle key={g.id} guide={g} embed={embed} />
+                  ))}
+                </div>
+              )
+            })}
+          </section>
+        )}
+
+        {/* ---- tour of every page ---- */}
+        {toursShown.length > 0 && (
+          <section id="tours" className="mb-10 scroll-mt-6">
+            <h2 className="display text-[26px] leading-tight text-text-heading">{t('manual.ui.sections.tours')}</h2>
+            <p className="mt-1 text-[13.5px] text-text-mid">{t('manual.ui.toursIntro')}</p>
+            {(() => {
+              let n = 0
+              return toursShown.map(({ group, tours }) => (
+                <section key={group} className="mb-4">
+                  <div className="eyebrow mt-8">{t(`guide.manual.groups.${group}` as MessageKey)}</div>
+                  {tours.map((tour) => {
+                    n += 1
+                    return (
+                      <section key={tour.id} id={tour.id} className="mt-5 scroll-mt-6 break-inside-avoid-page">
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <h3 className="display text-[21px] leading-tight text-text-heading">
+                            {n}. {t(tourKey(tour.id, 'title'))}
+                          </h3>
+                          {!embed && (
+                            <a
+                              href={`${tour.href}?tour=${tour.id}`}
+                              className="noexport inline-flex items-center gap-1 text-[12.5px] font-semibold text-[var(--brand-ink)] hover:underline print:hidden"
+                            >
+                              <PlayCircle size={13} aria-hidden /> {t('guide.manual.showMe')}
+                            </a>
+                          )}
+                        </div>
+                        <p className="mt-1 text-[13.5px] text-text-mid">{t(tourKey(tour.id, 'intro'))}</p>
+                        <ol className="mt-3 flex flex-col gap-3">
+                          {tour.steps.map((_, i) => (
+                            <li key={i} className="flex gap-3">
+                              <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-fill text-[12px] font-semibold text-text-high">
+                                {i + 1}
+                              </span>
+                              <div className="min-w-0">
+                                <h4 className="text-[14px] font-semibold text-text-heading">{t(stepKey(tour.id, i + 1, 'title'))}</h4>
+                                <p className="text-[13.5px] leading-relaxed text-text-mid">{t(stepKey(tour.id, i + 1, 'body'))}</p>
+                              </div>
+                            </li>
+                          ))}
+                        </ol>
+                      </section>
+                    )
+                  })}
+                </section>
+              ))
+            })()}
+          </section>
+        )}
+
+        {/* ---- troubleshooting ---- */}
+        {faqShown.length > 0 && (
+          <section id="faq" className="mb-10 scroll-mt-6">
+            <h2 className="display text-[26px] leading-tight text-text-heading">{t('manual.ui.sections.faq')}</h2>
+            <p className="mt-1 text-[13.5px] text-text-mid">{t('manual.ui.faqIntro')}</p>
+            <dl className="mt-4 flex flex-col gap-4">
+              {faqShown.map((id) => (
+                <div key={id} id={`faq-${id}`} className="scroll-mt-6 break-inside-avoid-page rounded-xl border border-line bg-card p-4 print:border-0 print:p-0">
+                  <dt className="text-[14.5px] font-semibold text-text-heading">{t(`manual.faq.${id}.q` as MessageKey)}</dt>
+                  <dd className="mt-1.5 text-[13.5px] leading-relaxed text-text-mid">{t(`manual.faq.${id}.a` as MessageKey)}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        )}
+
+        {/* ---- glossary ---- */}
+        {termsShown.length > 0 && (
+          <section id="glossary" className="mb-6 scroll-mt-6">
+            <h2 className="display text-[26px] leading-tight text-text-heading">{t('manual.ui.sections.glossary')}</h2>
+            <p className="mt-1 text-[13.5px] text-text-mid">{t('manual.ui.glossaryIntro')}</p>
+            <dl className="mt-4 grid gap-x-6 gap-y-3 sm:grid-cols-2">
+              {termsShown.map((id) => (
+                <div key={id} className="break-inside-avoid-page">
+                  <dt className="text-[13.5px] font-semibold text-text-heading">{t(`manual.glossary.${id}.term` as MessageKey)}</dt>
+                  <dd className="text-[13px] leading-relaxed text-text-mid">{t(`manual.glossary.${id}.def` as MessageKey)}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        )}
 
         <p className="mt-10 border-t border-line pt-4 text-[12.5px] text-text-muted">{t('guide.manual.footer')}</p>
       </article>
@@ -192,5 +338,87 @@ nav ul{columns:2;padding-left:18px} .noexport{display:none!important} li{margin:
         </section>
       )}
     </main>
+  )
+}
+
+/** One how-to guide, written out in full: before you start → steps → done → tips → trouble. */
+function GuideArticle({ guide: g, embed }: { guide: GuideDef; embed: boolean }) {
+  const t = useT()
+  const block = 'mt-4'
+  return (
+    <article id={g.id} className="mt-6 scroll-mt-6 break-inside-avoid-page rounded-xl border border-line bg-card p-5 print:border-0 print:p-0">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="display text-[21px] leading-tight text-text-heading">{t(guideKey(g.id, 'title'))}</h3>
+        {g.who && g.who !== 'everyone' && (
+          <span className="rounded-md bg-fill px-2 py-0.5 text-[11px] font-semibold text-text-muted">
+            {t(`manual.ui.who.${g.who}` as MessageKey)}
+          </span>
+        )}
+      </div>
+      <p className="mt-1 text-[13.5px] text-text-mid">{t(guideKey(g.id, 'summary'))}</p>
+
+      {g.before && (
+        <div className={`${block} rounded-lg bg-fill-subtle px-3 py-2.5`}>
+          <div className="eyebrow">{t('manual.ui.beforeYouStart')}</div>
+          <p className="mt-1 text-[13px] leading-relaxed text-text-mid">{t(guideKey(g.id, 'before'))}</p>
+        </div>
+      )}
+
+      <div className={block}>
+        <div className="eyebrow">{t('manual.ui.steps')}</div>
+        <ol className="mt-2 flex flex-col gap-3">
+          {Array.from({ length: g.steps }, (_, i) => (
+            <li key={i} className="flex gap-3">
+              <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary text-[12px] font-semibold text-on-primary">
+                {i + 1}
+              </span>
+              <div className="min-w-0">
+                <h4 className="text-[14px] font-semibold text-text-heading">{t(guideStepKey(g.id, i + 1, 'title'))}</h4>
+                <p className="text-[13.5px] leading-relaxed text-text-mid">{t(guideStepKey(g.id, i + 1, 'body'))}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      <div className={`${block} rounded-lg border border-line px-3 py-2.5`}>
+        <div className="eyebrow text-[var(--green-ink)]">{t('manual.ui.done')}</div>
+        <p className="mt-1 text-[13px] leading-relaxed text-text-mid">{t(guideKey(g.id, 'done'))}</p>
+      </div>
+
+      {g.tips > 0 && (
+        <div className={block}>
+          <div className="eyebrow">{t('manual.ui.tips')}</div>
+          <ul className="mt-1.5 list-disc space-y-1 pl-5 text-[13px] leading-relaxed text-text-mid">
+            {Array.from({ length: g.tips }, (_, i) => (
+              <li key={i}>{t(guideTipKey(g.id, i + 1))}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {g.trouble && (
+        <div className={block}>
+          <div className="eyebrow">{t('manual.ui.trouble')}</div>
+          <p className="mt-1 text-[13px] leading-relaxed text-text-mid">{t(guideKey(g.id, 'trouble'))}</p>
+        </div>
+      )}
+
+      {!embed && (
+        <div className="noexport mt-4 flex flex-wrap gap-3 print:hidden">
+          <a href={g.href} className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-[var(--brand-ink)] hover:underline">
+            <ArrowUpRight size={13} aria-hidden /> {t('manual.ui.openPage')}
+          </a>
+          {g.tour && (
+            <a
+              href={`${g.href.split(/[?#]/)[0]}?tour=${g.tour}`}
+              className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-[var(--brand-ink)] hover:underline"
+            >
+              <PlayCircle size={13} aria-hidden /> {t('manual.ui.showMe')}
+            </a>
+          )}
+        </div>
+      )}
+    </article>
   )
 }

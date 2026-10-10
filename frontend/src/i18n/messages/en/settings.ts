@@ -247,7 +247,7 @@ export const settings = {
       providers: {
         title: 'Provider keys, chat provider & model',
         blurb:
-          'The keys, provider and model behind text auto-replies and summaries. Provider = which AI service handles replies; Model = optional — the specific model within that provider (leave empty for the provider default). A dashboard value wins over backend/.env; clear one to fall back to the env default.',
+          'Paste one key to turn the AI on. Leave the provider on Automatic and the model empty to use sensible defaults.',
       },
       tunables: {
         title: 'Background & ticker tunables',

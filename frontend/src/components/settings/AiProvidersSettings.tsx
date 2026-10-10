@@ -19,6 +19,7 @@ import { useAccess } from '@/lib/useAccess'
 import { expireSessionOn401 } from '@/lib/auth'
 import { useSettingsDirty } from './SettingsDirtyContext'
 import { EMBEDDING_KEYS, EmbeddingsSection } from '@/components/ai-learning/EmbeddingsSection'
+import { Advanced } from '@/components/ui/Advanced'
 import { useT, type MessageKey, type TFunction } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
@@ -108,6 +109,11 @@ const FIELD_TEXT: Record<string, { label: MessageKey; help?: MessageKey }> = {
   },
   aicore_summary_idle_min: { label: 'settings.aiProviders.fields.summaryIdle' },
 }
+/** Provider-group fields a first-time setup never needs — they live under
+ *  "Advanced settings" with the embeddings and every tunable. */
+const ADVANCED_PROVIDER_KEYS = ['chat_provider_order', 'local_base_url', 'local_api_key', 'ilmu_api_key', 'elevenlabs_api_key']
+const isAdvancedField = (f: FieldMeta) => f.group !== 'providers' || ADVANCED_PROVIDER_KEYS.includes(f.key)
+
 const fieldLabel = (t: TFunction, f: FieldMeta) => (FIELD_TEXT[f.key] ? t(FIELD_TEXT[f.key].label) : f.label)
 const fieldHelp = (t: TFunction, f: FieldMeta) => {
   const k = FIELD_TEXT[f.key]?.help
@@ -137,6 +143,7 @@ function SourceChip({ src }: { src?: string }) {
   const s = map[src || ''] || map['']
   return (
     <span
+      data-tour="aiproviders-source"
       className="shrink-0 rounded-full px-2 py-px text-[10px] font-bold"
       style={{ background: s.bg, color: s.fg }}
     >
@@ -420,14 +427,93 @@ export function AiProvidersSettings() {
     )
   }
 
-  // group order preserved from the schema (providers, then tunables)
-  // the embedding fields render in their own section (provider list ≠ chat providers)
-  const groups: string[] = []
-  for (const f of meta) if (!EMBEDDING_KEYS.includes(f.key) && !groups.includes(f.group)) groups.push(f.group)
+  function renderField(f: FieldMeta) {
+    const val = values[f.key] ?? ''
+    const masked = f.kind === 'secret' && val.includes('••')
+
+    // Reorderable fallback-order list — spans both columns, only
+    // meaningful when the provider is Automatic (blank pin).
+    if (f.kind === 'order') {
+      const isAuto = (values['chat_provider_pref'] ?? '') === ''
+      return (
+        <div key={f.key} className="md:col-span-2">
+          <span className="mb-1 flex items-center justify-between gap-2">
+            <span className="text-[11px] font-bold text-text-high">{fieldLabel(t, f)}</span>
+            <SourceChip src={source[f.key]} />
+          </span>
+          <OrderList value={val} disabled={!isSuper} active={isAuto} onChange={(v) => edit(f.key, v)} />
+          {f.help && (
+            <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">
+              {fieldHelp(t, f)}
+              {!isAuto && ` ${t('settings.aiProviders.chooseAutomatic')}`}
+            </span>
+          )}
+        </div>
+      )
+    }
+
+    return (
+      <label key={f.key} className="block">
+        <span className="mb-1 flex items-center justify-between gap-2">
+          <span className="text-[11px] font-bold text-text-high">{fieldLabel(t, f)}</span>
+          <SourceChip src={source[f.key]} />
+        </span>
+
+        {f.kind === 'select' ? (
+          <Select
+            value={val}
+            disabled={!isSuper}
+            onChange={(v) => edit(f.key, v)}
+            options={options.map((o) => ({ value: o, label: providerLabel(t, o) }))}
+            size="md"
+            ariaLabel={fieldLabel(t, f)}
+            className="w-full"
+          />
+        ) : f.kind === 'model' ? (
+          <ModelPicker value={val} catalog={catalog} disabled={!isSuper} onChange={(v) => edit(f.key, v)} />
+        ) : (
+          <input
+            value={val}
+            readOnly={!isSuper}
+            autoComplete="off"
+            // secret + still-masked => text so the "••••1234" hint is visible;
+            // secret + being edited => password; int => number honouring `min`.
+            type={f.kind === 'secret' ? (masked ? 'text' : 'password') : f.kind === 'int' ? 'number' : 'text'}
+            min={f.kind === 'int' ? f.min : undefined}
+            onChange={(e) => edit(f.key, e.target.value)}
+            className={`${inputCls} ${isSuper ? '' : 'cursor-default bg-fill-subtle'}`}
+          />
+        )}
+
+        {fieldHelp(t, f) && (
+          <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">{fieldHelp(t, f)}</span>
+        )}
+      </label>
+    )
+  }
+
+  function groupCard(g: string, fields: FieldMeta[]) {
+    if (fields.length === 0) return null
+    const gmeta = GROUP_META[g]
+    const gm = gmeta ? { title: t(gmeta.title), blurb: t(gmeta.blurb), Icon: gmeta.Icon } : { title: g, blurb: '', Icon: KeyRound }
+    const Icon = gm.Icon
+    return (
+      <div key={g} data-tour={`aiproviders-${g}`} className="rounded-xl border border-line bg-card p-4">
+        <div className="flex items-center gap-2">
+          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-fill">
+            <Icon size={14} color="#D9480F" aria-hidden />
+          </span>
+          <span className="text-[12.5px] font-bold text-text-high">{gm.title}</span>
+        </div>
+        {gm.blurb && <p className="mb-3 mt-1 max-w-[680px] text-[11px] leading-relaxed text-text-muted">{gm.blurb}</p>}
+        <div className="grid gap-3.5 md:grid-cols-2">{fields.map(renderField)}</div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-5 pt-3.5">
-      <div className="flex flex-wrap items-center gap-2">
+      <div data-tour="aiproviders-status" className="flex flex-wrap items-center gap-2">
         <span
           className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
             aiAvailable ? 'bg-green/15 text-green-300' : 'bg-fill text-text-muted'
@@ -459,109 +545,39 @@ export function AiProvidersSettings() {
         </div>
       )}
 
-      {groups.map((g) => {
-        const gmeta = GROUP_META[g]
-        const gm = gmeta ? { title: t(gmeta.title), blurb: t(gmeta.blurb), Icon: gmeta.Icon } : { title: g, blurb: '', Icon: KeyRound }
-        const Icon = gm.Icon
-        const fields = meta.filter((f) => f.group === g && !EMBEDDING_KEYS.includes(f.key))
+      {(() => {
+        const visible = meta.filter((f) => !EMBEDDING_KEYS.includes(f.key))
+        const essential = visible.filter((f) => !isAdvancedField(f))
+        const advProviders = visible.filter((f) => f.group === 'providers' && isAdvancedField(f))
+        // other groups (tunables, anything new) keep the schema's order
+        const otherGroups: string[] = []
+        for (const f of visible) if (f.group !== 'providers' && !otherGroups.includes(f.group)) otherGroups.push(f.group)
+        // customised = a dashboard row or an .env value answers (never the code default),
+        // or a pinned provider that NEEDS one of the advanced fields (ILMU key, local URL)
+        const advKeys = visible.filter(isAdvancedField).map((f) => f.key)
+        const customised =
+          advKeys.filter((k) => !!source[k]).length +
+          EMBEDDING_KEYS.filter((k) => (values[k] ?? '') !== '').length
+        const pin = values['chat_provider_pref'] ?? ''
+        const forceOpen = customised > 0 || pin === 'ilmu' || pin === 'local'
         return (
-          <div key={g} className={`rounded-xl border border-line bg-card p-4 ${g === 'tunables' ? 'order-last' : ''}`}>
-            <div className="flex items-center gap-2">
-              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-fill">
-                <Icon size={14} color="#D9480F" aria-hidden />
-              </span>
-              <span className="text-[12.5px] font-bold text-text-high">{gm.title}</span>
-            </div>
-            {gm.blurb && (
-              <p className="mb-3 mt-1 max-w-[680px] text-[11px] leading-relaxed text-text-muted">{gm.blurb}</p>
-            )}
-
-            <div className="grid gap-3.5 md:grid-cols-2">
-              {fields.map((f) => {
-                const val = values[f.key] ?? ''
-                const masked = f.kind === 'secret' && val.includes('••')
-
-                // Reorderable fallback-order list — spans both columns, only
-                // meaningful when the provider is Automatic (blank pin).
-                if (f.kind === 'order') {
-                  const isAuto = (values['chat_provider_pref'] ?? '') === ''
-                  return (
-                    <div key={f.key} className="md:col-span-2">
-                      <span className="mb-1 flex items-center justify-between gap-2">
-                        <span className="text-[11px] font-bold text-text-high">{fieldLabel(t, f)}</span>
-                        <SourceChip src={source[f.key]} />
-                      </span>
-                      <OrderList
-                        value={val}
-                        disabled={!isSuper}
-                        active={isAuto}
-                        onChange={(v) => edit(f.key, v)}
-                      />
-                      {f.help && (
-                        <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">
-                          {fieldHelp(t, f)}
-                          {!isAuto && ` ${t('settings.aiProviders.chooseAutomatic')}`}
-                        </span>
-                      )}
-                    </div>
-                  )
-                }
-
-                return (
-                  <label key={f.key} className="block">
-                    <span className="mb-1 flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-bold text-text-high">{fieldLabel(t, f)}</span>
-                      <SourceChip src={source[f.key]} />
-                    </span>
-
-                    {f.kind === 'select' ? (
-                      <Select
-                        value={val}
-                        disabled={!isSuper}
-                        onChange={(v) => edit(f.key, v)}
-                        options={options.map((o) => ({ value: o, label: providerLabel(t, o) }))}
-                        size="md"
-                        ariaLabel={fieldLabel(t, f)}
-                        className="w-full"
-                      />
-                    ) : f.kind === 'model' ? (
-                      <ModelPicker
-                        value={val}
-                        catalog={catalog}
-                        disabled={!isSuper}
-                        onChange={(v) => edit(f.key, v)}
-                      />
-                    ) : (
-                      <input
-                        value={val}
-                        readOnly={!isSuper}
-                        autoComplete="off"
-                        // secret + still-masked => text so the "••••1234" hint is visible;
-                        // secret + being edited => password; int => number honouring `min`.
-                        type={f.kind === 'secret' ? (masked ? 'text' : 'password') : f.kind === 'int' ? 'number' : 'text'}
-                        min={f.kind === 'int' ? f.min : undefined}
-                        onChange={(e) => edit(f.key, e.target.value)}
-                        className={`${inputCls} ${isSuper ? '' : 'cursor-default bg-fill-subtle'}`}
-                      />
-                    )}
-
-                    {fieldHelp(t, f) && (
-                      <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">{fieldHelp(t, f)}</span>
-                    )}
-                  </label>
-                )
-              })}
-            </div>
-          </div>
+          <>
+            {groupCard('providers', essential)}
+            <Advanced data-tour="aiproviders-advanced" variant="card" count={customised} forceOpen={forceOpen}>
+              {advProviders.length > 0 && (
+                <div className="grid gap-3.5 md:grid-cols-2">{advProviders.map(renderField)}</div>
+              )}
+              <EmbeddingsSection
+                provider={values.embedding_provider ?? ''}
+                model={values.embedding_model ?? ''}
+                disabled={!isSuper}
+                onChange={edit}
+              />
+              {otherGroups.map((g) => groupCard(g, visible.filter((f) => f.group === g)))}
+            </Advanced>
+          </>
         )
-      })}
-
-      <EmbeddingsSection
-        provider={values.embedding_provider ?? ''}
-        model={values.embedding_model ?? ''}
-        disabled={!isSuper}
-        onChange={edit}
-      />
+      })()}
     </div>
   )
 }

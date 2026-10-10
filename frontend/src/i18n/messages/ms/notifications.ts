@@ -30,7 +30,7 @@ export const notifications: Dict<typeof source> = {
     toDate: 'Hingga tarikh',
     to: 'hingga',
     clearFilters: 'Kosongkan penapis',
-    markAllRead: 'Tanda semua dibaca',
+    markAllRead: 'Tandakan semua dibaca',
     deleteRead: 'Padam yang dibaca',
     settings: 'Tetapan pemberitahuan',
     selectAll: 'Pilih semua pemberitahuan yang dimuatkan',

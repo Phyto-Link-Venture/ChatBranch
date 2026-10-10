@@ -170,7 +170,7 @@ function InboxCard({
         </div>
       )}
 
-      <div className="mt-auto flex flex-wrap items-center gap-2 pt-0.5">
+      <div data-tour="channels-card-actions" className="mt-auto flex flex-wrap items-center gap-2 pt-0.5">
         {editable && (
           <button type="button" className={btn} onClick={onSettings}>
             <Settings2 size={13} aria-hidden /> {t('channels.card.settings')}
@@ -295,7 +295,7 @@ export function ChannelsSettings() {
         subtitle={t('channels.page.subtitle')}
         actions={
           canManage ? (
-            <Button onClick={() => open(null, null, 1)}>
+            <Button data-tour="channels-add" onClick={() => open(null, null, 1)}>
               <Plus size={14} aria-hidden /> {t('channels.page.addInbox')}
             </Button>
           ) : undefined
@@ -315,7 +315,7 @@ export function ChannelsSettings() {
         )}
 
         {/* ── Connected ─────────────────────────────────────────────────── */}
-        <section className="flex flex-col gap-3" aria-labelledby="connected-h">
+        <section data-tour="channels-connected" className="flex flex-col gap-3" aria-labelledby="connected-h">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h2 id="connected-h" className="display text-[22px] leading-tight text-text-heading">
               {t('channels.page.connected')}
@@ -328,7 +328,7 @@ export function ChannelsSettings() {
           </div>
 
           {inboxes.length > 0 && (
-            <div className="flex flex-wrap gap-1.5" role="group" aria-label={t('channels.page.filterByChannel')}>
+            <div data-tour="channels-filter" className="flex flex-wrap gap-1.5" role="group" aria-label={t('channels.page.filterByChannel')}>
               {FILTERS.filter((x) => x.id === 'all' || counts[x.id]).map((x) => (
                 <button
                   key={x.id}
@@ -394,7 +394,7 @@ export function ChannelsSettings() {
         </section>
 
         {/* ── Add a channel ─────────────────────────────────────────────── */}
-        <section className="flex flex-col gap-3" aria-labelledby="add-channel-h">
+        <section data-tour="channels-catalog" className="flex flex-col gap-3" aria-labelledby="add-channel-h">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h2 id="add-channel-h" className="display text-[22px] leading-tight text-text-heading">
               {t('channels.page.addChannel')}

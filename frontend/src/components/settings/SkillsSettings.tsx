@@ -260,7 +260,7 @@ export function SkillsSettings() {
           />
         </p>
         {canManage && (
-          <Button onClick={() => open({ mode: 'new' })}>
+          <Button data-tour="skills-new" onClick={() => open({ mode: 'new' })}>
             <Plus size={14} aria-hidden /> {t('ai.skills.newSkill')}
           </Button>
         )}
@@ -362,7 +362,7 @@ function Section({
   const t = useT()
   const Icon = KIND_ICON[kind]
   return (
-    <section aria-labelledby={`skills-${kind}`}>
+    <section data-tour={`skills-${kind}`} aria-labelledby={`skills-${kind}`}>
       <div className="mb-3 flex flex-wrap items-end gap-x-4 gap-y-2 border-b border-line pb-2">
         <div className="min-w-0">
           <div className="eyebrow flex items-center gap-1.5">
@@ -528,7 +528,7 @@ function SkillRow({
           {s.kind === 'check' && onFail && <span>{t('ai.skills.onFailLine', { action: t(onFail.label) })}</span>}
         </div>
       </div>
-      <div className="ml-auto flex shrink-0 items-center gap-1">
+      <div data-tour="skills-row-actions" className="ml-auto flex shrink-0 items-center gap-1">
         {busy ? (
           <Loader2 size={14} className="mx-3 animate-spin text-text-muted" aria-hidden />
         ) : (
@@ -594,7 +594,7 @@ function BuiltinsSection({
 }) {
   const t = useT()
   return (
-    <section aria-labelledby="skills-builtin">
+    <section data-tour="skills-builtins" aria-labelledby="skills-builtin">
       <div className="mb-3 flex flex-wrap items-end gap-x-4 gap-y-2 border-b border-line pb-2">
         <div className="min-w-0">
           <div className="eyebrow flex items-center gap-1.5">

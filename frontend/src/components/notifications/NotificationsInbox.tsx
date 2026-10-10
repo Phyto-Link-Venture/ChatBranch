@@ -263,7 +263,7 @@ export function NotificationsInbox() {
   return (
     <div className="flex flex-col gap-4">
       {/* Category filter */}
-      <div className="-mx-1 flex flex-wrap gap-1.5 px-1" role="tablist" aria-label={t('notifications.inbox.category')}>
+      <div data-tour="notif-categories" className="-mx-1 flex flex-wrap gap-1.5 px-1" role="tablist" aria-label={t('notifications.inbox.category')}>
         <CategoryChip
           active={category === ''}
           onClick={() => setCategory('')}
@@ -283,7 +283,7 @@ export function NotificationsInbox() {
       </div>
 
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div data-tour="notif-toolbar" className="flex flex-wrap items-center gap-2">
         <label className="flex h-9 min-w-[180px] flex-1 items-center gap-2 rounded-lg border border-line-strong bg-card px-2.5 sm:max-w-[320px]">
           <Search size={14} className="shrink-0 text-text-muted" aria-hidden />
           <input
@@ -362,7 +362,7 @@ export function NotificationsInbox() {
             {t('notifications.inbox.clearFilters')}
           </Button>
         )}
-        <span className="flex flex-wrap items-center gap-1.5 sm:ml-auto">
+        <span data-tour="notif-actions" className="flex flex-wrap items-center gap-1.5 sm:ml-auto">
           <Button
             variant="ghost"
             size="sm"
@@ -380,6 +380,7 @@ export function NotificationsInbox() {
           </Button>
           <Link
             href="/settings/my-notifications"
+            data-tour="notif-settings"
             className="grid h-8 w-8 place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
             aria-label={t('notifications.inbox.settings')}
             title={t('notifications.inbox.settings')}
@@ -440,7 +441,7 @@ export function NotificationsInbox() {
 
       {/* The list */}
       {items.length === 0 && !loading ? (
-        <div className="rounded-xl border border-dashed border-line-strong px-6 py-14 text-center">
+        <div data-tour="notif-list" className="rounded-xl border border-dashed border-line-strong px-6 py-14 text-center">
           <div className="display text-[20px] text-text-heading">
             {filtered ? t('notifications.inbox.noMatchTitle') : t('notifications.inbox.emptyTitle')}
           </div>
@@ -449,7 +450,7 @@ export function NotificationsInbox() {
           </p>
         </div>
       ) : (
-        <div className="flex flex-col gap-5">
+        <div data-tour="notif-list" className="flex flex-col gap-5">
           {groups.map((g) => (
             <section key={g.label}>
               <div className="mb-1.5 flex items-baseline gap-2 border-b border-line pb-1">

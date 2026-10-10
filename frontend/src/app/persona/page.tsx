@@ -16,6 +16,7 @@ import {
 import { useApp } from '@/lib/AppContext'
 import { SectionLabel } from '@/components/ui/Card'
 import { Select } from '@/components/ui/Select'
+import { Advanced } from '@/components/ui/Advanced'
 import { useT, type MessageKey, type TFunction } from '@/i18n'
 import { buildOpeningLine } from '@/lib/personaLine'
 import { PreviewError, stopPreview, subscribePlaying } from '@/lib/voice'
@@ -264,6 +265,7 @@ export default function PersonaPage() {
     <div className="flex flex-col gap-4">
       {/* Intro */}
       <div
+        data-tour="voice-intro"
         className="flex items-start gap-3 rounded-2xl px-[18px] py-3.5"
         style={{ background: 'rgba(255,90,31,0.06)', border: '1px solid rgba(255,90,31,0.16)' }}
       >
@@ -277,7 +279,7 @@ export default function PersonaPage() {
       </div>
 
       {/* Persona legend — the four agent personalities a voice can carry */}
-      <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+      <div data-tour="voice-personas" className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
         {PERSONAS.map((p) => (
           <div key={p.id} className="min-w-0 rounded-2xl border border-line bg-card p-4">
             <div className="mb-2 grid h-9 w-9 place-items-center rounded-xl" style={{ background: tint(p.color, '1A') }}>
@@ -294,6 +296,7 @@ export default function PersonaPage() {
         <div className="mb-2.5 flex items-center justify-between gap-2">
           <SectionLabel>{t('voice.library.title')}</SectionLabel>
           <button
+            data-tour="voice-add"
             onClick={() => setShowAddVoice(true)}
             className="shrink-0 rounded-md border border-brand-400/20 bg-brand-400/[0.12] px-2.5 py-1 text-[11px] font-semibold text-brand-200"
           >
@@ -399,40 +402,41 @@ export default function PersonaPage() {
                 </div>
                 <input ref={fileRef} type="file" accept="audio/*" hidden onChange={onFile} />
                 <div className="mt-1 text-[10px] text-text-muted">{t('voice.addVoice.consent')}</div>
-                <div className="mt-3 flex w-full items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-text-muted">
-                  <span className="h-px flex-1 bg-line" />
-                  <span className="shrink text-center">{t('voice.addVoice.orImport')}</span>
-                  <span className="h-px flex-1 bg-line" />
-                </div>
-                <div className="mt-2 flex w-full flex-wrap items-center gap-2">
-                  <input
-                    value={importId}
-                    onChange={(e) => setImportId(e.target.value)}
-                    placeholder={t('voice.addVoice.voiceIdPlaceholder')}
-                    aria-label={t('voice.addVoice.voiceIdPlaceholder')}
-                    className="flex-[1_1_160px] rounded-md border border-line-strong bg-well px-2.5 py-1.5 text-[11px] text-text-high outline-none"
-                  />
-                  <input
-                    value={importName}
-                    onChange={(e) => setImportName(e.target.value)}
-                    placeholder={t('voice.addVoice.namePlaceholder')}
-                    aria-label={t('voice.addVoice.namePlaceholder')}
-                    className="flex-[1_1_120px] rounded-md border border-line-strong bg-well px-2.5 py-1.5 text-[11px] text-text-high outline-none"
-                  />
-                  <button
-                    disabled={busy || !importId.trim()}
-                    onClick={() => void submitImport()}
-                    className="rounded-md border border-brand-400/20 bg-brand-400/[0.12] px-3 py-1.5 text-[11px] font-semibold text-brand-200 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {busy ? t('voice.addVoice.processing') : t('voice.addVoice.import')}
-                  </button>
-                </div>
+                <Advanced
+                  className="mt-3 w-full text-left"
+                  label={t('voice.addVoice.importTitle')}
+                  forceOpen={!!importId.trim() || !!importName.trim()}
+                >
+                  <div className="flex w-full flex-wrap items-center gap-2">
+                    <input
+                      value={importId}
+                      onChange={(e) => setImportId(e.target.value)}
+                      placeholder={t('voice.addVoice.voiceIdPlaceholder')}
+                      aria-label={t('voice.addVoice.voiceIdPlaceholder')}
+                      className="flex-[1_1_160px] rounded-md border border-line-strong bg-well px-2.5 py-1.5 text-[11px] text-text-high outline-none"
+                    />
+                    <input
+                      value={importName}
+                      onChange={(e) => setImportName(e.target.value)}
+                      placeholder={t('voice.addVoice.namePlaceholder')}
+                      aria-label={t('voice.addVoice.namePlaceholder')}
+                      className="flex-[1_1_120px] rounded-md border border-line-strong bg-well px-2.5 py-1.5 text-[11px] text-text-high outline-none"
+                    />
+                    <button
+                      disabled={busy || !importId.trim()}
+                      onClick={() => void submitImport()}
+                      className="rounded-md border border-brand-400/20 bg-brand-400/[0.12] px-3 py-1.5 text-[11px] font-semibold text-brand-200 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {busy ? t('voice.addVoice.processing') : t('voice.addVoice.import')}
+                    </button>
+                  </div>
+                </Advanced>
                 {cloneErr && <div className="mt-1 text-[10px] font-semibold text-red-300">{cloneErr}</div>}
               </div>
             </div>
           </div>
         )}
-        <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div data-tour="voice-filters" className="mb-3 flex flex-wrap items-center gap-2">
           <VoiceFilterSelect
             value={genderFilter}
             onChange={setGenderFilter}
@@ -475,7 +479,7 @@ export default function PersonaPage() {
             {t('voice.filters.shownOf', { shown: filteredVoices.length, total: voices.length })}
           </span>
         </div>
-        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div data-tour="voice-grid" className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filteredVoices.map((v) => {
             const sel = selectedVoice === v.id
             const ready = v.status === 'ready'
@@ -707,7 +711,7 @@ export default function PersonaPage() {
 
       {/* Pronunciation lives with the voices it shapes (ElevenLabs respellings
           applied to every TTS call) — moved here from Settings. */}
-      <div id="pronunciation" className="rounded-[14px] border border-line bg-card p-4">
+      <div id="pronunciation" data-tour="voice-pronunciation" className="rounded-[14px] border border-line bg-card p-4">
         <SectionLabel>{t('voice.pronunciation.title')}</SectionLabel>
         <PronunciationSettings />
       </div>

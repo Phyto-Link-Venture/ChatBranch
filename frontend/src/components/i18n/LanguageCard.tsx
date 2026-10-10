@@ -89,7 +89,7 @@ export function LanguageCard() {
   }
 
   return (
-    <Card className="p-4 sm:p-5">
+    <Card className="p-4 sm:p-5" data-tour="appearance-language">
       <div className="flex items-start gap-3">
         <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-fill">
           <Languages size={15} className="text-text-mid" aria-hidden />

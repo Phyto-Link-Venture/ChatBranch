@@ -8,6 +8,7 @@ import { Select } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
 import { TagListInput } from '@/components/ui/TagListInput'
 import { EntityPicker } from '@/components/ui/EntityPicker'
+import { Advanced } from '@/components/ui/Advanced'
 import { Trans, useT } from '@/i18n'
 import {
   APPLIES_TO_META,
@@ -97,6 +98,15 @@ export function TagEditorModal({
     () => (groups[appliesTo] ?? []).filter((g) => g && g.toLowerCase() !== group.trim().toLowerCase()),
     [groups, appliesTo, group],
   )
+
+  // group, owner entity, description and attribute fields are optional —
+  // shown under "Advanced" unless the tag already uses one of them
+  const advancedCount = [
+    !!group.trim(),
+    !!entity,
+    !!description.trim(),
+    appliesTo !== 'conversation' && attrs.length > 0,
+  ].filter(Boolean).length
 
   const patchAttr = (i: number, patch: Partial<TagAttribute>) =>
     setAttrs((cur) => cur.map((a, idx) => (idx === i ? { ...a, ...patch } : a)))
@@ -238,169 +248,171 @@ export function TagEditorModal({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <FieldLabel hint={t('admin.tags.editor.groupHint')}>
-              {t('admin.tags.editor.group')}{' '}
-              <span className="font-normal text-text-muted">{t('admin.tags.editor.optionalParen')}</span>
-            </FieldLabel>
-            <input
-              value={group}
-              onChange={(e) => setGroup(e.target.value)}
-              placeholder={t('admin.tags.editor.groupPlaceholder')}
-              maxLength={60}
-              className={inputCls}
-            />
-            {suggestions.length > 0 && (
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                {suggestions.slice(0, 6).map((g) => (
-                  <button
-                    key={g}
-                    type="button"
-                    onClick={() => setGroup(g)}
-                    className="rounded-full border border-line px-2 py-0.5 text-[11px] font-semibold text-text-mid hover:border-line-strong hover:text-text-high"
-                  >
-                    {g}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <div>
-            <FieldLabel hint={t('admin.tags.editor.belongsHint')}>{t('admin.tags.editor.belongsTo')}</FieldLabel>
-            <EntityPicker
-              value={entity}
-              onChange={setEntity}
-              globalLabel={t('admin.bindings.orgWide')}
-              ariaLabel={t('admin.tags.editor.scopeAria')}
-            />
-          </div>
-        </div>
-
-        <label className="block">
-          <FieldLabel>{t('common.fields.description')}</FieldLabel>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={2}
-            placeholder={t('admin.tags.editor.descriptionPlaceholder')}
-            className="w-full resize-y rounded-lg border border-line-strong bg-card px-3 py-2 text-[13px] text-text-primary outline-none placeholder:text-text-faint focus:border-text-primary"
-          />
-        </label>
-
-        {appliesTo !== 'conversation' && (
-          <section className="border-t border-line pt-4">
-            <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
-              <div>
-                <h3 className="display text-[17px] leading-tight text-text-heading">{t('admin.tags.editor.fields')}</h3>
-                <p className="mt-0.5 text-[11.5px] text-text-muted">
-                  <Trans
-                    k="admin.tags.editor.fieldsHint"
-                    values={{
-                      noun: t(APPLIES_TO_META[appliesTo].noun),
-                      variable: <code className="text-text-mid">{`{{${varPrefix}<field>}}`}</code>,
-                    }}
-                  />
-                </p>
-              </div>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setAttrs((cur) => [...cur, { key: '', label: '', type: 'text', options: [], required: false }])}
-              >
-                <Plus size={13} aria-hidden /> {t('admin.tags.editor.addField')}
-              </Button>
+        <Advanced key={`${open}-${tag?.id ?? 'new'}`} count={advancedCount} forceOpen={advancedCount > 0}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <FieldLabel hint={t('admin.tags.editor.groupHint')}>
+                {t('admin.tags.editor.group')}{' '}
+                <span className="font-normal text-text-muted">{t('admin.tags.editor.optionalParen')}</span>
+              </FieldLabel>
+              <input
+                value={group}
+                onChange={(e) => setGroup(e.target.value)}
+                placeholder={t('admin.tags.editor.groupPlaceholder')}
+                maxLength={60}
+                className={inputCls}
+              />
+              {suggestions.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {suggestions.slice(0, 6).map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      onClick={() => setGroup(g)}
+                      className="rounded-full border border-line px-2 py-0.5 text-[11px] font-semibold text-text-mid hover:border-line-strong hover:text-text-high"
+                    >
+                      {g}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-            {attrs.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-line px-3 py-4 text-center text-[12px] text-text-muted">
-                {t('admin.tags.editor.noFields')}
-              </p>
-            ) : (
-              <ol className="flex flex-col gap-2">
-                {attrs.map((a, i) => (
-                  <li key={i} className="rounded-lg border border-line bg-card p-2.5">
-                    <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_150px_auto]">
-                      <label className="block">
-                        <span className="mb-1 block text-[11px] font-semibold text-text-mid">{t('admin.tags.editor.fieldLabel')}</span>
-                        <input
-                          value={a.label}
-                          onChange={(e) => patchAttr(i, { label: e.target.value, key: tag?.attributes.some((x) => x.key === a.key) ? a.key : '' })}
-                          placeholder={t('admin.tags.editor.fieldLabelPlaceholder')}
-                          className={inputCls}
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="mb-1 block text-[11px] font-semibold text-text-mid">{t('common.fields.type')}</span>
-                        <Select
-                          value={a.type}
-                          onChange={(v) => patchAttr(i, { type: v as TagAttrType })}
-                          size="md"
-                          ariaLabel={t('admin.tags.editor.typeOf', { field: a.label || t('admin.tags.editor.fieldN', { n: i + 1 }) })}
-                          options={(Object.keys(ATTR_TYPE_LABELS) as TagAttrType[]).map((ty) => ({ value: ty, label: t(ATTR_TYPE_LABELS[ty]) }))}
-                        />
-                      </label>
-                      <div className="flex items-center gap-1 pb-0.5">
-                        <span className="mr-1 flex items-center gap-1.5 text-[11.5px] text-text-mid">
-                          <Toggle
-                            on={a.required}
-                            onChange={(v) => patchAttr(i, { required: v })}
-                            label={t('admin.tags.editor.requiredAria', { field: a.label || t('admin.tags.editor.field') })}
+            <div>
+              <FieldLabel hint={t('admin.tags.editor.belongsHint')}>{t('admin.tags.editor.belongsTo')}</FieldLabel>
+              <EntityPicker
+                value={entity}
+                onChange={setEntity}
+                globalLabel={t('admin.bindings.orgWide')}
+                ariaLabel={t('admin.tags.editor.scopeAria')}
+              />
+            </div>
+          </div>
+
+          <label className="block">
+            <FieldLabel>{t('common.fields.description')}</FieldLabel>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+              placeholder={t('admin.tags.editor.descriptionPlaceholder')}
+              className="w-full resize-y rounded-lg border border-line-strong bg-card px-3 py-2 text-[13px] text-text-primary outline-none placeholder:text-text-faint focus:border-text-primary"
+            />
+          </label>
+
+          {appliesTo !== 'conversation' && (
+            <section className="border-t border-line pt-3">
+              <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+                <div>
+                  <h3 className="display text-[17px] leading-tight text-text-heading">{t('admin.tags.editor.fields')}</h3>
+                  <p className="mt-0.5 text-[11.5px] text-text-muted">
+                    <Trans
+                      k="admin.tags.editor.fieldsHint"
+                      values={{
+                        noun: t(APPLIES_TO_META[appliesTo].noun),
+                        variable: <code className="text-text-mid">{`{{${varPrefix}<field>}}`}</code>,
+                      }}
+                    />
+                  </p>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setAttrs((cur) => [...cur, { key: '', label: '', type: 'text', options: [], required: false }])}
+                >
+                  <Plus size={13} aria-hidden /> {t('admin.tags.editor.addField')}
+                </Button>
+              </div>
+              {attrs.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-line px-3 py-4 text-center text-[12px] text-text-muted">
+                  {t('admin.tags.editor.noFields')}
+                </p>
+              ) : (
+                <ol className="flex flex-col gap-2">
+                  {attrs.map((a, i) => (
+                    <li key={i} className="rounded-lg border border-line bg-card p-2.5">
+                      <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_150px_auto]">
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] font-semibold text-text-mid">{t('admin.tags.editor.fieldLabel')}</span>
+                          <input
+                            value={a.label}
+                            onChange={(e) => patchAttr(i, { label: e.target.value, key: tag?.attributes.some((x) => x.key === a.key) ? a.key : '' })}
+                            placeholder={t('admin.tags.editor.fieldLabelPlaceholder')}
+                            className={inputCls}
                           />
-                          {t('common.status.required')}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => move(i, -1)}
-                          disabled={i === 0}
-                          aria-label={t('admin.tags.editor.moveUp')}
-                          title={t('admin.tags.editor.moveUp')}
-                          className="grid h-8 w-8 place-items-center rounded-md text-text-muted hover:bg-fill-hover hover:text-text-high disabled:opacity-30"
-                        >
-                          <ArrowUp size={14} aria-hidden />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => move(i, 1)}
-                          disabled={i === attrs.length - 1}
-                          aria-label={t('admin.tags.editor.moveDown')}
-                          title={t('admin.tags.editor.moveDown')}
-                          className="grid h-8 w-8 place-items-center rounded-md text-text-muted hover:bg-fill-hover hover:text-text-high disabled:opacity-30"
-                        >
-                          <ArrowDown size={14} aria-hidden />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setAttrs((cur) => cur.filter((_, idx) => idx !== i))}
-                          aria-label={t('admin.tags.editor.removeField')}
-                          title={t('admin.tags.editor.removeField')}
-                          className="grid h-8 w-8 place-items-center rounded-md text-text-muted hover:bg-red/10 hover:text-[color:var(--red-ink)]"
-                        >
-                          <Trash2 size={14} aria-hidden />
-                        </button>
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] font-semibold text-text-mid">{t('common.fields.type')}</span>
+                          <Select
+                            value={a.type}
+                            onChange={(v) => patchAttr(i, { type: v as TagAttrType })}
+                            size="md"
+                            ariaLabel={t('admin.tags.editor.typeOf', { field: a.label || t('admin.tags.editor.fieldN', { n: i + 1 }) })}
+                            options={(Object.keys(ATTR_TYPE_LABELS) as TagAttrType[]).map((ty) => ({ value: ty, label: t(ATTR_TYPE_LABELS[ty]) }))}
+                          />
+                        </label>
+                        <div className="flex items-center gap-1 pb-0.5">
+                          <span className="mr-1 flex items-center gap-1.5 text-[11.5px] text-text-mid">
+                            <Toggle
+                              on={a.required}
+                              onChange={(v) => patchAttr(i, { required: v })}
+                              label={t('admin.tags.editor.requiredAria', { field: a.label || t('admin.tags.editor.field') })}
+                            />
+                            {t('common.status.required')}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => move(i, -1)}
+                            disabled={i === 0}
+                            aria-label={t('admin.tags.editor.moveUp')}
+                            title={t('admin.tags.editor.moveUp')}
+                            className="grid h-8 w-8 place-items-center rounded-md text-text-muted hover:bg-fill-hover hover:text-text-high disabled:opacity-30"
+                          >
+                            <ArrowUp size={14} aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => move(i, 1)}
+                            disabled={i === attrs.length - 1}
+                            aria-label={t('admin.tags.editor.moveDown')}
+                            title={t('admin.tags.editor.moveDown')}
+                            className="grid h-8 w-8 place-items-center rounded-md text-text-muted hover:bg-fill-hover hover:text-text-high disabled:opacity-30"
+                          >
+                            <ArrowDown size={14} aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAttrs((cur) => cur.filter((_, idx) => idx !== i))}
+                            aria-label={t('admin.tags.editor.removeField')}
+                            title={t('admin.tags.editor.removeField')}
+                            className="grid h-8 w-8 place-items-center rounded-md text-text-muted hover:bg-red/10 hover:text-[color:var(--red-ink)]"
+                          >
+                            <Trash2 size={14} aria-hidden />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                    {a.type === 'select' && (
-                      <div className="mt-2">
-                        <span className="mb-1 block text-[11px] font-semibold text-text-mid">{t('admin.tags.editor.options')}</span>
-                        <TagListInput
-                          value={a.options}
-                          onChange={(options) => patchAttr(i, { options })}
-                          placeholder={t('admin.tags.editor.optionPlaceholder')}
-                          addLabel={t('admin.tags.editor.addOption')}
-                        />
-                      </div>
-                    )}
-                    {a.label.trim() && (
-                      <code className="mt-1.5 block truncate text-[10.5px] text-text-faint">
-                        {`{{${varPrefix}${a.key || attributeKey(a.label)}}}`}
-                      </code>
-                    )}
-                  </li>
-                ))}
-              </ol>
-            )}
-          </section>
-        )}
+                      {a.type === 'select' && (
+                        <div className="mt-2">
+                          <span className="mb-1 block text-[11px] font-semibold text-text-mid">{t('admin.tags.editor.options')}</span>
+                          <TagListInput
+                            value={a.options}
+                            onChange={(options) => patchAttr(i, { options })}
+                            placeholder={t('admin.tags.editor.optionPlaceholder')}
+                            addLabel={t('admin.tags.editor.addOption')}
+                          />
+                        </div>
+                      )}
+                      {a.label.trim() && (
+                        <code className="mt-1.5 block truncate text-[10.5px] text-text-faint">
+                          {`{{${varPrefix}${a.key || attributeKey(a.label)}}}`}
+                        </code>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+          )}
+        </Advanced>
       </div>
     </Modal>
   )

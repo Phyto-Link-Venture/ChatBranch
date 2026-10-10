@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, RotateCcw } from 'lucide-react'
+import { Advanced } from '@/components/ui/Advanced'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { SaveBar } from '@/components/ui/BindingGrid'
@@ -135,6 +136,24 @@ const DEPENDS: Record<string, { on: string; when: (v: string) => boolean; note: 
   ai_followup_max: { on: 'ai_followup', when: (v) => v === 'true', note: 'ai.behaviour.depends.followUps' },
   ai_followup_template: { on: 'ai_followup', when: (v) => v === 'true', note: 'ai.behaviour.depends.followUps' },
   ai_followup_guidance: { on: 'ai_followup', when: (v) => v === 'true', note: 'ai.behaviour.depends.followUps' },
+}
+
+/**
+ * The one field per card a first-time user needs; the rest of the card sits
+ * under "Advanced settings" (opened by itself when one of them is customised).
+ */
+const ESSENTIAL = new Set([
+  'ai_review_mode',
+  'ai_wait_seconds',
+  'ai_typing',
+  'ai_split',
+  'ai_followup',
+  'ai_learning_mode',
+])
+
+/** Customised = overridden at the picked entity, or differs from the engine default. */
+function customised(f: BehaviourField, value: string, entity: string | null): boolean {
+  return (!!entity && f.scope === 'entity') || value !== f.default
 }
 
 const inputCls =
@@ -282,22 +301,35 @@ export function AiBehaviourSettings({ initialEntity = null }: { initialEntity?: 
                 <p className="mb-3 mt-0.5 text-[12.5px] text-text-muted">
                   {GROUP_TEXT[g.id] ? t(GROUP_TEXT[g.id].description) : g.description}
                 </p>
-                <div className="flex flex-col divide-y divide-line">
-                  {fields
-                    .filter((f) => f.group === g.id)
-                    .map((f) => (
-                      <FieldRow
-                        key={f.key}
-                        field={f}
-                        value={draft[f.key] ?? ''}
-                        all={draft}
-                        entity={entity}
-                        disabled={!canManage}
-                        onChange={(v) => setDraft((cur) => ({ ...cur, [f.key]: v }))}
-                        onReset={() => void resetField(f.key)}
-                      />
-                    ))}
-                </div>
+                {(() => {
+                  const inGroup = fields.filter((f) => f.group === g.id)
+                  const hasEssential = inGroup.some((f) => ESSENTIAL.has(f.key))
+                  const main = hasEssential ? inGroup.filter((f) => ESSENTIAL.has(f.key)) : inGroup
+                  const extra = hasEssential ? inGroup.filter((f) => !ESSENTIAL.has(f.key)) : []
+                  const row = (f: BehaviourField) => (
+                    <FieldRow
+                      key={f.key}
+                      field={f}
+                      value={draft[f.key] ?? ''}
+                      all={draft}
+                      entity={entity}
+                      disabled={!canManage}
+                      onChange={(v) => setDraft((cur) => ({ ...cur, [f.key]: v }))}
+                      onReset={() => void resetField(f.key)}
+                    />
+                  )
+                  const custom = extra.filter((f) => customised(f, draft[f.key] ?? '', entity)).length
+                  return (
+                    <>
+                      <div className="flex flex-col divide-y divide-line">{main.map(row)}</div>
+                      {extra.length > 0 && (
+                        <Advanced className="mt-3" count={custom} forceOpen={custom > 0}>
+                          <div className="flex flex-col divide-y divide-line">{extra.map(row)}</div>
+                        </Advanced>
+                      )}
+                    </>
+                  )
+                })()}
               </Card>
             ))}
             <SaveBar

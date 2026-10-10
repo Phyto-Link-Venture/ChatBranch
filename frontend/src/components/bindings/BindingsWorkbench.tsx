@@ -292,7 +292,7 @@ export function BindingsWorkbench() {
       </p>
 
       {/* 1 · kind */}
-      <section className="flex flex-col gap-2.5">
+      <section data-tour="bindings-kind" className="flex flex-col gap-2.5">
         <span className="eyebrow">{t('admin.bindings.step1')}</span>
         <div role="radiogroup" aria-label={t('admin.bindings.whatToBind')} className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
           {kinds.map((k) => {
@@ -329,7 +329,7 @@ export function BindingsWorkbench() {
       </section>
 
       {/* 2 · target */}
-      <section className="flex flex-col gap-2.5">
+      <section data-tour="bindings-target" className="flex flex-col gap-2.5">
         <span className="eyebrow">{t('admin.bindings.step2', { thing: side.one })}</span>
         <div className="max-w-[460px]">
           {targets.length === 0 ? (
@@ -369,7 +369,7 @@ export function BindingsWorkbench() {
 
       {/* 3 · candidates */}
       {targetId != null && (
-        <section className="flex flex-col gap-2.5">
+        <section data-tour="bindings-members" className="flex flex-col gap-2.5">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <span className="eyebrow">{t('admin.bindings.step3', { things: cand.many, target: targetLabel })}</span>
             <span className="text-[12px] text-text-muted">

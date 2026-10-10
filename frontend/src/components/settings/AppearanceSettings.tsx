@@ -175,7 +175,7 @@ export function AppearanceSettings() {
     <div className="flex flex-col gap-5">
       <LanguageCard />
       {/* Live sample in the real tokens — the whole app re-themes with it. */}
-      <Card className="flex flex-wrap items-center gap-x-6 gap-y-3 p-4 sm:p-5">
+      <Card className="flex flex-wrap items-center gap-x-6 gap-y-3 p-4 sm:p-5" data-tour="appearance-preview">
         <div className="min-w-0 flex-1 basis-[260px]">
           <div className="eyebrow">{t('admin.tags.editor.preview')}</div>
           <div className="display mt-0.5 text-[22px] leading-tight text-text-heading">{t('settings.appearance.sampleHeading')}</div>
@@ -205,7 +205,7 @@ export function AppearanceSettings() {
         </div>
       </Card>
 
-      <Section title={t('settings.appearance.theme')} hint={t('settings.appearance.themeHint')}>
+      <Section tour="appearance-theme" title={t('settings.appearance.theme')} hint={t('settings.appearance.themeHint')}>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3" role="radiogroup" aria-label={t('settings.appearance.theme')}>
           {THEMES.map((th) => {
             const active = a.theme === th.id
@@ -251,7 +251,7 @@ export function AppearanceSettings() {
         </div>
       </Section>
 
-      <Section title={t('settings.appearance.mode')} hint={t('settings.appearance.modeHint')}>
+      <Section tour="appearance-mode" title={t('settings.appearance.mode')} hint={t('settings.appearance.modeHint')}>
         <Segmented<Mode>
           label={t('settings.appearance.colourMode')}
           value={a.mode}
@@ -269,7 +269,7 @@ export function AppearanceSettings() {
         )}
       </Section>
 
-      <Section title={t('settings.appearance.accent')} hint={t('settings.appearance.accentHint')}>
+      <Section tour="appearance-accent" title={t('settings.appearance.accent')} hint={t('settings.appearance.accentHint')}>
         <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label={t('settings.appearance.accent')}>
           <button
             type="button"
@@ -358,7 +358,7 @@ export function AppearanceSettings() {
         </div>
       </Section>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+      <div data-tour="appearance-size" className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <Section title={t('settings.appearance.textSize')}>
           <Segmented<TextSize>
             label={t('settings.appearance.textSize')}
@@ -398,7 +398,7 @@ export function AppearanceSettings() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
+      <div data-tour="appearance-footer" className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
         <Button variant="secondary" size="sm" type="button" onClick={() => void reset()}>
           <RotateCcw size={13} aria-hidden /> {t('settings.appearance.reset')}
         </Button>
@@ -424,9 +424,9 @@ export function AppearanceSettings() {
   )
 }
 
-function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+function Section({ title, hint, tour, children }: { title: string; hint?: string; tour?: string; children: ReactNode }) {
   return (
-    <section>
+    <section data-tour={tour}>
       <div className="mb-2.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-line pb-1.5">
         <h3 className="display text-[18px] leading-tight text-text-heading">{title}</h3>
         {hint && <span className="text-[12px] text-text-muted">{hint}</span>}

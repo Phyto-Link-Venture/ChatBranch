@@ -157,6 +157,7 @@ export function ScriptTemplatesSettings({
         toolbarRight={
           canManage ? (
             <Button
+              data-tour="templates-new"
               onClick={() => {
                 setNotice(null)
                 setEditor({ editing: null, initial: { name: '', content: '', entity: null, channels: [] } })

@@ -233,7 +233,7 @@ function SettingsShellInner({ children }: { children: ReactNode }) {
       {/* Phones: the shell's top bar already titles the page, so only the
           Save/Discard cluster remains here. */}
       <div className="shrink-0 px-4 pt-3 sm:px-6 md:pt-5">
-        <div className="flex flex-wrap items-end gap-x-4 gap-y-2 md:border-b md:border-text-primary/80 md:pb-3">
+        <div data-tour="settings-masthead" className="flex flex-wrap items-end gap-x-4 gap-y-2 md:border-b md:border-text-primary/80 md:pb-3">
           <div className="hidden min-w-0 md:block">
             <div className="eyebrow">{t('settings.shell.eyebrow')}</div>
             <h1 className="display mt-0.5 text-[30px] leading-[1.05] text-text-heading sm:text-[36px]">{t('shell.nav.settings')}</h1>
@@ -246,7 +246,7 @@ function SettingsShellInner({ children }: { children: ReactNode }) {
       </div>
 
       {/* Mobile navigation: section tabs, then the section's pages as chips. */}
-      <nav className="shrink-0 px-4 pt-3 sm:px-6 md:hidden" aria-label={t('settings.shell.sectionsAria')}>
+      <nav data-tour="settings-nav" className="shrink-0 px-4 pt-3 sm:px-6 md:hidden" aria-label={t('settings.shell.sectionsAria')}>
         <div className="flex gap-5 border-b border-line">
           {sections.map((s) => {
             const active = s.id === mobileSection?.id
@@ -356,10 +356,10 @@ function SettingsShellInner({ children }: { children: ReactNode }) {
         </nav>
 
         {/* Page */}
-        <div className="min-w-0 flex-1 px-4 pb-8 pt-2 sm:px-6 md:min-h-0 md:overflow-y-auto md:px-8 md:pt-6">
+        <div data-tour="settings-page" className="min-w-0 flex-1 px-4 pb-8 pt-2 sm:px-6 md:min-h-0 md:overflow-y-auto md:px-8 md:pt-6">
           <div className="mx-auto w-full max-w-[920px]">
             {current && (
-              <header className="mb-5 border-b border-line pb-4">
+              <header data-tour="settings-page-header" className="mb-5 border-b border-line pb-4">
                 <div className="eyebrow">{t(current.section.lbl)}</div>
                 <h2 className="display mt-0.5 text-[24px] leading-tight text-text-heading">{t(current.page.lbl)}</h2>
                 <p className="mt-1 max-w-[640px] text-[13px] leading-relaxed text-text-muted">{t(current.page.blurb)}</p>

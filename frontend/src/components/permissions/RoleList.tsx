@@ -49,6 +49,7 @@ export function RoleList({
           {t('admin.permissions.list.summary', { count: roles.length })}
         </div>
         <button
+          data-tour="permissions-add"
           type="button"
           onClick={onAdd}
           className="inline-flex items-center gap-1.5 rounded-xl border border-line-strong bg-fill px-3 py-2 text-[12px] font-semibold text-text-high transition-colors hover:bg-fill-hover"
@@ -57,7 +58,7 @@ export function RoleList({
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div data-tour="permissions-roles" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {roles.map((slug) => {
           const system = isSystemRole(slug)
           const meta = roleMeta[slug]
@@ -128,6 +129,7 @@ export function RoleList({
               </div>
 
               <button
+                data-tour="permissions-manage"
                 type="button"
                 onClick={() => onSelect(slug)}
                 className="mt-auto inline-flex items-center justify-center gap-1.5 rounded-xl border border-line bg-fill px-3 py-1.5 text-[12px] font-semibold text-text-high transition-colors hover:bg-fill-hover"

@@ -249,7 +249,7 @@ export const settings: Dict<typeof source> = {
       providers: {
         title: 'Kunci penyedia, penyedia sembang & model',
         blurb:
-          'Kunci, penyedia dan model di sebalik balasan automatik teks dan ringkasan. Penyedia = perkhidmatan AI yang mengendalikan balasan; Model = pilihan — model khusus dalam penyedia itu (biarkan kosong untuk lalai penyedia). Nilai papan pemuka mengatasi backend/.env; kosongkan untuk kembali kepada lalai env.',
+          'Tampal satu kunci untuk menghidupkan AI. Biarkan penyedia pada Automatik dan model kosong untuk menggunakan lalai yang munasabah.',
       },
       tunables: {
         title: 'Pelarasan latar belakang & pemasa',

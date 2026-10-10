@@ -118,6 +118,7 @@ export function EntitySwitcher({ block = false }: { block?: boolean }) {
               />
             </label>
           )}
+          <p className="border-b border-line bg-fill-subtle px-3 py-2 text-[11.5px] leading-snug text-text-muted">{t('shell.entitySwitcher.hint')}</p>
           <div role="group" aria-label={t('shell.nav.entities')} className="max-h-[320px] overflow-y-auto p-1">
             {!q.trim() && (
               <>
@@ -150,11 +151,11 @@ export function EntitySwitcher({ block = false }: { block?: boolean }) {
                     aria-label={t(active ? 'shell.entitySwitcher.untick' : 'shell.entitySwitcher.tick', { name: e.name })}
                     aria-pressed={active || Boolean(parentName)}
                     title={parentName ? t('shell.entitySwitcher.included', { parent: parentName }) : undefined}
-                    className={`grid h-8 w-7 shrink-0 place-items-center rounded-md ${
+                    className={`grid h-9 w-9 shrink-0 place-items-center rounded-md hover:bg-fill ${
                       parentName ? 'cursor-default text-text-faint' : active ? 'text-text-heading' : 'text-text-muted hover:text-text-high'
                     }`}
                   >
-                    <Box size={15} strokeWidth={1.8} aria-hidden />
+                    <Box size={17} strokeWidth={1.8} aria-hidden />
                   </button>
                   <button
                     type="button"
@@ -177,7 +178,6 @@ export function EntitySwitcher({ block = false }: { block?: boolean }) {
             })}
             {shown.length === 0 && <div className="px-3 py-3 text-[12.5px] text-text-muted">{t('shell.entitySwitcher.noMatch')}</div>}
           </div>
-          <p className="border-t border-line px-3 py-2 text-[11.5px] leading-snug text-text-muted">{t('shell.entitySwitcher.hint')}</p>
         </div>
       )}
     </div>

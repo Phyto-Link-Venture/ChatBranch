@@ -245,11 +245,12 @@ export default function TestLabPage() {
       actions={
         catalog && (
           <>
-            <Button variant="secondary" size="sm" onClick={() => void demo()} disabled={running || busy !== ''}>
+            <Button data-tour="testlab-demo" variant="secondary" size="sm" onClick={() => void demo()} disabled={running || busy !== ''}>
               {busy === 'demo' ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Database size={13} aria-hidden />}
               {t('testlab.actions.loadDemo')}
             </Button>
             <Button
+              data-tour="testlab-reset"
               variant="danger"
               size="sm"
               onClick={() => {
@@ -296,7 +297,7 @@ export default function TestLabPage() {
       {header}
 
       {/* status + the run bar */}
-      <Card className="flex flex-col gap-3 p-4">
+      <Card className="flex flex-col gap-3 p-4" data-tour="testlab-run">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px] text-text-muted">
           <span>
             {status?.exists
@@ -393,7 +394,7 @@ export default function TestLabPage() {
       </Card>
 
       <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="flex min-w-0 flex-col gap-4">
+        <div data-tour="testlab-scenarios" className="flex min-w-0 flex-col gap-4">
           {catalog.categories.map((cat) => {
             const ids = cat.scenarios.map((s) => s.id)
             const allIn = ids.every((id) => selected.has(id))
@@ -436,7 +437,7 @@ export default function TestLabPage() {
           })}
         </div>
 
-        <Card className="h-fit min-w-0 p-4">
+        <Card className="h-fit min-w-0 p-4" data-tour="testlab-history">
           <CardTitle>{t('testlab.history.title')}</CardTitle>
           <p className="mt-0.5 text-[12px] text-text-muted">{t('testlab.history.subtitle')}</p>
           {runs.length === 0 ? (

@@ -119,6 +119,7 @@ export default function AiMonitorPage() {
         access.view ? (
           <Link
             href="/ai-playground"
+            data-tour="ai-playground-link"
             className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line-strong bg-card px-3 text-[12.5px] font-semibold text-text-high transition-colors hover:bg-fill-hover"
           >
             <FlaskRound size={13} aria-hidden /> {t('playground.monitorLink')}
@@ -151,6 +152,7 @@ export default function AiMonitorPage() {
                 return (
                   <button
                     key={x.id}
+                    data-tour={`ai-tab-${x.id}`}
                     role="tab"
                     id={`aim-tab-${x.id}`}
                     aria-selected={active}

@@ -1,6 +1,7 @@
 'use client'
 
 import { Plus, Trash2 } from 'lucide-react'
+import { Advanced } from '@/components/ui/Advanced'
 import { Button } from '@/components/ui/Button'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { MultiSelect, Select, type SelectOption } from '@/components/ui/Select'
@@ -476,6 +477,19 @@ function AiForm({ cfg, onPatch, pick }: { cfg: FlowConfig; onPatch: (p: FlowConf
   const thresholdOptions = [...new Set([...THRESHOLDS, threshold])]
     .sort((a, b) => a - b)
     .map((n) => ({ value: String(n), label: f.percent(n) }))
+  // Advanced holds everything but the question / paths; open it when any value is customised.
+  const maxAsks = cfg.maxAsks === undefined || cfg.maxAsks === '' ? 2 : Number(cfg.maxAsks)
+  const waitHours = cfg.waitHours === undefined || cfg.waitHours === '' ? 24 : Number(cfg.waitHours)
+  const customised = [
+    h.messages !== 20,
+    h.scope !== 'all',
+    h.sinceEntered,
+    threshold !== 0.6,
+    unsure !== (pick ? 'none' : 'no'),
+    unsure === 'wait' && maxAsks !== 2,
+    unsure === 'wait' && waitHours !== 24,
+    pick && aiOptionsOf(cfg).some((o) => str(o.description).trim() !== ''),
+  ].filter(Boolean).length
   const unsureOptions: SelectOption[] = pick
     ? [
         { value: 'none', label: t('flows.decisionEditor.unsureNone') },
@@ -506,78 +520,111 @@ function AiForm({ cfg, onPatch, pick }: { cfg: FlowConfig; onPatch: (p: FlowConf
 
       {pick && <OptionsEditor cfg={cfg} onPatch={onPatch} />}
 
-      <div className="flex flex-col gap-3 rounded-xl border border-line bg-fill-subtle p-3">
-        <div className="eyebrow">{t('flows.decisionEditor.historyTitle')}</div>
-        <Field label={t('flows.decisionEditor.historyMessages')} help={t('flows.decisionEditor.historyMessagesHelp')}>
-          <NumberInput
-            value={cfg.historyMessages === undefined ? h.messages : str(cfg.historyMessages)}
-            onChange={(v) => onPatch({ historyMessages: v === '' ? '' : Math.min(100, Math.max(5, Math.round(v))) })}
-            min={5}
-            step={5}
-            ariaLabel={t('flows.decisionEditor.historyMessages')}
-            className="!w-24"
-          />
-        </Field>
-        <Field label={t('flows.decisionEditor.historyFrom')}>
-          <Segmented
-            ariaLabel={t('flows.decisionEditor.historyFrom')}
-            value={h.scope}
-            onChange={(v) => onPatch({ historyScope: v })}
-            options={[
-              { value: 'all', label: t('flows.decisionEditor.scopeAll') },
-              { value: 'channel', label: t('flows.decisionEditor.scopeChannel') },
-              { value: 'conversation', label: t('flows.decisionEditor.scopeConversation') },
-            ]}
-          />
-        </Field>
-        <SwitchRow
-          label={t('flows.decisionEditor.sinceEntered')}
-          help={t('flows.decisionEditor.sinceEnteredHelp')}
-          on={h.sinceEntered}
-          onChange={(v) => onPatch({ sinceEntered: v })}
-        />
-      </div>
-
-      <Field label={t('flows.decisionEditor.threshold')} help={t('flows.decisionEditor.thresholdHelp')}>
-        <Select
-          value={String(threshold)}
-          onChange={(v) => onPatch({ threshold: Number(v) })}
-          options={thresholdOptions}
-          size="md"
-          ariaLabel={t('flows.decisionEditor.threshold')}
-        />
-      </Field>
-      <Field label={t('flows.decisionEditor.whenUnsure')} help={t('flows.decisionEditor.whenUnsureHelp')}>
-        <Select
-          value={unsure}
-          onChange={(v) => onPatch({ unsure: v })}
-          options={unsureOptions}
-          size="md"
-          ariaLabel={t('flows.decisionEditor.whenUnsure')}
-        />
-      </Field>
-      {unsure === 'wait' && (
-        <div className="grid grid-cols-2 gap-3">
-          <Field label={t('flows.decisionEditor.maxAsks')}>
+      <Advanced count={customised} forceOpen={customised > 0}>
+        {pick && <OptionDescriptions cfg={cfg} onPatch={onPatch} />}
+        <div className="flex flex-col gap-3 rounded-xl border border-line bg-fill-subtle p-3">
+          <div className="eyebrow">{t('flows.decisionEditor.historyTitle')}</div>
+          <Field label={t('flows.decisionEditor.historyMessages')} help={t('flows.decisionEditor.historyMessagesHelp')}>
             <NumberInput
-              value={cfg.maxAsks === undefined ? 2 : str(cfg.maxAsks)}
-              onChange={(v) => onPatch({ maxAsks: v === '' ? '' : Math.min(5, Math.max(1, Math.round(v))) })}
-              min={1}
-              ariaLabel={t('flows.decisionEditor.maxAsks')}
+              value={cfg.historyMessages === undefined ? h.messages : str(cfg.historyMessages)}
+              onChange={(v) => onPatch({ historyMessages: v === '' ? '' : Math.min(100, Math.max(5, Math.round(v))) })}
+              min={5}
+              step={5}
+              ariaLabel={t('flows.decisionEditor.historyMessages')}
+              className="!w-24"
             />
           </Field>
-          <Field label={t('flows.decisionEditor.waitHours')} help={t('flows.decisionEditor.waitHoursHelp')}>
-            <NumberInput
-              value={cfg.waitHours === undefined ? 24 : str(cfg.waitHours)}
-              onChange={(v) => onPatch({ waitHours: v === '' ? '' : Math.max(0, Math.round(v)) })}
-              min={0}
-              ariaLabel={t('flows.decisionEditor.waitHours')}
+          <Field label={t('flows.decisionEditor.historyFrom')}>
+            <Segmented
+              ariaLabel={t('flows.decisionEditor.historyFrom')}
+              value={h.scope}
+              onChange={(v) => onPatch({ historyScope: v })}
+              options={[
+                { value: 'all', label: t('flows.decisionEditor.scopeAll') },
+                { value: 'channel', label: t('flows.decisionEditor.scopeChannel') },
+                { value: 'conversation', label: t('flows.decisionEditor.scopeConversation') },
+              ]}
             />
           </Field>
+          <SwitchRow
+            label={t('flows.decisionEditor.sinceEntered')}
+            help={t('flows.decisionEditor.sinceEnteredHelp')}
+            on={h.sinceEntered}
+            onChange={(v) => onPatch({ sinceEntered: v })}
+          />
         </div>
-      )}
+
+        <Field label={t('flows.decisionEditor.threshold')} help={t('flows.decisionEditor.thresholdHelp')}>
+          <Select
+            value={String(threshold)}
+            onChange={(v) => onPatch({ threshold: Number(v) })}
+            options={thresholdOptions}
+            size="md"
+            ariaLabel={t('flows.decisionEditor.threshold')}
+          />
+        </Field>
+        <Field label={t('flows.decisionEditor.whenUnsure')} help={t('flows.decisionEditor.whenUnsureHelp')}>
+          <Select
+            value={unsure}
+            onChange={(v) => onPatch({ unsure: v })}
+            options={unsureOptions}
+            size="md"
+            ariaLabel={t('flows.decisionEditor.whenUnsure')}
+          />
+        </Field>
+        {unsure === 'wait' && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t('flows.decisionEditor.maxAsks')}>
+              <NumberInput
+                value={cfg.maxAsks === undefined ? 2 : str(cfg.maxAsks)}
+                onChange={(v) => onPatch({ maxAsks: v === '' ? '' : Math.min(5, Math.max(1, Math.round(v))) })}
+                min={1}
+                ariaLabel={t('flows.decisionEditor.maxAsks')}
+              />
+            </Field>
+            <Field label={t('flows.decisionEditor.waitHours')} help={t('flows.decisionEditor.waitHoursHelp')}>
+              <NumberInput
+                value={cfg.waitHours === undefined ? 24 : str(cfg.waitHours)}
+                onChange={(v) => onPatch({ waitHours: v === '' ? '' : Math.max(0, Math.round(v)) })}
+                min={0}
+                ariaLabel={t('flows.decisionEditor.waitHours')}
+              />
+            </Field>
+          </div>
+        )}
+      </Advanced>
       <Notice>{t(pick ? 'flows.decisionEditor.aiPickNotice' : 'flows.decisionEditor.aiNotice')}</Notice>
     </>
+  )
+}
+
+/** The optional "when to pick it" words per path — Advanced, so the paths stay a short list. */
+function OptionDescriptions({ cfg, onPatch }: { cfg: FlowConfig; onPatch: (p: FlowConfig) => void }) {
+  const t = useT()
+  const options = aiOptionsOf(cfg)
+  const patch = (i: number, description: string) =>
+    onPatch({ options: options.map((o, j) => (j === i ? { ...o, description } : o)) })
+  return (
+    <Field label={t('flows.decisionEditor.optionDescriptions')} help={t('flows.decisionEditor.optionDescriptionsHelp')}>
+      <div className="flex flex-col gap-2">
+        {options.map((o, i) => (
+          <div key={o.id} className="flex items-start gap-2">
+            <span className="mt-2 grid h-5 w-5 shrink-0 place-items-center rounded-full border border-blue/40 text-[10.5px] font-bold text-[color:var(--blue-ink)]">
+              {i + 1}
+            </span>
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              {o.label.trim() && <span className="truncate text-[12px] font-medium text-text-high">{o.label}</span>}
+              <TextInput
+                value={str(o.description)}
+                onChange={(v) => patch(i, v)}
+                placeholder={t('flows.decisionEditor.optionDescriptionPlaceholder')}
+                ariaLabel={t('flows.decisionEditor.optionDescription', { n: i + 1 })}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </Field>
   )
 }
 
@@ -600,12 +647,6 @@ function OptionsEditor({ cfg, onPatch }: { cfg: FlowConfig; onPatch: (p: FlowCon
                 onChange={(v) => patch(i, { label: v })}
                 placeholder={t('flows.decisionEditor.optionLabelPlaceholder')}
                 ariaLabel={t('flows.decisionEditor.optionLabel', { n: i + 1 })}
-              />
-              <TextInput
-                value={str(o.description)}
-                onChange={(v) => patch(i, { description: v })}
-                placeholder={t('flows.decisionEditor.optionDescriptionPlaceholder')}
-                ariaLabel={t('flows.decisionEditor.optionDescription', { n: i + 1 })}
               />
             </div>
             {options.length > 2 && (

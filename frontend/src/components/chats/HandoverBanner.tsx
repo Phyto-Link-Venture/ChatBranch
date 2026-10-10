@@ -56,6 +56,7 @@ export default function HandoverBanner({
 
   return (
     <div
+      data-tour="chats-handover"
       role="status"
       className="mx-3 mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-amber/40 bg-amber/10 px-3 py-2.5 sm:mx-4"
     >

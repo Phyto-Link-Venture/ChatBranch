@@ -518,6 +518,7 @@ export function IntegrationsSettings() {
 
       {/* Who uses which connection — the resolver's order, in words */}
       <section
+        data-tour="integrations-reach"
         aria-labelledby="integrations-reach"
         className="max-w-[720px] rounded-xl border border-line bg-well px-4 py-3 text-[11.5px] leading-relaxed text-text-mid"
       >
@@ -563,7 +564,7 @@ export function IntegrationsSettings() {
       )}
 
       {/* ============================ ZONE 1: connect ============================ */}
-      <section className="flex flex-col gap-3">
+      <section data-tour="integrations-providers" className="flex flex-col gap-3">
         <div>
           <div className="flex items-center gap-2">
             <Link2 size={15} className="text-brand-300" aria-hidden />
@@ -596,7 +597,7 @@ export function IntegrationsSettings() {
                   </div>
                 </div>
 
-                <div className="mt-auto flex flex-wrap items-center gap-2">
+                <div data-tour="integrations-connect" className="mt-auto flex flex-wrap items-center gap-2">
                   {p.id === 'google_calendar' && (
                     // working hours belong to each booking skill (Connected app → Calendar)
                     <Link
@@ -679,7 +680,7 @@ export function IntegrationsSettings() {
 
       {/* ---- connected accounts (across every provider) ---- */}
       {accounts.length > 0 && (
-        <section className="flex flex-col gap-2">
+        <section data-tour="integrations-accounts" className="flex flex-col gap-2">
           <h2 className="text-[14px] font-extrabold tracking-[-0.3px] text-text-heading">
             {t('channels.integrations.connectedAccounts')}
           </h2>

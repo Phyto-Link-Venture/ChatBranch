@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/Card'
 import { Select } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
 import { TagListInput } from '@/components/ui/TagListInput'
+import { Advanced } from '@/components/ui/Advanced'
 import { roleHeaders, getRole } from '@/lib/role'
 import { expireSessionOn401 } from '@/lib/auth'
 import { useAccess } from '@/lib/useAccess'
@@ -106,8 +107,11 @@ export function RecoveryBanner({ className = '' }: { className?: string }) {
   /** Jump to the Routing Rules card — same page when present, else Settings. */
   const goRules = () => {
     const el = document.getElementById('routing-rules')
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    else window.location.assign('/assignments#routing-rules')
+    if (el) {
+      // the recovery template sits under Advanced — open it on the way there
+      window.dispatchEvent(new Event('routing-rules:open'))
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    } else window.location.assign('/assignments#routing-rules')
   }
 
   if (downs.length === 0) return null
@@ -196,9 +200,24 @@ const DEFAULTS: RoutingRules = {
   opt_in_keywords: [],
 }
 
-function RuleRow({ label, sub, control }: { label: string; sub: ReactNode; control: ReactNode }) {
+function RuleRow({
+  label,
+  sub,
+  control,
+  flush = false,
+}: {
+  label: string
+  sub: ReactNode
+  control: ReactNode
+  /** inside <Advanced>: no own border / padding (the section spaces its rows) */
+  flush?: boolean
+}) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2.5 border-t border-line px-4 py-3.5 sm:px-5">
+    <div
+      className={`flex flex-wrap items-center justify-between gap-x-6 gap-y-2.5 ${
+        flush ? '' : 'border-t border-line px-4 py-3.5 sm:px-5'
+      }`}
+    >
       <div className="min-w-[220px] flex-1">
         <div className="mb-0.5 text-[13.5px] font-semibold text-text-high">{label}</div>
         <div className="max-w-[560px] text-[12px] leading-relaxed text-text-muted">{sub}</div>
@@ -222,6 +241,14 @@ export function RoutingRulesSettings() {
   const { ready, can } = useAccess()
   const canManage = ready && can('account_assignment.manage')
   const [busy, setBusy] = useState(false)
+  // the recovery banner's "Configure" (or a #routing-rules link) needs what's under Advanced
+  const [jumpedHere, setJumpedHere] = useState(false)
+  useEffect(() => {
+    if (window.location.hash === '#routing-rules') setJumpedHere(true)
+    const open = () => setJumpedHere(true)
+    window.addEventListener('routing-rules:open', open)
+    return () => window.removeEventListener('routing-rules:open', open)
+  }, [])
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   useEffect(() => {
@@ -289,8 +316,22 @@ export function RoutingRulesSettings() {
       : []),
   ]
 
+  // customised advanced rules (vs the contract defaults) — never hidden
+  const advancedCount = [
+    rules.reminder_ai_default !== DEFAULTS.reminder_ai_default,
+    (rules.support_contact ?? '').trim() !== '',
+    rules.recovery_mode !== DEFAULTS.recovery_mode,
+    !!rules.recovery_template,
+    rules.cold_text_guard !== DEFAULTS.cold_text_guard,
+    (rules.opt_out_keywords?.length ?? 0) > 0,
+    (rules.opt_in_keywords?.length ?? 0) > 0,
+  ].filter(Boolean).length
+  // the support number is required once the redirect points at it
+  const advancedForceOpen =
+    jumpedHere || advancedCount > 0 || (rules.business_redirect && rules.business_redirect_target === 'support')
+
   return (
-    <section id="routing-rules" className="scroll-mt-4">
+    <section id="routing-rules" data-tour="routing-rules" className="scroll-mt-4">
       <Card className="overflow-hidden">
         <div className="flex items-start gap-3 px-4 pb-3.5 pt-4 sm:px-5">
           <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-fill text-text-high">
@@ -325,27 +366,6 @@ export function RoutingRulesSettings() {
               size="md"
               disabled={!canManage}
               ariaLabel={t('admin.routing.pacing.label')}
-            />
-          }
-        />
-
-        <RuleRow
-          label={t('admin.routing.bot.label')}
-          sub={
-            <Trans
-              k="admin.routing.bot.sub"
-              values={{
-                off: <span className="font-semibold text-text-mid">{t('common.status.off')}</span>,
-                on: <span className="font-semibold text-text-mid">{t('common.status.on')}</span>,
-              }}
-            />
-          }
-          control={
-            <Toggle
-              on={rules.reminder_ai_default === 'on'}
-              onChange={(v) => set('reminder_ai_default', v ? 'on' : 'off')}
-              disabled={!canManage}
-              label={t('admin.routing.bot.aria')}
             />
           }
         />
@@ -425,112 +445,144 @@ export function RoutingRulesSettings() {
           />
         )}
 
-        {rules.business_redirect && rules.business_redirect_target === 'support' && (
-          <RuleRow
-            label={t('admin.routing.support.label')}
-            sub={t('admin.routing.support.sub')}
-            control={
-              <input
-                value={rules.support_contact}
-                onChange={(e) => set('support_contact', e.target.value)}
-                maxLength={200}
-                placeholder={t('admin.routing.support.placeholder')}
-                disabled={!canManage}
-                aria-label={t('admin.routing.support.label')}
-                className="h-9 w-[240px] max-w-full rounded-lg border border-line bg-fill px-3 text-[12.5px] text-text-high outline-none placeholder:text-text-faint focus:border-brand-400/50 disabled:cursor-not-allowed disabled:opacity-50"
-              />
-            }
-          />
-        )}
-
-        <RuleRow
-          label={t('admin.routing.ban.label')}
-          sub={t('admin.routing.ban.sub')}
-          control={
-            <Select
-              value={rules.recovery_mode}
-              onChange={(v) => set('recovery_mode', v as RoutingRules['recovery_mode'])}
-              options={[
-                { value: 'one_click', label: t('admin.routing.ban.oneClick'), hint: t('admin.routing.recommended') },
-                { value: 'auto', label: t('admin.routing.ban.auto') },
-              ]}
-              className="w-[280px] max-w-full"
-              size="md"
-              disabled={!canManage}
-              ariaLabel={t('admin.routing.ban.aria')}
+        <div className="border-t border-line px-4 py-3.5 sm:px-5">
+          <Advanced count={advancedCount} forceOpen={advancedForceOpen}>
+            <RuleRow
+              flush
+              label={t('admin.routing.bot.label')}
+              sub={
+                <Trans
+                  k="admin.routing.bot.sub"
+                  values={{
+                    off: <span className="font-semibold text-text-mid">{t('common.status.off')}</span>,
+                    on: <span className="font-semibold text-text-mid">{t('common.status.on')}</span>,
+                  }}
+                />
+              }
+              control={
+                <Toggle
+                  on={rules.reminder_ai_default === 'on'}
+                  onChange={(v) => set('reminder_ai_default', v ? 'on' : 'off')}
+                  disabled={!canManage}
+                  label={t('admin.routing.bot.aria')}
+                />
+              }
             />
-          }
-        />
 
-        <RuleRow
-          label={t('admin.routing.recoveryTemplate.label')}
-          sub={t('admin.routing.recoveryTemplate.sub')}
-          control={
-            <Select
-              value={rules.recovery_template}
-              onChange={(v) => set('recovery_template', v)}
-              options={templateOptions}
-              className="w-[280px] max-w-full"
-              size="md"
-              disabled={!canManage}
-              ariaLabel={t('admin.routing.recoveryTemplate.label')}
-            />
-          }
-        />
-
-        <RuleRow
-          label={t('admin.routing.cold.label')}
-          sub={t('admin.routing.cold.sub')}
-          control={
-            <Select
-              value={rules.cold_text_guard}
-              onChange={(v) => set('cold_text_guard', v as RoutingRules['cold_text_guard'])}
-              options={[
-                { value: 'block', label: t('admin.routing.cold.block'), hint: t('admin.routing.recommended') },
-                { value: 'warn', label: t('admin.routing.cold.warn') },
-                { value: 'allow', label: t('admin.routing.cold.allow') },
-              ]}
-              className="w-[200px] max-w-full"
-              size="md"
-              disabled={!canManage}
-              ariaLabel={t('admin.routing.cold.label')}
-            />
-          }
-        />
-
-        <RuleRow
-          label={t('admin.routing.optOut.label')}
-          sub={t('admin.routing.optOut.sub')}
-          control={
-            <div className="w-[280px] max-w-full">
-              <TagListInput
-                value={rules.opt_out_keywords}
-                onChange={(v) => set('opt_out_keywords', v)}
-                placeholder={t('admin.routing.optOut.placeholder')}
-                addLabel={t('common.actions.add')}
-                disabled={!canManage}
+            {rules.business_redirect && rules.business_redirect_target === 'support' && (
+              <RuleRow
+                flush
+                label={t('admin.routing.support.label')}
+                sub={t('admin.routing.support.sub')}
+                control={
+                  <input
+                    value={rules.support_contact}
+                    onChange={(e) => set('support_contact', e.target.value)}
+                    maxLength={200}
+                    placeholder={t('admin.routing.support.placeholder')}
+                    disabled={!canManage}
+                    aria-label={t('admin.routing.support.label')}
+                    className="h-9 w-[240px] max-w-full rounded-lg border border-line bg-fill px-3 text-[12.5px] text-text-high outline-none placeholder:text-text-faint focus:border-brand-400/50 disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                }
               />
-            </div>
-          }
-        />
+            )}
 
-        <RuleRow
-          label={t('admin.routing.optIn.label')}
-          sub={t('admin.routing.optIn.sub')}
-          control={
-            <div className="w-[280px] max-w-full">
-              <TagListInput
-                value={rules.opt_in_keywords}
-                onChange={(v) => set('opt_in_keywords', v)}
-                placeholder={t('admin.routing.optIn.placeholder')}
-                addLabel={t('common.actions.add')}
-                disabled={!canManage}
-              />
-            </div>
-          }
-        />
+            <RuleRow
+              flush
+              label={t('admin.routing.ban.label')}
+              sub={t('admin.routing.ban.sub')}
+              control={
+                <Select
+                  value={rules.recovery_mode}
+                  onChange={(v) => set('recovery_mode', v as RoutingRules['recovery_mode'])}
+                  options={[
+                    { value: 'one_click', label: t('admin.routing.ban.oneClick'), hint: t('admin.routing.recommended') },
+                    { value: 'auto', label: t('admin.routing.ban.auto') },
+                  ]}
+                  className="w-[280px] max-w-full"
+                  size="md"
+                  disabled={!canManage}
+                  ariaLabel={t('admin.routing.ban.aria')}
+                />
+              }
+            />
 
-        <div className="flex flex-wrap items-center gap-2 border-t border-line bg-surface px-4 py-3 sm:px-5">
+            <RuleRow
+              flush
+              label={t('admin.routing.recoveryTemplate.label')}
+              sub={t('admin.routing.recoveryTemplate.sub')}
+              control={
+                <Select
+                  value={rules.recovery_template}
+                  onChange={(v) => set('recovery_template', v)}
+                  options={templateOptions}
+                  className="w-[280px] max-w-full"
+                  size="md"
+                  disabled={!canManage}
+                  ariaLabel={t('admin.routing.recoveryTemplate.label')}
+                />
+              }
+            />
+
+            <RuleRow
+              flush
+              label={t('admin.routing.cold.label')}
+              sub={t('admin.routing.cold.sub')}
+              control={
+                <Select
+                  value={rules.cold_text_guard}
+                  onChange={(v) => set('cold_text_guard', v as RoutingRules['cold_text_guard'])}
+                  options={[
+                    { value: 'block', label: t('admin.routing.cold.block'), hint: t('admin.routing.recommended') },
+                    { value: 'warn', label: t('admin.routing.cold.warn') },
+                    { value: 'allow', label: t('admin.routing.cold.allow') },
+                  ]}
+                  className="w-[200px] max-w-full"
+                  size="md"
+                  disabled={!canManage}
+                  ariaLabel={t('admin.routing.cold.label')}
+                />
+              }
+            />
+
+            <RuleRow
+              flush
+              label={t('admin.routing.optOut.label')}
+              sub={t('admin.routing.optOut.sub')}
+              control={
+                <div className="w-[280px] max-w-full">
+                  <TagListInput
+                    value={rules.opt_out_keywords}
+                    onChange={(v) => set('opt_out_keywords', v)}
+                    placeholder={t('admin.routing.optOut.placeholder')}
+                    addLabel={t('common.actions.add')}
+                    disabled={!canManage}
+                  />
+                </div>
+              }
+            />
+
+            <RuleRow
+              flush
+              label={t('admin.routing.optIn.label')}
+              sub={t('admin.routing.optIn.sub')}
+              control={
+                <div className="w-[280px] max-w-full">
+                  <TagListInput
+                    value={rules.opt_in_keywords}
+                    onChange={(v) => set('opt_in_keywords', v)}
+                    placeholder={t('admin.routing.optIn.placeholder')}
+                    addLabel={t('common.actions.add')}
+                    disabled={!canManage}
+                  />
+                </div>
+              }
+            />
+          </Advanced>
+        </div>
+
+        <div data-tour="routing-save" className="flex flex-wrap items-center gap-2 border-t border-line bg-surface px-4 py-3 sm:px-5">
           {canManage ? (
             <Button variant="primary" onClick={save} disabled={busy}>
               {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <CheckCircle size={13} aria-hidden />}{' '}

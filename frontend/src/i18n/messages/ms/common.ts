@@ -43,6 +43,12 @@ export const common: Dict<typeof source> = {
     showLess: 'Tunjuk kurang',
     signOut: 'Log keluar',
   },
+  advanced: {
+    title: 'Tetapan lanjutan',
+    hint: 'Pilihan — tetapan lalai sesuai untuk kebanyakan perniagaan.',
+    show: 'Tunjuk',
+    hide: 'Sembunyi',
+  },
   status: {
     loading: 'Memuatkan…',
     saving: 'Menyimpan…',

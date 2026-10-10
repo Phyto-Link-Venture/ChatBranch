@@ -43,6 +43,12 @@ export const common: Dict<typeof source> = {
     showLess: '收起',
     signOut: '退出登录',
   },
+  advanced: {
+    title: '高级设置',
+    hint: '可选——默认设置适合大多数企业。',
+    show: '展开',
+    hide: '收起',
+  },
   status: {
     loading: '加载中…',
     saving: '保存中…',

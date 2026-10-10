@@ -496,11 +496,11 @@ export default function FlowBuilder() {
                   </button>
                 ))}
               </div>
-              <Button variant={panel?.kind === 'runs' ? 'primary' : 'secondary'} size="sm" onClick={() => setPanel(panel?.kind === 'runs' ? null : { kind: 'runs' })}>
+              <Button data-tour="journeys-runs" variant={panel?.kind === 'runs' ? 'primary' : 'secondary'} size="sm" onClick={() => setPanel(panel?.kind === 'runs' ? null : { kind: 'runs' })}>
                 <Activity size={13} aria-hidden /> {t('flows.builder.runs')}
                 {stats ? <span className="tabular-nums opacity-70">{f.number(stats.totals.started)}</span> : null}
               </Button>
-              <div className="flex overflow-hidden rounded-lg border border-line-strong" role="radiogroup" aria-label={t('flows.builder.view')}>
+              <div data-tour="journeys-view" className="flex overflow-hidden rounded-lg border border-line-strong" role="radiogroup" aria-label={t('flows.builder.view')}>
                 {(
                   [
                     ['steps', t('flows.builder.viewSteps'), LayoutList],
@@ -520,6 +520,7 @@ export default function FlowBuilder() {
                 ))}
               </div>
               <button
+                data-tour="journeys-live"
                 type="button"
                 onClick={() => (active.active ? setLive(false) : nIssues ? setConfirmLive(true) : setLive(true))}
                 title={active.active ? t('flows.builder.liveTitle') : t('flows.builder.pausedTitle')}
@@ -533,7 +534,7 @@ export default function FlowBuilder() {
             </div>
           )}
           <div className="flex items-center gap-2">
-            <Button variant={active ? 'secondary' : 'primary'} size="sm" onClick={() => setGallery(true)}>
+            <Button data-tour="journeys-new" variant={active ? 'secondary' : 'primary'} size="sm" onClick={() => setGallery(true)}>
               <Plus size={13} aria-hidden /> {t('flows.builder.newFlow')}
             </Button>
             <div className="relative">

@@ -358,7 +358,7 @@ export function AutomationsSettings() {
 
   return (
     <div className="flex flex-col gap-4 pt-3.5">
-      <p className="max-w-[720px] text-[11.5px] leading-relaxed text-text-mid">
+      <p data-tour="automations-intro" className="max-w-[720px] text-[11.5px] leading-relaxed text-text-mid">
         <Trans
           k="flows.automations.intro"
           values={{
@@ -381,13 +381,13 @@ export function AutomationsSettings() {
           {t('flows.automations.ruleCount', { count: rules.length })}
         </span>
         {canManage && (
-          <Button onClick={openCreate}>
+          <Button data-tour="automations-add" onClick={openCreate}>
             <Plus size={13} aria-hidden /> {t('flows.automations.addRule')}
           </Button>
         )}
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div data-tour="automations-list" className="flex flex-col gap-2">
         {rules.length === 0 && (
           <div className="rounded-xl border border-dashed border-line-strong px-4 py-6 text-center text-[12px] text-text-muted">
             <Trans k="flows.automations.empty" values={{ word: <i>{t('flows.automations.emptyWord')}</i> }} />
@@ -446,7 +446,7 @@ export function AutomationsSettings() {
               </div>
             </div>
             {canManage && (
-              <div className="flex shrink-0 items-center gap-1">
+              <div data-tour="automations-rule-actions" className="flex shrink-0 items-center gap-1">
                 <button
                   onClick={() => toggle(r)}
                   title={r.active ? t('flows.automations.turnOff') : t('flows.automations.turnOn')}
@@ -602,7 +602,22 @@ export function AutomationsSettings() {
                       ]}
                     />
                   )}
-                  {!VALUELESS.includes(c.op) && !YES_NO_FIELDS.includes(c.field) && (
+                  {!VALUELESS.includes(c.op) && c.field === 'contact_linked' && (
+                    // the server compares this one with the words yes / no
+                    <Select
+                      value={['yes', 'true'].includes(c.value.toLowerCase()) ? 'yes' : c.value ? 'no' : ''}
+                      onChange={(value) => setConditions((cur) => cur.map((x, j) => (j === i ? { ...x, value } : x)))}
+                      size="md"
+                      ariaLabel={t('flows.automations.conditionValue')}
+                      className="min-w-[110px] flex-1"
+                      options={[
+                        { value: '', label: t('flows.automations.pick') },
+                        { value: 'yes', label: t('common.status.yes') },
+                        { value: 'no', label: t('common.status.no') },
+                      ]}
+                    />
+                  )}
+                  {!VALUELESS.includes(c.op) && !YES_NO_FIELDS.includes(c.field) && c.field !== 'contact_linked' && (
                     <input
                       value={c.value}
                       onChange={(e) =>
@@ -610,7 +625,7 @@ export function AutomationsSettings() {
                           cur.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)),
                         )
                       }
-                      placeholder={c.field === 'contact_linked' ? t('flows.automations.yesOrNo') : t('flows.automations.value')}
+                      placeholder={t('flows.automations.value')}
                       aria-label={t('flows.automations.conditionValue')}
                       className={`${inputCls} flex-1 min-w-[140px]`}
                     />
@@ -641,7 +656,7 @@ export function AutomationsSettings() {
               </button>
             </div>
             {actions.length === 0 && (
-              <span className="text-[10.5px] text-amber-300">{t('flows.automations.noActions')}</span>
+              <span className="text-[10.5px] text-[var(--amber-ink)]">{t('flows.automations.noActions')}</span>
             )}
             <div className="flex flex-col gap-2">
               {actions.map((a, i) => (

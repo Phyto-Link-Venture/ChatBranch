@@ -107,6 +107,7 @@ export const chats: Dict<typeof source> = {
     unknown_customer: '未知客户',
   },
   filterModal: {
+    more: '更多',
     title: '筛选对话',
     matches_one: '{count} 条匹配',
     matches_other: '{count} 条匹配',
@@ -404,6 +405,9 @@ export const chats: Dict<typeof source> = {
     backAria: '返回对话列表',
     optedOutHint: '客户已退订消息——发送需要手动强制',
     via: '经由 {name}',
+    aiLabel: 'AI',
+    aiNeedsContact: 'AI 等待关联联系人',
+    aiNeedsContactHint: 'AI 只回复已关联联系人的对话。在详情面板中把此对话关联到联系人（或新建联系人），AI 就会开始回复。',
     aiOptedOut: '客户已退订——AI 已停用',
     turnAiOff: '关闭 AI',
     turnAiOn: '开启 AI',

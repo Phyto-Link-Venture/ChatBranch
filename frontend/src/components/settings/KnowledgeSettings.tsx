@@ -13,6 +13,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
+import { Advanced } from '@/components/ui/Advanced'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { TagListInput } from '@/components/ui/TagListInput'
@@ -217,6 +218,20 @@ export function KnowledgeSettings() {
     return [...filtered].sort((a, b) => rank(a) - rank(b) || b.priority - a.priority)
   }, [data, kind])
 
+  /** Advanced values this entry holds that differ from a new entry's defaults
+   *  (kind only counts on an existing item — a new one takes the filter's kind). */
+  const advCount = draft
+    ? [
+        !!draft.id && (draft.kind || 'fact') !== 'fact',
+        (draft.priority ?? 0) !== 0,
+        (draft.tags?.length ?? 0) > 0,
+        !!draft.published,
+        (draft.channels?.length ?? 0) > 0,
+        !!draft.starts_at,
+        !!draft.ends_at,
+      ].filter(Boolean).length
+    : 0
+
   const submit = async () => {
     if (!draft) return
     setBusy(true)
@@ -335,7 +350,7 @@ export function KnowledgeSettings() {
           />
         </p>
         {canManage && (
-          <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+          <div data-tour="knowledge-add" className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
             <KnowledgeUploadButton
               kinds={kinds}
               defaultEntity={activeEntity?.slug ?? null}
@@ -372,7 +387,7 @@ export function KnowledgeSettings() {
       )}
 
       {/* kind rail */}
-      <div className="flex flex-wrap gap-1.5">
+      <div data-tour="knowledge-kinds" className="flex flex-wrap gap-1.5">
         <button
           onClick={() => setKind('')}
           className="cursor-pointer rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors"
@@ -417,46 +432,7 @@ export function KnowledgeSettings() {
             </button>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="block">
-              <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('common.fields.type')}</span>
-              <Select
-                value={draft.kind || 'fact'}
-                onChange={(v) => setDraft({ ...draft, kind: v })}
-                options={kinds.map((k) => ({ value: k.id, label: k.label }))}
-                size="md"
-                ariaLabel={t('common.fields.type')}
-                className="w-full"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.knowledge.priority')}</span>
-              <input
-                type="number"
-                value={draft.priority ?? 0}
-                onChange={(e) => setDraft({ ...draft, priority: Number(e.target.value) })}
-                className={inputCls}
-              />
-            </label>
-          </div>
-
-          {/* Scope: organization-wide knowledge every outlet inherits, or one
-              outlet's own. A branch-specific notice ("Studio 2 closed") must
-              never reach another branch's customers. */}
-          <label className="mt-3 block">
-            <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.common.appliesTo')}</span>
-            <EntityScopeSelect
-              value={draft.entity ?? null}
-              onChange={(slug) => setDraft({ ...draft, entity: slug })}
-              globalLabel={t('ai.common.allEntitiesOrg')}
-              className="w-full"
-            />
-            <span className="mt-1 block text-[10.5px] text-text-muted">
-              {draft.entity ? t('ai.knowledge.onlyCustomers') : t('ai.knowledge.everyInheritsThis')}
-            </span>
-          </label>
-
-          <label className="mt-3 block">
+          <label className="block">
             <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('common.fields.title')}</span>
             <input
               value={draft.title || ''}
@@ -489,101 +465,143 @@ export function KnowledgeSettings() {
             />
           </label>
 
+          {/* Scope: organization-wide knowledge every outlet inherits, or one
+              outlet's own. A branch-specific notice ("Studio 2 closed") must
+              never reach another branch's customers. */}
           <label className="mt-3 block">
-            <span className="mb-1 block text-[10.5px] font-bold text-text-high">
-              {t('common.fields.tags')}{' '}
-              <span className="font-normal text-text-muted">{t('ai.knowledge.tagsHint')}</span>
-            </span>
-            <TagListInput
-              value={draft.tags || []}
-              placeholder={t('ai.knowledge.tagsPlaceholder')}
-              addLabel={t('ai.knowledge.addTag')}
-              onChange={(tags) => setDraft({ ...draft, tags })}
+            <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.common.appliesTo')}</span>
+            <EntityScopeSelect
+              value={draft.entity ?? null}
+              onChange={(slug) => setDraft({ ...draft, entity: slug })}
+              globalLabel={t('ai.common.allEntitiesOrg')}
+              className="w-full"
             />
+            <span className="mt-1 block text-[10.5px] text-text-muted">
+              {draft.entity ? t('ai.knowledge.onlyCustomers') : t('ai.knowledge.everyInheritsThis')}
+            </span>
           </label>
 
-          {/* Help Center: publishing is SEPARATE from active — an internal note
-              stays active and unpublished; a public FAQ is both. */}
-          <div className="mt-3 rounded-lg border border-line bg-fill-subtle p-3">
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                checked={draft.published ?? false}
-                onChange={(e) => setDraft({ ...draft, published: e.target.checked })}
-                className="h-3.5 w-3.5 accent-emerald-500"
-              />
-              <span className="text-[12px] text-text-primary">
-                {t('ai.knowledge.publish')}
-                <span className="ml-1 text-[10.5px] text-text-muted">{t('ai.knowledge.publishHint')}</span>
-              </span>
-            </label>
-            {draft.published && (
-              <label className="mt-2 block">
-                <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.knowledge.category')}</span>
+          <Advanced key={draft.id ?? 'new'} className="mt-3" count={advCount} forceOpen={advCount > 0}>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('common.fields.type')}</span>
+                <Select
+                  value={draft.kind || 'fact'}
+                  onChange={(v) => setDraft({ ...draft, kind: v })}
+                  options={kinds.map((k) => ({ value: k.id, label: k.label }))}
+                  size="md"
+                  ariaLabel={t('common.fields.type')}
+                  className="w-full"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.knowledge.priority')}</span>
                 <input
-                  value={draft.category || ''}
-                  placeholder={t('ai.knowledge.categoryPlaceholder')}
-                  onChange={(e) => setDraft({ ...draft, category: e.target.value })}
+                  type="number"
+                  value={draft.priority ?? 0}
+                  onChange={(e) => setDraft({ ...draft, priority: Number(e.target.value) })}
                   className={inputCls}
                 />
-                {draft.slug && (
-                  <span className="mt-1 block text-[10.5px] text-text-muted">
-                    {t('ai.knowledge.publicLink')} <code className="rounded bg-fill px-1">/help/{draft.slug}</code>
-                  </span>
-                )}
               </label>
-            )}
-          </div>
-
-          <div className="mt-3">
-            <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.common.channelsNoneEvery')}</span>
-            <div className="flex flex-wrap gap-1.5">
-              {CHANNELS.map((c) => {
-                const on = (draft.channels || []).includes(c)
-                return (
-                  <button
-                    key={c}
-                    onClick={() =>
-                      setDraft({
-                        ...draft,
-                        channels: on
-                          ? (draft.channels || []).filter((x) => x !== c)
-                          : [...(draft.channels || []), c],
-                      })
-                    }
-                    className="cursor-pointer rounded-full border px-2 py-0.5 text-[10.5px] font-semibold transition-colors"
-                    style={{
-                      borderColor: on ? 'var(--brand-400, rgb(var(--c-brand)))' : 'var(--line)',
-                      color: on ? 'var(--brand-ink)' : 'var(--text-muted)',
-                    }}
-                  >
-                    {aiChannelLabel(c, t)}
-                  </button>
-                )
-              })}
             </div>
-          </div>
 
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
             <label className="block">
-              <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.knowledge.starts')}</span>
-              <input
-                type="datetime-local"
-                value={toLocalInput(draft.starts_at)}
-                onChange={(e) => setDraft({ ...draft, starts_at: fromLocalInput(e.target.value) })}
-                className={inputCls}
+              <span className="mb-1 block text-[10.5px] font-bold text-text-high">
+                {t('common.fields.tags')}{' '}
+                <span className="font-normal text-text-muted">{t('ai.knowledge.tagsHint')}</span>
+              </span>
+              <TagListInput
+                value={draft.tags || []}
+                placeholder={t('ai.knowledge.tagsPlaceholder')}
+                addLabel={t('ai.knowledge.addTag')}
+                onChange={(tags) => setDraft({ ...draft, tags })}
               />
             </label>
-            <label className="block">
-              <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.knowledge.ends')}</span>
-              <input
-                type="datetime-local"
-                value={toLocalInput(draft.ends_at)}
-                onChange={(e) => setDraft({ ...draft, ends_at: fromLocalInput(e.target.value) })}
-                className={inputCls}
-              />
-            </label>
-          </div>
+
+            {/* Help Center: publishing is SEPARATE from active — an internal note
+                stays active and unpublished; a public FAQ is both. */}
+            <div className="rounded-lg border border-line bg-fill-subtle p-3">
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={draft.published ?? false}
+                  onChange={(e) => setDraft({ ...draft, published: e.target.checked })}
+                  className="h-3.5 w-3.5 accent-emerald-500"
+                />
+                <span className="text-[12px] text-text-primary">
+                  {t('ai.knowledge.publish')}
+                  <span className="ml-1 text-[10.5px] text-text-muted">{t('ai.knowledge.publishHint')}</span>
+                </span>
+              </label>
+              {draft.published && (
+                <label className="mt-2 block">
+                  <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.knowledge.category')}</span>
+                  <input
+                    value={draft.category || ''}
+                    placeholder={t('ai.knowledge.categoryPlaceholder')}
+                    onChange={(e) => setDraft({ ...draft, category: e.target.value })}
+                    className={inputCls}
+                  />
+                  {draft.slug && (
+                    <span className="mt-1 block text-[10.5px] text-text-muted">
+                      {t('ai.knowledge.publicLink')} <code className="rounded bg-fill px-1">/help/{draft.slug}</code>
+                    </span>
+                  )}
+                </label>
+              )}
+            </div>
+
+            <div>
+              <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.common.channelsNoneEvery')}</span>
+              <div className="flex flex-wrap gap-1.5">
+                {CHANNELS.map((c) => {
+                  const on = (draft.channels || []).includes(c)
+                  return (
+                    <button
+                      key={c}
+                      onClick={() =>
+                        setDraft({
+                          ...draft,
+                          channels: on
+                            ? (draft.channels || []).filter((x) => x !== c)
+                            : [...(draft.channels || []), c],
+                        })
+                      }
+                      className="cursor-pointer rounded-full border px-2 py-0.5 text-[10.5px] font-semibold transition-colors"
+                      style={{
+                        borderColor: on ? 'var(--brand-400, rgb(var(--c-brand)))' : 'var(--line)',
+                        color: on ? 'var(--brand-ink)' : 'var(--text-muted)',
+                      }}
+                    >
+                      {aiChannelLabel(c, t)}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.knowledge.starts')}</span>
+                <input
+                  type="datetime-local"
+                  value={toLocalInput(draft.starts_at)}
+                  onChange={(e) => setDraft({ ...draft, starts_at: fromLocalInput(e.target.value) })}
+                  className={inputCls}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[10.5px] font-bold text-text-high">{t('ai.knowledge.ends')}</span>
+                <input
+                  type="datetime-local"
+                  value={toLocalInput(draft.ends_at)}
+                  onChange={(e) => setDraft({ ...draft, ends_at: fromLocalInput(e.target.value) })}
+                  className={inputCls}
+                />
+              </label>
+            </div>
+
+          </Advanced>
 
           <label className="mt-3 flex items-center gap-2 text-[11.5px] text-text-mid">
             <input
@@ -607,7 +625,7 @@ export function KnowledgeSettings() {
       )}
 
       {/* list */}
-      <div className="flex flex-col gap-1.5">
+      <div data-tour="knowledge-list" className="flex flex-col gap-1.5">
         {items.length === 0 && (
           <div className="rounded-xl border border-dashed border-line-strong px-4 py-6 text-center text-[12px] text-text-muted">
             {t('ai.knowledge.emptyList')}
