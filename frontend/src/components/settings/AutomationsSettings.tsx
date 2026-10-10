@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, Pencil, Plus, Trash2, Workflow, X, Zap } from 'lucide-react'
+import { ArrowDown, ArrowUp, CheckCircle2, FlaskConical, GripVertical, Loader2, Pencil, Plus, Search, Trash2, Workflow, X, XCircle, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
@@ -157,6 +157,27 @@ export function AutomationsSettings() {
   const [entity, setEntity] = useState<string | null>(null)
   const [conditions, setConditions] = useState<Condition[]>([])
   const [actions, setActions] = useState<Action[]>([])
+  const [testing, setTesting] = useState<Rule | null>(null)
+  const [dragId, setDragId] = useState<number | null>(null)
+
+  // Rules run top to bottom: save a new order (optimistic, then the server's word)
+  const reorder = async (next: Rule[]) => {
+    const before = rules
+    setRules(next)
+    try {
+      await api('automations/reorder', { method: 'POST', body: JSON.stringify({ ids: next.map((r) => r.id) }) })
+    } catch (e) {
+      setRules(before)
+      setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
+    }
+  }
+  const move = (from: number, to: number) => {
+    if (!rules || to < 0 || to >= rules.length || from === to) return
+    const next = [...rules]
+    const [r] = next.splice(from, 1)
+    next.splice(to, 0, r)
+    void reorder(next)
+  }
 
   const load = useCallback(async () => {
     try {
@@ -393,8 +414,59 @@ export function AutomationsSettings() {
             <Trans k="flows.automations.empty" values={{ word: <i>{t('flows.automations.emptyWord')}</i> }} />
           </div>
         )}
-        {rules.map((r) => (
-          <div key={r.id} className="flex items-start gap-3 rounded-xl border border-line bg-card px-4 py-3">
+        {rules.length > 1 && canManage && <p className="text-[11.5px] text-text-muted">{t('flows.automations.orderHint')}</p>}
+        {rules.map((r, idx) => (
+          <div
+            key={r.id}
+            draggable={canManage && rules.length > 1}
+            onDragStart={(e) => {
+              setDragId(r.id)
+              e.dataTransfer.effectAllowed = 'move'
+            }}
+            onDragOver={(e) => {
+              if (dragId != null) e.preventDefault()
+            }}
+            onDrop={(e) => {
+              e.preventDefault()
+              const from = rules.findIndex((x) => x.id === dragId)
+              setDragId(null)
+              if (from >= 0) move(from, idx)
+            }}
+            onDragEnd={() => setDragId(null)}
+            className={`flex items-start gap-3 rounded-xl border bg-card px-4 py-3 transition-opacity ${
+              dragId === r.id ? 'border-brand-400 opacity-60' : 'border-line'
+            }`}
+          >
+            {canManage && rules.length > 1 && (
+              <div className="-ml-2 flex shrink-0 flex-col items-center">
+                <button
+                  type="button"
+                  onClick={() => move(idx, idx - 1)}
+                  disabled={idx === 0}
+                  aria-label={t('flows.automations.moveUp', { name: r.name })}
+                  className="grid h-5 w-6 place-items-center rounded text-text-muted hover:bg-fill-hover hover:text-text-high disabled:opacity-30"
+                >
+                  <ArrowUp size={12} aria-hidden />
+                </button>
+                <span
+                  title={t('flows.automations.dragToReorder')}
+                  className="grid h-5 w-6 cursor-grab place-items-center text-text-faint active:cursor-grabbing"
+                  aria-hidden
+                >
+                  <GripVertical size={13} />
+                </span>
+                <button
+                  type="button"
+                  onClick={() => move(idx, idx + 1)}
+                  disabled={idx === rules.length - 1}
+                  aria-label={t('flows.automations.moveDown', { name: r.name })}
+                  className="grid h-5 w-6 place-items-center rounded text-text-muted hover:bg-fill-hover hover:text-text-high disabled:opacity-30"
+                >
+                  <ArrowDown size={12} aria-hidden />
+                </button>
+              </div>
+            )}
+            <span className="mt-1 w-4 shrink-0 text-center text-[11px] font-semibold tabular-nums text-text-faint">{idx + 1}</span>
             <div
               className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg ${
                 r.active ? 'bg-brand-400/15 text-brand-300' : 'bg-fill text-text-muted'
@@ -456,6 +528,14 @@ export function AutomationsSettings() {
                   {r.active ? t('common.status.on') : t('common.status.off')}
                 </button>
                 <button
+                  onClick={() => setTesting(r)}
+                  title={t('flows.automations.testName', { name: r.name })}
+                  aria-label={t('flows.automations.testName', { name: r.name })}
+                  className="inline-flex h-7 items-center gap-1 rounded-lg px-2 text-[11px] font-semibold text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high"
+                >
+                  <FlaskConical size={13} aria-hidden /> {t('flows.automations.test')}
+                </button>
+                <button
                   onClick={() => openEdit(r)}
                   title={t('flows.automations.editName', { name: r.name })}
                   aria-label={t('flows.automations.editRule', { name: r.name })}
@@ -476,6 +556,13 @@ export function AutomationsSettings() {
           </div>
         ))}
       </div>
+
+      <TestRuleModal
+        rule={testing}
+        onClose={() => setTesting(null)}
+        fieldLabel={(id) => label(FIELD_LABELS, catalog?.fields, id)}
+        opLabel={(id) => label(OPERATOR_LABELS, catalog?.operators, id)}
+      />
 
       <Modal
         open={open}
@@ -700,5 +787,193 @@ export function AutomationsSettings() {
         </div>
       </Modal>
     </div>
+  )
+}
+
+interface TestResult {
+  matches: boolean
+  active: boolean
+  conditions: { field: string; op: string; value: string; actual: string; ok: boolean }[]
+}
+
+/**
+ * "Would this rule fire?" — pick a real conversation (and optionally type a
+ * message), and the server runs the rule's conditions against it without
+ * changing anything (POST /api/automations/{id}/test), condition by condition.
+ */
+function TestRuleModal({
+  rule,
+  onClose,
+  fieldLabel,
+  opLabel,
+}: {
+  rule: Rule | null
+  onClose: () => void
+  fieldLabel: (id: string) => string
+  opLabel: (id: string) => string
+}) {
+  const t = useT()
+  const [q, setQ] = useState('')
+  const [hits, setHits] = useState<{ id: string; title: string; subtitle: string }[]>([])
+  const [picked, setPicked] = useState<{ id: string; title: string } | null>(null)
+  const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<TestResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!rule) return
+    setQ('')
+    setHits([])
+    setPicked(null)
+    setMessage('')
+    setResult(null)
+    setError(null)
+  }, [rule])
+
+  useEffect(() => {
+    if (!rule || q.trim().length < 2) {
+      setHits([])
+      return
+    }
+    const timer = window.setTimeout(async () => {
+      try {
+        const d = await api<{ results: { id: string; title: string; subtitle: string }[] }>(
+          `search?types=conversations&limit=8&q=${encodeURIComponent(q.trim())}`,
+        )
+        setHits(d.results ?? [])
+      } catch {
+        setHits([])
+      }
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [q, rule])
+
+  const run = async () => {
+    if (!rule || !picked) return
+    const at = picked.id.indexOf(':')
+    setBusy(true)
+    setError(null)
+    try {
+      setResult(
+        await api<TestResult>(`automations/${rule.id}/test`, {
+          method: 'POST',
+          body: JSON.stringify({ channel: picked.id.slice(0, at), key: picked.id.slice(at + 1), message }),
+        }),
+      )
+    } catch (e) {
+      setResult(null)
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal
+      open={rule != null}
+      onClose={onClose}
+      title={rule ? t('flows.automations.testName', { name: rule.name }) : ''}
+      subtitle={t('flows.automations.testIntro')}
+    >
+      <div className="flex flex-col gap-4">
+        {error && (
+          <div role="alert" className="rounded-lg bg-red/10 px-3 py-2 text-[12.5px] text-[var(--red-ink)]">
+            {error}
+          </div>
+        )}
+        <div>
+          <label className="mb-1 block text-[12px] font-semibold text-text-high">{t('flows.automations.testConversation')}</label>
+          {picked ? (
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-line-strong px-3 py-2 text-[12.5px]">
+              <span className="min-w-0 truncate text-text-high">{picked.title}</span>
+              <button type="button" onClick={() => setPicked(null)} className="text-[12px] font-semibold text-text-muted hover:text-text-high">
+                {t('flows.automations.testChange')}
+              </button>
+            </div>
+          ) : (
+            <>
+              <label className="flex items-center gap-2 rounded-lg border border-line-strong bg-card px-3 py-2">
+                <Search size={14} className="shrink-0 text-text-muted" aria-hidden />
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder={t('flows.automations.testSearch')}
+                  aria-label={t('flows.automations.testSearch')}
+                  className="min-w-0 flex-1 bg-transparent text-[12.5px] text-text-primary outline-none placeholder:text-text-faint"
+                />
+              </label>
+              {hits.length > 0 && (
+                <ul className="mt-1 max-h-[200px] overflow-y-auto rounded-lg border border-line">
+                  {hits.map((h) => (
+                    <li key={h.id}>
+                      <button
+                        type="button"
+                        onClick={() => setPicked({ id: h.id, title: h.title })}
+                        className="block w-full px-3 py-2 text-left hover:bg-fill-hover"
+                      >
+                        <span className="block truncate text-[12.5px] font-semibold text-text-high">{h.title}</span>
+                        <span className="block truncate text-[11.5px] text-text-muted">{h.subtitle}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </div>
+        <div>
+          <label htmlFor="rule-test-message" className="mb-1 block text-[12px] font-semibold text-text-high">
+            {t('flows.automations.testMessage')}
+          </label>
+          <input
+            id="rule-test-message"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder={t('flows.automations.testMessagePlaceholder')}
+            className={inputCls}
+          />
+        </div>
+        <div>
+          <Button onClick={run} disabled={!picked || busy}>
+            {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <FlaskConical size={13} aria-hidden />}
+            {t('flows.automations.testRun')}
+          </Button>
+        </div>
+
+        {result && (
+          <div role="status" className="rounded-xl border border-line p-3">
+            <div className={`flex items-center gap-2 text-[13.5px] font-semibold ${result.matches ? 'text-[var(--green-ink)]' : 'text-[var(--red-ink)]'}`}>
+              {result.matches ? <CheckCircle2 size={16} aria-hidden /> : <XCircle size={16} aria-hidden />}
+              {result.matches ? t('flows.automations.testMatches') : t('flows.automations.testNoMatch')}
+            </div>
+            {result.matches && !result.active && (
+              <p className="mt-1 text-[12px] text-[var(--amber-ink)]">{t('flows.automations.testInactive')}</p>
+            )}
+            {(result.conditions ?? []).length === 0 ? (
+              <p className="mt-2 text-[12px] text-text-muted">{t('flows.automations.testNoConditions')}</p>
+            ) : (
+              <ul className="mt-2 flex flex-col gap-1.5">
+                {(result.conditions ?? []).map((c, i) => (
+                  <li key={i} className="flex items-start gap-2 text-[12px]">
+                    {c.ok ? (
+                      <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-[var(--green-ink)]" aria-hidden />
+                    ) : (
+                      <XCircle size={14} className="mt-0.5 shrink-0 text-[var(--red-ink)]" aria-hidden />
+                    )}
+                    <span className="min-w-0 text-text-mid">
+                      <span className="font-semibold text-text-high">
+                        {fieldLabel(c.field)} {opLabel(c.op)} {c.value && `“${c.value}”`}
+                      </span>
+                      <span className="block text-text-muted">{t('flows.automations.testActual', { value: c.actual || '—' })}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+    </Modal>
   )
 }

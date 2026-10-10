@@ -59,8 +59,16 @@ public static class VoiceDispatch
         Put("skills", assistant.SkillsBlock(entityId));
 
         var provider = (o.VoiceProvider ?? "").Trim().ToLowerInvariant();
+        var voice = o.Voice;
+        // no voice picked for this call → the organization's voice from Voice & calls (with its provider)
+        if (string.IsNullOrWhiteSpace(voice) && provider.Length == 0
+            && scoping.SettingValue("default_voice") is { Length: > 0 } saved)
+        {
+            voice = saved;
+            provider = scoping.SettingValue("default_voice_provider").Trim().ToLowerInvariant();
+        }
         Put("voice_provider", provider);
-        Put("voice", ResolveVoice(dataDir, provider, o.Voice));
+        Put("voice", ResolveVoice(dataDir, provider, voice));
         Put("llm_provider", o.LlmProvider);
         Put("stt_provider", o.SttProvider);
         Put("script", o.Script);

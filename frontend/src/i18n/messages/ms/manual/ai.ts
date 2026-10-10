@@ -549,7 +549,7 @@ export const ai: Dict<typeof source> = {
       },
       s4: {
         title: 'Pilih suara',
-        body: 'Klik suara bertanda “Sedia” untuk memilihnya bagi kempen panggilan yang anda lancarkan. Untuk satu panggilan, pilih “Suara ejen” semasa memulakan panggilan daripada sembang.',
+        body: 'Klik suara bertanda “Sedia”. Sebagai pentadbir, ini menyimpannya sebagai suara bagi setiap panggilan AI — anda melihat “Disimpan — setiap panggilan AI kini menggunakan suara ini.” dan ia kekal dipilih selepas anda memuat semula halaman. Kempen panggilan masih boleh memilih suara lain untuk kempen itu.',
       },
       s5: {
         title: 'Tambah suara anda sendiri (pilihan)',
@@ -568,12 +568,12 @@ export const ai: Dict<typeof source> = {
         body: 'Gunakan butang pembesar suara untuk mendengar pelayar anda membaca istilah dan ejaan semula, kemudian klik “Simpan & segerakkan”.',
       },
     },
-    done: 'Anda melihat “Disimpan dan disegerakkan ke ElevenLabs.” dan suara anda muncul dalam pustaka bertanda “Sedia”.',
+    done: 'Anda melihat “Disimpan — setiap panggilan AI kini menggunakan suara ini.” selepas memilih suara, “Disimpan dan disegerakkan ke ElevenLabs.” selepas menyimpan sebutan, dan suara yang anda tambah muncul dalam pustaka bertanda “Sedia”.',
     tips: {
       t1: 'Pembetulan sebutan hanya berfungsi untuk suara ElevenLabs — suara OpenAI sentiasa membaca perkataan seperti dieja.',
       t2: 'Klon suara hanya dengan persetujuan penutur.',
       t3: 'Klik ikon pensel pada kad suara untuk menamakan semula atau menukar bahasa atau personanya.',
     },
-    trouble: '“Klon gagal” atau “Import gagal”: kunci ElevenLabs tiada atau slot suara anda penuh — tanya pasukan teknikal anda. “Akses mikrofon tidak tersedia”: benarkan mikrofon dalam pelayar anda dan cuba lagi. “Disimpan. Belum disegerakkan ke ElevenLabs”: panggilan sudah menggunakan ejaan semula baharu; segerakkan semula kemudian.',
+    trouble: '“Klon gagal” atau “Import gagal”: kunci ElevenLabs tiada atau slot suara anda penuh — tanya pasukan teknikal anda. “Akses mikrofon tidak tersedia”: benarkan mikrofon dalam pelayar anda dan cuba lagi. “Disimpan. Belum disegerakkan ke ElevenLabs”: panggilan sudah menggunakan ejaan semula baharu; segerakkan semula kemudian. “Dipilih untuk pelayar ini sahaja”: anda bukan pentadbir, jadi suara itu tidak disimpan untuk semua — minta pentadbir memilihnya.',
   },
 }

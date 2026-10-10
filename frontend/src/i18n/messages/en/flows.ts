@@ -615,6 +615,24 @@ export const flows = {
 
   // ---- Automations (/automations, AutomationsSettings) ----
   automations: {
+    test: 'Test',
+    testName: 'Test “{name}”',
+    testIntro: 'Pick a real conversation and see whether this rule would fire on it — nothing is sent or changed.',
+    testConversation: 'Conversation to test against',
+    testSearch: 'Search a name, number or message…',
+    testChange: 'Change',
+    testMessage: 'Message to test with (optional)',
+    testMessagePlaceholder: 'e.g. I want a refund',
+    testRun: 'Run the test',
+    testMatches: 'This rule would fire',
+    testNoMatch: 'This rule would not fire',
+    testInactive: 'The rule is turned off, so it won’t actually run until you turn it on.',
+    testNoConditions: 'No conditions — it fires on every event of this kind.',
+    testActual: 'This conversation: {value}',
+    orderHint: 'Rules run from top to bottom. Drag a rule, or use the arrows, to change the order.',
+    moveUp: 'Move “{name}” up',
+    moveDown: 'Move “{name}” down',
+    dragToReorder: 'Drag to reorder',
     subtitle: 'When this happens to a conversation, do that',
     intro:
       '{when} something happens to a conversation, {if} the conditions hold, {do} these actions. Every matching rule runs, in order — this is not a first-match switch. For contact-centric sequences over days (reminders, follow-ups) use {flowBuilder} instead.',

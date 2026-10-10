@@ -470,6 +470,11 @@ When you fix one of these, update this table, `README.md` and
   event-driven counterpart to the contact-centric flow builder: on
   conversation_created / message_created / status_changed / assigned, ALL
   matching rules run in Position order. An unknown operator matches NOTHING.
+  Order matters: rules run by `Position` (a new rule goes last;
+  `POST /api/automations/reorder {ids}` reorders within the places those rules
+  hold — the page's drag handle / arrows), and the page's Test button is
+  `POST /api/automations/{id}/test` (a dry run with a per-condition
+  `conditions[]` explanation, `AutomationService.Explain`).
   `/api/automations/catalog` is the single vocabulary the editor reads
   (conditions include `ai_on`, `handed_over`, `contact_linked` yes/no; actions
   include `hand_over` (a tracked handover, kind `rule`) and `ask_identity` ask |
@@ -1065,7 +1070,11 @@ When you fix one of these, update this table, `README.md` and
   there is no `/live-calls` page. `/call-logs` lists finished calls (its
   detail page's "Sentiment" is a static mapping from call status, not an AI
   judgement). `/persona` ("Voice & calls") is the voice library, opening line
-  and pronunciation — not the chat persona.
+  and pronunciation — not the chat persona. Clicking a voice there saves the
+  ORGANIZATION's call voice (`PUT /api/voice/default-voice`, admin+, Settings
+  `default_voice` + `default_voice_provider`; `GET /api/voices` returns
+  `default_voice`); `VoiceDispatch` uses it for any call that names no voice
+  and no provider.
 - **Settings is system configuration ONLY**, organised as SECTIONS of flat
   `/settings/<id>` pages, each with its own capability
   (`components/settings/SettingsNav.tsx` `SETTINGS_SECTIONS`, checked again

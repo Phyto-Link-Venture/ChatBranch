@@ -315,26 +315,28 @@ export const automate = {
       },
       s9: {
         title: 'Save the rule',
-        body: 'Leave “Active” ticked and click “Create rule”. A message “Rule … created.” appears and the rule shows in the list with an “On” switch.',
+        body: 'Leave “Active” ticked and click “Create rule”. A message “Rule … created.” appears and the rule shows at the bottom of the list with an “On” switch.',
       },
       s10: {
-        title: 'Understand the order',
-        body: 'Every rule whose conditions hold runs — not just the first one — from top to bottom in the list (the order you created them). If two rules assign a team, the lower one has the last word.',
+        title: 'Put the rules in order',
+        body: 'Rules run from top to bottom, and every rule whose conditions hold runs — not just the first one. The number on each rule shows its place, and a new rule goes to the bottom. To move a rule, drag it, or use the up and down arrows beside it. If two rules assign a team, the lower one has the last word.',
       },
       s11: {
         title: 'Test it',
-        body: 'From your own phone, send a message that should match (for example “I want a refund”) to your connected number or website chat. Open the chat in Chats to see the label, team or note, and check the rule’s counter now reads “fired 1×”.',
+        body: 'Click “Test” on the rule. In “Conversation to test against”, search a name, number or message and pick a real chat; optionally type a “Message to test with (optional)”, for example I want a refund. Click “Run the test”: you see “This rule would fire” or “This rule would not fire”, each condition ticked or crossed, and “This conversation: …” with the real value. Nothing is sent or changed.',
       },
     },
-    done: 'The rule’s card shows “fired 1×” (or more) and the test chat has the label, team or hand-over the rule set.',
+    done: 'The test says “This rule would fire” for a chat that should match, and once real messages arrive the rule’s card shows “fired 1×” (or more).',
     tips: {
       t1: 'Click the “On” / “Off” button on a rule to pause it without deleting it.',
       t2: 'Words are matched without caring about capitals — “Refund” and “refund” both match “contains refund”.',
       t3: 'Combine actions: “Add label” urgent + “Notify the team” + “Turn the chatbot off” makes sure a person sees it.',
       t4: 'Click the pencil on a rule to edit it; your changes apply to the next message.',
+      t5: 'To see it for real, send a matching message from your own phone to your connected number or website chat, then open the chat in Chats to check the label, team or note.',
+      t6: 'You can test a rule that is turned off — the result reminds you it won’t actually run until you turn it on.',
     },
     trouble:
-      'The rule never fires: check it is “On”, that “Applies to” covers the outlet the chat belongs to, and that each condition has a value (an unknown operator matches nothing). It fires too often: add a condition such as “Is the first message” = yes. Two rules fight each other: remember all matching rules run, top to bottom — turn one off or tighten its conditions.',
+      'The rule never fires: click “Test” with a chat that should match — the crossed condition shows what doesn’t hold. Also check it is “On”, that “Applies to” covers the outlet the chat belongs to, and that each condition has a value (an unknown operator matches nothing). It fires too often: add a condition such as “Is the first message” = yes. Two rules fight each other: all matching rules run, top to bottom — drag one above the other, turn one off or tighten its conditions.',
   },
   accountAssignment: {
     title: 'Choose which number each contact talks to',

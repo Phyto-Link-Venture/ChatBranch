@@ -190,13 +190,36 @@ public static class VoiceMessagingEndpoints
         // GET /api/voices — merged preset + cloned voice list.
         // Open like Django's calls/views.voices_list (no rbac gate): the voice
         // picker fetches it without auth headers, and it exposes no secrets.
-        app.MapGet("/api/voices", (IConfiguration config) =>
+        app.MapGet("/api/voices", (IConfiguration config, ScopingService sc) =>
         {
             var voices = new List<Dictionary<string, object?>>(VoicePresets);
             voices.AddRange(ClonedVoices(config));
-            return Results.Ok(new { voices });
+            // the organization's chosen voice (Voice & calls) — what calls use when none is picked
+            return Results.Ok(new { voices, default_voice = sc.SettingValue(DefaultVoiceKey) });
         }).AllowAnonymous();
+
+        // The voice picked on Voice & calls, saved for the whole organization:
+        // every call that doesn't name a voice uses it (VoiceDispatch). The
+        // voice's own provider is saved with it, so a clone keeps its pipeline.
+        var saveDefault = (DefaultVoiceWrite body, IConfiguration config, ScopingService sc) =>
+        {
+            var id = (body?.voice ?? "").Trim();
+            var all = new List<Dictionary<string, object?>>(VoicePresets);
+            all.AddRange(ClonedVoices(config));
+            var hit = all.FirstOrDefault(v => v.TryGetValue("id", out var x) && x as string == id);
+            if (hit == null)
+                return Results.Json(new { detail = "Unknown voice — pick one from the library." }, statusCode: 400);
+            var provider = hit.TryGetValue("provider", out var p) && p is string ps && ps.Length > 0 ? ps : "elevenlabs";
+            sc.SetSetting(DefaultVoiceKey, id);
+            sc.SetSetting(DefaultVoiceProviderKey, provider);
+            return Results.Ok(new { default_voice = id, provider });
+        };
+        app.MapPut("/api/voice/default-voice", saveDefault).RequireAuthorization(AuthPolicies.AdminPlus);
     }
+
+    internal const string DefaultVoiceKey = "default_voice";
+    internal const string DefaultVoiceProviderKey = "default_voice_provider";
+    public record DefaultVoiceWrite(string? voice);
 
     // =========================================================================
     // 2. Voice pipeline selectors — /api/voice/{stt,llm}-settings

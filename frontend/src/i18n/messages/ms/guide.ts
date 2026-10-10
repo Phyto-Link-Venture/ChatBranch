@@ -187,11 +187,11 @@ export const guide: Dict<typeof source> = {
         },
         s7: {
           title: 'Balas atau tambah nota',
-          body: 'Tulis balasan, atau tukar ke Nota peribadi untuk mesej yang hanya dilihat pasukan anda. Taip / untuk balasan pantas; lampirkan fail dengan klip.',
+          body: 'Tulis balasan, atau tukar ke Nota peribadi untuk mesej yang hanya dilihat pasukan anda. Enter menghantar, Shift+Enter menambah baris baharu. Taip / untuk balasan pantas; lampirkan fail dengan klip.',
         },
         s8: {
           title: 'Butiran',
-          body: 'Siapa pelanggan, pasukan dan orang yang memiliki sembang, label, nombor penghantar, dan ringkasan kes.',
+          body: 'Siapa pelanggan, pasukan dan orang yang memiliki sembang, label, nombor penghantar, dan ringkasan kes. Pada telefon atau tablet, bukanya dengan butang Butiran perbualan di pengepala sembang.',
         },
       },
     },
@@ -359,11 +359,11 @@ export const guide: Dict<typeof source> = {
         },
         s4: {
           title: 'Peraturan anda',
-          body: 'Setiap peraturan menunjukkan peristiwa, syarat dan tindakannya sebagai cip kecil, serta berapa kali ia telah berjalan. Setiap peraturan yang sepadan berjalan, dari atas ke bawah.',
+          body: 'Setiap peraturan menunjukkan peristiwa, syarat dan tindakannya sebagai cip kecil, serta berapa kali ia telah berjalan, dengan nombor kedudukannya. Setiap peraturan yang sepadan berjalan, dari atas ke bawah — seret peraturan atau gunakan anak panah untuk menukar susunan.',
         },
         s5: {
           title: 'Hidup, mati, sunting',
-          body: 'Hidup / Mati menjeda peraturan tanpa memadamnya. Pensel menyuntingnya; tong sampah memadamnya.',
+          body: 'Uji menyemak peraturan pada perbualan sebenar tanpa menghantar atau mengubah apa-apa. Hidup / Mati menjeda peraturan tanpa memadamnya. Pensel menyuntingnya; tong sampah memadamnya.',
         },
         s6: {
           title: 'Peraturan atau perjalanan?',
@@ -605,7 +605,7 @@ export const guide: Dict<typeof source> = {
         },
         s5: {
           title: 'Pilih suara',
-          body: 'Klik kad suara untuk memilihnya. Tekan Main pratonton untuk mendengarnya sebelum memilih.',
+          body: 'Tekan Main pratonton untuk mendengar suara, kemudian klik kadnya. Pilihan pentadbir disimpan sebagai suara bagi setiap panggilan AI; kempen masih boleh memilih suara lain.',
         },
         s6: {
           title: 'Sebutan',

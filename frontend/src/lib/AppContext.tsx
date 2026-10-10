@@ -92,7 +92,10 @@ type AppContextValue = {
   // Voice / persona
   voices: Voice[]
   selectedVoice: string
+  /** Pick a voice for THIS browser only (e.g. one campaign). */
   setSelectedVoice: (id: string) => void
+  /** Save the organization's call voice (Voice & calls; admins): every call without a voice uses it. */
+  saveDefaultVoice: (id: string) => Promise<'saved' | 'local'>
   previewVoice: (voiceId: string, text: string) => Promise<void>
   cloneVoice: (name: string, audio: Blob, language: string, persona: string, gender?: string) => Promise<void>
   importVoice: (elevenVoiceId: string, name?: string) => Promise<void>
@@ -218,10 +221,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => {
         if (Array.isArray(d.voices) && d.voices.length) setVoices(d.voices)
+        // the organization's saved voice (Voice & calls) is the starting pick after every reload
+        if (typeof d.default_voice === 'string' && d.default_voice) setSelectedVoice(d.default_voice)
       })
       .catch(() => {
         /* keep VOICES mock when API is down */
       })
+  }, [])
+
+  const saveDefaultVoice = useCallback(async (id: string): Promise<'saved' | 'local'> => {
+    setSelectedVoice(id)
+    try {
+      const resp = await fetch(`${API}/voice/default-voice`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ voice: id }),
+      })
+      return resp.ok ? 'saved' : 'local'
+    } catch {
+      return 'local'
+    }
   }, [])
 
   const previewVoice = useCallback(
@@ -585,7 +604,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AppContextValue>(
     () => ({
       contacts, activities, reloadContacts,
-      voices, selectedVoice, setSelectedVoice, previewVoice, cloneVoice, importVoice, updateVoice, deleteVoice,
+      voices, selectedVoice, setSelectedVoice, saveDefaultVoice, previewVoice, cloneVoice, importVoice, updateVoice, deleteVoice,
       launchTone, launchPersona, launchGender, launchMethod, launchVoiceProvider,
       setLaunchTone, setLaunchPersona, setLaunchGender, setLaunchMethod,
       setLaunchVoiceProvider,
@@ -596,7 +615,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }),
     [
       contacts, activities, reloadContacts,
-      voices, selectedVoice, previewVoice, cloneVoice, importVoice, updateVoice, deleteVoice,
+      voices, selectedVoice, saveDefaultVoice, previewVoice, cloneVoice, importVoice, updateVoice, deleteVoice,
       launchTone, launchPersona, launchGender, launchMethod, launchVoiceProvider,
       campaignModal, campaignStep, campaignSel, openCampaign, closeCampaign, toggleCampaign, launchCampaign,
       liveContactId, liveLineCount, liveSeconds, responseDraft, injectResponse, currentTranscript,

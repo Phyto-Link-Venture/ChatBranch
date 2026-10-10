@@ -63,6 +63,7 @@ export default function ChatInfoPanel({
   onAssign,
   onSetStatus,
   onSaveLabels,
+  drawer = false,
 }: {
   active: UiThread
   busy: boolean
@@ -81,6 +82,8 @@ export default function ChatInfoPanel({
   onAssign: (username: string) => void
   onSetStatus: (s: ThreadStatus) => void
   onSaveLabels: (labels: string[]) => void
+  /** Rendered inside the phone/tablet drawer (below xl) instead of as the side column. */
+  drawer?: boolean
 }) {
   // Conversation labels come from the Tags registry (Library → Tags).
   const t = useT()
@@ -89,9 +92,13 @@ export default function ChatInfoPanel({
   const meta = CHANNEL_META[active.channel]
   return (
     <aside
-      data-tour="chats-info"
+      data-tour={drawer ? undefined : 'chats-info'}
       aria-label={t('chats.info.aria')}
-      className="hidden w-[288px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-line bg-surface p-3 xl:flex"
+      className={
+        drawer
+          ? 'flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3'
+          : 'hidden w-[288px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-line bg-surface p-3 xl:flex'
+      }
     >
       <section className="flex flex-col items-center rounded-xl border border-line bg-card px-4 py-5 text-center">
         <Avatar name={active.name} size={56} strong />
