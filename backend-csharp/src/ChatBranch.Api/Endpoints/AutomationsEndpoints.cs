@@ -68,7 +68,8 @@ public static class AutomationsEndpoints
                 Description = (Str(body, "description") ?? "").Trim(),
                 Event = evt,
                 Active = Bool(body, "active") ?? true,
-                Position = Int(body, "position") ?? 0,
+                // a new rule runs LAST unless told otherwise (rules run in Position order)
+                Position = Int(body, "position") ?? ((await db.AutomationRules.MaxAsync(r => (int?)r.Position) ?? -1) + 1),
                 Conditions = JsonList(body, "conditions"),
                 Actions = JsonList(body, "actions"),
                 EntityId = await InboxEndpoints.EntityId(db, Str(body, "entity")),
@@ -141,7 +142,44 @@ public static class AutomationsEndpoints
             if (thread == null)
                 return Results.Json(new { detail = "Pick a conversation to test against." }, statusCode: 400);
             var text = Str(body, "message") ?? "";
-            return Results.Ok(new { matches = automation.WouldMatch(row, thread, text) });
+            var checks = automation.Explain(row, thread, text);
+            return Results.Ok(new
+            {
+                matches = automation.WouldMatch(row, thread, text),
+                // condition by condition, so the Test button can say WHY
+                conditions = checks.Select(c => new { field = c.Field, op = c.Op, value = c.Wanted, actual = c.Actual, ok = c.Ok }),
+                @event = row.Event,
+                active = row.Active,
+            });
+        }).RequireAuthorization(AuthPolicies.AdminPlus);
+
+        // ---- reorder ----------------------------------------------------------
+        // Rules run in this order (all matching rules run, top first): {ids:[…]}
+        // puts the listed rules in that order WITHIN the places they already
+        // hold, so rules the caller didn't list (another entity's, a filtered
+        // view) keep their place; then everything is renumbered 0…n. Unknown ids
+        // are ignored.
+        app.MapPost("/api/automations/reorder", async (JsonElement body, AppDbContext db, ClaimsPrincipal me) =>
+        {
+            if (body.ValueKind != JsonValueKind.Object || !body.TryGetProperty("ids", out var arr)
+                || arr.ValueKind != JsonValueKind.Array)
+                return Results.Json(new { detail = "ids must be a list of rule ids." }, statusCode: 400);
+            var ids = arr.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.Number && x.TryGetInt32(out _))
+                .Select(x => x.GetInt32()).Distinct().ToList();
+            var rows = await db.AutomationRules.ToListAsync();
+            var listed = ids.Select(id => rows.FirstOrDefault(r => r.Id == id)).Where(r => r != null).Select(r => r!).ToList();
+            var current = rows.OrderBy(r => r.Position).ThenBy(r => r.Id).ToList();
+            var queue = new Queue<AutomationRule>(listed);
+            var next = current.Select(r => listed.Contains(r) ? queue.Dequeue() : r).ToList();
+            var pos = 0;
+            foreach (var r in next)
+            {
+                if (r.Position != pos) { r.Position = pos; r.UpdatedAt = DateTime.UtcNow; }
+                pos++;
+            }
+            await Audit(db, me, "automation.reorder", string.Join(", ", listed.Select(r => r.Name)));
+            await db.SaveChangesAsync();
+            return Results.Ok(new { rules = rows.OrderBy(r => r.Position).Select(Payload) });
         }).RequireAuthorization(AuthPolicies.AdminPlus);
     }
 

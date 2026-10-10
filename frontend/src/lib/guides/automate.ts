@@ -7,6 +7,6 @@ export const automateGuides: GuideDef[] = [
   { id: 'journeyTriggers', group: 'automate', href: '/journeys', tour: 'journeys', steps: 10, tips: 3, trouble: true, who: 'admin' },
   { id: 'journeyDecisions', group: 'automate', href: '/journeys', tour: 'journeys', steps: 10, tips: 3, trouble: true, who: 'admin' },
   { id: 'journeyRuns', group: 'automate', href: '/journeys', tour: 'journeys', steps: 9, tips: 3, trouble: true, who: 'admin' },
-  { id: 'automationRule', group: 'automate', href: '/automations', steps: 11, tips: 4, before: true, trouble: true, who: 'admin' },
+  { id: 'automationRule', group: 'automate', href: '/automations', steps: 11, tips: 6, before: true, trouble: true, who: 'admin' },
   { id: 'accountAssignment', group: 'automate', href: '/assignments', steps: 11, tips: 3, before: true, trouble: true, who: 'admin' },
 ]

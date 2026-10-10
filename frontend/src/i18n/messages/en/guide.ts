@@ -184,11 +184,11 @@ export const guide = {
         },
         s7: {
           title: 'Reply or add a note',
-          body: 'Write a reply, or switch to Private note to leave a message only your team sees. Type / for quick replies; attach files with the clip.',
+          body: 'Write a reply, or switch to Private note to leave a message only your team sees. Enter sends, Shift+Enter adds a new line. Type / for quick replies; attach files with the clip.',
         },
         s8: {
           title: 'Details',
-          body: 'Who the customer is, which team and person own the chat, labels, the number it is sent from, and the case summary.',
+          body: 'Who the customer is, which team and person own the chat, labels, the number it is sent from, and the case summary. On a phone or tablet, open it with the Conversation details (ⓘ) button in the chat header.',
         },
       },
     },
@@ -356,11 +356,11 @@ export const guide = {
         },
         s4: {
           title: 'Your rules',
-          body: 'Each rule shows its event, conditions and actions as small chips, and how many times it has run. Every matching rule runs, top to bottom.',
+          body: 'Each rule shows its number, its event, conditions and actions as small chips, and how many times it has run. Every matching rule runs, top to bottom — drag a rule or use the arrows to change the order.',
         },
         s5: {
           title: 'On, off, edit',
-          body: 'On / Off pauses a rule without deleting it. The pencil edits it; the bin deletes it.',
+          body: 'Test checks a rule against a real conversation without sending or changing anything. On / Off pauses a rule without deleting it. The pencil edits it; the bin deletes it.',
         },
         s6: {
           title: 'Rules or journeys?',
@@ -602,7 +602,7 @@ export const guide = {
         },
         s5: {
           title: 'Pick a voice',
-          body: 'Click a voice card to select it. Press Play preview to hear it before you choose.',
+          body: 'Press Play preview to hear a voice, then click its card. An admin’s pick is saved as the voice for every AI call; a campaign can still choose another.',
         },
         s6: {
           title: 'Pronunciation',

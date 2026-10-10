@@ -547,7 +547,7 @@ export const ai = {
       },
       s4: {
         title: 'Select a voice',
-        body: 'Click a voice marked “Ready” to select it for the call campaigns you launch. For a single call, pick the “Agent voice” when you start the call from a chat.',
+        body: 'Click a voice marked “Ready”. As an admin, this saves it as the voice for every AI call — you see “Saved — every AI call now uses this voice.” and it stays picked after you reload. A call campaign can still pick a different voice for that campaign.',
       },
       s5: {
         title: 'Add your own voice (optional)',
@@ -566,12 +566,12 @@ export const ai = {
         body: 'Use the speaker buttons to hear your browser read the term and the respelling, then click “Save & sync”.',
       },
     },
-    done: 'You see “Saved and synced to ElevenLabs.” and your voice appears in the library marked “Ready”.',
+    done: 'You see “Saved — every AI call now uses this voice.” after picking a voice, “Saved and synced to ElevenLabs.” after saving pronunciation, and any voice you added appears in the library marked “Ready”.',
     tips: {
       t1: 'Pronunciation fixes only work for ElevenLabs voices — OpenAI voices always read words as spelled.',
       t2: 'Only clone a voice with the speaker’s consent.',
       t3: 'Click the pencil on a voice card to rename it or change its language or persona.',
     },
-    trouble: '“Clone failed” or “Import failed”: the ElevenLabs key is missing or your voice slots are full — ask your technical team. “Microphone access was unavailable”: allow the microphone in your browser and try again. “Saved. Not synced to ElevenLabs yet”: calls already use the new respellings; sync again later.',
+    trouble: '“Clone failed” or “Import failed”: the ElevenLabs key is missing or your voice slots are full — ask your technical team. “Microphone access was unavailable”: allow the microphone in your browser and try again. “Saved. Not synced to ElevenLabs yet”: calls already use the new respellings; sync again later. “Picked for this browser only”: you are not an admin, so the voice was not saved for everyone — ask an admin to pick it.',
   },
 }

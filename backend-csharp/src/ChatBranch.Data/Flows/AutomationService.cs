@@ -141,6 +141,34 @@ public class AutomationService
         catch { return false; }
     }
 
+    /// <summary>One condition of a dry run: what the rule wanted, what the conversation has, and whether it held.</summary>
+    public sealed record ConditionCheck(string Field, string Op, string Wanted, string Actual, bool Ok);
+
+    /// <summary>
+    /// The dry run, condition by condition (the Test button's explanation) — same
+    /// evaluation as <see cref="Matches"/>, without stopping at the first miss.
+    /// A malformed condition is skipped, exactly as when the rule runs.
+    /// </summary>
+    public List<ConditionCheck> Explain(AutomationRule rule, Thread thread, string messageText)
+    {
+        var outp = new List<ConditionCheck>();
+        try
+        {
+            var contact = thread.ContactId is int cid
+                ? _db.Contacts.AsNoTracking().FirstOrDefault(c => c.Id == cid)
+                : null;
+            foreach (var raw in rule.Conditions)
+            {
+                var cond = AsDict(raw);
+                if (cond == null) continue;
+                var (field, op, wanted, actual, ok) = Check(cond, thread, contact, messageText, isFirstMessage: false);
+                outp.Add(new ConditionCheck(field, op, wanted, actual, ok));
+            }
+        }
+        catch { /* a dry run never throws */ }
+        return outp;
+    }
+
     // ---- conditions ---------------------------------------------------------
 
     private bool Matches(AutomationRule rule, Thread thread, Contact? contact,
@@ -150,14 +178,20 @@ public class AutomationService
         {
             var cond = AsDict(raw);
             if (cond == null) continue;                     // malformed = ignored, not a match-all
-            var field = Get(cond, "field");
-            var op = Get(cond, "op");
-            var wanted = Get(cond, "value");
-            var actual = FieldValue(field, thread, contact, messageText, isFirstMessage);
-            if (field is "ai_on" or "handed_over") (actual, wanted) = AiCondition(field, thread, wanted);
-            if (!Compare(actual, op, wanted)) return false;  // ALL conditions must hold
+            if (!Check(cond, thread, contact, messageText, isFirstMessage).Ok) return false;  // ALL conditions must hold
         }
         return true;
+    }
+
+    private (string Field, string Op, string Wanted, string Actual, bool Ok) Check(
+        Dictionary<string, string> cond, Thread thread, Contact? contact, string messageText, bool isFirstMessage)
+    {
+        var field = Get(cond, "field");
+        var op = Get(cond, "op");
+        var wanted = Get(cond, "value");
+        var actual = FieldValue(field, thread, contact, messageText, isFirstMessage);
+        if (field is "ai_on" or "handed_over") (actual, wanted) = AiCondition(field, thread, wanted);
+        return (field, op, wanted, actual, Compare(actual, op, wanted));
     }
 
     private static string FieldValue(string field, Thread thread, Contact? contact,

@@ -124,6 +124,9 @@ public static partial class ToolCatalog
             "Would this rule fire on that conversation (with this message)? Answered without touching anything.",
             "POST", "/api/automations/{id:int}/test", flowsManage, thread: true,
             args: new[] { A.Id("rule"), A.Str("message", "A message text to test with.") }, write: false);
+        yield return T(au, "automations_reorder", "Reorder automation rules",
+            "Set the order automation rules run in (top first): ids = rule ids in the new order; unlisted rules follow.",
+            "POST", "/api/automations/reorder", flowsManage, new[] { A.Arr("ids", "Rule ids, first to run first.") });
     }
 
     // ---- the flow library: read-modify-write through the builder's own endpoint ----

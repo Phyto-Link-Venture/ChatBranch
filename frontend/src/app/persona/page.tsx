@@ -86,7 +86,7 @@ export default function PersonaPage() {
   const {
     voices,
     selectedVoice,
-    setSelectedVoice,
+    saveDefaultVoice,
     previewVoice,
     cloneVoice,
     importVoice,
@@ -94,6 +94,12 @@ export default function PersonaPage() {
     deleteVoice,
   } = useApp()
   const [playingId, setPlayingId] = useState<string | null>(null)
+  // picking a voice saves it for every call (admins) — or for this browser only
+  const [voiceSaved, setVoiceSaved] = useState<'saved' | 'local' | null>(null)
+  const pickVoice = async (id: string) => {
+    if (id === selectedVoice) return
+    setVoiceSaved(await saveDefaultVoice(id))
+  }
   const [loadingId, setLoadingId] = useState<string | null>(null)
   const [previewErrId, setPreviewErrId] = useState<string | null>(null)
   const [previewErrMsg, setPreviewErrMsg] = useState<string | null>(null)
@@ -267,7 +273,7 @@ export default function PersonaPage() {
       <div
         data-tour="voice-intro"
         className="flex items-start gap-3 rounded-2xl px-[18px] py-3.5"
-        style={{ background: 'rgba(255,90,31,0.06)', border: '1px solid rgba(255,90,31,0.16)' }}
+        style={{ background: tint('rgb(var(--c-brand))', 0.06), border: `1px solid ${tint('rgb(var(--c-brand))', 0.16)}` }}
       >
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-brand-400/15">
           <Mic size={16} strokeWidth={1.75} color="#D9480F" />
@@ -315,8 +321,8 @@ export default function PersonaPage() {
                 onClick={() => setPreviewLangTab(code)}
                 className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
                 style={{
-                  border: `1px solid ${previewLangTab === code ? 'rgba(255,90,31,0.5)' : 'var(--line)'}`,
-                  background: previewLangTab === code ? 'rgba(255,90,31,0.12)' : 'transparent',
+                  border: `1px solid ${previewLangTab === code ? tint('rgb(var(--c-brand))', 0.5) : 'var(--line)'}`,
+                  background: previewLangTab === code ? tint('rgb(var(--c-brand))', 0.12) : 'transparent',
                   color: previewLangTab === code ? 'var(--brand-ink)' : 'var(--text-muted)',
                 }}
               >
@@ -488,11 +494,11 @@ export default function PersonaPage() {
             return (
               <div
                 key={v.id}
-                onClick={() => !editing && ready && setSelectedVoice(v.id)}
+                onClick={() => !editing && ready && void pickVoice(v.id)}
                 className="relative flex h-full flex-col rounded-[11px] p-3.5 transition-all"
                 style={{
-                  border: `1.5px solid ${sel ? 'rgba(255,90,31,0.5)' : 'var(--line)'}`,
-                  background: sel ? 'rgba(255,90,31,0.08)' : 'var(--fill-subtle)',
+                  border: `1.5px solid ${sel ? tint('rgb(var(--c-brand))', 0.5) : 'var(--line)'}`,
+                  background: sel ? tint('rgb(var(--c-brand))', 0.08) : 'var(--fill-subtle)',
                   cursor: editing ? 'default' : ready ? 'pointer' : 'default',
                   opacity: ready ? 1 : 0.7,
                 }}
@@ -537,7 +543,7 @@ export default function PersonaPage() {
                 <div className="mb-2.5 flex items-start gap-2.5 pr-[132px]">
                   <div
                     className="relative flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px]"
-                    style={{ background: v.custom ? 'rgba(122,78,140,0.18)' : 'rgba(255,90,31,0.15)' }}
+                    style={{ background: v.custom ? 'rgba(122,78,140,0.18)' : tint('rgb(var(--c-brand))', 0.15) }}
                   >
                     {v.custom ? (
                       <User size={15} strokeWidth={1.75} color="#7A4E8C" />
@@ -704,9 +710,14 @@ export default function PersonaPage() {
           </div>
         )}
         <div className="mt-4 flex items-center gap-1.5 text-[11px] text-text-muted">
-          <RefreshCw size={12} strokeWidth={1.75} color="#8A8177" className="shrink-0" />
+          <RefreshCw size={12} strokeWidth={1.75} className="shrink-0 text-text-muted" />
           {t('voice.library.assignable')}
         </div>
+        {voiceSaved && (
+          <p role="status" className={`mt-1.5 text-[11.5px] ${voiceSaved === 'saved' ? 'text-[var(--green-ink)]' : 'text-text-muted'}`}>
+            {voiceSaved === 'saved' ? t('voice.library.savedForAll') : t('voice.library.savedLocal')}
+          </p>
+        )}
       </div>
 
       {/* Pronunciation lives with the voices it shapes (ElevenLabs respellings

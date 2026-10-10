@@ -357,7 +357,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `bookings_set_hours` | Set booking hours | write | `integrations.manage` or `settings.ai.manage` |
 | `bookings_reset_hours` | Reset booking hours | write · **destructive** | `integrations.manage` or `settings.ai.manage` |
 
-#### automations (6)
+#### automations (7)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -367,6 +367,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `automations_update` | Edit an automation rule | write | `flows.manage` |
 | `automations_delete` | Delete an automation rule | write · **destructive** | `flows.manage` |
 | `automations_test_rule` | Dry-run an automation rule | read | `flows.manage` |
+| `automations_reorder` | Reorder automation rules | write | `flows.manage` |
 
 #### me (1)
 
@@ -501,7 +502,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `calls_hang_up` | Hang up a call | write · **destructive** · open-world | `chats.send` |
 | `calls_list_logs` | List call logs | read | `call_logs.view` |
 
-#### voice (9)
+#### voice (10)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -509,6 +510,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `voice_get_providers` | Read voice engine settings | read | signed in |
 | `voice_set_stt_provider` | Set the voice speech-to-text | write | signed in |
 | `voice_set_llm_provider` | Set the voice language model | write | signed in |
+| `voice_set_default_voice` | Set the organization's call voice | write | signed in |
 | `voice_import_voice` | Add a voice to the library | write | signed in |
 | `voice_update_voice` | Edit a voice | write | signed in |
 | `voice_delete_voice` | Delete a voice | write · **destructive** | signed in |

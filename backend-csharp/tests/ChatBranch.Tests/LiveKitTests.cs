@@ -270,6 +270,27 @@ public class LiveKitTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task A_call_without_a_voice_uses_the_organizations_saved_voice()
+    {
+        using var t = new TestDb();
+        var scoping = new ScopingService(t.Db);
+        var knowledge = new KnowledgeService(t.Db, scoping);
+        var assistant = new AssistantService(t.Db, scoping, new PersonaService(scoping), knowledge, new SandboxLlmClient());
+        scoping.SetSetting("default_voice", "cedar");
+        scoping.SetSetting("default_voice_provider", "openai");
+
+        var md = JsonSerializer.SerializeToElement(await VoiceDispatch.BuildAsync(t.Db, knowledge, assistant, scoping,
+            Path.GetTempPath(), null, new VoiceCallOptions("+60123456789")));
+        Assert.Equal("cedar", md.GetProperty("voice").GetString());
+        Assert.Equal("openai", md.GetProperty("voice_provider").GetString());
+
+        // a voice picked for the call still wins
+        var picked = JsonSerializer.SerializeToElement(await VoiceDispatch.BuildAsync(t.Db, knowledge, assistant, scoping,
+            Path.GetTempPath(), null, new VoiceCallOptions("+60123456789", VoiceProvider: "openai", Voice: "alloy")));
+        Assert.Equal("alloy", picked.GetProperty("voice").GetString());
+    }
+
+    [Fact]
     public async Task Finished_calls_fold_into_call_records_and_the_usage_ledger_once()
     {
         using var t = new TestDb();

@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
   Ban,
@@ -229,6 +229,14 @@ function ChatsPage() {
   const [summaryOpen, setSummaryOpen] = useState(true)
   const lastAutoGen = useRef(0)
   const [infoOpen, setInfoOpen] = useState(true)
+  // below xl the details panel is a drawer (assign, link a contact, labels… on phones too)
+  const [infoDrawer, setInfoDrawer] = useState(false)
+  useEffect(() => {
+    if (!infoDrawer) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setInfoDrawer(false)
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [infoDrawer])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pendingFile, setPendingFile] = useState<File | null>(null)
@@ -248,6 +256,14 @@ function ChatsPage() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const callScrollRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const composerRef = useRef<HTMLTextAreaElement>(null)
+  // the message box grows with its text (up to its max height), and shrinks back after sending
+  useLayoutEffect(() => {
+    const el = composerRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`
+  }, [draft])
   const prevCallStatus = useRef<string | undefined>(undefined)
 
   const waAccounts = useMemo(() => allAccounts.filter((a) => (a.channel ?? 'whatsapp') === 'whatsapp'), [allAccounts])
@@ -1388,6 +1404,15 @@ function ChatsPage() {
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                  {/* phones & tablets: the same details as a drawer */}
+                  <button
+                    onClick={() => setInfoDrawer(true)}
+                    title={t('chats.page.details')}
+                    aria-label={t('chats.page.openDetails')}
+                    className="inline-flex h-8 items-center gap-1 rounded-lg border border-line px-2 text-[11.5px] font-semibold text-text-high transition-colors hover:bg-fill-hover xl:hidden"
+                  >
+                    <Info size={14} aria-hidden /> <span className="hidden sm:inline">{t('chats.page.details')}</span>
+                  </button>
                   {/* AI auto-reply on/off (email has no auto-reply) */}
                   {active.channel !== 'email' && (
                     <button
@@ -1934,7 +1959,7 @@ function ChatsPage() {
                     </div>
                   )}
                   <div
-                    className={`flex items-center gap-1.5 rounded-xl border p-1.5 pl-2 ${
+                    className={`flex items-end gap-1.5 rounded-xl border p-1.5 pl-2 ${
                       noteMode ? 'border-dashed border-amber/50 bg-amber/5' : 'border-line-strong bg-card'
                     }`}
                   >
@@ -1979,10 +2004,18 @@ function ChatsPage() {
                         />
                       </>
                     )}
-                    <input
+                    <textarea
+                      ref={composerRef}
+                      rows={1}
                       value={draft}
                       onChange={(e) => setDraft(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+                      // Enter sends; Shift+Enter starts a new line (and an IME composition is never sent mid-word)
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                          e.preventDefault()
+                          sendMessage()
+                        }
+                      }}
                       disabled={composerLocked && !noteMode}
                       placeholder={t(
                         noteMode
@@ -1998,7 +2031,8 @@ function ChatsPage() {
                                   : 'chats.page.phDefault',
                       )}
                       aria-label={t('chats.page.messageAria')}
-                      className="min-w-0 flex-1 bg-transparent pl-1 text-[13.5px] text-text-primary outline-none placeholder:text-text-faint disabled:cursor-not-allowed disabled:opacity-50"
+                      title={t('chats.page.newLineHint')}
+                      className="max-h-[160px] min-w-0 flex-1 resize-none self-center bg-transparent py-1.5 pl-1 text-[13.5px] leading-snug text-text-primary outline-none placeholder:text-text-faint disabled:cursor-not-allowed disabled:opacity-50"
                     />
                     <button
                       onClick={sendMessage}
@@ -2061,6 +2095,51 @@ function ChatsPage() {
           />
         )}
       </div>
+
+      {active && infoDrawer && (
+        <div className="fixed inset-0 z-50 flex justify-end xl:hidden" role="dialog" aria-modal="true" aria-label={t('chats.info.aria')}>
+          <button
+            type="button"
+            aria-label={t('common.actions.close')}
+            onClick={() => setInfoDrawer(false)}
+            className="absolute inset-0"
+            style={{ background: 'var(--scrim)' }}
+          />
+          <div className="relative flex h-full w-full max-w-[380px] flex-col bg-surface shadow-pop">
+            <div className="flex items-center justify-between border-b border-line px-4 py-3">
+              <span className="text-[14px] font-semibold text-text-heading">{t('chats.page.details')}</span>
+              <button
+                type="button"
+                onClick={() => setInfoDrawer(false)}
+                aria-label={t('common.actions.close')}
+                className="grid h-8 w-8 place-items-center rounded-lg text-text-muted hover:bg-fill-hover hover:text-text-high"
+              >
+                <X size={16} aria-hidden />
+              </button>
+            </div>
+            <ChatInfoPanel
+              drawer
+              active={active}
+              busy={busy}
+              sandbox={activeSandbox}
+              imapConfigured={!!status?.imap_configured}
+              linkContacts={linkContacts}
+              linkSel={linkSel}
+              onLinkSel={setLinkSel}
+              onLink={linkContact}
+              waAccounts={waAccounts}
+              canManage={canManage}
+              onSwitchAccount={switchAccount}
+              teams={teams}
+              onAssignTeam={assignTeam}
+              agents={agents}
+              onAssign={assignTo}
+              onSetStatus={setThreadStatus}
+              onSaveLabels={saveLabels}
+            />
+          </div>
+        </div>
+      )}
 
       <ChatFilterModal
         open={filterOpen}

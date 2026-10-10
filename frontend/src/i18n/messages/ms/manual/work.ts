@@ -8,7 +8,7 @@ export const work: Dict<typeof source> = {
     steps: {
       s1: {
         title: 'Buka peti masuk',
-        body: 'Di bar sisi, di bawah Kerja, klik “Sembang”. Skrin ada tiga bahagian: senarai perbualan di kiri, perbualan yang dibuka di tengah dan butirannya di kanan (pada skrin lebar).',
+        body: 'Di bar sisi, di bawah Kerja, klik “Sembang”. Skrin ada tiga bahagian: senarai perbualan di kiri, perbualan yang dibuka di tengah dan butirannya di kanan (pada skrin lebar). Pada telefon atau tablet, buka butiran dengan butang “Butiran perbualan” (ⓘ) di bahagian atas sembang.',
       },
       s2: {
         title: 'Pilih perbualan',
@@ -20,7 +20,7 @@ export const work: Dict<typeof source> = {
       },
       s4: {
         title: 'Taip jawapan anda',
-        body: 'Klik kotak “Taip mesej (/ untuk balasan pantas)” dan tulis jawapan anda, contohnya: “Hai Aisyah, pesanan anda sedia untuk diambil hari ini.”',
+        body: 'Klik kotak “Taip mesej (/ untuk balasan pantas)” dan tulis jawapan anda, contohnya: “Hai Aisyah, pesanan anda sedia untuk diambil hari ini.” Kotak itu membesar semasa anda menaip; tekan Shift+Enter untuk memulakan baris baharu.',
       },
       s5: {
         title: 'Tambah emoji atau jawapan sedia',
@@ -32,7 +32,7 @@ export const work: Dict<typeof source> = {
       },
       s7: {
         title: 'Hantar',
-        body: 'Tekan Enter atau klik butang anak panah gelap di kanan. Mesej anda muncul di sebelah kanan perbualan, dengan tanda kecil “Dihantar”, “Diterima” dan “Dibaca” jika aplikasi melaporkannya.',
+        body: 'Tekan Enter (Shift+Enter hanya menambah baris baharu) atau klik butang anak panah gelap di kanan. Mesej anda muncul di sebelah kanan perbualan, dengan tanda kecil “Dihantar”, “Diterima” dan “Dibaca” jika aplikasi melaporkannya.',
       },
       s8: {
         title: 'Tandakan sembang sebagai selesai',
@@ -44,6 +44,7 @@ export const work: Dict<typeof source> = {
       t1: 'Gunakan tab “Nota peribadi” untuk meninggalkan pesanan kepada rakan sepasukan di dalam sembang — pelanggan tidak akan nampak.',
       t2: 'Tanda “Kotak pasir — tidak dihantar” bermaksud saluran ini belum disambungkan secara sebenar, jadi tiada apa-apa keluar dari ChatBranch. Minta pentadbir menyiapkan tetapan saluran.',
       t3: 'Jika pelanggan membalas STOP, sembang ditanda “Telah menarik diri” dan ChatBranch meminta anda mengesahkan sebelum menghantar — hantar hanya jika mereka bertanya sesuatu.',
+      t4: 'Menulis jawapan panjang dengan senarai atau beberapa perenggan? Gunakan Shift+Enter antara baris, kemudian tekan Enter sekali untuk menghantar semuanya sebagai satu mesej.',
     },
     trouble:
       'Kotak mesej kelabu dan tertulis “Tetingkap 24 jam tertutup”: pada nombor WhatsApp Business anda mesti menghantar templat yang diluluskan dahulu — lihat “Hantar templat WhatsApp apabila tetingkap 24 jam tertutup”. Ikon klip kertas tiada: saluran ini tidak boleh menerima fail daripada ChatBranch (contohnya LINE, Viber atau SMS) — hantar teks sahaja. Tanda merah “Gagal”: mesej tidak sampai — minta pentadbir menyemak saluran itu di halaman Saluran.',
@@ -151,7 +152,7 @@ export const work: Dict<typeof source> = {
   assignChat: {
     title: 'Tugaskan sembang kepada rakan sepasukan atau pasukan',
     summary: 'Berikan perbualan seorang pemilik supaya semua orang tahu siapa yang menjawabnya — atau buang pemilik itu semula.',
-    before: 'Rakan sepasukan anda perlukan log masuk sendiri (Pentadbiran → Pengguna & peranan). Pasukan dicipta oleh pentadbir di Pentadbiran → Pasukan. Panel butiran yang digunakan di sini dipaparkan pada skrin lebar, seperti komputer riba atau desktop.',
+    before: 'Rakan sepasukan anda perlukan log masuk sendiri (Pentadbiran → Pengguna & peranan). Pasukan dicipta oleh pentadbir di Pentadbiran → Pasukan. Pada komputer riba atau desktop, panel butiran berada di kanan sembang; pada telefon atau tablet ia dibuka sebagai laci daripada butang “Butiran perbualan” (ⓘ) di pengepala sembang.',
     steps: {
       s1: {
         title: 'Buka sembang',
@@ -159,7 +160,7 @@ export const work: Dict<typeof source> = {
       },
       s2: {
         title: 'Cari kad “Perbualan”',
-        body: 'Lihat panel butiran di kanan dan cari kad “Perbualan”. Jika panel tersembunyi, klik butang bulat “i” (“Butiran perbualan”) di atas kanan sembang.',
+        body: 'Lihat panel butiran di kanan dan cari kad “Perbualan”. Jika panel tersembunyi, klik butang bulat “i” (“Butiran perbualan” (ⓘ)) di atas kanan sembang. Pada telefon atau tablet, ketik butang “Butiran perbualan” (ⓘ) di pengepala sembang — panel yang sama muncul sebagai laci.',
       },
       s3: {
         title: 'Pilih rakan sepasukan',
@@ -185,7 +186,7 @@ export const work: Dict<typeof source> = {
       t3: 'Gunakan tab “Belum ditugaskan” untuk mencari sembang yang belum dituntut sesiapa.',
     },
     trouble:
-      'Anda tidak nampak kotak “Penerima tugasan”: panel butiran hanya muncul pada skrin lebar — besarkan tetingkap pelayar atau gunakan komputer. Kotak “Pasukan” tiada: belum ada pasukan — minta pentadbir mencipta satu di Pentadbiran → Pasukan.',
+      'Anda tidak nampak kotak “Penerima tugasan”: buka panel butiran — klik butang bulat “i” pada skrin lebar, atau ketik “Butiran perbualan” (ⓘ) di pengepala sembang pada telefon atau tablet. Kotak “Pasukan” tiada: belum ada pasukan — minta pentadbir mencipta satu di Pentadbiran → Pasukan.',
   },
   quickReplies: {
     title: 'Guna dan cipta balasan pantas',
@@ -387,7 +388,7 @@ export const work: Dict<typeof source> = {
     steps: {
       s1: {
         title: 'Kenal pasti sembang tidak dikenali',
-        body: 'Buka sembang dalam “Sembang”. Pelanggan tidak dikenali menunjukkan nombor atau nama aplikasi dan bukannya nama orang, dan kad “Kenalan” di kanan menunjukkan kotak “Pautkan kepada kenalan…”.',
+        body: 'Buka sembang dalam “Sembang”. Pelanggan tidak dikenali menunjukkan nombor atau nama aplikasi dan bukannya nama orang, dan kad “Kenalan” di kanan menunjukkan kotak “Pautkan kepada kenalan…”. Pada telefon atau tablet, ketik “Butiran perbualan” (ⓘ) di pengepala sembang untuk membuka panel itu.',
       },
       s2: {
         title: 'Baca jalur di bawah tajuk',

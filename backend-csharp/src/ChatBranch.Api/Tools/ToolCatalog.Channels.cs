@@ -256,6 +256,9 @@ public static partial class ToolCatalog
         yield return T(vo, "voice_set_llm_provider", "Set the voice language model",
             "Choose the language model the AI voice agent thinks with on calls (admin).", "PUT", "/api/voice/llm-settings", null,
             new[] { A.Str("llm_provider", "Provider id.", req: true) }, idempotent: true);
+        yield return T(vo, "voice_set_default_voice", "Set the organization's call voice",
+            "Choose the voice AI calls use when none is picked (admin): a voice id from voice_list_voices.", "PUT", "/api/voice/default-voice", null,
+            new[] { A.Str("voice", "Voice id.", req: true) }, idempotent: true);
         yield return T(vo, "voice_import_voice", "Add a voice to the library",
             "Import a voice from the provider's library by its voice id.", "POST", "/api/voice/import", null,
             new[]

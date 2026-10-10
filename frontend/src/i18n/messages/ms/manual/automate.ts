@@ -317,26 +317,28 @@ export const automate: Dict<typeof source> = {
       },
       s9: {
         title: 'Simpan peraturan',
-        body: 'Biarkan “Aktif” bertanda dan klik “Cipta peraturan”. Mesej “Peraturan … dicipta.” muncul dan peraturan dipaparkan dalam senarai dengan suis “Hidup”.',
+        body: 'Biarkan “Aktif” bertanda dan klik “Cipta peraturan”. Mesej “Peraturan … dicipta.” muncul dan peraturan dipaparkan di bahagian bawah senarai dengan suis “Hidup”.',
       },
       s10: {
-        title: 'Fahami susunannya',
-        body: 'Setiap peraturan yang syaratnya dipenuhi akan berjalan — bukan hanya yang pertama — dari atas ke bawah dalam senarai (mengikut susunan anda menciptanya). Jika dua peraturan menugaskan pasukan, yang lebih bawah menentukan keputusan akhir.',
+        title: 'Susun peraturan',
+        body: 'Peraturan berjalan dari atas ke bawah, dan setiap peraturan yang syaratnya dipenuhi akan berjalan — bukan hanya yang pertama. Nombor pada setiap peraturan menunjukkan kedudukannya, dan peraturan baharu diletakkan di bawah sekali. Untuk mengalihkan peraturan, seretnya, atau gunakan anak panah atas dan bawah di sebelahnya. Jika dua peraturan menugaskan pasukan, yang lebih bawah menentukan keputusan akhir.',
       },
       s11: {
         title: 'Uji',
-        body: 'Dari telefon anda sendiri, hantar mesej yang sepatutnya padan (contohnya “Saya mahu refund”) ke nombor yang disambungkan atau sembang laman web anda. Buka sembang itu di Sembang untuk melihat label, pasukan atau nota, dan pastikan pembilang peraturan kini menunjukkan “dicetuskan 1×”.',
+        body: 'Klik “Uji” pada peraturan. Dalam “Perbualan untuk diuji”, cari nama, nombor atau mesej dan pilih sembang sebenar; jika mahu, taip “Mesej untuk diuji (pilihan)”, contohnya Saya mahu bayaran balik. Klik “Jalankan ujian”: anda melihat “Peraturan ini akan dijalankan” atau “Peraturan ini tidak akan dijalankan”, setiap syarat ditanda atau dipangkah, dan “Perbualan ini: …” dengan nilai sebenar. Tiada apa-apa dihantar atau diubah.',
       },
     },
-    done: 'Kad peraturan menunjukkan “dicetuskan 1×” (atau lebih) dan sembang ujian mempunyai label, pasukan atau serahan yang ditetapkan oleh peraturan.',
+    done: 'Ujian menunjukkan “Peraturan ini akan dijalankan” untuk sembang yang sepatutnya padan, dan apabila mesej sebenar tiba, kad peraturan menunjukkan “dicetuskan 1×” (atau lebih).',
     tips: {
       t1: 'Klik butang “Hidup” / “Mati” pada peraturan untuk menjedanya tanpa memadamnya.',
       t2: 'Perkataan dipadankan tanpa mengira huruf besar — “Refund” dan “refund” kedua-duanya padan dengan “mengandungi refund”.',
       t3: 'Gabungkan tindakan: “Tambah label” urgent + “Maklumkan pasukan” + “Matikan chatbot” memastikan seseorang melihatnya.',
       t4: 'Klik ikon pensel pada peraturan untuk menyuntingnya; perubahan anda terpakai pada mesej seterusnya.',
+      t5: 'Untuk melihatnya secara sebenar, hantar mesej yang padan dari telefon anda sendiri ke nombor yang disambungkan atau sembang laman web anda, kemudian buka sembang itu di Sembang untuk menyemak label, pasukan atau nota.',
+      t6: 'Anda boleh menguji peraturan yang dimatikan — keputusan ujian mengingatkan bahawa ia tidak akan berjalan sehingga anda menghidupkannya.',
     },
     trouble:
-      'Peraturan tidak pernah dicetuskan: pastikan ia “Hidup”, “Terpakai kepada” merangkumi cawangan sembang itu, dan setiap syarat ada nilai (pengendali yang tidak dikenali tidak padan dengan apa-apa). Ia dicetuskan terlalu kerap: tambah syarat seperti “Mesej pertama” = Ya. Dua peraturan bercanggah: ingat semua peraturan yang padan akan berjalan, dari atas ke bawah — matikan satu atau ketatkan syaratnya.',
+      'Peraturan tidak pernah dicetuskan: klik “Uji” dengan sembang yang sepatutnya padan — syarat yang dipangkah menunjukkan apa yang tidak dipenuhi. Pastikan juga ia “Hidup”, “Terpakai kepada” merangkumi cawangan sembang itu, dan setiap syarat ada nilai (pengendali yang tidak dikenali tidak padan dengan apa-apa). Ia dicetuskan terlalu kerap: tambah syarat seperti “Mesej pertama” = Ya. Dua peraturan bercanggah: semua peraturan yang padan akan berjalan, dari atas ke bawah — seret satu ke atas yang lain, matikan satu atau ketatkan syaratnya.',
   },
   accountAssignment: {
     title: 'Pilih nombor yang digunakan oleh setiap kenalan',

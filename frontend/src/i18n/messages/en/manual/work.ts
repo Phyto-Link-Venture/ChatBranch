@@ -6,7 +6,7 @@ export const work = {
     steps: {
       s1: {
         title: 'Open the inbox',
-        body: 'In the sidebar, under Work, click “Chats”. The screen has three parts: the list of conversations on the left, the open conversation in the middle and its details on the right (on a wide screen).',
+        body: 'In the sidebar, under Work, click “Chats”. The screen has three parts: the list of conversations on the left, the open conversation in the middle and its details on the right (on a wide screen). On a phone or tablet, open the details with the “Conversation details” (ⓘ) button at the top of the chat.',
       },
       s2: {
         title: 'Pick a conversation',
@@ -18,7 +18,7 @@ export const work = {
       },
       s4: {
         title: 'Type your answer',
-        body: 'Click the box that says “Type a message (/ for quick replies)” and write your answer, for example: “Hi Aisyah, your order is ready for pickup today.”',
+        body: 'Click the box that says “Type a message (/ for quick replies)” and write your answer, for example: “Hi Aisyah, your order is ready for pickup today.” The box grows as you type; press Shift+Enter to start a new line.',
       },
       s5: {
         title: 'Add an emoji or a ready-made answer',
@@ -30,7 +30,7 @@ export const work = {
       },
       s7: {
         title: 'Send it',
-        body: 'Press Enter or click the dark arrow button on the right. Your message appears on the right side of the conversation, with small ticks for “Sent”, “Delivered” and “Read” where the app reports them.',
+        body: 'Press Enter (Shift+Enter only adds a new line) or click the dark arrow button on the right. Your message appears on the right side of the conversation, with small ticks for “Sent”, “Delivered” and “Read” where the app reports them.',
       },
       s8: {
         title: 'Mark the chat as done',
@@ -42,6 +42,7 @@ export const work = {
       t1: 'Use the “Private note” tab to leave a message for a teammate inside the chat — the customer never sees it.',
       t2: 'A tick that says “Sandbox — not sent” means this channel is not connected for real yet, so nothing left ChatBranch. Ask an admin to finish the channel set-up.',
       t3: 'If the customer replied STOP, the chat is marked “Opted out” and ChatBranch asks you to confirm before sending anything — only send if they asked you something.',
+      t4: 'Writing a longer answer with a list or several paragraphs? Use Shift+Enter between lines, then press Enter once to send it all as one message.',
     },
     trouble:
       'The message box is greyed out and says “24h window closed”: on a WhatsApp Business number you must first send an approved template — see “Send a WhatsApp template when the 24-hour window is closed”. The paperclip is missing: this channel cannot receive files from ChatBranch (for example LINE, Viber or SMS) — send a text instead. A red “Failed” tick: the message did not arrive — ask an admin to check that channel on the Channels page.',
@@ -149,7 +150,7 @@ export const work = {
   assignChat: {
     title: 'Assign a chat to a teammate or a team',
     summary: 'Give a conversation an owner so everyone knows who is answering it — or take the owner off again.',
-    before: 'Your teammates need their own login (Admin → Users & roles). Teams are created by an admin under Admin → Teams. The details panel used here shows on a wide screen, such as a laptop or desktop.',
+    before: 'Your teammates need their own login (Admin → Users & roles). Teams are created by an admin under Admin → Teams. On a laptop or desktop the details panel sits on the right of the chat; on a phone or tablet it opens as a drawer from the “Conversation details” (ⓘ) button in the chat header.',
     steps: {
       s1: {
         title: 'Open the chat',
@@ -157,7 +158,7 @@ export const work = {
       },
       s2: {
         title: 'Find the “Conversation” card',
-        body: 'Look at the details panel on the right and find the “Conversation” card. If the panel is hidden, click the round “i” button (“Conversation details”) at the top right of the chat.',
+        body: 'Look at the details panel on the right and find the “Conversation” card. If the panel is hidden, click the round “i” button (“Conversation details” (ⓘ)) at the top right of the chat. On a phone or tablet, tap the “Conversation details” (ⓘ) button in the chat header — the same panel slides in as a drawer.',
       },
       s3: {
         title: 'Pick a teammate',
@@ -183,7 +184,7 @@ export const work = {
       t3: 'Use the “Unassigned” tab to find chats nobody has claimed yet.',
     },
     trouble:
-      'You can’t see the “Assignee” box: the details panel only appears on a wide screen — widen the browser window or use a computer. The “Team” box is missing: no teams exist yet — ask an admin to create one under Admin → Teams.',
+      'You can’t see the “Assignee” box: open the details panel — click the round “i” button on a wide screen, or tap “Conversation details” (ⓘ) in the chat header on a phone or tablet. The “Team” box is missing: no teams exist yet — ask an admin to create one under Admin → Teams.',
   },
   quickReplies: {
     title: 'Use and create quick replies',
@@ -385,7 +386,7 @@ export const work = {
     steps: {
       s1: {
         title: 'Spot an unknown chat',
-        body: 'Open the chat in “Chats”. An unknown customer shows a number or app name instead of a person’s name, and the “Contact” card on the right shows a “Link to a contact…” box.',
+        body: 'Open the chat in “Chats”. An unknown customer shows a number or app name instead of a person’s name, and the “Contact” card on the right shows a “Link to a contact…” box. On a phone or tablet, tap “Conversation details” (ⓘ) in the chat header to open that panel.',
       },
       s2: {
         title: 'Read the strip under the header',
