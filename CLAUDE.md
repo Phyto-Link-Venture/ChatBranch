@@ -1129,8 +1129,24 @@ When you fix one of these, update this table, `README.md` and
   `AiBillingTermsTests`. `GET /api/billing/ai?month=&company=`
   (`billing.view`): billed amounts for the caller's companies (assigned
   entities' companies; unassigned = all); cost, markup, margin and the
-  unattributed bucket only with `billing.manage`. Print hides the shell
-  (`.print-hide` + `@media print` in `globals.css`). Tests: `AiBillingTests`.
+  unattributed bucket only with `billing.manage`. **Download PDF** =
+  `GET /api/billing/ai/pdf?month=&company=&lang=en|ms|zh` (same gate, scope and
+  visibility as the JSON — both built by `AiBillingEndpoints.BuildBillAsync`;
+  A4 MigraDoc with the Documents fonts, `Endpoints/AiBillPdf.cs`; one company =
+  summary + lines by feature + days with usage, "All companies" = every visible
+  company + a total row; `zh` falls back to English without a CJK font; an MCP
+  exclusion, binary) — the dashboard fetches it as a Blob and saves it. On an
+  iPhone / iPad (`pwa.ts isIos`), where `window.print()` does nothing inside the
+  installed app, Print is hidden and Download PDF opens the PDF in a new tab
+  through a **signed link**: `POST /api/billing/ai/pdf/link` (`billing.view`,
+  sessions only — an API key gets 403) mints `GET /api/billing/ai/pdf/s/{token}`
+  (ANONYMOUS; `Endpoints/BillLink.cs`: HMAC-SHA256 with a per-process key, binds
+  profile + username + month + company + language, 5 minutes; on open the person
+  must still be active with `billing.view` and the bill is rebuilt AS them).
+  Print (desktop) hides the shell (`.print-hide` + `@media print` in
+  `globals.css`: html/body/the shell column/scroll panes un-clipped, floating
+  pieces and the Quotas card hidden, ink on white whatever the theme, rows never
+  split). Tests: `AiBillingTests`, `AiBillPdfTests`.
   `/api/analytics/reports`, `/api/analytics/flows`, `/api/live` (waiting
   conversations + active calls + `needs_human_count`).
 - **Integrations** (`/integrations`, `/api/integrations/*`,
@@ -1655,7 +1671,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **796 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **800 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /

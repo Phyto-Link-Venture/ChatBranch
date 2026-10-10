@@ -13,7 +13,10 @@ export default function BillingPage() {
     <AreaPage title={t('shell.nav.aiBill')} eyebrow={t('shell.groups.review')} subtitle={t('billing.subtitle')} Icon={Receipt}>
       <div className="flex flex-col gap-4">
         <AiBill />
-        <AiQuotas />
+        {/* quotas are not part of the printed bill */}
+        <div className="print:hidden">
+          <AiQuotas />
+        </div>
       </div>
     </AreaPage>
   )

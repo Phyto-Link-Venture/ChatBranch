@@ -9,16 +9,27 @@
  * (billing.manage, superadmin by default) also see the cost, the markup, the
  * margin and the usage no company is billed for. Print = the browser's print,
  * styled by the `print:` variants (the shell hides itself when printing).
+ * Download PDF = the server-rendered bill (GET /api/billing/ai/pdf) saved as a
+ * file; on an iPhone / iPad — where window.print() does nothing inside the
+ * installed app and a blob download is unreliable — Print is hidden and the PDF
+ * opens in a new tab through a 5-minute signed link (POST …/pdf/link), whose
+ * viewer's share button saves, shares or prints it.
  */
 
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight, Loader2, Printer, Settings2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, Loader2, Printer, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { Select } from '@/components/ui/Select'
+import { isIos } from '@/components/shell/pwa'
 import { aiApi } from '@/lib/aiMonitor'
-import { useFormat, useT, type MessageKey } from '@/i18n'
+import { authHeaders, expireSessionOn401 } from '@/lib/auth'
+import { useFormat, useI18n, useT, type MessageKey } from '@/i18n'
+
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
+/** The API's origin + any proxy prefix, without the trailing `/api` (signed paths start with /api/). */
+const API_ROOT = API.replace(/\/api\/?$/, '')
 
 interface CompanySummary {
   id: number
@@ -83,6 +94,12 @@ export function AiBill() {
   const [bill, setBill] = useState<Bill | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const { locale } = useI18n()
+  const [pdfBusy, setPdfBusy] = useState(false)
+  const [pdfError, setPdfError] = useState<string | null>(null)
+  // read after mount: navigator does not exist during the server render
+  const [ios, setIos] = useState(false)
+  useEffect(() => setIos(isIos()), [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -123,6 +140,56 @@ export function AiBill() {
     [bill?.companies, manager, t],
   )
   const detail = bill?.company
+
+  // the bill on screen: its month and company (the server picks a lone company itself)
+  const pdfQuery = () => {
+    const q = new URLSearchParams({ month, lang: locale })
+    const c = company || detail?.summary.slug || ''
+    if (c) q.set('company', c)
+    return q
+  }
+
+  const downloadPdf = async () => {
+    setPdfError(null)
+    setPdfBusy(true)
+    // iOS: open the tab NOW, inside the tap — a window opened after an await is blocked
+    const tab = ios ? window.open('', '_blank') : null
+    try {
+      const q = pdfQuery()
+      if (ios) {
+        const link = await aiApi<{ path: string }>('billing/ai/pdf/link', {
+          method: 'POST',
+          body: JSON.stringify({ month: q.get('month'), company: q.get('company') ?? '', lang: q.get('lang') }),
+        })
+        const url = `${API_ROOT}${link.path}`
+        if (tab) tab.location.href = url
+        else window.location.href = url
+        return
+      }
+      const res = await fetch(`${API}/billing/ai/pdf?${q}`, { headers: authHeaders(), cache: 'no-store' })
+      if (expireSessionOn401(res)) throw new Error('Session expired')
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string }
+        throw new Error(data.detail || `HTTP ${res.status}`)
+      }
+      const blob = await res.blob()
+      const name = /filename="?([^";]+)"?/i.exec(res.headers.get('Content-Disposition') || '')?.[1]
+        || `ai-bill-${q.get('company') || 'all'}-${month}.pdf`
+      const href = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = href
+      a.download = name
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(href), 60_000)
+    } catch (e) {
+      tab?.close()
+      setPdfError(t('billing.pdfFailed', { error: e instanceof Error ? e.message : String(e) }))
+    } finally {
+      setPdfBusy(false)
+    }
+  }
   const maxDay = Math.max(0.01, ...(detail?.daily.map((d) => d.amount) ?? [0]))
 
   return (
@@ -167,11 +234,23 @@ export function AiBill() {
               <Settings2 size={14} aria-hidden /> {t('billing.terms')}
             </Link>
           )}
-          <Button variant="secondary" size="sm" onClick={() => window.print()} disabled={!detail}>
-            <Printer size={13} aria-hidden /> {t('billing.print')}
+          {!ios && (
+            <Button variant="secondary" size="sm" onClick={() => window.print()} disabled={!bill}>
+              <Printer size={13} aria-hidden /> {t('billing.print')}
+            </Button>
+          )}
+          <Button variant="secondary" size="sm" onClick={() => void downloadPdf()} disabled={!bill || pdfBusy}>
+            {pdfBusy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Download size={13} aria-hidden />}
+            {t('billing.downloadPdf')}
           </Button>
         </div>
       </div>
+
+      {pdfError && (
+        <Card className="p-4 print:hidden">
+          <p role="alert" className="text-[13px] text-[var(--red-ink)]">{pdfError}</p>
+        </Card>
+      )}
 
       {error && (
         <Card className="p-4">
