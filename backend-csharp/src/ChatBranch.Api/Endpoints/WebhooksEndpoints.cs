@@ -83,7 +83,7 @@ public static class WebhooksEndpoints
                     // Meta's own timestamp, not arrival time: the 24h window is
                     // computed from it (webhooks can arrive hours late)
                     var msg = processor.ProcessInbound("whatsapp", m.From, m.Text, m.Name, account?.Id,
-                        m.Wamid, m.Timestamp);
+                        m.Wamid, m.Timestamp, replyToExternalId: m.ReplyTo);
                     if (m.MediaId.Length > 0)
                     {
                         // two-phase: placeholder stored now, the file attached off the ack
@@ -101,6 +101,14 @@ public static class WebhooksEndpoints
                     }
                 }
                 catch { /* one bad message never fails the batch */ }
+            }
+
+            // reactions: stored on the message they target — never a bubble, never the
+            // AI, flows, automations or a reopen (MessageReactions)
+            foreach (var r in MetaWebhook.CloudReactions(root))
+            {
+                try { MessageReactions.ApplyInbound(db, "whatsapp", r.From, r.TargetWamid, r.Emoji); }
+                catch { }
             }
 
             // delivery receipts: sent → delivered → read, or failed (+ 131047 window
@@ -133,11 +141,24 @@ public static class WebhooksEndpoints
             var waId = Str(body, "wa_id");
             var text = Str(body, "text");
             if (string.IsNullOrEmpty(waId)) return Results.Ok(new { ok = true });
+            // a reaction ({reaction: {msg_id, emoji}}) lands on the message it targets —
+            // no bubble, no AI, no flows, no reopen (MessageReactions)
+            if (body.ValueKind == JsonValueKind.Object && body.TryGetProperty("reaction", out var reaction)
+                && reaction.ValueKind == JsonValueKind.Object)
+            {
+                try
+                {
+                    MessageReactions.ApplyInbound(db, "whatsapp", waId, Str(reaction, "msg_id") ?? "",
+                        Str(reaction, "emoji") ?? "");
+                }
+                catch { }
+                return Results.Ok(new { ok = true });
+            }
             var account = await BaileysAccountByKey(db, Str(body, "account_id"));
             // Baileys pushes only text here (media arrives on /media afterwards);
             // an empty text is a media-only message — still record the touch.
             processor.ProcessInbound("whatsapp", waId, text ?? "", Str(body, "name"),
-                account?.Id, Str(body, "msg_id") ?? "");
+                account?.Id, Str(body, "msg_id") ?? "", replyToExternalId: Str(body, "reply_to") ?? "");
             if (account != null && account.HealthStatus != Domain.Health.Healthy)
             {
                 // Inbound traffic proves the session is alive — heal like Django does.

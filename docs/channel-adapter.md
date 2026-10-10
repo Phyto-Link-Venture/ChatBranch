@@ -33,6 +33,8 @@ another.
 | AI documents (PDF / QR, after the reply text) | ✅ document / image | ✅ document / image | 🔗 download link (`/api/documents/public/{token}`) | ✅ sendDocument / sendPhoto | ✅ uploaded file | ✅ attachment (a second mail) |
 | Delivery receipts | ✅ `statuses` (forward-only; failed + error code) | ✅ `/baileys/message-status` | — | — | ✅ delivery / read | — |
 | Typing / read | ✅ Graph `typing_indicator` | ✅ gateway presence | — | ✅ `sendChatAction` (typing) | ✅ `mark_seen` + `typing_on` (24h window only) | — |
+| Quoted replies | ✅ in `context.id` · out `context.message_id` | ✅ in `contextInfo.stanzaId` · out gateway `quoted_id` | — | ✅ in `reply_to_message` · out `reply_parameters` | in only (`reply_to.mid`); our replies go unquoted | — |
+| Reactions | ✅ in `type: reaction` · out `type: reaction` (24h window, else 409) | ✅ in `reactionMessage` · out gateway `react` | — | ✅ in `message_reaction` · out `setMessageReaction` (Telegram's own emoji set) | — (409) | — (409) |
 | 24h window | ✅ enforced (409 → use a template); 131047 closes it | none | none | none | ✅ ≤24h anything; 24h–7d a person only (`HUMAN_AGENT` tag), AI/automation refused; >7d refused | — |
 | Opt-out | ✅ STOP/UNSUBSCRIBE/BERHENTI → opted out, START/UNSTOP/MULA → back in | same | same | same | same | same |
 | Health | ✅ Graph token ping (prober) + send / status / test results (`MetaErrors`), inbound heal | ✅ lifecycle pushes + inbound heal | — | ✅ getMe + getWebhookInfo, inbound heal | ✅ `GET /me` (prober, test), send results, inbound heal | ✅ SMTP login (prober), send outcomes |
@@ -83,6 +85,7 @@ Where the code is (`backend-csharp/src/`):
 | Health writer | `ChatBranch.Data/Channels/AccountHealth.cs` |
 | Health prober (periodic + "Check now") | `ChatBranch.Data/Channels/HealthProber.cs`, `GraphHealthProbe.cs`, `ChatBranch.Api/Workers/HealthProbeWorker.cs` |
 | Typing indicator | `ChatBranch.Data/Ai/TypingIndicator.cs` (`ChannelTypingIndicator` → `LiveTypingIndicator` / `TelegramTypingIndicator` / `MetaTypingIndicator`) |
+| Quoted replies + reactions | `ChatBranch.Data/Channels/MessageReactions.cs` (store + `MessageCards`), `ThreadStore.AppendMessage(replyToExternalId)`, `OutboundSender.Send(replyTo)` / `.React`, `ChatBranch.Api/Endpoints/MessageReactionEndpoints.cs`, `MessageExtras.cs` (payload `reply_to` / `reactions`), `backend/baileys_service/messages.js` |
 | Newer channels: registry, transports, send seam, reply windows | `ChatBranch.Data/Channels/More/` — `MoreChannels.cs` (which channels, configured?, account-bound?, phone-keyed?, `IChannelTransport`, `ChannelOptOut`), `LineTransport.cs`, `ViberTransport.cs`, `TwilioSmsTransport.cs`, `WeChatTransport.cs`, `TikTokTransport.cs`, `DouyinTransport.cs`, `ZaloTransport.cs`, `MoreChannelSender.cs`, `ChannelWindow.cs` |
 | Newer channels: webhooks + DI, account fields | `ChatBranch.Api/Endpoints/MoreChannelWebhookEndpoints.cs`, `MoreChannelAccounts.cs` |
 | Invite links, unknown customers, identities | `ChatBranch.Data/Contacts/ContactInvites.cs`, `InviteReferrals.cs`, `IdentityRequests.cs`, `ContactIdentities.cs`; endpoints `ContactIdentityEndpoints.cs` |
@@ -130,6 +133,16 @@ outbound queue are already channel-blind.
   through `OutboundSender.SendTemplate`. Template routing prefers a
   `reminder`-role Cloud account with a WABA id.
 - `WHATSAPP_*` env keys surface as a read-only `env-default` account.
+- **Quoted replies + reactions:** an inbound `context.id` is stored as
+  `Message.ReplyToExternalId` and resolved to `Message.ReplyToId` when we hold
+  that wamid; a reply from the inbox (`reply_to` = the quoted pk on `…/send`)
+  goes out with `context.message_id`. An inbound `type: reaction` lands in
+  `crm_messagereaction` on the message it targets (`MetaWebhook.CloudReactions`
+  → `MessageReactions.ApplyInbound`; an empty emoji removes it) — never a
+  bubble, never the AI / flows / automations, never a reopen; it only bumps
+  `Thread.UpdatedAt`. Our reaction (`POST /api/messaging/threads/whatsapp/{key}/messages/{pk}/react`)
+  is a `type: reaction` message — Meta refuses one outside the 24h window, so the
+  route answers 409 first.
 
 ### WhatsApp over Baileys
 - Unofficial WhatsApp Web protocol. **Violates WhatsApp's ToS**; dev/demo only.
@@ -156,6 +169,15 @@ outbound queue are already channel-blind.
   ended the call; `GET /api/whatsapp/calls/recording/{name}` streams the WAV
   (Range supported, name-validated).
 - One call at a time per number; outbound only.
+- **Quoted replies + reactions** (`backend/baileys_service/messages.js`, self-tested):
+  the gateway pushes `reply_to` (the quoted `contextInfo.stanzaId`) with an
+  inbound, and a `reactionMessage` as `{reaction: {msg_id, emoji}}` on
+  `/inbound` (stored as a reaction, never a bubble). Outbound: `POST
+  /accounts/{id}/send` takes `quoted_id` / `quoted_from_me` / `quoted_text` (the
+  gateway quotes the real message from a 2 000-entry key map, else rebuilds a
+  minimal one from that text), `POST /accounts/{id}/react` `{to, msg_id,
+  from_me, emoji}` sends a reaction (`""` removes ours). Locations and contact
+  cards arrive as `[location] lat,lng label` / `[contact] Name · +phone`.
 - **Number lookups:** the contact identity checker asks a connected QR number
   whether a contact's phone is on WhatsApp (`IBaileysGateway.CheckNumberAsync` →
   the gateway's `POST /accounts/{id}/check` → `{exists, jid}`; nothing is ever
@@ -189,6 +211,13 @@ outbound queue are already channel-blind.
   contact's sticky / least-loaded / sole bot (`Routing.ForThread`). The AI's
   typing pause shows "typing…" (`sendChatAction`, fire-and-forget,
   `TelegramTypingIndicator`).
+- Quoted replies: an inbound `reply_to_message.message_id` resolves
+  `Message.ReplyToId`; a reply from the inbox sends `reply_parameters`
+  (`allow_sending_without_reply`, first chunk only). Reactions: a
+  `message_reaction` update (setWebhook now asks for `message_reaction` too — press
+  "Register webhook" again on an older bot) lands on the message, never a bubble;
+  ours is `setMessageReaction` — Telegram only accepts its own emoji set and a
+  refused one comes back as its reason (502).
 - No phone number, so a Telegram chat links to a contact by hand (the `/chats`
   contact picker or `POST /api/messaging/threads/telegram/{key}/link`, a contact
   in the caller's scope), through an **invite link** (`t.me/<bot>?start=CODE`

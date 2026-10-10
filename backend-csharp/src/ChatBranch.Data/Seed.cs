@@ -293,6 +293,15 @@ public static class Seed
         AddUniqueIndexIfMissing(db, "uniq_document_series_seq", "crm_document", "\"series\", \"seq\"", "\"seq\" > 0");
         AddIndexIfMissing(db, "ix_document_thread", "crm_document", "\"thread_id\"");
         AddIndexIfMissing(db, "ix_document_public_token", "crm_document", "\"public_token\"");
+        // quoted replies + emoji reactions (WhatsApp / Telegram / Messenger)
+        AddColumnIfMissing(db, "crm_message", "reply_to_id", "INTEGER NULL");
+        AddColumnIfMissing(db, "crm_message", "reply_to_external_id", "TEXT NOT NULL DEFAULT ''");
+        AddTableIfMissing(db, "crm_messagereaction",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_messagereaction\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"message_id\" INTEGER NOT NULL, \"thread_id\" INTEGER NOT NULL, \"actor\" TEXT NOT NULL, "
+            + "\"emoji\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL, "
+            + "CONSTRAINT \"uniq_messagereaction_actor\" UNIQUE (\"message_id\", \"actor\")");
+        AddIndexIfMissing(db, "ix_messagereaction_thread", "crm_messagereaction", "\"thread_id\"");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 

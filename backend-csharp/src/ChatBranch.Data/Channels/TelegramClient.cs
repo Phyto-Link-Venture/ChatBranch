@@ -198,7 +198,7 @@ public static class TelegramBot
         {
             url,
             secret_token = secretToken,
-            allowed_updates = new[] { "message" },
+            allowed_updates = new[] { "message", "message_reaction" },
         }, ct);
 
     /// <summary>
@@ -278,8 +278,15 @@ public sealed class TelegramChannel
 
     public bool WouldSendLive(Thread thread, int? accountId) => Route(thread, accountId) != null;
 
-    public Message Send(Thread thread, string text, string source, int? accountId, OutboundMedia? media = null)
+    /// <param name="replyToExternalId">The Bot API message_id this message quotes (reply_parameters,
+    /// allow_sending_without_reply — a deleted original never fails the send).</param>
+    public Message Send(Thread thread, string text, string source, int? accountId, OutboundMedia? media = null,
+        string? replyToExternalId = null)
     {
+        long.TryParse(replyToExternalId ?? "", out var replyTo);
+        object? replyParams = replyTo > 0
+            ? new { message_id = replyTo, allow_sending_without_reply = true }
+            : null;
         var bot = Route(thread, accountId, apply: true);
         if (bot == null)
         {
@@ -313,10 +320,15 @@ public sealed class TelegramChannel
         else
         {
             result = TelegramResult.Fail(0, "empty message");
+            var first = true;
             foreach (var chunk in Chunks(text))
             {
-                result = _client.CallAsync(bot.AccessToken, "sendMessage",
-                    new { chat_id = thread.Key, text = chunk }).GetAwaiter().GetResult();
+                // only the first chunk carries the quote
+                object payload = first && replyParams != null
+                    ? new { chat_id = thread.Key, text = chunk, reply_parameters = replyParams }
+                    : new { chat_id = thread.Key, text = chunk };
+                first = false;
+                result = _client.CallAsync(bot.AccessToken, "sendMessage", payload).GetAwaiter().GetResult();
                 if (!result.Ok) break;
             }
         }
@@ -336,6 +348,26 @@ public sealed class TelegramChannel
         }
         _db.SaveChanges();
         return WithMedia(msg, media);
+    }
+
+    /// <summary>
+    /// setMessageReaction on a message of this chat (an empty emoji clears ours).
+    /// Null bot = the conversation has no live bot (sandbox: the caller stores it
+    /// locally). Telegram only accepts its own reaction set — a refused emoji
+    /// comes back as its description (REACTION_INVALID).
+    /// </summary>
+    public (bool Live, bool Ok, string Detail) React(Thread thread, string messageId, string emoji)
+    {
+        var bot = Route(thread, thread.AccountId);
+        if (bot == null) return (false, true, "sandbox");
+        if (!long.TryParse(messageId, out var mid) || mid <= 0)
+            return (true, false, "That message has no Telegram id, so it can't carry a reaction.");
+        var reaction = string.IsNullOrEmpty(emoji)
+            ? Array.Empty<object>()
+            : new object[] { new { type = "emoji", emoji } };
+        var r = _client.CallAsync(bot.AccessToken, "setMessageReaction",
+            new { chat_id = thread.Key, message_id = mid, reaction }).GetAwaiter().GetResult();
+        return (true, r.Ok, r.Ok ? "sent" : r.Description);
     }
 
     /// <summary>The Bot API message_id — one sequence per chat across both directions,
@@ -365,7 +397,11 @@ public sealed class TelegramChannel
 
 /// <summary>One parsed Telegram update (only <c>message</c> updates carry a conversation).</summary>
 public sealed record TelegramUpdate(string ChatId, string MessageId, string Name, string Text, DateTime? Date,
-    TelegramMedia? Media);
+    TelegramMedia? Media)
+{
+    /// <summary>The message_id this message replies to ("" = not a reply).</summary>
+    public string ReplyTo { get; init; } = "";
+}
 
 /// <summary>A downloadable attachment on an inbound Telegram message.</summary>
 public sealed record TelegramMedia(string FileId, string MediaType, string FallbackName);
@@ -400,13 +436,51 @@ public static class TelegramInbound
 
         var text = S(m, "text");
         if (text.Length == 0) text = S(m, "caption");
+        // a shared pin / contact card in the inbox's card shapes ("[location] lat,lng label",
+        // "[contact] Name · +phone") — the bubble renders them as cards
+        if (text.Length == 0 && m.TryGetProperty("location", out var loc) && loc.ValueKind == JsonValueKind.Object
+            && loc.TryGetProperty("latitude", out var lat) && loc.TryGetProperty("longitude", out var lng))
+            text = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"[location] {lat},{lng}");
+        if (text.Length == 0 && m.TryGetProperty("contact", out var card) && card.ValueKind == JsonValueKind.Object)
+            text = MessageCards.Contact(
+                string.Join(" ", new[] { S(card, "first_name"), S(card, "last_name") }.Where(x => x.Length > 0)),
+                S(card, "phone_number"));
         if (text.Length == 0)
             text = MediaKeys.FirstOrDefault(k => m.TryGetProperty(k, out _)) is { } kind ? $"[{kind}]" : "[message]";
 
         DateTime? date = m.TryGetProperty("date", out var d) && d.TryGetInt64(out var unix)
             ? DateTimeOffset.FromUnixTimeSeconds(unix).UtcDateTime : null;
         var msgId = m.TryGetProperty("message_id", out var mid) ? mid.ToString() : "";
-        return new TelegramUpdate(chatId, msgId, name, text, date, Media(m));
+        var replyTo = m.TryGetProperty("reply_to_message", out var rt) && rt.ValueKind == JsonValueKind.Object
+                      && rt.TryGetProperty("message_id", out var rid) ? rid.ToString() : "";
+        return new TelegramUpdate(chatId, msgId, name, text, date, Media(m)) { ReplyTo = replyTo };
+    }
+
+    /// <summary>
+    /// A <c>message_reaction</c> update (the customer reacted to a message in a
+    /// private chat): the chat, the message, and the reaction now set — the first
+    /// emoji of <c>new_reaction</c>, "" when they cleared it. Null = not one.
+    /// </summary>
+    public static (string ChatId, string MessageId, string Emoji)? ParseReaction(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("message_reaction", out var r)
+            || r.ValueKind != JsonValueKind.Object) return null;
+        if (!r.TryGetProperty("chat", out var chat) || chat.ValueKind != JsonValueKind.Object
+            || !chat.TryGetProperty("id", out var cid)) return null;
+        if (r.TryGetProperty("user", out var u) && u.ValueKind == JsonValueKind.Object
+            && u.TryGetProperty("is_bot", out var bot) && bot.ValueKind == JsonValueKind.True) return null;
+        var mid = r.TryGetProperty("message_id", out var m) ? m.ToString() : "";
+        if (mid.Length == 0) return null;
+        var emoji = "";
+        if (r.TryGetProperty("new_reaction", out var nr) && nr.ValueKind == JsonValueKind.Array)
+            foreach (var x in nr.EnumerateArray())
+                if (x.ValueKind == JsonValueKind.Object && x.TryGetProperty("emoji", out var e)
+                    && e.ValueKind == JsonValueKind.String && (e.GetString() ?? "").Length > 0)
+                {
+                    emoji = e.GetString()!;
+                    break;
+                }
+        return (cid.ToString(), mid, emoji);
     }
 
     /// <summary>messaging/views._telegram_media — what to download, or null.</summary>

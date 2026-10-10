@@ -114,6 +114,32 @@ public class Message
     /// <summary>Provider failure detail for a failed delivery ("131047: Re-engagement
     /// message"), written by the WhatsApp Cloud status webhook. "" = none.</summary>
     public string Error { get; set; } = "";
+    /// <summary>The message this one quotes / replies to (a row of the SAME thread),
+    /// resolved from <see cref="ReplyToExternalId"/> when we hold it. Null = not a reply,
+    /// or the quoted message is older than our history.</summary>
+    public int? ReplyToId { get; set; }
+    /// <summary>The provider id of the quoted message (WhatsApp Cloud <c>context.id</c>,
+    /// Baileys <c>contextInfo.stanzaId</c>, Telegram <c>reply_to_message.message_id</c>,
+    /// Messenger <c>reply_to.mid</c>). "" = not a reply.</summary>
+    public string ReplyToExternalId { get; set; } = "";
+    public DateTime CreatedAt { get; set; }
+}
+
+/// <summary>
+/// One emoji reaction on a message (<c>crm_messagereaction</c>): the customer's
+/// (<c>actor = "contact"</c>) or one of ours (<c>"user:&lt;username&gt;"</c>). One per
+/// message × actor — reacting again replaces it, an empty emoji removes the row.
+/// A reaction is never a message: it doesn't make a bubble, wake the AI, run
+/// automations or reopen a chat (<c>Channels/MessageReactions.cs</c>).
+/// </summary>
+public class MessageReaction
+{
+    public int Id { get; set; }
+    public int MessageId { get; set; }
+    public int ThreadId { get; set; }
+    /// <summary>contact | user:&lt;username&gt;</summary>
+    public string Actor { get; set; } = "";
+    public string Emoji { get; set; } = "";
     public DateTime CreatedAt { get; set; }
 }
 

@@ -7,7 +7,12 @@ namespace ChatBranch.Data.Channels;
 
 /// <summary>One inbound WhatsApp Cloud message (text, media, interactive reply…).</summary>
 public sealed record CloudInbound(string PhoneNumberId, string From, string? Name, string Wamid, string Type,
-    string Text, DateTime? Timestamp, string MediaId = "", string Mime = "", string Filename = "");
+    string Text, DateTime? Timestamp, string MediaId = "", string Mime = "", string Filename = "",
+    string ReplyTo = "");
+
+/// <summary>One inbound WhatsApp Cloud reaction: the customer reacted to the message
+/// <see cref="TargetWamid"/> (an empty <see cref="Emoji"/> = they removed it).</summary>
+public sealed record CloudReaction(string PhoneNumberId, string From, string TargetWamid, string Emoji);
 
 /// <summary>One delivery receipt from <c>value.statuses[]</c>.</summary>
 public sealed record CloudStatus(string PhoneNumberId, string Wamid, string Status, string RecipientId,
@@ -17,7 +22,11 @@ public sealed record MessagingAttachment(string Type, string Url);
 
 /// <summary>One Messenger / Instagram webhook event (<c>entry[].messaging[]</c>).</summary>
 public sealed record MessagingEvent(string Channel, string PageId, string SenderId, string Kind, string Mid,
-    string Text, DateTime? Timestamp, List<MessagingAttachment> Attachments, List<string> Mids, DateTime? Watermark);
+    string Text, DateTime? Timestamp, List<MessagingAttachment> Attachments, List<string> Mids, DateTime? Watermark)
+{
+    /// <summary>The mid this message replies to (<c>message.reply_to.mid</c>; "" = not a reply).</summary>
+    public string ReplyTo { get; init; } = "";
+}
 
 /// <summary>
 /// Parsing for Meta's webhooks (port of the whatsapp + messaging views' payload
@@ -106,9 +115,19 @@ public static class MetaWebhook
                         }
                         break;
                     case "contacts":
+                        // the first shared card as "[contact] Name · +phone" (the bubble renders a card)
                         text = "[contact card]";
+                        if (msg.TryGetProperty("contacts", out var cards) && cards.ValueKind == JsonValueKind.Array
+                            && cards.GetArrayLength() > 0 && cards[0].ValueKind == JsonValueKind.Object)
+                        {
+                            var card = cards[0];
+                            var cardName = card.TryGetProperty("name", out var nm) ? MetaGraph.Str(nm, "formatted_name") : "";
+                            var cardPhone = card.TryGetProperty("phones", out var ph) && ph.ValueKind == JsonValueKind.Array
+                                            && ph.GetArrayLength() > 0 ? MetaGraph.Str(ph[0], "phone") : "";
+                            text = MessageCards.Contact(cardName, cardPhone);
+                        }
                         break;
-                    case "reaction":
+                    case "reaction": // CloudReactions — a reaction is never a bubble
                     case "system":
                     case "ephemeral":
                         continue; // not a customer message (and must not wake the AI)
@@ -129,7 +148,32 @@ public static class MetaWebhook
                         break;
                 }
                 if (text.Length == 0) continue;
-                outv.Add(new CloudInbound(pnid, from, name, wamid, type, text, ts, mediaId, mime, filename));
+                // a quoted reply carries the quoted wamid in context.id (a forward carries none)
+                var replyTo = msg.TryGetProperty("context", out var ctx) && ctx.ValueKind == JsonValueKind.Object
+                    ? MetaGraph.Str(ctx, "id") : "";
+                outv.Add(new CloudInbound(pnid, from, name, wamid, type, text, ts, mediaId, mime, filename, replyTo));
+            }
+        }
+        return outv;
+    }
+
+    /// <summary>Inbound reactions (<c>type: reaction</c>, <c>reaction.message_id</c> + <c>emoji</c>).</summary>
+    public static List<CloudReaction> CloudReactions(JsonElement root)
+    {
+        var outv = new List<CloudReaction>();
+        foreach (var val in Changes(root))
+        {
+            if (!val.TryGetProperty("messages", out var messages) || messages.ValueKind != JsonValueKind.Array)
+                continue;
+            var pnid = PhoneNumberId(val);
+            foreach (var msg in messages.EnumerateArray())
+            {
+                if (MetaGraph.Str(msg, "type") != "reaction" || !msg.TryGetProperty("reaction", out var r)
+                    || r.ValueKind != JsonValueKind.Object) continue;
+                var from = MetaGraph.Str(msg, "from");
+                var target = MetaGraph.Str(r, "message_id");
+                if (from.Length == 0 || target.Length == 0) continue;
+                outv.Add(new CloudReaction(pnid, from, target, MetaGraph.Str(r, "emoji")));
             }
         }
         return outv;
@@ -271,8 +315,9 @@ public static class MetaWebhook
                     if (text.Length == 0 && attachments.Count > 0)
                         text = $"[{AttachmentKind(attachments[0].Type)}]";
                     if (text.Length == 0) continue;
+                    var replyTo = m.TryGetProperty("reply_to", out var rt) ? MetaGraph.Str(rt, "mid") : "";
                     outv.Add(new MessagingEvent(channel, pageId, sender, "message", MetaGraph.Str(m, "mid"), text, ts,
-                        attachments, new(), null));
+                        attachments, new(), null) { ReplyTo = replyTo });
                 }
                 else if (ev.TryGetProperty("postback", out var pb) && pb.ValueKind == JsonValueKind.Object)
                 {

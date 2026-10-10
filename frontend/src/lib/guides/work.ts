@@ -3,6 +3,7 @@ import type { GuideDef } from './types'
 /** How-to guides in the "work" group — words in i18n/messages/<locale>/manual/work.ts. */
 export const workGuides: GuideDef[] = [
   { id: 'replyToChat', group: 'work', href: '/chats', tour: 'chats', steps: 8, tips: 4, trouble: true, who: 'everyone' },
+  { id: 'quoteAndReact', group: 'work', href: '/chats', tour: 'chats', steps: 6, tips: 3, before: true, trouble: true, who: 'everyone' },
   { id: 'findChats', group: 'work', href: '/chats', tour: 'chats', steps: 10, tips: 4, who: 'everyone' },
   { id: 'takeOverFromAi', group: 'work', href: '/chats', tour: 'chats', steps: 8, tips: 3, before: true, trouble: true, who: 'everyone' },
   { id: 'assignChat', group: 'work', href: '/chats', tour: 'chats', steps: 6, tips: 3, before: true, trouble: true, who: 'everyone' },

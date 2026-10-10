@@ -196,6 +196,14 @@ public static class MessagingEndpoints
         return payload;
     }
 
+    /// <summary>The thread's bubbles with their quotes + reactions (<see cref="MessageExtras"/>).</summary>
+    private static List<Dictionary<string, object?>> Bubbles(AppDbContext db, Thread t, List<Message> messages)
+    {
+        var rows = messages.Select(m => MessagePayload(m, t.Channel, m.Account?.Name ?? t.Account?.Name)).ToList();
+        MessageExtras.Decorate(db, messages, rows);
+        return rows;
+    }
+
     private static Dictionary<string, object?> ThreadFields(AppDbContext db, Thread t, List<Message> messages) =>
         new()
         {
@@ -212,9 +220,7 @@ public static class MessagingEndpoints
             ["labels"] = t.Labels ?? new List<string>(),
             ["contact_id"] = t.ContactId,
             ["contact_name"] = t.ContactId != null ? t.Contact?.Name ?? "" : "",
-            ["messages"] = messages
-                .Select(m => MessagePayload(m, t.Channel, m.Account?.Name ?? t.Account?.Name))
-                .ToList(),
+            ["messages"] = Bubbles(db, t, messages),
             ["created"] = Iso(t.CreatedAt),
             ["updated"] = Iso(t.UpdatedAt),
         };
@@ -622,6 +628,11 @@ public static class MessagingEndpoints
                 return Results.Json(new { detail = windowClosed, window_open = false }, statusCode: 409);
 
             var subject = (Str(body, "subject") ?? "").Trim();
+            // a quote of a message of THIS conversation (WhatsApp / Telegram carry it;
+            // anything else is ignored, never a failure)
+            var quoted = IntOrNull(body, "reply_to") is int replyPk
+                ? db.Messages.FirstOrDefault(m => m.Id == replyPk && m.ThreadId == thread.Id)
+                : null;
             Message msg = null!;
             if (mediaUrl.Length > 0)
                 msg = sender.SendMediaUrl(thread, (Str(body, "media_type") ?? "image").Trim().ToLowerInvariant(),
@@ -630,10 +641,13 @@ public static class MessagingEndpoints
                 msg = ChatBranch.Data.Channels.SocialWindow.Applies(thread.Channel)
                     ? sender.SendSocialText(thread, text, MessageSource.Agent, null, human)
                     : sender.Send(thread, text, MessageSource.Agent, null,
-                        subject: subject.Length > 0 ? subject : null);
+                        subject: subject.Length > 0 ? subject : null, replyTo: quoted);
             AiControlsEndpoints.HumanReplied(db, thread, msg, me); // answers an open handover
             Audit(db, me, ctx, "message.send", $"{channel}:{key}", text);
-            return Results.Ok(new { message = MessagePayload(msg, thread.Channel, thread.Account?.Name) });
+            return Results.Ok(new
+            {
+                message = MessageExtras.Decorate(db, msg, MessagePayload(msg, thread.Channel, thread.Account?.Name)),
+            });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
 
         // POST …/ai {enabled} — per-thread AI auto-reply tick (social channels;

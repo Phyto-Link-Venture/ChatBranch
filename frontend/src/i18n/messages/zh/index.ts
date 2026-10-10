@@ -7,6 +7,7 @@ import { auth } from './auth'
 import { settings } from './settings'
 import { admin } from './admin'
 import { chats } from './chats'
+import { bubble } from './bubble'
 import { contacts } from './contacts'
 import { bookings } from './bookings'
 import { flows } from './flows'
@@ -34,6 +35,7 @@ export const zh: Dict<Messages> = {
   settings,
   admin,
   chats,
+  bubble,
   contacts,
   bookings,
   flows,
