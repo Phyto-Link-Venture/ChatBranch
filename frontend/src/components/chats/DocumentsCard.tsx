@@ -462,10 +462,10 @@ function CreateDocumentModal({
 
 function Labeled({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
-    <div className="min-w-0">
-      <div className="mb-1.5 text-[12px] font-semibold text-text-high">{label}</div>
+    <label className="block min-w-0">
+      <span className="mb-1.5 block text-[12px] font-semibold text-text-high">{label}</span>
       {children}
-      {hint && <div className="mt-1 text-[11px] leading-snug text-text-muted">{hint}</div>}
-    </div>
+      {hint && <span className="mt-1 block text-[11px] leading-snug text-text-muted">{hint}</span>}
+    </label>
   )
 }

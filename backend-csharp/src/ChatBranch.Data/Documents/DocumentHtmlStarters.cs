@@ -41,9 +41,9 @@ public static class DocumentHtmlStarters
             "Formal Malaysian invoice: centred letterhead, Ref No / Date, Attn, PRO / REF, grid table, amount in words, NOTE list and signature block.",
             new()
             {
-                new("project", "PRO", "text", false, ""),
-                new("attn_tel", "Tel", "text", false, ""),
-                new("attn_fax", "Fax", "text", false, ""),
+                new("project", "Project (PRO)", "text", false, ""),
+                new("attn_tel", "Attn tel", "text", false, ""),
+                new("attn_fax", "Attn fax", "text", false, ""),
                 new("signatory_name", "Signatory name", "text", false, ""),
                 new("signatory_title", "Signatory title", "text", false, "DIRECTOR"),
             }),
