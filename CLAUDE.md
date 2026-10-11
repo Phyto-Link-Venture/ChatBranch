@@ -990,6 +990,13 @@ When you fix one of these, update this table, `README.md` and
   (`crm_message.transcript`), read as "[voice note] …" by `AssistantService.History`
   and `SummaryService`, `transcript` on message payloads, `LlmUsage` `transcription`.
   Tests: `VoiceReplyTests`.
+  **Customer photos → the model:** a chat reply hands the customer's images of THIS turn
+  (since our last outbound, newest 3, JPEG / PNG / WebP / GIF ≤ 4 MB, read from the media
+  folder) to the model as `LlmMessage.Images` on their latest message when
+  `ILlmClient.SupportsVision` (the catalog's `Vision` flag), plus a system line saying
+  they are attached ("never say you cannot open images"); without vision, or a file
+  missing / too large, the line says the model cannot see it and should ask the customer
+  to describe it (`AssistantService.AttachCustomerImages`). Tests: `ChatImageTests`.
   The monitor shows `reactions` + `quote` on the draft (`DraftTouches` in
   `DraftBits.tsx`); the playground previews both (`reaction` / `quote` by
   transcript index, `options.emoji_style|reactions|quote_replies` overrides need
@@ -1913,7 +1920,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **986 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **989 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /
