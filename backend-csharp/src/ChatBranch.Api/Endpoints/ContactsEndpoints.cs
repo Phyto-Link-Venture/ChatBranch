@@ -129,7 +129,7 @@ public static class ContactsEndpoints
             // the phone's WhatsApp / voice (/ SMS) and the email become identities
             try { identities.Discover(row); } catch { /* discovery never fails a create */ }
             return Results.Ok((await ContactItemsAsync(db, new List<Contact> { row })).First());
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("contacts.manage");
 
         app.MapGet("/api/contacts/{id:int}", async (int id, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
@@ -175,7 +175,7 @@ public static class ContactsEndpoints
             if (c.Phone != phoneBefore || c.Email != emailBefore)
                 try { identities.Discover(c); } catch { /* discovery never fails an edit */ }
             return Results.Ok((await ContactItemsAsync(db, new List<Contact> { c })).First());
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("contacts.manage");
 
         // ---- unified channel hub ----------------------------------------------
         // One aggregated view of every channel identity this contact is reachable
@@ -389,12 +389,16 @@ public static class ContactsEndpoints
         // existing chat): creates or claims the thread and links it, so a number
         // the operator knows about is reachable without waiting for an inbound.
         app.MapPost("/api/contacts/{id:int}/channels", async (int id, IdentityWrite b,
-            AppDbContext db, ThreadStore store, ScopingService sc,
+            AppDbContext db, ThreadStore store, ScopingService sc, ClaimsPrincipal me,
             ChatBranch.Data.Contacts.ContactIdentityService identities) =>
         {
-            var contact = await db.Contacts.FindAsync(id);
+            // the contact must be in the caller's scope (the contacts rule), and an
+            // existing conversation in their inbox scope — out of scope = not found
+            var contact = await ScopeContacts(db.Contacts, me, db, sc).FirstOrDefaultAsync(c => c.Id == id);
             if (contact == null) return NotFound("Contact not found.");
             var thread = store.GetThread(b.Channel, b.Address);
+            if (thread != null && !ChatBranch.Api.Auth.ThreadAccessFilter.InScope(db, sc, me, thread.EntityId))
+                return NotFound("Conversation not found.");
             if (thread != null && thread.ContactId != null && thread.ContactId != id)
                 return Results.Json(new
                 {
@@ -420,7 +424,7 @@ public static class ContactsEndpoints
             {
                 ok = true, channel = b.Channel, key = thread.Key, contact_id = id,
             }, statusCode: 201);
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("contacts.manage");
 
         // ---- SIP call history ---------------------------------------------------
         // Read-only: the transcript + outcome per AI voice call, rendered inline in
@@ -465,7 +469,7 @@ public static class ContactsEndpoints
         app.MapPost("/api/contacts/import", async (HttpContext ctx, AppDbContext db, ScopingService sc,
             ClaimsPrincipal me, ChatBranch.Data.Contacts.ContactImporter importer) =>
                 await ImportAsync(ctx, db, sc, me, importer))
-            .RequireAuthorization(AuthPolicies.AdminPlus).RequireCapability("contacts.manage");
+            .RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("contacts.manage");
 
         // ---- script templates --------------------------------------------------
         app.MapGet("/api/calls/script-templates", async (string? entity, int? contact_id,

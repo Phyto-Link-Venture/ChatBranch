@@ -763,8 +763,36 @@ public class MoreChannelsTests : IClassFixture<MoreChannelsFactory>
         var put = Assert.Single(_f.Http.To("api.line.me", "/channel/webhook/endpoint"));
         Assert.Equal($"https://hooks.example.test/api/messaging/webhook/line/{id}", put.Json.GetProperty("endpoint").GetString());
 
-        // agents can't create accounts
+        // agents can't create accounts while the matrix denies them channels.manage (the default)…
         var agent = await Authed("agent", "agent123");
+        Assert.Equal(HttpStatusCode.Forbidden, (await agent.PostAsJsonAsync("/api/messaging/accounts",
+            new { channel = "viber", access_token = "x" })).StatusCode);
+        // …and can once the Permissions page grants the agent role channels.manage
+        InDb(db =>
+        {
+            db.RolePermissions.Add(new RolePermission
+            {
+                Role = Roles.Agent, Capability = "channels.manage", Allowed = true, UpdatedAt = DateTime.UtcNow,
+            });
+            return db.SaveChanges();
+        });
+        try
+        {
+            var granted = await agent.PostAsJsonAsync("/api/messaging/accounts",
+                new { channel = "viber", name = "Agent viber", access_token = "agent-viber-token" });
+            Assert.Equal(HttpStatusCode.OK, granted.StatusCode);
+            var made = (await granted.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString();
+            Assert.Equal(HttpStatusCode.OK, (await agent.DeleteAsync($"/api/messaging/accounts/{made}")).StatusCode);
+        }
+        finally
+        {
+            InDb(db =>
+            {
+                db.RolePermissions.RemoveRange(db.RolePermissions.Where(p => p.Role == Roles.Agent
+                    && p.Capability == "channels.manage"));
+                return db.SaveChanges();
+            });
+        }
         Assert.Equal(HttpStatusCode.Forbidden, (await agent.PostAsJsonAsync("/api/messaging/accounts",
             new { channel = "viber", access_token = "x" })).StatusCode);
         var list = await c.GetFromJsonAsync<JsonElement>("/api/messaging/accounts");

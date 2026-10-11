@@ -23,7 +23,7 @@ public static partial class ToolCatalog
         const string u = "users";
         var usersManage = C("users.manage");
         yield return T(u, "users_list", "List users",
-            "Logins you may manage (superadmin: everyone; admin: their tenant): username, role, active, entities, " +
+            "Logins you may manage (superadmin: everyone; otherwise your tenant, or the users bound inside your entities): username, role, active, entities, " +
             "teams, last login, a linked customer contact.", "GET", "/api/v1/users", usersManage,
             link: (_, _) => Page("Open users", "/users"));
         yield return T(u, "users_list_agents", "List assignable agents",
@@ -96,7 +96,7 @@ public static partial class ToolCatalog
             A.Bool("auto_assign", "Round-robin new conversations across members."),
             A.Entity("Entity slug; omit for organisation-wide.", ArgIn.Body),
         };
-        yield return T(tm, "teams_create", "Create a team", "Add a team (admin). Add members with teams_set_members.",
+        yield return T(tm, "teams_create", "Create a team", "Add a team. Add members with teams_set_members.",
             "POST", "/api/teams", usersManage, teamFields);
         yield return T(tm, "teams_update", "Update a team", "Rename a team, change its entity or switch round-robin auto-assign on/off.", "PATCH", "/api/teams/{id:int}", usersManage,
             new[] { A.Id("team") }.Concat(teamFields).ToArray());

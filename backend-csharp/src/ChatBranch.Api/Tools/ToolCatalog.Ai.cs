@@ -198,7 +198,7 @@ public static partial class ToolCatalog
             });
 
         yield return T(g, "ai_delete_lesson", "Delete an AI lesson",
-            "Delete a lesson for good (admin). Prefer ai_update_lesson status archived to keep the history.",
+            "Delete a lesson for good. Prefer ai_update_lesson status archived to keep the history.",
             "DELETE", "/api/ai/lessons/{id:int}", behaviour, new[] { A.Id("lesson") }, destructive: true);
 
         yield return T(g, "ai_convert_lesson_to_knowledge", "Turn a lesson into knowledge",

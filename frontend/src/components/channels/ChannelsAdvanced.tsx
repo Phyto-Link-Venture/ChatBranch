@@ -64,7 +64,7 @@ function Field({
   )
 }
 
-function EmailFallbackForm({ isSuper }: { isSuper: boolean }) {
+function EmailFallbackForm({ canKeys }: { canKeys: boolean }) {
   const t = useT()
   const [data, setData] = useState<EmailSettings | null>(null)
   /** The load failure as thrown — phrased at render, in the current language. */
@@ -142,7 +142,7 @@ function EmailFallbackForm({ isSuper }: { isSuper: boolean }) {
       </p>
     )
 
-  const ro = !isSuper
+  const ro = !canKeys
   return (
     <div className="flex flex-col gap-4">
       <p className="text-[12.5px] leading-relaxed text-text-mid">
@@ -223,7 +223,7 @@ function EmailFallbackForm({ isSuper }: { isSuper: boolean }) {
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        {isSuper && (
+        {canKeys && (
           <Button onClick={save} disabled={busy}>
             {busy && <Loader2 size={13} className="animate-spin" aria-hidden />} {t('channels.advanced.save')}
           </Button>
@@ -254,7 +254,7 @@ function EmailFallbackForm({ isSuper }: { isSuper: boolean }) {
   )
 }
 
-export function ChannelsAdvanced({ verifyToken, isSuper }: { verifyToken: string; isSuper: boolean }) {
+export function ChannelsAdvanced({ verifyToken, canKeys }: { verifyToken: string; canKeys: boolean }) {
   const t = useT()
   const [open, setOpen] = useState(false)
   return (
@@ -291,7 +291,7 @@ export function ChannelsAdvanced({ verifyToken, isSuper }: { verifyToken: string
           </div>
           <div className="flex flex-col gap-3">
             <h3 className="eyebrow">{t('channels.advanced.mailTitle')}</h3>
-            <EmailFallbackForm isSuper={isSuper} />
+            <EmailFallbackForm canKeys={canKeys} />
           </div>
         </div>
       )}

@@ -511,7 +511,8 @@ public static class CallsVoiceEndpoints
             return Unavailable(Env("ELEVENLABS_API_KEY").Length == 0
                 ? "Voice cloning not configured (ELEVENLABS_API_KEY unset)."
                 : "Voice cloning is not available in this build (no ElevenLabs client in the C# API).");
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage")
+          .OrgWideAction();   // the organization's voice library (Voice & calls)
 
         // ---- POST /api/voice/import -----------------------------------------
         // Import copies an existing ElevenLabs voice into the local registry.
@@ -535,7 +536,8 @@ public static class CallsVoiceEndpoints
             return Unavailable(Env("ELEVENLABS_API_KEY").Length == 0
                 ? "Voice import not configured (ELEVENLABS_API_KEY unset)."
                 : "Voice import is not available in this build (no ElevenLabs client in the C# API).");
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage")
+          .OrgWideAction();   // the organization's voice library (Voice & calls)
 
         // ---- PATCH /api/voice/{voiceId} --------------------------------------
         // REAL for locally-stored custom voices: renaming, re-labelling and
@@ -590,7 +592,8 @@ public static class CallsVoiceEndpoints
             catch (Exception e) { return Unavailable($"Could not write the voice registry: {e.Message}", 503); }
 
             return Results.Ok(new { voice = ClientView(voice) });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage")
+          .OrgWideAction();   // the organization's voice library (Voice & calls)
 
         // ---- DELETE /api/voice/{voiceId} -------------------------------------
         // Deleting an ElevenLabs-backed voice has to delete it UPSTREAM too, or
@@ -618,7 +621,8 @@ public static class CallsVoiceEndpoints
             catch (Exception e) { return Unavailable($"Could not write the voice registry: {e.Message}", 503); }
 
             return Results.Ok(new { deleted = voiceId });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai.manage")
+          .OrgWideAction();   // the organization's voice library (Voice & calls)
     }
 
     /// <summary>Loose string read off a raw JSON body (numbers/bools included).</summary>

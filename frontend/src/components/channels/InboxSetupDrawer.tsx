@@ -216,7 +216,7 @@ export function InboxSetupDrawer({
   target,
   teams,
   verifyToken,
-  isSuper,
+  canKeys,
   voiceConfigured,
   onClose,
   onChanged,
@@ -224,7 +224,7 @@ export function InboxSetupDrawer({
   target: DrawerTarget
   teams: Team[]
   verifyToken: string
-  isSuper: boolean
+  canKeys: boolean
   /** The SIP trunk is a singleton — its block edits the existing one. */
   voiceConfigured: Inbox | null
   onClose: () => void
@@ -577,7 +577,7 @@ export function InboxSetupDrawer({
   const next = () => {
     setFormError(null)
     if (step === 2) {
-      if (kind === 'voice' && !isSuper) {
+      if (kind === 'voice' && !canKeys) {
         // read-only for everyone but the super admin
         setStep(4)
         return
@@ -691,7 +691,7 @@ export function InboxSetupDrawer({
   // ── render helpers ─────────────────────────────────────────────────────
   const meta = kind ? kindMeta(kind) : null
   const teamName = (id: number | null) => teams.find((tm) => tm.id === id)?.name
-  const voiceLocked = kind === 'voice' && !isSuper
+  const voiceLocked = kind === 'voice' && !canKeys
 
   /** The masked stored value of a secret field ("" when none / not a secret). */
   const currentSecret = (f: FieldSpec): string =>
@@ -1307,7 +1307,7 @@ export function InboxSetupDrawer({
   // ── footer ─────────────────────────────────────────────────────────────
   const primaryKey: MessageKey =
     step === 2
-      ? kind === 'voice' && isSuper
+      ? kind === 'voice' && canKeys
         ? 'channels.drawer.footer.saveContinue'
         : 'common.actions.continue'
       : step === 3

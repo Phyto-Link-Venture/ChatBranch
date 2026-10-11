@@ -5,7 +5,7 @@ import { Info, KeyRound, Loader2, ShieldAlert } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { roleHeaders } from '@/lib/role'
 import { expireSessionOn401 } from '@/lib/auth'
-import { useRole } from '@/lib/useRole'
+import { useAccess } from '@/lib/useAccess'
 import { Trans, useT } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
@@ -62,13 +62,13 @@ function Field({
 }
 
 /**
- * App-level keys — SUPER ADMIN only (Whatomate's model: org-level AI settings
+ * App-level keys — app_keys.manage (super admins by default; Whatomate's model: org-level AI settings
  * live above the per-admin WhatsApp accounts). Saved values override the
  * backend/.env defaults at runtime; clearing a field falls back to env.
  */
 export function AppKeysSettings() {
   const t = useT()
-  const { role, ready } = useRole()
+  const { ready, can } = useAccess()
   const [loaded, setLoaded] = useState<GlobalSettings | null>(null)
   const [verifyToken, setVerifyToken] = useState('')
   const [busy, setBusy] = useState(false)
@@ -83,9 +83,9 @@ export function AppKeysSettings() {
     api<GlobalSettings>('settings').then(seed).catch(() => setLoaded(null))
   }, [])
 
-  if (!ready) return null // role resolves after mount — don't flash the denial
+  if (!ready) return null // access resolves after mount — don't flash the denial
 
-  if (role !== 'superadmin') {
+  if (!can('app_keys.manage')) {
     return (
       <div className="flex items-center gap-2 py-6 text-[12.5px] text-text-muted">
         <ShieldAlert size={15} className="text-amber-300" aria-hidden />

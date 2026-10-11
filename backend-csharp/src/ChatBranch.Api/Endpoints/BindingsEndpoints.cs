@@ -213,6 +213,8 @@ public static class BindingsEndpoints
                 var userIds = kind is "user-entities" or "user-teams" ? new List<int> { target } : add.Concat(remove).ToList();
                 var profiles = await db.Profiles.AsNoTracking().Where(p => userIds.Contains(p.UserId)).ToListAsync();
                 var addedUsers = kind is "user-entities" or "user-teams" ? (add.Count > 0 ? userIds : new List<int>()) : add;
+                var bound = ShellScope.BoundEntityIds(db, sc, me);
+                var selfId = await Caller.UserIdAsync(db, me);
                 foreach (var profile in profiles)
                 {
                     if (role != Roles.SuperAdmin)
@@ -226,7 +228,27 @@ public static class BindingsEndpoints
                         && AdminEndpoints.IsPrivilegedRole(profile.Role))
                         return Results.Json(new { detail = "Entity access applies to agent-level users (agent and custom roles) only." },
                             statusCode: 400);
+                    if (kind is not ("user-entities" or "entity-users")) continue;
+                    // nobody but a superadmin changes their OWN entity access
+                    if (role != Roles.SuperAdmin && profile.UserId == selfId)
+                        return Results.Json(new { detail = "You can't change your own entity access." }, statusCode: 403);
+                    // a manager bound to entities (a company admin, a bound custom role) changes
+                    // the access of users bound inside their entities only — never a tenant-wide
+                    // user (as /api/v1/users)
+                    if (bound != null)
+                    {
+                        var theirs = await db.Profiles.AsNoTracking().Where(p => p.Id == profile.Id)
+                            .SelectMany(p => p.Entities.Select(e => e.Id)).ToListAsync();
+                        if (theirs.Count == 0 || theirs.Any(e => !bound.Contains(e)))
+                            return Results.Json(new { detail = "That user is outside your companies." }, statusCode: 403);
+                    }
                 }
+                // a team's members: the team must be one the caller may edit (as PATCH /api/teams)
+                var teamIds = kind == "team-users" ? new List<int> { target }
+                    : kind == "user-teams" ? add.Concat(remove).ToList() : new List<int>();
+                foreach (var teamEntity in await db.Teams.AsNoTracking().Where(t => teamIds.Contains(t.Id))
+                             .Select(t => t.EntityId).ToListAsync())
+                    if (ShellScope.CompanyLevelError(db, sc, me, teamEntity) is { } outsideTeam) return outsideTeam;
                 if (kind == "user-entities" && profiles.Count == 0)
                     return Results.Json(new { detail = "User not found." }, statusCode: 404);
                 // the entities granted must be the caller's own
@@ -247,6 +269,33 @@ public static class BindingsEndpoints
                 foreach (var eid in entityIds.Distinct())
                     if (!await EntityVisibleAsync(db, sc, me, eid))
                         return Results.Json(new { detail = "That entity is outside your scope." }, statusCode: 403);
+            }
+            // ---- tags: only contacts / entities in the caller's scope
+            if (kind == "tag-contacts")
+            {
+                var contactIds = add.Concat(remove).Distinct().ToList();
+                var inScope = await ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
+                    .Where(c => contactIds.Contains(c.Id)).Select(c => c.Id).ToListAsync();
+                if (contactIds.Except(inScope).Any())
+                    return Results.Json(new { detail = "Contact not found." }, statusCode: 404);
+            }
+            if (kind == "tag-entities")
+                foreach (var eid in add.Concat(remove).Distinct())
+                    if (!await EntityVisibleAsync(db, sc, me, eid))
+                        return Results.Json(new { detail = "That entity is outside your scope." }, statusCode: 403);
+            // ---- channel accounts: the target entity and every account moved must be the
+            // caller's (someone bound to entities never moves another company's number, and
+            // only a company admin's old reach touches an organization-wide one)
+            if (kind == "entity-accounts")
+            {
+                if (!await EntityVisibleAsync(db, sc, me, target))
+                    return Results.Json(new { detail = "That entity is outside your scope." }, statusCode: 403);
+                var moved = add.Concat(remove).Distinct().ToList();
+                foreach (var accountEntity in await db.ChannelAccounts.AsNoTracking().Where(a => moved.Contains(a.Id))
+                             .Select(a => a.EntityId).ToListAsync())
+                    if (ShellScope.ObjectScopeError(db, sc, me, accountEntity) is { } outsideAccount) return outsideAccount;
+                // unbinding returns a number to organization-wide
+                if (remove.Count > 0 && ShellScope.OrgWideActionError(db, me) is { } orgWide) return orgWide;
             }
 
             if (def.Target == "tag")
@@ -274,7 +323,9 @@ public static class BindingsEndpoints
                 ok = true, added, removed,
                 member_ids = await MembersAsync(db, kind, target),
             });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          // a first cut for the route table; the kind's own capability is checked above
+          .RequireAnyCapability("users.manage", "contacts.manage", "tags.manage", "channels.manage");
     }
 
     private static int? TenantOf(ClaimsPrincipal me) =>

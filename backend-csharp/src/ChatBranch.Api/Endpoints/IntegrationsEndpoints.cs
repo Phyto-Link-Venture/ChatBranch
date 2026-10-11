@@ -166,7 +166,9 @@ public static class IntegrationsEndpoints
             return Results.Ok(new { integrations = cards, actions = Actions });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("integrations.view");
 
-        // Connect: superadmin. Sandbox → 400 with a reason, no socket opened.
+        // Connect with raw provider credentials: integrations.manage AND
+        // app_keys.manage (superadmin-only by default, organization-level — so
+        // never a bound person's). Sandbox → 400 with a reason, no socket opened.
         app.MapPost("/api/integrations/{provider}/connect",
             async (string provider, ConnectRequest body, AppDbContext db) =>
         {
@@ -191,7 +193,8 @@ public static class IntegrationsEndpoints
             row.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
             return Results.Ok(new { provider, status = row.Status });
-        }).RequireAuthorization(AuthPolicies.SuperAdmin).RequireCapability("integrations.manage");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("integrations.manage")
+          .RequireCapability("app_keys.manage");
 
         // ---- provider catalog (views.providers) ----------------------------
         // Works with an empty database and zero credentials — that is the
@@ -268,9 +271,10 @@ public static class IntegrationsEndpoints
             var entityId = await InboxEndpoints.EntityId(db, entitySlug);
             if (entitySlug is { Length: > 0 } and not ("all" or "__all__") && entityId == null)
                 return Results.Json(new { detail = $"Unknown entity '{entitySlug}'." }, statusCode: 404);
-            if (!ShellScope.AdminMayAct(db, ctx.RequestServices.GetRequiredService<ScopingService>(), me, entityId))
+            // the route checked integrations.manage; a bound holder adds accounts for their own entities only
+            if (!ShellScope.MayActAt(db, ctx.RequestServices.GetRequiredService<ScopingService>(), me, entityId))
                 return Results.Json(new { detail = entityId == null
-                    ? "Only an organization-wide admin can add an account for the whole organization."
+                    ? "Only someone not limited to particular entities can add an account for the whole organization."
                     : "That entity is outside your scope." }, statusCode: 403);
             var config = ObjectToDict(body, "config");
             var name = Cap((AsText(body, "name") ?? "").Trim(), 120);
@@ -305,9 +309,9 @@ public static class IntegrationsEndpoints
             await NotifyAdmins(db, $"Integration added: {Name(row)}",
                                $"{meta.Label} — by {me.Identity?.Name ?? "system"}");
             return Results.Ok(Payload(row));
-        }).RequireAuthorization(AuthPolicies.AdminPlus).RequireCapability("integrations.manage");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("integrations.manage");
 
-        // Delete a row entirely (views.account_detail DELETE). admin+.
+        // Delete a row entirely (views.account_detail DELETE). integrations.manage.
         app.MapDelete("/api/integrations/accounts/{id:int}", async (int id, HttpContext ctx,
             AppDbContext db, ClaimsPrincipal me) =>
         {
@@ -319,7 +323,7 @@ public static class IntegrationsEndpoints
             await db.SaveChangesAsync();
             await Audit(db, ctx, me, "integration.delete", label);
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.AdminPlus).RequireCapability("integrations.manage");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("integrations.manage");
 
         // One probe (views.account_test). Any authenticated role, like Django.
         // NOTE: the live provider probes are not ported yet — a stored-credential
@@ -354,12 +358,11 @@ public static class IntegrationsEndpoints
             var row = await db.Integrations.Include(i => i.Owner).Include(i => i.Entity).FirstOrDefaultAsync(i => i.Id == id);
             if (row == null || !await CanSeeRowAsync(db, me, row))
                 return Results.Json(new { detail = "Integration not found." }, statusCode: 404);
-            // anyone may disconnect their OWN connection; shared ones need admin+
-            // with integrations.manage (the policy this route used to carry)
+            // anyone may disconnect their OWN connection; anyone else's needs
+            // integrations.manage, inside the caller's entity scope
             var own = row.OwnerUserId is int owner && owner == await UserIdAsync(db, me);
-            if (!own && !(await MayManageRowAsync(db, ctx.RequestServices.GetRequiredService<ScopingService>(), me, row)
-                          && await ShellScope.HasCapAsync(db, me, "integrations.manage")))
-                return Results.Json(new { detail = "Only an admin with integrations.manage can disconnect a shared connection." },
+            if (!own && !await MayManageRowAsync(db, ctx.RequestServices.GetRequiredService<ScopingService>(), me, row))
+                return Results.Json(new { detail = "Only someone with integrations.manage can disconnect a shared connection." },
                     statusCode: 403);
             // oauth.revoke_local: drop the stored credentials only — name/config
             // survive so reconnecting is one click. Google's own revoke endpoint
@@ -461,9 +464,8 @@ public static class IntegrationsEndpoints
             IntegrationResolver resolver, GoogleOAuth oauth) =>
         {
             var shared = string.Equals((forWhom ?? "").Trim(), "shared", StringComparison.OrdinalIgnoreCase);
-            if (shared && !(ShellScope.RoleOf(me) is Roles.SuperAdmin or Roles.Admin
-                            && await ShellScope.HasCapAsync(db, me, "integrations.manage")))
-                return Results.Json(new { detail = "Only an admin with integrations.manage can connect a shared account." },
+            if (shared && !await ShellScope.HasCapAsync(db, me, "integrations.manage"))
+                return Results.Json(new { detail = "Only someone with integrations.manage can connect a shared account." },
                     statusCode: 403);
             var meta = Meta(provider);
             if (meta == null)
@@ -487,10 +489,10 @@ public static class IntegrationsEndpoints
             var entityId = await InboxEndpoints.EntityId(db, entity);
             if (shared && !string.IsNullOrWhiteSpace(entity) && entity is not ("all" or "__all__") && entityId == null)
                 return Results.Json(new { detail = $"Unknown entity '{entity}'." }, statusCode: 404);
-            // a company admin connects shared accounts for their own companies only
-            if (shared && !ShellScope.AdminMayAct(db, sc, me, entityId))
+            // someone bound to entities (a company admin…) connects shared accounts for their own entities only
+            if (shared && !ShellScope.MayActAt(db, sc, me, entityId))
                 return Results.Json(new { detail = entityId == null
-                    ? "Only an organization-wide admin can connect an account for the whole organization."
+                    ? "Only someone not limited to particular entities can connect an account for the whole organization."
                     : "That entity is outside your scope." }, statusCode: 403);
             var row = shared
                 ? await resolver.SharedRowAsync(provider, entityId)
@@ -789,25 +791,33 @@ public static class IntegrationsEndpoints
     /// <summary>
     /// The integration rows a caller may see: the library rule (org-wide + the
     /// caller's outlets, <see cref="ShellScope.ScopeLibrary"/>), minus other
-    /// people's PERSONAL connections unless the caller is an admin.
+    /// people's PERSONAL connections unless the caller manages everyone's
+    /// (<see cref="SeesEveryonesConnectionsAsync"/>).
     /// </summary>
     private static async Task<IQueryable<Integration>> Visible(AppDbContext db, ScopingService sc,
         ClaimsPrincipal me, int? entityId)
     {
         var qs = ShellScope.ScopeLibrary(db.Integrations.AsNoTracking(), db, sc, me, entityId);
-        if (ShellScope.IsOrgWideAdmin(db, me)) return qs;
+        if (await SeesEveryonesConnectionsAsync(db, me)) return qs;
         var uid = await UserIdAsync(db, me);
         return qs.Where(i => i.OwnerUserId == null || i.OwnerUserId == uid);
     }
 
+    /// <summary>Other people's PERSONAL connections (to see, disconnect or delete
+    /// them): integrations.manage held by someone not bound to entities — a
+    /// superadmin, an organization-wide admin, or any role granted it with the
+    /// tenant-wide view. A bound person (a company admin…) sees only their own.</summary>
+    internal static async Task<bool> SeesEveryonesConnectionsAsync(AppDbContext db, ClaimsPrincipal me) =>
+        !ShellScope.IsBound(db, me) && await ShellScope.HasCapAsync(db, me, "integrations.manage");
+
     /// <summary>One row: its owner always; otherwise integrations.view, and a
-    /// personal row of someone else only for admins.</summary>
+    /// personal row of someone else only for <see cref="SeesEveryonesConnectionsAsync"/>.</summary>
     private static async Task<bool> CanSeeRowAsync(AppDbContext db, ClaimsPrincipal me, Integration row)
     {
         var uid = await UserIdAsync(db, me);
         if (row.OwnerUserId is int owner && owner == uid) return true;
         if (!await ShellScope.HasCapAsync(db, me, "integrations.view")) return false;
-        if (ShellScope.IsOrgWideAdmin(db, me)) return true;
+        if (await SeesEveryonesConnectionsAsync(db, me)) return true;
         if (row.OwnerUserId != null) return false;
         // a shared row: within the caller's library scope (a bound caller sees the
         // org-wide rows, their entities' and what those inherit)
@@ -816,14 +826,16 @@ public static class IntegrationsEndpoints
         return true;
     }
 
-    /// <summary>May the caller change or delete this row: its owner; an org-wide
-    /// admin any; a company admin a SHARED row of an entity inside their companies.</summary>
+    /// <summary>May the caller change or delete this row: its owner; otherwise
+    /// integrations.manage — unbound holders any row, someone bound to entities (a
+    /// company admin…) a SHARED row of an entity inside their subtrees.</summary>
     private static async Task<bool> MayManageRowAsync(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
         Integration row)
     {
         if (row.OwnerUserId is int owner && owner == await UserIdAsync(db, me)) return true;
-        if (ShellScope.IsOrgWideAdmin(db, me)) return true;
-        return row.OwnerUserId == null && ShellScope.AdminMayAct(db, sc, me, row.EntityId);
+        if (!await ShellScope.HasCapAsync(db, me, "integrations.manage")) return false;
+        if (!ShellScope.IsBound(db, me)) return true;
+        return row.OwnerUserId == null && ShellScope.MayActAt(db, sc, me, row.EntityId);
     }
 
     private static async Task<int?> UserIdAsync(AppDbContext db, ClaimsPrincipal me)

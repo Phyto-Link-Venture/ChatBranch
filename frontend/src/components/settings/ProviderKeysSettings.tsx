@@ -5,7 +5,7 @@ import { Check, Copy, CreditCard, FolderOpen, KeyRound, Loader2, ShieldAlert, Sh
 import { Button } from '@/components/ui/Button'
 import { roleHeaders } from '@/lib/role'
 import { expireSessionOn401 } from '@/lib/auth'
-import { useRole } from '@/lib/useRole'
+import { useAccess } from '@/lib/useAccess'
 import { Trans, useT } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
@@ -120,7 +120,7 @@ function SecretField({
 
 export function ProviderKeysSettings() {
   const t = useT()
-  const { role, ready } = useRole()
+  const { ready, can } = useAccess()
   const [settings, setSettings] = useState<GlobalSettings | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [keys, setKeys] = useState<Record<string, string>>({})
@@ -170,9 +170,9 @@ export function ProviderKeysSettings() {
     }
   }
 
-  if (!ready) return null // role resolves after mount — don't flash the denial
+  if (!ready) return null // access resolves after mount — don't flash the denial
 
-  if (role !== 'superadmin') {
+  if (!can('app_keys.manage')) {
     return (
       <div className="flex items-center gap-2 py-6 text-[12.5px] text-text-muted">
         <ShieldAlert size={15} className="text-amber-300" aria-hidden />

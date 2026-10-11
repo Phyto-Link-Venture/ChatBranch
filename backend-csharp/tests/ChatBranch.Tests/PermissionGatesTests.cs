@@ -77,8 +77,8 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
 
     /// <summary>
     /// Every gated read, as a URL template ({c} = a contact id, {t} = a tag id) and
-    /// the capabilities that open it (ANY of them). An empty list = a role gate
-    /// (admin+), opened by the admin login rather than a capability.
+    /// the capabilities that open it (ANY of them). No read is gated by a role any
+    /// more — every gate is a capability the Permissions page can grant.
     /// </summary>
     private static readonly (string Url, string[] Caps)[] Gates =
     {
@@ -124,7 +124,7 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/audit", new[] { "activity.view" }),
         ("/api/audit.csv", new[] { "activity.view" }),
         ("/api/audit/facets", new[] { "activity.view" }),
-        ("/api/auth/audit", Array.Empty<string>()),
+        ("/api/auth/audit", new[] { "users.view", "users.manage" }),
         // Chats + contacts
         ("/api/inbox/threads", new[] { "chats.view" }),
         ("/api/whatsapp/threads", new[] { "chats.view" }),
@@ -184,8 +184,8 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/v1/users", new[] { "users.manage" }),
         ("/api/teams", new[] { "users.view", "chats.view", "flows.manage", "channels.view" }),
         ("/api/v1/brands", new[] { "entities.view" }),
-        ("/api/auth/roles", Array.Empty<string>()),
-        ("/api/auth/permissions", Array.Empty<string>()),
+        ("/api/auth/roles", new[] { "users.view", "users.manage", "rbac.manage" }),
+        ("/api/auth/permissions", new[] { "users.view", "users.manage", "rbac.manage" }),
         // Channels + assignment
         ("/api/whatsapp/accounts", new[] { "chats.view", "channels.view", "templates.manage" }),
         ("/api/whatsapp/accounts/999999/baileys/status", new[] { "channels.view" }),
@@ -206,17 +206,13 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/developers/mcp", new[] { "api_keys.manage" }),
         ("/api/auth/notification-prefs", new[] { "notifications.manage" }),
         ("/api/settings/ai-providers", new[] { "settings.ai_keys.manage" }),
-        ("/api/settings?keys=quiet_start", Array.Empty<string>()),
-        // Test lab (superadmin only — see SuperadminOnly)
-        ("/api/testlab/scenarios", Array.Empty<string>()),
-        ("/api/testlab/status", Array.Empty<string>()),
-        ("/api/testlab/runs", Array.Empty<string>()),
-        ("/api/testlab/runs/999999", Array.Empty<string>()),
+        ("/api/settings?keys=quiet_start", new[] { "settings.raw.view" }),
+        // Test lab (testlab.run — superadmin only by default)
+        ("/api/testlab/scenarios", new[] { "testlab.run" }),
+        ("/api/testlab/status", new[] { "testlab.run" }),
+        ("/api/testlab/runs", new[] { "testlab.run" }),
+        ("/api/testlab/runs/999999", new[] { "testlab.run" }),
     };
-
-    /// <summary>Role-gated rows (empty caps) whose policy is superadmin, not admin+: the
-    /// superadmin login opens them and the admin login is refused.</summary>
-    private static readonly string[] SuperadminOnly = { "/api/testlab/" };
 
     /// <summary>What a signed-in person with NO capability still reads: the shell and
     /// their own things (the pages they can open — Notifications, personal Settings).</summary>
@@ -284,24 +280,25 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
 
         foreach (var (url, caps) in Gates)
         {
-            if (caps.Length == 0)
-            {
-                if (SuperadminOnly.Any(url.StartsWith))
-                {
-                    bad.AddRange(await Check(await SettingsTestKit.Client(_f, "superadmin", "super123"), new[] { url },
-                        Through, "superadmin to get through"));
-                    bad.AddRange(await Check(admin, new[] { url }, s => s == HttpStatusCode.Forbidden, "403 for admin"));
-                    continue;
-                }
-                bad.AddRange(await Check(admin, new[] { url }, Through, "admin+ to get through"));
-                continue;
-            }
+            Assert.True(caps.Length > 0, $"{url}: every read is gated by a capability, never a role");
             foreach (var cap in caps)
                 bad.AddRange((await Check(clients[cap], new[] { url }, Through, "through"))
                     .Select(b => $"[{cap}] {b}"));
+            // the default admin keeps every read it had: refused only where every capability
+            // that opens it is one admins don't hold by default (superadmin's own)
+            var adminHolds = caps.Any(c => !AdminExcluded.Contains(c));
+            bad.AddRange((await Check(admin, new[] { url }, adminHolds ? Through : s => s == HttpStatusCode.Forbidden,
+                adminHolds ? "admin to get through" : "403 for admin")).Select(b => $"[admin] {b}"));
         }
         Assert.True(bad.Count == 0, string.Join("\n", bad));
     }
+
+    /// <summary>The capabilities the default admin does NOT hold (AdminEndpoints.AdminExclude).</summary>
+    private static readonly HashSet<string> AdminExcluded = new()
+    {
+        "rbac.manage", "app_keys.manage", "settings.ai_keys.manage", "billing.manage",
+        "settings.ai_hard_rules.manage", "settings.raw.manage", "testlab.run",
+    };
 
     [Fact]
     public async Task The_default_agent_keeps_every_read_its_pages_use_and_no_other()
@@ -355,7 +352,7 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ["/api/developers/keys"] = "the caller's own API keys (never the secret); ?scope=tenant needs api_keys.manage inside",
         ["/api/integrations/mine"] = "Settings → My connections: the caller's own Google grants",
         ["/api/integrations/accounts"] = "without integrations.view, only the caller's own connections (checked inside)",
-        ["/api/integrations/oauth/{provider}/start"] = "connect your OWN Google account; a shared row needs admin+ AND integrations.manage inside",
+        ["/api/integrations/oauth/{provider}/start"] = "connect your OWN Google account; a shared row needs integrations.manage (inside the caller's entities) inside",
         ["/api/assistant/conversations"] = "the caller's own Ask ChatBranch history (the dock is on every page; owner-only rows)",
         ["/api/assistant/conversations/{id:int}"] = "one of the caller's own Ask ChatBranch conversations (someone else's answers 404)",
         ["/api/auth/me/account"] = "Settings → My account: the caller's own name, email, role, entities and session count",

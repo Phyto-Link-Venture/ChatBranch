@@ -81,7 +81,7 @@ public static class WidgetAdminEndpoints
             await db.SaveChangesAsync();
             await db.Entry(row).Reference(a => a.Entity).LoadAsync();
             return Results.Json(Payload(row, ctx, 0), statusCode: 201);
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
 
         // ---- update (look, name, entity) --------------------------------------
         app.MapMethods("/api/widgets/{id:int}", new[] { "PATCH" },
@@ -136,7 +136,7 @@ public static class WidgetAdminEndpoints
             // the response names the entity, so load it (only the FK moved)
             await db.Entry(row).Reference(a => a.Entity).LoadAsync();
             return Results.Ok(Payload(row, ctx, await db.Threads.CountAsync(t => t.AccountId == row.Id)));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
 
         // ---- delete -----------------------------------------------------------
         app.MapDelete("/api/widgets/{id:int}", async (int id, AppDbContext db, ClaimsPrincipal me, ScopingService sc) =>
@@ -157,7 +157,7 @@ public static class WidgetAdminEndpoints
             });
             await db.SaveChangesAsync();
             return Results.Ok(new { ok = true, conversations_kept = convos });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
     }
 
     // ---- helpers ------------------------------------------------------------

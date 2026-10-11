@@ -9,11 +9,12 @@ namespace ChatBranch.Data.Ai.Learning;
 /// the entity subtree an entity-BOUND person (assigned entities: a company admin,
 /// an agent or a custom role) is confined to; null = not bound (superadmin, an
 /// org-wide admin, an unassigned agent, the system) — the same rule as
-/// <c>ShellScope.BoundEntityIds</c>.</summary>
-public sealed record LearningActor(int? UserId, string Username, string Role, IReadOnlyList<int>? Bound = null)
+/// <c>ShellScope.BoundEntityIds</c>. <paramref name="Approver"/> = their role holds
+/// <c>ai.behaviour.manage</c> (the capability that writes and approves lessons —
+/// admins by default), read from the permission matrix.</summary>
+public sealed record LearningActor(int? UserId, string Username, string Role, IReadOnlyList<int>? Bound = null,
+    bool Approver = false)
 {
-    public bool IsAdmin => Role is Roles.SuperAdmin or Roles.Admin;
-
     /// <summary>Not bound by assigned entities: may touch organization-wide lessons.</summary>
     public bool OrgWide => Bound == null;
 
@@ -23,9 +24,9 @@ public sealed record LearningActor(int? UserId, string Username, string Role, IR
     public bool MayActAt(int? entityId) => Bound == null || (entityId is int e && Bound.Contains(e));
 
     /// <summary>Does this person's feedback go live at once in learning mode
-    /// "auto"? Only an admin allowed to act at the lesson's level (an
-    /// organization-wide lesson needs an org-wide admin).</summary>
-    public bool AutoApproves(int? entityId) => IsAdmin && MayActAt(entityId);
+    /// "auto"? Only someone who may approve lessons (ai.behaviour.manage) at the
+    /// lesson's level (an organization-wide lesson needs an unbound approver).</summary>
+    public bool AutoApproves(int? entityId) => Approver && MayActAt(entityId);
 }
 
 /// <summary>The outcome of a rating: the row and the lesson it fed, or an error + HTTP status.</summary>
@@ -95,7 +96,31 @@ public class LearningService
             : _db.Profiles.AsNoTracking().Where(p => p.UserId == user.Id)
                 .SelectMany(p => p.Entities.Select(e => e.Id)).ToList();
         IReadOnlyList<int>? bound = assigned.Count > 0 ? _scoping.EntitySubtreeIds(assigned) : null;
-        return new LearningActor(user?.Id, name, role, bound);
+        return new LearningActor(user?.Id, name, role, bound, HoldsApproverCapability(role));
+    }
+
+    /// <summary>The capability that writes and approves lessons.</summary>
+    public const string ApproverCapability = "ai.behaviour.manage";
+
+    /// <summary>
+    /// Does this ROLE hold <see cref="ApproverCapability"/> on the Permissions page?
+    /// A superadmin always; otherwise a stored matrix row wins, else the code
+    /// default (admins yes — agents and custom roles no), the same rule as
+    /// <c>AdminEndpoints.RoleHasCapabilityAsync</c>.
+    /// </summary>
+    private bool HoldsApproverCapability(string role)
+    {
+        if (role == Roles.SuperAdmin) return true;
+        if (role.Length == 0) return false;
+        try
+        {
+            var row = _db.RolePermissions.AsNoTracking()
+                .Where(r => r.Role == role && r.Capability == ApproverCapability)
+                .Select(r => (bool?)r.Allowed).FirstOrDefault();
+            if (row is bool allowed) return allowed;
+        }
+        catch { /* an unseeded store: the code default */ }
+        return role == Roles.Admin;
     }
 
     // ---- explicit feedback -------------------------------------------------------

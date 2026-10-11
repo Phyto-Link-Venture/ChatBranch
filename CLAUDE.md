@@ -256,30 +256,51 @@ When you fix one of these, update this table, `README.md` and
   because `ApiKeyAuth.UseKeyScopes` (right after `UseAuthentication`) makes them
   ambient for the request (`ApiKeyAuth.CurrentScopes`). Roles: superadmin / admin /
   agent / custom (`Role` + `RolePermission`). Capabilities are data-driven:
-  the catalog is `AdminEndpoints.Catalog` (38 entries — keep it in step with
+  the catalog is `AdminEndpoints.Catalog` (41 entries — keep it in step with
   `CAPABILITY_CATALOG` in `frontend/src/lib/auth.ts`; `PermissionCatalogTests`
   fails when the two differ or when code gates on an id the Permissions page
   doesn't list); **superadmin is always
   allowed in code**, a missing matrix row falls back to the code default, admin
   gets everything except `rbac.manage` / `app_keys.manage` /
-  `settings.ai_keys.manage` / `billing.manage` / `settings.ai_hard_rules.manage`, agent gets `contacts.view chats.view chats.send
+  `settings.ai_keys.manage` / `billing.manage` / `settings.ai_hard_rules.manage` /
+  `settings.raw.manage` / `testlab.run`, agent gets `contacts.view chats.view chats.send
   flows.view analytics.view call_logs.view activity.view tags.view ai.monitor`.
-  Server checks use `AdminEndpoints.HasCapabilityAsync` /
-  `SettingsEndpoints.RequireCapability` on top of the coarse policies
-  (`authenticated` / `admin+` / `superadmin`). **Company admins:** an admin
+  **Every operator action follows the Permissions page:** a route's permission
+  gate is a CAPABILITY, never a role — `.RequireCapability` /
+  `.RequireAnyCapability` (`Auth/CapabilityFilter.cs`) on the `authenticated`
+  policy, or `AdminEndpoints.HasCapabilityAsync` /
+  `SettingsEndpoints.RequireCapability` in the handler; the `admin+` /
+  `superadmin` policies are unused (`PermissionMatrixTests` fails on a route that
+  carries one, and checks every converted route: the capability alone opens it,
+  an admin denied it is refused, the built-in defaults hold). A new action = a
+  capability that names it (add a catalog entry — both catalogs, en/ms/zh labels
+  under `admin.caps` — only when none fits). MCP tools follow their endpoints'
+  gates (`ToolRegistry.EndpointGates` reads the route table). Anti-escalation
+  stays role-keyed: below superadmin the matrix editor (`rbac.manage`) only
+  switches capabilities its holder holds and never the superadmin row; a user
+  manager never hands out a role holding a capability they lack, never edits
+  their own login or entity access, never acts on a user above their tier.
+  **Company admins:** an admin
   WITH assigned entities is a company admin — admin capabilities bounded by
   those entities' subtrees exactly like a bound agent (contacts, inbox, drafts,
   analytics, channels, libraries, bookings, activity, the AI bill/quotas, users,
   the entity switcher); an admin with none stays organization-wide. ONE rule:
   `ShellScope.ScopeRoots(db, me)` (empty = unbound: superadmin, org-wide admin,
-  unassigned agent) with `IsCompanyAdmin` / `IsOrgWideAdmin` / `AdminMayAct` /
-  `CompanyLevelError`; every scope helper builds on it — never test
+  unassigned agent) with `IsBound` / `IsCompanyAdmin` / `IsOrgWideAdmin` /
+  `MayActAt` / `CompanyLevelError` / `OrgWideOnly` / `OrgWideAction` /
+  `ObjectScopeError`; every scope helper builds on it — never test
   `role == Roles.Admin` for a scope shortcut. `Auth/CompanyAdminScope.cs` drops
   the org-level capabilities (`rbac.manage`, `app_keys.manage`,
   `settings.ai_keys.manage`, `billing.manage`, `notifications.manage`,
   `settings.appearance.org`, `settings.custom_fields.manage`,
-  `pronunciation.manage`, `settings.ai_hard_rules.manage`) for them; global library items, top-level entities,
-  org-wide settings stay with org-wide admins. Only a superadmin makes an
+  `pronunciation.manage`, `settings.ai_hard_rules.manage`, `settings.raw.manage`,
+  `testlab.run`) for them — and for EVERY bound person; global library items,
+  top-level entities, org-wide settings stay with unbound holders. A bound agent
+  or custom role granted an admin capability acts exactly like a company admin
+  with it (`CompanyLevelError` / `MayActAt` / `OrgWideOnly` apply to every bound
+  caller; no-entity actions — the voice library, MCP servers, raw settings read,
+  journey enqueue / tick, record sync — carry `OrgWideAction`: unbound holders and
+  company admins only). Only a superadmin makes an
   org-wide admin; an org-wide admin may make company admins (`entity_ids` on an
   admin). `whoami.company_admin`; details in `docs/RBAC_AND_BRANDS.md`
   ("Company admins"), tests `CompanyAdminTests`. **Every BOUND person**
@@ -294,10 +315,11 @@ When you fix one of these, update this table, `README.md` and
   `EntityBoundAiScopeTests`. **There is no fallback policy:
   every route must carry `RequireAuthorization(...)` or an explicit
   `AllowAnonymous()`** — the anonymous set is listed in
-  `docs/API_CONVENTIONS.md`. User management (`/api/v1/users`) is tiered:
+  `docs/API_CONVENTIONS.md`. User management (`/api/v1/users`, `users.manage`) is tiered:
   superadmin manages everyone; an org-wide admin lists their own tenant and
   manages agents (and company admins) there; a company admin only the
-  agent-level users bound inside their companies. A login may be bound to a Contact (`Profile.ContactId`,
+  agent-level users bound inside their companies; a custom role granted
+  `users.manage` like an admin of its scope, agent-level users only. A login may be bound to a Contact (`Profile.ContactId`,
   "customer login"). The `X-Role` header only works while NO Profile rows exist
   (pre-seed bootstrap). **Per-conversation routes**
   (`/api/whatsapp/threads/{key}/…`, `/api/messaging/threads/{channel}/{key}/…`,
@@ -311,7 +333,7 @@ When you fix one of these, update this table, `README.md` and
   `POST /api/messaging/threads` / `POST /api/whatsapp/threads`, `chats.send`:
   an existing out-of-scope conversation is a 404, a new one never links a
   contact or a number from outside the caller's scope, and moving an existing
-  conversation to another number stays an admin's per-chat switch). Linking needs a contact in
+  conversation to another number stays the per-chat switch, `account_assignment.manage`). Linking needs a contact in
   the caller's scope, the contact lookups / timeline are scoped, both thread
   lists need `chats.view` (details in `docs/RBAC_AND_BRANDS.md`). Frontend gating
   (`lib/useAccess.ts`, `nav.ts canSee`) is not the control — the server is — but
@@ -329,7 +351,7 @@ When you fix one of these, update this table, `README.md` and
   capability of the page(s) that read it: `.RequireCapability("x")` /
   `.RequireAnyCapability("x","y")` (`Auth/CapabilityFilter.cs` — 403 before the
   handler; stamps `RequiredCapabilities` metadata), `.RequireThreadAccess(...)`
-  on per-conversation routes, or a role policy. A lookup shared by several pages
+  on per-conversation routes (never a role policy). A lookup shared by several pages
   opens for ANY of their capabilities and may return a narrower shape to the
   weaker one (`/api/whatsapp/accounts` → picker shape for the inbox;
   `/api/bindings/catalog` without user/team/account pools for the Tags page).

@@ -210,9 +210,9 @@ export function IntegrationsSettings() {
   // the loaders read the latest t without re-running (a language switch must not refetch)
   const tRef = useRef(t)
   tRef.current = t
-  const { role, ready, can } = useAccess()
-  // the server's rule for shared connections: admin+ with integrations.manage
-  const canManage = (role === 'admin' || role === 'superadmin') && can('integrations.manage')
+  const { ready, can } = useAccess()
+  // the server's rule for shared connections: integrations.manage (a bound person: their own entities)
+  const canManage = can('integrations.manage')
 
   const [providers, setProviders] = useState<Provider[] | null>(null)
   const [accounts, setAccounts] = useState<Account[]>([])

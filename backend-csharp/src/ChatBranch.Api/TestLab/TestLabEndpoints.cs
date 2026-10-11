@@ -9,8 +9,10 @@ using Microsoft.EntityFrameworkCore;
 namespace ChatBranch.Api.TestLab;
 
 /// <summary>
-/// The Test lab API — superadmin only, and not mapped at all (404) when env /
-/// config <c>TEST_LAB</c> is 0 / false / off.
+/// The Test lab API — the <c>testlab.run</c> capability (superadmin only by default
+/// and organization-level: never a person bound to entities; a run drives the
+/// shared queue / flow / monitor ticks, so grant it to trusted operators only), and
+/// not mapped at all (404) when env / config <c>TEST_LAB</c> is 0 / false / off.
 /// <list type="bullet">
 ///   <item><c>GET /api/testlab/scenarios</c> — the catalog grouped by category.</item>
 ///   <item><c>GET /api/testlab/status</c> — does the fenced data exist, how much of it.</item>
@@ -24,6 +26,9 @@ namespace ChatBranch.Api.TestLab;
 public static class TestLabEndpoints
 {
     private static readonly string[] Sources = { "page", "cli", "api", "test" };
+
+    /// <summary>The Permissions-page capability every Test lab route needs.</summary>
+    public const string Capability = "testlab.run";
 
     public static void MapTestLabEndpoints(this WebApplication app)
     {
@@ -53,7 +58,7 @@ public static class TestLabEndpoints
                     }),
                 }).Where(c => c.scenarios.Any()),
             });
-        }).RequireAuthorization(AuthPolicies.SuperAdmin);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(Capability);
 
         app.MapGet("/api/testlab/status", (AppDbContext db) =>
         {
@@ -75,7 +80,7 @@ public static class TestLabEndpoints
                     conversations = scope.ThreadIds.Count,
                 },
             });
-        }).RequireAuthorization(AuthPolicies.SuperAdmin);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(Capability);
 
         app.MapPost("/api/testlab/run", async (HttpContext http, ClaimsPrincipal me, AppDbContext db) =>
         {
@@ -111,21 +116,21 @@ public static class TestLabEndpoints
                                + string.Join(", ", results.Select(x => $"{x.Id}={(x.Passed ? "pass" : x.Skipped ? "skip" : "FAIL")}")), 1000),
                 actor: me.Identity?.Name);
             return Results.Ok(new { run = LabRunner.RunSummary(run), results });
-        }).RequireAuthorization(AuthPolicies.SuperAdmin);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(Capability);
 
         app.MapGet("/api/testlab/runs", async (AppDbContext db, int? limit) =>
         {
             var rows = await db.TestLabRuns.AsNoTracking().OrderByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id)
                 .Take(Math.Clamp(limit ?? LabRunner.KeepRuns, 1, LabRunner.KeepRuns)).ToListAsync();
             return Results.Ok(new { runs = rows.Select(LabRunner.RunSummary) });
-        }).RequireAuthorization(AuthPolicies.SuperAdmin);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(Capability);
 
         app.MapGet("/api/testlab/runs/{id:int}", async (int id, AppDbContext db) =>
         {
             var run = await db.TestLabRuns.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id);
             if (run == null) return Results.NotFound(new { detail = "Run not found." });
             return Results.Ok(new { run = LabRunner.RunSummary(run), results = LabRunner.ResultsOf(run) });
-        }).RequireAuthorization(AuthPolicies.SuperAdmin);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(Capability);
 
         app.MapPost("/api/testlab/reset", (AppDbContext db, ClaimsPrincipal me) =>
         {
@@ -136,7 +141,7 @@ public static class TestLabEndpoints
                     : AuditTrail.Cap(string.Join(", ", deleted.Select(kv => $"{kv.Key}={kv.Value}")), 1000),
                 actor: me.Identity?.Name);
             return Results.Ok(new { ok = true, deleted });
-        }).RequireAuthorization(AuthPolicies.SuperAdmin);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(Capability);
 
         app.MapPost("/api/testlab/demo", (HttpContext http, AppDbContext db, ClaimsPrincipal me) =>
         {
@@ -152,6 +157,6 @@ public static class TestLabEndpoints
                 created = outcome.Created,
                 links = outcome.Links,
             });
-        }).RequireAuthorization(AuthPolicies.SuperAdmin);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(Capability);
     }
 }

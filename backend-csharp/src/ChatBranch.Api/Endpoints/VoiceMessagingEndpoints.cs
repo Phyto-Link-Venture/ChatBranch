@@ -215,7 +215,7 @@ public static class VoiceMessagingEndpoints
             sc.SetSetting(DefaultVoiceProviderKey, provider);
             return Results.Ok(new { default_voice = id, provider });
         };
-        app.MapPut("/api/voice/default-voice", saveDefault).RequireAuthorization(AuthPolicies.AdminPlus).OrgWideOnly()
+        app.MapPut("/api/voice/default-voice", saveDefault).RequireAuthorization(AuthPolicies.Authenticated).OrgWideOnly()
             .RequireCapability("settings.ai.manage");   // the Voice & calls page's capability
     }
 
@@ -269,9 +269,9 @@ public static class VoiceMessagingEndpoints
             sc.SetSetting("stt_provider", provider);
             return Results.Ok(new { stt_provider = provider });
         };
-        app.MapPost("/api/voice/stt-settings", saveStt).RequireAuthorization(AuthPolicies.AdminPlus).OrgWideOnly()
+        app.MapPost("/api/voice/stt-settings", saveStt).RequireAuthorization(AuthPolicies.Authenticated).OrgWideOnly()
             .RequireCapability("settings.ai.manage");
-        app.MapPut("/api/voice/stt-settings", saveStt).RequireAuthorization(AuthPolicies.AdminPlus).OrgWideOnly()
+        app.MapPut("/api/voice/stt-settings", saveStt).RequireAuthorization(AuthPolicies.Authenticated).OrgWideOnly()
             .RequireCapability("settings.ai.manage");
 
         app.MapGet("/api/voice/llm-settings", (ScopingService sc) =>
@@ -294,9 +294,9 @@ public static class VoiceMessagingEndpoints
             sc.SetSetting("llm_provider", provider);
             return Results.Ok(new { llm_provider = provider });
         };
-        app.MapPost("/api/voice/llm-settings", saveLlm).RequireAuthorization(AuthPolicies.AdminPlus).OrgWideOnly()
+        app.MapPost("/api/voice/llm-settings", saveLlm).RequireAuthorization(AuthPolicies.Authenticated).OrgWideOnly()
             .RequireCapability("settings.ai.manage");
-        app.MapPut("/api/voice/llm-settings", saveLlm).RequireAuthorization(AuthPolicies.AdminPlus).OrgWideOnly()
+        app.MapPut("/api/voice/llm-settings", saveLlm).RequireAuthorization(AuthPolicies.Authenticated).OrgWideOnly()
             .RequireCapability("settings.ai.manage");
     }
 
@@ -996,7 +996,7 @@ public static class VoiceMessagingEndpoints
             Audit(db, me, ctx, "account.create", $"{social.Channel}:{social.Name}", "");
             MessagingAccountTransport.Created(social, ctx);
             return Results.Ok(AccountPayload(social));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
 
         // ---- PATCH /api/messaging/accounts/{id} — rebind, or edit SMTP config ----
         app.MapPatch("/api/messaging/accounts/{id}", async (string id,
@@ -1142,7 +1142,7 @@ public static class VoiceMessagingEndpoints
             Audit(db, me, ctx, "account.update", $"email:{account.Name}",
                 $"keys: {string.Join(", ", touched.OrderBy(k => k))}");
             return Results.Ok(AccountPayload(account));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
 
         // ---- DELETE /api/messaging/accounts/{id} ----
         app.MapDelete("/api/messaging/accounts/{id}", async (string id, AppDbContext db,
@@ -1160,7 +1160,7 @@ public static class VoiceMessagingEndpoints
             await db.SaveChangesAsync();
             Audit(db, me, ctx, "account.delete", label, "");
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
 
         // ---- POST /api/messaging/accounts/{id}/test ----
         // Every channel is live: Messenger / Instagram (GET /me with the page
@@ -1197,6 +1197,10 @@ public static class VoiceMessagingEndpoints
             var account = await ManagedAccount(db, id);
             if (account == null)
                 return Results.Json(new { detail = "Account not found." }, statusCode: 404);
+            // someone bound to entities registers webhooks for their own entities' accounts only
+            if (ShellScope.ObjectScopeError(db, ctx.RequestServices.GetRequiredService<ScopingService>(), ctx.User,
+                    account.EntityId) is { } outside)
+                return outside;
             // LINE (webhook endpoint API) and Viber (set_webhook)
             if (MoreChannelAccounts.CanSetWebhook(account.Channel))
                 return await MoreChannelAccounts.SetWebhookAsync(account, body, ctx);
@@ -1208,7 +1212,7 @@ public static class VoiceMessagingEndpoints
                 }, statusCode: 400);
             // setWebhook with a secret_token; the bot token (the path secret) is never echoed back
             return await MessagingAccountTransport.SetWebhookAsync(account, body, ctx);
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
 
         MapEmailSettings(app);
     }
@@ -1341,8 +1345,10 @@ public static class VoiceMessagingEndpoints
                 $"keys: {string.Join(", ", touched.OrderBy(k => k))}");
             return Results.Ok(EmailSettingsPayload(sc));
         };
-        app.MapPost("/api/messaging/settings", save).RequireAuthorization(AuthPolicies.SuperAdmin);
-        app.MapPut("/api/messaging/settings", save).RequireAuthorization(AuthPolicies.SuperAdmin);
+        app.MapPost("/api/messaging/settings", save).RequireAuthorization(AuthPolicies.Authenticated)
+            .RequireCapability("app_keys.manage");   // the default mail credentials (App & provider keys)
+        app.MapPut("/api/messaging/settings", save).RequireAuthorization(AuthPolicies.Authenticated)
+            .RequireCapability("app_keys.manage");
 
         app.MapPost("/api/messaging/settings/test", async (Dictionary<string, JsonElement>? body,
             HttpContext ctx) =>

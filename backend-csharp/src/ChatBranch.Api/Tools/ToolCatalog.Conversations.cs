@@ -214,8 +214,8 @@ public static partial class ToolCatalog
 
         yield return T(g, "conversations_switch_account", "Switch the sending number",
             "Move a WhatsApp conversation onto another of your numbers (pins the contact's assignment; a system " +
-            "note explains what the new number may send). Admin only.",
-            "POST", "/api/whatsapp/threads/{key}/account", send, thread: true, channels: new[] { "whatsapp" },
+            "note explains what the new number may send). Needs account_assignment.manage.",
+            "POST", "/api/whatsapp/threads/{key}/account", C("account_assignment.manage"), thread: true, channels: new[] { "whatsapp" },
             args: new[] { A.Str("account_id", "The number's account id (channels_list_inboxes).", req: true) },
             shape: ThreadStateShape);
 

@@ -63,6 +63,9 @@ export const admin: Dict<typeof source> = {
     aiMonitor: '查看并批准 AI 草稿',
     aiBehaviourManage: '编辑 AI 行为设置',
     aiHardRulesManage: '编辑 AI 的安全规则',
+    settingsRawView: '读取原始设置（API）',
+    settingsRawManage: '写入任意原始设置（API）',
+    testlabRun: '运行测试实验室',
   },
   permissions: {
     system: '系统',
@@ -129,7 +132,7 @@ export const admin: Dict<typeof source> = {
       stillAssignedN_one: '“{name}”仍分配给 {count} 个用户——请先为他们改派角色。',
       stillAssignedN_other: '“{name}”仍分配给 {count} 个用户——请先为他们改派角色。',
       deleted: '角色“{name}”已删除。',
-      superadminOnly: '权限矩阵由超级管理员管理。',
+      superadminOnly: '权限矩阵由有权编辑它的人管理（rbac.manage——默认为超级管理员）。',
       loading: '正在加载权限…',
       action: '操作',
       footnote:

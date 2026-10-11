@@ -263,13 +263,13 @@ public static class SearchEndpoints
     {
         var role = ShellScope.RoleOf(me);
         var q = db.Users.AsNoTracking().Include(u => u.Profile!).ThenInclude(p => p.Tenant).AsQueryable();
-        // The /api/v1/users tiering: superadmin everyone, admin their own tenant,
-        // any other holder of users.manage just themselves.
-        if (role == Roles.Admin)
+        // The /api/v1/users tiering: superadmin everyone, any other holder of
+        // users.manage their own tenant — someone bound to entities only themselves
+        // plus the users bound inside their entities.
+        if (role != Roles.SuperAdmin)
         {
             var tenantId = int.TryParse(me.FindFirstValue("tenant_id"), out var t) ? t : (int?)null;
             q = q.Where(u => u.Profile != null && u.Profile.TenantId == tenantId);
-            // a company admin: themselves + users bound inside their companies
             if (ShellScope.BoundEntityIds(db, new ScopingService(db), me) is List<int> bound)
             {
                 var self = me.Identity?.Name ?? "";
@@ -277,11 +277,6 @@ public static class SearchEndpoints
                     || (u.Profile!.Role != Roles.SuperAdmin && u.Profile.Entities.Any()
                         && u.Profile.Entities.All(e => bound.Contains(e.Id))));
             }
-        }
-        else if (role != Roles.SuperAdmin)
-        {
-            var username = me.Identity?.Name ?? "";
-            q = q.Where(u => u.Username == username);
         }
         var rows = await q.Where(u => EF.Functions.Like(u.Username, like, "\\"))
             .OrderBy(u => u.Username).Take(per).ToListAsync();

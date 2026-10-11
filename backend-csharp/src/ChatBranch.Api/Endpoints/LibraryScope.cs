@@ -107,6 +107,9 @@ internal static class LibraryScope
         List<int>? tenantIds = null;
         if (ShellScope.RoleOf(me) == Roles.Admin)   // an admin: their tenant (a company admin: their companies)
             tenantIds = (await AdminEndpoints.AccessibleEntitiesAsync(db, me)).Select(e => e.Id).ToList();
+        else if (ShellScope.RoleOf(me) != Roles.SuperAdmin && Auth.Caller.TenantId(me) is int tid)
+            // anyone else holding the library's capability: never another tenant's entity
+            tenantIds = await db.Entities.AsNoTracking().Where(e => e.TenantId == tid).Select(e => e.Id).ToListAsync();
         foreach (var id in changed)
         {
             if (!AiControlsEndpoints.MayEdit(db, sc, me, id) || (tenantIds != null && !tenantIds.Contains(id)))

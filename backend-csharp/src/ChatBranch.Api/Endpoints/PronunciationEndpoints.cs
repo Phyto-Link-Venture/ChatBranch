@@ -88,7 +88,7 @@ public static class PronunciationEndpoints
                     ? "Saved. ElevenLabs dictionary sync is not implemented in this API yet."
                     : "Saved. Pronunciation sync not configured (ELEVENLABS_API_KEY unset).",
             });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("pronunciation.manage");
     }
 
     /// <summary>

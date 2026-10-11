@@ -93,7 +93,7 @@ import {
 } from '@/components/chats/inboxFilters'
 import { localChatSort, saveChatSort, serverChatSort, storeLocalChatSort } from '@/components/chats/chatSortPref'
 import { createView, deleteView, listViews, reorderViews, updateView, type SavedView } from '@/lib/savedViews'
-import { getRole } from '@/lib/role'
+import { hasCap } from '@/lib/auth'
 import { useApp } from '@/lib/AppContext'
 import { tagMeta } from '@/lib/tags'
 import PendingDraftBanner from '@/components/chats/PendingDraftBanner'
@@ -580,7 +580,8 @@ function ChatsPage() {
     api<{ accounts: UiAccount[] }>('whatsapp/accounts?channel=all')
       .then((r) => setAllAccounts((r.accounts || []).filter((a) => /^\d+$/.test(a.id))))
       .catch(() => {})
-    setCanManage(getRole() !== 'agent')
+    // the per-chat number switch (POST …/{key}/account): account_assignment.manage
+    setCanManage(hasCap('account_assignment.manage'))
     try {
       setCallVoice((v) => {
         const saved = localStorage.getItem('wa-call-voice')

@@ -11,6 +11,7 @@ import { orderEntityTree } from '@/components/bindings/groups'
 import { roleHeaders } from '@/lib/role'
 import { expireSessionOn401, getAuth, authHeaders, roleDisplayName } from '@/lib/auth'
 import { useRole } from '@/lib/useRole'
+import { useAccess } from '@/lib/useAccess'
 import { useCompanyAdmin } from '@/lib/useCompanyAdmin'
 import { useFormat, useT, type MessageKey } from '@/i18n'
 
@@ -153,7 +154,7 @@ function ErrorBox({ text }: { text: string }) {
 }
 
 /**
- * User management — admin+ (server-enforced: /api/v1/users). Creates operator
+ * User management — users.manage (server-enforced: /api/v1/users). Creates operator
  * logins, changes roles, resets passwords and deactivates accounts. Password
  * resets and deactivation clear the target's bearer token on the server, so
  * their existing sessions die immediately. The backend refuses to demote or
@@ -177,6 +178,8 @@ export function UsersSettings() {
   const t = useT()
   const f = useFormat()
   const { role: myRole, ready } = useRole()
+  // the page's gate is the capability; the role only mirrors the server's user tiers below
+  const { can } = useAccess()
   const [me, setMe] = useState<string | undefined>(undefined)
   useEffect(() => setMe(getAuth()?.username), [])
   // am I a COMPANY admin (an admin bound to entities)? — read after mount
@@ -279,7 +282,9 @@ export function UsersSettings() {
   /** Admins manage agent-level users (agent + custom), never other admins /
    *  superadmins (server-enforced too). */
   const canManage = (u: ManagedUser) =>
-    isSuper || agentLevel(u.role) || (u.role === 'admin' && !!u.company_admin && orgWideMe)
+    isSuper ||
+    // nobody below superadmin edits their own login here (server-enforced too)
+    (u.username !== me && (agentLevel(u.role) || (u.role === 'admin' && !!u.company_admin && orgWideMe)))
 
   const setRole = (u: ManagedUser, role: string) =>
     run(
@@ -382,7 +387,7 @@ export function UsersSettings() {
 
   if (!ready) return null // role resolves after mount — don't flash the denial
 
-  if (myRole === 'agent') {
+  if (!can('users.manage') && !can('users.view')) {
     return (
       <div className="flex items-center gap-2 py-6 text-[13px] text-text-muted">
         <ShieldAlert size={15} className="text-[color:var(--amber-ink)]" aria-hidden />

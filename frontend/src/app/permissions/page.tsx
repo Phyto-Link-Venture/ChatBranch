@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertCircle, Loader2, ShieldCheck } from 'lucide-react'
 import { authHeaders, CAPABILITY_CATALOG, roleDisplayName } from '@/lib/auth'
 import { Trans, useT } from '@/i18n'
-import { useRole } from '@/lib/useRole'
+import { useAccess } from '@/lib/useAccess'
 import { RoleList } from '@/components/permissions/RoleList'
 import { RoleCardGrid } from '@/components/permissions/RoleCardGrid'
 import { RoleFormModal } from '@/components/permissions/RoleFormModal'
@@ -30,12 +30,13 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
  * checkbox, and a Manage modal for the area's individual capabilities. The
  * working matrix is persisted whole via PUT /api/auth/permissions.
  *
- * Superadmin-gated; role read after mount (hydration-safe). Degrades to the
+ * Gated on rbac.manage (superadmin by default); read after mount (hydration-safe). Degrades to the
  * three built-in roles + shipped catalog if the backend is unavailable.
  */
 export default function PermissionsPage() {
   const t = useT()
-  const { role, ready } = useRole()
+  const { ready, can } = useAccess()
+  const mayManage = can('rbac.manage')
 
   const [data, setData] = useState<PermsResponse | null>(null)
   const [roleMeta, setRoleMeta] = useState<Record<string, RoleRow>>({})
@@ -83,8 +84,8 @@ export default function PermissionsPage() {
   }, [])
 
   useEffect(() => {
-    if (ready && role === 'superadmin') load()
-  }, [ready, role, load])
+    if (ready && mayManage) load()
+  }, [ready, mayManage, load])
 
   // Deep-link: adopt ?role= once, after mount.
   useEffect(() => {
@@ -222,9 +223,9 @@ export default function PermissionsPage() {
     }
   }
 
-  if (!ready) return null // role resolves after mount — don't flash the denial
+  if (!ready) return null // access resolves after mount — don't flash the denial
 
-  if (role !== 'superadmin') {
+  if (!mayManage) {
     return (
       <div className="flex items-center gap-2 py-8 text-[12.5px] text-text-muted">
         <ShieldCheck size={15} className="text-amber-300" aria-hidden />

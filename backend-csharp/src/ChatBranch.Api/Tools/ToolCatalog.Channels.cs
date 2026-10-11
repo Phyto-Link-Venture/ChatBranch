@@ -182,7 +182,7 @@ public static partial class ToolCatalog
             "POST", "/api/integrations/accounts/{id:int}/disconnect", null, new[] { A.Id("connection") },
             destructive: true, outside: true);
         yield return T(ig, "integrations_delete_connection", "Delete an integration connection",
-            "Delete an integration connection row entirely (admin) — flows and skills using it skip until reconnected.", "DELETE", "/api/integrations/accounts/{id:int}",
+            "Delete an integration connection row entirely — flows and skills using it skip until reconnected.", "DELETE", "/api/integrations/accounts/{id:int}",
             C("integrations.manage"), new[] { A.Id("connection") }, destructive: true);
         yield return T(ig, "integrations_run_action", "Run an integration action",
             "Run one connected-app action now, as a flow step would: e.g. provider google_calendar action " +
@@ -240,6 +240,7 @@ public static partial class ToolCatalog
 
         // ---- voice library ---------------------------------------------------------
         const string vo = "voice";
+        var aiManage = C("settings.ai.manage");   // the Voice & calls page's capability
         yield return T(vo, "voice_list_voices", "List voices",
             "The voice library the AI calls with (ids, names, gender, language, engine).", "GET", "/api/voices");
         yield return Custom(vo, "voice_get_providers", "Read voice engine settings",
@@ -251,31 +252,31 @@ public static partial class ToolCatalog
                 return new { stt = Compact(stt.Body), llm = Compact(llm.Body) };
             }, write: false);
         yield return T(vo, "voice_set_stt_provider", "Set the voice speech-to-text",
-            "Choose the speech-to-text engine the AI voice agent uses on calls (admin).", "PUT", "/api/voice/stt-settings", null,
+            "Choose the speech-to-text engine the AI voice agent uses on calls.", "PUT", "/api/voice/stt-settings", aiManage,
             new[] { A.Str("stt_provider", "Provider id.", req: true) }, idempotent: true);
         yield return T(vo, "voice_set_llm_provider", "Set the voice language model",
-            "Choose the language model the AI voice agent thinks with on calls (admin).", "PUT", "/api/voice/llm-settings", null,
+            "Choose the language model the AI voice agent thinks with on calls.", "PUT", "/api/voice/llm-settings", aiManage,
             new[] { A.Str("llm_provider", "Provider id.", req: true) }, idempotent: true);
         yield return T(vo, "voice_set_default_voice", "Set the organization's call voice",
-            "Choose the voice AI calls use when none is picked (admin): a voice id from voice_list_voices.", "PUT", "/api/voice/default-voice", null,
+            "Choose the voice AI calls use when none is picked: a voice id from voice_list_voices.", "PUT", "/api/voice/default-voice", aiManage,
             new[] { A.Str("voice", "Voice id.", req: true) }, idempotent: true);
         yield return T(vo, "voice_import_voice", "Add a voice to the library",
-            "Import a voice from the provider's library by its voice id.", "POST", "/api/voice/import", null,
+            "Import a voice from the provider's library by its voice id.", "POST", "/api/voice/import", aiManage,
             new[]
             {
                 A.Str("voice_id", "Provider voice id.", req: true, @as: "voiceId"), A.Str("name", "Name."),
                 A.Str("gender", "Gender."), A.Str("persona", "When to use it."),
             });
         yield return T(vo, "voice_update_voice", "Edit a voice",
-            "Rename or describe a voice in the call voice library (admin).", "PATCH", "/api/voice/{voiceId}", null,
+            "Rename or describe a voice in the call voice library.", "PATCH", "/api/voice/{voiceId}", aiManage,
             new[]
             {
                 A.Str("voice_id", "Voice id.", req: true, @as: "voiceId"), A.Str("name", "Name."), A.Str("gender", "Gender."),
                 A.Str("accent", "Accent."), A.Str("age", "Age."), A.Str("description", "Description."),
                 A.Str("language", "en | ms | zh."), A.Str("persona", "Persona."),
             });
-        yield return T(vo, "voice_delete_voice", "Delete a voice", "Remove a voice from the call voice library (admin).",
-            "DELETE", "/api/voice/{voiceId}", null, new[] { A.Str("voice_id", "Voice id.", req: true, @as: "voiceId") },
+        yield return T(vo, "voice_delete_voice", "Delete a voice", "Remove a voice from the call voice library.",
+            "DELETE", "/api/voice/{voiceId}", aiManage, new[] { A.Str("voice_id", "Voice id.", req: true, @as: "voiceId") },
             destructive: true);
         yield return T(vo, "voice_get_pronunciation", "Read the pronunciation list",
             "How the voice agent pronounces brand names and terms ({term, alias}).", "GET", "/api/pronunciation");

@@ -26,8 +26,10 @@ X-Api-Key: cbk_<prefix>_<secret>       (an API key owned by an admin)
 Content-Type: application/json
 ```
 
-The route requires the **admin+** policy, so the caller (or the API key's
-owner) must be an admin or superadmin. Create a key at **API keys & MCP**
+The route requires the **`contacts.manage`** capability (admins by default; any
+role the Permissions page grants it), and — because it works across the whole
+tenant — someone bound to entities only when they are a company admin. Create a
+key at **API keys & MCP**
 (`/developers`) — a key is easier to rotate than a password and shows up in the
 activity log as source `api`.
 

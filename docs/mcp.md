@@ -71,7 +71,7 @@ tools your key may use.
 
 - **Thin adapters over the dashboard's own endpoints.** A tool runs the very
   endpoint the dashboard button calls, in-process, as you (`Api/Tools/InternalApi.cs`),
-  so every guard applies unchanged: capability gates, role policies, entity
+  so every guard applies unchanged: capability gates (the Permissions page), entity
   scope, the per-conversation scope check, opt-out (STOP), WhatsApp's 24-hour
   window, the Messenger/Instagram human-agent window (closed to API keys and
   MCP), the cold-text / cold-call guards, quiet hours, the AI gate. A refusal
@@ -99,9 +99,11 @@ tools your key may use.
 ## Safety
 
 - **Your permissions, no more.** `tools/list` shows only the tools your role
-  and key allow; a call beyond them is refused (`403`, audited). An agent's key
-  can't manage users or entities; an out-of-scope conversation reads as "not
-  found".
+  and key allow — the tool's own capability AND the capability gate of the
+  endpoint it runs (read from the route table, so a tool follows its endpoint's
+  Permissions-page gate); a call beyond them is refused (`403`, audited). An
+  agent's key can't manage users or entities unless the Permissions page grants
+  the agent role that; an out-of-scope conversation reads as "not found".
 - **Scoped keys narrow further.** A key created with scopes only reaches tools
   whose capability is in its scopes, and a key with no `.manage` / `.send`
   scope is **read-only** — no write tool runs on it, exactly as on the REST API.
@@ -210,7 +212,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `conversations_get_summary` | Read a conversation summary | read | `chats.view` |
 | `conversations_summarize` | Summarize a conversation | write · open-world | `chats.view` |
 | `conversations_suggest_reply` | Suggest an AI reply | read · open-world | `chats.send` |
-| `conversations_switch_account` | Switch the sending number | write | `chats.send` |
+| `conversations_switch_account` | Switch the sending number | write | `account_assignment.manage` |
 | `conversations_get_identity_request` | Get the unknown-customer state | read | `chats.view` |
 | `conversations_create_contact_from_unknown` | Create or link the contact for an unknown sender | write | `contacts.manage` |
 | `conversations_start_call` | Start an AI voice call on WhatsApp | write · open-world | `chats.send` |
@@ -538,12 +540,12 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 |---|---|---|---|
 | `voice_list_voices` | List voices | read | signed in |
 | `voice_get_providers` | Read voice engine settings | read | signed in |
-| `voice_set_stt_provider` | Set the voice speech-to-text | write | signed in |
-| `voice_set_llm_provider` | Set the voice language model | write | signed in |
-| `voice_set_default_voice` | Set the organization's call voice | write | signed in |
-| `voice_import_voice` | Add a voice to the library | write | signed in |
-| `voice_update_voice` | Edit a voice | write | signed in |
-| `voice_delete_voice` | Delete a voice | write · **destructive** | signed in |
+| `voice_set_stt_provider` | Set the voice speech-to-text | write | `settings.ai.manage` |
+| `voice_set_llm_provider` | Set the voice language model | write | `settings.ai.manage` |
+| `voice_set_default_voice` | Set the organization's call voice | write | `settings.ai.manage` |
+| `voice_import_voice` | Add a voice to the library | write | `settings.ai.manage` |
+| `voice_update_voice` | Edit a voice | write | `settings.ai.manage` |
+| `voice_delete_voice` | Delete a voice | write · **destructive** | `settings.ai.manage` |
 | `voice_get_pronunciation` | Read the pronunciation list | read | signed in |
 | `voice_set_pronunciation` | Set the pronunciation list | write | `pronunciation.manage` |
 
@@ -579,7 +581,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 
 | Endpoint | Why there is no tool |
 |---|---|
-| `PUT /api/settings` | raw Setting rows, credentials included (superadmin) — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
+| `PUT /api/settings` | raw Setting rows, credentials included (settings.raw.manage) — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
 | `GET /api/settings` | raw Setting rows (credential keys included) — the specific settings tools read their own keys |
 | `GET /api/settings/ai-providers` | AI keys & models (settings.ai_keys.manage) — credential settings page (masked secrets + webhook verify tokens) — no operator task needs it from an AI |
 | `PUT /api/settings/ai-providers` | AI provider keys — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |

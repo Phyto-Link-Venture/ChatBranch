@@ -8,8 +8,9 @@
  * The value is a list of entity slugs; `[]` means EVERYONE (organization-wide).
  * The server rule (ScopingService.LibraryVisible): each ticked entity AND its
  * branches can use the item; a sibling outside the ticks never sees it. Only
- * admins may pick Everyone (or narrow an organization-wide item) — for anyone
- * else that choice is disabled and the list may never become empty.
+ * someone not bound to entities may pick Everyone (or narrow an
+ * organization-wide item) — for anyone bound that choice is disabled and the
+ * list may never become empty.
  *
  * Shown UP FRONT in every editor (never inside "Advanced settings"): who can
  * use a template is a first decision, not a tweak.
@@ -19,8 +20,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { Globe2, Building2 } from 'lucide-react'
 import { EntityMultiPicker } from './EntityPicker'
 import { useEntity } from '@/lib/EntityContext'
-import { useRole } from '@/lib/useRole'
-import { useCompanyAdmin } from '@/lib/useCompanyAdmin'
 import { useT } from '@/i18n'
 
 /** An entity as library payloads name it (`entities: [{id, slug, name}]`). */
@@ -32,28 +31,23 @@ export interface EntityRefLite {
 
 /**
  * May the signed-in person make an item global? As on the server
- * (LibraryScope.MayGoGlobal): superadmins, organization-wide admins, and anyone
- * NOT limited to particular entities (no assigned entities = the tenant-wide
- * view). A COMPANY admin (an admin bound to entities) is scoped like an agent.
+ * (LibraryScope.MayGoGlobal): anyone holding the library's capability who is
+ * NOT bound to particular entities (whoami `bound`) — a superadmin, an
+ * organization-wide admin, any role granted it with the tenant-wide view. A
+ * COMPANY admin (an admin bound to entities) is scoped like a bound agent.
  */
 export function useCanGlobal(): boolean {
-  const { role } = useRole()
-  const { entities } = useEntity()
-  const companyAdmin = useCompanyAdmin()
-  if (companyAdmin) return false
-  return role === 'admin' || role === 'superadmin' || entities.length === 0
+  const { bound } = useEntity()
+  return !bound
 }
 
 /**
- * The default "Available to" for a NEW item: Everyone for an admin; for
- * anyone else their single ticked entity, else their first one.
+ * The default "Available to" for a NEW item: Everyone for someone not bound to
+ * entities; for anyone bound, their single ticked entity, else their first one.
  */
 export function useDefaultAvailability(): string[] {
-  const { role } = useRole()
-  const { activeEntity, entities } = useEntity()
-  const companyAdmin = useCompanyAdmin()
-  const admin = (role === 'admin' && !companyAdmin) || role === 'superadmin'
-  const slug = admin ? undefined : (activeEntity?.slug ?? entities[0]?.slug)
+  const { activeEntity, entities, bound } = useEntity()
+  const slug = !bound ? undefined : (activeEntity?.slug ?? entities[0]?.slug)
   // stable identity, so it can sit in an effect's dependency list
   return useMemo(() => (slug ? [slug] : []), [slug])
 }

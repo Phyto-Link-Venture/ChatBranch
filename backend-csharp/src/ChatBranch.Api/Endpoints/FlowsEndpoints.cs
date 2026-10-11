@@ -291,11 +291,13 @@ public static class FlowsEndpoints
             var job = queue.Enqueue(body.Channel, body.Kind, body.ToAddress,
                 body.Payload ?? new(), body.ContactId, body.AccountId);
             return Results.Ok(new { id = job.Id, status = job.Status });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("flows.manage")
+          .OrgWideAction();   // a raw job to any address on any account — not confined to an entity
 
         // ---- manual engine tick (resume + triggers + drain) --------------------
         app.MapPost("/api/flows/tick", (ChatBranch.Data.Flows.FlowEngine engine) =>
-            Results.Ok(engine.Tick())).RequireAuthorization(AuthPolicies.AdminPlus);
+            Results.Ok(engine.Tick())).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("flows.manage")
+            .OrgWideAction();   // the engine pass runs every tenant's journeys
     }
 
     // ======================= statistics ======================================

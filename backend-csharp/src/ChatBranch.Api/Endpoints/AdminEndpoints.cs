@@ -74,6 +74,12 @@ public static class AdminEndpoints
         ("billing.view", "Review", "View the AI usage bill"),
         ("billing.manage", "Settings", "Set AI billing markup & see costs"),
         ("billing.quotas.manage", "Review", "Set AI usage quotas"),
+        // The raw key/value settings store (GET/PUT /api/settings — no page, API
+        // callers): reading it is an admin's; writing ANY key (credentials, billing
+        // terms, the safety rules…) is superadmin-only by default.
+        ("settings.raw.view", "Settings", "Read raw settings (API)"),
+        ("settings.raw.manage", "Settings", "Write any raw setting (API)"),
+        ("testlab.run", "Review", "Run the Test lab"),
     };
 
     private static readonly string[] CapabilityIds =
@@ -95,7 +101,10 @@ public static class AdminEndpoints
 
     /// admin gets everything EXCEPT these (kept superadmin-only).
     private static readonly HashSet<string> AdminExclude = new()
-        { "rbac.manage", "app_keys.manage", "settings.ai_keys.manage", "billing.manage", "settings.ai_hard_rules.manage" };
+    {
+        "rbac.manage", "app_keys.manage", "settings.ai_keys.manage", "billing.manage", "settings.ai_hard_rules.manage",
+        "settings.raw.manage", "testlab.run",
+    };
 
     /// agent's read-mostly work surface.
     private static readonly HashSet<string> AgentAllow = new()
@@ -107,6 +116,10 @@ public static class AdminEndpoints
 
     /// rbac.manage for superadmin is never toggleable off (anti-lockout).
     private const string RbacManage = "rbac.manage";
+
+    /// Who reads the role list and the matrix: the Users page (the role picker,
+    /// who may do what) and the Permissions page.
+    private static readonly string[] UserReadCaps = { "users.view", "users.manage", RbacManage };
 
     public static void MapAdminEndpoints(this IEndpointRouteBuilder app)
     {
@@ -130,7 +143,9 @@ public static class AdminEndpoints
                 };
             });
             return Results.Ok(new { roles = payload });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          // the Users page's role picker and the Permissions page's role cards
+          .RequireAnyCapability(UserReadCaps);
 
         // ---- POST /api/auth/roles -----------------------------------------
         // {label} → a new CUSTOM role. The label is slugified into the role's
@@ -192,7 +207,7 @@ public static class AdminEndpoints
                 slug, label, is_system = false, user_count = 0,
             };
             return Results.Json(new { role = payload, payload.slug }, statusCode: 201);
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(RbacManage);
 
         // ---- PATCH /api/auth/roles/{slug} ---------------------------------
         // {label} renames a CUSTOM role's display label. The slug is IMMUTABLE
@@ -246,7 +261,7 @@ public static class AdminEndpoints
                     user_count = counts.GetValueOrDefault(role.Slug, 0),
                 },
             });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(RbacManage);
 
         // ---- DELETE /api/auth/roles/{slug} --------------------------------
         // Deletes a CUSTOM role and its matrix rows. Built-ins are protected,
@@ -291,14 +306,16 @@ public static class AdminEndpoints
                 return Bad("Could not delete the role — the role store is unavailable.");
             }
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(RbacManage);
 
         // ---- GET /api/auth/permissions ------------------------------------
         // {catalog, roles, matrix} — the catalog, the dynamic role list, and
         // the effective matrix (stored rows overlaid on the code defaults).
+        // Readable by whoever manages users (who may do what) or the matrix.
         app.MapGet("/api/auth/permissions", async (AppDbContext db) =>
             Results.Ok(await SnapshotAsync(db)))
-            .RequireAuthorization(AuthPolicies.AdminPlus);
+            .RequireAuthorization(AuthPolicies.Authenticated)
+            .RequireAnyCapability(UserReadCaps);
 
         // ---- PUT /api/auth/permissions ------------------------------------
         // Body {matrix: {role: {capability: bool}}} (a bare matrix object is
@@ -352,6 +369,28 @@ public static class AdminEndpoints
                 }
             }
 
+            // Anti-escalation: anyone but a superadmin who holds rbac.manage may only
+            // switch capabilities they hold themselves (never grant — or take away —
+            // one beyond their own reach) and never touches the superadmin row. The
+            // page sends the whole matrix, so only real CHANGES count.
+            if (role != Roles.SuperAdmin && changes.Count > 0)
+            {
+                var current = await EffectiveMatrixAsync(db, changes.Select(c => c.Role).Distinct().ToList());
+                foreach (var (r, cap, allowed) in changes)
+                {
+                    if (current.TryGetValue(r, out var caps) && caps.TryGetValue(cap, out var now) && now == allowed)
+                        continue;
+                    if (r == Roles.SuperAdmin)
+                        return Results.Json(new { detail = "Only a superadmin can change the superadmin role." },
+                            statusCode: 403);
+                    if (!await HasCapabilityAsync(db, role, cap))
+                        return Results.Json(new
+                        {
+                            detail = $"You can only switch permissions you hold yourself — {cap} is not one of yours.",
+                        }, statusCode: 403);
+                }
+            }
+
             if (changes.Count > 0)
             {
                 var stored = await db.RolePermissions.ToListAsync();
@@ -378,7 +417,7 @@ public static class AdminEndpoints
                 await db.SaveChangesAsync();
             }
             return Results.Ok(await SnapshotAsync(db));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(RbacManage);
 
         // ---- GET /api/v1/entities -----------------------------------------
         // {entities: [{id, name, slug, tenant, is_active, created_at}]} — the
@@ -415,8 +454,9 @@ public static class AdminEndpoints
         // {users: [managed_user_payload]} — the Users & Roles table. Gated on
         // the `users.manage` capability (data-driven, like Django's
         // HasCapability.for_("users.manage")); the tiering below then bounds
-        // the ROWS: superadmin everyone, admin their own tenant, anyone else
-        // just themselves.
+        // the ROWS: superadmin everyone, any other holder (an admin, a custom
+        // role granted it) their own tenant — and someone bound to entities
+        // only themselves plus the users bound inside their entities.
         app.MapGet("/api/v1/users", async (ClaimsPrincipal me, AppDbContext db, ScopingService sc) =>
         {
             var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
@@ -433,18 +473,17 @@ public static class AdminEndpoints
                 .Include(u => u.Profile!).ThenInclude(p => p.Entities)
                 .Include(u => u.Profile!).ThenInclude(p => p.Contact)
                 .AsQueryable();
-            if (role == Roles.Admin)
+            if (role != Roles.SuperAdmin)
             {
                 q = q.Where(u => u.Profile != null && u.Profile.TenantId == tenantId);
-                // A company admin sees themselves plus the users bound inside
-                // their companies — never org-wide users or other companies'.
+                // A manager bound to entities (a company admin, a bound custom role)
+                // sees themselves plus the users bound inside their entities —
+                // never org-wide users or other companies'.
                 if (ShellScope.BoundEntityIds(db, sc, me) is List<int> bound)
                     q = q.Where(u => u.Username == username
                         || (u.Profile!.Role != Roles.SuperAdmin && u.Profile.Entities.Any()
                             && u.Profile.Entities.All(e => bound.Contains(e.Id))));
             }
-            else if (role != Roles.SuperAdmin)
-                q = q.Where(u => u.Username == username);
             var rows = await q.OrderBy(u => u.Username).ToListAsync();
             return Results.Ok(new { users = rows.Select(ManagedUserPayload) });
         }).RequireAuthorization(AuthPolicies.Authenticated);

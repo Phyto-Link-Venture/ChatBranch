@@ -21,7 +21,7 @@ import { Modal } from '@/components/ui/Modal'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { RoleChip } from '@/components/ui/Badges'
-import { getRole, hasCap } from '@/lib/auth'
+import { hasCap } from '@/lib/auth'
 import { useEntityQuery } from '@/lib/EntityContext'
 import { fetchChannelHealth, HEALTH_META, type ChannelHealthPayload, type HealthStatus } from '@/lib/channelHealth'
 import { useFormat, useT, type MessageKey } from '@/i18n'
@@ -78,7 +78,7 @@ function InboxCard({
   health,
   teamName,
   canManage,
-  isSuper,
+  canKeys,
   test,
   onSettings,
   onTest,
@@ -89,7 +89,7 @@ function InboxCard({
   health: { status: HealthStatus; detail: string } | null
   teamName?: string
   canManage: boolean
-  isSuper: boolean
+  canKeys: boolean
   test?: TestResult | 'running'
   onSettings: () => void
   onTest: () => void
@@ -99,7 +99,7 @@ function InboxCard({
   const t = useT()
   const meta = kindMeta(inbox.kind)
   const name = inboxName(inbox, t)
-  const editable = canManage && !inbox.envManaged && (inbox.kind !== 'voice' || isSuper)
+  const editable = canManage && !inbox.envManaged && (inbox.kind !== 'voice' || canKeys)
   const btn =
     'inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-line-strong bg-card px-3 text-[12.5px] font-semibold text-text-high transition-colors hover:bg-fill-hover disabled:cursor-not-allowed disabled:opacity-50'
   return (
@@ -219,12 +219,13 @@ export function ChannelsSettings() {
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [pageMsg, setPageMsg] = useState<string | null>(null)
-  // capability + role read after mount (localStorage — see CLAUDE.md hydration rule)
+  // capabilities read after mount (localStorage — see CLAUDE.md hydration rule)
   const [canManage, setCanManage] = useState(false)
-  const [isSuper, setIsSuper] = useState(false)
+  const [canKeys, setCanKeys] = useState(false)
   useEffect(() => {
     setCanManage(hasCap('channels.manage'))
-    setIsSuper(getRole() === 'superadmin')
+    // the SIP trunk and the default mail settings are provider credentials (app_keys.manage)
+    setCanKeys(hasCap('app_keys.manage'))
   }, [])
 
   const entityQ = useEntityQuery()
@@ -365,7 +366,7 @@ export function ChannelsSettings() {
                   health={healthOf(inbox, health)}
                   teamName={teamName(inbox.teamId)}
                   canManage={canManage}
-                  isSuper={isSuper}
+                  canKeys={canKeys}
                   test={tests[inbox.key]}
                   onSettings={() => open(inbox.kind, inbox, inbox.kind === 'voice' ? 2 : 3)}
                   onTest={() => runTest(inbox)}
@@ -416,7 +417,7 @@ export function ChannelsSettings() {
               <div className="grid grid-cols-1 gap-3.5 min-[460px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {KINDS.filter((k) => k.group === g.id).map((k) => {
                   const selected = !!drawer && drawer.kind === k.kind && !drawer.inbox
-                  const voiceLocked = k.kind === 'voice' && !isSuper && !voiceInbox
+                  const voiceLocked = k.kind === 'voice' && !canKeys && !voiceInbox
                   const disabled = !canManage || voiceLocked
                   return (
                     <button
@@ -455,7 +456,7 @@ export function ChannelsSettings() {
           ))}
         </section>
 
-        {canManage && <ChannelsAdvanced verifyToken={snap?.verifyToken ?? ''} isSuper={isSuper} />}
+        {canManage && <ChannelsAdvanced verifyToken={snap?.verifyToken ?? ''} canKeys={canKeys} />}
       </div>
 
       {drawer && (
@@ -464,7 +465,7 @@ export function ChannelsSettings() {
           target={drawer}
           teams={snap?.teams ?? []}
           verifyToken={snap?.verifyToken ?? ''}
-          isSuper={isSuper}
+          canKeys={canKeys}
           voiceConfigured={voiceInbox}
           onClose={() => setDrawer(null)}
           onChanged={() => {

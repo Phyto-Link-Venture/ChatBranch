@@ -8,8 +8,8 @@ import { Select } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
 import { TagListInput } from '@/components/ui/TagListInput'
 import { Advanced } from '@/components/ui/Advanced'
-import { roleHeaders, getRole } from '@/lib/role'
-import { expireSessionOn401 } from '@/lib/auth'
+import { roleHeaders } from '@/lib/role'
+import { expireSessionOn401, hasCap } from '@/lib/auth'
 import { useAccess } from '@/lib/useAccess'
 import { Trans, useT } from '@/i18n'
 
@@ -40,7 +40,7 @@ interface RecoveryAccount {
  * GET /api/whatsapp/recovery. Renders nothing while the endpoint is missing
  * (backend landing in parallel), unreachable, or the list is empty, so it is
  * safe to mount anywhere (Account Assignment tab + dashboard health card).
- * [Send recovery templates] POSTs /recovery/<account_id> (admin+): the
+ * [Send recovery templates] POSTs /recovery/<account_id> (account_assignment.manage): the
  * business number templates every affected contact toward the replacement
  * conversation number. 409 = no recovery template configured → link to the
  * Routing Rules card.
@@ -54,7 +54,8 @@ export function RecoveryBanner({ className = '' }: { className?: string }) {
     Record<string, { ok: boolean; text: string; needsTemplate?: boolean }>
   >({})
 
-  useEffect(() => setCanManage(getRole() !== 'agent'), [])
+  // sending the recovery templates: account_assignment.manage (read after mount)
+  useEffect(() => setCanManage(hasCap('account_assignment.manage')), [])
 
   const load = useCallback(async () => {
     try {
@@ -230,7 +231,7 @@ function RuleRow({
 /**
  * Account assignment → Routing rules: how reminder (business) and
  * conversation (personal) numbers cooperate. GET/PUT /api/whatsapp/routing-rules
- * (PUT admin+). Renders defensively with the contract defaults while the
+ * (PUT account_assignment.manage). Renders defensively with the contract defaults while the
  * backend lands in parallel — a 404 just means "defaults, save retries live".
  */
 export function RoutingRulesSettings() {

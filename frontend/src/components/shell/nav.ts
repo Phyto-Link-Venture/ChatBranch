@@ -59,8 +59,6 @@ export interface NavGroup {
   items: NavDef[]
 }
 
-const ADMINS = ['superadmin', 'admin']
-
 /**
  * The information architecture. Every module the operator works in is one
  * entry here; pages built by other parts of the app (Tags, Developers, AI
@@ -80,46 +78,46 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/chats', lbl: 'shell.nav.chats', Icon: MessageSquare, cap: 'chats.view', counter: 'waiting', keywords: 'inbox conversations messages whatsapp email' },
       { href: '/contacts', lbl: 'shell.nav.contacts', Icon: Users, alsoActive: ['/contacts/'], cap: 'contacts.view', keywords: 'customers people crm' },
       { href: '/bookings', lbl: 'shell.nav.bookings', Icon: CalendarCheck, cap: 'chats.view', keywords: 'appointments calendar booking schedule' },
-      { href: '/assignments', lbl: 'shell.nav.assignments', Icon: ListChecks, cap: 'account_assignment.manage', roles: ADMINS, keywords: 'routing sticky numbers' },
+      { href: '/assignments', lbl: 'shell.nav.assignments', Icon: ListChecks, cap: 'account_assignment.manage', keywords: 'routing sticky numbers' },
     ],
   },
   {
     label: 'shell.groups.automate',
     items: [
-      { href: '/journeys', lbl: 'shell.nav.flowBuilder', Icon: Workflow, alsoActive: ['/flow-builder'], cap: ['flows.view', 'flows.manage'], roles: ADMINS, keywords: 'journeys flow flows flow builder workflow workflows campaigns automation perjalanan aliran 客户旅程 流程' },
+      { href: '/journeys', lbl: 'shell.nav.flowBuilder', Icon: Workflow, alsoActive: ['/flow-builder'], cap: ['flows.view', 'flows.manage'], keywords: 'journeys flow flows flow builder workflow workflows campaigns automation perjalanan aliran 客户旅程 流程' },
       { href: '/ai-monitor', lbl: 'shell.nav.aiMonitor', Icon: ScanEye, cap: 'ai.monitor', keywords: 'drafts approve review bot' },
       { href: '/ai-playground', lbl: 'shell.nav.aiPlayground', Icon: FlaskRound, cap: ['ai.monitor', 'ai.behaviour.manage'], keywords: 'playground test ai try simulate sandbox prompt persona model compare ruang uji cuba simulasi 试验场 测试 试用 模拟 提示词' },
       { href: '/ai-tasks', lbl: 'shell.nav.aiTasks', Icon: Bot, cap: ['ai.monitor', 'settings.ai.manage'], keywords: 'background ai tasks invoice receipt extract silent worker sheets drive mcp tugas latar belakang invois resit 后台 任务 发票 收据' },
-      { href: '/automations', lbl: 'shell.nav.automations', Icon: Zap, cap: 'flows.manage', roles: ADMINS, keywords: 'rules triggers' },
-      { href: '/persona', lbl: 'shell.nav.voice', Icon: Mic, cap: 'settings.ai.manage', roles: ADMINS, keywords: 'voice persona calling' },
+      { href: '/automations', lbl: 'shell.nav.automations', Icon: Zap, cap: 'flows.manage', keywords: 'rules triggers' },
+      { href: '/persona', lbl: 'shell.nav.voice', Icon: Mic, cap: 'settings.ai.manage', keywords: 'voice persona calling' },
     ],
   },
   {
     label: 'shell.groups.library',
     items: [
-      { href: '/templates', lbl: 'shell.nav.templates', Icon: FileText, alsoActive: ['/script-templates'], cap: ['templates.manage', 'script_templates.manage'], roles: ADMINS, keywords: 'canned replies scripts messages' },
-      { href: '/knowledge', lbl: 'shell.nav.knowledge', Icon: BookOpen, cap: 'settings.ai.manage', roles: ADMINS, keywords: 'faq policies facts' },
-      { href: '/skills', lbl: 'shell.nav.skills', Icon: Sparkles, cap: 'settings.ai.manage', roles: ADMINS, keywords: 'instructions' },
-      { href: '/ai-persona', lbl: 'shell.nav.aiPersona', Icon: UserRoundCog, cap: 'settings.ai.manage', roles: ADMINS, keywords: 'persona house rules tone voice brand prompt peraturan nada 人设 规则 语气' },
+      { href: '/templates', lbl: 'shell.nav.templates', Icon: FileText, alsoActive: ['/script-templates'], cap: ['templates.manage', 'script_templates.manage'], keywords: 'canned replies scripts messages' },
+      { href: '/knowledge', lbl: 'shell.nav.knowledge', Icon: BookOpen, cap: 'settings.ai.manage', keywords: 'faq policies facts' },
+      { href: '/skills', lbl: 'shell.nav.skills', Icon: Sparkles, cap: 'settings.ai.manage', keywords: 'instructions' },
+      { href: '/ai-persona', lbl: 'shell.nav.aiPersona', Icon: UserRoundCog, cap: 'settings.ai.manage', keywords: 'persona house rules tone voice brand prompt peraturan nada 人设 规则 语气' },
       { href: '/tags', lbl: 'shell.nav.tags', Icon: Tag, cap: 'tags.view', keywords: 'labels fields' },
     ],
   },
   {
     label: 'shell.groups.channels',
     items: [
-      { href: '/channels', lbl: 'shell.nav.channels', Icon: Radio, cap: 'channels.view', roles: ADMINS, keywords: 'whatsapp telegram email accounts numbers widget' },
-      { href: '/integrations', lbl: 'shell.nav.integrations', Icon: Plug, cap: 'integrations.view', roles: ADMINS, keywords: 'google calendar stripe shopify' },
+      { href: '/channels', lbl: 'shell.nav.channels', Icon: Radio, cap: 'channels.view', keywords: 'whatsapp telegram email accounts numbers widget' },
+      { href: '/integrations', lbl: 'shell.nav.integrations', Icon: Plug, cap: 'integrations.view', keywords: 'google calendar stripe shopify' },
     ],
   },
   {
     label: 'shell.groups.admin',
     items: [
-      { href: '/users', lbl: 'shell.nav.users', Icon: UserCog, cap: 'users.view', roles: ADMINS, keywords: 'people accounts staff' },
-      { href: '/teams', lbl: 'shell.nav.teams', Icon: UsersRound, cap: 'users.view', roles: ADMINS },
-      { href: '/entities', lbl: 'shell.nav.entities', Icon: Building2, cap: 'entities.view', roles: ADMINS, keywords: 'branches outlets' },
-      { href: '/bindings', lbl: 'shell.nav.bindings', Icon: Link2, cap: 'users.view', roles: ADMINS, keywords: 'access' },
-      { href: '/permissions', lbl: 'shell.nav.permissions', Icon: ShieldCheck, cap: 'rbac.manage', roles: ['superadmin'], keywords: 'rbac capabilities matrix' },
-      { href: '/developers', lbl: 'shell.nav.developers', Icon: Code2, cap: 'api_keys.manage', roles: ADMINS, keywords: 'developers tokens mcp' },
+      { href: '/users', lbl: 'shell.nav.users', Icon: UserCog, cap: 'users.view', keywords: 'people accounts staff' },
+      { href: '/teams', lbl: 'shell.nav.teams', Icon: UsersRound, cap: 'users.view' },
+      { href: '/entities', lbl: 'shell.nav.entities', Icon: Building2, cap: 'entities.view', keywords: 'branches outlets' },
+      { href: '/bindings', lbl: 'shell.nav.bindings', Icon: Link2, cap: 'users.view', keywords: 'access' },
+      { href: '/permissions', lbl: 'shell.nav.permissions', Icon: ShieldCheck, cap: 'rbac.manage', keywords: 'rbac capabilities matrix' },
+      { href: '/developers', lbl: 'shell.nav.developers', Icon: Code2, cap: 'api_keys.manage', keywords: 'developers tokens mcp' },
     ],
   },
   {
@@ -128,7 +126,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/billing', lbl: 'shell.nav.aiBill', Icon: Receipt, cap: 'billing.view', keywords: 'bill invoice usage cost ai tokens bil invois kos 账单 费用 用量' },
       { href: '/activity', lbl: 'shell.nav.activity', Icon: Activity, cap: 'activity.view', keywords: 'audit log' },
       { href: '/call-logs', lbl: 'shell.nav.callLogs', Icon: PhoneCall, alsoActive: ['/call-logs/'], cap: 'call_logs.view', keywords: 'calls recordings' },
-      { href: '/test-lab', lbl: 'shell.nav.testLab', Icon: FlaskConical, roles: ['superadmin'], keywords: 'tests scenarios use cases qa demo data' },
+      { href: '/test-lab', lbl: 'shell.nav.testLab', Icon: FlaskConical, cap: 'testlab.run', keywords: 'tests scenarios use cases qa demo data' },
     ],
   },
 ]
