@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -29,8 +30,6 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { Select } from '@/components/ui/Select'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { useFormat, useT, type MessageKey } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /**
  * Activity — the audit trail of everything that happened: people in the

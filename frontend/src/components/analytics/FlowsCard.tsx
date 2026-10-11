@@ -1,13 +1,12 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { authHeaders } from '@/lib/auth'
 import type { FlowsOverview } from '@/lib/flow/api'
 import { Trans, useFormat, useT } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /**
  * "Flows today" — for every live flow, how many people entered it today and

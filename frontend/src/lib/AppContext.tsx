@@ -3,6 +3,7 @@
 // Global app state for the dashboard POC. Reconstructed after being lost to a
 // `.gitignore` rule. Holds in-memory mock state (no backend) shared by all pages.
 
+import { API } from '@/lib/apiBase'
 import {
   createContext,
   useCallback,
@@ -25,9 +26,6 @@ import {
 } from './mocks'
 import { useEntity } from './EntityContext'
 import { authHeaders, expireSessionOn401, getAuth, userHasCap } from './auth'
-
-// Native Django API base. Override with NEXT_PUBLIC_API_URL.
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 // Max simultaneous live calls. The rest of a batch queues and starts as slots
 // free up. Cap it to your SIP trunk's concurrent-channel limit.

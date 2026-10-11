@@ -3,9 +3,8 @@
  * view follows the operator across browsers; every call only ever sees the
  * signed-in user's own views.
  */
+import { API } from '@/lib/apiBase'
 import { authHeaders, expireSessionOn401 } from './auth'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export type ViewScope = 'chats' | 'contacts'
 

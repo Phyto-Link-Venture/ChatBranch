@@ -1,13 +1,12 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useState } from 'react'
 import { Download } from 'lucide-react'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { channelLabel } from '@/components/ui/ChannelLogo'
 import { authHeaders } from '@/lib/auth'
 import { useFormat, useT } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /**
  * Breakdown reports: who handled what, on which team, under which label, over

@@ -1,13 +1,12 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { authHeaders } from '@/lib/auth'
 import { useFormat, useT } from '@/i18n'
 import { useDuration } from './KpiStrip'
 import type { AnalyticsSummary } from './types'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface Engagement {
   threads_total: number

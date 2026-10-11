@@ -4,11 +4,12 @@
  * InviteModal, the chat's IdentityBanner / CreateFromChat, the inbox drawer's
  * "Unknown customers" field and ContactImportModal.
  */
+import { API } from '@/lib/apiBase'
 import { authHeaders } from './auth'
 import { LANGUAGES } from './languages'
 import type { MessageKey, TFunction } from '@/i18n'
 
-export const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
+export { API }
 
 /** JSON fetch against the API; throws the server's `detail` on failure. */
 export async function cApi<T>(path: string, init?: RequestInit): Promise<T> {

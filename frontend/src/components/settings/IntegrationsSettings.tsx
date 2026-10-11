@@ -1,6 +1,7 @@
 'use client'
 
 
+import { API } from '@/lib/apiBase'
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -29,8 +30,6 @@ import { useAccess } from '@/lib/useAccess'
 import { expireSessionOn401 } from '@/lib/auth'
 import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
 import { useSettingsDirty } from './SettingsDirtyContext'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /* ---------- types (mirror integrations/views.py `_payload` / `providers`) ---------- */
 

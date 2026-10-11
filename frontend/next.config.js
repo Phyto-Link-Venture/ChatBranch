@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // A self-contained server (.next/standalone: server.js + only the runtime
+  // node_modules it traces) — what the Dockerfile ships, without src/ or dev deps.
+  output: 'standalone',
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api',
   },

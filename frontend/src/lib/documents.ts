@@ -5,11 +5,10 @@
  * layout's own fields) and making one by hand (`POST /api/documents`, the server
  * does every sum and numbers it; a custom layout's fields ride in `fields.fields`).
  */
+import { API } from '@/lib/apiBase'
 import { authHeaders, expireSessionOn401 } from './auth'
 import type { DocumentType } from '@/components/skills/readySkills'
 import type { HtmlField } from '@/components/skills/htmlLayout'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export interface ChatDocument {
   id: number

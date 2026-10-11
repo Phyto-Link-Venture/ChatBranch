@@ -1,0 +1,7 @@
+# Never send the host's installs or build output into the image build: the
+# deps stage installs its own (Linux/musl) packages, and a stale .next would
+# leak into the standalone output.
+node_modules
+.next
+npm-debug.log*
+coverage

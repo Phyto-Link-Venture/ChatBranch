@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useState } from 'react'
 import { ArrowDown, ArrowUp, CheckCircle2, FlaskConical, GripVertical, Loader2, Pencil, Plus, Search, Trash2, Workflow, X, XCircle, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -15,8 +16,6 @@ import {
   useDefaultAvailability,
   type EntityRefLite,
 } from '@/components/ui/AvailabilityPicker'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /**
  * Automation rules — "when this happens to a conversation, do that".

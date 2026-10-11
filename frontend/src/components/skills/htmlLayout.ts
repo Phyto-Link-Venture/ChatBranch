@@ -1,3 +1,4 @@
+import { API } from '@/lib/apiBase'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import type { DocumentType } from './readySkills'
 import { aicore } from './skillsApi'
@@ -10,8 +11,6 @@ import { aicore } from './skillsApi'
  * fixed words (terms, bank details). The server normalizes, sanitizes and test-prints it
  * on save; the editor previews it through `/skills/documents/html/preview`.
  */
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export const FIELD_TYPES = ['text', 'multiline', 'date', 'number'] as const
 export type FieldType = (typeof FIELD_TYPES)[number]

@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CornerDownRight, Loader2, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -16,8 +17,6 @@ import { useAccess } from '@/lib/useAccess'
 import { useEntity, type Entity } from '@/lib/EntityContext'
 import { fetchTagAssignments, fetchTags, saveEntityTags, type TagDef } from '@/lib/tags'
 import { Trans, useFormat, useT } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /**
  * Entities (RBAC entities model, /api/v1/entities + /api/v1/whoami).

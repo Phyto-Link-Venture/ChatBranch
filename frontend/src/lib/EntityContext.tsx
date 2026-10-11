@@ -15,10 +15,10 @@
  * RBAC still bounds the set, this narrows within it.
  */
 
+import { API } from '@/lib/apiBase'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { authHeaders, getAuth } from './auth'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 const ACTIVE_KEY = 'chatbranch-active-entity' // legacy single pick (read once, then migrated)
 const SELECTED_KEY = 'chatbranch-entities' // JSON: string[] of slugs, or ["__all__"]
 const ALL = '__all__' // sentinel: view across every entity

@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
@@ -32,8 +33,6 @@ import { KnowledgeUploadButton } from '@/components/ai-learning/KnowledgeUpload'
 import { RetrievalTester } from '@/components/ai-learning/RetrievalTester'
 import { aiChannelLabel } from '@/lib/aiLearning'
 import { Trans, useT, type MessageKey } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface Item {
   id: number

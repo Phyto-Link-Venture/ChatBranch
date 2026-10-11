@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, ExternalLink, Loader2, MessageSquareReply, Phone, RefreshCw } from 'lucide-react'
 import { useT, type MessageKey } from '@/i18n'
@@ -19,8 +20,6 @@ import { Field, Segmented } from './fields'
  * templateVariables ({"1": "{{first_name}}"} — slot → value, rendered from the
  * CRM at send time).
  */
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface WaTemplateButton {
   type: string

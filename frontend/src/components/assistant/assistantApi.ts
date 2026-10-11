@@ -1,3 +1,4 @@
+import { API } from '@/lib/apiBase'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 
 /**
@@ -5,8 +6,6 @@ import { authHeaders, expireSessionOn401 } from '@/lib/auth'
  * and the per-user history under /api/assistant/conversations). The server is
  * the source of truth for the conversation; the dock only renders it.
  */
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export interface Step {
   tool: string

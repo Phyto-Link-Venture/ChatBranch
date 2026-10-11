@@ -84,6 +84,15 @@ npm run dev:baileys  # Baileys gateway, :3020
   SQLite file into an EMPTY Postgres database on boot (`Data/SqliteImport.cs`: backup-API
   snapshot, one transaction, per-table counts verified, sequences moved, Setting
   `db_imported_from_sqlite`). Switch-over runbook: `docs/postgres.md`.
+- **Other companies' servers run prebuilt images, never the source:**
+  `deploy/customer/` (image-based compose — Postgres + daily dumps, Caddy HTTPS
+  for `DOMAIN`, `/api/*` → api, hardened containers, internal networks — with
+  `.env.example` and a README) pulls what the **Release** workflow
+  (`.github/workflows/release.yml`: tag `v*.*.*` or manual, after a green CI)
+  pushes to GHCR as `chatbranch-{api,web,baileys,agent}:<version>` + `:latest`,
+  with SBOM + provenance, cosign-signed. The web image is built with
+  `NEXT_PUBLIC_API_URL=/api` (one image, any domain). The own servers' compose
+  build + `deploy.yml` are unchanged.
 
 ## Port status — what is real, what is sandbox
 
@@ -1654,6 +1663,15 @@ When you fix one of these, update this table, `README.md` and
   `TranscriptLine`, …) — its data arrays are EMPTY since the production-clean
   pass; only the voice presets remain. It was once lost to a `.gitignore`
   `lib/` rule — `.gitignore` explicitly un-ignores `frontend/src/lib/`.
+- **The API base comes from ONE helper, `src/lib/apiBase.ts`** — import `API`
+  from it, never read `process.env.NEXT_PUBLIC_API_URL`. The base may be RELATIVE
+  (`/api`, what release images are built with): `fetch` / `EventSource` / `src`
+  take `API` or `apiResource(path)` as they are, but anything SHOWN or handed to
+  another site (the MCP URL, the widget snippet, webhook URLs, a tab to open)
+  goes through `absoluteApiUrl()` / `absoluteApiResource()`, which resolve
+  against `window.location.origin` (call them after mount). Nothing in Next
+  calls the API server-side; a future server-side caller needs its own runtime
+  variable (e.g. `API_INTERNAL_URL`).
 - **Calls are multi-concurrent.** State is a `calls: Record<room, LiveCall>` map
   plus a waiting `queue`. Seams: `dialContact(id)`, `dialManual(phone,…)`,
   `launchBatch(ids)`; every per-call action is room-scoped (`sendSay(room,…)`,
@@ -2101,6 +2119,14 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   chatbranch.conf` are one production single-origin setup. SQLite is a FILE —
   the API's `/data` volume is not optional, and the voice agent shares it (it also
   holds media, documents and recordings under Postgres).
+  Images: the dashboard's is multi-stage — `output: 'standalone'`, the final
+  stage carries `.next/standalone` + `.next/static` + `public` and runs
+  `node server.js` as `node` (no `src/`, no dev dependencies); the API publishes
+  with no `.pdb` (`-p:DebugType=None`); the baileys and agent images run as uid
+  1654 (= the API's `app`, one owner for the shared volume) — their
+  `docker-entrypoint.sh` starts as root only to hand root-owned paths left by
+  older images to that user, then drops to it (`user: "1654:1654"` skips that,
+  as `deploy/customer/` does). No obfuscation (reflection / EF / JSON-name heavy).
 
 ## Notes
 

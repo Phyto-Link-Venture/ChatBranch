@@ -8,6 +8,7 @@
  * instead of throwing, so a server without these endpoints simply shows less.
  * Writes still throw an ApiError so the caller can show the reason in place.
  */
+import { API } from '@/lib/apiBase'
 import type { MessageKey, TFunction } from '@/i18n'
 import { channelLabel } from '@/components/ui/ChannelLogo'
 import { authHeaders, expireSessionOn401 } from './auth'
@@ -20,8 +21,6 @@ export function aiChannelLabel(c: string, t: TFunction): string {
   if (c === 'voice') return t('ai.channels.voice')
   return channelLabel(c)
 }
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /* ---------- feedback ---------- */
 

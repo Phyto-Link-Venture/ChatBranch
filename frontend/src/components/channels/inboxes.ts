@@ -17,15 +17,14 @@
  * components with `t()` — nothing here knows the language.
  */
 
+import { API } from '@/lib/apiBase'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import { accountRole, type AccountRole } from '@/components/ui/Badges'
 import type { HealthStatus } from '@/lib/channelHealth'
 import type { MessageKey, TFunction, Vars } from '@/i18n'
 import type { channels as channelsEn } from '@/i18n/messages/en/channels'
 
-export const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
-/** The API's own origin — webhook URLs and the widget script live there. */
-export const API_ORIGIN = API.replace(/\/api\/?$/, '')
+export { API }
 
 /** A translatable text built outside a component: a key and its placeholders. */
 export interface Msg {

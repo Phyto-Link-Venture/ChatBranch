@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, Pencil, Plus, Trash2, Users } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -12,8 +13,6 @@ import { usersByRoleGroups } from '@/components/bindings/groups'
 import { authHeaders, hasCap } from '@/lib/auth'
 import { useEntity, useEntityQuery } from '@/lib/EntityContext'
 import { Trans, useFormat, useT } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /**
  * Teams — a group of agents conversations are routed to.

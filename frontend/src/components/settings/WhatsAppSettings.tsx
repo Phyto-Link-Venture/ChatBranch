@@ -17,7 +17,8 @@ import { Select } from '@/components/ui/Select'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import { LLM_PROVIDER_LABELS, STT_PROVIDER_LABELS } from '@/lib/voiceProviders'
 import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
-import { API, API_ORIGIN, EMPTY_DELIVERY, type AccountDelivery } from '@/components/channels/inboxes'
+import { API, EMPTY_DELIVERY, type AccountDelivery } from '@/components/channels/inboxes'
+import { absoluteApiResource } from '@/lib/apiBase'
 
 // ── shared bits ──────────────────────────────────────────────────────────────
 
@@ -68,7 +69,7 @@ export function MetaWebhookRows({ verifyToken, path = '/api/whatsapp/webhook' }:
   const t = useT()
   return (
     <div className="grid grid-cols-1 gap-2">
-      <CopyRow label={t('channels.whatsapp.callbackUrl')} value={`${API_ORIGIN}${path}`} />
+      <CopyRow label={t('channels.whatsapp.callbackUrl')} value={absoluteApiResource(path)} />
       <CopyRow label={t('channels.whatsapp.verifyToken')} value={verifyToken} />
     </div>
   )

@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
@@ -34,8 +35,6 @@ import {
 import { useFormat, useT, type MessageKey } from '@/i18n'
 import { authHeaders, hasCap } from '@/lib/auth'
 import { useEntityQuery } from '@/lib/EntityContext'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /**
  * Background AI tasks — silent AI workers (server: Ai/Tasks/AiTaskService.cs).

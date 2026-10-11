@@ -1,13 +1,12 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useEffect, useState } from 'react'
 import { Megaphone, X } from 'lucide-react'
 import { useApp } from '@/lib/AppContext'
 import { authHeaders } from '@/lib/auth'
 import { Select } from '@/components/ui/Select'
 import { useT } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface ScriptTemplate {
   id: number

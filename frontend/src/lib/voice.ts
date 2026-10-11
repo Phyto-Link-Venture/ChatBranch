@@ -1,8 +1,7 @@
+import { API } from '@/lib/apiBase'
 import { authHeaders } from './auth'
 
 // One shared <audio> element so starting a preview stops the previous one.
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8090/api'
-
 let audio: HTMLAudioElement | null = null
 let currentUrl: string | null = null
 let playingId: string | null = null

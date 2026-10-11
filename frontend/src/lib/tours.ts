@@ -11,6 +11,7 @@
  *   guide.tours.<id>.steps.s<n>.title / .body   (n from 1)
  */
 
+import { API } from '@/lib/apiBase'
 import type { MessageKey } from '@/i18n'
 import { authHeaders } from './auth'
 
@@ -356,8 +357,6 @@ export const stepKey = (id: string, n: number, part: 'title' | 'body') =>
 // `guides`, via /api/auth/preferences) is the copy that follows them to other
 // browsers, the installed app and the next sign-in — an iPhone keeps Safari's
 // and the home-screen app's storage apart and may wipe either.
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /** Fire-and-forget write of the guide memory to the account (best effort). */
 function saveGuides(guides: { auto?: boolean; seen?: string[] }) {

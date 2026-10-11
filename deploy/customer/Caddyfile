@@ -1,0 +1,44 @@
+# ChatBranch — the single origin in front of the two containers.
+#
+#   https://{$DOMAIN}/api/*      → api:8090  (the C# API, /api prefix kept)
+#   /mcp, /widget.js             → api:8090  (its two root-level routes; the
+#                                  dashboard hands out the /api/ forms)
+#   everything else              → web:3000  (the Next.js dashboard)
+#
+# Caddy gets and renews the HTTPS certificate for DOMAIN by itself (Let's
+# Encrypt / ZeroSSL) — ports 80 and 443 must reach this server and DOMAIN must
+# resolve to it. Plain http:// is redirected to https://.
+#
+# The app sets its own security headers (CSP, frame options…); this file adds
+# the transport-level ones, each only when the app did not set it already, and
+# drops the Server banner. No access log: URLs can carry signed links.
+
+{$DOMAIN} {
+	header {
+		?Strict-Transport-Security "max-age=31536000"
+		?X-Content-Type-Options "nosniff"
+		?Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+		-X-Powered-By
+	}
+
+	# uploads: knowledge PDFs and imports ≤ 10 MB, WhatsApp media ≤ 16 MB
+	request_body {
+		max_size 25MB
+	}
+
+	@api path /api/* /mcp /widget.js
+	handle @api {
+		reverse_proxy api:8090 {
+			# the inbox and live calls are Server-Sent Events: pass every byte at once
+			flush_interval -1
+		}
+	}
+
+	# the dashboard's pages and bundles compress well; API responses are left
+	# alone (Server-Sent Events must stream, media must keep byte ranges)
+	handle {
+		encode zstd gzip
+		reverse_proxy web:3000
+	}
+}

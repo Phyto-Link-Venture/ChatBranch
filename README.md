@@ -225,6 +225,23 @@ the API streams them) and keeps the paired WhatsApp sessions in the
 `docker-compose.override.yml` + `deploy/nginx-chatbranch.conf` show one
 single-origin production setup.
 
+### Deploy to another server
+
+To install ChatBranch on someone else's server **without the source code**, use
+the prebuilt images and the install kit in **[`deploy/customer/`](deploy/customer/README.md)**:
+a `docker-compose.yml` that pulls `ghcr.io/phyto-link-venture/chatbranch-{api,web,baileys,agent}`
+(`CHATBRANCH_VERSION`, default `latest`), PostgreSQL with daily dumps, Caddy with
+automatic HTTPS for `DOMAIN` (`/api/*` → the API, the rest → the dashboard),
+hardened containers and internal-only networks, plus `.env.example` and a README
+covering install, first sign-in, upgrades, backup / restore and registry access.
+The images come from the **Release** workflow (`.github/workflows/release.yml`):
+push a tag `v1.4.0` (or run it by hand with a version) on a commit whose CI is
+green, and it builds the four images, pushes them to GHCR as `:<version>` and
+`:latest` with an SBOM and provenance attestation, and signs them with cosign
+(keyless). The dashboard image is built with `NEXT_PUBLIC_API_URL=/api`, so one
+image serves any domain behind a single-origin proxy. The own servers keep
+building from source (`docker compose build`, the deploy workflow) unchanged.
+
 ---
 
 ## What works with zero API keys
@@ -323,7 +340,8 @@ ChatBranch/
 │   └── data/                    LIVE state: WhatsApp session, media, call files
 │                                (gitignored — never delete)
 ├── frontend/                    Next.js dashboard (App Router, :3000)
-├── deploy/                      example nginx config
+├── deploy/                      example nginx config; customer/ = the install kit
+│                                for other servers (prebuilt images, no source)
 └── docs/                        domain model, schema, API, RBAC, channels, guide
 ```
 
@@ -411,7 +429,11 @@ every pull request.
 - **Dev slowness is Next.js**, not your machine: each route compiles on first
   visit. Use `next dev --turbo` or a production build for a faster loop.
 - The dashboard's API base is `NEXT_PUBLIC_API_URL` (default
-  `http://localhost:8090/api`), baked in at build time.
+  `http://localhost:8090/api`), baked in at build time and read in ONE place,
+  `frontend/src/lib/apiBase.ts`. A relative `/api` works too (the release
+  image): the browser then calls the API on the dashboard's own origin, and URLs
+  shown or handed out (MCP endpoint, widget snippet, webhook URLs) are made
+  absolute from the page's origin.
 - `NEXT_PUBLIC_MAX_CONCURRENT` (default `3`) caps simultaneous live calls —
   match it to your SIP trunk's concurrent-channel limit.
 - The WhatsApp module's API surface was modelled on

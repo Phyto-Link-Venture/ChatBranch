@@ -10,14 +10,13 @@
  * Server: GET/POST /api/contacts/access-requests (ContactAccessEndpoints.cs).
  */
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useState } from 'react'
 import { KeyRound, Loader2 } from 'lucide-react'
 import { authHeaders, expireSessionOn401, hasCap } from '@/lib/auth'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { useFormat, useT } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export type AccessRequest = {
   id: number

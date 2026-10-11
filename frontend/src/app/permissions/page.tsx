@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertCircle, Loader2, ShieldCheck } from 'lucide-react'
 import { authHeaders, CAPABILITY_CATALOG, roleDisplayName } from '@/lib/auth'
@@ -15,8 +16,6 @@ import {
   type PermsResponse,
   type RoleRow,
 } from '@/components/permissions/types'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /**
  * Permissions — two-level RBAC UI (upgrade §B).

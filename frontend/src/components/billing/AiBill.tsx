@@ -16,6 +16,7 @@
  * viewer's share button saves, shares or prints it.
  */
 
+import { API, absoluteApiResource } from '@/lib/apiBase'
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Download, Loader2, Printer, Settings2 } from 'lucide-react'
@@ -26,10 +27,6 @@ import { isIos } from '@/components/shell/pwa'
 import { aiApi } from '@/lib/aiMonitor'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import { useFormat, useI18n, useT, type MessageKey } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
-/** The API's origin + any proxy prefix, without the trailing `/api` (signed paths start with /api/). */
-const API_ROOT = API.replace(/\/api\/?$/, '')
 
 interface CompanySummary {
   id: number
@@ -162,7 +159,7 @@ export function AiBill() {
           method: 'POST',
           body: JSON.stringify({ month: q.get('month'), company: q.get('company') ?? '', lang: q.get('lang') }),
         })
-        const url = `${API_ROOT}${link.path}`
+        const url = absoluteApiResource(link.path)
         if (tab) tab.location.href = url
         else window.location.href = url
         return

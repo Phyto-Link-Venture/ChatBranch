@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Building2, Loader2, Radio, Tag, Tags, UserCog, Users, type LucideIcon } from 'lucide-react'
 import { BindingGrid, SaveBar, type BindingGroup, nounCount } from '@/components/ui/BindingGrid'
@@ -18,8 +19,6 @@ import {
   usersByRoleGroups,
   type TreeEntity,
 } from './groups'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /**
  * One screen for every binding, in the Permissions-page pattern: pick WHAT you

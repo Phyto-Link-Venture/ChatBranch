@@ -20,6 +20,7 @@
  * channels" (re-run discovery) and "Invite to another app".
  */
 
+import { API } from '@/lib/apiBase'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Check, ChevronDown, ChevronRight, HelpCircle, Loader2, MessageSquarePlus, Plus, RefreshCw, Send, X } from 'lucide-react'
@@ -31,8 +32,6 @@ import { NO_LOOKUP_LABELS, cApi, errText, type DiscoverResult, type Verdict } fr
 import { Select, type SelectOption } from '@/components/ui/Select'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { InviteModal } from '@/components/contacts/InviteModal'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export interface ChannelIdentity {
   key: string

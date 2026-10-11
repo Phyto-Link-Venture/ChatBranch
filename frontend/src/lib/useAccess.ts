@@ -1,9 +1,8 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useState } from 'react'
 import { getAuth, setAuth, userHasCap, type AuthUser, type Role } from './auth'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /**
  * Hydration-safe capability gate. Like useRole(): nothing is read from

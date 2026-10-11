@@ -1,12 +1,11 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useEffect, useState } from 'react'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { useFormat, useT, type MessageKey } from '@/i18n'
 import { useEntityQuery } from '@/lib/EntityContext'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface UsageTokens {
   prompt_tokens: number

@@ -15,11 +15,10 @@
  * mounted `useTags('conversation')`; the static list is only the offline
  * fallback.
  */
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import type { MessageKey, TFunction } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export type TagAppliesTo = 'contact' | 'entity' | 'conversation'
 export type TagColor = 'tangerine' | 'ink' | 'teal' | 'plum' | 'ochre' | 'blue' | 'green' | 'rose'

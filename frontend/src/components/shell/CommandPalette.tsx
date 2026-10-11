@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import {
@@ -23,7 +24,6 @@ import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { visiblePages } from './nav'
 import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 const MIN_CHARS = 2
 const MAX_RECENT = 6
 

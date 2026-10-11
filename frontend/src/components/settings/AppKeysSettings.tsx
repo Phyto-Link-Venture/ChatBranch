@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useEffect, useState } from 'react'
 import { Info, KeyRound, Loader2, ShieldAlert } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -7,8 +8,6 @@ import { roleHeaders } from '@/lib/role'
 import { expireSessionOn401 } from '@/lib/auth'
 import { useAccess } from '@/lib/useAccess'
 import { Trans, useT } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface GlobalSettings {
   verify_token: string

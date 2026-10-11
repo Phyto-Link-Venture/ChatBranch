@@ -1,6 +1,6 @@
+import { API } from '@/lib/apiBase'
 import { authHeaders, getAuth } from './auth'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 const reported = new Set<string>()
 
 /**
