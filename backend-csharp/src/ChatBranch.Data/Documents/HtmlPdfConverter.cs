@@ -98,7 +98,14 @@ public sealed class ChromiumHtmlPdfConverter : IHtmlPdfConverter
     public string? Binary { get; }
     public bool Available => Binary != null;
 
-    public ChromiumHtmlPdfConverter(string? binary) => Binary = binary;
+    /// <summary>How long one print may take before the process tree is killed (default <see cref="Timeout"/>).</summary>
+    public TimeSpan Limit { get; }
+
+    public ChromiumHtmlPdfConverter(string? binary, TimeSpan? limit = null)
+    {
+        Binary = binary;
+        Limit = limit ?? Timeout;
+    }
 
     public static ChromiumHtmlPdfConverter FromEnvironment() =>
         new(FindBinary(Environment.GetEnvironmentVariable("DOCUMENT_HTML_CHROMIUM")));
@@ -167,7 +174,7 @@ public sealed class ChromiumHtmlPdfConverter : IHtmlPdfConverter
             p.BeginErrorReadLine();
             p.BeginOutputReadLine();
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(Timeout);
+            timeout.CancelAfter(Limit);
             try
             {
                 await p.WaitForExitAsync(timeout.Token);
@@ -177,7 +184,7 @@ public sealed class ChromiumHtmlPdfConverter : IHtmlPdfConverter
                 try { p.Kill(entireProcessTree: true); } catch { /* already gone */ }
                 ct.ThrowIfCancellationRequested();
                 throw new DocumentHtmlException(
-                    $"The custom layout took longer than {Timeout.TotalSeconds:0} seconds to print — simplify the template.");
+                    $"The custom layout took longer than {Limit.TotalSeconds:0} seconds to print — simplify the template.");
             }
             var bytes = File.Exists(output) ? await File.ReadAllBytesAsync(output, CancellationToken.None) : Array.Empty<byte>();
             if (!DocumentService.IsPdf(bytes))

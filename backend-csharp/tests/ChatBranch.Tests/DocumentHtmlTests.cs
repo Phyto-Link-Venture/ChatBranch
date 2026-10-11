@@ -767,7 +767,9 @@ public class DocumentHtmlTests
             try { while (true) { using var c = await listener.AcceptTcpClientAsync(); Interlocked.Increment(ref hits); } }
             catch { /* stopped */ }
         });
-        var chrome = new ChromiumHtmlPdfConverter(browser);
+        // what this proves is no JavaScript and no network, not speed: a 2-vCPU CI runner busy with the
+        // whole suite took most of the production 30 s limit just to start Chrome
+        var chrome = new ChromiumHtmlPdfConverter(browser, TimeSpan.FromMinutes(2));
 
         // straight to the printer — no sanitizer in front: the printer itself keeps JS and the network off
         var raw = $$"""

@@ -913,7 +913,9 @@ When you fix one of these, update this table, `README.md` and
   `HtmlSanitizer` runs on save AND before every render (no script / iframe /
   object, no `on*`, no non-data URLs, no `@import` / `url()`). Printing = headless
   Chromium (`HtmlPdfConverter.cs`, `IHtmlPdfConverter`; `DOCUMENT_HTML_CHROMIUM`
-  path | `off`, else PATH; ≤2 at once, 30 s then the process tree is killed, temp
+  path | `off`, else the PATH — Google Chrome before a generic `chromium`: GitHub's
+  runner image ships an unofficial Chromium snapshot that never finishes a headless
+  run; ≤2 at once, 30 s then the process tree is killed, temp
   profile removed): JavaScript is off by an injected CSP (`script-src 'none'` —
   `--blink-settings=scriptEnabled=false` makes `--print-to-pdf` print nothing) and
   the network by `--host-resolver-rules=MAP * ~NOTFOUND` + `--no-proxy-server`,
@@ -1968,7 +1970,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **1040 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **1041 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /
