@@ -18,6 +18,12 @@ public sealed record EmailServerSettings
     public string Password { get; init; } = "";
     /// <summary>STARTTLS on a non-465 port (465 is always implicit TLS).</summary>
     public bool UseTls { get; init; } = true;
+    /// <summary>
+    /// An explicit connection security that overrides the port rule above: <c>none</c> |
+    /// <c>starttls</c> | <c>ssl</c> (implicit TLS on any port). "" = the port rule (every
+    /// mailbox account and the default mail settings). Settings → System email sets it.
+    /// </summary>
+    public string TlsMode { get; init; } = "";
     public string From { get; init; } = "";
     public string FromName { get; init; } = "";
     public string DefaultSubject { get; init; } = EmailConfig.DefaultSubject;

@@ -407,7 +407,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 |---|---|---|---|
 | `me_get_profile` | Who am I | read | signed in |
 
-#### users (7)
+#### users (8)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -415,6 +415,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `users_list_agents` | List assignable agents | read | `chats.view` |
 | `users_create` | Create a user | write | `users.manage` |
 | `users_update` | Update a user | write | `users.manage` |
+| `users_send_invite` | Resend a welcome email / send a password reset link | write | `users.manage` |
 | `users_delete` | Delete a user | write · **destructive** | `users.manage` |
 | `users_list_roles` | List roles | read | `users.view` or `users.manage` or `rbac.manage` |
 | `users_get_permission_matrix` | Read the permission matrix | read | `users.view` or `users.manage` or `rbac.manage` |
@@ -631,6 +632,9 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `POST /api/v1/users/{id:int}/2fa/reset` | credentials: resetting someone's two-step sign-in (a lost phone) is a person's decision at /users — sessions only, API keys get 403 |
 | `GET /api/settings/security` | the organization's sign-in security policy (require_2fa) is set by a person (security.manage), never by an AI acting as one |
 | `PUT /api/settings/security` | the organization's sign-in security policy (require_2fa) is set by a person (security.manage), never by an AI acting as one |
+| `GET /api/settings/system-email` | the System email (SMTP for welcome emails and password links) — credential settings page (masked secrets + webhook verify tokens) — no operator task needs it from an AI |
+| `PUT /api/settings/system-email` | the System email's SMTP login — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
+| `POST /api/settings/system-email/test` | sends a test email through the System email's SMTP login to the person at the keyboard — part of entering credentials |
 | `POST /api/client-errors` | the dashboard's own crash reporter (a browser telling the server it broke) — not an operator action |
 | `POST /api/assistant/chat` | Ask ChatBranch itself (chat / confirm / cancel) — a tool calling the assistant would recurse |
 | `POST /api/assistant/confirm` | Ask ChatBranch itself (chat / confirm / cancel) — a tool calling the assistant would recurse |

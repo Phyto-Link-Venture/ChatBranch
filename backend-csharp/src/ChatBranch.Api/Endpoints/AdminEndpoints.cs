@@ -459,7 +459,8 @@ public static class AdminEndpoints
         // the ROWS: superadmin everyone, any other holder (an admin, a custom
         // role granted it) their own tenant — and someone bound to entities
         // only themselves plus the users bound inside their entities.
-        app.MapGet("/api/v1/users", async (ClaimsPrincipal me, AppDbContext db, ScopingService sc) =>
+        app.MapGet("/api/v1/users", async (ClaimsPrincipal me, AppDbContext db, ScopingService sc,
+            ChatBranch.Api.Security.SecurityOptions security) =>
         {
             var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
             if (!await HasCapabilityAsync(db, role, "users.manage"))
@@ -490,20 +491,33 @@ public static class AdminEndpoints
             var ids = rows.Select(u => u.Id).ToList();
             var enrolled = (await db.UserTwoFactors.AsNoTracking().Where(t => t.Enabled && ids.Contains(t.UserId))
                 .Select(t => t.UserId).ToListAsync()).ToHashSet();
-            return Results.Ok(new { users = rows.Select(u => ManagedUserPayload(u, enrolled.Contains(u.Id))) });
+            var links = await ChatBranch.Api.Security.PasswordLinks.OpenLinksAsync(db, ids);
+            return Results.Ok(new
+            {
+                users = rows.Select(u => ManagedUserPayload(u, enrolled.Contains(u.Id), links.GetValueOrDefault(u.Id))),
+                // can a welcome email go out right now (System email / default mail + a login address)?
+                invites = ChatBranch.Api.Security.InviteMailer.Check(sc, security)
+                    .Payload(Math.Max(1, security.InviteLinkHours)),
+            });
         }).RequireAuthorization(AuthPolicies.Authenticated);
     }
 
     // ---- payloads ---------------------------------------------------------
 
-    /// crm/user_service.py managed_user_payload. `name` falls back to the
-    /// username (auth_user's first_name isn't mapped in this port) and
-    /// `created` is null for the same reason — the Users table shows neither.
-    internal static object ManagedUserPayload(AppUser u, bool twoFactor = false) => new
+    /// crm/user_service.py managed_user_payload. `name` = first + last name,
+    /// falling back to the username; `created` is null (auth_user's date_joined
+    /// isn't mapped in this port).
+    internal static object ManagedUserPayload(AppUser u, bool twoFactor = false, PasswordToken? openLink = null) => new
     {
         id = u.Id,
         username = u.Username,
-        name = u.Username,
+        name = MyAccountEndpoints.DisplayName(u),
+        // where the welcome email / a password reset link goes ("" = none)
+        email = u.Email,
+        // false = invited, still waiting for the person to choose a password through the link
+        password_set = DjangoPasswordHasher.IsUsable(u.Password),
+        // the newest set-password link not yet used or revoked: {status pending|expired, purpose, sent_at, expires_at, sent_by}
+        invite_link = ChatBranch.Api.Security.PasswordLinks.LinkPayload(openLink),
         role = RoleOf(u),
         active = u.IsActive,
         created = (DateTime?)null,

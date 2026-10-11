@@ -136,6 +136,10 @@ public class PermissionMatrixTests : IClassFixture<ApiFactory>
         new("POST", "/api/messaging/settings", G("app_keys.manage"), new { }, NotAdmins: true),
         new("PUT", "/api/messaging/settings", G("app_keys.manage"), new { }, NotAdmins: true),
         new("PUT", "/api/whatsapp/voice-settings", G("app_keys.manage"), new { }, NotAdmins: true),
+        // Settings → System email (the SMTP login welcome emails go out through)
+        new("GET", "/api/settings/system-email", G("app_keys.manage"), NotAdmins: true),
+        new("PUT", "/api/settings/system-email", G("app_keys.manage"), new { }, NotAdmins: true),
+        new("POST", "/api/settings/system-email/test", G("app_keys.manage"), new { }, NotAdmins: true),
         new("GET", "/api/testlab/scenarios", G("testlab.run"), NotAdmins: true),
         new("GET", "/api/testlab/status", G("testlab.run"), NotAdmins: true),
         new("GET", "/api/testlab/runs", G("testlab.run"), NotAdmins: true),

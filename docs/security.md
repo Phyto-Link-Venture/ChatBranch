@@ -12,6 +12,7 @@ user out.
 | Two-step sign-in | stolen passwords (TOTP codes from any authenticator app), optional org policy | `Api/Security/TwoFactorService.cs`, `Totp.cs`, `Endpoints/TwoFactorEndpoints.cs` |
 | Default credentials | the POC passwords a template ships with | `Api/Security/DefaultCredentials.cs`, `SessionGate.cs` |
 | Passwords | weak / common / username-as-password | `Api/Security/PasswordPolicy.cs` |
+| Welcome email | passwords sent by email, stolen or replayed set-password links | `Api/Security/PasswordLinks.cs`, `SystemEmail.cs`, `WelcomeEmail.cs`, `Endpoints/PasswordLinkEndpoints.cs` |
 | Request floods | scripted hammering of sign-in, the widget, public links, the API | `Api/Security/RateLimiting.cs` |
 | Client IP | spoofed `X-Forwarded-For` | `Api/Security/ClientIp.cs` (`TRUSTED_PROXIES`) |
 | Browsers | clickjacking, MIME sniffing, script injection, referrer leaks, downgrade to http | `Api/Security/SecurityHeaders.cs`, `frontend/next.config.js headers()`, `deploy/nginx-chatbranch.conf` |
@@ -102,13 +103,53 @@ Any authenticator app works (Google Authenticator, Microsoft Authenticator,
   `SUPERADMIN_PASSWORD` is never forced to change. A demo (`SEED_DEMO=1`) is
   unchanged.
 - **New passwords** (creating a user, an admin's reset, My account, the forced
-  change) on a real install: at least `PASSWORD_MIN_LENGTH` (10) characters, not
+  change, the welcome email's link) on a real install: at least `PASSWORD_MIN_LENGTH` (10) characters, not
   the username, not a well-known password (a built-in list of the passwords
   guessing tools try first — and the seeded ones — also with digits or `!` bolted
   on), not one character repeated. A demo keeps the old 8-character floor.
   Existing passwords are never re-checked. Refusals carry a stable code
   (`password_too_short`, `password_common`, `password_is_username`) the dashboard
   translates.
+
+### The welcome email and set-password links
+
+New users don't get a password by email — **no email ever contains one**. With an
+email address and sign-in emails set up, "Add user" sends a welcome email with
+their username, the login address and a one-time link to choose their own password
+(`/set-password?token=…` on the dashboard); an admin can resend it, or send someone
+who already has a password a **password reset link** (Users → the paper-plane /
+key buttons, `POST /api/v1/users/{id}/invite`). There is no self-service "Forgot
+password?" — a person who forgets theirs asks an admin.
+
+- **The link**: 256 random bits, URL-safe; only its **SHA-256** is stored
+  (`crm_passwordtoken`), so a copy of the database holds no working link. It works
+  **once**, for `INVITE_LINK_HOURS` (**72**) hours. Sending a new one revokes the
+  older ones (only once the new one has really gone out); deactivating the user,
+  changing their email or an admin setting their password revokes them too. A
+  failed send leaves no link behind.
+- **Choosing the password** (`GET /api/auth/set-password/{token}`,
+  `POST /api/auth/set-password`, anonymous): an unknown, used, revoked or expired
+  link gets ONE generic 404 — never which. The password policy applies; on success
+  the link is spent, the person's other links are revoked, **every session of
+  theirs is signed out** (so a session held to "change your initial password" is
+  gone too), a sign-in lock on that username is cleared, and `user.password_set` is
+  audited. They then sign in normally — two-step sign-in, when required, follows.
+  Both routes are limited per client IP like the sign-in (§4).
+- **Until then** the login holds an unusable password (Django's `!…`): sign-ins
+  fail like a wrong password, after the same work, and the activity log says "no
+  password chosen yet".
+- **Sending**: at most `INVITE_MAX_PER_HOUR` (**5**) links per person per hour (429
+  `too_many_invites`); the same capability and user tiers as editing that user
+  (an admin can't send a reset link to a superadmin or another org-wide admin);
+  audited `user.invite_sent` / `user.invite_failed` with the address masked.
+- **Where mail goes out**: Settings → **System email** (`app_keys.manage`, superadmin
+  by default) — one organization-wide SMTP mailbox (STARTTLS / SSL / none), the
+  password stored server-side and shown only masked; "Send test email" goes to the
+  caller's own address. Empty → the default mail settings (Channels) when those are
+  configured; neither → invites are refused and the Users page says why.
+- **The login address** is `FRONTEND_URL`, else `PUBLIC_BASE_URL`. Not set — or, on
+  a real install, pointing at localhost — and invites are **refused with the
+  reason** rather than mailing a link that can't work.
 
 ## 4. Rate limits
 
@@ -117,7 +158,7 @@ made-up bearer token counts as anonymous for its address, never a fresh bucket):
 
 | Class | Applies to | Per | Default (env) |
 |---|---|---|---|
-| login | `POST /api/auth/login`, `/api/auth/login/2fa` | IP | 30 (`RATE_LIMIT_LOGIN_PER_MIN`) |
+| login | `POST /api/auth/login`, `/api/auth/login/2fa`, the set-password link (`GET /api/auth/set-password/{token}`, `POST /api/auth/set-password`) | IP | 30 (`RATE_LIMIT_LOGIN_PER_MIN`) |
 | widget | `POST /api/widget/{token}/session`, `…/messages` | IP | 30 (`RATE_LIMIT_WIDGET_PER_MIN`) |
 | public-link | `/api/documents/public/…`, `/api/billing/ai/pdf/s/…` | IP | 60 (`RATE_LIMIT_PUBLIC_PER_MIN`) |
 | media | signed media links `/api/media/s/…`, `/api/media/public/…` | IP | 1200 (`RATE_LIMIT_MEDIA_PER_MIN`) |
@@ -277,6 +318,9 @@ CI) runs on pushes to master, pull requests and every Monday:
 | `SECURITY_HEADERS` | on | `0` = the API sends no security headers |
 | `HSTS_MAX_AGE` | 31536000 | seconds; `0` = no HSTS from the API |
 | `TOTP_ISSUER` | ChatBranch | the name authenticator apps show |
+| `FRONTEND_URL` / `PUBLIC_BASE_URL` | — | the dashboard address welcome emails link to (FRONTEND_URL first); unset or localhost on a real install = invites refused |
+| `INVITE_LINK_HOURS` | 72 | how long a set-password link works (1 – 336) |
+| `INVITE_MAX_PER_HOUR` | 5 | set-password links sent to one person per hour |
 | `AI_CAP_DOCUMENTS_PER_DAY` / `AI_CAP_PAYMENT_LINKS_PER_DAY` / `AI_CAP_BOOKINGS_PER_DAY` | 10 / 5 / 5 | per-conversation AI side-effect caps; 0 = none |
 | Setting `require_2fa` | off | Settings → Security: off · admins · everyone |
 
@@ -297,7 +341,7 @@ When you suspect a break-in or a leak:
 5. **Reset two-step sign-in** for anyone whose phone or recovery codes may be
    exposed (Users → reset), and require it for admins (Settings → Security).
 6. **Read the activity log** — `/activity`: `login.failed`, `login.locked`,
-   `user.*`, `security.policy`, `ai.tool_capped`, `ai.payment_link`, source `api` /
+   `user.*` (incl. `user.invite_sent`, `user.password_set`), `security.policy`, `ai.tool_capped`, `ai.payment_link`, source `api` /
    `mcp` rows; export the CSV for your records.
 7. **Data Protection keys** — if the data volume itself leaked, every two-step
    secret must be re-enrolled: delete `<data dir>/keys`, restart, and have

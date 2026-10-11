@@ -208,6 +208,7 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/settings/ai-providers", new[] { "settings.ai_keys.manage" }),
         ("/api/settings?keys=quiet_start", new[] { "settings.raw.view" }),
         ("/api/settings/security", new[] { "security.manage" }),
+        ("/api/settings/system-email", new[] { "app_keys.manage" }),
         // Test lab (testlab.run — superadmin only by default)
         ("/api/testlab/scenarios", new[] { "testlab.run" }),
         ("/api/testlab/status", new[] { "testlab.run" }),
@@ -387,6 +388,8 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         // /mcp and /widget.js under /api/ for /api/-only proxies (GET /api/mcp is a 405;
         // the MCP POST demands an API key inside the handler)
         "/api/mcp", "/api/widget.js",
+        // the welcome email's set-password link: the 256-bit one-time token is the credential (stored as a hash)
+        "/api/auth/set-password/{token}",
     };
 
     private static readonly HashSet<string> RolePolicies = new() { AuthPolicies.AdminPlus, AuthPolicies.SuperAdmin };

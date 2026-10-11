@@ -374,6 +374,15 @@ public static class Seed
             + "\"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL, "
             + "CONSTRAINT \"uniq_usertwofactor_user\" UNIQUE (\"user_id\")");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
+
+        // ---- welcome email: one-time set-password links (crm_passwordtoken) ----
+        AddTableIfMissing(db, "crm_passwordtoken",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_passwordtoken\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"user_id\" INTEGER NOT NULL, \"token_hash\" TEXT NOT NULL, \"purpose\" TEXT NOT NULL, "
+            + "\"created_by\" TEXT NOT NULL, \"created_at\" TEXT NOT NULL, \"expires_at\" TEXT NOT NULL, "
+            + "\"used_at\" TEXT NULL, \"revoked_at\" TEXT NULL, "
+            + "CONSTRAINT \"uniq_passwordtoken_hash\" UNIQUE (\"token_hash\")");
+        AddIndexIfMissing(db, "ix_passwordtoken_user", "crm_passwordtoken", "\"user_id\"");
     }
 
     /// <summary>A partial UNIQUE index EnsureCreated() will never add to an existing

@@ -34,13 +34,17 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   // set by expireSessionOn401 when a stale token got a 401 (tokens rotate per login)
   const [expired, setExpired] = useState(false)
+  // arrived from the welcome email's set-password page
+  const [passwordSet, setPasswordSet] = useState(false)
   // step 2: the password was right, two-step sign-in is on
   const [challenge, setChallenge] = useState<TwoFactorChallenge | null>(null)
   const [code, setCode] = useState('')
   const [useRecovery, setUseRecovery] = useState(false)
 
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get('expired')) setExpired(true)
+    const q = new URLSearchParams(window.location.search)
+    if (q.get('expired')) setExpired(true)
+    if (q.get('password_set')) setPasswordSet(true)
   }, [])
 
   /** A refusal in the reader's language — the server's `code` says why. */
@@ -229,6 +233,11 @@ export default function LoginPage() {
               </span>
             </label>
 
+            {passwordSet && !error && (
+              <div role="status" className="mt-4 rounded-lg border border-green/30 bg-green/10 px-3 py-2 text-[12.5px] text-[color:var(--green-ink)]">
+                {t('auth.login.passwordSet')}
+              </div>
+            )}
             {expired && !error && (
               <div role="status" className="mt-4 rounded-lg border border-amber/30 bg-amber/10 px-3 py-2 text-[12.5px] text-[color:var(--amber-ink)]">
                 {t('auth.login.expired')}

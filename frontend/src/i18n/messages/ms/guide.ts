@@ -809,7 +809,7 @@ export const guide: Dict<typeof source> = {
         },
         s3: {
           title: 'Tambah pengguna',
-          body: 'Klik Tambah pengguna, kemudian masukkan nama pengguna, kata laluan dan peranan.',
+          body: 'Klik Tambah pengguna, kemudian masukkan nama pengguna, e-mel dan peranan. Dengan e-mel alu-aluan ditanda, mereka menerima pautan untuk memilih kata laluan sendiri — tiada kata laluan perlu diserahkan.',
         },
         s4: {
           title: 'Senarai pengguna',
@@ -817,7 +817,7 @@ export const guide: Dict<typeof source> = {
         },
         s5: {
           title: 'Butang baris',
-          body: 'Akses entiti memilih cawangan yang dilihat ejen. Tetapkan semula kata laluan menetapkan kata laluan baharu. Nyahaktifkan menyekat log masuk tetapi menyimpan semua sejarah.',
+          body: 'Akses entiti memilih cawangan yang dilihat ejen. Hantar semula jemputan menghantar pautan tetapan kata laluan baharu kepada sesiapa yang belum memilihnya. Tetapkan semula kata laluan menghantar pautan tetapan semula atau menetapkan kata laluan baharu. Nyahaktifkan menyekat log masuk tetapi menyimpan semua sejarah.',
         },
       },
     },

@@ -9,7 +9,7 @@ namespace ChatBranch.Api.Security;
 /// <summary>
 /// Request rate limits (ASP.NET Core's rate limiter, one sliding window per minute):
 /// <list type="table">
-/// <item><term>login</term><description>sign-in steps — per client IP (<c>RATE_LIMIT_LOGIN_PER_MIN</c>, 30)</description></item>
+/// <item><term>login</term><description>sign-in steps and the set-password link — per client IP (<c>RATE_LIMIT_LOGIN_PER_MIN</c>, 30)</description></item>
 /// <item><term>widget</term><description>the website widget's session starts + messages — per IP (<c>RATE_LIMIT_WIDGET_PER_MIN</c>, 30)</description></item>
 /// <item><term>public-link</term><description>public document links + bill PDF links — per IP (<c>RATE_LIMIT_PUBLIC_PER_MIN</c>, 60)</description></item>
 /// <item><term>media</term><description>signed media links (the inbox's players, providers fetching an attachment) — per IP (<c>RATE_LIMIT_MEDIA_PER_MIN</c>, 1200)</description></item>
@@ -45,6 +45,8 @@ public static class RateLimiting
             || p.StartsWith("/api/integrations/webhooks/", StringComparison.Ordinal))
             return Exempt;
         if (post && (p == "/api/auth/login" || p == "/api/auth/login/2fa")) return Login;
+        // the welcome email's set-password link (read + submit) counts like a sign-in step
+        if (p == "/api/auth/set-password" || p.StartsWith("/api/auth/set-password/", StringComparison.Ordinal)) return Login;
         if (post && p.StartsWith("/api/widget/", StringComparison.Ordinal)
             && (p.EndsWith("/session", StringComparison.Ordinal) || p.EndsWith("/messages", StringComparison.Ordinal)))
             return Widget;

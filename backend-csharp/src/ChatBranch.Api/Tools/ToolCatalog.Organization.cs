@@ -30,24 +30,39 @@ public static partial class ToolCatalog
             "Active people a conversation can be assigned to (username, name, role).",
             "GET", "/api/messaging/agents", C("chats.view"));
         yield return T(u, "users_create", "Create a user",
-            "Create a login within your rights (an admin creates agents in their own tenant). The password is " +
-            "set by you and never shown again.", "POST", "/api/v1/users", usersManage,
+            "Create a login within your rights (an admin creates agents in their own tenant). With an email " +
+            "address and sign-in emails set up, the person gets a welcome email with their username, the login " +
+            "address and a one-time link to choose their own password (send_invite, on by default then) — no " +
+            "password needed. Without one, set the password yourself; it is never shown again. The answer's " +
+            "invite says whether the email went out.", "POST", "/api/v1/users", usersManage,
             new[]
             {
-                A.Str("username", "Username.", req: true), A.Str("password", "Initial password.", req: true),
+                A.Str("username", "Username.", req: true),
+                A.Str("email", "Their email address (the welcome email goes there)."),
+                A.Str("name", "Display name (greets them in the welcome email)."),
+                A.Bool("send_invite", "Send the welcome email with a set-password link (default: on when email is given and sign-in emails are set up)."),
+                A.Str("password", "Initial password — required only without a welcome email."),
                 A.Str("role", "agent (default) | admin | a custom role slug."),
                 A.IntList("entity_ids", "Entities this login is bounded to (none = the whole tenant)."),
                 A.Int("contact_id", "Bind the login to a customer contact."),
             });
         yield return T(u, "users_update", "Update a user",
-            "Change a user's role, entities, active flag or password (within your rights).",
+            "Change a user's role, entities, active flag, email or password (within your rights).",
             "POST", "/api/v1/users/{id:int}", usersManage,
             new[]
             {
                 A.Id("user"), A.Str("role", "New role."), A.Bool("active", "false = disable the login."),
+                A.Str("email", "Their email address (changing it cancels links already sent)."),
                 A.Str("password", "New password."), A.IntList("entity_ids", "Entities (replaces)."),
                 A.Int("contact_id", "Linked customer contact (null to unlink)."),
             }, idempotent: true);
+        yield return T(u, "users_send_invite", "Resend a welcome email / send a password reset link",
+            "Email a user a new one-time link to choose their password (valid 72 h; older links stop working). " +
+            "For someone still waiting to set their first password it resends the welcome email; for someone who " +
+            "already has a password pass reset=true to send a password reset link (their current password keeps " +
+            "working until they choose a new one). Within your rights; at most 5 links per person per hour.",
+            "POST", "/api/v1/users/{id:int}/invite", usersManage,
+            new[] { A.Id("user"), A.Bool("reset", "true = a password reset link for someone who already has a password.") });
         yield return T(u, "users_delete", "Delete a user",
             "Delete a login (within your rights). Prefer users_update active=false to keep their history readable.",
             "DELETE", "/api/v1/users/{id:int}", usersManage, new[] { A.Id("user") }, destructive: true);
