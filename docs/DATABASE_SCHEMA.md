@@ -256,6 +256,9 @@ mid / tg id) · `direction` (`in`\|`out`) · `source` (`customer`\|`agent`\|`ai`
 `system`) · `private` (internal note) · `text` · `status`
 (`sent`/`delivered`/`read`/`received`/`sandbox`/`failed`) · `media_type` ·
 `media_path` (relative to `data/whatsapp/media/` or `data/messaging/media/`) ·
+`media_name` (the attachment's original file name, `''` = unknown) ·
+`media_mime` (the provider's MIME type, `''` = derive from the extension) ·
+`media_size` (bytes, `0` = unknown — older rows; the payload reads the file) ·
 `error` (Meta's code + reason for a failed delivery, e.g. `131047: …`) ·
 `reply_to_id` (nullable — the message of the SAME thread this one quotes,
 resolved from `reply_to_external_id` when we hold it) · `reply_to_external_id`

@@ -381,6 +381,8 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         "/api/media/public/{token}",
         // the AI bill PDF for the installed iOS app: a 5-minute HMAC-signed link bound to one person
         "/api/billing/ai/pdf/s/{token}",
+        // a conversation's attachment for <audio>/<video>/download: an HMAC-signed link bound to one person + message
+        "/api/media/s/{token}",
         "/api/pronunciation", "/api/voices", "/api/voice/stt-settings", "/api/voice/llm-settings",
         // /mcp and /widget.js under /api/ for /api/-only proxies (GET /api/mcp is a 405;
         // the MCP POST demands an API key inside the handler)

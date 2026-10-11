@@ -298,6 +298,10 @@ public static class Seed
         // quoted replies + emoji reactions (WhatsApp / Telegram / Messenger)
         AddColumnIfMissing(db, "crm_message", "reply_to_id", "INTEGER NULL");
         AddColumnIfMissing(db, "crm_message", "reply_to_external_id", "TEXT NOT NULL DEFAULT ''");
+        // the attachment's original name / MIME / size (media players + file cards)
+        AddColumnIfMissing(db, "crm_message", "media_name", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_message", "media_mime", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(db, "crm_message", "media_size", "INTEGER NOT NULL DEFAULT 0");
         AddTableIfMissing(db, "crm_messagereaction",
             "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_messagereaction\" PRIMARY KEY AUTOINCREMENT, "
             + "\"message_id\" INTEGER NOT NULL, \"thread_id\" INTEGER NOT NULL, \"actor\" TEXT NOT NULL, "

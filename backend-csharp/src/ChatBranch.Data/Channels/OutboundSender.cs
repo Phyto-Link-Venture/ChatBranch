@@ -304,7 +304,7 @@ public class OutboundSender
                     .GetAwaiter().GetResult());
             if (withCaption && msg.Status == "sent")
             {
-                AttachMedia(msg, mediaType, relPath);
+                AttachMedia(msg, mediaType, relPath, mime, name, full);
                 var said = caption!.Trim();
                 return SocialSend(thread, account!, source, said, humanAgent,
                     tag => _meta!.SendTextAsync(account!, thread.Key, said, tag).GetAwaiter().GetResult());
@@ -315,7 +315,7 @@ public class OutboundSender
             msg = _threads.AppendMessage(thread, MessageDirection.Out, source, text,
                 status: "sandbox", accountId: acctId);
         }
-        AttachMedia(msg, mediaType, relPath);
+        AttachMedia(msg, mediaType, relPath, mime, name, full);
         return msg;
     }
 
@@ -351,10 +351,10 @@ public class OutboundSender
         return up;
     }
 
-    private void AttachMedia(Message msg, string mediaType, string relPath)
+    private void AttachMedia(Message msg, string mediaType, string relPath, string? mime, string? name,
+        string? full)
     {
-        msg.MediaType = mediaType;
-        msg.MediaPath = relPath;
+        MediaStore.Stamp(msg, mediaType, relPath, mime, name, MediaStore.SizeOf(full));
         _db.SaveChanges();
     }
 

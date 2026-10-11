@@ -940,11 +940,7 @@ public static class WhatsAppThreadsEndpoints
             if (!string.IsNullOrEmpty(accountName)) payload["account_name"] = accountName;
         }
         if (m.MediaPath.Length > 0)
-            payload["media"] = new
-            {
-                type = m.MediaType.Length > 0 ? m.MediaType : "document",
-                url = $"/api/whatsapp/media/{m.Id}",
-            };
+            payload["media"] = MediaStreamLinks.Payload(m, ChatBranch.Domain.Channels.WhatsApp);
         return payload;
     }
 

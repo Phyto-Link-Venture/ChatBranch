@@ -388,8 +388,8 @@ public sealed class TelegramChannel
     private Message WithMedia(Message msg, OutboundMedia? media)
     {
         if (media == null) return msg;
-        msg.MediaType = media.MediaType;
-        msg.MediaPath = media.RelPath;
+        MediaStore.Stamp(msg, media.MediaType, media.RelPath, MessagingMedia.ContentTypeFor(media.FileName),
+            media.FileName, MediaStore.SizeOf(media.AbsolutePath));
         _db.SaveChanges();
         return msg;
     }
@@ -500,9 +500,18 @@ public static class TelegramInbound
         }
         if (m.TryGetProperty("sticker", out var st) && st.ValueKind == JsonValueKind.Object)
         {
-            var animated = (st.TryGetProperty("is_animated", out var an) && an.ValueKind == JsonValueKind.True)
-                           || (st.TryGetProperty("is_video", out var iv) && iv.ValueKind == JsonValueKind.True);
-            return animated ? null : new TelegramMedia(Id(st), "image", "sticker.webp");
+            // a video sticker is a WebM clip (plays in <video>); an animated one is a
+            // Lottie .tgs no browser renders — its still thumbnail stands in for it
+            if (st.TryGetProperty("is_video", out var iv) && iv.ValueKind == JsonValueKind.True)
+                return new TelegramMedia(Id(st), "video", "sticker.webm");
+            if (st.TryGetProperty("is_animated", out var an) && an.ValueKind == JsonValueKind.True)
+            {
+                var thumb = st.TryGetProperty("thumbnail", out var th) ? th
+                    : st.TryGetProperty("thumb", out var th2) ? th2 : default;
+                var thumbId = Id(thumb);
+                return thumbId.Length > 0 ? new TelegramMedia(thumbId, "image", "sticker.webp") : null;
+            }
+            return new TelegramMedia(Id(st), "image", "sticker.webp");
         }
         if (m.TryGetProperty("voice", out var voice) && voice.ValueKind == JsonValueKind.Object)
             return new TelegramMedia(Id(voice), "audio", "voice.ogg");
@@ -534,8 +543,8 @@ public static class TelegramInbound
             if (content == null || content.Length == 0) return false;
             var thread = db.Threads.First(t => t.Id == msg.ThreadId);
             var name = remoteName.Contains('.') ? remoteName : media.FallbackName;
-            msg.MediaPath = MessagingMedia.Save(dataDir, ChannelIds.Telegram, thread.Key, name, content);
-            msg.MediaType = media.MediaType;
+            var rel = MessagingMedia.Save(dataDir, ChannelIds.Telegram, thread.Key, name, content);
+            MediaStore.Stamp(msg, media.MediaType, rel, MessagingMedia.ContentTypeFor(name), name, content.LongLength);
             thread.UpdatedAt = DateTime.UtcNow; // the /chats stream refreshes on this
             await db.SaveChangesAsync(ct);
             return true;

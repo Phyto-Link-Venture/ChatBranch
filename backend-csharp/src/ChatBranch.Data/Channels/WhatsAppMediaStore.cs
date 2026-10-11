@@ -29,6 +29,8 @@ public sealed class MediaStore
         ["video/mp4"] = ".mp4", ["video/3gpp"] = ".3gp", ["video/quicktime"] = ".mov",
         ["audio/ogg"] = ".ogg", ["audio/mpeg"] = ".mp3", ["audio/mp4"] = ".m4a", ["audio/aac"] = ".aac",
         ["audio/amr"] = ".amr", ["audio/wav"] = ".wav", ["audio/x-wav"] = ".wav",
+        ["audio/opus"] = ".opus", ["audio/webm"] = ".weba", ["video/webm"] = ".webm",
+        ["image/heic"] = ".heic", ["image/heif"] = ".heif",
         ["application/pdf"] = ".pdf", ["text/plain"] = ".txt", ["text/csv"] = ".csv",
         ["application/msword"] = ".doc",
         ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"] = ".docx",
@@ -45,7 +47,8 @@ public sealed class MediaStore
     private static readonly HashSet<string> InlineSafe = new(StringComparer.OrdinalIgnoreCase)
     {
         "image/jpeg", "image/png", "image/webp", "image/gif",
-        "audio/ogg", "audio/mpeg", "audio/mp4", "audio/aac", "audio/wav", "audio/x-wav", "audio/amr",
+        // (no audio/amr: no browser plays it — it is a download, or transcoded on request)
+        "audio/ogg", "audio/mpeg", "audio/mp4", "audio/aac", "audio/wav", "audio/x-wav", "audio/webm",
         "video/mp4", "video/3gpp", "video/quicktime", "video/webm",
         "application/pdf", "text/plain",
     };
@@ -79,7 +82,8 @@ public sealed class MediaStore
         [".gif"] = "image/gif", [".mp4"] = "video/mp4", [".3gp"] = "video/3gpp", [".mov"] = "video/quicktime",
         [".webm"] = "video/webm", [".ogg"] = "audio/ogg", [".oga"] = "audio/ogg", [".opus"] = "audio/ogg",
         [".mp3"] = "audio/mpeg", [".m4a"] = "audio/mp4", [".aac"] = "audio/aac", [".amr"] = "audio/amr",
-        [".wav"] = "audio/wav", [".pdf"] = "application/pdf", [".txt"] = "text/plain", [".csv"] = "text/csv",
+        [".wav"] = "audio/wav", [".weba"] = "audio/webm", [".heic"] = "image/heic", [".heif"] = "image/heif",
+        [".pdf"] = "application/pdf", [".txt"] = "text/plain", [".csv"] = "text/csv",
         [".doc"] = "application/msword",
         [".docx"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         [".xls"] = "application/vnd.ms-excel",
@@ -92,6 +96,45 @@ public sealed class MediaStore
     /// <summary>MIME for a stored file, from its extension.</summary>
     public static string MimeFor(string path) =>
         MimeByExt.TryGetValue(Path.GetExtension(path ?? ""), out var ct) ? ct : "application/octet-stream";
+
+    /// <summary>
+    /// Record a saved attachment on its message: the bubble type, the relative path,
+    /// and what the payload shows — the original file name (path parts dropped,
+    /// capped), the provider's MIME type (parameters dropped, else the extension's)
+    /// and the size in bytes.
+    /// </summary>
+    public static void Stamp(ChatBranch.Domain.Message msg, string type, string relPath, string? mime,
+        string? fileName, long size)
+    {
+        msg.MediaType = type;
+        msg.MediaPath = relPath;
+        msg.MediaName = CleanName(fileName);
+        var m = (mime ?? "").Split(';')[0].Trim().ToLowerInvariant();
+        msg.MediaMime = m.Length is > 2 and <= 100 && m.Contains('/') && m != "application/octet-stream"
+            ? m : MimeFor(relPath);
+        msg.MediaSize = Math.Max(0, size);
+    }
+
+    /// <summary>A file's size in bytes, 0 when it is missing or unreadable.</summary>
+    public static long SizeOf(string? fullPath)
+    {
+        try { return fullPath != null && File.Exists(fullPath) ? new FileInfo(fullPath).Length : 0; }
+        catch { return 0; }
+    }
+
+    /// <summary>A file name fit to show and to put in a Content-Disposition: no path,
+    /// no control characters, at most 120 characters ("" when nothing is left).</summary>
+    public static string CleanName(string? fileName)
+    {
+        var n = Path.GetFileName((fileName ?? "").Replace('\\', '/'));
+        n = new string(n.Where(c => !char.IsControl(c) && c is not '"' and not '/').ToArray()).Trim();
+        if (n.Length > 120)
+        {
+            var ext = Path.GetExtension(n);
+            n = ext.Length is > 0 and <= 10 ? n[..(120 - ext.Length)] + ext : n[..120];
+        }
+        return n;
+    }
 
     /// <summary>True when the type may be rendered inline (else serve as an attachment).</summary>
     public static bool IsInlineSafe(string mime) => InlineSafe.Contains(mime);

@@ -438,8 +438,8 @@ public sealed class EmailSyncService
                 var type = MessagingMedia.TypeFor(att.FileName);
                 if (i == 0)
                 {
-                    msg.MediaType = type;
-                    msg.MediaPath = rel;
+                    MediaStore.Stamp(msg, type, rel, MessagingMedia.ContentTypeFor(att.FileName), att.FileName,
+                        att.Content.LongLength);
                     thread.UpdatedAt = DateTime.UtcNow; // the /chats stream refreshes on this
                     _db.SaveChanges();
                 }
@@ -449,8 +449,8 @@ public sealed class EmailSyncService
                         $"[attachment] {att.FileName}", status: "received",
                         externalId: mail.MessageId.Length > 0 ? $"{mail.MessageId}-att{i}" : "",
                         accountId: mailbox.AccountId, providerTs: mail.Date);
-                    extra.MediaType = type;
-                    extra.MediaPath = rel;
+                    MediaStore.Stamp(extra, type, rel, MessagingMedia.ContentTypeFor(att.FileName), att.FileName,
+                        att.Content.LongLength);
                     _db.SaveChanges();
                 }
             }
