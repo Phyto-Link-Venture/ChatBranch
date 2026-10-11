@@ -11,3 +11,4 @@ e4f66e03b091c7cf1f29cae994b9e0c52eeb7e85:backend-csharp/tests/ChatBranch.Tests/M
 3bf118a472966d979b3a073bc4cf5e2b84a9d17c:backend-csharp/tests/ChatBranch.Tests/QueueCallsTests.cs:generic-api-key:79
 7f78b16e50a461da70c22db140d5b79006630d13:backend/tests/test_integrations.py:generic-api-key:195
 7f78b16e50a461da70c22db140d5b79006630d13:backend/tests/test_integrations.py:generic-api-key:215
+b39e2063fa506093a56e2883fabc80912fc717d7:backend-csharp/tests/ChatBranch.Tests/WelcomeEmailTests.cs:generic-api-key:664
