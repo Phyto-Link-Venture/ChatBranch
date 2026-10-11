@@ -7,7 +7,7 @@ export const admin: Dict<typeof source> = {
     summary:
       'Cipta log masuk untuk rakan sekerja baharu, pilih apa yang dibenarkan untuknya, dan tentukan cawangan mana yang boleh dilihatnya. Mengambil masa kira-kira dua minit.',
     before:
-      'Anda perlu menjadi pentadbir atau pentadbir super. Pentadbir boleh menambah ejen dalam organisasinya sendiri; hanya pentadbir super boleh menambah pentadbir lain. Tentukan nama pengguna dan kata laluan sementara (sekurang-kurangnya 8 aksara) untuk diberikan kepada orang baharu itu.',
+      'Anda perlu menjadi pentadbir atau pentadbir super. Pentadbir boleh menambah ejen dalam organisasinya sendiri; hanya pentadbir super boleh menambah pentadbir lain. Tentukan nama pengguna dan kata laluan sementara (sekurang-kurangnya 10 aksara) untuk diberikan kepada orang baharu itu.',
     steps: {
       s1: {
         title: 'Buka Pengguna & peranan',
@@ -23,7 +23,7 @@ export const admin: Dict<typeof source> = {
       },
       s4: {
         title: 'Taip butiran log masuk',
-        body: 'Isi “Nama pengguna” (contohnya aina — mesti unik), “Nama paparan” jika mahu (contohnya Aina Rahman) dan “Kata laluan” sekurang-kurangnya 8 aksara. Taip nama pengguna sendiri — teks yang diisi secara automatik oleh pelayar tidak dikira.',
+        body: 'Isi “Nama pengguna” (contohnya aina — mesti unik), “Nama paparan” jika mahu (contohnya Aina Rahman) dan “Kata laluan” sekurang-kurangnya 10 aksara yang bukan kata laluan biasa. Taip nama pengguna sendiri — teks yang diisi secara automatik oleh pelayar tidak dikira.',
       },
       s5: {
         title: 'Pilih peranan',
@@ -49,7 +49,7 @@ export const admin: Dict<typeof source> = {
       t3: 'Minta orang baharu membuka lawatan aplikasi dari butang ? di bar atas sebelum mula mengubah apa-apa.',
     },
     trouble:
-      'Jika simpanan gagal dengan “Nama pengguna diperlukan”, taip semula nama pengguna dengan tangan. Jika kata laluan ditolak, jadikannya sekurang-kurangnya 8 aksara. Jika anda tidak boleh memilih Pentadbir, hanya pentadbir super boleh mencipta pentadbir. Jika butang tiada, peranan anda tidak memegang “Cipta & urus pengguna” — minta pentadbir super.',
+      'Jika simpanan gagal dengan “Nama pengguna diperlukan”, taip semula nama pengguna dengan tangan. Jika kata laluan ditolak, jadikannya sekurang-kurangnya 10 aksara dan kurang mudah diteka (bukan nama pengguna, bukan kata laluan yang terkenal). Jika anda tidak boleh memilih Pentadbir, hanya pentadbir super boleh mencipta pentadbir. Jika butang tiada, peranan anda tidak memegang “Cipta & urus pengguna” — minta pentadbir super.',
   },
   rolesPermissions: {
     title: 'Tetapkan apa yang boleh dilakukan oleh setiap peranan',
@@ -584,5 +584,34 @@ export const admin: Dict<typeof source> = {
     },
     trouble:
       'Jika halaman mengatakan Makmal ujian dimatikan, pelayan berjalan dengan TEST_LAB=0 — itu betul untuk pelayan langsung. Jika senario gagal, buka “Butiran” untuk melihat semakan mana yang gagal dan sebabnya. Jika “Muatkan data demo” mengatakan ia sudah dimuatkan, set semula data ujian dahulu.',
+  },
+  requireTwoStep: {
+    title: 'Wajibkan log masuk dua langkah',
+    summary: 'Pastikan semua orang — atau pentadbir sahaja — log masuk dengan kod daripada aplikasi pengesah. Sesiapa yang belum menyediakannya dibawa ke skrin persediaan sebelum boleh berbuat apa-apa.',
+    before: 'Anda perlu menjadi pentadbir super (atau memegang “Urus keselamatan log masuk”). Sediakan log masuk dua langkah untuk diri anda dahulu (Tetapan → Akaun saya) — peraturan ini juga meliputi anda.',
+    steps: {
+      s1: {
+        title: 'Buka Tetapan → Keselamatan',
+        body: 'Klik “Tetapan” di bahagian bawah bar sisi, kemudian “Keselamatan” di bawah “Organisasi”.',
+      },
+      s2: {
+        title: 'Pilih siapa yang wajib menggunakannya',
+        body: 'Pilih “Pentadbir dan pentadbir super” atau “Semua orang”. Kad itu menunjukkan berapa ramai yang sudah menggunakannya.',
+      },
+      s3: {
+        title: 'Klik “Simpan”',
+        body: 'Mulai sekarang, sesiapa yang diliputi peraturan dan belum menyediakannya dibawa ke “Sediakan log masuk dua langkah” kali seterusnya mereka menggunakan ChatBranch.',
+      },
+      s4: {
+        title: 'Bantu sesiapa yang kehilangan telefon',
+        body: 'Buka Pentadbir → “Pengguna & peranan” dan klik butang perisai pada baris mereka (“Tetapkan semula log masuk dua langkah”). Mereka log masuk dengan kata laluan sahaja dan menyediakannya semula.',
+      },
+    },
+    done: 'Tetapan → Keselamatan menunjukkan pilihan anda dan berapa ramai yang menggunakan log masuk dua langkah.',
+    tips: {
+      t1: 'Kunci API dan pelayan MCP tidak terjejas — ia tidak pernah log masuk dengan kata laluan.',
+      t2: 'Untuk berpatah balik, pilih “Tiada siapa diwajibkan”; mereka yang menghidupkannya sendiri mengekalkannya.',
+    },
+    trouble: 'Tiada “Keselamatan” dalam Tetapan: hanya pentadbir super (atau peranan yang diberi “Urus keselamatan log masuk”) dapat melihatnya. Diminta menyediakannya sejurus selepas menyimpan: peraturan ini juga terpakai kepada anda — imbas kod dan teruskan.',
   },
 }

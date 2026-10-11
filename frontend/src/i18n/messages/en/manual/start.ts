@@ -316,7 +316,7 @@ export const start = {
       },
       s4: {
         title: 'Choose a new password',
-        body: 'Type the new password in “New password” and again in “Confirm new password”. It needs at least 8 characters; the strength hint under it says how strong it is. Click the eye icon to check what you typed.',
+        body: 'Type the new password in “New password” and again in “Confirm new password”. It needs at least 10 characters (8 on a demo), and can’t be your username or a well-known password; the strength hint under it says how strong it is. Click the eye icon to check what you typed.',
       },
       s5: {
         title: 'Click “Change password”',
@@ -377,5 +377,42 @@ export const start = {
     },
     trouble:
       '“Google sign-in isn’t set up for this workspace yet”: a super admin must register the Google client in Settings → App & provider keys. “Google sign-in was cancelled — nothing was connected.”: click “Connect” again and allow access. The row says “Needs reconnecting”: Google withdrew access (for example after a password change) — click “Reconnect”.',
+  },
+  twoStepSignIn: {
+    title: 'Turn on two-step sign-in',
+    summary: 'Protect your account with a code from an authenticator app on your phone, so a stolen password alone can’t get in.',
+    before: 'Install an authenticator app on your phone — Google Authenticator, Microsoft Authenticator, 1Password or any other.',
+    steps: {
+      s1: {
+        title: 'Open Settings → My account',
+        body: 'Click your name at the bottom of the sidebar, then find the “Two-step sign-in” card.',
+      },
+      s2: {
+        title: 'Click “Set up two-step sign-in”',
+        body: 'A QR code appears, with a key under it.',
+      },
+      s3: {
+        title: 'Scan the QR code',
+        body: 'In your authenticator app, add an account and scan the code. Can’t scan? Choose to type a key instead and copy the key shown next to the QR code.',
+      },
+      s4: {
+        title: 'Enter the 6-digit code',
+        body: 'Type the code your app shows under “2. Enter the 6-digit code the app shows” and click “Turn on”.',
+      },
+      s5: {
+        title: 'Save your recovery codes',
+        body: 'Ten recovery codes appear — each signs you in once if you lose your phone. Click “Download” or “Copy all”, keep them somewhere safe, then click “I’ve saved them”.',
+      },
+      s6: {
+        title: 'Sign in with a code from now on',
+        body: 'Next time you sign in, ChatBranch asks for your password and then for the code your app shows. No phone? Click “Lost your phone? Use a recovery code”.',
+      },
+    },
+    done: 'The card says “On”, with how many recovery codes you have left.',
+    tips: {
+      t1: 'New phone? Click “Move to a new phone”, type your password and scan the new QR code — the old phone stops working once you confirm.',
+      t2: 'Used most of your recovery codes? Click “New recovery codes” — the old ones stop working.',
+    },
+    trouble: '“That code isn’t right”: make sure your phone sets its clock automatically and type the newest code (a code works only once). Locked out with neither your phone nor a recovery code: ask an administrator to reset your two-step sign-in on the Users page.',
   },
 }

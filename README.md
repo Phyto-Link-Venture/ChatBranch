@@ -184,7 +184,11 @@ A clean boot seeds only one login, `superadmin` (password from
 | `agent` | `agent123` | the inbox, contacts, analytics, AI monitor — scoped to assigned entities |
 
 plus one sample contact. **These are POC credentials in a public template.
-Rotate them before any deployment.**
+Rotate them before any deployment.** On a real install (no `SEED_DEMO`), signing
+in with one of them only opens a "choose your own password" screen, and new
+passwords must be ≥ 10 characters and not a common one — see
+[docs/security.md](docs/security.md) for sign-in lockouts, two-step sign-in,
+rate limits, trusted proxies and the rest.
 
 **Turn on real AI replies:** sign in as superadmin → **Settings → AI keys &
 models** and paste an OpenRouter (or OpenAI) key; pick the model there. Or
@@ -418,6 +422,7 @@ every pull request.
 | Connect an AI app (Claude, Cursor…) over MCP — every dashboard feature as a tool | **[docs/mcp.md](docs/mcp.md)** |
 | Feed records from your own system | [docs/record-sync.md](docs/record-sync.md) |
 | Understand roles, capabilities and entities | [docs/RBAC_AND_BRANDS.md](docs/RBAC_AND_BRANDS.md) |
+| Harden a deployment (lockouts, two-step sign-in, rate limits, proxies, headers, AI abuse, the incident checklist) | **[docs/security.md](docs/security.md)** |
 | Add or debug a channel | [docs/channel-adapter.md](docs/channel-adapter.md) |
 | Test it end to end (Test lab, per-role checklist, real channels) | [docs/testing.md](docs/testing.md) |
 | Run real calls | [backend/voice_agent/README.md](backend/voice_agent/README.md) |

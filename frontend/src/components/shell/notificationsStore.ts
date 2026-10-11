@@ -9,7 +9,7 @@
 
 import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useState } from 'react'
-import { authHeaders, getAuth } from '@/lib/auth'
+import { authHeaders, hasAppSession } from '@/lib/auth'
 
 const POLL_MS = 20_000
 
@@ -39,7 +39,7 @@ function emit(next: State) {
 }
 
 export async function refreshNotifications(): Promise<void> {
-  if (!getAuth()) return
+  if (!hasAppSession()) return
   try {
     const res = await fetch(`${API}/auth/notifications`, { headers: authHeaders(), cache: 'no-store' })
     if (!res.ok) return

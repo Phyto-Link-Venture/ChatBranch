@@ -129,6 +129,9 @@ public class ConnectedAppTools
                 ["advice"] = "Don't promise a payment link. Tell the customer a teammate will send the payment details.",
             }), false);
         var url = r.Data?.TryGetValue("url", out var u) == true ? u?.ToString() ?? "" : "";
+        // counted per conversation (AiActionCaps) and left in the activity log
+        AiActionCaps.RecordPaymentLink(_db, ctx.ThreadId, ctx.EntityId,
+            a.ToString("0.00", CultureInfo.InvariantCulture), currency);
         return (JsonSerializer.Serialize(new Dictionary<string, object?>
         {
             ["ok"] = true, ["status"] = "created", ["url"] = url,

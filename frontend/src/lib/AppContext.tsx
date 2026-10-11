@@ -25,7 +25,7 @@ import {
   type TranscriptLine,
 } from './mocks'
 import { useEntity } from './EntityContext'
-import { authHeaders, expireSessionOn401, getAuth, userHasCap } from './auth'
+import { authHeaders, expireSessionOn401, getAuth, sessionKey, userHasCap } from './auth'
 
 // Max simultaneous live calls. The rest of a batch queues and starts as slots
 // free up. Cap it to your SIP trunk's concurrent-channel limit.
@@ -168,12 +168,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ? `${API}/contacts?entity=${encodeURIComponent(entitySlug)}`
     : `${API}/contacts`
 
+  // re-read on sign-in / sign-out and when an account setup clears (same token)
+  const [session, setSession] = useState('')
+  useEffect(() => {
+    const read = () => setSession(sessionKey())
+    read()
+    window.addEventListener('auth-change', read)
+    return () => window.removeEventListener('auth-change', read)
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     // Public pages (the Help Center) mount this provider with no session —
     // calling a bearer-gated endpoint there is a guaranteed 401 in the console.
+    // A session held on the account-setup screen would collect a 403.
     const auth = getAuth()
-    if (!auth) return
+    if (!auth || auth.restriction) return
     // The server only lists contacts to the Contacts page, the inbox and the
     // Users page's picker (contacts.view | chats.view | users.manage) — a role
     // with none of them would just collect a 403 on every page.
@@ -197,7 +207,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [contactsUrl])
+  }, [contactsUrl, session])
 
   const reloadContacts = useCallback(async () => {
     try {

@@ -29,6 +29,8 @@ public class AppDbContext : DbContext
     public DbSet<AutomationRule> AutomationRules => Set<AutomationRule>();
     public DbSet<TeamMember> TeamMembers => Set<TeamMember>();
     public DbSet<AuthToken> AuthTokens => Set<AuthToken>();
+    /// <summary>Two-step sign-in (TOTP) per user — Api/Security/TwoFactor.</summary>
+    public DbSet<UserTwoFactor> UserTwoFactors => Set<UserTwoFactor>();
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
     // crm — audit
@@ -150,6 +152,8 @@ public class AppDbContext : DbContext
             .HasForeignKey(p => p.ContactId)
             .OnDelete(DeleteBehavior.SetNull);
         b.Entity<AuthToken>().ToTable("crm_authtoken");
+        b.Entity<UserTwoFactor>().ToTable("crm_usertwofactor");
+        b.Entity<UserTwoFactor>().HasIndex(t => t.UserId).IsUnique().HasDatabaseName("uniq_usertwofactor_user");
         b.Entity<Role>().ToTable("crm_role");
         b.Entity<RolePermission>().ToTable("crm_rolepermission");
         b.Entity<AuditLog>().ToTable("crm_auditlog");
@@ -334,6 +338,7 @@ public class AppDbContext : DbContext
         Json<TagAssignment, Dictionary<string, object?>>(b, x => x.Values);
         Json<AiFeedback, List<string>>(b, x => x.Reasons);
         Json<AiLesson, List<string>>(b, x => x.Channels);
+        Json<UserTwoFactor, List<string>>(b, x => x.RecoveryCodes);
 
         // ---- contacts: identity registry, invites, identity requests ----------
         b.Entity<ContactIdentity>().ToTable("crm_contactidentity");

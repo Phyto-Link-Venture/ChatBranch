@@ -235,8 +235,12 @@ public class SkillService
     public async Task<(string result, bool ok)> ExecuteToolAsync(ToolSet set, LlmToolCall call, SkillContext ctx,
         CancellationToken ct = default)
     {
+        // side-effect tools are capped per conversation per 24 h (AiActionCaps) — a scripted
+        // "customer" can't farm invoices, payment links or bookings out of the chat AI
         if (set.Files.TryGetValue(call.Name, out var file))
         {
+            if (AiActionCaps.Refusal(_db, AiActionCaps.Documents, ctx.ThreadId, ctx.Docs.Preview, ctx.UtcNow) is { } capped)
+                return (capped, false);
             try
             {
                 var r = await _documents.ExecuteToolAsync(file, call.ArgumentsJson, ctx, ct);
@@ -247,11 +251,17 @@ public class SkillService
         }
         if (set.Connected.TryGetValue(call.Name, out var connected))
         {
+            if (connected.App == AppSkills.Payments
+                && AiActionCaps.Refusal(_db, AiActionCaps.PaymentLinks, ctx.ThreadId, ctx.Docs.Preview, ctx.UtcNow) is { } capped)
+                return (capped, false);
             try { return await _connected.ExecuteAsync(connected, call.ArgumentsJson, ctx, ct); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception ex) { return ($"error: {ex.Message}", false); }
         }
         if (!set.Apps.TryGetValue(call.Name, out var binding)) return ExecuteTool(set, call, ctx);
+        if (binding.Action == "book"
+            && AiActionCaps.Refusal(_db, AiActionCaps.Bookings, ctx.ThreadId, ctx.Apps.Preview, ctx.UtcNow) is { } cappedBooking)
+            return (cappedBooking, false);
         try
         {
             var r = await _bookings.ExecuteToolAsync(binding, call.ArgumentsJson, ctx, ct);

@@ -64,6 +64,7 @@ export const admin = {
     settingsRawView: 'Read raw settings (API)',
     settingsRawManage: 'Write any raw setting (API)',
     testlabRun: 'Run the Test lab',
+    securityManage: 'Manage sign-in security',
   },
   permissions: {
     system: 'System',
@@ -536,6 +537,15 @@ export const admin = {
     unbound: 'Unbound — {user} is no longer linked to a contact.',
     bound: 'Bound to {contact} — {user} signs in as that customer.',
     passwordTooShort: 'Password must be at least 8 characters.',
+    twoFactorOn: 'Two-step sign-in is on',
+    resetTwoFactor: 'Reset two-step sign-in',
+    resetTwoFactorFor: 'Reset two-step sign-in for {user}',
+    confirmResetTwoFactor:
+      'Reset two-step sign-in for {user}? Their authenticator app and recovery codes stop working and every device of theirs is signed out. Next time they sign in with just their password (and set it up again if your organization requires it).',
+    twoFactorReset: 'Two-step sign-in reset for {user} — they are signed out everywhere.',
+    passwordTooShortMin: 'The password must be at least {min} characters.',
+    passwordCommon: 'That password is too common — choose something less predictable.',
+    passwordIsUsername: 'The password can’t be the same as the username.',
     passwordReset: 'Password reset — {user} has been signed out everywhere.',
     confirmDeactivate: 'Deactivate {user}? They will be signed out everywhere and unable to log in.',
     deactivatedMsg: '{user} deactivated.',
@@ -587,7 +597,7 @@ export const admin = {
     displayName: 'Display name',
     displayNamePlaceholder: 'e.g. Aina Rahman',
     password: 'Password',
-    passwordPlaceholder: 'min 8 characters',
+    passwordPlaceholder: 'min 10 characters',
     passwordHint: 'Share it with the user out-of-band; you can reset it here any time.',
     roleHint: 'Super admin: everything · Admin: whole organization, or only the companies picked · Agent & custom: assigned entities only.',
     entityAccessHint:
@@ -596,7 +606,7 @@ export const admin = {
     resetSubtitle: 'Setting a new password signs the user out everywhere immediately.',
     setPassword: 'Set password',
     newPassword: 'New password',
-    newPasswordPlaceholder: 'At least 8 characters',
+    newPasswordPlaceholder: 'At least 10 characters',
     newPasswordFor: 'New password for {user}',
     entityAccessTitle: 'Entity access — {user}',
     entityModalSubtitle:

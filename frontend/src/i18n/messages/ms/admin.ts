@@ -66,6 +66,7 @@ export const admin: Dict<typeof source> = {
     settingsRawView: 'Baca tetapan mentah (API)',
     settingsRawManage: 'Tulis sebarang tetapan mentah (API)',
     testlabRun: 'Jalankan Makmal ujian',
+    securityManage: 'Urus keselamatan log masuk',
   },
   permissions: {
     system: 'Sistem',
@@ -538,6 +539,15 @@ export const admin: Dict<typeof source> = {
     unbound: 'Dinyahpaut — {user} tidak lagi dipautkan kepada kenalan.',
     bound: 'Dipautkan kepada {contact} — {user} log masuk sebagai pelanggan itu.',
     passwordTooShort: 'Kata laluan mesti sekurang-kurangnya 8 aksara.',
+    twoFactorOn: 'Log masuk dua langkah dihidupkan',
+    resetTwoFactor: 'Tetapkan semula log masuk dua langkah',
+    resetTwoFactorFor: 'Tetapkan semula log masuk dua langkah untuk {user}',
+    confirmResetTwoFactor:
+      'Tetapkan semula log masuk dua langkah untuk {user}? Aplikasi pengesah dan kod pemulihan mereka tidak lagi berfungsi dan setiap peranti mereka dilog keluar. Kali seterusnya mereka log masuk dengan kata laluan sahaja (dan menyediakannya semula jika organisasi anda mewajibkannya).',
+    twoFactorReset: 'Log masuk dua langkah ditetapkan semula untuk {user} — mereka dilog keluar di semua peranti.',
+    passwordTooShortMin: 'Kata laluan mesti sekurang-kurangnya {min} aksara.',
+    passwordCommon: 'Kata laluan itu terlalu biasa — pilih yang kurang mudah diteka.',
+    passwordIsUsername: 'Kata laluan tidak boleh sama dengan nama pengguna.',
     passwordReset: 'Kata laluan ditetapkan semula — {user} telah dilog keluar di semua tempat.',
     confirmDeactivate: 'Nyahaktifkan {user}? Mereka akan dilog keluar di semua tempat dan tidak dapat log masuk.',
     deactivatedMsg: '{user} dinyahaktifkan.',
@@ -589,7 +599,7 @@ export const admin: Dict<typeof source> = {
     displayName: 'Nama paparan',
     displayNamePlaceholder: 'cth. Aina Rahman',
     password: 'Kata laluan',
-    passwordPlaceholder: 'min. 8 aksara',
+    passwordPlaceholder: 'min. 10 aksara',
     passwordHint: 'Kongsikan dengan pengguna melalui saluran lain; anda boleh menetapkannya semula di sini bila-bila masa.',
     roleHint: 'Pentadbir super: semua · Pentadbir: seluruh organisasi, atau syarikat yang dipilih sahaja · Ejen & tersuai: entiti yang ditugaskan sahaja.',
     entityAccessHint:
@@ -598,7 +608,7 @@ export const admin: Dict<typeof source> = {
     resetSubtitle: 'Menetapkan kata laluan baharu akan melog keluar pengguna di semua tempat serta-merta.',
     setPassword: 'Tetapkan kata laluan',
     newPassword: 'Kata laluan baharu',
-    newPasswordPlaceholder: 'Sekurang-kurangnya 8 aksara',
+    newPasswordPlaceholder: 'Sekurang-kurangnya 10 aksara',
     newPasswordFor: 'Kata laluan baharu untuk {user}',
     entityAccessTitle: 'Akses entiti — {user}',
     entityModalSubtitle:

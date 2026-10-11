@@ -7,6 +7,16 @@
 # provider keys in backend/.env for the worker, and LIVEKIT_* /
 # SIP_OUTBOUND_TRUNK_ID exported or in the repo-root .env for the API to dial).
 #
+# Hardening (docs/security.md): every service runs with no-new-privileges; the
+# ChatBranch services drop the Linux capabilities they don't use (they listen on
+# ports above 1024): the API (its image's non-root `app` user) and the dashboard
+# drop all of them; the WhatsApp gateway and the voice agent run as root in their
+# images and share the data volume with the API's `app` user, so they keep only the
+# file-permission ones (DAC_OVERRIDE, FOWNER) and drop the rest. The API and
+# the gateway also run on a read-only root filesystem, writing only to their
+# volumes and a private /tmp. The third-party images (Whisper, PostgreSQL) keep
+# their own users and capabilities.
+#
 # Database: a SQLite file on the data volume by default. For PostgreSQL put in
 # the repo-root .env (docs/postgres.md has the full switch-over):
 #   COMPOSE_PROFILES=postgres          (comma-join with other profiles)
@@ -50,6 +60,19 @@ services:
       - DATABASE_PROVIDER=${DATABASE_PROVIDER:-sqlite}
       - DATABASE_URL=${DATABASE_URL:-postgres://chatbranch:${POSTGRES_PASSWORD:-chatbranch-local-dev}@postgres:5432/chatbranch}
       - DB_IMPORT_SQLITE=${DB_IMPORT_SQLITE:-}
+      # Security (docs/security.md). The first sign-in password of the seeded
+      # superadmin — without it the POC password works once and must be changed.
+      - SUPERADMIN_PASSWORD=${SUPERADMIN_PASSWORD:-}
+      # Proxies whose X-Forwarded-For / -Proto the API believes (IPs / CIDRs);
+      # empty = loopback + the private ranges Docker uses.
+      - TRUSTED_PROXIES=${TRUSTED_PROXIES:-}
+      # Request rate limits on (RATE_LIMIT=0 turns them off).
+      - RATE_LIMIT=${RATE_LIMIT:-1}
+      # The root filesystem is read-only: Chromium (custom document layouts),
+      # ffmpeg and .NET keep their scratch and caches in /tmp.
+      - HOME=/tmp
+      - XDG_CONFIG_HOME=/tmp/.config
+      - XDG_CACHE_HOME=/tmp/.cache
     depends_on:
       # only when the `postgres` profile is on; with SQLite nothing waits
       postgres:
@@ -60,6 +83,13 @@ services:
       # empty database and re-seeds the demo users. It is also the data dir the
       # voice agent shares (live transcripts, operator inbox, calls.json).
       - chatbranch-data:/data
+    # writes only to /data (database, media, Data Protection keys in /data/keys)
+    # and /tmp (Chromium's throw-away profile, PDF scratch)
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     restart: unless-stopped
 
   web:
@@ -73,6 +103,11 @@ services:
       - "3000:3000"
     depends_on:
       - api
+    environment:
+      - NEXT_TELEMETRY_DISABLED=1
+    # Next.js writes its runtime caches under .next/cache, so the root stays writable
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     restart: unless-stopped
 
   # Optional: unofficial WhatsApp Web transport. Its paired session lives in the
@@ -93,6 +128,16 @@ services:
       - baileys-auth:/srv/data/whatsapp/baileys
     depends_on:
       - api
+    # writes only to its two volumes (sessions, events.log, call recordings) + /tmp
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    security_opt: ["no-new-privileges:true"]
+    # the entrypoint starts as root only to hand older, root-owned session files to the
+    # unprivileged `app` user (CHOWN, DAC_OVERRIDE, FOWNER) and drop to it (SETUID,
+    # SETGID); the gateway itself then runs with no capabilities at all
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID]
     restart: unless-stopped
     profiles: ["whatsapp"]
 
@@ -110,6 +155,13 @@ services:
       - AGENT_NAME=${AGENT_NAME:-chatbranch-agent}
     volumes:
       - chatbranch-data:/data
+    # the LiveKit plugins may fetch model files at start-up, so the root stays writable
+    security_opt: ["no-new-privileges:true"]
+    # the entrypoint starts as root only to hand older, root-owned files in the shared
+    # data volume to the unprivileged `app` user (CHOWN, DAC_OVERRIDE, FOWNER) and drop
+    # to it (SETUID, SETGID); the worker itself then runs with no capabilities at all
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID]
     restart: unless-stopped
     profiles: ["voice"]
 
@@ -126,6 +178,7 @@ services:
       - PRELOAD_MODELS=["${STT_MODEL:-Systran/faster-whisper-small}"]
     volumes:
       - whisper-models:/home/ubuntu/.cache/huggingface/hub
+    security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
     profiles: ["stt"]
 
@@ -147,6 +200,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
+    # the image's own user switch (gosu) works under no-new-privileges; its
+    # capabilities and filesystem are left as the image expects
+    security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
     profiles: ["postgres"]
 
@@ -177,6 +233,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
     profiles: ["postgres"]
 

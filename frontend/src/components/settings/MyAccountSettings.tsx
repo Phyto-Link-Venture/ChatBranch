@@ -7,7 +7,9 @@ import { Button } from '@/components/ui/Button'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { expireSessionOn401, roleDisplayName, setCachedName } from '@/lib/auth'
 import { roleHeaders } from '@/lib/role'
+import { passwordProblem } from '@/lib/security'
 import { useFormat, useT, type MessageKey } from '@/i18n'
+import { TwoFactorCard } from './TwoFactorCard'
 
 /** The server's floor (MyAccountEndpoints.MinPasswordLength — the same as creating a user). */
 const MIN_PASSWORD = 8
@@ -23,6 +25,10 @@ interface Account {
   last_login: string | null
   active_sessions: number
   auth_source: 'session' | 'api'
+  /** The floor the next password must meet (the server's password policy). */
+  password_min_length?: number
+  /** strict = a real install (≥ 10 characters, not the username, not a common password); demo = 8. */
+  password_policy?: 'strict' | 'demo'
 }
 
 class ApiError extends Error {
@@ -30,6 +36,8 @@ class ApiError extends Error {
     message: string,
     public status: number,
     public field?: string,
+    public code?: string,
+    public min?: number,
   ) {
     super(message)
   }
@@ -41,8 +49,8 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   })
   if (expireSessionOn401(res)) throw new ApiError('Session expired — redirecting to login…', 401)
-  const data = (await res.json().catch(() => ({}))) as { detail?: string; field?: string }
-  if (!res.ok) throw new ApiError(data.detail || `HTTP ${res.status}`, res.status, data.field)
+  const data = (await res.json().catch(() => ({}))) as { detail?: string; field?: string; code?: string; min?: number }
+  if (!res.ok) throw new ApiError(data.detail || `HTTP ${res.status}`, res.status, data.field, data.code, data.min)
   return data as T
 }
 
@@ -210,6 +218,7 @@ export function MyAccountSettings() {
   }
 
   const viaKey = account.auth_source === 'api'
+  const minPassword = account.password_min_length ?? MIN_PASSWORD
   const profileDirty =
     first.trim() !== account.first_name || last.trim() !== account.last_name || email.trim() !== account.email
 
@@ -247,7 +256,7 @@ export function MyAccountSettings() {
     setPwDone('')
     const errs: typeof pwErrors = {}
     if (!current) errs.current = t('account.password.required')
-    if (next.length < MIN_PASSWORD) errs.next = t('account.password.tooShort', { min: MIN_PASSWORD })
+    if (next.length < minPassword) errs.next = t('account.password.tooShort', { min: minPassword })
     else if (next === current) errs.next = t('account.password.same')
     if (!errs.next && confirm !== next) errs.confirm = t('account.password.mismatch')
     setPwErrors(errs)
@@ -268,7 +277,7 @@ export function MyAccountSettings() {
       const e2 = err as ApiError
       if (e2.status === 429) setPwErrors({ form: t('account.password.tooMany') })
       else if (e2.field === 'current_password') setPwErrors({ current: t('account.password.wrong') })
-      else if (e2.field === 'new_password') setPwErrors({ next: e2.message })
+      else if (e2.field === 'new_password') setPwErrors({ next: passwordProblem(t, e2.code, e2.min) ?? e2.message })
       else setPwErrors({ form: e2.message })
     } finally {
       setPwBusy(false)
@@ -422,7 +431,9 @@ export function MyAccountSettings() {
               </div>
             )}
             <p className="mt-1 text-[11px] leading-relaxed text-text-muted">
-              {t('account.password.hint', { min: MIN_PASSWORD })}
+              {account.password_policy === 'strict'
+                ? t('account.password.policyHint', { min: minPassword })
+                : t('account.password.hint', { min: minPassword })}
             </p>
           </div>
           <div className="flex justify-end">
@@ -433,6 +444,9 @@ export function MyAccountSettings() {
           </div>
         </form>
       </Card>
+
+      {/* ---- two-step sign-in ---- */}
+      <TwoFactorCard disabled={viaKey} />
 
       {/* ---- sessions ---- */}
       <Card className="p-4 sm:p-5" data-tour="account-sessions">

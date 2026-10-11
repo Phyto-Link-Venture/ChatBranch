@@ -9,5 +9,6 @@ export const startGuides: GuideDef[] = [
   { id: 'myNotifications', group: 'start', href: '/notifications', steps: 9, tips: 3, trouble: true, who: 'everyone' },
   { id: 'askChatBranch', group: 'start', href: '/dashboard', tour: 'shell', steps: 9, tips: 3, trouble: true, who: 'everyone' },
   { id: 'myAccount', group: 'start', href: '/settings/account', tour: 'account', steps: 6, tips: 2, trouble: true, who: 'everyone' },
+  { id: 'twoStepSignIn', group: 'start', href: '/settings/account', tour: 'account', steps: 6, tips: 2, before: true, trouble: true, who: 'everyone' },
   { id: 'myConnections', group: 'start', href: '/settings/connections', tour: 'settings', steps: 7, tips: 3, before: true, trouble: true, who: 'everyone' },
 ]

@@ -623,6 +623,14 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `PATCH /api/auth/me/account` | credentials / own account: Settings → My account (name, email, password, sessions) is the person at the keyboard — the writes refuse API keys (403), so an AI acting as them never changes them |
 | `POST /api/auth/me/password` | credentials / own account: Settings → My account (name, email, password, sessions) is the person at the keyboard — the writes refuse API keys (403), so an AI acting as them never changes them |
 | `POST /api/auth/me/sessions/revoke-others` | credentials / own account: Settings → My account (name, email, password, sessions) is the person at the keyboard — the writes refuse API keys (403), so an AI acting as them never changes them |
+| `GET /api/auth/me/2fa` | credentials / own account: two-step sign-in (authenticator secret, recovery codes) belongs to the person holding the phone — the writes refuse API keys (403), so an AI acting as them never changes it |
+| `POST /api/auth/me/2fa/setup` | credentials / own account: two-step sign-in (authenticator secret, recovery codes) belongs to the person holding the phone — the writes refuse API keys (403), so an AI acting as them never changes it |
+| `POST /api/auth/me/2fa/confirm` | credentials / own account: two-step sign-in (authenticator secret, recovery codes) belongs to the person holding the phone — the writes refuse API keys (403), so an AI acting as them never changes it |
+| `POST /api/auth/me/2fa/recovery-codes` | credentials / own account: two-step sign-in (authenticator secret, recovery codes) belongs to the person holding the phone — the writes refuse API keys (403), so an AI acting as them never changes it |
+| `POST /api/auth/me/2fa/disable` | credentials / own account: two-step sign-in (authenticator secret, recovery codes) belongs to the person holding the phone — the writes refuse API keys (403), so an AI acting as them never changes it |
+| `POST /api/v1/users/{id:int}/2fa/reset` | credentials: resetting someone's two-step sign-in (a lost phone) is a person's decision at /users — sessions only, API keys get 403 |
+| `GET /api/settings/security` | the organization's sign-in security policy (require_2fa) is set by a person (security.manage), never by an AI acting as one |
+| `PUT /api/settings/security` | the organization's sign-in security policy (require_2fa) is set by a person (security.manage), never by an AI acting as one |
 | `POST /api/client-errors` | the dashboard's own crash reporter (a browser telling the server it broke) — not an operator action |
 | `POST /api/assistant/chat` | Ask ChatBranch itself (chat / confirm / cancel) — a tool calling the assistant would recurse |
 | `POST /api/assistant/confirm` | Ask ChatBranch itself (chat / confirm / cancel) — a tool calling the assistant would recurse |

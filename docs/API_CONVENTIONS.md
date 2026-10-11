@@ -34,18 +34,39 @@ Two kinds of credential are accepted on every authenticated route:
   `crm_authtoken` row per login (concurrent sessions are fine);
   `POST /api/auth/logout` revokes it. `GET /api/auth/whoami` /
   `GET /api/v1/whoami` return the user, role, tenant, accessible entity slugs
-  and resolved **capabilities**.
+  and resolved **capabilities** (whoami also `restriction` and `two_factor`).
+  Failed sign-ins are throttled per username AND per client IP (5 / 30 in 15 min
+  → 429 `{detail, code: "too_many_attempts", retry_after}` + `Retry-After`); an
+  unknown username answers exactly like a wrong password (401
+  `{code: "invalid_credentials"}`). **Two-step sign-in:** when the person has it
+  on, the login answers `{two_factor_required: true, challenge, expires_in,
+  issuer}` instead of a token, and `POST /api/auth/login/2fa {challenge, code}`
+  (a code from the authenticator app or a recovery code; the challenge is signed,
+  lives 5 minutes and signs in once) answers the token. A login answer may carry
+  `restriction` (`change_password` — a seeded password on a real install — or
+  `enroll_2fa` — the organization requires two-step sign-in): such a session gets
+  403 `{code: "account_setup_required", restriction}` from everything except
+  whoami, logout, the own-account / two-step setup routes and the shell's
+  appearance reads. Details: [security.md](security.md).
 - **Your own account** (Settings → My account, any signed-in user, always the
   CALLER — no id in the route): `GET /api/auth/me/account` (username, first /
   last / display name, email, role, entities, last sign-in, active sessions),
   `PATCH /api/auth/me/account {first_name?, last_name?, email?}` (email
   validated and unique across users → 409; the username never changes),
-  `POST /api/auth/me/password {current_password, new_password}` (≥ 8
-  characters, ≠ the current one; signs out every OTHER session and answers
-  `{signed_out}`; 5 wrong current passwords per 15 min per user → 429; audit
-  `user.password_changed`, no secret in it) and
-  `POST /api/auth/me/sessions/revoke-others`. The three writes are
-  **session-only** — an API key gets 403 — and none of them is an MCP tool.
+  `POST /api/auth/me/password {current_password, new_password}` (the password
+  policy — ≥ 10 characters on a real install, not the username, not a common
+  password; ≥ 8 on a demo; ≠ the current one; a refusal carries `code`; signs out
+  every OTHER session and answers `{signed_out}`; wrong current passwords count
+  toward the sign-in lock → 429; lifts a `change_password` restriction; audit
+  `user.password_changed`, no secret in it),
+  `POST /api/auth/me/sessions/revoke-others`, and two-step sign-in:
+  `GET /api/auth/me/2fa` (status, never a secret), `POST /api/auth/me/2fa/setup`
+  (`{password}` only when it is already on — a new phone) → `{manual_key,
+  otpauth_uri, qr_svg, expires_at}`, `POST …/2fa/confirm {code}` →
+  `{recovery_codes}` (10, shown once), `POST …/2fa/recovery-codes {password, code}`
+  and `POST …/2fa/disable {password, code}` (409 while the organization requires
+  it). The writes are **session-only** — an API key gets 403 — and none of them is
+  an MCP tool.
 - **API keys** — `cbk_<prefix>_<secret>`, created at **API keys & MCP**
   (`/developers`, `POST /api/developers/keys`, capability `api_keys.manage`) and
   shown once. Send as `Authorization: Bearer cbk_…` or `X-Api-Key: cbk_…`. A key
@@ -85,7 +106,8 @@ outside the caller's scope answers **404**, exactly like one that does not exist
 
 | Path | Why it is open | What protects it |
 |---|---|---|
-| `POST /api/auth/login` | obviously | credentials |
+| `POST /api/auth/login` | obviously | credentials; failures throttled per username + per IP (429), per-IP request limit |
+| `POST /api/auth/login/2fa` | the second step of a two-step sign-in | the challenge from a correct password (Data Protection-encrypted + signed, 5 minutes, single use) + a TOTP or recovery code; throttled like passwords |
 | `GET /api/whatsapp/status`, `GET /api/messaging/status` | pre-login sandbox/configured banner | exposes flags only |
 | `GET /api/whatsapp/webhook`, `GET /api/messaging/webhook` | Meta's verification handshake | the verify token (Setting `whatsapp_verify_token`; the shipped default is never accepted) |
 | `POST /api/whatsapp/webhook` | Meta Cloud inbound + delivery statuses | `X-Hub-Signature-256` HMAC, **required once any Cloud account is configured** (sandbox accepts unsigned) |
@@ -130,6 +152,16 @@ Everything else — including every call-control route (`/api/calls/*`,
   consumed Django's exact keys; a few older DTOs (`Dtos.cs`) are camelCase.
   Follow the file you are in.
 - **Timestamps** are ISO-8601 UTC with a `Z`.
+- **429 Too Many Requests** carries `Retry-After` (seconds) and
+  `{detail, code, retry_after}` — `code` is `rate_limited` (the request rate
+  limits: per IP for anonymous callers, per session / API key when signed in,
+  stricter for sign-in, the website widget and public links; provider webhooks
+  exempt) or `too_many_attempts` (failed passwords / codes / API keys). Back off
+  for `Retry-After` and try again. Limits and knobs: [security.md](security.md).
+- **Security headers**: every answer carries `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer` and `X-Robots-Tag: noindex, nofollow`; JSON adds
+  `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` +
+  `X-Frame-Options: DENY`; HSTS over https; no `Server` header.
 
 ## Conventions that hold everywhere
 

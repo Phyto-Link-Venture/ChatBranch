@@ -14,4 +14,5 @@ export const adminGuides: GuideDef[] = [
   { id: 'activityLog', group: 'admin', href: '/activity', steps: 7, tips: 3, before: true, trouble: true, who: 'everyone' },
   { id: 'orgSettings', group: 'admin', href: '/settings/notifications', tour: 'settings', steps: 7, tips: 3, before: true, trouble: true, who: 'admin' },
   { id: 'testLab', group: 'admin', href: '/test-lab', steps: 7, tips: 3, before: true, trouble: true, who: 'superadmin' },
+  { id: 'requireTwoStep', group: 'admin', href: '/settings/security', tour: 'settings', steps: 4, tips: 2, before: true, trouble: true, who: 'superadmin' },
 ]

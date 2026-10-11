@@ -208,28 +208,10 @@ public sealed class RequestAuditMiddleware
         catch { return null; }
     }
 
-    private static string ClientIp(HttpContext ctx)
-    {
-        var remote = ctx.Connection.RemoteIpAddress;
-        // Behind the bundled nginx every request comes from the proxy; trust its
-        // X-Forwarded-For only when the direct peer is local/private.
-        if (remote != null && (IPAddress.IsLoopback(remote) || IsPrivate(remote)))
-        {
-            var xff = ctx.Request.Headers["X-Forwarded-For"].ToString();
-            var first = xff.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .FirstOrDefault();
-            if (!string.IsNullOrEmpty(first) && IPAddress.TryParse(first, out _)) return first;
-        }
-        return remote?.ToString() ?? "";
-    }
-
-    private static bool IsPrivate(IPAddress ip)
-    {
-        if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
-        var b = ip.GetAddressBytes();
-        if (b.Length != 4) return ip.IsIPv6UniqueLocal || ip.IsIPv6LinkLocal;
-        return b[0] == 10 || (b[0] == 172 && b[1] >= 16 && b[1] <= 31) || (b[0] == 192 && b[1] == 168);
-    }
+    /// <summary>The client address. X-Forwarded-For was already applied by UseTrustedProxies —
+    /// only when it came from a proxy in TRUSTED_PROXIES — so a header sent from the internet
+    /// never lands in the activity log as someone else's address.</summary>
+    private static string ClientIp(HttpContext ctx) => ChatBranch.Api.Security.ClientIp.Of(ctx);
 
     /// <summary>The path with secret-looking segments (bot tokens, long keys) masked.</summary>
     internal static string RedactPath(string path)

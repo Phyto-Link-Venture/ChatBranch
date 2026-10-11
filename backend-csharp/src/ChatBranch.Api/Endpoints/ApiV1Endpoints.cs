@@ -686,7 +686,7 @@ public static class ApiV1Endpoints
         //   anyone else — 403 on the `users.manage` capability first.
         // Capability gates the ACTION, tiering bounds the TARGET — both apply.
         app.MapPost("/api/v1/users", async (JsonElement body,
-            ClaimsPrincipal me, AppDbContext db) =>
+            ClaimsPrincipal me, AppDbContext db, ChatBranch.Api.Security.SecurityOptions security) =>
         {
             var actorRole = me.FindFirstValue(ClaimTypes.Role) ?? "";
             if (!await AdminEndpoints.HasCapabilityAsync(db, actorRole, "users.manage"))
@@ -700,8 +700,9 @@ public static class ApiV1Endpoints
             var lowered = username.ToLowerInvariant();
             if (await db.Users.AnyAsync(u => u.Username.ToLower() == lowered))
                 return V1Error("bad_request", $"Username '{username}' is already taken.", 400);
-            if (password.Length < 8)
-                return V1Error("bad_request", "Password must be at least 8 characters.", 400);
+            // ≥ 10 characters, not the username, not a common password on a real install (8 on a demo)
+            if (ChatBranch.Api.Security.PasswordPolicy.Check(password, username, security) is { } weak)
+                return PasswordRefused(weak);
             var validRoles = await AdminEndpoints.ValidRoleSlugsAsync(db);
             if (!validRoles.Contains(role))
                 return V1Error("bad_request",
@@ -776,7 +777,7 @@ public static class ApiV1Endpoints
         // body is UNTOUCHED (that's why this reads JsonElement and not a record:
         // "absent" and "set to null/empty" must stay distinguishable).
         app.MapPost("/api/v1/users/{id:int}", async (int id, JsonElement body,
-            ClaimsPrincipal me, AppDbContext db) =>
+            ClaimsPrincipal me, AppDbContext db, ChatBranch.Api.Security.SecurityOptions security) =>
         {
             var actorRole = me.FindFirstValue(ClaimTypes.Role) ?? "";
             if (!await AdminEndpoints.HasCapabilityAsync(db, actorRole, "users.manage"))
@@ -813,8 +814,8 @@ public static class ApiV1Endpoints
             if (Has(body, "password"))
             {
                 newPassword = Str(body, "password") ?? "";
-                if (newPassword.Length < 8)
-                    return V1Error("bad_request", "Password must be at least 8 characters.", 400);
+                if (ChatBranch.Api.Security.PasswordPolicy.Check(newPassword, target.Username, security) is { } weak)
+                    return PasswordRefused(weak);
             }
             // Anti-lockout: the platform must always keep one active superadmin.
             if (await WouldRemoveLastSuperAdminAsync(db, target, newRole, newActive))
@@ -958,6 +959,42 @@ public static class ApiV1Endpoints
             {
                 Actor = me.Identity?.Name ?? "system", Action = "user.deactivate",
                 Target = target.Username, UserId = target.Id, CreatedAt = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync();
+            return Results.Ok(await ManagedUserAsync(db, id));
+        }).RequireAuthorization(AuthPolicies.Authenticated);
+
+        // Reset someone's two-step sign-in (a lost phone): their authenticator secret and
+        // recovery codes go, every session of theirs is signed out, and their next sign-in
+        // is password-only (or straight to setup when the organization requires it).
+        // users.manage + the same tiering as every other user edit; never your own (use
+        // Settings → My account). Audited; a session only — an API key can't.
+        app.MapPost("/api/v1/users/{id:int}/2fa/reset", async (int id,
+            ClaimsPrincipal me, AppDbContext db) =>
+        {
+            var actorRole = me.FindFirstValue(ClaimTypes.Role) ?? "";
+            if (!await AdminEndpoints.HasCapabilityAsync(db, actorRole, "users.manage"))
+                return V1Error("forbidden", "Admin role required to manage users.", 403);
+            if (ApiKeyAuth.IsApiKey(me))
+                return V1Error("forbidden", "Resetting two-step sign-in needs a person signed in to the dashboard — API keys can't.", 403);
+
+            var target = await TargetUserAsync(db, id);
+            if (target == null) return V1Error("not_found", "User not found.", 404);
+            var profile = await EnsureProfileAsync(db, target);
+            if (AdminMayManage(db, me, actorRole, profile) is { } tierErr) return tierErr;
+            if (target.Id == await Caller.UserIdAsync(db, me))
+                return V1Error("forbidden", "Turn your own two-step sign-in off in Settings → My account.", 403);
+            if (!await db.UserTwoFactors.AnyAsync(t => t.UserId == target.Id))
+                return V1Error("bad_request", "This user hasn't set up two-step sign-in.", 400);
+
+            await db.UserTwoFactors.Where(t => t.UserId == target.Id).ExecuteDeleteAsync();
+            ChatBranch.Api.Security.TwoFactorService.Invalidate();
+            await KillSessionsAsync(db, profile);
+            db.AuditLogs.Add(new AuditLog
+            {
+                Actor = me.Identity?.Name ?? "system", Action = "user.2fa_reset",
+                Target = target.Username, UserId = target.Id,
+                Detail = "two-step sign-in reset by an admin; every session signed out", CreatedAt = DateTime.UtcNow,
             });
             await db.SaveChangesAsync();
             return Results.Ok(await ManagedUserAsync(db, id));
@@ -1121,6 +1158,11 @@ public static class ApiV1Endpoints
     // operator-facing text, not a stack-trace crumb.
     private static IResult V1Error(string code, string message, int status) =>
         Results.Json(new { error = new { code, message } }, statusCode: status);
+
+    /// <summary>A password the policy refuses: the v1 envelope plus the stable reason the dashboard translates.</summary>
+    private static IResult PasswordRefused(ChatBranch.Api.Security.PasswordPolicy.Problem p) =>
+        Results.Json(new { error = new { code = "bad_request", message = p.Detail, reason = p.Code, min = p.Min } },
+            statusCode: 400);
 
     private static IResult ContactMissing() =>
         V1Error("not_found", "No such contact (or not visible to you).", 404);
@@ -1569,6 +1611,7 @@ public static class ApiV1Endpoints
             .Include(u => u.Profile!).ThenInclude(p => p.Entities)
                 .Include(u => u.Profile!).ThenInclude(p => p.Contact)
             .FirstAsync(u => u.Id == id);
-        return AdminEndpoints.ManagedUserPayload(row);
+        var twoFactor = await db.UserTwoFactors.AsNoTracking().AnyAsync(t => t.UserId == id && t.Enabled);
+        return AdminEndpoints.ManagedUserPayload(row, twoFactor);
     }
 }

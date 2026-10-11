@@ -38,6 +38,11 @@ public static class McpExclusions
     private const string OwnAccount =
         "credentials / own account: Settings → My account (name, email, password, sessions) is the person at the " +
         "keyboard — the writes refuse API keys (403), so an AI acting as them never changes them";
+    private const string TwoFactor =
+        "credentials / own account: two-step sign-in (authenticator secret, recovery codes) belongs to the person " +
+        "holding the phone — the writes refuse API keys (403), so an AI acting as them never changes it";
+    private const string SecurityPolicy =
+        "the organization's sign-in security policy (require_2fa) is set by a person (security.manage), never by an AI acting as one";
     private const string Binary =
         "binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file";
     private const string Export =
@@ -90,6 +95,16 @@ public static class McpExclusions
         new("PATCH", "/api/auth/me/account", OwnAccount),
         new("POST", "/api/auth/me/password", OwnAccount),
         new("POST", "/api/auth/me/sessions/revoke-others", OwnAccount),
+        // two-step sign-in + the organization's sign-in security policy
+        new("GET", "/api/auth/me/2fa", TwoFactor),
+        new("POST", "/api/auth/me/2fa/setup", TwoFactor),
+        new("POST", "/api/auth/me/2fa/confirm", TwoFactor),
+        new("POST", "/api/auth/me/2fa/recovery-codes", TwoFactor),
+        new("POST", "/api/auth/me/2fa/disable", TwoFactor),
+        new("POST", "/api/v1/users/{id:int}/2fa/reset",
+            "credentials: resetting someone's two-step sign-in (a lost phone) is a person's decision at /users — sessions only, API keys get 403"),
+        new("GET", "/api/settings/security", SecurityPolicy),
+        new("PUT", "/api/settings/security", SecurityPolicy),
         new("POST", "/api/client-errors", "the dashboard's own crash reporter (a browser telling the server it broke) — not an operator action"),
 
         // ---- the assistant itself -------------------------------------------

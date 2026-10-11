@@ -1,7 +1,9 @@
 using ChatBranch.Api.Auth;
 using ChatBranch.Api.Endpoints;
+using ChatBranch.Api.Security;
 using ChatBranch.Data;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -96,6 +98,19 @@ builder.Services.AddSingleton<ChatBranch.Data.Sidecars.IBaileysGateway, ChatBran
 var dataDir = builder.Configuration["DataDir"] =
     ChatBranch.Data.Sidecars.VoiceAgentBridge.ResolveDataDir(builder.Configuration["DataDir"]);
 builder.Services.AddSingleton(new ChatBranch.Data.Sidecars.VoiceAgentBridge(dataDir));
+
+// ---- security (docs/security.md): every knob in SecurityOptions ---------------
+// sign-in throttling, two-step sign-in (TOTP secrets encrypted with Data Protection,
+// keys persisted in <data dir>/keys so they survive restarts and travel with the
+// volume), rate limits, trusted proxies, security headers.
+builder.Services.AddSingleton(SecurityOptions.From(builder.Configuration));
+builder.Services.AddSingleton<LoginThrottle>();
+builder.Services.AddScoped<TwoFactorService>();
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataDir, "keys")))
+    .SetApplicationName("ChatBranch");
+builder.Services.AddChatBranchRateLimiting();
+builder.WebHost.ConfigureKestrel(k => k.AddServerHeader = false);
 // Meta transports: Messenger/Instagram Send API, the template registry, message
 // attachments + call recordings on disk, and inbound downloads off the webhook ack.
 builder.Services.AddSingleton<ChatBranch.Data.Channels.IMetaMessagingClient, ChatBranch.Data.Channels.MetaMessagingClient>();
@@ -196,8 +211,14 @@ using (var scope = app.Services.CreateScope())
     Seed.Run(db, app.Configuration["DB_IMPORT_SQLITE"], m => app.Logger.LogWarning("{Message}", m));
 }
 
+var security = app.Services.GetRequiredService<SecurityOptions>();
+app.UseTrustedProxies(security, app.Logger); // FIRST: the real client IP / https, only from TRUSTED_PROXIES
+app.UseSecurityHeaders(security); // nosniff, referrer, CSP for data, HSTS on https (Security/SecurityHeaders)
 app.UseCors(CorsPolicy);
+app.UseApiKeyGate(); // an IP locked out for bad API keys gets 429 before any key lookup
 app.UseAuthentication();
+app.UseRateLimiter(); // per-IP / per-session limits, stricter for sign-in, the widget, public links (Security/RateLimiting)
+app.UseSessionGate(); // a session that must change a seeded password / set up 2FA reaches only those routes
 app.UseKeyScopes(); // a scoped API key narrows every capability check below
 app.UseCompanyAdminScope(); // a company admin never holds the organization-level capabilities
 app.UseEntitySelection(); // ?entity=a,b — the dashboard's multi-select entity filter

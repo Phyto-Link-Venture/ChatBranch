@@ -5,7 +5,7 @@ export const admin = {
     summary:
       'Create a login for a new colleague, pick what they are allowed to do, and decide which branches they can see. Takes about two minutes.',
     before:
-      'You need to be an admin or a super admin. An admin can add agents in their own organization; only a super admin can add other admins. Decide on a username and a temporary password (at least 8 characters) to give the new person.',
+      'You need to be an admin or a super admin. An admin can add agents in their own organization; only a super admin can add other admins. Decide on a username and a temporary password (at least 10 characters) to give the new person.',
     steps: {
       s1: {
         title: 'Open Users & roles',
@@ -21,7 +21,7 @@ export const admin = {
       },
       s4: {
         title: 'Type the login details',
-        body: 'Fill in “Username” (for example aina — it must be unique), an optional “Display name” (for example Aina Rahman) and a “Password” of at least 8 characters. Type the username yourself — text your browser fills in automatically is not counted.',
+        body: 'Fill in “Username” (for example aina — it must be unique), an optional “Display name” (for example Aina Rahman) and a “Password” of at least 10 characters that is not a common one. Type the username yourself — text your browser fills in automatically is not counted.',
       },
       s5: {
         title: 'Pick the role',
@@ -47,7 +47,7 @@ export const admin = {
       t3: 'Ask the new person to change nothing until they have opened the app tour from the ? button in the top bar.',
     },
     trouble:
-      'If saving fails with “Username is required”, type the username again by hand. If the password is refused, make it at least 8 characters. If you cannot pick Admin, only a super admin can create admins. If the button is missing, your role does not hold “Create & manage users” — ask a super admin.',
+      'If saving fails with “Username is required”, type the username again by hand. If the password is refused, make it at least 10 characters and less predictable (not the username, not a well-known password). If you cannot pick Admin, only a super admin can create admins. If the button is missing, your role does not hold “Create & manage users” — ask a super admin.',
   },
   rolesPermissions: {
     title: 'Set what each role can do',
@@ -583,5 +583,34 @@ export const admin = {
     },
     trouble:
       'If the page says the Test lab is switched off, the server runs with TEST_LAB=0 — that is correct for a live server. If a scenario fails, open “Details” to see which check failed and why. If “Load demo data” says it is already loaded, reset the test data first.',
+  },
+  requireTwoStep: {
+    title: 'Require two-step sign-in',
+    summary: 'Make everyone — or just admins — sign in with a code from an authenticator app. Anyone who hasn’t set it up is taken to the setup screen before they can do anything else.',
+    before: 'You need to be a super admin (or hold “Manage sign-in security”). Set up two-step sign-in for yourself first (Settings → My account) — the rule covers you too.',
+    steps: {
+      s1: {
+        title: 'Open Settings → Security',
+        body: 'Click “Settings” at the bottom of the sidebar, then “Security” under “Organization”.',
+      },
+      s2: {
+        title: 'Choose who must use it',
+        body: 'Pick “Admins and super admins” or “Everyone”. The card shows how many people already use it.',
+      },
+      s3: {
+        title: 'Click “Save”',
+        body: 'From now on, anyone the rule covers who hasn’t set it up is taken to “Set up two-step sign-in” the next time they use ChatBranch.',
+      },
+      s4: {
+        title: 'Help anyone who lost their phone',
+        body: 'Open Admin → “Users & roles” and click the shield button on their row (“Reset two-step sign-in”). They sign in with just their password and set it up again.',
+      },
+    },
+    done: 'Settings → Security shows your choice and how many people use two-step sign-in.',
+    tips: {
+      t1: 'API keys and the MCP server are not affected — they never sign in with a password.',
+      t2: 'To go back, choose “Nobody has to”; people who turned it on themselves keep it.',
+    },
+    trouble: 'No “Security” in Settings: only super admins (or a role given “Manage sign-in security”) see it. Asked to set it up right after saving: the rule applies to you too — scan the code and carry on.',
   },
 }

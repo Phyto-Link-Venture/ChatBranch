@@ -1,0 +1,24 @@
+# Secret scanning (gitleaks) — the "Security" workflow, docs/security.md.
+# The default rule set, plus an allowlist for the FAKE credentials the test
+# suite uses on purpose (fixtures that prove masking, signatures and provider
+# calls). Historical findings in old commits are fingerprinted in .gitleaksignore.
+# Never add a real-looking key here: a test fixture should look obviously fake
+# (…0123456789abcdef…, "test-…", "sk-or-1234567").
+title = "ChatBranch gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Obviously fake test fixtures"
+paths = [
+  '''(^|/)package-lock\.json$''',
+]
+stopwords = [
+  "0123456789abcdef",
+  "sk-or-1234567",
+  "secret-0123456789",
+  "whsec_signing_1234",
+  "wx1234567890abcdef",
+  "bm90IGEgY2lwaGVydGV4dA",  # base64 of "not a ciphertext"
+]

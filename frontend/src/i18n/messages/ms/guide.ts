@@ -760,6 +760,10 @@ export const guide: Dict<typeof source> = {
           body: 'Taip kata laluan semasa, kemudian kata laluan baharu dua kali. Petunjuk kekuatan membantu anda memilih yang baik; setiap peranti lain dilog keluar apabila ia ditukar.',
         },
         s4: {
+          title: 'Log masuk dua langkah',
+          body: 'Hidupkan kod daripada aplikasi pengesah setiap kali log masuk, supaya kata laluan yang dicuri sahaja tidak boleh masuk. Imbas kod QR, masukkan kod, dan simpan kod pemulihan anda di tempat selamat.',
+        },
+        s5: {
           title: 'Peranti anda',
           body: 'Lihat berapa banyak peranti yang log masuk dan log keluar yang lain — berguna selepas menggunakan komputer kongsi atau yang hilang.',
         },
