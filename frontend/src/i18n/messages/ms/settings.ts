@@ -51,6 +51,10 @@ export const settings: Dict<typeof source> = {
         lbl: 'Bil AI',
         blurb: 'Markup, yuran bulanan dan mata wang bagi bil AI setiap syarikat.',
       },
+      security: {
+        lbl: 'Keselamatan',
+        blurb: 'Log masuk dua langkah untuk organisasi anda, dan perlindungan yang sentiasa aktif.',
+      },
       appkeys: {
         lbl: 'Kunci aplikasi & penyedia',
         blurb: 'Token pengesahan webhook dan kelayakan penyedia integrasi.',
@@ -439,5 +443,29 @@ export const settings: Dict<typeof source> = {
       testFail: 'Tidak berjaya: {error}',
       remove: 'Buang kunci',
     },
+  },
+  security: {
+    policyTitle: 'Log masuk dua langkah',
+    policyIntro:
+      'Minta kod daripada aplikasi pengesah setiap kali log masuk. Mereka yang wajib menggunakannya tetapi belum menyediakannya dibawa ke skrin persediaan sebelum perkara lain.',
+    policyLabel: 'Siapa yang wajib menggunakan log masuk dua langkah',
+    policy: {
+      off: 'Tiada siapa diwajibkan (sesiapa boleh menghidupkannya di Akaun saya)',
+      admins: 'Pentadbir dan pentadbir super',
+      everyone: 'Semua orang',
+    },
+    usersEnrolled: '{n} daripada {total} orang menggunakannya',
+    adminsEnrolled: '{n} daripada {total} pentadbir menggunakannya',
+    save: 'Simpan',
+    saved: 'Disimpan.',
+    selfNote: 'Jika anda sendiri belum menyediakannya, anda akan diminta berbuat demikian sejurus selepas menyimpan.',
+    protectionsTitle: 'Sentiasa aktif',
+    protectionsIntro: 'Ditetapkan oleh pengendali pelayan melalui pemboleh ubah persekitaran (docs/security.md).',
+    lockout: 'Nama pengguna dikunci selama {minutes} minit selepas {count} kata laluan atau kod yang salah; alamat rangkaian selepas {ip} (kecuali bagi orang yang pernah log masuk dari alamat itu).',
+    rateLimitOn: 'Had kadar permintaan aktif — lebih ketat untuk log masuk, widget laman web dan pautan awam.',
+    rateLimitOff: 'Had kadar permintaan dimatikan pada pelayan ini (RATE_LIMIT=0).',
+    passwordRule: 'Kata laluan baharu memerlukan sekurang-kurangnya {min} aksara, tidak boleh sama dengan nama pengguna dan tidak boleh kata laluan yang terkenal.',
+    demoMode: 'Mod demo (SEED_DEMO): log masuk demo mengekalkan kata laluan mereka dan peraturan kata laluan yang lebih pendek digunakan.',
+    loadFailed: 'Tetapan keselamatan tidak tersedia.',
   },
 }

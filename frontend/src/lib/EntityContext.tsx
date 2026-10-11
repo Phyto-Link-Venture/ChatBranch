@@ -16,7 +16,7 @@
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { authHeaders, getAuth } from './auth'
+import { authHeaders, getAuth, hasAppSession, sessionKey } from './auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 const ACTIVE_KEY = 'chatbranch-active-entity' // legacy single pick (read once, then migrated)
@@ -125,7 +125,8 @@ export function EntityProvider({ children }: { children: ReactNode }) {
   const boundRef = useRef(false)
 
   const load = useCallback(async () => {
-    if (!getAuth()) {
+    // signed out, or held on the account-setup screen (the API would refuse)
+    if (!hasAppSession()) {
       setLoading(false)
       return
     }
@@ -170,13 +171,14 @@ export function EntityProvider({ children }: { children: ReactNode }) {
   // disabled "All entities" until a full reload. A session swap in another
   // tab arrives as a `storage` event.
   useEffect(() => {
-    let lastToken = getAuth()?.token ?? null
+    // the session key also changes when an account setup clears (same token)
+    let lastKey = sessionKey()
     void load()
     const onAuth = () => {
-      const token = getAuth()?.token ?? null
-      if (token === lastToken) return
-      lastToken = token
-      if (!token) {
+      const key = sessionKey()
+      if (key === lastKey) return
+      lastKey = key
+      if (!getAuth()) {
         setTenant(null)
         setEntities([])
         setSelected([])

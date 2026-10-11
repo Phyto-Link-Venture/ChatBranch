@@ -757,6 +757,10 @@ export const guide = {
           body: 'Type your current password, then the new one twice. The strength hint helps you pick a good one; every other device is signed out when it changes.',
         },
         s4: {
+          title: 'Two-step sign-in',
+          body: 'Turn on a code from an authenticator app at every sign-in, so a stolen password alone can’t get in. Scan the QR code, enter the code, and save your recovery codes somewhere safe.',
+        },
+        s5: {
           title: 'Your devices',
           body: 'See how many devices are signed in and sign the others out — useful after using a shared or lost computer.',
         },

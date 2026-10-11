@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { authHeaders, getAuth } from '@/lib/auth'
+import { authHeaders, hasAppSession } from '@/lib/auth'
 import { subscribeChatStream, subscribeStreamStatus, type StreamStatus } from '@/lib/chatStream'
 import { useT, type TFunction } from '@/i18n'
 
@@ -76,7 +76,7 @@ interface Entry {
 const entries = new Map<string, Entry>()
 
 async function load(q: string, e: Entry) {
-  if (e.inflight || !getAuth()) return
+  if (e.inflight || !hasAppSession()) return
   e.inflight = true
   try {
     const res = await fetch(`${API}/live${q ? `?${q}` : ''}`, { headers: authHeaders(), cache: 'no-store' })

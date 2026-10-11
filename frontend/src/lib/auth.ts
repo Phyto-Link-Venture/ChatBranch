@@ -21,6 +21,11 @@ import type { MessageKey, TFunction } from '@/i18n'
 
 export type Role = 'superadmin' | 'admin' | 'agent'
 
+/** What a session must do before it may use the product (Security/SessionGate):
+ *  change a seeded initial password, or set up two-step sign-in the organization
+ *  requires. '' / absent = nothing — the app renders normally. */
+export type SessionRestriction = '' | 'change_password' | 'enroll_2fa'
+
 export interface AuthUser {
   username: string
   name: string
@@ -29,6 +34,30 @@ export interface AuthUser {
   /** Fine-grained permissions for the current role (dynamic RBAC). Optional so
    *  older cached sessions still parse — absence triggers the role fallback. */
   capabilities?: string[]
+  /** Set while the account-setup screen must come first (see SessionRestriction). */
+  restriction?: SessionRestriction
+}
+
+/** A refused sign-in: `code` is the server's stable reason (invalid_credentials,
+ *  too_many_attempts, rate_limited, invalid_code, challenge_expired…), translated by the page. */
+export class LoginError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public code?: string,
+    public retryAfter?: number,
+  ) {
+    super(message)
+  }
+}
+
+/** The password was right and two-step sign-in is on: send a code with the challenge. */
+export interface TwoFactorChallenge {
+  challenge: string
+  username: string
+  expiresIn: number
+  /** The name authenticator apps show for this account (TOTP_ISSUER). */
+  issuer: string
 }
 
 /**
@@ -81,6 +110,7 @@ export const CAPABILITY_CATALOG: { capability: string; area: string; label: stri
   { capability: 'settings.raw.view', area: 'Settings', label: 'Read raw settings (API)', lbl: 'admin.caps.settingsRawView' },
   { capability: 'settings.raw.manage', area: 'Settings', label: 'Write any raw setting (API)', lbl: 'admin.caps.settingsRawManage' },
   { capability: 'testlab.run', area: 'Review', label: 'Run the Test lab', lbl: 'admin.caps.testlabRun' },
+  { capability: 'security.manage', area: 'Settings', label: 'Manage sign-in security', lbl: 'admin.caps.securityManage' },
 ]
 
 const CAP_KEY = new Map<string, MessageKey>(CAPABILITY_CATALOG.map((c) => [c.capability, c.lbl]))
@@ -161,6 +191,7 @@ const ADMIN_EXCLUDE = new Set([
   'settings.ai_hard_rules.manage',
   'settings.raw.manage',
   'testlab.run',
+  'security.manage',
 ])
 
 export const DEFAULT_ROLE_CAPS: Record<Role, string[]> = {
@@ -203,6 +234,22 @@ export function getAuth(): AuthUser | null {
   } catch {
     return null
   }
+}
+
+/** A session that may use the app: signed in AND not held on the account-setup
+ *  screen (an initial password to change, two-step sign-in to set up). The API
+ *  refuses everything else to a restricted session, so app-wide stores (entities,
+ *  notifications, the Live chip, the inbox stream) don't ask until it clears. */
+export function hasAppSession(): boolean {
+  const u = getAuth()
+  return !!u && !u.restriction
+}
+
+/** Changes when the session does — sign-in, sign-out, or its account setup clearing
+ *  (same token, no restriction any more): what app-wide loaders re-run on. */
+export function sessionKey(): string {
+  const u = getAuth()
+  return u ? `${u.token}|${u.restriction ?? ''}` : ''
 }
 
 export function setAuth(user: AuthUser): void {
@@ -279,19 +326,24 @@ export function expireSessionOn401(res: Response): boolean {
  * Never throws — a backend that predates the matrix just leaves capabilities
  * undefined and the role fallback takes over.
  */
-async function fetchIdentity(token: string): Promise<{ capabilities?: string[]; name?: string }> {
+const asRestriction = (v: unknown): SessionRestriction =>
+  v === 'change_password' || v === 'enroll_2fa' ? v : ''
+
+async function fetchIdentity(
+  token: string,
+): Promise<{ capabilities?: string[]; name?: string; restriction?: SessionRestriction }> {
   for (const path of ['auth/whoami', 'v1/whoami']) {
     try {
       const res = await fetch(`${API}/${path}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok) continue
-      const data = (await res.json().catch(() => ({}))) as { capabilities?: unknown; name?: unknown }
+      const data = (await res.json().catch(() => ({}))) as { capabilities?: unknown; name?: unknown; restriction?: unknown }
       const caps = Array.isArray(data.capabilities)
         ? data.capabilities.filter((c): c is string => typeof c === 'string')
         : undefined
       const name = typeof data.name === 'string' && data.name ? data.name : undefined
-      if (caps) return { capabilities: caps, name }
+      if (caps) return { capabilities: caps, name, restriction: asRestriction(data.restriction) }
     } catch {
       /* try the next endpoint */
     }
@@ -299,15 +351,59 @@ async function fetchIdentity(token: string): Promise<{ capabilities?: string[]; 
   return {}
 }
 
-export async function login(username: string, password: string): Promise<AuthUser> {
+async function refusal(res: Response): Promise<LoginError> {
+  const data = (await res.json().catch(() => ({}))) as { detail?: string; code?: string; retry_after?: number }
+  const retry = Number(data.retry_after ?? res.headers.get('Retry-After') ?? 0) || undefined
+  return new LoginError(data.detail || `HTTP ${res.status}`, res.status, data.code, retry)
+}
+
+/**
+ * Step 1 of sign-in: the password. Resolves to the signed-in user, or — when the
+ * person has two-step sign-in on — to a challenge for {@link loginSecondFactor}.
+ * A refusal throws a {@link LoginError} (its `code` says why).
+ */
+export async function login(username: string, password: string): Promise<AuthUser | TwoFactorChallenge> {
   const res = await fetch(`${API}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),
   })
+  if (!res.ok) throw await refusal(res)
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
-  const user: AuthUser = { ...data.user, token: data.token }
+  if (data.two_factor_required && typeof data.challenge === 'string')
+    return {
+      challenge: data.challenge,
+      username: data.username ?? username,
+      expiresIn: Number(data.expires_in) || 300,
+      issuer: typeof data.issuer === 'string' && data.issuer ? data.issuer : 'ChatBranch',
+    }
+  return completeLogin(data)
+}
+
+/** Step 2 (two-step sign-in on): the challenge from step 1 + a code from the app or a recovery code. */
+export async function loginSecondFactor(challenge: string, code: string): Promise<AuthUser> {
+  const res = await fetch(`${API}/auth/login/2fa`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ challenge, code }),
+  })
+  if (!res.ok) throw await refusal(res)
+  return completeLogin(await res.json().catch(() => ({})))
+}
+
+export const isTwoFactorChallenge = (r: AuthUser | TwoFactorChallenge): r is TwoFactorChallenge =>
+  'challenge' in r && typeof (r as TwoFactorChallenge).challenge === 'string'
+
+/** A successful sign-in answer (POST /api/auth/login or /api/auth/login/2fa). */
+interface SessionAnswer {
+  token: string
+  user: Omit<AuthUser, 'token'> & { capabilities?: string[] }
+  capabilities?: string[]
+  restriction?: unknown
+}
+
+async function completeLogin(data: SessionAnswer): Promise<AuthUser> {
+  const user: AuthUser = { ...data.user, token: data.token, restriction: asRestriction(data.restriction) }
   // Capabilities may ride on the login response (user or top-level); otherwise
   // ask whoami so the gates are capability-driven from the first paint.
   const inline =
@@ -316,6 +412,7 @@ export async function login(username: string, password: string): Promise<AuthUse
     undefined
   const ident = await fetchIdentity(user.token)
   user.capabilities = inline || ident.capabilities
+  if (ident.restriction !== undefined) user.restriction = ident.restriction
   // a fresh sign-in starts with no assistant cache — whoever used this browser
   // before, their chat stays on the server under their own login — and no
   // AI playground transcript
@@ -338,7 +435,12 @@ export async function refreshIdentity(): Promise<AuthUser | null> {
   if (!user) return null
   const ident = await fetchIdentity(user.token)
   if (!ident.capabilities) return user
-  const next: AuthUser = { ...user, capabilities: ident.capabilities, ...(ident.name ? { name: ident.name } : {}) }
+  const next: AuthUser = {
+    ...user,
+    capabilities: ident.capabilities,
+    ...(ident.name ? { name: ident.name } : {}),
+    restriction: ident.restriction ?? '',
+  }
   setAuth(next)
   if (typeof window !== 'undefined') window.dispatchEvent(new Event('auth-change'))
   return next

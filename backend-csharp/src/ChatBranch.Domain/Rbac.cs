@@ -57,6 +57,47 @@ public class AuthToken
     public Profile? Profile { get; set; }
     public string Token { get; set; } = "";
     public DateTime CreatedAt { get; set; }
+    /// <summary>
+    /// "" = a normal session. <see cref="SessionRestrictions.ChangePassword"/> = signed in
+    /// with a seeded default password on a real install: the API answers nothing but the
+    /// account-setup routes until the password is changed (Api/Security/SessionGate).
+    /// </summary>
+    public string Restriction { get; set; } = "";
+}
+
+/// <summary>What a restricted session must do before it may use the product.</summary>
+public static class SessionRestrictions
+{
+    /// <summary>Change the seeded default password first.</summary>
+    public const string ChangePassword = "change_password";
+    /// <summary>The organization requires two-step sign-in and this person has not set it up.</summary>
+    public const string EnrollTwoFactor = "enroll_2fa";
+}
+
+/// <summary>
+/// One person's two-step sign-in (TOTP, RFC 6238 — any authenticator app). The
+/// secrets are encrypted at rest with ASP.NET Core Data Protection (keys in the data
+/// dir) and never leave the server after enrollment; recovery codes are stored only
+/// as salted SHA-256 hashes, each usable once.
+/// </summary>
+public class UserTwoFactor
+{
+    public int Id { get; set; }
+    public int UserId { get; set; }
+    /// <summary>The confirmed secret, protected ("" = not enrolled).</summary>
+    public string Secret { get; set; } = "";
+    /// <summary>A secret being set up (shown once as a QR code), protected; confirmed by a code.</summary>
+    public string PendingSecret { get; set; } = "";
+    public DateTime? PendingAt { get; set; }
+    public bool Enabled { get; set; }
+    /// <summary>The last 30-second time step a code was accepted for — a code is never accepted twice.</summary>
+    public long LastStep { get; set; }
+    public string RecoverySalt { get; set; } = "";
+    /// <summary>Hashes of the unused recovery codes.</summary>
+    public List<string> RecoveryCodes { get; set; } = new();
+    public DateTime? ConfirmedAt { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
 }
 
 public class Role

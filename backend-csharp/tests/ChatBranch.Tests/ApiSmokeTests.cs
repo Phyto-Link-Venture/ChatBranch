@@ -165,6 +165,9 @@ public class ApiFactory : WebApplicationFactory<Program>
         // no fetch of OpenRouter's public price list — reports price from the seeded table only
         Environment.SetEnvironmentVariable("LLM_PRICE_SYNC", "0");
         Environment.SetEnvironmentVariable("AI_HUMANIZE", "0");
+        // No request rate limits: the suite fires thousands of requests from one in-process
+        // client. RateLimitTests turns them on (and low) for its own host.
+        Environment.SetEnvironmentVariable("RATE_LIMIT", "0");
         // Production seeds clean (no admin/agent logins) since the deploy pass,
         // but the suite signs in as those users on nearly every test. A test
         // host IS a demo environment, so it asks for the demo seed itself

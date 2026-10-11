@@ -20,6 +20,17 @@ public static class Seed
         new("agent", "agent123", Roles.Agent),
     };
 
+    /// <summary>SEED_DEMO truthy = a demo environment (the demo logins and sample contact are seeded).</summary>
+    public static bool IsDemo(string? seedDemo) => seedDemo is "1" or "true" or "TRUE" or "yes";
+
+    /// <summary>
+    /// The password a seeded login was created with ("super123" / "admin123" /
+    /// "agent123"), or null for any other username. On a real install a sign-in
+    /// with one of these must change it first (Api/Security/DefaultCredentials).
+    /// </summary>
+    public static string? SeededPasswordFor(string username) =>
+        DemoUsers.FirstOrDefault(d => string.Equals(d.Username, username, StringComparison.Ordinal))?.Password;
+
     /// <summary>
     /// Additive schema upgrades for databases created before a column existed.
     /// EnsureCreated() only builds a schema from scratch — it never alters an
@@ -347,6 +358,15 @@ public static class Seed
         AddIndexIfMissing(db, "ix_aitaskrun_thread", "crm_aitaskrun", "\"thread_id\"");
         // AI voice replies: what a customer's voice note said (Ai/Voice/VoiceTranscriber.cs)
         AddColumnIfMissing(db, "crm_message", "transcript", "TEXT NOT NULL DEFAULT ''");
+        // security: a session that must change a seeded password first + two-step sign-in (TOTP)
+        AddColumnIfMissing(db, "crm_authtoken", "restriction", "TEXT NOT NULL DEFAULT ''");
+        AddTableIfMissing(db, "crm_usertwofactor",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_usertwofactor\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"user_id\" INTEGER NOT NULL, \"secret\" TEXT NOT NULL, \"pending_secret\" TEXT NOT NULL, "
+            + "\"pending_at\" TEXT NULL, \"enabled\" INTEGER NOT NULL, \"last_step\" INTEGER NOT NULL, "
+            + "\"recovery_salt\" TEXT NOT NULL, \"recovery_codes\" TEXT NOT NULL, \"confirmed_at\" TEXT NULL, "
+            + "\"created_at\" TEXT NOT NULL, \"updated_at\" TEXT NOT NULL, "
+            + "CONSTRAINT \"uniq_usertwofactor_user\" UNIQUE (\"user_id\")");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 
@@ -492,8 +512,7 @@ public static class Seed
         // The demo clutter — the extra admin/agent POC logins and the sample
         // "liewxen" test contact — is seeded ONLY when SEED_DEMO is truthy, so a
         // real deployment never shows fake contacts. Set SEED_DEMO=1 for a demo.
-        var seedDemoRaw = Environment.GetEnvironmentVariable("SEED_DEMO");
-        var seedDemo = seedDemoRaw is "1" or "true" or "TRUE" or "yes";
+        var seedDemo = IsDemo(Environment.GetEnvironmentVariable("SEED_DEMO"));
 
         var tenant = db.Tenants.FirstOrDefault(t => t.Slug == "demo");
         if (tenant == null)

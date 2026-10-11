@@ -1,0 +1,40 @@
+{
+  "about": "High / Critical npm advisories the Security workflow accepts for now because no safe (patch / minor) upgrade fixes them. Each entry names the exact advisories, why, and a review-by date — after `until` the workflow fails again. Read by scripts/npm-audit-gate.mjs. Remove an entry as soon as its fix lands.",
+  "entries": [
+    {
+      "path": "frontend",
+      "package": "next",
+      "advisories": [
+        "GHSA-h25m-26qc-wcjf", "GHSA-q4gf-8mx6-v5v3", "GHSA-8h8q-6873-q5fj", "GHSA-c4j6-fc7j-m34r",
+        "GHSA-36qx-fr4f-26g5", "GHSA-m99w-x7hq-7vfj", "GHSA-89xv-2m56-2m9x", "GHSA-p9j2-gv94-2wf4",
+        "GHSA-p293-qw3h-jr36", "GHSA-2xp9-vwfh-vxw4"
+      ],
+      "reason": "Fixed only in Next 16 — a major upgrade from 14 (React 19, App Router changes), its own project. Most need features the dashboard doesn't use (Server Actions, middleware, the i18n Pages Router, rewrites, WebSocket upgrades, a configured image optimizer — no remote patterns, no AVIF —, Windows hosting); the Server Components denial-of-service ones apply to any App Router app until the upgrade. Upgrade Next to clear these.",
+      "until": "2026-12-31"
+    },
+    {
+      "path": "frontend",
+      "package": "postcss",
+      "advisories": ["GHSA-6g55-p6wh-862q", "GHSA-r28c-9q8g-f849"],
+      "reason": "The copy nested inside next@14 (node_modules/next/node_modules/postcss) — only Next 16 updates it. It runs at build time on the repository's own CSS, never on user input.",
+      "until": "2026-12-31"
+    },
+    {
+      "path": "backend/voice_agent",
+      "package": "adm-zip",
+      "advisories": [
+        "GHSA-xcpc-8h2w-3j85", "GHSA-7q85-xj36-vmfc", "GHSA-rcw4-f5rp-g42v", "GHSA-j5f4-cc29-5x44",
+        "GHSA-8238-w5pm-2374"
+      ],
+      "reason": "Pulled in by onnxruntime-node under @livekit/agents-plugin-silero; the fix is a major upgrade of the LiveKit plugins, which must move together (all @livekit/agents* pinned to one version — CLAUDE.md). The worker only unzips the model files its own packages ship, never an uploaded archive.",
+      "until": "2026-12-31"
+    },
+    {
+      "path": "backend/voice_agent",
+      "package": "sharp",
+      "advisories": ["GHSA-wq5f-xc86-pv6w"],
+      "reason": "No fixed sharp release for @livekit/agents' range yet (librsvg CVE). The voice worker never decodes SVG or other images from callers.",
+      "until": "2026-12-31"
+    }
+  ]
+}

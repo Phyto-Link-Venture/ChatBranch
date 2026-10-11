@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using ChatBranch.Api.Security;
 using ChatBranch.Data;
 using ChatBranch.Domain;
 using Microsoft.AspNetCore.Authentication;
@@ -21,12 +22,19 @@ namespace ChatBranch.Api.Auth;
 public class TokenAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
 {
     public const string SchemeName = "Bearer";
+    /// <summary>The session's <see cref="AuthToken.Restriction"/> ("" = none) — Security/SessionGate reads it.</summary>
+    public const string RestrictionClaim = "session_restriction";
     private readonly AppDbContext _db;
+    private readonly LoginThrottle? _throttle;
 
     public TokenAuthenticationHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
-        ILoggerFactory logger, UrlEncoder encoder, AppDbContext db)
-        : base(options, logger, encoder) => _db = db;
+        ILoggerFactory logger, UrlEncoder encoder, AppDbContext db, LoginThrottle? throttle = null)
+        : base(options, logger, encoder)
+    {
+        _db = db;
+        _throttle = throttle;
+    }
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
@@ -35,16 +43,29 @@ public class TokenAuthenticationHandler : AuthenticationHandler<AuthenticationSc
         if (ApiKeyAuth.Presented(Request) is string apiKey)
         {
             var key = await ApiKeyAuth.ResolveAsync(_db, apiKey);
-            if (key?.User?.Profile is not Profile kp) return AuthenticateResult.Fail("Invalid API key.");
+            if (key?.User?.Profile is not Profile kp)
+            {
+                // repeated bad keys from one IP lock that IP out of key sign-in (SessionGate.UseApiKeyGate → 429)
+                if (_throttle?.ApiKeyFail(ClientIp.Of(Context)) is { } locked)
+                    LoginThrottle.Report(_db, new[] { locked }, "API keys");
+                return AuthenticateResult.Fail("Invalid API key.");
+            }
             var keyTicket = Ticket(key.User.Username, kp.Role, kp.Id, kp.TenantId);
             ApiKeyAuth.Decorate(keyTicket.Principal, key);
             return AuthenticateResult.Success(keyTicket);
         }
 
-        var profile = await ResolveProfileAsync();
+        var (profile, restriction) = await ResolveProfileAsync();
         if (profile != null && profile.User is { IsActive: true })
-            return AuthenticateResult.Success(Ticket(profile.User.Username, profile.Role,
-                profile.Id, profile.TenantId));
+        {
+            var ticket = Ticket(profile.User.Username, profile.Role, profile.Id, profile.TenantId);
+            if (ticket.Principal.Identity is ClaimsIdentity id)
+            {
+                id.AddClaim(new Claim("user_id", profile.UserId.ToString()));
+                if (restriction.Length > 0) id.AddClaim(new Claim(RestrictionClaim, restriction));
+            }
+            return AuthenticateResult.Success(ticket);
+        }
 
         // Pre-seed bootstrap: no Profile rows yet → honour X-Role.
         if (!await _db.Profiles.AnyAsync())
@@ -58,20 +79,20 @@ public class TokenAuthenticationHandler : AuthenticationHandler<AuthenticationSc
         return AuthenticateResult.NoResult(); // anonymous; policies decide 401/403
     }
 
-    private async Task<Profile?> ResolveProfileAsync()
+    private async Task<(Profile? Profile, string Restriction)> ResolveProfileAsync()
     {
         var header = Request.Headers.Authorization.ToString();
-        if (!header.StartsWith("Bearer ")) return null;
+        if (!header.StartsWith("Bearer ")) return (null, "");
         var token = header["Bearer ".Length..].Trim();
-        if (token.Length == 0) return null;
+        if (token.Length == 0) return (null, "");
 
         var session = await _db.AuthTokens
             .Include(t => t.Profile!).ThenInclude(p => p.User)
             .FirstOrDefaultAsync(t => t.Token == token);
-        if (session?.Profile != null) return session.Profile;
+        if (session?.Profile != null) return (session.Profile, session.Restriction ?? "");
 
-        return await _db.Profiles.Include(p => p.User)
-            .FirstOrDefaultAsync(p => p.Token == token);
+        return (await _db.Profiles.Include(p => p.User)
+            .FirstOrDefaultAsync(p => p.Token == token), "");
     }
 
     private AuthenticationTicket Ticket(string username, string role, int? profileId, int? tenantId)

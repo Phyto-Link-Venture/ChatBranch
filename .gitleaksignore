@@ -1,0 +1,13 @@
+# Findings gitleaks reports in the history that are fake test fixtures (reviewed
+# 2026-10-11): <commit>:<file>:<rule>:<line>. New findings are never added here
+# without checking the value really is fake — a real secret is rotated, not ignored.
+9286a3c750fc0e93d391ffd56d7582e15fea5388:backend-csharp/tests/ChatBranch.Tests/LlmProviderCatalogTests.cs:generic-api-key:128
+54f7c5e2050a68a6304c247074d2eb1659e6af87:backend-csharp/tests/ChatBranch.Tests/AiTaskTests.cs:generic-api-key:518
+376cf31515a16c9bb7f0be8684bf6efc67118ea9:backend-csharp/tests/ChatBranch.Tests/WhatsAppBspTests.cs:generic-api-key:445
+376cf31515a16c9bb7f0be8684bf6efc67118ea9:backend-csharp/tests/ChatBranch.Tests/WhatsAppBspTests.cs:twilio-api-key:476
+376cf31515a16c9bb7f0be8684bf6efc67118ea9:backend-csharp/tests/ChatBranch.Tests/WhatsAppBspTests.cs:twilio-api-key:714
+376cf31515a16c9bb7f0be8684bf6efc67118ea9:backend-csharp/tests/ChatBranch.Tests/WhatsAppBspTests.cs:twilio-api-key:739
+e4f66e03b091c7cf1f29cae994b9e0c52eeb7e85:backend-csharp/tests/ChatBranch.Tests/MoreChannelsUnitTests.cs:generic-api-key:82
+3bf118a472966d979b3a073bc4cf5e2b84a9d17c:backend-csharp/tests/ChatBranch.Tests/QueueCallsTests.cs:generic-api-key:79
+7f78b16e50a461da70c22db140d5b79006630d13:backend/tests/test_integrations.py:generic-api-key:195
+7f78b16e50a461da70c22db140d5b79006630d13:backend/tests/test_integrations.py:generic-api-key:215

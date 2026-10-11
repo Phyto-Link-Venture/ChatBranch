@@ -51,11 +51,18 @@ const PUBLIC_ROUTES = ['/help', '/offline']
 
 /** Token the appearance/identity sync last ran for — once per sign-in. */
 let syncedToken: string | null = null
+/** When whoami was last re-read on a navigation — so an organization turning on
+ *  required two-step sign-in reaches open sessions within a minute. */
+let identityCheckedAt = 0
+
+/** Where a session that must change its initial password / set up two-step
+ *  sign-in goes before anything else (rendered bare, like /login). */
+const ACCOUNT_SETUP = '/account-setup'
 
 export function Shell({ children }: { children: ReactNode }) {
   const pathname = usePathname() || HOME
   const router = useRouter()
-  const isLogin = pathname === '/login'
+  const isLogin = pathname === '/login' || pathname === ACCOUNT_SETUP
   const isPublic = PUBLIC_ROUTES.some((p) => pathname === p || pathname.startsWith(p + '/'))
   const isFullBleed = FULL_BLEED.some((p) => pathname === p || pathname.startsWith(p + '/'))
 
@@ -116,12 +123,23 @@ export function Shell({ children }: { children: ReactNode }) {
     setAuthReady(true)
     if (u && u.token !== syncedToken) {
       syncedToken = u.token
+      identityCheckedAt = Date.now()
       void syncAppearanceFromServer() // a 404 on an older API is harmless
       void syncLocaleFromServer() // the user's own language, else the organization default
       void refreshIdentity()
       void syncGuidesFromServer(u.username) // closed page guides stay closed on every device
+    } else if (u && Date.now() - identityCheckedAt > 60_000) {
+      identityCheckedAt = Date.now()
+      void refreshIdentity() // capabilities + a newly required account setup
     }
   }, [pathname])
+
+  // A restricted session (initial password / required two-step sign-in) sees the
+  // account-setup screen and nothing else — the API refuses everything else anyway.
+  useEffect(() => {
+    if (!authReady || !user) return
+    if (user.restriction && pathname !== ACCOUNT_SETUP) router.replace(ACCOUNT_SETUP)
+  }, [authReady, user, pathname, router])
 
   useEffect(() => {
     setMobileNavOpen(false)
@@ -185,6 +203,8 @@ export function Shell({ children }: { children: ReactNode }) {
   // instead (html.page-scroll in globals.css): the only scrolling iOS Safari
   // handles reliably (momentum, the collapsing address bar, #anchor jumps)
   if (isLogin || isPublic) return <PageScroll>{children}</PageScroll>
+  // on its way to the account-setup screen: never mount (or fetch for) the app
+  if (user?.restriction) return null
 
   return (
     <TourProvider>

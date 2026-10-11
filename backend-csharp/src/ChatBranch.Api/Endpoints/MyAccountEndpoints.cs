@@ -1,8 +1,8 @@
-using System.Collections.Concurrent;
 using System.Net.Mail;
 using System.Security.Claims;
 using System.Text.Json;
 using ChatBranch.Api.Auth;
+using ChatBranch.Api.Security;
 using ChatBranch.Data;
 using ChatBranch.Data.Audit;
 using ChatBranch.Domain;
@@ -23,23 +23,21 @@ namespace ChatBranch.Api.Endpoints;
 /// </summary>
 public static class MyAccountEndpoints
 {
-    public const int MinPasswordLength = 8; // the same floor as POST /api/v1/users
+    /// <summary>The demo floor; a real install asks for more (Security/PasswordPolicy).</summary>
+    public const int MinPasswordLength = PasswordPolicy.DemoMinLength;
 
     public static void MapMyAccountEndpoints(this IEndpointRouteBuilder app)
     {
-        // one limiter per app instance (a test host = its own counters)
-        var limiter = new PasswordAttemptLimiter();
-
-        app.MapGet("/api/auth/me/account", async (ClaimsPrincipal me, AppDbContext db) =>
+        app.MapGet("/api/auth/me/account", async (ClaimsPrincipal me, AppDbContext db, SecurityOptions security) =>
         {
             var profile = await OwnProfileAsync(db, me);
             if (profile?.User is not AppUser user)
                 return Results.Json(new { detail = "No account is attached to this sign-in." }, statusCode: 404);
-            return Results.Ok(await PayloadAsync(db, me, profile, user));
+            return Results.Ok(await PayloadAsync(db, me, profile, user, security));
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         app.MapMethods("/api/auth/me/account", new[] { "PATCH" },
-            async (JsonElement body, ClaimsPrincipal me, AppDbContext db) =>
+            async (JsonElement body, ClaimsPrincipal me, AppDbContext db, SecurityOptions security) =>
         {
             if (ApiKeyAuth.IsApiKey(me)) return SessionOnly();
             var profile = await OwnProfileAsync(db, me);
@@ -94,11 +92,15 @@ public static class MyAccountEndpoints
                     $"fields: {string.Join(", ", changed)}", userId: user.Id);
                 await db.SaveChangesAsync();
             }
-            return Results.Ok(await PayloadAsync(db, me, profile, user));
+            return Results.Ok(await PayloadAsync(db, me, profile, user, security));
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
+        // Wrong current passwords are throttled like sign-ins (per username AND per client IP,
+        // Security/LoginThrottle); the new one must meet the password policy. This is also the
+        // forced change of a seeded password: success lifts this session's restriction.
         app.MapPost("/api/auth/me/password",
-            async (JsonElement body, ClaimsPrincipal me, HttpContext ctx, AppDbContext db) =>
+            async (JsonElement body, ClaimsPrincipal me, HttpContext ctx, AppDbContext db,
+                LoginThrottle throttle, SecurityOptions security) =>
         {
             if (ApiKeyAuth.IsApiKey(me)) return SessionOnly();
             var profile = await OwnProfileAsync(db, me);
@@ -107,34 +109,38 @@ public static class MyAccountEndpoints
 
             var current = Str(body, "current_password");
             var next = Str(body, "new_password");
-            var key = user.Id.ToString();
-            if (!limiter.Allowed(key, DateTime.UtcNow, out var retry))
-            {
-                ctx.Response.Headers.RetryAfter = retry.ToString();
-                return Results.Json(new
-                {
-                    detail = $"Too many wrong passwords. Try again in {Math.Max(1, (retry + 59) / 60)} min.",
-                    retry_after = retry,
-                }, statusCode: 429);
-            }
+            var ip = ClientIp.Of(ctx);
+            if (await throttle.LockedForAsync(db, user.Id, user.Username, ip) is { } locked)
+                return LoginThrottle.Refusal(ctx, locked);
             if (current.Length == 0) return Bad("Enter your current password.", "current_password");
             if (!DjangoPasswordHasher.Verify(current, user.Password))
             {
-                limiter.Fail(key, DateTime.UtcNow);
                 AuditTrail.Write(db, "user.password_change_failed", user.Username, "wrong current password",
                     userId: user.Id);
+                var started = throttle.Fail(user.Username, ip);
+                if (started.Count > 0) LoginThrottle.Report(db, started, "password checks", profile.TenantId);
                 return Bad("Your current password is wrong.", "current_password");
             }
-            if (next.Length < MinPasswordLength)
-                return Bad($"The new password must be at least {MinPasswordLength} characters.", "new_password");
+            if (PasswordPolicy.Check(next, user.Username, security) is { } weak)
+                return PasswordPolicy.Refusal(weak, "new_password");
             if (next == current)
-                return Bad("The new password must be different from the current one.", "new_password");
+                return Results.Json(new
+                {
+                    detail = "The new password must be different from the current one.", field = "new_password",
+                    code = "password_unchanged",
+                }, statusCode: 400);
 
-            limiter.Reset(key);
+            throttle.Succeed(user.Username);
             user.Password = DjangoPasswordHasher.Hash(next);
-            var signedOut = await RevokeOthersAsync(db, profile, CurrentToken(ctx));
+            var token = CurrentToken(ctx);
+            var signedOut = await RevokeOthersAsync(db, profile, token);
+            // a session held to "change your password first" is a normal one now
+            var cleared = token.Length > 0 && await db.AuthTokens
+                .Where(t => t.Token == token && t.Restriction != "")
+                .ExecuteUpdateAsync(s => s.SetProperty(t => t.Restriction, "")) > 0;
             AuditTrail.Add(db, "user.password_changed", user.Username,
-                $"other sessions signed out: {signedOut}", userId: user.Id);
+                $"other sessions signed out: {signedOut}" + (cleared ? "; the initial password was replaced" : ""),
+                userId: user.Id);
             await db.SaveChangesAsync();
             return Results.Ok(new { ok = true, signed_out = signedOut });
         }).RequireAuthorization(AuthPolicies.Authenticated);
@@ -167,7 +173,8 @@ public static class MyAccountEndpoints
         return await db.Profiles.Include(p => p.User).FirstOrDefaultAsync(p => p.Id == pid);
     }
 
-    private static async Task<object> PayloadAsync(AppDbContext db, ClaimsPrincipal me, Profile profile, AppUser user)
+    private static async Task<object> PayloadAsync(AppDbContext db, ClaimsPrincipal me, Profile profile, AppUser user,
+        SecurityOptions security)
     {
         List<object> entities;
         try
@@ -189,6 +196,9 @@ public static class MyAccountEndpoints
             last_login = user.LastLogin is DateTime d ? DateTime.SpecifyKind(d, DateTimeKind.Utc) : (DateTime?)null,
             active_sessions = await SessionCountAsync(db, profile),
             auth_source = ApiKeyAuth.IsApiKey(me) ? "api" : "session",
+            // the floor the next password must meet (the form checks it before sending)
+            password_min_length = security.RealInstall ? security.PasswordMinLength : PasswordPolicy.DemoMinLength,
+            password_policy = security.RealInstall ? "strict" : "demo",
         };
     }
 
@@ -235,37 +245,4 @@ public static class MyAccountEndpoints
     private static IResult SessionOnly() =>
         Results.Json(new { detail = "Sign in to the dashboard to change your own account — API keys can't." },
             statusCode: 403);
-}
-
-/// <summary>
-/// Wrong current passwords on <c>POST /api/auth/me/password</c>: at most
-/// <see cref="Limit"/> per <see cref="Window"/> per user, then 429 until the
-/// oldest one ages out. A correct change clears the count.
-/// </summary>
-public sealed class PasswordAttemptLimiter
-{
-    public const int Limit = 5;
-    public static readonly TimeSpan Window = TimeSpan.FromMinutes(15);
-    private readonly ConcurrentDictionary<string, Queue<DateTime>> _fails = new();
-
-    public bool Allowed(string key, DateTime nowUtc, out int retryAfterSeconds)
-    {
-        retryAfterSeconds = 0;
-        if (!_fails.TryGetValue(key, out var q)) return true;
-        lock (q)
-        {
-            while (q.Count > 0 && nowUtc - q.Peek() >= Window) q.Dequeue();
-            if (q.Count < Limit) return true;
-            retryAfterSeconds = Math.Max(1, (int)Math.Ceiling((q.Peek() + Window - nowUtc).TotalSeconds));
-            return false;
-        }
-    }
-
-    public void Fail(string key, DateTime nowUtc)
-    {
-        var q = _fails.GetOrAdd(key, _ => new Queue<DateTime>());
-        lock (q) q.Enqueue(nowUtc);
-    }
-
-    public void Reset(string key) => _fails.TryRemove(key, out _);
 }

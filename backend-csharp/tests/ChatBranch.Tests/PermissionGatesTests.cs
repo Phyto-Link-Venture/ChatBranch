@@ -207,6 +207,7 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/auth/notification-prefs", new[] { "notifications.manage" }),
         ("/api/settings/ai-providers", new[] { "settings.ai_keys.manage" }),
         ("/api/settings?keys=quiet_start", new[] { "settings.raw.view" }),
+        ("/api/settings/security", new[] { "security.manage" }),
         // Test lab (testlab.run — superadmin only by default)
         ("/api/testlab/scenarios", new[] { "testlab.run" }),
         ("/api/testlab/status", new[] { "testlab.run" }),
@@ -222,7 +223,7 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         "/api/notifications", "/api/notifications/preferences", "/api/views?scope=chats",
         "/api/settings/appearance", "/api/v1/entities", "/api/live", "/api/search?q=gate",
         "/api/developers/keys", "/api/integrations/mine", "/api/integrations/accounts",
-        "/api/assistant/conversations", "/api/auth/me/account",
+        "/api/assistant/conversations", "/api/auth/me/account", "/api/auth/me/2fa",
     };
 
     private string Url(string template) =>
@@ -297,7 +298,7 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
     private static readonly HashSet<string> AdminExcluded = new()
     {
         "rbac.manage", "app_keys.manage", "settings.ai_keys.manage", "billing.manage",
-        "settings.ai_hard_rules.manage", "settings.raw.manage", "testlab.run",
+        "settings.ai_hard_rules.manage", "settings.raw.manage", "testlab.run", "security.manage",
     };
 
     [Fact]
@@ -356,6 +357,7 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ["/api/assistant/conversations"] = "the caller's own Ask ChatBranch history (the dock is on every page; owner-only rows)",
         ["/api/assistant/conversations/{id:int}"] = "one of the caller's own Ask ChatBranch conversations (someone else's answers 404)",
         ["/api/auth/me/account"] = "Settings → My account: the caller's own name, email, role, entities and session count",
+        ["/api/auth/me/2fa"] = "Settings → My account: the caller's own two-step sign-in status (never a secret)",
     };
 
     /// <summary>Gated, but inside the handler (no filter metadata) — each must also be in

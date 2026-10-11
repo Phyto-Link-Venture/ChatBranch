@@ -49,6 +49,10 @@ export const settings = {
         lbl: 'AI billing',
         blurb: 'Markup, monthly fee and currency for each company’s AI bill.',
       },
+      security: {
+        lbl: 'Security',
+        blurb: 'Two-step sign-in for your organization, and the protections that are always on.',
+      },
       appkeys: {
         lbl: 'App & provider keys',
         blurb: 'The webhook verify token and the integration provider credentials.',
@@ -437,5 +441,29 @@ export const settings = {
       testFail: 'It didn’t work: {error}',
       remove: 'Remove key',
     },
+  },
+  security: {
+    policyTitle: 'Two-step sign-in',
+    policyIntro:
+      'Ask for a code from an authenticator app at every sign-in. People who must use it and haven’t set it up are taken to the setup screen before anything else.',
+    policyLabel: 'Who must use two-step sign-in',
+    policy: {
+      off: 'Nobody has to (anyone may turn it on in My account)',
+      admins: 'Admins and super admins',
+      everyone: 'Everyone',
+    },
+    usersEnrolled: '{n} of {total} people use it',
+    adminsEnrolled: '{n} of {total} admins use it',
+    save: 'Save',
+    saved: 'Saved.',
+    selfNote: 'If you haven’t set it up yourself yet, you’ll be asked to right after saving.',
+    protectionsTitle: 'Always on',
+    protectionsIntro: 'Set by whoever runs the server, with environment variables (docs/security.md).',
+    lockout: 'A username is locked for {minutes} min after {count} wrong passwords or codes; a network address after {ip} (except for people who have signed in from it before).',
+    rateLimitOn: 'Request rate limits are on — stricter for sign-in, the website widget and public links.',
+    rateLimitOff: 'Request rate limits are off on this server (RATE_LIMIT=0).',
+    passwordRule: 'New passwords need at least {min} characters, can’t be the username and can’t be a well-known password.',
+    demoMode: 'Demo mode (SEED_DEMO): the demo logins keep their passwords and the shorter password rule applies.',
+    loadFailed: 'The security settings are unavailable.',
   },
 } as const

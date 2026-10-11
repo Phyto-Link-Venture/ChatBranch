@@ -248,7 +248,7 @@ export const TOURS: TourDef[] = [
     href: '/settings/account',
     group: 'start',
     match: exact('/settings/account'),
-    steps: steps('settings-page-header', 'account-profile', 'account-password', 'account-sessions'),
+    steps: steps('settings-page-header', 'account-profile', 'account-password', 'account-2fa', 'account-sessions'),
   },
   {
     id: 'connections',

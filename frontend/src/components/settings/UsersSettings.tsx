@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Building2, KeyRound, Loader2, ShieldAlert, UserCheck, UserPlus, UserX } from 'lucide-react'
+import { Building2, KeyRound, Loader2, ShieldAlert, ShieldCheck, ShieldOff, UserCheck, UserPlus, UserX } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Select, type SelectOption } from '@/components/ui/Select'
@@ -41,6 +41,19 @@ interface ManagedUser {
    *  integrations connected against their own record. null/absent = unbound. */
   contact_id?: number | null
   contact_name?: string | null
+  /** Two-step sign-in is on — a users.manage holder may reset it (a lost phone). */
+  two_factor?: boolean
+}
+
+/** A v1 refusal; `reason` is the password policy's stable code (translated by the page). */
+class V1Error extends Error {
+  constructor(
+    message: string,
+    public reason?: string,
+    public min?: number,
+  ) {
+    super(message)
+  }
 }
 
 /** /api/auth/roles row — the pool the role selectors choose from. */
@@ -71,8 +84,8 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const data = await res.json().catch(() => ({}))
   if (expireSessionOn401(res)) throw new Error('Session expired — redirecting to login…')
   if (!res.ok) {
-    const d = data as { error?: { message?: string }; detail?: string }
-    throw new Error(d.error?.message || d.detail || `HTTP ${res.status}`)
+    const d = data as { error?: { message?: string; reason?: string; min?: number }; detail?: string }
+    throw new V1Error(d.error?.message || d.detail || `HTTP ${res.status}`, d.error?.reason, d.error?.min)
   }
   return data as T
 }
@@ -272,10 +285,29 @@ export function UsersSettings() {
       await refresh()
       if (okText) setMsg({ ok: true, text: okText })
     } catch (e) {
-      setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
+      setMsg({ ok: false, text: e instanceof V1Error && e.reason ? passwordReason(e) : e instanceof Error ? e.message : String(e) })
     } finally {
       setBusy(false)
     }
+  }
+
+  /** A refused new password, in the reader's language (the server's policy code). */
+  const passwordReason = (e: V1Error): string => {
+    switch (e.reason) {
+      case 'password_too_short':
+        return t('admin.users.passwordTooShortMin', { min: e.min ?? 8 })
+      case 'password_common':
+        return t('admin.users.passwordCommon')
+      case 'password_is_username':
+        return t('admin.users.passwordIsUsername')
+      default:
+        return e.message
+    }
+  }
+
+  const resetTwoFactor = (u: ManagedUser) => {
+    if (!window.confirm(t('admin.users.confirmResetTwoFactor', { user: u.username }))) return
+    run(() => api(`users/${u.id}/2fa/reset`, { method: 'POST' }), t('admin.users.twoFactorReset', { user: u.username }))
   }
 
   const isSuper = myRole === 'superadmin'
@@ -416,6 +448,11 @@ export function UsersSettings() {
             {u.company_admin && (
               <span className="rounded-full bg-brand-400/10 px-1.5 py-px text-[10.5px] font-semibold text-[color:var(--brand-ink)]">
                 {t('admin.users.companyAdmin')}
+              </span>
+            )}
+            {u.two_factor && (
+              <span title={t('admin.users.twoFactorOn')} className="text-[color:var(--green-ink)]">
+                <ShieldCheck size={13} aria-label={t('admin.users.twoFactorOn')} />
               </span>
             )}
           </div>
@@ -572,6 +609,17 @@ export function UsersSettings() {
               >
                 <KeyRound size={14} aria-hidden />
               </button>
+              {u.two_factor && u.username !== me && (
+                <button
+                  disabled={busy}
+                  onClick={() => resetTwoFactor(u)}
+                  title={t('admin.users.resetTwoFactor')}
+                  aria-label={t('admin.users.resetTwoFactorFor', { user: u.username })}
+                  className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:opacity-50"
+                >
+                  <ShieldOff size={14} aria-hidden />
+                </button>
+              )}
               <button
                 disabled={busy}
                 onClick={() => toggleActive(u)}

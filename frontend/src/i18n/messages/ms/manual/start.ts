@@ -318,7 +318,7 @@ export const start: Dict<typeof source> = {
       },
       s4: {
         title: 'Pilih kata laluan baharu',
-        body: 'Taip kata laluan baharu dalam “Kata laluan baharu” dan sekali lagi dalam “Sahkan kata laluan baharu”. Ia memerlukan sekurang-kurangnya 8 aksara; petunjuk kekuatan di bawahnya menunjukkan kekuatannya. Klik ikon mata untuk menyemak apa yang ditaip.',
+        body: 'Taip kata laluan baharu dalam “Kata laluan baharu” dan sekali lagi dalam “Sahkan kata laluan baharu”. Ia memerlukan sekurang-kurangnya 10 aksara (8 pada demo), dan tidak boleh nama pengguna anda atau kata laluan yang terkenal; petunjuk kekuatan di bawahnya menunjukkan kekuatannya. Klik ikon mata untuk menyemak apa yang ditaip.',
       },
       s5: {
         title: 'Klik “Tukar kata laluan”',
@@ -379,5 +379,42 @@ export const start: Dict<typeof source> = {
     },
     trouble:
       'Halaman mengatakan log masuk Google belum disediakan untuk ruang kerja ini: pentadbir super perlu mendaftarkan klien Google di Tetapan → Kunci aplikasi & penyedia. “Log masuk Google dibatalkan — tiada apa yang disambungkan.”: klik “Sambung” sekali lagi dan benarkan akses. Baris menunjukkan “Perlu disambung semula”: Google menarik balik akses (contohnya selepas kata laluan ditukar) — klik “Sambung semula”.',
+  },
+  twoStepSignIn: {
+    title: 'Hidupkan log masuk dua langkah',
+    summary: 'Lindungi akaun anda dengan kod daripada aplikasi pengesah di telefon anda, supaya kata laluan yang dicuri sahaja tidak boleh masuk.',
+    before: 'Pasang aplikasi pengesah di telefon anda — Google Authenticator, Microsoft Authenticator, 1Password atau mana-mana yang lain.',
+    steps: {
+      s1: {
+        title: 'Buka Tetapan → Akaun saya',
+        body: 'Klik nama anda di bahagian bawah bar sisi, kemudian cari kad “Log masuk dua langkah”.',
+      },
+      s2: {
+        title: 'Klik “Sediakan log masuk dua langkah”',
+        body: 'Kod QR dipaparkan, dengan satu kunci di sebelahnya.',
+      },
+      s3: {
+        title: 'Imbas kod QR',
+        body: 'Dalam aplikasi pengesah anda, tambah akaun dan imbas kod tersebut. Tidak dapat mengimbas? Pilih untuk menaip kunci dan salin kunci yang dipaparkan di sebelah kod QR.',
+      },
+      s4: {
+        title: 'Masukkan kod 6 digit',
+        body: 'Taip kod yang ditunjukkan aplikasi di bawah “2. Masukkan kod 6 digit yang ditunjukkan aplikasi” dan klik “Hidupkan”.',
+      },
+      s5: {
+        title: 'Simpan kod pemulihan anda',
+        body: 'Sepuluh kod pemulihan dipaparkan — setiap satu membolehkan anda log masuk sekali jika telefon hilang. Klik “Muat turun” atau “Salin semua”, simpan di tempat selamat, kemudian klik “Saya sudah menyimpannya”.',
+      },
+      s6: {
+        title: 'Log masuk dengan kod mulai sekarang',
+        body: 'Kali seterusnya anda log masuk, ChatBranch meminta kata laluan dan kemudian kod yang ditunjukkan aplikasi. Tiada telefon? Klik “Telefon hilang? Gunakan kod pemulihan”.',
+      },
+    },
+    done: 'Kad itu menunjukkan “Hidup”, bersama bilangan kod pemulihan yang berbaki.',
+    tips: {
+      t1: 'Telefon baharu? Klik “Pindah ke telefon baharu”, taip kata laluan anda dan imbas kod QR baharu — telefon lama berhenti berfungsi sebaik sahaja anda mengesahkan.',
+      t2: 'Hampir habis kod pemulihan? Klik “Kod pemulihan baharu” — kod lama tidak lagi berfungsi.',
+    },
+    trouble: '“Kod itu tidak betul”: pastikan telefon anda menetapkan jam secara automatik dan taip kod terbaharu (setiap kod hanya berfungsi sekali). Terkunci tanpa telefon atau kod pemulihan: minta pentadbir menetapkan semula log masuk dua langkah anda di halaman Pengguna.',
   },
 }

@@ -245,7 +245,9 @@ public class IntegrationActions
             }
             catch { return Fail("Google Sheets: the row is not a list of values."); }
         }
-        var values = new[] { cells };
+        // USER_ENTERED parses what it gets: a customer-supplied "=IMPORTXML(…)" / "=HYPERLINK(…)" would
+        // run as a formula in the business's sheet — every text cell is stored as text instead
+        var values = new[] { cells.Select(c => (object?)SheetCell(c?.ToString() ?? "")).ToArray() };
         var (ok, payload) = await SendAsync(HttpMethod.Post,
             $"https://sheets.googleapis.com/v4/spreadsheets/{sheetId}/values/"
             + $"{Uri.EscapeDataString(range)}:append?valueInputOption=USER_ENTERED",
@@ -262,9 +264,11 @@ public class IntegrationActions
     {
         var token = await _oauth.AccessTokenAsync(row, ct);
         if (token.Length == 0) return Skip("Gmail is not connected — step skipped.");
-        var to = Pick(cfg, "to", contact?.Email ?? "", "");
+        // header values never carry a line break (no injected Bcc: / extra headers)
+        static string OneLine(string s) => s.Replace("\r", " ").Replace("\n", " ");
+        var to = OneLine(Pick(cfg, "to", contact?.Email ?? "", "")).Trim();
         if (to.Length == 0) return Skip("No recipient email for this contact — Gmail step skipped.");
-        var subject = Trim(Pick(cfg, "subject", "", "A message from us"), 200);
+        var subject = OneLine(Trim(Pick(cfg, "subject", "", "A message from us"), 200));
         var raw = $"To: {to}\r\nSubject: {subject}\r\n"
                   + $"Content-Type: text/plain; charset=UTF-8\r\n\r\n{text ?? ""}";
         var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(raw))
@@ -440,4 +444,23 @@ public class IntegrationActions
 
     private static string Trim(string? s, int max) =>
         string.IsNullOrEmpty(s) ? "" : (s.Length <= max ? s : s[..max]);
+
+    /// <summary>
+    /// A spreadsheet cell that can't become a formula (CSV / formula injection): text starting
+    /// with = + - @ (or a tab / carriage return) gets Sheets' leading apostrophe, which shows the
+    /// text as typed. A plain number ("12", "-5.5") stays a number; "+6012…" phones stay text.
+    /// </summary>
+    public static string SheetCell(string value)
+    {
+        if (value.Length == 0) return value;
+        var first = value[0];
+        if (first is '=' or '+' or '-' or '@' or '\t' or '\r')
+        {
+            if (first == '-' && decimal.TryParse(value, System.Globalization.NumberStyles.Number,
+                    System.Globalization.CultureInfo.InvariantCulture, out _))
+                return value;
+            return "'" + value;
+        }
+        return value;
+    }
 }

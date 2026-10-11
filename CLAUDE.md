@@ -362,6 +362,46 @@ When you fix one of these, update this table, `README.md` and
   route-table walk fails on any new GET that is neither gated nor listed. A new
   GET = its gate + a row in `PermissionGatesTests.Gates` + a row in the Read
   gates table of `docs/RBAC_AND_BRANDS.md`, which holds the full gate table.
+- **Security** (`Api/Security/`, guide `docs/security.md` — every knob, the
+  incident checklist). All knobs in ONE singleton, `SecurityOptions` (from config /
+  env; tests swap it as a service — `SecurityFactory` / `RealInstallFactory` /
+  `RateLimitedFactory` in `tests/SecurityFactory.cs`, which also give each request a
+  client IP via `X-Test-Peer`). Pipeline order in `Program.cs`: `UseTrustedProxies`
+  (FIRST — `X-Forwarded-For/-Proto` believed only from `TRUSTED_PROXIES`, default
+  loopback + private ranges; read the client IP with `ClientIp.Of(ctx)`, never the
+  header) → `UseSecurityHeaders` (nosniff / no-referrer / noindex everywhere, a
+  `default-src 'none'` CSP + DENY on data, a sandbox CSP on HTML/SVG, HSTS on https,
+  no `Server`) → CORS → `UseApiKeyGate` → auth → `UseRateLimiter` (`RateLimiting.Classify`:
+  login / widget / public-link / media / oauth per IP, signed-in per session, webhooks
+  exempt; 429 `{detail, code: "rate_limited"}`; `RATE_LIMIT=0` off) →
+  `UseSessionGate`. **`LoginThrottle`** (singleton, in memory) is the ONE place
+  failed passwords / codes / API keys are counted — per username AND per IP, a lock
+  answers 429 `too_many_attempts` before the password is checked (an IP lock spares
+  people with a `login` from that address in the last 30 days — `LockedForAsync`),
+  `Report` audits `login.locked` + one collapsing admin alert; a new password or code
+  check must `LockedForAsync` → `Fail` / `Succeed` through it. **Two-step sign-in** = `TwoFactorService`
+  (`crm_usertwofactor`; TOTP secrets under ASP.NET Data Protection, keys in
+  `<data dir>/keys`; hashed recovery codes; a 5-minute signed login challenge →
+  `POST /api/auth/login/2fa`, anonymous) + `Endpoints/TwoFactorEndpoints.cs`
+  (`/api/auth/me/2fa*` session-only, `/api/settings/security` = the `require_2fa`
+  policy, capability `security.manage`, superadmin-only, org-level) + the admin reset
+  `POST /api/v1/users/{id}/2fa/reset`. **Restricted sessions**: `AuthToken.Restriction`
+  `change_password` (a seeded password on a real install — `DefaultCredentials`) or
+  the derived `enroll_2fa` → `SessionGate` answers 403 `account_setup_required`
+  except its allowlist (whoami, logout, own account / password / 2FA setup, the
+  shell's appearance reads); whoami + the login answer carry `restriction`; the
+  dashboard's `/account-setup` (rendered bare by the Shell) handles both. New
+  passwords go through `PasswordPolicy.Check` (≥ 10 on a real install, not the
+  username, not common; 8 on a demo). AI: `PromptGuard.Rules` ends every
+  customer-facing prompt (not editable), customer text in a system prompt goes
+  through `PromptGuard.Inline`, side-effect tools are capped per conversation by
+  `AiActionCaps` (`AI_CAP_*`), Sheets cells through `IntegrationActions.SheetCell`.
+  Dashboard headers + CSP live in `next.config.js headers()` (verify a change in a
+  real browser: zero CSP violations), `app/robots.ts`. CI: the separate
+  **Security** workflow (`.github/workflows/security.yml` — NuGet + npm audit via
+  `scripts/npm-audit-gate.mjs` and `.github/security/npm-audit-allowlist.json`,
+  gitleaks with `.gitleaks.toml` / `.gitleaksignore`). Tests: `SignInSecurityTests`,
+  `TwoFactorTests`, `DefaultCredentialsTests`, `RateLimitTests`, `AiAbuseTests`.
 - **Voice: the API is the control plane, the agent is a file-IPC sidecar.**
   `POST /api/calls/dial` and WhatsApp `call/start` build the dispatch metadata
   in `Sidecars/VoiceDispatch.cs` (contact, primary record, memory, knowledge,
@@ -2055,7 +2095,8 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   `AI_FOLLOWUP_WORKER=0`, `HEALTH_WORKER=0`, `EMBEDDING_WORKER=0`,
   `IDENTITY_CHECK_WORKER=0`, `AI_TASK_WORKER=0` (drains, probes, indexing, lookups and AI task runs are driven
   explicitly — no timing races),
-  `AI_HUMANIZE=0` (sandbox answers inline), `LLM_PRICE_SYNC=0`, `PASSWORD_HASH_ITERATIONS=1000` (fast
+  `AI_HUMANIZE=0` (sandbox answers inline), `LLM_PRICE_SYNC=0`, `RATE_LIMIT=0` (no request rate
+  limits — `RateLimitTests` turns them on for its own host), `PASSWORD_HASH_ITERATIONS=1000` (fast
   hashes for the seeded logins — 600 000 rounds per sign-in saturated a 2-vCPU
   runner; production keeps Django's default), `SEED_DEMO=1` (the suite signs in as
   admin/agent), a throwaway `CHATBRANCH_DATA_DIR` and SQLite file (removed with its `-wal`/`-shm`

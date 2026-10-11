@@ -8,6 +8,9 @@
     <PackageReference Include="Jint" Version="4.1.0" />
     <PackageReference Include="MailKit" Version="4.17.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.11" />
+    <!-- the native SQLite EF Core 8.0.11 brings (2.1.6) has a High advisory (GHSA-2m69-gcr7-jv3q):
+         pin the patched 2.1.x line. The Security workflow fails on any High / Critical package. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.13" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
     <PackageReference Include="PdfPig" Version="0.1.11" />

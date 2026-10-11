@@ -213,15 +213,16 @@ The permission matrix is data (`crm_rolepermission`, edited at `/permissions`,
 | `api_keys.manage` | Admin — API keys & MCP (also the external MCP servers) | admin |
 | `rbac.manage` | Admin — the permission matrix | **superadmin only** |
 | `testlab.run` | Review — the Test lab (a run drives the shared queue / flow / monitor ticks) | **superadmin only** |
+| `security.manage` | Settings — sign-in security: the organization's two-step sign-in policy (`GET/PUT /api/settings/security`, `require_2fa` off · admins · everyone — [security.md](security.md)) | **superadmin only** |
 
-(41 capabilities. The service-provider capabilities and the `provider` role are
+(42 capabilities. The service-provider capabilities and the `provider` role are
 gone with Service Providers — see [DOMAIN_MODEL.md](DOMAIN_MODEL.md).)
 
 **Organization-level capabilities** (`Auth/CompanyAdminScope.OrgLevelCapabilities`):
 `rbac.manage`, `app_keys.manage`, `settings.ai_keys.manage`, `billing.manage`,
 `notifications.manage`, `settings.appearance.org`, `settings.custom_fields.manage`,
 `pronunciation.manage`, `settings.ai_hard_rules.manage`, `settings.raw.manage`,
-`testlab.run` — dropped in every check for anyone BOUND to entities (a company
+`testlab.run`, `security.manage` — dropped in every check for anyone BOUND to entities (a company
 admin, an agent or a custom role with assigned entities), whatever the matrix says.
 
 ### How endpoints enforce it
@@ -276,7 +277,9 @@ refused; an organization-wide one follows `OrgWideAction`). Notable gates:
 | Knowledge base and AI skills writes (`/api/aicore/knowledge*`, `PUT /api/aicore/skills`, skill draft/test) | `settings.ai.manage` |
 | Integrations — read (`GET /api/integrations`, `/providers`, `/accounts`, `/settings`) | `integrations.view` (settings also `app_keys.manage`); without it a person still lists **their own** connections |
 | Integrations — add / delete / shared connect (`POST/DELETE /api/integrations/accounts*` — `entity` = that entity and its branches, none = the whole organization —, `GET /api/integrations/oauth/{provider}/start?for=shared[&entity=slug]`, `POST /api/integrations/{provider}/connect`) | `integrations.manage` (`{provider}/connect` also `app_keys.manage`); someone bound to entities only for their own entities; an unknown entity is a 404 |
-| Your own account — Settings → My account (`GET/PATCH /api/auth/me/account`, `POST /api/auth/me/password`, `POST /api/auth/me/sessions/revoke-others`) | any signed-in user, always THEMSELVES (no id in the route — another user's account is unreachable); the writes are session-only (an API key → 403); wrong current passwords: 5 per 15 min → 429 |
+| Your own account — Settings → My account (`GET/PATCH /api/auth/me/account`, `POST /api/auth/me/password`, `POST /api/auth/me/sessions/revoke-others`) | any signed-in user, always THEMSELVES (no id in the route — another user's account is unreachable); the writes are session-only (an API key → 403); wrong current passwords count toward the sign-in lock (5 per username / 30 per IP in 15 min → 429, [security.md](security.md)) |
+| Your own two-step sign-in — Settings → My account (`GET /api/auth/me/2fa`, `POST …/2fa/setup`, `…/confirm`, `…/recovery-codes`, `…/disable`) | any signed-in user, always THEMSELVES; session-only (an API key → 403); turning it off needs the password + a code and is refused (409) while the organization requires it |
+| Reset someone's two-step sign-in (`POST /api/v1/users/{id}/2fa/reset`) | `users.manage` + the user-management tiers below; never your own; sessions only; audited `user.2fa_reset`, the target is signed out everywhere |
 | Integrations — connect / disconnect your **own** Google account (`GET /api/integrations/mine`, `GET /api/integrations/oauth/{provider}/start` — `?return=connections` brings the callback back to Settings → My connections —, `POST …/accounts/{id}/disconnect`) | any signed-in user for their own row, no capability; someone else's personal row is visible only with `integrations.manage` and no entity binding; a shared row needs `integrations.manage` (inside the caller's entities) |
 | Integrations — run an action (`POST /api/integrations/action`: mail, charge, book…) | `integrations.manage` OR `flows.manage`, and the contact must be in the caller's scope |
 | WhatsApp global settings incl. the verify token (`POST/PUT /api/whatsapp/settings`) | `app_keys.manage` |
@@ -449,6 +452,7 @@ Admins keep the tenant-wide view. Tests: `QaScopeFixesTests`.
 | `/api/auth/notification-prefs` | `notifications.manage` | Settings → Notification defaults |
 | `/api/settings/ai-providers` | `settings.ai_keys.manage` | Settings → AI keys & models |
 | `/api/settings?keys=` (raw key/value store, secrets masked; a bound person who is not a company admin is refused) | `settings.raw.view` | no page — API callers |
+| `/api/settings/security` (the two-step sign-in policy + enrollment counts; organization-level — a bound person is refused) | `security.manage` | Settings → Security |
 | `/api/auth/roles`, `/api/auth/permissions` | `users.view`, `users.manage`, `rbac.manage` | Permissions, Users |
 | `/api/auth/audit` (the legacy Users-page feed) | `users.view`, `users.manage` | API callers |
 | `/api/testlab/scenarios`, `/status`, `/runs`, `/runs/{id}` | `testlab.run` | Test lab |
@@ -472,7 +476,8 @@ token, no data), `/api/developers/keys` (own keys; `?scope=tenant` needs
 (own connections without `integrations.view`),
 `/api/integrations/oauth/{provider}/start` (connect your own Google account),
 `/api/assistant/conversations[/{id}]` (your own Ask ChatBranch history),
-`/api/auth/me/account` (your own name, email, role, entities and session count).
+`/api/auth/me/account` (your own name, email, role, entities and session count),
+`/api/auth/me/2fa` (your own two-step sign-in status — never a secret).
 The anonymous GETs are the documented list in `API_CONVENTIONS.md`.
 
 ## API keys and scopes
@@ -510,7 +515,11 @@ superadmin or an organization-wide admin, nobody changes their own entity access
 (`/api/bindings` user kinds), and an AI quota setter below admin caps agent-level
 users only (and never their own cap).
 
-Other rules: passwords ≥ 8 characters; `entity_ids` (create and update) applies
+Other rules: new passwords meet the password policy — on a real install (no
+`SEED_DEMO`) ≥ 10 characters (`PASSWORD_MIN_LENGTH`), not the username, not a
+common password; on a demo ≥ 8 (`Security/PasswordPolicy`, the refusal carries
+`error.reason`); a `users.manage` holder may reset someone's two-step sign-in
+(`POST /api/v1/users/{id}/2fa/reset`, same tiers, never their own); `entity_ids` (create and update) applies
 to agent-level users — agents AND custom roles — and to admins (= company
 admins; never superadmins), and must sit in one tenant,
 bounded by the creator's scope (their tenant; a custom-role manager who is
@@ -531,7 +540,10 @@ user's sessions. UI: `/users` (Users & roles), `/teams`, `/entities`,
 
 All in the `demo` tenant with one `main` entity. **POC credentials committed to
 a public template — set `SUPERADMIN_PASSWORD`, leave `SEED_DEMO` unset in
-production, and rotate anything that was ever seeded.**
+production, and rotate anything that was ever seeded.** On a real install (no
+`SEED_DEMO`) a sign-in with one of these seeded passwords works but the session
+reaches nothing except the password change (`must_change_password`,
+`Security/SessionGate`) — unless it is the operator's own `SUPERADMIN_PASSWORD`.
 
 ## Limits you should know about
 

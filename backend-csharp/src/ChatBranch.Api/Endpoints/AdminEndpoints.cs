@@ -80,6 +80,8 @@ public static class AdminEndpoints
         ("settings.raw.view", "Settings", "Read raw settings (API)"),
         ("settings.raw.manage", "Settings", "Write any raw setting (API)"),
         ("testlab.run", "Review", "Run the Test lab"),
+        // Settings → Security: the organization's two-step sign-in policy (require_2fa)
+        ("security.manage", "Settings", "Manage sign-in security"),
     };
 
     private static readonly string[] CapabilityIds =
@@ -103,7 +105,7 @@ public static class AdminEndpoints
     private static readonly HashSet<string> AdminExclude = new()
     {
         "rbac.manage", "app_keys.manage", "settings.ai_keys.manage", "billing.manage", "settings.ai_hard_rules.manage",
-        "settings.raw.manage", "testlab.run",
+        "settings.raw.manage", "testlab.run", "security.manage",
     };
 
     /// agent's read-mostly work surface.
@@ -485,7 +487,10 @@ public static class AdminEndpoints
                             && u.Profile.Entities.All(e => bound.Contains(e.Id))));
             }
             var rows = await q.OrderBy(u => u.Username).ToListAsync();
-            return Results.Ok(new { users = rows.Select(ManagedUserPayload) });
+            var ids = rows.Select(u => u.Id).ToList();
+            var enrolled = (await db.UserTwoFactors.AsNoTracking().Where(t => t.Enabled && ids.Contains(t.UserId))
+                .Select(t => t.UserId).ToListAsync()).ToHashSet();
+            return Results.Ok(new { users = rows.Select(u => ManagedUserPayload(u, enrolled.Contains(u.Id))) });
         }).RequireAuthorization(AuthPolicies.Authenticated);
     }
 
@@ -494,7 +499,7 @@ public static class AdminEndpoints
     /// crm/user_service.py managed_user_payload. `name` falls back to the
     /// username (auth_user's first_name isn't mapped in this port) and
     /// `created` is null for the same reason — the Users table shows neither.
-    internal static object ManagedUserPayload(AppUser u) => new
+    internal static object ManagedUserPayload(AppUser u, bool twoFactor = false) => new
     {
         id = u.Id,
         username = u.Username,
@@ -512,6 +517,8 @@ public static class AdminEndpoints
         // connected per registered user, against their own contact record).
         contact_id = u.Profile?.ContactId,
         contact_name = u.Profile?.Contact?.Name,
+        // two-step sign-in is on (the Users page offers "Reset two-step sign-in")
+        two_factor = twoFactor,
     };
 
     /// A Django superuser with no Profile row still counts as superadmin.

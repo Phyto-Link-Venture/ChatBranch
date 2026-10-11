@@ -12,7 +12,7 @@
  * connection to ~5 min; the loop here reconnects (and re-notifies, so
  * anything missed while offline is caught up).
  */
-import { authHeaders, expireSessionOn401 } from './auth'
+import { authHeaders, expireSessionOn401, hasAppSession } from './auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 const RETRY_MS = 4000
@@ -44,6 +44,12 @@ async function run() {
   running = true
   setStatus('reconnecting') // dialling
   while (listeners.size) {
+    if (!hasAppSession()) {
+      // signed out, or held on the account-setup screen: the API would refuse — look again later
+      setStatus('offline')
+      await new Promise((r) => setTimeout(r, RETRY_MS))
+      continue
+    }
     ctrl = new AbortController()
     try {
       const res = await fetch(`${API}/whatsapp/stream`, {
