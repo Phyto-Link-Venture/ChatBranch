@@ -70,8 +70,10 @@ public static class WidgetEndpoints
             // An existing session id is honoured only if it really exists —
             // otherwise a visitor could invent one and claim someone's thread.
             var session = (Str(body, "session") ?? "").Trim();
+            // …and only on THIS widget (a session never crosses to another widget / company)
             Thread? thread = session.Length > 0
-                ? await db.Threads.FirstOrDefaultAsync(t => t.Channel == Channels.Website && t.Key == session)
+                ? await db.Threads.FirstOrDefaultAsync(t => t.Channel == Channels.Website && t.Key == session
+                                                            && t.AccountId == account.Id)
                 : null;
 
             if (thread == null)
@@ -87,7 +89,7 @@ public static class WidgetEndpoints
                 // A visitor who gave an email becomes a real contact so the
                 // conversation is not orphaned the moment they close the tab.
                 if (email.Length > 0 || name.Length > 0)
-                    thread.ContactId = (await UpsertContactAsync(db, name, email))?.Id;
+                    thread.ContactId = (await UpsertContactAsync(db, sc, account, name, email))?.Id;
                 thread.UpdatedAt = DateTime.UtcNow;
                 await db.SaveChangesAsync();
             }
@@ -115,7 +117,7 @@ public static class WidgetEndpoints
                 return Results.Json(new { detail = "session and text are required." }, statusCode: 400);
 
             var thread = await db.Threads.FirstOrDefaultAsync(
-                t => t.Channel == Channels.Website && t.Key == session);
+                t => t.Channel == Channels.Website && t.Key == session && t.AccountId == account.Id);
             if (thread == null)
                 return Results.Json(new { detail = "This conversation has expired — reload the page." },
                                     statusCode: 404);
@@ -125,7 +127,7 @@ public static class WidgetEndpoints
 
             // Same post-inbound path as every other channel: flows resume, the
             // conversation routes to a team, automations run, the AI may reply.
-            try { engine.OnInboundMessage(Channels.Website, session, text); } catch { }
+            try { engine.OnInboundMessage(thread, text); } catch { }
             await TeamsEndpoints.AutoAssignAsync(db, thread);
             var firstInbound = db.Messages.Count(m => m.ThreadId == thread.Id
                                                       && m.Direction == MessageDirection.In) <= 1;
@@ -144,7 +146,7 @@ public static class WidgetEndpoints
             var account = await AccountAsync(db, token);
             if (account == null) return Results.NotFound(new { detail = "Unknown widget." });
             var thread = await db.Threads.FirstOrDefaultAsync(
-                t => t.Channel == Channels.Website && t.Key == (session ?? "").Trim());
+                t => t.Channel == Channels.Website && t.Key == (session ?? "").Trim() && t.AccountId == account.Id);
             if (thread == null) return Results.Ok(new { messages = Array.Empty<object>() });
 
             var msgs = store.GetMessages(thread, 50, null)
@@ -184,13 +186,19 @@ public static class WidgetEndpoints
     public static string NewWidgetToken() =>
         "wgt_" + Convert.ToHexString(RandomNumberGenerator.GetBytes(12)).ToLowerInvariant();
 
-    private static async Task<Contact?> UpsertContactAsync(AppDbContext db, string name, string email)
+    private static async Task<Contact?> UpsertContactAsync(AppDbContext db, ScopingService sc, ChannelAccount account,
+        string name, string email)
     {
         try
         {
+            // the widget's OWN company's contact with that email (else an organization-wide one) —
+            // a visitor typing an address never reaches another company's contact
             Contact? contact = null;
             if (email.Length > 0)
-                contact = await db.Contacts.FirstOrDefaultAsync(c => c.Email.ToLower() == email.ToLower());
+                contact = ChatBranch.Data.Contacts.ContactCompanies.MatchEmail(db, sc, email, account.EntityId);
+            if (contact != null && !ChatBranch.Data.Contacts.ContactCompanies.MayLink(db, sc, contact.Id,
+                    sc.CompanyOf(account.EntityId)))
+                contact = null;
             if (contact == null)
             {
                 contact = new Contact
@@ -204,6 +212,9 @@ public static class WidgetEndpoints
                     UpdatedAt = DateTime.UtcNow,
                 };
                 db.Contacts.Add(contact);
+                await db.SaveChangesAsync();
+                // filed under the widget's entity, so it belongs to that company
+                ChatBranch.Data.Contacts.ContactCompanies.LinkToEntity(db, contact.Id, account.EntityId);
                 await db.SaveChangesAsync();
             }
             return contact;

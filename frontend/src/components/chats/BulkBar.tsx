@@ -23,7 +23,7 @@ export default function BulkBar({
   onClear,
   onDone,
 }: {
-  /** picked rows as `channel:key` */
+  /** picked rows as `channel:key#thread_id` (rowRef) */
   selected: string[]
   /** how many conversations the current filter matches */
   total: number | null
@@ -48,9 +48,13 @@ export default function BulkBar({
     setBusy(action)
     setMsg(null)
     try {
+      // the picked conversations by id: channel + key can name one per company
+      const ids = selected.map((r) => Number(r.split('#')[1])).filter((n) => Number.isInteger(n) && n > 0)
       const target = allMatching
         ? { filter: paramsToFilter(new URLSearchParams(listParams)) }
-        : { threads: selected }
+        : ids.length === selected.length
+          ? { thread_ids: ids }
+          : { threads: selected.map((r) => r.split('#')[0]) }
       const r = await bulkThreads(target, action, value)
       const what =
         action === 'ai_on'

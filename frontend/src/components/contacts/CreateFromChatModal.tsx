@@ -14,7 +14,7 @@ import { Loader2, UserPlus } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { EntityPicker } from '@/components/ui/EntityPicker'
-import { cApi, errText, threadPath, type IdentifyState } from '@/lib/contactIdentity'
+import { cApi, errText, identifyPath, type IdentifyState } from '@/lib/contactIdentity'
 import { useT } from '@/i18n'
 
 const inputCls =
@@ -25,12 +25,15 @@ export function CreateFromChatModal({
   onClose,
   channel,
   threadKey,
+  threadId,
   onCreated,
 }: {
   open: boolean
   onClose: () => void
   channel: string
   threadKey: string
+  /** which company's conversation (a customer has one per company) */
+  threadId?: number | null
   onCreated: (contactId: number) => void
 }) {
   const t = useT()
@@ -48,7 +51,7 @@ export function CreateFromChatModal({
     setEntity(null)
     setLoading(true)
     let alive = true
-    cApi<IdentifyState>(`contacts/identify/${threadPath(channel, threadKey)}`)
+    cApi<IdentifyState>(identifyPath(channel, threadKey, threadId))
       .then((s) => {
         if (!alive) return
         setName(s.suggested.name)
@@ -66,7 +69,7 @@ export function CreateFromChatModal({
     return () => {
       alive = false
     }
-  }, [open, channel, threadKey])
+  }, [open, channel, threadKey, threadId])
 
   const save = async () => {
     if (!name.trim()) {
@@ -76,7 +79,7 @@ export function CreateFromChatModal({
     setBusy(true)
     setError(null)
     try {
-      const r = await cApi<{ contact_id: number }>(`contacts/identify/${threadPath(channel, threadKey)}/contact`, {
+      const r = await cApi<{ contact_id: number }>(identifyPath(channel, threadKey, threadId, '/contact'), {
         method: 'POST',
         body: JSON.stringify({ name: name.trim(), phone: phone.trim(), email: email.trim(), entity: entity ?? '' }),
       })
@@ -158,10 +161,12 @@ export function CreateFromChatModal({
 export function CreateFromChat({
   channel,
   threadKey,
+  threadId,
   onCreated,
 }: {
   channel: string
   threadKey: string
+  threadId?: number | null
   onCreated: (contactId: number) => void
 }) {
   const t = useT()
@@ -180,6 +185,7 @@ export function CreateFromChat({
         onClose={() => setOpen(false)}
         channel={channel}
         threadKey={threadKey}
+        threadId={threadId}
         onCreated={onCreated}
       />
     </>

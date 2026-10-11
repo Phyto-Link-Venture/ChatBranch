@@ -100,12 +100,19 @@ public static class MessageReactions
     /// something we never stored is dropped. Returns true when something changed. Saves.
     /// </summary>
     public static bool ApplyInbound(AppDbContext db, string channel, string threadKey, string targetExternalId,
-        string? emoji, string actor = ContactActor)
+        string? emoji, string actor = ContactActor, int? accountId = null)
     {
         if (string.IsNullOrWhiteSpace(targetExternalId)) return false;
         var e = Normalize(emoji);
         if (e == null) return false;
-        var thread = db.Threads.FirstOrDefault(t => t.Channel == channel && t.Key == threadKey);
+        // the conversation of the RECEIVING account's company (another company's chat with
+        // the same customer is never touched); without an account, the one holding the message
+        Thread? thread = null;
+        if (accountId is int aid)
+            thread = new Stores.ThreadStore(db, new ScopingService(db)).FindForAccount(channel, threadKey, aid);
+        thread ??= db.Messages.Where(m => m.ExternalId == targetExternalId && m.Thread!.Channel == channel
+                                          && m.Thread.Key == threadKey)
+            .OrderByDescending(m => m.Id).Select(m => m.Thread).FirstOrDefault();
         if (thread == null) return false;
         var msg = db.Messages.FirstOrDefault(m => m.ThreadId == thread.Id && m.ExternalId == targetExternalId);
         if (msg == null) return false;

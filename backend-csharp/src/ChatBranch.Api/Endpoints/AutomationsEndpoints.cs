@@ -155,16 +155,20 @@ public static class AutomationsEndpoints
         // "Would this rule have fired on that conversation?" — answered without
         // touching anything, so an operator can check a rule before enabling it.
         app.MapPost("/api/automations/{id:int}/test", async (int id, JsonElement body,
-            AppDbContext db, AutomationService automation) =>
+            AppDbContext db, AutomationService automation, ScopingService sc, ClaimsPrincipal me) =>
         {
             var row = await db.AutomationRules.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id);
             if (row == null) return Results.NotFound(new { detail = "Rule not found." });
             var channel = (Str(body, "channel") ?? "").Trim();
             var key = (Str(body, "key") ?? "").Trim();
-            var thread = await db.Threads.AsNoTracking().Include(t => t.Contact)
-                .FirstOrDefaultAsync(t => t.Channel == channel && t.Key == key);
-            if (thread == null)
+            if (channel.Length == 0 || key.Length == 0)
                 return Results.Json(new { detail = "Pick a conversation to test against." }, statusCode: 400);
+            // a conversation the caller may see — the explanation shows its values — and the ONE
+            // they mean (thread_id / company when the customer has one with several companies)
+            var (refused, thread) = await ChatBranch.Api.Auth.ThreadResolver.FindAsync(db, sc, me, channel, key,
+                Int(body, "thread_id"), Str(body, "company"));
+            if (refused != null || thread == null)
+                return refused ?? Results.Json(new { detail = "Pick a conversation to test against." }, statusCode: 400);
             var text = Str(body, "message") ?? "";
             var checks = automation.Explain(row, thread, text);
             return Results.Ok(new

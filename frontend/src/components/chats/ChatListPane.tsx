@@ -1,20 +1,20 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { Bot, CheckSquare, Hand, Loader2, MoreHorizontal, PhoneCall, Search, SlidersHorizontal, Square, X } from 'lucide-react'
+import { Bot, Building2, CheckSquare, Hand, Loader2, MoreHorizontal, PhoneCall, Search, SlidersHorizontal, Square, X } from 'lucide-react'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { tagMeta } from '@/lib/tags'
 import { handoverKindLabel } from '@/lib/aiControls'
 import { Avatar, StatusTick } from './MessageParts'
-import { channelName, listStamp, logoKey, statusLabel, type Channel, type UiThreadSummary } from './inboxTypes'
+import { channelName, listStamp, logoKey, sameThread, statusLabel, threadIdentity, type ThreadRef, type UiThreadSummary } from './inboxTypes'
 import { isHeaderSort, type FilterChip, type HeaderSort, type Sort, type TriState } from './inboxFilters'
 import { Segmented } from './Segmented'
 import { useFormat, useT } from '@/i18n'
 
 export type ViewTab = { id: string; name: string; active: boolean; modified?: boolean; count?: number | null }
 
-/** Row identity for multi-select: `channel:key`. */
-export const rowRef = (t: { channel: string; key: string }) => `${t.channel}:${t.key}`
+/** Row identity for multi-select: `channel:key#thread_id` — a customer has one conversation per company. */
+export const rowRef = (t: { channel: string; key: string; thread_id?: number | null }) => threadIdentity(t)
 
 /** Conversation list pane: header, search, filter button, the quick contact
  *  toggle + order switch, chips, saved-view tabs and the rows themselves. Pure
@@ -44,6 +44,7 @@ export default function ChatListPane({
   onManageViews,
   onSaveViewChanges,
   hidden,
+  multiCompany = false,
   selectMode = false,
   selected: pickedRefs,
   onToggleSelect,
@@ -56,8 +57,10 @@ export default function ChatListPane({
   hasMore: boolean
   loadingMore: boolean
   onLoadMore: () => void
-  activeId: { channel: Channel; key: string } | null
+  activeId: ThreadRef | null
   onOpen: (row: UiThreadSummary) => void
+  /** the caller sees conversations of more than one company: each row names its company */
+  multiCompany?: boolean
   search: string
   onSearch: (s: string) => void
   /** the `linked` filter (the same one as the filter pop-up's "Contact"): '' all · yes · no */
@@ -275,7 +278,7 @@ export default function ChatListPane({
           </div>
         )}
         {rows.map((row) => {
-          const selected = !!activeId && row.channel === activeId.channel && row.key === activeId.key
+          const selected = !row.pending && sameThread(row, activeId)
           const merged = (row._mergedChannels?.length ?? 0) > 1
           const callLive = !!row.call && ['in_call', 'ringing', 'connecting'].includes(row.call.status)
           const picking = selectMode && !row.pending
@@ -287,7 +290,7 @@ export default function ChatListPane({
           const stamp = byCustomer ? row.last_inbound_ts! : row.last_ts
           return (
             <button
-              key={`${row.channel}-${row.key}${row.pending ? '-pending' : ''}`}
+              key={`${threadIdentity(row)}${row.pending ? '-pending' : ''}`}
               type="button"
               onClick={() => (picking ? onToggleSelect?.(row) : onOpen(row))}
               aria-current={selected ? 'true' : undefined}
@@ -325,8 +328,18 @@ export default function ChatListPane({
                   </span>
                   {row.waiting && <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-accent" title={t('chats.list.waitingDot')} />}
                 </span>
-                {(merged || callLive || row.ai_enabled || handedOver || (row.status && row.status !== 'open') || (row.labels ?? []).length > 0 || row.opted_out) && (
+                {((multiCompany && !!row.company) || merged || callLive || row.ai_enabled || handedOver || (row.status && row.status !== 'open') || (row.labels ?? []).length > 0 || row.opted_out) && (
                   <span className="mt-1.5 flex flex-wrap items-center gap-1">
+                    {multiCompany && row.company && (
+                      // one customer can write to several companies: which company's conversation this is
+                      <span
+                        className="inline-flex max-w-full items-center gap-0.5 rounded-full border border-line-strong px-1.5 text-[10.5px] font-semibold leading-[17px] text-text-high"
+                        title={t('chats.company.rowHint', { name: row.company.name })}
+                      >
+                        <Building2 size={9} className="shrink-0" aria-hidden />
+                        <span className="truncate">{row.company.name}</span>
+                      </span>
+                    )}
                     {handedOver && (
                       <span
                         className="inline-flex max-w-full items-center gap-0.5 rounded-full bg-amber/15 px-1.5 text-[10.5px] font-semibold leading-[17px] text-amber-300"

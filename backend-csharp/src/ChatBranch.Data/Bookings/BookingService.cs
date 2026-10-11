@@ -329,7 +329,7 @@ public class BookingService
             : r.Free.Count > offered.Count
                 ? "A spread of the free times; ask for a specific day (from_date = to_date) to see more on that day. Offer 2–3 of these, with weekday, date, time and timezone."
                 : "These are all the free times in the range. Offer 2–3 of them, with weekday, date, time and timezone.";
-        var upcoming = ctx.ContactId is int cid ? Upcoming(cid, b.Skill, target.Key) : new();
+        var upcoming = ctx.ContactId is int cid ? Upcoming(cid, b.Skill, target.Key, ctx.EntityId) : new();
         if (upcoming.Count > 0)
             payload["customer_upcoming_bookings"] = upcoming.Select(x => BookingJson(x)).ToList();
         return new ToolOutcome(JsonSerializer.Serialize(payload), true);
@@ -362,10 +362,10 @@ public class BookingService
         var now = UtcNow;
 
         // the per-contact cap (cancelling rows are on their way out — a reschedule)
-        var active = await _db.Bookings.AsNoTracking()
+        var active = (await _db.Bookings.AsNoTracking()
             .Where(x => x.ContactId == contact.Id && x.SkillId == b.Skill.SkillId
                         && (x.Status == BookingStatus.Pending || x.Status == BookingStatus.Booked) && x.EndUtc > now)
-            .OrderBy(x => x.StartUtc).ToListAsync(ct);
+            .OrderBy(x => x.StartUtc).ToListAsync(ct)).Where(x => SameCompany(x, ctx.EntityId)).ToList();
         if (active.Count >= cfg.MaxActivePerContact)
         {
             var first = active[0];
@@ -483,6 +483,7 @@ public class BookingService
         var tz = TimeZoneFor(b.Config);
         var target = ResolveTarget(b.Skill, b.Config, ctx.EntityId, UserIdOf(ctx.Assignee));
         var row = await _db.Bookings.FirstOrDefaultAsync(x => x.Id == id && x.ContactId == contact.Id, ct);
+        if (row != null && !SameCompany(row, ctx.EntityId)) row = null;   // another company's appointment
         if (row == null || (row.SkillId != b.Skill.SkillId && (target.Key.Length == 0 || row.CalendarKey != target.Key)))
             return Refused($"Booking {id} isn't one of this customer's bookings.", $"Call {b.Base}_my_bookings to see them.");
         if (row.Status == BookingStatus.Cancelling)
@@ -532,7 +533,7 @@ public class BookingService
         var contact = ContactOf(ctx);
         if (contact == null) return Refused("This conversation isn't linked to a customer record.", "");
         var target = ResolveTarget(b.Skill, b.Config, ctx.EntityId, UserIdOf(ctx.Assignee));
-        var rows = Upcoming(contact.Id, b.Skill, target.Key);
+        var rows = Upcoming(contact.Id, b.Skill, target.Key, ctx.EntityId);
         return new ToolOutcome(JsonSerializer.Serialize(new Dictionary<string, object?>
         {
             ["ok"] = true,
@@ -541,15 +542,22 @@ public class BookingService
         }), true);
     }
 
-    private List<Booking> Upcoming(int contactId, AgentSkill skill, string calendarKey)
+    /// <summary>The contact's upcoming bookings made for the ANSWERING conversation's company
+    /// (<paramref name="entityId"/>'s) — a customer shared by several companies never hears
+    /// about another company's appointments.</summary>
+    private List<Booking> Upcoming(int contactId, AgentSkill skill, string calendarKey, int? entityId)
     {
         var now = UtcNow;
         return _db.Bookings.AsNoTracking()
             .Where(x => x.ContactId == contactId && (x.SkillId == skill.SkillId || (calendarKey != "" && x.CalendarKey == calendarKey))
                         && (x.Status == BookingStatus.Pending || x.Status == BookingStatus.Booked
                             || x.Status == BookingStatus.Cancelling) && x.EndUtc > now)
-            .OrderBy(x => x.StartUtc).Take(10).ToList();
+            .OrderBy(x => x.StartUtc).ToList()
+            .Where(x => SameCompany(x, entityId)).Take(10).ToList();
     }
+
+    /// <summary>Was this booking made for the same company as <paramref name="entityId"/>?</summary>
+    private bool SameCompany(Booking x, int? entityId) => _scoping.CompanyOf(x.EntityId) == _scoping.CompanyOf(entityId);
 
     // =========================================================================
     // lifecycle: bind → confirm | release
@@ -945,7 +953,7 @@ public class BookingService
                 $"{title} · {who}",
                 Cap($"{LabelWithZone(b)} on {b.CalendarLabel}" + (failure != null ? $" — {failure}" : ""), 400),
                 thread != null
-                    ? $"/chats?channel={Uri.EscapeDataString(thread.Channel)}&key={Uri.EscapeDataString(thread.Key)}"
+                    ? Stores.ThreadCompanies.LegacyChatHref(thread)
                     : "/bookings",
                 assignee is int aid ? NotificationAudience.ForUsers(new[] { aid }) : NotificationAudience.Admins(tenantId),
                 new NotifyOptions { Thread = thread, RefKey = $"booking:{b.Id}" });

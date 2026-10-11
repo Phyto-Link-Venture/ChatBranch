@@ -111,7 +111,7 @@ public static class WebhooksEndpoints
             // AI, flows, automations or a reopen (MessageReactions)
             foreach (var r in MetaWebhook.CloudReactions(root))
             {
-                try { MessageReactions.ApplyInbound(db, "whatsapp", r.From, r.TargetWamid, r.Emoji); }
+                try { MessageReactions.ApplyInbound(db, "whatsapp", r.From, r.TargetWamid, r.Emoji, accountId: AccountFor(r.PhoneNumberId)?.Id); }
                 catch { }
             }
 
@@ -152,8 +152,9 @@ public static class WebhooksEndpoints
             {
                 try
                 {
+                    var reactingTo = await BaileysAccountByKey(db, Str(body, "account_id"));
                     MessageReactions.ApplyInbound(db, "whatsapp", waId, Str(reaction, "msg_id") ?? "",
-                        Str(reaction, "emoji") ?? "");
+                        Str(reaction, "emoji") ?? "", accountId: reactingTo?.Id);
                 }
                 catch { }
                 return Results.Ok(new { ok = true });
@@ -260,15 +261,18 @@ public static class WebhooksEndpoints
 
             var type = declared is "image" or "video" or "audio" or "document"
                 ? declared : MediaStore.TypeForMime(file.ContentType);
-            var thread = await db.Threads.FirstOrDefaultAsync(t => t.Channel == "whatsapp" && t.Key == waId);
-            var msg = thread != null && msgId.Length > 0
-                ? await db.Messages.FirstOrDefaultAsync(m => m.ThreadId == thread.Id && m.ExternalId == msgId)
+            // the placeholder /inbound stored (its provider id names the conversation), else a
+            // new inbound on the pushing number — its company's conversation, never another's
+            var account = await BaileysAccountByKey(db, form["account_id"].ToString());
+            var msg = msgId.Length > 0
+                ? (await db.Messages.Include(m => m.Thread)
+                    .Where(m => m.ExternalId == msgId && m.Thread!.Channel == "whatsapp" && m.Thread.Key == waId)
+                    .OrderByDescending(m => m.Id).ToListAsync())
+                    .OrderByDescending(m => account != null && m.Thread!.AccountId == account.Id).FirstOrDefault()
                 : null;
             if (msg == null)
-            {
-                msg = processor.ProcessInbound("whatsapp", waId, $"[{type}]", null, thread?.AccountId, msgId);
-                thread = await db.Threads.FirstAsync(t => t.Id == msg.ThreadId);
-            }
+                msg = processor.ProcessInbound("whatsapp", waId, $"[{type}]", null, account?.Id, msgId);
+            var thread = await db.Threads.FirstAsync(t => t.Id == msg.ThreadId);
             if (msg.MediaPath.Length > 0) return Results.Ok(new { ok = true, stored = true }); // redelivery
 
             // the gateway names the file only when the customer did (a document);
@@ -309,9 +313,10 @@ public static class WebhooksEndpoints
             var thread = !string.IsNullOrEmpty(room)
                 ? await db.Threads.FirstOrDefaultAsync(t => t.CallRoom == room)
                 : null;
+            // no room: the calling NUMBER's conversation (its company's), never another company's
             thread ??= string.IsNullOrEmpty(waId)
                 ? null
-                : await db.Threads.FirstOrDefaultAsync(t => t.Channel == "whatsapp" && t.Key == waId);
+                : store.FindForAccount("whatsapp", waId, (await BaileysAccountByKey(db, Str(body, "account_id")))?.Id);
             if (thread == null) return Results.Ok(new { ok = true });
 
             var live = thread.CallStatus is "connecting" or "ringing" or "in_call";
@@ -363,7 +368,8 @@ public static class WebhooksEndpoints
                 ? db.ChannelAccounts.AsNoTracking().Where(a => a.Id == aid).Select(a => a.Name).FirstOrDefault() ?? ""
                 : "";
             recordings.SaveEnded(thread.Key, Str(body, "recording"), thread.CallRoom, recStarted,
-                Str(body, "reason") ?? "", string.IsNullOrEmpty(starter) ? "flow" : starter, account, voice);
+                Str(body, "reason") ?? "", string.IsNullOrEmpty(starter) ? "flow" : starter, account, voice,
+                threadId: thread.Id, accountId: thread.AccountId);
         }
         catch { /* the call state still resets */ }
     }

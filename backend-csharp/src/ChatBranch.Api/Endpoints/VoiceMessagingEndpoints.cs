@@ -863,9 +863,8 @@ public static class VoiceMessagingEndpoints
     {
         try
         {
-            var threads = db.Threads.Include(t => t.Account).Include(t => t.Contact)
-                .Where(t => t.AccountId == accountId).ToList();
-            foreach (var t in threads) sc.SyncThreadEntity(t, save: false);
+            // within one company; another company's conversation lets go of the number
+            ChatBranch.Data.Stores.ThreadCompanies.AfterAccountRebound(db, sc, accountId);
             db.SaveChanges();
         }
         catch { /* the rebind itself already succeeded */ }

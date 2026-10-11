@@ -323,6 +323,7 @@ public static class LearningEndpoints
         var users = await db.Users.AsNoTracking().Where(u => userIds.Contains(u.Id))
             .Select(u => new { u.Id, u.Username }).ToDictionaryAsync(u => u.Id, u => u.Username);
         var threadIds = feedback.Where(f => f.ThreadId != null).Select(f => f.ThreadId!.Value).Distinct().ToList();
+        // "channel:key" + thread_id: a customer has one conversation per company, the id says which
         var threads = await db.Threads.AsNoTracking().Where(t => threadIds.Contains(t.Id))
             .Select(t => new { t.Id, t.Channel, t.Key }).ToDictionaryAsync(t => t.Id, t => $"{t.Channel}:{t.Key}");
         return rows.Select(l =>
@@ -346,6 +347,7 @@ public static class LearningEndpoints
                     user = f.UserId is int uid && users.TryGetValue(uid, out var name) ? name : "system",
                     created_at = f.CreatedAt,
                     thread = f.ThreadId is int tid && threads.TryGetValue(tid, out var key) ? key : null,
+                    thread_id = f.ThreadId is int tid2 && threads.ContainsKey(tid2) ? tid2 : (int?)null,
                     reasons = f.Reasons, note = f.Note, correction = f.Correction,
                 }).ToList(),
             };

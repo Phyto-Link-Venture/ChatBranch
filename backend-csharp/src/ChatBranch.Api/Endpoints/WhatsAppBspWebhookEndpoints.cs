@@ -169,7 +169,7 @@ public static class WhatsAppBspWebhookEndpoints
             else if (ev.Reaction is { } r)
             {
                 // a reaction is never a bubble, never the AI, flows, automations or a reopen
-                MessageReactions.ApplyInbound(db, Channels.WhatsApp, r.From, r.TargetWamid, r.Emoji);
+                MessageReactions.ApplyInbound(db, Channels.WhatsApp, r.From, r.TargetWamid, r.Emoji, accountId: account.Id);
                 Heal(db, account, "inbound reaction received");
             }
             else if (ev.Status is { } st)
@@ -217,7 +217,7 @@ public static class WhatsAppBspWebhookEndpoints
             {
                 // never a bubble; stored on the message it targets when Twilio names one
                 if (f.ReplyTo.Length > 0)
-                    MessageReactions.ApplyInbound(db, Channels.WhatsApp, f.From, f.ReplyTo, f.Text);
+                    MessageReactions.ApplyInbound(db, Channels.WhatsApp, f.From, f.ReplyTo, f.Text, accountId: account.Id);
             }
             else
             {

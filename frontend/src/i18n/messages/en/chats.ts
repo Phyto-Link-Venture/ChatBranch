@@ -238,6 +238,13 @@ export const chats = {
     gaveUpSaid: 'Unknown customer didn’t say who they are ({said})',
     createContact: 'Create contact',
   },
+  company: {
+    rowHint: "{name}'s conversation — a customer has one conversation per company",
+    pickTitle: 'Which company’s conversation?',
+    pickHint:
+      'This customer has a conversation with more than one company. Pick the one you want to open — they are kept apart.',
+    none: 'No company',
+  },
   draft: {
     title: 'AI reply waiting for review',
     approveSend: 'Approve & send',

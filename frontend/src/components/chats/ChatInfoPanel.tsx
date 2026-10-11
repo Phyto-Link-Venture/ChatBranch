@@ -158,7 +158,7 @@ export default function ChatInfoPanel({
             </button>
           </div>
           {/* an unknown customer: a new contact prefilled from what they said */}
-          <CreateFromChat channel={active.channel} threadKey={active.key} onCreated={(id) => onLink(id)} />
+          <CreateFromChat channel={active.channel} threadKey={active.key} threadId={active.thread_id} onCreated={(id) => onLink(id)} />
           </>
         )}
       </InfoCard>
@@ -176,7 +176,12 @@ export default function ChatInfoPanel({
       )}
 
       {/* invoices, quotations, receipts and letters made here — and "New document" */}
-      <DocumentsCard channel={active.channel} threadKey={active.key} refreshToken={active.messages.length} />
+      <DocumentsCard
+        channel={active.channel}
+        threadKey={active.key}
+        threadId={active.thread_id}
+        refreshToken={active.messages.length}
+      />
 
       <InfoCard title={t('chats.info.conversation')} note={t('chats.info.conversationNote')}>
         <div className="flex flex-col gap-2.5">

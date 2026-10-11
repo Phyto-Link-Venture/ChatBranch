@@ -640,6 +640,7 @@ public class LearningService
                     count = g.Items.Count,
                     example = TextAnalysis.Clip(latest.Q, 300),
                     thread,
+                    thread_id = thread == null ? null : latest.T,   // which company's conversation
                     last_at = latest.At,
                 });
             })

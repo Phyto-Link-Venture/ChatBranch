@@ -156,6 +156,11 @@ export function threadPath(channel: string, key: string): string {
   return `${encodeURIComponent(channel)}/${encodeURIComponent(key)}`
 }
 
+/** `contacts/identify/{channel}/{key}{suffix}` for ONE conversation (`thread_id`: a customer has one per company). */
+export function identifyPath(channel: string, key: string, threadId?: number | null, suffix = ''): string {
+  return `contacts/identify/${threadPath(channel, key)}${suffix}${threadId ? `?thread_id=${threadId}` : ''}`
+}
+
 // ── import ───────────────────────────────────────────────────────────────────
 
 export interface ImportColumn {

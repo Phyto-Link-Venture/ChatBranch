@@ -59,23 +59,21 @@ public static class WhatsAppMediaEndpoints
             var waId = CallRecordings.WaIdOf(name);
             Thread? thread = null;
             if (waId != null)
-                thread = await db.Threads.AsNoTracking().FirstOrDefaultAsync(
-                    t => t.Channel == Channels.WhatsApp && t.Key == waId);
+            {
+                // the conversation the call belongs to (its pair's thread_id) — a customer has
+                // one per company, and another company's call shares the wa_id in the name
+                var owner = recordings.ThreadOf(name, await LegacyCallOwnerAsync(db, waId));
+                thread = owner is int tid
+                    ? await db.Threads.AsNoTracking().FirstOrDefaultAsync(t => t.Id == tid)
+                    : null;
+                if (thread == null) return NotFound();
+            }
             else
             {
-                // an agent recording ({room}.wav): the live call's thread, else the
-                // finished call's number (CallRecord, folded from calls.json)
+                // an agent recording ({room}.wav): the live call's thread, else the finished
+                // call's own record (CallScope: the company it was placed for)
                 var room = Path.GetFileNameWithoutExtension(name);
                 thread = await db.Threads.AsNoTracking().FirstOrDefaultAsync(t => t.CallRoom == room);
-                if (thread == null)
-                {
-                    var phone = await db.CallRecords.AsNoTracking().Where(r => r.CallId == room)
-                        .Select(r => r.Phone).FirstOrDefaultAsync() ?? "";
-                    var digits = new string(phone.Where(char.IsAsciiDigit).ToArray());
-                    if (digits.Length > 0)
-                        thread = await db.Threads.AsNoTracking().FirstOrDefaultAsync(
-                            t => t.Channel == Channels.WhatsApp && t.Key == digits);
-                }
             }
             if (thread != null)
             {
@@ -202,12 +200,14 @@ public static class WhatsAppMediaEndpoints
         return ids == null || thread.EntityId == null || ids.Contains(thread.EntityId.Value);
     }
 
-    /// <summary>A recorded call's contact must be one the caller may see (no contact = org-level row).</summary>
-    private static async Task<bool> CallInScope(AppDbContext db, ScopingService sc, ClaimsPrincipal me, string callId)
-    {
-        var record = await db.CallRecords.AsNoTracking().FirstOrDefaultAsync(r => r.CallId == callId);
-        if (record?.ContactId is not int contactId) return true;
-        return await ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
-            .AnyAsync(c => c.Id == contactId);
-    }
+    /// <summary>A recorded call the caller may see: placed for one of their entities
+    /// (<see cref="CallScope"/>) — never another company's call, whoever its contact is.</summary>
+    private static Task<bool> CallInScope(AppDbContext db, ScopingService sc, ClaimsPrincipal me, string callId) =>
+        CallScope.CallVisibleAsync(db, sc, me, callId);
+
+    /// <summary>The wa_id's ORIGINAL conversation (the oldest): owner of call recordings paired before
+    /// calls were filed per conversation.</summary>
+    internal static async Task<int?> LegacyCallOwnerAsync(AppDbContext db, string waId) =>
+        await db.Threads.AsNoTracking().Where(t => t.Channel == Channels.WhatsApp && t.Key == waId)
+            .OrderBy(t => t.Id).Select(t => (int?)t.Id).FirstOrDefaultAsync();
 }

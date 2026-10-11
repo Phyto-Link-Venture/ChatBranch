@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-11 · **Environment:** production (chatbranch.phytolink-venture.com, PostgreSQL)
 **Severity:** high: data from one company was shown to another company's agent and fed to that company's AI.
-**Status:** found, not fixed. Production data has NOT been changed.
+**Status:** fixed in code (see Resolution); production data: repair A run, repair B ready to run after the deploy.
 
 ## Summary
 
@@ -166,3 +166,100 @@ browser console open. Otherwise treat it as the contact **clash** described abov
 
 King Kong's WhatsApp (account 5) is currently **disconnected** (QR expired). It needs to be paired
 again in Channels.
+
+## Resolution
+
+**Fixed in code** (branch `company-threads`, on top of `batch/next`). Production data is
+repaired by two scripts: repair A (already run: thread #1 back on account 3 / entity 4, King
+Kong's queued jobs and drafts cancelled) and repair B below.
+
+### What changed
+
+- **Fix 1: one conversation per customer per company.** `crm_thread` has a stored
+  `company_entity_id` (the top-level entity). It is set when the thread is created (the
+  receiving account's company, else the thread's entity's) and is never changed afterwards. A null
+  value means unattributed, which is the old org-wide behaviour. Uniqueness is now
+  `(channel, key, company)`, using two partial unique indexes: `uniq_thread_channel_key_company`, and
+  `uniq_thread_channel_key_unattributed` for the null company. The old `uniq_thread_channel_key` is
+  dropped on boot, after the backfill and after the new indexes exist
+  (`Stores/ThreadCompanies.Upgrade`, on SQLite and PostgreSQL).
+  - `ThreadStore.GetOrCreateThread` finds or creates the receiving company's conversation. A
+    customer writing to a second company's number gets a new conversation there, linked only to
+    a contact that company may see (`ContactCompanies.MayLink`).
+  - `SyncThreadEntity` and the account re-binding paths (`ThreadCompanies.AfterAccountRebound`)
+    never move a thread into another company.
+  - Every `(channel, key)` lookup resolves within one company:
+    - Inbound, webhooks, receipts and reactions use the receiving account's company.
+    - Signed-in routes, bodies and MCP tools go through `Auth/ThreadResolver.cs`. A bound person
+      reaches only their company's conversation. Anyone who sees several passes `thread_id` or
+      `company`, and without either gets a 409 that lists the candidates.
+    - Queue jobs, flows, AI tasks, calls and recordings carry the thread id.
+  - The dashboard keys chats by `thread_id` and names the company when the viewer sees more than
+    one. Deep links `/chats?thread=channel:key` still work when only one conversation matches.
+- **Fix 2: `InboundProcessor.Reattribute`** only moves a conversation between numbers of the
+  same company. Any other case is refused and audited as `thread.reattribute_refused`.
+- **Fix 3: contact views show only the caller's own data.** This covers:
+  - the merged conversation, calls (`crm_callrecord.entity_id`) and bookings
+  - the timeline and its AI summary
+  - the channel hub, documents and search hits
+
+  A contact visible through "has a conversation there" never shows another company's records.
+  Superadmin and org-wide admin views are unchanged. `?company=` keeps the chat's merged view to
+  one company.
+- **Fix 4: company-scoped AI context.** The reply uses the thread's own messages. Case summaries
+  come only from that company's conversations. Contact-level memory and tags (profile summary,
+  preferences, timeline and flow notes) are used only when every company the contact's data came
+  from is the answering one. A contact shared by two companies keeps that memory out.
+  - Journeys, AI decisions and voice dispatch (`entity_id`, `file_memory`) follow the same rule.
+  - The case-summary cache is keyed per thread (`thread:{id}`).
+- **Tests:**
+  - `CompanyThreadsTests` replays this incident: B gets a new thread and A keeps everything; two
+    numbers of the same company still re-attribute; B's agent sees none of A's data; B's AI
+    prompt carries none of A's context; an unbound admin must disambiguate; legacy unattributed
+    threads still work; the SQLite upgrade.
+  - `PostgresTests.An_older_postgres_database_gets_one_conversation_per_company` covers the
+    PostgreSQL upgrade.
+
+### Deploying and running repair B
+
+1. Deploy the release and let the API boot once. That boot adds and backfills
+   `company_entity_id`, creates the new unique indexes and drops `uniq_thread_channel_key`.
+   Thread #1 becomes company 4 (Phytolink).
+2. Take a dump:
+   ```bash
+   docker compose -p chatbranch exec -T postgres pg_dump -U chatbranch -d chatbranch -Fc \
+     > chatbranch-before-repair-b-$(date +%Y%m%d-%H%M%S).dump
+   ```
+3. Run [`2026-10-11-repair-b.sql`](2026-10-11-repair-b.sql) in one transaction:
+   ```bash
+   docker compose -p chatbranch exec -T postgres psql -U chatbranch -d chatbranch \
+     < docs/incidents/2026-10-11-repair-b.sql
+   ```
+   What the script does:
+   - It is guarded. It changes nothing, and prints why, unless thread #1 is on account 3 /
+     entity 4 (repair A ran), account 5 is entity 6's WhatsApp number, and the release has
+     booted. Running it a second time changes nothing.
+   - Rehearsed on a scratch PostgreSQL with the old schema and this incident's state, in both
+     orders (repair A → deploy → repair B, and deploy → repair A → repair B).
+   - It creates King Kong's own conversation: whatsapp, the same key, account 5, entity 6,
+     company 6, no contact, AI off. If the customer wrote to King Kong again after the deploy,
+     it reuses the conversation the new code already opened.
+   - It moves the account-5 messages (#137–#139) into that conversation, together with their
+     reactions and AI-task runs, King Kong's AI drafts and their feedback, and entity 6's
+     documents and bookings.
+   - It deletes the case-summary cache written from the merged conversation. The chat writes a
+     new summary on demand.
+   - It replaces what King Kong's AI wrote from Phytolink's conversation with a
+     "[removed — …]" marker: the AI reply #139 (it quoted Phytolink's INV-0001), the moved AI
+     drafts (content and context) and the matching `ai.reply` activity-log row of entity 6. The
+     customer's own messages (#137, #138) are King Kong's and stay as they are.
+   - If the release booted BEFORE repair A ran, the backfill gave thread #1 King Kong's company;
+     the script moves it back to Phytolink's (it stops and says so if Phytolink already has a
+     second conversation for that number).
+   - It bumps both threads' `updated_at` and prints every step.
+4. Read the verification block at the end of the output. Expected results:
+   - Thread #1 has Phytolink's messages and none on account 5.
+   - King Kong's thread has the 3 messages and no contact.
+   - The last query returns no rows.
+   - In the dashboard, `liewxen` sees thread #1. `kingkong` sees only the new thread and gets
+     404 on contact #1.

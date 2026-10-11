@@ -42,7 +42,8 @@ public static class McpServerEndpoints
         "original core is search_contacts, get_contact, list_conversations, get_conversation, " +
         "send_message, add_note, set_conversation_status, assign_conversation. Conversations are " +
         "addressed by channel + key (as the conversation tools return them; results carry a /chats " +
-        "deep link). Sends follow the normal guards — opt-outs, WhatsApp's 24-hour window, the " +
+        "deep link) — a customer has one conversation per company, so when several companies you can " +
+        "see talk to the same customer, pass thread_id (or company) to say which. Sends follow the normal guards — opt-outs, WhatsApp's 24-hour window, the " +
         "Messenger/Instagram human-agent window (closed to API keys), the cold-message guard — and " +
         "a refusal says why. Tools marked destructive need \"confirm\": true — ask the person first. " +
         "Everything you do is recorded in the ChatBranch activity log under source mcp.";

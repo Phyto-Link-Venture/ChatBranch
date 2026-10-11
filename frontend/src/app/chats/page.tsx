@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import {
   AlertTriangle,
   Ban,
+  Building2,
   CheckCircle2,
   ChevronLeft,
   Clock,
@@ -63,13 +64,20 @@ import {
   statusLabel,
   logoKey,
   rowToSummary,
+  sameThread,
+  threadApi,
+  threadIdentity,
   threadPath,
   timeAgo,
+  withThreadId,
   timeShort,
   WINDOWED_CHANNELS,
   type Channel,
   type InboxRow,
+  type ThreadCandidate,
+  type ThreadRef,
   type ThreadStatus,
+  type UiCompany,
   type UiAccount,
   type UiAgent,
   type UiMessage,
@@ -141,8 +149,8 @@ interface SummaryState {
 /** One contact's messages merged across every linked channel. */
 interface CombinedConversation {
   contact: LinkContact
-  channels: { channel: Channel; key: string; name: string }[]
-  messages: (UiMessage & { channel: Channel; key: string })[]
+  channels: { channel: Channel; key: string; name: string; thread_id?: number | null }[]
+  messages: (UiMessage & { channel: Channel; key: string; thread_id?: number | null })[]
 }
 
 interface InboxStatus {
@@ -168,15 +176,19 @@ const VIEW_KEY = 'chats-view'
 /** Count of active filter dimensions (the Filter button's badge). */
 const countActive = (chips: FilterChip[]) => chips.length
 
-/** Parse `channel:key` (the deep-link form) into a thread id. */
-function parseThreadRef(ref: string | null): { channel: Channel; key: string } | null {
+/** Parse `channel:key` (the deep-link form) + the optional `thread_id` into a conversation. */
+function parseThreadRef(ref: string | null, threadId?: string | null): ThreadRef | null {
   if (!ref) return null
   const i = ref.indexOf(':')
   if (i <= 0) return null
   const channel = ref.slice(0, i) as Channel
   const key = ref.slice(i + 1)
-  return CHANNELS.includes(channel) && key ? { channel, key } : null
+  const id = Number(threadId)
+  return CHANNELS.includes(channel) && key ? { channel, key, thread_id: Number.isInteger(id) && id > 0 ? id : null } : null
 }
+
+/** The company query value for one conversation's merged / calls views ("none" = unattributed). */
+const companyParam = (c: UiCompany | null | undefined) => (c ? String(c.id) : 'none')
 
 function ChatsPage() {
   const t = useT()
@@ -222,7 +234,11 @@ function ChatsPage() {
 
   // ── conversation state ──
   const [active, setActive] = useState<UiThread | null>(null)
-  const [activeId, setActiveId] = useState<{ channel: Channel; key: string } | null>(null)
+  const [activeId, setActiveId] = useState<ThreadRef | null>(null)
+  // the opened channel:key names conversations of several companies: which one (the API's 409)
+  const [ambiguous, setAmbiguous] = useState<{ ref: string; candidates: ThreadCandidate[] } | null>(null)
+  // the caller sees conversations of more than one company: rows and the header name the company
+  const [multiCompany, setMultiCompany] = useState(false)
   const [draft, setDraft] = useState('')
   // the message the next reply quotes (WhatsApp / Telegram), cleared on send and on switching chats
   const [replyTo, setReplyTo] = useState<UiMessage | null>(null)
@@ -252,7 +268,7 @@ function ChatsPage() {
   const summarizing =
     summarizingFor !== null &&
     activeId !== null &&
-    summarizingFor === `messaging/threads/${activeId.channel}/${activeId.key}/summary`
+    summarizingFor === withThreadId(`messaging/threads/${activeId.channel}/${activeId.key}/summary`, activeId.thread_id)
   const [summaryOpen, setSummaryOpen] = useState(true)
   const lastAutoGen = useRef('')
   const [infoOpen, setInfoOpen] = useState(true)
@@ -305,26 +321,33 @@ function ChatsPage() {
 
   // ── deep links: /chats?thread=<channel>:<key>, /chats?q=<text>, legacy ?channel=&key= ──
   const spThread = searchParams.get('thread')
+  const spThreadId = searchParams.get('thread_id')
   const spChannel = searchParams.get('channel')
   const spKey = searchParams.get('key')
   const spQ = searchParams.get('q')
   const urlThreadRef = useRef<string | null>(null)
   useEffect(() => {
-    const ref = parseThreadRef(spThread) ?? (spChannel && spKey ? parseThreadRef(`${spChannel}:${spKey}`) : null)
-    if (ref) setActiveId((cur) => (cur && cur.channel === ref.channel && cur.key === ref.key ? cur : ref))
+    const ref =
+      parseThreadRef(spThread, spThreadId) ?? (spChannel && spKey ? parseThreadRef(`${spChannel}:${spKey}`, spThreadId) : null)
+    if (ref)
+      setActiveId((cur) =>
+        cur && cur.channel === ref.channel && cur.key === ref.key && (!ref.thread_id || cur.thread_id === ref.thread_id) ? cur : ref,
+      )
     else if (urlThreadRef.current && !spThread) {
       // the URL lost its ?thread= (the browser's Back on a phone): back to the list
       setActiveId(null)
       setActive(null)
     }
     urlThreadRef.current = spThread
-  }, [spThread, spChannel, spKey])
+  }, [spThread, spThreadId, spChannel, spKey])
   // …and the other way: the open chat IS the URL, so a refresh or a shared
   // link reopens what is on screen — never a stale ?thread=. Opening a chat on
   // a phone PUSHES (Back returns to the list); everything else replaces.
   const prevActiveRef = useRef<string | null | undefined>(undefined)
   useEffect(() => {
-    const want = activeId ? `${activeId.channel}:${activeId.key}` : null
+    const want = activeId ? threadIdentity(activeId) : null
+    const wantRef = activeId ? `${activeId.channel}:${activeId.key}` : null
+    const wantId = activeId?.thread_id ? String(activeId.thread_id) : null
     if (prevActiveRef.current === undefined) {
       // first render: the URL is the source; don't wipe a ?thread= not yet applied
       prevActiveRef.current = want ?? spThread
@@ -334,15 +357,21 @@ function ChatsPage() {
     const was = prevActiveRef.current
     prevActiveRef.current = want
     const have = new URLSearchParams(window.location.search)
-    if ((have.get('thread') ?? null) === want && !have.has('channel')) return
+    if ((have.get('thread') ?? null) === wantRef && (have.get('thread_id') ?? null) === wantId && !have.has('channel')) return
     have.delete('channel')
     have.delete('key')
-    if (want) have.set('thread', want)
+    if (wantRef) have.set('thread', wantRef)
     else have.delete('thread')
+    // thread_id: WHICH company's conversation (a customer has one per company)
+    if (wantId) have.set('thread_id', wantId)
+    else have.delete('thread_id')
     const qs = have.toString()
     const url = `${window.location.pathname}${qs ? `?${qs}` : ''}`
     const phone = window.matchMedia('(max-width: 1023px)').matches
+    // the same chat getting its id (a deep link resolved) is not a navigation
+    const sameChat = !!was && !!wantRef && (was === wantRef || was.startsWith(`${wantRef}#`))
     if (want && !was && phone) router.push(url, { scroll: false })
+    else if (sameChat) router.replace(url, { scroll: false })
     else router.replace(url, { scroll: false })
     // spThread is read only on the first render
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -366,11 +395,12 @@ function ChatsPage() {
     const seq = ++listSeq.current
     const limit = Math.min(200, Math.max(PAGE, loadedCount.current))
     try {
-      const d = await api<{ threads: InboxRow[]; count: number; next_cursor: string | null }>(
+      const d = await api<{ threads: InboxRow[]; count: number; next_cursor: string | null; multi_company?: boolean }>(
         `inbox/threads?${listParams}${listParams ? '&' : ''}limit=${limit}`,
       )
       if (seq !== listSeq.current) return // a newer request superseded this one
       setThreads(d.threads.map(rowToSummary))
+      setMultiCompany(!!d.multi_company)
       setTotal(d.count)
       setNextCursor(d.next_cursor)
     } catch {
@@ -403,8 +433,8 @@ function ChatsPage() {
       )
       if (seq !== listSeq.current) return
       setThreads((prev) => {
-        const seen = new Set(prev.map((row) => `${row.channel}:${row.key}`))
-        const merged = [...prev, ...d.threads.map(rowToSummary).filter((row) => !seen.has(`${row.channel}:${row.key}`))]
+        const seen = new Set(prev.map(threadIdentity))
+        const merged = [...prev, ...d.threads.map(rowToSummary).filter((row) => !seen.has(threadIdentity(row)))]
         loadedCount.current = merged.length
         return merged
       })
@@ -422,11 +452,19 @@ function ChatsPage() {
     // showing a thread the current scope no longer contains.
     if (!activeId) {
       setActive(null)
+      setAmbiguous(null)
       return
+    }
+    // what the server says this conversation IS (its id + company), kept on the selection
+    const settle = (threadId: number | null | undefined) => {
+      if (threadId && threadId !== activeId.thread_id)
+        setActiveId((cur) => (cur && cur.channel === activeId.channel && cur.key === activeId.key ? { ...cur, thread_id: threadId } : cur))
     }
     try {
       if (activeId.channel === 'whatsapp') {
         const th = await api<{
+          thread_id?: number | null
+          company?: UiCompany | null
           wa_id: string
           phone: string
           name: string
@@ -447,10 +485,13 @@ function ChatsPage() {
           contact_name?: string
           labels?: string[]
           messages: UiMessage[]
-        }>(`whatsapp/threads/${activeId.key}`)
+        }>(withThreadId(`whatsapp/threads/${activeId.key}`, activeId.thread_id))
+        settle(th.thread_id)
         setActive({
           channel: 'whatsapp',
           key: th.wa_id,
+          thread_id: th.thread_id ?? activeId.thread_id ?? null,
+          company: th.company ?? null,
           name: th.contact_name || th.name,
           // a WhatsApp id is bare digits — show it as the phone number it is
           sub: /^\d+$/.test(th.phone) ? `+${th.phone}` : th.phone,
@@ -474,6 +515,8 @@ function ChatsPage() {
         })
       } else {
         const th = await api<{
+          thread_id?: number | null
+          company?: UiCompany | null
           key: string
           channel: Channel
           address: string
@@ -494,10 +537,13 @@ function ChatsPage() {
           human_window_open?: boolean
           human_window_expires_at?: string | null
           messages: UiMessage[]
-        }>(`messaging/threads/${activeId.channel}/${activeId.key}`)
+        }>(withThreadId(`messaging/threads/${activeId.channel}/${activeId.key}`, activeId.thread_id))
+        settle(th.thread_id)
         setActive({
           channel: th.channel,
           key: th.key,
+          thread_id: th.thread_id ?? activeId.thread_id ?? null,
+          company: th.company ?? null,
           name: th.contact_name || th.name,
           sub: th.address,
           ai_enabled: th.ai_enabled,
@@ -518,12 +564,18 @@ function ChatsPage() {
         })
       }
       setMissingRef(null)
+      setAmbiguous(null)
     } catch (e) {
       // a conversation that does not exist (or is out of scope) says so rather
       // than leaving the empty "pick a conversation" placeholder
       if (e instanceof ApiError && e.status === 404) {
         setActive(null)
-        setMissingRef(`${activeId.channel}:${activeId.key}`)
+        setMissingRef(threadIdentity(activeId))
+      }
+      // the customer has a conversation with several companies this person sees: ask which
+      if (e instanceof ApiError && e.status === 409 && Array.isArray(e.body.candidates)) {
+        setActive(null)
+        setAmbiguous({ ref: threadIdentity(activeId), candidates: e.body.candidates as ThreadCandidate[] })
       }
       /* otherwise keep last good state while polling */
     }
@@ -534,7 +586,10 @@ function ChatsPage() {
     if (!activeId) return
     let live = true
     api<{ agents: UiAgent[] }>(
-      `messaging/agents?channel=${encodeURIComponent(activeId.channel)}&key=${encodeURIComponent(activeId.key)}`,
+      withThreadId(
+        `messaging/agents?channel=${encodeURIComponent(activeId.channel)}&key=${encodeURIComponent(activeId.key)}`,
+        activeId.thread_id,
+      ),
     )
       .then((r) => live && setThreadAgents(r.agents))
       .catch(() => live && setThreadAgents(null))
@@ -694,6 +749,7 @@ function ChatsPage() {
     scopeRef.current = scopeKey
     if (!activeId) return
     const p = new URLSearchParams({ count_only: '1', thread: `${activeId.channel}:${activeId.key}` })
+    if (activeId.thread_id) p.set('thread_id', String(activeId.thread_id))
     const ents: string[] = JSON.parse(scopeKey)
     if (ents.length) p.set('entity', ents.join(','))
     api<{ count: number }>(`inbox/threads?${p}`)
@@ -713,7 +769,7 @@ function ChatsPage() {
   const quickReplyContactId = active?.contact_id ?? null
   const quickReplyChannel = active?.channel ?? null
   const quickReplyEntity = active
-    ? (threads.find((x) => x.channel === active.channel && x.key === active.key)?.entity ?? null)
+    ? (threads.find((x) => sameThread(x, active))?.entity ?? null)
     : null
   useEffect(() => {
     const p = new URLSearchParams()
@@ -736,7 +792,7 @@ function ChatsPage() {
     }
     let cancelled = false
     lastAutoGen.current = ''
-    const path = `messaging/threads/${activeId.channel}/${activeId.key}/summary`
+    const path = withThreadId(`messaging/threads/${activeId.channel}/${activeId.key}/summary`, activeId.thread_id)
     summaryPathRef.current = path
     const check = async () => {
       try {
@@ -773,7 +829,7 @@ function ChatsPage() {
 
   const regenSummary = async () => {
     if (!activeId || summarizing) return
-    const path = `messaging/threads/${activeId.channel}/${activeId.key}/summary`
+    const path = withThreadId(`messaging/threads/${activeId.channel}/${activeId.key}/summary`, activeId.thread_id)
     setSummarizingFor(path)
     try {
       const r = await api<SummaryState>(path, { method: 'POST', body: '{}' })
@@ -787,14 +843,16 @@ function ChatsPage() {
 
   // combined cross-channel view: poll the linked contact's merged conversation
   const activeContactId = active?.contact_id ?? null
+  // …of THIS conversation's company only: the merged view never mixes two companies' chats
+  const activeCompany = active ? companyParam(active.company) : null
   useEffect(() => {
-    if (!activeContactId) {
+    if (!activeContactId || !activeCompany) {
       setCombined(null)
       return
     }
     let cancelled = false
     const load = () =>
-      api<CombinedConversation>(`messaging/contacts/${activeContactId}/conversation`)
+      api<CombinedConversation>(`messaging/contacts/${activeContactId}/conversation?company=${encodeURIComponent(activeCompany)}`)
         .then((c) => {
           if (!cancelled) setCombined(c)
         })
@@ -805,7 +863,7 @@ function ChatsPage() {
       cancelled = true
       clearInterval(timer)
     }
-  }, [activeContactId])
+  }, [activeContactId, activeCompany])
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
@@ -825,7 +883,7 @@ function ChatsPage() {
     setCombinedOn(false)
     setVoiceOnly(false)
     prevCallStatus.current = undefined
-  }, [activeId?.channel, activeId?.key])
+  }, [activeId?.channel, activeId?.key, activeId?.thread_id])
 
   // flash a "Call ended" pill for a few seconds after an active call drops
   useEffect(() => {
@@ -843,6 +901,7 @@ function ChatsPage() {
   useEffect(() => {
     const st = active?.channel === 'whatsapp' ? active?.call?.status : undefined
     const key = active?.key
+    const tid = active?.thread_id
     if (!key || !st || !['connecting', 'ringing', 'in_call'].includes(st)) {
       setCallLive({ turns: [], done: false })
       return
@@ -850,7 +909,9 @@ function ChatsPage() {
     let stopped = false
     const poll = async () => {
       try {
-        const d = await api<{ turns: { role: string; text: string }[]; done: boolean }>(`whatsapp/threads/${key}/call/live`)
+        const d = await api<{ turns: { role: string; text: string }[]; done: boolean }>(
+          withThreadId(`whatsapp/threads/${key}/call/live`, tid),
+        )
         if (!stopped) setCallLive({ turns: d.turns ?? [], done: !!d.done })
       } catch {
         /* transient poll error — keep the last transcript */
@@ -862,7 +923,7 @@ function ChatsPage() {
       stopped = true
       clearInterval(timer)
     }
-  }, [active?.channel, active?.key, active?.call?.status])
+  }, [active?.channel, active?.key, active?.thread_id, active?.call?.status])
 
   useEffect(() => {
     callScrollRef.current?.scrollTo({ top: callScrollRef.current.scrollHeight })
@@ -875,7 +936,7 @@ function ChatsPage() {
       return
     }
     let cancelled = false
-    api<{ recordings: CallRec[] }>(`whatsapp/threads/${active.key}/call/recordings`)
+    api<{ recordings: CallRec[] }>(withThreadId(`whatsapp/threads/${active.key}/call/recordings`, active.thread_id))
       .then((d) => {
         if (!cancelled) setCallRecordings(d.recordings || [])
       })
@@ -883,18 +944,18 @@ function ChatsPage() {
     return () => {
       cancelled = true
     }
-  }, [active?.channel, active?.key, active?.call?.status])
+  }, [active?.channel, active?.key, active?.thread_id, active?.call?.status])
 
   // Past SIP calls for the open contact — polled so a finished call surfaces.
   const sipContactId = active?.contact_id ?? null
   useEffect(() => {
-    if (sipContactId == null) {
+    if (sipContactId == null || !activeCompany) {
       setSipCalls([])
       return
     }
     let cancelled = false
     const load = () =>
-      api<{ calls: SipCall[] }>(`contacts/${sipContactId}/calls`)
+      api<{ calls: SipCall[] }>(`contacts/${sipContactId}/calls?company=${encodeURIComponent(activeCompany)}`)
         .then((d) => {
           if (!cancelled) setSipCalls(d.calls ?? [])
         })
@@ -905,7 +966,7 @@ function ChatsPage() {
       cancelled = true
       clearInterval(timer)
     }
-  }, [sipContactId])
+  }, [sipContactId, activeCompany])
 
   const run = async (fn: () => Promise<unknown>) => {
     setBusy(true)
@@ -934,7 +995,7 @@ function ChatsPage() {
         setDraft('')
         // notes are channel-agnostic (one crm.Thread row), so every channel —
         // WhatsApp included — goes through the messaging app's note route
-        const r = await api<{ message: UiMessage }>(`messaging/threads/${active.channel}/${active.key}/note`, {
+        const r = await api<{ message: UiMessage }>(withThreadId(`messaging/threads/${active.channel}/${active.key}/note`, active.thread_id), {
           method: 'POST',
           body: JSON.stringify({ text }),
         })
@@ -946,7 +1007,7 @@ function ChatsPage() {
         form.append('file', pendingFile)
         if (text) form.append('caption', text)
         // whatsapp/threads/{key}/send-media · messaging/threads/{channel}/{key}/send-media
-        const r = await apiUpload<{ message: UiMessage }>(`${threadPath(active)}/send-media`, form)
+        const r = await apiUpload<{ message: UiMessage }>(threadApi(active, '/send-media'), form)
         setPendingFile(null)
         setDraft('')
         appendToActive(r.message)
@@ -961,7 +1022,7 @@ function ChatsPage() {
       setReplyTo(null)
       setColdRetry(null)
       try {
-        await api(`${threadPath(active)}/send`, {
+        await api(threadApi(active, '/send'), {
           method: 'POST',
           body: JSON.stringify(override ? { text, force: true, ...quote } : { text, ...quote }),
         })
@@ -982,7 +1043,7 @@ function ChatsPage() {
       const { text, quote } = coldRetry
       setColdRetry(null)
       setDraft('')
-      await api(`${threadPath(active)}/send`, {
+      await api(threadApi(active, '/send'), {
         method: 'POST',
         body: JSON.stringify({ text, force: true, ...quote }),
       })
@@ -992,7 +1053,7 @@ function ChatsPage() {
   const reactTo = (m: UiMessage, emoji: string) =>
     run(async () => {
       if (!active || m.pk == null) return
-      await api(`messaging/threads/${active.channel}/${encodeURIComponent(active.key)}/messages/${m.pk}/react`, {
+      await api(withThreadId(`messaging/threads/${active.channel}/${encodeURIComponent(active.key)}/messages/${m.pk}/react`, active.thread_id), {
         method: 'POST',
         body: JSON.stringify({ emoji }),
       })
@@ -1018,20 +1079,20 @@ function ChatsPage() {
   const toggleAi = () =>
     run(() =>
       active
-        ? api(`${threadPath(active)}/ai`, { method: 'POST', body: JSON.stringify({ enabled: !active.ai_enabled }) })
+        ? api(threadApi(active, '/ai'), { method: 'POST', body: JSON.stringify({ enabled: !active.ai_enabled }) })
         : Promise.resolve(),
     )
 
   const switchAccount = (accountId: string) =>
     run(() =>
       active && active.channel === 'whatsapp' && accountId
-        ? api(`whatsapp/threads/${active.key}/account`, { method: 'POST', body: JSON.stringify({ account_id: accountId }) })
+        ? api(threadApi(active, '/account'), { method: 'POST', body: JSON.stringify({ account_id: accountId }) })
         : Promise.resolve(),
     )
 
   // Conversation status — every channel, WhatsApp included.
   const setThreadStatus = (s: ThreadStatus) =>
-    run(() => (active ? api(`${threadPath(active)}/status`, { method: 'POST', body: JSON.stringify({ status: s }) }) : Promise.resolve()))
+    run(() => (active ? api(threadApi(active, '/status'), { method: 'POST', body: JSON.stringify({ status: s }) }) : Promise.resolve()))
 
   /** Route this conversation to a team; "" clears it. */
   const assignTeam = (raw: string) =>
@@ -1042,6 +1103,7 @@ function ChatsPage() {
         body: JSON.stringify({
           channel: active.channel,
           key: active.key,
+          thread_id: active.thread_id ?? undefined,
           team_id: raw ? Number(raw) : 0,
           // rotate to the next member only when nobody is on it yet
           assign: !!raw && !active.assignee,
@@ -1053,7 +1115,7 @@ function ChatsPage() {
   const assignTo = (username: string) =>
     run(() =>
       active
-        ? api(`messaging/threads/${active.channel}/${active.key}/assign`, {
+        ? api(withThreadId(`messaging/threads/${active.channel}/${active.key}/assign`, active.thread_id), {
             method: 'POST',
             body: JSON.stringify({ assignee: username }),
           })
@@ -1061,13 +1123,13 @@ function ChatsPage() {
     )
 
   const saveLabels = (labels: string[]) =>
-    run(() => (active ? api(`${threadPath(active)}/labels`, { method: 'POST', body: JSON.stringify({ labels }) }) : Promise.resolve()))
+    run(() => (active ? api(threadApi(active, '/labels'), { method: 'POST', body: JSON.stringify({ labels }) }) : Promise.resolve()))
 
   // identity link — channel-agnostic, so it goes via the messaging app even for WhatsApp
   const linkContact = (contactId: number | null) =>
     run(() =>
       active
-        ? api(`messaging/threads/${active.channel}/${active.key}/link`, {
+        ? api(withThreadId(`messaging/threads/${active.channel}/${active.key}/link`, active.thread_id), {
             method: 'POST',
             body: JSON.stringify({ contact_id: contactId }),
           })
@@ -1078,7 +1140,7 @@ function ChatsPage() {
     setStarting(true) // instant feedback; cleared once the call status takes over
     try {
       await run(() =>
-        api(`whatsapp/threads/${active?.key}/call/start`, {
+        api(withThreadId(`whatsapp/threads/${active?.key}/call/start`, active?.thread_id), {
           method: 'POST',
           body: JSON.stringify(callVoice ? { voice_provider: 'elevenlabs', voice_id: callVoice } : {}),
         }),
@@ -1087,16 +1149,20 @@ function ChatsPage() {
       setStarting(false)
     }
   }
-  const endCall = () => run(() => api(`whatsapp/threads/${active?.key}/call/end`, { method: 'POST' }))
+  const endCall = () => run(() => api(withThreadId(`whatsapp/threads/${active?.key}/call/end`, active?.thread_id), { method: 'POST' }))
   const sendSay = (mode: 'guide' | 'takeover') => {
     const text = sayDraft.trim()
     if (!text) return
     run(async () => {
-      await api(`whatsapp/threads/${active?.key}/call/say`, { method: 'POST', body: JSON.stringify({ mode, text }) })
+      await api(withThreadId(`whatsapp/threads/${active?.key}/call/say`, active?.thread_id), {
+        method: 'POST',
+        body: JSON.stringify({ mode, text }),
+      })
       setSayDraft('')
     })
   }
-  const escalateCall = () => run(() => api(`whatsapp/threads/${active?.key}/call/escalate`, { method: 'POST' }))
+  const escalateCall = () =>
+    run(() => api(withThreadId(`whatsapp/threads/${active?.key}/call/escalate`, active?.thread_id), { method: 'POST' }))
 
   // ── saved views ──
   const applyFilters = (next: InboxFilters, viewId?: string) => {
@@ -1292,21 +1358,24 @@ function ChatsPage() {
   const visibleRows: UiThreadSummary[] = useMemo(() => {
     const all = [...threads, ...pendingRows]
     if (filters.channels.length === 1) return all
-    const groups = new Map<number, UiThreadSummary[]>()
-    const order: (number | UiThreadSummary)[] = []
+    // one entry per contact PER COMPANY: two companies' conversations with the same
+    // customer are never merged into one
+    const groups = new Map<string, UiThreadSummary[]>()
+    const order: (string | UiThreadSummary)[] = []
     for (const row of all) {
       if (row.contact_id != null && !row.pending) {
-        const g = groups.get(row.contact_id)
+        const gk = `${row.contact_id}|${companyParam(row.company)}`
+        const g = groups.get(gk)
         if (g) g.push(row)
         else {
-          groups.set(row.contact_id, [row])
-          order.push(row.contact_id)
+          groups.set(gk, [row])
+          order.push(gk)
         }
       } else order.push(row)
     }
     const inboundMs = (r: UiThreadSummary) => (r.last_inbound_ts ? Date.parse(r.last_inbound_ts) : NaN)
     const entries = order.map((o) => {
-      if (typeof o !== 'number') return o
+      if (typeof o !== 'string') return o
       const rows = groups.get(o)!
       if (rows.length === 1) return rows[0]
       // the newest customer message across ALL of the contact's channels
@@ -1355,6 +1424,7 @@ function ChatsPage() {
   type TimelineItem = UiMessage & {
     channel?: Channel
     key?: string
+    thread_id?: number | null
     /** A past voice call interleaved into the chat at its time. */
     _callRec?: CallRec
     /** A past SIP phone call. */
@@ -1409,7 +1479,7 @@ function ChatsPage() {
     let prevContact: string | null = null
     let prevAcct: string | null = null
     for (const m of displayMessages) {
-      const contact = combinedOn && m.channel && m.key ? `${m.channel}:${m.key}` : null
+      const contact = combinedOn && m.channel && m.key ? threadIdentity({ channel: m.channel, key: m.key, thread_id: m.thread_id }) : null
       if (contact !== null) {
         if (prevContact !== null && contact !== prevContact) {
           const addr = m.channel === 'whatsapp' ? `+${m.key}` : m.key
@@ -1443,7 +1513,7 @@ function ChatsPage() {
   // Fleet strip → jump to a live call's contact thread.
   const openContactThread = (contactId: number) => {
     const row = threads.find((x) => x.contact_id === contactId)
-    if (row) setActiveId({ channel: row.channel, key: row.key })
+    if (row) setActiveId({ channel: row.channel, key: row.key, thread_id: row.thread_id ?? null })
   }
 
   // Open an inbox row. A pending contact row has no thread yet — create it on
@@ -1452,23 +1522,29 @@ function ChatsPage() {
     setError(null)
     if ((row._mergedChannels?.length ?? 0) > 1) setCombinedOn(true)
     if (!row.pending) {
-      setActiveId({ channel: row.channel, key: row.key })
+      setActiveId({ channel: row.channel, key: row.key, thread_id: row.thread_id ?? null })
       return
     }
     run(async () => {
-      const r = await api<{ wa_id: string }>('whatsapp/threads', { method: 'POST', body: JSON.stringify({ phone: row.sub }) })
-      setActiveId({ channel: 'whatsapp', key: r.wa_id })
+      const r = await api<{ wa_id: string; thread_id?: number | null }>('whatsapp/threads', {
+        method: 'POST',
+        body: JSON.stringify({ phone: row.sub }),
+      })
+      setActiveId({ channel: 'whatsapp', key: r.wa_id, thread_id: r.thread_id ?? null })
     })
   }
 
   const noteMode = composerMode === 'note'
-  const showMissing = !!activeId && missingRef === `${activeId.channel}:${activeId.key}`
+  const showMissing = !!activeId && missingRef === threadIdentity(activeId)
+  const showAmbiguous = !!activeId && !!ambiguous && ambiguous.ref === threadIdentity(activeId)
 
   // multi-select: a merged row (one contact, several channels) stands for all of its conversations
   const toggleSelect = (row: UiThreadSummary) => {
     const refs =
       (row._mergedChannels?.length ?? 0) > 1 && row.contact_id != null
-        ? threads.filter((x) => x.contact_id === row.contact_id).map(rowRef)
+        ? threads
+            .filter((x) => x.contact_id === row.contact_id && companyParam(x.company) === companyParam(row.company))
+            .map(rowRef)
         : [rowRef(row)]
     setAllMatching(false)
     setSelectedRefs((prev) => {
@@ -1520,6 +1596,7 @@ function ChatsPage() {
           onManageViews={() => setManageOpen(true)}
           onSaveViewChanges={activeSaved ? saveViewChanges : undefined}
           hidden={!!active}
+          multiCompany={multiCompany}
           selectMode={selectMode}
           selected={selectedRefs}
           onToggleSelect={toggleSelect}
@@ -1549,9 +1626,57 @@ function ChatsPage() {
         {/* ── conversation (paper) ── */}
         <section
           aria-label={t('chats.page.conversationAria')}
-          className={`cb-paper min-w-0 flex-1 flex-col lg:min-w-[380px] ${active || showMissing ? 'flex' : 'hidden lg:flex'}`}
+          className={`cb-paper min-w-0 flex-1 flex-col lg:min-w-[380px] ${active || showMissing || showAmbiguous ? 'flex' : 'hidden lg:flex'}`}
         >
-          {!active && showMissing ? (
+          {!active && showAmbiguous && ambiguous ? (
+            // a link (or an old bookmark) names a customer who has a conversation with
+            // more than one company this person sees: never guess — they pick
+            <div className="grid flex-1 place-content-center px-6 text-center">
+              <div className="display text-[24px] text-text-heading">{t('chats.company.pickTitle')}</div>
+              <div className="mx-auto mt-2 max-w-[380px] text-[13px] leading-relaxed text-text-muted">
+                {t('chats.company.pickHint')}
+              </div>
+              <ul className="mx-auto mt-4 flex w-full max-w-[380px] flex-col gap-2 text-left">
+                {ambiguous.candidates.map((c) => (
+                  <li key={c.thread_id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAmbiguous(null)
+                        setActiveId((cur) => (cur ? { ...cur, thread_id: c.thread_id } : cur))
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-lg border border-line-strong bg-card px-3 py-2.5 hover:bg-fill-hover"
+                    >
+                      <Building2 size={15} className="shrink-0 text-text-muted" aria-hidden />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13.5px] font-semibold text-text-heading">
+                          {c.company?.name || t('chats.company.none')}
+                        </span>
+                        <span className="block truncate text-[12px] text-text-muted">
+                          {[c.entity && c.entity.name !== c.company?.name ? c.entity.name : '', c.account?.name ?? '']
+                            .filter(Boolean)
+                            .join(' · ') || c.name}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-[11.5px] text-text-muted">{timeAgo(c.updated_at, f)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-4">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setActiveId(null)
+                    setAmbiguous(null)
+                  }}
+                >
+                  {t('chats.page.backAria')}
+                </Button>
+              </div>
+            </div>
+          ) : !active && showMissing ? (
             <div className="grid flex-1 place-content-center px-6 text-center">
               <div className="display text-[26px] text-text-heading">{t('chats.page.notFound')}</div>
               <div className="mx-auto mt-2 max-w-[340px] text-[13px] leading-relaxed text-text-muted">
@@ -1595,6 +1720,15 @@ function ChatsPage() {
                 <div className="min-w-[170px] flex-1">
                   <div className="flex items-center gap-2">
                     <h2 className="display truncate text-[21px] leading-tight text-text-heading">{active.name}</h2>
+                    {multiCompany && active.company && (
+                      <span
+                        className="inline-flex max-w-[180px] shrink-0 items-center gap-1 rounded-full border border-line-strong px-2 py-px text-[10.5px] font-semibold text-text-high"
+                        title={t('chats.company.rowHint', { name: active.company.name })}
+                      >
+                        <Building2 size={10} className="shrink-0" aria-hidden />
+                        <span className="truncate">{active.company.name}</span>
+                      </span>
+                    )}
                     {optedOut && (
                       <span
                         className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red/10 px-2 py-px text-[10.5px] font-semibold text-red-300"
@@ -1763,6 +1897,7 @@ function ChatsPage() {
                 <IdentityBanner
                   channel={active.channel}
                   threadKey={active.key}
+                  threadId={active.thread_id}
                   refreshToken={active.messages.length}
                   onCreated={() => void Promise.all([refreshActive(), refreshThreads()])}
                 />
@@ -1782,14 +1917,14 @@ function ChatsPage() {
                     <Layers size={11} aria-hidden /> {t('chats.page.allChannels')}
                   </button>
                   {combined.channels.map((c) => {
-                    const isCurrent = !voiceOnly && !combinedOn && activeId?.channel === c.channel && activeId?.key === c.key
+                    const isCurrent = !voiceOnly && !combinedOn && sameThread(activeId, c)
                     return (
                       <button
-                        key={`${c.channel}-${c.key}`}
+                        key={threadIdentity(c)}
                         onClick={() => {
                           setCombinedOn(false)
                           setVoiceOnly(false)
-                          if (activeId?.channel !== c.channel || activeId?.key !== c.key) setActiveId({ channel: c.channel, key: c.key })
+                          if (!sameThread(activeId, c)) setActiveId({ channel: c.channel, key: c.key, thread_id: c.thread_id ?? null })
                         }}
                         className={`cb-switch ${isCurrent ? 'is-on' : ''}`}
                       >
@@ -2111,6 +2246,7 @@ function ChatsPage() {
                   <HandoverBanner
                     channel={activeId.channel}
                     threadKey={activeId.key}
+                    threadId={active.thread_id ?? activeId.thread_id}
                     handover={active.handover}
                     assignee={active.assignee}
                     me={meName}
@@ -2125,6 +2261,7 @@ function ChatsPage() {
                   <PendingDraftBanner
                     channel={activeId.channel}
                     threadKey={activeId.key}
+                    threadId={active?.thread_id ?? activeId.thread_id}
                     refreshToken={active?.messages.length}
                   />
                 )}

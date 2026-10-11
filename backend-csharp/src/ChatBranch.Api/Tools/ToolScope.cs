@@ -42,17 +42,50 @@ public static class ToolScope
         return true;
     }
 
-    /// <summary>The conversation, if it exists AND the caller may see it.</summary>
-    public static async Task<Thread> FindThreadAsync(ToolContext ctx, string channel, string key)
+    /// <summary>
+    /// The ONE conversation the caller means, if it exists AND they may see it — the same
+    /// rule as the dashboard (<see cref="ThreadResolver"/>): a customer has one conversation
+    /// per company, so when the caller sees several, <paramref name="threadId"/> or
+    /// <paramref name="company"/> must say which (else a 409 listing the candidates).
+    /// </summary>
+    public static async Task<Thread> FindThreadAsync(ToolContext ctx, string channel, string key,
+        int? threadId = null, string? company = null)
     {
         channel = channel.Trim().ToLowerInvariant();
         key = key.Trim();
-        var t = await ctx.Db.Threads.AsNoTracking().Include(x => x.Contact).Include(x => x.Account)
-            .FirstOrDefaultAsync(x => x.Channel == channel && x.Key == key);
+        var sc = ctx.Services.GetRequiredService<ScopingService>();
+        var pick = await ThreadResolver.ResolveAsync(ctx.Db, sc, ctx.User, channel,
+            ThreadResolver.KeyVariants(channel, key), threadId, company);
+        if (pick.Outcome == ThreadResolver.Outcome.Ambiguous)
+            throw new ToolException(
+                $"{channel}:{key} has a conversation with more than one company — pass thread_id (or company): "
+                + string.Join("; ", pick.Candidates.Select(c =>
+                    $"thread_id {c.ThreadId} = {(c.CompanyName.Length > 0 ? c.CompanyName : "no company")}"
+                    + (c.AccountName.Length > 0 ? $" via {c.AccountName}" : ""))), 409);
+        var t = pick.ThreadId is int id
+            ? await ctx.Db.Threads.AsNoTracking().Include(x => x.Contact).Include(x => x.Account)
+                .FirstOrDefaultAsync(x => x.Id == id)
+            : null;
         if (t == null || !await CanSeeThreadAsync(ctx, t))
             throw new ToolException($"No conversation {channel}:{key} in your scope.", 404);
         return t;
     }
+
+    /// <summary>The query that pins an internal endpoint call to this conversation.</summary>
+    public static Dictionary<string, string?> ThreadQuery(Thread t, IDictionary<string, string?>? more = null)
+    {
+        var q = new Dictionary<string, string?>(more ?? new Dictionary<string, string?>())
+        {
+            ["thread_id"] = t.Id.ToString(),
+        };
+        return q;
+    }
+
+    /// <summary>The optional disambiguators every conversation tool takes.</summary>
+    public const string ThreadIdHelp =
+        "Which conversation, when this customer has one with more than one company (thread_id as the conversation tools return it).";
+    public const string CompanyHelp =
+        "Or the company (its id or slug) whose conversation this is — a customer has one conversation per company.";
 
     /// <summary>
     /// Resolve an entity slug the caller asked for, refusing one outside what they

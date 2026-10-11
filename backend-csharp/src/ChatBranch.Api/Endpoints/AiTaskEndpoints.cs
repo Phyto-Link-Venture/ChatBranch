@@ -376,7 +376,7 @@ public static class AiTaskEndpoints
             status = r.Status,
             channel = r.Channel,
             key = r.ThreadKey,
-            chat_url = ShellScope.ChatUrl(r.Channel, r.ThreadKey),
+            chat_url = ShellScope.ChatUrl(r.Channel, r.ThreadKey, r.ThreadId),
             message_id = r.MessageId,
             message = ShellScope.Snip(text, 200),
             media_type = mediaType,

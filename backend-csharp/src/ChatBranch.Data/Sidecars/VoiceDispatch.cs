@@ -46,10 +46,21 @@ public static class VoiceDispatch
             entityId ??= await db.ContactEntities.AsNoTracking()
                 .Where(l => l.ContactId == contact.Id).OrderBy(l => l.Id)
                 .Select(l => (int?)l.EntityId).FirstOrDefaultAsync(ct);
-            if (contact.Tags.Count > 0) md["tags"] = contact.Tags;
-            AddRecord(md, await PrimaryRecordAsync(db, contact.Id, ct));
-            Put("memory", MemoryBlock(contact));
+            // only what the CALLING company may know: contact-level memory, records and the
+            // agent's own per-contact notes only when no other company's chats wrote them
+            var callCompany = scoping.CompanyOf(entityId);
+            var own = Contacts.ContactCompanies.MemoryAllowed(db, scoping, contact.Id, callCompany);
+            var tags = Contacts.ContactCompanies.VisibleTags(db, scoping, contact, callCompany, own);
+            if (tags.Count > 0) md["tags"] = tags;
+            if (own)
+            {
+                AddRecord(md, await PrimaryRecordAsync(db, contact.Id, ct));
+                Put("memory", MemoryBlock(contact));
+            }
+            else md["file_memory"] = false;
         }
+        // which outlet the call is for: the call record (and so the contact views) follow it
+        if (entityId is int callEntity) md["entity_id"] = callEntity;
         Put("contact_name", o.Name ?? contact?.Name);
         // "calling on behalf of …": the contact's company of record, else the business name.
         Put("company_name", contact?.CompanyName is { Length: > 0 } company ? company : scoping.SettingValue("business_name"));

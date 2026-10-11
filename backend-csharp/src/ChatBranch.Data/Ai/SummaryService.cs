@@ -135,33 +135,15 @@ public class SummaryService
         });
         // Durable memory: the contact's rolling profile is what the AI reads on
         // the next conversation (memory.build_context).
+        // It is CONTACT-level, so it is written only while every company this contact's data
+        // comes from is this conversation's own — one company's brief never becomes the
+        // profile another company's AI (or agent) reads.
+        var sc = new ScopingService(_db);
         var tracked = await _db.Contacts.FirstOrDefaultAsync(c => c.Id == contact.Id, ct);
-        if (tracked != null) { tracked.AiProfileSummary = Trim(text, 600); tracked.UpdatedAt = now; }
+        if (tracked != null && Contacts.ContactCompanies.MemoryAllowed(_db, sc, contact.Id, sc.ThreadCompany(thread)))
+        { tracked.AiProfileSummary = Trim(text, 600); tracked.UpdatedAt = now; }
         await _db.SaveChangesAsync(ct);
         return new Brief(text, heuristic, count, asOf, now);
-    }
-
-    /// <summary>
-    /// Free-form brief for the contact page (name/phone + a record blob rather
-    /// than one thread) — every interaction the CRM knows about, condensed.
-    /// </summary>
-    public async Task<(string summary, bool heuristic, int eventCount)> ForContactAsync(
-        Contact contact, CancellationToken ct = default)
-    {
-        var messages = _db.Messages.AsNoTracking().Include(m => m.Thread)
-            .Where(m => m.Thread != null && m.Thread.ContactId == contact.Id && !m.Private)
-            .OrderByDescending(m => m.Id).Take(60).ToList();
-        messages.Reverse();
-        var calls = _db.CallRecords.AsNoTracking().Count(c => c.ContactId == contact.Id);
-        var eventCount = messages.Count + calls;
-        if (eventCount == 0)
-            return ("No interactions recorded yet for this contact.", true, 0);
-
-        var transcript = string.Join("\n", messages.Select(m =>
-            $"{(m.Direction == MessageDirection.In ? "Customer" : "Us")} [{m.Thread?.Channel ?? ""}]: {Trim(Voice.VoiceTranscriber.Display(m), 260)}"));
-        if (calls > 0) transcript += $"\n({calls} voice call(s) on record.)";
-        var (text, heuristic) = await SummariseAsync(transcript, contact, "", ct);
-        return (text, heuristic, eventCount);
     }
 
     private async Task<(string text, bool heuristic)> SummariseAsync(string transcript,
@@ -220,7 +202,9 @@ public class SummaryService
                + "No AI provider is configured, so this is a plain recap rather than an analysis.";
     }
 
-    private static string RefFor(Thread thread) => $"{thread.Channel}:{thread.Key}";
+    // one brief per CONVERSATION (its id): another company's chat with the same customer
+    // shares the channel + key, never the brief
+    private static string RefFor(Thread thread) => Stores.ThreadCompanies.SummaryRef(thread.Id);
 
     private static string Trim(string s, int max) =>
         string.IsNullOrEmpty(s) ? "" : (s.Length <= max ? s : s[..max] + "…");

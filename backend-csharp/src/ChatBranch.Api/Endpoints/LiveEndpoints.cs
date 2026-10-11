@@ -57,18 +57,19 @@ public static class LiveEndpoints
                     .OrderByDescending(t => t.UpdatedAt).Take(ListLimit)
                     .Select(t => new
                     {
-                        t.Channel, t.Key, t.Name, t.Address, t.CallStatus, t.CallRoom, t.UpdatedAt,
+                        t.Id, t.Channel, t.Key, t.Name, t.Address, t.CallStatus, t.CallRoom, t.UpdatedAt,
                         ContactName = t.Contact != null ? t.Contact.Name : null,
                     }).ToListAsync();
                 activeCalls = calls.Select(c => (object)new
                 {
                     channel = c.Channel,
                     key = c.Key,
+                    thread_id = c.Id,
                     name = Who(c.ContactName, c.Name, c.Address, c.Key),
                     status = c.CallStatus,
                     room = c.CallRoom,
                     since = Iso(c.UpdatedAt),
-                    url = ShellScope.ChatUrl(c.Channel, c.Key),
+                    url = ShellScope.ChatUrl(c.Channel, c.Key, c.Id),
                 }).ToList();
                 activeCallCount = await scoped.CountAsync(t => LiveCallStates.Contains(t.CallStatus));
                 needsHumanCount = await scoped.CountAsync(t => t.HandoverAt != null && t.HandoverResolvedAt == null);
@@ -113,12 +114,13 @@ public static class LiveEndpoints
                     {
                         channel = x.w.Channel,
                         key = x.w.Key,
+                        thread_id = x.w.Id,
                         name = Who(x.w.ContactName, x.w.Name, x.w.Address, x.w.Key),
                         preview = ShellScope.Snip(x.w.LastIn?.Text, 80),
                         assignee = x.w.Assignee,
                         waiting_since = Iso(x.since),
                         waiting_seconds = (long)Math.Max(0, (now - Utc(x.since)).TotalSeconds),
-                        url = ShellScope.ChatUrl(x.w.Channel, x.w.Key),
+                        url = ShellScope.ChatUrl(x.w.Channel, x.w.Key, x.w.Id),
                     }).ToList();
 
                 // ---- feed: recent messages in scope
@@ -127,7 +129,7 @@ public static class LiveEndpoints
                     .OrderByDescending(m => m.CreatedAt).ThenByDescending(m => m.Id).Take(RecentLimit)
                     .Select(m => new
                     {
-                        m.Id, m.Direction, m.Source, m.Text, m.CreatedAt,
+                        m.Id, m.Direction, m.Source, m.Text, m.CreatedAt, m.ThreadId,
                         Channel = m.Thread!.Channel, Key = m.Thread.Key, Name = m.Thread.Name,
                         Address = m.Thread.Address,
                         ContactName = m.Thread.Contact != null ? m.Thread.Contact.Name : null,
@@ -145,7 +147,7 @@ public static class LiveEndpoints
                         direction = m.Direction,
                         channel = m.Channel,
                         at = Iso(m.CreatedAt),
-                        url = ShellScope.ChatUrl(m.Channel, m.Key),
+                        url = ShellScope.ChatUrl(m.Channel, m.Key, m.ThreadId),
                     }));
                 }
 

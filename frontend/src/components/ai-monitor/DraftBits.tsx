@@ -60,7 +60,9 @@ export function displayName(d: Draft): string {
 }
 
 export function chatHref(d: Draft): string {
-  return `/chats?channel=${encodeURIComponent(d.channel)}&key=${encodeURIComponent(d.thread_key)}`
+  // + thread_id: a customer has one conversation per company under that channel + key
+  const id = d.thread?.id
+  return `/chats?channel=${encodeURIComponent(d.channel)}&key=${encodeURIComponent(d.thread_key)}${id ? `&thread_id=${id}` : ''}`
 }
 
 /** Contact · channel logo · account · entity · kind · age */

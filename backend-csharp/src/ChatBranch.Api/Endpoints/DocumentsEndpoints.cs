@@ -35,12 +35,17 @@ namespace ChatBranch.Api.Endpoints;
 /// </summary>
 public static class DocumentsEndpoints
 {
-    public record CreateBody(string? Channel, string? Key, string? Type, bool? Send, JsonElement? Fields);
+    /// <summary><c>thread_id</c> / <c>company</c>: which conversation, when the customer has one with
+    /// several companies the caller sees (one per company).</summary>
+    public record CreateBody(string? Channel, string? Key, string? Type, bool? Send, JsonElement? Fields,
+        [property: System.Text.Json.Serialization.JsonPropertyName("thread_id")] int? ThreadId = null,
+        string? Company = null);
 
     public static void MapDocumentsEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/documents", async (string? thread, int? contact_id, string? type, string? status,
-            string? entity, int? limit, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
+        app.MapGet("/api/documents", async (string? thread, int? thread_id, string? company, int? contact_id,
+            string? type, string? status, string? entity, int? limit, AppDbContext db, ScopingService sc,
+            ClaimsPrincipal me) =>
         {
             var picked = await InboxEndpoints.EntityId(db, entity);
             var ids = ShellScope.ThreadEntityIds(db, sc, me, picked);
@@ -55,15 +60,20 @@ public static class DocumentsEndpoints
                     return Results.Json(new { detail = $"status must be one of {string.Join(", ", DocumentStatus.All)}." }, statusCode: 400);
                 q = q.Where(d => wanted.Contains(d.Status));
             }
-            if (!string.IsNullOrWhiteSpace(thread))
+            if (!string.IsNullOrWhiteSpace(thread) || thread_id != null)
             {
-                var at = thread.IndexOf(':');
-                if (at <= 0) return Results.Json(new { detail = "thread must be <channel>:<key>." }, statusCode: 400);
-                var ch = thread[..at];
-                var key = thread[(at + 1)..];
-                var tid = await db.Threads.AsNoTracking().Where(t => t.Channel == ch && t.Key == key)
-                    .Select(t => (int?)t.Id).FirstOrDefaultAsync();
-                if (tid == null) return Results.Ok(new { documents = Array.Empty<object>() });
+                var at = (thread ?? "").IndexOf(':');
+                if (thread_id == null && at <= 0)
+                    return Results.Json(new { detail = "thread must be <channel>:<key>." }, statusCode: 400);
+                var ch = at > 0 ? thread![..at] : null;
+                var key = at > 0 ? thread![(at + 1)..] : null;
+                // the caller's ONE conversation (one per company: thread_id / company say which)
+                var pick = await ThreadResolver.ResolveAsync(db, sc, me,
+                    ch ?? await db.Threads.AsNoTracking().Where(t => t.Id == thread_id).Select(t => t.Channel)
+                        .FirstOrDefaultAsync() ?? "",
+                    key == null ? Array.Empty<string>() : ThreadResolver.KeyVariants(ch!, key), thread_id, company);
+                if (ThreadResolver.Refusal(pick) is { } refused) return refused;
+                if (pick.ThreadId is not int tid) return Results.Ok(new { documents = Array.Empty<object>() });
                 q = q.Where(d => d.ThreadId == tid);
             }
             var rows = await q.OrderByDescending(d => d.Id).Take(Math.Clamp(limit ?? 100, 1, 500)).ToListAsync();
@@ -98,14 +108,13 @@ public static class DocumentsEndpoints
 
         // what the operator's create form needs for a conversation: per document type, the
         // Documents skill POST /api/documents would use and the custom layout's own fields
-        app.MapGet("/api/documents/form", async (string? channel, string? key, AppDbContext db, ScopingService sc,
-            ClaimsPrincipal me, SkillService skills) =>
+        app.MapGet("/api/documents/form", async (string? channel, string? key, int? thread_id, string? company,
+            AppDbContext db, ScopingService sc, ClaimsPrincipal me, SkillService skills) =>
         {
             var ch = (channel ?? "").Trim().ToLowerInvariant();
-            var k = (key ?? "").Trim();
-            var thread = await db.Threads.AsNoTracking().FirstOrDefaultAsync(t => t.Channel == ch && t.Key == k);
-            if (thread == null || !ThreadAccessFilter.InScope(db, sc, me, thread.EntityId))
-                return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
+            var (refused, thread) = await ThreadResolver.FindAsync(db, sc, me, ch, key, thread_id, company);
+            if (refused != null || thread == null)
+                return refused ?? Results.Json(new { detail = "Thread not found." }, statusCode: 404);
             var apps = skills.InScope(thread.EntityId, thread.Channel)
                 .Where(s => s.Kind == SkillKinds.App && AppSkills.AppOf(s.Config) == AppSkills.Documents)
                 .Select(s => (Skill: s, Cfg: DocumentAppConfig.From(s.Config))).ToList();
@@ -139,10 +148,10 @@ public static class DocumentsEndpoints
         {
             var channel = (body.Channel ?? "").Trim().ToLowerInvariant();
             var key = (body.Key ?? "").Trim();
-            var thread = await db.Threads.Include(t => t.Contact)
-                .FirstOrDefaultAsync(t => t.Channel == channel && t.Key == key);
-            if (thread == null || !ThreadAccessFilter.InScope(db, sc, me, thread.EntityId))
-                return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
+            // the caller's ONE conversation (one per company: thread_id / company say which)
+            var (refused, thread) = await ThreadResolver.FindAsync(db, sc, me, channel, key, body.ThreadId, body.Company);
+            if (refused != null || thread == null)
+                return refused ?? Results.Json(new { detail = "Thread not found." }, statusCode: 404);
             var type = (body.Type ?? "").Trim().ToLowerInvariant();
             if (!DocumentAppConfig.AllActions.Contains(type))
                 return Results.Json(new { detail = "type must be invoice, quotation, receipt or letter." }, statusCode: 400);

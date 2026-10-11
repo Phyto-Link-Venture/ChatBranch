@@ -238,6 +238,13 @@ export const chats: Dict<typeof source> = {
     gaveUpSaid: 'Pelanggan tidak dikenali tidak memberitahu siapa mereka ({said})',
     createContact: 'Cipta kenalan',
   },
+  company: {
+    rowHint: 'Perbualan {name} — seorang pelanggan mempunyai satu perbualan bagi setiap syarikat',
+    pickTitle: 'Perbualan syarikat yang mana?',
+    pickHint:
+      'Pelanggan ini mempunyai perbualan dengan lebih daripada satu syarikat. Pilih yang ingin dibuka — perbualan itu disimpan berasingan.',
+    none: 'Tiada syarikat',
+  },
   draft: {
     title: 'Balasan AI menunggu semakan',
     approveSend: 'Luluskan & hantar',

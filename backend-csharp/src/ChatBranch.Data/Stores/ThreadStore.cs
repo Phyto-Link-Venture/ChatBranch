@@ -1,3 +1,4 @@
+using ChatBranch.Data.Contacts;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 using Thread = ChatBranch.Domain.Thread;
@@ -37,17 +38,194 @@ public class ThreadStore
         return q.OrderByDescending(t => t.UpdatedAt).Take(limit).ToList();
     }
 
-    public Thread? GetThread(string channel, string key) =>
-        _db.Threads.Include(t => t.Contact).Include(t => t.Account)
-            .FirstOrDefault(t => t.Channel == channel && t.Key == key);
+    private IQueryable<Thread> Tracked() => _db.Threads.Include(t => t.Contact).Include(t => t.Account);
 
-    /// <summary>Get or create the thread for a (channel, key). Syncs entity attribution.</summary>
+    /// <summary>A conversation by its id (account + contact loaded), else null.</summary>
+    public Thread? ById(int id) => Tracked().FirstOrDefault(t => t.Id == id);
+
+    /// <summary>
+    /// Every conversation with this (channel, key): one per company that talks to
+    /// the customer, plus at most one unattributed. A caller holding a person's
+    /// scope, an account or a company picks ONE of them — never "the first".
+    /// </summary>
+    public List<Thread> AllFor(string channel, string key) =>
+        Tracked().Where(t => t.Channel == channel && t.Key == key).OrderBy(t => t.Id).ToList();
+
+    /// <summary>
+    /// The conversation a message on (channel, key) belongs to when it arrives on
+    /// (or leaves through) <paramref name="accountId"/>:
+    /// <list type="bullet">
+    ///   <item>a number of company C → C's own conversation (an unattributed one —
+    ///         no company, no entity — is nobody's yet, so C takes it);</item>
+    ///   <item>an organization-wide number → the conversation already on that number,
+    ///         else the unattributed one;</item>
+    ///   <item>no account (the env default number, the sandbox) → the unattributed
+    ///         conversation, else the customer's only one.</item>
+    /// </list>
+    /// Never another company's conversation. Null = none yet.
+    /// </summary>
+    public Thread? FindForAccount(string channel, string key, int? accountId)
+    {
+        var q = Tracked().Where(t => t.Channel == channel && t.Key == key);
+        if (_scoping.AccountCompany(accountId) is int company)
+            return q.FirstOrDefault(t => t.CompanyEntityId == company)
+                   ?? q.FirstOrDefault(t => t.CompanyEntityId == null && t.EntityId == null);
+        if (accountId is int aid)
+            return q.Where(t => t.AccountId == aid).OrderByDescending(t => t.UpdatedAt).FirstOrDefault()
+                   ?? q.FirstOrDefault(t => t.CompanyEntityId == null);
+        var unattributed = q.FirstOrDefault(t => t.CompanyEntityId == null);
+        if (unattributed != null) return unattributed;
+        var all = q.Take(2).ToList();
+        return all.Count == 1 ? all[0] : null;
+    }
+
+    /// <summary>
+    /// The conversation of (channel, key) in a company: that company's own, else an
+    /// unattributed one with no entity (which the company may adopt). Null company =
+    /// the unattributed conversation.
+    /// </summary>
+    public Thread? FindInCompany(string channel, string key, int? companyId)
+    {
+        var q = Tracked().Where(t => t.Channel == channel && t.Key == key);
+        return companyId is int c
+            ? q.FirstOrDefault(t => t.CompanyEntityId == c)
+              ?? q.FirstOrDefault(t => t.CompanyEntityId == null && t.EntityId == null)
+            : q.FirstOrDefault(t => t.CompanyEntityId == null);
+    }
+
+    /// <summary>
+    /// Get or create the conversation for a message on (channel, key) arriving on
+    /// (or sent from) <paramref name="accountId"/> — FOR THAT NUMBER'S COMPANY
+    /// (<see cref="FindForAccount"/>): a customer writing to a second company's
+    /// number gets that company's own, new conversation. Syncs entity attribution.
+    /// </summary>
     public Thread GetOrCreateThread(string channel, string key, string? name = null,
         int? accountId = null, int? contactId = null)
     {
-        var thread = _db.Threads
-            .Include(t => t.Account).Include(t => t.Contact)
-            .FirstOrDefault(t => t.Channel == channel && t.Key == key);
+        var thread = FindForAccount(channel, key, accountId);
+        var company = _scoping.AccountCompany(accountId);
+        return Settle(thread, channel, key, company, name, accountId, contactId, entityHint: null);
+    }
+
+    /// <summary>
+    /// Get or create the conversation of (channel, key) in a KNOWN company (an
+    /// operator starting a chat, a flow, a queued job): that company's own, else a new
+    /// one there. <paramref name="entityHint"/> files a brand-new conversation under
+    /// that entity when nothing else (account, contact) decides it.
+    /// </summary>
+    public Thread GetOrCreateInCompany(string channel, string key, int? companyId, string? name = null,
+        int? accountId = null, int? contactId = null, int? entityHint = null)
+    {
+        companyId ??= _scoping.CompanyOf(entityHint);
+        var thread = FindInCompany(channel, key, companyId);
+        return Settle(thread, channel, key, companyId, name, accountId, contactId, entityHint);
+    }
+
+    // ---- queued jobs ------------------------------------------------------------
+
+    /// <summary>The payload key that pins a queued job to its conversation.</summary>
+    public const string JobThreadKey = "thread_id";
+
+    /// <summary>The conversation id a job's payload pins, else null.</summary>
+    public static int? JobThreadId(OutboundJob job) =>
+        Ai.AiGate.Num(job.Payload, JobThreadKey) is double d ? (int)d : null;
+
+    /// <summary>The conversation a queued job belongs to — never creates one (dry runs, cancellations).</summary>
+    public Thread? FindForJob(OutboundJob job) => ResolveJob(job, create: false);
+
+    /// <summary>The conversation a queued job is delivered into, created in the job's company when it has none yet.</summary>
+    public Thread GetOrCreateForJob(OutboundJob job) => ResolveJob(job, create: true)!;
+
+    /// <summary>
+    /// A WhatsApp job may be addressed to the contact's "+60…" phone while the
+    /// conversation is keyed by the digits-only wa_id: an existing thread under the
+    /// literal address wins, else the digits key.
+    /// </summary>
+    public string JobKey(OutboundJob job)
+    {
+        if (job.Channel != Domain.Channels.WhatsApp) return job.ToAddress;
+        var digits = PhoneMatch.Digits(job.ToAddress);
+        if (digits.Length == 0 || digits == job.ToAddress) return job.ToAddress;
+        var literal = _db.Threads.AsNoTracking().Any(t => t.Channel == job.Channel && t.Key == job.ToAddress);
+        return literal ? job.ToAddress : digits;
+    }
+
+    /// <summary>
+    /// Which conversation a queued job goes into — resolved within ONE company,
+    /// never "the first thread with that address":
+    /// <list type="number">
+    ///   <item>the conversation its payload pins (<c>thread_id</c> — every job made from a conversation carries it);</item>
+    ///   <item>the company it was queued for: payload <c>company_id</c>, else its journey's (the
+    ///         journey's entity, else the conversation that started / last answered the run);</item>
+    ///   <item>the number it is bound to (its account's company);</item>
+    ///   <item>the contact's own conversation on that address, else the contact's one company;</item>
+    ///   <item>the customer's only conversation, else the unattributed one.</item>
+    /// </list>
+    /// </summary>
+    private Thread? ResolveJob(OutboundJob job, bool create)
+    {
+        if (JobThreadId(job) is int tid && ById(tid) is { } pinned && pinned.Channel == job.Channel) return pinned;
+        var key = JobKey(job);
+        var (known, company) = JobCompany(job);
+        if (known)
+            return create
+                ? GetOrCreateInCompany(job.Channel, key, company, accountId: job.AccountId, contactId: job.ContactId)
+                : FindInCompany(job.Channel, key, company);
+        if (job.AccountId is int aid)
+            return create
+                ? GetOrCreateThread(job.Channel, key, accountId: aid, contactId: job.ContactId)
+                : FindForAccount(job.Channel, key, aid);
+        var all = AllFor(job.Channel, key);
+        if (job.ContactId is int cid)
+        {
+            var linked = all.Where(t => t.ContactId == cid).ToList();
+            if (linked.Count == 1) return linked[0];
+            var companies = ContactCompanies.LinkCompanies(_db, _scoping, cid);
+            if (companies.Count == 1)
+                return create
+                    ? GetOrCreateInCompany(job.Channel, key, companies.First(), contactId: cid)
+                    : FindInCompany(job.Channel, key, companies.First());
+        }
+        if (all.Count == 1) return all[0];
+        var unattributed = all.FirstOrDefault(t => t.CompanyEntityId == null);
+        if (unattributed != null || !create) return unattributed;
+        return GetOrCreateInCompany(job.Channel, key, null, contactId: job.ContactId);
+    }
+
+    /// <summary>The company a job was queued for, when it says (payload / its journey).</summary>
+    public (bool Known, int? Company) JobCompany(OutboundJob job)
+    {
+        if (job.Payload.ContainsKey("company_id"))
+            return (true, Ai.AiGate.Num(job.Payload, "company_id") is double c ? (int)c : null);
+        if (job.FlowRunId is not int rid) return (false, null);
+        var run = _db.FlowRuns.AsNoTracking().FirstOrDefault(r => r.Id == rid);
+        if (run == null) return (false, null);
+        var wfEntity = _db.Workflows.AsNoTracking().Where(w => w.Id == run.WorkflowId)
+            .Select(w => w.EntityId).FirstOrDefault();
+        if (wfEntity != null) return (true, _scoping.CompanyOf(wfEntity));
+        foreach (var k in new[] { "last_reply_thread_id", "trigger_thread_id" })
+            if (Ai.AiGate.Num(run.Context, k) is double d
+                && _db.Threads.AsNoTracking().FirstOrDefault(t => t.Id == (int)d) is { } t && t.Channel == job.Channel)
+                return (true, _scoping.ThreadCompany(t));
+        return (false, null);
+    }
+
+    /// <summary>Does this queued job belong to <paramref name="thread"/> (cancellations, throttles, debounce)?</summary>
+    public bool JobBelongsTo(OutboundJob job, Thread thread)
+    {
+        if (JobThreadId(job) is int tid) return tid == thread.Id;
+        try { return FindForJob(job)?.Id == thread.Id; }
+        catch { return false; }
+    }
+
+    private Thread Settle(Thread? thread, string channel, string key, int? company, string? name,
+        int? accountId, int? contactId, int? entityHint)
+    {
+        // nothing crosses companies: a number or a contact of another company is never adopted
+        if (accountId is int a && !ScopingService.SameCompanyOrShared(company, _scoping.AccountCompany(a)))
+            accountId = null;
+        if (contactId is int cid && !ContactCompanies.MayLink(_db, _scoping, cid, company))
+            contactId = null;
         if (thread == null)
         {
             thread = new Thread
@@ -59,6 +237,8 @@ public class ThreadStore
                 Status = ThreadStatus.Open,
                 AccountId = accountId,
                 ContactId = contactId,
+                CompanyEntityId = company,
+                EntityId = entityHint is int h && (company == null || _scoping.CompanyOf(h) == company) ? h : null,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
             };
@@ -73,8 +253,18 @@ public class ThreadStore
             // when it has none yet — "the number that receives a message decides
             // attribution" (crm/scoping). Never overrides an existing binding.
             var dirty = false;
-            if (thread.AccountId == null && accountId != null) { thread.AccountId = accountId; dirty = true; }
-            if (thread.ContactId == null && contactId != null) { thread.ContactId = contactId; dirty = true; }
+            if (thread.CompanyEntityId == null && thread.EntityId == null && company != null)
+            {
+                // an unattributed conversation becomes the receiving company's
+                thread.CompanyEntityId = company;
+                dirty = true;
+            }
+            var mine = _scoping.ThreadCompany(thread);
+            if (thread.AccountId == null && accountId is int acc
+                && ScopingService.SameCompanyOrShared(mine, _scoping.AccountCompany(acc)))
+            { thread.AccountId = acc; dirty = true; }
+            if (thread.ContactId == null && contactId is int c && ContactCompanies.MayLink(_db, _scoping, c, mine))
+            { thread.ContactId = c; dirty = true; }
             if (dirty)
             {
                 thread.UpdatedAt = DateTime.UtcNow;

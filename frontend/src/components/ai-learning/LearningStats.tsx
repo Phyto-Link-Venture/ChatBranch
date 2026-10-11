@@ -362,7 +362,7 @@ export function LearningStats({ entityQuery, days }: { entityQuery: string; days
               ) : (
                 <ul className="flex flex-col divide-y divide-line">
                   {stats.gaps.map((g, i) => {
-                    const href = threadHref(g.thread)
+                    const href = threadHref(g.thread, g.thread_id)
                     return (
                       <li key={`${g.topic}-${i}`} className="flex flex-col gap-1.5 py-2.5 first:pt-0 last:pb-0 sm:flex-row sm:items-start sm:gap-3">
                         <Lightbulb size={15} className="mt-0.5 hidden shrink-0 text-text-faint sm:block" aria-hidden />

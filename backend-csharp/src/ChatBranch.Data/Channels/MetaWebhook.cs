@@ -379,7 +379,10 @@ public static class MetaWebhook
     public static int ApplyMessagingReceipt(AppDbContext db, MessagingEvent ev)
     {
         var target = ev.Kind == "read" ? "read" : "delivered";
-        var thread = db.Threads.FirstOrDefault(t => t.Channel == ev.Channel && t.Key == ev.SenderId);
+        // the page's own conversation (its company's), never another company's chat with that sender
+        var account = db.ChannelAccounts.AsNoTracking()
+            .FirstOrDefault(a => a.Channel == ev.Channel && a.ExternalId == ev.PageId);
+        var thread = new Stores.ThreadStore(db, new ScopingService(db)).FindForAccount(ev.Channel, ev.SenderId, account?.Id);
         if (thread == null) return 0;
         var q = db.Messages.Where(m => m.ThreadId == thread.Id && m.Direction == MessageDirection.Out
                                        && m.ExternalId != "");

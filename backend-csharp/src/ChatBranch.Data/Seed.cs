@@ -383,6 +383,12 @@ public static class Seed
             + "\"used_at\" TEXT NULL, \"revoked_at\" TEXT NULL, "
             + "CONSTRAINT \"uniq_passwordtoken_hash\" UNIQUE (\"token_hash\")");
         AddIndexIfMissing(db, "ix_passwordtoken_user", "crm_passwordtoken", "\"user_id\"");
+        // one conversation per customer PER COMPANY (incident 2026-10-11): the stored
+        // company, its backfill, and (channel, key) → (channel, key, company) uniqueness
+        AddColumnIfMissing(db, "crm_thread", "company_entity_id", "INTEGER NULL");
+        // a call's outlet (stamped from the dispatch) — contact views show only the caller's calls
+        AddColumnIfMissing(db, "crm_callrecord", "entity_id", "INTEGER NULL");
+        Stores.ThreadCompanies.Upgrade(db);
     }
 
     /// <summary>A partial UNIQUE index EnsureCreated() will never add to an existing

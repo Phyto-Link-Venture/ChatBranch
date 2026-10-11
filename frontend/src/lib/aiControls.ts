@@ -197,11 +197,21 @@ export interface HandoverActionResult {
   handover: UiHandover | null
 }
 
-export const handoverAction = (channel: string, key: string, action: 'take' | 'continue' | 'flag', reason?: string) =>
-  aiControlsApi<HandoverActionResult>(`inbox/threads/${channel}/${encodeURIComponent(key)}/handover`, {
-    method: 'POST',
-    body: JSON.stringify({ action, reason }),
-  })
+export const handoverAction = (
+  channel: string,
+  key: string,
+  action: 'take' | 'continue' | 'flag',
+  reason?: string,
+  /** which company's conversation (a customer has one per company) */
+  threadId?: number | null,
+) =>
+  aiControlsApi<HandoverActionResult>(
+    `inbox/threads/${channel}/${encodeURIComponent(key)}/handover${threadId ? `?thread_id=${threadId}` : ''}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ action, reason }),
+    },
+  )
 
 export interface HandoverStats {
   days: number
@@ -232,9 +242,10 @@ export interface BulkResult {
   skipped: string[]
 }
 
-/** Picked rows (`channel:key`) or everything the list's current filter matches. */
+/** Picked conversations (by id — a customer has one per company — or the older
+ *  `channel:key`) or everything the list's current filter matches. */
 export const bulkThreads = (
-  target: { threads: string[] } | { filter: Record<string, string> },
+  target: { thread_ids: number[] } | { threads: string[] } | { filter: Record<string, string> },
   action: BulkAction,
   value?: string,
 ) =>

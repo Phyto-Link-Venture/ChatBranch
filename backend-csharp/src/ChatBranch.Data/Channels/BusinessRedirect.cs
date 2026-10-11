@@ -70,6 +70,7 @@ public static class BusinessRedirect
             {
                 ["redirect"] = true, ["target"] = target,
                 ["account_id"] = rid, ["source"] = "system",
+                [Stores.ThreadStore.JobThreadKey] = thread.Id,
             };
             var kind = JobKind.Text;
             var template = sc.SettingValue("business_redirect_template", thread.EntityId).Trim();
@@ -108,12 +109,15 @@ public static class BusinessRedirect
     public static bool RecentlyRedirected(AppDbContext db, Thread thread, DateTime now)
     {
         var since = now.AddHours(-ThrottleHours);
-        var digits = PhoneMatch.Digits(thread.Key);
+        var nums = PhoneMatch.Digits(thread.Key);
+        var store = new Stores.ThreadStore(db, new ScopingService(db));
+        // THIS conversation's redirects only — another company's chat with the customer has its own throttle
         return db.OutboundJobs.AsNoTracking()
             .Where(j => j.Channel == thread.Channel && j.CreatedAt >= since)
             .ToList()
-            .Any(j => (j.ToAddress == thread.Key || (digits.Length > 0 && PhoneMatch.Digits(j.ToAddress) == digits))
-                      && j.Payload.TryGetValue("redirect", out var r) && IsTrue(r));
+            .Any(j => (j.ToAddress == thread.Key || (nums.Length > 0 && PhoneMatch.Digits(j.ToAddress) == nums))
+                      && j.Payload.TryGetValue("redirect", out var r) && IsTrue(r)
+                      && store.JobBelongsTo(j, thread));
     }
 
     private static string FirstName(Contact? c)

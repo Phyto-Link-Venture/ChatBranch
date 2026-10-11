@@ -118,10 +118,13 @@ public static class MoreChannelWebhookEndpoints
     {
         if (key.Length == 0) return null;
         var channel = account.Channel;
-        if (externalId.Length > 0 && db.Messages.Any(m => m.ExternalId == externalId
-                                                          && m.Thread!.Channel == channel && m.Thread.Key == key))
+        // a redelivery: the provider id already on THIS account's conversation (ids count per
+        // account on some providers — another company's account may hold the same one)
+        if (externalId.Length > 0
+            && new ThreadStore(db, new ScopingService(db)).FindForAccount(channel, key, account.Id) is { } mine
+            && db.Messages.Any(m => m.ThreadId == mine.Id && m.ExternalId == externalId))
             return null;
-        var code = MoreChannels.CleanRef(refPayload) ?? PendingRef.Take(db, channel, key);
+        var code = MoreChannels.CleanRef(refPayload) ?? PendingRef.Take(db, channel, key, account.Id);
         var body = code != null ? $"[ref:{code}] {text}" : text;
         var msg = processor.ProcessInbound(channel, key, body, name, account.Id, externalId, ts);
         account.LastInboundAt = DateTime.UtcNow;
@@ -169,7 +172,7 @@ public static class MoreChannelWebhookEndpoints
                 using var scope = scopes.CreateScope();
                 var sp = scope.ServiceProvider;
                 var db = sp.GetRequiredService<AppDbContext>();
-                var thread = await db.Threads.FirstOrDefaultAsync(t => t.Channel == channel && t.Key == key);
+                var thread = sp.GetRequiredService<ThreadStore>().FindForAccount(channel, key, accountId);
                 var account = await db.ChannelAccounts.FirstOrDefaultAsync(a => a.Id == accountId);
                 if (thread == null || account == null || (thread.Name.Length > 0 && thread.Name != key)) return;
                 var name = (await lookup(sp, account)).Trim();
@@ -183,10 +186,12 @@ public static class MoreChannelWebhookEndpoints
     }
 
     /// <summary>A platform follow / unfollow / unsubscribe on a conversation we already have.</summary>
-    private static void OptState(AppDbContext db, ThreadStore threads, string channel, string key, bool optOut,
+    private static void OptState(AppDbContext db, ThreadStore threads, ChannelAccount account, string key, bool optOut,
         string reason)
     {
-        var thread = db.Threads.FirstOrDefault(t => t.Channel == channel && t.Key == key);
+        // THIS account's conversation: a follow / unfollow of one company's account never
+        // opts the customer out of (or back into) another company's
+        var thread = threads.FindForAccount(account.Channel, key, account.Id);
         if (thread != null) ChannelOptOut.Set(db, threads, thread, optOut, reason);
     }
 
@@ -220,11 +225,11 @@ public static class MoreChannelWebhookEndpoints
                 switch (e.Type)
                 {
                     case "follow":
-                        OptState(db, threads, ChannelIds.Line, e.UserId, false, "added the account as a friend again");
+                        OptState(db, threads, account, e.UserId, false, "added the account as a friend again");
                         line?.RememberReplyToken(account.Id, e.UserId, e.ReplyToken);
                         continue;
                     case "unfollow":
-                        OptState(db, threads, ChannelIds.Line, e.UserId, true, "blocked the account");
+                        OptState(db, threads, account, e.UserId, true, "blocked the account");
                         continue;
                 }
                 // remembered first, so an instant AI answer replies for free
@@ -264,10 +269,10 @@ public static class MoreChannelWebhookEndpoints
                     if (msg != null && e.Media is { } media) AttachLater(scopes, account.Id, msg.Id, media);
                     break;
                 case "subscribed":
-                    OptState(db, threads, ChannelIds.Viber, e.UserKey, false, "subscribed again");
+                    OptState(db, threads, account, e.UserKey, false, "subscribed again");
                     break;
                 case "unsubscribed":
-                    OptState(db, threads, ChannelIds.Viber, e.UserKey, true, "unsubscribed");
+                    OptState(db, threads, account, e.UserKey, true, "unsubscribed");
                     break;
                 case "conversation_started":
                     // an invite link's context: kept until their first real message carries it
@@ -281,7 +286,7 @@ public static class MoreChannelWebhookEndpoints
                 case "delivered":
                 case "seen":
                 case "failed":
-                    Tick(db, e);
+                    Tick(db, e, account.Id);
                     break;
             }
         }
@@ -290,11 +295,12 @@ public static class MoreChannelWebhookEndpoints
     }
 
     /// <summary>A delivery receipt on our message: forward-only sent → delivered → read; failed keeps Viber's reason.</summary>
-    private static void Tick(AppDbContext db, ViberEvent e)
+    private static void Tick(AppDbContext db, ViberEvent e, int accountId)
     {
         if (e.MessageToken.Length == 0 || e.UserKey.Length == 0) return;
         var msg = db.Messages.Include(m => m.Thread).FirstOrDefault(m => m.ExternalId == e.MessageToken
-            && m.Direction == MessageDirection.Out && m.Thread!.Channel == ChannelIds.Viber && m.Thread.Key == e.UserKey);
+            && m.Direction == MessageDirection.Out && m.Thread!.Channel == ChannelIds.Viber && m.Thread.Key == e.UserKey
+            && (m.AccountId == accountId || (m.AccountId == null && m.Thread.AccountId == accountId)));
         if (msg == null) return;
         var rank = new Dictionary<string, int> { ["sent"] = 1, ["delivered"] = 2, ["read"] = 3 };
         var next = e.Event switch { "seen" => "read", "delivered" => "delivered", _ => "failed" };
@@ -338,9 +344,9 @@ public static class MoreChannelWebhookEndpoints
                 sms.MessageSid, null);
             // Twilio's own opt-out handling (Advanced Opt-Out keywords, including custom ones)
             if (sms.OptOutType == "STOP")
-                OptState(db, threads, ChannelIds.Sms, key, true, "texted an opt-out keyword");
+                OptState(db, threads, account, key, true, "texted an opt-out keyword");
             else if (sms.OptOutType == "START")
-                OptState(db, threads, ChannelIds.Sms, key, false, "texted an opt-in keyword");
+                OptState(db, threads, account, key, false, "texted an opt-in keyword");
             if (msg != null && sms.Media.Count > 0) AttachLater(scopes, account.Id, msg.Id, sms.Media[0]);
         }
         catch { /* Twilio must still get its 200 */ }
@@ -419,7 +425,7 @@ public static class MoreChannelWebhookEndpoints
             {
                 case "subscribe":
                     // back from an unfollow: allowed again BEFORE anything answers them
-                    OptState(db, threads, ChannelIds.WeChat, push.OpenId, false, "followed the account again");
+                    OptState(db, threads, account, push.OpenId, false, "followed the account again");
                     Ingest(db, processor, account, push.OpenId, push.Text, name, push.ExternalId, push.Timestamp, push.Ref);
                     break;
                 case "scan":
@@ -429,7 +435,7 @@ public static class MoreChannelWebhookEndpoints
                     if (msg != null && push.Media is { } media) AttachLater(scopes, account.Id, msg.Id, media);
                     break;
                 case "unsubscribe":
-                    OptState(db, threads, ChannelIds.WeChat, push.OpenId, true, "unfollowed the account");
+                    OptState(db, threads, account, push.OpenId, true, "unfollowed the account");
                     break;
             }
         }
@@ -523,10 +529,10 @@ public static class MoreChannelWebhookEndpoints
             switch (e.Kind)
             {
                 case "follow":
-                    OptState(db, threads, ChannelIds.Zalo, e.UserId, false, "followed the account again");
+                    OptState(db, threads, account, e.UserId, false, "followed the account again");
                     break;
                 case "unfollow":
-                    OptState(db, threads, ChannelIds.Zalo, e.UserId, true, "unfollowed the account");
+                    OptState(db, threads, account, e.UserId, true, "unfollowed the account");
                     break;
                 case "message":
                     Learn(db, account, e.OaId);

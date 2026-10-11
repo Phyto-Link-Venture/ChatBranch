@@ -124,14 +124,16 @@ public static class CallsVoiceEndpoints
         // rows only — the page's "WhatsApp" tab simply counts 0.
         // Auth-gated like Django (the page sends authHeaders()).
         app.MapGet("/api/call-logs", async (AppDbContext db, VoiceAgentBridge bridge,
-            ChatBranch.Data.Channels.CallRecordings recordings) =>
+            ChatBranch.Data.Channels.CallRecordings recordings, ScopingService sc,
+            System.Security.Claims.ClaimsPrincipal me) =>
         {
             await VoiceCallSync.SyncAsync(db, bridge); // fold in calls the agent finished since
-            var rows = await db.CallRecords.AsNoTracking()
+            // only the calls placed for the caller's own entities (CallScope) — never another company's
+            var rows = await CallScope.VisibleAsync(db, sc, me, await db.CallRecords.AsNoTracking()
                 .Include(r => r.Contact)
                 .OrderByDescending(r => r.Id)
                 .Take(500)
-                .ToListAsync();
+                .ToListAsync());
 
             var logs = rows
                 .Select(r => new Dictionary<string, object?>
@@ -196,7 +198,8 @@ public static class CallsVoiceEndpoints
             string? phone;
             if (body.contact_id is int contactId)
             {
-                contact = await db.Contacts.AsNoTracking()
+                // only a contact the caller may see: the dispatch carries its memory and records
+                contact = await ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
                     .FirstOrDefaultAsync(c => c.Id == contactId, ct);
                 if (contact == null)
                     return Results.Json(new { detail = "Contact not found." }, statusCode: 404);
@@ -215,9 +218,16 @@ public static class CallsVoiceEndpoints
             // AI usage quotas: an AI voice call is AI spend — the caller's own cap,
             // then the contact's outlet (or any level above it)
             if (QuotaGuard.Refusal(db, sc, me) is { } userQuota) return userQuota;
-            var callEntity = contact == null ? null
+            // the outlet the call is placed FOR: the contact's entity inside the caller's own
+            // scope (a person bound to entities calls for their company, never another's)
+            var links = contact == null ? new List<int>()
                 : await db.ContactEntities.AsNoTracking().Where(l => l.ContactId == contact.Id)
-                    .OrderBy(l => l.Id).Select(l => (int?)l.EntityId).FirstOrDefaultAsync(ct);
+                    .OrderBy(l => l.Id).Select(l => l.EntityId).ToListAsync(ct);
+            var boundTo = ShellScope.BoundEntityIds(db, sc, me);
+            int? callEntity = boundTo == null
+                ? (links.Count > 0 ? links[0] : null)
+                : links.FirstOrDefault(boundTo.Contains) is var mineLink && mineLink != 0
+                    ? mineLink : ShellScope.ScopeRoots(db, me).FirstOrDefault();
             if (ChatBranch.Data.Ai.AiQuota.EntityBlock(db, sc, callEntity) is { } entityQuota)
                 return Results.Json(new { ok = false, room = (string?)null, status = "quota",
                     detail = ChatBranch.Data.Ai.AiQuota.Reason(entityQuota), quota = true }, statusCode: 429);
@@ -247,7 +257,8 @@ public static class CallsVoiceEndpoints
             var metadata = await VoiceDispatch.BuildAsync(db, knowledge, assistant, sc, bridge.DataDir, contact,
                 new VoiceCallOptions(phone, body.name, body.language, provider, voiceId,
                     AccountDelivery.Resolve(null, AccountDelivery.LlmProvider, sc),
-                    AccountDelivery.Resolve(null, AccountDelivery.SttProvider, sc), body.script), ct);
+                    AccountDelivery.Resolve(null, AccountDelivery.SttProvider, sc), body.script,
+                    EntityId: callEntity), ct);
             var room = LiveKitClient.NewRoomName();
             var placed = await livekit.PlaceSipCallAsync(room, phone,
                 metadata.GetValueOrDefault("contact_name") as string ?? "contact",
@@ -263,14 +274,16 @@ public static class CallsVoiceEndpoints
         // into CallRecords. The file record also fills the fields the entity
         // does not carry (followup_action, objection, sentiment_score); keys
         // match AppContext.tsx's CallSummary type.
-        app.MapGet("/api/calls/{room}", async (string room, AppDbContext db, VoiceAgentBridge bridge) =>
+        app.MapGet("/api/calls/{room}", async (string room, AppDbContext db, VoiceAgentBridge bridge,
+            ScopingService sc, System.Security.Claims.ClaimsPrincipal me) =>
         {
             if (!RoomOk(room)) return Bad("Invalid room id.");
             await VoiceCallSync.SyncAsync(db, bridge);
             var r = await db.CallRecords.AsNoTracking()
                 .Include(x => x.Contact)
                 .FirstOrDefaultAsync(x => x.CallId == room);
-            if (r == null)
+            // another company's call reads as not there (CallScope)
+            if (r == null || (await CallScope.VisibleAsync(db, sc, me, new List<CallRecord> { r })).Count == 0)
                 return Results.Json(new { detail = "Summary not ready." }, statusCode: 404);
             var file = bridge.CallRecords().LastOrDefault(c =>
                 c.TryGetProperty("call_id", out var id) && id.ValueKind == JsonValueKind.String

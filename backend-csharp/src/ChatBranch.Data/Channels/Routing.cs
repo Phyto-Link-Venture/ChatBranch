@@ -240,6 +240,16 @@ public class Routing
             .FirstOrDefault(x => x.ContactId == contactId && x.Channel == channel);
         var assigned = sticky?.Account;
 
+        // a sticky number of ANOTHER company never carries this company's conversation (the
+        // contact may talk to several): this send goes out on one of the conversation's own,
+        // and the other company's assignment is left alone
+        var company = _scoping.CompanyOf(entityId);
+        if (assigned != null && !ScopingService.SameCompanyOrShared(company, _scoping.AccountCompany(assigned)))
+        {
+            var own = LeastLoaded(Eligible(channel, need, entityId), channel);
+            return own != null ? new RouteResult(own, "override") : NoneEligible(channel, need, null);
+        }
+
         if (assigned != null && IsEligible(assigned))
         {
             if (Satisfies(assigned, need)) return new RouteResult(assigned, "sticky");
@@ -295,6 +305,16 @@ public class Routing
         var currentId = preferredAccountId ?? thread.AccountId;
         var current = currentId is int cid
             ? _db.ChannelAccounts.AsNoTracking().FirstOrDefault(a => a.Id == cid) : null;
+        // a number of ANOTHER company never carries this conversation (a job's pin, a stale
+        // preference): fall back to the conversation's own number
+        var company = _scoping.ThreadCompany(thread);
+        bool Fits(ChannelAccount a) => ScopingService.SameCompanyOrShared(company, _scoping.AccountCompany(a));
+        if (current != null && !Fits(current))
+        {
+            current = thread.AccountId is int own && own != current.Id
+                ? _db.ChannelAccounts.AsNoTracking().FirstOrDefault(a => a.Id == own) : null;
+            if (current != null && !Fits(current)) current = null;
+        }
         if (current != null && IsEligible(current) && Satisfies(current, need))
             return new RouteResult(current, "current");
         // the conversation only exists on the account that received it
@@ -351,6 +371,8 @@ public class Routing
     {
         var tracked = _db.ChannelAccounts.Find(target.Id);
         if (tracked == null) return;
+        // never onto another company's number (Fits above already keeps it out)
+        if (!ScopingService.SameCompanyOrShared(_scoping.ThreadCompany(thread), _scoping.AccountCompany(tracked))) return;
         thread.AccountId = tracked.Id;
         thread.Account = tracked;
         _scoping.SyncThreadEntity(thread, save: false);
@@ -375,7 +397,7 @@ public class Routing
             NotificationService.Notify(_db, NotificationCategories.AccountHealth, "account_health",
                 $"Conversation moved off {Label(previous)}",
                 $"{Label(previous)} is {state} — {who} now sends from {Label(tracked)}.",
-                $"/chats?thread={thread.Channel}:{thread.Key}",
+                ThreadCompanies.ChatHref(thread),
                 NotificationAudience.Admins(tenantId),
                 new NotifyOptions
                 {

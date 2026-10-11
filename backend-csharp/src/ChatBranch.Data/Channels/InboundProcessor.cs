@@ -49,23 +49,17 @@ public class InboundProcessor
     public Message ProcessInbound(string channel, string key, string text, string? name = null,
         int? accountId = null, string wamid = "", DateTime? providerTs = null, string replyToExternalId = "")
     {
+        // the conversation of the RECEIVING number's company: a customer writing to a
+        // second company's number gets that company's own conversation (never another's)
         var thread = _threads.GetOrCreateThread(channel, key, name, accountId);
         // invite links ("[ref:CODE]", "(ref:CODE)", "/start CODE"…) bind the chat to
         // the invited contact BEFORE phone/email matching; the marker is stripped
         var invite = Invites.TryBind(thread, text);
         if (invite != null) text = invite.Stripped;
-        if (thread.ContactId == null)
-        {
-            var contact = MatchContact(channel, key, ReceivingEntity(thread, accountId));
-            if (contact != null)
-            {
-                thread.ContactId = contact.Id;
-                _db.SaveChanges();
-                try { _scoping.SyncThreadEntity(thread); _db.SaveChanges(); } catch { }
-            }
-        }
+        LinkContact(thread, accountId);
         // the number that RECEIVES a message decides attribution: a conversation
-        // sitting on another of our numbers moves to the one the customer wrote to
+        // sitting on another of the SAME company's numbers moves to the one the
+        // customer wrote to
         try { Reattribute(thread, accountId); } catch { }
         // a brand-new conversation takes its inbox's AI reply default
         InboxSettings.ApplyToNewThread(_db, thread);
@@ -84,7 +78,7 @@ public class InboundProcessor
         ApplyOptOut(thread, text);
 
         // event axis: resume flow runs parked on a reply
-        try { _engine.OnInboundMessage(channel, key, text); } catch { }
+        try { _engine.OnInboundMessage(thread, text); } catch { }
 
         // route a brand-new conversation to a team (round-robin within it)
         try { AutoAssignTeam(thread); } catch { }
@@ -148,19 +142,71 @@ public class InboundProcessor
 
     /// <summary>
     /// Inbound re-attribution: a WhatsApp conversation moving between the
-    /// business and personal numbers follows the number the customer last wrote
-    /// to, so the reply (and that number's own chatbot tick) comes from there.
+    /// business and personal numbers OF ONE COMPANY follows the number the
+    /// customer last wrote to, so the reply (and that number's own chatbot tick)
+    /// comes from there. Never across companies: another company's number has its
+    /// own conversation (<see cref="ThreadStore.GetOrCreateThread"/>), so a
+    /// mismatch here is refused, audited and left where it is.
     /// </summary>
     private void Reattribute(Thread thread, int? accountId)
     {
         if (accountId is not int aid || thread.AccountId is null || thread.AccountId == aid) return;
         var account = _db.ChannelAccounts.Find(aid);
         if (account == null || account.Channel != thread.Channel) return;
+        var from = _scoping.ThreadCompany(thread);
+        var to = _scoping.AccountCompany(account);
+        if (from != to)
+        {
+            try
+            {
+                Audit.AuditTrail.Add(_db, "thread.reattribute_refused", $"{thread.Channel}:{thread.Key}",
+                    $"thread #{thread.Id} (company {from?.ToString() ?? "none"}) stays on account #{thread.AccountId}; "
+                    + $"account #{aid} belongs to company {to?.ToString() ?? "none"}",
+                    actor: "webhook", source: AuditSources.Webhook, entityId: thread.EntityId);
+                _db.SaveChanges();
+            }
+            catch { /* the refusal stands; the audit row is best-effort */ }
+            return;
+        }
         thread.AccountId = aid;
         thread.Account = account;
         _scoping.SyncThreadEntity(thread, save: false);
         thread.UpdatedAt = DateTime.UtcNow;
         _db.SaveChanges();
+    }
+
+    /// <summary>
+    /// Link the conversation to the customer's contact by phone / email — only a
+    /// contact the conversation's company may see (<see cref="ContactCompanies.Pick"/>
+    /// never returns another company's). Never throws.
+    /// </summary>
+    private void LinkContact(Thread thread, int? accountId)
+    {
+        if (thread.ContactId != null) return;
+        try
+        {
+            var contact = MatchContact(thread.Channel, thread.Key, ReceivingEntity(thread, accountId));
+            if (contact == null || !ContactCompanies.MayLink(_db, _scoping, contact.Id, _scoping.ThreadCompany(thread)))
+                return;
+            thread.ContactId = contact.Id;
+            _db.SaveChanges();
+            _scoping.SyncThreadEntity(thread);
+            _db.SaveChanges();
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// The get-or-create + contact link + same-company re-attribution of an inbound,
+    /// for a path that stores the message itself (the sandbox <c>/simulate</c>), so a
+    /// simulated message to a number lands exactly where a real one would.
+    /// </summary>
+    public Thread ReceiveThread(string channel, string key, string? name, int? accountId)
+    {
+        var thread = _threads.GetOrCreateThread(channel, key, name, accountId);
+        LinkContact(thread, accountId);
+        try { Reattribute(thread, accountId); } catch { }
+        return thread;
     }
 
     /// <summary>

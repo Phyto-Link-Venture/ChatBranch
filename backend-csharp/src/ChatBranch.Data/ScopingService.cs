@@ -356,43 +356,132 @@ public class ScopingService
         return all.ToList();
     }
 
+    // ---- companies (top-level entities) ----------------------------------------
+
+    private readonly Dictionary<int, int> _companyMemo = new();
+
+    /// <summary>
+    /// The COMPANY an entity belongs to: the top-level entity (parent null) at the
+    /// top of its chain. Null for null. Memoized for the life of this (request-
+    /// scoped) service — a company never changes under a running request.
+    /// </summary>
+    public int? CompanyOf(int? entityId)
+    {
+        if (entityId is not int id) return null;
+        if (_companyMemo.TryGetValue(id, out var hit)) return hit;
+        var chain = EntityChain(id);
+        var top = chain.Count > 0 ? chain[^1] : id;
+        _companyMemo[id] = top;
+        return top;
+    }
+
+    /// <summary>Every entity's company in ONE query — for list payloads and bulk checks.</summary>
+    public Dictionary<int, int> CompanyMap()
+    {
+        var parents = _db.Entities.AsNoTracking().Select(e => new { e.Id, e.ParentId })
+            .ToDictionary(e => e.Id, e => e.ParentId);
+        var map = new Dictionary<int, int>();
+        foreach (var id in parents.Keys)
+        {
+            var cur = id;
+            var seen = new HashSet<int>();
+            while (parents.TryGetValue(cur, out var parent) && parent is int p && parents.ContainsKey(p)
+                   && seen.Add(cur) && seen.Count < 32)
+                cur = p;
+            map[id] = cur;
+        }
+        return map;
+    }
+
+    /// <summary>The company of a channel account (its entity's), null for an organization-wide number.</summary>
+    public int? AccountCompany(ChannelAccount? account) => CompanyOf(account?.EntityId);
+
+    /// <summary>The company of a channel account by id, null for an organization-wide number / no account.</summary>
+    public int? AccountCompany(int? accountId) =>
+        accountId is int a
+            ? CompanyOf(_db.ChannelAccounts.AsNoTracking().Where(x => x.Id == a).Select(x => x.EntityId).FirstOrDefault())
+            : null;
+
+    /// <summary>
+    /// The company a conversation belongs to: its stored <see cref="Thread.CompanyEntityId"/>,
+    /// else the company of its entity (a thread that got an entity while its company
+    /// slot was taken), else null — unattributed.
+    /// </summary>
+    public int? ThreadCompany(Thread thread) => thread.CompanyEntityId ?? CompanyOf(thread.EntityId);
+
+    /// <summary>May a number of <paramref name="accountCompany"/> carry a conversation of
+    /// <paramref name="threadCompany"/>: the same company, an organization-wide number, or an
+    /// unattributed conversation. Nothing ever moves a conversation into another company.</summary>
+    public static bool SameCompanyOrShared(int? threadCompany, int? accountCompany) =>
+        threadCompany == null || accountCompany == null || threadCompany == accountCompany;
+
+    /// <summary>True when no OTHER thread already holds (channel, key, company).</summary>
+    public bool CompanySlotFree(Thread thread, int company) =>
+        !_db.Threads.AsNoTracking().Any(x => x.Id != thread.Id && x.Channel == thread.Channel
+                                             && x.Key == thread.Key && x.CompanyEntityId == company)
+        && !_db.Threads.Local.Any(x => !ReferenceEquals(x, thread) && x.Id != thread.Id
+                                       && x.Channel == thread.Channel && x.Key == thread.Key
+                                       && x.CompanyEntityId == company);
+
     // ---- thread attribution -------------------------------------------------
 
     /// <summary>
     /// Which entity a conversation belongs to: the receiving account's entity,
     /// else the linked contact's entity (only when unambiguous), else null
     /// ("unassigned"). Ported from <c>scoping.thread_entity</c>.
+    ///
+    /// With a <paramref name="company"/> the answer never leaves that company: an
+    /// account or contact link outside it is ignored, the contact's links are
+    /// narrowed to it, and with nothing to go on the thread keeps its
+    /// <paramref name="current"/> entity (else the company itself).
     /// </summary>
-    public int? ThreadEntity(ChannelAccount? account, Contact? contact)
+    public int? ThreadEntity(ChannelAccount? account, Contact? contact, int? company = null, int? current = null)
     {
         try
         {
-            if (account?.EntityId is int accEnt) return accEnt;
+            if (account?.EntityId is int accEnt && (company == null || CompanyOf(accEnt) == company)) return accEnt;
             if (contact != null)
             {
                 var links = _db.ContactEntities.AsNoTracking()
                     .Where(l => l.ContactId == contact.Id)
-                    .Select(l => l.EntityId).Take(2).ToList();
+                    .Select(l => l.EntityId).Distinct().ToList();
+                if (company is int c) links = links.Where(l => CompanyOf(l) == c).ToList();
                 if (links.Count == 1) return links[0];
                 // Multi-entity contact on a shared number: no basis to choose.
             }
         }
         catch { }
+        if (company is int co) return current is int cur && CompanyOf(cur) == co ? cur : co;
         return null;
     }
 
     /// <summary>
-    /// Recompute and store thread.EntityId. Call wherever a thread's account or
-    /// contact link changes so the denormalized column cannot drift.
+    /// Recompute and store thread.EntityId (and, the first time an unattributed
+    /// conversation gets an entity, its company). Call wherever a thread's account
+    /// or contact link changes so the denormalized column cannot drift. The entity
+    /// never leaves the thread's company: a contact link, an unlink or another
+    /// number can move a conversation between the branches of ONE company only.
     /// </summary>
     public int? SyncThreadEntity(Thread thread, bool save = true)
     {
         try
         {
-            var ent = ThreadEntity(thread.Account, thread.Contact);
+            var company = ThreadCompany(thread);
+            var ent = ThreadEntity(AccountOf(thread), ContactOf(thread), company, thread.EntityId);
+            var dirty = false;
             if (thread.EntityId != ent)
             {
                 thread.EntityId = ent;
+                dirty = true;
+            }
+            if (thread.CompanyEntityId == null && ent is int e && CompanyOf(e) is int adopt
+                && CompanySlotFree(thread, adopt))
+            {
+                thread.CompanyEntityId = adopt;
+                dirty = true;
+            }
+            if (dirty)
+            {
                 thread.UpdatedAt = DateTime.UtcNow;
                 if (save) _db.SaveChanges();
             }
@@ -400,4 +489,16 @@ public class ScopingService
         }
         catch { return null; }
     }
+
+    /// <summary>The thread's account by its id (a stale or unloaded navigation never decides).</summary>
+    private ChannelAccount? AccountOf(Thread t) =>
+        t.AccountId is not int aid ? null
+        : t.Account != null && t.Account.Id == aid ? t.Account
+        : _db.ChannelAccounts.AsNoTracking().FirstOrDefault(a => a.Id == aid);
+
+    /// <summary>The thread's contact by its id (only the id is read).</summary>
+    private static Contact? ContactOf(Thread t) =>
+        t.ContactId is not int cid ? null
+        : t.Contact != null && t.Contact.Id == cid ? t.Contact
+        : new Contact { Id = cid };
 }

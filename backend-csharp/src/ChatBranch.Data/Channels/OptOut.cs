@@ -143,14 +143,17 @@ public static class OptOut
     /// </summary>
     public static int CancelQueuedJobs(AppDbContext db, Thread thread)
     {
-        var digits = PhoneMatch.Digits(thread.Key);
+        var nums = PhoneMatch.Digits(thread.Key);
         var whatsapp = thread.Channel == ChatBranch.Domain.Channels.WhatsApp;
+        // consent is per CONVERSATION: a STOP to one company never cancels another company's jobs
+        var store = new Stores.ThreadStore(db, new ScopingService(db));
         var queued = db.OutboundJobs
             .Where(j => j.Status == JobStatus.Queued && j.Channel == thread.Channel && j.Kind != JobKind.Call)
             .ToList()
             .Where(j => j.ToAddress == thread.Key
-                        || (whatsapp && digits.Length > 0 && PhoneMatch.Digits(j.ToAddress) == digits))
+                        || (whatsapp && nums.Length > 0 && PhoneMatch.Digits(j.ToAddress) == nums))
             .Where(j => !(j.Payload.TryGetValue("force", out var f) && IsTrue(f)))
+            .Where(j => store.JobBelongsTo(j, thread))
             .ToList();
         var now = DateTime.UtcNow;
         foreach (var j in queued)

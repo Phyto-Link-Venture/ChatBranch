@@ -31,7 +31,10 @@ public static class InboxEndpoints
     };
 
     public record SendRequest(string Text, bool Force = false, int? AccountId = null);
-    public record SimulateRequest(string Channel, string Key, string Text, string? Name = null);
+    /// <summary><c>account_id</c> = the number the fake message "arrives" on (its company's conversation,
+    /// exactly like a webhook); none = the unattributed / only conversation, as before.</summary>
+    public record SimulateRequest(string Channel, string Key, string Text, string? Name = null,
+        [property: System.Text.Json.Serialization.JsonPropertyName("account_id")] int? AccountId = null);
 
     public static void MapInboxEndpoints(this IEndpointRouteBuilder app)
     {
@@ -121,9 +124,9 @@ public static class InboxEndpoints
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.view");
 
         app.MapGet("/api/whatsapp/threads/{channel}/{key}/messages",
-            (string channel, string key, int? limit, int? before, ThreadStore store) =>
+            async (string channel, string key, int? limit, int? before, ThreadStore store, HttpContext ctx) =>
         {
-            var thread = store.GetThread(channel, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null) return Results.NotFound(new { detail = "thread not found" });
             var msgs = store.GetMessages(thread, limit ?? 50, before);
             return Results.Ok(new { messages = msgs.Select(Dtos.MessageDto) });
@@ -131,10 +134,29 @@ public static class InboxEndpoints
 
         // ---- sandbox send ------------------------------------------------------
         app.MapPost("/api/whatsapp/threads/{channel}/{key}/send",
-            (string channel, string key, SendRequest body, ThreadStore store, AppDbContext db,
-             ScopingService sc, ChatBranch.Data.Channels.OutboundSender sender, ClaimsPrincipal me) =>
+            async (string channel, string key, SendRequest body, ThreadStore store, AppDbContext db,
+             ScopingService sc, ChatBranch.Data.Channels.OutboundSender sender, ClaimsPrincipal me, HttpContext ctx) =>
         {
-            var thread = store.GetOrCreateThread(channel, key);
+            // a named number must be one the caller may use
+            if (body.AccountId is int named && ShellScope.BoundInheritedIds(db, sc, me) is List<int> usable
+                && await db.ChannelAccounts.AsNoTracking().Where(a => a.Id == named).Select(a => a.EntityId)
+                    .FirstOrDefaultAsync() is int namedEntity && !usable.Contains(namedEntity))
+                return Results.Json(new { detail = "That number belongs to an entity outside your scope." },
+                    statusCode: 403);
+            // the caller's own conversation (ThreadAccessFilter resolved it), else a new one
+            // in their company — never another company's conversation with this customer
+            var thread = await ThreadResolver.LoadAsync(ctx);
+            if (thread == null)
+            {
+                var place = await ThreadStart.PlaceAsync(db, sc, me, accountId: body.AccountId);
+                if (place.Error != null) return place.Error;
+                thread = store.GetOrCreateInCompany(channel, key, place.Company, accountId: body.AccountId,
+                    entityHint: place.Entity);
+            }
+            else if (body.AccountId is int other
+                     && !ScopingService.SameCompanyOrShared(sc.ThreadCompany(thread), sc.AccountCompany(other)))
+                return Results.Json(new { detail = "That number belongs to another company — this conversation "
+                                                   + "can't go out on it." }, statusCode: 409);
             if (thread.OptedOut && !body.Force)
                 return Results.Json(new { detail = "contact opted out; use force" }, statusCode: 409);
             // Routing at send time unless the caller named the account: the
@@ -158,22 +180,34 @@ public static class InboxEndpoints
         // ---- simulate inbound (sandbox) ---------------------------------------
         app.MapPost("/api/whatsapp/simulate", async (SimulateRequest body, string? ai, ThreadStore store, AppDbContext db,
             ChatBranch.Data.Flows.FlowEngine engine, ChatBranch.Data.Channels.InboundProcessor inbound,
-            ChatBranch.Data.Flows.AutomationService automation) =>
+            ChatBranch.Data.Flows.AutomationService automation, ClaimsPrincipal me) =>
         {
-            // Link the thread to its contact the same way a real webhook does
-            // (phone/email match) — otherwise simulated chats stay unlinked and
-            // never appear in a provider's scoped inbox.
-            var matched = inbound.MatchContact(body.Channel, body.Key);
-            var thread = store.GetOrCreateThread(body.Channel, body.Key, body.Name, contactId: matched?.Id);
-            if (thread.ContactId == null && matched != null) { thread.ContactId = matched.Id; }
+            // someone bound to entities simulates only on their own numbers and conversations
+            var sc = new ScopingService(db);
+            if (ShellScope.BoundInheritedIds(db, sc, me) is List<int> usable)
+            {
+                if (body.AccountId is int aid && await db.ChannelAccounts.AsNoTracking().Where(a => a.Id == aid)
+                        .Select(a => a.EntityId).FirstOrDefaultAsync() is int accountEntity
+                    && !usable.Contains(accountEntity))
+                    return Results.Json(new { detail = "That number belongs to an entity outside your scope." },
+                        statusCode: 403);
+                if (store.FindForAccount(body.Channel, body.Key, body.AccountId) is { } target
+                    && !ThreadAccessFilter.InScope(db, sc, me, target.EntityId))
+                    return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
+            }
+            // The same get-or-create, contact link (phone / email, only a contact the
+            // receiving company may see) and same-company re-attribution as a real
+            // webhook: a simulated message to a number lands exactly where a real one
+            // would — a second company's number gets that company's own conversation.
+            var thread = inbound.ReceiveThread(body.Channel, body.Key, body.Name, body.AccountId);
             var msg = store.AppendMessage(thread, MessageDirection.In, MessageSource.Customer,
-                body.Text, status: "received");
+                body.Text, status: "received", accountId: body.AccountId);
             // STOP / START work in the sandbox exactly as on a live webhook
             inbound.ApplyOptOut(thread, body.Text);
             // background AI tasks read a simulated message like a real one (queued, run by their worker)
             ChatBranch.Data.Ai.Tasks.AiTaskService.Enqueue(db, new ScopingService(db), thread, msg);
             // event axis: resume any flow runs parked on a reply from this contact
-            engine.OnInboundMessage(body.Channel, body.Key, body.Text);
+            engine.OnInboundMessage(thread, body.Text);
             // A simulated inbound is still an INBOUND: route it to a team the
             // same way the live webhook does, or the sandbox behaves differently
             // from production in a way that hides bugs.
@@ -229,9 +263,9 @@ public static class InboxEndpoints
         // the timeline variant. Neither was ported, so the panel 404'd on every
         // conversation and "Generate summary" silently did nothing.
         app.MapGet("/api/messaging/threads/{channel}/{key}/summary",
-            (string channel, string key, ThreadStore store, ChatBranch.Data.Ai.SummaryService svc) =>
+            async (string channel, string key, ChatBranch.Data.Ai.SummaryService svc, HttpContext ctx) =>
         {
-            var thread = store.GetThread(channel, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null) return Results.NotFound(new { detail = "thread not found" });
             var brief = svc.Stored(thread);
             var (count, _) = svc.Extent(thread);
@@ -244,11 +278,11 @@ public static class InboxEndpoints
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.view");
 
         app.MapPost("/api/messaging/threads/{channel}/{key}/summary",
-            async (string channel, string key, ThreadStore store,
-                   ChatBranch.Data.Ai.SummaryService svc, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
+            async (string channel, string key, ChatBranch.Data.Ai.SummaryService svc, AppDbContext db,
+                   ScopingService sc, ClaimsPrincipal me, HttpContext ctx) =>
         {
             if (QuotaGuard.Refusal(db, sc, me) is { } quota) return quota;
-            var thread = store.GetThread(channel, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null) return Results.NotFound(new { detail = "thread not found" });
             var brief = await svc.GenerateAsync(thread);
             var (count, _) = svc.Extent(thread);
@@ -574,6 +608,9 @@ public static class InboxEndpoints
             outv.Add(new
             {
                 wa_id = t.Key,
+                // the conversation's identity: one per customer PER COMPANY
+                thread_id = t.Id,
+                company = MessagingEndpoints.ThreadCompanyPayload(db, t),
                 phone = t.Address != "" ? t.Address : $"+{t.Key}",
                 name = t.Name != "" ? t.Name : $"+{t.Key}",
                 channel = t.Channel,

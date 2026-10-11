@@ -109,7 +109,7 @@ public class ShellSearchLiveTests : IClassFixture<ApiFactory>
         Assert.StartsWith("/contacts/", contact.GetProperty("url").GetString());
 
         var convo = Assert.Single(Results(body, "conversation"));
-        Assert.Equal("/chats?channel=whatsapp&key=60111000002", convo.GetProperty("url").GetString());
+        Assert.StartsWith("/chats?channel=whatsapp&key=60111000002&thread_id=", convo.GetProperty("url").GetString());
         Assert.Equal("whatsapp", convo.GetProperty("channel").GetString());
     }
 

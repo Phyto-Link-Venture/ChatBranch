@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using ChatBranch.Data;
 using ChatBranch.Domain;
+using Microsoft.EntityFrameworkCore;
 using Thread = ChatBranch.Domain.Thread;
 
 namespace ChatBranch.Api.Endpoints;
@@ -218,14 +219,27 @@ internal static class ShellScope
         return sc.ScopeInherited(qs, pickedEntityId);
     }
 
+    /// <summary>
+    /// Does the caller see conversations of more than one COMPANY (top-level entity)? A
+    /// person bound to entities of one company does not; the organization-wide view does
+    /// once the tenant has two companies. The inbox then shows whose each chat is.
+    /// </summary>
+    internal static bool SeesSeveralCompanies(AppDbContext db, ScopingService sc, ClaimsPrincipal me)
+    {
+        var roots = ScopeRoots(db, me);
+        if (roots.Count > 0) return roots.Select(r => sc.CompanyOf(r)).Distinct().Count() > 1;
+        return db.Entities.AsNoTracking().Count(e => e.ParentId == null) > 1;
+    }
+
     internal static IQueryable<Thread> ScopeThreads(IQueryable<Thread> qs, List<int>? entityIds) =>
         entityIds is null
             ? qs
             : qs.Where(t => t.EntityId == null || (t.EntityId != null && entityIds.Contains(t.EntityId.Value)));
 
-    /// <summary>The chat deep link the inbox understands (/chats?channel=…&amp;key=…).</summary>
-    internal static string ChatUrl(string channel, string key) =>
-        $"/chats?channel={Uri.EscapeDataString(channel)}&key={Uri.EscapeDataString(key)}";
+    /// <summary>The chat deep link the inbox understands (/chats?channel=…&amp;key=…&amp;thread_id=…):
+    /// a customer has one conversation per company, so the id picks which.</summary>
+    internal static string ChatUrl(string channel, string key, int? threadId = null) =>
+        ChatBranch.Data.Stores.ThreadCompanies.LegacyChatHref(channel, key, threadId);
 
     /// <summary>LIKE pattern for a free-text term, with the wildcards escaped.</summary>
     internal static string Like(string term) =>

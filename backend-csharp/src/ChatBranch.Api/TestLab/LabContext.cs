@@ -88,7 +88,7 @@ public sealed class LabContext
     }
 
     public void LinkChat(string channel, string key, string label = "Open conversation") =>
-        Link(label, $"/chats?thread={Uri.EscapeDataString(channel)}:{Uri.EscapeDataString(key)}");
+        Link(label, ChatBranch.Data.Stores.ThreadCompanies.ChatHref(channel, key, ThreadOf(channel, key)?.Id));
 
     public void LinkContact(int id, string label = "Open contact") => Link(label, $"/contacts/{id}");
 
@@ -248,9 +248,15 @@ public sealed class LabContext
 
     // ---- fresh reads (straight from the database) ------------------------------------------
 
+    /// <summary>The LAB's conversation with (channel, key) — a customer has one per company, so the
+    /// lab company's (or an unattributed one) is preferred over anybody else's.</summary>
     public Thread? ThreadOf(string channel, string key) =>
         Db.Threads.AsNoTracking().Include(t => t.Contact).Include(t => t.Account)
-            .FirstOrDefault(t => t.Channel == channel && t.Key == key);
+            .Where(t => t.Channel == channel && t.Key == key).ToList()
+            .OrderByDescending(t => t.CompanyEntityId == Lab.Hq.Id)
+            .ThenByDescending(t => t.CompanyEntityId == null)
+            .ThenByDescending(t => t.Id)
+            .FirstOrDefault();
 
     public List<Message> MessagesOf(int threadId) =>
         Db.Messages.AsNoTracking().Where(m => m.ThreadId == threadId).OrderBy(m => m.Id).ToList();

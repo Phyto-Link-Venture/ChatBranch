@@ -44,7 +44,10 @@ public static class ContactsEndpoints
     {
         public string? Company => CompanyName ?? CompanySnake;
     }
-    public record IdentityWrite(string Channel, string Address);
+    /// <summary><c>thread_id</c> / <c>company</c>: which existing conversation (one per company), when several.</summary>
+    public record IdentityWrite(string Channel, string Address,
+        [property: System.Text.Json.Serialization.JsonPropertyName("thread_id")] int? ThreadId = null,
+        string? Company = null);
 
     /// <summary>contacts.py _HISTORY_LIMIT — recent touchpoints, not a full feed.</summary>
     private const int HistoryLimit = 8;
@@ -197,11 +200,16 @@ public static class ContactsEndpoints
             // Same last-9-digits comparison whatsapp.store._match_contact does
             // (thread keys are already digit-normalized wa_ids).
             var tail = digits.Length >= 9 ? digits[^9..] : "";
-            var threads = await db.Threads.AsNoTracking().Include(t => t.Account)
+            // only conversations the caller may open (the inbox rule): a contact both
+            // companies can see never shows one company the other's conversations
+            var allowed = ShellScope.ThreadEntityIds(db, sc, me, null);
+            var threads = (await db.Threads.AsNoTracking().Include(t => t.Account)
                 .Where(t => t.ContactId == id ||
                             (tail != "" && t.Channel == Channels.WhatsApp &&
                              t.ContactId == null && t.Key.EndsWith(tail)))
-                .ToListAsync();
+                .ToListAsync())
+                .Where(t => allowed == null || t.EntityId == null || allowed.Contains(t.EntityId.Value))
+                .ToList();
 
             // One pass over this contact's messages — never N+1 per thread.
             var threadIds = threads.Select(t => t.Id).ToList();
@@ -279,6 +287,7 @@ public static class ContactsEndpoints
                     var payload = new Dictionary<string, object?>
                     {
                         ["key"] = t.Key,
+                        ["thread_id"] = t.Id,   // a customer has one conversation per company
                         ["address"] = t.Address.Length > 0 ? t.Address : t.Key,
                         ["name"] = t.Name.Length > 0 ? t.Name
                             : (t.Address.Length > 0 ? t.Address : t.Key),
@@ -346,7 +355,7 @@ public static class ContactsEndpoints
 
             // Voice — from CallRecord (FK-linked, plus phone-matched rows mirrored
             // from the voice agent's file store before any link existed).
-            var callRows = await CallsForAsync(db, contact);
+            var callRows = await CallScope.VisibleAsync(db, sc, me, await CallsForAsync(db, contact));
             var lastCall = callRows
                 .OrderByDescending(r => r.EndedAt.Length > 0 ? r.EndedAt : r.StartedAt)
                 .FirstOrDefault();
@@ -396,9 +405,20 @@ public static class ContactsEndpoints
             // existing conversation in their inbox scope — out of scope = not found
             var contact = await ScopeContacts(db.Contacts, me, db, sc).FirstOrDefaultAsync(c => c.Id == id);
             if (contact == null) return NotFound("Contact not found.");
-            var thread = store.GetThread(b.Channel, b.Address);
-            if (thread != null && !ChatBranch.Api.Auth.ThreadAccessFilter.InScope(db, sc, me, thread.EntityId))
-                return NotFound("Conversation not found.");
+            // the caller's OWN conversation on that address (one per company; several the
+            // caller sees need thread_id / company), else a new one in their company
+            var pick = await ChatBranch.Api.Auth.ThreadResolver.ResolveAsync(db, sc, me, b.Channel,
+                new[] { b.Address }, b.ThreadId, b.Company);
+            if (ChatBranch.Api.Auth.ThreadResolver.Refusal(pick) is { } refused) return refused;
+            var thread = pick.ThreadId is int tid
+                ? await db.Threads.Include(t => t.Contact).Include(t => t.Account).FirstAsync(t => t.Id == tid)
+                : null;
+            if (thread != null && !ContactCompanies.MayLink(db, sc, id, sc.ThreadCompany(thread)))
+                return Results.Json(new
+                {
+                    detail = "That conversation belongs to another company — it can only be linked to a contact of its own company.",
+                    code = "contact_other_company",
+                }, statusCode: 409);
             if (thread != null && thread.ContactId != null && thread.ContactId != id)
                 return Results.Json(new
                 {
@@ -407,7 +427,13 @@ public static class ContactsEndpoints
                 }, statusCode: 409);
             // store and this endpoint share the same scoped DbContext, so the
             // returned thread is already tracked — just link and save.
-            thread ??= store.GetOrCreateThread(b.Channel, b.Address, contact.Name);
+            if (thread == null)
+            {
+                var place = await ThreadStart.PlaceAsync(db, sc, me, contactId: id, companyHint: b.Company);
+                if (place.Error != null) return place.Error;
+                thread = store.GetOrCreateInCompany(b.Channel, b.Address, place.Company, contact.Name,
+                    entityHint: place.Entity);
+            }
             thread.ContactId = id;
             thread.Contact = contact;
             // The receiving account decides the entity, so it must be loaded
@@ -430,14 +456,24 @@ public static class ContactsEndpoints
         // Read-only: the transcript + outcome per AI voice call, rendered inline in
         // the /chats message stream and on the contact detail page. Kept cheap so
         // it stays pollable (no LiveKit/agent plumbing on this path).
-        app.MapGet("/api/contacts/{id:int}/calls", async (int id, AppDbContext db, ScopingService sc, ClaimsPrincipal me,
-            ChatBranch.Data.Channels.CallRecordings recordings) =>
+        app.MapGet("/api/contacts/{id:int}/calls", async (int id, string? company, AppDbContext db, ScopingService sc,
+            ClaimsPrincipal me, ChatBranch.Data.Channels.CallRecordings recordings) =>
         {
             var contact = await ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
                 .FirstOrDefaultAsync(c => c.Id == id);
             if (contact == null) return NotFound("Contact not found.");
 
-            var calls = (await CallsForAsync(db, contact))
+            // only the calls placed for the caller's own entities (CallScope)
+            var visible = await CallScope.VisibleAsync(db, sc, me, await CallsForAsync(db, contact));
+            // ?company= (id / slug, or none): only the calls placed for that company — the chat
+            // of one company never lists another company's calls with the same customer
+            if (!string.IsNullOrWhiteSpace(company))
+            {
+                var (unknown, companyId) = await ThreadResolver.CompanyIdAsync(db, sc, company);
+                if (unknown) return NotFound("Unknown company.");
+                visible = visible.Where(r => sc.CompanyOf(r.EntityId) == companyId).ToList();
+            }
+            var calls = visible
                 .Select(r => new
                 {
                     call_id = r.CallId,

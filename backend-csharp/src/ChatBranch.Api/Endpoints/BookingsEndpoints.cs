@@ -32,24 +32,29 @@ public static class BookingsEndpoints
 
     public static void MapBookingsEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/bookings", async (int? contact_id, string? thread, string? status, string? from,
-            string? to, string? entity, string? upcoming, int? limit, AppDbContext db, ScopingService sc,
-            ClaimsPrincipal me, TimeProvider clock) =>
+        app.MapGet("/api/bookings", async (int? contact_id, string? thread, int? thread_id, string? company,
+            string? status, string? from, string? to, string? entity, string? upcoming, int? limit, AppDbContext db,
+            ScopingService sc, ClaimsPrincipal me, TimeProvider clock) =>
         {
             var picked = await InboxEndpoints.EntityId(db, entity);
             var ids = ShellScope.ThreadEntityIds(db, sc, me, picked);
             var q = Scoped(db.Bookings.AsNoTracking(), ids);
 
             if (contact_id is int cid) q = q.Where(b => b.ContactId == cid);
-            if (!string.IsNullOrWhiteSpace(thread))
+            if (!string.IsNullOrWhiteSpace(thread) || thread_id != null)
             {
-                var at = thread.IndexOf(':');
-                if (at <= 0) return Results.Json(new { detail = "thread must be <channel>:<key>." }, statusCode: 400);
-                var ch = thread[..at];
-                var key = thread[(at + 1)..];
-                var tid = await db.Threads.AsNoTracking().Where(t => t.Channel == ch && t.Key == key)
-                    .Select(t => (int?)t.Id).FirstOrDefaultAsync();
-                if (tid == null) return Results.Ok(new { bookings = Array.Empty<object>() });
+                var at = (thread ?? "").IndexOf(':');
+                if (thread_id == null && at <= 0)
+                    return Results.Json(new { detail = "thread must be <channel>:<key>." }, statusCode: 400);
+                var ch = at > 0 ? thread![..at] : null;
+                var key = at > 0 ? thread![(at + 1)..] : null;
+                // the caller's ONE conversation (one per company: thread_id / company say which)
+                var pick = await ThreadResolver.ResolveAsync(db, sc, me,
+                    ch ?? await db.Threads.AsNoTracking().Where(t => t.Id == thread_id).Select(t => t.Channel)
+                        .FirstOrDefaultAsync() ?? "",
+                    key == null ? Array.Empty<string>() : ThreadResolver.KeyVariants(ch!, key), thread_id, company);
+                if (ThreadResolver.Refusal(pick) is { } refused) return refused;
+                if (pick.ThreadId is not int tid) return Results.Ok(new { bookings = Array.Empty<object>() });
                 q = q.Where(b => b.ThreadId == tid);
             }
 
@@ -102,6 +107,7 @@ public static class BookingsEndpoints
         var threadIds = rows.Where(b => b.ThreadId != null).Select(b => b.ThreadId!.Value).Distinct().ToList();
         var threads = await db.Threads.AsNoTracking().Where(t => threadIds.Contains(t.Id))
             .Select(t => new { t.Id, t.Channel, t.Key }).ToDictionaryAsync(t => t.Id, t => $"{t.Channel}:{t.Key}");
+        // a customer has one conversation per company: the id says which one
         return rows.Select(b =>
         {
             var tz = BookingService.TimeZoneFor(b.Timezone, TimeZoneInfo.Utc);
@@ -111,6 +117,7 @@ public static class BookingsEndpoints
                 contact_id = b.ContactId,
                 contact_name = contacts.TryGetValue(b.ContactId, out var n) ? n : "",
                 thread = b.ThreadId is int tid && threads.TryGetValue(tid, out var tk) ? tk : null,
+                thread_id = b.ThreadId,
                 start = BookingAvailability.OffsetIso(b.StartUtc, tz),
                 end = BookingAvailability.OffsetIso(b.EndUtc, tz),
                 timezone = b.Timezone,

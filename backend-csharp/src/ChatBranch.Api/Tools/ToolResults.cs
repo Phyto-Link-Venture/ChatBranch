@@ -91,7 +91,8 @@ public static class ToolResults
                     && obj["channel"] is JsonValue ch && ch.TryGetValue<string>(out var channel)
                     && obj["key"] is JsonValue kv && kv.TryGetValue<string>(out var key)
                     && channel.Length > 0 && key.Length > 0 && !key.Contains('/'))
-                    obj["href"] = ChatLink(channel, key);
+                    obj["href"] = ChatLink(channel, key,
+                        obj["thread_id"] is JsonValue tv && tv.TryGetValue<int>(out var tid) ? tid : null);
                 return obj;
             }
             case JsonArray list:
@@ -112,6 +113,6 @@ public static class ToolResults
     }
 
     /// <summary>The dashboard deep link to a conversation.</summary>
-    public static string ChatLink(string channel, string key) =>
-        $"/chats?thread={Uri.EscapeDataString(channel)}:{Uri.EscapeDataString(key)}";
+    public static string ChatLink(string channel, string key, int? threadId = null) =>
+        ChatBranch.Data.Stores.ThreadCompanies.ChatHref(channel, key, threadId);
 }

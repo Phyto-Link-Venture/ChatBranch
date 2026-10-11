@@ -42,7 +42,8 @@ namespace ChatBranch.Api.Endpoints;
 ///                    chats they never wrote in last) | oldest_waiting | unread
 ///   limit (50, max 200) · cursor (opaque offset from next_cursor — pages every
 ///   sort) · before (ISO; sort=newest only, ignored otherwise: strictly older
-///   activity) · count_only=1 · thread=channel:key
+///   activity) · count_only=1 · thread=channel:key (every conversation with that
+///   customer the caller sees — one per company) · thread_id (exactly one)
 ///
 /// Entity scoping is the inbox rule: ScopeOwned semantics INCLUDING the
 /// unassigned bucket, and agents/custom roles bounded by their assigned
@@ -81,9 +82,11 @@ public static class InboxThreadsEndpoints
 
             return Results.Ok(new
             {
-                threads = await Hydrate(db, page, waCtx),
+                threads = await Hydrate(db, sc, page, waCtx),
                 count = sorted.Count,
                 next_cursor = next,
+                // the caller sees more than one company: the list shows whose each chat is
+                multi_company = ShellScope.SeesSeveralCompanies(db, sc, me),
             });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.view");
     }
@@ -143,6 +146,7 @@ public static class InboxThreadsEndpoints
         public DateTime? Before;
         public bool CountOnly;
         public (string Channel, string Key)? Thread;
+        public int? ThreadId;
 
         public static InboxQuery Parse(IQueryCollection qs, string me)
         {
@@ -202,6 +206,7 @@ public static class InboxThreadsEndpoints
             var colon = thread.IndexOf(':');
             if (colon > 0 && colon < thread.Length - 1)
                 f.Thread = (thread[..colon].Trim().ToLowerInvariant(), thread[(colon + 1)..].Trim());
+            if (int.TryParse(One(qs, "thread_id"), out var tid) && tid > 0) f.ThreadId = tid;
             return f;
         }
 
@@ -307,7 +312,9 @@ public static class InboxThreadsEndpoints
     {
         IQueryable<Thread> q = db.Threads.AsNoTracking();
 
-        if (f.Thread is (string tch, string tkey))
+        if (f.ThreadId is int onlyId)
+            q = q.Where(t => t.Id == onlyId);
+        else if (f.Thread is (string tch, string tkey))
             q = q.Where(t => t.Channel == tch && t.Key == tkey);
         else
             // A conversation nothing was ever said in (a chat opened from a contact
@@ -628,7 +635,7 @@ public static class InboxThreadsEndpoints
     // the row the list renders
     // =========================================================================
 
-    private static async Task<List<Dictionary<string, object?>>> Hydrate(AppDbContext db,
+    private static async Task<List<Dictionary<string, object?>>> Hydrate(AppDbContext db, ScopingService sc,
         List<Candidate> page, WaContext wa)
     {
         var ids = page.Select(c => c.Id).ToList();
@@ -654,6 +661,12 @@ public static class InboxThreadsEndpoints
                 .Where(c => c.ContactId != null && contactIds.Contains(c.ContactId.Value))
                 .Select(c => c.ContactId!.Value).Distinct().ToListAsync()).ToHashSet();
 
+        var companyMap = sc.CompanyMap().ToDictionary(kv => kv.Key, kv => (int?)kv.Value);
+        var companyIds = threads.Values.Select(t => t.CompanyEntityId
+                ?? (t.EntityId is int e && companyMap.TryGetValue(e, out var c0) ? c0 : null))
+            .OfType<int>().Distinct().ToList();
+        var companyNames = await db.Entities.AsNoTracking().Where(e => companyIds.Contains(e.Id))
+            .ToDictionaryAsync(e => e.Id, e => e.Name);
         var outv = new List<Dictionary<string, object?>>();
         foreach (var c in page)
         {
@@ -672,10 +685,17 @@ public static class InboxThreadsEndpoints
             if (isWa && address.Length > 0 && address.All(char.IsDigit)) address = $"+{address}";
             var callStatus = string.IsNullOrEmpty(t.CallStatus) ? "idle" : t.CallStatus;
 
+            var company = t.CompanyEntityId ?? (t.EntityId is int te && companyMap.TryGetValue(te, out var tc) ? tc : null);
             outv.Add(new Dictionary<string, object?>
             {
                 ["channel"] = t.Channel,
                 ["key"] = t.Key,
+                // the conversation's identity — a customer has one per company, so channel + key
+                // is not unique: thread_id is, and company says whose it is
+                ["thread_id"] = t.Id,
+                ["company"] = company is int cid0
+                    ? new Dictionary<string, object?> { ["id"] = cid0, ["name"] = companyNames.GetValueOrDefault(cid0, "") }
+                    : null,
                 ["name"] = t.Name.Length > 0 ? t.Name : address,
                 ["address"] = address,
                 ["status"] = string.IsNullOrEmpty(t.Status) ? ThreadStatus.Open : t.Status,

@@ -110,6 +110,31 @@ public class PostgresTests
     }
 
     [Fact]
+    public void An_older_postgres_database_gets_one_conversation_per_company()
+    {
+        // incident 2026-10-11: (channel, key) → (channel, key, company), on a live Postgres database
+        if (ApiFactory.PostgresServer == null) return; // SQLite run — CompanyThreadsTests covers SQLite
+        using var db = new PgDb();
+        var w = CompanyUpgradeFixture.Arrange(db.Context);
+        // make it the OLD schema: no company column, (channel, key) unique
+        db.Sql($"DROP INDEX \"{AppDbContext.ThreadCompanyIndex}\"");
+        db.Sql($"DROP INDEX \"{AppDbContext.ThreadUnattributedIndex}\"");
+        db.Sql("ALTER TABLE \"crm_thread\" DROP COLUMN \"company_entity_id\"");
+        db.Sql("ALTER TABLE \"crm_callrecord\" DROP COLUMN \"entity_id\"");
+        db.Sql($"CREATE UNIQUE INDEX \"{AppDbContext.LegacyThreadIndex}\" ON \"crm_thread\" (\"channel\", \"key\")");
+
+        using (var ctx = db.Context()) Seed.Run(ctx);   // the boot after the deploy
+
+        string Count(string index) => db.Scalar($"SELECT count(*) FROM pg_indexes WHERE indexname = '{index}'")!;
+        Assert.Equal("1", Count(AppDbContext.ThreadCompanyIndex));
+        Assert.Equal("1", Count(AppDbContext.ThreadUnattributedIndex));
+        Assert.Equal("0", Count(AppDbContext.LegacyThreadIndex));
+        Assert.Equal("1", db.Scalar("SELECT count(*) FROM information_schema.columns "
+                                    + "WHERE table_name = 'crm_callrecord' AND column_name = 'entity_id'"));
+        CompanyUpgradeFixture.AssertUpgraded(db.Context, w);
+    }
+
+    [Fact]
     public void Dates_round_trip_as_written_and_UtcNow_and_Like_translate_like_sqlite()
     {
         if (ApiFactory.PostgresServer == null) return;

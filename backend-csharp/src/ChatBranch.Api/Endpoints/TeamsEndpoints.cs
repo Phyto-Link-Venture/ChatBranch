@@ -119,10 +119,12 @@ public static class TeamsEndpoints
         {
             var channel = (Str(body, "channel") ?? "").Trim();
             var key = (Str(body, "key") ?? "").Trim();
-            var thread = await db.Threads.FirstOrDefaultAsync(t => t.Channel == channel && t.Key == key);
-            // a conversation outside the caller's entity scope is a 404, like every per-thread route
-            if (thread == null || !ChatBranch.Api.Auth.ThreadAccessFilter.InScope(db, sc, me, thread.EntityId))
-                return Results.NotFound(new { detail = "Thread not found." });
+            // a conversation outside the caller's entity scope is a 404, like every per-thread route;
+            // several (one per company) need thread_id / company
+            var (refused, thread) = await ChatBranch.Api.Auth.ThreadResolver.FindAsync(db, sc, me, channel, key,
+                Int(body, "thread_id"), Str(body, "company"));
+            if (refused != null || thread == null)
+                return refused ?? Results.NotFound(new { detail = "Thread not found." });
 
             var teamId = Int(body, "team_id");
             if (teamId is null or 0)

@@ -11,6 +11,10 @@ public class CallRecord
     public string CallId { get; set; } = "";
     public int? ContactId { get; set; }
     public Contact? Contact { get; set; }
+    /// <summary>The outlet the call was placed for (the dispatch's <c>entity_id</c>) — which
+    /// company's contact views may show it. Null = an older record: attributed through its
+    /// contact's own entity links when they all sit in one company.</summary>
+    public int? EntityId { get; set; }
     public string Phone { get; set; } = "";
     public string Name { get; set; } = "";
     public string StartedAt { get; set; } = "";       // free-text timestamps from the agent

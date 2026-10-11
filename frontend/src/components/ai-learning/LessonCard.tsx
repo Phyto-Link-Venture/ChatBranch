@@ -211,7 +211,7 @@ export function LessonCard({
           <div className="eyebrow mb-1">{t('ai.lesson.whereFrom')}</div>
           <ul className="flex flex-col gap-1">
             {l.feedback.map((fb) => {
-              const href = threadHref(fb.thread)
+              const href = threadHref(fb.thread, fb.thread_id)
               const Icon = fb.rating < 0 ? ThumbsDown : ThumbsUp
               return (
                 <li key={fb.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-text-mid">

@@ -117,7 +117,7 @@ export function LiveChip() {
               <Empty>{t('shell.live.noCalls')}</Empty>
             ) : (
               data!.active_calls.map((c) => (
-                <RowButton key={`${c.channel}:${c.key}`} onClick={() => go(c.url)}>
+                <RowButton key={`${c.channel}:${c.key}#${c.thread_id ?? ''}`} onClick={() => go(c.url)}>
                   <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-green/15 text-[color:var(--green-ink)]">
                     <PhoneCall size={13} strokeWidth={1.9} aria-hidden />
                   </span>
@@ -142,7 +142,7 @@ export function LiveChip() {
               data!.waiting.map((w) => {
                 const secs = secondsSince(w.waiting_since)
                 return (
-                  <RowButton key={`${w.channel}:${w.key}`} onClick={() => go(w.url)}>
+                  <RowButton key={`${w.channel}:${w.key}#${w.thread_id ?? ''}`} onClick={() => go(w.url)}>
                     <ChannelLogo channel={w.channel} size={16} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-semibold text-text-high">{w.name}</span>

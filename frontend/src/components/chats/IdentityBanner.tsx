@@ -11,18 +11,21 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { HelpCircle, Link2, Loader2, UserPlus } from 'lucide-react'
-import { cApi, errText, threadPath, type IdentifyState } from '@/lib/contactIdentity'
+import { cApi, errText, identifyPath, type IdentifyState } from '@/lib/contactIdentity'
 import { CreateFromChatModal } from '@/components/contacts/CreateFromChatModal'
 import { useT } from '@/i18n'
 
 export default function IdentityBanner({
   channel,
   threadKey,
+  threadId,
   refreshToken,
   onCreated,
 }: {
   channel: string
   threadKey: string
+  /** which company's conversation (a customer has one per company) */
+  threadId?: number | null
   /** Any value that changes when the conversation updates (refetch trigger). */
   refreshToken?: unknown
   onCreated: (contactId: number) => void
@@ -39,7 +42,7 @@ export default function IdentityBanner({
     setLinking(contactId)
     setLinkError(null)
     try {
-      await cApi(`contacts/identify/${threadPath(channel, threadKey)}/contact`, {
+      await cApi(identifyPath(channel, threadKey, threadId, '/contact'), {
         method: 'POST',
         body: JSON.stringify({ contact_id: contactId }),
       })
@@ -54,11 +57,11 @@ export default function IdentityBanner({
 
   const load = useCallback(async () => {
     try {
-      setState(await cApi<IdentifyState>(`contacts/identify/${threadPath(channel, threadKey)}`))
+      setState(await cApi<IdentifyState>(identifyPath(channel, threadKey, threadId)))
     } catch {
       setState(null) // no chats.view, or the API is down — no banner
     }
-  }, [channel, threadKey])
+  }, [channel, threadKey, threadId])
 
   useEffect(() => {
     void load()
@@ -141,6 +144,7 @@ export default function IdentityBanner({
         onClose={() => setOpen(false)}
         channel={channel}
         threadKey={threadKey}
+        threadId={threadId}
         onCreated={(id) => {
           onCreated(id)
           void load()

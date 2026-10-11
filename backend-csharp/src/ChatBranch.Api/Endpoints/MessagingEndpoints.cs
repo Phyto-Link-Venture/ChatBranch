@@ -203,6 +203,10 @@ public static class MessagingEndpoints
         {
             ["key"] = t.Key,
             ["channel"] = t.Channel,
+            // the conversation's identity: a customer has one per company, so channel + key is
+            // not unique — thread_id is, and company says whose it is
+            ["thread_id"] = t.Id,
+            ["company"] = ThreadCompanyPayload(db, t),
             ["address"] = string.IsNullOrEmpty(t.Address) ? t.Key : t.Address,
             ["name"] = string.IsNullOrEmpty(t.Name) ? t.Key : t.Name,
             // ai_enabled (the EFFECTIVE rule the auto-reply gate applies), ai_reason,
@@ -218,6 +222,15 @@ public static class MessagingEndpoints
             ["created"] = Iso(t.CreatedAt),
             ["updated"] = Iso(t.UpdatedAt),
         };
+
+    /// <summary>{id, name} of the conversation's company (null = unattributed).</summary>
+    internal static Dictionary<string, object?>? ThreadCompanyPayload(AppDbContext db, Thread t)
+    {
+        var company = new ScopingService(db).ThreadCompany(t);
+        if (company is not int c) return null;
+        var name = db.Entities.AsNoTracking().Where(e => e.Id == c).Select(e => e.Name).FirstOrDefault() ?? "";
+        return new Dictionary<string, object?> { ["id"] = c, ["name"] = name };
+    }
 
     /// <summary>Load a thread's messages oldest→newest (crm.Message Meta.ordering).</summary>
     private static List<Message> MessagesOf(AppDbContext db, int threadId) =>
@@ -236,10 +249,6 @@ public static class MessagingEndpoints
     private static Task<bool> ContactVisibleAsync(AppDbContext db, ScopingService sc, ClaimsPrincipal me, int id) =>
         ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc).AnyAsync(c => c.Id == id);
 
-    /// <summary>store._get — the messaging store never normalizes beyond a trim.</summary>
-    private static Thread? GetThread(AppDbContext db, string channel, string key) =>
-        db.Threads.Include(t => t.Contact).Include(t => t.Account)
-            .FirstOrDefault(t => t.Channel == channel && t.Key == (key ?? "").Trim());
 
     // =========================================================================
     // 1. status + agents
@@ -312,13 +321,16 @@ public static class MessagingEndpoints
         // ?channel=&key= narrows it to the people who may own THAT conversation
         // (Assignees.EligibleAsync), its team's members first.
         app.MapGet("/api/messaging/agents", async (string? channel, string? key, AppDbContext db,
-            ScopingService sc, ClaimsPrincipal me) =>
+            ScopingService sc, ClaimsPrincipal me, HttpContext ctx) =>
         {
             Thread? thread = null;
             if (!string.IsNullOrWhiteSpace(channel) && !string.IsNullOrWhiteSpace(key))
             {
-                thread = GetThread(db, channel.Trim(), key.Trim());
-                if (thread == null || !ThreadAccessFilter.InScope(db, sc, me, thread.EntityId))
+                // the ONE conversation the caller means (thread_id / company when several)
+                var pick = await ThreadResolver.ForRequestAsync(ctx, channel.Trim(), key.Trim());
+                if (ThreadResolver.Refusal(pick) is { } refused) return refused;
+                thread = await ThreadResolver.LoadAsync(ctx, channel.Trim(), key.Trim());
+                if (thread == null)
                     return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
             }
             var rows = (await Assignees.EligibleAsync(db, sc, me, thread))
@@ -407,7 +419,7 @@ public static class MessagingEndpoints
         // every message to/from this contact across EVERY channel (WhatsApp
         // included), oldest first, each annotated with its channel + thread key.
         app.MapGet("/api/messaging/contacts/{id:int}/conversation",
-            async (int id, int? limit, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
+            async (int id, int? limit, string? company, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
             var contact = await ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc)
                 .FirstOrDefaultAsync(c => c.Id == id);
@@ -417,6 +429,14 @@ public static class MessagingEndpoints
             var canSee = ThreadFilter(db, sc, me);
             var threads = (await db.Threads.AsNoTracking().Where(t => t.ContactId == id)
                 .OrderBy(t => t.Channel).ThenBy(t => t.Key).ToListAsync()).Where(canSee).ToList();
+            // ?company= (id / slug, or none): only that company's conversations — the chat's
+            // merged view never mixes two companies' conversations with one customer
+            if (!string.IsNullOrWhiteSpace(company))
+            {
+                var (unknown, companyId) = await ThreadResolver.CompanyIdAsync(db, sc, company);
+                if (unknown) return Results.Json(new { detail = "Unknown company." }, statusCode: 404);
+                threads = threads.Where(t => sc.ThreadCompany(t) == companyId).ToList();
+            }
             var take = Math.Max(1, Math.Min(limit ?? 200, 1000));
             var threadIds = threads.Select(t => t.Id).ToList();
 
@@ -435,6 +455,7 @@ public static class MessagingEndpoints
                 var row = MessagePayload(m, thread.Channel, m.Account?.Name);
                 row["channel"] = thread.Channel;
                 row["key"] = thread.Key;
+                row["thread_id"] = thread.Id;   // one conversation per company: channel + key is not unique
                 messages.Add(row);
             }
 
@@ -447,7 +468,7 @@ public static class MessagingEndpoints
                 },
                 ["channels"] = threads.Select(t => new Dictionary<string, object?>
                 {
-                    ["channel"] = t.Channel, ["key"] = t.Key,
+                    ["channel"] = t.Channel, ["key"] = t.Key, ["thread_id"] = t.Id,
                     ["name"] = string.IsNullOrEmpty(t.Name) ? t.Key : t.Name,
                 }).ToList(),
                 ["messages"] = messages,
@@ -496,6 +517,8 @@ public static class MessagingEndpoints
                 {
                     ["key"] = t.Key,
                     ["channel"] = t.Channel,
+                    ["thread_id"] = t.Id,
+                    ["company"] = ThreadCompanyPayload(db, t),
                     ["address"] = string.IsNullOrEmpty(t.Address) ? t.Key : t.Address,
                     ["name"] = string.IsNullOrEmpty(t.Name) ? t.Key : t.Name,
                     ["ai_enabled"] = t.AiEnabled,
@@ -534,11 +557,15 @@ public static class MessagingEndpoints
             if (to.Length == 0 || (channel == Channels.Email && !to.Contains('@')))
                 return Results.Json(new { detail = "Valid recipient ('to') required." }, statusCode: 400);
 
-            var existing = GetThread(db, channel, to);
-            // an existing conversation outside the caller's scope is not theirs to
-            // open (or read through this route) — the same 404 as the thread routes
-            if (existing != null && !ThreadAccessFilter.InScope(db, sc, me, existing.EntityId))
-                return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
+            // the caller's OWN conversation with this address: one per company, so several
+            // the caller can see need thread_id / company (409 with the candidates); one in
+            // a branch of their company they may not open is the same 404 as the thread routes
+            var pick = await ThreadResolver.ResolveAsync(db, sc, me, channel, new[] { to },
+                IntOrNull(body, "thread_id"), Str(body, "company"));
+            if (ThreadResolver.Refusal(pick) is { } refused) return refused;
+            var existing = pick.ThreadId is int tid
+                ? await db.Threads.Include(t => t.Contact).Include(t => t.Account).FirstAsync(t => t.Id == tid)
+                : null;
             // store._match_contact: email keys match Contact.email. Social ids
             // (PSID/IGSID/TG chat id) have no CRM counterpart — those threads
             // are linked by hand from the chat's Contact panel. Only a contact the
@@ -557,30 +584,43 @@ public static class MessagingEndpoints
                             .Where(c => PhoneMatch.Tail(c.Phone) == smsTail).ToList(), forEntity)
                 : null;
 
-            var thread = store.GetOrCreateThread(channel, to, Str(body, "name"),
-                contactId: existing?.ContactId ?? matched?.Id);
-            if (existing == null && channel == Channels.Email && thread.AiEnabled)
+            Thread thread;
+            if (existing != null)
             {
-                thread.AiEnabled = false; // email has no auto-reply
-                await db.SaveChangesAsync();
+                thread = existing;
+                if (thread.ContactId == null && matched != null
+                    && ChatBranch.Data.Contacts.ContactCompanies.MayLink(db, sc, matched.Id, sc.ThreadCompany(thread)))
+                {
+                    thread.ContactId = matched.Id; // backfill a pre-link thread
+                    thread.Contact = matched;
+                    // The link decided the outlet — re-derive the denormalized entity.
+                    sc.SyncThreadEntity(thread, save: false);
+                    await db.SaveChangesAsync();
+                }
             }
-            else if (existing != null && thread.ContactId == null && matched != null)
+            else
             {
-                thread.ContactId = matched.Id; // backfill a pre-link thread
-                thread.Contact = matched;
-                // The link decided the outlet — re-derive the denormalized entity.
-                sc.SyncThreadEntity(thread, save: false);
-                await db.SaveChangesAsync();
+                // a NEW conversation of the caller's company (ThreadStart)
+                var place = await ThreadStart.PlaceAsync(db, sc, me, Str(body, "entity"), Str(body, "company"),
+                    matched?.Id);
+                if (place.Error != null) return place.Error;
+                thread = store.GetOrCreateInCompany(channel, to, place.Company, Str(body, "name"),
+                    contactId: matched?.Id, entityHint: place.Entity);
+                if (channel == Channels.Email && thread.AiEnabled)
+                {
+                    thread.AiEnabled = false; // email has no auto-reply
+                    await db.SaveChangesAsync();
+                }
             }
             await db.Entry(thread).Reference(t => t.Contact).LoadAsync();
             return Results.Ok(ThreadPayload(db, thread, MessagesOf(db, thread.Id)));
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.send");
 
         // GET /api/messaging/threads/{channel}/{key} — the full thread.
-        app.MapGet("/api/messaging/threads/{channel}/{key}", (string channel, string key,
-            AppDbContext db) =>
+        app.MapGet("/api/messaging/threads/{channel}/{key}", async (string channel, string key,
+            AppDbContext db, HttpContext ctx) =>
         {
-            var thread = GetThread(db, channel, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null)
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
             return Results.Ok(ThreadPayload(db, thread, MessagesOf(db, thread.Id)));
@@ -601,7 +641,7 @@ public static class MessagingEndpoints
         // the thread, the timeline and analytics, it is simply not claimed to have
         // left the building. A provider refusal comes back as a "failed" row.
         app.MapPost("/api/messaging/threads/{channel}/{key}/send",
-            (string channel, string key, Dictionary<string, JsonElement>? body,
+            async (string channel, string key, Dictionary<string, JsonElement>? body,
              AppDbContext db, ChatBranch.Data.Channels.OutboundSender sender, ClaimsPrincipal me,
              HttpContext ctx) =>
         {
@@ -611,7 +651,7 @@ public static class MessagingEndpoints
                 return Results.Json(new { detail = "text is required." }, statusCode: 400);
             if (mediaUrl.Length > 0 && !mediaUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
                 return Results.Json(new { detail = "media_url must be a public https:// URL." }, statusCode: 400);
-            var thread = GetThread(db, channel, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null)
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
             // STOP is honoured on every channel: an opted-out conversation takes a
@@ -655,9 +695,9 @@ public static class MessagingEndpoints
         // email threads ship with it off).
         app.MapPost("/api/messaging/threads/{channel}/{key}/ai",
             async (string channel, string key, Dictionary<string, JsonElement>? body,
-                   AppDbContext db) =>
+                   AppDbContext db, HttpContext ctx) =>
         {
-            var thread = GetThread(db, channel, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null)
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
             // the current sending account's tick + the legacy column, so the gate
@@ -680,7 +720,7 @@ public static class MessagingEndpoints
                 {
                     detail = $"status must be one of {string.Join(", ", ValidStatuses)}.",
                 }, statusCode: 400);
-            var thread = GetThread(db, channel, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null)
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
             thread.Status = value;
@@ -696,7 +736,7 @@ public static class MessagingEndpoints
             async (string channel, string key, Dictionary<string, JsonElement>? body,
                    AppDbContext db, ClaimsPrincipal me, HttpContext ctx) =>
         {
-            var thread = GetThread(db, channel, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null)
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
             var assignee = (Str(body, "assignee") ?? "").Trim();
@@ -731,7 +771,7 @@ public static class MessagingEndpoints
             if (body == null || !body.TryGetValue("labels", out var raw) ||
                 raw.ValueKind != JsonValueKind.Array)
                 return Results.Json(new { detail = "labels must be a list of strings." }, statusCode: 400);
-            var thread = GetThread(db, channel, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null)
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
 
@@ -754,13 +794,13 @@ public static class MessagingEndpoints
         // POST …/note {text} — a private note: stored on the thread, NEVER sent
         // to the contact and kept out of the AI's context.
         app.MapPost("/api/messaging/threads/{channel}/{key}/note",
-            (string channel, string key, Dictionary<string, JsonElement>? body,
+            async (string channel, string key, Dictionary<string, JsonElement>? body,
              AppDbContext db, ThreadStore store, ClaimsPrincipal me, HttpContext ctx) =>
         {
             var text = (Str(body, "text") ?? "").Trim();
             if (text.Length == 0)
                 return Results.Json(new { detail = "text is required." }, statusCode: 400);
-            var thread = GetThread(db, channel, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null)
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
             var msg = store.AppendMessage(thread, MessageDirection.Out, MessageSource.Agent, text,
@@ -776,7 +816,7 @@ public static class MessagingEndpoints
             async (string channel, string key, Dictionary<string, JsonElement>? body,
                    AppDbContext db, ScopingService sc, ClaimsPrincipal me, HttpContext ctx) =>
         {
-            var thread = GetThread(db, channel, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null)
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
 
@@ -787,6 +827,16 @@ public static class MessagingEndpoints
                     .FirstOrDefaultAsync(c => c.Id == cid);
                 if (contact == null)
                     return Results.Json(new { detail = "Contact not found." }, statusCode: 404);
+                // a conversation only ever links a contact of its OWN company (or an
+                // organization-wide one): another company's contact — and with it that
+                // company's memory and records — never reaches this chat
+                if (!ChatBranch.Data.Contacts.ContactCompanies.MayLink(db, sc, contact.Id, sc.ThreadCompany(thread)))
+                    return Results.Json(new
+                    {
+                        detail = "That contact belongs to another company — this conversation can only be linked "
+                                 + "to a contact of its own company.",
+                        code = "contact_other_company",
+                    }, statusCode: 409);
                 // an unknown customer the identity exchange was waiting on: close it the
                 // same way the chat banner's "Create contact" does (request, note, handover)
                 var identity = ctx.RequestServices.GetService<ChatBranch.Data.Contacts.IdentityRequestService>();
@@ -888,7 +938,12 @@ public static class MessagingEndpoints
                 return Results.Json(new { detail = "phone or email query param required." },
                     statusCode: 400);
 
-            var (events, contact) = CollectEvents(db, phone, email, ThreadFilter(db, sc, me));
+            // only what the CALLER may see: their conversations, the calls placed for their
+            // entities, a contact of their scope (Fix 3 of the 2026-10-11 incident)
+            var seen = CollectEvents(db, phone, email, ThreadFilter(db, sc, me),
+                rows => CallScope.Visible(db, sc, me, rows),
+                ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc));
+            var (events, contact) = (seen.Events, seen.Contact);
             if (contact != null && !await ContactVisibleAsync(db, sc, me, contact.Id))
                 return Results.Json(new { detail = "Contact not found." }, statusCode: 404);
             var take = limit ?? 0;
@@ -899,7 +954,8 @@ public static class MessagingEndpoints
             {
                 ["events"] = slice,
                 ["total"] = events.Count,
-                ["summary"] = contact == null ? null : CachedSummary(db, contact.Id),
+                ["summary"] = contact == null ? null
+                    : CachedSummary(db, contact.Id, seen, ShellScope.BoundEntityIds(db, sc, me) == null),
             });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("contacts.view", "chats.view");
 
@@ -926,10 +982,13 @@ public static class MessagingEndpoints
                 context.TryGetProperty("record", out var rec) && rec.ValueKind != JsonValueKind.Null)
                 record = rec.ValueKind == JsonValueKind.String ? rec.GetString() ?? "" : rec.GetRawText();
 
-            var (events, contact) = CollectEvents(db, phone, email, ThreadFilter(db, sc, me));
+            var seen = CollectEvents(db, phone, email, ThreadFilter(db, sc, me),
+                rows => CallScope.Visible(db, sc, me, rows),
+                ContactsEndpoints.ScopeContacts(db.Contacts.AsNoTracking(), me, db, sc));
+            var (events, contact) = (seen.Events, seen.Contact);
             if (contact != null && !await ContactVisibleAsync(db, sc, me, contact.Id))
                 return Results.Json(new { detail = "Contact not found." }, statusCode: 404);
-            var result = await GenerateSummary(db, llm, name, phone, email, record, events, contact, ct);
+            var result = await GenerateSummary(db, llm, name, phone, email, record, seen, ct);
             return Results.Ok(result);
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireAnyCapability("contacts.view", "chats.view");
     }
@@ -943,14 +1002,23 @@ public static class MessagingEndpoints
     /// CONTACT-CENTRIC like Django: the contact's linked threads (any channel —
     /// the hub can bind numbers/addresses that differ from the CRM ones) are the
     /// source of truth; exact phone/email key lookups remain the fallback for
-    /// unlinked threads. Deduped by (channel, key).
+    /// unlinked threads. Deduped by conversation (a customer has one PER COMPANY, so
+    /// channel + key is not one conversation). Everything is filtered by the caller's
+    /// view: <paramref name="visible"/> conversations, <paramref name="visibleCalls"/>
+    /// calls and — for the contact it names — <paramref name="visibleContacts"/>.
     /// </summary>
-    private static (List<Dictionary<string, object?>> Events, Contact? Contact) CollectEvents(
-        AppDbContext db, string phone, string email, Func<Thread, bool>? visible = null)
+    private sealed record TimelineSeen(List<Dictionary<string, object?>> Events, Contact? Contact,
+        HashSet<int> ThreadIds, HashSet<string> CallIds);
+
+    private static TimelineSeen CollectEvents(
+        AppDbContext db, string phone, string email, Func<Thread, bool>? visible = null,
+        Func<List<CallRecord>, List<CallRecord>>? visibleCalls = null, IQueryable<Contact>? visibleContacts = null)
     {
         var events = new List<Dictionary<string, object?>>();
         var digits = Digits(phone);
         Contact? contact = null;
+        var threadIds = new HashSet<int>();
+        var callIds = new HashSet<string>();
         try
         {
             // ---- AI voice calls (agent-written records) ----------------------
@@ -958,6 +1026,8 @@ public static class MessagingEndpoints
             {
                 var calls = db.CallRecords.AsNoTracking().ToList()
                     .Where(r => Digits(r.Phone) == digits).ToList();
+                if (visibleCalls != null) calls = visibleCalls(calls);
+                foreach (var c in calls) callIds.Add(c.CallId);
                 foreach (var c in calls)
                 {
                     var outcome = string.IsNullOrEmpty(c.Outcome) ? "unclear" : c.Outcome;
@@ -983,24 +1053,24 @@ public static class MessagingEndpoints
             // ---- identity: which CRM contact are we talking about? -----------
             // Stored phones are formatted ("+60 18-445 6677"), so the match is
             // on digits — done in memory because SQLite cannot strip them.
+            // (among the contacts the caller may see — one per company may share it)
+            var people = visibleContacts ?? db.Contacts.AsNoTracking();
             if (digits.Length > 0)
             {
                 var tail = digits.Length >= 9 ? digits[^9..] : digits;
-                contact = db.Contacts.AsNoTracking().Where(c => c.Phone != "").ToList()
+                contact = people.Where(c => c.Phone != "").ToList()
                     .FirstOrDefault(c => Digits(c.Phone).EndsWith(tail));
             }
             if (contact == null && email.Length > 0)
-                contact = db.Contacts.AsNoTracking()
-                    .FirstOrDefault(c => c.Email.ToLower() == email.ToLower());
+                contact = people.FirstOrDefault(c => c.Email.ToLower() == email.ToLower());
 
             // ---- the threads that count --------------------------------------
             var threads = new List<Thread>();
-            var seen = new HashSet<string>();
             void Consider(Thread? t)
             {
                 if (t == null) return;
                 if (visible != null && !visible(t)) return;   // outside the caller's scope
-                if (!seen.Add($"{t.Channel}\0{t.Key}")) return;
+                if (!threadIds.Add(t.Id)) return;             // one conversation once
                 threads.Add(t);
             }
 
@@ -1009,15 +1079,18 @@ public static class MessagingEndpoints
                 var owned = db.Threads.AsNoTracking().Where(x => x.ContactId == linked.Id).ToList();
                 foreach (var t in owned) Consider(t);
                 if (!string.IsNullOrEmpty(linked.Email))
-                    Consider(db.Threads.AsNoTracking().FirstOrDefault(
-                        t => t.Channel == Channels.Email && t.Key == linked.Email));
+                    foreach (var t in db.Threads.AsNoTracking()
+                                 .Where(t => t.Channel == Channels.Email && t.Key == linked.Email).ToList())
+                        Consider(t);
             }
             if (digits.Length > 0)
-                Consider(db.Threads.AsNoTracking().FirstOrDefault(
-                    t => t.Channel == Channels.WhatsApp && t.Key == digits));
+                foreach (var t in db.Threads.AsNoTracking()
+                             .Where(t => t.Channel == Channels.WhatsApp && t.Key == digits).ToList())
+                    Consider(t);
             if (email.Length > 0)
-                Consider(db.Threads.AsNoTracking().FirstOrDefault(
-                    t => t.Channel == Channels.Email && t.Key == email));
+                foreach (var t in db.Threads.AsNoTracking()
+                             .Where(t => t.Channel == Channels.Email && t.Key == email).ToList())
+                    Consider(t);
 
             // ---- their messages (private notes stay OFF the timeline) --------
             var ids = threads.Select(t => t.Id).ToList();
@@ -1050,7 +1123,7 @@ public static class MessagingEndpoints
                 .ToList();
         }
         catch { /* a partial timeline beats a 500 on the contact page */ }
-        return (events, contact);
+        return new TimelineSeen(events, contact, threadIds, callIds);
     }
 
     // ---- timeline.generate_summary / cached_summary -------------------------
@@ -1064,14 +1137,20 @@ public static class MessagingEndpoints
     /// The generation metadata the contact page renders (event_count/as_of) rides
     /// in Facts[0]; Sentiment records whether the text came from the LLM.
     /// </summary>
-    private static Dictionary<string, object?>? CachedSummary(AppDbContext db, int contactId)
+    /// <remarks>A summary is shown only to someone who may see EVERYTHING it was written
+    /// from (its <c>thread_ids</c> / <c>call_ids</c> ⊆ what the caller sees now) — a brief
+    /// another company's view produced never reaches this caller. An older brief that
+    /// recorded no scope is shown to the organization-wide view only.</remarks>
+    private static Dictionary<string, object?>? CachedSummary(AppDbContext db, int contactId, TimelineSeen seen,
+        bool unbound)
     {
         try
         {
-            var row = db.ConversationSummaries.AsNoTracking()
+            var rows = db.ConversationSummaries.AsNoTracking()
                 .Where(s => s.ContactId == contactId && s.Source == "timeline")
                 .OrderByDescending(s => s.CreatedAt).ThenByDescending(s => s.Id)
-                .FirstOrDefault();
+                .Take(20).ToList();
+            var row = rows.FirstOrDefault(r => SummaryCovered(r, seen, unbound));
             if (row == null) return null;
 
             var meta = row.Facts.FirstOrDefault();
@@ -1097,10 +1176,26 @@ public static class MessagingEndpoints
         catch { return null; }
     }
 
+    /// <summary>Was this cached timeline brief written only from what <paramref name="seen"/> covers?</summary>
+    private static bool SummaryCovered(ConversationSummary row, TimelineSeen seen, bool unbound)
+    {
+        if (row.Facts.FirstOrDefault() is not JsonElement el || el.ValueKind != JsonValueKind.Object
+            || !el.TryGetProperty("thread_ids", out var tids) || tids.ValueKind != JsonValueKind.Array)
+            return unbound;
+        foreach (var t in tids.EnumerateArray())
+            if (!t.TryGetInt32(out var id) || !seen.ThreadIds.Contains(id)) return false;
+        if (el.TryGetProperty("call_ids", out var cids) && cids.ValueKind == JsonValueKind.Array)
+            foreach (var c in cids.EnumerateArray())
+                if (c.ValueKind != JsonValueKind.String || !seen.CallIds.Contains(c.GetString() ?? "")) return false;
+        return true;
+    }
+
     private static async Task<Dictionary<string, object?>> GenerateSummary(AppDbContext db,
         ILlmClient llm, string name, string phone, string email, string record,
-        List<Dictionary<string, object?>> events, Contact? contact, CancellationToken ct)
+        TimelineSeen seen, CancellationToken ct)
     {
+        var events = seen.Events;
+        var contact = seen.Contact;
         var heuristic = true;
         var text = HeuristicSummary(name, events);
 
@@ -1177,6 +1272,9 @@ public static class MessagingEndpoints
                         {
                             ["event_count"] = events.Count,
                             ["as_of"] = asOf,
+                            // what it was written from: only a caller who sees all of it gets it back
+                            ["thread_ids"] = seen.ThreadIds.OrderBy(i => i).ToList(),
+                            ["call_ids"] = seen.CallIds.OrderBy(i => i).ToList(),
                         },
                     },
                     CreatedAt = DateTime.UtcNow,

@@ -75,7 +75,7 @@ public sealed class CallRecordings
     /// <c>{room}.wav</c> is then the audio). Best-effort; never throws.
     /// </summary>
     public string? SaveEnded(string waId, string? recording, string? room, long? recStartedAt, string reason,
-        string initiatedBy, string account, VoiceAgentBridge? bridge)
+        string initiatedBy, string account, VoiceAgentBridge? bridge, int? threadId = null, int? accountId = null)
     {
         try
         {
@@ -101,6 +101,10 @@ public sealed class CallRecordings
                     ["account"] = account,
                     ["rec_started_at"] = recStartedAt,
                 },
+                // the conversation the call belongs to: one customer has one PER COMPANY,
+                // so the wa_id in the file name alone does not say whose call it was
+                ["thread_id"] = threadId,
+                ["account_id"] = accountId,
             };
             Backfill(doc, bridge);
             var path = Path.Combine(GatewayDir, $"{stem}.json");
@@ -116,7 +120,11 @@ public sealed class CallRecordings
     /// whose transcript is not final yet are backfilled from the agent's live file
     /// (it writes <c>ended_by</c> only after its summary) and re-saved.
     /// </summary>
-    public List<Dictionary<string, object?>> ListFor(string waId, VoiceAgentBridge? bridge)
+    /// <param name="threadId">The conversation asking: only ITS calls are listed (the paired
+    /// transcript's <c>thread_id</c>; an older pair without one belongs to
+    /// <paramref name="legacyOwnerId"/>, the wa_id's original conversation).</param>
+    public List<Dictionary<string, object?>> ListFor(string waId, VoiceAgentBridge? bridge, int? threadId = null,
+        int? legacyOwnerId = null)
     {
         var outv = new List<Dictionary<string, object?>>();
         var digits = new string((waId ?? "").Where(char.IsAsciiDigit).ToArray());
@@ -131,6 +139,7 @@ public sealed class CallRecordings
         {
             var jsonPath = Path.Combine(GatewayDir, $"{stem}.json");
             var doc = ReadJson(jsonPath);
+            if (threadId is int askedFor && OwnerOf(doc, legacyOwnerId) != askedFor) continue;
             if (doc != null && !(doc.TryGetValue("final", out var f) && f is JsonElement { ValueKind: JsonValueKind.True }))
             {
                 var mutable = doc.ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
@@ -173,6 +182,18 @@ public sealed class CallRecordings
         }
         return outv.OrderByDescending(e => (string?)e["created"], StringComparer.Ordinal).ToList();
     }
+
+    /// <summary>The conversation a gateway recording belongs to: its pair's <c>thread_id</c>, else
+    /// (a pair written before calls were filed per conversation, or none) the wa_id's original one.</summary>
+    public int? ThreadOf(string name, int? legacyOwnerId)
+    {
+        var stem = Path.GetFileNameWithoutExtension(name ?? "");
+        return OwnerOf(ReadJson(Path.Combine(GatewayDir, $"{stem}.json")), legacyOwnerId);
+    }
+
+    private static int? OwnerOf(Dictionary<string, JsonElement>? doc, int? legacyOwnerId) =>
+        doc != null && doc.TryGetValue("thread_id", out var t) && t.ValueKind == JsonValueKind.Number
+        && t.TryGetInt32(out var id) ? id : legacyOwnerId;
 
     /// <summary>Pull turns + ended_by from the agent's live/{room}.json. True when something changed.</summary>
     private static bool Backfill(Dictionary<string, object?> doc, VoiceAgentBridge? bridge)

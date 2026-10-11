@@ -42,9 +42,13 @@ public static class WhatsAppThreadsEndpoints
     // The dashboard posts snake_case, and this app configures no global naming
     // policy, so every multi-word field carries an explicit [JsonPropertyName].
 
+    /// <summary><c>thread_id</c> / <c>company</c> (an id or slug) say which existing conversation —
+    /// a customer has one per company — and <c>entity</c> where a new one is filed.</summary>
     public record CreateThreadRequest(
         string? Phone, string? Key, string? Channel, string? Name,
-        [property: JsonPropertyName("account_id")] string? AccountId);
+        [property: JsonPropertyName("account_id")] string? AccountId,
+        [property: JsonPropertyName("thread_id")] int? ThreadId = null,
+        string? Company = null, string? Entity = null);
 
     /// <summary><c>reply_to</c> = the pk of the message this one quotes (same conversation).</summary>
     public record SendTextRequest(string? Text, bool Force = false,
@@ -130,9 +134,9 @@ public static class WhatsAppThreadsEndpoints
         // views.thread_detail. `?limit=` (default 50, capped at 500) and
         // `?before=<pk>` page backwards through history.
         app.MapGet("/api/whatsapp/threads/{key}", async (string key, int? limit, int? before,
-            AppDbContext db, ScopingService sc, IWhatsAppCloudClient wa) =>
+            AppDbContext db, ScopingService sc, IWhatsAppCloudClient wa, HttpContext http) =>
         {
-            var thread = await FindThread(db, key);
+            var thread = await ThreadResolver.LoadAsync(http);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
             var take = Math.Clamp(limit ?? DefaultLimit, 1, MaxLimit);
             return Results.Ok(await ThreadPayload(db, sc, wa, thread, take, before));
@@ -154,11 +158,14 @@ public static class WhatsAppThreadsEndpoints
 
             var channel = string.IsNullOrWhiteSpace(body.Channel)
                 ? ChatBranch.Domain.Channels.WhatsApp : body.Channel!.Trim();
-            // an existing conversation outside the caller's scope is not theirs to open
-            var existing = await db.Threads.AsNoTracking()
-                .FirstOrDefaultAsync(t => t.Channel == channel && t.Key == waId);
-            if (existing != null && !ThreadAccessFilter.InScope(db, sc, me, existing.EntityId))
-                return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
+            // the caller's OWN conversation with this number (one per company): an existing
+            // one outside their scope is not theirs to open; several they can see need
+            // thread_id / company (409 with the candidates)
+            var pick = await ThreadResolver.ResolveAsync(db, sc, me, channel, new[] { waId }, body.ThreadId, body.Company);
+            if (ThreadResolver.Refusal(pick) is { } refused) return refused;
+            var existing = pick.ThreadId is int existingId
+                ? await db.Threads.Include(t => t.Contact).Include(t => t.Account).FirstAsync(t => t.Id == existingId)
+                : null;
             var explicitAccount = !string.IsNullOrWhiteSpace(body.AccountId);
             // moving a conversation that already has a number is the per-chat
             // switch (POST …/{key}/account), account_assignment.manage — never a side effect
@@ -183,9 +190,30 @@ public static class WhatsAppThreadsEndpoints
                     accountId = null;
                 }
             }
-            // Same store path as InboxEndpoints /simulate, so a chat started here
-            // and one created by an inbound webhook are the same row.
-            var thread = store.GetOrCreateThread(channel, waId, body.Name);
+            Thread thread;
+            if (existing != null)
+            {
+                thread = existing;
+                // a conversation never moves onto ANOTHER company's number
+                if (accountId is int other
+                    && !ScopingService.SameCompanyOrShared(sc.ThreadCompany(thread), sc.AccountCompany(other)))
+                {
+                    if (explicitAccount)
+                        return Results.Json(new { detail = "That number belongs to another company — this conversation stays with its own." },
+                            statusCode: 409);
+                    accountId = null;
+                }
+            }
+            else
+            {
+                // a NEW conversation of the caller's company (the number's, the entity named, the caller's own)
+                var place = await ThreadStart.PlaceAsync(db, sc, me, body.Entity, body.Company, accountId: accountId);
+                if (place.Error != null) return place.Error;
+                // Same store path as InboxEndpoints /simulate, so a chat started here
+                // and one created by an inbound webhook are the same row.
+                thread = store.GetOrCreateInCompany(channel, waId, place.Company, body.Name, accountId: accountId,
+                    entityHint: place.Entity);
+            }
             if (accountId is int acct && thread.AccountId != acct)
             {
                 thread.AccountId = acct;
@@ -207,7 +235,7 @@ public static class WhatsAppThreadsEndpoints
             var text = (body.Text ?? "").Trim();
             if (text.Length == 0)
                 return Results.BadRequest(new { detail = "text is required." });
-            var thread = await FindThread(db, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
             if (thread.OptedOut && !body.Force)
                 return Results.Json(new
@@ -277,7 +305,7 @@ public static class WhatsAppThreadsEndpoints
                 return Results.BadRequest(new { detail = "name is required." });
             var variables = (body.Variables ?? new List<string>())
                 .Select(v => v ?? "").ToList();
-            var thread = await FindThread(db, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
             if (thread.OptedOut)
                 return Results.Json(new
@@ -350,7 +378,7 @@ public static class WhatsAppThreadsEndpoints
             if (upload.Length > MaxMediaBytes)
                 return Results.BadRequest(new { detail = "File too large (max 16 MB)." });
 
-            var thread = await FindThread(db, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
             if (thread.OptedOut && !force)
                 return Results.Json(new
@@ -395,7 +423,7 @@ public static class WhatsAppThreadsEndpoints
             AppDbContext db, ScopingService sc, IWhatsAppCloudClient wa,
             ClaimsPrincipal me, HttpContext ctx) =>
         {
-            var thread = await FindThread(db, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
             // the current number's tick (or, account-less, the thread's own) + the legacy column
             ChatBranch.Data.Ai.AiEligibility.Set(thread, body.Enabled);
@@ -422,7 +450,7 @@ public static class WhatsAppThreadsEndpoints
                 {
                     detail = $"status must be one of: {string.Join(", ", allowed)}.",
                 });
-            var thread = await FindThread(db, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
             thread.Status = status;
             thread.UpdatedAt = DateTime.UtcNow;
@@ -440,7 +468,7 @@ public static class WhatsAppThreadsEndpoints
         {
             if (body.Labels == null)
                 return Results.BadRequest(new { detail = "labels must be a list of strings." });
-            var thread = await FindThread(db, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
             var clean = new List<string>();
             foreach (var raw in body.Labels)
@@ -484,10 +512,18 @@ public static class WhatsAppThreadsEndpoints
                 && row.EntityId is int rowEntity && !usable.Contains(rowEntity))
                 return Results.Json(new { detail = "That number belongs to an entity outside your scope." },
                     statusCode: 403);
-            var thread = await FindThread(db, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
             if (thread.AccountId == row.Id)
                 return Results.Ok(new { account_id = accountId, account_name = row.Name });
+            // a conversation never moves onto ANOTHER company's number: that company has its own
+            // conversation with this customer (one per company)
+            if (!ScopingService.SameCompanyOrShared(sc.ThreadCompany(thread), sc.AccountCompany(row)))
+                return Results.Json(new
+                {
+                    detail = "That number belongs to another company — a conversation stays with its own company.",
+                    code = "other_company",
+                }, statusCode: 409);
 
             var isBaileys = (row.Provider.Length > 0 ? row.Provider : Providers.Cloud) == Providers.Baileys;
             var priorContact = await db.Messages.AnyAsync(
@@ -587,9 +623,9 @@ public static class WhatsAppThreadsEndpoints
         // Live transcript — polled every ~1.5s by the info panel while a call is
         // up, so it stays a cheap file read (wa_calls.live_transcript).
         app.MapGet("/api/whatsapp/threads/{key}/call/live", async (string key, AppDbContext db,
-            VoiceAgentBridge voice) =>
+            VoiceAgentBridge voice, HttpContext http) =>
         {
-            var thread = await FindThread(db, key);
+            var thread = await ThreadResolver.LoadAsync(http);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
             var turns = new List<object>();
             var done = false;
@@ -620,13 +656,16 @@ public static class WhatsAppThreadsEndpoints
         // same room) + its paired transcript and who started / ended it, newest
         // first. Played through GET /api/whatsapp/calls/recording/{name}.
         app.MapGet("/api/whatsapp/threads/{key}/call/recordings", async (string key, AppDbContext db,
-            ScopingService sc, CallRecordings recordings, VoiceAgentBridge voice, ClaimsPrincipal me) =>
+            ScopingService sc, CallRecordings recordings, VoiceAgentBridge voice, ClaimsPrincipal me, HttpContext http) =>
         {
-            var thread = await FindThread(db, key);
+            var thread = await ThreadResolver.LoadAsync(http);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
             if (!await WhatsAppMediaEndpoints.CanSeeThread(db, sc, me, thread))
                 return Results.NotFound(new { detail = "Thread not found." });
-            return Results.Ok(new { recordings = recordings.ListFor(thread.Key, voice) });
+            // THIS conversation's calls only — the same customer's calls with another company
+            // share the wa_id in the file name, never the conversation
+            var legacyOwner = await WhatsAppMediaEndpoints.LegacyCallOwnerAsync(db, thread.Key);
+            return Results.Ok(new { recordings = recordings.ListFor(thread.Key, voice, thread.Id, legacyOwner) });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.view");
 
         // Start. A linked Baileys account places a real call. With no linked
@@ -641,7 +680,7 @@ public static class WhatsAppThreadsEndpoints
             ChatBranch.Data.Ai.KnowledgeService knowledge, ChatBranch.Data.Ai.AssistantService assistant,
             ClaimsPrincipal me, HttpContext ctx, CancellationToken ct) =>
         {
-            var thread = await FindThread(db, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
             await Audit(db, ctx, me, "call.start", $"whatsapp:{thread.Key}");
 
@@ -758,7 +797,7 @@ public static class WhatsAppThreadsEndpoints
             ThreadStore store, IWhatsAppCloudClient wa, IBaileysGateway baileys, LiveKitClient livekit,
             VoiceAgentBridge voice, ClaimsPrincipal me, HttpContext ctx, CancellationToken ct) =>
         {
-            var thread = await FindThread(db, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
             await Audit(db, ctx, me, "call.end", $"whatsapp:{thread.Key}");
             var wasLive = thread.CallStatus is "connecting" or "ringing" or "in_call";
@@ -789,7 +828,7 @@ public static class WhatsAppThreadsEndpoints
         app.MapPost("/api/whatsapp/threads/{key}/call/say", async (string key, CallSayRequest body,
             AppDbContext db, VoiceAgentBridge voice, ClaimsPrincipal me, HttpContext ctx) =>
         {
-            var thread = await FindThread(db, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
             var mode = (body.Mode ?? "guide").Trim();
             if (mode is not ("guide" or "takeover"))
@@ -812,7 +851,7 @@ public static class WhatsAppThreadsEndpoints
         app.MapPost("/api/whatsapp/threads/{key}/call/escalate", async (string key,
             AppDbContext db, VoiceAgentBridge voice, ClaimsPrincipal me, HttpContext ctx) =>
         {
-            var thread = await FindThread(db, key);
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
             if (string.IsNullOrEmpty(thread.CallRoom))
                 return Results.Json(new
@@ -878,6 +917,9 @@ public static class WhatsAppThreadsEndpoints
         return new
         {
             wa_id = thread.Key,
+            // the conversation's identity: one per customer PER COMPANY (channel + key is not unique)
+            thread_id = thread.Id,
+            company = MessagingEndpoints.ThreadCompanyPayload(db, thread),
             phone = thread.Address.Length > 0 ? thread.Address : $"+{thread.Key}",
             name = thread.Name.Length > 0 ? thread.Name : $"+{thread.Key}",
             account_id = thread.AccountId?.ToString(),
@@ -955,14 +997,6 @@ public static class WhatsAppThreadsEndpoints
 
     // ======================= thread + account helpers ========================
 
-    private static Task<Thread?> FindThread(AppDbContext db, string key)
-    {
-        var waId = NormalizeWaId(key);
-        return db.Threads.Include(t => t.Contact).Include(t => t.Account)
-            .FirstOrDefaultAsync(t => t.Channel == ChatBranch.Domain.Channels.WhatsApp
-                                      && (t.Key == waId || t.Key == key));
-    }
-
     /// <summary>
     /// store._live_account_lookup: the thread's own account, or — when it has
     /// none — the SOLE configured WhatsApp account (an unambiguous single-number
@@ -973,9 +1007,13 @@ public static class WhatsAppThreadsEndpoints
     {
         if (thread.AccountId is int id)
             return thread.Account ?? await db.ChannelAccounts.FirstOrDefaultAsync(a => a.Id == id);
+        // the sole number THIS conversation's company may use (its own, or an organization-wide one)
+        var sc = new ScopingService(db);
+        var company = sc.ThreadCompany(thread);
         var configured = await db.ChannelAccounts.AsNoTracking()
             .Where(a => a.Channel == ChatBranch.Domain.Channels.WhatsApp).ToListAsync();
         var usable = configured.Where(a => wa.IsConfigured(a) || a.Provider == Providers.Baileys)
+            .Where(a => ScopingService.SameCompanyOrShared(company, sc.AccountCompany(a)))
             .ToList();
         return usable.Count == 1 ? usable[0] : null;
     }

@@ -58,11 +58,14 @@ public partial class FlowEngine
         try
         {
             var thread = RunThread(run, contact);
+            // the company this run reads: its journey's / conversation's — never another company's chats
+            var runCompany = RunCompany(run, contact, thread);
             // the AI master switch / schedule of the conversation's outlet
             int? entityId = thread?.EntityId;
             if (entityId == null && contact != null)
                 entityId = _db.Threads.AsNoTracking().Where(t => t.ContactId == contact.Id && t.EntityId != null)
-                    .OrderByDescending(t => t.UpdatedAt).Select(t => t.EntityId).FirstOrDefault();
+                    .OrderByDescending(t => t.UpdatedAt).ToList()
+                    .Where(t => _scoping.ThreadCompany(t) == runCompany).Select(t => t.EntityId).FirstOrDefault();
             entityId ??= _db.Workflows.AsNoTracking().Where(w => w.Id == run.WorkflowId)
                 .Select(w => w.EntityId).FirstOrDefault();
             var controls = new Ai.AiControls(_db, _scoping);
@@ -85,7 +88,7 @@ public partial class FlowEngine
             DateTime? since = CfgBool(cfg, "sinceEntered") ? run.StartedAt : null;
             var history = contact == null
                 ? new List<FlowAiLine>()
-                : Decider.History(contact.Id, scope, thread?.Channel, thread?.Id, since, take);
+                : Decider.History(contact.Id, scope, thread?.Channel, thread?.Id, since, take, runCompany);
             var fields = new Dictionary<string, string>();
             if (contact != null)
             {

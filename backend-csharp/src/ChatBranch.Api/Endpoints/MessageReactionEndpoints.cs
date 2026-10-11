@@ -27,13 +27,10 @@ public static class MessageReactionEndpoints
     {
         app.MapPost("/api/messaging/threads/{channel}/{key}/messages/{pk:int}/react",
             async (string channel, string key, int pk, ReactRequest body, AppDbContext db, OutboundSender sender,
-                ClaimsPrincipal me) =>
+                ClaimsPrincipal me, HttpContext ctx) =>
         {
-            var raw = (key ?? "").Trim();
-            var digits = new string(raw.Where(char.IsDigit).ToArray());
-            var thread = await db.Threads.Include(t => t.Account)
-                .FirstOrDefaultAsync(t => t.Channel == channel
-                                          && (t.Key == raw || (channel == Channels.WhatsApp && digits.Length > 0 && t.Key == digits)));
+            // the conversation the message belongs to (ThreadAccessFilter resolved it: scope, one per company)
+            var thread = await ThreadResolver.LoadAsync(ctx);
             if (thread == null) return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
             var msg = await db.Messages.FirstOrDefaultAsync(m => m.Id == pk && m.ThreadId == thread.Id);
             if (msg == null) return Results.Json(new { detail = "Message not found." }, statusCode: 404);

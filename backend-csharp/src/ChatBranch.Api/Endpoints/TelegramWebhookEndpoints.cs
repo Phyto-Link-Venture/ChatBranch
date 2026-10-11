@@ -33,7 +33,8 @@ public static class TelegramWebhookEndpoints
     public static void MapTelegramWebhookEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/api/messaging/webhook/telegram/{token}", async (string token, HttpContext ctx,
-            AppDbContext db, InboundProcessor processor, IServiceScopeFactory scopes) =>
+            AppDbContext db, InboundProcessor processor, IServiceScopeFactory scopes,
+            ChatBranch.Data.Stores.ThreadStore store) =>
         {
             var bots = await db.ChannelAccounts
                 .Where(a => a.Channel == ChannelIds.Telegram && a.AccessToken != "").ToListAsync();
@@ -55,7 +56,7 @@ public static class TelegramWebhookEndpoints
                 try
                 {
                     MessageReactions.ApplyInbound(db, ChannelIds.Telegram, reaction.ChatId, reaction.MessageId,
-                        reaction.Emoji);
+                        reaction.Emoji, accountId: account.Id);
                 }
                 catch { }
                 return Results.Ok(new { ok = true });
@@ -66,10 +67,13 @@ public static class TelegramWebhookEndpoints
 
             try
             {
-                // a redelivery (Telegram retries a slow ack) must not page anyone twice
-                var known = update.MessageId.Length > 0 && await db.Messages.AnyAsync(m =>
-                    m.ExternalId == update.MessageId && m.Thread!.Channel == ChannelIds.Telegram
-                    && m.Thread.Key == update.ChatId);
+                // a redelivery (Telegram retries a slow ack) must not page anyone twice — checked
+                // in THIS bot's conversation: message ids count per bot, so another company's bot
+                // talking to the same person may well hold the same number
+                var mine = update.MessageId.Length > 0
+                    ? store.FindForAccount(ChannelIds.Telegram, update.ChatId, account.Id) : null;
+                var known = mine != null && await db.Messages.AnyAsync(m =>
+                    m.ThreadId == mine.Id && m.ExternalId == update.MessageId);
                 if (known) return Results.Ok(new { ok = true, duplicate = true });
 
                 var msg = processor.ProcessInbound(ChannelIds.Telegram, update.ChatId, update.Text,

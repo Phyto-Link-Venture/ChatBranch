@@ -152,10 +152,31 @@ export interface WaCall {
   room?: string | null
 }
 
+/** The company (top-level entity) a conversation belongs to. */
+export interface UiCompany {
+  id: number
+  name: string
+}
+
+/**
+ * One conversation. channel + key name the CUSTOMER; a customer has one
+ * conversation PER COMPANY, so `thread_id` is what names the conversation
+ * (absent only on a deep link that has not been resolved yet).
+ */
+export interface ThreadRef {
+  channel: Channel
+  key: string
+  thread_id?: number | null
+}
+
 /** One inbox row — GET /api/inbox/threads. */
 export interface UiThreadSummary {
   channel: Channel
   key: string
+  /** The conversation's id — unique, unlike channel + key (one per company). */
+  thread_id?: number | null
+  /** Its company (null = unattributed). */
+  company?: UiCompany | null
   name: string
   /** address line: phone / email / handle */
   sub: string
@@ -211,6 +232,8 @@ export interface UiThread extends Omit<UiThreadSummary, 'last_message' | 'last_t
 export interface InboxRow {
   channel: Channel
   key: string
+  thread_id?: number | null
+  company?: UiCompany | null
   name: string
   address: string
   status: ThreadStatus
@@ -248,6 +271,8 @@ export interface InboxRow {
 export const rowToSummary = (t: InboxRow): UiThreadSummary => ({
   channel: t.channel,
   key: t.key,
+  thread_id: t.thread_id ?? null,
+  company: t.company ?? null,
   // prefer the CRM name — a thread created by phone stores the number as its
   // name, but once matched to a contact the list should say who it is
   name: t.contact_name || t.name,
@@ -338,6 +363,37 @@ export const resolveMediaUrl = (u: string) => apiResource(u)
 /** Per-thread API prefix — WhatsApp lives in its own app. */
 export const threadPath = (t: { channel: Channel; key: string }) =>
   t.channel === 'whatsapp' ? `whatsapp/threads/${t.key}` : `messaging/threads/${t.channel}/${t.key}`
+
+/** `path` pinned to ONE conversation: `?thread_id=` (or `&`) when the id is known. */
+export const withThreadId = (path: string, id?: number | null) =>
+  id ? `${path}${path.includes('?') ? '&' : '?'}thread_id=${id}` : path
+
+/** A per-thread API route (`suffix` = "/send", "/ai"…) pinned to that conversation. */
+export const threadApi = (t: ThreadRef, suffix = '') => withThreadId(`${threadPath(t)}${suffix}`, t.thread_id)
+
+/** A stable identity for one conversation in the list, a selection or a React key. */
+export const threadIdentity = (t: { channel: string; key: string; thread_id?: number | null }) =>
+  t.thread_id ? `${t.channel}:${t.key}#${t.thread_id}` : `${t.channel}:${t.key}`
+
+/** Same conversation? By id when both sides know it, else by channel + key. */
+export const sameThread = (
+  a: { channel: string; key: string; thread_id?: number | null } | null | undefined,
+  b: { channel: string; key: string; thread_id?: number | null } | null | undefined,
+) => !!a && !!b && a.channel === b.channel && a.key === b.key && (!a.thread_id || !b.thread_id || a.thread_id === b.thread_id)
+
+/** The /chats deep link to one conversation (`thread=channel:key` + `thread_id`). */
+export const chatHref = (t: { channel: string; key: string; thread_id?: number | null }) =>
+  `/chats?thread=${encodeURIComponent(`${t.channel}:${t.key}`)}${t.thread_id ? `&thread_id=${t.thread_id}` : ''}`
+
+/** A 409 "this customer has a conversation with more than one company" candidate. */
+export interface ThreadCandidate {
+  thread_id: number
+  name: string
+  company: UiCompany | null
+  entity: UiCompany | null
+  account: UiCompany | null
+  updated_at: string
+}
 
 export const timeShort = (ts: string, f: Fmt) => (ts ? f.time(ts) : '')
 

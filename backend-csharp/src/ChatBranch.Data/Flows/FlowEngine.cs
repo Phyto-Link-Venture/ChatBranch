@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using ChatBranch.Data.Contacts;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 using Thread = ChatBranch.Domain.Thread;
@@ -502,11 +503,13 @@ public partial class FlowEngine
     /// starts a run. The message itself seeds the run as its first reply, so an
     /// "Ask &amp; branch: reply contains…" step right after the trigger reads it.
     /// </summary>
-    private List<int> StartMessageTriggers(Contact contact, string channel, string text, string key = "")
+    private List<int> StartMessageTriggers(Contact contact, string channel, string text, string key,
+        int? company, int threadId)
     {
         var startedIds = new List<int>();
         foreach (var wf in _db.Workflows.Where(w => w.Active).ToList())
         {
+            if (!Serves(wf, company)) continue;   // a message to company B never starts A's journey
             HashSet<int>? entityContacts = null;
             var entityLoaded = false;
             foreach (var node in Nodes(wf).Where(n => Str(n, "type") == "trigger"))
@@ -531,6 +534,7 @@ public partial class FlowEngine
                     // the conversation that started the run: AI decisions read its history
                     ["trigger_channel"] = channel,
                     ["trigger_key"] = key,
+                    ["trigger_thread_id"] = threadId,
                 });
                 startedIds.Add(run.Id);
             }
@@ -786,14 +790,18 @@ public partial class FlowEngine
     }
 
     /// <summary>Meta's 24h customer-service window: open when the contact wrote
-    /// to this number in the last 24 hours.</summary>
-    private bool WhatsAppWindowOpen(Contact contact, string address)
+    /// to this number in the last 24 hours — in a conversation of the run's own
+    /// company (another company's chat with the customer opens nothing here).</summary>
+    private bool WhatsAppWindowOpen(FlowRun run, Contact contact, string address)
     {
         var digits = Digits(address);
         var since = DateTime.UtcNow.AddHours(-24);
-        return _db.Messages.AsNoTracking().Any(m => m.Direction == MessageDirection.In && m.CreatedAt >= since
-            && m.Thread != null && m.Thread.Channel == Domain.Channels.WhatsApp
-            && (m.Thread.Key == digits || m.Thread.Key == address || m.Thread.ContactId == contact.Id));
+        var company = RunCompany(run, contact, RunThread(run, contact));
+        return _db.Messages.AsNoTracking().Where(m => m.Direction == MessageDirection.In && m.CreatedAt >= since
+                && m.Thread != null && m.Thread.Channel == Domain.Channels.WhatsApp
+                && (m.Thread.Key == digits || m.Thread.Key == address || m.Thread.ContactId == contact.Id))
+            .Select(m => new { m.Thread!.CompanyEntityId, m.Thread.EntityId }).ToList()
+            .Any(t => (t.CompanyEntityId ?? _scoping.CompanyOf(t.EntityId)) == company);
     }
 
     /// <summary>templateVariables {"1": "{{name}}", …} rendered from the CRM, in
@@ -891,7 +899,7 @@ public partial class FlowEngine
         foreach (var to in targets)
         {
             var useTemplate = templateName != ""
-                && (mode == "template" || (mode == "auto" && !WhatsAppWindowOpen(contact, to)));
+                && (mode == "template" || (mode == "auto" && !WhatsAppWindowOpen(run, contact, to)));
             string kind; Dictionary<string, object?> payload;
             if (useTemplate)
             {
@@ -1648,23 +1656,45 @@ public partial class FlowEngine
     }
 
     /// <summary>
-    /// Event axis. A customer message (1) starts runs of "Message received"
-    /// flows, (2) is remembered on every live run of that contact (so a "They
-    /// replied" check after a timed wait sees it), and (3) resumes runs parked
-    /// on a reply. Returns how many parked runs it resumed.
+    /// <see cref="OnInboundMessage(Thread, string)"/> for a caller that holds only an
+    /// address (tests, scripts): the ONE stored conversation with that (channel, key),
+    /// else an unattributed, unsaved one. When several companies each have a
+    /// conversation with that address it does nothing (returns 0) — it never picks one.
     /// </summary>
     public int OnInboundMessage(string channel, string key, string text)
     {
-        var contact = ContactFor(channel, key);
+        var found = _db.Threads.Include(t => t.Contact).Where(t => t.Channel == channel && t.Key == key).Take(2).ToList();
+        if (found.Count > 1) return 0;
+        return OnInboundMessage(found.FirstOrDefault() ?? new Thread { Channel = channel, Key = key }, text);
+    }
+
+    /// <summary>
+    /// Event axis. A customer message on <paramref name="thread"/> (1) starts runs of
+    /// "Message received" flows, (2) is remembered on every live run of that contact
+    /// (so a "They replied" check after a timed wait sees it), and (3) resumes runs
+    /// parked on a reply. Returns how many parked runs it resumed. Only for the contact
+    /// OF THAT CONVERSATION, and only journeys of the conversation's own company (or
+    /// organization-wide ones): a message to company B never wakes company A's journey.
+    /// </summary>
+    public int OnInboundMessage(Thread thread, string text)
+    {
+        var channel = thread.Channel;
+        var key = thread.Key;
+        var contact = ContactFor(thread);
         if (contact == null) return 0;
+        var company = _scoping.ThreadCompany(thread);
         var started = new List<int>();
-        try { started = StartMessageTriggers(contact, channel, text, key); }
+        try { started = StartMessageTriggers(contact, channel, text, key, company, thread.Id); }
         catch { /* a broken trigger must never block resuming parked runs */ }
         var resumed = 0;
+        var serves = new Dictionary<int, bool>();
         foreach (var run in _db.FlowRuns.Where(r => r.ContactId == contact.Id
                      && (r.Status == FlowRunStatus.Waiting || r.Status == FlowRunStatus.Running)).ToList())
         {
             if (started.Contains(run.Id)) continue;
+            if (!serves.TryGetValue(run.WorkflowId, out var ok))
+                serves[run.WorkflowId] = ok = Serves(_db.Workflows.AsNoTracking().FirstOrDefault(w => w.Id == run.WorkflowId), company);
+            if (!ok) continue;   // another company's journey never reads this company's messages
             // A message the run queued has not gone out yet (pacing, quiet hours):
             // this reply cannot be an answer to it, so it neither wakes a "wait
             // for a reply" nor counts as "they replied".
@@ -1676,6 +1706,7 @@ public partial class FlowEngine
             SetCtx(run, "last_reply", Trim(text, 500));
             SetCtx(run, "last_reply_channel", channel);
             SetCtx(run, "last_reply_key", key);
+            SetCtx(run, "last_reply_thread_id", thread.Id);
             SetCtx(run, "reply_consumed", false);
             SetCtx(run, "answered", true);
             if (run.Status != FlowRunStatus.Waiting || run.WaitFor != "reply") { _db.SaveChanges(); continue; }
@@ -1708,23 +1739,42 @@ public partial class FlowEngine
         return pending.Any(actions.Contains);
     }
 
-    private Contact? ContactFor(string channel, string key)
+    /// <summary>
+    /// The contact an inbound on this conversation belongs to: its linked contact,
+    /// else the phone / email match the conversation's company may see
+    /// (<see cref="ContactCompanies.Pick"/> — never another company's contact).
+    /// </summary>
+    private Contact? ContactFor(Thread thread)
     {
-        var thread = _db.Threads.Include(t => t.Contact)
-            .FirstOrDefault(t => t.Channel == channel && t.Key == key);
-        if (thread?.Contact != null) return thread.Contact;
+        if (thread.ContactId is int linked)
+            return thread.Contact ?? _db.Contacts.FirstOrDefault(c => c.Id == linked);
+        var channel = thread.Channel;
+        var key = thread.Key;
+        var company = _scoping.ThreadCompany(thread);
+        var entity = thread.EntityId ?? company;
+        Contact? match;
         if (channel == "email")
-            return _db.Contacts.FirstOrDefault(c => c.Email.ToLower() == key.ToLower());
-        var digits = new string(key.Where(char.IsDigit).ToArray());
-        if (digits.Length < 8) return null;
-        var tail = digits[^9..];
-        foreach (var c in _db.Contacts.AsEnumerable())
+            match = ContactCompanies.MatchEmail(_db, _scoping, key, entity);
+        else
         {
-            var p = new string((c.Phone ?? "").Where(char.IsDigit).ToArray());
-            if (p.Length >= 9 && p[^9..] == tail) return c;
+            var digits = new string(key.Where(char.IsDigit).ToArray());
+            if (digits.Length < 8) return null;
+            var tail = digits[^9..];
+            var hits = _db.Contacts.AsEnumerable().Where(c =>
+            {
+                var p = new string((c.Phone ?? "").Where(char.IsDigit).ToArray());
+                return p.Length >= 9 && p[^9..] == tail;
+            }).ToList();
+            match = ContactCompanies.Pick(_db, _scoping, hits, entity);
         }
-        return null;
+        return match != null && ContactCompanies.MayLink(_db, _scoping, match.Id, company) ? match : null;
     }
+
+    /// <summary>A journey serves a conversation of <paramref name="company"/>: an
+    /// organization-wide journey, or one of that company (an unattributed
+    /// conversation is served by organization-wide journeys only).</summary>
+    private bool Serves(Workflow? wf, int? company) =>
+        wf != null && (wf.EntityId == null || (company != null && _scoping.CompanyOf(wf.EntityId) == company));
 
     public object Tick()
     {
