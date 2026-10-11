@@ -25,6 +25,8 @@ public class LlmProviderCatalogTests : IClassFixture<PlaygroundFactory>
     {
         public readonly List<(Uri Url, string Auth, JsonElement Body)> Calls = new();
         public HttpStatusCode Status { get; set; } = HttpStatusCode.OK;
+        /// <summary>Refuse a request like a real provider would (status + body), or null to answer.</summary>
+        public Func<JsonElement, (HttpStatusCode Status, string Body)?>? Refuse { get; set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
@@ -32,6 +34,8 @@ public class LlmProviderCatalogTests : IClassFixture<PlaygroundFactory>
             lock (Calls) Calls.Add((request.RequestUri!, request.Headers.Authorization?.ToString() ?? "", body));
             if (Status != HttpStatusCode.OK)
                 return new HttpResponseMessage(Status) { Content = new StringContent("{\"error\":\"invalid x-api-key\"}") };
+            if (Refuse?.Invoke(body) is { } no)
+                return new HttpResponseMessage(no.Status) { Content = new StringContent(no.Body) };
             var payload = new
             {
                 model = body.GetProperty("model").GetString(),
@@ -98,6 +102,84 @@ public class LlmProviderCatalogTests : IClassFixture<PlaygroundFactory>
         Assert.Equal(OpenAiLlmClient.MaxTokensDefault, body.GetProperty("max_tokens").GetInt32());
         Assert.Equal("claude-haiku-5-5", body.GetProperty("model").GetString());
         Assert.False(body.TryGetProperty("reasoning_effort", out _));
+        // Anthropic's current Claude models refuse temperature — it is never sent
+        Assert.False(body.TryGetProperty("temperature", out _));
+    }
+
+    [Theory]
+    [InlineData(400, "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"`temperature` is deprecated for this model.\"}}", "temperature")]
+    [InlineData(400, "{\"error\":{\"message\":\"Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.\"}}", "max_tokens")]
+    [InlineData(400, "{\"error\":{\"message\":\"Unsupported value: 'temperature' does not support 0.5 with this model. Only the default (1) value is supported.\"}}", "temperature")]
+    [InlineData(422, "{\"detail\":\"Extra inputs are not permitted: reasoning_effort\"}", "reasoning_effort")]
+    [InlineData(400, "{\"error\":\"tool_choice is not supported\"}", "tool_choice")]
+    [InlineData(400, "{\"error\":\"invalid model id\"}", null)]
+    [InlineData(401, "{\"error\":\"temperature\"}", null)]
+    public void A_refused_parameter_is_recognised(int status, string detail, string? expected) =>
+        Assert.Equal(expected, OpenAiLlmClient.RefusedParam(status, detail,
+            new[] { "model", "messages", "temperature", "max_tokens", "reasoning_effort", "tool_choice", "tools" }));
+
+    [Fact]
+    public async Task A_model_that_refuses_a_parameter_gets_it_again_without_and_it_is_remembered()
+    {
+        OpenAiLlmClient.ResetRefusedParams();
+        using var t = new TestDb();
+        var sc = new ScopingService(t.Db);
+        // a vendor whose new model refuses temperature AND wants max_completion_tokens
+        sc.SetSetting("openrouter_api_key", "sk-or-1234567");
+        sc.SetSetting("openrouter_chat_model", "vendor/strict-model");
+        var rec = new Recorder
+        {
+            Refuse = b =>
+                b.TryGetProperty("temperature", out _)
+                    ? (HttpStatusCode.BadRequest, "{\"error\":{\"message\":\"`temperature` is deprecated for this model.\"}}")
+                : b.TryGetProperty("max_tokens", out _)
+                    ? (HttpStatusCode.BadRequest, "{\"error\":{\"message\":\"Unsupported parameter: 'max_tokens'. Use 'max_completion_tokens' instead.\"}}")
+                : null,
+        };
+        var client = new OpenAiLlmClient(new Factory(rec), sc);
+        var tools = new[] { new LlmTool("lookup", "find a thing", JsonDocument.Parse("{\"type\":\"object\",\"properties\":{}}").RootElement) };
+
+        var r = await client.ChatAsync("sys", new List<LlmMessage> { new("user", "hi") }, tools);
+        Assert.Equal("OK", r.Text);
+        Assert.Equal("openrouter", r.Provider);
+        Assert.Equal(3, rec.Calls.Count);                      // refused twice, answered once
+        var ok = rec.Calls[^1].Body;
+        Assert.False(ok.TryGetProperty("temperature", out _));
+        Assert.False(ok.TryGetProperty("max_tokens", out _));
+        Assert.Equal(OpenAiLlmClient.OpenRouterMaxTokensDefault, ok.GetProperty("max_completion_tokens").GetInt32());
+        Assert.True(ok.TryGetProperty("tools", out _));        // tools always survive
+
+        // the refusals are remembered: the next call goes right the first time
+        var again = await client.ChatAsync("sys", new List<LlmMessage> { new("user", "again") });
+        Assert.Equal("OK", again.Text);
+        Assert.Equal(4, rec.Calls.Count);
+        OpenAiLlmClient.ResetRefusedParams();
+    }
+
+    [Fact]
+    public async Task Every_provider_failing_is_recorded_and_told_to_admins_and_cleared_by_the_next_success()
+    {
+        OpenAiLlmClient.ResetRefusedParams();
+        LlmHealth.Reset();
+        using var t = new TestDb();
+        var sc = new ScopingService(t.Db);
+        sc.SetSetting("deepseek_api_key", "sk-ds-1234567");
+        var rec = new Recorder { Status = HttpStatusCode.Unauthorized };
+        var client = new OpenAiLlmClient(new Factory(rec), sc);
+
+        var r = await client.ChatAsync("sys", new List<LlmMessage> { new("user", "hi") });
+        Assert.NotEqual("deepseek", r.Provider);               // the sandbox answered
+        var fail = LlmHealth.Read(sc);
+        Assert.NotNull(fail);
+        Assert.Contains("deepseek", fail!.Error);
+        Assert.Contains("401", fail.Error);
+        Assert.DoesNotContain("sk-ds-1234567", fail.Error);
+
+        rec.Status = HttpStatusCode.OK;
+        var ok = await client.ChatAsync("sys", new List<LlmMessage> { new("user", "hi") });
+        Assert.Equal("deepseek", ok.Provider);
+        Assert.Null(LlmHealth.Read(sc));
+        LlmHealth.Reset();
     }
 
     [Fact]
@@ -161,6 +243,7 @@ public class LlmProviderCatalogTests : IClassFixture<PlaygroundFactory>
     {
         var su = await Super();
         var page = await su.GetFromJsonAsync<JsonElement>("/api/settings/ai-providers");
+        Assert.True(page.TryGetProperty("last_error", out _));
         var tiles = page.GetProperty("providers").EnumerateArray().ToList();
         Assert.Equal(LlmProviderCatalog.All.Count, tiles.Count);
         var mistral = tiles.Single(p => p.GetProperty("id").GetString() == "mistral");
@@ -198,6 +281,14 @@ public class LlmProviderCatalogTests : IClassFixture<PlaygroundFactory>
         admin.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", at);
         Assert.Equal(HttpStatusCode.Forbidden,
             (await admin.PostAsJsonAsync("/api/settings/ai-providers/test", new { provider = "mistral" })).StatusCode);
+
+        // voice-note transcription: its own switch, validated
+        (await su.PutAsJsonAsync("/api/settings/ai-providers", new { transcription_provider = "whisper" })).EnsureSuccessStatusCode();
+        var stt = await su.GetFromJsonAsync<JsonElement>("/api/settings/ai-providers");
+        Assert.Equal("local", stt.GetProperty("transcription_provider").GetString());
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await su.PutAsJsonAsync("/api/settings/ai-providers", new { transcription_provider = "bogus" })).StatusCode);
+        (await su.PutAsJsonAsync("/api/settings/ai-providers", new { transcription_provider = "" })).EnsureSuccessStatusCode();
 
         // remove the key again so the shared host stays as it was
         (await su.PutAsJsonAsync("/api/settings/ai-providers",

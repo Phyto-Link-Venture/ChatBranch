@@ -247,6 +247,7 @@ public class OpenAiLlmClient : ILlmClient
                 var useModel = i == 0 && !string.IsNullOrWhiteSpace(model) ? model! : candidates[i].Model;
                 var r = await SendAsync(candidates[i], useModel, system, messages, tools, temperature, ct);
                 LastError = "";
+                LlmHealth.Succeeded(_scoping);
                 return r;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -260,8 +261,46 @@ public class OpenAiLlmClient : ILlmClient
                 LastError = $"{candidates[i].Name}: {why}";
             }
         }
-        // Every provider failed → degrade to sandbox rather than break the reply path.
+        // Every provider failed → degrade to sandbox rather than break the reply path —
+        // but never silently: the failure is recorded, shown on Settings → AI keys &
+        // models and sent to the admins (LlmHealth).
+        LlmHealth.Failed(_scoping, LastError);
         return await _sandbox.ChatAsync(system, messages, tools, model, temperature, ct);
+    }
+
+    /// <summary>
+    /// Request parameters a model refused (provider|model → names), learned from
+    /// its own 400 answers so later calls leave them out at once. Process-wide:
+    /// "this model takes no temperature" is true for every request.
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, HashSet<string>> Refused = new();
+
+    /// <summary>Optional knobs a model may refuse — never the model, messages or tools.</summary>
+    private static readonly string[] OptionalParams =
+        { "temperature", "top_p", "reasoning_effort", "tool_choice", "usage", "max_tokens", "max_completion_tokens" };
+
+    /// <summary>Forget what models refused (tests).</summary>
+    public static void ResetRefusedParams() => Refused.Clear();
+
+    /// <summary>
+    /// The optional parameter a 400 / 422 answer names as unsupported, or null.
+    /// Covers Anthropic ("`temperature` is deprecated for this model"), OpenAI's
+    /// reasoning models ("Unsupported parameter: 'max_tokens' … use
+    /// 'max_completion_tokens'", "'temperature' does not support 0.5") and the
+    /// usual "unknown / unrecognized / extra field" wording of other vendors.
+    /// </summary>
+    public static string? RefusedParam(int status, string detail, IEnumerable<string> sent)
+    {
+        if (status is not (400 or 422) || string.IsNullOrEmpty(detail)) return null;
+        var d = detail.ToLowerInvariant();
+        // "use max_completion_tokens instead" names both — max_tokens is the refused one
+        if (d.Contains("max_completion_tokens") && sent.Contains("max_tokens")) return "max_tokens";
+        foreach (var p in OptionalParams)
+        {
+            if (!sent.Contains(p)) continue;
+            if (System.Text.RegularExpressions.Regex.IsMatch(d, $@"(^|[^a-z_]){p}([^a-z_]|$)")) return p;
+        }
+        return null;
     }
 
     private async Task<LlmChatResult> SendAsync(Provider provider, string model, string system,
@@ -269,59 +308,89 @@ public class OpenAiLlmClient : ILlmClient
     {
         var payloadMessages = new List<object> { new { role = "system", content = system } };
         payloadMessages.AddRange(messages.Select(ToWire));
-
-        var body = new Dictionary<string, object?>
-        {
-            ["model"] = model,
-            ["messages"] = payloadMessages,
-            ["temperature"] = temperature,
-        };
-        // ILMU (ilmu-v3.1) and Gemini 2.5 are reasoning models: "low" turns the
-        // extended thinking off — faster, and no think-block leaking into a reply
-        // (the voice agent does the same; Gemini's OpenAI endpoint takes this knob)
         var def = LlmProviderCatalog.ById.GetValueOrDefault(provider.Name);
-        if (def?.ReasoningLow == true) body["reasoning_effort"] = "low";
-        // OpenRouter checks the key's credit against the model's FULL output
-        // ceiling (65k for Sonnet) when max_tokens is absent - even on a BYOK key
-        // that would cost nothing - and answers 402. A modest cap fits any balance.
-        // Anthropic's API requires max_tokens on every call.
-        if (provider.Name == "openrouter")
-            body["max_tokens"] = int.TryParse(S("openrouter_max_tokens", "OPENROUTER_MAX_TOKENS"), out var mt) && mt > 0
-                ? mt : OpenRouterMaxTokensDefault;
-        else if (def?.SendsMaxTokens == true)
-            body["max_tokens"] = MaxTokensDefault;
-        // ask OpenRouter for the call's real cost (usage.cost) so the bill needs no price table
-        if (provider.Name == "openrouter") body["usage"] = new { include = true };
-        if (tools is { Count: > 0 })
+        var cacheKey = $"{provider.Name}|{model}".ToLowerInvariant();
+
+        // A model that refuses an optional knob gets the request again without it
+        // (max_tokens becomes max_completion_tokens) — at most a few times, and the
+        // refusal is remembered for the model so the next call skips it.
+        for (var attempt = 0; ; attempt++)
         {
-            body["tools"] = tools.Select(t => new
+            var refused = new HashSet<string>();
+            if (Refused.TryGetValue(cacheKey, out var known))
+                lock (known) refused.UnionWith(known);
+            var body = new Dictionary<string, object?>
             {
-                type = "function",
-                function = new { name = t.Name, description = t.Description, parameters = t.Parameters },
-            }).ToList();
-            body["tool_choice"] = "auto";
-        }
+                ["model"] = model,
+                ["messages"] = payloadMessages,
+            };
+            if (def?.SendsTemperature != false) body["temperature"] = temperature;
+            // ILMU (ilmu-v3.1) and Gemini 2.5 are reasoning models: "low" turns the
+            // extended thinking off — faster, and no think-block leaking into a reply
+            // (the voice agent does the same; Gemini's OpenAI endpoint takes this knob)
+            if (def?.ReasoningLow == true) body["reasoning_effort"] = "low";
+            // OpenRouter checks the key's credit against the model's FULL output
+            // ceiling (65k for Sonnet) when max_tokens is absent - even on a BYOK key
+            // that would cost nothing - and answers 402. A modest cap fits any balance.
+            // Anthropic's API requires max_tokens on every call.
+            int? cap = null;
+            if (provider.Name == "openrouter")
+                cap = int.TryParse(S("openrouter_max_tokens", "OPENROUTER_MAX_TOKENS"), out var mt) && mt > 0
+                    ? mt : OpenRouterMaxTokensDefault;
+            else if (def?.SendsMaxTokens == true)
+                cap = MaxTokensDefault;
+            if (cap is int c0)
+            {
+                if (!refused.Contains("max_tokens")) body["max_tokens"] = c0;
+                else if (!refused.Contains("max_completion_tokens")) body["max_completion_tokens"] = c0;
+            }
+            // ask OpenRouter for the call's real cost (usage.cost) so the bill needs no price table
+            if (provider.Name == "openrouter") body["usage"] = new { include = true };
+            if (tools is { Count: > 0 })
+            {
+                body["tools"] = tools.Select(t => new
+                {
+                    type = "function",
+                    function = new { name = t.Name, description = t.Description, parameters = t.Parameters },
+                }).ToList();
+                body["tool_choice"] = "auto";
+            }
+            foreach (var r in refused) body.Remove(r);
 
-        var client = _http.CreateClient("llm");
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"{provider.BaseUrl}/chat/completions");
-        if (provider.ApiKey.Length > 0)
-            req.Headers.TryAddWithoutValidation("Authorization", $"Bearer {provider.ApiKey}");
-        if (provider.Name == "openrouter")
-        {
-            req.Headers.TryAddWithoutValidation("HTTP-Referer", "https://chatbranch.local");
-            req.Headers.TryAddWithoutValidation("X-Title", "ChatBranch");
-        }
-        req.Content = JsonContent.Create(body);
+            var client = _http.CreateClient("llm");
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"{provider.BaseUrl}/chat/completions");
+            if (provider.ApiKey.Length > 0)
+                req.Headers.TryAddWithoutValidation("Authorization", $"Bearer {provider.ApiKey}");
+            if (provider.Name == "openrouter")
+            {
+                req.Headers.TryAddWithoutValidation("HTTP-Referer", "https://chatbranch.local");
+                req.Headers.TryAddWithoutValidation("X-Title", "ChatBranch");
+            }
+            req.Content = JsonContent.Create(body);
 
-        using var resp = await client.SendAsync(req, ct);
-        if (!resp.IsSuccessStatusCode)
-        {
-            // keep the provider's own reason ("requires more credits...") - a bare
-            // status code is not enough to tell a billing problem from a bad model id
-            var detail = await resp.Content.ReadAsStringAsync(ct);
-            if (detail.Length > 300) detail = detail[..300];
-            throw new HttpRequestException($"{(int)resp.StatusCode} {resp.ReasonPhrase}: {detail}", null, resp.StatusCode);
+            using var resp = await client.SendAsync(req, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                // keep the provider's own reason ("requires more credits...") - a bare
+                // status code is not enough to tell a billing problem from a bad model id
+                var detail = await resp.Content.ReadAsStringAsync(ct);
+                var param = attempt < 3 ? RefusedParam((int)resp.StatusCode, detail, body.Keys) : null;
+                if (param != null)
+                {
+                    Refused.AddOrUpdate(cacheKey, _ => new HashSet<string> { param },
+                        (_, set) => { lock (set) set.Add(param); return set; });
+                    continue;
+                }
+                if (detail.Length > 300) detail = detail[..300];
+                throw new HttpRequestException($"{(int)resp.StatusCode} {resp.ReasonPhrase}: {detail}", null, resp.StatusCode);
+            }
+            return await ReadAsync(resp, provider, model, ct);
         }
+    }
+
+    private static async Task<LlmChatResult> ReadAsync(HttpResponseMessage resp, Provider provider, string model,
+        CancellationToken ct)
+    {
         var json = await resp.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
 
         var msg = json.GetProperty("choices")[0].GetProperty("message");

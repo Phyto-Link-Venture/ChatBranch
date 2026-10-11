@@ -29,7 +29,7 @@ import { useSettingsDirty } from './SettingsDirtyContext'
 import { EMBEDDING_KEYS, EmbeddingsSection } from '@/components/ai-learning/EmbeddingsSection'
 import { Advanced } from '@/components/ui/Advanced'
 import { AiProviderLogo } from '@/components/ui/AiProviderLogo'
-import { useT, type MessageKey, type TFunction } from '@/i18n'
+import { useFormat, useT, type MessageKey, type TFunction } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -83,6 +83,8 @@ type Payload = {
   source: Record<string, string>
   ai_available: boolean
   env_only_note: string
+  /** The last time every provider failed and customers got the fallback reply. */
+  last_error?: { at: string; error: string; count: number } | null
 } & Record<string, unknown>
 
 interface TestResult {
@@ -129,7 +131,23 @@ const FIELD_TEXT: Record<string, { label: MessageKey; help?: MessageKey }> = {
     help: 'settings.aiProviders.fields.summaryIntervalHelp',
   },
   aicore_summary_idle_min: { label: 'settings.aiProviders.fields.summaryIdle' },
+  transcription_provider: {
+    label: 'settings.aiProviders.fields.sttProvider',
+    help: 'settings.aiProviders.fields.sttProviderHelp',
+  },
+  transcription_base_url: { label: 'settings.aiProviders.fields.sttUrl', help: 'settings.aiProviders.fields.sttUrlHelp' },
+  transcription_model: { label: 'settings.aiProviders.fields.sttModel', help: 'settings.aiProviders.fields.sttModelHelp' },
+  transcription_api_key: { label: 'settings.aiProviders.fields.sttKey', help: 'settings.aiProviders.fields.sttKeyHelp' },
 }
+
+/** The voice-note transcription choices ("" = automatic). */
+const STT_OPTIONS: { value: string; lbl: MessageKey }[] = [
+  { value: '', lbl: 'settings.aiProviders.stt.auto' },
+  { value: 'openai', lbl: 'settings.aiProviders.stt.openai' },
+  { value: 'elevenlabs', lbl: 'settings.aiProviders.stt.elevenlabs' },
+  { value: 'local', lbl: 'settings.aiProviders.stt.local' },
+  { value: 'off', lbl: 'settings.aiProviders.stt.off' },
+]
 
 /** One line under each provider's name. */
 const PROVIDER_BLURB: Record<string, MessageKey> = {
@@ -654,6 +672,7 @@ function ProviderPanel({
  */
 export function AiProvidersSettings() {
   const t = useT()
+  const fmt = useFormat()
   const { ready, can } = useAccess()
   const isSuper = can('settings.ai_keys.manage')
 
@@ -661,6 +680,7 @@ export function AiProvidersSettings() {
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [source, setSource] = useState<Record<string, string>>({})
   const [aiAvailable, setAiAvailable] = useState(false)
+  const [lastError, setLastError] = useState<Payload['last_error']>(null)
   const [values, setValues] = useState<Record<string, string>>({})
   const [initial, setInitial] = useState<Record<string, string>>({})
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -699,6 +719,7 @@ export function AiProvidersSettings() {
       setSource(p.source || {})
       setNote(p.env_only_note || '')
       setAiAvailable(!!p.ai_available)
+      setLastError(p.last_error ?? null)
       setValues(vals)
       setInitial(vals)
     },
@@ -710,6 +731,7 @@ export function AiProvidersSettings() {
     setProviders(p.providers || [])
     setSource(p.source || {})
     setAiAvailable(!!p.ai_available)
+    setLastError(p.last_error ?? null)
   }, [])
 
   const load = useCallback(async () => {
@@ -829,6 +851,28 @@ export function AiProvidersSettings() {
   function renderField(f: FieldMeta) {
     const val = values[f.key] ?? ''
     const masked = f.kind === 'secret' && val.includes('••')
+    if (f.key === 'transcription_provider') {
+      return (
+        <label key={f.key} className="block">
+          <span className="mb-1 flex items-center justify-between gap-2">
+            <span className="text-[11px] font-bold text-text-high">{fieldLabel(t, f)}</span>
+            <SourceChip src={source[f.key]} />
+          </span>
+          <Select
+            value={val}
+            disabled={!isSuper}
+            onChange={(v) => edit(f.key, v)}
+            options={STT_OPTIONS.map((o) => ({ value: o.value, label: t(o.lbl) }))}
+            size="md"
+            ariaLabel={fieldLabel(t, f)}
+            className="w-full"
+          />
+          {fieldHelp(t, f) && (
+            <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">{fieldHelp(t, f)}</span>
+          )}
+        </label>
+      )
+    }
     return (
       <label key={f.key} className="block">
         <span className="mb-1 flex items-center justify-between gap-2">
@@ -889,6 +933,22 @@ export function AiProvidersSettings() {
       {error && (
         <div className="flex items-start gap-2 rounded-lg border border-red/20 bg-red/10 px-3 py-2 text-[12px] text-[var(--red-ink)]">
           <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden /> {error}
+        </div>
+      )}
+
+      {lastError && (
+        <div
+          role="alert"
+          data-tour="aiproviders-failure"
+          className="flex items-start gap-2 rounded-lg border border-red/20 bg-red/10 px-3 py-2.5 text-[12px] leading-relaxed text-[var(--red-ink)]"
+        >
+          <AlertCircle size={14} className="mt-0.5 shrink-0" aria-hidden />
+          <span className="min-w-0 break-words">
+            <span className="font-bold">{t('settings.aiProviders.failure.title')}</span>{' '}
+            {t('settings.aiProviders.failure.body', { when: fmt.relative(lastError.at), count: lastError.count })}
+            <span className="mt-1 block font-mono text-[11px] opacity-90">{lastError.error}</span>
+            <span className="mt-1 block text-text-mid">{t('settings.aiProviders.failure.hint')}</span>
+          </span>
         </div>
       )}
 

@@ -27,6 +27,9 @@ public class ScopingService
     private readonly AppDbContext _db;
     public ScopingService(AppDbContext db) => _db = db;
 
+    /// <summary>The context this service reads (for seams that only hold the service).</summary>
+    internal AppDbContext Db => _db;
+
     /// <summary>
     /// Setting keys an outlet may legitimately override. Anything NOT listed is
     /// organization-wide by design (credentials, webhook secrets, LLM prices…).

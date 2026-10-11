@@ -1,7 +1,8 @@
 # ChatBranch — the long-lived processes.
 #
 # `docker compose up` boots the API and the dashboard with zero credentials in
-# sandbox mode. Optional profiles add the WhatsApp Web gateway (`whatsapp`) and
+# sandbox mode. Optional profiles add the WhatsApp Web gateway (`whatsapp`), a
+# local Whisper for customers' voice notes (`stt`) and
 # the LiveKit voice-agent worker for AI calls (`voice`: LiveKit + provider keys
 # in backend/.env for the worker, and LIVEKIT_* / SIP_OUTBOUND_TRUNK_ID exported
 # or in the repo-root .env for the API to dial).
@@ -30,6 +31,12 @@ services:
       # unreachable; a URL saved in the dashboard still wins.
       - BAILEYS_URL=${BAILEYS_URL:-http://baileys:3020}
       - BAILEYS_SECRET=${BAILEYS_SECRET:-baileys-local-dev}
+      # Voice-note transcription (optional; a choice saved in Settings → AI keys &
+      # models wins). STT_PROVIDER=local + profile `stt` = the internal Whisper
+      # below, reached at http://whisper:8000/v1 — no OpenAI key involved.
+      - STT_PROVIDER=${STT_PROVIDER:-}
+      - STT_BASE_URL=${STT_BASE_URL:-}
+      - STT_MODEL=${STT_MODEL:-}
     volumes:
       # SQLite is a FILE — without this volume every redeploy starts from an
       # empty database and re-seeds the demo users. It is also the data dir the
@@ -88,6 +95,23 @@ services:
     restart: unless-stopped
     profiles: ["voice"]
 
+  # Optional: local speech-to-text for customers' voice notes (an OpenAI-
+  # compatible Whisper: POST /v1/audio/transcriptions). INTERNAL ONLY — no
+  # `ports:`, so nothing on the internet can reach it; the API calls
+  # http://whisper:8000/v1 over the compose network. Turn it on with
+  # COMPOSE_PROFILES=stt (or --profile stt) and STT_PROVIDER=local (or pick
+  # "Local Whisper" in Settings → AI keys & models → Advanced). WHISPER_IMAGE
+  # swaps the server; the model is cached in the whisper-models volume.
+  whisper:
+    image: ${WHISPER_IMAGE:-ghcr.io/speaches-ai/speaches:latest-cpu}
+    environment:
+      - PRELOAD_MODELS=["${STT_MODEL:-Systran/faster-whisper-small}"]
+    volumes:
+      - whisper-models:/home/ubuntu/.cache/huggingface/hub
+    restart: unless-stopped
+    profiles: ["stt"]
+
 volumes:
   chatbranch-data:
   baileys-auth:
+  whisper-models:

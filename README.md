@@ -139,6 +139,11 @@ you move to multi-host, that file layer is the seam to replace.
   with SIP, an OpenAI key with Realtime API access (`gpt-realtime`) or an
   ElevenLabs/ILMU cascade, and a SIP trunk (e.g. Twilio Elastic SIP Trunking) —
   see [backend/voice_agent/README.md](backend/voice_agent/README.md).
+- **Optional: local Whisper** for customers' voice notes, so the audio never leaves your
+  server and no OpenAI key is needed: `COMPOSE_PROFILES=stt` starts the internal-only
+  `whisper` service (no published port; the API reaches `http://whisper:8000/v1`), then pick
+  **Local Whisper** under Settings → AI keys & models → Advanced → Voice-note transcription
+  (or set `STT_PROVIDER=local`; `STT_BASE_URL` / `STT_MODEL` point elsewhere).
 - **Optional: `ffmpeg`** on the API's PATH (or `MEDIA_FFMPEG=/path/to/ffmpeg`)
   so Ogg/Opus and AMR voice notes play on Safari / iPhone (served as M4A on
   request). The API's Docker image installs it; without it those voice notes

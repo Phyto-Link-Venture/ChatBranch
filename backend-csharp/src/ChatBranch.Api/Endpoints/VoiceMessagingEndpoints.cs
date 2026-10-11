@@ -364,6 +364,18 @@ public static class VoiceMessagingEndpoints
                 help = "Empty = the provider's default (OpenAI text-embedding-3-small, Gemini gemini-embedding-001, " +
                        "OpenRouter openai/text-embedding-3-small, Local nomic-embed-text). Changing it re-indexes " +
                        "everything in the background." },
+        // customer voice notes → words (Ai/Voice/SpeechClient.cs); NOT the voice-call agent's stt_provider
+        new() { key = "transcription_provider", label = "Voice-note transcription", group = "speech", kind = "select",
+                help = "How customers' voice notes become text the AI can read. Automatic = OpenAI with a key, else " +
+                       "ElevenLabs. Local Whisper = your own OpenAI-compatible Whisper server (no OpenAI key needed, " +
+                       "the audio never leaves your network). Off = voice notes stay \"[audio]\"." },
+        new() { key = "transcription_base_url", label = "Local Whisper address", group = "speech", kind = "text",
+                help = "Only for Local Whisper — the server's OpenAI-compatible base URL. Empty = http://whisper:8000/v1 " +
+                       "(the docker compose `whisper` service, internal network only)." },
+        new() { key = "transcription_model", label = "Transcription model", group = "speech", kind = "text",
+                help = "Empty = the provider's default (OpenAI gpt-4o-mini-transcribe, Local Systran/faster-whisper-small)." },
+        new() { key = "transcription_api_key", label = "Local Whisper key (optional)", group = "speech", kind = "secret",
+                help = "Only if your Whisper server asks for one." },
         new() { key = "email_subject", label = "Default email subject", group = "tunables", kind = "text" },
         new() { key = "flows_tick_seconds", label = "Flow engine tick (seconds)", group = "tunables", kind = "int", min = 1 },
         new() { key = "whatsapp_health_interval", label = "Channel health check interval (seconds)",
@@ -382,6 +394,10 @@ public static class VoiceMessagingEndpoints
     private static readonly Dictionary<string, string> EnvFor = ProviderEnv(new()
     {
         ["elevenlabs_api_key"] = "ELEVENLABS_API_KEY",
+        ["transcription_provider"] = "STT_PROVIDER",
+        ["transcription_base_url"] = "STT_BASE_URL",
+        ["transcription_model"] = "STT_MODEL",
+        ["transcription_api_key"] = "STT_API_KEY",
         ["chat_model"] = "WHATSAPP_CHAT_MODEL",
         ["chat_provider_pref"] = "CHAT_PROVIDER",
         ["email_subject"] = "EMAIL_DEFAULT_SUBJECT",
@@ -549,6 +565,7 @@ public static class VoiceMessagingEndpoints
             ["chat_provider_options"] = new[] { "" }.Concat(ChatProviders).ToArray(),
             ["chat_model_options"] = ChatModelOptions(),
             ["providers"] = ProvidersPayload(sc),
+            ["transcription_provider_options"] = ChatBranch.Data.Ai.Voice.SpeechClient.SttChoices,
             // embeddings (semantic search): "" = automatic, "none" = keyword only
             ["embedding_provider_options"] = ChatBranch.Data.Ai.Learning.OpenAiEmbeddingClient.Choices,
             ["embedding_model_options"] = ChatBranch.Data.Ai.Learning.OpenAiEmbeddingClient.DefaultModels
@@ -590,6 +607,9 @@ public static class VoiceMessagingEndpoints
         sources[ChatProviderOrderKey] = SourceOf(sc, ChatProviderOrderKey);
         outv["source"] = sources;
         outv["ai_available"] = AiAvailable(sc);
+        // the last time every provider failed and customers got the fallback reply (LlmHealth)
+        outv["last_error"] = LlmHealth.Read(sc) is { } fail
+            ? new { at = fail.At, error = fail.Error, count = fail.Count } : null;
         outv["env_only_note"] = EnvOnlyNote;
         return outv;
     }
@@ -648,6 +668,19 @@ public static class VoiceMessagingEndpoints
                                  $"{string.Join(", ", ChatProviders)} or empty (auto).",
                     }, statusCode: 400);
                 patch["chat_provider_pref"] = pref;
+            }
+
+            // voice-note transcription: automatic (""), openai, elevenlabs, local or off
+            if (patch.TryGetValue("transcription_provider", out var sttRaw))
+            {
+                var stt = ((string)sttRaw!).ToLowerInvariant();
+                if (stt is "whisper") stt = "local";
+                if (!ChatBranch.Data.Ai.Voice.SpeechClient.SttChoices.Contains(stt))
+                    return Results.Json(new
+                    {
+                        detail = "transcription_provider must be one of openai, elevenlabs, local, off or empty (automatic).",
+                    }, statusCode: 400);
+                patch["transcription_provider"] = stt;
             }
 
             // the embeddings provider: automatic (""), a known provider, or none
