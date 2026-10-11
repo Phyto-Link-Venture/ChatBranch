@@ -1,13 +1,12 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useEffect, useState } from 'react'
 import { Loader2, Plus, Trash2, AlertCircle, Volume2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Trans, useT } from '@/i18n'
 import { authHeaders } from '@/lib/auth'
 import { useAccess } from '@/lib/useAccess'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 type Term = { term: string; alias: string }
 

@@ -7,6 +7,7 @@
  * shared across every channel.
  */
 
+import { API } from '@/lib/apiBase'
 import { useRef, useState, type ReactNode } from 'react'
 import { AlertCircle, CheckCircle, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -19,7 +20,7 @@ import { TemplateVariablePicker } from '@/components/settings/TemplateVariablePi
 import { useFormat, useT, type MessageKey, type TFunction } from '@/i18n'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 
-export const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
+export { API }
 
 /** Error that keeps the HTTP status so a 409 can land on the right field. */
 export class ApiError extends Error {

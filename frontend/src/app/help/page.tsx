@@ -1,12 +1,11 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { BookOpen, Search } from 'lucide-react'
 import { LanguageSwitcher } from '@/components/i18n/LanguageSwitcher'
 import { useT } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /**
  * Public Help Center index. No auth, no operator chrome — this is what a

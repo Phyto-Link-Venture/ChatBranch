@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Building2, Check, Monitor, Moon, RotateCcw, Sun, type LucideIcon } from 'lucide-react'
 import { Advanced } from '@/components/ui/Advanced'
@@ -52,8 +53,6 @@ import {
 } from '@/lib/theme'
 import { useAccess } from '@/lib/useAccess'
 import { Trans, useT, type MessageKey } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 const HEX = /^#[0-9a-f]{6}$/i
 

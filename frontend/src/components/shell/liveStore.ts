@@ -11,12 +11,12 @@
  * outlet's queue; each key polls only while something is subscribed to it.
  */
 
+import { API } from '@/lib/apiBase'
 import { useEffect, useState } from 'react'
 import { authHeaders, getAuth } from '@/lib/auth'
 import { subscribeChatStream, subscribeStreamStatus, type StreamStatus } from '@/lib/chatStream'
 import { useT, type TFunction } from '@/i18n'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 const POLL_MS = 15_000
 
 export interface LiveCall {

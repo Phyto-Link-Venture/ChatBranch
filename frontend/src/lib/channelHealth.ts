@@ -6,10 +6,9 @@
  * emerald, degraded/unknown = amber, disconnected/banned = red. Text colors
  * use the *-ink vars so they flip with light/dark.
  */
+import { API } from '@/lib/apiBase'
 import { authHeaders } from './auth'
 import type { MessageKey } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export type HealthStatus = 'unknown' | 'healthy' | 'degraded' | 'disconnected' | 'banned'
 

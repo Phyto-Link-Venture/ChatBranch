@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { AlertTriangle, CheckCircle, Loader2, Route, Send } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -12,8 +13,6 @@ import { roleHeaders } from '@/lib/role'
 import { expireSessionOn401, hasCap } from '@/lib/auth'
 import { useAccess } from '@/lib/useAccess'
 import { Trans, useT } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}/whatsapp/${path}`, {

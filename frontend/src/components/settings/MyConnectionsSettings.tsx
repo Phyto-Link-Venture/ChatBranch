@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { AlertCircle, BookUser, Check, Loader2, Plug } from 'lucide-react'
@@ -10,8 +11,6 @@ import { expireSessionOn401 } from '@/lib/auth'
 import { roleHeaders } from '@/lib/role'
 import { useAccess } from '@/lib/useAccess'
 import { Trans, useT, type MessageKey } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface OwnAccount {
   id: number

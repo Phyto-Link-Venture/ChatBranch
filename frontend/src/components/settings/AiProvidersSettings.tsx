@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
@@ -30,8 +31,6 @@ import { EMBEDDING_KEYS, EmbeddingsSection } from '@/components/ai-learning/Embe
 import { Advanced } from '@/components/ui/Advanced'
 import { AiProviderLogo } from '@/components/ui/AiProviderLogo'
 import { useFormat, useT, type MessageKey, type TFunction } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /* ---------- types (mirror VoiceMessagingEndpoints.AiProvidersPayload) ---------- */
 

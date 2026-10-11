@@ -6,10 +6,9 @@
  * (Fields that depend on a relationship — a driver's licence number — ride on
  * registry tags instead: lib/tags.ts.)
  */
+import { API } from '@/lib/apiBase'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import type { MessageKey, TFunction } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export type FieldKind = 'text' | 'select' | 'multiselect' | 'number' | 'boolean'
 export type FieldTarget = 'customer'

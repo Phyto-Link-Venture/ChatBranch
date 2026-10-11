@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { AlertCircle, Check, Eye, EyeOff, Loader2, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -8,7 +9,6 @@ import { expireSessionOn401, roleDisplayName, setCachedName } from '@/lib/auth'
 import { roleHeaders } from '@/lib/role'
 import { useFormat, useT, type MessageKey } from '@/i18n'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 /** The server's floor (MyAccountEndpoints.MinPasswordLength — the same as creating a user). */
 const MIN_PASSWORD = 8
 

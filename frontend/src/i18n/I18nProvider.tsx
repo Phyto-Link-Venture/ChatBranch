@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { authHeaders } from '@/lib/auth'
 import { en, type Messages } from './messages/en'
@@ -145,8 +146,6 @@ export const useI18n = () => useContext(I18nContext)
 export const useT = (): TFunction => useContext(I18nContext).t
 
 // ---- server sync --------------------------------------------------------------
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 async function saveUserLocale(l: Locale | null): Promise<void> {
   try {

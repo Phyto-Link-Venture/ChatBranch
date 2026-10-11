@@ -16,7 +16,10 @@ COPY tests/ChatBranch.Tests/ChatBranch.Tests.csproj tests/ChatBranch.Tests/
 RUN dotnet restore ChatBranch.sln
 
 COPY . .
-RUN dotnet publish src/ChatBranch.Api -c Release -o /app/publish --no-restore
+# No debug symbols in the image: the runtime stage carries compiled assemblies
+# only (no source, no .pdb files).
+RUN dotnet publish src/ChatBranch.Api -c Release -o /app/publish --no-restore \
+      -p:DebugType=None -p:DebugSymbols=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app

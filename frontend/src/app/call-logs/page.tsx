@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useEffect, useState } from 'react'
 import { Mic, Eye, X } from 'lucide-react'
 import { CALL_LOGS } from '@/lib/mocks'
@@ -7,8 +8,6 @@ import { authHeaders } from '@/lib/auth'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { tint } from '@/lib/color'
 import { useFormat, useT, type MessageKey } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /** One unified call-history row: SIP/AI phone calls from data/calls.json plus
  *  WhatsApp voice calls (both transports) from the recordings store. */

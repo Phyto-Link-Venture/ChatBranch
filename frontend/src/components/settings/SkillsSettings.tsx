@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   AlertCircle,
@@ -51,8 +52,6 @@ import {
   type SkillKind,
 } from '@/components/skills/skillsApi'
 import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 const KIND_ICON: Record<SkillKind, typeof BookOpen> = {
   prompt: BookOpen,

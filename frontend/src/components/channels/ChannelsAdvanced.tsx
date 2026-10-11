@@ -15,7 +15,8 @@ import { Button } from '@/components/ui/Button'
 import { Toggle } from '@/components/ui/Toggle'
 import { CopyRow, MetaWebhookRows, inputCls } from '@/components/settings/WhatsAppSettings'
 import { Trans, useT } from '@/i18n'
-import { API_ORIGIN, ApiError, api, errText } from './inboxes'
+import { absoluteApiResource } from '@/lib/apiBase'
+import { ApiError, api, errText } from './inboxes'
 
 interface EmailSettings {
   smtp_host: string
@@ -286,7 +287,7 @@ export function ChannelsAdvanced({ verifyToken, canKeys }: { verifyToken: string
             </p>
             <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
               <MetaWebhookRows verifyToken={verifyToken} />
-              <CopyRow label={t('channels.advanced.socialCallback')} value={`${API_ORIGIN}/api/messaging/webhook`} />
+              <CopyRow label={t('channels.advanced.socialCallback')} value={absoluteApiResource('/api/messaging/webhook')} />
             </div>
           </div>
           <div className="flex flex-col gap-3">

@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
@@ -22,8 +23,6 @@ import ContactAiModeCard from '@/components/contacts/ContactAiModeCard'
 import { TagChip } from '@/components/tags/TagChip'
 import { useTags } from '@/lib/tags'
 import { fetchCustomFields, formatFieldValue, type FieldDef } from '@/lib/customFields'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /** How many recent interactions load with the page — the rest on "Load full log". */
 const RECENT_EVENTS = 12

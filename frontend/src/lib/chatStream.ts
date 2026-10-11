@@ -12,9 +12,9 @@
  * connection to ~5 min; the loop here reconnects (and re-notifies, so
  * anything missed while offline is caught up).
  */
+import { API } from '@/lib/apiBase'
 import { authHeaders, expireSessionOn401 } from './auth'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 const RETRY_MS = 4000
 
 type Listener = () => void

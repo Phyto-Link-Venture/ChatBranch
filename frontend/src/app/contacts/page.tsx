@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { Suspense, useCallback, useMemo, useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Loader2, Pencil, Plus, Trash2, Upload } from 'lucide-react'
@@ -22,7 +23,6 @@ import { fetchCustomFields, type FieldDef } from '@/lib/customFields'
 import { useT } from '@/i18n'
 import { RECORD_TYPE_OPTS, languageOptions, recordTypeLabel } from '@/lib/contactIdentity'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 /** The contacts entity filter's "Unassigned (no entity)" value (server: ContactsEndpoints.NoEntity). */
 const NO_ENTITY = '__none__'
 

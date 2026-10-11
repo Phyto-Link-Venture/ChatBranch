@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Building2, CornerDownRight, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -9,8 +10,6 @@ import { orderEntityTree, type TreeEntity } from '@/components/bindings/groups'
 import { authHeaders, hasCap } from '@/lib/auth'
 import { useApp } from '@/lib/AppContext'
 import { useT } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}/${path}`, {

@@ -1,3 +1,4 @@
+import { API, apiResource } from '@/lib/apiBase'
 import type { MessageKey, TFunction } from '@/i18n'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import { TOOL_APP_IDS, aicore, type ToolAppId } from './skillsApi'
@@ -15,8 +16,6 @@ import type { HtmlLayout, HtmlReference, HtmlStarter } from './htmlLayout'
 
 export type { ToolAppId }
 export { TOOL_APP_IDS }
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export type DocumentType = 'invoice' | 'quotation' | 'receipt' | 'letter'
 export const DOCUMENT_TYPES: DocumentType[] = ['invoice', 'quotation', 'receipt', 'letter']
@@ -194,8 +193,6 @@ export async function uploadLogo(file: File): Promise<{ logo: string; url: strin
   return data as { logo: string; url: string }
 }
 
-const absolute = (u: string) => (u.startsWith('http') ? u : `${API.replace(/\/api$/, '')}${u}`)
-
 /**
  * Open an auth-gated file (a document, a preview) in a new tab: the tab is opened
  * at once (so no pop-up blocker objects) and pointed at the fetched blob.
@@ -203,7 +200,7 @@ const absolute = (u: string) => (u.startsWith('http') ? u : `${API.replace(/\/ap
 export async function openAuthed(url: string): Promise<void> {
   const tab = typeof window !== 'undefined' ? window.open('', '_blank') : null
   try {
-    const res = await fetch(absolute(url), { headers: authHeaders() })
+    const res = await fetch(apiResource(url), { headers: authHeaders() })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const blobUrl = URL.createObjectURL(await res.blob())
     if (tab) tab.location.href = blobUrl
@@ -216,7 +213,7 @@ export async function openAuthed(url: string): Promise<void> {
 
 /** Fetch an auth-gated image as an object URL (the logo thumbnail). */
 export async function authedObjectUrl(url: string): Promise<string> {
-  const res = await fetch(absolute(url), { headers: authHeaders() })
+  const res = await fetch(apiResource(url), { headers: authHeaders() })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return URL.createObjectURL(await res.blob())
 }

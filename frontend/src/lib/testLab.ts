@@ -8,9 +8,8 @@
  *   POST /api/testlab/reset              delete the fenced data (nothing else)
  *   POST /api/testlab/demo               load the demo dataset inside the fence
  */
+import { API } from '@/lib/apiBase'
 import { authHeaders, expireSessionOn401 } from './auth'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export interface LabScenario {
   id: string

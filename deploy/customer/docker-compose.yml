@@ -1,0 +1,263 @@
+# ChatBranch — install on your own server from prebuilt images.
+#
+# No source code: every service is a published image (ghcr.io). Put this file,
+# Caddyfile and a filled-in .env (from .env.example) in one folder, then:
+#
+#   docker login ghcr.io            # the read-only token you were given
+#   docker compose pull
+#   docker compose up -d
+#
+# What runs:
+#   caddy            the only thing on the internet (ports 80/443): automatic
+#                    HTTPS for DOMAIN; /api/* → api, everything else → web
+#   web              the dashboard (Next.js)
+#   api              the C# API — inbox, contacts, AI, channels, calls control
+#   postgres         the database (internal network only)
+#   postgres-backup  a pg_dump every PG_BACKUP_HOURS into the data volume
+# Optional (COMPOSE_PROFILES in .env, comma-joined):
+#   whatsapp         baileys — the WhatsApp Web (QR) gateway
+#   voice            agent   — the LiveKit voice-agent worker for AI calls
+#   stt              whisper — local speech-to-text for customers' voice notes
+#
+# Requires Docker Compose v2.24 or newer. See README.md.
+
+name: chatbranch
+
+# Every service: no privilege escalation, every Linux capability dropped (the
+# few that need one add it back), and bounded logs.
+x-hardened: &hardened
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
+services:
+  caddy:
+    <<: *hardened
+    image: ${CADDY_IMAGE:-caddy:2.10-alpine}
+    # binds 80/443 as root with this one capability; no other privileges
+    cap_add:
+      - NET_BIND_SERVICE
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      - DOMAIN=${DOMAIN:?Set DOMAIN in .env — the DNS name that points at this server}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data        # certificates — keep it, or Caddy re-issues on every start
+      - caddy-config:/config
+    networks:
+      - edge
+    depends_on:
+      - web
+      - api
+
+  web:
+    <<: *hardened
+    image: ${CHATBRANCH_IMAGE_PREFIX:-ghcr.io/phyto-link-venture/chatbranch}-web:${CHATBRANCH_VERSION:-latest}
+    # built with the API at /api on its own origin: no per-domain build needed
+    networks:
+      - edge
+
+  api:
+    <<: *hardened
+    image: ${CHATBRANCH_IMAGE_PREFIX:-ghcr.io/phyto-link-venture/chatbranch}-api:${CHATBRANCH_VERSION:-latest}
+    environment:
+      # Behind Caddy: trust its X-Forwarded-Proto / -For so links the API builds
+      # (OAuth callback, widget snippet, webhook URLs) say https:// and the
+      # client's own IP is logged. Only Caddy can reach this container.
+      - ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
+      # One public origin for everything: the dashboard, the API, OAuth returns,
+      # public document / media links.
+      - Cors__Origins__0=https://${DOMAIN:?Set DOMAIN in .env — the DNS name that points at this server}
+      - FRONTEND_URL=https://${DOMAIN}
+      - PUBLIC_BASE_URL=https://${DOMAIN}
+      - GOOGLE_REDIRECT_URI=https://${DOMAIN}/api/integrations/oauth/google/callback
+      # The password of the `superadmin` login created on the FIRST start
+      # (later changes are made in the dashboard: Settings → My account).
+      - SUPERADMIN_PASSWORD=${SUPERADMIN_PASSWORD:?Set SUPERADMIN_PASSWORD in .env — the first sign-in password}
+      # PostgreSQL (the service below). The password is hex, so it is safe in a URL.
+      - DATABASE_PROVIDER=postgres
+      - DATABASE_URL=postgres://chatbranch:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env — openssl rand -hex 32}@postgres:5432/chatbranch
+      # A production server: the built-in Test lab is not mapped.
+      - TEST_LAB=0
+      # WhatsApp Web (profile `whatsapp`): where the gateway listens and the
+      # shared secret both sides send. A URL saved in the dashboard still wins.
+      - BAILEYS_URL=http://baileys:3020
+      - BAILEYS_SECRET=${BAILEYS_SECRET:?Set BAILEYS_SECRET in .env — openssl rand -hex 32}
+      # AI calls (profile `voice`, optional): the LiveKit project the API dials
+      # through. Unset = dialing answers a clear 503.
+      - LIVEKIT_URL=${LIVEKIT_URL:-}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-}
+      - SIP_OUTBOUND_TRUNK_ID=${SIP_OUTBOUND_TRUNK_ID:-}
+      - AGENT_NAME=${AGENT_NAME:-chatbranch-agent}
+      # Voice-note transcription (optional; a choice saved in Settings → AI keys
+      # & models wins). STT_PROVIDER=local + profile `stt` = the Whisper below.
+      - STT_PROVIDER=${STT_PROVIDER:-}
+      - STT_BASE_URL=${STT_BASE_URL:-}
+      - STT_MODEL=${STT_MODEL:-}
+    volumes:
+      # media, documents, call recordings, the voice-agent files, the
+      # WhatsApp Web sessions and the database dumps
+      - chatbranch-data:/data
+    networks:
+      - edge       # reached by Caddy; outbound to the channels and AI providers
+      - backend    # postgres, baileys, whisper
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # PostgreSQL 16, database / user `chatbranch`, C.UTF-8 (byte-order sorting like
+  # SQLite, Unicode case). Internal network only — nothing outside reaches it.
+  postgres:
+    <<: *hardened
+    image: ${POSTGRES_IMAGE:-postgres:16-bookworm}
+    # its entrypoint prepares the data directory as root, then runs as `postgres`
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    environment:
+      - POSTGRES_DB=chatbranch
+      - POSTGRES_USER=chatbranch
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env — openssl rand -hex 32}
+      - POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C.UTF-8
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatbranch -d chatbranch"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks:
+      - backend
+
+  # A pg_dump every PG_BACKUP_HOURS (default 24) into the data volume's
+  # backups/postgres/, kept PG_BACKUP_KEEP_DAYS (default 14).
+  postgres-backup:
+    <<: *hardened
+    image: ${POSTGRES_IMAGE:-postgres:16-bookworm}
+    # the API's uid: writes into the shared data volume with no capabilities
+    user: "1654:1654"
+    environment:
+      - PGHOST=postgres
+      - PGUSER=chatbranch
+      - PGPASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env — openssl rand -hex 32}
+      - PGDATABASE=chatbranch
+      - PG_BACKUP_HOURS=${PG_BACKUP_HOURS:-24}
+      - PG_BACKUP_KEEP_DAYS=${PG_BACKUP_KEEP_DAYS:-14}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        mkdir -p /data/backups/postgres
+        while true; do
+          f=/data/backups/postgres/chatbranch-$$(date -u +%Y%m%dT%H%M%SZ).sql.gz
+          if pg_dump --no-owner --no-privileges | gzip > "$$f.part"; then mv "$$f.part" "$$f"; echo "backup $$f"; else rm -f "$$f.part"; echo "backup FAILED"; fi
+          find /data/backups/postgres -name 'chatbranch-*.sql.gz' -mtime +$${PG_BACKUP_KEEP_DAYS} -delete
+          sleep $$(( $${PG_BACKUP_HOURS} * 3600 ))
+        done
+    volumes:
+      - chatbranch-data:/data
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # the API creates the data volume with the right owner on its first start
+      api:
+        condition: service_started
+
+  # Optional (profile `whatsapp`): the WhatsApp Web transport — numbers paired
+  # by QR code. Unofficial; see README.md before using it. The paired sessions
+  # live in the data volume (whatsapp/baileys) — losing them means scanning the
+  # QR again.
+  baileys:
+    <<: *hardened
+    image: ${CHATBRANCH_IMAGE_PREFIX:-ghcr.io/phyto-link-venture/chatbranch}-baileys:${CHATBRANCH_VERSION:-latest}
+    user: "1654:1654"
+    environment:
+      - API_URL=http://api:8090
+      - BAILEYS_SECRET=${BAILEYS_SECRET:?Set BAILEYS_SECRET in .env — openssl rand -hex 32}
+      # listen beyond loopback so the api container can reach it (no host port)
+      - BAILEYS_HOST=0.0.0.0
+    volumes:
+      # the API's data dir: call recordings land where the API streams them from
+      - chatbranch-data:/srv/data
+    networks:
+      - backend       # the API ↔ gateway, internal only
+      - baileys-out   # outbound to WhatsApp; nothing published
+    depends_on:
+      - api
+    profiles: ["whatsapp"]
+
+  # Optional (profile `voice`): the LiveKit voice-agent worker that runs every AI
+  # call. It talks to LiveKit, not to the API — the two share files on the data
+  # volume. Its provider keys go in voice-agent.env (see voice-agent.env.example).
+  agent:
+    <<: *hardened
+    image: ${CHATBRANCH_IMAGE_PREFIX:-ghcr.io/phyto-link-venture/chatbranch}-agent:${CHATBRANCH_VERSION:-latest}
+    user: "1654:1654"
+    env_file:
+      - path: ./voice-agent.env
+        required: false
+    environment:
+      - CHATBRANCH_DATA_DIR=/data
+      - AGENT_NAME=${AGENT_NAME:-chatbranch-agent}
+      - LIVEKIT_URL=${LIVEKIT_URL:-}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-}
+      - SIP_OUTBOUND_TRUNK_ID=${SIP_OUTBOUND_TRUNK_ID:-}
+    volumes:
+      - chatbranch-data:/data
+    networks:
+      - agent-out     # outbound to LiveKit and the voice providers only
+    depends_on:
+      - api
+    profiles: ["voice"]
+
+  # Optional (profile `stt`): local speech-to-text for customers' voice notes,
+  # an OpenAI-compatible Whisper. Internal to the API; it reaches the internet
+  # only to download its model once (cached in whisper-models). Pick it with
+  # STT_PROVIDER=local (or "Local Whisper" in Settings → AI keys & models).
+  whisper:
+    <<: *hardened
+    image: ${WHISPER_IMAGE:-ghcr.io/speaches-ai/speaches:latest-cpu}
+    environment:
+      - PRELOAD_MODELS=["${STT_MODEL:-Systran/faster-whisper-small}"]
+    volumes:
+      - whisper-models:/home/ubuntu/.cache/huggingface/hub
+    networks:
+      - backend       # reached by the API as http://whisper:8000/v1
+      - whisper-out   # the one-time model download
+    profiles: ["stt"]
+
+networks:
+  # Caddy, the dashboard and the API. Caddy alone publishes ports.
+  edge: {}
+  # The API's private side: PostgreSQL, the WhatsApp gateway, Whisper. No way
+  # in or out of the server.
+  backend:
+    internal: true
+  # Outbound-only networks for the optional services that must reach the
+  # internet (nothing is published on them, and they are not shared).
+  baileys-out: {}
+  whisper-out: {}
+  agent-out: {}
+
+volumes:
+  chatbranch-data:
+  postgres-data:
+  caddy-data:
+  caddy-config:
+  whisper-models:

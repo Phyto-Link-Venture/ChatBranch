@@ -1,3 +1,4 @@
+import { API } from '@/lib/apiBase'
 import { Activity, Bell, MessageSquare, ShieldCheck, Workflow, type LucideIcon } from 'lucide-react'
 import { authHeaders, expireSessionOn401 } from './auth'
 import type { MessageKey } from '@/i18n'
@@ -103,8 +104,6 @@ export interface NotificationPrefs {
   org: Record<string, boolean>
   can_manage_org: boolean
 }
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 /** JSON fetch against /api with the bearer token; throws the server's detail. */
 export async function notifApi<T>(path: string, init?: RequestInit): Promise<T> {

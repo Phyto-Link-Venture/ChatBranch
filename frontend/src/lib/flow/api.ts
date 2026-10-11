@@ -1,3 +1,4 @@
+import { API } from '@/lib/apiBase'
 import { authHeaders } from '@/lib/auth'
 import type { AgentSkill, FlowEdge, FlowNode, FlowRunPathStep, FlowRunRow, FlowStats, WorkflowDef } from './types'
 
@@ -9,7 +10,6 @@ import type { AgentSkill, FlowEdge, FlowNode, FlowRunPathStep, FlowRunRow, FlowS
  * `active`. On the wire a workflow's string id is `flowId` (the numeric `id`
  * is the row pk). localStorage stays the offline fallback.
  */
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 async function getJson<T>(path: string): Promise<T | null> {
   try {

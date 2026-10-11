@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Download } from 'lucide-react'
 import { authHeaders, expireSessionOn401, hasCap } from '@/lib/auth'
@@ -22,7 +23,6 @@ import { EntityBreakdownTable } from '@/components/analytics/EntityBreakdownTabl
 import { FlowsCard } from '@/components/analytics/FlowsCard'
 import type { AnalyticsSummary } from '@/components/analytics/types'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 const PERIODS = [7, 30, 90]
 
 /*

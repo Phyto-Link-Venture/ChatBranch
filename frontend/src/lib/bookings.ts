@@ -9,10 +9,9 @@
  * Every caller fails soft: a missing endpoint (an older API) or no access
  * reads as "no bookings", never a crash.
  */
+import { API } from '@/lib/apiBase'
 import { authHeaders, expireSessionOn401 } from './auth'
 import type { MessageKey } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export type BookingStatus = 'pending' | 'booked' | 'cancelling' | 'cancelled' | 'released' | 'failed'
 

@@ -22,6 +22,7 @@ import { Check, Copy } from 'lucide-react'
 import { Select } from '@/components/ui/Select'
 import { LOCALES, useT, type TFunction } from '@/i18n'
 import type { WidgetLanguage } from '@/components/channels/inboxes'
+import { absoluteApiUrl } from '@/lib/apiBase'
 import { inputCls } from './WhatsAppSettings'
 
 export interface WidgetLook {
@@ -151,6 +152,16 @@ export function WidgetLookFields({
       </div>
     </div>
   )
+}
+
+/**
+ * The paste-ready tag for a widget token. Built here from the dashboard's API base
+ * made absolute (`absoluteApiUrl`), so a build with a relative `/api` base hands
+ * out `https://<this domain>/api/widget.js` — the script must load from our
+ * origin on the customer's site. Call it in the browser (after mount).
+ */
+export function widgetEmbedSnippet(token: string): string {
+  return `<script src="${absoluteApiUrl('widget.js')}" data-token="${token}" async></script>`
 }
 
 /** The paste-ready snippet, with a copy button. */

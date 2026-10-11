@@ -1,3 +1,4 @@
+import { API } from '@/lib/apiBase'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import type { DocumentType } from './readySkills'
 import { aicore } from './skillsApi'
@@ -10,8 +11,6 @@ import { aicore } from './skillsApi'
  * with NO template prints). The four presets come from `GET /skills/apps`
  * (`template_presets`) so they never drift from the renderer.
  */
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export const PRESETS = ['classic', 'modern', 'minimal', 'bold'] as const
 export type Preset = (typeof PRESETS)[number]

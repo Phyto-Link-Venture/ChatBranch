@@ -1,3 +1,4 @@
+import { API } from '@/lib/apiBase'
 import type { MessageKey, TFunction } from '@/i18n'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 
@@ -12,8 +13,6 @@ import { authHeaders, expireSessionOn401 } from '@/lib/auth'
  * re-reads the scope first and changes only the row it means to — a stale tab
  * can never prune someone else's skills.
  */
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export type SkillKind = 'prompt' | 'tool' | 'check' | 'app'
 export type OnFail = 'retry' | 'handover' | 'block'

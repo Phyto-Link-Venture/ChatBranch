@@ -1,11 +1,12 @@
 'use client'
 
+import { API, absoluteApiUrl } from '@/lib/apiBase'
 import { useState, type ReactNode } from 'react'
 import { AlertCircle, Check, CheckCircle, Copy } from 'lucide-react'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import { useFormat, useT } from '@/i18n'
 
-export const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
+export { API }
 
 /** JSON fetch against the API with the session token; throws the server's `detail`. */
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -28,14 +29,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
  * dashboard. (The API also answers at /mcp.) Call after mount.
  */
 export function mcpEndpoint(): string {
-  try {
-    const base = new URL(API, window.location.origin)
-    base.pathname = base.pathname.replace(/\/+$/, '') + '/mcp'
-    base.search = ''
-    return base.toString()
-  } catch {
-    return '/api/mcp'
-  }
+  return absoluteApiUrl('mcp')
 }
 
 export const inputCls =

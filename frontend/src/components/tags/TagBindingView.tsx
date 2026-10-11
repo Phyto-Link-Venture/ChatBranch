@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Info, Loader2 } from 'lucide-react'
@@ -10,8 +11,6 @@ import { authHeaders } from '@/lib/auth'
 import { APPLIES_TO_META, applyTagTargets, fetchTagTargets, type TagDef } from '@/lib/tags'
 import { Trans, useT } from '@/i18n'
 import { TagChip } from './TagChip'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface CatalogPools {
   entities: { id: number; label: string; parent_id: number | null }[]

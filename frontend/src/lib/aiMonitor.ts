@@ -3,11 +3,10 @@
  * settings (/api/ai/behaviour). Server is the source of truth for every label
  * and rule; this file only shapes the wire.
  */
+import { API } from '@/lib/apiBase'
 import { translate, type MessageKey, type TFunction } from '@/i18n'
 import { en } from '@/i18n/messages/en'
 import { authHeaders, expireSessionOn401 } from './auth'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export type DraftStatus =
   | 'pending'

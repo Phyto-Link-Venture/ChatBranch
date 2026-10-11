@@ -1,9 +1,8 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useEffect, useState } from 'react'
 import { authHeaders } from './auth'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 // one whoami read per session token, shared by every caller
 let pending: Promise<boolean> | null = null

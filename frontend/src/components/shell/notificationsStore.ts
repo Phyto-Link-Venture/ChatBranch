@@ -7,10 +7,10 @@
  * consumer. Ref-counted: it polls while at least one component is subscribed.
  */
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useState } from 'react'
 import { authHeaders, getAuth } from '@/lib/auth'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 const POLL_MS = 20_000
 
 export interface Notif {

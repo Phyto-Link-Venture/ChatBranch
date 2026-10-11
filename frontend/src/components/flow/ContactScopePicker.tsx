@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Search, X } from 'lucide-react'
 import { useT } from '@/i18n'
@@ -15,7 +16,6 @@ import { inputCls } from './fields'
  * the engine reads — empty = everyone); `labels` {id: name} is display-only.
  */
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 const PAGE_SIZE = 20
 
 interface Row {

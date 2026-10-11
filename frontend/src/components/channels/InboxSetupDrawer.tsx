@@ -24,6 +24,7 @@ import { Toggle } from '@/components/ui/Toggle'
 import { EntityPicker } from '@/components/ui/EntityPicker'
 import { useEntity } from '@/lib/EntityContext'
 import { useCompanyAdmin } from '@/lib/useCompanyAdmin'
+import { absoluteApiResource } from '@/lib/apiBase'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import { accountRole, type AccountRole } from '@/components/ui/Badges'
 import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
@@ -41,12 +42,12 @@ import {
 import {
   EmbedSnippet,
   WIDGET_DEFAULTS,
+  widgetEmbedSnippet,
   WidgetLookFields,
   widgetLookErrors,
   type WidgetLook,
 } from '@/components/settings/WidgetsSettings'
 import {
-  API_ORIGIN,
   KINDS,
   api,
   errText,
@@ -1057,7 +1058,7 @@ export function InboxSetupDrawer({
     </div>
   )
 
-  const webhookUrl = `${API_ORIGIN}/api/messaging/webhook`
+  const webhookUrl = absoluteApiResource('/api/messaging/webhook')
   const testStep = !kind ? null : (
     <div className="flex flex-col gap-6">
       {!saved ? (
@@ -1165,7 +1166,7 @@ export function InboxSetupDrawer({
               {WEBHOOK_HELP[kind] && (
                 <p className="text-[12.5px] leading-relaxed text-text-mid">{t(WEBHOOK_HELP[kind]!)}</p>
               )}
-              <CopyRow label={t('channels.drawer.test.webhookUrl')} value={`${API_ORIGIN}${saved.wa.webhook_path ?? ''}`} />
+              <CopyRow label={t('channels.drawer.test.webhookUrl')} value={absoluteApiResource(saved.wa.webhook_path ?? '')} />
               {kind === 'wa_ycloud' && !saved.wa.app_secret_masked && (
                 <p className="text-[11.5px] leading-relaxed" style={{ color: 'var(--amber-ink)' }}>
                   {t('channels.drawer.test.bspSecretMissing')}
@@ -1182,7 +1183,7 @@ export function InboxSetupDrawer({
               {WEBHOOK_HELP[kind] && (
                 <p className="text-[12.5px] leading-relaxed text-text-mid">{t(WEBHOOK_HELP[kind]!)}</p>
               )}
-              <CopyRow label={t('channels.drawer.test.webhookUrl')} value={`${API_ORIGIN}${saved.msg.webhook_path ?? ''}`} />
+              <CopyRow label={t('channels.drawer.test.webhookUrl')} value={absoluteApiResource(saved.msg.webhook_path ?? '')} />
               {kind === 'wechat' && (
                 <p className="text-[11.5px] leading-relaxed text-text-muted">{t('channels.drawer.test.wechatNote')}</p>
               )}
@@ -1231,7 +1232,7 @@ export function InboxSetupDrawer({
                 </button>
               }
             >
-              <EmbedSnippet value={saved.widget.embed} />
+              <EmbedSnippet value={widgetEmbedSnippet(saved.widget.token)} />
               <p className="text-[11.5px] leading-relaxed text-text-muted">{t('channels.drawer.test.tokenPublic')}</p>
             </Section>
           )}

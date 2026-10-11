@@ -15,6 +15,7 @@
  * backend that predates the matrix) the helpers fall back to a static
  * role→capability default that mirrors the server seed.
  */
+import { API } from '@/lib/apiBase'
 import { clearAssistantCache } from './assistantCache'
 import { clearPlaygroundCache } from './playgroundCache'
 import type { MessageKey, TFunction } from '@/i18n'
@@ -184,7 +185,6 @@ const KEY = 'chatbranch-auth'
 // instead of logging everyone out ('chatwood-auth' = pre-ChatBranch,
 // 'ai-collector-auth' = pre-ChatWood).
 const LEGACY_KEYS = ['chatwood-auth', 'ai-collector-auth']
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export function getAuth(): AuthUser | null {
   if (typeof window === 'undefined') return null

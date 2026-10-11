@@ -4,6 +4,7 @@
  * backend's payloads key for key (GET /api/inbox/threads, the per-channel
  * thread detail, message rows).
  */
+import { API, apiResource } from '@/lib/apiBase'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import type { UiHandover } from '@/lib/aiControls'
 import type { MessageKey, TFunction, useFormat } from '@/i18n'
@@ -11,7 +12,7 @@ import type { MessageKey, TFunction, useFormat } from '@/i18n'
 /** The formatter bag `useFormat()` returns (helpers below take it as an argument). */
 export type Fmt = ReturnType<typeof useFormat>
 
-export const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
+export { API }
 
 export type Channel =
   | 'whatsapp'
@@ -332,8 +333,7 @@ export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
 }
 
 /** Media URLs are authenticated GETs — absolute, host-relative or api-relative. */
-export const resolveMediaUrl = (u: string) =>
-  u.startsWith('http') ? u : u.startsWith('/') ? `${API.replace(/\/api$/, '')}${u}` : `${API}/${u}`
+export const resolveMediaUrl = (u: string) => apiResource(u)
 
 /** Per-thread API prefix — WhatsApp lives in its own app. */
 export const threadPath = (t: { channel: Channel; key: string }) =>

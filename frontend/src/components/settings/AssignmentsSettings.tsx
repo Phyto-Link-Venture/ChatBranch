@@ -1,5 +1,6 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertCircle, CheckCircle, Loader2, Pin, RefreshCw, Search, Shuffle, SlidersHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -11,8 +12,6 @@ import { HealthBadge, RoleChip, accountRole } from '@/components/ui/Badges'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import { useAccess } from '@/lib/useAccess'
 import { Trans, useFormat, useT, type MessageKey, type TFunction } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface AsgAccount {
   id: string

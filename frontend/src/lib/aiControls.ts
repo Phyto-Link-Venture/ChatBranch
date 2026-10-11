@@ -8,10 +8,9 @@
  * The server owns every rule (Ai/AiEligibility, Ai/Handover); this file only
  * shapes the wire.
  */
+import { API } from '@/lib/apiBase'
 import { authHeaders, expireSessionOn401 } from './auth'
 import type { MessageKey, TFunction } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 export class AiControlsError extends Error {
   status: number

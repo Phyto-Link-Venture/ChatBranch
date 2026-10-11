@@ -1,13 +1,12 @@
 'use client'
 
+import { API } from '@/lib/apiBase'
 import { useEffect, useState } from 'react'
 import { Building2, Check, Languages } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { authHeaders } from '@/lib/auth'
 import { LOCALES, clearUserLocale, isLocale, useI18n, useT, type Locale, type MessageKey } from '@/i18n'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
 interface Prefs {
   locale: Locale | null
