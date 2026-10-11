@@ -195,8 +195,8 @@ When you fix one of these, update this table, `README.md` and
   unchanged. Writes: `entities: [slug|id…]` (or the older `entity`) through
   `Endpoints/LibraryScope.cs` (parse + permission: every added/removed entity
   must pass `AiControlsEndpoints.MayEdit`; going global — or narrowing a global
-  row — needs `MayGoGlobal`: admin+, or a capability holder with NO assigned
-  entities), stored by `Data/LibraryEntities.Set` (also `Load` for payloads
+  row — needs `MayGoGlobal`: an UNBOUND caller — superadmin, an org-wide admin or any
+  capability holder with NO assigned entities), stored by `Data/LibraryEntities.Set` (also `Load` for payloads
   `entities: [{id, slug, name}]` + `global`, `Clear` on delete,
   `OnEntityDeleted`). The skills PUT keeps the scope it is saved in as the
   primary. UI: `components/ui/AvailabilityPicker.tsx` (◉ Everyone / ◯ Selected
@@ -385,7 +385,14 @@ When you fix one of these, update this table, `README.md` and
   team, entity, labels, contact tags, AI on/off, 24h window, opt-out, waiting,
   live call, linked, handover (`open`/`any`/`none` + `handover_kind`), date
   ranges, sorts, cursor paging; `count_only=1` powers the filter pop-up's live
-  "Show N chats"). A conversation with NO messages (a chat opened from a contact
+  "Show N chats"). `sort` = newest | customer_newest | oldest_waiting | unread;
+  customer_newest = `LastInTs` descending (the customer's last inbound message),
+  never-wrote chats last, ties by activity then id, paged by the offset `cursor`
+  (`before` is for newest only); the merged view orders a contact's entry by its
+  newest inbound across channels. The list header carries All / Contacts / Not in
+  contacts (= `linked`) and Newest message / Newest from customer
+  (`components/chats/Segmented.tsx`); the order is per person (`Profile.Preferences`
+  `chats.sort` via `/api/auth/preferences`, `components/chats/chatSortPref.ts`). A conversation with NO messages (a chat opened from a contact
   and left) is not listed — only `thread=<channel>:<key>` still finds it, so the
   open chat's scope check keeps a freshly started chat open. The filter UI is `ChatFilterModal.tsx`; the filter tabs are
   per-user `SavedView` rows (`/api/views?scope=chats`, `lib/savedViews.ts`) next
@@ -447,7 +454,12 @@ When you fix one of these, update this table, `README.md` and
   **coverage gate** (linked contact AND the EFFECTIVE verdict
   `Ai/AiEligibility.Decide` AND not opted out) → AI reply (debounced/queued or instant,
   see AI monitor); else on a reminder number the business redirect. Nothing in
-  it may throw into a webhook.
+  it may throw into a webhook. **Nothing on the inbound path drops a message
+  because the sender is not a contact:** every channel opens or continues an
+  UNLINKED conversation (`linked=0`, "Not in contacts"), and only the coverage gate
+  keeps them from the AI (the website widget excepted). Email skips only
+  `Auto-Submitted` mail, its own From address and Message-ID duplicates
+  (`UnknownSenderAsserts` + one test per channel).
 - **WhatsApp specifics.** Accounts are `ChannelAccount` rows (provider `cloud`,
   `ycloud`, `twilio` — the three OFFICIAL ones, `WhatsAppProviders.IsOfficial` —
   or `baileys`; ask `WhatsAppProviders`, never compare to `"cloud"`); `WHATSAPP_*` env keys surface as a read-only `env-default`
@@ -483,8 +495,8 @@ When you fix one of these, update this table, `README.md` and
   `Thread.AiEnabled` directly; a draft a person approves still sends. Write a
   tick with `AiEligibility.Set` (per-account tick + legacy column). API: `GET/PUT
   /api/ai/controls?entity=` (GET `ai.monitor` / `ai.behaviour.manage` /
-  `chats.view`; PUT `ai.behaviour.manage`, org-wide admin+, an outlet must be in
-  the caller's subtree), `GET/PUT /api/contacts/{id}/ai-mode` (PUT
+  `chats.view`; PUT `ai.behaviour.manage`, the organization level only for an unbound
+  caller (`ShellScope.MayActAt`), an outlet must be in the caller's subtree), `GET/PUT /api/contacts/{id}/ai-mode` (PUT
   `contacts.manage`); UI: the master-switch card on `/ai-monitor`
   (`components/ai-controls/AiMasterSwitch.tsx` + `AiScheduleEditor.tsx`), the Live
   chip's quick toggle (`AiQuickToggle.tsx`) and "AI for this contact"
@@ -536,7 +548,8 @@ When you fix one of these, update this table, `README.md` and
   /api/whatsapp/assignments/rebalance` (`AssignmentsEndpoints.cs`) spreads
   unpinned rows evenly over eligible accounts. Gate:
   `account_assignment.manage`. Per-chat switch: `POST
-  /api/whatsapp/threads/{key}/account` (admin+) pins the assignment and appends
+  /api/whatsapp/threads/{key}/account` (`account_assignment.manage` + the thread's
+  `chats.send`; the target number must be one the caller's entities may use) pins the assignment and appends
   a system note. **Send-time routing** is `Channels/Routing.ForThread` (queue
   drain, manual sends, the email mailbox / Telegram bot choice and the AI
   gate's instant, approved and auto-sent replies; payload `account_id` pins a
@@ -683,7 +696,8 @@ When you fix one of these, update this table, `README.md` and
   drop) + persona (Setting `aicore_persona`, the nearest level of the tree wins,
   else `DefaultPersona`; `PersonaService.Preamble` builds the three) —
   `GET/PUT /api/aicore/persona` (`settings.ai.manage`; PUT `{persona?,
-  house_rules?, entity?}`, org-wide admin+, an outlet in the caller's scope, an
+  house_rules?, entity?}`, the organization level only for an unbound caller, an
+  outlet in the caller's scope, an
   outlet's empty persona drops its override; GET says where the persona comes
   from, what it would inherit, inherited + own house rules and the composed
   `preamble`). UI: `/ai-persona` "Persona & rules" (Library,
@@ -1240,7 +1254,7 @@ When you fix one of these, update this table, `README.md` and
   (`LearningService.OnDraftDecided`: approved +1 weight 0.5, edited −1 weight 0.5
   with the sent text as the correction, rejected −1 with the reason); every row
   snapshots the question and the answer. **Lessons** (`crm_ailesson`,
-  `/api/ai/lessons`, writes `ai.behaviour.manage`, delete admin+): `example` |
+  `/api/ai/lessons`, writes and delete `ai.behaviour.manage`): `example` |
   `correction` | `rule`; entity-scoped Setting `ai_learning_mode` = review
   (default — every lesson waits for a person) | auto (an admin's feedback goes
   live at once) | off (counted, nothing learned); a near-identical suggestion
@@ -1494,7 +1508,7 @@ When you fix one of these, update this table, `README.md` and
   shared rows. **The Integrations page is for SHARED connections**: "Connect
   for…" (`EntityPicker`, the organization-wide choice first) →
   `GET /api/integrations/oauth/{provider}/start?for=shared[&entity=slug]`
-  (admin+ with `integrations.manage`; `IntegrationResolver.SharedRowAsync`,
+  (`integrations.manage` + the entity in the caller's scope; `IntegrationResolver.SharedRowAsync`,
   reconnecting the same scope reuses its row; an unknown entity = 404); API-key
   accounts take `entity` the same way. Without `for=shared` the start writes
   the CALLER's own row (`OwnRowAsync`). Google Contacts is personal only.
@@ -1653,7 +1667,8 @@ When you fix one of these, update this table, `README.md` and
   detail page's "Sentiment" is a static mapping from call status, not an AI
   judgement). `/persona` ("Voice & calls") is the voice library, opening line
   and pronunciation — not the chat persona. Clicking a voice there saves the
-  ORGANIZATION's call voice (`PUT /api/voice/default-voice`, admin+, Settings
+  ORGANIZATION's call voice (`PUT /api/voice/default-voice`, `settings.ai.manage`,
+  unbound callers only, Settings
   `default_voice` + `default_voice_provider`; `GET /api/voices` returns
   `default_voice`); `VoiceDispatch` uses it for any call that names no voice
   and no provider.
@@ -1748,7 +1763,7 @@ When you fix one of these, update this table, `README.md` and
   / .vcf file or your own Google Contacts → map columns → duplicates skip / fill
   empty / overwrite + entity, tags, find channels → import, skipped rows as a
   CSV; 20 000 rows / 10 MB; phones normalized to E.164 with Setting
-  `default_country_code`, default 60; `POST /api/contacts/import`, admin+ and
+  `default_country_code`, default 60; `POST /api/contacts/import`,
   `contacts.manage`); `/contacts/[id]` shows the AI summary
   (`/api/messaging/timeline/summary`), details + custom fields, records, the
   channel hub, entities (`ContactEntitiesCard`), tags (`ContactTagsCard`),
@@ -2011,7 +2026,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **1047 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **1074 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /
@@ -2054,6 +2069,8 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   `AppDbContext` mapping (append-only, idempotent) because `EnsureCreated()`
   never alters a live database (Postgres picks the change up from the model —
   `PostgresSchema.Sync`).
+- Many test hosts at once can exhaust the machine's inotify instances
+  ("inotify limit (128)"); run with `DOTNET_USE_POLLING_FILE_WATCHER=1` then.
 - **Postgres:** `TEST_DATABASE=postgres` + `TEST_POSTGRES="Host=…;Username=…;Password=…"`
   runs every API test host on its own throwaway database (`ApiFactory`, dropped on
   dispose); CI's `C# API on PostgreSQL` job does it on PostgreSQL 16. `PostgresTests`
