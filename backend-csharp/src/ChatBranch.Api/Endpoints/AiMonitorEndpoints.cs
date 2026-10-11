@@ -394,7 +394,8 @@ public static class AiMonitorEndpoints
             .Select(r => r.ThreadId!.Value).Distinct().ToList();
         var humanReplies = await db.Messages.AsNoTracking()
             .Where(m => pendingThreads.Contains(m.ThreadId) && m.Direction == MessageDirection.Out
-                        && m.Source == MessageSource.Agent && !m.Private)
+                        && (m.Source == MessageSource.Agent || m.Source == MessageSource.ExternalClient)
+                        && !m.Private)
             .GroupBy(m => m.ThreadId).Select(g => new { ThreadId = g.Key, Last = g.Max(m => m.CreatedAt) })
             .ToListAsync();
 

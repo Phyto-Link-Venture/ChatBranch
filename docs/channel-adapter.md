@@ -25,8 +25,8 @@ another.
 
 | | WhatsApp Cloud | WhatsApp Baileys | Website widget | Telegram | Messenger / IG | Email |
 |---|---|---|---|---|---|---|
-| Receive text | ✅ webhook | ✅ gateway push | ✅ widget API | ✅ webhook | ✅ webhook | ✅ IMAP pull (`/email/sync`) |
-| Send text | ✅ Graph API | ✅ gateway | ✅ (stored; the widget polls them) | ✅ Bot API | ✅ Send API (page token) | ✅ SMTP (threaded replies; text + escaped HTML alternative) |
+| Receive text | ✅ webhook | ✅ gateway push | ✅ widget API | ✅ webhook | ✅ webhook | ✅ IMAP sync (`/email/sync`): Inbox in, Sent folder as outbound, read-only (never marks mail read) |
+| Send text | ✅ Graph API | ✅ gateway | ✅ (stored; the widget polls them) | ✅ Bot API | ✅ Send API (page token) | ✅ SMTP (threaded replies; text + escaped HTML alternative; a copy filed in the mailbox's Sent folder over IMAP) |
 | Templates | ✅ real template messages; live registry (list/create/edit/delete) with a `waba_id` | rendered as free text | — | — | — | — |
 | Send media | ✅ upload → send by id | ✅ gateway `send-media` (base64, ≤16 MB) | — | ✅ sendPhoto / sendDocument | ✅ uploaded file (multipart) or public URL | ✅ attachment |
 | Receive media | ✅ downloaded off the ack | ✅ `/baileys/media` (two-phase) | — | ✅ getFile, off the ack | ✅ CDN url, downloaded off the ack | ✅ attachments (≤5, 10 MB) |
@@ -41,7 +41,7 @@ another.
 | Opt-out | ✅ STOP/UNSUBSCRIBE/BERHENTI → opted out, START/UNSTOP/MULA → back in | same | same | same | same | same |
 | Health | ✅ Graph token ping (prober) + send / status / test results (`MetaErrors`), inbound heal | ✅ lifecycle pushes + inbound heal | — | ✅ getMe + getWebhookInfo, inbound heal | ✅ `GET /me` (prober, test), send results, inbound heal | ✅ SMTP login (prober), send outcomes |
 | Voice calls | ❌ (Cloud bridge removed; `call/start` → 501) | ✅ (ToS-violating) + recordings | — | — | — | — |
-| Auth on inbound | `X-Hub-Signature-256`, **required once any Cloud account is configured** | `X-Baileys-Secret` | anonymous by design (session id) | bot token in path (constant time) + `X-Telegram-Bot-Api-Secret-Token` once registered from the dashboard | `X-Hub-Signature-256`, **always required** | n/a (we pull over IMAP) |
+| Auth on inbound | `X-Hub-Signature-256`, **required once any Cloud account is configured** | `X-Baileys-Secret` | anonymous by design (session id) | bot token in path (constant time) + `X-Telegram-Bot-Api-Secret-Token` once registered from the dashboard | `X-Hub-Signature-256`, **always required** | n/a (we read over IMAP) |
 
 **WhatsApp through a Business Solution Provider** — YCloud and Twilio are
 OFFICIAL business numbers like Cloud (templates, the 24h window, the `reminder`
@@ -105,7 +105,7 @@ Where the code is (`backend-csharp/src/`):
 | Webhooks (Meta Cloud, Baileys) | `ChatBranch.Api/Endpoints/WebhooksEndpoints.cs` |
 | Messenger / Instagram webhook + the shared Meta verify/signature rules | `ChatBranch.Api/Endpoints/MetaWebhookEndpoints.cs` |
 | Telegram (webhook, Bot API client, send) | `TelegramWebhookEndpoints.cs`, `ChatBranch.Data/Channels/TelegramClient.cs` |
-| Email (SMTP send, IMAP pull, settings) | `ChatBranch.Data/Channels/EmailChannel.cs`, `EmailTransport.cs`, `ImapSync.cs`, `EmailSettings.cs`; endpoints `MessagingTransportEndpoints.cs` |
+| Email (SMTP send, two-way IMAP sync, copy to Sent, settings) | `ChatBranch.Data/Channels/EmailChannel.cs`, `EmailTransport.cs`, `ImapSync.cs` (parser + sync), `ImapMailbox.cs` (IMAP client, UID cursor rule, Sent folder, `SentFolderCopier`), `EmailSettings.cs`; endpoints `MessagingTransportEndpoints.cs` |
 | Media files | `ChatBranch.Data/Channels/WhatsAppMediaStore.cs` (`MediaStore`), `MessagingMedia.cs`; served by `WhatsAppMediaEndpoints.cs` |
 | Widget (public + admin) | `WidgetEndpoints.cs`, `WidgetAdminEndpoints.cs` |
 | Accounts (WhatsApp / messaging) | `WhatsAppSettingsEndpoints.cs`, `VoiceMessagingEndpoints.cs` |
@@ -341,17 +341,51 @@ outbound queue are already channel-blind.
   carry Message-ID / In-Reply-To / References and "Re: <last subject>" (from
   `crm_emailheader`); a flow step's `subject` wins. Refused login →
   disconnected; unreachable server → degraded after 3 in a row; refused
-  recipient → health untouched.
-- In: `POST /api/messaging/email/sync` (the /chats nudge; real IMAP at most
-  every 30 s, `{force:true}` skips it) pulls UNSEEN mail from the last 7 days
-  (10 per mailbox per pass), marks it \Seen, keeps EVERY sender — mail from
-  an address that is no contact opens an unlinked conversation ("Not in
-  contacts", never answered by the AI) like every other channel; only
-  `Auto-Submitted` auto-replies and mail from the mailbox's own From address
-  are skipped — dedups by Message-ID, strips quoted history conservatively, flattens HTML-only mail to readable
-  text (scripts/styles/comments dropped, line breaks + paragraphs kept, links
-  keep their URL, entities decoded), and runs
-  the normal inbound pipeline. A new email thread starts with the chatbot off.
+  recipient → health untouched. **Copy to Sent:** after a successful send
+  through a mailbox with IMAP, `SentFolderCopier` (`ImapMailbox.cs`) APPENDs
+  the very same MIME message (same Message-ID) to the mailbox's Sent folder
+  flagged `\Seen`, so Outlook shows it too — off the request on the thread
+  pool with its own 90 s timeout; skipped when the folder already holds that
+  Message-ID (Gmail and many Exchange setups file SMTP mail themselves) or
+  there is no Sent folder; a failure is logged (no secrets) and never fails,
+  delays or repeats the send.
+- In — **two-way sync**: `POST /api/messaging/email/sync` (the /chats nudge;
+  real IMAP at most every 30 s, `{force:true}` skips it). `\Seen` plays no
+  part: folders are opened READ-ONLY (IMAP EXAMINE, bodies fetched with
+  BODY.PEEK) so nothing is ever marked read, and mail someone already read in
+  Outlook still arrives. Each folder has a UID cursor (`crm_mailboxcursor`:
+  mailbox key `imap_host|imap_username`, folder full name, UIDVALIDITY, last
+  UID): no cursor or another UIDVALIDITY ⇒ `SENTSINCE` the last 7 days (seen
+  or not), else `UID last+1:*` (IMAP's answer of the highest UID even when ≤
+  last is dropped client-side); oldest first, 10 per folder per pass; the
+  cursor moves to the last UID handled (kept, skipped, duplicate or
+  undownloadable), or — when everything that qualified was read — to
+  UIDNEXT−1, so a backlog drains over passes and nothing stalls. The rule is
+  `MailboxCursorPlan`, shared by the real reader and the tests' fake.
+  **Inbox**: keeps EVERY sender — mail from an address that is no contact
+  opens an unlinked conversation ("Not in contacts", never answered by the
+  AI) like every other channel; only `Auto-Submitted` auto-replies and mail
+  from the mailbox's own From address are skipped — and runs the normal
+  inbound pipeline. A new email thread starts with the chatbot off.
+  **Sent folder** (`SentFolders`: the SPECIAL-USE / XLIST `\Sent` folder,
+  else a folder flagged `\Sent`, else the first of "Sent", "Sent Items", "Sent
+  Messages", "INBOX.Sent" — case-insensitive, '.' or '/', with or without the
+  personal namespace prefix; none ⇒ a `notes` line, not an error): each mail
+  becomes an OUTBOUND message (`source = external_client`, status sent, the
+  mail's Date) on the thread of every distinct To address that is not the
+  mailbox's own (Cc/Bcc ignored; a new address opens an unlinked thread with
+  the chatbot off, a known contact's address is linked like inbound mail)
+  through `ThreadStore` only — no AI, flows, automations, notifications, STOP
+  handling or handover. A Message-ID ChatBranch already holds is skipped:
+  that is how its own sends (Message-ID stored as the message's external id)
+  never appear twice. The AI treats such a message like a teammate's reply
+  (follow-ups stop, a pending draft is superseded, a queued AI reply finds the
+  customer answered). Both folders: Message-ID dedup, quoted history stripped
+  conservatively, HTML-only mail flattened to readable text
+  (scripts/styles/comments dropped, line breaks + paragraphs kept, links keep
+  their URL, entities decoded), attachments, headers recorded in
+  `crm_emailheader`. The report adds `sent_imported`, `sent_duplicates`,
+  `sent_skipped` and `notes`.
 - "Test" = SMTP connect + login (+ a test mail when `to` is given).
 
 ### Newer channels (LINE, Viber, SMS, WeChat, TikTok, Douyin, Zalo)

@@ -109,7 +109,8 @@ public class AiFollowUpService
         var after = msgs.Where(m => m.Direction == MessageDirection.Out && (lastIn == null || m.Id > lastIn.Id))
             .OrderBy(m => m.Id).ToList();
         if (after.Count == 0) return Done(state, null, ""); // the customer spoke last
-        if (after.Any(m => m.Source == MessageSource.Agent))
+        // a person — in ChatBranch or from their own mail app — took over the conversation
+        if (after.Any(m => MessageSource.IsPerson(m.Source)))
             return Done(state, null, "A teammate replied — follow-ups stopped.");
         if (state.FollowUpsSent >= policy.FollowUpMax)
             return Done(state, null, state.Note.Length > 0 ? state.Note : "All follow-ups sent.");

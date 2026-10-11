@@ -347,6 +347,12 @@ public static class Seed
         AddIndexIfMissing(db, "ix_aitaskrun_thread", "crm_aitaskrun", "\"thread_id\"");
         // AI voice replies: what a customer's voice note said (Ai/Voice/VoiceTranscriber.cs)
         AddColumnIfMissing(db, "crm_message", "transcript", "TEXT NOT NULL DEFAULT ''");
+        // two-way email: the IMAP sync's UID cursor per (mailbox, folder) — Channels/ImapSync.cs
+        AddTableIfMissing(db, "crm_mailboxcursor",
+            "\"id\" INTEGER NOT NULL CONSTRAINT \"PK_crm_mailboxcursor\" PRIMARY KEY AUTOINCREMENT, "
+            + "\"mailbox\" TEXT NOT NULL, \"folder\" TEXT NOT NULL, \"uid_validity\" INTEGER NOT NULL, "
+            + "\"last_uid\" INTEGER NOT NULL, \"updated_at\" TEXT NOT NULL, "
+            + "CONSTRAINT \"uniq_mailboxcursor_folder\" UNIQUE (\"mailbox\", \"folder\")");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 

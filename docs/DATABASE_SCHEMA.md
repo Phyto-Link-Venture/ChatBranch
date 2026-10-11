@@ -257,7 +257,8 @@ cache) live in `ChatBranch.Data/Tags/TagService.cs`.
 ### `crm_message`
 `thread_id` · `account_id` (which number carried it) · `external_id` (wamid /
 mid / tg id) · `direction` (`in`\|`out`) · `source` (`customer`\|`agent`\|`ai`\|
-`system`) · `private` (internal note) · `text` · `status`
+`system`\|`external_client` — a mail someone sent from their own mail app, read
+back from the mailbox's Sent folder) · `private` (internal note) · `text` · `status`
 (`sent`/`delivered`/`read`/`received`/`sandbox`/`failed`) · `media_type` ·
 `media_path` (relative to `data/whatsapp/media/` or `data/messaging/media/`) ·
 `media_name` (the attachment's original file name, `''` = unknown) ·
@@ -286,6 +287,15 @@ only bumps the thread's `updated_at`.
 `contact_id` · `channel` · `account_id` · `pinned` · timestamps. **Unique**
 `(contact_id, channel)`. Sticky contact → account routing; rebalance moves
 unpinned rows.
+
+### `crm_mailboxcursor` — how far the IMAP sync has read
+`mailbox` (`imap_host|imap_username`, lower-cased — account mailboxes and the
+default mailbox alike) · `folder` (the IMAP full name: `INBOX`, `Sent Items`…) ·
+`uid_validity` · `last_uid` (every UID up to it has been considered) ·
+`updated_at`. **Unique** `(mailbox, folder)` (`uniq_mailboxcursor_folder`).
+Written only by `Channels/ImapSync.cs` (`EmailSyncService`); another
+`uid_validity` from the server means the folder was rebuilt and the sync reads
+its 7-day window again (Message-IDs keep that from importing twice).
 
 ### `crm_savedview`
 `user_id` · `scope` (`chats` today) · `name` · `filters` (the posted filter

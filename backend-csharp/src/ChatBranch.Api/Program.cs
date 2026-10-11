@@ -108,7 +108,14 @@ builder.Services.AddSingleton<ChatBranch.Data.Sidecars.LiveKitClient>();
 // prober (periodic HealthProbeWorker + "Check now" + the post-save re-check).
 // Each external client is an interface so tests swap in fakes.
 builder.Services.AddSingleton<ChatBranch.Data.Channels.IEmailTransport>(_ => new ChatBranch.Data.Channels.MailKitEmailTransport());
-builder.Services.AddSingleton<ChatBranch.Data.Channels.IMailboxReader>(_ => new ChatBranch.Data.Channels.MailKitMailboxReader());
+// IMAP: one MailKit client reads mailboxes (read-only, by UID cursor) and files a copy
+// of each mail we send into the mailbox's Sent folder (SentFolderCopier, off the request)
+builder.Services.AddSingleton(_ => new ChatBranch.Data.Channels.MailKitMailboxReader());
+builder.Services.AddSingleton<ChatBranch.Data.Channels.IMailboxReader>(sp =>
+    sp.GetRequiredService<ChatBranch.Data.Channels.MailKitMailboxReader>());
+builder.Services.AddSingleton<ChatBranch.Data.Channels.IMailboxWriter>(sp =>
+    sp.GetRequiredService<ChatBranch.Data.Channels.MailKitMailboxReader>());
+builder.Services.AddSingleton<ChatBranch.Data.Channels.SentFolderCopier>();
 builder.Services.AddSingleton<ChatBranch.Data.Channels.ITelegramClient>(sp =>
     new ChatBranch.Data.Channels.TelegramClient(sp.GetRequiredService<IHttpClientFactory>()));
 // The Bot API puts the token IN THE URL (…/bot<token>/method) — the factory's
@@ -119,7 +126,8 @@ builder.Services.AddScoped(sp => new ChatBranch.Data.Channels.EmailChannel(
     sp.GetRequiredService<AppDbContext>(), sp.GetRequiredService<ScopingService>(),
     sp.GetRequiredService<ChatBranch.Data.Stores.ThreadStore>(),
     sp.GetRequiredService<ChatBranch.Data.Channels.IEmailTransport>(),
-    sp.GetRequiredService<ChatBranch.Data.Sidecars.VoiceAgentBridge>()));
+    sp.GetRequiredService<ChatBranch.Data.Sidecars.VoiceAgentBridge>(),
+    sp.GetRequiredService<ChatBranch.Data.Channels.SentFolderCopier>()));
 builder.Services.AddScoped<ChatBranch.Data.Channels.TelegramChannel>();
 // LINE, Viber, SMS (Twilio), WeChat, TikTok, Douyin, Zalo: one transport each + the send seam
 builder.Services.AddMoreChannels();

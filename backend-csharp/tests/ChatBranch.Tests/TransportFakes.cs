@@ -44,25 +44,164 @@ public sealed class FakeEmailTransport : IEmailTransport
     }
 }
 
-/// <summary>An IMAP mailbox whose UNSEEN mail the test decides (handed out once, like \Seen).</summary>
-public sealed class FakeMailboxReader : IMailboxReader
+/// <summary>
+/// IMAP mailboxes, one per login: an INBOX and (unless taken away) a Sent folder, each
+/// holding mails with UIDs, a <c>\Seen</c> flag and a UIDVALIDITY. Read the way the real
+/// reader reads them — <see cref="MailboxCursorPlan"/>: the window (SENTSINCE, seen or
+/// not) on a first run, <c>UID last+1:*</c> after it, IMAP's quirk of answering
+/// <c>n:*</c> with the highest UID included — and, like EXAMINE, reading never changes a
+/// flag. Appends to Sent (<see cref="IMailboxWriter"/>) land in the Sent folder and are
+/// recorded.
+/// </summary>
+public sealed class FakeMailboxReader : IMailboxReader, IMailboxWriter
 {
-    private readonly ConcurrentDictionary<string, ConcurrentQueue<MimeMessage>> _unseen = new();
+    public sealed class Item
+    {
+        public uint Uid { get; init; }
+        public MimeMessage Message { get; init; } = null!;
+        public bool Seen { get; set; }
+        /// <summary>The server will not hand this one over (a broken message).</summary>
+        public bool Broken { get; set; }
+    }
+
+    public sealed class Folder
+    {
+        public string Name { get; set; }
+        public uint UidValidity { get; set; } = 1;
+        public uint UidNext { get; set; } = 1;
+        public List<Item> Items { get; } = new();
+        public Folder(string name) => Name = name;
+    }
+
+    private sealed class Box
+    {
+        public Folder Inbox { get; } = new("INBOX");
+        public Folder? Sent { get; set; } = new("Sent");
+    }
+
+    private readonly ConcurrentDictionary<string, Box> _boxes = new();
     public ConcurrentQueue<EmailServerSettings> Calls { get; } = new();
     public Func<EmailServerSettings, Exception?> Fail { get; set; } = _ => null;
+    /// <summary>Every pass over every folder: which UIDs were handed out, and whether it was a first run.</summary>
+    public ConcurrentQueue<(string User, string Folder, uint[] Uids, bool FirstRun)> Reads { get; } = new();
+    /// <summary>Copies appended to a Sent folder (after an SMTP send).</summary>
+    public ConcurrentQueue<(EmailServerSettings Server, MimeMessage Message)> Appended { get; } = new();
+    public Func<EmailServerSettings, Exception?> AppendFail { get; set; } = _ => null;
 
-    public void Deliver(string mailboxUser, MimeMessage msg) =>
-        _unseen.GetOrAdd(mailboxUser.ToLowerInvariant(), _ => new()).Enqueue(msg);
+    private Box For(string user) => _boxes.GetOrAdd(user.ToLowerInvariant(), _ => new Box());
 
-    public Task<IReadOnlyList<MimeMessage>> FetchUnseenAsync(EmailServerSettings mailbox, DateTime sinceUtc,
-        int max, CancellationToken ct = default)
+    /// <summary>New mail in the INBOX (already read in another mail app when <paramref name="seen"/>).</summary>
+    public uint Deliver(string mailboxUser, MimeMessage msg, bool seen = false)
+    {
+        var box = For(mailboxUser);
+        lock (box) return Add(box.Inbox, msg, seen);
+    }
+
+    /// <summary>A mail a person sent from their own mail app (filed \Seen, as mail apps do).</summary>
+    public uint DeliverSent(string mailboxUser, MimeMessage msg)
+    {
+        var box = For(mailboxUser);
+        lock (box) return Add(box.Sent ?? throw new InvalidOperationException("no Sent folder"), msg, true);
+    }
+
+    /// <summary>Rename the Sent folder, or (null) take it away.</summary>
+    public void SentFolder(string mailboxUser, string? name)
+    {
+        var box = For(mailboxUser);
+        lock (box)
+        {
+            if (name == null) box.Sent = null;
+            else if (box.Sent == null) box.Sent = new Folder(name);
+            else box.Sent.Name = name;
+        }
+    }
+
+    /// <summary>The server rebuilt the folder: a new UIDVALIDITY, every mail renumbered from 1.</summary>
+    public void Rebuild(string mailboxUser, string folder)
+    {
+        var box = For(mailboxUser);
+        lock (box)
+        {
+            var f = Find(box, folder);
+            var items = f.Items.ToList();
+            f.Items.Clear();
+            f.UidValidity += 100;
+            f.UidNext = 1;
+            foreach (var i in items) Add(f, i.Message, i.Seen);
+        }
+    }
+
+    public void Break(string mailboxUser, string folder, uint uid)
+    {
+        var box = For(mailboxUser);
+        lock (box) Find(box, folder).Items.Single(i => i.Uid == uid).Broken = true;
+    }
+
+    public IReadOnlyList<Item> Items(string mailboxUser, string folder)
+    {
+        var box = For(mailboxUser);
+        lock (box) return Find(box, folder).Items.ToList();
+    }
+
+    private static Folder Find(Box box, string folder) =>
+        folder == "INBOX" ? box.Inbox
+        : box.Sent is { } s && s.Name == folder ? s
+        : throw new InvalidOperationException($"no folder {folder}");
+
+    private static uint Add(Folder f, MimeMessage msg, bool seen)
+    {
+        var uid = f.UidNext++;
+        f.Items.Add(new Item { Uid = uid, Message = msg, Seen = seen });
+        return uid;
+    }
+
+    public Task<MailboxFetch> FetchAsync(EmailServerSettings mailbox, IReadOnlyDictionary<string, FolderCursor> cursors,
+        DateTime sinceUtc, int max, CancellationToken ct = default)
     {
         Calls.Enqueue(mailbox);
         if (Fail(mailbox) is { } ex) throw ex;
-        var outv = new List<MimeMessage>();
-        if (_unseen.TryGetValue(mailbox.ImapUsername.ToLowerInvariant(), out var q))
-            while (outv.Count < max && q.TryDequeue(out var m)) outv.Add(m);
-        return Task.FromResult<IReadOnlyList<MimeMessage>>(outv);
+        var user = mailbox.ImapUsername.ToLowerInvariant();
+        var box = For(user);
+        lock (box)
+        {
+            var folders = new List<FolderFetch> { Read(box.Inbox, MailFolderRole.Inbox) };
+            if (box.Sent != null) folders.Add(Read(box.Sent, MailFolderRole.Sent));
+            return Task.FromResult(new MailboxFetch(folders) { NoSentFolder = box.Sent == null });
+        }
+
+        FolderFetch Read(Folder f, MailFolderRole role)
+        {
+            cursors.TryGetValue(f.Name, out var stored);
+            List<uint> found;
+            if (MailboxCursorPlan.IsFirstRun(stored, f.UidValidity))
+                found = f.Items.Where(i => i.Message.Date.Date >= sinceUtc.Date).Select(i => i.Uid).ToList();
+            else
+            {
+                found = f.Items.Where(i => i.Uid > stored!.LastUid).Select(i => i.Uid).ToList();
+                if (found.Count == 0 && f.Items.Count > 0) found.Add(f.Items.Max(i => i.Uid)); // "n:*"
+            }
+            var plan = MailboxCursorPlan.Plan(stored, f.UidValidity, found, f.UidNext, max);
+            var mails = plan.Fetch.Select(uid => f.Items.Single(i => i.Uid == uid))
+                .Select(i => new FetchedMail(i.Uid, i.Broken ? null : i.Message)).ToList();
+            Reads.Enqueue((user, f.Name, plan.Fetch.ToArray(), plan.FirstRun));
+            return new FolderFetch(role, f.Name, f.UidValidity, plan.FirstRun, mails, plan.AdvanceTo);
+        }
+    }
+
+    public Task<SentCopyResult> AppendToSentAsync(EmailServerSettings mailbox, MimeMessage message,
+        CancellationToken ct = default)
+    {
+        if (AppendFail(mailbox) is { } ex) throw ex;
+        var box = For(mailbox.ImapUsername);
+        lock (box)
+        {
+            if (box.Sent == null) return Task.FromResult(SentCopyResult.NoSentFolder);
+            if (box.Sent.Items.Any(i => i.Message.MessageId == message.MessageId))
+                return Task.FromResult(SentCopyResult.AlreadyThere);
+            Add(box.Sent, message, seen: true);
+            Appended.Enqueue((mailbox, message));
+            return Task.FromResult(SentCopyResult.Appended);
+        }
     }
 }
 
@@ -151,6 +290,7 @@ public sealed class TransportFactory : ApiFactory
         {
             s.AddSingleton<IEmailTransport>(Email);
             s.AddSingleton<IMailboxReader>(Mailbox);
+            s.AddSingleton<IMailboxWriter>(Mailbox);
             s.AddSingleton<ITelegramClient>(new TelegramClient(TelegramApi, "https://tg.test"));
             s.AddSingleton<IGraphHealthProbe>(Graph);
             s.AddSingleton(sp => new HealthRecheck(sp.GetRequiredService<IServiceScopeFactory>(),

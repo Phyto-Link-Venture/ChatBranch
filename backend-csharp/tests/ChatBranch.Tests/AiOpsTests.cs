@@ -660,6 +660,12 @@ public class AiOpsTests
         r.Say("60120000084", "brochure?");
         r.Threads.AppendMessage(r.ThreadOf("60120000084"), MessageDirection.Out, MessageSource.Agent,
             "Hi, this is Sam — I'll take it from here.");
+        // … or answered from their own mail app (read back from the mailbox's Sent folder)
+        r.Contact("Outlook", "60120000086");
+        r.Llm.Replies.Enqueue("Shall I book the service?");
+        r.Say("60120000086", "service?");
+        r.Threads.AppendMessage(r.ThreadOf("60120000086"), MessageDirection.Out, MessageSource.ExternalClient,
+            "Penny here — booked you for Monday.", status: "sent");
         // AI switched off
         r.Contact("Off", "60120000085");
         r.Llm.Replies.Enqueue("Do you want the large size?");
@@ -673,6 +679,7 @@ public class AiOpsTests
         Assert.Single(r.AiMessages("60120000083"));
         Assert.Single(r.AiMessages("60120000084"));
         Assert.Single(r.AiMessages("60120000085"));
+        Assert.Single(r.AiMessages("60120000086"));
     }
 
     [Fact]

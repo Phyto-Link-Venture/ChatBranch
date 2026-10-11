@@ -395,7 +395,7 @@ public class TransportOtherTests : IClassFixture<TransportFactory>
         pdfBack.EnsureSuccessStatusCode();
         Assert.Equal(pdf, await pdfBack.Content.ReadAsByteArrayAsync());
 
-        // the same mail again (another client unmarked it) is a duplicate, not a second message
+        // the same mail again (filed back into the Inbox: a new UID) is a duplicate, not a second message
         _f.Mailbox.Deliver("inbox@shop.test", Mail("known@cust.test", "support@shop.test", "Order 42", "Where?", "m1@cust.test"));
         var again = await (await admin.PostAsJsonAsync("/api/messaging/email/sync", new { force = true }))
             .Content.ReadFromJsonAsync<JsonElement>();

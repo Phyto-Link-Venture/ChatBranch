@@ -15,7 +15,7 @@ namespace ChatBranch.Api.Endpoints;
 /// <summary>
 /// The live email + Telegram transport surface (port of the transport halves
 /// of messaging/views.py):
-///  * <c>POST /api/messaging/email/sync</c> — IMAP pull (<see cref="EmailSyncService"/>);
+///  * <c>POST /api/messaging/email/sync</c> — two-way IMAP sync: Inbox + Sent, read-only (<see cref="EmailSyncService"/>);
 ///  * <c>GET /api/messaging/media/{pk}</c> — a non-WhatsApp message's attachment,
 ///    auth-gated and scoped like the inbox;
 ///  * <c>POST /api/messaging/threads/{email|telegram|facebook|instagram}/{key}/send-media</c>
@@ -44,7 +44,7 @@ public static class MessagingTransportEndpoints
 
     public static void MapMessagingTransportEndpoints(this IEndpointRouteBuilder app)
     {
-        // ---- IMAP pull: /chats nudges it every 60 s; real IMAP at most every 30 s ----
+        // ---- two-way IMAP sync: /chats nudges it every 60 s; real IMAP at most every 30 s ----
         app.MapPost("/api/messaging/email/sync", async (HttpContext ctx, EmailSyncService sync) =>
         {
             var force = false;
@@ -79,6 +79,11 @@ public static class MessagingTransportEndpoints
                 mailboxes = r.Mailboxes,
                 throttled = r.Throttled,
                 errors = r.Errors,
+                // two-way: mail a person sent from their own mail app (the Sent folder)
+                sent_imported = r.SentImported,
+                sent_duplicates = r.SentDuplicates,
+                sent_skipped = r.SentSkipped,
+                notes = r.Notes,
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 

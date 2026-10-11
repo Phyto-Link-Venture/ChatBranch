@@ -76,6 +76,14 @@ public static class MessageSource
     public const string Agent = "agent";
     public const string Ai = "ai";
     public const string System = "system";
+    /// <summary>
+    /// A mail a person sent from their own mail app (Outlook, Gmail…), read back from
+    /// the mailbox's Sent folder by the IMAP sync — stored as outbound, never sent by us.
+    /// </summary>
+    public const string ExternalClient = "external_client";
+
+    /// <summary>A person wrote it (in ChatBranch or in their own mail app) — not the AI, not the system.</summary>
+    public static bool IsPerson(string? source) => source is Agent or ExternalClient;
 }
 
 public static class JobStatus

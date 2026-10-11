@@ -104,7 +104,7 @@ public class AiResponder
                 .Where(m => m.ThreadId == thread.Id && !m.Private)
                 .OrderByDescending(m => m.Id).Take(30).ToList();
             var lastReply = recent.FirstOrDefault(m => m.Direction == MessageDirection.Out
-                && m.Source is MessageSource.Ai or MessageSource.Agent && m.Status != "failed");
+                && (m.Source == MessageSource.Ai || MessageSource.IsPerson(m.Source)) && m.Status != "failed");
             var unanswered = recent
                 .Where(m => m.Direction == MessageDirection.In && (lastReply == null || m.Id > lastReply.Id))
                 .ToList();

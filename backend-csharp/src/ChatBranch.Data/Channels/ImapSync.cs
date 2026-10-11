@@ -3,81 +3,14 @@ using System.Text.RegularExpressions;
 using ChatBranch.Data.Sidecars;
 using ChatBranch.Data.Stores;
 using ChatBranch.Domain;
-using MailKit;
-using MailKit.Net.Imap;
-using MailKit.Search;
-using MailKit.Security;
+using ChatBranch.Data.Contacts;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using MimeKit;
+using Thread = ChatBranch.Domain.Thread;
 using ChannelIds = ChatBranch.Domain.Channels;
 
 namespace ChatBranch.Data.Channels;
-
-/// <summary>
-/// The IMAP side of email (port of messaging/imap_client.py). Fetching marks
-/// every returned message <c>\Seen</c> — whether or not the inbox keeps it — so
-/// each mail is considered exactly once even before Message-ID dedup.
-/// </summary>
-public interface IMailboxReader
-{
-    Task<IReadOnlyList<MimeMessage>> FetchUnseenAsync(EmailServerSettings mailbox, DateTime sinceUtc,
-        int max, CancellationToken ct = default);
-}
-
-/// <summary>An IMAP failure with a readable, secret-free message.</summary>
-public sealed class MailboxException : Exception
-{
-    public bool AuthFailure { get; }
-    public MailboxException(string message, bool authFailure) : base(message) => AuthFailure = authFailure;
-}
-
-public sealed class MailKitMailboxReader : IMailboxReader
-{
-    private readonly int _timeoutMs;
-    public MailKitMailboxReader(int timeoutMs = 20_000) => _timeoutMs = timeoutMs;
-
-    public async Task<IReadOnlyList<MimeMessage>> FetchUnseenAsync(EmailServerSettings mailbox,
-        DateTime sinceUtc, int max, CancellationToken ct = default)
-    {
-        using var client = new ImapClient { Timeout = _timeoutMs };
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(_timeoutMs * 3);
-        try
-        {
-            // 143 speaks STARTTLS; everything else (993 by default) implicit TLS, as Django's IMAP4_SSL
-            var security = mailbox.ImapPort == 143 ? SecureSocketOptions.StartTls : SecureSocketOptions.SslOnConnect;
-            await client.ConnectAsync(mailbox.ImapHost, mailbox.ImapPort, security, cts.Token);
-            await client.AuthenticateAsync(mailbox.ImapUsername, mailbox.ImapPassword, cts.Token);
-            var inbox = client.Inbox;
-            await inbox.OpenAsync(FolderAccess.ReadWrite, cts.Token);
-            var query = SearchQuery.NotSeen.And(SearchQuery.DeliveredAfter(sinceUtc.Date));
-            var uids = await inbox.SearchAsync(query, cts.Token);
-            // newest last in UID order — take the newest few so a backlog drains over syncs
-            var batch = uids.Skip(Math.Max(0, uids.Count - max)).ToList();
-            var outv = new List<MimeMessage>();
-            var seen = new List<UniqueId>();
-            foreach (var uid in batch)
-            {
-                try { outv.Add(await inbox.GetMessageAsync(uid, cts.Token)); }
-                catch (Exception) when (!cts.IsCancellationRequested) { /* a broken message must not stall the rest */ }
-                seen.Add(uid);
-            }
-            if (seen.Count > 0) await inbox.AddFlagsAsync(seen, MessageFlags.Seen, true, cts.Token);
-            try { await client.DisconnectAsync(true, cts.Token); } catch { }
-            return outv;
-        }
-        catch (AuthenticationException ex)
-        {
-            throw new MailboxException($"IMAP login refused: {Scrub(ex.Message, mailbox)}", authFailure: true);
-        }
-        catch (Exception ex) when (ex is not MailboxException)
-        {
-            throw new MailboxException($"IMAP sync failed: {Scrub(ex.Message, mailbox)}", authFailure: false);
-        }
-    }
-
-    private static string Scrub(string text, EmailServerSettings s) => MailKitEmailTransport.Scrub(text, s);
-}
 
 /// <summary>One inbound mail, parsed into what the inbox stores.</summary>
 public sealed record ParsedEmail(string FromAddress, string FromName, string Subject, string Body,
@@ -255,35 +188,66 @@ public static partial class EmailParser
 
 /// <summary>Counts for the /chats nudge (and the operator's "Sync now").</summary>
 public sealed record EmailSyncReport(bool Configured, int Fetched, int Skipped, int Duplicates,
-    int Mailboxes, bool Throttled, IReadOnlyList<string> Errors);
+    int Mailboxes, bool Throttled, IReadOnlyList<string> Errors)
+{
+    /// <summary>Sent-folder mails stored as outbound (one per mail, however many recipients).</summary>
+    public int SentImported { get; init; }
+    /// <summary>Sent-folder mails ChatBranch already held — its own replies, or an earlier import.</summary>
+    public int SentDuplicates { get; init; }
+    /// <summary>Sent-folder mails with no one to file them under (only our own address) or auto-generated.</summary>
+    public int SentSkipped { get; init; }
+    /// <summary>Worth knowing, not a failure — e.g. a mailbox without a Sent folder.</summary>
+    public IReadOnlyList<string> Notes { get; init; } = Array.Empty<string>();
+}
 
 /// <summary>
-/// <c>POST /api/messaging/email/sync</c> — pull UNSEEN mail from every
-/// configured mailbox into the inbox (port of messaging/views.email_sync).
+/// <c>POST /api/messaging/email/sync</c> — two-way sync with the mailbox, so a
+/// person who also works in Outlook (or any mail app) sees the same conversation
+/// in both places (port of messaging/views.email_sync, made two-way).
 ///
 ///  * Real IMAP traffic is throttled to one pass per 30 s no matter how many
 ///    dashboards poll (<c>force</c> skips it).
-///  * EVERY sender lands in the inbox, contact or not: mail from an address
+///  * The \Seen flag plays no part: folders are opened READ-ONLY, so ChatBranch
+///    never marks a mail read, and mail someone already read elsewhere still
+///    arrives. Each folder has a UID cursor (<c>crm_mailboxcursor</c>, per mailbox
+///    and folder, with its UIDVALIDITY): the first pass — and the first after the
+///    server rebuilt the folder (another UIDVALIDITY) — reads the last
+///    <see cref="SyncWindowDays"/> days, seen or not; later passes read the UIDs
+///    after the cursor. Oldest first, at most <see cref="MaxFetchPerMailbox"/> per
+///    folder per pass; the cursor moves past every mail handled — kept, skipped,
+///    duplicate or failed — so a backlog drains over passes and one broken mail
+///    never stalls a folder. The Message-ID check stays as the safety net.
+///  * INBOX: EVERY sender lands in the inbox, contact or not: mail from an address
 ///    that is not a contact opens (or continues) an UNLINKED conversation
-///    (ContactId null) — listed under "Not in contacts", never answered by the
-///    AI (the coverage gate wants a linked contact). Only three things are
-///    skipped: RFC 3834 auto-replies (<c>Auto-Submitted</c>), mail from the
-///    mailbox's own From address, and Message-ID duplicates. Nothing remembers a
-///    skipped SENDER: the one per-mail mark is IMAP's \Seen flag, set on every
-///    fetched mail, so a sender's next mail is always read.
-///  * Each kept mail runs the normal inbound pipeline
-///    (<see cref="InboundProcessor.ProcessInbound"/>: contact link, flows, team
-///    routing, automations, notifications, the coverage-gated AI path), deduped
-///    by Message-ID. A new email thread starts with the chatbot OFF (email has
-///    no auto-reply) unless its inbox's AI default says on.
-///  * The first attachment rides on the mail's own message; each extra one
-///    becomes its own message (one media per crm_message).
-///  * Never throws: a failing mailbox is reported in <c>errors</c>.
+///    (ContactId null) — listed under "Not in contacts", never answered by the AI
+///    (the coverage gate wants a linked contact). Only three things are skipped:
+///    RFC 3834 auto-replies (<c>Auto-Submitted</c>), mail from the mailbox's own
+///    From address, and Message-ID duplicates. Each kept mail runs the normal
+///    inbound pipeline (<see cref="InboundProcessor.ProcessInbound"/>: contact
+///    link, flows, team routing, automations, notifications, the coverage-gated AI
+///    path). A new email thread starts with the chatbot OFF (email has no
+///    auto-reply) unless its inbox's AI default says on.
+///  * SENT (found by <see cref="SentFolders"/>; none → a note, nothing else): what a
+///    person sent from their own mail app becomes an OUTBOUND message
+///    (<see cref="MessageSource.ExternalClient"/>, status sent, the mail's Date) on
+///    the conversation of each distinct To address that is not the mailbox's own
+///    (Cc / Bcc ignored) — a brand-new address opens an unlinked conversation with
+///    the chatbot off; a known contact's address is linked as their own mail would
+///    link it. A mail whose Message-ID ChatBranch already holds is skipped — that is
+///    how its own replies (<see cref="EmailChannel"/> stores the Message-ID as the
+///    message's external id, and <see cref="SentFolderCopier"/> files a copy in Sent)
+///    never appear twice. It goes through <see cref="ThreadStore"/> only: no AI, no
+///    flows, no automations, no notifications, no STOP handling, no handover.
+///  * Both: the headers are recorded (<c>crm_emailheader</c>) so the next reply
+///    threads under the mail; the first attachment rides on the mail's own message,
+///    each extra one becomes its own message (one media per crm_message).
+///  * Never throws: a failing mailbox or mail is reported in <c>errors</c>.
 /// </summary>
 public sealed class EmailSyncService
 {
     public static readonly TimeSpan MinInterval = TimeSpan.FromSeconds(30);
     public const int SyncWindowDays = 7;
+    /// <summary>Per FOLDER per pass; a longer backlog drains over the next passes.</summary>
     public const int MaxFetchPerMailbox = 10;
 
     private static readonly object Gate = new();
@@ -298,9 +262,11 @@ public sealed class EmailSyncService
     private readonly IMailboxReader _reader;
     private readonly EmailChannel _email;
     private readonly string _dataDir;
+    private readonly ILogger<EmailSyncService>? _log;
 
     public EmailSyncService(AppDbContext db, ScopingService scoping, ThreadStore threads,
-        InboundProcessor inbound, IMailboxReader reader, EmailChannel email, VoiceAgentBridge bridge)
+        InboundProcessor inbound, IMailboxReader reader, EmailChannel email, VoiceAgentBridge bridge,
+        ILogger<EmailSyncService>? log = null)
     {
         _db = db;
         _scoping = scoping;
@@ -309,23 +275,28 @@ public sealed class EmailSyncService
         _reader = reader;
         _email = email;
         _dataDir = bridge.DataDir;
+        _log = log;
     }
+
+    /// <summary>The cursor key of a mailbox: "imap_host|imap_username", trimmed and lower-cased.</summary>
+    public static string MailboxKey(EmailServerSettings s) =>
+        $"{s.ImapHost.Trim()}|{s.ImapUsername.Trim()}".ToLowerInvariant();
 
     /// <summary>Every mailbox that can be read: configured email accounts, then the global one (deduped).</summary>
     public List<EmailServerSettings> Mailboxes()
     {
         var outv = new List<EmailServerSettings>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         try
         {
             foreach (var a in _db.ChannelAccounts.AsNoTracking().Where(a => a.Channel == ChannelIds.Email)
                          .OrderBy(a => a.Id).ToList().Where(EmailConfig.AccountConfigured))
             {
                 var s = EmailConfig.ForAccount(a, _scoping);
-                if (s.ImapConfigured && seen.Add($"{s.ImapHost}|{s.ImapUsername}")) outv.Add(s);
+                if (s.ImapConfigured && seen.Add(MailboxKey(s))) outv.Add(s);
             }
             var global = EmailConfig.GlobalSettings(_scoping);
-            if (global.ImapConfigured && seen.Add($"{global.ImapHost}|{global.ImapUsername}")) outv.Add(global);
+            if (global.ImapConfigured && seen.Add(MailboxKey(global))) outv.Add(global);
         }
         catch { /* unreadable config = nothing to sync */ }
         return outv;
@@ -346,15 +317,17 @@ public sealed class EmailSyncService
             LastRun[key] = now;
         }
 
-        int kept = 0, skipped = 0, dupes = 0;
+        int kept = 0, skipped = 0, dupes = 0, sentKept = 0, sentDupes = 0, sentSkipped = 0;
         var errors = new List<string>();
+        var notes = new List<string>();
+        var since = DateTime.UtcNow.AddDays(-SyncWindowDays);
         foreach (var mailbox in mailboxes)
         {
-            IReadOnlyList<MimeMessage> mails;
+            var mailboxKey = MailboxKey(mailbox);
+            MailboxFetch fetched;
             try
             {
-                mails = await _reader.FetchUnseenAsync(mailbox, DateTime.UtcNow.AddDays(-SyncWindowDays),
-                    MaxFetchPerMailbox, ct);
+                fetched = await _reader.FetchAsync(mailbox, LoadCursors(mailboxKey), since, MaxFetchPerMailbox, ct);
             }
             catch (Exception ex)
             {
@@ -366,24 +339,51 @@ public sealed class EmailSyncService
                 continue;
             }
 
-            foreach (var mime in mails)
+            foreach (var folder in fetched.Folders)
             {
-                try
+                foreach (var mail in folder.Mails)
                 {
-                    switch (Ingest(mime, mailbox))
+                    if (mail.Message is null)
                     {
-                        case IngestOutcome.Kept: kept++; break;
-                        case IngestOutcome.Duplicate: dupes++; break;
-                        default: skipped++; break;
+                        Problem(errors, mailbox,
+                            $"a message in {folder.Folder} could not be downloaded (UID {mail.Uid}) and was skipped");
+                        continue;
+                    }
+                    try
+                    {
+                        if (folder.Role == MailFolderRole.Sent)
+                            switch (IngestSent(mail.Message, mailbox))
+                            {
+                                case IngestOutcome.Kept: sentKept++; break;
+                                case IngestOutcome.Duplicate: sentDupes++; break;
+                                default: sentSkipped++; break;
+                            }
+                        else
+                            switch (Ingest(mail.Message, mailbox))
+                            {
+                                case IngestOutcome.Kept: kept++; break;
+                                case IngestOutcome.Duplicate: dupes++; break;
+                                default: skipped++; break;
+                            }
+                    }
+                    catch (Exception ex)
+                    {
+                        Forget();
+                        Problem(errors, mailbox, $"a message could not be stored ({ex.GetType().Name})");
                     }
                 }
-                catch (Exception ex)
-                {
-                    errors.Add($"{mailbox.Label}: a message could not be stored ({ex.GetType().Name})");
-                }
+                // past everything handled (kept, skipped, duplicate or failed), so a backlog
+                // drains over passes and one bad mail never stalls the folder
+                if (folder.AdvanceTo is uint to) SaveCursor(mailboxKey, folder.Folder, folder.UidValidity, to);
             }
+            if (fetched.NoSentFolder)
+                notes.Add($"{mailbox.Label}: no Sent folder found — mail sent from other mail apps is not imported.");
+            foreach (var problem in fetched.Problems) Problem(errors, mailbox, problem);
         }
-        return new EmailSyncReport(true, kept, skipped, dupes, mailboxes.Count, false, errors);
+        return new EmailSyncReport(true, kept, skipped, dupes, mailboxes.Count, false, errors)
+        {
+            SentImported = sentKept, SentDuplicates = sentDupes, SentSkipped = sentSkipped, Notes = notes,
+        };
     }
 
     /// <summary>Test seam: forget the throttle clock.</summary>
@@ -398,27 +398,103 @@ public sealed class EmailSyncService
         catch { return ""; }
     }
 
+    private void Problem(List<string> errors, EmailServerSettings mailbox, string text)
+    {
+        errors.Add($"{mailbox.Label}: {text}");
+        _log?.LogWarning("Email sync: {Mailbox}: {Problem}", mailbox.Label, text);
+    }
+
+    /// <summary>After a failed write: drop whatever it left tracked so the next mail starts clean.</summary>
+    private void Forget()
+    {
+        try { _db.ChangeTracker.Clear(); } catch { }
+    }
+
+    // ---- cursors -------------------------------------------------------------------
+
+    private Dictionary<string, FolderCursor> LoadCursors(string mailboxKey)
+    {
+        try
+        {
+            return _db.MailboxCursors.AsNoTracking().Where(c => c.Mailbox == mailboxKey).ToList()
+                .GroupBy(c => c.Folder, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => new FolderCursor(U32(g.First().UidValidity), U32(g.First().LastUid)),
+                    StringComparer.Ordinal);
+        }
+        catch
+        {
+            return new Dictionary<string, FolderCursor>(); // read the window; Message-IDs keep it single
+        }
+    }
+
+    private static uint U32(long v) => (uint)Math.Clamp(v, 0, uint.MaxValue);
+
+    private void SaveCursor(string mailboxKey, string folder, uint uidValidity, uint lastUid)
+    {
+        try
+        {
+            var row = _db.MailboxCursors.FirstOrDefault(c => c.Mailbox == mailboxKey && c.Folder == folder);
+            if (row == null)
+            {
+                row = new MailboxCursor { Mailbox = mailboxKey, Folder = folder };
+                _db.MailboxCursors.Add(row);
+            }
+            // a pass running alongside may already have got further in the same folder
+            else if (row.UidValidity == uidValidity && row.LastUid >= lastUid) return;
+            row.UidValidity = uidValidity;
+            row.LastUid = lastUid;
+            row.UpdatedAt = DateTime.UtcNow;
+            _db.SaveChanges();
+        }
+        catch (Exception ex)
+        {
+            Forget(); // the next pass re-reads from the old cursor; Message-IDs keep it single
+            _log?.LogWarning("Email sync: the cursor of {Folder} could not be saved ({Error})", folder,
+                ex.GetType().Name);
+        }
+    }
+
+    // ---- one mail ------------------------------------------------------------------
+
     private enum IngestOutcome { Kept, Skipped, Duplicate }
+
+    /// <summary>RFC 3834 auto-replies (out-of-office, bounces) are not a person talking.</summary>
+    private static bool AutoSubmitted(MimeMessage mime)
+    {
+        var auto = mime.Headers[HeaderId.AutoSubmitted];
+        return !string.IsNullOrWhiteSpace(auto) && !auto.Trim().Equals("no", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>A Message-ID an email message already carries — an inbound mail, our own send or an import.</summary>
+    private bool KnownMessageId(string headerMessageId) =>
+        _db.Messages.Any(m => m.ExternalId == headerMessageId && m.Thread!.Channel == ChannelIds.Email);
+
+    /// <summary>A fresh subject is context; a "Re:" of the thread's subject is just noise.</summary>
+    private static string MessageText(ParsedEmail mail)
+    {
+        var text = mail.Subject.Length > 0 && !mail.Subject.StartsWith("re:", StringComparison.OrdinalIgnoreCase)
+            ? $"{mail.Subject}\n\n{mail.Body}".Trim()
+            : mail.Body;
+        if (text.Length == 0)
+            text = mail.Attachments.Count > 0 ? $"[attachment] {mail.Attachments[0].FileName}" : "[no text content]";
+        return text;
+    }
 
     private IngestOutcome Ingest(MimeMessage mime, EmailServerSettings mailbox)
     {
-        // RFC 3834 auto-replies (out-of-office, bounces from a known address) would
-        // only feed flows and the AI a loop — they are not the customer talking
-        var auto = mime.Headers[HeaderId.AutoSubmitted];
-        if (!string.IsNullOrWhiteSpace(auto) && !auto.Trim().Equals("no", StringComparison.OrdinalIgnoreCase))
-            return IngestOutcome.Skipped;
+        // out-of-office replies would only feed flows and the AI a loop
+        if (AutoSubmitted(mime)) return IngestOutcome.Skipped;
 
         var mail = EmailParser.Parse(mime);
         var key = mail.FromAddress;
         if (key.Length == 0 || !key.Contains('@')) return IngestOutcome.Skipped;
+        // a copy of our own mail landing in the Inbox (what we send is read from Sent)
         if (string.Equals(key, mailbox.From, StringComparison.OrdinalIgnoreCase)) return IngestOutcome.Skipped;
 
         // a sender who is not a contact still gets a conversation (unlinked, AI off) —
         // the same rule as every other channel; there is no known-sender gate
         var existing = _db.Threads.FirstOrDefault(t => t.Channel == ChannelIds.Email && t.Key.ToLower() == key);
-        if (mail.MessageId.Length > 0 && _db.Messages.Any(m => m.ExternalId == mail.MessageId
-                                                              && m.Thread!.Channel == ChannelIds.Email))
-            return IngestOutcome.Duplicate;
+        if (mail.MessageId.Length > 0 && KnownMessageId(mail.MessageId)) return IngestOutcome.Duplicate;
 
         var threadKey = existing?.Key ?? key;
         var name = mail.FromName.Length > 0 ? mail.FromName : null;
@@ -431,24 +507,89 @@ public sealed class EmailSyncService
             _db.SaveChanges();
         }
 
-        // a fresh subject is context; a "Re:" of our own subject is just noise
-        var text = mail.Subject.Length > 0 && !mail.Subject.StartsWith("re:", StringComparison.OrdinalIgnoreCase)
-            ? $"{mail.Subject}\n\n{mail.Body}".Trim()
-            : mail.Body;
-        if (text.Length == 0)
-            text = mail.Attachments.Count > 0 ? $"[attachment] {mail.Attachments[0].FileName}" : "[no text content]";
-
-        var msg = _inbound.ProcessInbound(ChannelIds.Email, threadKey, text, name, mailbox.AccountId,
+        var msg = _inbound.ProcessInbound(ChannelIds.Email, threadKey, MessageText(mail), name, mailbox.AccountId,
             mail.MessageId, mail.Date);
         var thread = _db.Threads.First(t => t.Id == msg.ThreadId);
         _email.RecordHeader(msg, thread, mail.MessageId, mail.Subject, mail.InReplyTo);
+        StoreAttachments(mail, thread, msg, mailbox, MessageDirection.In, MessageSource.Customer, "received");
 
+        if (mailbox.AccountId is int accountId) HealInbound(accountId);
+        return IngestOutcome.Kept;
+    }
+
+    /// <summary>
+    /// A mail from the Sent folder: outbound on the conversation of each customer it
+    /// was addressed to. Deliberately NOT <see cref="InboundProcessor.ProcessInbound"/> —
+    /// a person already handled the conversation, so nothing automated reacts.
+    /// </summary>
+    private IngestOutcome IngestSent(MimeMessage mime, EmailServerSettings mailbox)
+    {
+        if (AutoSubmitted(mime)) return IngestOutcome.Skipped;
+        var mail = EmailParser.Parse(mime);
+        // ChatBranch's own replies (and anything imported before) already hold this Message-ID
+        if (mail.MessageId.Length > 0 && KnownMessageId(mail.MessageId)) return IngestOutcome.Duplicate;
+
+        var own = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { mailbox.From.Trim() };
+        foreach (var login in new[] { mailbox.ImapUsername, mailbox.Username })
+            if (login.Contains('@')) own.Add(login.Trim());
+        var recipients = mime.To.Mailboxes
+            .Select(a => (Address: (a.Address ?? "").Trim().ToLowerInvariant(), Name: (a.Name ?? "").Trim()))
+            .Where(r => r.Address.Contains('@') && !own.Contains(r.Address))
+            .DistinctBy(r => r.Address)
+            .ToList();
+        if (recipients.Count == 0) return IngestOutcome.Skipped;
+
+        var text = MessageText(mail);
+        foreach (var (address, name) in recipients)
+        {
+            var thread = SentThread(address, name, mailbox);
+            var msg = _threads.AppendMessage(thread, MessageDirection.Out, MessageSource.ExternalClient, text,
+                status: "sent", externalId: mail.MessageId, accountId: mailbox.AccountId, providerTs: mail.Date);
+            _email.RecordHeader(msg, thread, mail.MessageId, mail.Subject, mail.InReplyTo);
+            StoreAttachments(mail, thread, msg, mailbox, MessageDirection.Out, MessageSource.ExternalClient, "sent");
+        }
+        return IngestOutcome.Kept;
+    }
+
+    /// <summary>The conversation a sent mail is filed under — the one for that address, else a new one.</summary>
+    private Thread SentThread(string address, string name, EmailServerSettings mailbox)
+    {
+        var existingKey = _db.Threads.Where(t => t.Channel == ChannelIds.Email && t.Key.ToLower() == address)
+            .Select(t => t.Key).FirstOrDefault();
+        var display = name.Length > 0 && !string.Equals(name, address, StringComparison.OrdinalIgnoreCase) ? name : null;
+        var thread = _threads.GetOrCreateThread(ChannelIds.Email, existingKey ?? address, display, mailbox.AccountId);
+        if (existingKey == null)
+        {
+            thread.AiEnabled = false; // email has no auto-reply; a person started this one
+            _db.SaveChanges();
+        }
+        if (thread.ContactId == null)
+        {
+            // a known contact is linked as their own mail would link it; a brand-new address stays unlinked
+            var entity = mailbox.AccountId is int aid
+                ? _db.ChannelAccounts.AsNoTracking().Where(a => a.Id == aid).Select(a => a.EntityId).FirstOrDefault()
+                  ?? thread.EntityId
+                : thread.EntityId;
+            if (ContactCompanies.MatchEmail(_db, _scoping, address, entity) is { } contact)
+            {
+                thread.ContactId = contact.Id;
+                _db.SaveChanges();
+                try { _scoping.SyncThreadEntity(thread); _db.SaveChanges(); } catch { }
+            }
+        }
+        return thread;
+    }
+
+    /// <summary>The first attachment rides on the mail's own message; each extra one is its own message.</summary>
+    private void StoreAttachments(ParsedEmail mail, Thread thread, Message msg, EmailServerSettings mailbox,
+        string direction, string source, string status)
+    {
         for (var i = 0; i < mail.Attachments.Count; i++)
         {
             var att = mail.Attachments[i];
             try
             {
-                var rel = MessagingMedia.Save(_dataDir, ChannelIds.Email, threadKey, att.FileName, att.Content);
+                var rel = MessagingMedia.Save(_dataDir, ChannelIds.Email, thread.Key, att.FileName, att.Content);
                 var type = MessagingMedia.TypeFor(att.FileName);
                 if (i == 0)
                 {
@@ -459,8 +600,8 @@ public sealed class EmailSyncService
                 }
                 else
                 {
-                    var extra = _threads.AppendMessage(thread, MessageDirection.In, MessageSource.Customer,
-                        $"[attachment] {att.FileName}", status: "received",
+                    var extra = _threads.AppendMessage(thread, direction, source,
+                        $"[attachment] {att.FileName}", status: status,
                         externalId: mail.MessageId.Length > 0 ? $"{mail.MessageId}-att{i}" : "",
                         accountId: mailbox.AccountId, providerTs: mail.Date);
                     MediaStore.Stamp(extra, type, rel, MessagingMedia.ContentTypeFor(att.FileName), att.FileName,
@@ -470,9 +611,6 @@ public sealed class EmailSyncService
             }
             catch { /* an attachment that cannot be stored must not lose the mail */ }
         }
-
-        if (mailbox.AccountId is int accountId) HealInbound(accountId);
-        return IngestOutcome.Kept;
     }
 
     private void HealInbound(int accountId)

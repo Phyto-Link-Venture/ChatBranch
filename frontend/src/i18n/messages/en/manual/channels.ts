@@ -253,7 +253,7 @@ export const channels = {
       },
       s8: {
         title: 'Know where new senders land',
-        body: 'Every mail that reaches the mailbox shows up in Chats — also from people who aren’t contacts yet. Those chats sit under “Not in contacts” at the top of the chat list, and the AI leaves them alone until you link or create the contact. Automatic replies (out-of-office) and copies of your own mail are left out.',
+        body: 'Every mail that reaches the mailbox shows up in Chats — also from people who aren’t contacts yet. Those chats sit under “Not in contacts” at the top of the chat list, and the AI leaves them alone until you link or create the contact. Automatic replies (out-of-office) are left out. Mail you send from your own mail app (Outlook, Gmail…) shows up in the chat as your reply, replies sent from ChatBranch are saved in the mailbox’s Sent folder, and ChatBranch never marks mail as read.',
       },
       s9: {
         title: 'Reply to the test',

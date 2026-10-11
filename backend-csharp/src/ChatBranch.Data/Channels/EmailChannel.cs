@@ -51,19 +51,23 @@ public sealed class EmailChannel
     private readonly ThreadStore _threads;
     private readonly IEmailTransport _transport;
     private readonly string _dataDir;
+    private readonly SentFolderCopier? _sentCopies;
 
     public EmailChannel(AppDbContext db, ScopingService scoping, ThreadStore threads,
-        IEmailTransport transport, VoiceAgentBridge bridge)
-        : this(db, scoping, threads, transport, bridge.DataDir) { }
+        IEmailTransport transport, VoiceAgentBridge bridge, SentFolderCopier? sentCopies = null)
+        : this(db, scoping, threads, transport, bridge.DataDir, sentCopies) { }
 
+    /// <param name="sentCopies">files a copy of every mail sent into the mailbox's Sent folder
+    /// (IMAP mailboxes only); null = no copies (unit tests)</param>
     public EmailChannel(AppDbContext db, ScopingService scoping, ThreadStore threads,
-        IEmailTransport transport, string dataDir)
+        IEmailTransport transport, string dataDir, SentFolderCopier? sentCopies = null)
     {
         _db = db;
         _scoping = scoping;
         _threads = threads;
         _transport = transport;
         _dataDir = dataDir;
+        _sentCopies = sentCopies;
     }
 
     /// <summary>True when a send would leave through a real mailbox now (a refusal is not live).</summary>
@@ -97,7 +101,11 @@ public sealed class EmailChannel
     /// <summary>
     /// Send (or sandbox-store) one outbound email on this thread. The stored
     /// message carries status sent | failed | sandbox and — when sent — the
-    /// real Message-ID as its external id.
+    /// real Message-ID as its external id (which is how the IMAP sync knows the
+    /// copy in the Sent folder is ours). After a successful send through a mailbox
+    /// with IMAP, the very same MIME message is filed in its Sent folder by
+    /// <see cref="SentFolderCopier"/> — off the request, never delaying, failing or
+    /// repeating the send.
     /// </summary>
     public Message Send(Thread thread, string text, string source, int? accountId,
         string? subject = null, OutboundMedia? media = null)
@@ -146,6 +154,7 @@ public sealed class EmailChannel
 
         EmailResult result;
         string messageId = "";
+        MimeKit.MimeMessage? mime = null;
         try
         {
             var attachments = new List<EmailAttachment>();
@@ -153,7 +162,7 @@ public sealed class EmailChannel
                 && new FileInfo(media.AbsolutePath).Length <= MessagingMedia.MaxBytes)
                 attachments.Add(new EmailAttachment(media.FileName, File.ReadAllBytes(media.AbsolutePath),
                     MessagingMedia.ContentTypeFor(media.FileName)));
-            var mime = EmailComposer.Build(route.Server, thread.Address.Length > 0 ? thread.Address : thread.Key,
+            mime = EmailComposer.Build(route.Server, thread.Address.Length > 0 ? thread.Address : thread.Key,
                 thread.Name, subj, text, references, inReplyTo, attachments, out messageId);
             // RFC 3834: tell the other side's autoresponder not to answer the bot
             if (source == MessageSource.Ai) mime.Headers.Add(MimeKit.HeaderId.AutoSubmitted, "auto-replied");
@@ -181,6 +190,8 @@ public sealed class EmailChannel
             if (account != null) HealthRecorder.EmailSendFailure(_db, account, result);
         }
         _db.SaveChanges();
+        // after the row is stored, so a sync reading the copy back already knows its Message-ID
+        if (result.Ok && mime != null && route.Server.ImapConfigured) _sentCopies?.Enqueue(route.Server, mime);
         return WithMedia(msg, media);
     }
 

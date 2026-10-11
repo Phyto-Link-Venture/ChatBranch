@@ -185,7 +185,7 @@ Not every route — the endpoint files are authoritative — but every area.
 | Webhooks | `/api/whatsapp/webhook`, `/api/messaging/webhook` (Messenger/Instagram), `/api/whatsapp/baileys/*` | `WebhooksEndpoints`, `MetaWebhookEndpoints` |
 | Telegram inbound | `/api/messaging/webhook/telegram/{token}` | `TelegramWebhookEndpoints` |
 | Newer channels inbound | `/api/messaging/webhook/{line\|viber\|sms\|wechat\|tiktok\|douyin\|zalo}/{account_id}` (WeChat also `GET` for URL verification) | `MoreChannelWebhookEndpoints` |
-| Email + messaging attachments | `POST /api/messaging/email/sync` (IMAP pull), `POST /api/messaging/threads/{email\|telegram\|facebook\|instagram\|line\|viber\|sms\|wechat\|tiktok\|douyin\|zalo}/{key}/send-media` (multipart `file`; the channel's transport may refuse a type it can't carry) | `MessagingTransportEndpoints` |
+| Email + messaging attachments | `POST /api/messaging/email/sync` (two-way IMAP sync: Inbox + Sent, read-only), `POST /api/messaging/threads/{email\|telegram\|facebook\|instagram\|line\|viber\|sms\|wechat\|tiktok\|douyin\|zalo}/{key}/send-media` (multipart `file`; the channel's transport may refuse a type it can't carry) | `MessagingTransportEndpoints` |
 | Media + recordings | `GET /api/whatsapp/media/{id}`, `GET /api/messaging/media/{id}` (the attachment of message `id`, every channel), `GET /api/whatsapp/threads/{key}/call/recordings`, `GET /api/whatsapp/calls/recording/{name}`, `GET /api/calls/recording/{call_id}` — signed-in + `chats.view` / `call_logs.view` + entity scope, Range supported | `WhatsAppMediaEndpoints`, `WhatsAppThreadsEndpoints` |
 
 **Not present in the C# API** (despite older docs and some UI text):

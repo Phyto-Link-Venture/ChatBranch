@@ -945,7 +945,8 @@ public class AiGate
     {
         if (d.ThreadId is not int tid) return false;
         return _db.Messages.AsNoTracking().Any(m => m.ThreadId == tid
-            && m.Direction == MessageDirection.Out && m.Source == MessageSource.Agent
+            && m.Direction == MessageDirection.Out
+            && (m.Source == MessageSource.Agent || m.Source == MessageSource.ExternalClient)
             && !m.Private && m.CreatedAt > d.CreatedAt);
     }
 

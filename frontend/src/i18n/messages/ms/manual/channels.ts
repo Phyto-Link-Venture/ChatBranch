@@ -255,7 +255,7 @@ export const channels: Dict<typeof source> = {
       },
       s8: {
         title: 'Ketahui di mana pengirim baharu muncul',
-        body: 'Setiap e-mel yang sampai ke peti mel muncul dalam Sembang — termasuk daripada orang yang belum menjadi kenalan. Sembang itu berada di bawah “Bukan kenalan” di bahagian atas senarai sembang, dan AI tidak membalasnya sehingga anda memautkan atau mencipta kenalan. Balasan automatik (di luar pejabat) dan salinan e-mel anda sendiri tidak dimasukkan.',
+        body: 'Setiap e-mel yang sampai ke peti mel muncul dalam Sembang — termasuk daripada orang yang belum menjadi kenalan. Sembang itu berada di bawah “Bukan kenalan” di bahagian atas senarai sembang, dan AI tidak membalasnya sehingga anda memautkan atau mencipta kenalan. Balasan automatik (di luar pejabat) tidak dimasukkan. E-mel yang anda hantar dari aplikasi e-mel anda sendiri (Outlook, Gmail…) muncul dalam sembang sebagai balasan anda, balasan yang dihantar dari ChatBranch disimpan dalam folder Sent peti mel, dan ChatBranch tidak pernah menandakan e-mel sebagai sudah dibaca.',
       },
       s9: {
         title: 'Balas e-mel ujian',
