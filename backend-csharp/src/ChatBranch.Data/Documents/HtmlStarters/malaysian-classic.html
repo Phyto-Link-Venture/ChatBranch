@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="{{document.language}}">
+<head>
+<meta charset="utf-8">
+<title>{{document.type_label}} {{document.number}}</title>
+<style>
+  /* Malaysian classic — a formal invoice / quotation / receipt / letter:
+     centred letterhead, underlined title, Ref No / Date on the right, Attn,
+     a grid-headed table, the amount in words, a numbered NOTE list and the
+     signature block. Arial prints as Liberation Sans (the same widths). */
+  @page { size: A4; margin: 10.6mm 23.5mm 12mm 10.5mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: Arial, "Liberation Sans", Helvetica, "Noto Sans CJK SC", sans-serif; font-size: 9pt; line-height: 12.7pt; color: #000; }
+  p { margin: 0; }
+  table { border-collapse: collapse; }
+  td, th { padding: 0; vertical-align: top; }
+
+  .head { text-align: center; }
+  .head .logo { max-height: 18mm; max-width: 60mm; margin-bottom: 1.5mm; }
+  .head .name { font-size: 16pt; line-height: 20.6pt; font-weight: bold; }
+  .title { text-align: center; font-size: 13pt; line-height: 16pt; font-weight: bold; text-decoration: underline; margin: 6.5pt 0 5.4pt; }
+
+  .meta { margin-left: 135.6mm; margin-bottom: 3.7pt; }
+  .meta td { line-height: 12.8pt; }
+  .meta .k { width: 33pt; }
+  .meta .c { width: 4.5pt; }
+
+  .kv td { line-height: 12.7pt; }
+  .kv .k { width: 7.2mm; }
+  .kv .c { width: 2.6mm; }
+  .kv .k, .meta .k { white-space: nowrap; padding-right: 2pt; }
+  .kv.wide .k { width: 8.6mm; }
+  .dear { line-height: 12.7pt; margin-bottom: 3.8pt; }
+
+  .items { width: calc(100% - 1pt); margin-top: 3.9pt; table-layout: fixed; border-collapse: separate; border-spacing: 0; }
+  .items th { background: #BFBFBF; border-top: 1pt solid #000; border-bottom: 0.75pt solid #000; border-left: 0.75pt solid #000; font-weight: bold; text-align: center; line-height: 11.5pt; padding: 1.8pt 2pt 0.6pt; }
+  .items th:first-child { border-left-width: 1pt; }
+  .items th:last-child { border-right: 1pt solid #000; }
+  .items td { line-height: 13.5pt; padding: 0.6pt 2pt 0; }
+  .items .no { text-align: center; padding-top: 0; }
+  .items .qty { text-align: center; vertical-align: middle; }
+  .items .money { text-align: right; vertical-align: middle; padding-right: 1pt; }
+  .items tbody tr:last-child td { padding-bottom: 17.3pt; }
+
+  .words { font-style: italic; margin-top: 6pt; }
+  .words .gap { display: inline-block; width: 5pt; }
+  .totals { width: 100%; margin-top: 2.2pt; }
+  .totals td { text-align: right; line-height: 13pt; }
+  .totals .v { width: 28.5mm; padding-right: 1pt; }
+  .totals .grand td { font-size: 10pt; font-weight: bold; }
+  .doc-notes { margin-top: 6pt; }
+
+  .note-head { font-weight: bold; margin-top: 7.4pt; line-height: 11.9pt; }
+  ol.notes { list-style: none; margin: 0; padding: 0; counter-reset: n; }
+  ol.notes li { counter-increment: n; position: relative; padding-left: 15.5pt; line-height: 12pt; }
+  ol.notes li::before { content: counter(n) ")"; position: absolute; left: 0; }
+
+  .body p { line-height: 14pt; margin-bottom: 8pt; text-align: justify; }
+
+  .faith { margin-top: 20pt; }
+  .sign-name { font-size: 10pt; font-weight: bold; line-height: 12.3pt; }
+  .sign { width: 100%; margin-top: 54.2pt; }
+  .sign td { line-height: 12.7pt; }
+  .sign td:first-child { width: 105.8mm; }
+  .sign .line { width: 55mm; border-top: 0.75pt solid #000; margin-bottom: 3pt; }
+</style>
+</head>
+<body>
+
+<div class="head">
+  {{#if business.logo}}<img class="logo" src="{{{business.logo}}}" alt=""><br>{{/if}}
+  <div class="name">{{business.name}}</div>
+  {{#each business.address_lines}}<div>{{this}}</div>{{/each}}
+  {{#if business.registration_no}}<div>({{business.registration_no}})</div>{{/if}}
+  {{#if business.phone}}<div>{{upper (label "tel")}}: {{business.phone}}</div>{{/if}}
+</div>
+
+<div class="title">{{upper document.type_label}}</div>
+
+<table class="meta">
+  <tr><td class="k">{{label "ref_no"}}</td><td class="c">:</td><td>{{document.number}}</td></tr>
+  <tr><td class="k">{{label "date"}}</td><td class="c">:</td><td>{{date document.issue_date "dd.MM.yyyy"}}</td></tr>
+  {{#if document.due_date}}<tr><td class="k">{{label "due"}}</td><td class="c">:</td><td>{{date document.due_date "dd.MM.yyyy"}}</td></tr>{{/if}}
+  {{#if document.valid_until}}<tr><td class="k">{{label "valid_until"}}</td><td class="c">:</td><td>{{date document.valid_until "dd.MM.yyyy"}}</td></tr>{{/if}}
+</table>
+
+<table class="kv">
+  <tr><td class="k">{{label "attn"}}</td><td class="c">:</td><td>{{default customer.name customer.company}}</td></tr>
+  {{#if customer.name}}{{#if customer.company}}<tr><td></td><td></td><td>{{customer.company}}</td></tr>{{/if}}{{/if}}
+  {{#each customer.address_lines}}<tr><td></td><td></td><td>{{this}}</td></tr>{{/each}}
+  <tr><td class="k">{{label "tel"}}</td><td class="c">:</td><td>{{default fields.attn_tel customer.phone}}</td></tr>
+  <tr><td class="k">{{label "fax"}}</td><td class="c">:</td><td>{{fields.attn_fax}}</td></tr>
+</table>
+<p class="dear">{{label "dear"}}</p>
+<table class="kv wide">
+  {{#if fields.project}}<tr><td class="k">{{label "project"}}</td><td class="c">:</td><td>{{fields.project}}</td></tr>{{/if}}
+  {{#if (or document.title document.reference)}}<tr><td class="k">{{label "ref"}}</td><td class="c">:</td><td>{{default document.title document.reference}}</td></tr>{{/if}}
+</table>
+
+{{#eq document.type "letter"}}
+<div class="body" style="margin-top: 10pt">
+  {{#each document.paragraphs}}<p>{{nl2br this}}</p>{{/each}}
+</div>
+{{else}}
+<table class="items">
+  <colgroup><col style="width: 13.4mm"><col><col style="width: 15.5mm"><col style="width: 27.5mm"><col style="width: 27.5mm"></colgroup>
+  <thead>
+    <tr>
+      <th>{{label "index"}}</th>
+      <th>{{upper (label "description")}}</th>
+      <th>{{upper (label "qty")}}</th>
+      <th>{{upper (label "rate")}} ({{document.currency_symbol}})</th>
+      <th>{{upper (label "amount")}} ({{document.currency_symbol}})</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{#each items}}
+    <tr>
+      <td class="no">{{index}})</td>
+      <td><b>{{description_first_line}}</b>{{#each description_rest}}<br>{{this}}{{/each}}</td>
+      <td class="qty">{{qty_text}}</td>
+      <td class="money">{{unit_price_text}}</td>
+      <td class="money">{{amount_text}}{{#gt discount 0}}<br>(-{{discount_text}}){{/gt}}</td>
+    </tr>
+    {{/each}}
+  </tbody>
+</table>
+
+<p class="words">{{#eq document.currency "MYR"}}{{label "amount_in_words"}}{{else}}{{document.currency}}{{/eq}} :<span class="gap"></span> {{totals.total_in_words}}</p>
+<table class="totals">
+  {{#gt totals.tax 0}}
+  <tr><td>{{label "subtotal"}} ({{document.currency_symbol}}) :</td><td class="v">{{totals.subtotal_text}}</td></tr>
+  <tr><td>{{totals.tax_label}} {{totals.tax_rate_text}}% ({{document.currency_symbol}}) :</td><td class="v">{{totals.tax_text}}</td></tr>
+  {{/gt}}
+  <tr class="grand">
+    <td>{{#eq document.type "receipt"}}{{label "amount_paid"}}{{else}}{{#eq document.type "quotation"}}{{label "total"}}{{else}}{{label "total_payment"}}{{/eq}}{{/eq}} ({{document.currency_symbol}}) :</td>
+    <td class="v">{{totals.total_text}}</td>
+  </tr>
+</table>
+{{#eq document.type "receipt"}}<p class="doc-notes"><b>{{upper (label "paid")}}</b>{{#if document.payment_method}} · {{document.payment_method}}{{/if}}{{#if document.reference}} · {{document.reference}}{{/if}}</p>{{/eq}}
+{{#if document.notes}}<p class="doc-notes">{{nl2br document.notes}}</p>{{/if}}
+
+{{#if (or terms business.bank_details)}}
+<div class="note-head">{{label "note"}}: -</div>
+<ol class="notes">
+  {{#each terms}}<li>{{this}}</li>{{/each}}
+  {{#if business.bank_details}}<li>{{nl2br business.bank_details}}</li>{{/if}}
+</ol>
+{{/if}}
+{{/eq}}
+
+<p class="faith">{{label "yours_faithfully"}}</p>
+<p class="sign-name">{{business.name}}</p>
+<table class="sign">
+  <tr>
+    <td><div class="line"></div>{{default fields.signatory_title "DIRECTOR"}}<br>{{fields.signatory_name}}</td>
+    {{#ne document.type "letter"}}<td><div class="line"></div>{{label "acknowledge_received"}}<br>{{label "chop_sign"}}</td>{{/ne}}
+  </tr>
+</table>
+
+</body>
+</html>

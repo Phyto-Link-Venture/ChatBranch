@@ -139,6 +139,7 @@ public class PermissionGatesTests : IClassFixture<ApiFactory>
         ("/api/bookings", new[] { "chats.view" }),
         ("/api/documents", new[] { "chats.view" }),
         ("/api/documents/999999/file", new[] { "chats.view" }),
+        ("/api/documents/form?channel=whatsapp&key=none", new[] { "chats.send" }),
         ("/api/documents/preview/00000000000000000000000000000000.pdf", new[] { "ai.monitor", "ai.behaviour.manage", "settings.ai.manage" }),
         ("/api/contacts", new[] { "contacts.view", "chats.view", "users.manage" }),
         ("/api/contacts/{c}", new[] { "contacts.view" }),

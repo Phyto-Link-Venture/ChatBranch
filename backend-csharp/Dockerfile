@@ -30,10 +30,17 @@ ENV ASPNETCORE_URLS=http://0.0.0.0:8090 \
 # curl nor wget, so the old wget-based HEALTHCHECK always failed and the
 # container reported "unhealthy" despite serving fine. ffmpeg turns Ogg/Opus
 # and AMR voice notes into M4A for Safari / iOS on request (the signed media
-# link's ?format=m4a; MEDIA_FFMPEG=off disables it). Install both while root.
+# link's ?format=m4a; MEDIA_FFMPEG=off disables it). The Documents app's
+# custom layout (HTML templates) prints with headless chromium (as the non-root
+# app user, --no-sandbox, its profile in a throw-away temp dir); fonts-liberation
+# = Arial / Times metric-compatible faces, fonts-noto-cjk = Chinese / Japanese /
+# Korean; poppler-utils' pdftoppm lets the AI SEE an uploaded design's page.
+# Install them all while root.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ffmpeg \
+       chromium fonts-liberation fonts-noto-cjk poppler-utils \
     && rm -rf /var/lib/apt/lists/*
+ENV DOCUMENT_HTML_CHROMIUM=/usr/bin/chromium
 
 # The aspnet:8.0 image already ships a non-root `app` user — reuse it rather
 # than creating a second one (useradd fails on the existing name).

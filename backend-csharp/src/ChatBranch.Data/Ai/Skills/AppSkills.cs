@@ -52,7 +52,7 @@ public static class AppSkills
 
     /// <summary>Validate a wire config. Returns the normalized config (defaults filled
     /// in); <paramref name="error"/> is the first problem (null = valid).</summary>
-    public static Dictionary<string, object?> Normalize(JsonElement el, out string? error)
+    public static Dictionary<string, object?> Normalize(JsonElement el, out string? error, bool check = true)
     {
         if (el.ValueKind != JsonValueKind.Object)
         {
@@ -62,7 +62,7 @@ public static class AppSkills
         switch (AppOf(el))
         {
             case Calendar: return CalendarAppConfig.From(el, out error).ToDictionary();
-            case Documents: return DocumentAppConfig.From(el, out error).ToDictionary();
+            case Documents: return DocumentAppConfig.From(el, out error, check).ToDictionary();
             case Qr: return QrAppConfig.From(el, out error).ToDictionary();
             case Payments: return PaymentAppConfig.From(el, out error).ToDictionary();
             case Sheets: return SheetsAppConfig.From(el, out error).ToDictionary();
@@ -80,7 +80,7 @@ public static class AppSkills
             var el = JsonSerializer.SerializeToElement(raw ?? new Dictionary<string, object?>());
             var app = AppOf(el);
             if (!All.Contains(app)) return new Dictionary<string, object?>(raw ?? new()); // keep what we can't read
-            return Normalize(el, out _);
+            return Normalize(el, out _, check: false); // a stored custom layout was checked when it was saved
         }
         catch { return new CalendarAppConfig().ToDictionary(); }
     }

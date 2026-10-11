@@ -537,8 +537,9 @@ public sealed class DocumentTemplate
 
     // ---- strict reader -------------------------------------------------------------
 
-    /// <summary>One JSON object of the template: unknown keys are refused, values checked.</summary>
-    private sealed class Obj
+    /// <summary>One JSON object of the template: unknown keys are refused, values checked
+    /// (also the custom layout's reader, <see cref="DocumentHtmlConfig"/>).</summary>
+    internal sealed class Obj
     {
         public JsonElement El { get; }
         public string Path { get; }

@@ -300,7 +300,7 @@ public static class AiSkillsEndpoints
         // Google Calendar connections the CALLER may see — shared rows, their own
         // personal one, everyone's for admins), its actions and config defaults.
         app.MapGet("/api/aicore/skills/apps", async (string? entity, AppDbContext db, ScopingService sc,
-            ClaimsPrincipal me) =>
+            ClaimsPrincipal me, IHtmlPdfConverter htmlPdf) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
             var uid = await db.Users.AsNoTracking().Where(u => u.Username == me.Identity!.Name)
@@ -369,6 +369,20 @@ public static class AiSkillsEndpoints
                         defaults = DocumentAppConfig.Defaults(),
                         // the template designer's "Start from…" gallery (canonical templates)
                         template_presets = DocumentTemplate.PresetCatalog(),
+                        // the custom layout (HTML): can this server print it, the starters, and the
+                        // data model + helpers its reference panel lists (one source: DocumentHtmlModel)
+                        html_renderer = HtmlPdf.Status(htmlPdf),
+                        html_starters = DocumentHtmlStarters.Catalog(),
+                        html_reference = new
+                        {
+                            groups = DocumentHtmlModel.Reference().Select(g => new
+                            {
+                                id = g.Id,
+                                vars = g.Vars.Select(v => new { path = v.Path, example = v.Example, description = v.Description }),
+                            }),
+                            helpers = DocumentHtmlTemplating.Helpers.Select(h => new { name = h.Name, usage = h.Usage, description = h.Description }),
+                            labels = DocumentHtmlLabels.Keys.ToList(),
+                        },
                     },
                     new
                     {
@@ -424,6 +438,8 @@ public static class AiSkillsEndpoints
 
         // the Documents app's template designer (letterhead upload, upload-your-design, Ask AI)
         DocumentTemplateEndpoints.Map(app);
+        // … and its custom layout (HTML templates): instant preview, draft from a design, Ask AI
+        DocumentHtmlEndpoints.Map(app);
 
         // ---- built-ins (read-only; always offered to the model as tools) --------
         app.MapGet("/api/aicore/skills/builtins", (SkillService skills) =>

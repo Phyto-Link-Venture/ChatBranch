@@ -49,16 +49,26 @@ public class DocumentService
     private readonly ScopingService _scoping;
     private readonly MediaStore _media;
     private readonly TimeProvider _clock;
+    private readonly IHtmlPdfConverter _html;
 
-    public DocumentService(AppDbContext db, ScopingService scoping, MediaStore? media = null, TimeProvider? clock = null)
+    public DocumentService(AppDbContext db, ScopingService scoping, MediaStore? media = null, TimeProvider? clock = null,
+        IHtmlPdfConverter? html = null)
     {
         _db = db;
         _scoping = scoping;
         _media = media ?? new MediaStore(Sidecars.VoiceAgentBridge.ResolveDataDir(null));
         _clock = clock ?? TimeProvider.System;
+        _html = html ?? HtmlPdf.Default;
     }
 
     public MediaStore Media => _media;
+
+    /// <summary>The custom layout's printer (headless Chromium, or a test's fake).</summary>
+    public IHtmlPdfConverter Html => _html;
+
+    /// <summary>Render a document with the config's layout (designer or custom HTML).</summary>
+    public Task<byte[]> RenderAsync(DocumentContent content, DocumentAppConfig cfg, byte[]? logo, CancellationToken ct = default) =>
+        DocumentRenderer.RenderAsync(content, cfg, logo, LoadLetterhead(cfg), _html, ct);
     private DateTime Now => _clock.GetUtcNow().UtcDateTime;
 
     // =========================================================================
@@ -106,9 +116,47 @@ public class DocumentService
         + "\"customer_email\":{\"type\":\"string\"},"
         + "\"customer_phone\":{\"type\":\"string\"},";
 
+    /// <summary>
+    /// A custom layout's own fields as one more tool argument — <c>"fields": {key: value}</c>,
+    /// each with its label as the description ("" in the designer layout). Required ones
+    /// without a default make <c>fields</c> itself required.
+    /// </summary>
+    public static (string Schema, bool Required) FieldsSchema(DocumentAppConfig cfg)
+    {
+        var fields = cfg.CustomFields;
+        if (fields.Count == 0) return ("", false);
+        var props = new Dictionary<string, object?>();
+        foreach (var f in fields)
+            props[f.Key] = new Dictionary<string, object?>
+            {
+                ["type"] = f.Type == "number" ? "number" : "string",
+                ["description"] = f.Label + f.Type switch
+                {
+                    "date" => " (YYYY-MM-DD)",
+                    "multiline" => " (may span lines)",
+                    _ => "",
+                } + (f.Default.Length > 0 ? $" — default: {f.Default}" : "") + (f.Required ? " — required" : ""),
+            };
+        var required = fields.Where(f => f.Required && f.Default.Length == 0).Select(f => f.Key).ToList();
+        var schema = new Dictionary<string, object?>
+        {
+            ["type"] = "object",
+            ["description"] = "The business's own fields printed on this document's layout (ask the customer when one is "
+                              + "needed and unknown — never invent it).",
+            ["properties"] = props,
+        };
+        if (required.Count > 0) schema["required"] = required;
+        return ("\"fields\":" + JsonSerializer.Serialize(schema) + ",", required.Count > 0);
+    }
+
     /// <summary>The tools of one Documents skill (only its enabled document types).</summary>
     public static IEnumerable<(string Name, string Action, LlmTool Tool)> ToolDefinitions(string b, DocumentAppConfig cfg)
     {
+        var (custom, customRequired) = FieldsSchema(cfg);
+        // the custom layout may print a subject line on any document ("REF : …")
+        var subject = cfg.IsHtml ? "\"title\":{\"type\":\"string\",\"description\":\"Optional subject line — what this document is for\"}," : "";
+        string Required(params string[] keys) =>
+            "[" + string.Join(",", keys.Concat(customRequired ? new[] { "fields" } : Array.Empty<string>()).Select(k => $"\"{k}\"")) + "]";
         var money = cfg.TaxRate > 0
             ? $"Prices are in {cfg.Currency} before {(cfg.TaxLabel.Length > 0 ? cfg.TaxLabel : "tax")}; {DocumentMath.Qty(cfg.TaxRate)}% is added on the subtotal."
             : $"Prices are in {cfg.Currency}; no tax is added.";
@@ -120,41 +168,41 @@ public class DocumentService
                 "Create a PDF INVOICE for this customer for what they bought or agreed to buy. Only when the customer "
                 + "asked for an invoice or bill, and the items, quantities and prices are clear (from your instructions "
                 + $"or knowledge — never invent a price). {money}" + after,
-                Schema("{\"type\":\"object\",\"properties\":{" + CustomerSchema + ItemsSchema + ","
+                Schema("{\"type\":\"object\",\"properties\":{" + CustomerSchema + custom + subject + ItemsSchema + ","
                        + "\"due_date\":{\"type\":\"string\",\"description\":\"Optional YYYY-MM-DD (default: the business's payment terms)\"},"
                        + "\"reference\":{\"type\":\"string\",\"description\":\"Optional order / PO reference\"},"
                        + "\"notes\":{\"type\":\"string\",\"description\":\"Optional short note printed on the invoice\"}"
-                       + "},\"required\":[\"items\"]}")));
+                       + "},\"required\":" + Required("items") + "}")));
         if (cfg.Allows(DocumentTypes.Quotation))
             yield return (b + "_create_quotation", DocumentTypes.Quotation, new LlmTool(b + "_create_quotation",
                 "Create a PDF QUOTATION (price quote) for this customer. Use it when the customer asks for a quote or "
                 + $"price list for specific items. Valid for {cfg.QuotationValidDays} days. {money}" + after,
-                Schema("{\"type\":\"object\",\"properties\":{" + CustomerSchema + ItemsSchema + ","
+                Schema("{\"type\":\"object\",\"properties\":{" + CustomerSchema + custom + ItemsSchema + ","
                        + "\"title\":{\"type\":\"string\",\"description\":\"Optional heading, e.g. 'Kitchen renovation'\"},"
                        + "\"reference\":{\"type\":\"string\"},"
                        + "\"notes\":{\"type\":\"string\",\"description\":\"Optional terms or remarks printed on the quotation\"}"
-                       + "},\"required\":[\"items\"]}")));
+                       + "},\"required\":" + Required("items") + "}")));
         if (cfg.Allows(DocumentTypes.Receipt))
             yield return (b + "_create_receipt", DocumentTypes.Receipt, new LlmTool(b + "_create_receipt",
                 "Create a PDF RECEIPT confirming a payment the customer ALREADY made (only when a payment is confirmed "
                 + $"in the conversation or your instructions — never on a promise to pay). {money}" + after,
-                Schema("{\"type\":\"object\",\"properties\":{" + CustomerSchema + ItemsSchema + ","
+                Schema("{\"type\":\"object\",\"properties\":{" + CustomerSchema + custom + subject + ItemsSchema + ","
                        + "\"payment_method\":{\"type\":\"string\",\"description\":\"e.g. 'Bank transfer', 'Card'\"},"
                        + "\"reference\":{\"type\":\"string\",\"description\":\"Payment / transaction reference\"},"
                        + "\"notes\":{\"type\":\"string\"}"
-                       + "},\"required\":[\"items\"]}")));
+                       + "},\"required\":" + Required("items") + "}")));
         if (cfg.Allows(DocumentTypes.Letter))
             yield return (b + "_create_letter", DocumentTypes.Letter, new LlmTool(b + "_create_letter",
                 "Create a PDF LETTER on the business's letterhead (a confirmation letter, an official notice, a "
                 + "statement the customer asked for in writing). Write the body yourself in the customer's language. "
                 + "The PDF is sent as a file right after your reply; mention it in the reply.",
-                Schema("{\"type\":\"object\",\"properties\":{"
+                Schema("{\"type\":\"object\",\"properties\":{" + custom
                        + "\"title\":{\"type\":\"string\",\"description\":\"Subject line\"},"
                        + "\"paragraphs\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"The body, one entry per paragraph\"},"
                        + "\"recipient_name\":{\"type\":\"string\",\"description\":\"Default: this customer's name\"},"
                        + "\"recipient_address\":{\"type\":\"string\"},"
                        + "\"closing\":{\"type\":\"string\",\"description\":\"Optional sign-off, e.g. 'Yours sincerely,'\"}"
-                       + "},\"required\":[\"title\",\"paragraphs\"]}")));
+                       + "},\"required\":" + Required("title", "paragraphs") + "}")));
     }
 
     public static IEnumerable<(string Name, string Action, LlmTool Tool)> QrToolDefinitions(string b) => new[]
@@ -199,6 +247,9 @@ public class DocumentService
         var cfg = b.Documents ?? new DocumentAppConfig();
         var type = b.Action;
         if (!cfg.Allows(type)) return Refused($"This skill can't make a {type}.", "");
+        if (cfg.IsHtml && !_html.Available)
+            return Refused("The document can't be made: the custom layout is unavailable on this server (no HTML renderer is installed).",
+                "Don't promise a document. Tell the customer a teammate will send it.");
         if (!ctx.Docs.Types.Add(type))
             return Refused($"A {DocumentTypes.Label(type).ToLowerInvariant()} was already made for this reply.",
                 "Send that one; make another in your next message if the customer needs it.");
@@ -217,7 +268,9 @@ public class DocumentService
             // the playground: the number this would get, nothing taken or kept
             var next = NextSeq(SeriesFor(b.Skill, type), cfg.StartNumber(type));
             content = content.With(cfg.FormatNumber(type, next));
-            var bytes = DocumentRenderer.Render(content, cfg, logo, LoadLetterhead(cfg));
+            byte[] bytes;
+            try { bytes = await RenderAsync(content, cfg, logo, ct); }
+            catch (DocumentHtmlException ex) { return Refused($"The document can't be made: {ex.Message}", "Don't promise a document."); }
             var (url, file) = await SavePreviewAsync(bytes, ".pdf", content.Number, ct);
             ctx.Docs.Previews.Add(new DocumentPreview(type, DocumentTypes.Label(type), content.Number, content.Currency,
                 content.Totals.Total, url, file));
@@ -225,8 +278,18 @@ public class DocumentService
         }
 
         var thread = ctx.ThreadId is int tid ? _db.Threads.AsNoTracking().FirstOrDefault(t => t.Id == tid) : null;
-        var row = Issue(b.Skill, type, cfg, content, ctx.ContactRecord?.Id ?? ctx.ContactId, thread,
-            ctx.EntityId ?? thread?.EntityId, "ai", logo);
+        Document row;
+        try
+        {
+            row = await IssueAsync(b.Skill, type, cfg, content, ctx.ContactRecord?.Id ?? ctx.ContactId, thread,
+                ctx.EntityId ?? thread?.EntityId, "ai", logo, ct);
+        }
+        catch (DocumentHtmlException ex)
+        {
+            ctx.Docs.Types.Remove(type);
+            return Refused($"The document can't be made: {ex.Message}",
+                "Don't promise a document. Tell the customer a teammate will send it.");
+        }
         ctx.Docs.DocumentIds.Add(row.Id);
         return Ok(ToolPayload(ContentOf(row) ?? content.With(row.Number), cfg, row.FileName, preview: false));
     }
@@ -294,6 +357,39 @@ public class DocumentService
                 ? "ms" : "en";
         string A(string key, int max) => Cap((Arg(args, key) ?? "").Trim(), max);
 
+        // the custom layout's own fields: {fields: {key: value}} — type-checked, defaults filled
+        var custom = new Dictionary<string, string>();
+        if (cfg.IsHtml)
+        {
+            var given = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("fields", out var fv)
+                        && fv.ValueKind == JsonValueKind.Object ? fv : default;
+            foreach (var f in cfg.Html!.Fields)
+            {
+                var raw = given.ValueKind == JsonValueKind.Object && given.TryGetProperty(f.Key, out var v)
+                    ? v.ValueKind switch
+                    {
+                        JsonValueKind.String => v.GetString() ?? "",
+                        JsonValueKind.Number => v.GetRawText(),
+                        JsonValueKind.True => "true",
+                        JsonValueKind.False => "false",
+                        _ => "",
+                    }
+                    : "";
+                if (raw.Trim().Length == 0)
+                {
+                    if (f.Default.Length > 0) { custom[f.Key] = f.Default; continue; }
+                    if (f.Required)
+                        return new BuildResult(null, $"fields.{f.Key} ({f.Label}) is required for this document.",
+                            $"Ask the customer for the {f.Label.ToLowerInvariant()}, then call the tool again with fields.{f.Key}.");
+                    custom[f.Key] = "";
+                    continue;
+                }
+                var value = DocumentHtmlConfig.FieldValue(f.Type, raw, out var why);
+                if (value == null) return new BuildResult(null, $"fields.{f.Key} ({f.Label}) {why} (got '{Cap(raw, 40)}').");
+                custom[f.Key] = value;
+            }
+        }
+
         var customer = new DocParty(
             A("customer_name", 120) is { Length: > 0 } n ? n : A("recipient_name", 120) is { Length: > 0 } rn ? rn : contact?.Name ?? "",
             A("customer_company", 120) is { Length: > 0 } co ? co : contact?.CompanyName ?? "",
@@ -318,6 +414,7 @@ public class DocumentService
             {
                 Type = type, Number = number, Title = title, IssueDate = today, Customer = customer,
                 Paragraphs = paragraphs, Closing = A("closing", 80), Language = language, Currency = cfg.Currency,
+                Fields = custom,
             };
             return CjkCheck(letter, cfg);
         }
@@ -349,12 +446,15 @@ public class DocumentService
             Type = type, Number = number, Title = A("title", 120), IssueDate = today, DueDate = due, ValidUntil = valid,
             Customer = customer, Lines = lines, Totals = totals, Currency = cfg.Currency, Notes = A("notes", 1000),
             Reference = A("reference", 60), PaymentMethod = A("payment_method", 60), Language = language,
+            Fields = custom,
         };
         return CjkCheck(content, cfg);
     }
 
     private static BuildResult CjkCheck(DocumentContent c, DocumentAppConfig cfg)
     {
+        // the custom layout prints with the system's fonts (the image ships Noto CJK) — no refusal there
+        if (cfg.IsHtml) return new BuildResult(c, null);
         var texts = new[] { c.Title, c.Notes, c.Reference, c.PaymentMethod, c.Closing, c.Customer.Name, c.Customer.Company,
                 c.Customer.Address, cfg.BusinessName, cfg.Address, cfg.PaymentInstructions, cfg.FooterNote }
             .Concat(c.Lines.Select(l => l.Description)).Concat(c.Paragraphs)
@@ -383,14 +483,22 @@ public class DocumentService
     /// one and it takes the next.
     /// </summary>
     public Document Issue(AgentSkill skill, string type, DocumentAppConfig cfg, DocumentContent content, int? contactId,
-        Thread? thread, int? entityId, string createdBy, byte[]? logo = null)
+        Thread? thread, int? entityId, string createdBy, byte[]? logo = null) =>
+        Task.Run(() => IssueAsync(skill, type, cfg, content, contactId, thread, entityId, createdBy, logo))
+            .GetAwaiter().GetResult();
+
+    /// <inheritdoc cref="Issue"/>
+    /// <remarks>A custom layout that can't print throws <see cref="DocumentHtmlException"/> before a number is taken.</remarks>
+    public async Task<Document> IssueAsync(AgentSkill skill, string type, DocumentAppConfig cfg, DocumentContent content,
+        int? contactId, Thread? thread, int? entityId, string createdBy, byte[]? logo = null, CancellationToken ct = default)
     {
         var series = SeriesFor(skill, type);
+        logo ??= LoadLogo(cfg.Logo);
         for (var attempt = 0; ; attempt++)
         {
             var seq = NextSeq(series, cfg.StartNumber(type));
             var numbered = content.With(cfg.FormatNumber(type, seq));
-            var bytes = DocumentRenderer.Render(numbered, cfg, logo ?? LoadLogo(cfg.Logo), LoadLetterhead(cfg));
+            var bytes = await RenderAsync(numbered, cfg, logo, ct);
             var row = new Document
             {
                 Type = type, SkillId = skill.SkillId, Series = series, Seq = seq, Number = numbered.Number,
@@ -457,6 +565,7 @@ public class DocumentService
         ["payment_method"] = c.PaymentMethod,
         ["paragraphs"] = c.Paragraphs.ToList(),
         ["language"] = c.Language,
+        ["fields"] = c.Fields.Count > 0 ? new Dictionary<string, string>(c.Fields) : null,
     };
 
     /// <summary>The stored row's numbers as content (what the tool reports back).</summary>
@@ -725,6 +834,18 @@ public class DocumentService
     public async Task<SamplePreview> PreviewSampleAsync(string type, DocumentAppConfig cfg, DateTimeOffset utcNow,
         TimeZoneInfo tz, CancellationToken ct = default)
     {
+        if (cfg.IsHtml)
+        {
+            // the custom layout: its own sample (custom fields filled), printed by Chromium
+            try
+            {
+                var content = DocumentHtmlRenderer.Sample(type, cfg, utcNow, tz);
+                var pdf = await RenderAsync(content, cfg, LoadLogo(cfg.Logo), ct);
+                var (u, _) = await SavePreviewAsync(pdf, ".pdf", content.Number, ct);
+                return new SamplePreview(u, content.Number, type == DocumentTypes.Letter ? null : content.Totals.Total, null);
+            }
+            catch (DocumentHtmlException ex) { return new SamplePreview(null, "", null, ex.Message); }
+        }
         var sample = type == DocumentTypes.Letter
             ? JsonSerializer.SerializeToElement(new
             {
@@ -787,7 +908,7 @@ public class DocumentService
         return File.Exists(p) ? p : null;
     }
 
-    private byte[]? LoadLogo(string name)
+    public byte[]? LoadLogo(string name)
     {
         try { return LogoPath(name) is { } p ? File.ReadAllBytes(p) : null; }
         catch { return null; }
@@ -827,7 +948,7 @@ public class DocumentService
 
     private byte[]? LoadLetterhead(DocumentAppConfig cfg)
     {
-        var name = cfg.Template?.Letterhead.File ?? "";
+        var name = (cfg.IsHtml ? cfg.Html!.Letterhead.File : cfg.Template?.Letterhead.File) ?? "";
         if (name.Length == 0) return null;
         try { return LetterheadPath(name) is { } p ? File.ReadAllBytes(p) : null; }
         catch { return null; }
@@ -936,12 +1057,16 @@ public class DocumentService
 /// <summary>Content helpers.</summary>
 internal static class DocumentContentExtensions
 {
-    public static DocumentContent With(this DocumentContent c, string number) => new()
+    public static DocumentContent With(this DocumentContent c, string number) => c.Copy(number, c.Language);
+
+    public static DocumentContent WithLanguage(this DocumentContent c, string language) => c.Copy(c.Number, language);
+
+    private static DocumentContent Copy(this DocumentContent c, string number, string language) => new()
     {
         Type = c.Type, Number = number, Title = c.Title, IssueDate = c.IssueDate, DueDate = c.DueDate,
         ValidUntil = c.ValidUntil, Customer = c.Customer, Lines = c.Lines, Totals = c.Totals, Currency = c.Currency,
         Notes = c.Notes, Reference = c.Reference, PaymentMethod = c.PaymentMethod, Paragraphs = c.Paragraphs,
-        Closing = c.Closing, Language = c.Language,
+        Closing = c.Closing, Language = language, Fields = c.Fields,
     };
 }
 

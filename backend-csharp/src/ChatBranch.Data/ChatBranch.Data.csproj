@@ -27,6 +27,13 @@
     <EmbeddedResource Include="Documents/Fonts/*.ttf" />
   </ItemGroup>
 
+  <!-- the Documents app's "Custom layout" (HTML templates): Handlebars.Net, MIT —
+       {{x}} HTML-escapes by default. The shipped starter templates are embedded. -->
+  <ItemGroup>
+    <PackageReference Include="Handlebars.Net" Version="2.1.6" />
+    <EmbeddedResource Include="Documents/HtmlStarters/*.html" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

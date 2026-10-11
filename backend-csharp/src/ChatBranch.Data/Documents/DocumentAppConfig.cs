@@ -12,7 +12,9 @@ namespace ChatBranch.Data.Documents;
 /// contacts, logo, accent colour), money rules (currency, tax label + rate),
 /// the words printed on every document (payment instructions, footer) and the
 /// numbering (prefix + first number per type), and optionally the designed
-/// look (<c>template</c>, <see cref="DocumentTemplate"/>). Snake_case on the wire;
+/// look (<c>template</c>, <see cref="DocumentTemplate"/>) — or, with
+/// <c>layout: "html"</c>, a custom HTML layout (<c>html</c>, <see cref="DocumentHtmlConfig"/>)
+/// printed by headless Chromium. Snake_case on the wire;
 /// <see cref="From(JsonElement, out string?)"/> is what the skills PUT refuses a
 /// bad config with.
 /// </summary>
@@ -31,6 +33,10 @@ public sealed class DocumentAppConfig
     };
 
     public static readonly string[] Languages = { "auto", "en", "ms" };
+
+    public const string DesignerLayout = "designer";
+    public const string HtmlLayout = "html";
+    public static readonly string[] Layouts = { DesignerLayout, HtmlLayout };
 
     public string App => AppId;
     public List<string> AllowedActions { get; init; } = AllActions.ToList();
@@ -66,6 +72,16 @@ public sealed class DocumentAppConfig
     /// <summary>The designed look (<see cref="DocumentTemplate"/>); null = the classic
     /// layout, exactly as before the template designer existed.</summary>
     public DocumentTemplate? Template { get; init; }
+    /// <summary>designer (the template designer / classic layout — the default) | html (<see cref="Html"/>).</summary>
+    public string Layout { get; init; } = DesignerLayout;
+    /// <summary>The custom HTML layout; kept while the designer is in use, so switching back loses nothing.</summary>
+    public DocumentHtmlConfig? Html { get; init; }
+
+    /// <summary>Documents print with the custom HTML layout.</summary>
+    public bool IsHtml => Layout == HtmlLayout && Html != null;
+
+    /// <summary>The custom fields this skill's documents take (none in the designer layout).</summary>
+    public List<DocField> CustomFields => IsHtml ? Html!.Fields : new List<DocField>();
 
     /// <summary>The template a document of <paramref name="type"/> prints with.</summary>
     public DocumentTemplate TemplateFor(string type) => Template?.ForType(type) ?? DocumentTemplate.Classic();
@@ -95,6 +111,12 @@ public sealed class DocumentAppConfig
     {
         var d = Fields();
         if (Template != null) d["template"] = Template.ToDictionary();
+        // a config that never had a custom layout keeps its exact old shape
+        if (Html != null || Layout != DesignerLayout)
+        {
+            d["layout"] = Layout;
+            d["html"] = Html?.ToDictionary();
+        }
         return d;
     }
 
@@ -124,13 +146,18 @@ public sealed class DocumentAppConfig
         ["language"] = Language,
     };
 
+    /// <summary>A STORED config, read leniently (its custom layout was checked when it was saved).</summary>
     public static DocumentAppConfig From(Dictionary<string, object?>? raw)
     {
-        try { return From(JsonSerializer.SerializeToElement(raw ?? new()), out _); }
+        try { return From(JsonSerializer.SerializeToElement(raw ?? new()), out _, check: false); }
         catch { return new DocumentAppConfig(); }
     }
 
-    public static DocumentAppConfig From(JsonElement el, out string? error)
+    /// <summary>
+    /// Validate a wire config (<paramref name="error"/> = the first problem). <paramref name="check"/>
+    /// also compiles and test-prints a custom layout's templates (the skills PUT, the dry run).
+    /// </summary>
+    public static DocumentAppConfig From(JsonElement el, out string? error, bool check = true)
     {
         var errors = new List<string>();
         if (el.ValueKind != JsonValueKind.Object)
@@ -200,6 +227,21 @@ public sealed class DocumentAppConfig
             if (tplError != null) errors.Add(tplError);
         }
 
+        var layout = (AppSkills.Str(el, "layout") ?? DesignerLayout).Trim().ToLowerInvariant();
+        if (layout.Length == 0) layout = DesignerLayout;
+        if (!Layouts.Contains(layout)) { errors.Add("layout must be designer or html."); layout = DesignerLayout; }
+        DocumentHtmlConfig? html = null;
+        if (el.TryGetProperty("html", out var hv) && hv.ValueKind != JsonValueKind.Null)
+        {
+            html = DocumentHtmlConfig.From(hv, out var htmlError, check);
+            if (htmlError != null) errors.Add(htmlError);
+        }
+        if (layout == HtmlLayout && (html == null || html.Template.Trim().Length == 0))
+        {
+            errors.Add("layout html needs a template (html.template) — start from a ready-made layout or upload your design.");
+            if (html == null) layout = DesignerLayout;
+        }
+
         var taxLabel = T("tax_label", d.TaxLabel, 20);
         var cfg = new DocumentAppConfig
         {
@@ -226,6 +268,8 @@ public sealed class DocumentAppConfig
             Logo = logo,
             Language = language,
             Template = template,
+            Layout = layout,
+            Html = html,
         };
         error = errors.FirstOrDefault();
         return cfg;

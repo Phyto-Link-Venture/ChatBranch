@@ -177,6 +177,35 @@ public static partial class ToolCatalog
                 A.Str("instruction", "What to change.", req: true),
             }, write: false, outside: true);
 
+        yield return T(s, "skills_preview_document_layout", "Preview a custom document layout",
+            "Render a Documents skill's CUSTOM LAYOUT (layout \"html\": a Handlebars HTML template) with sample data " +
+            "and return the sanitized page — ok:false with the error and its line when the template can't print. " +
+            "Variables: business.*, document.*, customer.*, items[], totals.*, fields.*, terms[]; helpers money, " +
+            "number, date, words, upper, lower, inc, eq/ne/gt, nl2br, first_line, rest_lines, label, default, or " +
+            "(skills_list_apps → documents.html_reference lists them all). {{x}} escapes; {{{x}}} only for " +
+            "business.logo. Saves nothing — put the template in config.html.template with skills_save_skill.",
+            "POST", "/api/aicore/skills/documents/html/preview", ai,
+            new[]
+            {
+                A.Str("html", "The template (a whole HTML document).", req: true),
+                A.Arr("fields", "The custom fields [{key, label, type: text|multiline|date|number, required, default}]."),
+                A.Str("type", "Which document to preview.", oneOf: new[] { "invoice", "quotation", "receipt", "letter" }),
+                A.Str("language", "en | ms.", oneOf: new[] { "en", "ms" }),
+                A.Obj("config", "The (unsaved) Documents skill config, for its business lines, terms and bank details."),
+            }, write: false);
+
+        yield return T(s, "skills_assist_document_layout", "Edit a custom document layout from words",
+            "Ask the AI to change a Documents skill's CUSTOM LAYOUT (an HTML template) — \"put the bank details under " +
+            "the total\", \"add a PO number field\": returns the edited, validated template, its custom fields and a " +
+            "one-line summary (no model = unchanged, with a note). Saves nothing.",
+            "POST", "/api/aicore/skills/documents/html/assist", ai,
+            new[]
+            {
+                A.Str("html", "The current template.", req: true),
+                A.Arr("fields", "The current custom fields."),
+                A.Str("instruction", "What to change.", req: true),
+            }, write: false, outside: true);
+
         // ---- bookings ---------------------------------------------------------
         const string b = "bookings";
         yield return T(b, "bookings_list", "List bookings",
@@ -202,12 +231,24 @@ public static partial class ToolCatalog
                 A.Str("status", "pending | sent | void | failed | issued (comma list)."), A.Entity(), A.Limit(50, 500),
             });
 
+        yield return T("documents", "documents_get_form", "What a document needs here",
+            "For a conversation: which document types its Documents skill makes, each with the skill, its layout " +
+            "(designer | html) and — for a custom layout — the extra fields it prints ({key, label, type, required, " +
+            "default}); pass them to documents_create as fields.fields.",
+            "GET", "/api/documents/form", C("chats.send"),
+            new[]
+            {
+                A.Str("channel", "Conversation channel.", req: true, oneOf: EndpointTool.ChannelNames),
+                A.Str("key", "Conversation key.", req: true),
+            });
+
         yield return T("documents", "documents_create", "Create a document",
             "Make a PDF invoice, quotation, receipt or letter in a conversation with its Documents skill " +
             "(letterhead, tax, numbering — the server computes every amount). fields: {items:[{description, qty, " +
-            "unit_price, discount?}], notes?, reference?, due_date?, payment_method?} or, for a letter, {title, " +
-            "paragraphs:[…]}. send=true sends it to the customer now (as a file, or a download link where the " +
-            "channel can't carry files).",
+            "unit_price, discount?}], notes?, reference?, due_date?, payment_method?, title?} or, for a letter, {title, " +
+            "paragraphs:[…]}; a skill with a custom layout also takes its own fields as fields.fields {key: value} " +
+            "(documents_get_form lists them). send=true sends it to the customer now (as a file, or a download link " +
+            "where the channel can't carry files).",
             "POST", "/api/documents", C("chats.send"),
             new[]
             {

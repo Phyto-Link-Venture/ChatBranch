@@ -33,6 +33,8 @@ public sealed class DocumentContent
     public string Closing { get; init; } = "";
     /// <summary>en | ms — the printed labels.</summary>
     public string Language { get; init; } = "en";
+    /// <summary>The custom layout's own fields (<see cref="DocumentHtmlConfig.Fields"/>), key → value.</summary>
+    public Dictionary<string, string> Fields { get; init; } = new();
 }
 
 /// <summary>
@@ -50,8 +52,21 @@ public sealed class DocumentContent
 /// </summary>
 public static class DocumentRenderer
 {
+    /// <summary>
+    /// Render by the config's layout: the designer (MigraDoc, below) or the custom
+    /// HTML layout (<see cref="DocumentHtmlRenderer"/> through <paramref name="html"/>).
+    /// </summary>
+    public static Task<byte[]> RenderAsync(DocumentContent c, DocumentAppConfig cfg, byte[]? logo, byte[]? letterhead,
+        IHtmlPdfConverter html, CancellationToken ct = default) =>
+        cfg.IsHtml
+            ? DocumentHtmlRenderer.RenderPdfAsync(c, cfg, logo, letterhead, html, ct)
+            : Task.FromResult(Render(c, cfg, logo, letterhead));
+
     public static byte[] Render(DocumentContent c, DocumentAppConfig cfg, byte[]? logo = null, byte[]? letterhead = null)
     {
+        if (cfg.IsHtml)
+            return Task.Run(() => DocumentHtmlRenderer.RenderPdfAsync(c, cfg, logo, letterhead, HtmlPdf.Default))
+                .GetAwaiter().GetResult();
         DocumentFonts.EnsureInstalled();
         var tpl = cfg.TemplateFor(c.Type);
         var useCjk = DocumentFonts.CjkAvailable && TextOf(c, cfg, tpl).Any(DocumentFonts.HasCjk);
@@ -156,6 +171,21 @@ public static class DocumentRenderer
     };
 
     // ---- the letterhead background ----------------------------------------------------
+
+    /// <summary>A finished PDF (the custom layout's) with the letterhead drawn under its pages.</summary>
+    public static byte[] UnderlayPdf(byte[] pdf, byte[] letterhead, bool firstOnly)
+    {
+        try
+        {
+            using var src = new MemoryStream(pdf);
+            using var doc = PdfSharp.Pdf.IO.PdfReader.Open(src, PdfSharp.Pdf.IO.PdfDocumentOpenMode.Modify);
+            Underlay(doc, letterhead, firstOnly);
+            using var ms = new MemoryStream();
+            doc.Save(ms, false);
+            return ms.ToArray();
+        }
+        catch { return pdf; } // an unreadable letterhead (or PDF) never stops the document
+    }
 
     /// <summary>Draw the letterhead PDF's first page UNDER every page's content (or the first page's).</summary>
     private static void Underlay(PdfSharp.Pdf.PdfDocument pdf, byte[] letterhead, bool firstOnly)

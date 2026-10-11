@@ -72,7 +72,8 @@ internal sealed class DocumentRig : IDisposable
     public InboundProcessor Inbound { get; }
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "cb-docs-" + Guid.NewGuid().ToString("N"));
 
-    public DocumentRig(Func<IReadOnlyList<LlmMessage>, IReadOnlyList<LlmTool>?, LlmChatResult>? script = null)
+    public DocumentRig(Func<IReadOnlyList<LlmMessage>, IReadOnlyList<LlmTool>?, LlmChatResult>? script = null,
+        IHtmlPdfConverter? html = null)
     {
         Llm = new ToolScriptLlm(script ?? Invoice);
         Sc = new ScopingService(Db);
@@ -80,7 +81,8 @@ internal sealed class DocumentRig : IDisposable
         Threads = new ThreadStore(Db, Sc);
         Media = new MediaStore(_dir);
         Sender = new OutboundSender(Db, Threads, Wa, new ChatBranch.Data.Sidecars.SandboxBaileysGateway(), media: Media);
-        Docs = new DocumentService(Db, Sc, Media, Clock);
+        // the custom layout prints through a fake (DocumentHtmlTests) unless a test brings its own
+        Docs = new DocumentService(Db, Sc, Media, Clock, html ?? new FakeHtmlPdf());
         Skills = new SkillService(Db, Sc, Clock, documents: Docs);
         Assistant = new AssistantService(Db, Sc, new PersonaService(Sc), new KnowledgeService(Db, Sc), Llm, Skills);
         var composer = new AiComposer(Db, Assistant, Llm);

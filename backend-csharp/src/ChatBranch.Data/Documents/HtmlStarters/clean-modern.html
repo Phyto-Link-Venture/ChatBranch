@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="{{document.language}}">
+<head>
+<meta charset="utf-8">
+<title>{{document.type_label}} {{document.number}}</title>
+<style>
+  /* Clean modern — airy, one accent colour (the skill's), zebra rows, a totals card. */
+  @page { size: A4; margin: 16mm 16mm 18mm 16mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: "Helvetica Neue", Arial, "Liberation Sans", "Noto Sans CJK SC", sans-serif; font-size: 9.5pt; line-height: 1.45; color: #1F2328; }
+  p { margin: 0; }
+  table { border-collapse: collapse; }
+  .accent { color: {{business.accent}}; }
+  .muted { color: #6B7280; }
+
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10mm; }
+  .brand .logo { max-height: 16mm; max-width: 50mm; display: block; margin-bottom: 3mm; }
+  .brand .name { font-size: 15pt; font-weight: 700; line-height: 1.2; }
+  .brand .line { font-size: 8.5pt; color: #6B7280; }
+  .doc { text-align: right; }
+  .doc .kind { font-size: 22pt; font-weight: 700; letter-spacing: 0.02em; line-height: 1.1; }
+  .doc .no { font-size: 10pt; margin-top: 1.5mm; }
+  .rule { height: 1.2pt; background: {{business.accent}}; margin: 6mm 0 6mm; }
+
+  .info { display: flex; justify-content: space-between; gap: 10mm; margin-bottom: 7mm; }
+  .label { font-size: 7.5pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #6B7280; margin-bottom: 1mm; }
+  .who { font-size: 10.5pt; font-weight: 700; }
+  .facts td { padding: 0.6mm 0; }
+  .facts .k { color: #6B7280; padding-right: 5mm; }
+  .facts .v { font-weight: 700; text-align: right; }
+
+  .subject { font-size: 11pt; font-weight: 700; margin-bottom: 3mm; }
+  .items { width: 100%; }
+  .items th { background: {{business.accent}}; color: #FFFFFF; font-size: 8.5pt; text-align: left; padding: 2mm 2.5mm; }
+  .items td { padding: 2mm 2.5mm; vertical-align: top; border-bottom: 0.5pt solid #E5E7EB; }
+  .items tbody tr:nth-child(even) td { background: #F5F6F8; }
+  .items .n { width: 9mm; color: #6B7280; }
+  .items .num { text-align: right; white-space: nowrap; }
+  .items .rest { color: #6B7280; font-size: 8.5pt; }
+
+  .sum { display: flex; justify-content: flex-end; margin-top: 5mm; }
+  .sum table { width: 75mm; }
+  .sum td { padding: 1.2mm 2.5mm; }
+  .sum .v { text-align: right; }
+  .sum .grand td { background: {{business.accent}}; color: #FFFFFF; font-weight: 700; font-size: 11pt; }
+  .words { font-size: 8.5pt; color: #6B7280; text-align: right; margin-top: 2mm; font-style: italic; }
+
+  .blocks { margin-top: 8mm; display: flex; gap: 8mm; }
+  .blocks > div { flex: 1; }
+  .blocks ol { margin: 0; padding-left: 4.5mm; }
+  .letter p { margin-bottom: 4mm; line-height: 1.6; font-size: 10pt; }
+  .sign { margin-top: 12mm; }
+  .footer { margin-top: 10mm; padding-top: 3mm; border-top: 0.5pt solid #E5E7EB; font-size: 8pt; color: #6B7280; text-align: center; }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="brand">
+    {{#if business.logo}}<img class="logo" src="{{{business.logo}}}" alt="">{{/if}}
+    <div class="name">{{business.name}}</div>
+    {{#each business.address_lines}}<div class="line">{{this}}</div>{{/each}}
+    {{#if business.registration_no}}<div class="line">{{label "reg_no"}} {{business.registration_no}}{{#if business.tax_no}} · {{totals.tax_label}} {{label "no"}} {{business.tax_no}}{{/if}}</div>{{/if}}
+    <div class="line">{{business.phone}}{{#if business.email}} · {{business.email}}{{/if}}{{#if business.website}} · {{business.website}}{{/if}}</div>
+  </div>
+  <div class="doc">
+    <div class="kind accent">{{document.type_label}}</div>
+    {{#if document.number}}<div class="no">{{document.number}}</div>{{/if}}
+  </div>
+</div>
+<div class="rule"></div>
+
+<div class="info">
+  <div>
+    <div class="label">{{#eq document.type "receipt"}}{{label "received_from"}}{{else}}{{#eq document.type "letter"}}{{label "to"}}{{else}}{{label "bill_to"}}{{/eq}}{{/eq}}</div>
+    <div class="who">{{default customer.name customer.company}}</div>
+    {{#if customer.name}}{{#if customer.company}}<div>{{customer.company}}</div>{{/if}}{{/if}}
+    {{#each customer.address_lines}}<div>{{this}}</div>{{/each}}
+    <div class="muted">{{customer.phone}}{{#if customer.email}}{{#if customer.phone}} · {{/if}}{{customer.email}}{{/if}}</div>
+  </div>
+  <table class="facts">
+    <tr><td class="k">{{label "date"}}</td><td class="v">{{date document.issue_date}}</td></tr>
+    {{#if document.due_date}}<tr><td class="k">{{label "due"}}</td><td class="v">{{date document.due_date}}</td></tr>{{/if}}
+    {{#if document.valid_until}}<tr><td class="k">{{label "valid_until"}}</td><td class="v">{{date document.valid_until}}</td></tr>{{/if}}
+    {{#if document.reference}}<tr><td class="k">{{label "reference"}}</td><td class="v">{{document.reference}}</td></tr>{{/if}}
+  </table>
+</div>
+
+{{#if document.title}}<div class="subject">{{document.title}}</div>{{/if}}
+
+{{#eq document.type "letter"}}
+<div class="letter">
+  {{#each document.paragraphs}}<p>{{nl2br this}}</p>{{/each}}
+  <p class="sign">{{document.closing}}<br><br><b class="accent">{{business.name}}</b>{{#if fields.signatory_name}}<br>{{fields.signatory_name}}{{/if}}{{#if fields.signatory_title}}<br><span class="muted">{{fields.signatory_title}}</span>{{/if}}</p>
+</div>
+{{else}}
+<table class="items">
+  <thead>
+    <tr><th class="n">#</th><th>{{label "description"}}</th><th class="num">{{label "qty"}}</th><th class="num">{{label "unit_price"}}</th><th class="num">{{label "amount"}}</th></tr>
+  </thead>
+  <tbody>
+    {{#each items}}
+    <tr>
+      <td class="n">{{index}}</td>
+      <td>{{description_first_line}}{{#if description_rest}}<div class="rest">{{#each description_rest}}{{this}}<br>{{/each}}</div>{{/if}}</td>
+      <td class="num">{{qty_text}}</td>
+      <td class="num">{{unit_price_text}}</td>
+      <td class="num">{{amount_text}}{{#gt discount 0}}<div class="rest">−{{discount_text}} ({{discount_label}})</div>{{/gt}}</td>
+    </tr>
+    {{/each}}
+  </tbody>
+</table>
+
+<div class="sum">
+  <table>
+    <tr><td class="muted">{{label "subtotal"}}</td><td class="v">{{totals.subtotal_text}}</td></tr>
+    {{#gt totals.discount 0}}<tr><td class="muted">{{label "discounts_included"}}</td><td class="v">{{totals.discount_text}}</td></tr>{{/gt}}
+    {{#gt totals.tax 0}}<tr><td class="muted">{{totals.tax_label}} {{totals.tax_rate_text}}%</td><td class="v">{{totals.tax_text}}</td></tr>{{/gt}}
+    <tr class="grand"><td>{{#eq document.type "receipt"}}{{label "amount_paid"}}{{else}}{{label "total"}}{{/eq}} ({{document.currency}})</td><td class="v">{{totals.total_text}}</td></tr>
+  </table>
+</div>
+<div class="words">{{totals.total_in_words}}</div>
+{{#eq document.type "receipt"}}<p class="accent" style="font-weight: 700; margin-top: 4mm">{{upper (label "paid")}}{{#if document.payment_method}} · {{document.payment_method}}{{/if}}</p>{{/eq}}
+
+<div class="blocks">
+  {{#if document.notes}}<div><div class="label">{{label "notes"}}</div>{{nl2br document.notes}}</div>{{/if}}
+  {{#if terms}}<div><div class="label">{{label "terms"}}</div><ol>{{#each terms}}<li>{{this}}</li>{{/each}}</ol></div>{{/if}}
+  {{#if (or business.bank_details business.payment_instructions)}}<div><div class="label">{{label "payment"}}</div>{{nl2br business.bank_details}}{{#if business.payment_instructions}}<br>{{nl2br business.payment_instructions}}{{/if}}</div>{{/if}}
+</div>
+{{/eq}}
+
+{{#if business.footer_note}}<div class="footer">{{business.footer_note}}</div>{{/if}}
+</body>
+</html>

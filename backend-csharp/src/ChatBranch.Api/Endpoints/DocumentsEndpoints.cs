@@ -24,9 +24,14 @@ namespace ChatBranch.Api.Endpoints;
 ///   credential; a void or pending document, or one older than 90 days, is a 404.
 /// * <c>GET /api/documents/preview/{id}</c> — a throw-away preview (the AI
 ///   playground, the skill form's "Preview PDF"); nothing about a customer.
+/// * <c>GET /api/documents/form?channel=&amp;key=</c> (<c>chats.send</c>, the conversation in
+///   scope) — what the operator's create form offers there: per document type, the skill
+///   it would use, its layout and the custom layout's own fields.
 /// * <c>POST /api/documents</c> (<c>chats.send</c>, the conversation in scope) — an
 ///   operator makes one by hand with the conversation's Documents skill
-///   (letterhead, numbering) and, with <c>send: true</c>, sends it now.
+///   (letterhead, numbering) and, with <c>send: true</c>, sends it now. A custom
+///   layout's fields ride in <c>fields.fields</c> (the AI tool's own shape); without an
+///   HTML renderer a custom-layout skill answers 503.
 /// </summary>
 public static class DocumentsEndpoints
 {
@@ -91,6 +96,44 @@ public static class DocumentsEndpoints
           // the AI playground (monitor / behaviour) and the Skills page's "Preview PDF"
           .RequireAnyCapability("ai.monitor", "ai.behaviour.manage", "settings.ai.manage");
 
+        // what the operator's create form needs for a conversation: per document type, the
+        // Documents skill POST /api/documents would use and the custom layout's own fields
+        app.MapGet("/api/documents/form", async (string? channel, string? key, AppDbContext db, ScopingService sc,
+            ClaimsPrincipal me, SkillService skills) =>
+        {
+            var ch = (channel ?? "").Trim().ToLowerInvariant();
+            var k = (key ?? "").Trim();
+            var thread = await db.Threads.AsNoTracking().FirstOrDefaultAsync(t => t.Channel == ch && t.Key == k);
+            if (thread == null || !ThreadAccessFilter.InScope(db, sc, me, thread.EntityId))
+                return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
+            var apps = skills.InScope(thread.EntityId, thread.Channel)
+                .Where(s => s.Kind == SkillKinds.App && AppSkills.AppOf(s.Config) == AppSkills.Documents)
+                .Select(s => (Skill: s, Cfg: DocumentAppConfig.From(s.Config))).ToList();
+            var types = DocumentAppConfig.AllActions
+                .Select(type => (type, hit: apps.FirstOrDefault(a => a.Cfg.Allows(type))))
+                .Where(x => x.hit.Skill != null)
+                .Select(x => new
+                {
+                    type = x.type,
+                    label = DocumentTypes.Label(x.type),
+                    skill = new { id = x.hit.Skill.SkillId, name = x.hit.Skill.Name },
+                    layout = x.hit.Cfg.IsHtml ? DocumentAppConfig.HtmlLayout : DocumentAppConfig.DesignerLayout,
+                    currency = x.hit.Cfg.Currency,
+                    tax_label = x.hit.Cfg.TaxLabel,
+                    tax_rate = x.hit.Cfg.TaxRate,
+                    fields = x.hit.Cfg.CustomFields.Select(f => f.ToDictionary()).ToList(),
+                })
+                .ToList();
+            return Results.Ok(new
+            {
+                types,
+                html_renderer = HtmlPdf.Status(skills.Documents.Html),
+                detail = types.Count == 0
+                    ? "No Documents skill is switched on for this conversation — add the Documents app on the Skills page first."
+                    : "",
+            });
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("chats.send");
+
         app.MapPost("/api/documents", async (CreateBody body, AppDbContext db, ScopingService sc, ClaimsPrincipal me,
             SkillService skills, OutboundSender sender) =>
         {
@@ -128,8 +171,23 @@ public static class DocumentsEndpoints
                 if (sender.SocialWindowBlock(thread, thread.AccountId, MessagingTransportEndpoints.IsHumanSender(me)) is { } closed)
                     return Results.Json(new { detail = closed, window_open = false }, statusCode: 409);
             }
-            var doc = skills.Documents.Issue(skill, type, cfg, build.Content!, thread.ContactId, thread, thread.EntityId,
-                $"agent:{user}");
+            // the custom layout needs its printer — refused cleanly, never printed with the designer instead
+            if (cfg.IsHtml && !skills.Documents.Html.Available)
+                return Results.Json(new { detail = HtmlRendererUnavailableException.Text }, statusCode: 503);
+            Document doc;
+            try
+            {
+                doc = await skills.Documents.IssueAsync(skill, type, cfg, build.Content!, thread.ContactId, thread,
+                    thread.EntityId, $"agent:{user}");
+            }
+            catch (HtmlRendererUnavailableException ex)
+            {
+                return Results.Json(new { detail = ex.Message }, statusCode: 503);
+            }
+            catch (DocumentHtmlException ex)
+            {
+                return Results.Json(new { detail = $"The document's custom layout can't print it: {ex.Message}" }, statusCode: 400);
+            }
             AuditTrail.Write(db, "document.created", $"document:{doc.Id}",
                 $"{DocumentService.Label(doc)} for {thread.Channel}:{thread.Key}", actor: user, entityId: doc.EntityId);
             if (body.Send == true)

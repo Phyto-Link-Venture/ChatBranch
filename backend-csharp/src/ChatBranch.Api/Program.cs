@@ -42,6 +42,11 @@ builder.Services.AddScoped<ChatBranch.Data.Bookings.BookingService>();
 // delivery) and the integration-backed tools
 builder.Services.AddScoped<ChatBranch.Data.Documents.DocumentService>();
 builder.Services.AddScoped<ChatBranch.Data.Documents.DocumentTemplateAi>();
+// the Documents app's custom layout (HTML templates): headless Chromium (DOCUMENT_HTML_CHROMIUM
+// → chromium / google-chrome on the PATH; "off" disables — HTML-mode documents are then refused)
+builder.Services.AddSingleton<ChatBranch.Data.Documents.IHtmlPdfConverter>(_ =>
+    ChatBranch.Data.Documents.ChromiumHtmlPdfConverter.FromEnvironment());
+builder.Services.AddScoped<ChatBranch.Data.Documents.DocumentHtmlAi>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.Skills.ConnectedAppTools>();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<ChatBranch.Data.Ai.ILlmClient, ChatBranch.Data.Ai.OpenAiLlmClient>();
