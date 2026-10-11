@@ -164,7 +164,7 @@ public class VoiceReplyService
         try
         {
             var ext = format.StartsWith("opus", StringComparison.Ordinal) ? ".ogg" : ".mp3";
-            var rel = _media.SaveAsync(thread.Channel, thread.Key, tts.Audio, ext).GetAwaiter().GetResult();
+            var rel = Task.Run(() => _media.SaveAsync(thread.Channel, thread.Key, tts.Audio, ext)).GetAwaiter().GetResult();
             var full = _media.Resolve(thread.Channel, rel);
             return full == null ? (null, "the voice note could not be stored") : (new VoiceNote(rel, tts.Mime, full), "");
         }

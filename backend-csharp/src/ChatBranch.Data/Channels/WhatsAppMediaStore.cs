@@ -158,7 +158,7 @@ public sealed class MediaStore
         var rel = Path.Combine(Prefix(channel, key), $"{Guid.NewGuid():N}{NormalizeExt(ext)}");
         var full = Path.Combine(Root(channel), rel);
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-        await File.WriteAllBytesAsync(full, bytes, ct);
+        await File.WriteAllBytesAsync(full, bytes, ct).ConfigureAwait(false);
         return rel.Replace('\\', '/');
     }
 
@@ -171,14 +171,15 @@ public sealed class MediaStore
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         long total = 0;
         var buffer = new byte[81920];
-        await using (var dest = File.Create(full))
+        var dest = File.Create(full);
+        await using (dest.ConfigureAwait(false))
         {
             int n;
-            while ((n = await source.ReadAsync(buffer, ct)) > 0)
+            while ((n = await source.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
             {
                 total += n;
                 if (total > maxBytes) break;
-                await dest.WriteAsync(buffer.AsMemory(0, n), ct);
+                await dest.WriteAsync(buffer.AsMemory(0, n), ct).ConfigureAwait(false);
             }
         }
         if (total > maxBytes)
