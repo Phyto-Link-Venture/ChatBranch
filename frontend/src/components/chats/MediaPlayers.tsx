@@ -128,7 +128,7 @@ function useSize() {
     if (!bytes || bytes <= 0) return ''
     const [n, unit] =
       bytes >= 1024 * 1024 ? [bytes / (1024 * 1024), 'megabyte'] : bytes >= 1024 ? [bytes / 1024, 'kilobyte'] : [bytes, 'byte']
-    return f.number(n, { style: 'unit', unit, unitDisplay: 'short', maximumFractionDigits: unit === 'byte' ? 0 : 1 })
+    return f.number(n, { style: 'unit', unit, unitDisplay: unit === 'byte' ? 'narrow' : 'short', maximumFractionDigits: unit === 'byte' ? 0 : 1 })
   }
 }
 
