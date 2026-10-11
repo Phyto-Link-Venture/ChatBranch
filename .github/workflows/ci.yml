@@ -1,8 +1,8 @@
 name: CI
 
 # Runs the checks the repo already has but nobody ran automatically: the API
-# build + tests, the dashboard's types, lint and production build, and the two
-# Node sidecars' offline self-tests.
+# build + tests (on SQLite and again on PostgreSQL), the dashboard's types, lint
+# and production build, and the two Node sidecars' offline self-tests.
 on:
   push:
     branches: [master]
@@ -50,6 +50,58 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: api-test-results
+          path: backend-csharp/tests/ChatBranch.Tests/TestResults/*.trx
+          if-no-files-found: ignore
+
+  api-postgres:
+    name: C# API on PostgreSQL
+    # The same suite with every API test host on its own throwaway Postgres
+    # database (TEST_DATABASE=postgres) — the database production runs on.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Start PostgreSQL
+        # a container, not a `services:` entry: services can't take server flags,
+        # and the suite opens more than the default 100 connections
+        run: |
+          docker run -d --name pg -p 5432:5432 -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_INITDB_ARGS="--encoding=UTF8 --locale=C.UTF-8" postgres:16-bookworm \
+            -c max_connections=400 -c fsync=off -c synchronous_commit=off -c full_page_writes=off
+          for i in $(seq 1 60); do docker exec pg pg_isready -U postgres && break; sleep 1; done
+      - name: Restore
+        run: dotnet restore backend-csharp/ChatBranch.sln
+      - name: Build
+        run: dotnet build backend-csharp/ChatBranch.sln -c Release --no-restore
+      - name: Test
+        env:
+          QUEUE_WORKER: '0'
+          TEST_DATABASE: postgres
+          TEST_POSTGRES: Host=127.0.0.1;Port=5432;Username=postgres;Password=postgres
+        run: >-
+          dotnet test backend-csharp/tests/ChatBranch.Tests -c Release --no-build
+          --logger "trx;LogFileName=results.trx" --logger "console;verbosity=normal"
+      - name: Failed tests
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import glob, re
+          for f in glob.glob('backend-csharp/tests/ChatBranch.Tests/TestResults/*.trx'):
+              s = open(f, encoding='utf-8').read()
+              for m in re.finditer(r'<UnitTestResult [^>]*testName="([^"]+)"[^>]*outcome="Failed"[\s\S]*?<Message>([\s\S]*?)</Message>(?:[\s\S]*?<StackTrace>([\s\S]*?)</StackTrace>)?', s):
+                  print('::error title=Failed test (Postgres)::' + m.group(1))
+                  print(m.group(1)); print(m.group(2)[:2000]); print((m.group(3) or '')[:1500]); print('-' * 60)
+          PY
+      - name: PostgreSQL log
+        if: failure()
+        run: docker logs pg 2>&1 | tail -n 80
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-postgres-test-results
           path: backend-csharp/tests/ChatBranch.Tests/TestResults/*.trx
           if-no-files-found: ignore
 

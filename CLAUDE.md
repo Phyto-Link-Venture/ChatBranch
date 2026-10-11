@@ -8,7 +8,7 @@ ChatBranch — an industry-agnostic multi-channel conversation platform
 (template). Four cooperating processes:
 
 1. **C# API** (`backend-csharp/`, port 8090) — ASP.NET Core 8 minimal APIs over
-   SQLite (EF Core). THE backend: contacts, the unified inbox, flows, the
+   SQLite or PostgreSQL (EF Core; `DATABASE_PROVIDER`, see `docs/postgres.md`). THE backend: contacts, the unified inbox, flows, the
    outbound queue, the AI, integrations, RBAC, the LiveKit control plane for
    calls, the MCP server. Root `/` 404s — it is API-only.
 2. **Voice agent worker** (`backend/voice_agent/`) — a **separate** long-lived
@@ -75,6 +75,15 @@ npm run dev:baileys  # Baileys gateway, :3020
 - Under `dotnet run` the content root is the project dir, so the dev database is
   `backend-csharp/src/ChatBranch.Api/chatbranch.sqlite3` (gitignored;
   `ConnectionStrings__Default` overrides; Docker uses `/data/chatbranch.sqlite3`).
+- **SQLite or PostgreSQL** (`Data/DatabaseSetup.cs`, the one place it is decided):
+  `DATABASE_PROVIDER` = sqlite (default — dev, tests, a first boot need nothing) |
+  postgres; Postgres reads `DATABASE_URL` (postgres://user:pass@host:5432/db, wins)
+  else an Npgsql `ConnectionStrings__Default` — never the image's baked-in SQLite
+  string. Compose: profile `postgres` (PostgreSQL 16 + a `postgres-backup` pg_dump
+  loop into the data volume's `backups/postgres/`). `DB_IMPORT_SQLITE` copies an old
+  SQLite file into an EMPTY Postgres database on boot (`Data/SqliteImport.cs`: backup-API
+  snapshot, one transaction, per-table counts verified, sequences moved, Setting
+  `db_imported_from_sqlite`). Switch-over runbook: `docs/postgres.md`.
 
 ## Port status — what is real, what is sandbox
 
@@ -121,11 +130,20 @@ When you fix one of these, update this table, `README.md` and
 ## Architecture that isn't obvious from the tree
 
 - **The database is one EF Core context** (`ChatBranch.Data/AppDbContext.cs`)
-  over SQLite with **Django's table names** (`crm_*`, `ingest_*`, `auth_user`,
+  over SQLite or PostgreSQL with **Django's table names** (`crm_*`, `ingest_*`, `auth_user`,
   `integrations_integration`) and snake_case columns. There are no EF
   migrations: `EnsureCreated()` builds a fresh DB and `Seed.UpgradeSchema`
   (append-only, idempotent `ADD COLUMN` / `CREATE TABLE IF NOT EXISTS`) upgrades
-  an old one — a new column or table MUST be added there too. Entities live in
+  an old SQLite one — a new column or table MUST be added there too. On Postgres
+  that SQLite DDL is skipped: `PostgresSchema.Sync` adds missing tables / columns /
+  indexes from the EF model itself (a new object's value as the default for
+  existing rows), so the model is all Postgres needs. Postgres keeps SQLite's
+  semantics: DateTime columns are `timestamp without time zone` read back
+  unspecified (`UnspecifiedDateTime`), and `PostgresTranslators.cs` turns
+  `DateTime.UtcNow` in a query into `timezone('UTC', now())` and makes
+  `EF.Functions.Like` case-insensitive. Index filters use `"col"` quoting
+  (portable), never `[col]`; a raw SQL statement that may fail must not run inside
+  a Postgres transaction (a failed statement aborts it). Entities live in
   `ChatBranch.Domain/`. Field reference: `docs/DATABASE_SCHEMA.md`.
   **Write messages through `Stores/ThreadStore`**: `GetOrCreateThread` adopts
   the receiving account / matched contact and re-syncs the thread's entity;
@@ -1499,6 +1517,7 @@ When you fix one of these, update this table, `README.md` and
   `docs/DOMAIN_MODEL.md` (Entity · Customer/Contact · Tag · Admin/Profile) ·
   `docs/API_CONVENTIONS.md` (the REST surface + which endpoints are anonymous) ·
   `docs/RBAC_AND_BRANDS.md` (roles, capabilities, entity scope) ·
+  `docs/postgres.md` (SQLite ↔ PostgreSQL, the one-time copy, the switch-over runbook) ·
   `docs/record-sync.md` (`/api/v1/sync/records`) · `docs/channel-adapter.md`
   (per-channel capabilities, port gaps, how to add one) ·
   `backend/voice_agent/README.md` · `backend/baileys_service/README.md` +
@@ -1970,7 +1989,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **1041 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **1047 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /
@@ -2011,7 +2030,13 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   for the newer channels, `LearningFakes.cs` for embeddings).
 - **Schema changes** go in `Seed.UpgradeSchema` as well as the entity +
   `AppDbContext` mapping (append-only, idempotent) because `EnsureCreated()`
-  never alters a live database.
+  never alters a live database (Postgres picks the change up from the model —
+  `PostgresSchema.Sync`).
+- **Postgres:** `TEST_DATABASE=postgres` + `TEST_POSTGRES="Host=…;Username=…;Password=…"`
+  runs every API test host on its own throwaway database (`ApiFactory`, dropped on
+  dispose); CI's `C# API on PostgreSQL` job does it on PostgreSQL 16. `PostgresTests`
+  (settings, older-database upgrade, date round trip, translators, the import) only
+  touch a server in that mode.
 - **Frontend:** `cd frontend && npx tsc --noEmit` (clean) and `npx eslint src`;
   `npx next build` for a production check. There is no `frontend/__tests__/`
   (jest is configured, no test files).
@@ -2020,8 +2045,8 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   provider wiring; no LiveKit server or keys). Root: `npm run test:agent`.
 - **Baileys gateway:** `node backend/baileys_service/calls.js --selftest`.
 - CI (`.github/workflows/ci.yml`) runs all four on push to master / PRs: API
-  build + tests, dashboard types + lint + build, the gateway self-test, the
-  voice agent's types + self-test. Containers: `docker compose up` builds the API
+  build + tests (on SQLite, and again on PostgreSQL 16), dashboard types + lint +
+  build, the gateway self-test, the voice agent's types + self-test. Containers: `docker compose up` builds the API
   and the dashboard (the gateway sits behind the `whatsapp` profile, the voice
   agent behind `voice`); the api service gets `BAILEYS_URL=${BAILEYS_URL:-http://baileys:3020}`
   + `BAILEYS_SECRET` (a URL saved in the dashboard still wins), and the baileys
@@ -2030,7 +2055,8 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   API streams them — with `baileys-auth` mounted over `/srv/data/whatsapp/baileys`
   for the paired sessions; `docker-compose.override.yml` + `deploy/nginx-
   chatbranch.conf` are one production single-origin setup. SQLite is a FILE —
-  the API's `/data` volume is not optional, and the voice agent shares it.
+  the API's `/data` volume is not optional, and the voice agent shares it (it also
+  holds media, documents and recordings under Postgres).
 
 ## Notes
 

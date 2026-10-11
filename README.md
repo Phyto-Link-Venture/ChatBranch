@@ -110,7 +110,7 @@ The design system and key screens are on the design canvas:
 
 | # | Process | Path | Port | What it does |
 |---|---|---|---|---|
-| 1 | **C# API** | `backend-csharp/` | 8090 | ASP.NET Core 8 + EF Core over SQLite. The whole REST surface, the database, the channel transports, the AI, the flow engine, the outbound queue, the LiveKit control plane for calls, the MCP server. |
+| 1 | **C# API** | `backend-csharp/` | 8090 | ASP.NET Core 8 + EF Core over SQLite or PostgreSQL. The whole REST surface, the database, the channel transports, the AI, the flow engine, the outbound queue, the LiveKit control plane for calls, the MCP server. |
 | 2 | **Voice agent worker** | `backend/voice_agent/` | — | A long-lived [LiveKit Agents](https://docs.livekit.io/agents/) process (Node/TypeScript). Runs every AI call the API dispatches — SIP or WhatsApp — with a realtime speech model or an STT→LLM→TTS cascade. Shares state with the API through files, not the database. |
 | 3 | **Next.js dashboard** | `frontend/` | 3000 | The operator UI. |
 | 4 | **Baileys gateway** | `backend/baileys_service/` | 3020 | Node sidecar for QR-paired personal WhatsApp numbers (text + calls). Optional; the C# API is its only client. |
@@ -119,7 +119,7 @@ The design system and key screens are on the design canvas:
                     ┌──────────────── Next.js dashboard :3000
                     │                        │ HTTP + SSE
                     ▼                        ▼
-   providers ──▶  C# API :8090  ──▶ SQLite (chatbranch.sqlite3)
+   providers ──▶  C# API :8090  ──▶ SQLite or PostgreSQL
    (Meta, Telegram,  │   ▲   └──▶ LiveKit (dispatch + SIP)
     Shopify, Stripe…)│   │
                      │   │  files in CHATBRANCH_DATA_DIR (live transcripts,
@@ -203,7 +203,9 @@ dotnet run --project backend-csharp/src/ChatBranch.Api --urls http://0.0.0.0:809
 `--urls` beats the launch profile; an `ASPNETCORE_URLS` env var does NOT (the
 `http` profile in `launchSettings.json` overrides it) — use
 `dotnet run --no-launch-profile` if you configure the URL through the
-environment. The dev database is `backend-csharp/src/ChatBranch.Api/chatbranch.sqlite3`.
+environment. The dev database is `backend-csharp/src/ChatBranch.Api/chatbranch.sqlite3`;
+`DATABASE_PROVIDER=postgres` + `DATABASE_URL=postgres://…` runs it on PostgreSQL
+instead (`docs/postgres.md`).
 
 ### Docker
 
@@ -212,7 +214,10 @@ environment. The dev database is `backend-csharp/src/ChatBranch.Api/chatbranch.s
 agent (LiveKit keys in `backend/.env`; export `LIVEKIT_*` /
 `SIP_OUTBOUND_TRUNK_ID` or put them in the repo-root `.env` so the API can dial).
 SQLite and the shared data dir live in the `chatbranch-data` volume — don't drop
-it. The API reaches the gateway at `BAILEYS_URL` (default
+it. `--profile postgres` with `DATABASE_PROVIDER=postgres` and a `POSTGRES_PASSWORD`
+runs the database on PostgreSQL 16 instead (its own `postgres-data` volume, a daily
+`pg_dump` into the data volume, and `DB_IMPORT_SQLITE` to copy an existing SQLite
+database in on the first boot — the switch-over is in `docs/postgres.md`). The API reaches the gateway at `BAILEYS_URL` (default
 `http://baileys:3020`) with the same `BAILEYS_SECRET` the gateway gets; the
 gateway mounts `chatbranch-data` at `/srv/data` (its call recordings land where
 the API streams them) and keeps the paired WhatsApp sessions in the
@@ -300,7 +305,7 @@ Flow "App action" steps: `Create calendar event` · `Find free slot` ·
 
 ```
 ChatBranch/
-├── backend-csharp/              THE BACKEND (ASP.NET Core 8, EF Core + SQLite)
+├── backend-csharp/              THE BACKEND (ASP.NET Core 8, EF Core + SQLite / PostgreSQL)
 │   ├── src/ChatBranch.Api/      Program, endpoints (one file per area), auth +
 │   │                            API keys, request audit, MCP tools, the operator
 │   │                            assistant, background workers
@@ -310,7 +315,7 @@ ChatBranch/
 │   │                            flows + queue, channels (+ Channels/More),
 │   │                            integrations, notifications, tags, sidecar clients
 │   ├── src/ChatBranch.Domain/   entities
-│   └── tests/ChatBranch.Tests/  1041 xUnit tests (API-level + unit)
+│   └── tests/ChatBranch.Tests/  1047 xUnit tests (API-level + unit)
 ├── backend/
 │   ├── baileys_service/         Node gateway for QR-paired WhatsApp numbers (:3020)
 │   ├── voice_agent/             LiveKit worker (Node/TypeScript) — its own process
@@ -328,7 +333,7 @@ ChatBranch/
 
 ```bash
 cd backend-csharp && dotnet build src/ChatBranch.Api -c Release
-cd backend-csharp && dotnet test tests/ChatBranch.Tests    # 1041 tests
+cd backend-csharp && dotnet test tests/ChatBranch.Tests    # 1047 tests
 cd frontend && npx tsc --noEmit && npx eslint src && npx next build
 cd backend/voice_agent && npx tsc --noEmit && npm run selftest
 node backend/baileys_service/calls.js --selftest
@@ -367,9 +372,10 @@ every pull request.
   went with the Django backend; WhatsApp calls run over Baileys only.
 - **Integrations are fixture-tested, never provider-tested.** Treat your first
   real Shopify/Stripe/Google connection as an integration test.
-- **SQLite only.** Fine for development and a single-host pilot; not a
-  production database for heavy concurrent writes. There are no EF migrations —
-  schema upgrades are additive statements in `Seed.UpgradeSchema`.
+- **SQLite by default, PostgreSQL for production.** SQLite is fine for development
+  and a single-host pilot; use PostgreSQL (`docs/postgres.md`) for concurrent
+  writes. There are no EF migrations — SQLite upgrades are additive statements in
+  `Seed.UpgradeSchema`; Postgres is brought up to the model by `PostgresSchema.Sync`.
 - **Tenant isolation is application-layer only.** No row-level security; a
   missing filter is a data leak.
 - **Demo credentials ship in the repo.** Before any deployment: set

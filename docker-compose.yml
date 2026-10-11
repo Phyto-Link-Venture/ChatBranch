@@ -1,11 +1,18 @@
 # ChatBranch — the long-lived processes.
 #
 # `docker compose up` boots the API and the dashboard with zero credentials in
-# sandbox mode. Optional profiles add the WhatsApp Web gateway (`whatsapp`), a
-# local Whisper for customers' voice notes (`stt`) and
-# the LiveKit voice-agent worker for AI calls (`voice`: LiveKit + provider keys
-# in backend/.env for the worker, and LIVEKIT_* / SIP_OUTBOUND_TRUNK_ID exported
-# or in the repo-root .env for the API to dial).
+# sandbox mode. Optional profiles add PostgreSQL (`postgres`, see below), the
+# WhatsApp Web gateway (`whatsapp`), a local Whisper for customers' voice notes
+# (`stt`) and the LiveKit voice-agent worker for AI calls (`voice`: LiveKit +
+# provider keys in backend/.env for the worker, and LIVEKIT_* /
+# SIP_OUTBOUND_TRUNK_ID exported or in the repo-root .env for the API to dial).
+#
+# Database: a SQLite file on the data volume by default. For PostgreSQL put in
+# the repo-root .env (docs/postgres.md has the full switch-over):
+#   COMPOSE_PROFILES=postgres          (comma-join with other profiles)
+#   DATABASE_PROVIDER=postgres
+#   POSTGRES_PASSWORD=<a long random string>
+#   DB_IMPORT_SQLITE=/data/chatbranch.sqlite3   (first boot: copy the SQLite data in)
 services:
   api:
     build:
@@ -37,6 +44,17 @@ services:
       - STT_PROVIDER=${STT_PROVIDER:-}
       - STT_BASE_URL=${STT_BASE_URL:-}
       - STT_MODEL=${STT_MODEL:-}
+      # Database: sqlite (the file below) | postgres (profile `postgres`). The URL
+      # is only read for postgres; DB_IMPORT_SQLITE copies an old SQLite file in on
+      # the first Postgres boot (an empty database only — safe to leave set).
+      - DATABASE_PROVIDER=${DATABASE_PROVIDER:-sqlite}
+      - DATABASE_URL=${DATABASE_URL:-postgres://chatbranch:${POSTGRES_PASSWORD:-chatbranch-local-dev}@postgres:5432/chatbranch}
+      - DB_IMPORT_SQLITE=${DB_IMPORT_SQLITE:-}
+    depends_on:
+      # only when the `postgres` profile is on; with SQLite nothing waits
+      postgres:
+        condition: service_healthy
+        required: false
     volumes:
       # SQLite is a FILE — without this volume every redeploy starts from an
       # empty database and re-seeds the demo users. It is also the data dir the
@@ -111,7 +129,59 @@ services:
     restart: unless-stopped
     profiles: ["stt"]
 
+  # Optional: PostgreSQL instead of the SQLite file (profile `postgres` +
+  # DATABASE_PROVIDER=postgres on the api). INTERNAL ONLY — no `ports:`; the api
+  # reaches it as postgres:5432. C.UTF-8 = byte-order sorting like SQLite, with
+  # Unicode upper/lower case. Its data lives in the postgres-data volume.
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16-bookworm}
+    environment:
+      - POSTGRES_DB=chatbranch
+      - POSTGRES_USER=chatbranch
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-chatbranch-local-dev}
+      - POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C.UTF-8
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatbranch -d chatbranch"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+    profiles: ["postgres"]
+
+  # With `postgres`: a pg_dump every PG_BACKUP_HOURS (default 24) into the data
+  # volume's backups/postgres/, kept PG_BACKUP_KEEP_DAYS (default 14) — so the
+  # data-volume snapshot a deploy already takes carries a recent database dump.
+  postgres-backup:
+    image: ${POSTGRES_IMAGE:-postgres:16-bookworm}
+    environment:
+      - PGHOST=postgres
+      - PGUSER=chatbranch
+      - PGPASSWORD=${POSTGRES_PASSWORD:-chatbranch-local-dev}
+      - PGDATABASE=chatbranch
+      - PG_BACKUP_HOURS=${PG_BACKUP_HOURS:-24}
+      - PG_BACKUP_KEEP_DAYS=${PG_BACKUP_KEEP_DAYS:-14}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        mkdir -p /data/backups/postgres
+        while true; do
+          f=/data/backups/postgres/chatbranch-$$(date -u +%Y%m%dT%H%M%SZ).sql.gz
+          if pg_dump --no-owner --no-privileges | gzip > "$$f.part"; then mv "$$f.part" "$$f"; echo "backup $$f"; else rm -f "$$f.part"; echo "backup FAILED"; fi
+          find /data/backups/postgres -name 'chatbranch-*.sql.gz' -mtime +$${PG_BACKUP_KEEP_DAYS} -delete
+          sleep $$(( $${PG_BACKUP_HOURS} * 3600 ))
+        done
+    volumes:
+      - chatbranch-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles: ["postgres"]
+
 volumes:
   chatbranch-data:
   baileys-auth:
   whisper-models:
+  postgres-data:

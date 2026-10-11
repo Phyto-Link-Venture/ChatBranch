@@ -4,10 +4,14 @@ The **actual** schema, verified against `backend-csharp/src/ChatBranch.Domain/`
 (the entities) and `backend-csharp/src/ChatBranch.Data/AppDbContext.cs` (table
 names, JSON columns, indexes).
 
-- **Engine:** SQLite through EF Core, one context (`AppDbContext`). The file is
-  `chatbranch.sqlite3` in the API's content root in development
-  (`backend-csharp/src/ChatBranch.Api/`) and `/data/chatbranch.sqlite3` in
-  Docker; `ConnectionStrings__Default` overrides it.
+- **Engine:** SQLite (default) or PostgreSQL through EF Core, one context
+  (`AppDbContext`), the same model on both (`DATABASE_PROVIDER`, see
+  `docs/postgres.md`). The SQLite file is `chatbranch.sqlite3` in the API's
+  content root in development (`backend-csharp/src/ChatBranch.Api/`) and
+  `/data/chatbranch.sqlite3` in Docker; `ConnectionStrings__Default` overrides it.
+  On PostgreSQL the types are the natural ones — `text`, `integer`, `boolean`,
+  `numeric`, `date`, `bytea` — and every DateTime column is `timestamp without time
+  zone` (UTC values, read back as written, like SQLite's text dates).
 - **Names:** tables keep the names the Django backend used (`<app>_<model>`:
   `crm_*`, `ingest_*`, `auth_user`, `integrations_integration`) and every column
   is snake_case (`EntityId` → `entity_id`), so the C# API could attach to the
