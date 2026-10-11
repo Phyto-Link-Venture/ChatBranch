@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/Select'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
 import ChannelHub from '@/components/ChannelHub'
 import { BookingsCard } from '@/components/bookings/BookingsCard'
+import { DocumentsCard } from './DocumentsCard'
 import { CreateFromChat } from '@/components/contacts/CreateFromChatModal'
 import { useTags } from '@/lib/tags'
 import { tint } from '@/lib/color'
@@ -173,6 +174,9 @@ export default function ChatInfoPanel({
       {active.contact_id != null && (
         <BookingsCard contactId={active.contact_id} refreshToken={active.messages.length} compact />
       )}
+
+      {/* invoices, quotations, receipts and letters made here — and "New document" */}
+      <DocumentsCard channel={active.channel} threadKey={active.key} refreshToken={active.messages.length} />
 
       <InfoCard title={t('chats.info.conversation')} note={t('chats.info.conversationNote')}>
         <div className="flex flex-col gap-2.5">

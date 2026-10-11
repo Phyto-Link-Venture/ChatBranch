@@ -353,7 +353,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `ai_tasks_test` | Dry-run a background AI task | read | `settings.ai.manage` |
 | `ai_tasks_run_due` | Run due background AI tasks now | write | `settings.ai.manage` |
 
-#### skills (8)
+#### skills (10)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
@@ -365,6 +365,8 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `skills_draft_skill` | Draft a skill from a description | read · open-world | `settings.ai.manage` |
 | `skills_test_skill` | Test a skill | read | `settings.ai.manage` |
 | `skills_assist_document_template` | Edit a document template from words | read · open-world | `settings.ai.manage` |
+| `skills_preview_document_layout` | Preview a custom document layout | read | `settings.ai.manage` |
+| `skills_assist_document_layout` | Edit a custom document layout from words | read · open-world | `settings.ai.manage` |
 
 #### bookings (6)
 
@@ -377,11 +379,12 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `bookings_set_hours` | Set booking hours | write | `integrations.manage` or `settings.ai.manage` |
 | `bookings_reset_hours` | Reset booking hours | write · **destructive** | `integrations.manage` or `settings.ai.manage` |
 
-#### documents (2)
+#### documents (3)
 
 | Tool | What it does | Kind | Needs |
 |---|---|---|---|
 | `documents_list` | List documents | read | `chats.view` |
+| `documents_get_form` | What a document needs here | read | `chats.send` |
 | `documents_create` | Create a document | write · open-world | `chats.send` |
 
 #### automations (7)
@@ -634,6 +637,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `GET /api/aicore/skills/documents/letterhead/{name}` | the Documents template's uploaded letterhead background PDF — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
 | `POST /api/aicore/skills/documents/letterhead` | uploads a letterhead background PDF (multipart) for the Documents template — set it from the template designer on the Skills page |
 | `POST /api/aicore/skills/documents/template/analyze` | reads an uploaded design (multipart PDF / PNG / JPEG) into a proposed Documents template — a file upload for the template designer; skills_assist_document_template edits a template from words |
+| `POST /api/aicore/skills/documents/html/draft` | drafts a custom layout (HTML template) from an uploaded design (multipart PDF / PNG / JPEG) — a file upload for the custom layout editor; skills_assist_document_layout edits a layout from words and skills_preview_document_layout renders one |
 | `POST /api/voice/preview` | returns synthesized audio — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file |
 | `POST /api/voice/clone` | clones a voice from an uploaded recording — needs the speaker's own audio sample and consent |
 | `GET /api/billing/ai/pdf` | the AI bill as a PDF — binary file stream (media / audio) — tools return ids and metadata, the dashboard plays or downloads the file (billing_get_ai_bill returns the same figures) |

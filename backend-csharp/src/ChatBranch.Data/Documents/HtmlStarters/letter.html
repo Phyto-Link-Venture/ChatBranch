@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="{{document.language}}">
+<head>
+<meta charset="utf-8">
+<title>{{document.type_label}} {{document.number}}</title>
+<style>
+  /* Letter — a formal business letter on a serif letterhead; priced documents
+     print a compact table under the same letterhead. */
+  @page { size: A4; margin: 20mm 22mm 20mm 22mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: Georgia, "Times New Roman", "Liberation Serif", "Noto Serif CJK SC", serif; font-size: 10.5pt; line-height: 1.55; color: #111; }
+  p { margin: 0; }
+  table { border-collapse: collapse; }
+  .letterhead { text-align: center; padding-bottom: 4mm; border-bottom: 1.5pt double #111; }
+  .letterhead .logo { max-height: 18mm; max-width: 60mm; display: block; margin: 0 auto 2mm; }
+  .letterhead .name { font-size: 17pt; font-weight: bold; letter-spacing: 0.06em; text-transform: uppercase; }
+  .letterhead .line { font-size: 8.5pt; color: #444; }
+  .ref { display: flex; justify-content: space-between; margin: 7mm 0 6mm; font-size: 9.5pt; }
+  .to { margin-bottom: 6mm; }
+  .to .who { font-weight: bold; }
+  .subject { font-weight: bold; text-decoration: underline; margin-bottom: 5mm; }
+  .body p { margin-bottom: 4mm; text-align: justify; }
+  .closing { margin-top: 8mm; }
+  .signature { margin-top: 16mm; }
+  .signature .line { width: 55mm; border-top: 0.75pt solid #111; margin-bottom: 1.5mm; }
+  .items { width: 100%; margin: 2mm 0 4mm; font-size: 9.5pt; }
+  .items th { text-align: left; border-bottom: 1pt solid #111; padding: 1.5mm 1.5mm; }
+  .items td { border-bottom: 0.5pt solid #BBB; padding: 1.5mm; vertical-align: top; }
+  .items .num { text-align: right; white-space: nowrap; }
+  .total td { font-weight: bold; border-bottom: none; }
+  .terms { font-size: 9pt; margin-top: 4mm; }
+  .terms ol { margin: 1mm 0 0; padding-left: 5mm; }
+</style>
+</head>
+<body>
+
+<div class="letterhead">
+  {{#if business.logo}}<img class="logo" src="{{{business.logo}}}" alt="">{{/if}}
+  <div class="name">{{business.name}}</div>
+  <div class="line">{{#each business.address_lines}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}</div>
+  <div class="line">{{business.phone}}{{#if business.email}} · {{business.email}}{{/if}}{{#if business.registration_no}} · {{label "reg_no"}} {{business.registration_no}}{{/if}}</div>
+</div>
+
+<div class="ref">
+  <span>{{#if document.number}}{{label "reference"}}: {{document.number}}{{/if}}</span>
+  <span>{{date document.issue_date "d MMMM yyyy"}}</span>
+</div>
+
+<div class="to">
+  <div class="who">{{default customer.name customer.company}}</div>
+  {{#if customer.name}}{{#if customer.company}}<div>{{customer.company}}</div>{{/if}}{{/if}}
+  {{#each customer.address_lines}}<div>{{this}}</div>{{/each}}
+</div>
+
+{{#eq document.type "letter"}}
+  <p>{{label "dear"}}</p>
+  {{#if document.title}}<p class="subject" style="margin-top: 4mm">{{label "subject"}}: {{document.title}}</p>{{/if}}
+  <div class="body">{{#each document.paragraphs}}<p>{{nl2br this}}</p>{{/each}}</div>
+  <p class="closing">{{document.closing}}</p>
+{{else}}
+  <p class="subject">{{document.type_label}}{{#if document.title}} — {{document.title}}{{/if}}</p>
+  <table class="items">
+    <thead><tr><th>{{label "description"}}</th><th class="num">{{label "qty"}}</th><th class="num">{{label "unit_price"}}</th><th class="num">{{label "amount"}}</th></tr></thead>
+    <tbody>
+      {{#each items}}<tr><td>{{nl2br description}}</td><td class="num">{{qty_text}}</td><td class="num">{{unit_price_text}}</td><td class="num">{{amount_text}}</td></tr>{{/each}}
+      {{#gt totals.tax 0}}<tr><td colspan="3" class="num">{{totals.tax_label}} {{totals.tax_rate_text}}%</td><td class="num">{{totals.tax_text}}</td></tr>{{/gt}}
+      <tr class="total"><td colspan="3" class="num">{{label "total"}} ({{document.currency}})</td><td class="num">{{totals.total_text}}</td></tr>
+    </tbody>
+  </table>
+  <p><i>{{totals.total_in_words}}</i></p>
+  {{#if document.notes}}<p style="margin-top: 3mm">{{nl2br document.notes}}</p>{{/if}}
+  {{#if (or terms business.bank_details)}}<div class="terms"><b>{{label "terms"}}</b><ol>{{#each terms}}<li>{{this}}</li>{{/each}}{{#if business.bank_details}}<li>{{nl2br business.bank_details}}</li>{{/if}}</ol></div>{{/if}}
+  <p class="closing">{{label "yours_faithfully"}}</p>
+{{/eq}}
+
+<div class="signature">
+  <div class="line"></div>
+  <div><b>{{default fields.signatory_name business.name}}</b></div>
+  {{#if fields.signatory_title}}<div>{{fields.signatory_title}}</div>{{/if}}
+  {{#if fields.signatory_name}}<div>{{business.name}}</div>{{/if}}
+</div>
+
+</body>
+</html>

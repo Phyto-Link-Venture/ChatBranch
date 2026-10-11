@@ -97,6 +97,7 @@ export function ToolAppForm({
           readOnly={readOnly}
           cjk={entry?.cjk_font}
           presets={entry?.template_presets}
+          entry={entry}
         />
       )}
       {config.app === 'qr' && <QrFields c={config} set={(p) => onChange({ ...config, ...p })} readOnly={readOnly} />}
@@ -131,12 +132,14 @@ function DocumentsFields({
   readOnly,
   cjk,
   presets,
+  entry,
 }: {
   c: DocumentsConfig
   set: (p: Partial<DocumentsConfig>) => void
   readOnly: boolean
   cjk?: boolean
   presets?: Record<string, DocTemplate>
+  entry: ToolAppCatalogEntry | null
 }) {
   const t = useT()
   const d = TOOL_DEFAULTS.documents
@@ -191,32 +194,50 @@ function DocumentsFields({
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-line px-3 py-2.5">
           <div className="min-w-0 flex-1">
             <div className="text-[13px] font-semibold text-text-high">
-              {c.template
-                ? t('readySkills.designer.lookCustom', { preset: t(`readySkills.designer.presets.${c.template.preset}`) })
-                : t('readySkills.designer.lookClassic')}
+              {c.layout === 'html'
+                ? t('docLayout.look.custom')
+                : c.template
+                  ? t('readySkills.designer.lookCustom', { preset: t(`readySkills.designer.presets.${c.template.preset}`) })
+                  : t('readySkills.designer.lookClassic')}
             </div>
             <div className="text-[11.5px] leading-snug text-text-muted">
-              {overridden.length
-                ? t('readySkills.designer.lookOverrides', { types: overridden.map((x) => t(TYPE_LABEL[x])).join(', ') })
-                : t('readySkills.designer.lookHint')}
+              {c.layout === 'html'
+                ? t('docLayout.look.customHint', { count: c.html?.fields.length ?? 0 })
+                : overridden.length
+                  ? t('readySkills.designer.lookOverrides', { types: overridden.map((x) => t(TYPE_LABEL[x])).join(', ') })
+                  : t('readySkills.designer.lookHint')}
             </div>
           </div>
           <Button variant="secondary" size="sm" onClick={() => setDesigning(true)}>
             <Palette size={13} aria-hidden /> {t('readySkills.designer.open')}
           </Button>
-          {c.template && !readOnly && (
-            <Button variant="ghost" size="sm" onClick={() => set({ template: null })}>
-              {t('readySkills.designer.useClassic')}
+          {c.layout === 'html' && !readOnly ? (
+            <Button variant="ghost" size="sm" onClick={() => set({ layout: 'designer' })}>
+              {t('docLayout.look.useDesigner')}
             </Button>
+          ) : (
+            c.template && !readOnly && (
+              <Button variant="ghost" size="sm" onClick={() => set({ template: null })}>
+                {t('readySkills.designer.useClassic')}
+              </Button>
+            )
           )}
         </div>
+        {c.layout === 'html' && entry?.html_renderer === 'missing' && (
+          <div className="mt-2">
+            <Note tone="amber">{t('docLayout.renderer.missing')}</Note>
+          </div>
+        )}
         {designing && (
           <DocumentDesigner
             config={c}
             presets={presets}
+            starters={entry?.html_starters}
+            reference={entry?.html_reference ?? null}
+            rendererMissing={entry?.html_renderer === 'missing'}
             readOnly={readOnly}
             onClose={() => setDesigning(false)}
-            onApply={({ template, business }) => set({ ...business, template })}
+            onApply={({ template, business, layout, html }) => set({ ...business, template, layout, html })}
           />
         )}
       </Section>

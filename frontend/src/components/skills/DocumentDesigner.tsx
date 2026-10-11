@@ -48,6 +48,8 @@ import {
   type Preset,
   type SectionId,
 } from './documentTemplate'
+import { HtmlLayoutEditor } from './HtmlLayoutEditor'
+import { EMPTY_LAYOUT, completeLayout, fieldProblem, type HtmlLayout, type HtmlReference, type HtmlStarter } from './htmlLayout'
 
 /**
  * The Documents skill's template designer — "Canva-like", kept practical: a
@@ -66,6 +68,10 @@ import {
  * "Editing" picks all documents or one type: a type's edits become a per-type
  * override. Nothing is saved here — Apply hands the template (and any business
  * lines read from an upload) back to the form, whose Save stores the skill.
+ *
+ * The top bar switches the LAYOUT: Designer (all of the above) | Custom layout
+ * (HTML) — `HtmlLayoutEditor`, a Handlebars template that can match any existing
+ * document. Switching keeps both; Apply stores `layout` + `html` with the template.
  */
 
 const TYPE_LABEL: Record<DocumentType, MessageKey> = {
@@ -94,6 +100,9 @@ type Scope = 'all' | DocumentType
 export function DocumentDesigner({
   config,
   presets,
+  starters = [],
+  reference = null,
+  rendererMissing = false,
   readOnly = false,
   onApply,
   onClose,
@@ -101,8 +110,17 @@ export function DocumentDesigner({
   config: DocumentsConfig
   /** GET /skills/apps → documents.template_presets (the classic layout alone while it loads). */
   presets?: Record<string, DocTemplate>
+  /** GET /skills/apps → documents.html_starters / html_reference / html_renderer (the custom layout). */
+  starters?: HtmlStarter[]
+  reference?: HtmlReference | null
+  rendererMissing?: boolean
   readOnly?: boolean
-  onApply: (next: { template: DocTemplate; business: Partial<Record<BusinessKey, string>> }) => void
+  onApply: (next: {
+    template: DocTemplate
+    business: Partial<Record<BusinessKey, string>>
+    layout: 'designer' | 'html'
+    html: HtmlLayout | null
+  }) => void
   onClose: () => void
 }) {
   const t = useT()
@@ -115,6 +133,9 @@ export function DocumentDesigner({
   const [business, setBusiness] = useState<Partial<Record<BusinessKey, string>>>({})
   const [scope, setScope] = useState<Scope>('all')
   const [notice, setNotice] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
+  // the layout: the designer (above) or the custom HTML layout — switching keeps both
+  const [mode, setMode] = useState<'designer' | 'html'>(config.layout === 'html' ? 'html' : 'designer')
+  const [html, setHtml] = useState<HtmlLayout>(() => (config.html ? completeLayout(config.html) : EMPTY_LAYOUT))
   const rootRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -167,7 +188,10 @@ export function DocumentDesigner({
   }
 
   // ---- the config the preview renders with (business lines from an upload fill blanks) ----
-  const previewConfig = useMemo<DocumentsConfig>(() => ({ ...config, ...business, template: tpl }), [config, business, tpl])
+  const previewConfig = useMemo<DocumentsConfig>(
+    () => ({ ...config, ...business, template: tpl, layout: 'designer' }),
+    [config, business, tpl],
+  )
   const previewType: DocumentType = scope === 'all' ? (config.actions[0] ?? 'invoice') : scope
 
   // ---- upload my design --------------------------------------------------------------------
@@ -238,6 +262,7 @@ export function DocumentDesigner({
   const seq = useRef(0)
   useEffect(() => {
     const mine = ++seq.current
+    if (mode !== 'designer') return
     setPreview((p) => ({ ...p, state: 'loading' }))
     const timer = window.setTimeout(async () => {
       try {
@@ -260,7 +285,7 @@ export function DocumentDesigner({
       }
     }, 700)
     return () => window.clearTimeout(timer)
-  }, [previewConfig, previewType])
+  }, [previewConfig, previewType, mode])
   useEffect(
     () => () => {
       if (blobRef.current) URL.revokeObjectURL(blobRef.current)
@@ -286,8 +311,11 @@ export function DocumentDesigner({
   }
 
   const close = () => onClose()
+  // an untouched, never-used custom layout isn't stored (a designer-only config keeps its shape)
+  const keepHtml = html.template.trim() || config.html ? html : null
+  const htmlBlocked = mode === 'html' && (!html.template.trim() || !!fieldProblem(html.fields))
   const apply = () => {
-    onApply({ template: tpl, business })
+    onApply({ template: tpl, business, layout: mode, html: keepHtml })
     onClose()
   }
 
@@ -320,9 +348,31 @@ export function DocumentDesigner({
             {t('readySkills.designer.title')}
           </div>
           <div className="mt-0.5 text-[12px] text-text-muted">{t('readySkills.designer.subtitle')}</div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <div role="radiogroup" aria-label={t('docLayout.mode.label')} className="inline-flex overflow-hidden rounded-lg border border-line-strong">
+              {(['designer', 'html'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  role="radio"
+                  aria-checked={mode === m}
+                  disabled={readOnly && mode !== m}
+                  onClick={() => setMode(m)}
+                  className={`px-3 py-1.5 text-[12px] font-semibold transition-colors ${
+                    mode === m ? 'bg-primary text-on-primary' : 'bg-card text-text-mid hover:bg-fill-hover'
+                  }`}
+                >
+                  {t(`docLayout.mode.${m}`)}
+                </button>
+              ))}
+            </div>
+            <span className="text-[11.5px] leading-snug text-text-muted">
+              {mode === 'html' ? t('docLayout.mode.htmlHint') : t('docLayout.mode.designerHint')}
+            </span>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {history.length > 0 && !readOnly && (
+          {mode === 'designer' && history.length > 0 && !readOnly && (
             <Button variant="ghost" size="sm" onClick={undo}>
               <Undo2 size={13} aria-hidden /> {t('readySkills.designer.undo')}
             </Button>
@@ -331,7 +381,7 @@ export function DocumentDesigner({
             {t('common.actions.cancel')}
           </Button>
           {!readOnly && (
-            <Button size="sm" onClick={apply}>
+            <Button size="sm" onClick={apply} disabled={htmlBlocked}>
               {t('common.actions.apply')}
             </Button>
           )}
@@ -347,6 +397,19 @@ export function DocumentDesigner({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
+        {mode === 'html' ? (
+          <HtmlLayoutEditor
+            config={{ ...config, ...business }}
+            value={html}
+            onChange={setHtml}
+            onBusiness={(filled) => setBusiness((b) => ({ ...b, ...filled }))}
+            starters={starters}
+            reference={reference}
+            rendererMissing={rendererMissing}
+            readOnly={readOnly}
+            initialType={config.actions[0] ?? 'invoice'}
+          />
+        ) : (
         <div className="flex flex-col lg:h-full lg:flex-row">
           {/* ---- left: start-from + block panels ---- */}
           <div className="flex min-w-0 flex-col gap-4 border-line p-4 lg:w-[440px] lg:shrink-0 lg:overflow-y-auto lg:border-r">
@@ -565,6 +628,7 @@ export function DocumentDesigner({
             </div>
           </div>
         </div>
+        )}
       </div>
     </div>,
     document.body,

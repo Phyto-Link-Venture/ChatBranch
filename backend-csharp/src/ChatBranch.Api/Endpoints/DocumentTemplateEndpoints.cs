@@ -159,7 +159,7 @@ public static class DocumentTemplateEndpoints
         }
     }
 
-    private static async Task<(byte[]? Bytes, IResult? Bad)> ReadFileAsync(HttpContext ctx, long max, string tooBig)
+    internal static async Task<(byte[]? Bytes, IResult? Bad)> ReadFileAsync(HttpContext ctx, long max, string tooBig)
     {
         if (!ctx.Request.HasFormContentType) return (null, Bad("file is required (multipart/form-data)."));
         var form = await ctx.Request.ReadFormAsync();
@@ -171,7 +171,7 @@ public static class DocumentTemplateEndpoints
         return (ms.ToArray(), null);
     }
 
-    private static bool TryJson(string s, out JsonElement el)
+    internal static bool TryJson(string s, out JsonElement el)
     {
         try
         {
@@ -188,5 +188,5 @@ public static class DocumentTemplateEndpoints
 
     private static bool IsTrue(string s) => s.Trim().ToLowerInvariant() is "1" or "true" or "yes" or "on";
 
-    private static IResult Bad(string detail) => Results.Json(new { detail }, statusCode: 400);
+    internal static IResult Bad(string detail) => Results.Json(new { detail }, statusCode: 400);
 }

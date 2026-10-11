@@ -215,12 +215,17 @@ public partial class AssistantService
             {
                 var cfg = Documents.DocumentAppConfig.From(s.Config);
                 var kinds = string.Join(", ", cfg.AllowedActions.Select(a => $"{b}_create_{a}"));
+                // a custom layout prints its own fields — the model passes them (and asks for a required one)
+                var custom = cfg.CustomFields.Count == 0 ? ""
+                    : " This layout also prints its own fields — pass them in `fields`: "
+                      + string.Join(", ", cfg.CustomFields.Select(f => $"{f.Key} ({f.Label}{(f.Required && f.Default.Length == 0 ? ", required" : "")})"))
+                      + "; ask the customer for a required one you don't know, never invent it.";
                 return $"  Documents ({kinds}): make the PDF only when the customer asked for it and the details are "
                        + "clear (items, quantities and prices from your instructions or knowledge — never invented). "
                        + "Send quantities and unit prices; the tool computes every amount and the number. In your reply "
                        + "quote the document number and the total exactly as the tool returned them and say the PDF "
                        + "follows. If it returns ok:false, follow its advice; never claim a document was sent unless the "
-                       + "tool returned ok.";
+                       + "tool returned ok." + custom;
             }
             case Skills.AppSkills.Qr:
                 return $"  QR codes ({b}_create): the picture is sent right after your reply; mention it briefly.";

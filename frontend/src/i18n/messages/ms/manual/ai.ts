@@ -522,6 +522,7 @@ export const ai: Dict<typeof source> = {
       t2: 'Jika balasan ditahan untuk semakan, dokumen hanya dihantar apabila seseorang meluluskan balasan. Menolaknya membatalkan dokumen; nombornya kekal digunakan supaya tiada jurang tersembunyi.',
       t3: 'Berikan harga kepada AI dalam pangkalan pengetahuan atau arahan kemahiran — ia tidak pernah mereka harga.',
       t4: 'Aksara Cina hanya dicetak apabila pelayan mempunyai fon Cina (DOCUMENT_CJK_FONT); jika tidak, AI menulis dokumen dalam bahasa Inggeris atau Melayu.',
+      t5: 'Mahu ia kelihatan sama seperti invois yang anda guna sekarang? Dalam “Reka templat”, tukar ke “Susun atur tersuai (HTML)”: mula daripada “Klasik Malaysia” atau klik “Muat naik reka bentuk saya”, tambah medan tambahan yang dicetak oleh susun atur anda (cth. PRO atau Tel U/P — AI bertanya kepada pelanggan), dan semak “Pratonton PDF”. Rakan sepasukan juga boleh membuatnya dari sembang: panel maklumat “Dokumen” → “Dokumen baharu”.',
     },
     trouble: 'AI kata ia tidak dapat membuat dokumen: pastikan kemahiran dihidupkan dan membenarkan jenis itu, serta item mempunyai harga. Pautan bayaran kata Stripe tidak disambungkan: sambungkannya di Integrasi. Tiada fail sampai di WhatsApp: sembang menunjukkan pautan muat turun dan nota menerangkan sebab fail ditolak.',
   },

@@ -2,6 +2,7 @@ import type { MessageKey, TFunction } from '@/i18n'
 import { authHeaders, expireSessionOn401 } from '@/lib/auth'
 import { TOOL_APP_IDS, aicore, type ToolAppId } from './skillsApi'
 import type { DocTemplate } from './documentTemplate'
+import type { HtmlLayout, HtmlReference, HtmlStarter } from './htmlLayout'
 
 /**
  * The ready-made "Connected app" skills besides the calendar — Documents (PDF
@@ -46,6 +47,10 @@ export interface DocumentsConfig {
   language: 'auto' | 'en' | 'ms'
   /** The designed look (the template designer); absent / null = the classic layout. */
   template?: DocTemplate | null
+  /** designer (default) | html — print with the custom layout below. */
+  layout?: 'designer' | 'html'
+  /** The custom layout (HTML template + fields); kept while the designer is in use. */
+  html?: HtmlLayout | null
 }
 export interface QrConfig {
   app: 'qr'
@@ -151,6 +156,12 @@ export interface ToolAppCatalogEntry {
   cjk_font?: boolean
   /** Documents: the designer's "Start from…" presets (canonical templates). */
   template_presets?: Record<string, DocTemplate>
+  /** Documents: can this server print a custom layout (headless Chromium)? */
+  html_renderer?: 'available' | 'missing'
+  /** Documents: the ready-made custom layouts. */
+  html_starters?: HtmlStarter[]
+  /** Documents: every variable / helper / label the custom layout may use. */
+  html_reference?: HtmlReference
 }
 
 export async function fetchToolApps(): Promise<ToolAppCatalogEntry[] | null> {
