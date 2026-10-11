@@ -21,4 +21,5 @@ stopwords = [
   "whsec_signing_1234",
   "wx1234567890abcdef",
   "bm90IGEgY2lwaGVydGV4dA",  # base64 of "not a ciphertext"
+  "roti-telur-bawang",       # the welcome-email tests' made-up passwords
 ]
