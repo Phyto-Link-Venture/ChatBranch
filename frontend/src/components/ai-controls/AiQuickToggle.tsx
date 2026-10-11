@@ -18,8 +18,9 @@ import { useT } from '@/i18n'
 export function AiQuickToggle() {
   const t = useT()
   const access = useAccess()
-  const { activeEntity } = useEntity()
-  const slug = activeEntity?.slug ?? null
+  // the ticked entity — for a person bound to entities never the whole organization
+  const { levelEntity } = useEntity()
+  const slug = levelEntity?.slug ?? null
   const allowed = access.ready && access.can('ai.behaviour.manage')
   const [data, setData] = useState<AiControls | null>(null)
   const [busy, setBusy] = useState(false)

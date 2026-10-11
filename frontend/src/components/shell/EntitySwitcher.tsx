@@ -14,13 +14,13 @@ import { useT } from '@/i18n'
  * that entity; its checkbox adds it to (or removes it from) the view, so
  * several can be seen together. A ticked entity includes its branches, so a
  * branch under it shows as included. A user with a single entity gets a static
- * chip.
+ * chip. A person BOUND to assigned entities gets no "All entities" choice.
  *
  * The TENANT is deliberately not shown: operators think in entities.
  */
 export function EntitySwitcher({ block = false }: { block?: boolean }) {
   const t = useT()
-  const { entities, activeEntity, selectedEntities, allEntities, setActiveEntity, toggleEntity, loading } = useEntity()
+  const { entities, activeEntity, selectedEntities, allEntities, bound, setActiveEntity, toggleEntity, loading } = useEntity()
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const ref = useRef<HTMLDivElement>(null)
@@ -120,7 +120,8 @@ export function EntitySwitcher({ block = false }: { block?: boolean }) {
           )}
           <p className="border-b border-line bg-fill-subtle px-3 py-2 text-[11.5px] leading-snug text-text-muted">{t('shell.entitySwitcher.hint')}</p>
           <div role="group" aria-label={t('shell.nav.entities')} className="max-h-[320px] overflow-y-auto p-1">
-            {!q.trim() && (
+            {/* a person bound to their entities has no "All entities" view */}
+            {!q.trim() && !bound && (
               <>
                 <button
                   type="button"

@@ -15,7 +15,7 @@
  * RBAC still bounds the set, this narrows within it.
  */
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { authHeaders, getAuth } from './auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
@@ -45,6 +45,19 @@ interface EntityState {
   allEntities: boolean
   /** True when several entities are ticked (pages that edit ONE level ask for one). */
   multipleEntities: boolean
+  /**
+   * The signed-in person is BOUND to assigned entities (whoami `bound`: a company
+   * admin, an agent or a custom role with entities). A bound person never views
+   * "All entities" and never acts at the organization level — every level picker
+   * hides "Organization" for them. False until whoami answers (read after mount).
+   */
+  bound: boolean
+  /**
+   * The ONE level a settings page reads / edits: the single ticked entity; else
+   * null (the organization) — except for a bound person, who gets their first
+   * ticked (else first visible) entity, never the organization.
+   */
+  levelEntity: Entity | null
   /** Pick exactly one entity (null = All entities). */
   setActiveEntity: (slug: string | null) => void
   /** Tick / untick one entity, keeping the others. */
@@ -107,6 +120,9 @@ export function EntityProvider({ children }: { children: ReactNode }) {
   // the ticked slugs; [] = All entities
   const [selected, setSelected] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
+  const [bound, setBound] = useState(false)
+  // read inside callbacks (storage events, toggles) without re-binding them
+  const boundRef = useRef(false)
 
   const load = useCallback(async () => {
     if (!getAuth()) {
@@ -115,13 +131,16 @@ export function EntityProvider({ children }: { children: ReactNode }) {
     }
     try {
       const [who, list] = await Promise.all([
-        v1<{ tenant: string | null; entities: string[] }>('whoami'),
+        v1<{ tenant: string | null; entities: string[]; bound?: boolean }>('whoami'),
         v1<{ entities: Entity[] }>('entities'),
       ])
       // only entities the user may see (whoami.entities), keep the ordering stable
       const visible = who.entities.length
         ? list.entities.filter((b) => who.entities.includes(b.slug))
         : list.entities
+      const isBound = Boolean(who.bound)
+      boundRef.current = isBound
+      setBound(isBound)
       setTenant(who.tenant)
       setEntities(visible)
       setSelected((cur) => {
@@ -131,7 +150,9 @@ export function EntityProvider({ children }: { children: ReactNode }) {
         const still = known(cur)
         if (cur.length > 0 && still.length > 0) return still
         const stored = readStored()
-        if (stored?.includes(ALL)) return []
+        // the stored pick is per BROWSER: another person's "All" must never put a
+        // bound person on every entity
+        if (stored?.includes(ALL) && !isBound) return []
         const restored = stored ? known(stored) : []
         if (restored.length > 0) return restored
         const first = visible.find((b) => !b.parent || !visible.some((x) => x.slug === b.parent)) ?? visible[0]
@@ -159,6 +180,8 @@ export function EntityProvider({ children }: { children: ReactNode }) {
         setTenant(null)
         setEntities([])
         setSelected([])
+        boundRef.current = false
+        setBound(false)
         return
       }
       setLoading(true)
@@ -168,7 +191,9 @@ export function EntityProvider({ children }: { children: ReactNode }) {
       if (e.key === null || e.key === 'chatbranch-auth') onAuth()
       else if (e.key === SELECTED_KEY) {
         const stored = readStored()
-        if (stored) setSelected(stored.includes(ALL) ? [] : stored)
+        // a bound person keeps their own pick rather than follow another tab to "All"
+        if (stored && !(boundRef.current && (stored.includes(ALL) || stored.length === 0)))
+          setSelected(stored.includes(ALL) ? [] : stored)
       }
     }
     window.addEventListener('auth-change', onAuth)
@@ -180,6 +205,8 @@ export function EntityProvider({ children }: { children: ReactNode }) {
   }, [load])
 
   const setActiveEntity = useCallback((slug: string | null) => {
+    // a bound person has no "All entities" view
+    if (!slug && boundRef.current) return
     const next = slug ? [slug] : []
     setSelected(next)
     store(next)
@@ -189,6 +216,8 @@ export function EntityProvider({ children }: { children: ReactNode }) {
     (slug: string) => {
       setSelected((cur) => {
         const next = cur.includes(slug) ? cur.filter((s) => s !== slug) : normalize([...cur, slug], entities)
+        // unticking a bound person's last entity keeps it (never "All entities")
+        if (next.length === 0 && boundRef.current) return cur
         store(next)
         return next
       })
@@ -201,6 +230,7 @@ export function EntityProvider({ children }: { children: ReactNode }) {
     [entities, selected]
   )
   const activeEntity = selectedEntities.length === 1 ? selectedEntities[0] : null
+  const levelEntity = activeEntity ?? (bound ? (selectedEntities[0] ?? entities[0] ?? null) : null)
 
   // Stable identity: consumers put reload in effect deps (the Entities page
   // reloads the switcher after an edit). A fresh arrow per render made that
@@ -217,12 +247,14 @@ export function EntityProvider({ children }: { children: ReactNode }) {
       selectedEntities,
       allEntities: selectedEntities.length === 0,
       multipleEntities: selectedEntities.length > 1,
+      bound,
+      levelEntity,
       setActiveEntity,
       toggleEntity,
       reload,
       loading,
     }),
-    [tenant, entities, activeEntity, selectedEntities, setActiveEntity, toggleEntity, reload, loading]
+    [tenant, entities, activeEntity, selectedEntities, bound, levelEntity, setActiveEntity, toggleEntity, reload, loading]
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
@@ -256,11 +288,13 @@ export function useEntityQuery(): string {
  * The `?entity=<slug>` for pages that read or EDIT one level of the tree
  * (persona, AI behaviour, the AI switch…): the single ticked entity, else ""
  * (the organization level). Several ticked entities never reach a settings
- * endpoint — pair it with `<MultiEntityNotice />` so the page says so.
+ * endpoint — pair it with `<MultiEntityNotice />` so the page says so. A
+ * person BOUND to entities never gets the organization level: their first
+ * ticked (else first) entity instead (`levelEntity`).
  */
 export function useEntityLevelQuery(): string {
-  const { activeEntity } = useEntity()
-  return activeEntity ? `entity=${encodeURIComponent(activeEntity.slug)}` : ''
+  const { levelEntity } = useEntity()
+  return levelEntity ? `entity=${encodeURIComponent(levelEntity.slug)}` : ''
 }
 
 /** Same scope as `useEntityQuery`, ready to append to a URL that may or may

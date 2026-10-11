@@ -19,6 +19,7 @@ import { MultiSelect, Select, type SelectOption } from '@/components/ui/Select'
 import { TagListInput } from '@/components/ui/TagListInput'
 import { Toggle } from '@/components/ui/Toggle'
 import { useTags } from '@/lib/tags'
+import { useEntity } from '@/lib/EntityContext'
 import { aiApi } from '@/lib/aiMonitor'
 import {
   isOverride,
@@ -237,10 +238,13 @@ export function VariantEditor({
   onPersonaSaved?: (persona: string) => void
 }) {
   const t = useT()
+  // a person bound to their entities saves their outlet's persona, never the organization's
+  const { bound } = useEntity()
+  const canSaveHere = !(bound && !entity)
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const savePersona = async () => {
-    if (variant.persona == null) return
+    if (variant.persona == null || !canSaveHere) return
     setSaving(true)
     setSaveMsg(null)
     try {
@@ -370,7 +374,7 @@ export function VariantEditor({
           {variant.persona != null ? t('playground.changes.personaUnsaved') : t('playground.changes.personaSavedHint')}
         </p>
         {variant.persona != null && (
-          <Button size="sm" variant="secondary" className="mt-1.5" onClick={savePersona} disabled={saving}>
+          <Button size="sm" variant="secondary" className="mt-1.5" onClick={savePersona} disabled={saving || !canSaveHere}>
             {saving ? <Loader2 size={12} className="animate-spin" aria-hidden /> : <Save size={12} aria-hidden />}
             {t('playground.changes.personaSave')}
           </Button>
@@ -448,6 +452,7 @@ export function SetupPane({
 }) {
   const t = useT()
   const { locale } = useI18n()
+  const { bound } = useEntity()
   const { tags: registry } = useTags('contact', setup.entity)
   const set = (patch: Partial<Setup>) => onSetup({ ...setup, ...patch })
   const setProfile = (patch: Partial<Setup['profile']>) => set({ profile: { ...setup.profile, ...patch } })
@@ -473,7 +478,11 @@ export function SetupPane({
       <Section title={t('playground.setup.title')}>
         <div>
           <Label>{t('playground.setup.outlet')}</Label>
-          <EntityPicker value={setup.entity} onChange={(slug) => set({ entity: slug, contact: null })} />
+          <EntityPicker
+            value={setup.entity}
+            onChange={(slug) => set({ entity: slug, contact: null })}
+            allowGlobal={!bound}
+          />
           <p className="mt-1 text-[11.5px] text-text-muted">{t('playground.setup.outletHint')}</p>
         </div>
         <div>

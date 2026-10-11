@@ -60,7 +60,8 @@ const replaceAt = (list: (ColumnResult | null)[], i: number, v: ColumnResult | n
 export default function AiPlaygroundPage() {
   const t = useT()
   const { locale } = useI18n()
-  const { activeEntity, loading: entitiesLoading } = useEntity()
+  // levelEntity: the ticked outlet — for a person bound to entities never the organization
+  const { levelEntity, bound, loading: entitiesLoading } = useEntity()
   const [ready, setReady] = useState(false)
   const [username, setUsername] = useState<string | null>(null)
   const [restored, setRestored] = useState(false)
@@ -103,9 +104,15 @@ export default function AiPlaygroundPage() {
   // a fresh playground speaks for the active outlet
   useEffect(() => {
     if (!ready || restored || entitiesLoading) return
-    setSetup((s) => ({ ...s, entity: activeEntity?.slug ?? null }))
+    setSetup((s) => ({ ...s, entity: levelEntity?.slug ?? null }))
     setRestored(true)
-  }, [ready, restored, entitiesLoading, activeEntity])
+  }, [ready, restored, entitiesLoading, levelEntity])
+
+  // a bound person never speaks for the organization — not even from a cached set-up
+  useEffect(() => {
+    if (!ready || !bound || setup.entity || !levelEntity) return
+    setSetup((s) => ({ ...s, entity: levelEntity.slug, contact: null }))
+  }, [ready, bound, setup.entity, levelEntity])
 
   useEffect(() => {
     if (ready && username) writePlayground(username, { setup, variants, entries })

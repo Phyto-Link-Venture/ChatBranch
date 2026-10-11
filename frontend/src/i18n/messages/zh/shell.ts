@@ -111,6 +111,7 @@ export const shell: Dict<typeof source> = {
     hint: '点击名称只看该实体，或勾选多个一起查看。实体始终包含其分支。',
     included: '已随 {parent} 包含',
     levelNotice: '已勾选多个实体，因此本页显示组织级设置。请在切换器中只选一个实体，以查看或编辑它自己的设置。',
+    levelNoticeBound: '已勾选多个实体，因此本页显示 {name} 的设置。请在切换器中只选一个实体，以查看或编辑其他实体。',
   },
   palette: {
     clear: '清除搜索',

@@ -36,6 +36,7 @@ public static class ApiV1Endpoints
             var entities = new List<string>();
             var capabilities = new List<string>();
             var companyAdmin = false;
+            var bound = false;
             try
             {
                 if (TenantId(me) is int tid)
@@ -45,6 +46,7 @@ public static class ApiV1Endpoints
                     .Select(e => e.Slug).ToList();
                 capabilities = CompanyAdminScope.Filter(await AdminEndpoints.CapabilitiesForAsync(db, role), CompanyAdminScope.Current);
                 companyAdmin = ShellScope.IsCompanyAdmin(db, me);
+                bound = ShellScope.ScopeRoots(db, me).Count > 0;
             }
             catch (Exception)
             {
@@ -64,6 +66,9 @@ public static class ApiV1Endpoints
                 capabilities,
                 // an admin bound to entities: admin rights inside those companies only
                 company_admin = companyAdmin,
+                // bound to assigned entities (a company admin, an agent or custom role
+                // with entities): never acts at the organization level
+                bound,
             });
         }).RequireAuthorization(AuthPolicies.Authenticated);
 

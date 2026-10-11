@@ -111,6 +111,7 @@ export const shell: Dict<typeof source> = {
     hint: 'Klik nama untuk melihat entiti itu sahaja, atau tandakan beberapa untuk melihatnya bersama. Entiti sentiasa merangkumi cawangannya.',
     included: 'Termasuk bersama {parent}',
     levelNotice: 'Beberapa entiti ditandakan, jadi halaman ini menunjukkan tahap organisasi. Pilih satu entiti dalam penukar untuk melihat atau mengubah tetapannya sendiri.',
+    levelNoticeBound: 'Beberapa entiti ditandakan, jadi halaman ini menunjukkan {name}. Pilih satu entiti dalam penukar untuk melihat atau mengubah entiti lain.',
   },
   palette: {
     clear: 'Kosongkan carian',

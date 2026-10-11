@@ -264,7 +264,16 @@ When you fix one of these, update this table, `README.md` and
   org-wide settings stay with org-wide admins. Only a superadmin makes an
   org-wide admin; an org-wide admin may make company admins (`entity_ids` on an
   admin). `whoami.company_admin`; details in `docs/RBAC_AND_BRANDS.md`
-  ("Company admins"), tests `CompanyAdminTests`. **There is no fallback policy:
+  ("Company admins"), tests `CompanyAdminTests`. **Every BOUND person**
+  (company admins, agents and custom roles with entities — `whoami.bound`) acts
+  only inside their subtrees whatever their capabilities: org-level AI writes
+  (behaviour, controls, persona, safety rules, re-index, the monitor tick, an
+  org lesson's delete) are 403, a sibling's AI levels 404, and their feedback /
+  monitor decisions never create, merge or demote an org-wide lesson
+  (`LearningActor.Bound` / `AutoApproves`); the UI never puts them on "All
+  entities" or "Organization" (`EntityContext` `bound` / `levelEntity`) —
+  "Bound users never act at the organization level" in the same doc, tests
+  `EntityBoundAiScopeTests`. **There is no fallback policy:
   every route must carry `RequireAuthorization(...)` or an explicit
   `AllowAnonymous()`** — the anonymous set is listed in
   `docs/API_CONVENTIONS.md`. User management (`/api/v1/users`) is tiered:

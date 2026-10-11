@@ -20,6 +20,7 @@ import { Loader2, RotateCcw } from 'lucide-react'
 import { Advanced } from '@/components/ui/Advanced'
 import { Card, CardTitle } from '@/components/ui/Card'
 import { EntityPicker } from '@/components/ui/EntityPicker'
+import { useEntity } from '@/lib/EntityContext'
 import { SaveBar } from '@/components/ui/BindingGrid'
 import { Select } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
@@ -187,7 +188,12 @@ function show(field: BehaviourField, v: string, t: TFunction): string {
 
 export function AiBehaviourSettings({ initialEntity = null }: { initialEntity?: string | null }) {
   const t = useT()
-  const [entity, setEntity] = useState<string | null>(initialEntity)
+  // a person bound to their entities edits their entity's level, never the organization's
+  const { bound, levelEntity } = useEntity()
+  const start = initialEntity ?? levelEntity?.slug ?? null
+  const [entity, setEntity] = useState<string | null>(start)
+  // follow the switcher (and whoami's `bound` arriving after mount)
+  useEffect(() => setEntity(start), [start])
   const [data, setData] = useState<BehaviourPayload | null>(null)
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -268,6 +274,7 @@ export function AiBehaviourSettings({ initialEntity = null }: { initialEntity?: 
               setEntity(v)
             }}
             globalLabel={t('ai.behaviour.orgDefaultEvery')}
+            allowGlobal={!bound}
             ariaLabel={t('ai.behaviour.entityAria')}
           />
         </div>
