@@ -244,26 +244,60 @@ public class GoogleOAuth
         _db.SaveChanges();
     }
 
-    /// <summary>Swap an authorization code for tokens and store them.</summary>
-    public async Task ExchangeCodeAsync(Integration integration, string code, string redirectUri,
+    /// <summary>How long after a successful exchange a repeat of the callback still
+    /// counts as "already connected" (the browser loading the callback twice).</summary>
+    public static readonly TimeSpan DuplicateCallbackWindow = TimeSpan.FromMinutes(2);
+
+    /// <summary>The row finished an exchange moments ago: healthy, holding a token,
+    /// no verifier left, updated within <see cref="DuplicateCallbackWindow"/>.</summary>
+    public static bool JustConnected(Integration i) =>
+        i.Status == "healthy"
+        && Cred(i, "access_token").Length > 0
+        && Cred(i, "code_verifier").Length == 0
+        && DateTime.UtcNow - i.UpdatedAt <= DuplicateCallbackWindow;
+
+    /// <summary>
+    /// Swap an authorization code for tokens and store them. Safe to run twice:
+    /// browsers sometimes load the callback twice with the same URL (a reload,
+    /// a prefetch). The first request uses the single-use verifier; a repeat that
+    /// finds the row just connected — verifier already gone, or Google refusing
+    /// the reused code because the first request won the race — returns false
+    /// ("already connected") instead of an error. True = this call connected it.
+    /// </summary>
+    public async Task<bool> ExchangeCodeAsync(Integration integration, string code, string redirectUri,
         CancellationToken ct = default)
     {
         var verifier = Cred(integration, "code_verifier");
         if (verifier.Length == 0)
-            throw new OAuthException("This connection was not started here (missing PKCE verifier).");
-        var data = await PostTokenAsync(new Dictionary<string, string>
         {
-            ["client_id"] = IntegrationSettings.Value(_scoping, "google_client_id"),
-            ["client_secret"] = IntegrationSettings.Value(_scoping, "google_client_secret"),
-            ["code"] = code,
-            ["code_verifier"] = verifier,
-            ["grant_type"] = "authorization_code",
-            ["redirect_uri"] = redirectUri,
-        }, ct);
+            if (JustConnected(integration)) return false;
+            throw new OAuthException("This connection was not started here (missing PKCE verifier).");
+        }
+        Dictionary<string, JsonElement> data;
+        try
+        {
+            data = await PostTokenAsync(new Dictionary<string, string>
+            {
+                ["client_id"] = IntegrationSettings.Value(_scoping, "google_client_id"),
+                ["client_secret"] = IntegrationSettings.Value(_scoping, "google_client_secret"),
+                ["code"] = code,
+                ["code_verifier"] = verifier,
+                ["grant_type"] = "authorization_code",
+                ["redirect_uri"] = redirectUri,
+            }, ct);
+        }
+        catch (OAuthException)
+        {
+            // the twin request may have exchanged this code a moment ago
+            try { await _db.Entry(integration).ReloadAsync(ct); } catch { /* keep the original error */ }
+            if (JustConnected(integration)) return false;
+            throw;
+        }
         if (!data.ContainsKey("access_token"))
             throw new OAuthException("Google's response carried no access token.");
         StoreTokens(integration, data);
         SetStatus(integration, "healthy", "");
+        return true;
     }
 
     private bool Expired(Integration integration)

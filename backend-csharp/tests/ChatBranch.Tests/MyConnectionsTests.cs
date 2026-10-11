@@ -49,6 +49,48 @@ public class MyConnectionsTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task A_callback_loaded_twice_shows_connected_not_an_error()
+    {
+        var super = await Authed("superadmin", "super123");
+        (await super.PutAsJsonAsync("/api/integrations/settings",
+            new { google_client_id = "cid.apps.googleusercontent.com", google_client_secret = "shh" })).EnsureSuccessStatusCode();
+        try
+        {
+            var agent = await Authed("agent", "agent123");
+            var start = await agent.GetFromJsonAsync<JsonElement>("/api/integrations/oauth/google_sheets/start?return=connections");
+            var state = StateOf(start.GetProperty("authorize_url").GetString()!);
+            var id = InScope((sp, _) => sp.GetRequiredService<GoogleOAuth>().VerifyState(state)).IntegrationId;
+
+            // the first load exchanged the code: verifier gone, token stored, healthy
+            void Connected(DateTime at) => InScope((_, db) =>
+            {
+                var row = db.Integrations.Single(i => i.Id == id);
+                row.Credentials = new Dictionary<string, object?> { ["access_token"] = "tok", ["refresh_token"] = "ref" };
+                row.Status = "healthy";
+                row.UpdatedAt = at;
+                return db.SaveChanges();
+            });
+            Connected(DateTime.UtcNow);
+            var anon = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+            var url = $"/api/integrations/oauth/google/callback?code=same-code&state={Uri.EscapeDataString(state)}";
+            var twin = await anon.GetAsync(url);
+            Assert.Equal(HttpStatusCode.Redirect, twin.StatusCode);
+            Assert.Contains("/settings/connections?connected=", twin.Headers.Location!.ToString());
+
+            // long after the connect, a missing verifier is still an error
+            Connected(DateTime.UtcNow.AddMinutes(-10));
+            var stale = await anon.GetAsync(url);
+            Assert.Contains("?error=", stale.Headers.Location!.ToString());
+            Assert.Contains("PKCE", Uri.UnescapeDataString(stale.Headers.Location!.ToString()));
+        }
+        finally
+        {
+            (await super.PutAsJsonAsync("/api/integrations/settings",
+                new { google_client_id = "", google_client_secret = "" })).EnsureSuccessStatusCode();
+        }
+    }
+
+    [Fact]
     public async Task An_agent_lists_connects_and_disconnects_their_own_google_grants()
     {
         var agent = await Authed("agent", "agent123");

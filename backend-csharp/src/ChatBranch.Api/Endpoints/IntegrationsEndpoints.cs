@@ -528,8 +528,11 @@ public static class IntegrationsEndpoints
                     return Results.Redirect($"{dashboard}?error={Uri.EscapeDataString("That connection no longer exists.")}");
                 if (string.IsNullOrEmpty(code))
                     return Results.Redirect($"{dashboard}?error={Uri.EscapeDataString("Google returned no authorization code.")}");
-                await oauth.ExchangeCodeAsync(row, code!, RedirectUri(ctx, sc));
                 var label = Meta(row.Provider)?.Label ?? row.Provider;
+                // false = the browser loaded this callback twice and the first load
+                // already connected it: show "connected" again, audit once
+                if (!await oauth.ExchangeCodeAsync(row, code!, RedirectUri(ctx, sc)))
+                    return Results.Redirect($"{dashboard}?connected={Uri.EscapeDataString(label)}");
                 // The browser carries no token here: attribute the connect to the row's owner.
                 var owner = row.OwnerUserId is int ou
                     ? await db.Users.Where(u => u.Id == ou).Select(u => u.Username).FirstOrDefaultAsync() : null;
