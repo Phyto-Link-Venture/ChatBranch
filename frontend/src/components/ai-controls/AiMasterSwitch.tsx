@@ -78,9 +78,10 @@ export function AiMasterSwitch() {
   const f = useFormat()
   const dayLabel = (d: Weekday) => f.weekday(weekdayDate(d))
   const timeShort = (iso: string) => `${f.weekday(iso)} ${f.time(iso)}`
-  const { activeEntity } = useEntity()
-  const [scope, setScope] = useState<string | null>(activeEntity?.slug ?? null)
-  useEffect(() => setScope(activeEntity?.slug ?? null), [activeEntity?.slug])
+  // levelEntity: the ticked entity — for a person bound to entities never the organization
+  const { levelEntity, bound } = useEntity()
+  const [scope, setScope] = useState<string | null>(levelEntity?.slug ?? null)
+  useEffect(() => setScope(levelEntity?.slug ?? null), [levelEntity?.slug])
 
   const [data, setData] = useState<AiControls | null>(null)
   const [loadErr, setLoadErr] = useState<string | null>(null)
@@ -207,6 +208,7 @@ export function AiMasterSwitch() {
             onChange={setScope}
             size="sm"
             globalLabel={t('chats.aiControls.wholeOrg')}
+            allowGlobal={!bound}
             ariaLabel={t('chats.aiControls.scopeAria')}
             className="min-w-0 flex-1 sm:w-[230px] sm:flex-none"
           />

@@ -5,10 +5,27 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ChatBranch.Data.Ai.Learning;
 
-/// <summary>Who gave the feedback (null user = the system).</summary>
-public sealed record LearningActor(int? UserId, string Username, string Role)
+/// <summary>Who gave the feedback (null user = the system). <paramref name="Bound"/> =
+/// the entity subtree an entity-BOUND person (assigned entities: a company admin,
+/// an agent or a custom role) is confined to; null = not bound (superadmin, an
+/// org-wide admin, an unassigned agent, the system) — the same rule as
+/// <c>ShellScope.BoundEntityIds</c>.</summary>
+public sealed record LearningActor(int? UserId, string Username, string Role, IReadOnlyList<int>? Bound = null)
 {
     public bool IsAdmin => Role is Roles.SuperAdmin or Roles.Admin;
+
+    /// <summary>Not bound by assigned entities: may touch organization-wide lessons.</summary>
+    public bool OrgWide => Bound == null;
+
+    /// <summary>May this person change lessons at this level? An unbound person
+    /// anywhere; a bound one only inside their subtree — never the organization
+    /// level (null).</summary>
+    public bool MayActAt(int? entityId) => Bound == null || (entityId is int e && Bound.Contains(e));
+
+    /// <summary>Does this person's feedback go live at once in learning mode
+    /// "auto"? Only an admin allowed to act at the lesson's level (an
+    /// organization-wide lesson needs an org-wide admin).</summary>
+    public bool AutoApproves(int? entityId) => IsAdmin && MayActAt(entityId);
 }
 
 /// <summary>The outcome of a rating: the row and the lesson it fed, or an error + HTTP status.</summary>
@@ -72,7 +89,13 @@ public class LearningService
         var user = _db.Users.AsNoTracking().Where(u => u.Username == name).Select(u => new { u.Id }).FirstOrDefault();
         var role = user == null ? "" : _db.Profiles.AsNoTracking().Where(p => p.UserId == user.Id)
             .Select(p => p.Role).FirstOrDefault() ?? "";
-        return new LearningActor(user?.Id, name, role);
+        // ShellScope.ScopeRoots: a superadmin is never bound; anyone else by their assigned entities
+        var assigned = user == null || role == Roles.SuperAdmin
+            ? new List<int>()
+            : _db.Profiles.AsNoTracking().Where(p => p.UserId == user.Id)
+                .SelectMany(p => p.Entities.Select(e => e.Id)).ToList();
+        IReadOnlyList<int>? bound = assigned.Count > 0 ? _scoping.EntitySubtreeIds(assigned) : null;
+        return new LearningActor(user?.Id, name, role, bound);
     }
 
     // ---- explicit feedback -------------------------------------------------------
@@ -251,6 +274,10 @@ public class LearningService
     {
         var mode = Mode(fb.EntityId);
         if (mode == "off") return null;
+        // a person bound to their entities never creates, merges into, edits or
+        // demotes a lesson outside them — above all an organization-wide one (an
+        // unassigned conversation): the feedback row is kept, nothing is learned
+        if (!actor.MayActAt(fb.EntityId)) return null;
 
         string kind, answer, avoid = "";
         if (fb.Rating > 0 && fb.Kind is AiFeedbackKind.Explicit or AiFeedbackKind.Approved)
@@ -270,7 +297,7 @@ public class LearningService
         if (string.IsNullOrWhiteSpace(fb.Question) || answer.Length == 0) return null;
 
         var now = Now;
-        var autoActive = mode == "auto" && actor.IsAdmin;
+        var autoActive = mode == "auto" && actor.AutoApproves(fb.EntityId);
         var norm = TextAnalysis.NormalizeQuestion(fb.Question);
         var target = _db.AiLessons
             .Where(l => (l.Status == AiLessonStatus.Active || l.Status == AiLessonStatus.Suggested)

@@ -13,6 +13,7 @@ import { Loader2, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { EntityPicker } from '@/components/ui/EntityPicker'
+import { useEntity } from '@/lib/EntityContext'
 import { aiChannelLabel, lessonsApi, type LessonKind } from '@/lib/aiLearning'
 import { useT } from '@/i18n'
 
@@ -33,11 +34,14 @@ export function AddLessonModal({
   onCreated: (text: string) => void
 }) {
   const t = useT()
+  // a person bound to their entities never writes an organization-wide lesson
+  const { bound, levelEntity } = useEntity()
+  const start = defaultEntity ?? (bound ? levelEntity?.slug ?? null : null)
   const [kind, setKind] = useState<Extract<LessonKind, 'rule' | 'example'>>('rule')
   const [question, setQuestion] = useState('')
   const [answer, setAnswer] = useState('')
   const [note, setNote] = useState('')
-  const [entity, setEntity] = useState<string | null>(defaultEntity)
+  const [entity, setEntity] = useState<string | null>(start)
   const [channels, setChannels] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -48,10 +52,10 @@ export function AddLessonModal({
     setQuestion('')
     setAnswer('')
     setNote('')
-    setEntity(defaultEntity)
+    setEntity(start)
     setChannels([])
     setError(null)
-  }, [open, defaultEntity])
+  }, [open, start])
 
   const valid = answer.trim().length > 0 && (kind === 'rule' || question.trim().length > 0)
 
@@ -161,6 +165,7 @@ export function AddLessonModal({
             value={entity}
             onChange={setEntity}
             globalLabel={t('ai.common.allEntitiesOrg')}
+            allowGlobal={!bound}
             className="w-full"
           />
           <span className="mt-1 block text-[11.5px] text-text-muted">

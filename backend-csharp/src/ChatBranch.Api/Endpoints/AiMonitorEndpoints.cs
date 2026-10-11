@@ -186,6 +186,12 @@ public static class AiMonitorEndpoints
             AiGate gate, AiFollowUpService followUps, ChatBranch.Data.Bookings.BookingService bookings) =>
         {
             if (!await Can(db, me, BehaviourCap)) return Forbidden(BehaviourCap);
+            // the pass runs for EVERY outlet's drafts — an organization-wide operation
+            if (ShellScope.ScopeRoots(db, me).Count > 0)
+                return Results.Json(new
+                {
+                    detail = "Running the AI worker pass is organization-wide — your account is limited to its assigned entities.",
+                }, statusCode: 403);
             var autosent = gate.ProcessDue();
             var f = followUps.Tick();
             var released = bookings.Housekeep();
@@ -294,6 +300,9 @@ public static class AiMonitorEndpoints
         {
             var (entityId, err) = await BehaviourEntity(db, entity);
             if (err != null) return err;
+            // an entity-bound caller reads only its own outlets' levels (like /api/ai/controls)
+            if (OutOfBoundScope(db, sc, me, entityId))
+                return Results.Json(new { detail = "That outlet is outside your scope." }, statusCode: 404);
             return Results.Ok(await BehaviourPayload(db, sc, me, entityId, entity));
         }).RequireAuthorization(AuthPolicies.Authenticated)
           .RequireAnyCapability(MonitorCap, BehaviourCap);
@@ -509,6 +518,11 @@ public static class AiMonitorEndpoints
         };
     }
 
+    /// <summary>True when an entity-BOUND caller asks for an entity outside their
+    /// assigned subtrees (→ 404). The organization level (null) stays readable.</summary>
+    internal static bool OutOfBoundScope(AppDbContext db, ScopingService sc, ClaimsPrincipal me, int? entityId) =>
+        entityId is int asked && ShellScope.BoundEntityIds(db, sc, me) is List<int> bound && !bound.Contains(asked);
+
     private static async Task<object> BehaviourPayload(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
         int? entityId, string? entitySlug)
     {
@@ -531,7 +545,7 @@ public static class AiMonitorEndpoints
         {
             entity = entitySlug is { Length: > 0 } && entityId != null ? entitySlug : null,
             entity_name = entityName,
-            can_manage = await Can(db, me, BehaviourCap),
+            can_manage = await Can(db, me, BehaviourCap) && AiControlsEndpoints.MayEdit(db, sc, me, entityId),
             groups = Groups.Select(g => new { id = g.Id, title = g.Title, description = g.Description }),
             fields = AiBehaviourSettings.Fields.Select(f =>
             {

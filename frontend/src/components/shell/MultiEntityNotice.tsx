@@ -7,12 +7,12 @@ import { useT } from '@/i18n'
 /**
  * Shown on pages that read or edit ONE level of the entity tree (persona, AI
  * behaviour, the AI switch…) while several entities are ticked in the switcher:
- * those pages fall back to the organization level (`useEntityLevelQuery`), and
- * this says so.
+ * those pages fall back to the organization level (`useEntityLevelQuery`) — or,
+ * for a person bound to entities, to their first ticked entity — and this says so.
  */
 export function MultiEntityNotice({ className = '' }: { className?: string }) {
   const t = useT()
-  const { multipleEntities } = useEntity()
+  const { multipleEntities, bound, levelEntity } = useEntity()
   if (!multipleEntities) return null
   return (
     <p
@@ -20,7 +20,11 @@ export function MultiEntityNotice({ className = '' }: { className?: string }) {
       className={`flex items-start gap-2 rounded-lg border border-line bg-fill-subtle px-3 py-2 text-[12.5px] text-text-mid ${className}`}
     >
       <Layers size={14} className="mt-0.5 shrink-0 text-text-muted" aria-hidden />
-      <span>{t('shell.entitySwitcher.levelNotice')}</span>
+      <span>
+        {bound && levelEntity
+          ? t('shell.entitySwitcher.levelNoticeBound', { name: levelEntity.name })
+          : t('shell.entitySwitcher.levelNotice')}
+      </span>
     </p>
   )
 }

@@ -116,7 +116,7 @@ public static class LearningEndpoints
                 .ThenByDescending(l => l.UpdatedAt).ThenByDescending(l => l.Id).ToList();
             return Results.Ok(new
             {
-                lessons = await LessonPayloads(db, rows),
+                lessons = await LessonPayloads(db, rows, await RightsFor(db, sc, me)),
                 counts = AiLessonStatus.All.ToDictionary(s => s, s => counts.FirstOrDefault(c => c.status == s)?.n ?? 0),
             });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(MonitorCap);
@@ -164,7 +164,7 @@ public static class LearningEndpoints
                 $"{kind}: {TextAnalysis.Clip(kind == AiLessonKind.Rule ? answer : question, 200)}",
                 actor: actor.Username, entityId: entityId, userId: actor.UserId);
             EmbeddingWorker.Kick();
-            return Results.Ok(new { lesson = (await LessonPayloads(db, new List<AiLesson> { lesson }))[0] });
+            return Results.Ok(new { lesson = (await LessonPayloads(db, new List<AiLesson> { lesson }, await RightsFor(db, sc, me)))[0] });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(BehaviourCap);
 
         app.MapMethods("/api/ai/lessons/{id:int}", new[] { "PATCH" }, async (int id, HttpContext ctx,
@@ -223,7 +223,7 @@ public static class LearningEndpoints
             }
             await db.SaveChangesAsync();
             EmbeddingWorker.Kick();
-            return Results.Ok(new { lesson = (await LessonPayloads(db, new List<AiLesson> { lesson }))[0] });
+            return Results.Ok(new { lesson = (await LessonPayloads(db, new List<AiLesson> { lesson }, await RightsFor(db, sc, me)))[0] });
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(BehaviourCap);
 
         app.MapDelete("/api/ai/lessons/{id:int}", async (int id, AppDbContext db, ScopingService sc,
@@ -231,6 +231,10 @@ public static class LearningEndpoints
         {
             var lesson = await VisibleLesson(db, sc, me, id, tracked: true);
             if (lesson == null) return Results.NotFound(new { detail = "Lesson not found." });
+            // a company admin deletes only their own companies' lessons — never an
+            // organization-wide or an ancestor's one they merely inherit
+            if (!CanWriteEntity(db, sc, me, lesson.EntityId))
+                return Results.Json(new { detail = "That lesson is outside your scope." }, statusCode: 403);
             var actor = learning.ActorFor(me.Identity?.Name);
             await db.AiFeedback.Where(f => f.LessonId == id).ExecuteUpdateAsync(u => u.SetProperty(f => f.LessonId, (int?)null));
             await db.AiEmbeddings.Where(e => e.OwnerType == EmbeddingOwner.Lesson && e.OwnerId == id).ExecuteDeleteAsync();
@@ -257,10 +261,13 @@ public static class LearningEndpoints
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(BehaviourCap);
 
         // ---- retrieval index + learning mode -----------------------------------------
-        app.MapGet("/api/ai/learning/status", async (string? entity, AppDbContext db, LearningService learning,
-            EmbeddingIndexer indexer) =>
+        app.MapGet("/api/ai/learning/status", async (string? entity, AppDbContext db, ScopingService sc,
+            ClaimsPrincipal me, LearningService learning, EmbeddingIndexer indexer) =>
         {
             var entityId = await InboxEndpoints.EntityId(db, entity);
+            // an entity-bound caller reads only its own outlets' levels (like /api/ai/controls)
+            if (AiMonitorEndpoints.OutOfBoundScope(db, sc, me, entityId))
+                return Results.Json(new { detail = "That outlet is outside your scope." }, statusCode: 404);
             var s = indexer.Status();
             return Results.Ok(new
             {
@@ -277,6 +284,12 @@ public static class LearningEndpoints
         app.MapPost("/api/ai/learning/reindex", (AppDbContext db, ClaimsPrincipal me, EmbeddingIndexer indexer,
             LearningService learning) =>
         {
+            // the index covers every outlet's knowledge and lessons — organization-wide
+            if (ShellScope.ScopeRoots(db, me).Count > 0)
+                return Results.Json(new
+                {
+                    detail = "Re-indexing is organization-wide — your account is limited to its assigned entities.",
+                }, statusCode: 403);
             var queued = indexer.Reset();
             var actor = learning.ActorFor(me.Identity?.Name);
             AuditTrail.Write(db, "ai.learning.reindex", "embeddings", $"{queued} chunks queued",
@@ -296,7 +309,8 @@ public static class LearningEndpoints
 
     // ---- payloads -----------------------------------------------------------------------
 
-    internal static async Task<List<object>> LessonPayloads(AppDbContext db, List<AiLesson> rows)
+    internal static async Task<List<object>> LessonPayloads(AppDbContext db, List<AiLesson> rows,
+        LessonRights? rights = null)
     {
         var ids = rows.Select(r => r.Id).ToList();
         var entityIds = rows.Where(r => r.EntityId != null).Select(r => r.EntityId!.Value).Distinct().ToList();
@@ -322,6 +336,10 @@ public static class LearningEndpoints
                 source_count = l.SourceCount, uses = l.Uses, last_used_at = l.LastUsedAt,
                 created_by = l.CreatedBy, approved_by = l.ApprovedBy,
                 created_at = l.CreatedAt, updated_at = l.UpdatedAt,
+                // what the CALLER may do with this row (a bound person never edits /
+                // deletes an organization-wide or an inherited ancestor's lesson)
+                can_edit = rights?.CanEdit(l.EntityId) ?? false,
+                can_delete = rights?.CanDelete(l.EntityId) ?? false,
                 feedback = feedback.Where(f => f.LessonId == l.Id).Take(5).Select(f => new
                 {
                     id = f.Id, rating = f.Rating, kind = f.Kind,
@@ -335,6 +353,23 @@ public static class LearningEndpoints
     }
 
     // ---- scope helpers ------------------------------------------------------------------
+
+    /// <summary>The caller's rights over lesson rows, for the payload's
+    /// <c>can_edit</c> / <c>can_delete</c> flags (the same checks the write routes make).</summary>
+    internal sealed record LessonRights(bool HasBehaviourCap, bool AdminPlus, Func<int?, bool> Writable)
+    {
+        public bool CanEdit(int? entityId) => HasBehaviourCap && Writable(entityId);
+        public bool CanDelete(int? entityId) => AdminPlus && CanEdit(entityId);
+    }
+
+    private static async Task<LessonRights> RightsFor(AppDbContext db, ScopingService sc, ClaimsPrincipal me)
+    {
+        var cap = await ShellScope.HasCapAsync(db, me, BehaviourCap);
+        var adminPlus = ShellScope.RoleOf(me) is Roles.SuperAdmin or Roles.Admin;
+        var assigned = ShellScope.ScopeRoots(db, me);
+        var subtree = assigned.Count > 0 ? sc.EntitySubtreeIds(assigned) : null;
+        return new LessonRights(cap, adminPlus, eid => subtree == null || (eid is int e && subtree.Contains(e)));
+    }
 
     private static async Task<AiLesson?> VisibleLesson(AppDbContext db, ScopingService sc, ClaimsPrincipal me,
         int id, bool tracked)

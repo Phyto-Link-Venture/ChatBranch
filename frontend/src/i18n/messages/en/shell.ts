@@ -109,6 +109,7 @@ export const shell = {
     hint: 'Click a name to show only it, or tick several to see them together. An entity always includes its branches.',
     included: 'Included with {parent}',
     levelNotice: 'Several entities are ticked, so this page shows the organization level. Pick a single entity in the switcher to see or edit its own settings.',
+    levelNoticeBound: 'Several entities are ticked, so this page shows {name}. Pick a single entity in the switcher to see or edit another one.',
   },
   palette: {
     clear: 'Clear search',

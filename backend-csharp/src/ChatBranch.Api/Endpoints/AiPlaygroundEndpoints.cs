@@ -122,8 +122,9 @@ public static class AiPlaygroundEndpoints
                 },
                 ai = new { enabled = ai.Enabled, rule = ai.Rule, reason = ai.Reason, forced = ai.Forced },
                 learning_mode = mode,
-                // what a lesson taught here becomes: live at once only in auto mode from an admin
-                teach_status = mode == "auto" && actor.IsAdmin ? AiLessonStatus.Active : AiLessonStatus.Suggested,
+                // what a lesson taught here becomes: live at once only in auto mode from an
+                // admin allowed to act at this level (the organization level: an org-wide admin)
+                teach_status = mode == "auto" && actor.AutoApproves(entityId) ? AiLessonStatus.Active : AiLessonStatus.Suggested,
                 custom_fields = CustomFieldsEndpoints.CustomerFields(sc).Select(f => new
                 {
                     key = f.Key, label = f.Label, kind = f.Kind, options = f.Options,
