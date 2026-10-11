@@ -46,7 +46,7 @@ public static class McpExclusions
     public static readonly IReadOnlyList<Rule> All = new Rule[]
     {
         // ---- credentials: provider, app and AI keys ---------------------------
-        new("PUT", "/api/settings", "raw Setting rows, credentials included (superadmin) — " + Credentials),
+        new("PUT", "/api/settings", "raw Setting rows, credentials included (settings.raw.manage) — " + Credentials),
         new("GET", "/api/settings", "raw Setting rows (credential keys included) — the specific settings tools read their own keys"),
         new("GET", "/api/settings/ai-providers", "AI keys & models (settings.ai_keys.manage) — " + CredentialRead),
         new("PUT", "/api/settings/ai-providers", "AI provider keys — " + Credentials),

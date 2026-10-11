@@ -301,7 +301,7 @@ public static class AiReviewEndpoints
                         return Results.Json(new
                         {
                             detail = level == null
-                                ? "Only an admin can change the organization-wide house rules."
+                                ? "Only someone not limited to particular entities can change the organization-wide house rules."
                                 : "That outlet is outside your scope.",
                         }, statusCode: 403);
                     break;

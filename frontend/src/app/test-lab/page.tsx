@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Test lab (superadmin) — a catalog of scripted, realistic use cases that run
+ * Test lab (the testlab.run capability — superadmin by default) — a catalog of scripted, realistic use cases that run
  * end to end through the real pipelines inside a fenced "Test lab" entity, and
  * report pass/fail with links to what they made. Runs one scenario per request
  * so results stream in; every request appends to the same run in the history.

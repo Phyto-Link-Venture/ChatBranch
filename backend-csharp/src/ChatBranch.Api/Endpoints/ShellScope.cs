@@ -56,12 +56,18 @@ internal static class ShellScope
             _ => false,
         };
 
-    /// <summary>Admin-level (admin or superadmin) AND allowed to act at this
-    /// level: org-wide admins anywhere; a company admin only on an entity inside
-    /// their subtree — never the organization level (<paramref name="entityId"/> null).</summary>
-    internal static bool AdminMayAct(AppDbContext db, ScopingService sc, ClaimsPrincipal me, int? entityId)
+    /// <summary>Bound by assigned entities (a company admin, an agent or a custom
+    /// role with entities): acts only inside their subtrees, whatever their
+    /// capabilities. Superadmin is never bound.</summary>
+    internal static bool IsBound(AppDbContext db, ClaimsPrincipal me) => ScopeRoots(db, me).Count > 0;
+
+    /// <summary>May the caller act at this level — the scope half of a write whose
+    /// capability the route already checked: someone unbound anywhere (they hold
+    /// the tenant-wide view); a bound caller only on an entity inside their
+    /// subtrees — never the organization level (<paramref name="entityId"/> null).
+    /// A capability never widens anyone beyond their entities.</summary>
+    internal static bool MayActAt(AppDbContext db, ScopingService sc, ClaimsPrincipal me, int? entityId)
     {
-        if (RoleOf(me) is not (Roles.SuperAdmin or Roles.Admin)) return false;
         var bound = BoundEntityIds(db, sc, me);
         if (bound == null) return true;
         return entityId is int e && bound.Contains(e);
@@ -69,35 +75,69 @@ internal static class ShellScope
 
     /// <summary>
     /// The write guard for an entity-LEVEL change (a settings override, a channel
-    /// account, a shared connection…) by a company admin: allowed only on an
-    /// entity inside their companies, never the organization level (null). Other
-    /// callers are left to the endpoint's own rule (null = allowed, else the 403).
+    /// account, a team, a widget…) by anyone BOUND to entities — a company admin,
+    /// or an agent / custom role granted the capability: allowed only on an entity
+    /// inside their subtrees, never the organization level (null). Unbound callers
+    /// are left to the endpoint's own rule (null = allowed, else the 403).
     /// </summary>
     internal static IResult? CompanyLevelError(AppDbContext db, ScopingService sc, ClaimsPrincipal me, int? entityId)
     {
-        if (!IsCompanyAdmin(db, me)) return null;
         var bound = BoundEntityIds(db, sc, me);
-        if (bound != null && entityId is int e && bound.Contains(e)) return null;
+        if (bound == null) return null;
+        if (entityId is int e && bound.Contains(e)) return null;
         return Results.Json(new
         {
             detail = entityId == null
-                ? "Company admins manage their own companies only — the organization-wide setting is for an organization-wide admin."
+                ? "You manage your own companies only — the organization-wide setting is for someone not limited to particular entities."
                 : "That entity is outside your companies.",
         }, statusCode: 403);
     }
 
+    /// <summary>
+    /// For actions with no entity to confine them (a tenant-wide sync, an engine
+    /// tick, the org-wide voice library, the raw settings store…): someone unbound
+    /// holding the route's capability may act; a company admin keeps the reach
+    /// the admin role always had here; anyone else bound to entities is refused —
+    /// granting them the capability must not widen them beyond their subtrees.
+    /// null = allowed, else the 403.
+    /// </summary>
+    internal static IResult? OrgWideActionError(AppDbContext db, ClaimsPrincipal me) =>
+        IsBound(db, me) && !IsCompanyAdmin(db, me)
+            ? Results.Json(new
+            {
+                detail = "This acts on the whole organization — your account is limited to its assigned entities.",
+            }, statusCode: 403)
+            : null;
+
+    /// <summary>Route filter form of <see cref="OrgWideActionError"/> — put it after the
+    /// capability gate so a missing capability still answers first.</summary>
+    internal static TBuilder OrgWideAction<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder =>
+        builder.AddEndpointFilter(async (ctx, next) =>
+        {
+            var http = ctx.HttpContext;
+            var db = http.RequestServices.GetRequiredService<AppDbContext>();
+            return OrgWideActionError(db, http.User) ?? await next(ctx);
+        });
+
+    /// <summary>The write guard for one existing object (an account, a template's
+    /// account…): an entity outside a bound caller's subtrees is refused; an
+    /// organization-wide object (null) follows <see cref="OrgWideActionError"/>.</summary>
+    internal static IResult? ObjectScopeError(AppDbContext db, ScopingService sc, ClaimsPrincipal me, int? entityId) =>
+        entityId is int ? CompanyLevelError(db, sc, me, entityId) : OrgWideActionError(db, me);
+
     /// <summary>Route filter for organization-level writes (org-wide voice, the
-    /// default mail settings…): a company admin gets a 403, everyone else passes
-    /// through to the route's own policy.</summary>
+    /// default mail settings…): anyone bound to entities (a company admin, a bound
+    /// agent or custom role) gets a 403, everyone else passes through to the
+    /// route's own gate.</summary>
     internal static TBuilder OrgWideOnly<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder =>
         builder.AddEndpointFilter(async (ctx, next) =>
         {
             var http = ctx.HttpContext;
             var db = http.RequestServices.GetRequiredService<AppDbContext>();
-            if (IsCompanyAdmin(db, http.User))
+            if (IsBound(db, http.User))
                 return Results.Json(new
                 {
-                    detail = "This is an organization-wide setting — company admins manage their own companies only.",
+                    detail = "This is an organization-wide setting — your account manages its own companies only.",
                 }, statusCode: 403);
             return await next(ctx);
         });

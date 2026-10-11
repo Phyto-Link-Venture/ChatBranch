@@ -78,7 +78,7 @@ The full list with "what it proves" is on the page and in
 
 ### The page — `/test-lab`
 
-Sidebar → Review → **Test lab** (superadmin only). Tick scenarios (or a whole
+Sidebar → Review → **Test lab** (the `testlab.run` capability — superadmin only by default). Tick scenarios (or a whole
 category) and **Run selected**, or **Run all**: the page runs them one at a time
 and appends each result to one run, so you watch progress live and can stop
 after the current one. Each row expands into its steps, the expected outcome,
@@ -113,7 +113,7 @@ failures; 2 = bad arguments or the API is unreachable). Env: `TESTLAB_API`
 
 ### The API
 
-All superadmin-only; the whole surface is 404 when the server runs with
+All need `testlab.run` (superadmin only by default, never a person bound to entities); the whole surface is 404 when the server runs with
 `TEST_LAB=0` (default on — set it to `0` in production if you don't want it).
 
 | Route | Shape |

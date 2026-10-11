@@ -81,7 +81,7 @@ public static partial class ToolCatalog
 
         yield return T(f, "flows_enqueue_job", "Queue an outbound message",
             "Put one message/call on the outbound queue to an address (paced, quiet hours, daily caps, opt-out " +
-            "applied at send time). kind text | template | ai_reply | call. Admin only.",
+            "applied at send time). kind text | template | ai_reply | call.",
             "POST", "/api/flows/enqueue", flowsManage,
             new[]
             {
@@ -94,7 +94,7 @@ public static partial class ToolCatalog
 
         yield return T(f, "flows_run_due_steps", "Run due flow steps now",
             "Advance every flow now instead of waiting for the 10-second worker (scheduled triggers, waits that " +
-            "ended, follow-ups). Admin only.", "POST", "/api/flows/tick", flowsManage, outside: true);
+            "ended, follow-ups).", "POST", "/api/flows/tick", flowsManage, outside: true);
 
         // ---- automations ---------------------------------------------------------
         const string au = "automations";
@@ -115,7 +115,7 @@ public static partial class ToolCatalog
             A.Entity("Entity slug; omit for organisation-wide.", ArgIn.Body),
             A.StrList("entities", EntitiesDesc),
         };
-        yield return T(au, "automations_create", "Create an automation rule", "Add a conversation automation rule (admin): event + conditions + actions, in position order.",
+        yield return T(au, "automations_create", "Create an automation rule", "Add a conversation automation rule: event + conditions + actions, in position order.",
             "POST", "/api/automations", flowsManage, ruleFields);
         yield return T(au, "automations_update", "Edit an automation rule", "Change an automation rule's event, conditions, actions or on/off (only the fields you pass).",
             "PATCH", "/api/automations/{id:int}", flowsManage, new[] { A.Id("rule") }.Concat(ruleFields).ToArray());

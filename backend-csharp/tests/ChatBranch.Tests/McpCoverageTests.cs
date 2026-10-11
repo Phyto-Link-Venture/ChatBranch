@@ -199,9 +199,6 @@ public class McpCoverageTests : IClassFixture<ApiFactory>
             "notifications_set_my_preferences", "views_create", "views_update", "views_delete", "views_reorder",
             "assistant_rename_conversation", "assistant_delete_conversation", "assistant_delete_all_conversations",
             "developers_revoke_api_key", "integrations_test_connection", "integrations_disconnect",
-            // admin+ endpoints with no capability of their own (the role gate applies)
-            "voice_set_stt_provider", "voice_set_llm_provider", "voice_set_default_voice", "voice_import_voice", "voice_update_voice",
-            "voice_delete_voice",
         };
         var open = ToolRegistry.All.Where(t => t.IsWrite && t.AnyCapabilities.Count == 0).Select(t => t.Name)
             .Where(n => !ownThings.Contains(n)).ToList();

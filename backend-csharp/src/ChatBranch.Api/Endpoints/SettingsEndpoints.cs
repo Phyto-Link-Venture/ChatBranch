@@ -7,8 +7,9 @@ namespace ChatBranch.Api.Endpoints;
 
 /// <summary>
 /// Entity-scoped settings surface. Reads resolve through
-/// <see cref="ScopingService"/> (entity override → global → ""), writes are
-/// superadmin-gated and refuse to override an organization-wide key. This is
+/// <see cref="ScopingService"/> (entity override → global → ""), writes need
+/// settings.raw.manage (superadmin by default) and refuse to override an
+/// organization-wide key. This is
 /// the first endpoint that proves the scoping rule end-to-end over HTTP.
 /// </summary>
 public static partial class SettingsEndpoints
@@ -21,8 +22,11 @@ public static partial class SettingsEndpoints
         MapAppearance(app);
 
         // GET /api/settings?entity=<slug>&keys=a,b,c — the raw key/value store
-        // (any key: persona, routing, notification defaults…), so admin+ like its
-        // PUT is superadmin; no page reads it, each settings page has its own route.
+        // (any key: persona, routing, notification defaults…): settings.raw.view
+        // (admins by default) while its PUT is settings.raw.manage (superadmin by
+        // default); no page reads it, each settings page has its own route. It
+        // reads any level of the tree, so someone bound to entities beyond a
+        // company admin's old reach is refused (OrgWideAction).
         app.MapGet("/api/settings", async (string? keys, string? entity,
             AppDbContext db, ScopingService scoping) =>
         {
@@ -46,7 +50,7 @@ public static partial class SettingsEndpoints
                     : values.GetValueOrDefault(k, "")),
                 scopes,
             });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.raw.view").OrgWideAction();
 
         // PUT /api/settings  {key, value, entity?}
         app.MapPut("/api/settings", async (SettingWrite body,
@@ -67,7 +71,10 @@ public static partial class SettingsEndpoints
                 value = scoping.SettingValue(body.Key, entityId),
                 scope = scoping.SettingScope(body.Key, entityId),
             });
-        }).RequireAuthorization(AuthPolicies.SuperAdmin);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          // ANY key — credentials, billing terms, the safety rules: superadmin-only by
+          // default and organization-level (never a bound person's)
+          .RequireCapability("settings.raw.manage");
     }
 
     /// <summary>Setting keys that hold credentials (or JSON blobs carrying them).</summary>

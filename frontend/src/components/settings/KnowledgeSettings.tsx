@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { TagListInput } from '@/components/ui/TagListInput'
 import { roleHeaders } from '@/lib/role'
-import { useRole } from '@/lib/useRole'
+import { useAccess } from '@/lib/useAccess'
 import { useEntity, useEntityQuery } from '@/lib/EntityContext'
 import {
   AvailabilityChips,
@@ -189,8 +189,8 @@ export function KnowledgeSettings() {
   const entityQ = useEntityQuery()
   const { activeEntity } = useEntity()
   const defaultAvailability = useDefaultAvailability()
-  const { role, ready } = useRole()
-  const canManage = role === 'admin' || role === 'superadmin'
+  const { ready, can } = useAccess()
+  const canManage = can('settings.ai.manage')
 
   const [data, setData] = useState<ListPayload | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)

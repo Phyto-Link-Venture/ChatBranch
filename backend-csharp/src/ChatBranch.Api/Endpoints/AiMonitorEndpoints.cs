@@ -315,7 +315,7 @@ public static class AiMonitorEndpoints
             if (err != null) return err;
             if (!AiControlsEndpoints.MayEdit(db, sc, me, entityId))
                 return Results.Json(new { detail = entityId == null
-                    ? "Only an organization-wide admin can change the organization's AI behaviour."
+                    ? "Only someone not limited to particular entities can change the organization's AI behaviour."
                     : "That entity is outside your scope." }, statusCode: 403);
             var body = await ReadJson(ctx);
             if (body is not JsonElement root || root.ValueKind != JsonValueKind.Object)

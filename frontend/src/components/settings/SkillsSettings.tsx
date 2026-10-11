@@ -26,7 +26,7 @@ import { Select } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
 import { useEntity, useEntityQuery } from '@/lib/EntityContext'
 import { authHeaders } from '@/lib/auth'
-import { useRole } from '@/lib/useRole'
+import { useAccess } from '@/lib/useAccess'
 import { DEFAULT_AGENT_SKILLS } from '@/lib/flow/defaultAgentSkills'
 import { AvailabilityChips, useDefaultAvailability } from '@/components/ui/AvailabilityPicker'
 import { SkillWizard, type WizardInit } from '@/components/skills/SkillWizard'
@@ -106,9 +106,10 @@ export function SkillsSettings() {
   const t = useT()
   const entityQ = useEntityQuery()
   const { activeEntity } = useEntity()
-  const { role, ready } = useRole()
-  const canManage = role === 'admin' || role === 'superadmin'
-  const isSuper = role === 'superadmin'
+  const { ready, can } = useAccess()
+  const canManage = can('settings.ai.manage')
+  // the organization's timezone is saved through the raw settings store (PUT /api/settings)
+  const canEditTimezone = can('settings.raw.manage')
 
   const [skills, setSkills] = useState<Skill[] | null>(null)
   const [builtins, setBuiltins] = useState<BuiltinsPayload | null>(null)
@@ -275,7 +276,7 @@ export function SkillsSettings() {
       {error && <Banner tone="error">{error}</Banner>}
       {notice && <Banner tone="ok">{notice}</Banner>}
 
-      <BuiltinsSection data={builtins} canEditTimezone={isSuper} onTimezoneSaved={load} />
+      <BuiltinsSection data={builtins} canEditTimezone={canEditTimezone} onTimezoneSaved={load} />
 
       {/* ready-made apps (Documents PDF, QR, payment links, Sheets) + instruction templates */}
       <ReadySkillsGallery

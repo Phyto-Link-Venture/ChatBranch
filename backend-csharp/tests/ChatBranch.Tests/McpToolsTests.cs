@@ -314,11 +314,11 @@ public class McpToolsTests : IClassFixture<ApiFactory>
         Assert.DoesNotContain("users_create", listed);       // users.manage
         Assert.DoesNotContain("contacts_delete", listed);    // contacts.manage
         Assert.DoesNotContain("entities_create", listed);
-        Assert.DoesNotContain("channels_check_health", listed); // admin+ endpoint
+        Assert.DoesNotContain("channels_check_health", listed); // channels.manage
         Assert.Contains("users.manage", await Err(agent, "users_create", new { username = "x1", password = "Passw0rd!x" }));
         Assert.Contains("channels.manage", await Err(agent, "channels_check_health", new { }));
-        Assert.DoesNotContain("voice_set_stt_provider", listed); // no capability, but an admin+ endpoint
-        Assert.Contains("admin role", await Err(agent, "voice_set_stt_provider", new { stt_provider = "openai" }));
+        Assert.DoesNotContain("voice_set_stt_provider", listed); // settings.ai.manage (the Voice & calls page)
+        Assert.Contains("settings.ai.manage", await Err(agent, "voice_set_stt_provider", new { stt_provider = "openai" }));
 
         // a scoped key without any .manage/.send capability is read-only
         var readOnly = Platform.Client(_f, Platform.MintKey(_f, "admin", "contacts.view", "chats.view"));

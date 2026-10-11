@@ -305,9 +305,10 @@ export function LearningPanel({
   const t = useT()
   // the learning mode and status are ONE level's settings; the lesson list follows every ticked entity
   const levelQuery = useEntityLevelQuery()
-  const { ready, can, role } = useAccess()
+  const { ready, can } = useAccess()
   const canManage = ready && can('ai.behaviour.manage')
-  const canDelete = canManage && (role === 'admin' || role === 'superadmin')
+  // deleting follows the same capability as editing (the server's gate; each row's can_delete adds the scope)
+  const canDelete = canManage
 
   const [status, setStatus] = useState<LessonStatus>('suggested')
   const [kind, setKind] = useState('')

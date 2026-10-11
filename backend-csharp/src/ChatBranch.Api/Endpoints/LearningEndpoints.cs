@@ -244,7 +244,7 @@ public static class LearningEndpoints
                 actor: actor.Username, entityId: lesson.EntityId, userId: actor.UserId);
             await db.SaveChangesAsync();
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.AdminPlus).RequireCapability(BehaviourCap);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(BehaviourCap);
 
         app.MapPost("/api/ai/lessons/{id:int}/to-knowledge", async (int id, AppDbContext db, ScopingService sc,
             ClaimsPrincipal me, LearningService learning) =>
@@ -356,19 +356,19 @@ public static class LearningEndpoints
 
     /// <summary>The caller's rights over lesson rows, for the payload's
     /// <c>can_edit</c> / <c>can_delete</c> flags (the same checks the write routes make).</summary>
-    internal sealed record LessonRights(bool HasBehaviourCap, bool AdminPlus, Func<int?, bool> Writable)
+    internal sealed record LessonRights(bool HasBehaviourCap, Func<int?, bool> Writable)
     {
         public bool CanEdit(int? entityId) => HasBehaviourCap && Writable(entityId);
-        public bool CanDelete(int? entityId) => AdminPlus && CanEdit(entityId);
+        // deleting follows the same capability + scope as editing (the DELETE route's gate)
+        public bool CanDelete(int? entityId) => CanEdit(entityId);
     }
 
     private static async Task<LessonRights> RightsFor(AppDbContext db, ScopingService sc, ClaimsPrincipal me)
     {
         var cap = await ShellScope.HasCapAsync(db, me, BehaviourCap);
-        var adminPlus = ShellScope.RoleOf(me) is Roles.SuperAdmin or Roles.Admin;
         var assigned = ShellScope.ScopeRoots(db, me);
         var subtree = assigned.Count > 0 ? sc.EntitySubtreeIds(assigned) : null;
-        return new LessonRights(cap, adminPlus, eid => subtree == null || (eid is int e && subtree.Contains(e)));
+        return new LessonRights(cap, eid => subtree == null || (eid is int e && subtree.Contains(e)));
     }
 
     private static async Task<AiLesson?> VisibleLesson(AppDbContext db, ScopingService sc, ClaimsPrincipal me,

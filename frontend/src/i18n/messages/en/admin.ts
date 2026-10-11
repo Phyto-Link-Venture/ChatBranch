@@ -61,6 +61,9 @@ export const admin = {
     aiMonitor: 'See & approve AI drafts',
     aiBehaviourManage: 'Edit AI behaviour settings',
     aiHardRulesManage: "Edit the AI's safety rules",
+    settingsRawView: 'Read raw settings (API)',
+    settingsRawManage: 'Write any raw setting (API)',
+    testlabRun: 'Run the Test lab',
   },
   permissions: {
     system: 'System',
@@ -127,7 +130,7 @@ export const admin = {
       stillAssignedN_one: '“{name}” is still assigned to {count} user — reassign them first.',
       stillAssignedN_other: '“{name}” is still assigned to {count} users — reassign them first.',
       deleted: 'Role “{name}” deleted.',
-      superadminOnly: 'The permission matrix is managed by super admins.',
+      superadminOnly: 'The permission matrix is managed by people allowed to edit it (rbac.manage — super admins by default).',
       loading: 'Loading permissions…',
       action: 'action',
       footnote:

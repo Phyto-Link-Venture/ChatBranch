@@ -487,21 +487,30 @@ public static class WhatsAppSettingsEndpoints
             // the Analytics health card and the Channels page
             .RequireAnyCapability("analytics.view", "channels.view");
 
-        // POST = the dashboard card's "Check now" (admin+): probe the accounts
-        // this caller's card shows RIGHT NOW (ChannelHealthProber — Graph ping,
-        // getMe/getWebhookInfo, SMTP login; the periodic HealthProbeWorker runs
-        // the same pass every WHATSAPP_HEALTH_INTERVAL s), then answer with the
-        // GET payload, which is what lib/channelHealth.ts expects back.
+        // POST = the dashboard card's "Check now" (channels.manage): probe the
+        // accounts this caller's card shows RIGHT NOW (ChannelHealthProber — Graph
+        // ping, getMe/getWebhookInfo, SMTP login; the periodic HealthProbeWorker
+        // runs the same pass every WHATSAPP_HEALTH_INTERVAL s), then answer with
+        // the GET payload, which is what lib/channelHealth.ts expects back —
+        // scoped exactly like the GET (a bound caller: the accounts their outlets
+        // may use; an out-of-scope ?entity= narrows instead of widening).
         app.MapPost("/api/whatsapp/channels/health", async (string? entity, HttpContext ctx,
             AppDbContext db, ScopingService sc, ClaimsPrincipal me, ChannelHealthProber prober) =>
         {
-            var entityId = await InboxEndpoints.EntityId(db, entity);
-            try { await prober.RunAsync(await HealthScopeIds(db, entityId), includeGlobalEmail: true, ctx.RequestAborted); }
+            var usable = ShellScope.BoundInheritedIds(db, sc, me);
+            var entityId = ShellScope.ClampPick(ShellScope.BoundEntityIds(db, sc, me),
+                await InboxEndpoints.EntityId(db, entity));
+            var probe = await HealthScopeIds(db, entityId);
+            if (usable != null)
+                probe = await db.ChannelAccounts.AsNoTracking()
+                    .Where(a => probe.Contains(a.Id) && (a.EntityId == null || usable.Contains(a.EntityId.Value)))
+                    .Select(a => a.Id).ToListAsync();
+            try { await prober.RunAsync(probe, includeGlobalEmail: true, ctx.RequestAborted); }
             catch { /* a failed probe pass still answers with the current state */ }
             await Audit(db, ctx, me, "account.health_check", "channels",
                         "manual run from dashboard");
-            return Results.Ok(await ChannelsHealthPayload(db, sc, entityId));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+            return Results.Ok(await ChannelsHealthPayload(db, sc, entityId, usable));
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");   // a probe talks to every provider
 
         // ---- conversation-account recovery funnel --------------------------
         // Conversation-role accounts currently banned/disconnected with at least
@@ -565,7 +574,7 @@ public static class WhatsAppSettingsEndpoints
                         $"queued {result.Queued} recovery template(s)"
                         + (result.Skipped > 0 ? $", skipped {result.Skipped}" : ""));
             return Results.Ok(new { queued = result.Queued, skipped = result.Skipped, affected = result.Affected });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(AssignmentsEndpoints.Capability);
 
         // ---- account registry (create / edit / delete / test) ---------------
         // Reads live in InboxEndpoints (GET /accounts); every mutation is admin+.
@@ -649,7 +658,7 @@ public static class WhatsAppSettingsEndpoints
             var saved = await db.ChannelAccounts.AsNoTracking().Include(a => a.Entity)
                 .FirstAsync(a => a.Id == row.Id);
             return Results.Ok(AccountPayload(saved));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
 
         // Django's account edit speaks POST (not PATCH) — the dashboard's role
         // switcher and entity binder both post here.
@@ -778,7 +787,7 @@ public static class WhatsAppSettingsEndpoints
             var saved = await db.ChannelAccounts.AsNoTracking().Include(a => a.Entity)
                 .FirstAsync(a => a.Id == row.Id);
             return Results.Ok(AccountPayload(saved));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
 
         app.MapDelete("/api/whatsapp/accounts/{id:int}", async (int id, HttpContext ctx,
             AppDbContext db, ClaimsPrincipal me) =>
@@ -804,7 +813,7 @@ public static class WhatsAppSettingsEndpoints
 
             await Audit(db, ctx, me, "account.delete", $"whatsapp:{id}");
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
 
         // Credential check (views.test_account): a Cloud number is proven by
         // fetching its profile off Graph (GET /{phone_number_id}); the result
@@ -900,11 +909,15 @@ public static class WhatsAppSettingsEndpoints
         {
             var acct = await BaileysAccount(db, id);
             if (acct == null) return BaileysNotFound();
+            // someone bound to entities pairs their own entities' numbers only
+            if (ShellScope.ObjectScopeError(db, ctx.RequestServices.GetRequiredService<ScopingService>(), me,
+                    acct.EntityId) is { } outside)
+                return outside;
             var key = await EnsureBaileysKey(db, acct);
             var st = await gw.StartAsync(key);
             await Audit(db, ctx, me, "account.baileys_start", $"whatsapp:{id}", st.State);
             return Results.Ok(BaileysStatePayload(st));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
 
         app.MapGet("/api/whatsapp/accounts/{id:int}/baileys/status", async (int id, AppDbContext db,
             ChatBranch.Data.Sidecars.IBaileysGateway gw) =>
@@ -920,11 +933,14 @@ public static class WhatsAppSettingsEndpoints
         {
             var acct = await BaileysAccount(db, id);
             if (acct == null) return BaileysNotFound();
+            if (ShellScope.ObjectScopeError(db, ctx.RequestServices.GetRequiredService<ScopingService>(), me,
+                    acct.EntityId) is { } outside)
+                return outside;
             var key = await EnsureBaileysKey(db, acct);
             var st = await gw.LogoutAsync(key);
             await Audit(db, ctx, me, "account.baileys_logout", $"whatsapp:{id}", st.State);
             return Results.Ok(BaileysStatePayload(st));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("channels.manage");
 
         // ---- template authoring --------------------------------------------
         // A live WABA (configured Cloud account with a waba_id) writes to Meta's
@@ -970,6 +986,9 @@ public static class WhatsAppSettingsEndpoints
             if (buttons == null) return Results.Json(new { detail = ButtonsError }, statusCode: 400);
 
             var account = await TemplateAccount(db, account_id ?? AsString(body, "account_id"));
+            // someone bound to entities authors templates on their own entities' numbers only
+            // (an org-wide WABA / the local registry: a company admin's old reach, no one else bound)
+            if (ShellScope.ObjectScopeError(db, sc, me, account?.EntityId) is { } outside) return outside;
             if (ReadOnlyRegistry(account) is { } readOnly) return readOnly;
             if (account != null)
             {
@@ -1011,7 +1030,7 @@ public static class WhatsAppSettingsEndpoints
                                        null),
                 sandbox = account == null,
             });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("templates.manage");
 
         // PATCH: content edits (body/category/buttons) and/or the variable
         // bindings — a bindings-only edit must never touch the template itself,
@@ -1023,6 +1042,7 @@ public static class WhatsAppSettingsEndpoints
         {
             var body = await ReadBody(ctx);
             var account = await TemplateAccount(db, account_id ?? AsString(body, "account_id"));
+            if (ShellScope.ObjectScopeError(db, sc, me, account?.EntityId) is { } outside) return outside;
             var scope = BindingsScope(account);
             var editsContent = Has(body, "body") || Has(body, "category") || Has(body, "buttons");
 
@@ -1096,7 +1116,7 @@ public static class WhatsAppSettingsEndpoints
             await Audit(db, ctx, me, "template.update", $"whatsapp:{name}",
                         editsContent ? "content" : "bindings");
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("templates.manage");
 
         app.MapDelete("/api/whatsapp/templates/{name}", async (string name, string? account_id, string? id,
             HttpContext ctx, AppDbContext db, ScopingService sc, IWhatsAppCloudClient wa, ClaimsPrincipal me) =>
@@ -1105,6 +1125,7 @@ public static class WhatsAppSettingsEndpoints
                 return Results.Json(new { detail = "Built-in demo templates can't be deleted." },
                                     statusCode: 400);
             var account = await TemplateAccount(db, account_id);
+            if (ShellScope.ObjectScopeError(db, sc, me, account?.EntityId) is { } outside) return outside;
             var existing = CustomTemplates(sc);
             var remaining = existing.Where(t => t.Name != name).ToList();
             var where = "local";
@@ -1126,7 +1147,7 @@ public static class WhatsAppSettingsEndpoints
 
             await Audit(db, ctx, me, "template.delete", $"whatsapp:{name}", where);
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("templates.manage");
 
         // ---- contact → account assignments (write) -------------------------
         // {"contact_id", "channel", "account_id" (null = back to auto), "pinned"}
@@ -1224,7 +1245,8 @@ public static class WhatsAppSettingsEndpoints
             await Audit(db, ctx, me, "settings.update", "voice-twilio",
                         $"keys: {string.Join(", ", touched.OrderBy(k => k))}");
             return Results.Ok(VoicePayload(sc));
-        }).RequireAuthorization(AuthPolicies.SuperAdmin);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          .RequireCapability("app_keys.manage");   // SIP trunk credentials (App & provider keys)
 
         // No REST endpoint proves a SIP credential short of placing a real
         // call, so "test" reports the computed configured/health state.

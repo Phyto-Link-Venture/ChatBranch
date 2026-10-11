@@ -63,7 +63,8 @@ public static class McpEndpoints
             McpServerRegistry.Save(sc, rows);
             AuditTrail.Write(db, "mcp_server.create", row.Name, row.Url);
             return Results.Ok(Payload(row));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(DevelopersEndpoints.Capability)
+          .OrgWideAction();   // the org-wide registry of external MCP servers
 
         app.MapPatch("/api/integrations/mcp/{id:int}", async (int id, HttpContext ctx, ScopingService sc,
             AppDbContext db) =>
@@ -80,7 +81,8 @@ public static class McpEndpoints
             AuditTrail.Write(db, "mcp_server.update", row.Name,
                 $"enabled={row.Enabled}; allowlist={row.ToolAllowlist.Count}");
             return Results.Ok(Payload(row));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(DevelopersEndpoints.Capability)
+          .OrgWideAction();   // the org-wide registry of external MCP servers
 
         app.MapDelete("/api/integrations/mcp/{id:int}", (int id, ScopingService sc, AppDbContext db) =>
         {
@@ -91,7 +93,8 @@ public static class McpEndpoints
             McpServerRegistry.Save(sc, rows);
             AuditTrail.Write(db, "mcp_server.delete", row.Name, row.Url);
             return Results.Ok(new { ok = true });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(DevelopersEndpoints.Capability)
+          .OrgWideAction();   // the org-wide registry of external MCP servers
 
         // Live probe: initialize + tools/list. Answers 200 either way with ok/detail
         // — a failing server is a status to show, not an API error.
@@ -140,7 +143,8 @@ public static class McpEndpoints
                 tools = row.Tools.Select(t => t.Name),
                 server = Payload(row),
             });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(DevelopersEndpoints.Capability)
+          .OrgWideAction();   // the org-wide registry of external MCP servers
     }
 
     private static string? Validate(McpServerRow row)

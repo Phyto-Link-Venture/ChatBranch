@@ -43,12 +43,11 @@ internal static class Assignees
             if (role != Roles.SuperAdmin)
             {
                 if (tenant != null && p.TenantId != tenant) continue;
-                if (role != Roles.Admin)
-                {
-                    if (!canView.TryGetValue(role, out var ok))
-                        canView[role] = ok = await AdminEndpoints.RoleHasCapabilityAsync(db, role, "chats.view");
-                    if (!ok) continue;
-                }
+                // only someone whose role may read chats can be handed one (admins
+                // included: their matrix row decides, like everyone's)
+                if (!canView.TryGetValue(role, out var ok))
+                    canView[role] = ok = await AdminEndpoints.RoleHasCapabilityAsync(db, role, "chats.view");
+                if (!ok) continue;
                 // bound to entities (agents, custom roles, COMPANY admins): only
                 // conversations inside their subtrees
                 if (thread?.EntityId is int eid && p.Entities.Count > 0

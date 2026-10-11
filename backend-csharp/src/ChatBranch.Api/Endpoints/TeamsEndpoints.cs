@@ -62,7 +62,7 @@ public static class TeamsEndpoints
             await Audit(db, me, "team.create", row.Name);
             return Results.Json(Payload(await ReloadAsync(db, row.Id), await ThreadLoadsAsync(db)),
                                 statusCode: 201);
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("users.manage");
 
         // ---- update ---------------------------------------------------------
         app.MapMethods("/api/teams/{id:int}", new[] { "PATCH" },
@@ -92,7 +92,7 @@ public static class TeamsEndpoints
             await SyncMembersAsync(db, row, body);
             await Audit(db, me, "team.update", row.Name);
             return Results.Ok(Payload(await ReloadAsync(db, row.Id), await ThreadLoadsAsync(db)));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("users.manage");
 
         // ---- delete ---------------------------------------------------------
         app.MapDelete("/api/teams/{id:int}", async (int id, AppDbContext db, ClaimsPrincipal me, ScopingService sc) =>
@@ -109,7 +109,7 @@ public static class TeamsEndpoints
             await Audit(db, me, "team.delete", row.Name,
                         owned > 0 ? $"{owned} conversation(s) returned to unassigned" : "");
             return Results.Ok(new { ok = true, released = owned });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("users.manage");
 
         // ---- assign a conversation to a team --------------------------------
         // `team_id` null/0 unassigns. Passing assign=true also picks the next

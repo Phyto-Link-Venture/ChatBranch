@@ -151,7 +151,9 @@ public static partial class NotificationEndpoints
                     created_at = e.CreatedAt,
                 }),
             });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          // the legacy Users-page audit feed (the Activity page reads /api/audit)
+          .RequireAnyCapability("users.view", "users.manage");
     }
 
     // ---- handlers shared by more than one route --------------------------------

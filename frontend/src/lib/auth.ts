@@ -78,6 +78,9 @@ export const CAPABILITY_CATALOG: { capability: string; area: string; label: stri
   { capability: 'billing.view', area: 'Review', label: 'View the AI usage bill', lbl: 'admin.caps.billingView' },
   { capability: 'billing.manage', area: 'Settings', label: 'Set AI billing markup & see costs', lbl: 'admin.caps.billingManage' },
   { capability: 'billing.quotas.manage', area: 'Review', label: 'Set AI usage quotas', lbl: 'admin.caps.billingQuotasManage' },
+  { capability: 'settings.raw.view', area: 'Settings', label: 'Read raw settings (API)', lbl: 'admin.caps.settingsRawView' },
+  { capability: 'settings.raw.manage', area: 'Settings', label: 'Write any raw setting (API)', lbl: 'admin.caps.settingsRawManage' },
+  { capability: 'testlab.run', area: 'Review', label: 'Run the Test lab', lbl: 'admin.caps.testlabRun' },
 ]
 
 const CAP_KEY = new Map<string, MessageKey>(CAPABILITY_CATALOG.map((c) => [c.capability, c.lbl]))
@@ -147,14 +150,22 @@ const ALL_CAPS = CAPABILITY_CATALOG.map((c) => c.capability)
 /**
  * Static role→capability fallback (mirrors the backend seed in spec §3). Used
  * only when the cached session has no `capabilities` array. Superadmin gets
- * everything; admin gets all except the two superadmin-reserved caps; agent
- * gets the read/work subset.
+ * everything; admin gets all except the superadmin-reserved caps
+ * (`AdminEndpoints.AdminExclude`); agent gets the read/work subset.
  */
+const ADMIN_EXCLUDE = new Set([
+  'rbac.manage',
+  'app_keys.manage',
+  'settings.ai_keys.manage',
+  'billing.manage',
+  'settings.ai_hard_rules.manage',
+  'settings.raw.manage',
+  'testlab.run',
+])
+
 export const DEFAULT_ROLE_CAPS: Record<Role, string[]> = {
   superadmin: ALL_CAPS,
-  admin: ALL_CAPS.filter(
-    (c) => c !== 'rbac.manage' && c !== 'app_keys.manage' && c !== 'settings.ai_keys.manage' && c !== 'billing.manage',
-  ),
+  admin: ALL_CAPS.filter((c) => !ADMIN_EXCLUDE.has(c)),
   agent: [
     'contacts.view',
     'chats.view',

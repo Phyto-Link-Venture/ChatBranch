@@ -12,7 +12,7 @@ import { TagChip } from '@/components/tags/TagChip'
 import { TagAssignEditor, type TagValueItem } from '@/components/tags/TagAssignEditor'
 import { orderEntityTree } from '@/components/bindings/groups'
 import { authHeaders, hasCap } from '@/lib/auth'
-import { useRole } from '@/lib/useRole'
+import { useAccess } from '@/lib/useAccess'
 import { useEntity, type Entity } from '@/lib/EntityContext'
 import { fetchTagAssignments, fetchTags, saveEntityTags, type TagDef } from '@/lib/tags'
 import { Trans, useFormat, useT } from '@/i18n'
@@ -92,7 +92,7 @@ function MainBadge() {
 export function EntitiesSettings() {
   const t = useT()
   const f = useFormat()
-  const { role, ready } = useRole()
+  const { ready, can } = useAccess()
   const { reload: reloadGlobalEntities } = useEntity()
   const [entities, setEntities] = useState<EntityRow[] | null>(null)
   const [busy, setBusy] = useState(false)
@@ -151,9 +151,9 @@ export function EntitiesSettings() {
   const depthOf = useMemo(() => new Map(ordered.map((r) => [r.row.id, r.depth])), [ordered])
   const tagById = useMemo(() => new Map((entityTags ?? []).map((tg) => [tg.id, tg])), [entityTags])
 
-  if (!ready) return null // role resolves after mount — don't flash the denial
+  if (!ready) return null // access resolves after mount — don't flash the denial
 
-  if (role === 'agent') {
+  if (!can('entities.view') && !can('entities.manage')) {
     return (
       <div className="flex items-center gap-2 py-6 text-[13px] text-text-muted">
         <ShieldAlert size={15} className="text-[color:var(--amber-ink)]" aria-hidden />

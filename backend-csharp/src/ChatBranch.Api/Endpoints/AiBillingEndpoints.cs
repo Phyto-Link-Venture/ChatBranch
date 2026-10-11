@@ -330,7 +330,7 @@ public static class AiBillingEndpoints
                 return Bad("Send {entities: {\"<entity id>\": amount}, users: {\"<username>\": amount}}.");
             var q = await QuotaScopeAsync(db, sc, me);
             if (!q.Manager && !q.CanEditBranches)
-                return Results.Json(new { detail = "Only an admin or a billing manager can change AI quotas." }, statusCode: 403);
+                return Results.Json(new { detail = "Only someone allowed to set AI usage quotas, or a billing manager, can change them." }, statusCode: 403);
             var config = AiQuota.LoadConfig(sc);
             var changes = new List<string>();
 
@@ -362,7 +362,9 @@ public static class AiBillingEndpoints
             }
             if (body.TryGetProperty("users", out var us) && us.ValueKind == JsonValueKind.Object)
             {
-                var inScope = (await UsersInScope(db, q)).Select(u => u.Username).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var inScope = (await UsersInScope(db, q))
+                    .Where(u => !q.AgentLevelOnly || !AdminEndpoints.IsPrivilegedRole(u.Role))
+                    .Select(u => u.Username).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 var known = (await db.Users.AsNoTracking().Select(u => u.Username).ToListAsync())
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
                 foreach (var p in us.EnumerateObject())
@@ -423,6 +425,8 @@ public static class AiBillingEndpoints
         public bool Manager { get; init; }
         public bool Superadmin { get; init; }
         public bool CanEditBranches { get; init; }
+        /// <summary>A quota setter below admin: never caps an admin or a superadmin.</summary>
+        public bool AgentLevelOnly { get; init; }
         public HashSet<int>? ReadEntities { get; init; }
         public HashSet<int> EditEntities { get; init; } = new();
         // a bound caller (company admin, assigned agent): only users bound inside these
@@ -440,11 +444,11 @@ public static class AiBillingEndpoints
         if (role == Roles.SuperAdmin || await ShellScope.HasCapAsync(db, me, ManageCap))
             return new QuotaScope { Manager = true, Superadmin = role == Roles.SuperAdmin, CanEditBranches = true, TenantId = tenant };
 
-        // the entities this person works in: assigned subtrees, else (admin) their tenant
+        // the entities this person works in: assigned subtrees, else (unbound) their tenant
         var assigned = ContactsEndpoints.AssignedEntityIds(db, me.Identity?.Name);
         HashSet<int> own;
         if (assigned.Count > 0) own = sc.EntitySubtreeIds(assigned).ToHashSet();
-        else if (role == Roles.Admin && tenant is int tid)
+        else if (tenant is int tid)
             own = (await db.Entities.AsNoTracking().Where(e => e.TenantId == tid).Select(e => e.Id).ToListAsync()).ToHashSet();
         else own = new HashSet<int>();
         // …plus the companies (and every level) above them, read-only
@@ -453,8 +457,10 @@ public static class AiBillingEndpoints
         return new QuotaScope
         {
             Manager = false,
-            // admins with the quota WRITE capability (theirs by default)
-            CanEditBranches = role == Roles.Admin && await ShellScope.HasCapAsync(db, me, QuotasCap),
+            // the quota WRITE capability (admins' by default; any role it is granted to)
+            CanEditBranches = await ShellScope.HasCapAsync(db, me, QuotasCap),
+            // someone below admin caps agent-level users only — never an admin
+            AgentLevelOnly = !AdminEndpoints.IsPrivilegedRole(role),
             ReadEntities = read,
             EditEntities = own,
             TenantId = tenant,

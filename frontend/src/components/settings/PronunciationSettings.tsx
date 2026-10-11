@@ -5,6 +5,7 @@ import { Loader2, Plus, Trash2, AlertCircle, Volume2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Trans, useT } from '@/i18n'
 import { authHeaders } from '@/lib/auth'
+import { useAccess } from '@/lib/useAccess'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -12,7 +13,7 @@ type Term = { term: string; alias: string }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}/${path}`, {
-    // the GET is anonymous, the save is admin+ — so send the session either way
+    // the GET is anonymous, the save needs pronunciation.manage — so send the session either way
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     ...init,
   })
@@ -31,6 +32,9 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
  */
 export function PronunciationSettings() {
   const t = useT()
+  // the dictionary is organization-wide: saving needs pronunciation.manage
+  const { can } = useAccess()
+  const mayEdit = can('pronunciation.manage')
   const [terms, setTerms] = useState<Term[]>([])
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -145,15 +149,17 @@ export function PronunciationSettings() {
         {terms.length === 0 && <div className="text-[12px] text-text-muted">{t('voice.pronunciation.empty')}</div>}
       </div>
 
-      <button
-        onClick={addTerm}
-        className="flex w-fit items-center gap-1.5 rounded-md border border-brand-400/20 bg-brand-400/[0.12] px-2.5 py-1.5 text-[11px] font-semibold text-brand-200"
-      >
-        <Plus size={13} aria-hidden /> {t('voice.pronunciation.addTerm')}
-      </button>
+      {mayEdit && (
+        <button
+          onClick={addTerm}
+          className="flex w-fit items-center gap-1.5 rounded-md border border-brand-400/20 bg-brand-400/[0.12] px-2.5 py-1.5 text-[11px] font-semibold text-brand-200"
+        >
+          <Plus size={13} aria-hidden /> {t('voice.pronunciation.addTerm')}
+        </button>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="primary" onClick={save} disabled={busy}>
+        <Button variant="primary" onClick={save} disabled={busy || !mayEdit}>
           {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null} {t('voice.pronunciation.saveSync')}
         </Button>
         {msg && (

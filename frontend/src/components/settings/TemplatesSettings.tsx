@@ -18,7 +18,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Select } from '@/components/ui/Select'
 import { accountRole } from '@/components/ui/Badges'
 import { Trans, useT, type MessageKey, type TFunction } from '@/i18n'
-import { useRole } from '@/lib/useRole'
+import { useAccess } from '@/lib/useAccess'
 import { Notice, TemplateTable, api, errText, inputCls, type TemplateRow } from '@/components/templates/shared'
 
 interface WaButton {
@@ -235,8 +235,8 @@ export function TemplatesSettings({
   onAccountChange?: (id: string) => void
 }) {
   const t = useT()
-  const { role } = useRole()
-  const canManage = role === 'admin' || role === 'superadmin'
+  const { can } = useAccess()
+  const canManage = can('templates.manage')
   const [accounts, setAccounts] = useState<WaAccount[] | null>(null)
   const [allAccounts, setAllAccounts] = useState<WaAccount[]>([])
   const [accountId, setAccountId] = useState<string>(wanted ?? '')

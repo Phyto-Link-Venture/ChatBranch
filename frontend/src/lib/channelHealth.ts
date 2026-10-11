@@ -90,7 +90,7 @@ export async function fetchChannelHealth(entityQ = ''): Promise<ChannelHealthPay
   return (await res.json()) as ChannelHealthPayload
 }
 
-/** Probe every account NOW (admin+) and return the refreshed payload — the
+/** Probe every account NOW (channels.manage) and return the refreshed payload — the
  *  periodic checker otherwise only runs every ~5 minutes. */
 export async function checkChannelHealth(entityQ = ''): Promise<ChannelHealthPayload> {
   const res = await fetch(`${API}/whatsapp/channels/health${entityQ && `?${entityQ}`}`, {

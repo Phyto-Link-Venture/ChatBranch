@@ -8,7 +8,7 @@ import { MultiSelect, Select } from '@/components/ui/Select'
 import { TagListInput } from '@/components/ui/TagListInput'
 import { Toggle } from '@/components/ui/Toggle'
 import { Advanced } from '@/components/ui/Advanced'
-import { useRole } from '@/lib/useRole'
+import { useAccess } from '@/lib/useAccess'
 import { useT, type MessageKey } from '@/i18n'
 import { Notice, Section, api, inputCls, useAgo } from './shared'
 
@@ -95,8 +95,8 @@ const EMPTY_DRAFT: Draft = {
 export function McpServersCard() {
   const t = useT()
   const ago = useAgo()
-  const { role, ready } = useRole()
-  const canManage = role === 'admin' || role === 'superadmin'
+  const { ready, can } = useAccess()
+  const canManage = can('api_keys.manage')
 
   const [servers, setServers] = useState<McpServer[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)

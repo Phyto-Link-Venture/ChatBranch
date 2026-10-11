@@ -56,7 +56,7 @@ export function ChannelHealthCard({
   canManage,
 }: {
   entityQ: string
-  /** "Check now" probes every account — admin+ server-side. */
+  /** "Check now" probes every account — channels.manage server-side. */
   canCheck: boolean
   /** The caller can open Channels (channels.view). */
   canManage: boolean

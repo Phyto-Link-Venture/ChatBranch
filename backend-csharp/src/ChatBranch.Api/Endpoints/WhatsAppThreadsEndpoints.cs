@@ -161,10 +161,10 @@ public static class WhatsAppThreadsEndpoints
                 return Results.Json(new { detail = "Thread not found." }, statusCode: 404);
             var explicitAccount = !string.IsNullOrWhiteSpace(body.AccountId);
             // moving a conversation that already has a number is the per-chat
-            // switch (POST …/{key}/account), an admin's call — never a side effect
-            if (existing?.AccountId is int current && explicitAccount && !IsAdminPlus(me)
+            // switch (POST …/{key}/account), account_assignment.manage — never a side effect
+            if (existing?.AccountId is int current && explicitAccount && !await MaySwitchAccount(db, me)
                 && int.TryParse(body.AccountId!.Trim(), out var asked) && asked != current)
-                return Results.Json(new { detail = "Only an admin can move an existing conversation to another number." },
+                return Results.Json(new { detail = "Moving an existing conversation to another number needs the account_assignment.manage capability." },
                     statusCode: 403);
             var accountId = existing?.AccountId != null && !explicitAccount
                 ? existing.AccountId
@@ -233,10 +233,10 @@ public static class WhatsAppThreadsEndpoints
                                                     && m.Direction == MessageDirection.In))
             {
                 var guard = Rule(sc, "cold_text_guard", "block");
-                if (guard == "block" && !(body.Force && IsAdminPlus(me)))
+                if (guard == "block" && !(body.Force && await MayOverrideColdGuard(db, me)))
                     // code + can_override let the composer offer an admin "Send anyway"
                     return Results.Json(new { detail = ColdTextBlockDetail, code = "cold_text",
-                        can_override = IsAdminPlus(me) }, statusCode: 409);
+                        can_override = await MayOverrideColdGuard(db, me) }, statusCode: 409);
                 if (guard == "warn") coldNote = ColdTextWarnNote;
             }
             if (live && !WindowOpen(db, thread, account))
@@ -363,7 +363,7 @@ public static class WhatsAppThreadsEndpoints
             // a file into a zero-inbound thread on a conversation (Baileys) number
             // is the same ban-risk case as cold free text (Setting cold_text_guard)
             if (account != null && AccountRole(account) == "conversation"
-                && Rule(sc, "cold_text_guard", "block") == "block" && !(force && IsAdminPlus(me))
+                && Rule(sc, "cold_text_guard", "block") == "block" && !(force && await MayOverrideColdGuard(db, me))
                 && !await db.Messages.AnyAsync(m => m.ThreadId == thread.Id && m.Direction == MessageDirection.In))
                 return Results.Json(new { detail = ColdTextBlockDetail }, statusCode: 409);
             if (live && !WindowOpen(db, thread, account))
@@ -456,7 +456,7 @@ public static class WhatsAppThreadsEndpoints
             return Results.Ok(await ThreadPayload(db, sc, wa, thread, DefaultLimit, null));
         }).RequireAuthorization(AuthPolicies.Authenticated).RequireThreadAccess("chats.send");
 
-        // ---- switch the sending account (admin+) ------------------------------
+        // ---- switch the sending account (account_assignment.manage) -----------
         // views.switch_account. Meta's window is per OUR number, so the note the
         // operator sees depends on what this number already knows about the
         // contact: provider (Baileys = ban risk, no templates), whether it has
@@ -478,6 +478,12 @@ public static class WhatsAppThreadsEndpoints
             var row = await db.ChannelAccounts.FirstOrDefaultAsync(
                 a => a.Id == acctPk && a.Channel == ChatBranch.Domain.Channels.WhatsApp);
             if (row == null) return Results.NotFound(new { detail = "Account not found." });
+            // someone bound to entities only moves a chat onto a number their outlets
+            // may use (their subtrees, those above them, the org-wide ones)
+            if (ShellScope.BoundInheritedIds(db, sc, me) is List<int> usable
+                && row.EntityId is int rowEntity && !usable.Contains(rowEntity))
+                return Results.Json(new { detail = "That number belongs to an entity outside your scope." },
+                    statusCode: 403);
             var thread = await FindThread(db, key);
             if (thread == null) return Results.NotFound(new { detail = "Thread not found." });
             if (thread.AccountId == row.Id)
@@ -562,7 +568,8 @@ public static class WhatsAppThreadsEndpoints
                 prior_contact = priorContact,
                 window_open_with_new_account = isBaileys || recentReply,
             });
-        }).RequireAuthorization(AuthPolicies.AdminPlus).RequireThreadAccess("chats.send");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability(AssignmentsEndpoints.Capability)
+          .RequireThreadAccess("chats.send");
 
         // =====================================================================
         // Call controls.
@@ -1058,8 +1065,15 @@ public static class WhatsAppThreadsEndpoints
     private static string NormalizeWaId(string? raw) =>
         new((raw ?? "").Where(char.IsDigit).ToArray());
 
-    private static bool IsAdminPlus(ClaimsPrincipal me) =>
-        me.IsInRole(Roles.Admin) || me.IsInRole(Roles.SuperAdmin);
+    /// <summary>The per-chat number switch (and moving a chat while starting it):
+    /// account_assignment.manage — it pins the contact's account assignment.</summary>
+    private static Task<bool> MaySwitchAccount(AppDbContext db, ClaimsPrincipal me) =>
+        ShellScope.HasCapAsync(db, me, AssignmentsEndpoints.Capability);
+
+    /// <summary>"Send anyway" past the cold-text guard (a manual compliance
+    /// override): chats.manage.</summary>
+    private static Task<bool> MayOverrideColdGuard(AppDbContext db, ClaimsPrincipal me) =>
+        ShellScope.HasCapAsync(db, me, "chats.manage");
 
     private static string Cap(string s, int n) => s.Length <= n ? s : s[..n];
 

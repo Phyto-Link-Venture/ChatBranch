@@ -90,7 +90,7 @@ public static class AiEndpoints
                 return Results.Json(new
                 {
                     detail = entityId == null
-                        ? "Only an admin can change the organization-wide persona and house rules."
+                        ? "Only someone not limited to particular entities can change the organization-wide persona and house rules."
                         : "That outlet is outside your scope.",
                 }, statusCode: 403);
             if (body.Persona == null && body.HouseRules == null)
@@ -373,7 +373,9 @@ public static class AiEndpoints
             var hours = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("hours", out var h) ? h : body;
             sc.SetSetting("booking_hours", hours.GetRawText(), entityId);
             return Results.Ok(BookingHoursPayload(sc, entityId, entity));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          // the booking-hours card on Integrations, or the AI configuration (like the GET)
+          .RequireAnyCapability("integrations.manage", "settings.ai.manage");
 
         app.MapDelete("/api/aicore/booking-hours", async (string? entity, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>
         {
@@ -383,7 +385,8 @@ public static class AiEndpoints
                 return Results.Json(new { detail = "Select an entity to remove its override. The organization default is edited, not deleted." }, statusCode: 400);
             sc.ClearSetting("booking_hours", entityId);
             return Results.Ok(BookingHoursPayload(sc, entityId, entity));
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated)
+          .RequireAnyCapability("integrations.manage", "settings.ai.manage");
 
         app.MapPost("/api/aicore/reply", async (ReplyRequest body, ThreadStore store,
             AssistantService assistant, AppDbContext db, ScopingService sc, ClaimsPrincipal me) =>

@@ -46,7 +46,8 @@ ChannelAccount (an inbox)  one entity, or org-wide — decides where conversatio
   organization-wide by design. House rules (`ai_house_rules`) are the additive
   exception: every level's rules apply. The persona + house rules editor
   (`/ai-persona`, `GET/PUT /api/aicore/persona`) needs `settings.ai.manage`;
-  org-wide writes are admin+, an outlet must be in the caller's scope.
+  org-wide writes need someone not bound to entities, an outlet must be in the
+  caller's scope.
 
 ## Roles
 
@@ -71,9 +72,12 @@ bounded by those entities' subtrees. An admin with none stays organization-wide
 
 - `ShellScope.ScopeRoots(db, me)` — the assigned entity ids that bound the caller;
   empty for superadmin (never bound), org-wide admins and unassigned agents.
-- `ShellScope.IsCompanyAdmin` / `IsOrgWideAdmin` (superadmin, or an admin with no
-  entities) / `AdminMayAct(entityId)` / `CompanyLevelError(entityId)` (the 403 for
-  a company admin acting at the organization level or on another company).
+- `ShellScope.IsBound` / `IsCompanyAdmin` / `IsOrgWideAdmin` (superadmin, or an
+  admin with no entities — used for the user-management tiers) /
+  `MayActAt(entityId)` / `CompanyLevelError(entityId)` (the 403 for anyone bound
+  to entities — a company admin, a bound agent or custom role — acting at the
+  organization level or on another company) / `OrgWideOnly` / `OrgWideAction` /
+  `ObjectScopeError`.
 - `BoundEntityIds`, `BoundInheritedIds`, `ThreadEntityIds`, `ScopeLibrary`,
   `ContactsEndpoints.ScopeContacts`, `AdminEndpoints.AccessibleEntitiesAsync`
   (their companies + branches — the entity switcher), `ToolScope` (MCP) and
@@ -82,12 +86,13 @@ bounded by those entities' subtrees. An admin with none stays organization-wide
   libraries, bookings, call logs, activity, the AI bill and quotas, AI review
   runs, search, live) is bounded like an entity-bound agent's.
 - `Auth/CompanyAdminScope.cs` (middleware after the key scopes) drops the
-  ORGANIZATION-LEVEL capabilities for a company admin in every check, whatever
-  the matrix says: `rbac.manage`, `app_keys.manage`, `settings.ai_keys.manage`,
+  ORGANIZATION-LEVEL capabilities for a company admin — and for every other
+  person bound to entities — in every check, whatever the matrix says:
+  `rbac.manage`, `app_keys.manage`, `settings.ai_keys.manage`,
   `billing.manage`, `notifications.manage`, `settings.appearance.org`,
   `settings.custom_fields.manage`, `pronunciation.manage`,
-  `settings.ai_hard_rules.manage`; org-wide voice and
-  default-mail writes carry `.OrgWideOnly()`.
+  `settings.ai_hard_rules.manage`, `settings.raw.manage`, `testlab.run`;
+  org-wide voice writes carry `.OrgWideOnly()`.
 - Writes: entity create = a branch under their companies only (no top-level
   company, no promoting a branch); library items never "Everyone (global)", and
   an existing item is editable only when every entity it serves is theirs
@@ -105,7 +110,15 @@ The rule above holds for EVERY entity-bound person — company admins, agents an
 custom roles with assigned entities (`ScopeRoots` non-empty) — whatever
 capabilities their role holds: they read and act inside their assigned subtrees
 (plus what those inherit) and never write at the organization level (entity
-null). Organization-wide AI writes need an UNBOUND caller:
+null). That is what keeps the Permissions page safe: granting a bound agent or
+custom role an admin capability (`channels.manage`, `users.manage`,
+`integrations.manage`…) lets them do exactly what a company admin does with it,
+inside their entities — `ShellScope.CompanyLevelError` / `MayActAt` /
+`OrgWideOnly` apply to every bound caller, and the actions with no entity to
+check (`OrgWideAction`) stay with unbound holders and company admins. An UNBOUND
+holder of a capability (no assigned entities = the tenant-wide view) acts at the
+organization level like an org-wide admin. Organization-wide AI writes need an
+UNBOUND caller:
 
 - `PUT/DELETE /api/ai/behaviour`, `PUT /api/ai/controls`, `PUT /api/aicore/persona`
   (persona / house rules) at the organization level → 403 (`AiControlsEndpoints.MayEdit`);
@@ -146,11 +159,20 @@ The permission matrix is data (`crm_rolepermission`, edited at `/permissions`,
 `AdminEndpoints.Catalog` and is mirrored for the UI in `CAPABILITY_CATALOG`
 (`frontend/src/lib/auth.ts`) — **change both together**. Rules:
 
+- **every operator action is governed by the matrix**: a route's permission gate
+  is a capability, never a role — granting a custom role (or the agent role) a
+  capability on the Permissions page opens exactly the actions it names, and
+  denying it to the admin role closes them (`PermissionMatrixTests`);
 - superadmin is always allowed in code, and its `rbac.manage` can't be switched
   off;
 - a missing matrix row falls back to the code default below;
 - no caching — a matrix edit applies on the next request;
-- capabilities gate the ACTION; tenancy/entity scope gates the ROWS.
+- capabilities gate the ACTION; tenancy/entity scope gates the ROWS — a
+  capability never widens anyone beyond their entity subtrees (see "Bound users
+  never act at the organization level");
+- **anti-escalation:** someone below superadmin holding `rbac.manage` may only
+  switch capabilities they hold themselves (grant or remove) and never touches
+  the superadmin row; user management keeps its tiers (below).
 
 | Capability | Area | Default holders |
 |---|---|---|
@@ -182,53 +204,92 @@ The permission matrix is data (`crm_rolepermission`, edited at `/permissions`,
 | `settings.appearance.org` | Settings — the organization's default appearance | admin |
 | `settings.custom_fields.manage` | Settings — custom fields | admin |
 | `settings.ai_keys.manage` | Settings — AI keys & models | **superadmin only** |
-| `app_keys.manage` | Settings — app & provider keys | **superadmin only** |
-| `api_keys.manage` | Admin — API keys & MCP | admin |
+| `app_keys.manage` | Settings — app & provider keys (also the default mail settings, the SIP trunk, connecting an integration with raw keys) | **superadmin only** |
+| `settings.raw.view` | Settings — read the raw key/value store (`GET /api/settings`, API only, secrets masked) | admin |
+| `settings.raw.manage` | Settings — write ANY raw setting (`PUT /api/settings`: credentials, billing terms, the safety rules… — grant with care) | **superadmin only** |
+| `billing.view` | Review — the AI usage bill | admin |
+| `billing.manage` | Settings — AI billing terms, costs and every quota | **superadmin only** |
+| `billing.quotas.manage` | Review — set AI usage quotas (branch + user caps) | admin |
+| `api_keys.manage` | Admin — API keys & MCP (also the external MCP servers) | admin |
 | `rbac.manage` | Admin — the permission matrix | **superadmin only** |
+| `testlab.run` | Review — the Test lab (a run drives the shared queue / flow / monitor ticks) | **superadmin only** |
 
-(34 capabilities. The service-provider capabilities and the `provider` role are
+(41 capabilities. The service-provider capabilities and the `provider` role are
 gone with Service Providers — see [DOMAIN_MODEL.md](DOMAIN_MODEL.md).)
+
+**Organization-level capabilities** (`Auth/CompanyAdminScope.OrgLevelCapabilities`):
+`rbac.manage`, `app_keys.manage`, `settings.ai_keys.manage`, `billing.manage`,
+`notifications.manage`, `settings.appearance.org`, `settings.custom_fields.manage`,
+`pronunciation.manage`, `settings.ai_hard_rules.manage`, `settings.raw.manage`,
+`testlab.run` — dropped in every check for anyone BOUND to entities (a company
+admin, an agent or a custom role with assigned entities), whatever the matrix says.
 
 ### How endpoints enforce it
 
-Every route carries a coarse policy — `authenticated`, `admin+` or
-`superadmin` (`Auth/AuthPolicies.cs`) — and, where the matrix applies, a
-capability gate: the endpoint filter `.RequireCapability("x")` /
+Every signed-in route carries the `authenticated` policy (`Auth/AuthPolicies.cs`)
+— no route is gated by a ROLE any more (the `admin+` / `superadmin` policies are
+defined but unused; `PermissionMatrixTests` fails on a route that uses one) —
+and a capability gate: the endpoint filter `.RequireCapability("x")` /
 `.RequireAnyCapability("x", "y")` (`Auth/CapabilityFilter.cs`, 403 before the
 handler runs; it also stamps `RequiredCapabilities` metadata so the route table
 can be audited), `.RequireThreadAccess("chats.view"|"chats.send")` on
 per-conversation routes (`Auth/ThreadAccessFilter.cs`: the capability, then the
 inbox scope — out of scope answers 404), or an in-handler check
 (`AdminEndpoints.HasCapabilityAsync`, `SettingsEndpoints.RequireCapability`)
-where a write reads its body first. Notable gates:
+where a write reads its body first. Two route filters add the entity rule on top
+(`Endpoints/ShellScope.cs`): `.OrgWideOnly()` refuses anyone BOUND to entities
+(organization-level writes: the org-wide voice settings), `.OrgWideAction()`
+refuses a bound person who is not a company admin (actions with no entity to
+confine them: the voice library, external MCP servers, the raw settings read,
+journey enqueue / tick) — so granting a bound agent or custom role a capability
+never widens them beyond their subtrees, while company admins keep the reach the
+admin role always had there. Writes on one entity's object use
+`ShellScope.CompanyLevelError` (every bound caller: inside their subtrees only,
+never the organization level) or `ObjectScopeError` (another company's object
+refused; an organization-wide one follows `OrgWideAction`). Notable gates:
 
 | Surface | Gate |
 |---|---|
-| Global settings key/value (`PUT /api/settings`), voice SIP creds (`PUT /api/whatsapp/voice-settings`), Google connect (`POST /api/integrations/{provider}/connect`) | superadmin |
+| Raw settings key/value (`PUT /api/settings`) | `settings.raw.manage` (superadmin by default) |
+| Voice SIP creds (`PUT /api/whatsapp/voice-settings`), the default mail settings (`POST/PUT /api/messaging/settings`) | `app_keys.manage` |
+| Connect an integration with raw keys (`POST /api/integrations/{provider}/connect`) | `integrations.manage` AND `app_keys.manage` |
+| The Test lab (`/api/testlab/*`) | `testlab.run` (superadmin by default) |
+| Roles + the matrix (`POST/PATCH/DELETE /api/auth/roles*`, `PUT /api/auth/permissions`) | `rbac.manage` (+ the anti-escalation rule above) |
+| Channel accounts, widgets, numbers' pairing + webhooks, "Check now" (`/api/whatsapp/accounts*`, `/api/messaging/accounts*`, `/api/widgets*`, `POST /api/whatsapp/channels/health`) | `channels.manage`, inside the caller's entities |
+| Teams (`POST/PATCH/DELETE /api/teams*`) | `users.manage`, inside the caller's entities |
+| WhatsApp templates (`POST/PATCH/DELETE /api/whatsapp/templates*`) | `templates.manage` |
+| Recovery (`POST /api/whatsapp/recovery/{id}`), the per-chat number switch (`POST /api/whatsapp/threads/{key}/account`; moving an existing chat while starting it) | `account_assignment.manage` (the switch also `chats.send` + the conversation in scope; the number must be one the caller's outlets may use) |
+| "Send anyway" past the cold-text guard (`force`) | `chats.manage` |
+| Contacts create / edit / add an identity / import / record sync / identity-check pass (`POST /api/contacts`, `PATCH /api/contacts/{id}`, `POST /api/contacts/{id}/channels`, `/import`, `/api/v1/sync/records`, `/identity-checks/run`) | `contacts.manage` (the contact and conversation in the caller's scope) |
+| Brands (`POST /api/v1/brands`) | `entities.manage`, never a bound person (a top-level company) |
+| Journeys queue (`POST /api/flows/enqueue`, `POST /api/flows/tick`), automations writes | `flows.manage` |
+| External MCP servers (`/api/integrations/mcp*` writes + test) | `api_keys.manage` |
+| Voice library + org voice settings (`/api/voice/*` writes, `/api/voice/default-voice`, `/stt-settings`, `/llm-settings`) | `settings.ai.manage` |
+| Pronunciation (`POST /api/pronunciation`) | `pronunciation.manage` (organization-level) |
+| Booking hours (`PUT/DELETE /api/aicore/booking-hours`) | `integrations.manage` or `settings.ai.manage`, inside the caller's entities |
 | AI keys & models (`PUT /api/settings/ai-providers`) | `settings.ai_keys.manage` |
 | Integration provider keys (`PUT /api/integrations/settings`) | `app_keys.manage` |
 | Custom fields schema (`PUT /api/settings/custom-fields`) | `settings.custom_fields.manage` |
 | Org notification defaults (`PUT /api/auth/notification-prefs`) | `notifications.manage` |
 | Org appearance default (`PUT /api/settings/appearance`) | `settings.appearance.org` |
 | Account assignments, rebalance, routing rules (`/api/whatsapp/assignments*`, `PUT /api/whatsapp/routing-rules`) | `account_assignment.manage` |
-| Channel accounts, widgets, teams, automations, external MCP servers, recovery, record sync, analytics usage | admin+ |
 | Knowledge base and AI skills writes (`/api/aicore/knowledge*`, `PUT /api/aicore/skills`, skill draft/test) | `settings.ai.manage` |
 | Integrations — read (`GET /api/integrations`, `/providers`, `/accounts`, `/settings`) | `integrations.view` (settings also `app_keys.manage`); without it a person still lists **their own** connections |
-| Integrations — add / delete / shared connect (`POST/DELETE /api/integrations/accounts*` — `entity` = that entity and its branches, none = the whole organization —, `GET /api/integrations/oauth/{provider}/start?for=shared[&entity=slug]`, `POST /api/integrations/{provider}/connect`) | admin+ (`{provider}/connect`: superadmin) AND `integrations.manage`; an unknown entity is a 404 |
+| Integrations — add / delete / shared connect (`POST/DELETE /api/integrations/accounts*` — `entity` = that entity and its branches, none = the whole organization —, `GET /api/integrations/oauth/{provider}/start?for=shared[&entity=slug]`, `POST /api/integrations/{provider}/connect`) | `integrations.manage` (`{provider}/connect` also `app_keys.manage`); someone bound to entities only for their own entities; an unknown entity is a 404 |
 | Your own account — Settings → My account (`GET/PATCH /api/auth/me/account`, `POST /api/auth/me/password`, `POST /api/auth/me/sessions/revoke-others`) | any signed-in user, always THEMSELVES (no id in the route — another user's account is unreachable); the writes are session-only (an API key → 403); wrong current passwords: 5 per 15 min → 429 |
-| Integrations — connect / disconnect your **own** Google account (`GET /api/integrations/mine`, `GET /api/integrations/oauth/{provider}/start` — `?return=connections` brings the callback back to Settings → My connections —, `POST …/accounts/{id}/disconnect`) | any signed-in user for their own row, no capability; someone else's personal row is invisible to non-admins; a shared row needs admin+ AND `integrations.manage` |
+| Integrations — connect / disconnect your **own** Google account (`GET /api/integrations/mine`, `GET /api/integrations/oauth/{provider}/start` — `?return=connections` brings the callback back to Settings → My connections —, `POST …/accounts/{id}/disconnect`) | any signed-in user for their own row, no capability; someone else's personal row is visible only with `integrations.manage` and no entity binding; a shared row needs `integrations.manage` (inside the caller's entities) |
 | Integrations — run an action (`POST /api/integrations/action`: mail, charge, book…) | `integrations.manage` OR `flows.manage`, and the contact must be in the caller's scope |
 | WhatsApp global settings incl. the verify token (`POST/PUT /api/whatsapp/settings`) | `app_keys.manage` |
 | Flow library | GET `flows.view`, PUT `flows.manage` |
 | Tags | read `tags.view`, write `tags.manage` |
-| Bindings (`POST /api/bindings/{kind}`) | admin+ AND the kind's own capability (`users.manage`, `contacts.manage`, `tags.manage`, `channels.manage`); user kinds follow the `/api/v1/users` tiers (an admin binds agent-level users of their tenant only — never an admin, a superadmin or themselves; entity access only for agent-level users); contact kinds only contacts and entities in the caller's scope |
+| Bindings (`POST /api/bindings/{kind}`) | the kind's own capability (`users.manage`, `contacts.manage`, `tags.manage`, `channels.manage`); user kinds follow the `/api/v1/users` tiers (below superadmin: agent-level users of their tenant only — never an admin, a superadmin or their own entity access; entity access only for agent-level users; a manager bound to entities only users bound inside them); team kinds only teams the caller may edit; contact / tag kinds only contacts and entities in the caller's scope; entity ↔ account only the caller's entities and numbers |
 | Message templates / call scripts | `templates.manage` / `script_templates.manage` |
 | AI monitor / behaviour | `ai.monitor` / `ai.behaviour.manage` |
-| AI playground (`/api/ai/playground/options`, `POST …/reply`, `POST …/import`) | `ai.monitor` or `ai.behaviour.manage`; trying changes (provider / model, a persona draft, knowledge / lessons / skills / memory off, the full prompt) `ai.behaviour.manage` (else 403); the entity must sit in the caller's assigned subtree (an unassigned agent-level user keeps the tenant-wide view; organization-wide needs admin+ or no assignment), a real contact in `ScopeContacts` (404), an imported conversation needs `chats.view` + the inbox scope (404); 30 replies a minute per user (429) |
-| AI review (`POST /api/ai/review`, `GET /api/ai/review/options`, `GET /api/ai/review/runs[/{id}]`, `POST /api/ai/review/findings/{id}/apply`) | start a run / pick its reviewer model (`model`, a configured provider only — else 400) / read the picker's options / apply a suggestion `ai.behaviour.manage`; saving the picked model as the default goes through `PUT /api/settings/ai-providers` (`settings.ai_keys.manage`) (knowledge and house rules also `settings.ai.manage`; a house rule at the run's entity follows the persona PUT rule — org-wide admin+, an outlet in the caller's subtree); read `ai.monitor` or `ai.behaviour.manage`. Scope = the AI monitor's draft scope: a run is visible only when every entity it read sits in the caller's scope (an organization-wide run is admins' / unassigned users'), its findings are filtered again by the conversation's entity (404 outside) |
-| AI review (`POST /api/ai/review`, `GET /api/ai/review/runs[/{id}]`, `POST /api/ai/review/findings/{id}/apply`) | start a run / apply a suggestion `ai.behaviour.manage` (knowledge and house rules also `settings.ai.manage`; a house rule at the run's entity follows the persona PUT rule — org-wide admin+, an outlet in the caller's subtree); read `ai.monitor` or `ai.behaviour.manage`. Scope = the AI monitor's draft scope: a run is visible only when every entity it read sits in the caller's scope (an organization-wide run is admins' / unassigned users'), its findings are filtered again by the conversation's entity (404 outside) |
-| Background AI tasks (`/api/ai/tasks`, `POST/PUT/DELETE …[/{id}]`, `GET …/{id}/runs`, `POST …/{id}/test`, `POST …/tick`) | read `ai.monitor` or `settings.ai.manage`; create / change / delete / dry-run / run-due `settings.ai.manage`. Tasks are a library: read through `ShellScope.ScopeLibrary` (a bound caller sees the org-wide tasks + their entities'), "Available to" written through `LibraryScope` (going global = admin+ or an unassigned holder; an org-wide task is read-only to a bound caller). Runs are scoped like conversations (`ShellScope.ThreadEntityIds`: a bound caller sees runs of their subtrees' chats and unattributed ones). The dry run spends the caller's own AI quota (429). A task never messages a customer — there is no send tool |
-| AI controls — master switch, schedule, never-AI tags (`/api/ai/controls`) | GET `ai.monitor`, `ai.behaviour.manage` or `chats.view`; PUT `ai.behaviour.manage` — the organization-wide value needs admin+, an outlet must sit in the caller's assigned subtree (an unassigned agent-level user keeps the tenant-wide view) |
+| AI playground (`/api/ai/playground/options`, `POST …/reply`, `POST …/import`) | `ai.monitor` or `ai.behaviour.manage`; trying changes (provider / model, a persona draft, knowledge / lessons / skills / memory off, the full prompt) `ai.behaviour.manage` (else 403); the entity must sit in the caller's assigned subtree (an unassigned user keeps the tenant-wide view; organization-wide needs no assignment), a real contact in `ScopeContacts` (404), an imported conversation needs `chats.view` + the inbox scope (404); 30 replies a minute per user (429) |
+| AI review (`POST /api/ai/review`, `GET /api/ai/review/options`, `GET /api/ai/review/runs[/{id}]`, `POST /api/ai/review/findings/{id}/apply`) | start a run / pick its reviewer model (`model`, a configured provider only — else 400) / read the picker's options / apply a suggestion `ai.behaviour.manage`; saving the picked model as the default goes through `PUT /api/settings/ai-providers` (`settings.ai_keys.manage`) (knowledge and house rules also `settings.ai.manage`; a house rule at the run's entity follows the persona PUT rule — org-wide needs no entity binding, an outlet in the caller's subtree); read `ai.monitor` or `ai.behaviour.manage`. Scope = the AI monitor's draft scope: a run is visible only when every entity it read sits in the caller's scope (an organization-wide run is admins' / unassigned users'), its findings are filtered again by the conversation's entity (404 outside) |
+| AI review (`POST /api/ai/review`, `GET /api/ai/review/runs[/{id}]`, `POST /api/ai/review/findings/{id}/apply`) | start a run / apply a suggestion `ai.behaviour.manage` (knowledge and house rules also `settings.ai.manage`; a house rule at the run's entity follows the persona PUT rule — org-wide needs no entity binding, an outlet in the caller's subtree); read `ai.monitor` or `ai.behaviour.manage`. Scope = the AI monitor's draft scope: a run is visible only when every entity it read sits in the caller's scope (an organization-wide run is admins' / unassigned users'), its findings are filtered again by the conversation's entity (404 outside) |
+| Background AI tasks (`/api/ai/tasks`, `POST/PUT/DELETE …[/{id}]`, `GET …/{id}/runs`, `POST …/{id}/test`, `POST …/tick`) | read `ai.monitor` or `settings.ai.manage`; create / change / delete / dry-run / run-due `settings.ai.manage`. Tasks are a library: read through `ShellScope.ScopeLibrary` (a bound caller sees the org-wide tasks + their entities'), "Available to" written through `LibraryScope` (going global = an unassigned holder; an org-wide task is read-only to a bound caller). Runs are scoped like conversations (`ShellScope.ThreadEntityIds`: a bound caller sees runs of their subtrees' chats and unattributed ones). The dry run spends the caller's own AI quota (429). A task never messages a customer — there is no send tool |
+| AI controls — master switch, schedule, never-AI tags (`/api/ai/controls`) | GET `ai.monitor`, `ai.behaviour.manage` or `chats.view`; PUT `ai.behaviour.manage` — the organization-wide value needs someone not bound to entities, an outlet must sit in the caller's assigned subtree (an unassigned holder keeps the tenant-wide view) |
 | A contact's AI mode (`/api/contacts/{id}/ai-mode`) | GET `contacts.view`, PUT `contacts.manage` |
 | Bulk conversation actions (`POST /api/inbox/threads/bulk`) | `chats.manage`, scoped like the list, ≤1000 |
 | Take / hand back / flag a conversation (`POST /api/inbox/threads/{channel}/{key}/handover`) | `chats.send` + the per-conversation scope (below) |
@@ -236,8 +297,8 @@ where a write reads its body first. Notable gates:
 | Bookings (`GET /api/bookings`, `POST /api/bookings/{id}/cancel`) | `chats.view` / `chats.send`, rows scoped like conversations |
 | Documents (`GET /api/documents`, `GET /api/documents/{id}/file`, `GET /api/documents/form`, `POST /api/documents`) | `chats.view` / `chats.send`, rows scoped like conversations; `/form` (what the create form offers in a conversation — per type the skill, its layout and a custom layout's own fields) and `POST` also need the conversation in scope (404 otherwise). `GET /api/documents/public/{token}` is anonymous (the customer's link — see API_CONVENTIONS) |
 | The Documents skill's template designer + custom layout (`POST /api/aicore/skills/documents/letterhead`, `…/template/analyze`, `…/template/assist`, `…/html/preview`, `…/html/draft`, `…/html/assist`) | `settings.ai.manage`; the AI routes (`analyze`, `template/assist`, `html/draft`, `html/assist`) spend the caller's AI quota (429) and meter as `document_template`; nothing is saved until the skills PUT |
-| AI learning (`/api/ai/feedback`, `/api/ai/lessons`, `/api/ai/learning/*`) | reads and rating `ai.monitor` (feedback follows the conversation scope, lessons the library scope); lesson writes and re-indexing `ai.behaviour.manage`; deleting a lesson admin+ too |
-| Contact identities (`/api/contacts/{id}/channels/discover`, `/{id}/invites`, `/identify/{channel}/{key}/contact`) | `contacts.manage` (reading invites `contacts.view`, the chat's identify banner `chats.view`); the import and `/identity-checks/run` admin+ AND `contacts.manage` |
+| AI learning (`/api/ai/feedback`, `/api/ai/lessons`, `/api/ai/learning/*`) | reads and rating `ai.monitor` (feedback follows the conversation scope, lessons the library scope); lesson writes, deleting and re-indexing `ai.behaviour.manage` |
+| Contact identities (`/api/contacts/{id}/channels/discover`, `/{id}/invites`, `/identify/{channel}/{key}/contact`) | `contacts.manage` (reading invites `contacts.view`, the chat's identify banner `chats.view`); the import and `/identity-checks/run` `contacts.manage` |
 | Per-inbox unknown-customer mode (`/api/inboxes/{id}/identify`) | GET `channels.view`, PUT `channels.manage` |
 | Add a contact (`POST /api/v1/contacts`, the Contacts page) | `contacts.manage` (admins by default; any role granted it), new contacts linked inside the caller's scope |
 | Contact access requests (`/api/contacts/access-requests`) — a hidden-clash 409 (the phone/email belongs to a contact of another branch of the caller's company) carries an opaque `request_token` | ask / list own / cancel own: `contacts.manage` or `chats.send`, the target entity in the caller's scope, the token issued to the caller (30 min); approve / deny: `contacts.manage` AND superadmin, an organization-wide admin of the contact's tenant, or a company admin whose scope holds the target entity AND one of the contact's current entities (403 otherwise). The requester sees nothing about the contact until approved |
@@ -259,7 +320,7 @@ ONE conversation enforces the same rule itself.
 `/api/inbox/threads/{channel}/{key}/handover`: `chats.view` to read (open,
 messages, summary, call live/recordings), `chats.send` to act (send, template,
 media, note, status, labels, assign, link, AI tick, calls, handover; switching
-the sending account is also admin+). The caller needs the capability AND the
+the sending account also needs `account_assignment.manage`). The caller needs the capability AND the
 conversation must be inside their entity scope (`ShellScope.ThreadEntityIds`:
 admins see all, agents and custom roles their assigned outlets' subtrees;
 unassigned conversations stay visible to everyone). A conversation outside it
@@ -312,7 +373,7 @@ read it, a sibling outside the ticks never does (`ScopingService.LibraryVisible`
 Who may tick what (`Endpoints/LibraryScope.cs`): every entity ADDED or REMOVED
 must be one the caller may edit — admins any entity of their tenant, an assigned
 user only inside their assigned subtree, an unassigned user the tenant-wide
-view; making an item global, or narrowing a global one, needs admin+ or a
+view; making an item global, or narrowing a global one, needs a
 capability holder with no assigned entities. Refusals are 403 with a `detail`;
 an unknown entity is a 400 (never a silent "global").
 
@@ -387,8 +448,10 @@ Admins keep the tenant-wide view. Tests: `QaScopeFixesTests`.
 | `/api/integrations/mcp`, `/api/developers/mcp` | `api_keys.manage` | API keys & MCP |
 | `/api/auth/notification-prefs` | `notifications.manage` | Settings → Notification defaults |
 | `/api/settings/ai-providers` | `settings.ai_keys.manage` | Settings → AI keys & models |
-| `/api/settings?keys=` (raw key/value store, secrets masked) | admin+ | no page — API callers |
-| `/api/auth/roles`, `/api/auth/permissions`, `/api/auth/audit` | admin+ | Permissions, Users |
+| `/api/settings?keys=` (raw key/value store, secrets masked; a bound person who is not a company admin is refused) | `settings.raw.view` | no page — API callers |
+| `/api/auth/roles`, `/api/auth/permissions` | `users.view`, `users.manage`, `rbac.manage` | Permissions, Users |
+| `/api/auth/audit` (the legacy Users-page feed) | `users.view`, `users.manage` | API callers |
+| `/api/testlab/scenarios`, `/status`, `/runs`, `/runs/{id}` | `testlab.run` | Test lab |
 | `/api/analytics/usage` (the cost ledger), `/api/billing/ai/settings` | `billing.manage` | Analytics → AI usage, Settings → AI billing |
 | `/api/billing/ai` (billed amounts; cost and margin only with `billing.manage`) | `billing.view` | AI bill |
 | `/api/billing/ai/pdf` (the same bill as an A4 PDF download, `?month=&company=&lang=en\|ms\|zh`; same scope and visibility rules) | `billing.view` | AI bill → Download PDF |
@@ -435,9 +498,17 @@ logged with source `api` / `mcp`.
   superadmins, other org-wide admins, or an admin without entities (403).
 - **company admin** — only agent-level users bound inside their own companies
   (a new one must be given entities there; an unassigned, tenant-wide user is
-  not theirs); never admins. A custom role granted `users.manage` and bound to
-  entities is tiered the same way.
+  not theirs); never admins. A custom role (or the agent role) granted
+  `users.manage` and bound to entities is tiered the same way; unbound, it
+  manages the agent-level users of its tenant (it lists the tenant, never acts
+  on an admin or a superadmin, never hands out the admin role).
 - everyone else — 403 on `users.manage`.
+
+The ACTION is the capability; the tiers above are anti-escalation and stay
+role-keyed: nobody acts on a user above their own tier, only a superadmin makes a
+superadmin or an organization-wide admin, nobody changes their own entity access
+(`/api/bindings` user kinds), and an AI quota setter below admin caps agent-level
+users only (and never their own cap).
 
 Other rules: passwords ≥ 8 characters; `entity_ids` (create and update) applies
 to agent-level users — agents AND custom roles — and to admins (= company

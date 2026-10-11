@@ -244,10 +244,11 @@ public static class ToolRegistry
     public static IChatBranchTool? Find(string name) => ByName.GetValueOrDefault(name);
 
     /// <summary>
-    /// May this caller use the tool? Capability (any of the tool's), the role
-    /// gate of the endpoint(s) it reaches (admin+ / superadmin — the least strict
-    /// of them), and a scoped API key without any .manage/.send capability is
-    /// read-only here exactly as it is on the REST API.
+    /// May this caller use the tool? Capability (any of the tool's), the gate of
+    /// the endpoint(s) it reaches — their capability filters (and any role policy
+    /// left on them) read from the route table, the LEAST strict endpoint wins —
+    /// and a scoped API key without any .manage/.send capability is read-only
+    /// here exactly as it is on the REST API.
     /// </summary>
     public static bool Allowed(ToolContext ctx, IChatBranchTool tool) => Denial(ctx, tool) == null;
 
@@ -262,9 +263,67 @@ public static class ToolRegistry
                    (caps.Count == 1 ? $"(needs the {caps[0]} capability)." : $"(needs one of: {string.Join(", ", caps)}).");
         if (tool.IsWrite && ApiKeyAuth.IsReadOnlyKey(ctx.User))
             return "This API key is read-only — its scopes grant no write capability.";
-        if (RoleGate(ctx, tool) is { } role && !RoleOk(ctx.User, role))
-            return $"You don't have permission to {tool.Title.ToLowerInvariant()} " +
-                   $"(needs the {(role == AuthPolicies.SuperAdmin ? "superadmin" : "admin")} role).";
+        if (EndpointDenial(ctx, tool) is { } endpoint)
+            return $"You don't have permission to {tool.Title.ToLowerInvariant()} ({endpoint}).";
+        return null;
+    }
+
+    /// <summary>What one endpoint demands: the role policies still on it (none on
+    /// a capability-gated route) and each <c>RequireAnyCapability</c> group (ALL of
+    /// the groups, ANY capability within a group).</summary>
+    public sealed record EndpointGate(IReadOnlyList<string> Policies, IReadOnlyList<IReadOnlyList<string>> CapabilityGroups);
+
+    private static readonly ConcurrentDictionary<string, IReadOnlyList<EndpointGate>?> Gates = new();
+
+    /// <summary>The gates of the endpoints a tool reaches (null = no route-table
+    /// gate to follow: no covered routes, or one not found). Read from the route
+    /// table once per tool, so tools follow the endpoints' own gates.</summary>
+    public static IReadOnlyList<EndpointGate>? EndpointGates(ToolContext ctx, IChatBranchTool tool)
+    {
+        if (tool.Covers.Count == 0) return null;
+        return Gates.GetOrAdd(tool.Name, _ =>
+        {
+            var source = ctx.Services.GetService<EndpointDataSource>();
+            if (source == null) return null;
+            var gates = new List<EndpointGate>();
+            foreach (var r in tool.Covers)
+            {
+                var ep = InternalApi.Find(source, r.Method, r.Template);
+                if (ep == null) return null;
+                var policies = ep.Metadata.GetOrderedMetadata<IAuthorizeData>()
+                    .Select(a => a.Policy).OfType<string>()
+                    .Where(p => p is AuthPolicies.AdminPlus or AuthPolicies.SuperAdmin).ToList();
+                var groups = ep.Metadata.GetOrderedMetadata<RequiredCapabilities>()
+                    .Select(c => (IReadOnlyList<string>)c.Any.ToList()).ToList();
+                gates.Add(new EndpointGate(policies, groups));
+            }
+            return gates;
+        });
+    }
+
+    /// <summary>Why no endpoint of the tool would let the caller through, or null:
+    /// the tool is offered when ANY endpoint it reaches would (the least strict).</summary>
+    private static string? EndpointDenial(ToolContext ctx, IChatBranchTool tool)
+    {
+        if (EndpointGates(ctx, tool) is not { Count: > 0 } gates) return null;
+        string? first = null;
+        foreach (var g in gates)
+        {
+            var why = GateDenial(ctx, g);
+            if (why == null) return null;
+            first ??= why;
+        }
+        return first;
+    }
+
+    private static string? GateDenial(ToolContext ctx, EndpointGate g)
+    {
+        foreach (var p in g.Policies)
+            if (!RoleOk(ctx.User, p))
+                return $"needs the {(p == AuthPolicies.SuperAdmin ? "superadmin" : "admin")} role";
+        foreach (var group in g.CapabilityGroups)
+            if (group.Count > 0 && !group.Any(ctx.Capabilities.Contains))
+                return group.Count == 1 ? $"needs the {group[0]} capability" : $"needs one of: {string.Join(", ", group)}";
         return null;
     }
 
@@ -274,34 +333,6 @@ public static class ToolRegistry
         AuthPolicies.AdminPlus => Caller.IsAdminPlus(user),
         _ => true,
     };
-
-    private static readonly ConcurrentDictionary<string, string?> Gates = new();
-
-    /// <summary>The strictest role policy a tool needs: the LEAST strict of the
-    /// endpoints it reaches (null = any signed-in user). Read from the route
-    /// table once per tool, so it follows the endpoints' own RequireAuthorization.</summary>
-    public static string? RoleGate(ToolContext ctx, IChatBranchTool tool)
-    {
-        if (tool.Covers.Count == 0) return null;
-        return Gates.GetOrAdd(tool.Name, _ =>
-        {
-            var source = ctx.Services.GetService<EndpointDataSource>();
-            if (source == null) return null;
-            string? least = AuthPolicies.SuperAdmin;
-            foreach (var r in tool.Covers)
-            {
-                var ep = InternalApi.Find(source, r.Method, r.Template);
-                if (ep == null) return null;
-                var policies = ep.Metadata.GetOrderedMetadata<IAuthorizeData>()
-                    .Select(a => a.Policy).Where(p => p != null).ToList();
-                var gate = policies.Contains(AuthPolicies.SuperAdmin) ? AuthPolicies.SuperAdmin
-                    : policies.Contains(AuthPolicies.AdminPlus) ? AuthPolicies.AdminPlus : null;
-                if (gate == null) return null;
-                if (gate == AuthPolicies.AdminPlus) least = AuthPolicies.AdminPlus;
-            }
-            return least;
-        });
-    }
 
     public static async Task<ToolOutcome> ExecuteAsync(ToolContext ctx, string name, JsonElement args,
         CancellationToken ct = default)

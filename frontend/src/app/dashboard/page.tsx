@@ -4,7 +4,6 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Download } from 'lucide-react'
 import { authHeaders, expireSessionOn401, hasCap } from '@/lib/auth'
 import { useEntity, useEntityQuery } from '@/lib/EntityContext'
-import { useRole } from '@/lib/useRole'
 import { useFormat, useT } from '@/i18n'
 import { Button } from '@/components/ui/Button'
 import { Card, CardTitle } from '@/components/ui/Card'
@@ -105,8 +104,9 @@ export default function DashboardPage() {
   const pct = (rate: number) => fmt.percent(rate, 1)
   const entityQ = useEntityQuery()
   const { selectedEntities } = useEntity()
-  const { role, ready } = useRole()
-  const isAdmin = role === 'admin' || role === 'superadmin'
+  // "Check now" probes every provider: channels.manage (read after mount: the session)
+  const [canCheck, setCanCheck] = useState(false)
+  useEffect(() => setCanCheck(hasCap('channels.manage')), [])
   const [canChannels, setCanChannels] = useState(false)
   useEffect(() => setCanChannels(hasCap('channels.view')), []) // after mount: reads the session
   const [canCost, setCanCost] = useState(false)
@@ -204,7 +204,7 @@ export default function DashboardPage() {
               </div>
               <DailyVolumeChart daily={data.daily} />
             </Card>
-            <ChannelHealthCard entityQ={entityQ} canCheck={ready && isAdmin} canManage={canChannels} />
+            <ChannelHealthCard entityQ={entityQ} canCheck={canCheck} canManage={canChannels} />
           </div>
 
           <div className="grid gap-5 lg:grid-cols-2">
@@ -267,7 +267,7 @@ export default function DashboardPage() {
 
           {/* The cost ledger is billing.manage only (companies see their marked-up
               bill at /billing); hide it rather than show an error. */}
-          {ready && canCost && <AiUsageCard days={days} />}
+          {canCost && <AiUsageCard days={days} />}
         </div>
       )}
     </div>

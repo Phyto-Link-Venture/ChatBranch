@@ -73,8 +73,11 @@ public static class ContactIdentityEndpoints
 
         // one pass of the WhatsApp lookup queue (the worker's manual seam)
         app.MapPost("/api/contacts/identity-checks/run", async (WhatsAppNumberChecker checker,
-            IdentityRequestService identity, CancellationToken ct) =>
+            IdentityRequestService identity, AppDbContext db, ClaimsPrincipal me, CancellationToken ct) =>
         {
+            // one pass over EVERY tenant's queue — not for someone bound to entities
+            // (beyond the reach a company admin always had here)
+            if (ShellScope.OrgWideActionError(db, me) is { } orgWide) return orgWide;
             var p = await checker.RunOnceAsync(ct);
             return Results.Ok(new
             {
@@ -83,7 +86,7 @@ public static class ContactIdentityEndpoints
                 // "who are you?" requests nobody answered for 24 hours, closed
                 stale_requests_closed = identity.SweepStale(),
             });
-        }).RequireAuthorization(AuthPolicies.AdminPlus).RequireCapability("contacts.manage");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("contacts.manage");
 
         // ---- invite links ------------------------------------------------------
         app.MapPost("/api/contacts/{id:int}/invites", async (int id, InviteRequest? body, AppDbContext db,
@@ -282,7 +285,7 @@ public static class ContactIdentityEndpoints
             payload["warning"] = error;
             payload["rows"] = table.Rows;
             return Results.Ok(payload);
-        }).RequireAuthorization(AuthPolicies.AdminPlus).RequireCapability("contacts.manage");
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("contacts.manage");
     }
 
     /// <summary>The integrations-catalog provider id for Google Contacts.</summary>

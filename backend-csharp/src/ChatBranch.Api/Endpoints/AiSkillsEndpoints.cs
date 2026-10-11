@@ -305,7 +305,9 @@ public static class AiSkillsEndpoints
             var entityId = await InboxEndpoints.EntityId(db, entity);
             var uid = await db.Users.AsNoTracking().Where(u => u.Username == me.Identity!.Name)
                 .Select(u => (int?)u.Id).FirstOrDefaultAsync();
-            var admin = ShellScope.IsOrgWideAdmin(db, me);   // a company admin sees only their own personal rows
+            // everyone's personal rows: the Integrations page's rule (integrations.manage,
+            // unbound) — a company admin sees only their own personal rows
+            var admin = await IntegrationsEndpoints.SeesEveryonesConnectionsAsync(db, me);
             var scoped = await ShellScope.ScopeLibrary(db.Integrations.AsNoTracking(), db, sc, me, entityId)
                 .Where(i => i.Provider == BookingService.GoogleProvider).Include(i => i.Owner).Include(i => i.Entity)
                 .ToListAsync();
@@ -601,7 +603,8 @@ public static class AiSkillsEndpoints
         if (row == null) return $"calendar {iid} is not a Google Calendar connection.";
         if (Cred(row, "access_token").Length == 0)
             return $"the Google Calendar connection {iid} is not connected — reconnect it at Integrations first.";
-        var admin = ShellScope.IsOrgWideAdmin(db, me);   // a company admin sees only their own personal rows
+        // a company admin sees only their own personal rows (the Integrations page's rule)
+        var admin = await IntegrationsEndpoints.SeesEveryonesConnectionsAsync(db, me);
         if (row.OwnerUserId is int owner && !admin)
         {
             var uid = await db.Users.AsNoTracking().Where(u => u.Username == (me.Identity!.Name ?? ""))

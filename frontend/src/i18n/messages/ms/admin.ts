@@ -63,6 +63,9 @@ export const admin: Dict<typeof source> = {
     aiMonitor: 'Lihat & luluskan draf AI',
     aiBehaviourManage: 'Sunting tetapan tingkah laku AI',
     aiHardRulesManage: 'Sunting peraturan keselamatan AI',
+    settingsRawView: 'Baca tetapan mentah (API)',
+    settingsRawManage: 'Tulis sebarang tetapan mentah (API)',
+    testlabRun: 'Jalankan Makmal ujian',
   },
   permissions: {
     system: 'Sistem',
@@ -129,7 +132,7 @@ export const admin: Dict<typeof source> = {
       stillAssignedN_one: '“{name}” masih ditugaskan kepada {count} pengguna — tukar peranan mereka dahulu.',
       stillAssignedN_other: '“{name}” masih ditugaskan kepada {count} pengguna — tukar peranan mereka dahulu.',
       deleted: 'Peranan “{name}” dipadam.',
-      superadminOnly: 'Matriks kebenaran diurus oleh pentadbir super.',
+      superadminOnly: 'Matriks kebenaran diurus oleh mereka yang dibenarkan menyuntingnya (rbac.manage — pentadbir super secara lalai).',
       loading: 'Memuatkan kebenaran…',
       action: 'tindakan',
       footnote:

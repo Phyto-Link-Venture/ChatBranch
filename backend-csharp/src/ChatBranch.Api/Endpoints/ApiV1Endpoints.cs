@@ -91,8 +91,8 @@ public static class ApiV1Endpoints
             var tenantId = TenantId(me);
             if (tenantId is not int tid)
                 return Results.Json(new { detail = "no tenant in scope" }, statusCode: 400);
-            // a brand is a top-level entity — not a company admin's to create
-            if (ShellScope.IsCompanyAdmin(db, me))
+            // a brand is a top-level entity — not for anyone bound to entities (a company admin…)
+            if (ShellScope.IsBound(db, me))
                 return Results.Json(new { detail = "Company admins cannot create a top-level company." }, statusCode: 403);
             if (db.Entities.Any(e => e.TenantId == tid && e.Slug == b.Slug))
                 return Results.Json(new { detail = "duplicate slug" }, statusCode: 409);
@@ -101,7 +101,7 @@ public static class ApiV1Endpoints
             db.Entities.Add(row);
             await db.SaveChangesAsync();
             return Results.Ok(new { id = row.Id, name = row.Name, slug = row.Slug });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("entities.manage");
 
         // ---- contacts (brand-scoped) ------------------------------------------
         app.MapGet("/api/v1/contacts", async (string? q, AppDbContext db, ClaimsPrincipal me, ScopingService sc) =>
@@ -492,7 +492,7 @@ public static class ApiV1Endpoints
             }
             // A company admin adds branches UNDER their companies — a new
             // top-level company is an organization-wide decision.
-            if (parent == null && ShellScope.IsCompanyAdmin(db, me))
+            if (parent == null && ShellScope.IsBound(db, me))
                 return V1Error("forbidden",
                     "Company admins can only add branches under their own companies — pick a parent.", 403);
 
@@ -584,7 +584,7 @@ public static class ApiV1Endpoints
             {
                 if (ParentIsBlank(body))
                 {
-                    if (entity.ParentId != null && ShellScope.IsCompanyAdmin(db, me))
+                    if (entity.ParentId != null && ShellScope.IsBound(db, me))
                         return V1Error("forbidden",
                             "Company admins cannot turn a branch into a top-level company.", 403);
                     entity.ParentId = null;   // promote to top level
@@ -713,6 +713,7 @@ public static class ApiV1Endpoints
             var entityIds = IntList(body, "entity_ids") ?? new List<int>();
             if (RoleGrantError(db, me, actorRole, role, entityIds.Distinct().Count()) is { } grantErr)
                 return grantErr;
+            if (await RoleCapabilityGrantError(db, actorRole, role) is { } capErr) return capErr;
             var (entities, entityErr) = await ResolveEntitiesAsync(db, entityIds);
             if (entityErr != null) return entityErr;
             var actorTenantId = TenantId(me);
@@ -786,6 +787,10 @@ public static class ApiV1Endpoints
             var profile = await EnsureProfileAsync(db, target);
             var tierErr = AdminMayManage(db, me, actorRole, profile);
             if (tierErr != null) return tierErr;
+            // nobody below superadmin edits their OWN login here (role, entities,
+            // active…) — an agent-level manager would otherwise lift themselves
+            if (actorRole != Roles.SuperAdmin && target.Id == await Caller.UserIdAsync(db, me))
+                return V1Error("forbidden", "You can't change your own access — ask another manager.", 403);
 
             string? newRole = Has(body, "role") ? (Str(body, "role") ?? "").Trim() : null;
             bool? newActive = Has(body, "active") ? Bool(body, "active") : null;
@@ -800,6 +805,7 @@ public static class ApiV1Endpoints
                     return V1Error("forbidden", "Admins can only assign agent-level roles.", 403);
                 if (actorRole != Roles.SuperAdmin && newRole == Roles.Admin && !ShellScope.IsOrgWideAdmin(db, me))
                     return V1Error("forbidden", "Admins can only assign agent-level roles.", 403);
+                if (await RoleCapabilityGrantError(db, actorRole, newRole) is { } capErr) return capErr;
             }
             if (Has(body, "active") && newActive == null)
                 return V1Error("bad_request", "active must be true or false.", 400);
@@ -965,6 +971,9 @@ public static class ApiV1Endpoints
         // external id is SKIPPED and reported (created + updated + skipped = total).
         app.MapPost("/api/v1/sync/records", (JsonElement body, ClaimsPrincipal me, AppDbContext db) =>
         {
+            // tenant-wide (contacts matched and created across the whole tenant):
+            // never for someone bound to entities beyond what a company admin had
+            if (ShellScope.OrgWideActionError(db, me) is { } orgWide) return orgWide;
             if (body.ValueKind != JsonValueKind.Object
                 || !body.TryGetProperty("records", out var recordsEl) || recordsEl.ValueKind != JsonValueKind.Array)
                 return V1Error("bad_request", "Body must be {\"records\": [...]}.", 400);
@@ -1050,7 +1059,7 @@ public static class ApiV1Endpoints
                 contacts_created = contactsCreated,
                 skipped_rows = skippedRows,
             });
-        }).RequireAuthorization(AuthPolicies.AdminPlus);
+        }).RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("contacts.manage");
     }
 
     private static int? TenantId(ClaimsPrincipal me) =>
@@ -1286,13 +1295,12 @@ public static class ApiV1Endpoints
         if (entity == null)
             return (null, null, V1Error("bad_request",
                 "Unknown entity for this contact's tenant.", 400));
-        if (!ShellScope.IsOrgWideAdmin(db, me))
-        {
-            var accessible = await AdminEndpoints.AccessibleEntitiesAsync(db, me);
-            if (accessible.All(e => e.Id != entity.Id))
-                return (null, null, V1Error("forbidden",
-                    "That entity is not assigned to you.", 403));
-        }
+        // the entities this contacts.manage holder may assign: their tenant's when not
+        // bound to entities, else their assigned subtrees (the contacts rule)
+        if (await ContactIdentityEndpoints.AllowedEntityIdsAsync(db, new ScopingService(db), me) is { } allowed
+            && !allowed.Contains(entity.Id))
+            return (null, null, V1Error("forbidden",
+                "That entity is not assigned to you.", 403));
         return (contact, entity, null);
     }
 
@@ -1383,23 +1391,20 @@ public static class ApiV1Endpoints
     }
 
     /// Entities this caller may EDIT — deliberately narrower than the read scope
-    /// (api/views.py EntityDetailView._manageable): superadmin any tenant, admin
-    /// only their own, everyone else nothing.
+    /// (api/views.py EntityDetailView._manageable). Every caller already holds
+    /// entities.manage (the routes check it first): superadmin any tenant, anyone
+    /// else only their own tenant — and someone bound to entities (a company
+    /// admin, a bound custom role) only the entities inside their subtrees.
     private static async Task<Entity?> ManageableEntityAsync(AppDbContext db,
         ClaimsPrincipal me, int id)
     {
         var role = me.FindFirstValue(ClaimTypes.Role) ?? "";
         var q = db.Entities.Include(e => e.Tenant).Include(e => e.Parent).Where(e => e.Id == id);
         if (role == Roles.SuperAdmin) return await q.FirstOrDefaultAsync();
-        if (role == Roles.Admin)
-        {
-            if (TenantId(me) is not int tid) return null;
-            // a company admin manages only the entities inside their companies
-            if (ShellScope.BoundEntityIds(db, new ScopingService(db), me) is List<int> bound)
-                q = q.Where(e => bound.Contains(e.Id));
-            return await q.Where(e => e.TenantId == tid).FirstOrDefaultAsync();
-        }
-        return null;
+        if (TenantId(me) is not int tid) return null;
+        if (ShellScope.BoundEntityIds(db, new ScopingService(db), me) is List<int> bound)
+            q = q.Where(e => bound.Contains(e.Id));
+        return await q.Where(e => e.TenantId == tid).FirstOrDefaultAsync();
     }
 
     // ---- users (crm/user_service.py) ---------------------------------------
@@ -1473,6 +1478,28 @@ public static class ApiV1Endpoints
         if (entityCount == 0)
             return V1Error("forbidden",
                 "Only a super admin can make an organization-wide admin — pick companies to make a company admin.", 403);
+        return null;
+    }
+
+    /// <summary>
+    /// Anti-escalation through role assignment: below superadmin, a manager may
+    /// only give a login a role whose every capability they hold themselves (as
+    /// the matrix editor may only switch capabilities they hold) — handing out a
+    /// custom role is never a way around the Permissions page. The default roles
+    /// pass for an admin: the agent role's capabilities and the admin role's own
+    /// are an admin's.
+    /// </summary>
+    private static async Task<IResult?> RoleCapabilityGrantError(AppDbContext db, string actorRole, string role)
+    {
+        if (actorRole == Roles.SuperAdmin || role == actorRole) return null;
+        // the PERSON's capabilities (their role's matrix, minus the org-level ones
+        // when bound to entities) — not narrowed further by an API key's scopes
+        var mine = CompanyAdminScope.Filter(await AdminEndpoints.CapabilitiesForAsync(db, actorRole),
+            CompanyAdminScope.Current).ToHashSet();
+        foreach (var cap in await AdminEndpoints.CapabilitiesForAsync(db, role))
+            if (!mine.Contains(cap))
+                return V1Error("forbidden",
+                    $"That role holds a permission you don't ({cap}) — only someone holding all of its permissions can give it.", 403);
         return null;
     }
 

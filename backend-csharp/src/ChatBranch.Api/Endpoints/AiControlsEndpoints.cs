@@ -60,7 +60,7 @@ public static class AiControlsEndpoints
                 return Results.Json(new
                 {
                     detail = entityId == null
-                        ? "Only an admin can change the organization-wide AI switch."
+                        ? "Only someone not limited to particular entities can change the organization-wide AI switch."
                         : "That outlet is outside your scope.",
                 }, statusCode: 403);
             JsonElement body;
@@ -535,16 +535,14 @@ public static class AiControlsEndpoints
         return id is int i ? (i, null) : (null, Results.NotFound(new { detail = $"Unknown entity '{slug}'." }));
     }
 
-    /// <summary>Org-wide: org-wide admins; an outlet: inside the caller's assigned
-    /// subtree (org-wide admins: any; a company admin: their companies only).</summary>
-    internal static bool MayEdit(AppDbContext db, ScopingService sc, ClaimsPrincipal me, int? entityId)
-    {
-        if (ShellScope.IsOrgWideAdmin(db, me)) return true;
-        var assigned = ShellScope.ScopeRoots(db, me);
-        if (entityId == null) return false;          // org-wide is an admin decision
-        if (assigned.Count == 0) return true;        // unassigned: the tenant-wide view
-        return sc.EntitySubtreeIds(assigned).Contains(entityId.Value);
-    }
+    /// <summary>The scope half of an AI-level write whose capability the caller
+    /// already passed: someone NOT bound to entities (a superadmin, an org-wide
+    /// admin, any role granted the capability with the tenant-wide view) any level,
+    /// the organization included; someone bound (a company admin, an assigned
+    /// agent or custom role) only an outlet inside their subtrees — never the
+    /// organization level.</summary>
+    internal static bool MayEdit(AppDbContext db, ScopingService sc, ClaimsPrincipal me, int? entityId) =>
+        ShellScope.MayActAt(db, sc, me, entityId);
 
     /// <summary>The list filter object → the query the list endpoint parses (arrays become comma lists).</summary>
     private static IQueryCollection ToQuery(JsonElement filter)
