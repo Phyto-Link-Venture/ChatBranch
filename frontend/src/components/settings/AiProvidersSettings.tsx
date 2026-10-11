@@ -29,7 +29,7 @@ import { useSettingsDirty } from './SettingsDirtyContext'
 import { EMBEDDING_KEYS, EmbeddingsSection } from '@/components/ai-learning/EmbeddingsSection'
 import { Advanced } from '@/components/ui/Advanced'
 import { AiProviderLogo } from '@/components/ui/AiProviderLogo'
-import { useT, type MessageKey, type TFunction } from '@/i18n'
+import { useFormat, useT, type MessageKey, type TFunction } from '@/i18n'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090/api'
 
@@ -83,6 +83,8 @@ type Payload = {
   source: Record<string, string>
   ai_available: boolean
   env_only_note: string
+  /** The last time every provider failed and customers got the fallback reply. */
+  last_error?: { at: string; error: string; count: number } | null
 } & Record<string, unknown>
 
 interface TestResult {
@@ -654,6 +656,7 @@ function ProviderPanel({
  */
 export function AiProvidersSettings() {
   const t = useT()
+  const fmt = useFormat()
   const { ready, can } = useAccess()
   const isSuper = can('settings.ai_keys.manage')
 
@@ -661,6 +664,7 @@ export function AiProvidersSettings() {
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [source, setSource] = useState<Record<string, string>>({})
   const [aiAvailable, setAiAvailable] = useState(false)
+  const [lastError, setLastError] = useState<Payload['last_error']>(null)
   const [values, setValues] = useState<Record<string, string>>({})
   const [initial, setInitial] = useState<Record<string, string>>({})
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -699,6 +703,7 @@ export function AiProvidersSettings() {
       setSource(p.source || {})
       setNote(p.env_only_note || '')
       setAiAvailable(!!p.ai_available)
+      setLastError(p.last_error ?? null)
       setValues(vals)
       setInitial(vals)
     },
@@ -710,6 +715,7 @@ export function AiProvidersSettings() {
     setProviders(p.providers || [])
     setSource(p.source || {})
     setAiAvailable(!!p.ai_available)
+    setLastError(p.last_error ?? null)
   }, [])
 
   const load = useCallback(async () => {
@@ -889,6 +895,22 @@ export function AiProvidersSettings() {
       {error && (
         <div className="flex items-start gap-2 rounded-lg border border-red/20 bg-red/10 px-3 py-2 text-[12px] text-[var(--red-ink)]">
           <AlertCircle size={13} className="mt-0.5 shrink-0" aria-hidden /> {error}
+        </div>
+      )}
+
+      {lastError && (
+        <div
+          role="alert"
+          data-tour="aiproviders-failure"
+          className="flex items-start gap-2 rounded-lg border border-red/20 bg-red/10 px-3 py-2.5 text-[12px] leading-relaxed text-[var(--red-ink)]"
+        >
+          <AlertCircle size={14} className="mt-0.5 shrink-0" aria-hidden />
+          <span className="min-w-0 break-words">
+            <span className="font-bold">{t('settings.aiProviders.failure.title')}</span>{' '}
+            {t('settings.aiProviders.failure.body', { when: fmt.relative(lastError.at), count: lastError.count })}
+            <span className="mt-1 block font-mono text-[11px] opacity-90">{lastError.error}</span>
+            <span className="mt-1 block text-text-mid">{t('settings.aiProviders.failure.hint')}</span>
+          </span>
         </div>
       )}
 

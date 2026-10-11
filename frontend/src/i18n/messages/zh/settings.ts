@@ -353,6 +353,12 @@ export const settings: Dict<typeof source> = {
     envNote:
       '实时语音通话在通话时从语音代理的 .env 读取 ILMU_API_KEY / ELEVENLABS_API_KEY / PIPELINE_LLM_PROVIDER——代理进程无法读取这些设置。此处的密钥用于 AI 对话、摘要和服务器端语音工具。',
     chooseAutomatic: '请在上方选择“自动（按优先顺序）”以编辑此项。',
+    failure: {
+      title: 'AI 回复正在失败。',
+      body_one: '最近一次失败于{when}：AI 提供商拒绝了请求，因此客户收到的是内置的备用回复，而不是真正的答案。',
+      body_other: '最近一次失败于{when}（迄今 {count} 次）：AI 提供商拒绝了请求，因此客户收到的是内置的备用回复，而不是真正的答案。',
+      hint: '打开下方的提供商并点击“测试连接”查看原因。下一次成功回复后，此提示会自动消失。',
+    },
     providersTitle: 'AI 提供商',
     providersBlurb: '连接一个或多个提供商。点击提供商即可粘贴密钥、选择模型并测试。只需一个密钥即可启用 AI。',
     search: '搜索提供商',

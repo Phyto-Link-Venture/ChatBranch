@@ -355,6 +355,12 @@ export const settings = {
     envNote:
       'Live voice calls read ILMU_API_KEY / ELEVENLABS_API_KEY / PIPELINE_LLM_PROVIDER from the voice agent’s .env at call time — the agent process cannot read these settings. Keys here power AI chat, summaries and server-side voice tooling.',
     chooseAutomatic: 'Choose “Automatic (priority order)” above to edit this.',
+    failure: {
+      title: 'AI replies are failing.',
+      body_one: 'Last failure {when}: the AI provider refused the request, so the customer got the built-in fallback reply instead of a real answer.',
+      body_other: 'Last failure {when} ({count} so far): the AI provider refused the requests, so customers got the built-in fallback reply instead of a real answer.',
+      hint: 'Open the provider below and press Test connection to see why. This message clears itself after the next reply that works.',
+    },
     providersTitle: 'AI providers',
     providersBlurb:
       'Connect one or more. Click a provider to paste its key, choose its model and test it. One key is enough to turn the AI on.',

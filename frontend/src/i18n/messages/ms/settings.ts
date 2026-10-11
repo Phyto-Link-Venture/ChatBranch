@@ -357,6 +357,12 @@ export const settings: Dict<typeof source> = {
     envNote:
       'Panggilan suara langsung membaca ILMU_API_KEY / ELEVENLABS_API_KEY / PIPELINE_LLM_PROVIDER daripada .env ejen suara semasa panggilan — proses ejen tidak dapat membaca tetapan ini. Kunci di sini menggerakkan sembang AI, ringkasan dan alatan suara di pelayan.',
     chooseAutomatic: 'Pilih “Automatik (susunan keutamaan)” di atas untuk menyunting ini.',
+    failure: {
+      title: 'Balasan AI sedang gagal.',
+      body_one: 'Kegagalan terakhir {when}: penyedia AI menolak permintaan, jadi pelanggan menerima balasan sandaran terbina dalam dan bukan jawapan sebenar.',
+      body_other: 'Kegagalan terakhir {when} ({count} setakat ini): penyedia AI menolak permintaan, jadi pelanggan menerima balasan sandaran terbina dalam dan bukan jawapan sebenar.',
+      hint: 'Buka penyedia di bawah dan tekan Uji sambungan untuk melihat sebabnya. Mesej ini hilang sendiri selepas balasan seterusnya yang berjaya.',
+    },
     providersTitle: 'Penyedia AI',
     providersBlurb:
       'Sambungkan satu atau lebih. Klik penyedia untuk tampal kuncinya, pilih model dan uji. Satu kunci sudah cukup untuk menghidupkan AI.',

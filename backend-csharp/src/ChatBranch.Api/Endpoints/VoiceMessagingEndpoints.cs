@@ -590,6 +590,9 @@ public static class VoiceMessagingEndpoints
         sources[ChatProviderOrderKey] = SourceOf(sc, ChatProviderOrderKey);
         outv["source"] = sources;
         outv["ai_available"] = AiAvailable(sc);
+        // the last time every provider failed and customers got the fallback reply (LlmHealth)
+        outv["last_error"] = LlmHealth.Read(sc) is { } fail
+            ? new { at = fail.At, error = fail.Error, count = fail.Count } : null;
         outv["env_only_note"] = EnvOnlyNote;
         return outv;
     }

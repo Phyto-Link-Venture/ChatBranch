@@ -695,7 +695,7 @@ When you fix one of these, update this table, `README.md` and
   (`EmbeddingsSection.tsx`) and the tunables). A vendor-direct model id is
   priced from OpenRouter's list by its name after the vendor prefix
   (`LlmPricing.TryPrice`: `claude-haiku-5-5` → `anthropic/claude-haiku-5.5`,
-  ambiguous = unknown). Tests: `LlmProviderCatalogTests`;
+  ambiguous = unknown). **A refused parameter never breaks a reply:** Anthropic's entry sends no `temperature` (`SendsTemperature = false` — current Claude models answer 400 "`temperature` is deprecated"), and for ANY provider a 400 / 422 that names an optional knob (`temperature`, `top_p`, `reasoning_effort`, `tool_choice`, `usage`, `max_tokens` → retried as `max_completion_tokens`) is retried without it, the refusal remembered per provider + model (`OpenAiLlmClient.RefusedParam`). **A failing provider is never silent:** when every provider of a call fails the reply still degrades to the sandbox answer, but `Ai/LlmHealth` records it (Setting `llm_last_error` {at, error, count}, throttled) → a red banner on Settings → AI keys & models (`last_error` on the payload) + ONE collapsing admin notification (RefKey `llm_failure`); the next success clears it. Tests: `LlmProviderCatalogTests`;
   nothing configured → `SandboxLlmClient`. Usage is
   metered into `LlmUsage` at every call site; costs are estimated at READ time
   from Setting `llm_prices` (`AnalyticsService`). Case summaries
@@ -1905,7 +1905,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **975 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **984 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /

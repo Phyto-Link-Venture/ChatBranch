@@ -43,7 +43,13 @@ public static class LlmProviderCatalog
         /// <summary>Known alternative endpoints (region) — label → base URL.</summary>
         IReadOnlyList<(string Label, string Url)> Endpoints,
         /// <summary>OpenRouter's vendor prefix for the price list ("anthropic" → anthropic/claude-…).</summary>
-        string PriceVendor);
+        string PriceVendor)
+    {
+        /// <summary>Send <c>temperature</c>. Anthropic's current Claude models refuse it
+        /// ("`temperature` is deprecated for this model") — the client also drops any
+        /// parameter a model rejects by itself (see <see cref="OpenAiLlmClient"/>).</summary>
+        public bool SendsTemperature { get; init; } = true;
+    }
 
     private static readonly (string, string)[] None = Array.Empty<(string, string)>();
 
@@ -66,7 +72,7 @@ public static class LlmProviderCatalog
             "https://api.anthropic.com/v1", "", Array.Empty<string>(), "anthropic_chat_model", Array.Empty<string>(),
             "claude-haiku-5-5", new[] { "claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5" },
             Vision: true, ReasoningLow: false, SendsMaxTokens: true, KeyOptional: false,
-            "https://console.anthropic.com/settings/keys", None, "anthropic"),
+            "https://console.anthropic.com/settings/keys", None, "anthropic") { SendsTemperature = false },
         new("ilmu", "ILMU", "asia", "ilmu_api_key", new[] { "ILMU_API_KEY" },
             OpenAiLlmClient.IlmuBaseUrlDefault, "ilmu_base_url", new[] { "ILMU_BASE_URL" },
             "ilmu_chat_model", new[] { "ILMU_LLM_MODEL" }, "ilmu-v3.1", new[] { "ilmu-v3.1" },
