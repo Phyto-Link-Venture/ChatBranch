@@ -145,7 +145,7 @@ public static class MessagingTransportEndpoints
                     ["source"] = msg.Source,
                     ["private"] = msg.Private,
                     ["account_id"] = msg.AccountId?.ToString(),
-                    ["media"] = new { type = msg.MediaType, url = $"/api/messaging/media/{msg.Id}" },
+                    ["media"] = MediaStreamLinks.Payload(msg, channel),
                 },
             });
         }).RequireAuthorization(AuthPolicies.Authenticated).DisableAntiforgery().RequireThreadAccess("chats.send");

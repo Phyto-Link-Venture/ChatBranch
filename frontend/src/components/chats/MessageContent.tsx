@@ -12,13 +12,24 @@ import Link from 'next/link'
 import { ExternalLink, MapPin, UserPlus, UserRound } from 'lucide-react'
 import { useT } from '@/i18n'
 import { useAccess } from '@/lib/useAccess'
-import { MediaAttachment } from './MessageParts'
+import { MediaAttachment, MediaMissing } from './MediaPlayers'
 import { QuotedBlock } from './QuotedBlock'
 import { api, type UiMessage } from './inboxTypes'
 import './messageExtras.css'
 
 const LOCATION_RE = /^\[location\]\s+(-?\d{1,3}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)\s*(.*)$/s
 const CONTACT_RE = /^\[contact\]\s+(.+?)(?:\s+·\s+(\+?[\d\s().-]{4,}))?$/s
+
+/** The text a media message carries when it has no caption ("[image]", "[audio]"…,
+ *  email's "[attachment] name") — never shown under the attachment itself. */
+const PLACEHOLDER_RE = /^\[(image|photo|video|audio|voice|document|file|sticker|media)\]$/i
+const ATTACHMENT_RE = /^\[attachment\]\s/
+const placeholderKind = (text: string): string | null => {
+  const hit = PLACEHOLDER_RE.exec(text.trim())
+  if (!hit) return null
+  const k = hit[1].toLowerCase()
+  return k === 'photo' ? 'image' : k === 'voice' ? 'audio' : k === 'file' || k === 'media' ? 'document' : k
+}
 
 export const isSticker = (m: UiMessage) => m.text === '[sticker]' && (!m.media || m.media.type === 'image')
 
@@ -134,12 +145,31 @@ export default function MessageContent({
       </>
     )
   }
-  const location = !m.media ? parseLocation(m.text) : null
-  const card = !m.media && !location ? parseContactCard(m.text) : null
+  const kind = placeholderKind(m.text)
+  if (m.media) {
+    // the attachment speaks for itself — a placeholder never sits under it
+    const caption = kind || ATTACHMENT_RE.test(m.text) ? '' : m.text
+    return (
+      <>
+        {quote}
+        <MediaAttachment media={m.media} />
+        {caption}
+      </>
+    )
+  }
+  if (kind) {
+    return (
+      <>
+        {quote}
+        <MediaMissing kind={kind} ts={m.ts} inbound={m.dir === 'in'} />
+      </>
+    )
+  }
+  const location = parseLocation(m.text)
+  const card = !location ? parseContactCard(m.text) : null
   return (
     <>
       {quote}
-      {m.media && <MediaAttachment media={m.media} />}
       {location ? <LocationCard {...location} /> : card ? <ContactCard {...card} /> : m.text}
     </>
   )

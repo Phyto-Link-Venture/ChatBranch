@@ -180,6 +180,7 @@ app.UseAuthentication();
 app.UseKeyScopes(); // a scoped API key narrows every capability check below
 app.UseCompanyAdminScope(); // a company admin never holds the organization-level capabilities
 app.UseEntitySelection(); // ?entity=a,b — the dashboard's multi-select entity filter
+app.UseMediaStreamLinks(); // signed media links in message payloads (the session user)
 app.UseMiddleware<ChatBranch.Api.Audit.RequestAuditMiddleware>(); // activity log (sees authz refusals too)
 app.UseAuthorization();
 

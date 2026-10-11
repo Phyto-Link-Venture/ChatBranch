@@ -147,9 +147,10 @@ public static class MoreChannelWebhookEndpoints
                 var (content, _) = await transport.DownloadAsync(account, media);
                 if (content == null || content.Length == 0) return;
                 var thread = await db.Threads.FirstAsync(t => t.Id == msg.ThreadId);
-                msg.MediaPath = MessagingMedia.Save(sp.GetRequiredService<VoiceAgentBridge>().DataDir,
+                var rel = MessagingMedia.Save(sp.GetRequiredService<VoiceAgentBridge>().DataDir,
                     account.Channel, thread.Key, media.FileName, content);
-                msg.MediaType = media.MediaType;
+                ChatBranch.Data.Channels.MediaStore.Stamp(msg, media.MediaType, rel,
+                    MessagingMedia.ContentTypeFor(media.FileName), media.FileName, content.LongLength);
                 thread.UpdatedAt = DateTime.UtcNow; // the /chats stream refreshes on this
                 await db.SaveChangesAsync(); // also keeps a token the transport refreshed
             }

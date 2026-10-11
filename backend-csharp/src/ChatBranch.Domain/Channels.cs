@@ -111,6 +111,13 @@ public class Message
     public string Status { get; set; } = "sent";
     public string MediaType { get; set; } = "";
     public string MediaPath { get; set; } = "";
+    /// <summary>The attachment's original file name as the sender gave it ("" = unknown —
+    /// the payload then derives one from the type + extension).</summary>
+    public string MediaName { get; set; } = "";
+    /// <summary>The provider's MIME type for the attachment ("" = derive from the extension).</summary>
+    public string MediaMime { get; set; } = "";
+    /// <summary>Stored size in bytes (0 = unknown — older rows; the payload reads the file).</summary>
+    public long MediaSize { get; set; }
     /// <summary>Provider failure detail for a failed delivery ("131047: Re-engagement
     /// message"), written by the WhatsApp Cloud status webhook. "" = none.</summary>
     public string Error { get; set; } = "";

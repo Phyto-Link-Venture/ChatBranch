@@ -2,15 +2,15 @@
 
 /**
  * The small pieces the conversation column is built from — avatar, delivery
- * ticks, media attachments, call recordings and transcripts. Pulled out of
+ * ticks, call recordings and transcripts (attachments: MediaPlayers.tsx). Pulled out of
  * app/chats/page.tsx so the page holds state and layout only.
  */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { AlertCircle, Check, CheckCheck, Clock, FileText, Film, Loader2, Music, PhoneCall, type LucideIcon } from 'lucide-react'
-import { authHeaders } from '@/lib/auth'
+import { AlertCircle, Check, CheckCheck, Clock, Loader2, PhoneCall } from 'lucide-react'
 import { ChannelLogo } from '@/components/ui/ChannelLogo'
-import { channelName, initials, logoKey, resolveMediaUrl, timeShort, type Channel, type UiMedia } from './inboxTypes'
+import { channelName, initials, logoKey, timeShort, type Channel } from './inboxTypes'
+import { useBlobUrl } from './MediaPlayers'
 import { Trans, useFormat, useI18n, useT, intlTag, type MessageKey, type TFunction } from '@/i18n'
 
 /** Honesty marker: features not yet validated against the live provider. */
@@ -89,88 +89,6 @@ export function CenterNote({ children, title }: { children: ReactNode; title?: s
     <div className="cb-center-note" title={title}>
       <span>{children}</span>
     </div>
-  )
-}
-
-const MEDIA_CHIP_ICONS: Record<Exclude<UiMedia['type'], 'image'>, LucideIcon> = {
-  document: FileText,
-  audio: Music,
-  video: Film,
-}
-
-/** Fetch an auth-gated URL as a blob and expose it as an object URL. */
-function useBlobUrl(url: string) {
-  const [src, setSrc] = useState<string | null>(null)
-  const [failed, setFailed] = useState(false)
-  useEffect(() => {
-    let cancelled = false
-    let objectUrl: string | null = null
-    setSrc(null)
-    setFailed(false)
-    fetch(resolveMediaUrl(url), { headers: authHeaders() })
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        return r.blob()
-      })
-      .then((blob) => {
-        if (cancelled) return
-        objectUrl = URL.createObjectURL(blob)
-        setSrc(objectUrl)
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true)
-      })
-    return () => {
-      cancelled = true
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [url])
-  return { src, failed }
-}
-
-/** Bubble attachment — the media URL needs the bearer token. */
-export function MediaAttachment({ media }: { media: UiMedia }) {
-  const t = useT()
-  const { src: url, failed } = useBlobUrl(media.url)
-
-  if (media.type === 'image' && !failed) {
-    return url ? (
-      <a href={url} target="_blank" rel="noreferrer" title={t('chats.parts.openFullSize')} className="mb-1 block">
-        {/* object URL — next/image can't optimize blobs */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt={t('chats.parts.imageAlt')} className="block max-h-64 max-w-full rounded-lg object-cover" />
-      </a>
-    ) : (
-      <span className="mb-1 grid h-28 w-44 place-items-center rounded-lg bg-fill">
-        <Loader2 size={15} className="animate-spin opacity-60" aria-hidden />
-      </span>
-    )
-  }
-
-  const ChipIcon = media.type === 'image' ? FileText : MEDIA_CHIP_ICONS[media.type]
-  return (
-    <span className="mb-1 flex items-center gap-2 rounded-lg border px-2.5 py-1.5" style={{ borderColor: 'color-mix(in srgb, currentColor 22%, transparent)' }}>
-      <ChipIcon size={14} className="shrink-0 opacity-75" aria-hidden />
-      <span className="text-[11.5px] font-semibold opacity-90">
-        {['image', 'document', 'audio', 'video'].includes(media.type)
-          ? t(`chats.parts.media.${media.type}` as MessageKey)
-          : media.type}
-      </span>
-      {url ? (
-        <a
-          href={url}
-          target="_blank"
-          rel="noreferrer"
-          className="ml-1 text-[10.5px] font-bold uppercase tracking-wide underline underline-offset-2"
-        >
-          {t('common.actions.open')}
-        </a>
-      ) : failed ? (
-        <span className="text-[10.5px] opacity-60">{t('chats.parts.unavailable')}</span>
-      ) : (
-        <Loader2 size={12} className="animate-spin opacity-60" aria-hidden />
-      )}
-    </span>
   )
 }
 
@@ -440,3 +358,6 @@ export function SipCallCard({ rec }: { rec: SipCall }) {
     </div>
   )
 }
+
+// bubble attachments live in MediaPlayers.tsx; re-exported for older imports
+export { MediaAttachment } from './MediaPlayers'

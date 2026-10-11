@@ -142,10 +142,6 @@ public static class MessagingEndpoints
 
     // ---- payload builders (store.py `_serialize*`, key for key) -------------
 
-    /// <summary>Media is served auth-gated by the channel's OWN app.</summary>
-    private static string MediaUrl(string channel, int messagePk) =>
-        $"/api/{(channel == Channels.WhatsApp ? "whatsapp" : "messaging")}/media/{messagePk}";
-
     /// <summary>store._serialize_message. <paramref name="accountName"/> powers "via &lt;account&gt;".</summary>
     private static Dictionary<string, object?> MessagePayload(Message m, string channel,
         string? accountName)
@@ -167,11 +163,7 @@ public static class MessagingEndpoints
             outv["account_name"] = accountName ?? "";
         }
         if (!string.IsNullOrEmpty(m.MediaPath))
-            outv["media"] = new Dictionary<string, object?>
-            {
-                ["type"] = string.IsNullOrEmpty(m.MediaType) ? "document" : m.MediaType,
-                ["url"] = MediaUrl(channel, m.Id),
-            };
+            outv["media"] = MediaStreamLinks.Payload(m, channel);
         return outv;
     }
 
@@ -1046,11 +1038,7 @@ public static class MessagingEndpoints
                         ["ts"] = Iso(m.CreatedAt),
                     };
                     if (!string.IsNullOrEmpty(m.MediaPath))
-                        e["media"] = new Dictionary<string, object?>
-                        {
-                            ["type"] = string.IsNullOrEmpty(m.MediaType) ? "document" : m.MediaType,
-                            ["url"] = MediaUrl(thread.Channel, m.Id),
-                        };
+                        e["media"] = MediaStreamLinks.Payload(m, thread.Channel);
                     events.Add(e);
                 }
             }

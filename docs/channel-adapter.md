@@ -146,6 +146,15 @@ outbound queue are already channel-blind.
   the ack (`GET /{media-id}` → the lookaside URL, both with the bearer token,
   20 MB cap) into `data/whatsapp/media/{wa_id}/`; outbound media uploads to
   `/{phone_number_id}/media` and sends by id. Served by `/api/whatsapp/media/{id}`.
+  Every media save (every channel) goes through `MediaStore.Stamp`, which keeps
+  the original file name, the provider's MIME type and the size on the row
+  (`crm_message.media_name` / `media_mime` / `media_size`); the payload's `media`
+  is `{type, url, mime, name, size}` plus, for a signed-in session, short-lived
+  signed links (`stream_url`, `download_url`, `alt_url` — `GET /api/media/s/{token}`,
+  `Endpoints/MediaStreamLinks.cs`) that the inbox's players use as a plain
+  `src` with Range. `alt_url` (`?format=m4a`) is offered for Ogg/Opus/AMR audio
+  when the server has ffmpeg (`Channels/AudioTranscoder.cs`; `MEDIA_FFMPEG`),
+  for Safari / iOS, which can't play Ogg voice notes.
 - **Verify token:** Setting `whatsapp_verify_token` (legacy `verify_token` kept
   in sync), env `WHATSAPP_VERIFY_TOKEN` fallback; edited at Settings → App &
   provider keys and shown with the callback URL under Channels → Advanced.
@@ -195,7 +204,15 @@ outbound queue are already channel-blind.
   `/message-status` (ticks), `/status-event` (lifecycle → health), `/call-event`
   (ringing → connected → ended; `ended` writes the recording's paired transcript
   `{wa_id}-{ms}.json`), `/media` (multipart `wa_id`, `msg_id`, `media_type`,
-  `file` — attached to the placeholder message, 20 MB cap). All require
+  `file_name`, `file` — attached to the placeholder message, 20 MB cap; a file
+  that wasn't stored answers 400 / 413 / 500, never 200). The gateway checks
+  every push's answer: `/inbound` and `/media` are retried up to 3 times with
+  backoff (the media push can race the text push; 4xx other than 404/408/409/429
+  is final), and a final failure lands in `events.log` as `inboundPushFailed` /
+  `mediaPushFailed` with its status. Downloadable kinds: image, video, round
+  video note (`ptvMessage`), audio, document, sticker (incl. lottie); wrappers
+  are opened by Baileys' `normalizeMessageContent` and `messages.js` `unwrap`
+  (ephemeral, view-once, edited, album children, status mentions) — self-tested. All require
   `X-Baileys-Secret` (Setting `baileys_secret` → env `BAILEYS_SECRET` →
   `baileys-local-dev` — change it).
 - Outbound media: the gateway's `POST /accounts/{id}/send-media` (`{to,
@@ -240,8 +257,10 @@ outbound queue are already channel-blind.
   `X-Telegram-Bot-Api-Secret-Token` must match (401 otherwise). The public base
   is the body's `base_url` → Setting `public_base_url` → env `PUBLIC_BASE_URL`
   → the request's forwarded origin, and must be https. The answer redacts the
-  token. Media (photo, document, voice, video, static sticker) is fetched with
-  getFile off the ack and attached when it lands (20 MB cap).
+  token. Media (photo, document, voice, video, video note, sticker) is fetched with
+  getFile off the ack and attached when it lands (20 MB cap); a video sticker
+  (WebM) is a video, an animated `.tgs` sticker (Lottie — no browser renders it)
+  is fetched as its thumbnail image.
 - Outbound: `TelegramChannel` — sendMessage (split at 4096 chars), sendPhoto /
   sendDocument / sendAudio / sendVideo for attachments. A 401/404 from the Bot
   API marks the bot disconnected; 400/403 (chat not found, bot blocked) is the

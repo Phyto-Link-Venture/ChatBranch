@@ -26,7 +26,10 @@ is a settings exercise, not a fork — see
   a filter pop-up, per-user saved views, labels, teams, assignment, private
   notes, AI summaries and a live SSE stream (no polling), an emoji picker in the
   composer, location / contact-card bubbles and — on WhatsApp and Telegram —
-  quoted replies and emoji reactions both ways.
+  quoted replies and emoji reactions both ways. Customers' photos, voice notes,
+  videos (incl. video notes) and documents open right in the bubble: an audio
+  player with seek and speed, an inline video player, file cards with size and
+  Download — streamed through short-lived signed links.
 - **One AI brain for every channel** — skills (prompt instructions, sandboxed
   JavaScript **tools** the model calls, **reply checks** that vet every draft,
   and **connected apps**), a self-expiring knowledge base with document upload
@@ -134,6 +137,10 @@ you move to multi-host, that file layer is the seam to replace.
   with SIP, an OpenAI key with Realtime API access (`gpt-realtime`) or an
   ElevenLabs/ILMU cascade, and a SIP trunk (e.g. Twilio Elastic SIP Trunking) —
   see [backend/voice_agent/README.md](backend/voice_agent/README.md).
+- **Optional: `ffmpeg`** on the API's PATH (or `MEDIA_FFMPEG=/path/to/ffmpeg`)
+  so Ogg/Opus and AMR voice notes play on Safari / iPhone (served as M4A on
+  request). The API's Docker image installs it; without it those voice notes
+  offer a download instead.
 
 Nothing above is required to explore the product.
 
@@ -237,7 +244,7 @@ requires a restart.
 | **WhatsApp (Cloud API)** | A Meta app, phone number ID, access token, app secret, WABA id, and a public webhook (`/api/whatsapp/webhook`) | live: inbound (incl. media), delivery statuses, text, real template messages, media send, the WABA's template registry, quoted replies and emoji reactions both ways |
 | **WhatsApp (YCloud)** | A YCloud API key, the business number (+ WABA id for templates); then create a webhook endpoint in YCloud with the URL the inbox shows and paste its signing secret back | live, untested against YCloud: signed inbound (incl. media), delivery statuses, text, templates + the WABA's template registry, media send, quoted replies + reactions both ways, typing indicator |
 | **WhatsApp (Twilio)** | Account SID, Auth Token, the WhatsApp sender (or a Messaging Service SID); point the sender's incoming-message webhook at the URL the inbox shows | live, untested against Twilio: signed inbound (incl. media), delivery statuses, text, Content templates (by ContentSid; authored in Twilio), media by a signed public link (needs a public https base URL) |
-| **WhatsApp (Baileys)** | A spare phone. Add a "QR" WhatsApp inbox and scan. ⚠ Read the ToS warning below | inbound text + media, text + media send, quoted replies + emoji reactions both ways, calls + recordings live |
+| **WhatsApp (Baileys)** | A spare phone. Add a "QR" WhatsApp inbox and scan. ⚠ Read the ToS warning below | inbound text + media (photos, videos + video notes, voice notes, documents, stickers), text + media send, quoted replies + emoji reactions both ways, calls + recordings live |
 | **Website widget** | Nothing — paste the snippet the inbox gives you | live |
 | **Telegram** | A BotFather token, then "Register webhook" in the inbox (needs a public https URL — `PUBLIC_BASE_URL` or the one you type) | live: inbound text + media, replies and attachments via the Bot API, quoted replies + emoji reactions both ways, typing indicator |
 | **Email** | Per-mailbox SMTP credentials (+ an IMAP host, per mailbox or the default under Channels → Advanced) | live: SMTP send (text + escaped HTML alternative, threaded replies, mailboxes routed and failed over like WhatsApp numbers), IMAP pull from known senders (HTML-only mail flattened to text) |

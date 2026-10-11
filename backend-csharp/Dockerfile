@@ -28,9 +28,11 @@ ENV ASPNETCORE_URLS=http://0.0.0.0:8090 \
     DataDir=/data
 # curl is the healthcheck client — the base aspnet:8.0 image ships neither
 # curl nor wget, so the old wget-based HEALTHCHECK always failed and the
-# container reported "unhealthy" despite serving fine. Install it while root.
+# container reported "unhealthy" despite serving fine. ffmpeg turns Ogg/Opus
+# and AMR voice notes into M4A for Safari / iOS on request (the signed media
+# link's ?format=m4a; MEDIA_FFMPEG=off disables it). Install both while root.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # The aspnet:8.0 image already ships a non-root `app` user — reuse it rather
