@@ -17,6 +17,8 @@ jobs:
   api:
     name: C# API
     runs-on: ubuntu-latest
+    # a hung test fails the run instead of holding a runner for six hours
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -58,6 +60,7 @@ jobs:
     # The same suite with every API test host on its own throwaway Postgres
     # database (TEST_DATABASE=postgres) — the database production runs on.
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4

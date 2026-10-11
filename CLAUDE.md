@@ -2069,6 +2069,11 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   `AppDbContext` mapping (append-only, idempotent) because `EnsureCreated()`
   never alters a live database (Postgres picks the change up from the model —
   `PostgresSchema.Sync`).
+- The suite runs under `BoundedParallelFramework` (tests project): xUnit's parallel
+  runner WITHOUT its SynchronizationContext, at most max(4, 2 × cores) test classes
+  in flight. xUnit's context owns only `cores` threads, and a test reaching a
+  blocking send seam (`.GetAwaiter().GetResult()`) deadlocked a 2-core runner once
+  the database did real async I/O (Postgres). Production has no context.
 - Many test hosts at once can exhaust the machine's inotify instances
   ("inotify limit (128)"); run with `DOTNET_USE_POLLING_FILE_WATCHER=1` then.
 - **Postgres:** `TEST_DATABASE=postgres` + `TEST_POSTGRES="Host=…;Username=…;Password=…"`
