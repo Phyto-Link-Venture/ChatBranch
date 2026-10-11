@@ -31,6 +31,7 @@ public class AppDbContext : DbContext
     public DbSet<AuthToken> AuthTokens => Set<AuthToken>();
     /// <summary>Two-step sign-in (TOTP) per user — Api/Security/TwoFactor.</summary>
     public DbSet<UserTwoFactor> UserTwoFactors => Set<UserTwoFactor>();
+    public DbSet<PasswordToken> PasswordTokens => Set<PasswordToken>();
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
     // crm — audit
@@ -154,6 +155,10 @@ public class AppDbContext : DbContext
         b.Entity<AuthToken>().ToTable("crm_authtoken");
         b.Entity<UserTwoFactor>().ToTable("crm_usertwofactor");
         b.Entity<UserTwoFactor>().HasIndex(t => t.UserId).IsUnique().HasDatabaseName("uniq_usertwofactor_user");
+        // one-time set-password links (welcome email / reset link): only the token's hash is stored
+        b.Entity<PasswordToken>().ToTable("crm_passwordtoken");
+        b.Entity<PasswordToken>().HasIndex(t => t.TokenHash).IsUnique().HasDatabaseName("uniq_passwordtoken_hash");
+        b.Entity<PasswordToken>().HasIndex(t => t.UserId).HasDatabaseName("ix_passwordtoken_user");
         b.Entity<Role>().ToTable("crm_role");
         b.Entity<RolePermission>().ToTable("crm_rolepermission");
         b.Entity<AuditLog>().ToTable("crm_auditlog");

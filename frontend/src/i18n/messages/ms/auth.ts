@@ -18,6 +18,7 @@ export const auth: Dict<typeof source> = {
     locked_one: 'Terlalu banyak cubaan gagal. Cuba lagi dalam {count} minit.',
     locked_other: 'Terlalu banyak cubaan gagal. Cuba lagi dalam {count} minit.',
     rateLimited: 'Terlalu banyak cubaan log masuk dari rangkaian ini. Tunggu sebentar dan cuba lagi.',
+    passwordSet: 'Kata laluan anda telah ditetapkan — log masuk dengan nama pengguna dan kata laluan baharu anda.',
   },
   twoFactor: {
     eyebrow: 'Log masuk dua langkah',
@@ -31,6 +32,29 @@ export const auth: Dict<typeof source> = {
     invalid: 'Kod itu tidak betul. Pastikan jam telefon anda tepat dan cuba kod yang terbaharu.',
     expired: 'Log masuk ini telah tamat — masukkan kata laluan anda semula.',
     back: 'Kembali ke log masuk',
+  },
+  setPassword: {
+    eyebrow: 'Akaun anda',
+    titleInvite: 'Pilih kata laluan anda',
+    titleReset: 'Pilih kata laluan baharu',
+    subtitle: 'Untuk nama pengguna {username}. Anda akan menggunakannya bersama kata laluan ini untuk log masuk.',
+    password: 'Kata laluan baharu',
+    confirm: 'Ulang kata laluan',
+    rules: {
+      length: 'Sekurang-kurangnya {min} aksara',
+      notUsername: 'Tidak sama dengan nama pengguna anda',
+      notCommon: 'Bukan kata laluan yang terkenal',
+      match: 'Kedua-dua entri sepadan',
+    },
+    submit: 'Simpan kata laluan saya',
+    validUntil: 'Pautan ini berfungsi sekali sahaja, sehingga {date}.',
+    checking: 'Menyemak pautan anda…',
+    invalidTitle: 'Pautan ini tidak lagi berfungsi',
+    invalidBody:
+      'Ia mungkin telah digunakan, diganti dengan pautan yang lebih baharu, atau tamat tempoh. Minta pentadbir anda menghantar pautan baharu.',
+    toLogin: 'Pergi ke log masuk',
+    mismatch: 'Kedua-dua kata laluan tidak sepadan.',
+    rateLimited: 'Terlalu banyak cubaan dari rangkaian ini. Tunggu sebentar dan cuba lagi.',
   },
   setup: {
     eyebrow: 'Persediaan akaun',

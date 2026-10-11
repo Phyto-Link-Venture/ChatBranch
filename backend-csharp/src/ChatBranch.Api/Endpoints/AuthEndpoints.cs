@@ -42,14 +42,17 @@ public static class AuthEndpoints
             var locked = user == null ? throttle.Locked(username, ip)
                 : await throttle.LockedForAsync(db, user.Id, username, ip);
             if (locked != null) return LoginThrottle.Refusal(ctx, locked);
-            // always one PBKDF2 run — an unknown or inactive username costs the same time
-            var passwordOk = DjangoPasswordHasher.Verify(password, user?.Password is { Length: > 0 } h ? h : DummyHash.Value);
+            // always one PBKDF2 run — an unknown or inactive username, or a login still waiting
+            // for its invited person to choose a password (an unusable "!…" value), costs the same time
+            var usable = user != null && DjangoPasswordHasher.IsUsable(user.Password);
+            var passwordOk = DjangoPasswordHasher.Verify(password, usable ? user!.Password : DummyHash.Value) && usable;
             if (user is not { IsActive: true } || !passwordOk)
             {
                 // Failed sign-ins belong in the activity log (never the password).
                 ChatBranch.Data.Audit.AuditTrail.Write(db, "login.failed",
                     ChatBranch.Data.Audit.AuditTrail.Cap(username, 150),
-                    user == null ? "unknown username" : user.IsActive ? "wrong password" : "inactive account",
+                    user == null ? "unknown username" : !user.IsActive ? "inactive account"
+                        : usable ? "wrong password" : "no password chosen yet (welcome email link not used)",
                     actor: ChatBranch.Data.Audit.AuditTrail.Cap(username, 150), userId: user?.Id);
                 var started = throttle.Fail(username, ip);
                 if (started.Count > 0)
@@ -164,6 +167,9 @@ public static class AuthEndpoints
         app.MapMyAccountEndpoints();
         // two-step sign-in (own enrollment, an admin's reset) + the organization's security policy
         app.MapTwoFactorEndpoints();
+        // the welcome email: the public set-password link + Settings → System email
+        app.MapPasswordLinkEndpoints();
+        app.MapSystemEmailEndpoints();
     }
 
     /// <summary>

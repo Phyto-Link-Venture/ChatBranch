@@ -40,6 +40,20 @@ public class RateLimitTests : IClassFixture<RateLimitedFactory>
     }
 
     [Fact]
+    public async Task The_set_password_link_is_limited_like_sign_in()
+    {
+        Assert.Equal(RateLimiting.Login, RateLimiting.Classify("GET", "/api/auth/set-password/abc", false));
+        Assert.Equal(RateLimiting.Login, RateLimiting.Classify("POST", "/api/auth/set-password", false));
+        var c = _f.From(NewPeer());
+        var token = PasswordLinks.NewToken();
+        for (var i = 0; i < 3; i++)
+            Assert.Equal(HttpStatusCode.NotFound, (await c.GetAsync($"/api/auth/set-password/{token}")).StatusCode);
+        var limited = await c.PostAsJsonAsync("/api/auth/set-password", new { token, password = "whatever-pass-1" });
+        Assert.Equal((HttpStatusCode)429, limited.StatusCode);
+        Assert.Equal("rate_limited", (await limited.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+    }
+
+    [Fact]
     public async Task Anonymous_reads_are_limited_per_address()
     {
         var c = _f.From(NewPeer());

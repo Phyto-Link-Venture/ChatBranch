@@ -51,6 +51,16 @@ public sealed class MailKitEmailTransport : IEmailTransport
         : useTls ? SecureSocketOptions.StartTls
         : SecureSocketOptions.None;
 
+    /// <summary>The server's explicit <see cref="EmailServerSettings.TlsMode"/> when it has one, else the port rule.</summary>
+    public static SecureSocketOptions Security(EmailServerSettings server) =>
+        (server.TlsMode ?? "").Trim().ToLowerInvariant() switch
+        {
+            "ssl" => SecureSocketOptions.SslOnConnect,
+            "starttls" => SecureSocketOptions.StartTls,
+            "none" => SecureSocketOptions.None,
+            _ => Security(server.Port, server.UseTls),
+        };
+
     public Task<EmailResult> SendAsync(EmailServerSettings server, MimeMessage message,
         CancellationToken ct = default) =>
         RunAsync(server, (client, token) => client.SendAsync(message, token), ct);
@@ -68,7 +78,7 @@ public sealed class MailKitEmailTransport : IEmailTransport
         cts.CancelAfter(_timeoutMs + 5_000);
         try
         {
-            await client.ConnectAsync(server.Host, server.Port, Security(server.Port, server.UseTls), cts.Token);
+            await client.ConnectAsync(server.Host, server.Port, Security(server), cts.Token);
             if (server.Username.Length > 0)
                 await client.AuthenticateAsync(server.Username, server.Password, cts.Token);
             if (work != null) await work(client, cts.Token);
@@ -197,6 +207,9 @@ public static class EmailComposer
 public static partial class EmailHtml
 {
     private const string LinkStyle = "color:#c2410c;text-decoration:underline;";
+    private const string ButtonStyle =
+        "display:inline-block;padding:12px 22px;border-radius:8px;background-color:#1f2328;color:#ffffff;" +
+        "font-weight:600;text-decoration:none;";
 
     [GeneratedRegex(
         @"(?<url>\bhttps?://[^\s<>""`]+)|(?<![A-Za-z0-9._%+\-])(?<email>[A-Za-z0-9._%+\-]+@[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?)*\.[A-Za-z]{2,})",
@@ -206,8 +219,21 @@ public static partial class EmailHtml
     [GeneratedRegex(@"\n(?:[ \t]*\n)+")]
     private static partial Regex BlankLines();
 
-    public static string Render(string? text)
+    public static string Render(string? text) => Render(text, null, null);
+
+    /// <summary>
+    /// <see cref="Render(string?)"/> with one call-to-action: a paragraph that is exactly
+    /// <paramref name="buttonUrl"/> (an http(s) URL) becomes a button labelled
+    /// <paramref name="buttonLabel"/>, with the address itself as a small link under it for
+    /// mail clients that hide buttons. Everything stays escaped — used by the system's own
+    /// sign-in emails (welcome email, password links), never for typed replies.
+    /// </summary>
+    public static string Render(string? text, string? buttonLabel, string? buttonUrl)
     {
+        var button = !string.IsNullOrWhiteSpace(buttonLabel) && buttonUrl is { Length: > 0 } u
+                     && (u.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                         || u.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            ? u.Trim() : null;
         var body = (text ?? "").Replace("\r\n", "\n").Replace('\r', '\n');
         var sb = new StringBuilder();
         sb.Append("<!DOCTYPE html>\n<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\">")
@@ -221,6 +247,15 @@ public static partial class EmailHtml
             var lines = paragraph.Split('\n').SkipWhile(l => l.Trim().Length == 0).Reverse()
                 .SkipWhile(l => l.Trim().Length == 0).Reverse().ToList();
             if (lines.Count == 0) continue;
+            if (button != null && lines.Count == 1 && lines[0].Trim() == button)
+            {
+                sb.Append("<p style=\"margin:0 0 1.25em 0;\"><a href=\"").Append(Escape(button))
+                  .Append("\" style=\"").Append(ButtonStyle).Append("\">").Append(Escape(buttonLabel!.Trim()))
+                  .Append("</a></p>\n<p style=\"margin:0 0 1em 0;font-size:12px;line-height:1.4;color:#57606a;word-break:break-all;\">")
+                  .Append("<a href=\"").Append(Escape(button)).Append("\" style=\"").Append(LinkStyle).Append("\">")
+                  .Append(Escape(button)).Append("</a></p>\n");
+                continue;
+            }
             sb.Append("<p style=\"margin:0 0 1em 0;\">")
               .Append(string.Join("<br>\n", lines.Select(Line)))
               .Append("</p>\n");

@@ -17,6 +17,7 @@ export const auth = {
     locked_one: 'Too many failed attempts. Try again in {count} minute.',
     locked_other: 'Too many failed attempts. Try again in {count} minutes.',
     rateLimited: 'Too many sign-in attempts from this network. Wait a moment and try again.',
+    passwordSet: 'Your password is set — sign in with your username and the new password.',
   },
   twoFactor: {
     eyebrow: 'Two-step sign-in',
@@ -30,6 +31,29 @@ export const auth = {
     invalid: 'That code isn’t right. Check that your phone’s clock is correct and try the newest code.',
     expired: 'This sign-in has expired — enter your password again.',
     back: 'Back to sign-in',
+  },
+  setPassword: {
+    eyebrow: 'Your account',
+    titleInvite: 'Choose your password',
+    titleReset: 'Choose a new password',
+    subtitle: 'For the username {username}. You’ll use it with this password to sign in.',
+    password: 'New password',
+    confirm: 'Repeat the password',
+    rules: {
+      length: 'At least {min} characters',
+      notUsername: 'Not the same as your username',
+      notCommon: 'Not a well-known password',
+      match: 'Both entries match',
+    },
+    submit: 'Save my password',
+    validUntil: 'This link works once, until {date}.',
+    checking: 'Checking your link…',
+    invalidTitle: 'This link doesn’t work any more',
+    invalidBody:
+      'It may have been used already, replaced by a newer one, or expired. Ask your administrator to send you a new one.',
+    toLogin: 'Go to sign-in',
+    mismatch: 'The two passwords don’t match.',
+    rateLimited: 'Too many attempts from this network. Wait a moment and try again.',
   },
   setup: {
     eyebrow: 'Account setup',

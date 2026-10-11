@@ -61,6 +61,22 @@ public static class DjangoPasswordHasher
         return $"{Algorithm}${iters}${salt}${dk}";
     }
 
+    /// <summary>Django's "unusable password" marker prefix (<c>set_unusable_password</c>).</summary>
+    public const string UnusablePrefix = "!";
+
+    /// <summary>
+    /// A stored value no password matches — Django's <c>make_password(None)</c>: "!" + 40
+    /// random characters. A login invited by email carries one until they choose their own
+    /// password through the set-password link.
+    /// </summary>
+    public static string MakeUnusable() =>
+        UnusablePrefix + Convert.ToBase64String(RandomNumberGenerator.GetBytes(30))
+            .Replace("+", "").Replace("/", "").Replace("=", "");
+
+    /// <summary>False for an empty or "unusable" (<c>!…</c>) stored password.</summary>
+    public static bool IsUsable(string? encoded) =>
+        !string.IsNullOrEmpty(encoded) && !encoded.StartsWith(UnusablePrefix, StringComparison.Ordinal);
+
     private static string Pbkdf2(string password, string salt, int iterations)
     {
         var derived = Rfc2898DeriveBytes.Pbkdf2(

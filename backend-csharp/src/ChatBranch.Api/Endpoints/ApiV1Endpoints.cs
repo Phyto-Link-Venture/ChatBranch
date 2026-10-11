@@ -685,8 +685,14 @@ public static class ApiV1Endpoints
         //                their own tenant, and may never assign admin/superadmin;
         //   anyone else — 403 on the `users.manage` capability first.
         // Capability gates the ACTION, tiering bounds the TARGET — both apply.
+        // The welcome email: with `send_invite` (default: on when an email address is given and
+        // sign-in emails can go out) the new login gets an email with its username, the login
+        // address and a one-time link to choose its own password — never a password. The
+        // password is then optional (an unusable one until they choose). A failed send never
+        // undoes the user: `invite` says why, and POST /api/v1/users/{id}/invite resends.
         app.MapPost("/api/v1/users", async (JsonElement body,
-            ClaimsPrincipal me, AppDbContext db, ChatBranch.Api.Security.SecurityOptions security) =>
+            ClaimsPrincipal me, AppDbContext db, ChatBranch.Api.Security.SecurityOptions security,
+            ScopingService sc, ChatBranch.Data.Channels.IEmailTransport transport, HttpContext ctx) =>
         {
             var actorRole = me.FindFirstValue(ClaimTypes.Role) ?? "";
             if (!await AdminEndpoints.HasCapabilityAsync(db, actorRole, "users.manage"))
@@ -695,13 +701,33 @@ public static class ApiV1Endpoints
             var username = (Str(body, "username") ?? "").Trim();
             var password = Str(body, "password") ?? "";
             var role = (Str(body, "role") ?? "").Trim();
+            var email = (Str(body, "email") ?? "").Trim();
+            var displayName = ChatBranch.Api.Security.SystemEmail.OneLine(Str(body, "name"), 150);
             if (username.Length == 0)
                 return V1Error("bad_request", "username is required.", 400);
             var lowered = username.ToLowerInvariant();
             if (await db.Users.AnyAsync(u => u.Username.ToLower() == lowered))
                 return V1Error("bad_request", $"Username '{username}' is already taken.", 400);
-            // ≥ 10 characters, not the username, not a common password on a real install (8 on a demo)
-            if (ChatBranch.Api.Security.PasswordPolicy.Check(password, username, security) is { } weak)
+            if (await EmailProblemAsync(db, email, null) is { } emailErr) return emailErr;
+
+            bool? askedInvite = Has(body, "send_invite") ? Bool(body, "send_invite") : null;
+            if (Has(body, "send_invite") && askedInvite == null)
+                return V1Error("bad_request", "send_invite must be true or false.", 400);
+            var readiness = ChatBranch.Api.Security.InviteMailer.Check(sc, security);
+            var sendInvite = askedInvite ?? (email.Length > 0 && readiness.Ready);
+            if (sendInvite)
+            {
+                // asked for something that can't happen — refuse before creating anything
+                if (email.Length == 0)
+                    return V1Error("invite_needs_email",
+                        "Enter the person's email address to send them a welcome email.", 400);
+                if (!readiness.Ready)
+                    return V1Error(readiness.Code, ChatBranch.Api.Security.SystemEmail.Explain(readiness.Code), 400);
+            }
+            // ≥ 10 characters, not the username, not a common password on a real install (8 on a demo);
+            // with a welcome email the password is optional — they choose their own through the link
+            if ((!sendInvite || password.Length > 0)
+                && ChatBranch.Api.Security.PasswordPolicy.Check(password, username, security) is { } weak)
                 return PasswordRefused(weak);
             var validRoles = await AdminEndpoints.ValidRoleSlugsAsync(db);
             if (!validRoles.Contains(role))
@@ -737,11 +763,15 @@ public static class ApiV1Endpoints
             var user = new AppUser
             {
                 Username = username,
-                Password = DjangoPasswordHasher.Hash(password),
+                // invited without a password: an unusable value until they choose one
+                Password = password.Length > 0 ? DjangoPasswordHasher.Hash(password) : DjangoPasswordHasher.MakeUnusable(),
                 IsActive = true,
                 // Keep the Django-admin flag coherent with the app role
                 // (_apply_role_flags); there is no is_staff column in this port.
                 IsSuperuser = role == Roles.SuperAdmin,
+                Email = email,
+                // the display name (Settings → My account splits it later if they like)
+                FirstName = displayName,
             };
             try
             {
@@ -756,10 +786,12 @@ public static class ApiV1Endpoints
                 db.AuditLogs.Add(new AuditLog
                 {
                     Actor = me.Identity?.Name ?? "system", Action = "user.create",
-                    Target = username, UserId = user.Id, Detail = $"role: {role}",
+                    Target = username, UserId = user.Id,
+                    Detail = $"role: {role}" + (sendInvite ? "; welcome email requested" : ""),
                     CreatedAt = DateTime.UtcNow,
                 });
                 await db.SaveChangesAsync();
+                user.Profile = profile;
             }
             catch (Exception)
             {
@@ -768,7 +800,81 @@ public static class ApiV1Endpoints
                 return V1Error("bad_request",
                     $"Could not create '{username}' — the username may already be taken.", 400);
             }
-            return Results.Json(await ManagedUserAsync(db, user.Id), statusCode: 201);
+            object invite = new { requested = false, sent = false };
+            if (sendInvite)
+            {
+                var (actor, actorName) = await ActorNamesAsync(db, me);
+                var outcome = await ChatBranch.Api.Security.InviteMailer.SendAsync(db, sc, transport, security, user,
+                    PasswordTokenPurposes.Invite, actor, actorName, ctx.RequestAborted);
+                invite = outcome.Payload();
+            }
+            return Results.Json(WithInvite(await ManagedUserAsync(db, user.Id), invite), statusCode: 201);
+        }).RequireAuthorization(AuthPolicies.Authenticated);
+
+        // Resend the welcome email (a new one-time link; the older ones stop working), or —
+        // with `reset: true` — send someone who already has a password a link to choose a new
+        // one (their current password keeps working until they do). users.manage + the same
+        // tiers and anti-escalation rules as editing that user (never your own login below
+        // superadmin). At most INVITE_MAX_PER_HOUR (5) links per person per hour.
+        app.MapPost("/api/v1/users/{id:int}/invite", async (int id,
+            ClaimsPrincipal me, AppDbContext db, ChatBranch.Api.Security.SecurityOptions security,
+            ScopingService sc, ChatBranch.Data.Channels.IEmailTransport transport, HttpContext ctx) =>
+        {
+            var body = await ReadBodyAsync(ctx); // optional: {reset}
+            var actorRole = me.FindFirstValue(ClaimTypes.Role) ?? "";
+            if (!await AdminEndpoints.HasCapabilityAsync(db, actorRole, "users.manage"))
+                return V1Error("forbidden", "Admin role required to manage users.", 403);
+
+            var target = await TargetUserAsync(db, id);
+            if (target == null) return V1Error("not_found", "User not found.", 404);
+            var profile = await EnsureProfileAsync(db, target);
+            if (AdminMayManage(db, me, actorRole, profile) is { } tierErr) return tierErr;
+            if (actorRole != Roles.SuperAdmin && target.Id == await Caller.UserIdAsync(db, me))
+                return V1Error("forbidden", "You can't send yourself a link here — change your password in Settings → My account.", 403);
+
+            bool? reset = Has(body, "reset") ? Bool(body, "reset") : false;
+            if (reset == null) return V1Error("bad_request", "reset must be true or false.", 400);
+            if (!target.IsActive)
+                return V1Error("inactive", "This user is deactivated — reactivate them first.", 400);
+            if ((target.Email ?? "").Trim().Length == 0)
+                return V1Error("no_email", "This user has no email address — add one first.", 400);
+            var hasPassword = DjangoPasswordHasher.IsUsable(target.Password);
+            if (hasPassword && reset != true)
+                return V1Error("password_already_set",
+                    $"{target.Username} has already chosen a password — send a password reset link instead (reset: true).", 409);
+            var readiness = ChatBranch.Api.Security.InviteMailer.Check(sc, security);
+            if (!readiness.Ready)
+                return V1Error(readiness.Code, ChatBranch.Api.Security.SystemEmail.Explain(readiness.Code), 400);
+            var limit = Math.Max(1, security.InvitesPerUserPerHour);
+            if (await ChatBranch.Api.Security.PasswordLinks.SentLastHourAsync(db, target.Id) >= limit)
+            {
+                var retry = await ChatBranch.Api.Security.PasswordLinks.RetryAfterSecondsAsync(db, target.Id);
+                ctx.Response.Headers.RetryAfter = retry.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                return Results.Json(new
+                {
+                    error = new
+                    {
+                        code = "too_many_invites",
+                        message = $"{limit} links were sent to {target.Username} in the last hour — try again in {Math.Max(1, (retry + 59) / 60)} min.",
+                        retry_after = retry,
+                    },
+                }, statusCode: 429);
+            }
+
+            var (actor, actorName) = await ActorNamesAsync(db, me);
+            var outcome = await ChatBranch.Api.Security.InviteMailer.SendAsync(db, sc, transport, security, target,
+                hasPassword ? PasswordTokenPurposes.Reset : PasswordTokenPurposes.Invite, actor, actorName, ctx.RequestAborted);
+            var payload = WithInvite(await ManagedUserAsync(db, id), outcome.Payload());
+            if (!outcome.Sent)
+            {
+                payload["error"] = new System.Text.Json.Nodes.JsonObject
+                {
+                    ["code"] = outcome.Code,
+                    ["message"] = outcome.Error.Length > 0 ? $"The email wasn't sent: {outcome.Error}" : "The email wasn't sent.",
+                };
+                return Results.Json(payload, statusCode: outcome.Code == "send_failed" ? 502 : 400);
+            }
+            return Results.Json(payload);
         }).RequireAuthorization(AuthPolicies.Authenticated);
 
         // POST (not PATCH) on the detail route, matching Django: one endpoint
@@ -816,6 +922,13 @@ public static class ApiV1Endpoints
                 newPassword = Str(body, "password") ?? "";
                 if (ChatBranch.Api.Security.PasswordPolicy.Check(newPassword, target.Username, security) is { } weak)
                     return PasswordRefused(weak);
+            }
+            // the address the welcome email / a reset link goes to ("" = none)
+            string? newEmail = null;
+            if (Has(body, "email"))
+            {
+                newEmail = (Str(body, "email") ?? "").Trim();
+                if (await EmailProblemAsync(db, newEmail, target.Id) is { } emailErr) return emailErr;
             }
             // Anti-lockout: the platform must always keep one active superadmin.
             if (await WouldRemoveLastSuperAdminAsync(db, target, newRole, newActive))
@@ -910,7 +1023,12 @@ public static class ApiV1Endpoints
             if (newActive is bool active && active != target.IsActive)
             {
                 target.IsActive = active;
-                if (!active) await KillSessionsAsync(db, profile);
+                if (!active)
+                {
+                    await KillSessionsAsync(db, profile);
+                    // a deactivated login's set-password links stop working too
+                    await ChatBranch.Api.Security.PasswordLinks.RevokeAllAsync(db, target.Id);
+                }
                 changed.Add("active");
             }
             if (newPassword != null)
@@ -918,7 +1036,16 @@ public static class ApiV1Endpoints
                 target.Password = DjangoPasswordHasher.Hash(newPassword);
                 // Every bearer token — every session — dies with the password.
                 await KillSessionsAsync(db, profile);
+                // …and a pending welcome / reset link is moot
+                await ChatBranch.Api.Security.PasswordLinks.RevokeAllAsync(db, target.Id);
                 changed.Add("password");
+            }
+            if (newEmail != null && !string.Equals(newEmail, target.Email, StringComparison.Ordinal))
+            {
+                target.Email = newEmail;
+                // links already mailed went to the OLD address — they stop working
+                await ChatBranch.Api.Security.PasswordLinks.RevokeAllAsync(db, target.Id);
+                changed.Add("email");
             }
             if (changed.Count > 0)
             {
@@ -955,6 +1082,8 @@ public static class ApiV1Endpoints
 
             target.IsActive = false;
             await KillSessionsAsync(db, profile);
+            // its set-password links (welcome email / reset) stop working with it
+            await ChatBranch.Api.Security.PasswordLinks.RevokeAllAsync(db, target.Id);
             db.AuditLogs.Add(new AuditLog
             {
                 Actor = me.Identity?.Name ?? "system", Action = "user.deactivate",
@@ -1612,6 +1741,43 @@ public static class ApiV1Endpoints
                 .Include(u => u.Profile!).ThenInclude(p => p.Contact)
             .FirstAsync(u => u.Id == id);
         var twoFactor = await db.UserTwoFactors.AsNoTracking().AnyAsync(t => t.UserId == id && t.Enabled);
-        return AdminEndpoints.ManagedUserPayload(row, twoFactor);
+        var links = await ChatBranch.Api.Security.PasswordLinks.OpenLinksAsync(db, new[] { id });
+        return AdminEndpoints.ManagedUserPayload(row, twoFactor, links.GetValueOrDefault(id));
+    }
+
+    /// <summary>The managed-user payload plus the <c>invite</c> outcome (create / resend answers).</summary>
+    private static System.Text.Json.Nodes.JsonObject WithInvite(object payload, object invite)
+    {
+        var node = JsonSerializer.SerializeToNode(payload, JsonOpts) as System.Text.Json.Nodes.JsonObject
+                   ?? new System.Text.Json.Nodes.JsonObject();
+        node["invite"] = JsonSerializer.SerializeToNode(invite, JsonOpts);
+        return node;
+    }
+
+    private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
+
+    /// <summary>
+    /// A user's email address: optional; when given, a valid address that no OTHER login
+    /// uses (the same rule as Settings → My account).
+    /// </summary>
+    private static async Task<IResult?> EmailProblemAsync(AppDbContext db, string email, int? exceptUserId)
+    {
+        if (email.Length == 0) return null;
+        if (!ChatBranch.Api.Security.SystemEmail.IsEmail(email))
+            return V1Error("bad_request", "That doesn't look like an email address.", 400);
+        var lowered = email.ToLowerInvariant();
+        if (await db.Users.AsNoTracking().AnyAsync(u => u.Email.ToLower() == lowered
+                && (exceptUserId == null || u.Id != exceptUserId)))
+            return V1Error("conflict", "Another user already has that email address.", 409);
+        return null;
+    }
+
+    /// <summary>The acting person's username and display name (for "X added you to…").</summary>
+    private static async Task<(string Username, string Name)> ActorNamesAsync(AppDbContext db, ClaimsPrincipal me)
+    {
+        var username = me.Identity?.Name ?? "";
+        var uid = await Caller.UserIdAsync(db, me);
+        var user = uid is int id ? await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == id) : null;
+        return (username, user != null ? MyAccountEndpoints.DisplayName(user) : username);
     }
 }

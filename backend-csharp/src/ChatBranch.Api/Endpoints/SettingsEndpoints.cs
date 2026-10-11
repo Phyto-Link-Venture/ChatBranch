@@ -82,7 +82,8 @@ public static partial class SettingsEndpoints
     {
         var k = key.ToLowerInvariant();
         string[] blobs = { "integrations_settings", "voice_twilio_settings", "mcp_servers",
-            "whatsapp_custom_templates_secret", "oauth_state_secret", "baileys_secret" };
+            "whatsapp_custom_templates_secret", "oauth_state_secret", "baileys_secret",
+            Security.SystemEmail.SettingKey };
         return blobs.Contains(k)
                || k.Contains("secret") || k.Contains("password") || k.Contains("token")
                || k.EndsWith("_key") || k.Contains("api_key") || k.StartsWith("smtp_pass");

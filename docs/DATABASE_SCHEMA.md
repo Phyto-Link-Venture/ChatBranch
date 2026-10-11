@@ -103,6 +103,14 @@ to (empty for admin/superadmin, whose access is derived).
 `profile_id` · `token` (**unique**) · `created_at`. One row per login session;
 concurrent sessions are allowed.
 
+### `crm_passwordtoken`
+`user_id` · `token_hash` (**unique**, `uniq_passwordtoken_hash` — lowercase hex
+SHA-256 of the link's token; the token itself is never stored) · `purpose`
+(`invite` = the welcome email, `reset` = an admin's password reset link) ·
+`created_by` (username) · `created_at` · `expires_at` (72 h) · `used_at` ·
+`revoked_at` (a newer link, a deactivation, an email or password change). A
+one-time set-password link — `docs/security.md` "The welcome email".
+
 ### `crm_role` · `crm_rolepermission`
 `crm_role`: `slug` · `label` · `is_system` · `created_at`.
 `crm_rolepermission`: `role` (slug) · `capability` · `allowed` · `updated_at` —

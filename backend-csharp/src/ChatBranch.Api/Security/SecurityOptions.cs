@@ -59,6 +59,16 @@ public sealed record SecurityOptions
     /// <summary><c>TOTP_ISSUER</c> — the name authenticator apps show next to the account.</summary>
     public string TotpIssuer { get; init; } = "ChatBranch";
 
+    // ---- welcome email + set-password links (Security/PasswordLinks) -------------------
+    /// <summary><c>FRONTEND_URL</c>, else <c>PUBLIC_BASE_URL</c> — the dashboard's address, which the
+    /// welcome email's login address and set-password link are built on ("" = not configured:
+    /// invites are refused rather than mailing a link that can't work).</summary>
+    public string LoginBaseUrl { get; init; } = "";
+    /// <summary><c>INVITE_LINK_HOURS</c> — how long a set-password link works (72).</summary>
+    public int InviteLinkHours { get; init; } = 72;
+    /// <summary><c>INVITE_MAX_PER_HOUR</c> — links sent to ONE person per hour (5).</summary>
+    public int InvitesPerUserPerHour { get; init; } = 5;
+
     /// <summary>A real install (not <c>SEED_DEMO</c>): stricter passwords, seeded passwords must change.</summary>
     public bool RealInstall => !IsDemo;
 
@@ -101,6 +111,9 @@ public sealed record SecurityOptions
             SuperadminPassword = cfg["SUPERADMIN_PASSWORD"] ?? "",
             PasswordMinLength = Math.Max(8, I("PASSWORD_MIN_LENGTH", d.PasswordMinLength, 8)),
             TotpIssuer = S("TOTP_ISSUER") is { Length: > 0 } issuer ? issuer : d.TotpIssuer,
+            LoginBaseUrl = S("FRONTEND_URL") is { Length: > 0 } frontend ? frontend : S("PUBLIC_BASE_URL"),
+            InviteLinkHours = Math.Clamp(I("INVITE_LINK_HOURS", d.InviteLinkHours, 1), 1, 24 * 14),
+            InvitesPerUserPerHour = I("INVITE_MAX_PER_HOUR", d.InvitesPerUserPerHour, 1),
         };
     }
 }

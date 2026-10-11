@@ -38,16 +38,17 @@ import { TourProvider } from '@/components/tour/TourProvider'
  * Below lg the rail becomes an off-canvas drawer and a bottom tab bar (Home ·
  * Chats · Contacts · More) takes over primary navigation, as on the phone
  * board. A few routes render full-bleed (they own the whole content height):
- * Chats, Journeys and Settings. Login, the Help Center and the offline
- * page render bare.
+ * Chats, Journeys and Settings. Login, the Help Center, the offline page and
+ * the welcome email's set-password page render bare.
  *
  * Auth guard: every non-public route requires a signed-in user.
  */
 
 const FULL_BLEED: string[] = ['/chats', '/journeys', '/flow-builder', '/settings']
 
-/** Routes anyone may read, signed in or not, outside the operator shell. */
-const PUBLIC_ROUTES = ['/help', '/offline']
+/** Routes anyone may read, signed in or not, outside the operator shell
+ *  (/set-password = the welcome email's one-time link to choose a password). */
+const PUBLIC_ROUTES = ['/help', '/offline', '/set-password']
 
 /** Token the appearance/identity sync last ran for — once per sign-in. */
 let syncedToken: string | null = null
@@ -138,7 +139,8 @@ export function Shell({ children }: { children: ReactNode }) {
   // account-setup screen and nothing else — the API refuses everything else anyway.
   useEffect(() => {
     if (!authReady || !user) return
-    if (user.restriction && pathname !== ACCOUNT_SETUP) router.replace(ACCOUNT_SETUP)
+    // (a set-password link opened in a browser that holds someone's restricted session stays put)
+    if (user.restriction && pathname !== ACCOUNT_SETUP && pathname !== '/set-password') router.replace(ACCOUNT_SETUP)
   }, [authReady, user, pathname, router])
 
   useEffect(() => {

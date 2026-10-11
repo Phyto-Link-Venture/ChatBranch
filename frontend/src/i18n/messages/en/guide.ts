@@ -806,7 +806,7 @@ export const guide = {
         },
         s3: {
           title: 'Add user',
-          body: 'Click Add user, then enter a username, a password and a role.',
+          body: 'Click Add user, then enter a username, their email and a role. With the welcome email ticked they get a link to choose their own password — no password to hand over.',
         },
         s4: {
           title: 'The user list',
@@ -814,7 +814,7 @@ export const guide = {
         },
         s5: {
           title: 'Row buttons',
-          body: 'Entity access chooses which outlets an agent sees. Reset password sets a new password. Deactivate blocks the login but keeps all history.',
+          body: 'Entity access chooses which outlets an agent sees. Resend invite emails a fresh set-password link to someone who hasn’t chosen one yet. Reset password emails a reset link or sets a new password. Deactivate blocks the login but keeps all history.',
         },
       },
     },

@@ -329,7 +329,16 @@ When you fix one of these, update this table, `README.md` and
   manages agents (and company admins) there; a company admin only the
   agent-level users bound inside their companies; a custom role granted
   `users.manage` like an admin of its scope, agent-level users only. A login may be bound to a Contact (`Profile.ContactId`,
-  "customer login"). The `X-Role` header only works while NO Profile rows exist
+  "customer login"). **Invites:** `POST /api/v1/users` takes `email` + `send_invite`
+  (default on when sign-in emails can go out) — a welcome email with the username,
+  the login address and a ONE-TIME set-password link (72 h, only its SHA-256 in
+  `crm_passwordtoken`, never a password in an email; the login holds an unusable
+  `!…` password until then); `POST /api/v1/users/{id}/invite {reset?}` resends /
+  sends a reset link under the same tiers (≤ 5 / person / hour); the public half is
+  `GET/POST /api/auth/set-password` + the bare `/set-password` page; mail goes out
+  through Settings → System email, else the default mail settings
+  (`Api/Security/PasswordLinks.cs`, `SystemEmail.cs`, `WelcomeEmail.cs`; no
+  "Forgot password?" by design; `WelcomeEmailTests`). The `X-Role` header only works while NO Profile rows exist
   (pre-seed bootstrap). **Per-conversation routes**
   (`/api/whatsapp/threads/{key}/…`, `/api/messaging/threads/{channel}/{key}/…`,
   the inbox's `{channel}/{key}` routes, `/api/inbox/threads/{channel}/{key}/handover`)
@@ -1740,7 +1749,9 @@ When you fix one of these, update this table, `README.md` and
   cap; `/settings/connections` connects your own Google products, see
   Integrations); Organization — Notification defaults (`notifications.manage`),
   Custom fields (`settings.custom_fields.manage`), App & provider keys
-  (`app_keys.manage`), AI billing (`billing.manage`); AI — AI keys & models (`settings.ai_keys.manage`; also
+  (`app_keys.manage`), System email (`app_keys.manage`; `/settings/system-email`, the
+  SMTP mailbox welcome emails and password links go out through —
+  `Endpoints/SystemEmailEndpoints.cs`), AI billing (`billing.manage`); AI — AI keys & models (`settings.ai_keys.manage`; also
   the embeddings provider, `components/ai-learning/EmbeddingsSection.tsx`). New page = a
   `SETTINGS_SECTIONS` entry + `app/settings/<id>/page.tsx` + the capability in
   `AdminEndpoints.cs` and `lib/auth.ts` + the server-side check. Everything

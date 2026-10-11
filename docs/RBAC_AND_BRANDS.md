@@ -204,7 +204,7 @@ The permission matrix is data (`crm_rolepermission`, edited at `/permissions`,
 | `settings.appearance.org` | Settings — the organization's default appearance | admin |
 | `settings.custom_fields.manage` | Settings — custom fields | admin |
 | `settings.ai_keys.manage` | Settings — AI keys & models | **superadmin only** |
-| `app_keys.manage` | Settings — app & provider keys (also the default mail settings, the SIP trunk, connecting an integration with raw keys) | **superadmin only** |
+| `app_keys.manage` | Settings — app & provider keys (also the default mail settings, the System email that welcome emails and password links go out through, the SIP trunk, connecting an integration with raw keys) | **superadmin only** |
 | `settings.raw.view` | Settings — read the raw key/value store (`GET /api/settings`, API only, secrets masked) | admin |
 | `settings.raw.manage` | Settings — write ANY raw setting (`PUT /api/settings`: credentials, billing terms, the safety rules… — grant with care) | **superadmin only** |
 | `billing.view` | Review — the AI usage bill | admin |
@@ -253,6 +253,7 @@ refused; an organization-wide one follows `OrgWideAction`). Notable gates:
 |---|---|
 | Raw settings key/value (`PUT /api/settings`) | `settings.raw.manage` (superadmin by default) |
 | Voice SIP creds (`PUT /api/whatsapp/voice-settings`), the default mail settings (`POST/PUT /api/messaging/settings`) | `app_keys.manage` |
+| Settings → System email (`GET/PUT /api/settings/system-email`, `POST …/test` — the SMTP mailbox sign-in emails go out through; the test goes to the caller's own address) | `app_keys.manage`, organization-level (a bound person is refused) |
 | Connect an integration with raw keys (`POST /api/integrations/{provider}/connect`) | `integrations.manage` AND `app_keys.manage` |
 | The Test lab (`/api/testlab/*`) | `testlab.run` (superadmin by default) |
 | Roles + the matrix (`POST/PATCH/DELETE /api/auth/roles*`, `PUT /api/auth/permissions`) | `rbac.manage` (+ the anti-escalation rule above) |
@@ -280,6 +281,7 @@ refused; an organization-wide one follows `OrgWideAction`). Notable gates:
 | Your own account — Settings → My account (`GET/PATCH /api/auth/me/account`, `POST /api/auth/me/password`, `POST /api/auth/me/sessions/revoke-others`) | any signed-in user, always THEMSELVES (no id in the route — another user's account is unreachable); the writes are session-only (an API key → 403); wrong current passwords count toward the sign-in lock (5 per username / 30 per IP in 15 min → 429, [security.md](security.md)) |
 | Your own two-step sign-in — Settings → My account (`GET /api/auth/me/2fa`, `POST …/2fa/setup`, `…/confirm`, `…/recovery-codes`, `…/disable`) | any signed-in user, always THEMSELVES; session-only (an API key → 403); turning it off needs the password + a code and is refused (409) while the organization requires it |
 | Reset someone's two-step sign-in (`POST /api/v1/users/{id}/2fa/reset`) | `users.manage` + the user-management tiers below; never your own; sessions only; audited `user.2fa_reset`, the target is signed out everywhere |
+| Resend the welcome email / send a password reset link (`POST /api/v1/users/{id}/invite {reset?}`) | `users.manage` + the user-management tiers below; never your own login below superadmin; `reset: true` needed for someone who already has a password; ≤ 5 links per person per hour (429); audited `user.invite_sent` |
 | Integrations — connect / disconnect your **own** Google account (`GET /api/integrations/mine`, `GET /api/integrations/oauth/{provider}/start` — `?return=connections` brings the callback back to Settings → My connections —, `POST …/accounts/{id}/disconnect`) | any signed-in user for their own row, no capability; someone else's personal row is visible only with `integrations.manage` and no entity binding; a shared row needs `integrations.manage` (inside the caller's entities) |
 | Integrations — run an action (`POST /api/integrations/action`: mail, charge, book…) | `integrations.manage` OR `flows.manage`, and the contact must be in the caller's scope |
 | WhatsApp global settings incl. the verify token (`POST/PUT /api/whatsapp/settings`) | `app_keys.manage` |
@@ -453,6 +455,7 @@ Admins keep the tenant-wide view. Tests: `QaScopeFixesTests`.
 | `/api/settings/ai-providers` | `settings.ai_keys.manage` | Settings → AI keys & models |
 | `/api/settings?keys=` (raw key/value store, secrets masked; a bound person who is not a company admin is refused) | `settings.raw.view` | no page — API callers |
 | `/api/settings/security` (the two-step sign-in policy + enrollment counts; organization-level — a bound person is refused) | `security.manage` | Settings → Security |
+| `/api/settings/system-email` (the sign-in emails' SMTP mailbox, password masked; organization-level — a bound person is refused) | `app_keys.manage` | Settings → System email |
 | `/api/auth/roles`, `/api/auth/permissions` | `users.view`, `users.manage`, `rbac.manage` | Permissions, Users |
 | `/api/auth/audit` (the legacy Users-page feed) | `users.view`, `users.manage` | API callers |
 | `/api/testlab/scenarios`, `/status`, `/runs`, `/runs/{id}` | `testlab.run` | Test lab |
@@ -527,7 +530,22 @@ itself bound to entities only within those subtrees); switching agent ↔ custom
 role ↔ admin keeps the binding, promotion to superadmin drops it; an agent-level user
 created without entities inherits the creating manager's tenant; a login can be
 bound to a Contact (`contact_id` — a **customer login**). Deactivation kills the
-user's sessions. UI: `/users` (Users & roles), `/teams`, `/entities`,
+user's sessions.
+
+**Invites (the welcome email).** `POST /api/v1/users` takes `email` and
+`send_invite` (default: on when an email is given and sign-in emails can go out —
+Settings → System email, else the default mail settings, plus a login address from
+`FRONTEND_URL` / `PUBLIC_BASE_URL`). With it the password is optional: the person
+gets their username, the login address and a one-time link to choose their own
+password (72 h; never a password in an email) and the login holds an unusable
+password until then (`password_set: false`, `invite_link` on the list). An
+explicit `send_invite: true` that can't be honoured is refused before anything is
+created; a send that FAILS keeps the user and answers `invite: {sent: false,
+error}`. `POST /api/v1/users/{id}/invite` resends (or, with `reset: true`, sends a
+password reset link to someone who has a password) under the same tiers as editing
+that user. Issuing a link revokes the older ones; deactivation, an email change or
+an admin setting the password revokes them too. The public half
+(`GET/POST /api/auth/set-password`) is in [security.md](security.md). UI: `/users` (Users & roles), `/teams`, `/entities`,
 `/bindings`, `/permissions`.
 
 ## Seeded users

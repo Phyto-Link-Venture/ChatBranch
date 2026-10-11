@@ -100,6 +100,39 @@ public class UserTwoFactor
     public DateTime UpdatedAt { get; set; }
 }
 
+/// <summary>
+/// A one-time link that lets a person choose their own password: the welcome email's
+/// "set your password" link (<see cref="PasswordTokenPurposes.Invite"/>) or an admin's
+/// "password reset link" (<see cref="PasswordTokenPurposes.Reset"/>). Only the SHA-256 of
+/// the 256-bit token is stored; a link works once, for a limited time, and issuing a new
+/// one (or deactivating the user, or changing their email) revokes the older ones.
+/// </summary>
+public class PasswordToken
+{
+    public int Id { get; set; }
+    public int UserId { get; set; }
+    /// <summary>Lowercase hex SHA-256 of the token in the link (never the token itself).</summary>
+    public string TokenHash { get; set; } = "";
+    /// <summary><see cref="PasswordTokenPurposes"/>: invite | reset.</summary>
+    public string Purpose { get; set; } = PasswordTokenPurposes.Invite;
+    /// <summary>Username of the person who sent the link.</summary>
+    public string CreatedBy { get; set; } = "";
+    public DateTime CreatedAt { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    /// <summary>When the password was chosen with it (null = not used).</summary>
+    public DateTime? UsedAt { get; set; }
+    /// <summary>When a newer link, a deactivation or an email change revoked it (null = not revoked).</summary>
+    public DateTime? RevokedAt { get; set; }
+}
+
+public static class PasswordTokenPurposes
+{
+    /// <summary>The welcome email of a new login (no password yet).</summary>
+    public const string Invite = "invite";
+    /// <summary>An admin's "send password reset link" for someone who has a password.</summary>
+    public const string Reset = "reset";
+}
+
 public class Role
 {
     public int Id { get; set; }

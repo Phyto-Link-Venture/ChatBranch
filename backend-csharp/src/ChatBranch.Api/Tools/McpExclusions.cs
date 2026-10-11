@@ -105,6 +105,11 @@ public static class McpExclusions
             "credentials: resetting someone's two-step sign-in (a lost phone) is a person's decision at /users — sessions only, API keys get 403"),
         new("GET", "/api/settings/security", SecurityPolicy),
         new("PUT", "/api/settings/security", SecurityPolicy),
+        // Settings → System email: the SMTP login sign-in emails go out through
+        new("GET", "/api/settings/system-email", "the System email (SMTP for welcome emails and password links) — " + CredentialRead),
+        new("PUT", "/api/settings/system-email", "the System email's SMTP login — " + Credentials),
+        new("POST", "/api/settings/system-email/test",
+            "sends a test email through the System email's SMTP login to the person at the keyboard — part of entering credentials"),
         new("POST", "/api/client-errors", "the dashboard's own crash reporter (a browser telling the server it broke) — not an operator action"),
 
         // ---- the assistant itself -------------------------------------------

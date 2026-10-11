@@ -1,8 +1,23 @@
 'use client'
 
 import { API } from '@/lib/apiBase'
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Building2, KeyRound, Loader2, ShieldAlert, ShieldCheck, ShieldOff, UserCheck, UserPlus, UserX } from 'lucide-react'
+import {
+  AtSign,
+  Building2,
+  CircleCheck,
+  KeyRound,
+  Loader2,
+  MailPlus,
+  Send,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldOff,
+  UserCheck,
+  UserPlus,
+  UserX,
+} from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Select, type SelectOption } from '@/components/ui/Select'
@@ -15,6 +30,7 @@ import { useRole } from '@/lib/useRole'
 import { useAccess } from '@/lib/useAccess'
 import { useCompanyAdmin } from '@/lib/useCompanyAdmin'
 import { useFormat, useT, type MessageKey } from '@/i18n'
+import type { InviteLink, InviteOutcome, InviteReadiness } from '@/lib/systemEmail'
 
 interface UserEntity {
   id: number
@@ -42,6 +58,12 @@ interface ManagedUser {
   contact_name?: string | null
   /** Two-step sign-in is on — a users.manage holder may reset it (a lost phone). */
   two_factor?: boolean
+  /** Where the welcome email / a password reset link goes ("" = none). */
+  email?: string
+  /** false = invited, still waiting for the person to choose a password through the link. */
+  password_set?: boolean
+  /** The newest set-password link not yet used (pending or expired). */
+  invite_link?: InviteLink | null
 }
 
 /** A v1 refusal; `reason` is the password policy's stable code (translated by the page). */
@@ -50,6 +72,10 @@ class V1Error extends Error {
     message: string,
     public reason?: string,
     public min?: number,
+    /** The v1 envelope's stable `error.code` (invite refusals, conflicts…). */
+    public code?: string,
+    /** The answer's `invite` outcome, when the request sent (or tried to send) an email. */
+    public invite?: InviteOutcome,
   ) {
     super(message)
   }
@@ -83,8 +109,19 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const data = await res.json().catch(() => ({}))
   if (expireSessionOn401(res)) throw new Error('Session expired — redirecting to login…')
   if (!res.ok) {
-    const d = data as { error?: { message?: string; reason?: string; min?: number }; detail?: string }
-    throw new V1Error(d.error?.message || d.detail || `HTTP ${res.status}`, d.error?.reason, d.error?.min)
+    const d = data as {
+      error?: { message?: string; reason?: string; min?: number; code?: string }
+      detail?: string
+      code?: string
+      invite?: InviteOutcome
+    }
+    throw new V1Error(
+      d.error?.message || d.detail || `HTTP ${res.status}`,
+      d.error?.reason,
+      d.error?.min,
+      d.error?.code ?? d.code,
+      d.invite,
+    )
   }
   return data as T
 }
@@ -118,6 +155,18 @@ const ROLE_CARDS: { slug: string; items: MessageKey[] }[] = [
   },
 ]
 
+/** The server's welcome-email refusal codes (InviteMailer / POST /api/v1/users/{id}/invite). */
+const INVITE_PROBLEMS: Record<string, MessageKey> = {
+  email_not_configured: 'admin.users.invite.unavailable.email_not_configured',
+  no_login_address: 'admin.users.invite.unavailable.no_login_address',
+  localhost_login_address: 'admin.users.invite.unavailable.localhost_login_address',
+  no_email: 'admin.users.invite.errors.no_email',
+  inactive: 'admin.users.invite.errors.inactive',
+  password_already_set: 'admin.users.invite.errors.password_already_set',
+  too_many_invites: 'admin.users.invite.errors.too_many_invites',
+  invite_needs_email: 'admin.users.invite.errors.invite_needs_email',
+}
+
 const builtinRows = (): RoleRow[] => BUILTIN_ROLES.map((slug) => ({ slug, label: '', is_system: true, user_count: 0 }))
 
 function Field({
@@ -127,6 +176,7 @@ function Field({
   placeholder,
   hint,
   secret = false,
+  type = 'text',
 }: {
   label: string
   value: string
@@ -134,12 +184,13 @@ function Field({
   placeholder?: string
   hint?: string
   secret?: boolean
+  type?: 'text' | 'email'
 }) {
   return (
     <label className="block">
       <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">{label}</span>
       <input
-        type={secret ? 'password' : 'text'}
+        type={secret ? 'password' : type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
@@ -215,6 +266,16 @@ export function UsersSettings() {
   const [newPassword, setNewPassword] = useState('')
   const [newRole, setNewRole] = useState<string>('agent')
   const [newEntityIds, setNewEntityIds] = useState<number[]>([])
+  const [newEmail, setNewEmail] = useState('')
+  // the welcome email: on by default whenever one can go out (seeded when the form opens)
+  const [sendInvite, setSendInvite] = useState(false)
+  // after "Add user": who was created and what happened to the welcome email (shown in the modal)
+  const [created, setCreated] = useState<{ username: string; invite: InviteOutcome } | null>(null)
+  // can a welcome email go out right now (GET /api/v1/users `invites`)
+  const [invites, setInvites] = useState<InviteReadiness | null>(null)
+  // email modal (add / change a user's address)
+  const [emailFor, setEmailFor] = useState<number | null>(null)
+  const [emailDraft, setEmailDraft] = useState('')
   // entity pool for the access grid (RBAC entities, /api/v1)
   const [entityPool, setEntityPool] = useState<EntityRow[]>([])
   // Contact pool for the customer-login binding
@@ -222,8 +283,9 @@ export function UsersSettings() {
 
   const refresh = useCallback(async () => {
     try {
-      const r = await api<{ users: ManagedUser[] }>('users')
+      const r = await api<{ users: ManagedUser[]; invites?: InviteReadiness }>('users')
       setUsers(r.users)
+      setInvites(r.invites ?? null)
     } catch {
       setUsers(null)
     }
@@ -284,10 +346,30 @@ export function UsersSettings() {
       await refresh()
       if (okText) setMsg({ ok: true, text: okText })
     } catch (e) {
-      setMsg({ ok: false, text: e instanceof V1Error && e.reason ? passwordReason(e) : e instanceof Error ? e.message : String(e) })
+      setMsg({ ok: false, text: explain(e) })
     } finally {
       setBusy(false)
     }
+  }
+
+  /** A refusal in the reader's language: the password policy, the welcome-email codes, else the server's words. */
+  const explain = (e: unknown): string => {
+    if (e instanceof V1Error) {
+      if (e.reason) return passwordReason(e)
+      const invite = inviteProblem(e.code, e.invite?.error ?? undefined)
+      if (invite) return invite
+      if (e.code === 'conflict' && /email/i.test(e.message)) return t('admin.users.emailTaken')
+      if (e.code === 'bad_request' && /email address/i.test(e.message)) return t('admin.users.emailInvalid')
+    }
+    return e instanceof Error ? e.message : String(e)
+  }
+
+  /** Why a welcome email / reset link can't go (or didn't go) out — null for other codes. */
+  const inviteProblem = (code: string | null | undefined, error?: string): string | null => {
+    if (!code) return null
+    if (code === 'send_failed') return t('admin.users.invite.errors.send_failed', { error: error ?? '' })
+    const key = INVITE_PROBLEMS[code]
+    return key ? t(key) : null
   }
 
   /** A refused new password, in the reader's language (the server's policy code). */
@@ -365,15 +447,39 @@ export function UsersSettings() {
     }
   }
 
+  /** Open "Add user" with an empty form — the welcome email on whenever one can go out. */
+  const openAdd = () => {
+    setMsg(null)
+    setCreated(null)
+    setNewUsername('')
+    setNewName('')
+    setNewEmail('')
+    setNewPassword('')
+    setNewRole('agent')
+    setNewEntityIds([])
+    setSendInvite(!!invites?.ready)
+    setShowAdd(true)
+  }
+
   const addUser = () => {
     // validate on click with explicit messages — a silently disabled button
     // reads as "broken", especially when browser autofill ghost-fills the form
     const username = newUsername.trim()
+    const email = newEmail.trim()
+    const invite = sendInvite && !!invites?.ready
     if (!username) {
       setMsg({ ok: false, text: t('admin.users.usernameRequired') })
       return
     }
-    if (newPassword.length < 8) {
+    if (invite && !email) {
+      setMsg({ ok: false, text: t('admin.users.invite.needsEmail') })
+      return
+    }
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setMsg({ ok: false, text: t('admin.users.emailInvalid') })
+      return
+    }
+    if (!invite && newPassword.length < 8) {
       setMsg({ ok: false, text: t('admin.users.passwordTooShort') })
       return
     }
@@ -381,24 +487,70 @@ export function UsersSettings() {
       setMsg({ ok: false, text: t('admin.users.adminEntityRequired') })
       return
     }
+    // the modal stays open on the outcome: sent to … / not sent because …
     run(async () => {
-      await api('users', {
+      const r = await api<ManagedUser & { invite?: InviteOutcome }>('users', {
         method: 'POST',
         body: JSON.stringify({
           username,
           name: newName.trim(),
-          password: newPassword,
+          email,
+          send_invite: invite,
+          ...(invite ? {} : { password: newPassword }),
           role: newRole,
           entity_ids: takesEntities(newRole) ? newEntityIds : [],
         }),
       })
-      setNewUsername('')
-      setNewName('')
+      setCreated({ username: r.username, invite: r.invite ?? { requested: false, sent: false } })
       setNewPassword('')
-      setNewRole('agent')
-      setNewEntityIds([])
-      setShowAdd(false)
-    }, t('admin.users.created', { user: username }))
+    })
+  }
+
+  /** Resend the welcome email (no password yet) or, with `reset`, a password reset link. */
+  const sendLink = (u: ManagedUser, reset: boolean) =>
+    run(async () => {
+      await api<ManagedUser & { invite?: InviteOutcome }>(`users/${u.id}/invite`, {
+        method: 'POST',
+        body: JSON.stringify({ reset }),
+      })
+      if (reset) {
+        setPwFor(null)
+        setPwDraft('')
+      }
+    }, reset
+      ? t('admin.users.invite.resetLinkSent', { email: u.email ?? '' })
+      : t('admin.users.invite.resent', { email: u.email ?? '' }))
+
+  const saveEmail = (u: ManagedUser) => {
+    const email = emailDraft.trim()
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setMsg({ ok: false, text: t('admin.users.emailInvalid') })
+      return
+    }
+    run(async () => {
+      await api(`users/${u.id}`, { method: 'POST', body: JSON.stringify({ email }) })
+      setEmailFor(null)
+    }, t('admin.users.emailSaved', { user: u.username }))
+  }
+
+  const openEmail = (u: ManagedUser) => {
+    setMsg(null)
+    setEmailDraft(u.email ?? '')
+    setEmailFor(u.id)
+  }
+
+  /** The welcome-email state of a row: waiting for the first password, and how long the link lasts. */
+  const inviteState = (u: ManagedUser) => {
+    const link = u.invite_link
+    if (u.password_set !== false) {
+      return link?.status === 'pending' && link.purpose === 'reset'
+        ? t('admin.users.invite.resetPending', { date: f.dateTime(link.expires_at) })
+        : null
+    }
+    if (!link) return null
+    return link.status === 'pending'
+      ? t('admin.users.invite.validUntil', { date: f.dateTime(link.expires_at) })
+      : t('admin.users.invite.expired')
   }
 
   const saveEntities = (u: ManagedUser) =>
@@ -456,6 +608,35 @@ export function UsersSettings() {
             )}
           </div>
           {u.name && u.name !== u.username && <div className="mt-0.5 text-[11.5px] text-text-muted">{u.name}</div>}
+          {u.email ? (
+            <div className="mt-0.5 flex items-center gap-1 text-[11.5px] text-text-muted">
+              <span className="truncate">{u.email}</span>
+              {canManage(u) && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => openEmail(u)}
+                  title={t('admin.users.emailEdit')}
+                  aria-label={t('admin.users.emailFor', { user: u.username })}
+                  className="grid h-5 w-5 shrink-0 cursor-pointer place-items-center rounded text-text-faint hover:bg-fill-hover hover:text-text-high disabled:opacity-50"
+                >
+                  <AtSign size={11} aria-hidden />
+                </button>
+              )}
+            </div>
+          ) : (
+            canManage(u) && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => openEmail(u)}
+                aria-label={t('admin.users.emailFor', { user: u.username })}
+                className="mt-0.5 cursor-pointer text-[11.5px] font-semibold text-text-mid underline-offset-2 hover:text-text-high hover:underline disabled:opacity-50"
+              >
+                {t('admin.users.emailAdd')}
+              </button>
+            )
+          )}
         </div>
       ),
     },
@@ -485,13 +666,31 @@ export function UsersSettings() {
       key: 'status',
       header: t('common.fields.status'),
       sortable: true,
-      width: 110,
-      value: (u) => (u.active ? t('common.status.active') : t('admin.users.deactivated')),
+      width: 150,
+      value: (u) =>
+        !u.active
+          ? t('admin.users.deactivated')
+          : u.password_set === false
+            ? t('admin.users.invite.waiting')
+            : t('common.status.active'),
       render: (u) =>
-        u.active ? (
-          <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[color:var(--green-ink)]">
-            <span className="h-1.5 w-1.5 rounded-full bg-green" aria-hidden /> {t('common.status.active')}
-          </span>
+        u.active && u.password_set === false ? (
+          <div className="min-w-0">
+            <span
+              title={t('admin.users.invite.waiting')}
+              className="inline-flex items-center gap-1.5 rounded-full bg-amber/15 px-2 py-0.5 text-[11px] font-semibold text-[color:var(--amber-ink)]"
+            >
+              <MailPlus size={11} aria-hidden /> {t('admin.users.invite.waitingShort')}
+            </span>
+            {inviteState(u) && <div className="mt-1 text-[11px] leading-snug text-text-muted">{inviteState(u)}</div>}
+          </div>
+        ) : u.active ? (
+          <div className="min-w-0">
+            <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[color:var(--green-ink)]">
+              <span className="h-1.5 w-1.5 rounded-full bg-green" aria-hidden /> {t('common.status.active')}
+            </span>
+            {inviteState(u) && <div className="mt-1 text-[11px] leading-snug text-text-muted">{inviteState(u)}</div>}
+          </div>
         ) : (
           <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[color:var(--red-ink)]">
             <span className="h-1.5 w-1.5 rounded-full bg-red" aria-hidden /> {t('admin.users.deactivated')}
@@ -595,6 +794,24 @@ export function UsersSettings() {
           )}
           {canManage(u) && (
             <>
+              {/* invited, no password yet: send the welcome email again (a fresh link) */}
+              {u.active && u.password_set === false && (
+                <button
+                  disabled={busy || !u.email || !invites?.ready}
+                  onClick={() => sendLink(u, false)}
+                  title={
+                    !u.email
+                      ? t('admin.users.invite.errors.no_email')
+                      : !invites?.ready
+                        ? (inviteProblem(invites?.problem) ?? t('admin.users.invite.resend'))
+                        : t('admin.users.invite.resend')
+                  }
+                  aria-label={t('admin.users.invite.resendFor', { user: u.username })}
+                  className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg text-text-muted transition-colors hover:bg-fill-hover hover:text-text-high disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Send size={14} aria-hidden />
+                </button>
+              )}
               <button
                 disabled={busy}
                 onClick={() => {
@@ -641,7 +858,10 @@ export function UsersSettings() {
     },
   ]
 
-  const modalOpen = showAdd || pwFor !== null || entitiesFor !== null
+  const modalOpen = showAdd || pwFor !== null || entitiesFor !== null || emailFor !== null
+  // why a welcome email can't go out right now (null = it can)
+  const inviteBlocker = invites && !invites.ready ? inviteProblem(invites.problem) : null
+  const inviteOn = sendInvite && !!invites?.ready
   const entitiesFor_ = (u: { tenant: string | null }) =>
     entityPool.filter((b) => !u.tenant || b.tenant === u.tenant)
 
@@ -695,87 +915,172 @@ export function UsersSettings() {
         empty={t('admin.users.empty')}
         pageSize={15}
         toolbarRight={
-          <Button
-            data-tour="users-add"
-            onClick={() => {
-              setMsg(null)
-              setShowAdd(true)
-            }}
-          >
+          <Button data-tour="users-add" onClick={openAdd}>
             <UserPlus size={14} aria-hidden /> {t('admin.users.addUser')}
           </Button>
         }
       />
 
-      {/* add user modal */}
+      {/* add user modal — after saving it shows what happened to the welcome email */}
       <Modal
         open={showAdd}
         onClose={() => setShowAdd(false)}
-        title={t('admin.users.addUser')}
-        subtitle={t('admin.users.addSubtitle')}
+        title={created ? t('admin.users.invite.sentTitle', { user: created.username }) : t('admin.users.addUser')}
+        subtitle={created ? undefined : t('admin.users.addSubtitle')}
         size="lg"
         footer={
-          <>
-            <Button variant="ghost" onClick={() => setShowAdd(false)} disabled={busy}>
-              {t('common.actions.cancel')}
-            </Button>
-            <Button variant="primary" onClick={addUser} disabled={busy}>
-              {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <UserPlus size={13} aria-hidden />}{' '}
-              {t('admin.users.addUser')}
-            </Button>
-          </>
+          created ? (
+            <>
+              <Button variant="ghost" onClick={openAdd}>
+                <UserPlus size={13} aria-hidden /> {t('admin.users.invite.addAnother')}
+              </Button>
+              <Button variant="primary" onClick={() => setShowAdd(false)}>
+                {t('admin.users.invite.done')}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" onClick={() => setShowAdd(false)} disabled={busy}>
+                {t('common.actions.cancel')}
+              </Button>
+              <Button variant="primary" onClick={addUser} disabled={busy}>
+                {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <UserPlus size={13} aria-hidden />}{' '}
+                {t('admin.users.addUser')}
+              </Button>
+            </>
+          )
         }
       >
-        <div className="flex flex-col gap-4">
-          {msg && !msg.ok && <ErrorBox text={msg.text} />}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field
-              label={t('admin.users.username')}
-              value={newUsername}
-              onChange={setNewUsername}
-              placeholder={t('admin.users.usernamePlaceholder')}
-              hint={t('admin.users.usernameHint')}
-            />
-            <Field
-              label={t('admin.users.displayName')}
-              value={newName}
-              onChange={setNewName}
-              placeholder={t('admin.users.displayNamePlaceholder')}
-            />
-            <Field
-              label={t('admin.users.password')}
-              value={newPassword}
-              onChange={setNewPassword}
-              placeholder={t('admin.users.passwordPlaceholder')}
-              hint={t('admin.users.passwordHint')}
-              secret
-            />
-            <div>
-              <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">{t('admin.users.col.role')}</span>
-              <Select
-                value={newRole}
-                onChange={setNewRole}
-                size="md"
-                ariaLabel={t('admin.users.col.role')}
-                options={assignableRoles().map((r) => ({
-                  value: r.slug,
-                  label: roleLabel(r.slug),
-                  group: r.is_system ? t('admin.users.builtinRoles') : t('admin.users.customRoles'),
-                }))}
-              />
-              <span className="mt-1 block text-[11px] leading-relaxed text-text-muted">{t('admin.users.roleHint')}</span>
-            </div>
+        {created ? (
+          <div className="flex flex-col gap-3">
+            {!created.invite.requested ? (
+              <div
+                role="status"
+                className="flex items-start gap-2 rounded-lg border border-green/25 bg-green/10 px-3 py-2.5 text-[13px] text-[color:var(--green-ink)]"
+              >
+                <CircleCheck size={15} className="mt-0.5 shrink-0" aria-hidden />
+                <span>{t('admin.users.invite.createdNoInvite', { user: created.username })}</span>
+              </div>
+            ) : created.invite.sent ? (
+              <div
+                role="status"
+                className="flex items-start gap-2 rounded-lg border border-green/25 bg-green/10 px-3 py-2.5 text-[13px] text-[color:var(--green-ink)]"
+              >
+                <Send size={15} className="mt-0.5 shrink-0" aria-hidden />
+                <span>
+                  {t('admin.users.invite.sent', {
+                    email: created.invite.to ?? '',
+                    date: created.invite.expires_at ? f.dateTime(created.invite.expires_at) : '',
+                  })}
+                </span>
+              </div>
+            ) : (
+              <div
+                role="alert"
+                className="rounded-lg border border-red/30 bg-red/10 px-3 py-2.5 text-[13px] font-semibold text-[color:var(--red-ink)]"
+              >
+                {t('admin.users.invite.notSent', {
+                  error: inviteProblem(created.invite.code, created.invite.error ?? undefined) ?? created.invite.error ?? '',
+                })}
+              </div>
+            )}
           </div>
-          {takesEntities(newRole) && (
-            <div className="border-t border-line pt-4">
-              <span className="block text-[11.5px] font-bold text-text-high">{t('admin.users.entityAccess')}</span>
-              <span className="mb-2.5 mt-0.5 block text-[11px] leading-relaxed text-text-muted">
-                {newRole === 'admin' ? t('admin.users.adminEntityHint') : t('admin.users.entityAccessHint')}
-              </span>
-              <EntityAccessGrid entities={entityPool} value={newEntityIds} onChange={setNewEntityIds} disabled={busy} />
+        ) : (
+          <div className="flex flex-col gap-4">
+            {msg && !msg.ok && <ErrorBox text={msg.text} />}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field
+                label={t('admin.users.username')}
+                value={newUsername}
+                onChange={setNewUsername}
+                placeholder={t('admin.users.usernamePlaceholder')}
+                hint={t('admin.users.usernameHint')}
+              />
+              <Field
+                label={t('admin.users.displayName')}
+                value={newName}
+                onChange={setNewName}
+                placeholder={t('admin.users.displayNamePlaceholder')}
+              />
+              <Field
+                label={t('admin.users.email')}
+                value={newEmail}
+                onChange={setNewEmail}
+                placeholder={t('admin.users.emailPlaceholder')}
+                hint={t('admin.users.emailHint')}
+                type="email"
+              />
+              <div>
+                <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">{t('admin.users.col.role')}</span>
+                <Select
+                  value={newRole}
+                  onChange={setNewRole}
+                  size="md"
+                  ariaLabel={t('admin.users.col.role')}
+                  options={assignableRoles().map((r) => ({
+                    value: r.slug,
+                    label: roleLabel(r.slug),
+                    group: r.is_system ? t('admin.users.builtinRoles') : t('admin.users.customRoles'),
+                  }))}
+                />
+                <span className="mt-1 block text-[11px] leading-relaxed text-text-muted">{t('admin.users.roleHint')}</span>
+              </div>
             </div>
-          )}
-        </div>
+
+            {/* the welcome email (on whenever one can go out) — else the password field */}
+            <div className="rounded-lg border border-line bg-well px-3 py-3" data-tour="users-invite">
+              <label className={`flex items-start gap-2.5 ${invites?.ready ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
+                <input
+                  type="checkbox"
+                  checked={inviteOn}
+                  disabled={!invites?.ready || busy}
+                  onChange={(e) => setSendInvite(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--primary)]"
+                />
+                <span className="min-w-0">
+                  <span className="block text-[13px] font-semibold text-text-high">{t('admin.users.invite.send')}</span>
+                  <span className="mt-0.5 block text-[11.5px] leading-relaxed text-text-muted">
+                    {t('admin.users.invite.sendHint', { hours: invites?.link_hours ?? 72 })}
+                  </span>
+                </span>
+              </label>
+              {inviteBlocker && (
+                <p className="mt-2 border-t border-line pt-2 text-[11.5px] leading-relaxed text-[color:var(--amber-ink)]">
+                  {inviteBlocker}{' '}
+                  {invites?.problem === 'email_not_configured' &&
+                    (can('app_keys.manage') ? (
+                      <Link href="/settings/system-email" className="font-semibold underline underline-offset-2">
+                        {t('admin.users.invite.setUp')}
+                      </Link>
+                    ) : (
+                      t('admin.users.invite.askSuperadmin')
+                    ))}
+                </p>
+              )}
+            </div>
+            {!inviteOn && (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field
+                  label={t('admin.users.password')}
+                  value={newPassword}
+                  onChange={setNewPassword}
+                  placeholder={t('admin.users.passwordPlaceholder')}
+                  hint={t('admin.users.passwordHint')}
+                  secret
+                />
+              </div>
+            )}
+            {takesEntities(newRole) && (
+              <div className="border-t border-line pt-4">
+                <span className="block text-[11.5px] font-bold text-text-high">{t('admin.users.entityAccess')}</span>
+                <span className="mb-2.5 mt-0.5 block text-[11px] leading-relaxed text-text-muted">
+                  {newRole === 'admin' ? t('admin.users.adminEntityHint') : t('admin.users.entityAccessHint')}
+                </span>
+                <EntityAccessGrid entities={entityPool} value={newEntityIds} onChange={setNewEntityIds} disabled={busy} />
+              </div>
+            )}
+          </div>
+        )}
       </Modal>
 
       {/* reset-password modal */}
@@ -805,6 +1110,35 @@ export function UsersSettings() {
           >
             <div className="flex flex-col gap-3">
               {msg && !msg.ok && <ErrorBox text={msg.text} />}
+              {/* an emailed link, so the person chooses it themselves (their current one works until then) */}
+              {pwUser && pwUser.active && pwUser.password_set !== false && (
+                <>
+                  <div className="rounded-lg border border-line bg-well px-3 py-3">
+                    {pwUser.email && invites?.ready ? (
+                      <>
+                        <p className="text-[12px] leading-relaxed text-text-mid">
+                          {t('admin.users.invite.resetLinkHint', { email: pwUser.email, hours: invites.link_hours })}
+                        </p>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="mt-2.5"
+                          disabled={busy}
+                          onClick={() => sendLink(pwUser, true)}
+                        >
+                          {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Send size={13} aria-hidden />}
+                          {t('admin.users.invite.resetLink')}
+                        </Button>
+                      </>
+                    ) : (
+                      <p className="text-[12px] leading-relaxed text-text-muted">
+                        {!pwUser.email ? t('admin.users.invite.noEmailForReset') : inviteBlocker}
+                      </p>
+                    )}
+                  </div>
+                  <div className="eyebrow pt-1">{t('admin.users.invite.orSetYourself')}</div>
+                </>
+              )}
               {pwUser && (
                 <label className="block">
                   <span className="mb-1.5 block text-[11.5px] font-bold text-text-high">{t('admin.users.newPassword')}</span>
@@ -819,6 +1153,47 @@ export function UsersSettings() {
                     className={inputCls}
                   />
                 </label>
+              )}
+            </div>
+          </Modal>
+        )
+      })()}
+
+      {/* email modal — where welcome emails and reset links go */}
+      {(() => {
+        const emailUser = emailFor !== null ? users.find((u) => u.id === emailFor) : undefined
+        return (
+          <Modal
+            open={!!emailUser}
+            onClose={() => setEmailFor(null)}
+            title={emailUser ? t('admin.users.emailTitle', { user: emailUser.username }) : t('admin.users.email')}
+            subtitle={t('admin.users.emailSubtitle')}
+            size="sm"
+            footer={
+              <>
+                <Button variant="ghost" onClick={() => setEmailFor(null)}>
+                  {t('common.actions.cancel')}
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={busy || emailDraft.trim() === (emailUser?.email ?? '')}
+                  onClick={() => emailUser && saveEmail(emailUser)}
+                >
+                  {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null} {t('admin.users.emailSave')}
+                </Button>
+              </>
+            }
+          >
+            <div className="flex flex-col gap-3">
+              {msg && !msg.ok && <ErrorBox text={msg.text} />}
+              {emailUser && (
+                <Field
+                  label={t('admin.users.email')}
+                  value={emailDraft}
+                  onChange={setEmailDraft}
+                  placeholder={t('admin.users.emailPlaceholder')}
+                  type="email"
+                />
               )}
             </div>
           </Modal>

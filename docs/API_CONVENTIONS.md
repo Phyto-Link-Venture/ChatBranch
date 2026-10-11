@@ -108,6 +108,7 @@ outside the caller's scope answers **404**, exactly like one that does not exist
 |---|---|---|
 | `POST /api/auth/login` | obviously | credentials; failures throttled per username + per IP (429), per-IP request limit |
 | `POST /api/auth/login/2fa` | the second step of a two-step sign-in | the challenge from a correct password (Data Protection-encrypted + signed, 5 minutes, single use) + a TOTP or recovery code; throttled like passwords |
+| `GET /api/auth/set-password/{token}`, `POST /api/auth/set-password` | the welcome email's (or an admin's reset email's) link to choose a password — the person has no password yet | a 256-bit one-time token (only its SHA-256 stored, compared in constant time), 72 h, single use, revoked by a newer link / deactivation / an email change; ONE generic 404 for unknown, used, revoked or expired; the password policy; per-IP limit like sign-in |
 | `GET /api/whatsapp/status`, `GET /api/messaging/status` | pre-login sandbox/configured banner | exposes flags only |
 | `GET /api/whatsapp/webhook`, `GET /api/messaging/webhook` | Meta's verification handshake | the verify token (Setting `whatsapp_verify_token`; the shipped default is never accepted) |
 | `POST /api/whatsapp/webhook` | Meta Cloud inbound + delivery statuses | `X-Hub-Signature-256` HMAC, **required once any Cloud account is configured** (sandbox accepts unsigned) |

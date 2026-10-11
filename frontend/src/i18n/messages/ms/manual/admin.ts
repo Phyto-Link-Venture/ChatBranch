@@ -7,7 +7,7 @@ export const admin: Dict<typeof source> = {
     summary:
       'Cipta log masuk untuk rakan sekerja baharu, pilih apa yang dibenarkan untuknya, dan tentukan cawangan mana yang boleh dilihatnya. Mengambil masa kira-kira dua minit.',
     before:
-      'Anda perlu menjadi pentadbir atau pentadbir super. Pentadbir boleh menambah ejen dalam organisasinya sendiri; hanya pentadbir super boleh menambah pentadbir lain. Tentukan nama pengguna dan kata laluan sementara (sekurang-kurangnya 10 aksara) untuk diberikan kepada orang baharu itu.',
+      'Anda perlu menjadi pentadbir atau pentadbir super. Pentadbir boleh menambah ejen dalam organisasinya sendiri; hanya pentadbir super boleh menambah pentadbir lain. Sediakan alamat e-mel orang baharu itu: apabila e-mel log masuk disediakan (Tetapan → E-mel sistem), mereka menerima e-mel alu-aluan dengan nama pengguna, alamat log masuk dan pautan untuk memilih kata laluan sendiri. Tanpanya, tentukan kata laluan sementara (sekurang-kurangnya 10 aksara) untuk diberikan sendiri.',
     steps: {
       s1: {
         title: 'Buka Pengguna & peranan',
@@ -23,7 +23,7 @@ export const admin: Dict<typeof source> = {
       },
       s4: {
         title: 'Taip butiran log masuk',
-        body: 'Isi “Nama pengguna” (contohnya aina — mesti unik), “Nama paparan” jika mahu (contohnya Aina Rahman) dan “Kata laluan” sekurang-kurangnya 10 aksara yang bukan kata laluan biasa. Taip nama pengguna sendiri — teks yang diisi secara automatik oleh pelayar tidak dikira.',
+        body: 'Isi “Nama pengguna” (contohnya aina — mesti unik), “Nama paparan” jika mahu (contohnya Aina Rahman) dan “E-mel” mereka. Biarkan “Hantar e-mel alu-aluan dengan pautan untuk menetapkan kata laluan mereka” bertanda: tiada kata laluan perlu dipilih atau diserahkan. Nyahtanda (atau jika ia tidak boleh ditanda) dan medan “Kata laluan” muncul — sekurang-kurangnya 10 aksara, bukan kata laluan biasa. Taip nama pengguna sendiri — teks yang diisi secara automatik oleh pelayar tidak dikira.',
       },
       s5: {
         title: 'Pilih peranan',
@@ -35,21 +35,21 @@ export const admin: Dict<typeof source> = {
       },
       s7: {
         title: 'Simpan pengguna baharu',
-        body: 'Klik “Tambah pengguna” di bahagian bawah tetingkap. Mesej “Pengguna … dicipta.” muncul dan orang itu dipaparkan dalam jadual. Berikan nama pengguna dan kata laluan secara bersemuka atau melalui mesej peribadi.',
+        body: 'Klik “Tambah pengguna” di bahagian bawah tetingkap. Tetingkap kemudian memberitahu sama ada e-mel alu-aluan telah dihantar (“E-mel alu-aluan sedang dihantar ke …”) dan sehingga bila pautannya berfungsi, dan orang itu dipaparkan dalam jadual sebagai “Dijemput” sehingga dia memilih kata laluan. Tanpa e-mel alu-aluan, berikan nama pengguna dan kata laluan secara bersemuka atau melalui mesej peribadi.',
       },
       s8: {
         title: 'Tetapkan semula kata laluan atau tukar peranan kemudian',
-        body: 'Pada baris orang itu, tukar senarai “Peranan” untuk menukar peranannya serta-merta. Klik ikon kunci (“Tetapkan semula kata laluan”), taip kata laluan baharu dan klik “Tetapkan kata laluan” — ini melog keluarnya di semua tempat. Ikon terakhir menyahaktifkan atau mengaktifkan semula log masuk.',
+        body: 'Pada baris orang itu, tukar senarai “Peranan” untuk menukar peranannya serta-merta. Ikon kapal terbang kertas (“Hantar semula jemputan”) menghantar pautan baharu kepada sesiapa yang belum memilih kata laluan — pautan lama berhenti berfungsi. Ikon kunci (“Tetapkan semula kata laluan”) boleh menghantar pautan tetapan semula kata laluan, atau membolehkan anda menaip kata laluan baharu dan klik “Tetapkan kata laluan” — ini melog keluarnya di semua tempat. Ikon terakhir menyahaktifkan atau mengaktifkan semula log masuk.',
       },
     },
-    done: 'Rakan sepasukan baharu muncul dalam jadual dengan peranan yang betul, dan boleh log masuk dengan nama pengguna dan kata laluan yang anda berikan.',
+    done: 'Rakan sepasukan baharu muncul dalam jadual dengan peranan yang betul. Dengan e-mel alu-aluan, dia dipaparkan sebagai “Dijemput” sehingga memilih kata laluan melalui pautan, kemudian log masuk dengan nama pengguna dan kata laluan itu.',
     tips: {
       t1: 'Log masuk juga boleh dimiliki oleh pelanggan: pilih kenalan dalam lajur “Log masuk sebagai kenalan” dan orang itu log masuk sebagai pelanggan tersebut.',
       t2: 'Tukar apa yang boleh dilihat ejen kemudian dengan ikon bangunan (“Akses entiti”) pada barisnya.',
       t3: 'Minta orang baharu membuka lawatan aplikasi dari butang ? di bar atas sebelum mula mengubah apa-apa.',
     },
     trouble:
-      'Jika simpanan gagal dengan “Nama pengguna diperlukan”, taip semula nama pengguna dengan tangan. Jika kata laluan ditolak, jadikannya sekurang-kurangnya 10 aksara dan kurang mudah diteka (bukan nama pengguna, bukan kata laluan yang terkenal). Jika anda tidak boleh memilih Pentadbir, hanya pentadbir super boleh mencipta pentadbir. Jika butang tiada, peranan anda tidak memegang “Cipta & urus pengguna” — minta pentadbir super.',
+      'Jika simpanan gagal dengan “Nama pengguna diperlukan”, taip semula nama pengguna dengan tangan. Jika e-mel alu-aluan tidak boleh ditanda, e-mel log masuk belum disediakan — pentadbir super mengisi Tetapan → E-mel sistem (dan pengendali pelayan menetapkan FRONTEND_URL). Jika e-mel tidak dihantar, tetingkap memberitahu sebabnya; betulkannya dan gunakan “Hantar semula jemputan”. Pautan berfungsi sekali sahaja, selama 72 jam — selepas itu, hantar semula. Jika kata laluan ditolak, jadikannya sekurang-kurangnya 10 aksara dan kurang mudah diteka (bukan nama pengguna, bukan kata laluan yang terkenal). Jika anda tidak boleh memilih Pentadbir, hanya pentadbir super boleh mencipta pentadbir. Jika butang tiada, peranan anda tidak memegang “Cipta & urus pengguna” — minta pentadbir super.',
   },
   rolesPermissions: {
     title: 'Tetapkan apa yang boleh dilakukan oleh setiap peranan',
