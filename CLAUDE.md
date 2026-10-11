@@ -977,8 +977,16 @@ When you fix one of these, update this table, `README.md` and
   chip (`DraftTouches`); audit `ai.voice_reply`; `LlmUsage` `voice_reply`
   (characters as prompt tokens). The playground answers `voice_note`. **Customer
   voice notes → words:** `AiComposer` first runs `VoiceTranscriber.TranscribePendingAsync`
-  (latest downloaded audio without a transcript, 20 s budget; OpenAI
-  `gpt-4o-mini-transcribe` else ElevenLabs `scribe_v1` else none) → `Message.Transcript`
+  (latest downloaded audio without a transcript, 20 s budget; `SpeechClient.SttProvider`:
+  Setting `transcription_provider` (env `STT_PROVIDER`) "" automatic = OpenAI
+  `gpt-4o-mini-transcribe` with a key, else ElevenLabs `scribe_v1`, else none | openai |
+  elevenlabs | **local** = a self-hosted OpenAI-compatible Whisper at
+  `transcription_base_url` (env `STT_BASE_URL`, default `http://whisper:8000/v1` = the compose
+  `whisper` service, profile `stt`, internal network only, no published port), model
+  `transcription_model` (env `STT_MODEL` / `OPENAI_STT_MODEL`, default
+  `Systran/faster-whisper-small`), optional `transcription_api_key` — needs NO OpenAI key, so it
+  never adds OpenAI to the chat providers | off; NOT the voice-call agent's `stt_provider`; on the
+  AI keys page under Advanced) → `Message.Transcript`
   (`crm_message.transcript`), read as "[voice note] …" by `AssistantService.History`
   and `SummaryService`, `transcript` on message payloads, `LlmUsage` `transcription`.
   Tests: `VoiceReplyTests`.
@@ -1905,7 +1913,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **984 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **985 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /

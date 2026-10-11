@@ -282,6 +282,14 @@ public class LlmProviderCatalogTests : IClassFixture<PlaygroundFactory>
         Assert.Equal(HttpStatusCode.Forbidden,
             (await admin.PostAsJsonAsync("/api/settings/ai-providers/test", new { provider = "mistral" })).StatusCode);
 
+        // voice-note transcription: its own switch, validated
+        (await su.PutAsJsonAsync("/api/settings/ai-providers", new { transcription_provider = "whisper" })).EnsureSuccessStatusCode();
+        var stt = await su.GetFromJsonAsync<JsonElement>("/api/settings/ai-providers");
+        Assert.Equal("local", stt.GetProperty("transcription_provider").GetString());
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await su.PutAsJsonAsync("/api/settings/ai-providers", new { transcription_provider = "bogus" })).StatusCode);
+        (await su.PutAsJsonAsync("/api/settings/ai-providers", new { transcription_provider = "" })).EnsureSuccessStatusCode();
+
         // remove the key again so the shared host stays as it was
         (await su.PutAsJsonAsync("/api/settings/ai-providers",
             new Dictionary<string, string> { ["mistral_api_key"] = "", ["chat_provider_pref"] = "" })).EnsureSuccessStatusCode();

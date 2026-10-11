@@ -77,8 +77,59 @@ public class SpeechClient
     public string OpenAiKey => Key("openai_api_key", "OPENAI_API_KEY");
     public bool TtsConfigured => ElevenLabsKey.Length > 0;
 
-    /// <summary>The speech-to-text provider in use: openai, elevenlabs or "" (none — audio stays "[audio]").</summary>
-    public string SttProvider => OpenAiKey.Length > 0 ? "openai" : ElevenLabsKey.Length > 0 ? "elevenlabs" : "";
+    /// <summary>Speech-to-text choices for Setting <c>transcription_provider</c> ("" = automatic).</summary>
+    public static readonly string[] SttChoices = { "", "openai", "elevenlabs", "local", "off" };
+
+    /// <summary>Where a local / self-hosted OpenAI-compatible Whisper server listens when nothing says otherwise
+    /// (the compose file's internal <c>whisper</c> service).</summary>
+    public const string LocalSttBaseDefault = "http://whisper:8000/v1";
+    public const string LocalSttModelDefault = "Systran/faster-whisper-small";
+
+    /// <summary>Setting <c>transcription_provider</c> → env <c>STT_PROVIDER</c>: "" automatic | openai | elevenlabs | local | off.</summary>
+    public string SttChoice
+    {
+        get
+        {
+            var v = Key("transcription_provider", "STT_PROVIDER").ToLowerInvariant();
+            return v is "whisper" ? "local" : SttChoices.Contains(v) ? v : "";
+        }
+    }
+
+    /// <summary>The local Whisper server's base URL (Setting <c>transcription_base_url</c> → env <c>STT_BASE_URL</c> → the compose service).</summary>
+    public string SttBaseUrl
+    {
+        get
+        {
+            var v = Key("transcription_base_url", "STT_BASE_URL");
+            return (v.Length > 0 ? v : LocalSttBaseDefault).TrimEnd('/');
+        }
+    }
+
+    /// <summary>
+    /// The speech-to-text provider in use: openai, elevenlabs, local or "" (none — audio
+    /// stays "[audio]"). A pin (<c>transcription_provider</c>) is used alone — local Whisper needs no
+    /// OpenAI key, so switching it on never adds OpenAI to the chat providers; "off"
+    /// turns transcription off. Automatic = OpenAI with a key, else ElevenLabs.
+    /// </summary>
+    public string SttProvider => SttChoice switch
+    {
+        "off" => "",
+        "local" => "local",
+        "openai" => OpenAiKey.Length > 0 ? "openai" : "",
+        "elevenlabs" => ElevenLabsKey.Length > 0 ? "elevenlabs" : "",
+        _ => OpenAiKey.Length > 0 ? "openai" : ElevenLabsKey.Length > 0 ? "elevenlabs" : "",
+    };
+
+    /// <summary>The model sent with a transcription (Setting <c>transcription_model</c> → env <c>STT_MODEL</c> →
+    /// <c>OPENAI_STT_MODEL</c> → the provider's default).</summary>
+    public string SttModelFor(string provider)
+    {
+        var v = Key("transcription_model", "STT_MODEL");
+        if (v.Length == 0 && provider is "openai" or "local")
+            v = (Environment.GetEnvironmentVariable("OPENAI_STT_MODEL") ?? "").Trim();
+        if (v.Length > 0 && provider != "elevenlabs") return v;
+        return provider switch { "local" => LocalSttModelDefault, "elevenlabs" => ElevenSttModel, _ => OpenAiSttModel };
+    }
 
     public static string ElevenBase =>
         (Environment.GetEnvironmentVariable("ELEVENLABS_BASE_URL") is { Length: > 0 } b ? b : "https://api.elevenlabs.io")
@@ -142,12 +193,18 @@ public class SpeechClient
             form.Add(file, "file", string.IsNullOrWhiteSpace(fileName) ? "voice.ogg" : fileName);
             HttpRequestMessage req;
             string model;
-            if (provider == "openai")
+            if (provider is "openai" or "local")
             {
-                model = Environment.GetEnvironmentVariable("OPENAI_STT_MODEL") is { Length: > 0 } m ? m.Trim() : OpenAiSttModel;
+                // both speak OpenAI's /audio/transcriptions; local = a self-hosted Whisper
+                // (faster-whisper / speaches) on the internal network, key optional
+                model = SttModelFor(provider);
                 form.Add(new StringContent(model), "model");
-                req = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/audio/transcriptions") { Content = form };
-                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", OpenAiKey);
+                var url = provider == "local"
+                    ? $"{SttBaseUrl}/audio/transcriptions"
+                    : "https://api.openai.com/v1/audio/transcriptions";
+                req = new HttpRequestMessage(HttpMethod.Post, url) { Content = form };
+                var bearer = provider == "local" ? Key("transcription_api_key", "STT_API_KEY") : OpenAiKey;
+                if (bearer.Length > 0) req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
             }
             else
             {

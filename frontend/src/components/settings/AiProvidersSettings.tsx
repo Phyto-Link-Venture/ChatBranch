@@ -131,7 +131,23 @@ const FIELD_TEXT: Record<string, { label: MessageKey; help?: MessageKey }> = {
     help: 'settings.aiProviders.fields.summaryIntervalHelp',
   },
   aicore_summary_idle_min: { label: 'settings.aiProviders.fields.summaryIdle' },
+  transcription_provider: {
+    label: 'settings.aiProviders.fields.sttProvider',
+    help: 'settings.aiProviders.fields.sttProviderHelp',
+  },
+  transcription_base_url: { label: 'settings.aiProviders.fields.sttUrl', help: 'settings.aiProviders.fields.sttUrlHelp' },
+  transcription_model: { label: 'settings.aiProviders.fields.sttModel', help: 'settings.aiProviders.fields.sttModelHelp' },
+  transcription_api_key: { label: 'settings.aiProviders.fields.sttKey', help: 'settings.aiProviders.fields.sttKeyHelp' },
 }
+
+/** The voice-note transcription choices ("" = automatic). */
+const STT_OPTIONS: { value: string; lbl: MessageKey }[] = [
+  { value: '', lbl: 'settings.aiProviders.stt.auto' },
+  { value: 'openai', lbl: 'settings.aiProviders.stt.openai' },
+  { value: 'elevenlabs', lbl: 'settings.aiProviders.stt.elevenlabs' },
+  { value: 'local', lbl: 'settings.aiProviders.stt.local' },
+  { value: 'off', lbl: 'settings.aiProviders.stt.off' },
+]
 
 /** One line under each provider's name. */
 const PROVIDER_BLURB: Record<string, MessageKey> = {
@@ -835,6 +851,28 @@ export function AiProvidersSettings() {
   function renderField(f: FieldMeta) {
     const val = values[f.key] ?? ''
     const masked = f.kind === 'secret' && val.includes('••')
+    if (f.key === 'transcription_provider') {
+      return (
+        <label key={f.key} className="block">
+          <span className="mb-1 flex items-center justify-between gap-2">
+            <span className="text-[11px] font-bold text-text-high">{fieldLabel(t, f)}</span>
+            <SourceChip src={source[f.key]} />
+          </span>
+          <Select
+            value={val}
+            disabled={!isSuper}
+            onChange={(v) => edit(f.key, v)}
+            options={STT_OPTIONS.map((o) => ({ value: o.value, label: t(o.lbl) }))}
+            size="md"
+            ariaLabel={fieldLabel(t, f)}
+            className="w-full"
+          />
+          {fieldHelp(t, f) && (
+            <span className="mt-1 block text-[10.5px] leading-relaxed text-text-muted">{fieldHelp(t, f)}</span>
+          )}
+        </label>
+      )
+    }
     return (
       <label key={f.key} className="block">
         <span className="mb-1 flex items-center justify-between gap-2">

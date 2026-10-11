@@ -20,7 +20,7 @@ namespace ChatBranch.Tests;
 /// <summary>ElevenLabs (text-to-speech + scribe) and OpenAI transcriptions at the HTTP level.</summary>
 internal sealed class FakeSpeech : HttpMessageHandler, IHttpClientFactory
 {
-    public sealed record Call(string Path, string Query, string Body, string Key);
+    public sealed record Call(string Path, string Query, string Body, string Key, string Origin = "");
     public ConcurrentQueue<Call> Calls { get; } = new();
     public bool FailTts { get; set; }
     public bool NotOgg { get; set; }
@@ -39,7 +39,7 @@ internal sealed class FakeSpeech : HttpMessageHandler, IHttpClientFactory
         var key = request.Headers.TryGetValues("xi-api-key", out var k) ? k.First()
             : request.Headers.Authorization?.Parameter ?? "";
         var path = request.RequestUri!.AbsolutePath;
-        Calls.Enqueue(new Call(path, request.RequestUri.Query, body, key));
+        Calls.Enqueue(new Call(path, request.RequestUri.Query, body, key, request.RequestUri.GetLeftPart(UriPartial.Authority)));
         if (path.Contains("/text-to-speech/"))
         {
             if (FailTts) return new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("{\"detail\":\"invalid_api_key\"}") };
@@ -490,6 +490,51 @@ public class VoiceReplyTests
 
         r.Sc.SetSetting("elevenlabs_api_key", "");
         Assert.Equal("", speech.SttProvider);
+    }
+
+    [Fact]
+    public void Local_whisper_is_its_own_switch_needs_no_openai_key_and_off_turns_transcription_off()
+    {
+        using var r = new VoiceRig();
+        r.Sc.SetSetting("elevenlabs_api_key", "");
+        var speech = new SpeechClient(r.Sc, r.Speech);
+        Assert.Equal("", speech.SttProvider);
+
+        // Local Whisper: the compose service on the internal network, no key at all
+        r.Sc.SetSetting("transcription_provider", "local");
+        Assert.Equal("local", speech.SttProvider);
+        var res = Task.Run(() => speech.TranscribeAsync(FakeSpeech.Ogg, "v.ogg", "audio/ogg")).GetAwaiter().GetResult();
+        Assert.True(res.Ok);
+        var call = r.Speech.Stt.Single();
+        Assert.Equal("http://whisper:8000", call.Origin);
+        Assert.Equal("/v1/audio/transcriptions", call.Path);
+        Assert.Contains(SpeechClient.LocalSttModelDefault, call.Body);
+        Assert.Equal("", call.Key);
+        // switching Whisper on never makes OpenAI a chat provider
+        Assert.DoesNotContain(new OpenAiLlmClient(new SingleFactory(), r.Sc).Configured(), p => p.Name == "openai");
+
+        // its own address, model and optional key
+        r.Sc.SetSetting("transcription_base_url", "http://10.0.0.5:9000/v1/");
+        r.Sc.SetSetting("transcription_model", "Systran/faster-whisper-medium");
+        r.Sc.SetSetting("transcription_api_key", "local-secret");
+        Task.Run(() => speech.TranscribeAsync(FakeSpeech.Ogg, "v.ogg", "audio/ogg")).GetAwaiter().GetResult();
+        var second = r.Speech.Stt.Last();
+        Assert.Equal("http://10.0.0.5:9000", second.Origin);
+        Assert.Contains("faster-whisper-medium", second.Body);
+        Assert.Equal("local-secret", second.Key);
+
+        // a pin wins over keys; off turns it off even with an OpenAI key
+        r.Sc.SetSetting("openai_api_key", "sk-real-openai");
+        Assert.Equal("local", speech.SttProvider);
+        r.Sc.SetSetting("transcription_provider", "off");
+        Assert.Equal("", speech.SttProvider);
+        r.Sc.SetSetting("transcription_provider", "");
+        Assert.Equal("openai", speech.SttProvider);
+    }
+
+    private sealed class SingleFactory : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new();
     }
 
     [Fact]
