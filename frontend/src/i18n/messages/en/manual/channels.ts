@@ -252,8 +252,8 @@ export const channels = {
         body: 'Click “Finish”, then “Close”. The mailbox appears under “Connected”.',
       },
       s8: {
-        title: 'Make sure the sender is a contact',
-        body: 'ChatBranch only pulls in mail from people who are already contacts, so spam stays out. Add yourself as a contact in Work → “Contacts” with the email you will test from.',
+        title: 'Know where new senders land',
+        body: 'Every mail that reaches the mailbox shows up in Chats — also from people who aren’t contacts yet. Those chats sit under “Not in contacts” at the top of the chat list, and the AI leaves them alone until you link or create the contact. Automatic replies (out-of-office) and copies of your own mail are left out.',
       },
       s9: {
         title: 'Reply to the test',
@@ -267,7 +267,7 @@ export const channels = {
       t3: 'You can connect several mailboxes; each conversation keeps using the mailbox it started on.',
     },
     trouble:
-      'Sign-in failed: use an app password, not your normal password, and the full email address as username. Gmail says “less secure app”: turn on 2-Step Verification first, then create the app password. Replies never arrive: check the IMAP host is filled in and that the sender is saved as a contact.',
+      'Sign-in failed: use an app password, not your normal password, and the full email address as username. Gmail says “less secure app”: turn on 2-Step Verification first, then create the app password. Replies never arrive: check the IMAP host is filled in, then look under “Not in contacts” in Chats.',
   },
   telegramBot: {
     title: 'Connect a Telegram bot',

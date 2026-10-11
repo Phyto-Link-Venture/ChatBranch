@@ -26,7 +26,7 @@ export const faq = {
   },
   emailNotArriving: {
     q: 'Customer emails aren’t showing up in Chats',
-    a: 'First, check the mailbox on the “Channels” page has incoming mail (IMAP) details filled in, not only sending (SMTP). Then, for Gmail or Outlook, use an app password instead of your normal password. Next, know that only mail from senders who are already contacts is pulled in, so add the sender as a contact first. Finally, mail is fetched every short while — wait a minute, then reopen Chats.',
+    a: 'First, check the mailbox on the “Channels” page has incoming mail (IMAP) details filled in, not only sending (SMTP). Then, for Gmail or Outlook, use an app password instead of your normal password. Next, look under “Not in contacts” at the top of the chat list — mail from someone who isn’t a contact yet lands there (automatic out-of-office replies are left out). Finally, mail is fetched every short while — wait a minute, then reopen Chats.',
   },
   widgetNotShowing: {
     q: 'The chat bubble doesn’t appear on my website',

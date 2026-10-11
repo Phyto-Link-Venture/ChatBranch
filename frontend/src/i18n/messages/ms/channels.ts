@@ -598,7 +598,7 @@ export const channels: Dict<typeof source> = {
         s1: 'Gunakan peti mel yang sudah dibaca oleh pasukan anda (support@, hello@…).',
         s2: 'Cari pelayan SMTP dalam halaman bantuan penyedia anda (“SMTP settings”).',
         s3: 'Cipta kata laluan aplikasi jika akaun menggunakan log masuk dua langkah.',
-        s4: 'Balasan daripada kenalan yang dikenali ditarik masuk melalui IMAP — hos IMAP peti mel ini, atau lalai di bawah Lanjutan.',
+        s4: 'Mel masuk ditarik melalui IMAP — hos IMAP peti mel ini, atau lalai di bawah Lanjutan. Mel daripada orang yang bukan kenalan turut muncul, di bawah “Bukan kenalan”.',
       },
       telegram: {
         s1: 'Buka sembang dengan @BotFather dalam Telegram.',

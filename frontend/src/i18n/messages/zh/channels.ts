@@ -575,7 +575,7 @@ export const channels: Dict<typeof source> = {
         s1: '使用团队已在查看的邮箱（support@、hello@…）。',
         s2: '在服务商的帮助页面中查找 SMTP 服务器（“SMTP 设置”）。',
         s3: '如果账号开启了两步验证，请创建应用专用密码。',
-        s4: '已知联系人的回复会通过 IMAP 拉取——使用此邮箱的 IMAP 主机，或“高级”中的默认设置。',
+        s4: '收到的邮件会通过 IMAP 拉取——使用此邮箱的 IMAP 主机，或“高级”中的默认设置。非联系人发来的邮件也会出现，归在“非联系人”下。',
       },
       telegram: {
         s1: '在 Telegram 中打开与 @BotFather 的对话。',

@@ -247,6 +247,26 @@ public class TemplatesChannelsTests : IClassFixture<ApiFactory>
         }
     }
 
+    /// <summary>A website visitor who gives no name or email is nobody's contact — the chat
+    /// is still in the inbox, unlinked, under "Not in contacts".</summary>
+    [Fact]
+    public async Task Anonymous_widget_visitor_lands_as_an_unlinked_conversation()
+    {
+        var admin = await Authed();
+        var created = await admin.PostAsJsonAsync("/api/widgets", new { name = "Anonymous visitors" });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var token = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("token").GetString();
+
+        var anon = _factory.CreateClient();
+        var key = (await (await anon.PostAsJsonAsync($"/api/widget/{token}/session", new { }))
+            .Content.ReadFromJsonAsync<JsonElement>()).GetProperty("session").GetString()!;
+        (await anon.PostAsJsonAsync($"/api/widget/{token}/messages", new { session = key, text = "just browsing, quick question" }))
+            .EnsureSuccessStatusCode();
+        // the AI may greet an anonymous widget visitor (its one exception to the linked-contact rule)
+        await UnknownSenderAsserts.AssertListedAsNotInContactsAsync(_factory, admin, "website", key,
+            "just browsing, quick question", aiStaysQuiet: false);
+    }
+
     [Fact]
     public async Task Messaging_accounts_accept_inbox_settings_and_social_edits()
     {

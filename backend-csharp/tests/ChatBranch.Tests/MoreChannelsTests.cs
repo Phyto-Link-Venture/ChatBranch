@@ -574,6 +574,104 @@ public class MoreChannelsTests : IClassFixture<MoreChannelsFactory>
         Assert.Contains("open_id=ent-1", dcall.Url.Query);
     }
 
+    // ---- a sender who is not a contact: an unlinked conversation on every channel -------------
+
+    [Fact]
+    public async Task Line_message_from_a_stranger_lands_as_an_unlinked_conversation()
+    {
+        var a = Add(ChannelIds.Line, x => { x.AccessToken = "line-token"; x.AppSecret = "line-secret"; });
+        var user = "U" + U();
+        (await PostLine(a, LineText(user, "m" + U(), "Do you deliver?"))).EnsureSuccessStatusCode();
+        await UnknownSenderAsserts.AssertListedAsNotInContactsAsync(_f, await Authed(), ChannelIds.Line, user, "Do you deliver?");
+    }
+
+    [Fact]
+    public async Task Viber_message_from_a_stranger_lands_as_an_unlinked_conversation()
+    {
+        var a = Add(ChannelIds.Viber, x => x.AccessToken = "viber-token");
+        var viberId = "vb" + U();
+        (await PostViber(a, new
+        {
+            @event = "message", timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), message_token = 9001,
+            sender = new { id = viberId, name = "Nobody Yet" }, message = new { type = "text", text = "price list?" },
+        })).EnsureSuccessStatusCode();
+        await UnknownSenderAsserts.AssertListedAsNotInContactsAsync(_f, await Authed(), ChannelIds.Viber,
+            ViberTransport.KeyFor(viberId), "price list?");
+    }
+
+    [Fact]
+    public async Task Sms_from_a_number_that_is_not_a_contact_lands_as_an_unlinked_conversation()
+    {
+        var a = SmsAccount();
+        var digits = "1666" + Random.Shared.Next(1000000, 9999999);
+        (await PostSms(a, new Dictionary<string, string>
+        {
+            ["MessageSid"] = "SM" + U(), ["AccountSid"] = "AC" + new string('a', 32), ["From"] = "+" + digits,
+            ["To"] = "+15550001111", ["Body"] = "Wrong number?", ["NumMedia"] = "0",
+        })).EnsureSuccessStatusCode();
+        await UnknownSenderAsserts.AssertListedAsNotInContactsAsync(_f, await Authed(), ChannelIds.Sms, digits, "Wrong number?");
+    }
+
+    [Fact]
+    public async Task WeChat_message_from_a_stranger_lands_as_an_unlinked_conversation()
+    {
+        var a = WeChatAccount();
+        var openId = "o" + U();
+        Assert.Equal("success", await (await PostWeChat(a, WxText(openId, "有货吗", "7" + Random.Shared.Next())))
+            .Content.ReadAsStringAsync());
+        await UnknownSenderAsserts.AssertListedAsNotInContactsAsync(_f, await Authed(), ChannelIds.WeChat, openId, "有货吗");
+    }
+
+    [Fact]
+    public async Task Zalo_message_from_a_stranger_lands_as_an_unlinked_conversation()
+    {
+        var a = ZaloAccount();
+        var user = "zu" + U();
+        (await PostZalo(a, new
+        {
+            app_id = "12345", event_name = "user_send_text", timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(),
+            sender = new { id = user }, recipient = new { id = "OA-777" }, message = new { text = "Còn hàng không?", msg_id = "zm" + U() },
+        })).EnsureSuccessStatusCode();
+        await UnknownSenderAsserts.AssertListedAsNotInContactsAsync(_f, await Authed(), ChannelIds.Zalo, user, "Còn hàng không?");
+    }
+
+    [Fact]
+    public async Task TikTok_message_from_a_stranger_lands_as_an_unlinked_conversation()
+    {
+        var tk = Add(ChannelIds.TikTok, x => { x.AccessToken = "tt-token"; x.AppSecret = "tt-secret"; x.ExternalId = "biz-new"; });
+        var conv = "conv-" + U();
+        var body = JsonSerializer.Serialize(new
+        {
+            @event = "message.receive", create_time = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            content = JsonSerializer.Serialize(new { conversation_id = conv, message_id = "tm-" + U(),
+                from_user = new { id = "user-new", display_name = "Fresh Face" }, text = new { body = "is this in stock?" } }),
+        });
+        var t = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+        (await PostSigned($"/api/messaging/webhook/tiktok/{tk.Id}", body, TikTokTransport.SignatureHeader,
+            $"t={t},s={TikTokTransport.Sign("tt-secret", t, Encoding.UTF8.GetBytes(body))}")).EnsureSuccessStatusCode();
+        await UnknownSenderAsserts.AssertListedAsNotInContactsAsync(_f, await Authed(), ChannelIds.TikTok, conv, "is this in stock?");
+    }
+
+    [Fact]
+    public async Task Douyin_message_from_a_stranger_lands_as_an_unlinked_conversation()
+    {
+        var dy = Add(ChannelIds.Douyin, x =>
+        {
+            x.AccessToken = "dy-token"; x.AppSecret = "dy-secret"; x.ExternalId = "ent-new";
+            x.Config = new() { ["client_key"] = "ck-new" };
+        });
+        var user = "dyu-" + U();
+        var msg = JsonSerializer.Serialize(new
+        {
+            @event = "im_receive_msg", from_user_id = user, to_user_id = "ent-new", client_key = "ck-new",
+            content = JsonSerializer.Serialize(new { conversation_short_id = "c-new", server_message_id = "s-" + U(),
+                message_type = "text", text = "还有吗", create_time = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }),
+        });
+        (await PostSigned($"/api/messaging/webhook/douyin/{dy.Id}", msg, DouyinTransport.SignatureHeader,
+            DouyinTransport.Sign("dy-secret", Encoding.UTF8.GetBytes(msg)))).EnsureSuccessStatusCode();
+        await UnknownSenderAsserts.AssertListedAsNotInContactsAsync(_f, await Authed(), ChannelIds.Douyin, user, "还有吗");
+    }
+
     // ---- sandbox, accounts, health, flows ---------------------------------------------------
 
     [Fact]

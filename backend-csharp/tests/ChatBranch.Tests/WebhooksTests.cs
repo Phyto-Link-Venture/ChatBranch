@@ -172,6 +172,48 @@ public class WebhooksTests : IClassFixture<ApiFactory>
         Assert.Equal(1, dupCount); // wamid dedup collapsed the redelivery
     }
 
+    /// <summary>A number that is not a contact still opens a conversation: unlinked, listed
+    /// under "Not in contacts", and left alone by the AI (it answers linked chats only).</summary>
+    [Fact]
+    public async Task Cloud_message_from_an_unknown_number_lands_as_an_unlinked_conversation()
+    {
+        var admin = await Authed("admin", "admin123");
+        // no live account is created here: a second configured number would change how
+        // this class's other (sandbox) conversations route
+        var payload = JsonSerializer.Serialize(new
+        {
+            entry = new[] { new { changes = new[] { new { value = new
+            {
+                metadata = new { phone_number_id = "PN-NEWCOMER" },
+                contacts = new[] { new { profile = new { name = "Walk-in" }, wa_id = "60177000123" } },
+                messages = new[] { new { from = "60177000123", id = "wamid.NEWCOMER",
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(),
+                    type = "text", text = new { body = "first time writing to you" } } },
+            } } } } },
+        });
+        (await _factory.CreateClient().PostAsync("/api/whatsapp/webhook", Signed(payload))).EnsureSuccessStatusCode();
+        await UnknownSenderAsserts.AssertListedAsNotInContactsAsync(_factory, admin, "whatsapp", "60177000123",
+            "first time writing to you");
+    }
+
+    /// <summary>The Baileys gateway's push (a QR-paired personal number) follows the same rule.</summary>
+    [Fact]
+    public async Task Baileys_message_from_an_unknown_number_lands_as_an_unlinked_conversation()
+    {
+        var admin = await Authed("admin", "admin123");
+        // (no paired number is registered here: a Baileys account would become the send
+        // route for this class's account-less sandbox conversations)
+        var push = new StringContent(JsonSerializer.Serialize(new
+        {
+            account_id = "gw-newcomer", wa_id = "60177000456", name = "Stranger", text = "hello from WhatsApp Web",
+            msg_id = "BAE5NEWCOMER",
+        }), Encoding.UTF8, "application/json");
+        push.Headers.Add("X-Baileys-Secret", "baileys-local-dev");
+        (await _factory.CreateClient().PostAsync("/api/whatsapp/baileys/inbound", push)).EnsureSuccessStatusCode();
+        await UnknownSenderAsserts.AssertListedAsNotInContactsAsync(_factory, admin, "whatsapp", "60177000456",
+            "hello from WhatsApp Web");
+    }
+
     [Fact]
     public async Task Telegram_inbound_stores_message()
     {

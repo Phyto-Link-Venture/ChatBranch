@@ -594,7 +594,7 @@ export const channels = {
         s1: 'Use a mailbox your team already reads (support@, hello@…).',
         s2: 'Find the SMTP server in your provider’s help pages (“SMTP settings”).',
         s3: 'Create an app password if the account has two-step sign-in.',
-        s4: 'Replies from known contacts are pulled in over IMAP — this mailbox’s IMAP host, or the default under Advanced.',
+        s4: 'Incoming mail is pulled in over IMAP — this mailbox’s IMAP host, or the default under Advanced. Mail from people who aren’t contacts shows up too, under “Not in contacts”.',
       },
       telegram: {
         s1: 'Open a chat with @BotFather in Telegram.',

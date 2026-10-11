@@ -28,7 +28,7 @@ export const faq: Dict<typeof faqSource> = {
   },
   emailNotArriving: {
     q: 'E-mel pelanggan tidak muncul dalam Sembang',
-    a: 'Pertama, pastikan peti mel di halaman “Saluran” mempunyai butiran mel masuk (IMAP), bukan hanya penghantaran (SMTP). Kemudian, bagi Gmail atau Outlook, gunakan kata laluan aplikasi dan bukan kata laluan biasa anda. Seterusnya, ketahui bahawa hanya mel daripada pengirim yang sudah menjadi kenalan akan ditarik masuk, jadi tambah pengirim sebagai kenalan dahulu. Akhir sekali, mel diambil setiap beberapa ketika — tunggu seminit, kemudian buka semula Sembang.',
+    a: 'Pertama, pastikan peti mel di halaman “Saluran” mempunyai butiran mel masuk (IMAP), bukan hanya penghantaran (SMTP). Kemudian, bagi Gmail atau Outlook, gunakan kata laluan aplikasi dan bukan kata laluan biasa anda. Seterusnya, lihat di bawah “Bukan kenalan” di bahagian atas senarai sembang — mel daripada orang yang belum menjadi kenalan masuk ke situ (balasan automatik seperti “di luar pejabat” tidak dimasukkan). Akhir sekali, mel diambil setiap beberapa ketika — tunggu seminit, kemudian buka semula Sembang.',
   },
   widgetNotShowing: {
     q: 'Gelembung sembang tidak muncul di laman web saya',

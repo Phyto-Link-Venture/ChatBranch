@@ -17,7 +17,8 @@ namespace ChatBranch.Tests;
 /// <summary>
 /// Email (SMTP out / IMAP in), Telegram (Bot API out, webhook in) and the
 /// channel-health checker, end to end through the API host with every provider
-/// faked (no network): routing, threading headers, the known-sender filter,
+/// faked (no network): routing, threading headers, every sender kept (unlinked
+/// when not a contact; auto-replies and our own address skipped),
 /// dedup, media both ways, webhook auth, health verdicts and the reconnect reset.
 /// </summary>
 public class TransportOtherTests : IClassFixture<TransportFactory>
@@ -167,6 +168,17 @@ public class TransportOtherTests : IClassFixture<TransportFactory>
         var healed = Account(bot.Id);
         Assert.Equal(Health.Healthy, healed.HealthStatus);
         Assert.NotNull(healed.LastInboundAt);
+    }
+
+    [Fact]
+    public async Task Telegram_message_from_a_new_chat_lands_as_an_unlinked_conversation()
+    {
+        var bot = AddAccount(new ChannelAccount { Channel = "telegram", Name = "TG strangers", AccessToken = "5009:new-chat-bot-token-ffff" });
+        var res = await _f.CreateClient().PostAsync($"/api/messaging/webhook/telegram/{bot.AccessToken}",
+            Json(TgUpdate(7109, 90, "hi, is anyone there?")));
+        res.EnsureSuccessStatusCode();
+        await UnknownSenderAsserts.AssertListedAsNotInContactsAsync(_f, await Authed(), "telegram", "7109",
+            "hi, is anyone there?");
     }
 
     [Fact]
@@ -325,7 +337,7 @@ public class TransportOtherTests : IClassFixture<TransportFactory>
     // ---- Email: IMAP in, SMTP out -----------------------------------------------
 
     [Fact]
-    public async Task Imap_sync_keeps_known_senders_dedups_and_the_reply_threads_under_it()
+    public async Task Imap_sync_keeps_every_sender_dedups_and_the_reply_threads_under_it()
     {
         var admin = await Authed();
         await CreateMailbox(admin, "inbox@shop.test", "support@shop.test");
@@ -349,13 +361,16 @@ public class TransportOtherTests : IClassFixture<TransportFactory>
         var ooo = Mail("known@cust.test", "support@shop.test", "Out of office", "I am away.", "ooo1@cust.test");
         ooo.Headers.Add(HeaderId.AutoSubmitted, "auto-replied");
         _f.Mailbox.Deliver("inbox@shop.test", ooo);
+        // … and neither is a copy of our own mail landing back in the mailbox
+        _f.Mailbox.Deliver("inbox@shop.test", Mail("Support <support@shop.test>", "support@shop.test", "Re: Order 42",
+            "Sent from the shop.", "own1@shop.test"));
 
         var sync = await admin.PostAsJsonAsync("/api/messaging/email/sync", new { force = true });
         sync.EnsureSuccessStatusCode();
         var report = await sync.Content.ReadFromJsonAsync<JsonElement>();
         Assert.True(report.GetProperty("configured").GetBoolean());
-        Assert.Equal(1, report.GetProperty("fetched").GetInt32());
-        Assert.Equal(2, report.GetProperty("skipped").GetInt32());
+        Assert.Equal(2, report.GetProperty("fetched").GetInt32()); // the customer AND the newsletter
+        Assert.Equal(2, report.GetProperty("skipped").GetInt32()); // the auto-reply + our own address
 
         var (thread, msgs) = InDb(db =>
         {
@@ -370,7 +385,11 @@ public class TransportOtherTests : IClassFixture<TransportFactory>
         Assert.Equal("[attachment] photo.png", msgs[1].Text);
         Assert.Equal("image", msgs[1].MediaType);
         Assert.Equal(2, msgs.Count); // the auto-reply was not stored
-        Assert.False(InDb(db => db.Threads.Any(t => t.Key == "news@letters.test")));
+        // a sender who is not a contact is still a conversation — unlinked, chatbot off
+        var news = InDb(db => db.Threads.AsNoTracking().Single(t => t.Channel == "email" && t.Key == "news@letters.test"));
+        Assert.Null(news.ContactId);
+        Assert.False(news.AiEnabled);
+        Assert.False(InDb(db => db.Threads.Any(t => t.Channel == "email" && t.Key == "support@shop.test")));
 
         var pdfBack = await admin.GetAsync($"/api/messaging/media/{msgs[0].Id}");
         pdfBack.EnsureSuccessStatusCode();
@@ -410,7 +429,7 @@ public class TransportOtherTests : IClassFixture<TransportFactory>
         var box = await CreateMailbox(admin, "second@shop.test", "second@shop.test");
         var boxId = int.Parse(box.GetProperty("id").GetString()!);
 
-        // an address we already wrote to is "known" even without a CRM contact
+        // a reply from an address we already wrote to (no CRM contact) continues that conversation
         InDb(db =>
         {
             var t = new Thread { Channel = "email", Key = "prospect@lead.test", Address = "prospect@lead.test",
@@ -440,6 +459,41 @@ public class TransportOtherTests : IClassFixture<TransportFactory>
         Assert.Contains(refused.GetProperty("errors").EnumerateArray(), e => e.GetString()!.Contains("login refused"));
         Assert.DoesNotContain("app-password-1", refused.ToString());
         Assert.Equal(Health.Disconnected, Account(boxId).HealthStatus);
+    }
+
+    /// <summary>
+    /// The known-sender gate is gone: mail from someone who is not a contact (and
+    /// whom we never wrote to) opens an unlinked conversation the inbox lists under
+    /// "Not in contacts" — and nothing remembers a sender, so their next mail lands
+    /// in the same conversation (the old gate's "one look, ever" was per mail).
+    /// </summary>
+    [Fact]
+    public async Task Imap_sync_brings_mail_from_a_new_sender_in_as_an_unlinked_chat()
+    {
+        var admin = await Authed();
+        await CreateMailbox(admin, "fresh@shop.test", "fresh@shop.test");
+        _f.Mailbox.Deliver("fresh@shop.test", Mail("Stranger Lim <Stranger@New.test>", "fresh@shop.test", "Quote please",
+            "Can I get a quote for 40 chairs?", "q1@new.test"));
+
+        var report = await (await admin.PostAsJsonAsync("/api/messaging/email/sync", new { force = true }))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(1, report.GetProperty("fetched").GetInt32());
+        Assert.Equal(0, report.GetProperty("skipped").GetInt32());
+
+        var thread = InDb(db => db.Threads.AsNoTracking().Single(t => t.Channel == "email" && t.Key == "stranger@new.test"));
+        Assert.Null(thread.ContactId);
+        Assert.False(thread.AiEnabled);               // email ships with the chatbot off
+        Assert.Equal("Stranger Lim", thread.Name);
+        Assert.NotNull(thread.AccountId);              // filed under the mailbox that received it
+        await UnknownSenderAsserts.AssertListedAsNotInContactsAsync(_f, admin, "email", "stranger@new.test",
+            "Can I get a quote for 40 chairs?");
+
+        _f.Mailbox.Deliver("fresh@shop.test", Mail("stranger@new.test", "fresh@shop.test", "Re: Quote please",
+            "Any news?", "q2@new.test"));
+        await admin.PostAsJsonAsync("/api/messaging/email/sync", new { force = true });
+        Assert.Equal(new[] { "Quote please\n\nCan I get a quote for 40 chairs?", "Any news?" },
+            InDb(db => db.Messages.AsNoTracking().Where(m => m.ThreadId == thread.Id && m.Direction == "in")
+                .OrderBy(m => m.Id).Select(m => m.Text).ToList()));
     }
 
     [Fact]

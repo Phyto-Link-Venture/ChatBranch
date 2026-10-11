@@ -190,6 +190,35 @@ public class MetaApiTests : IClassFixture<MetaApiFactory>
         Assert.Equal("delivered", InScope(db => db.Messages.Single(m => m.ExternalId == "mid.out.1").Status));
     }
 
+    /// <summary>Someone who is not a contact messages the page / the Instagram account:
+    /// an unlinked conversation, listed under "Not in contacts".</summary>
+    [Theory]
+    [InlineData("facebook", "page", "PAGE-NEW", "PSID-NEWCOMER")]
+    [InlineData("instagram", "instagram", "IG-NEW", "IGSID-NEWCOMER")]
+    public async Task Messenger_and_Instagram_message_from_a_stranger_lands_as_an_unlinked_conversation(
+        string channel, string objectType, string pageId, string senderId)
+    {
+        var admin = await Authed("admin", "admin123");
+        (await admin.PostAsJsonAsync("/api/messaging/accounts", new
+        {
+            channel, name = $"{channel} newcomers", external_id = pageId, access_token = $"tok-{pageId}", app_secret = Secret,
+        })).EnsureSuccessStatusCode();
+        Graph.Json("GET", $@"/v23\.0/{senderId}\?fields", new { first_name = "New", last_name = "Person", name = "New Person" });
+        var payload = new
+        {
+            @object = objectType,
+            entry = new[] { new { id = pageId, time = 1, messaging = new object[]
+            {
+                new { sender = new { id = senderId }, recipient = new { id = pageId },
+                      timestamp = DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeMilliseconds(),
+                      message = new { mid = $"mid.{senderId}", text = "Hi, saw your post" } },
+            } } },
+        };
+        (await _factory.CreateClient().PostAsync("/api/messaging/webhook", Signed(payload))).EnsureSuccessStatusCode();
+        await MediaIdle();
+        await UnknownSenderAsserts.AssertListedAsNotInContactsAsync(_factory, admin, channel, senderId, "Hi, saw your post");
+    }
+
     [Fact]
     public async Task Messenger_account_test_probes_the_token_and_moves_health()
     {

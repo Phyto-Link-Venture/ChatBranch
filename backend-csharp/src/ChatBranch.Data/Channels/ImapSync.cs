@@ -263,10 +263,14 @@ public sealed record EmailSyncReport(bool Configured, int Fetched, int Skipped, 
 ///
 ///  * Real IMAP traffic is throttled to one pass per 30 s no matter how many
 ///    dashboards poll (<c>force</c> skips it).
-///  * KNOWN-SENDER scope: only a CRM contact's address, or an address we have
-///    already corresponded with (a contact-linked email thread, or one we sent
-///    to). Newsletters and platform notifications stay out — already \Seen, so
-///    a skipped sender costs one look, ever.
+///  * EVERY sender lands in the inbox, contact or not: mail from an address
+///    that is not a contact opens (or continues) an UNLINKED conversation
+///    (ContactId null) — listed under "Not in contacts", never answered by the
+///    AI (the coverage gate wants a linked contact). Only three things are
+///    skipped: RFC 3834 auto-replies (<c>Auto-Submitted</c>), mail from the
+///    mailbox's own From address, and Message-ID duplicates. Nothing remembers a
+///    skipped SENDER: the one per-mail mark is IMAP's \Seen flag, set on every
+///    fetched mail, so a sender's next mail is always read.
 ///  * Each kept mail runs the normal inbound pipeline
 ///    (<see cref="InboundProcessor.ProcessInbound"/>: contact link, flows, team
 ///    routing, automations, notifications, the coverage-gated AI path), deduped
@@ -409,8 +413,9 @@ public sealed class EmailSyncService
         if (key.Length == 0 || !key.Contains('@')) return IngestOutcome.Skipped;
         if (string.Equals(key, mailbox.From, StringComparison.OrdinalIgnoreCase)) return IngestOutcome.Skipped;
 
+        // a sender who is not a contact still gets a conversation (unlinked, AI off) —
+        // the same rule as every other channel; there is no known-sender gate
         var existing = _db.Threads.FirstOrDefault(t => t.Channel == ChannelIds.Email && t.Key.ToLower() == key);
-        if (!KnownSender(key, existing)) return IngestOutcome.Skipped;
         if (mail.MessageId.Length > 0 && _db.Messages.Any(m => m.ExternalId == mail.MessageId
                                                               && m.Thread!.Channel == ChannelIds.Email))
             return IngestOutcome.Duplicate;
@@ -468,22 +473,6 @@ public sealed class EmailSyncService
 
         if (mailbox.AccountId is int accountId) HealInbound(accountId);
         return IngestOutcome.Kept;
-    }
-
-    /// <summary>
-    /// messaging/views._known_sender: a CRM contact's email, or an address we
-    /// have already corresponded with (contact-linked thread, or one we sent to).
-    /// </summary>
-    public bool KnownSender(string address, Domain.Thread? thread = null)
-    {
-        var a = address.Trim().ToLowerInvariant();
-        if (_db.Contacts.Any(c => c.Email.ToLower() == a)) return true;
-        thread ??= _db.Threads.FirstOrDefault(t => t.Channel == ChannelIds.Email && t.Key.ToLower() == a);
-        if (thread == null) return false;
-        var threadId = thread.Id;
-        return thread.ContactId != null
-               || _db.Messages.Any(m => m.ThreadId == threadId && m.Direction == MessageDirection.Out
-                                        && !m.Private && m.Source != MessageSource.System);
     }
 
     private void HealInbound(int accountId)

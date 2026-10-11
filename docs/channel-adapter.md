@@ -344,9 +344,11 @@ outbound queue are already channel-blind.
   recipient → health untouched.
 - In: `POST /api/messaging/email/sync` (the /chats nudge; real IMAP at most
   every 30 s, `{force:true}` skips it) pulls UNSEEN mail from the last 7 days
-  (10 per mailbox per pass), marks it \Seen, keeps only KNOWN senders (a CRM
-  contact's email, or an address we already wrote to / a contact-linked
-  thread), dedups by Message-ID, strips quoted history conservatively, flattens HTML-only mail to readable
+  (10 per mailbox per pass), marks it \Seen, keeps EVERY sender — mail from
+  an address that is no contact opens an unlinked conversation ("Not in
+  contacts", never answered by the AI) like every other channel; only
+  `Auto-Submitted` auto-replies and mail from the mailbox's own From address
+  are skipped — dedups by Message-ID, strips quoted history conservatively, flattens HTML-only mail to readable
   text (scripts/styles/comments dropped, line breaks + paragraphs kept, links
   keep their URL, entities decoded), and runs
   the normal inbound pipeline. A new email thread starts with the chatbot off.

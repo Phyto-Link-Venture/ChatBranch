@@ -280,6 +280,18 @@ public class WhatsAppBspTests : IClassFixture<WhatsAppBspFactory>
     }
 
     [Fact]
+    public async Task YCloud_message_from_an_unknown_number_lands_as_an_unlinked_conversation()
+    {
+        var a = YCloudAccount();
+        var from = Digits();
+        var evt = YInbound(a, from, "wamid.NEW" + from, new { type = "text", text = new { body = "found you online" } });
+        Assert.Equal(HttpStatusCode.OK, (await PostYCloud(a, evt)).StatusCode);
+        await UnknownSenderAsserts.AssertListedAsNotInContactsAsync(_f, await Authed(), ChannelIds.WhatsApp, from,
+            "found you online");
+        Assert.Equal(a.Id, Thread(from)!.AccountId);
+    }
+
+    [Fact]
     public async Task YCloud_inbound_media_downloads_the_link_off_the_ack_with_the_api_key()
     {
         var a = YCloudAccount();
@@ -524,6 +536,17 @@ public class WhatsAppBspTests : IClassFixture<WhatsAppBspFactory>
         var location = TInbound(a, from, "SMloc" + from, "", new() { ["Latitude"] = "3.139", ["Longitude"] = "101.6869", ["Label"] = "KLCC" });
         (await PostTwilio(a, location)).EnsureSuccessStatusCode();
         Assert.Equal("[location] 3.139,101.6869 KLCC", Messages(from).Last().Text);
+    }
+
+    [Fact]
+    public async Task Twilio_message_from_an_unknown_number_lands_as_an_unlinked_conversation()
+    {
+        var a = TwilioAccount();
+        var from = Digits();
+        (await PostTwilio(a, TInbound(a, from, "SMnew" + from, "first message, who answers?"))).EnsureSuccessStatusCode();
+        await UnknownSenderAsserts.AssertListedAsNotInContactsAsync(_f, await Authed(), ChannelIds.WhatsApp, from,
+            "first message, who answers?");
+        Assert.Equal(a.Id, Thread(from)!.AccountId);
     }
 
     [Fact]

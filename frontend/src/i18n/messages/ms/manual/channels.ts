@@ -254,8 +254,8 @@ export const channels: Dict<typeof source> = {
         body: 'Klik “Selesai”, kemudian “Tutup”. Peti mel muncul di bawah “Disambungkan”.',
       },
       s8: {
-        title: 'Pastikan pengirim ialah kenalan',
-        body: 'ChatBranch hanya menarik masuk e-mel daripada orang yang sudah menjadi kenalan, supaya spam tidak masuk. Tambah diri anda sebagai kenalan di Kerja → “Kenalan” dengan e-mel yang akan anda gunakan untuk menguji.',
+        title: 'Ketahui di mana pengirim baharu muncul',
+        body: 'Setiap e-mel yang sampai ke peti mel muncul dalam Sembang — termasuk daripada orang yang belum menjadi kenalan. Sembang itu berada di bawah “Bukan kenalan” di bahagian atas senarai sembang, dan AI tidak membalasnya sehingga anda memautkan atau mencipta kenalan. Balasan automatik (di luar pejabat) dan salinan e-mel anda sendiri tidak dimasukkan.',
       },
       s9: {
         title: 'Balas e-mel ujian',
@@ -269,7 +269,7 @@ export const channels: Dict<typeof source> = {
       t3: 'Anda boleh menyambungkan beberapa peti mel; setiap perbualan terus menggunakan peti mel tempat ia bermula.',
     },
     trouble:
-      'Log masuk gagal: gunakan kata laluan aplikasi, bukan kata laluan biasa, dan alamat e-mel penuh sebagai nama pengguna. Gmail menyebut “apl kurang selamat”: hidupkan Pengesahan 2 Langkah dahulu, kemudian cipta kata laluan aplikasi. Balasan tidak pernah sampai: pastikan hos IMAP diisi dan pengirim disimpan sebagai kenalan.',
+      'Log masuk gagal: gunakan kata laluan aplikasi, bukan kata laluan biasa, dan alamat e-mel penuh sebagai nama pengguna. Gmail menyebut “apl kurang selamat”: hidupkan Pengesahan 2 Langkah dahulu, kemudian cipta kata laluan aplikasi. Balasan tidak pernah sampai: pastikan hos IMAP diisi, kemudian lihat di bawah “Bukan kenalan” dalam Sembang.',
   },
   telegramBot: {
     title: 'Sambungkan bot Telegram',
