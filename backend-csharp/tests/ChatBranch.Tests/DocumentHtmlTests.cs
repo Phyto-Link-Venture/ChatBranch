@@ -712,6 +712,32 @@ public class DocumentHtmlTests
     // ONE real Chromium render (CI has Google Chrome; skipped quietly without a browser)
     // =========================================================================
 
+    [Fact]
+    public void The_browser_search_prefers_official_chrome_and_honours_the_setting()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "cb-browsers-" + Guid.NewGuid().ToString("N"));
+        var chromiumDir = Path.Combine(root, "a");
+        var chromeDir = Path.Combine(root, "b");
+        try
+        {
+            Directory.CreateDirectory(chromiumDir);
+            Directory.CreateDirectory(chromeDir);
+            File.WriteAllText(Path.Combine(chromiumDir, "chromium"), "");
+            File.WriteAllText(Path.Combine(chromeDir, "google-chrome"), "");
+            var path = chromiumDir + Path.PathSeparator + chromeDir;
+
+            // GitHub's runner: an unofficial Chromium snapshot earlier on the PATH than Chrome stable
+            Assert.Equal(Path.Combine(chromeDir, "google-chrome"), ChromiumHtmlPdfConverter.FindBinary(null, path));
+            Assert.Equal(Path.Combine(chromiumDir, "chromium"), ChromiumHtmlPdfConverter.FindBinary(null, chromiumDir));
+            // the setting wins: a name on the PATH, an absolute path, or off
+            Assert.Equal(Path.Combine(chromiumDir, "chromium"), ChromiumHtmlPdfConverter.FindBinary("chromium", path));
+            Assert.Equal(Path.Combine(chromiumDir, "chromium"), ChromiumHtmlPdfConverter.FindBinary(Path.Combine(chromiumDir, "chromium"), ""));
+            Assert.Null(ChromiumHtmlPdfConverter.FindBinary("off", path));
+            Assert.Null(ChromiumHtmlPdfConverter.FindBinary(null, Path.Combine(root, "nothing-here")));
+        }
+        finally { try { Directory.Delete(root, true); } catch { /* temp */ } }
+    }
+
     private static string? Browser()
     {
         var found = ChromiumHtmlPdfConverter.FindBinary(Environment.GetEnvironmentVariable("DOCUMENT_HTML_CHROMIUM"));

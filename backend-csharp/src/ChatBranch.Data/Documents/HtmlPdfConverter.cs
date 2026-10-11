@@ -82,15 +82,18 @@ public static class HtmlPdfHardening
 /// nothing, so scripts are switched off by the CSP (and the sanitizer removes them
 /// first). At most <see cref="MaxConcurrent"/> renders at once, <see cref="Timeout"/> each
 /// (the process tree is killed past it), and the directory is always removed.
-/// Binary: env <c>DOCUMENT_HTML_CHROMIUM</c> (a path, or <c>off</c>) → <c>chromium</c>,
-/// <c>chromium-browser</c>, <c>google-chrome</c>, <c>google-chrome-stable</c> on the PATH.
+/// Binary: env <c>DOCUMENT_HTML_CHROMIUM</c> (a path, or <c>off</c>) → <c>google-chrome-stable</c>,
+/// <c>google-chrome</c>, <c>chromium</c>, <c>chromium-browser</c> on the PATH. Official Chrome
+/// builds come first: GitHub's Ubuntu image ships both Chrome stable and an unofficial
+/// Chromium snapshot as <c>/usr/bin/chromium</c> that never finishes a headless run (not
+/// even <c>--dump-dom</c>), while Chrome of the same version prints in about a second.
 /// </summary>
 public sealed class ChromiumHtmlPdfConverter : IHtmlPdfConverter
 {
     public const int MaxConcurrent = 2;
     public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
     private static readonly SemaphoreSlim Gate = new(MaxConcurrent, MaxConcurrent);
-    public static readonly string[] Names = { "chromium", "chromium-browser", "google-chrome", "google-chrome-stable" };
+    public static readonly string[] Names = { "google-chrome-stable", "google-chrome", "chromium", "chromium-browser" };
 
     public string? Binary { get; }
     public bool Available => Binary != null;
@@ -101,21 +104,24 @@ public sealed class ChromiumHtmlPdfConverter : IHtmlPdfConverter
         new(FindBinary(Environment.GetEnvironmentVariable("DOCUMENT_HTML_CHROMIUM")));
 
     /// <summary>The browser to print with: the setting (a path, or "off"), else the first known name on the PATH.</summary>
-    public static string? FindBinary(string? setting)
+    public static string? FindBinary(string? setting) => FindBinary(setting, Environment.GetEnvironmentVariable("PATH"));
+
+    /// <summary>The same, against a given PATH value (tests).</summary>
+    public static string? FindBinary(string? setting, string? pathVar)
     {
         var s = (setting ?? "").Trim();
         if (s.Equals("off", StringComparison.OrdinalIgnoreCase)) return null;
         if (s.Length > 0)
         {
             if (File.Exists(s)) return s;
-            if (!s.Contains(Path.DirectorySeparatorChar)) return OnPath(s);
+            if (!s.Contains(Path.DirectorySeparatorChar)) return OnPath(s, pathVar);
             return null;
         }
-        return Names.Select(OnPath).FirstOrDefault(p => p != null);
+        return Names.Select(n => OnPath(n, pathVar)).FirstOrDefault(p => p != null);
     }
 
-    private static string? OnPath(string name) =>
-        (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+    private static string? OnPath(string name, string? pathVar) =>
+        (pathVar ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
             .Select(d => Path.Combine(d, name)).FirstOrDefault(File.Exists);
 
     public async Task<byte[]> ConvertAsync(string html, HtmlPdfPage page, CancellationToken ct = default)

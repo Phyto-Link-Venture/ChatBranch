@@ -43,7 +43,7 @@ builder.Services.AddScoped<ChatBranch.Data.Bookings.BookingService>();
 builder.Services.AddScoped<ChatBranch.Data.Documents.DocumentService>();
 builder.Services.AddScoped<ChatBranch.Data.Documents.DocumentTemplateAi>();
 // the Documents app's custom layout (HTML templates): headless Chromium (DOCUMENT_HTML_CHROMIUM
-// → chromium / google-chrome on the PATH; "off" disables — HTML-mode documents are then refused)
+// → google-chrome / chromium on the PATH; "off" disables — HTML-mode documents are then refused)
 builder.Services.AddSingleton<ChatBranch.Data.Documents.IHtmlPdfConverter>(_ =>
     ChatBranch.Data.Documents.ChromiumHtmlPdfConverter.FromEnvironment());
 builder.Services.AddScoped<ChatBranch.Data.Documents.DocumentHtmlAi>();
