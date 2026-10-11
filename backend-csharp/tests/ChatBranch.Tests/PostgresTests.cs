@@ -132,6 +132,79 @@ public class PostgresTests
         }
     }
 
+    [Fact]
+    public void The_sqlite_file_is_copied_into_an_empty_postgres_once_with_ids_and_sequences()
+    {
+        if (ApiFactory.PostgresServer == null) return;
+        var file = Path.Combine(Path.GetTempPath(), $"chatbranch-import-test-{Guid.NewGuid():N}.sqlite3");
+        try
+        {
+            var lite = new DbContextOptionsBuilder<AppDbContext>();
+            lite.Use(DatabaseSetup.Sqlite, $"Data Source={file}");
+            int contactId, entityId;
+            using (var ctx = new AppDbContext(lite.Options))
+            {
+                Seed.Run(ctx);
+                var parent = ctx.Entities.First();
+                var branch = ctx.Entities.Add(new Entity { TenantId = parent.TenantId, ParentId = parent.Id, Name = "Branch",
+                    Slug = "branch", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow }).Entity;
+                ctx.SaveChanges();
+                var c = ctx.Contacts.Add(new Contact { Name = "Siti", Phone = "+60123456789", Tags = new() { "vip" },
+                    CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow }).Entity;
+                ctx.SaveChanges();
+                ctx.ContactEntities.Add(new ContactEntity { ContactId = c.Id, EntityId = branch.Id, CreatedAt = DateTime.UtcNow });
+                ctx.Settings.Add(new Setting { Key = "org_timezone", Value = "Asia/Kuala_Lumpur", UpdatedAt = DateTime.UtcNow });
+                ctx.Settings.Add(new Setting { Key = "aicore_persona", Value = "Branch persona", EntityId = branch.Id,
+                    UpdatedAt = DateTime.UtcNow });
+                ctx.SaveChanges();
+                // a gap in the ids: the copy keeps them, the sequence continues after the highest
+                ctx.Contacts.Add(new Contact { Id = 40, Name = "Late", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+                ctx.SaveChanges();
+                (contactId, entityId) = (c.Id, branch.Id);
+            }
+            var expected = new Dictionary<string, int>();
+            using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={file}"))
+            {
+                conn.Open();
+                foreach (var table in new[] { "auth_user", "ingest_entity", "crm_contact", "crm_contactentity", "crm_setting", "crm_role" })
+                {
+                    using var cmd = conn.CreateCommand();
+                    cmd.CommandText = $"SELECT count(*) FROM \"{table}\"";
+                    expected[table] = Convert.ToInt32(cmd.ExecuteScalar());
+                }
+            }
+
+            using var db = new PgDb();
+            using (var ctx = db.Context()) Seed.Run(ctx, file);
+            foreach (var (table, rows) in expected)
+                Assert.Equal(rows + (table == "crm_setting" ? 1 : 0), int.Parse(db.Scalar($"SELECT count(*) FROM \"{table}\"")!)); // + the marker
+            using (var ctx = db.Context())
+            {
+                var siti = ctx.Contacts.Single(c => c.Id == contactId);
+                Assert.Equal("Siti", siti.Name);
+                Assert.Equal(new List<string> { "vip" }, siti.Tags);
+                Assert.Equal(entityId, ctx.ContactEntities.Single(l => l.ContactId == contactId).EntityId);
+                Assert.Equal("Branch persona", ctx.Settings.Single(x => x.Key == "aicore_persona" && x.EntityId == entityId).Value);
+                Assert.Contains("row(s)", ctx.Settings.Single(x => x.Key == SqliteImport.MarkerKey).Value);
+                var fresh = ctx.Contacts.Add(new Contact { Name = "After", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow }).Entity;
+                ctx.SaveChanges();
+                Assert.Equal(41, fresh.Id);
+            }
+            // a database that has data is never imported into again
+            using (var ctx = db.Context())
+                Assert.False(SqliteImport.RunIfNeeded(ctx, file).Imported);
+            using (var ctx = db.Context()) Seed.Run(ctx, file);
+            Assert.Equal(expected["crm_contact"] + 1, int.Parse(db.Scalar("SELECT count(*) FROM crm_contact")!));
+        }
+        finally
+        {
+            using (var mine = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={file}"))
+                Microsoft.Data.Sqlite.SqliteConnection.ClearPool(mine);
+            foreach (var suffix in new[] { "", "-wal", "-shm" })
+                try { File.Delete(file + suffix); } catch { /* temp */ }
+        }
+    }
+
     /// <summary>A throwaway Postgres database on the suite's server.</summary>
     private sealed class PgDb : IDisposable
     {

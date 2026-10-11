@@ -184,7 +184,8 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    Seed.Run(db);
+    // DB_IMPORT_SQLITE: on the first Postgres boot, copy the old SQLite file in (SqliteImport)
+    Seed.Run(db, app.Configuration["DB_IMPORT_SQLITE"], m => app.Logger.LogWarning("{Message}", m));
 }
 
 app.UseCors(CorsPolicy);

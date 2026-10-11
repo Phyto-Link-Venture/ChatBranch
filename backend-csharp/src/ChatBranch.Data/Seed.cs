@@ -463,12 +463,27 @@ public static class Seed
         catch { /* a fresh / odd database: nothing to backfill */ }
     }
 
-    public static void Run(AppDbContext db)
+    /// <summary>A SQLite database brought up to the current schema (the import's snapshot).</summary>
+    public static void UpgradeSqlite(AppDbContext db)
+    {
+        db.Database.EnsureCreated();
+        UpgradeSchema(db);
+    }
+
+    /// <param name="importSqlite">On Postgres: the old SQLite file to copy in while the database
+    /// is still empty (DB_IMPORT_SQLITE — see SqliteImport).</param>
+    /// <param name="log">Where the import reports what it did.</param>
+    public static void Run(AppDbContext db, string? importSqlite = null, Action<string>? log = null)
     {
         db.Database.EnsureCreated();
         // Postgres: tables / columns / indexes come from the EF model (PostgresSchema);
         // the SQLite DDL below is skipped there, its portable index statements still run
-        if (db.IsPostgres()) PostgresSchema.Sync(db);
+        if (db.IsPostgres())
+        {
+            PostgresSchema.Sync(db);
+            // BEFORE the seed below, which would otherwise make the database non-empty
+            SqliteImport.RunIfNeeded(db, importSqlite, log);
+        }
         UpgradeSchema(db);
         BackfillContactEntities(db);
 
