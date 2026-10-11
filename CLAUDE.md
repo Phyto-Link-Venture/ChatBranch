@@ -897,6 +897,54 @@ When you fix one of these, update this table, `README.md` and
   thumbnails, "Upload my design", "Ask AI", Undo); client model
   `components/skills/documentTemplate.ts`, words `readySkills.designer`. Tests:
   `DocumentTemplateTests`, `DocumentTemplateApiTests`.
+  **Custom layout (HTML templates)** — for a document that must match an existing
+  design exactly. `config.layout` = `designer` (default; renders exactly as
+  before) | `html` + `config.html` (`Documents/DocumentHtmlConfig.cs`, one strict
+  normalizer: `template` ≤200 KB, per-type `templates`, ≤20 `fields` {key, label,
+  type text|multiline|date|number, required, default — never a built-in name},
+  `page {size, margin_mm}`, `letterhead`, `terms`, `bank_details`; saving
+  sanitizes + test-compiles every type). Handlebars.Net
+  (`DocumentHtmlTemplating.cs`): every value HTML-escaped, `{{{ }}}` / `{{&` /
+  partials / decorators refused (the logo data-URL is the only raw value), helpers
+  money · number · date · words (EN/BM amount in words, with sen) · upper · lower
+  · inc · eq/ne/gt · or · nl2br · first_line/rest_lines · label · default, errors
+  carry a line number; the data model is ONE place, `DocumentHtmlModel.Build`
+  (business, document, customer, items, totals + words, fields, terms, page).
+  `HtmlSanitizer` runs on save AND before every render (no script / iframe /
+  object, no `on*`, no non-data URLs, no `@import` / `url()`). Printing = headless
+  Chromium (`HtmlPdfConverter.cs`, `IHtmlPdfConverter`; `DOCUMENT_HTML_CHROMIUM`
+  path | `off`, else PATH; ≤2 at once, 30 s then the process tree is killed, temp
+  profile removed): JavaScript is off by an injected CSP (`script-src 'none'` —
+  `--blink-settings=scriptEnabled=false` makes `--print-to-pdf` print nothing) and
+  the network by `--host-resolver-rules=MAP * ~NOTFOUND` + `--no-proxy-server`,
+  both proven in `DocumentHtmlApiTests`; a letterhead is drawn under the Chromium
+  PDF with the same `XPdfForm` underlay. No renderer ⇒ html documents are REFUSED
+  ("custom layout is unavailable on this server", 503 on `POST /api/documents`)
+  and `/skills/apps` says `html_renderer: false` — never a silent designer
+  fallback. Starters (`DocumentHtmlStarters.cs` + `HtmlStarters/*.html`):
+  Malaysian classic (calibrated against a real CL-series invoice: Ref No / Date,
+  Attn + Tel / Fax, PRO / REF, grid table, "1)" numbering, amount in words, NOTE
+  list, signature block), Clean modern, Letter. API (all `settings.ai.manage`):
+  `POST /api/aicore/skills/documents/html/preview` (instant HTML, `{ok:false,
+  error, line}` on a bad template; MCP `skills_preview_document_layout`),
+  `…/html/draft` (multipart upload → `DocumentHtmlAi.DraftAsync`: vision + PdfPig
+  text, validated, one retry; no model / never valid → the closest starter filled
+  from the PDF, `mode:"starter"`; MCP exclusion), `…/html/assist` (MCP
+  `skills_assist_document_layout`; sandbox leaves it unchanged with a note);
+  quota-guarded, metered `document_template`. `/skills/apps` adds
+  `html_renderer`, `html_starters`, `html_reference`. Custom field values ride in
+  `POST /api/documents` `fields.fields` (and the AI tools' `fields`; the SKILLS
+  block lists a layout's fields); `GET /api/documents/form?channel=&key=`
+  (`chats.send` + thread scope; MCP `documents_get_form`) feeds the chat's "New
+  document" form (`components/chats/DocumentsCard.tsx` in the info panel). UI:
+  the designer's Designer | Custom layout (HTML) switch →
+  `components/skills/HtmlLayoutEditor.tsx` (+ `htmlLayout.ts`, `CodeEditor
+  highlight="html"`; Start from · Upload my design · Ask AI · Undo; tabs Fields ·
+  Words & page · Reference with insert-at-cursor; instant sandboxed `srcdoc`
+  preview + the real PDF preview), words `docLayout`. The API image installs
+  chromium, fonts-liberation, fonts-noto-cjk and poppler-utils (so the AI also
+  SEES an uploaded design — `pdftoppm`). Tests: `DocumentHtmlTests`,
+  `DocumentHtmlApiTests` (real Chromium when present — CI's runners ship Chrome).
 - **AI monitor + human-like behaviour** (`/ai-monitor`, `/api/ai/monitor*`,
   `/api/ai/behaviour`). EVERY AI-written outbound (instant reply, queued
   ai_reply, follow-up, flow job with payload `source:"ai"`) goes through
@@ -1920,7 +1968,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **989 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **1040 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /
@@ -1940,7 +1988,9 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   (`AiPlaygroundTests`), background AI tasks (`AiTaskTests`), the Documents / QR / payments / Sheets apps + the calculator
   (`DocumentTests`), the document template designer — normalizer, presets, the
   pre-template golden layout, letterhead, upload-your-design + Ask AI against a fake
-  vision model (`DocumentTemplateTests`, `DocumentTemplateApiTests`) —, AI voice replies + voice-note
+  vision model (`DocumentTemplateTests`, `DocumentTemplateApiTests`) —, custom
+  document layouts (HTML templates, the sanitizer, the Chromium printer's no-JS /
+  no-network guarantees — `DocumentHtmlTests`, `DocumentHtmlApiTests`), AI voice replies + voice-note
   transcription against fake ElevenLabs / OpenAI speech (`VoiceReplyTests`), the Test lab and the LiveKit
   control plane. Keep them green. The test host (`ApiFactory` in
   `ApiSmokeTests.cs`) sets its own env: `QUEUE_WORKER=0`, `FLOWS_WORKER=0`,
@@ -1950,7 +2000,8 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
   `AI_HUMANIZE=0` (sandbox answers inline), `LLM_PRICE_SYNC=0`, `PASSWORD_HASH_ITERATIONS=1000` (fast
   hashes for the seeded logins — 600 000 rounds per sign-in saturated a 2-vCPU
   runner; production keeps Django's default), `SEED_DEMO=1` (the suite signs in as
-  admin/agent), a throwaway `CHATBRANCH_DATA_DIR` and SQLite file, and a LiveKit
+  admin/agent), a throwaway `CHATBRANCH_DATA_DIR` and SQLite file (removed with its `-wal`/`-shm`
+  on dispose — leaving those filled the disk), and a LiveKit
   client that is never configured (a developer's `backend/.env` can't place real
   calls). `HEALTH_WORKER=0` keeps the channel-health prober (and post-save
   re-checks) off; `TransportFactory` (`TransportFakes.cs`) swaps in fake

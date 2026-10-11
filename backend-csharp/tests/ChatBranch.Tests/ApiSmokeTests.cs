@@ -183,6 +183,11 @@ public class ApiFactory : WebApplicationFactory<Program>
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
-        try { if (File.Exists(_dbPath)) File.Delete(_dbPath); } catch { }
+        // Close the pooled connections first, then remove the database AND its WAL /
+        // shared-memory files — deleting only the .sqlite3 left ~4 MB of -wal/-shm in
+        // the temp dir per host, thousands of them per machine, until the disk filled.
+        try { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); } catch { }
+        foreach (var suffix in new[] { "", "-wal", "-shm", "-journal" })
+            try { if (File.Exists(_dbPath + suffix)) File.Delete(_dbPath + suffix); } catch { }
     }
 }
