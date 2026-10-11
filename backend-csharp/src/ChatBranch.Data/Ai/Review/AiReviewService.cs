@@ -71,6 +71,9 @@ public sealed class AiReviewService
         ["openrouter"] = new[] { DefaultModel, "anthropic/claude-opus-5.5", "openai/gpt-5", "google/gemini-2.5-pro" },
         ["google"] = new[] { "gemini-2.5-pro" },
         ["openai"] = new[] { "gpt-5" },
+        ["anthropic"] = new[] { "claude-sonnet-5-5", "claude-opus-5-5" },
+        ["qwen"] = new[] { "qwen-max" },
+        ["deepseek"] = new[] { "deepseek-chat" },
     };
     /// <summary>A run still "running" after this long is treated as dead (process restart).</summary>
     public static readonly TimeSpan StaleAfter = TimeSpan.FromMinutes(30);
@@ -120,7 +123,7 @@ public sealed class AiReviewService
         if (colon > 0)
         {
             var prefix = raw[..colon].Trim().ToLowerInvariant();
-            if (prefix == "gemini") prefix = "google";
+            prefix = LlmProviderCatalog.Normalize(prefix) is { Length: > 0 } known ? known : prefix;
             if (OpenAiLlmClient.DefaultOrder.Contains(prefix))
                 return (prefix, raw[(colon + 1)..].Trim());
         }

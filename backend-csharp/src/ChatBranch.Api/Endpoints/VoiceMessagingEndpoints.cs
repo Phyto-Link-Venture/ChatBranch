@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using ChatBranch.Api.Auth;
 using ChatBranch.Data;
+using ChatBranch.Data.Ai;
 using ChatBranch.Domain;
 using Microsoft.EntityFrameworkCore;
 
@@ -321,13 +322,25 @@ public static class VoiceMessagingEndpoints
         public string? help { get; init; }
     }
 
-    private static readonly FieldMeta[] AiFields =
+    /// <summary>
+    /// Each chat provider's own fields (key, optional base URL, default model) —
+    /// generated from <see cref="LlmProviderCatalog"/>, group <c>provider</c>. The
+    /// page draws them from the payload's <c>providers</c> list, one tile each.
+    /// </summary>
+    private static readonly FieldMeta[] ProviderFields = LlmProviderCatalog.All.SelectMany(p =>
     {
-        new() { key = "openai_api_key", label = "OpenAI API key", group = "providers", kind = "secret" },
-        new() { key = "openrouter_api_key", label = "OpenRouter API key", group = "providers", kind = "secret" },
-        new() { key = "google_api_key", label = "Google Gemini API key", group = "providers", kind = "secret" },
-        new() { key = "ilmu_api_key", label = "ILMU API key (chat)", group = "providers", kind = "secret",
-                help = "Used for AI chat/summaries. Live voice calls read the key from the agent's .env." },
+        var list = new List<FieldMeta>
+        {
+            new() { key = p.KeySetting, label = $"{p.Label} API key", group = "provider", kind = "secret" },
+        };
+        if (p.BaseUrlSetting.Length > 0)
+            list.Add(new() { key = p.BaseUrlSetting, label = $"{p.Label} base URL", group = "provider", kind = "text" });
+        list.Add(new() { key = p.ModelSetting, label = $"{p.Label} default model", group = "provider", kind = "text" });
+        return list;
+    }).ToArray();
+
+    private static readonly FieldMeta[] BaseFields =
+    {
         new() { key = "elevenlabs_api_key", label = "ElevenLabs API key", group = "providers", kind = "secret",
                 help = "Voice listing / cloning / preview / TTS. Live voice calls read the key from the agent's .env." },
         new() { key = "chat_provider_pref", label = "Chat AI provider", group = "providers", kind = "select" },
@@ -341,12 +354,6 @@ public static class VoiceMessagingEndpoints
                 help = "The stronger model the AI monitor's \"AI review\" uses to check past replies (only when someone " +
                        "clicks Review now). Empty = anthropic/claude-sonnet-5.5 on OpenRouter; write provider:model " +
                        "(e.g. openai:gpt-4.1) for another provider. Without that provider's key the normal chat model reviews." },
-        new() { key = "local_base_url", label = "Local model base URL", group = "providers", kind = "text",
-                help = "For the Local (Ollama / LM Studio) provider — e.g. http://localhost:11434/v1 " +
-                       "(Ollama) or http://localhost:1234/v1 (LM Studio). Then pin 'local' above and set " +
-                       "the chat model to the model name (e.g. llama3.1). The server must reach this URL." },
-        new() { key = "local_api_key", label = "Local model API key (optional)", group = "providers", kind = "secret",
-                help = "Optional — Ollama ignores it; some gateways require one." },
         // semantic retrieval (AI learning): Data/Ai/Learning/EmbeddingClient.cs
         new() { key = "embedding_provider", label = "Embeddings provider (semantic search)", group = "embeddings",
                 kind = "select",
@@ -368,24 +375,32 @@ public static class VoiceMessagingEndpoints
                 group = "tunables", kind = "int", min = 1 },
     };
 
+    private static readonly FieldMeta[] AiFields = BaseFields.Concat(ProviderFields).ToArray();
+
     // Setting key -> the .env var it falls back to (core/app_settings._WA_STR_ENV
     // + _OWN_STR_ENV + _MSG_KEYS, merged).
-    private static readonly Dictionary<string, string> EnvFor = new()
+    private static readonly Dictionary<string, string> EnvFor = ProviderEnv(new()
     {
-        ["openai_api_key"] = "OPENAI_API_KEY",
-        ["openrouter_api_key"] = "OPENROUTER_API_KEY",
-        ["google_api_key"] = "GOOGLE_API_KEY",
-        ["ilmu_api_key"] = "ILMU_API_KEY",
         ["elevenlabs_api_key"] = "ELEVENLABS_API_KEY",
-        ["local_base_url"] = "LOCAL_BASE_URL",
-        ["local_api_key"] = "LOCAL_API_KEY",
         ["chat_model"] = "WHATSAPP_CHAT_MODEL",
         ["chat_provider_pref"] = "CHAT_PROVIDER",
         ["email_subject"] = "EMAIL_DEFAULT_SUBJECT",
         ["embedding_provider"] = "EMBEDDING_PROVIDER",
         ["embedding_model"] = "EMBEDDING_MODEL",
         ["ai_reviewer_model"] = "AI_REVIEWER_MODEL",
-    };
+    });
+
+    /// <summary>The catalog's provider settings → their first env var.</summary>
+    private static Dictionary<string, string> ProviderEnv(Dictionary<string, string> map)
+    {
+        foreach (var p in LlmProviderCatalog.All)
+        {
+            if (p.KeyEnvs.Length > 0) map[p.KeySetting] = p.KeyEnvs[0];
+            if (p.BaseUrlSetting.Length > 0 && p.BaseUrlEnvs.Length > 0) map[p.BaseUrlSetting] = p.BaseUrlEnvs[0];
+            if (p.ModelEnvs.Length > 0) map[p.ModelSetting] = p.ModelEnvs[0];
+        }
+        return map;
+    }
 
     // key -> (default, minimum, env var). Mirrors app_settings._INT_TUNABLES.
     private static readonly Dictionary<string, (int Default, int Min, string Env)> IntTunables = new()
@@ -402,8 +417,8 @@ public static class VoiceMessagingEndpoints
         AiFields.Where(f => f.kind is "text" or "select" or "model").Select(f => f.key).ToArray();
 
     // wa_config.CHAT_PROVIDERS — "" (first) means automatic priority order.
-    private static readonly string[] ChatProviders = { "ilmu", "openrouter", "openai", "google", "local" };
-    private static readonly string[] DefaultProviderOrder = { "openrouter", "openai", "ilmu", "google" };
+    private static readonly string[] ChatProviders = LlmProviderCatalog.Ids;
+    private static readonly string[] DefaultProviderOrder = LlmProviderCatalog.Ids;
     private const string DefaultEmailSubject = "Regarding your account";
     private const string ChatProviderOrderKey = "chat_provider_order";
 
@@ -470,10 +485,37 @@ public static class VoiceMessagingEndpoints
     }
 
     private static bool AiAvailable(ScopingService sc) =>
-        StrOverEnv(sc, "openrouter_api_key", "OPENROUTER_API_KEY").Length > 0 ||
-        StrOverEnv(sc, "openai_api_key", "OPENAI_API_KEY").Length > 0 ||
-        StrOverEnv(sc, "ilmu_api_key", "ILMU_API_KEY").Length > 0 ||
-        StrOverEnv(sc, "google_api_key", "GOOGLE_API_KEY").Length > 0;
+        LlmProviderCatalog.All.Any(p => ProviderConfigured(sc, p));
+
+    /// <summary>A provider is on when it has a key (a keyless one — local — when it has a base URL).</summary>
+    private static bool ProviderConfigured(ScopingService sc, LlmProviderCatalog.ProviderDef p) =>
+        p.KeyOptional
+            ? p.BaseUrlSetting.Length > 0 && StrOverEnv(sc, p.BaseUrlSetting, EnvFor.GetValueOrDefault(p.BaseUrlSetting, "")).Length > 0
+            : StrOverEnv(sc, p.KeySetting, EnvFor.GetValueOrDefault(p.KeySetting, "")).Length > 0;
+
+    /// <summary>The settings page's provider tiles — never a key, only its masked tail.</summary>
+    private static object ProvidersPayload(ScopingService sc) => LlmProviderCatalog.All.Select(p => new
+    {
+        id = p.Id,
+        label = p.Label,
+        group = p.Group,
+        key_field = p.KeySetting,
+        key_masked = Mask(StrOverEnv(sc, p.KeySetting, EnvFor.GetValueOrDefault(p.KeySetting, ""))),
+        key_source = SourceOf(sc, p.KeySetting),
+        key_optional = p.KeyOptional,
+        key_url = p.KeyUrl,
+        base_url_field = p.BaseUrlSetting.Length > 0 ? p.BaseUrlSetting : null,
+        base_url = p.BaseUrlSetting.Length > 0
+            ? StrOverEnv(sc, p.BaseUrlSetting, EnvFor.GetValueOrDefault(p.BaseUrlSetting, "")) : "",
+        default_base_url = p.BaseUrl,
+        endpoints = p.Endpoints.Select(e => new { label = e.Label, url = e.Url }).ToList(),
+        model_field = p.ModelSetting,
+        model = StrOverEnv(sc, p.ModelSetting, EnvFor.GetValueOrDefault(p.ModelSetting, "")),
+        default_model = p.DefaultModel,
+        models = p.Models,
+        vision = p.Vision,
+        configured = ProviderConfigured(sc, p),
+    }).ToList();
 
     /// <summary>Where a value comes from: a dashboard row, backend/.env, or nothing.</summary>
     private static string SourceOf(ScopingService sc, string key)
@@ -489,19 +531,8 @@ public static class VoiceMessagingEndpoints
         return env.Length > 0 && Env(env).Length > 0 ? "env" : "";
     }
 
-    private static object ChatModelOptions() => new[]
-    {
-        new { provider = "openai", label = "OpenAI",
-              models = new[] { "gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini" } },
-        new { provider = "openrouter", label = "OpenRouter",
-              models = new[] { "openai/gpt-4o-mini", "openai/gpt-4o", "anthropic/claude-3.5-sonnet",
-                               "google/gemini-2.0-flash-001", "meta-llama/llama-3.1-70b-instruct" } },
-        new { provider = "google", label = "Google Gemini",
-              models = new[] { "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash" } },
-        new { provider = "ilmu", label = "ILMU", models = new[] { "ilmu-v3.1" } },
-        new { provider = "local", label = "Local (Ollama / LM Studio)",
-              models = new[] { "llama3.1", "llama3.2", "qwen2.5", "mistral", "gemma2" } },
-    };
+    private static object ChatModelOptions() => LlmProviderCatalog.All
+        .Select(p => new { provider = p.Id, label = p.Label, models = p.Models }).ToList();
 
     private const string EnvOnlyNote =
         "Live voice calls read ILMU_API_KEY / ELEVENLABS_API_KEY / PIPELINE_LLM_PROVIDER " +
@@ -517,6 +548,7 @@ public static class VoiceMessagingEndpoints
             ["fields"] = AiFields,
             ["chat_provider_options"] = new[] { "" }.Concat(ChatProviders).ToArray(),
             ["chat_model_options"] = ChatModelOptions(),
+            ["providers"] = ProvidersPayload(sc),
             // embeddings (semantic search): "" = automatic, "none" = keyword only
             ["embedding_provider_options"] = ChatBranch.Data.Ai.Learning.OpenAiEmbeddingClient.Choices,
             ["embedding_model_options"] = ChatBranch.Data.Ai.Learning.OpenAiEmbeddingClient.DefaultModels
@@ -569,6 +601,25 @@ public static class VoiceMessagingEndpoints
             Results.Ok(AiProvidersPayload(sc)))
             .RequireAuthorization(AuthPolicies.Authenticated).RequireCapability("settings.ai_keys.manage");
 
+        // POST …/test: one tiny round trip to a provider — the saved key, or a key /
+        // base URL / model typed in the panel but not saved yet. The answer names
+        // the HTTP status and the provider's reason, never the key.
+        app.MapPost("/api/settings/ai-providers/test", async (Dictionary<string, JsonElement>? body,
+            AppDbContext db, ClaimsPrincipal me, ChatBranch.Data.Ai.ILlmClient llm, CancellationToken ct) =>
+        {
+            if (await SettingsEndpoints.RequireCapability(db, me, "settings.ai_keys.manage") is { } denied)
+                return denied;
+            var id = LlmProviderCatalog.Normalize(body.Str("provider"));
+            if (id.Length == 0)
+                return Results.Json(new { detail = "Unknown provider." }, statusCode: 400);
+            if (llm is not OpenAiLlmClient client)
+                return Results.Json(new { detail = "The AI client is not available." }, statusCode: 503);
+            static string? Typed(string? v) => string.IsNullOrWhiteSpace(v) || Untouched(v) ? null : v.Trim();
+            var r = await client.TestAsync(id, Typed(body.Str("api_key")), Typed(body.Str("base_url")),
+                Typed(body.Str("model")), ct);
+            return Results.Ok(new { ok = r.Ok, provider = id, model = r.Model, reply = r.Reply, error = r.Error, ms = r.Ms });
+        }).RequireAuthorization(AuthPolicies.Authenticated);
+
         // PUT: the settings.ai_keys.manage capability (Settings → AI → AI keys &
         // models) — superadmin-only by default, like every org-wide credential.
         app.MapPut("/api/settings/ai-providers", async (Dictionary<string, JsonElement>? body,
@@ -589,6 +640,7 @@ public static class VoiceMessagingEndpoints
             if (patch.TryGetValue("chat_provider_pref", out var prefRaw))
             {
                 var pref = ((string)prefRaw!).ToLowerInvariant();
+                if (LlmProviderCatalog.Normalize(pref) is { Length: > 0 } known) pref = known;
                 if (pref.Length > 0 && !ChatProviders.Contains(pref))
                     return Results.Json(new
                     {

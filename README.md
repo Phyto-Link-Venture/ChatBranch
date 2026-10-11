@@ -128,7 +128,7 @@ you move to multi-host, that file layer is the seam to replace.
 ## Prerequisites
 
 - **.NET 8 SDK** (the API) and **Node 20+** (dashboard, gateway, voice agent).
-- **Only for real AI replies:** an OpenRouter, OpenAI, Google Gemini or ILMU key
+- **Only for real AI replies:** an OpenRouter, OpenAI, Anthropic, Google Gemini, Qwen, DeepSeek, Mistral, Groq, xAI, Kimi, Zhipu GLM or ILMU key
   (or a local OpenAI-compatible model).
 - **Only for real phone calls:** a [LiveKit](https://cloud.livekit.io) project
   with SIP, an OpenAI key with Realtime API access (`gpt-realtime`) or an

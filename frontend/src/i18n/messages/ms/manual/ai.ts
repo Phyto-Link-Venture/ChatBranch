@@ -509,7 +509,7 @@ export const ai: Dict<typeof source> = {
       },
       s8: {
         title: 'Cuba di taman permainan',
-        body: 'Buka Automasi → “Taman permainan AI” dan tanya “Boleh hantar invois untuk 2 potongan rambut?”. Pemeriksa menunjukkan “Akan menghantar Invois …” dengan “Buka pratonton” — PDF sebenar, tetapi tiada yang disimpan.',
+        body: 'Buka Automasi → “Ruang uji AI” dan tanya “Boleh hantar invois untuk 2 potongan rambut?”. Pemeriksa menunjukkan “Akan menghantar Invois …” dengan “Buka pratonton” — PDF sebenar, tetapi tiada yang disimpan.',
       },
       s9: {
         title: 'Lihat apa yang dihantar',
@@ -584,50 +584,50 @@ export const ai: Dict<typeof source> = {
 
   aiKeys: {
     title: 'Sambungkan model AI (Kunci & model AI)',
-    summary: 'Tampal kunci daripada penyedia AI supaya AI menulis balasan sebenar, pilih model, dan hidupkan carian berasaskan makna.',
-    before: 'Hanya superadmin boleh melakukannya (kebenaran kunci AI). Cipta kunci API dahulu di laman web penyedia — OpenRouter, OpenAI atau Google AI Studio (Gemini) — dan sediakan untuk ditampal.',
+    summary: 'Sambungkan satu atau lebih penyedia AI supaya AI menulis balasan sebenar, pilih model dan hidupkan carian berdasarkan makna.',
+    before: 'Hanya superadmin boleh melakukannya (kebenaran kunci AI). Cipta kunci API dahulu di laman web penyedia — contohnya OpenRouter, OpenAI, Anthropic, Google AI Studio (Gemini), Qwen atau DeepSeek — dan sediakan untuk ditampal.',
     steps: {
       s1: {
         title: 'Buka Kunci & model AI',
         body: 'Klik “Tetapan” di bahagian bawah bar sisi. Dalam bahagian AI, buka “Kunci & model AI”.',
       },
       s2: {
-        title: 'Tampal kunci anda',
-        body: 'Dalam “Kunci penyedia, penyedia sembang & model”, tampal kunci anda ke dalam “Kunci API OpenRouter”, “Kunci API OpenAI” atau “Kunci API Google Gemini”. Satu kunci sudah memadai.',
+        title: 'Pilih penyedia anda',
+        body: 'Di bawah “Penyedia AI”, klik jubin syarikat AI anda — contohnya “OpenRouter”, “Anthropic (Claude)”, “Google Gemini” atau “Qwen (Alibaba Cloud)”. Taip dalam “Cari penyedia” atau gunakan penapis “Disambung” untuk mencarinya dengan cepat.',
       },
       s3: {
-        title: 'Biarkan penyedia pada Automatik',
-        body: 'Dalam “Penyedia AI sembang”, kekalkan “Automatik (susunan keutamaan)” — AI menggunakan penyedia pertama yang mempunyai kunci. Pilih satu penyedia sahaja jika anda mahu yang itu sahaja.',
+        title: 'Tampal kunci dan uji',
+        body: 'Dalam panel, tampal kunci anda ke dalam “Kunci API” dan klik “Uji sambungan”. “Berjaya” bermakna kunci itu betul. Klik “Simpan” — jubin kini menunjukkan “Disambung”. Satu penyedia sudah cukup.',
       },
       s4: {
         title: 'Pilih model (pilihan)',
-        body: 'Dalam “Model sembang”, kekalkan “Lalai penyedia”, pilih model daripada senarai, atau pilih “Tersuai…” dan taip id model seperti openai/gpt-4o-mini.',
+        body: 'Dalam panel yang sama, biarkan “Model lalai” pada lalainya, pilih model lain daripada senarai, atau pilih “Tersuai…” dan taip mana-mana ID model. Untuk Qwen, Kimi dan Zhipu, pilih juga “Rantau”.',
       },
       s5: {
-        title: 'Simpan',
-        body: 'Klik “Simpan perubahan” di bahagian atas halaman. Status bertukar daripada “Balasan AI dimatikan — tiada kunci penyedia” kepada “Balasan AI sedia”.',
+        title: 'Pilih siapa yang menjawab',
+        body: 'Dalam “Siapa yang menjawab”, biarkan “Automatik (susunan keutamaan)” untuk mencuba penyedia yang disambung secara bergilir, atau pilih satu penyedia untuk menggunakannya sahaja. Jika anda mengubahnya, klik “Simpan perubahan” di bahagian atas halaman.',
       },
       s6: {
-        title: 'Fahami maksud “kotak pasir”',
-        body: 'Tanpa kunci, AI berjalan dalam mod kotak pasir: jawapan terbina dalam yang ringkas atau gema, tidak pernah model sebenar. Ruang uji AI menunjukkan lencana “Kotak pasir” sehingga kunci berfungsi.',
+        title: 'Fahami maksud “sandbox”',
+        body: 'Tanpa kunci, AI berjalan dalam mod sandbox: jawapan terbina dalam yang ringkas atau gema, bukan model sebenar. Ruang uji AI menunjukkan lencana “Sandbox” sehingga kunci berfungsi.',
       },
       s7: {
-        title: 'Hidupkan carian berasaskan makna (pilihan)',
-        body: 'Dalam “Embedding (carian semantik)”, kekalkan “Penyedia” pada “Automatik” (ia menggunakan kunci OpenAI atau Gemini anda) supaya “boleh saya dapat duit balik?” masih menemui polisi bayaran balik anda. “Tutup (carian kata kunci)” memadankan perkataan sahaja.',
+        title: 'Hidupkan carian berdasarkan makna (pilihan)',
+        body: 'Buka “Tetapan lanjutan”. Dalam “Embedding (carian semantik)”, biarkan “Penyedia” pada “Automatik” (ia menggunakan kunci OpenAI atau Gemini anda) supaya “boleh saya dapat wang saya balik?” masih menemui polisi bayaran balik anda. “Tutup” hanya memadankan perkataan (carian kata kunci).',
       },
       s8: {
         title: 'Uji',
-        body: 'Buka Automasi → “Ruang uji AI” dan hantar mesej. Balasan sebenar tanpa lencana “Kotak pasir” bermakna model telah disambungkan.',
+        body: 'Buka Automasi → “Ruang uji AI” dan hantar mesej. Balasan sebenar tanpa lencana “Sandbox” bermakna model telah disambung.',
       },
     },
-    done: 'Halaman menyatakan “Balasan AI sedia” dan Ruang uji AI menjawab tanpa lencana “Kotak pasir”.',
+    done: 'Halaman menunjukkan “Balasan AI sedia”, jubin penyedia anda menunjukkan “Disambung”, dan ruang uji AI menjawab tanpa lencana “Sandbox”.',
     tips: {
-      t1: 'Kunci yang disimpan disembunyikan dan tidak dipaparkan lagi — simpan salinan dalam pengurus kata laluan anda.',
-      t2: 'OpenRouter memberi anda banyak model dengan satu kunci; Gemini mempunyai peringkat percuma yang sesuai untuk ujian.',
-      t3: 'Kos AI dipaparkan di halaman Bil AI (Semakan → Bil AI).',
+      t1: 'Kunci yang disimpan disembunyikan dan tidak akan ditunjukkan lagi — simpan salinan dalam pengurus kata laluan anda.',
+      t2: 'OpenRouter memberi anda banyak model dengan satu kunci; Gemini ada peringkat percuma untuk ujian; Qwen dan DeepSeek ialah pilihan kos rendah di Asia.',
+      t3: 'Kos AI ditunjukkan pada halaman bil AI (Semakan → Bil AI).',
       t4: 'Panggilan suara langsung membaca kuncinya daripada fail tetapan ejen suara sendiri, bukan daripada halaman ini.',
     },
-    trouble: 'Masih dalam kotak pasir selepas menyimpan: kunci mungkin salah atau kehabisan kredit, atau penyedia yang dipilih gagal — penyedia yang dipilih tidak pernah beralih kepada yang lain. Tetapkan “Penyedia AI sembang” kepada Automatik dan semak kunci di laman web penyedia.',
+    trouble: 'Masih dalam sandbox selepas menyimpan: buka jubin penyedia dan klik “Uji sambungan” — mesej itu menerangkan sebabnya (kunci salah, tiada kredit, model yang tidak boleh digunakan oleh akaun). Penyedia yang dipilih tidak akan beralih kepada penyedia lain; tetapkan “Siapa yang menjawab” kepada Automatik supaya penyedia seterusnya boleh menggantikannya.',
   },
 
   aiVoice: {

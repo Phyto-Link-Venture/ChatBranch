@@ -7,16 +7,10 @@ namespace ChatBranch.Data.Ai;
 /// <summary>
 /// Real chat-completions client (port of aicore/assistant.py + wa_config chat
 /// provider resolution). Every provider is spoken to through its
-/// OpenAI-compatible <c>/chat/completions</c> endpoint:
-/// <list type="bullet">
-///   <item><c>openrouter</c> — https://openrouter.ai/api/v1 (<c>openrouter_api_key</c>)</item>
-///   <item><c>openai</c> — https://api.openai.com/v1 (<c>openai_api_key</c>)</item>
-///   <item><c>ilmu</c> — YTL ILMU, <c>ILMU_BASE_URL</c> (default https://api.ilmu.ai/v1),
-///         <c>ilmu_api_key</c>, model <c>ilmu-v3.1</c></item>
-///   <item><c>google</c> — Gemini at https://generativelanguage.googleapis.com/v1beta/openai
-///         (<c>google_api_key</c>), model <c>gemini-2.5-flash</c></item>
-///   <item><c>local</c> — Ollama / LM Studio at <c>local_base_url</c> (optional <c>local_api_key</c>)</item>
-/// </list>
+/// OpenAI-compatible <c>/chat/completions</c> endpoint; WHICH providers exist —
+/// OpenRouter, OpenAI, Anthropic, ILMU, Gemini, Mistral, xAI, Groq, DeepSeek,
+/// Qwen, Kimi, Zhipu GLM and a local / custom endpoint — with their key, base
+/// URL and model settings is <see cref="LlmProviderCatalog"/>.
 /// Which one answers: the pinned provider (<c>chat_provider_pref</c>, mirrored to
 /// <c>chat_provider</c>; env <c>CHAT_PROVIDER</c>) when it has a key — and ONLY
 /// it: a pin is a deliberate choice (data residency for ILMU), so a failing pinned
@@ -45,7 +39,10 @@ public class OpenAiLlmClient : ILlmClient
     /// <summary>OpenRouter's <c>max_tokens</c> when <c>openrouter_max_tokens</c> is unset.</summary>
     public const int OpenRouterMaxTokensDefault = 2048;
 
-    public static readonly string[] DefaultOrder = { "openrouter", "openai", "ilmu", "google", "local" };
+    public static readonly string[] DefaultOrder = LlmProviderCatalog.Ids;
+
+    /// <summary>The <c>max_tokens</c> sent to providers that need one (Anthropic) when no setting says otherwise.</summary>
+    public const int MaxTokensDefault = 4096;
 
     public OpenAiLlmClient(IHttpClientFactory http, ScopingService scoping)
     {
@@ -63,21 +60,16 @@ public class OpenAiLlmClient : ILlmClient
     public sealed record Provider(string Name, string BaseUrl, string ApiKey, string Model);
 
     /// <summary>Human names of the providers (the keys never leave the server; these may).</summary>
-    public static readonly IReadOnlyDictionary<string, string> Labels = new Dictionary<string, string>
-    {
-        ["openrouter"] = "OpenRouter",
-        ["openai"] = "OpenAI",
-        ["ilmu"] = "ILMU",
-        ["google"] = "Google Gemini",
-        ["local"] = "Local model",
-    };
+    public static readonly IReadOnlyDictionary<string, string> Labels =
+        LlmProviderCatalog.All.ToDictionary(p => p.Id, p => p.Label);
 
     public bool IsConfigured => Candidates().Count > 0;
 
     /// <summary>The providers whose OpenAI-compatible endpoint takes <c>image_url</c> content parts.</summary>
-    public static readonly string[] VisionProviders = { "openrouter", "openai", "google" };
+    public static readonly string[] VisionProviders =
+        LlmProviderCatalog.All.Where(p => p.Vision).Select(p => p.Id).ToArray();
 
-    /// <summary>The provider that would answer first reads images (OpenRouter / OpenAI / Gemini).</summary>
+    /// <summary>The provider that would answer first reads images (OpenRouter / OpenAI / Anthropic / Gemini).</summary>
     public bool SupportsVision => Candidates().FirstOrDefault() is { } p && VisionProviders.Contains(p.Name);
 
     /// <summary>
@@ -108,8 +100,7 @@ public class OpenAiLlmClient : ILlmClient
     /// </summary>
     public OpenAiLlmClient? Pinned(string provider, string? model = null)
     {
-        var name = (provider ?? "").Trim().ToLowerInvariant();
-        if (name == "gemini") name = "google";
+        var name = LlmProviderCatalog.Normalize(provider);
         var p = Configured().FirstOrDefault(x => x.Name == name);
         if (p == null) return null;
         return new OpenAiLlmClient(_http, _scoping,
@@ -164,7 +155,7 @@ public class OpenAiLlmClient : ILlmClient
 
         var pin = S("chat_provider_pref").ToLowerInvariant();
         if (pin.Length == 0) pin = S("chat_provider", "CHAT_PROVIDER").ToLowerInvariant();
-        if (pin is "gemini") pin = "google";
+        pin = LlmProviderCatalog.Normalize(pin);
 
         List<string> order;
         if (pin.Length > 0 && keyed.ContainsKey(pin)) order = new List<string> { pin };
@@ -180,31 +171,57 @@ public class OpenAiLlmClient : ILlmClient
         return list;
     }
 
-    /// <summary>Every provider with a key (local: a base URL), by name, with its built-in default model.</summary>
+    /// <summary>Every provider with a key (local: a base URL), by name, with its effective
+    /// base URL and default model (the provider's own model setting, else the catalog's).</summary>
     private Dictionary<string, Provider> Keyed()
     {
         var keyed = new Dictionary<string, Provider>();
-        var openrouter = S("openrouter_api_key", "OPENROUTER_API_KEY");
-        if (openrouter.Length > 0)
-            keyed["openrouter"] = new("openrouter", "https://openrouter.ai/api/v1", openrouter, "openai/gpt-4o-mini");
-        var openai = S("openai_api_key", "OPENAI_API_KEY");
-        if (openai.Length > 0)
-            keyed["openai"] = new("openai", "https://api.openai.com/v1", openai, "gpt-4o-mini");
-        var ilmu = S("ilmu_api_key", "ILMU_API_KEY");
-        if (ilmu.Length > 0)
+        foreach (var d in LlmProviderCatalog.All)
         {
-            var baseUrl = S("ilmu_base_url", "ILMU_BASE_URL");
-            var model = S("ilmu_chat_model", "ILMU_LLM_MODEL");
-            keyed["ilmu"] = new("ilmu", (baseUrl.Length > 0 ? baseUrl : IlmuBaseUrlDefault).TrimEnd('/'), ilmu,
-                model.Length > 0 ? model : "ilmu-v3.1");
+            var key = S(d.KeySetting, d.KeyEnvs);
+            var baseUrl = d.BaseUrlSetting.Length > 0 ? S(d.BaseUrlSetting, d.BaseUrlEnvs) : "";
+            if (baseUrl.Length == 0) baseUrl = d.BaseUrl;
+            // a keyless provider (local) is on when it has a URL; the rest need a key
+            if (d.KeyOptional ? baseUrl.Length == 0 : key.Length == 0) continue;
+            var model = S(d.ModelSetting, d.ModelEnvs);
+            keyed[d.Id] = new(d.Id, baseUrl.TrimEnd('/'), key, model.Length > 0 ? model : d.DefaultModel);
         }
-        var google = S("google_api_key", "GOOGLE_API_KEY", "GEMINI_API_KEY");
-        if (google.Length > 0)
-            keyed["google"] = new("google", GeminiBaseUrl, google, "gemini-2.5-flash");
-        var localBase = S("local_base_url", "LOCAL_BASE_URL");
-        if (localBase.Length > 0)
-            keyed["local"] = new("local", localBase.TrimEnd('/'), S("local_api_key", "LOCAL_API_KEY"), "local");
         return keyed;
+    }
+
+    /// <summary>
+    /// One small round trip to a provider — "Test connection" on the settings page.
+    /// <paramref name="overrides"/> lets a key / base URL / model typed but not saved
+    /// yet be tried. Never throws; the error names the HTTP status and the provider's
+    /// own reason, never the key.
+    /// </summary>
+    public async Task<(bool Ok, string Model, string Reply, string Error, long Ms)> TestAsync(string provider,
+        string? apiKey = null, string? baseUrl = null, string? model = null, CancellationToken ct = default)
+    {
+        var id = LlmProviderCatalog.Normalize(provider);
+        if (id.Length == 0) return (false, "", "", "Unknown provider.", 0);
+        var d = LlmProviderCatalog.ById[id];
+        var saved = Keyed().GetValueOrDefault(id);
+        var key = !string.IsNullOrWhiteSpace(apiKey) ? apiKey.Trim() : saved?.ApiKey ?? "";
+        var url = !string.IsNullOrWhiteSpace(baseUrl) ? baseUrl.Trim()
+            : saved?.BaseUrl ?? (d.BaseUrl.Length > 0 ? d.BaseUrl : "");
+        var useModel = !string.IsNullOrWhiteSpace(model) ? model.Trim() : saved?.Model ?? d.DefaultModel;
+        if (url.Length == 0) return (false, useModel, "", "Set the base URL first.", 0);
+        if (key.Length == 0 && !d.KeyOptional) return (false, useModel, "", "Add an API key first.", 0);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            var r = await SendAsync(new Provider(id, url.TrimEnd('/'), key, useModel), useModel,
+                "You are a connection test. Reply with the single word OK.",
+                new List<LlmMessage> { new("user", "Say OK.") }, null, 0, ct);
+            return (true, r.Model, r.Text.Length > 60 ? r.Text[..60] : r.Text, "", sw.ElapsedMilliseconds);
+        }
+        catch (Exception ex)
+        {
+            var why = ex.Message.Length > 300 ? ex.Message[..300] + "…" : ex.Message;
+            if (key.Length > 0) why = why.Replace(key, "••••");
+            return (false, useModel, "", why, sw.ElapsedMilliseconds);
+        }
     }
 
     public async Task<LlmResult> CompleteAsync(string system,
@@ -262,13 +279,17 @@ public class OpenAiLlmClient : ILlmClient
         // ILMU (ilmu-v3.1) and Gemini 2.5 are reasoning models: "low" turns the
         // extended thinking off — faster, and no think-block leaking into a reply
         // (the voice agent does the same; Gemini's OpenAI endpoint takes this knob)
-        if (provider.Name is "ilmu" or "google") body["reasoning_effort"] = "low";
+        var def = LlmProviderCatalog.ById.GetValueOrDefault(provider.Name);
+        if (def?.ReasoningLow == true) body["reasoning_effort"] = "low";
         // OpenRouter checks the key's credit against the model's FULL output
         // ceiling (65k for Sonnet) when max_tokens is absent - even on a BYOK key
         // that would cost nothing - and answers 402. A modest cap fits any balance.
+        // Anthropic's API requires max_tokens on every call.
         if (provider.Name == "openrouter")
             body["max_tokens"] = int.TryParse(S("openrouter_max_tokens", "OPENROUTER_MAX_TOKENS"), out var mt) && mt > 0
                 ? mt : OpenRouterMaxTokensDefault;
+        else if (def?.SendsMaxTokens == true)
+            body["max_tokens"] = MaxTokensDefault;
         // ask OpenRouter for the call's real cost (usage.cost) so the bill needs no price table
         if (provider.Name == "openrouter") body["usage"] = new { include = true };
         if (tools is { Count: > 0 })

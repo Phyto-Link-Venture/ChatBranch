@@ -508,7 +508,7 @@ public static class AiPlaygroundEndpoints
     internal static (double Usd, bool Priced) EstimateCost(ScopingService sc, string? model, int prompt, int completion)
     {
         var prices = AnalyticsEndpoints.PriceTable(sc);
-        if (string.IsNullOrEmpty(model) || !prices.TryGetValue(model, out var p)) return (0, false);
+        if (!ChatBranch.Data.Ai.LlmPricing.TryPrice(prices, model, out var p)) return (0, false);
         return (Math.Round((prompt * p.In + completion * p.Out) / 1_000_000d, 6), true);
     }
 

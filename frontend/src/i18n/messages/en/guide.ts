@@ -663,20 +663,20 @@ export const guide = {
           body: 'Green means AI replies are ready. Grey means no key is set yet, so the AI cannot write real replies.',
         },
         s3: {
-          title: 'Keys, provider and model',
-          body: 'Paste the key from your AI company, pick the provider (or Automatic to try them in order) and choose the model.',
+          title: 'Your AI providers',
+          body: 'Each tile is one AI company — OpenRouter, OpenAI, Anthropic, Gemini, Qwen, DeepSeek and more. Click one, paste its key and press Test connection. Connect as many as you like.',
         },
         s4: {
-          title: 'Where a value comes from',
-          body: 'Each field says “from Settings” (saved here), “from .env” (set on the server) or “not set”.',
+          title: 'Who answers',
+          body: 'Automatic tries your connected providers in order; pick one to use only it. The chip says whether the choice is saved here (“from Settings”), set on the server (“from .env”) or “not set”.',
         },
         s5: {
           title: 'Advanced settings',
-          body: 'Extra providers, embeddings (for smarter knowledge search) and timing. The defaults work for most businesses.',
+          body: 'The AI reviewer model, ElevenLabs voices, embeddings (smarter knowledge search) and timings. The defaults work for most businesses.',
         },
         s6: {
           title: 'Save',
-          body: 'After changing anything, click Save changes at the top of the page. Discard undoes your edits.',
+          body: 'A provider’s panel saves itself. Changes to “Who answers” or Advanced settings need Save changes at the top of the page; Discard undoes them.',
         },
       },
     },

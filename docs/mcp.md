@@ -580,6 +580,7 @@ your scope first; `wa:` names the WhatsApp twin of a conversation route.
 | `GET /api/settings` | raw Setting rows (credential keys included) — the specific settings tools read their own keys |
 | `GET /api/settings/ai-providers` | AI keys & models (settings.ai_keys.manage) — credential settings page (masked secrets + webhook verify tokens) — no operator task needs it from an AI |
 | `PUT /api/settings/ai-providers` | AI provider keys — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
+| `POST /api/settings/ai-providers/test` | tries an AI provider key (one typed in the panel may ride along) — credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
 | `GET /api/whatsapp/settings` | WhatsApp Cloud app settings + verify token — credential settings page (masked secrets + webhook verify tokens) — no operator task needs it from an AI |
 | `POST /api/whatsapp/settings` | credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |
 | `PUT /api/whatsapp/settings` | credential write: it stores provider/app secrets (tokens, passwords, API keys) — a person enters those in the dashboard; tools never carry secrets |

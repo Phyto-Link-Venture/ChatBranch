@@ -48,11 +48,49 @@ public static class LlmPricing
     {
         if (reported is double r) return r;
         var cost = 0d;
-        if (prices.TryGetValue(model ?? "", out var p))
+        if (TryPrice(prices, model, out var p))
             cost += (prompt * p.In + completion * p.Out) / 1_000_000d;
         if (prices.TryGetValue((model ?? "") + ":audio", out var a))
             cost += (audioPrompt * a.In + audioCompletion * a.Out) / 1_000_000d;
         return cost;
+    }
+
+    /// <summary>
+    /// A model's price: the exact id, else — for a model called straight at its
+    /// vendor (Anthropic's <c>claude-haiku-5-5</c>, Qwen's <c>qwen-plus</c>) — the
+    /// ONE OpenRouter row whose name after the vendor prefix matches it, dots and
+    /// dashes alike (<c>anthropic/claude-haiku-5.5</c>). Ambiguous = unknown.
+    /// </summary>
+    public static bool TryPrice(Dictionary<string, (double In, double Out)> prices, string? model,
+        out (double In, double Out) price)
+    {
+        price = default;
+        if (string.IsNullOrEmpty(model)) return false;
+        if (prices.TryGetValue(model, out price)) return true;
+        if (model.Contains('/')) return false;
+        var index = SuffixIndex.GetValue(prices, BuildSuffixIndex);
+        if (index.TryGetValue(Norm(model), out var hit) && hit is { } found) { price = found; return true; }
+        return false;
+    }
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<
+        Dictionary<string, (double In, double Out)>, Dictionary<string, (double In, double Out)?>> SuffixIndex = new();
+
+    private static string Norm(string model) => model.Trim().ToLowerInvariant().Replace('.', '-');
+
+    private static Dictionary<string, (double In, double Out)?> BuildSuffixIndex(
+        Dictionary<string, (double In, double Out)> prices)
+    {
+        var index = new Dictionary<string, (double In, double Out)?>();
+        foreach (var (key, value) in prices)
+        {
+            var slash = key.IndexOf('/');
+            if (slash < 0 || key.EndsWith(":audio", StringComparison.Ordinal)) continue;
+            var suffix = Norm(key[(slash + 1)..]);
+            // two vendors with the same model name → no guess (null marks it ambiguous)
+            index[suffix] = index.ContainsKey(suffix) && index[suffix] != value ? null : value;
+        }
+        return index;
     }
 
     private static void Merge(Dictionary<string, (double In, double Out)> merged, string? raw)

@@ -659,17 +659,34 @@ When you fix one of these, update this table, `README.md` and
   returning `AiReplyResult`** (text, draft, tools, checks, retries, tokens,
   `Grounding` = what the reply was based on, `PendingActions` = calendar
   reservations) — callers send. Every path is exception-safe. LLM:
-  `OpenAiLlmClient` speaks OpenAI-compatible `/chat/completions` to openrouter,
-  openai, **ilmu** (`ILMU_BASE_URL`, default `https://api.ilmu.ai/v1`,
-  `ilmu-v3.1`), **google** (Gemini's `…/v1beta/openai`, `gemini-2.5-flash`) and
-  local; keys from Setting rows (`openrouter_api_key`, `openai_api_key`,
-  `ilmu_api_key`, `google_api_key`, `local_base_url`, `chat_model` — env
-  `WHATSAPP_CHAT_MODEL`) with process-env fallback. A pin (`chat_provider_pref`,
-  mirrored to `chat_provider`) is used ALONE (failure → sandbox, never another
-  vendor); else `chat_provider_order` is tried in order, an error falling through
-  to the next (`chat_model` applies to the first only). Edited at Settings → AI
-  keys & models (`/api/settings/ai-providers`, `settings.ai_keys.manage` — it
-  also holds `embedding_provider` / `embedding_model`, `EmbeddingsSection.tsx`);
+  `OpenAiLlmClient` speaks OpenAI-compatible `/chat/completions` to every
+  provider in ONE list, `Ai/LlmProviderCatalog.cs` (id, label, group global |
+  asia | self, key setting + env, base URL + optional override setting / region
+  `Endpoints`, own default-model setting `<id>_chat_model`, suggested models,
+  vision, reasoning-low, max_tokens, where to get a key, OpenRouter price
+  vendor): openrouter, openai, **anthropic** (`api.anthropic.com/v1`, Claude,
+  `max_tokens` always sent), **ilmu** (`ILMU_BASE_URL`, `ilmu-v3.1`), **google**
+  (Gemini's `…/v1beta/openai`), mistral, xai, groq, deepseek, **qwen**
+  (DashScope, international or China `qwen_base_url`), moonshot (Kimi), zhipu
+  (GLM) and local (any OpenAI-compatible URL, key optional) — a new vendor is a
+  row there; the client, the settings page, the playground / reviewer pickers,
+  `AiAvailable` and the vision list all read it. Keys from Setting rows
+  (`<id>_api_key`, `chat_model` — env `WHATSAPP_CHAT_MODEL`) with process-env
+  fallback. A pin (`chat_provider_pref`, mirrored to `chat_provider`; nicknames
+  like claude / kimi / gemini normalized) is used ALONE (failure → sandbox,
+  never another vendor); else `chat_provider_order` is tried in order, an error
+  falling through to the next (`chat_model` applies to the first only). Edited
+  at Settings → AI keys & models (`/api/settings/ai-providers`,
+  `settings.ai_keys.manage` — the payload's `providers` list feeds a tile per
+  provider (search, Connected filter, Global · Asia · Self-hosted) whose panel
+  saves that provider alone and `POST /api/settings/ai-providers/test
+  {provider, api_key?, base_url?, model?}` tries it, a typed key never echoed;
+  "Who answers" = the pin / order / model override; Advanced = the reviewer
+  model, ElevenLabs, `embedding_provider` / `embedding_model`
+  (`EmbeddingsSection.tsx`) and the tunables). A vendor-direct model id is
+  priced from OpenRouter's list by its name after the vendor prefix
+  (`LlmPricing.TryPrice`: `claude-haiku-5-5` → `anthropic/claude-haiku-5.5`,
+  ambiguous = unknown). Tests: `LlmProviderCatalogTests`;
   nothing configured → `SandboxLlmClient`. Usage is
   metered into `LlmUsage` at every call site; costs are estimated at READ time
   from Setting `llm_prices` (`AnalyticsService`). Case summaries
@@ -1853,7 +1870,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **944 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **949 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /

@@ -50,6 +50,7 @@ public static class McpExclusions
         new("GET", "/api/settings", "raw Setting rows (credential keys included) — the specific settings tools read their own keys"),
         new("GET", "/api/settings/ai-providers", "AI keys & models (settings.ai_keys.manage) — " + CredentialRead),
         new("PUT", "/api/settings/ai-providers", "AI provider keys — " + Credentials),
+        new("POST", "/api/settings/ai-providers/test", "tries an AI provider key (one typed in the panel may ride along) — " + Credentials),
         new("GET", "/api/whatsapp/settings", "WhatsApp Cloud app settings + verify token — " + CredentialRead),
         new("POST", "/api/whatsapp/settings", Credentials),
         new("PUT", "/api/whatsapp/settings", Credentials),
