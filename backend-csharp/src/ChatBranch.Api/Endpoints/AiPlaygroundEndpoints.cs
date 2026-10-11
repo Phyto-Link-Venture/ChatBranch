@@ -308,6 +308,13 @@ public static class AiPlaygroundEndpoints
                     text = turns[reaction.MessageId - 1].Text,
                 },
                 quote = r.ReplyToId is int q ? Turn(q) : null,
+                // ai_voice_replies: would production send this reply as a voice note? (no audio is made here)
+                voice_note = r.ShouldSend
+                             && ChatBranch.Data.Ai.Voice.VoiceReplyService.Supports(channel, inbox)
+                             && ChatBranch.Data.Ai.Voice.VoiceReplyService.Speakable(said) != null
+                             && (policy.VoiceReplies == "always"
+                                 || policy.VoiceReplies == "mirror"
+                                 && ChatBranch.Data.Ai.Voice.VoiceReplyService.IsAudio(new Message { Text = turns[^1].Text })),
                 touches = new { emoji_style = opts.EmojiStyle, reactions = opts.Reactions, quotes = opts.Quotes },
                 production = new
                 {

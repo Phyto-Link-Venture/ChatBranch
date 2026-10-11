@@ -129,6 +129,9 @@ public class Message
     /// Baileys <c>contextInfo.stanzaId</c>, Telegram <c>reply_to_message.message_id</c>,
     /// Messenger <c>reply_to.mid</c>). "" = not a reply.</summary>
     public string ReplyToExternalId { get; set; } = "";
+    /// <summary>What a voice note / audio message SAYS — written once by the speech-to-text
+    /// step (<c>Ai/Voice/VoiceTranscriber.cs</c>) so the AI reads words, not "[audio]". "" = none.</summary>
+    public string Transcript { get; set; } = "";
     public DateTime CreatedAt { get; set; }
 }
 

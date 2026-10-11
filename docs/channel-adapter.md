@@ -35,6 +35,8 @@ another.
 | Typing / read | ✅ Graph `typing_indicator` | ✅ gateway presence | — | ✅ `sendChatAction` (typing) | ✅ `mark_seen` + `typing_on` (24h window only) | — |
 | Quoted replies | ✅ in `context.id` · out `context.message_id` | ✅ in `contextInfo.stanzaId` · out gateway `quoted_id` | — | ✅ in `reply_to_message` · out `reply_parameters` | in only (`reply_to.mid`); our replies go unquoted | — |
 | Reactions | ✅ in `type: reaction` · out `type: reaction` (24h window, else 409) | ✅ in `reactionMessage` · out gateway `react` | — | ✅ in `message_reaction` · out `setMessageReaction` (Telegram's own emoji set) | — (409) | — (409) |
+| AI voice replies (`ai_voice_replies`) | ✅ upload Ogg/Opus → `type: audio` (a voice note) | ✅ gateway `send-media` with `ptt: true` (`audio/ogg; codecs=opus`) | text | ✅ `sendVoice` (Ogg/Opus, no caption) | ✅ MP3 audio attachment (inside the window) | text |
+| Inbound voice notes → words | ✅ transcribed (`crm_message.transcript`) | ✅ | — | ✅ | ✅ (audio attachments) | — |
 | 24h window | ✅ enforced (409 → use a template); 131047 closes it | none | none | none | ✅ ≤24h anything; 24h–7d a person only (`HUMAN_AGENT` tag), AI/automation refused; >7d refused | — |
 | Opt-out | ✅ STOP/UNSUBSCRIBE/BERHENTI → opted out, START/UNSTOP/MULA → back in | same | same | same | same | same |
 | Health | ✅ Graph token ping (prober) + send / status / test results (`MetaErrors`), inbound heal | ✅ lifecycle pushes + inbound heal | — | ✅ getMe + getWebhookInfo, inbound heal | ✅ `GET /me` (prober, test), send results, inbound heal | ✅ SMTP login (prober), send outcomes |
@@ -66,6 +68,7 @@ docs and tested against fakes only — unverified against the live APIs.**
 | Health (Test + prober) | the number's profile (`phoneNumbers/{waba}/{phone}`) else `GET /balance` | `GET /Accounts/{sid}.json` (suspended / closed → health) |
 | Auth on inbound | `YCloud-Signature: t=…,s=…` (hex HMAC-SHA256 of `t.body`, 5-min window) | `X-Twilio-Signature` (the Auth Token — an API-key-only account cannot receive) |
 | Voice calls | ❌ (`call/start` → 501) | ❌ (`call/start` → 501) |
+| AI voice replies | ✅ like Cloud (upload → `type: audio`) | text (no voice notes) |
 
 **Newer channels** — one webhook per ACCOUNT,
 `/api/messaging/webhook/{channel}/{account_id}`; no secret configured ⇒ 503,
@@ -532,3 +535,27 @@ enumerating channel ids. Steps 1, 6, 7 and 8 above still apply.
   (every endpoint path in one class each) and have never run against the live
   services; the inbox marks them "Requires approval". Treat a first account as
   the integration test.
+
+## AI voice replies and voice notes the AI can read
+
+`Ai/Voice/` (`SpeechClient`, `VoiceReplyService`, `VoiceTranscriber`). Setting
+`ai_voice_replies` off (default) | mirror | always + `ai_voice_id`, resolved inbox →
+entity → organization like every human-like touch. At DELIVERY (`AiGate.Deliver` /
+the queue's `voice: true` job → `AiGate.SendVoiceOrText`) the reply's words are cleaned
+(markdown, emoji, message ids; a link or > 1500 characters keeps it TEXT), spoken by
+ElevenLabs (`POST /v1/text-to-speech/{voice_id}?output_format=opus_48000_64` for
+WhatsApp / Telegram — checked to be Ogg — `mp3_44100_128` for Messenger / Instagram,
+model `eleven_multilingual_v2`, env `ELEVENLABS_TTS_MODEL`), stored as conversation
+media and sent ONCE through `OutboundSender.SendVoiceNote`. The message row keeps the
+words with the audio attached. Text instead — never silence — on every other channel
+(email, SMS, LINE, Viber, WeChat, Zalo, TikTok, Douyin, widget, Twilio WhatsApp), with
+no ElevenLabs key, at the entity's AI quota, or when TTS / the media send fails (no
+failed row is left). Metered as `LlmUsage` `voice_reply` (characters as prompt tokens).
+⚠ Built to ElevenLabs' documented request shapes; the tests run against fakes.
+
+Inbound audio is transcribed lazily right before the AI writes (`AiComposer` →
+`VoiceTranscriber.TranscribePendingAsync`, 20 s budget): OpenAI
+`/v1/audio/transcriptions` (`gpt-4o-mini-transcribe`, env `OPENAI_STT_MODEL`) else
+ElevenLabs `/v1/speech-to-text` (`scribe_v1`) else nothing ("[audio]" stays). Stored on
+`Message.Transcript`, read as "[voice note] …" by the AI and the case summary, exposed
+as `transcript` on message payloads, metered as `LlmUsage` `transcription`.

@@ -44,7 +44,9 @@ is a settings exercise, not a fork — see
 - **AI monitor** (`/ai-monitor`) — every AI message is recorded; choose auto,
   review risky replies, review everything, or shadow mode. Human-like delivery:
   waits for the customer to finish, skips "ok/thanks", types, splits long
-  replies, and follows up when a conversation goes quiet. An AI master switch
+  replies, and follows up when a conversation goes quiet. With an ElevenLabs key
+  it can answer with voice notes (WhatsApp, Telegram, Messenger, Instagram), and
+  customers' voice notes are transcribed so the AI reads the words. An AI master switch
   with a weekly schedule, per-contact "never/always" and never-AI tags; every
   hand-over to a person is tracked ("Needs human").
 - **AI playground** (`/ai-playground`) — chat with the AI as a customer would (a

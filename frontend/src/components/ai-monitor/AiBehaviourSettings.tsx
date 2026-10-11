@@ -53,6 +53,11 @@ const OPTION_LABELS: Record<string, Record<string, MessageKey>> = {
     auto: 'ai.behaviour.options.quoteReplies.auto',
     off: 'ai.behaviour.options.quoteReplies.off',
   },
+  ai_voice_replies: {
+    off: 'ai.behaviour.options.voiceReplies.off',
+    mirror: 'ai.behaviour.options.voiceReplies.mirror',
+    always: 'ai.behaviour.options.voiceReplies.always',
+  },
 }
 
 /**
@@ -88,6 +93,8 @@ const FIELD_TEXT: Record<string, { label: MessageKey; help?: MessageKey }> = {
     label: 'ai.behaviour.fields.quoteReplies.label',
     help: 'ai.behaviour.fields.quoteReplies.help',
   },
+  ai_voice_replies: { label: 'ai.behaviour.fields.voiceReplies.label', help: 'ai.behaviour.fields.voiceReplies.help' },
+  ai_voice_id: { label: 'ai.behaviour.fields.voiceId.label', help: 'ai.behaviour.fields.voiceId.help' },
   ai_followup: { label: 'ai.behaviour.fields.followUp.label', help: 'ai.behaviour.fields.followUp.help' },
   ai_followup_first_hours: { label: 'ai.behaviour.fields.followUpFirstHours.label' },
   ai_followup_between_hours: { label: 'ai.behaviour.fields.followUpBetweenHours.label' },
@@ -148,6 +155,7 @@ const DEPENDS: Record<string, { on: string; when: (v: string) => boolean; note: 
   ai_typing_min_s: { on: 'ai_typing', when: (v) => v === 'true', note: 'ai.behaviour.depends.typing' },
   ai_typing_max_s: { on: 'ai_typing', when: (v) => v === 'true', note: 'ai.behaviour.depends.typing' },
   ai_split_max_chars: { on: 'ai_split', when: (v) => v !== 'off', note: 'ai.behaviour.depends.split' },
+  ai_voice_id: { on: 'ai_voice_replies', when: (v) => v !== 'off', note: 'ai.behaviour.depends.voice' },
   ai_followup_first_hours: { on: 'ai_followup', when: (v) => v === 'true', note: 'ai.behaviour.depends.followUps' },
   ai_followup_between_hours: { on: 'ai_followup', when: (v) => v === 'true', note: 'ai.behaviour.depends.followUps' },
   ai_followup_max: { on: 'ai_followup', when: (v) => v === 'true', note: 'ai.behaviour.depends.followUps' },
@@ -168,6 +176,7 @@ const ESSENTIAL = new Set([
   'ai_emoji_style',
   'ai_reactions',
   'ai_quote_replies',
+  'ai_voice_replies',
   'ai_followup',
   'ai_learning_mode',
 ])

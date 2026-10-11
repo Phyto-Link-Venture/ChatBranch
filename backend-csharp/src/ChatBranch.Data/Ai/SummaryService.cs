@@ -98,7 +98,7 @@ public class SummaryService
             ? await _db.Contacts.AsNoTracking().FirstOrDefaultAsync(c => c.Id == cid, ct)
             : null;
         var transcript = string.Join("\n", history.Select(m =>
-            $"{(m.Direction == MessageDirection.In ? "Customer" : "Us")}: {Trim(m.Text, 300)}"));
+            $"{(m.Direction == MessageDirection.In ? "Customer" : "Us")}: {Trim(Voice.VoiceTranscriber.Display(m), 300)}"));
 
         var (text, heuristic) = await SummariseAsync(transcript, contact, thread.Channel, ct);
         var (count, asOf) = Extent(thread);
@@ -158,7 +158,7 @@ public class SummaryService
             return ("No interactions recorded yet for this contact.", true, 0);
 
         var transcript = string.Join("\n", messages.Select(m =>
-            $"{(m.Direction == MessageDirection.In ? "Customer" : "Us")} [{m.Thread?.Channel ?? ""}]: {Trim(m.Text, 260)}"));
+            $"{(m.Direction == MessageDirection.In ? "Customer" : "Us")} [{m.Thread?.Channel ?? ""}]: {Trim(Voice.VoiceTranscriber.Display(m), 260)}"));
         if (calls > 0) transcript += $"\n({calls} voice call(s) on record.)";
         var (text, heuristic) = await SummariseAsync(transcript, contact, "", ct);
         return (text, heuristic, eventCount);

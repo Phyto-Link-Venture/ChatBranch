@@ -355,6 +355,12 @@ AI couldn't answer — your next knowledge items.
   altogether); `ai_quote_replies` auto lets a reply to several messages quote
   the one it answers. A held reply reacts only once a person approves it. A
   formal vertical (legal, medical) usually wants emoji off and reactions on.
+  `ai_voice_replies` off (default) / mirror / always answers with an ElevenLabs
+  VOICE NOTE on WhatsApp, Telegram, Messenger and Instagram (mirror = only when the
+  customer sent one; `ai_voice_id` picks the voice, else the organization's call
+  voice when it is ElevenLabs). The words stay on the message; links, long replies,
+  other channels, a missing key or the AI quota send text. Customer voice notes are
+  transcribed (OpenAI, else ElevenLabs) so the AI reads the words.
 - **Follow-ups when the customer goes quiet** (off by default): only after the
   AI asked something or left the conversation open; first after
   `ai_followup_first_hours`, then every `ai_followup_between_hours`, at most

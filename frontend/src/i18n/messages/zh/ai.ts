@@ -150,6 +150,9 @@ export const ai: Dict<typeof source> = {
       reactionOnly: '只有表情回应——不发送文字。',
       quotes: '引用“{text}”',
       quotesMessage: '引用一条较早的消息',
+      voicePlanned: '🎤 将以语音消息发送',
+      voiceSent: '🎤 已以语音消息发送',
+      voiceText: '已以文字发送——无法生成语音消息',
     },
     tool: '工具',
     check: '检查',
@@ -303,6 +306,11 @@ export const ai: Dict<typeof source> = {
         auto: '自动——有帮助时引用',
         off: '关闭——从不引用',
       },
+      voiceReplies: {
+        off: '关闭——始终发文字',
+        mirror: '镜像——客户发语音就回语音',
+        always: '始终——每条回复都是语音',
+      },
       reviewMode: {
         auto: '立即发送',
         reviewFlagged: '审核有风险的回复',
@@ -328,6 +336,7 @@ export const ai: Dict<typeof source> = {
       typing: '开启输入状态时使用。',
       split: '开启拆分时使用。',
       followUps: '开启跟进时使用。',
+      voice: '开启语音回复时使用。',
     },
     blank: '（空白）',
     savedOrg: '已保存组织默认设置。',
@@ -398,6 +407,16 @@ export const ai: Dict<typeof source> = {
         label: '引用所回答的消息',
         help:
           '自动：当客户一次发来多条消息，或回答涉及较早的消息时，回复会引用它所回答的那条消息（WhatsApp 和 Telegram）。关闭：从不引用。',
+      },
+      voiceReplies: {
+        label: '用语音消息回复',
+        help:
+          '需要 ElevenLabs API 密钥（设置 → AI 密钥与模型）。镜像：客户最新一条消息是语音时，AI 用语音回复。始终：每条回复都是语音。文字内容会保存在消息上供团队查看。适用于 WhatsApp（扫码号码、Cloud API、YCloud）、Telegram、Messenger 和 Instagram；其他渠道——以及回复含链接、过长或无法生成语音时——以文字发送。',
+      },
+      voiceId: {
+        label: 'ElevenLabs 声音 ID',
+        help:
+          '可选。留空时，如果组织的通话声音是 ElevenLabs 声音就用它，否则用 ElevenLabs 的默认声音。',
       },
       reviewMode: {
         label: '发送前由谁检查 AI',

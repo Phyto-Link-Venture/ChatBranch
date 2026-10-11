@@ -955,6 +955,9 @@ public partial class AssistantService
             .Where(m => m.ThreadId == threadId && !m.Private)
             .OrderByDescending(m => m.Id).Take(take).ToList();
         history.Reverse();
+        // a transcribed voice note reads as its words ("[voice note] …"), not "[audio]" (untracked rows)
+        foreach (var m in history)
+            if (m.Transcript.Length > 0) m.Text = Voice.VoiceTranscriber.Display(m);
         return history;
     }
 

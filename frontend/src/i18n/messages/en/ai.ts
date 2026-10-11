@@ -153,6 +153,9 @@ export const ai = {
       reactionOnly: 'A reaction only — no text is sent.',
       quotes: 'Quotes “{text}”',
       quotesMessage: 'Quotes an earlier message',
+      voicePlanned: '🎤 Will be sent as a voice note',
+      voiceSent: '🎤 Sent as a voice note',
+      voiceText: 'Sent as text — the voice note couldn’t be made',
     },
     tool: 'tool',
     check: 'check',
@@ -308,6 +311,11 @@ export const ai = {
         auto: 'Auto — quote when it helps',
         off: 'Off — never quote',
       },
+      voiceReplies: {
+        off: 'Off — always text',
+        mirror: 'Mirror — answer a voice note with a voice note',
+        always: 'Always — every reply is a voice note',
+      },
       reviewMode: {
         auto: 'Send straight away',
         reviewFlagged: 'Review risky replies',
@@ -333,6 +341,7 @@ export const ai = {
       typing: 'Used when typing is on.',
       split: 'Used when splitting is on.',
       followUps: 'Used when follow-ups are on.',
+      voice: 'Used when voice replies are on.',
     },
     blank: '(blank)',
     savedOrg: 'Saved organization defaults.',
@@ -403,6 +412,16 @@ export const ai = {
         label: 'Quote the message being answered',
         help:
           'Auto: when the customer sent several messages at once, or the answer refers to an older message, the reply quotes the message it answers (WhatsApp and Telegram). Off: never quote.',
+      },
+      voiceReplies: {
+        label: 'Reply with voice notes',
+        help:
+          'Needs an ElevenLabs API key (Settings → AI keys & models). Mirror: when the customer’s latest message was a voice note, the AI answers with one. Always: every reply is a voice note. The words are kept on the message for the team. Works on WhatsApp (QR numbers, Cloud API, YCloud), Telegram, Messenger and Instagram; everywhere else — and when a reply has a link, is very long, or the voice can’t be made — it goes as text.',
+      },
+      voiceId: {
+        label: 'ElevenLabs voice ID',
+        help:
+          'Optional. Empty uses the organization’s call voice when it is an ElevenLabs voice, else ElevenLabs’ default voice.',
       },
       reviewMode: {
         label: 'Who checks the AI before it sends',

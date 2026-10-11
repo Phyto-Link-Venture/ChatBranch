@@ -494,6 +494,9 @@ public static class AiMonitorEndpoints
                     done = AiGate.Bool(d.Context, "reacted") == true,
                     error = AiGate.Str(d.Context, "reaction_error", ""),
                 }).ToList(),
+                // AI voice replies: planned (would go as a voice note) | sent | text (+ why it fell back)
+                voice = AiGate.Str(d.Context, "voice", ""),
+                voice_error = AiGate.Str(d.Context, "voice_error", ""),
                 quote = HumanTouch.ReplyTo(d.Context) is int qid
                     ? new { message_id = qid, text = touchText.GetValueOrDefault(qid, "") }
                     : null,

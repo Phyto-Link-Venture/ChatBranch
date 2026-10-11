@@ -35,17 +35,22 @@ public class AiComposer
 {
     private readonly AppDbContext _db;
     private readonly AssistantService _assistant;
+    private readonly Voice.VoiceTranscriber? _transcriber;
 
-    public AiComposer(AppDbContext db, AssistantService assistant, ILlmClient? llm = null)
+    public AiComposer(AppDbContext db, AssistantService assistant, ILlmClient? llm = null,
+        Voice.VoiceTranscriber? transcriber = null)
     {
         _db = db;
         _assistant = assistant;
+        _transcriber = transcriber;
         _ = llm; // kept for call-site compatibility; the assistant owns the model
     }
 
     /// <summary>Write the reply to the thread's latest customer messages.</summary>
     public async Task<AiComposition> ComposeReplyAsync(Thread thread, CancellationToken ct = default)
     {
+        // the customer's voice notes become words first (bounded — a slow provider never stalls the reply)
+        if (_transcriber != null) await _transcriber.TranscribePendingAsync(thread, ct: ct);
         var r = await _assistant.GenerateReplyAsync(thread, applyOutcome: false, ct);
         return Map(r, BaseMeta(thread));
     }
