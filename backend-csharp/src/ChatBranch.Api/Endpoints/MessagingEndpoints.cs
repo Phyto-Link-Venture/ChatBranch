@@ -161,6 +161,8 @@ public static class MessagingEndpoints
             ["source"] = m.Source,
             ["private"] = m.Private,
         };
+        // what a voice note said (speech-to-text, Ai/Voice/VoiceTranscriber.cs)
+        if (!string.IsNullOrEmpty(m.Transcript)) outv["transcript"] = m.Transcript;
         if (m.AccountId is int accountId)
         {
             outv["account_id"] = accountId.ToString();

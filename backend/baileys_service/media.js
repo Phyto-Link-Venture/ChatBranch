@@ -9,7 +9,7 @@
  * check it offline.
  *
  *   body: { to, media_type: image|video|audio|document, file_b64, mime?,
- *           filename?, caption? }
+ *           filename?, caption?, ptt? }   (ptt: an audio/ogg file as a VOICE NOTE)
  *   →     { content } ready for sock.sendMessage(jid, content)
  */
 import path from 'path'
@@ -91,7 +91,13 @@ export function buildMediaMessage(body) {
   let content
   if (mediaType === 'image') content = { image: buffer, mimetype }
   else if (mediaType === 'video') content = { video: buffer, mimetype }
-  else if (mediaType === 'audio') content = { audio: buffer, mimetype, ptt: false } // no captions on audio
+  else if (mediaType === 'audio') {
+    // no captions on audio. ptt=true makes it a voice note — WhatsApp only shows one for
+    // Ogg/Opus, so the mimetype carries the codec Baileys must announce
+    const ptt = body.ptt === true
+    if (ptt && mimetype !== 'audio/ogg') throw new MediaRequestError(400, 'a voice note (ptt) must be audio/ogg (Opus)')
+    content = { audio: buffer, mimetype: ptt ? 'audio/ogg; codecs=opus' : mimetype, ptt }
+  }
   else content = { document: buffer, mimetype, fileName }
   if (caption && mediaType !== 'audio') content.caption = caption
   return { content, mediaType, bytes: buffer.length }
@@ -171,6 +177,13 @@ export function selftest() {
   check(audio.content.audio && audio.content.mimetype === 'audio/ogg' && !('caption' in audio.content),
     'audio defaults its mime and carries no caption')
   check(audio.content.ptt === false, 'audio is a file, not a voice note')
+
+  const voice = buildMediaMessage({ media_type: 'audio', file_b64: b64, mime: 'audio/ogg', ptt: true })
+  check(voice.content.ptt === true && voice.content.mimetype === 'audio/ogg; codecs=opus',
+    'ptt audio is a voice note announced as ogg/opus')
+  expectError(() => buildMediaMessage({ media_type: 'audio', file_b64: b64, mime: 'audio/mpeg', ptt: true }), 400, 'ogg')
+  check(buildMediaMessage({ media_type: 'audio', file_b64: b64, ptt: 'yes' }).content.ptt === false,
+    'only a literal true makes a voice note')
 
   const video = buildMediaMessage({ media_type: 'VIDEO', file_b64: b64, mime: 'video/mp4; codecs=avc1' })
   check(video.content.video && video.content.mimetype === 'video/mp4', 'video mime parameters stripped')

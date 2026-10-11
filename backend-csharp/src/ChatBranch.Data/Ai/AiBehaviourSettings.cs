@@ -32,7 +32,9 @@ public sealed record AiBehaviour(
     string FollowUpGuidance,
     string EmojiStyle = "light",
     bool Reactions = true,
-    bool QuoteReplies = true);
+    bool QuoteReplies = true,
+    string VoiceReplies = "off",
+    string VoiceId = "");
 
 /// <summary>
 /// Setting keys for the AI monitor (review policy) and the human-like
@@ -82,11 +84,15 @@ public static class AiBehaviourSettings
     public const string EmojiStyle = "ai_emoji_style";
     public const string Reactions = "ai_reactions";
     public const string QuoteReplies = "ai_quote_replies";
+    /// <summary>AI voice replies (Ai/Voice/VoiceReplies.cs): off | mirror | always + an ElevenLabs voice id.</summary>
+    public const string VoiceReplies = "ai_voice_replies";
+    public const string VoiceId = "ai_voice_id";
 
     public static readonly string[] ReviewModes = { "auto", "review_flagged", "review_all", "shadow" };
     public static readonly string[] SplitModes = { "off", "auto", "always" };
     public static readonly string[] EmojiStyles = { "off", "light", "expressive" };
     public static readonly string[] QuoteModes = { "auto", "off" };
+    public static readonly string[] VoiceModes = { "off", "mirror", "always" };
     public static readonly string[] LearningModes = { "review", "auto", "off" };
 
     public const string DefaultKeywords =
@@ -160,6 +166,15 @@ public static class AiBehaviourSettings
             "Auto: when the customer sent several messages at once, or the answer refers to an older message, "
             + "the reply quotes the message it answers (WhatsApp and Telegram). Off: never quote.",
             QuoteModes, Humanize: true),
+        new(VoiceReplies, "human", "select", "off", "Reply with voice notes",
+            "Needs an ElevenLabs API key (Settings → AI keys & models). Mirror: when the customer's latest message "
+            + "was a voice note, the AI answers with one. Always: every reply is a voice note. The words are kept "
+            + "on the message for the team. Works on WhatsApp (QR numbers, Cloud API, YCloud), Telegram, Messenger "
+            + "and Instagram; everywhere else — and when a reply has a link, is very long, or the voice can't be "
+            + "made — it goes as text.", VoiceModes),
+        new(VoiceId, "human", "text", "", "ElevenLabs voice ID",
+            "Optional. Empty uses the organization's call voice when it is an ElevenLabs voice, else ElevenLabs' "
+            + "default voice."),
 
         // ---- follow-ups when the customer goes quiet ------------------------
         new(FollowUp, "followup", "bool", "false", "Follow up when the customer goes quiet",
@@ -259,7 +274,9 @@ public static class AiBehaviourSettings
             FollowUpGuidance: S(FollowUpGuidance),
             EmojiStyle: emoji,
             Reactions: B(Reactions),
-            QuoteReplies: S(QuoteReplies).ToLowerInvariant() != "off");
+            QuoteReplies: S(QuoteReplies).ToLowerInvariant() != "off",
+            VoiceReplies: VoiceModes.Contains(S(VoiceReplies).ToLowerInvariant()) ? S(VoiceReplies).ToLowerInvariant() : "off",
+            VoiceId: S(VoiceId));
     }
 
     /// <summary>

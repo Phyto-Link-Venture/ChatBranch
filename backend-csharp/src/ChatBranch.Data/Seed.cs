@@ -340,6 +340,8 @@ public static class Seed
             + "CONSTRAINT \"uniq_aitaskrun_task_message\" UNIQUE (\"task_id\", \"message_id\")");
         AddIndexIfMissing(db, "ix_aitaskrun_status_due", "crm_aitaskrun", "\"status\", \"due_at\"");
         AddIndexIfMissing(db, "ix_aitaskrun_thread", "crm_aitaskrun", "\"thread_id\"");
+        // AI voice replies: what a customer's voice note said (Ai/Voice/VoiceTranscriber.cs)
+        AddColumnIfMissing(db, "crm_message", "transcript", "TEXT NOT NULL DEFAULT ''");
         ChatBranch.Data.Audit.AuditTrail.UpgradeIndexesAndBackfill(db);
     }
 

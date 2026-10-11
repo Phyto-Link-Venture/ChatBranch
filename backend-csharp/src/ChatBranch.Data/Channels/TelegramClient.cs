@@ -280,8 +280,10 @@ public sealed class TelegramChannel
 
     /// <param name="replyToExternalId">The Bot API message_id this message quotes (reply_parameters,
     /// allow_sending_without_reply — a deleted original never fails the send).</param>
+    /// <param name="voiceNote">an Ogg/Opus <paramref name="media"/> goes out as a VOICE NOTE (sendVoice,
+    /// no caption — the AI's voice replies); the stored message keeps <paramref name="text"/>.</param>
     public Message Send(Thread thread, string text, string source, int? accountId, OutboundMedia? media = null,
-        string? replyToExternalId = null)
+        string? replyToExternalId = null, bool voiceNote = false)
     {
         long.TryParse(replyToExternalId ?? "", out var replyTo);
         object? replyParams = replyTo > 0
@@ -306,14 +308,14 @@ public sealed class TelegramChannel
         if (media != null && File.Exists(media.AbsolutePath)
             && new FileInfo(media.AbsolutePath).Length <= MessagingMedia.MaxBytes)
         {
-            var (method, field) = media.MediaType switch
+            var (method, field) = voiceNote && media.MediaType == "audio" ? ("sendVoice", "voice") : media.MediaType switch
             {
                 "image" => ("sendPhoto", "photo"),
                 "video" => ("sendVideo", "video"),
                 "audio" => ("sendAudio", "audio"),
                 _ => ("sendDocument", "document"),
             };
-            var caption = text.StartsWith('[') && text.EndsWith(']') ? null : text; // "[image]" is a placeholder
+            var caption = voiceNote || (text.StartsWith('[') && text.EndsWith(']')) ? null : text; // "[image]" is a placeholder
             result = _client.SendFileAsync(bot.AccessToken, method, field, thread.Key,
                 File.ReadAllBytes(media.AbsolutePath), media.FileName, caption).GetAwaiter().GetResult();
         }

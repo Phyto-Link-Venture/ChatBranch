@@ -65,11 +65,14 @@ public class AiGate
     private readonly BookingService _bookings;
     private readonly DocumentService _documents;
     private readonly Skills.ConnectedAppTools _connected;
+    private readonly Voice.VoiceReplyService _voice;
 
     public AiGate(AppDbContext db, ScopingService scoping, ThreadStore threads, OutboundSender sender,
         TimeProvider? clock = null, ITypingIndicator? typing = null, BookingService? bookings = null,
-        DocumentService? documents = null, Skills.ConnectedAppTools? connected = null)
+        DocumentService? documents = null, Skills.ConnectedAppTools? connected = null,
+        Voice.VoiceReplyService? voice = null)
     {
+        _voice = voice ?? new Voice.VoiceReplyService(db, scoping);
         _documents = documents ?? new DocumentService(db, scoping, clock: clock);
         _connected = connected ?? new Skills.ConnectedAppTools(db, scoping);
         _db = db;
@@ -111,6 +114,8 @@ public class AiGate
         var flags = s.Canned ? new List<string>() : Flags(thread, text, ctx, policy, s.Kind);
         ctx["flags"] = flags;
         ctx["review_mode"] = policy.ReviewMode;
+        // the reviewer sees that this reply would go as a voice note (decided again at delivery)
+        if (_voice.Wants(thread, account, policy, text)) ctx["voice"] = VoicePlanned;
 
         var now = Now;
         var draft = new AiDraft
@@ -463,8 +468,11 @@ public class AiGate
         }
 
         var humanize = Bool(draft.Context, "humanize") != false;
-        var start = StartHumanSend(thread, draft.Content, MessageSource.Ai, account, policy, humanize, extra,
-            replyTo: HumanTouch.ReplyTo(draft.Context));
+        // a voice reply (ai_voice_replies): ONE voice note carrying the whole reply, never split
+        var start = _voice.Wants(thread, account, policy, draft.Content)
+            ? StartVoiceSend(draft, thread, account, policy, humanize, extra)
+            : StartHumanSend(thread, draft.Content, MessageSource.Ai, account, policy, humanize, extra,
+                replyTo: HumanTouch.ReplyTo(draft.Context));
         // the activity log's "the AI said something" row (a person's approval is
         // audited by the endpoint that took the decision)
         if (!humanDecision)
@@ -701,6 +709,97 @@ public class AiGate
         return new HumanSendStart(null, bubbles.Count, quiet
             ? "Quiet hours — it will be sent when they end."
             : $"Typing… sends in {Math.Ceiling(delay.TotalSeconds):0}s.");
+    }
+
+    public const string VoicePlanned = "planned";
+    public const string VoiceSent = "sent";
+    public const string VoiceAsText = "text";
+
+    /// <summary>
+    /// The voice-reply twin of <see cref="StartHumanSend"/>: one message, never split. Sent now
+    /// (<see cref="SendVoiceOrText"/>) unless a "recording" pause or quiet hours apply — then ONE
+    /// queued text job marked <c>voice: true</c>, which the queue drain sends the same way.
+    /// </summary>
+    private HumanSendStart StartVoiceSend(AiDraft draft, Thread thread, ChannelAccount? account, AiBehaviour policy,
+        bool humanize, Dictionary<string, object?> extra)
+    {
+        var typing = humanize && policy.TypingEnabled;
+        var quiet = AccountDelivery.InQuietHours(account, _scoping, LocalNow);
+        if (!typing && !quiet)
+        {
+            var msg = SendVoiceOrText(thread, draft.Content, MessageSource.Ai, account?.Id ?? thread.AccountId, draft.Id,
+                HumanTouch.ReplyTo(draft.Context));
+            return new HumanSendStart(msg.Id, 1, msg.MediaType == "audio" ? "Sent as a voice note." : "Sent.");
+        }
+        var delay = typing
+            ? Humanizer.TypingDelay(draft.Content, policy.TypingCps, policy.TypingMinSeconds, policy.TypingMaxSeconds)
+            : TimeSpan.Zero;
+        if (typing && !quiet) StartTyping(thread, account);
+        var payload = new Dictionary<string, object?>(extra)
+        {
+            ["source"] = MessageSource.Ai, ["typing"] = typing, ["bubbles"] = 1, ["voice"] = true,
+        };
+        if (HumanTouch.ReplyTo(draft.Context) is int quoted) payload["reply_to"] = quoted;
+        EnqueueBubbles(thread, account, new List<string> { draft.Content }, 1, payload, delay);
+        return new HumanSendStart(null, 1, quiet
+            ? "Quiet hours — it will be sent when they end."
+            : $"Recording a voice note… sends in {Math.Ceiling(delay.TotalSeconds):0}s.");
+    }
+
+    /// <summary>
+    /// Send an AI reply as a VOICE NOTE when the settings + channel still say so and the voice
+    /// can be made (ElevenLabs key, AI quota, TTS, the channel's media send) — else as TEXT,
+    /// never silently. The message keeps the reply's words either way; the draft records
+    /// <c>voice</c> = sent | text (+ <c>voice_error</c>). Used inline and by the queue drain.
+    /// </summary>
+    public Message SendVoiceOrText(Thread thread, string text, string source, int? accountId, int? draftId = null,
+        int? replyTo = null)
+    {
+        string why;
+        try
+        {
+            var account = Account(accountId ?? thread.AccountId);
+            var policy = AiBehaviourSettings.Resolve(_scoping, thread.EntityId, account);
+            if (_voice.Wants(thread, account, policy, text))
+            {
+                var (note, reason) = _voice.Synthesize(thread, text, policy);
+                if (note != null)
+                {
+                    var (sent, err) = _sender.SendVoiceNote(thread, note.RelPath, note.Mime, text, source,
+                        accountId ?? thread.AccountId);
+                    if (sent != null)
+                    {
+                        MarkVoice(draftId, VoiceSent, null);
+                        Audit.AuditTrail.Write(_db, "ai.voice_reply", $"{thread.Channel}:{thread.Key}",
+                            $"voice note ({text.Length} characters){(sent.Status == "sandbox" ? " — sandbox" : "")}",
+                            actor: "ai", source: AuditSources.System, entityId: thread.EntityId);
+                        return sent;
+                    }
+                    why = err;
+                }
+                else why = reason;
+            }
+            else why = "a voice note is no longer called for";
+        }
+        catch (Exception ex) { why = ex.GetType().Name; }
+        MarkVoice(draftId, VoiceAsText, why);
+        return _sender.Send(thread, text, source, accountId ?? thread.AccountId, replyTo: QuotedMessage(thread, replyTo));
+    }
+
+    private void MarkVoice(int? draftId, string state, string? error)
+    {
+        if (draftId is not int id) return;
+        try
+        {
+            var d = _db.AiDrafts.FirstOrDefault(x => x.Id == id);
+            if (d == null) return;
+            var ctx = new Dictionary<string, object?>(d.Context) { ["voice"] = state };
+            if (!string.IsNullOrWhiteSpace(error)) ctx["voice_error"] = error.Length > 300 ? error[..300] : error;
+            d.Context = ctx;
+            d.UpdatedAt = Now;
+            _db.SaveChanges();
+        }
+        catch { /* bookkeeping never breaks a send */ }
     }
 
     /// <summary>After one bubble was delivered, schedule the next (with its own typing pause).</summary>

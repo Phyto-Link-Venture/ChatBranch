@@ -64,6 +64,10 @@ builder.Services.AddScoped<ChatBranch.Data.Ai.ITypingIndicator>(sp => new ChatBr
     new ChatBranch.Data.Ai.TelegramTypingIndicator(sp.GetRequiredService<ChatBranch.Data.Channels.ITelegramClient>()),
     new ChatBranch.Data.Ai.MetaTypingIndicator(sp.GetRequiredService<ChatBranch.Data.Channels.IMetaMessagingClient>(),
         sp.GetRequiredService<ChatBranch.Data.AppDbContext>(), sp.GetRequiredService<TimeProvider>())));
+// AI voice replies (ElevenLabs text-to-speech) + customer voice notes as words (speech-to-text)
+builder.Services.AddScoped<ChatBranch.Data.Ai.Voice.SpeechClient>();
+builder.Services.AddScoped<ChatBranch.Data.Ai.Voice.VoiceReplyService>();
+builder.Services.AddScoped<ChatBranch.Data.Ai.Voice.VoiceTranscriber>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.AiComposer>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.AiGate>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.AiResponder>();

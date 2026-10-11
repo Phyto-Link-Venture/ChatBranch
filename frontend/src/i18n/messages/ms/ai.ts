@@ -151,6 +151,9 @@ export const ai: Dict<typeof source> = {
       reactionOnly: 'Reaksi sahaja — tiada teks dihantar.',
       quotes: 'Memetik “{text}”',
       quotesMessage: 'Memetik mesej terdahulu',
+      voicePlanned: '🎤 Akan dihantar sebagai nota suara',
+      voiceSent: '🎤 Dihantar sebagai nota suara',
+      voiceText: 'Dihantar sebagai teks — nota suara tidak dapat dibuat',
     },
     tool: 'alat',
     check: 'semakan',
@@ -305,6 +308,11 @@ export const ai: Dict<typeof source> = {
         auto: 'Auto — petik apabila membantu',
         off: 'Tutup — jangan sekali-kali memetik',
       },
+      voiceReplies: {
+        off: 'Tutup — sentiasa teks',
+        mirror: 'Cermin — balas nota suara dengan nota suara',
+        always: 'Sentiasa — setiap balasan ialah nota suara',
+      },
       reviewMode: {
         auto: 'Hantar serta-merta',
         reviewFlagged: 'Semak balasan berisiko',
@@ -330,6 +338,7 @@ export const ai: Dict<typeof source> = {
       typing: 'Digunakan apabila menaip dihidupkan.',
       split: 'Digunakan apabila pemecahan dihidupkan.',
       followUps: 'Digunakan apabila susulan dihidupkan.',
+      voice: 'Digunakan apabila balasan suara dihidupkan.',
     },
     blank: '(kosong)',
     savedOrg: 'Tetapan lalai organisasi disimpan.',
@@ -400,6 +409,16 @@ export const ai: Dict<typeof source> = {
         label: 'Petik mesej yang dijawab',
         help:
           'Auto: apabila pelanggan menghantar beberapa mesej sekali gus, atau jawapan merujuk kepada mesej yang lebih lama, balasan memetik mesej yang dijawabnya (WhatsApp dan Telegram). Tutup: jangan sekali-kali memetik.',
+      },
+      voiceReplies: {
+        label: 'Balas dengan nota suara',
+        help:
+          'Memerlukan kunci API ElevenLabs (Tetapan → Kunci & model AI). Cermin: apabila mesej terkini pelanggan ialah nota suara, AI membalas dengan nota suara. Sentiasa: setiap balasan ialah nota suara. Perkataannya disimpan pada mesej untuk pasukan. Berfungsi di WhatsApp (nombor QR, Cloud API, YCloud), Telegram, Messenger dan Instagram; di tempat lain — dan apabila balasan mengandungi pautan, terlalu panjang, atau suara tidak dapat dibuat — ia dihantar sebagai teks.',
+      },
+      voiceId: {
+        label: 'ID suara ElevenLabs',
+        help:
+          'Pilihan. Kosong menggunakan suara panggilan organisasi jika ia suara ElevenLabs, jika tidak suara lalai ElevenLabs.',
       },
       reviewMode: {
         label: 'Siapa menyemak AI sebelum ia menghantar',
