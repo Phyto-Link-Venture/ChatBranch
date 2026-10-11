@@ -1414,7 +1414,7 @@ When you fix one of these, update this table, `README.md` and
   The org-wide keys live in ONE JSON Setting `integrations_settings`
   (`IntegrationSettings.cs` — a plain `SettingValue("google_client_id")` finds
   nothing). The callback `/api/integrations/oauth/google/callback` is
-  deliberately ANONYMOUS (the signed state IS the CSRF control); set
+  deliberately ANONYMOUS (the signed state IS the CSRF control); it is safe to load twice (browsers reload / prefetch it: a repeat that finds the row connected within 2 minutes — verifier gone, or Google refusing the reused code — lands on `?connected=` too, `GoogleOAuth.JustConnected`); set
   `GOOGLE_REDIRECT_URI` and `FRONTEND_URL` in production. Both commerce
   webhooks verify HMAC (`WebhookVerify.cs`: Shopify base64, Stripe `t=…,v1=…` +
   300 s replay window) and **no secret configured ⇒ 503, never "accept
@@ -1913,7 +1913,7 @@ Design canvas: https://claude.ai/artifact/7dcX3rLGAH3zXZeKu61Pdb
 
 - **Backend:** `cd backend-csharp && dotnet build src/ChatBranch.Api -c Release`
   then `dotnet test tests/ChatBranch.Tests` (or `npm run test:api` at the root) —
-  **985 tests** covering auth/RBAC (+ API-key scopes inside handlers),
+  **986 tests** covering auth/RBAC (+ API-key scopes inside handlers),
   scoping, the inbox + server-side filters + saved views, the per-conversation scope guard, webhooks (wamid dedup, the
   queued ai_reply), the transports against fake providers (Meta Graph/Send API,
   SMTP/IMAP, the Bot API, LINE / Viber / Twilio / WeChat / TikTok / Douyin /
