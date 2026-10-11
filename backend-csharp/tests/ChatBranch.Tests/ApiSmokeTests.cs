@@ -183,10 +183,17 @@ public class ApiFactory : WebApplicationFactory<Program>
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
-        // Close the pooled connections first, then remove the database AND its WAL /
+        // Close THIS host's pooled connections first, then remove the database AND its WAL /
         // shared-memory files — deleting only the .sqlite3 left ~4 MB of -wal/-shm in
         // the temp dir per host, thousands of them per machine, until the disk filled.
-        try { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); } catch { }
+        // Never ClearAllPools: other hosts run in parallel and a cleared pool disposes the
+        // native handle under a connection another test is opening (ObjectDisposedException).
+        try
+        {
+            using var mine = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}");
+            Microsoft.Data.Sqlite.SqliteConnection.ClearPool(mine);
+        }
+        catch { /* best effort */ }
         foreach (var suffix in new[] { "", "-wal", "-shm", "-journal" })
             try { if (File.Exists(_dbPath + suffix)) File.Delete(_dbPath + suffix); } catch { }
     }

@@ -555,7 +555,8 @@ public class LearningApiTests : IClassFixture<LearningFactory>
         }
         finally
         {
-            SqliteConnection.ClearAllPools();
+            // only this database's pool — ClearAllPools races the other test hosts running in parallel
+            using (var mine = new SqliteConnection($"Data Source={path}")) SqliteConnection.ClearPool(mine);
             try { File.Delete(path); } catch { }
         }
     }

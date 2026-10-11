@@ -283,7 +283,9 @@ public sealed class EmailSyncService
     public const int MaxFetchPerMailbox = 10;
 
     private static readonly object Gate = new();
-    private static DateTime _lastRun = DateTime.MinValue;
+    // last run per DATABASE: one key in production; test hosts sharing the process never
+    // throttle one another (a static single timestamp made parallel test classes race)
+    private static readonly Dictionary<string, DateTime> LastRun = new();
 
     private readonly AppDbContext _db;
     private readonly ScopingService _scoping;
@@ -331,12 +333,13 @@ public sealed class EmailSyncService
         if (mailboxes.Count == 0)
             return new EmailSyncReport(false, 0, 0, 0, 0, false, Array.Empty<string>());
 
+        var key = ThrottleKey();
         lock (Gate)
         {
             var now = DateTime.UtcNow;
-            if (!force && now - _lastRun < MinInterval)
+            if (!force && LastRun.TryGetValue(key, out var last) && now - last < MinInterval)
                 return new EmailSyncReport(true, 0, 0, 0, mailboxes.Count, true, Array.Empty<string>());
-            _lastRun = now;
+            LastRun[key] = now;
         }
 
         int kept = 0, skipped = 0, dupes = 0;
@@ -382,7 +385,13 @@ public sealed class EmailSyncService
     /// <summary>Test seam: forget the throttle clock.</summary>
     public static void ResetThrottle()
     {
-        lock (Gate) _lastRun = DateTime.MinValue;
+        lock (Gate) LastRun.Clear();
+    }
+
+    private string ThrottleKey()
+    {
+        try { return _db.Database.GetConnectionString() ?? ""; }
+        catch { return ""; }
     }
 
     private enum IngestOutcome { Kept, Skipped, Duplicate }
