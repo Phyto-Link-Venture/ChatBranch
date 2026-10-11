@@ -46,6 +46,7 @@ export const bubble: Dict<typeof source> = {
     open: '打开联系人',
   },
   sticker: '贴纸',
+  transcript: '转写文本',
   emoji: {
     open: '表情',
     search: '搜索表情',

@@ -355,7 +355,7 @@ public class OutboundSender
                     if (!r.Ok) return (null, r.Detail);
                     var m = _threads.AppendMessage(thread, MessageDirection.Out, source, text,
                         status: "sent", externalId: r.ExternalId, accountId: account.Id);
-                    AttachMedia(m, "audio", relPath);
+                    AttachMedia(m, "audio", relPath, mime, name, full);
                     return (m, "");
                 }
                 if (CloudLive(thread, account))
@@ -370,7 +370,7 @@ public class OutboundSender
                         : up;
                     if (!outcome.Ok) return (null, outcome.Detail);
                     var m = Record(thread, account!, source, text, outcome);
-                    AttachMedia(m, "audio", relPath);
+                    AttachMedia(m, "audio", relPath, mime, name, full);
                     return (m, "");
                 }
                 return (Sandbox(), "");
@@ -394,7 +394,7 @@ public class OutboundSender
         Message Sandbox()
         {
             var m = _threads.AppendMessage(thread, MessageDirection.Out, source, text, status: "sandbox", accountId: acctId);
-            AttachMedia(m, "audio", relPath);
+            AttachMedia(m, "audio", relPath, mime, name, full);
             return m;
         }
 
@@ -403,7 +403,7 @@ public class OutboundSender
         {
             if (m.Status != "failed")
             {
-                if (m.MediaPath.Length == 0) AttachMedia(m, "audio", relPath);
+                if (m.MediaPath.Length == 0) AttachMedia(m, "audio", relPath, mime, name, full);
                 return (m, "");
             }
             var why = m.Error.Length > 0 ? m.Error : m.Text;

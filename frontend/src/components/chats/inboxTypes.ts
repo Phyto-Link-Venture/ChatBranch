@@ -119,6 +119,8 @@ export interface UiMessage {
   reply_to?: UiQuote | null
   /** Emoji reactions on this message — the customer's and ours. */
   reactions?: UiReaction[]
+  /** What a voice note says (speech-to-text), when it was transcribed. */
+  transcript?: string | null
 }
 
 /** A quoted message as the payload carries it; `missing` = older than our history. */

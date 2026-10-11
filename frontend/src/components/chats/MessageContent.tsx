@@ -153,6 +153,14 @@ export default function MessageContent({
       <>
         {quote}
         <MediaAttachment media={m.media} />
+        {m.media.type === 'audio' && m.transcript && m.transcript !== '…' && !caption && (
+          <span className="mt-1 block text-[12.5px] leading-snug">
+            <span className="mr-1 text-[10.5px] font-semibold uppercase tracking-wide opacity-60">
+              {t('bubble.transcript')}
+            </span>
+            {m.transcript}
+          </span>
+        )}
         {caption}
       </>
     )
