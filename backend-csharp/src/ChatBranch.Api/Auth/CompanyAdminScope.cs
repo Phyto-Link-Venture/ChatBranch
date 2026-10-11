@@ -21,7 +21,7 @@ public static class CompanyAdminScope
     {
         "rbac.manage", "app_keys.manage", "settings.ai_keys.manage", "billing.manage",
         "notifications.manage", "settings.appearance.org", "settings.custom_fields.manage",
-        "pronunciation.manage",
+        "pronunciation.manage", "settings.ai_hard_rules.manage",
     };
 
     private static readonly AsyncLocal<bool> Active = new();

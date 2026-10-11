@@ -11,9 +11,10 @@
  * - HOUSE RULES add up: an outlet keeps every rule above it (read-only here)
  *   and adds its own lines.
  *
- * The safety rules (HARD_RULES) always lead and are not editable.
+ * The safety rules (HARD_RULES) always lead, organization-wide; only a holder of
+ * `settings.ai_hard_rules.manage` (superadmin by default) edits them.
  * Server: GET/PUT /api/aicore/persona (settings.ai.manage; an outlet must be
- * in the caller's scope).
+ * in the caller's scope; `hard_rules` needs its own capability).
  */
 
 import Link from 'next/link'
@@ -41,12 +42,18 @@ interface PersonaPayload {
   inherited_persona: string
   inherited_source: Level
   hard_rules: string
+  hard_rules_default: string
+  hard_rules_custom: boolean
+  hard_rules_max_chars: number
+  can_edit_hard_rules: boolean
   house_rules: { own: string[]; inherited: { rule: string; from: Level }[]; max_chars: number }
   preamble: string
   entity: string | null
   entity_name: string
   can_manage: boolean
 }
+
+type Where = 'persona' | 'rules' | 'safety'
 
 const fieldCls =
   'w-full rounded-lg border border-line-strong bg-card px-3 py-2 text-[13px] leading-relaxed text-text-primary outline-none transition-colors placeholder:text-text-faint focus:border-brand-400 disabled:opacity-70'
@@ -60,8 +67,9 @@ export function PersonaRules() {
   const [own, setOwn] = useState(false)
   const [persona, setPersona] = useState('')
   const [rules, setRules] = useState('')
-  const [busy, setBusy] = useState<'persona' | 'rules' | null>(null)
-  const [msg, setMsg] = useState<{ ok: boolean; text: string; where: 'persona' | 'rules' } | null>(null)
+  const [safety, setSafety] = useState('')
+  const [busy, setBusy] = useState<Where | null>(null)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string; where: Where } | null>(null)
 
   const apply = (d: PersonaPayload) => {
     setData(d)
@@ -69,6 +77,7 @@ export function PersonaRules() {
     setOwn(d.entity == null || d.own_persona.length > 0)
     setPersona(d.own_persona || d.persona)
     setRules(d.house_rules.own.join('\n'))
+    setSafety(d.hard_rules)
   }
 
   const load = useCallback(async () => {
@@ -86,7 +95,7 @@ export function PersonaRules() {
     void load()
   }, [load])
 
-  const save = async (where: 'persona' | 'rules', body: Record<string, unknown>) => {
+  const save = async (where: Where, body: Record<string, unknown>) => {
     setBusy(where)
     setMsg(null)
     try {
@@ -129,7 +138,8 @@ export function PersonaRules() {
   const readOnly = !data.can_manage
   const personaDirty = own ? persona.trim() !== (data.own_persona || (isOrg ? data.persona : '')).trim() : data.own_persona.length > 0
   const rulesDirty = rules.trim() !== data.house_rules.own.join('\n').trim()
-  const Status = ({ where }: { where: 'persona' | 'rules' }) =>
+  const safetyDirty = safety.trim() !== data.hard_rules.trim()
+  const Status = ({ where }: { where: Where }) =>
     msg && msg.where === where ? (
       <span role={msg.ok ? 'status' : 'alert'} className={`text-[12px] ${msg.ok ? 'text-[var(--green-ink)]' : 'text-[var(--red-ink)]'}`}>
         {msg.text}
@@ -148,6 +158,52 @@ export function PersonaRules() {
           <Lock size={12} aria-hidden /> {t('ai.persona.readOnly')}
         </p>
       )}
+
+      {/* ---- safety rules: organization-wide, always first ---- */}
+      <Card className="p-5" data-tour="safety-card">
+        <CardTitle
+          right={
+            <span className="text-text-muted">
+              {data.hard_rules_custom ? t('ai.persona.safetyCustom') : t('ai.persona.safetyDefault')}
+            </span>
+          }
+        >
+          {t('ai.persona.safetyTitle')}
+        </CardTitle>
+        <p className="mt-1 text-[12.5px] text-text-muted">{t('ai.persona.safetyHelp')}</p>
+        <textarea
+          aria-label={t('ai.persona.safetyTitle')}
+          rows={4}
+          maxLength={data.hard_rules_max_chars || 4000}
+          value={safety}
+          onChange={(e) => setSafety(e.target.value)}
+          disabled={!data.can_edit_hard_rules}
+          className={`${fieldCls} mt-3 resize-y`}
+        />
+        {data.can_edit_hard_rules ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              disabled={!safetyDirty || !safety.trim() || busy != null}
+              onClick={() => save('safety', { hard_rules: safety })}
+            >
+              {busy === 'safety' ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Save size={13} aria-hidden />}
+              {t('ai.persona.saveSafety')}
+            </Button>
+            {data.hard_rules_custom && (
+              <Button size="sm" variant="ghost" disabled={busy != null} onClick={() => save('safety', { hard_rules: '' })}>
+                <RotateCcw size={13} aria-hidden /> {t('ai.persona.resetDefault')}
+              </Button>
+            )}
+            <span className="text-[12px] text-text-muted">{t('ai.persona.safetyWarn')}</span>
+            <Status where="safety" />
+          </div>
+        ) : (
+          <p className="mt-1 flex items-center gap-1.5 text-[12px] text-text-muted">
+            <Lock size={12} aria-hidden /> {t('ai.persona.safetyLocked')}
+          </p>
+        )}
+      </Card>
 
       {/* ---- persona: nearest level wins ---- */}
       <Card className="p-5" data-tour="persona-card">

@@ -60,6 +60,7 @@ export const admin = {
     apiKeysManage: 'Manage API keys & MCP',
     aiMonitor: 'See & approve AI drafts',
     aiBehaviourManage: 'Edit AI behaviour settings',
+    aiHardRulesManage: "Edit the AI's safety rules",
   },
   permissions: {
     system: 'System',

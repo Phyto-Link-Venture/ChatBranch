@@ -62,6 +62,7 @@ export const admin: Dict<typeof source> = {
     apiKeysManage: '管理 API 密钥与 MCP',
     aiMonitor: '查看并批准 AI 草稿',
     aiBehaviourManage: '编辑 AI 行为设置',
+    aiHardRulesManage: '编辑 AI 的安全规则',
   },
   permissions: {
     system: '系统',

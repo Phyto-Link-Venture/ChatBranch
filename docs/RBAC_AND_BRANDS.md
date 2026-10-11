@@ -85,7 +85,8 @@ bounded by those entities' subtrees. An admin with none stays organization-wide
   ORGANIZATION-LEVEL capabilities for a company admin in every check, whatever
   the matrix says: `rbac.manage`, `app_keys.manage`, `settings.ai_keys.manage`,
   `billing.manage`, `notifications.manage`, `settings.appearance.org`,
-  `settings.custom_fields.manage`, `pronunciation.manage`; org-wide voice and
+  `settings.custom_fields.manage`, `pronunciation.manage`,
+  `settings.ai_hard_rules.manage`; org-wide voice and
   default-mail writes carry `.OrgWideOnly()`.
 - Writes: entity create = a branch under their companies only (no top-level
   company, no promoting a branch); library items never "Everyone (global)", and
@@ -136,6 +137,7 @@ The permission matrix is data (`crm_rolepermission`, edited at `/permissions`,
 | `activity.view` | Review | admin, agent |
 | `ai.monitor` | AI — see & approve AI drafts | admin, agent |
 | `ai.behaviour.manage` | AI — edit review/behaviour settings | admin |
+| `settings.ai_hard_rules.manage` | AI — edit the safety rules every prompt opens with (`PUT /api/aicore/persona {hard_rules}`, org-wide) | superadmin |
 | `settings.ai.manage` | Settings — AI configuration (knowledge, skills, voice pages in the nav) | admin |
 | `notifications.manage` | Settings — organization notification defaults | admin |
 | `account_assignment.manage` | Settings — account assignment + rebalance | admin |
