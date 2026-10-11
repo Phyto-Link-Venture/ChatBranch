@@ -41,6 +41,13 @@ is a settings exercise, not a fork — see
   outlet's or the organization's) or in ChatBranch itself with zero
   credentials; a slot is held while the reply is reviewed and only booked when
   it is sent. Every booking is on `/bookings`.
+- **Documents** — the AI (or a teammate, from the chat's info panel) makes PDF
+  invoices, quotations, receipts and letters with server-computed totals and
+  running numbers, sent as a file after the reply. Lay them out with the
+  designer, or match any existing document exactly with a **custom layout**: an
+  HTML template (start from "Malaysian classic", or upload your own invoice and
+  the AI rebuilds it), custom fields the AI asks for, the amount in words, all
+  printed by headless Chromium with JavaScript and the network off.
 - **AI monitor** (`/ai-monitor`) — every AI message is recorded; choose auto,
   review risky replies, review everything, or shadow mode. Human-like delivery:
   waits for the customer to finish, skips "ok/thanks", types, splits long

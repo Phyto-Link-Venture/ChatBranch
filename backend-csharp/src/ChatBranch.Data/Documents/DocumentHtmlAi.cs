@@ -59,7 +59,7 @@ public sealed class DocumentHtmlAi
         if (!_llm.IsConfigured)
             return fallback with
             {
-                Note = $"No AI model is configured, so the \"{fallback.Starter}\" ready-made layout was used and filled with what "
+                Note = $"No AI model is configured, so the \"{StarterName(fallback)}\" ready-made layout was used and filled with what "
                        + "the PDF's text says. Configure a model at Settings → AI keys & models to reproduce your own layout.",
             };
 
@@ -91,7 +91,7 @@ public sealed class DocumentHtmlAi
                 return fallback with
                 {
                     Note = $"The AI model couldn't read the design (it may not accept images, or the provider failed), so the "
-                           + $"\"{fallback.Starter}\" ready-made layout was used and filled with what the PDF's text says.{Why()}",
+                           + $"\"{StarterName(fallback)}\" ready-made layout was used and filled with what the PDF's text says.{Why()}",
                 };
             Meter(r);
             var problem = Parse(r.Text, current, out var html, out var root);
@@ -108,9 +108,11 @@ public sealed class DocumentHtmlAi
         }
         return fallback with
         {
-            Note = $"The AI's layout didn't pass the checks twice, so the \"{fallback.Starter}\" ready-made layout was used instead.",
+            Note = $"The AI's layout didn't pass the checks twice, so the \"{StarterName(fallback)}\" ready-made layout was used instead.",
         };
     }
+
+    private static string StarterName(Draft d) => DocumentHtmlStarters.Get(d.Starter)?.Name ?? d.Starter ?? "";
 
     /// <summary>The closest starter, filled with the business lines and standing words the text layer shows.</summary>
     public static Draft Fallback(DocumentTemplateAi.PdfLook? look, DocumentHtmlConfig? current)

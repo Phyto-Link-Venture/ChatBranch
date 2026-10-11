@@ -520,6 +520,7 @@ export const ai = {
       t2: 'If replies are held for review, the document is only sent when someone approves the reply. Rejecting it voids the document; its number stays used so there are no silent gaps.',
       t3: 'Give the AI the prices in your knowledge base or the skill’s instructions — it never invents a price.',
       t4: 'Chinese characters print only when the server has a Chinese font installed (DOCUMENT_CJK_FONT); otherwise the AI writes the document in English or Malay.',
+      t5: 'Need it to look exactly like the invoice you already use? In “Design template”, switch to “Custom layout (HTML)”: start from “Malaysian classic” or click “Upload my design”, add the extra fields your layout prints (for example PRO or Attn tel — the AI asks the customer for them), and check “PDF preview”. A teammate can also make one from a chat: the info panel’s “Documents” → “New document”.',
     },
     trouble: 'The AI says it can’t create the document: check the skill is switched on and allows that type, and that the items have prices. Payment links say Stripe is not connected: connect it at Integrations. No file arrived on WhatsApp: the chat shows a download link instead and the note says why the file was refused.',
   },
