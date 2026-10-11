@@ -101,12 +101,37 @@ public class ApiSmokeTests : IClassFixture<ApiFactory>
 /// <summary>
 /// Boots Program with a throwaway SQLite file and data directory per test run,
 /// and a LiveKit client that is never configured — a developer's backend/.env
-/// must not let the suite place real calls.
+/// must not let the suite place real calls. <c>TEST_DATABASE=postgres</c> runs
+/// every host against its OWN throwaway Postgres database instead, on the server
+/// <c>TEST_POSTGRES</c> names (an Npgsql connection string whose user may create
+/// databases) — the CI job that proves the Postgres build.
 /// </summary>
 public class ApiFactory : WebApplicationFactory<Program>
 {
     private readonly string _dbPath =
         Path.Combine(Path.GetTempPath(), $"chatbranch-test-{Guid.NewGuid():N}.sqlite3");
+
+    /// <summary>The Postgres server the suite runs on, or null for SQLite.</summary>
+    public static readonly string? PostgresServer =
+        Environment.GetEnvironmentVariable("TEST_DATABASE")?.Trim().ToLowerInvariant() is "postgres" or "postgresql"
+            ? Environment.GetEnvironmentVariable("TEST_POSTGRES") is { Length: > 0 } pg
+                ? pg : "Host=127.0.0.1;Port=5432;Username=postgres;Password=postgres"
+            : null;
+
+    private readonly string _pgDatabase = $"cb_test_{Guid.NewGuid():N}";
+    private bool _pgCreated;
+
+    private string PostgresConnection(string database) =>
+        new Npgsql.NpgsqlConnectionStringBuilder(PostgresServer!) { Database = database, MaxPoolSize = 20 }.ConnectionString;
+
+    private void PostgresAdmin(string sql)
+    {
+        using var admin = new Npgsql.NpgsqlConnection(PostgresConnection("postgres"));
+        admin.Open();
+        using var cmd = admin.CreateCommand();
+        cmd.CommandText = sql;
+        cmd.ExecuteNonQuery();
+    }
 
     /// <summary>Shared by every host in the run (the env var is process-wide).</summary>
     public static readonly string DataDir =
@@ -152,8 +177,16 @@ public class ApiFactory : WebApplicationFactory<Program>
         // Media, voices.json and the voice-agent files go to a throwaway dir,
         // never into a checkout's live backend/data.
         Environment.SetEnvironmentVariable("CHATBRANCH_DATA_DIR", DataDir);
-        builder.ConfigureHostConfiguration(cfg => cfg.AddInMemoryCollection(
-            new Dictionary<string, string?> { ["ConnectionStrings:Default"] = $"Data Source={_dbPath}" }));
+        var database = new Dictionary<string, string?> { ["ConnectionStrings:Default"] = $"Data Source={_dbPath}" };
+        if (PostgresServer != null)
+        {
+            // once per factory: a host that failed to start is built again by the next test
+            if (!_pgCreated) PostgresAdmin($"CREATE DATABASE \"{_pgDatabase}\"");
+            _pgCreated = true;
+            database["DATABASE_PROVIDER"] = "postgres";
+            database["ConnectionStrings:Default"] = PostgresConnection(_pgDatabase);
+        }
+        builder.ConfigureHostConfiguration(cfg => cfg.AddInMemoryCollection(database));
         // Every SQL statement at Information level buried the one failing test
         // in hundreds of thousands of CI log lines; warnings and errors still show.
         builder.ConfigureLogging(l =>
@@ -183,6 +216,17 @@ public class ApiFactory : WebApplicationFactory<Program>
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
+        if (PostgresServer != null)
+        {
+            try
+            {
+                using (var mine = new Npgsql.NpgsqlConnection(PostgresConnection(_pgDatabase)))
+                    Npgsql.NpgsqlConnection.ClearPool(mine);
+                PostgresAdmin($"DROP DATABASE IF EXISTS \"{_pgDatabase}\" WITH (FORCE)");
+            }
+            catch { /* best effort */ }
+            return;
+        }
         // Close THIS host's pooled connections first, then remove the database AND its WAL /
         // shared-memory files — deleting only the .sqlite3 left ~4 MB of -wal/-shm in
         // the temp dir per host, thousands of them per machine, until the disk filled.

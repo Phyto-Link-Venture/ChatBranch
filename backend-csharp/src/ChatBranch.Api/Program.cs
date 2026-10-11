@@ -19,10 +19,13 @@ var poolFloor = int.TryParse(Environment.GetEnvironmentVariable("THREADPOOL_MIN_
 System.Threading.ThreadPool.GetMinThreads(out var minWorkers, out var minIo);
 System.Threading.ThreadPool.SetMinThreads(Math.Max(minWorkers, poolFloor), Math.Max(minIo, poolFloor));
 
-// ---- data: SQLite via EF Core, pointed at the same file layout as Django ----
-var conn = builder.Configuration.GetConnectionString("Default")
-           ?? "Data Source=chatbranch.sqlite3";
-builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlite(conn));
+// ---- data: SQLite (default, a file) or PostgreSQL via EF Core ------------------
+// DATABASE_PROVIDER=sqlite|postgres; ConnectionStrings:Default, else DATABASE_URL for
+// Postgres, else the SQLite file — the rule lives in DatabaseSetup.
+var dbProvider = DatabaseSetup.Provider(builder.Configuration["DATABASE_PROVIDER"]);
+var conn = DatabaseSetup.ConnectionString(dbProvider, builder.Configuration.GetConnectionString("Default"),
+    builder.Configuration["DATABASE_URL"]);
+builder.Services.AddDbContext<AppDbContext>(o => o.Use(dbProvider, conn));
 builder.Services.AddScoped<ScopingService>();
 builder.Services.AddScoped<ChatBranch.Data.Stores.ThreadStore>();
 builder.Services.AddScoped<ChatBranch.Data.Ai.PersonaService>();

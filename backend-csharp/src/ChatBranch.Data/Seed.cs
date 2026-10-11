@@ -25,7 +25,8 @@ public static class Seed
     /// EnsureCreated() only builds a schema from scratch — it never alters an
     /// existing one — so each new nullable column is added here, idempotently
     /// (SQLite ALTER TABLE ADD COLUMN; skipped when already present). Keep this
-    /// list append-only.
+    /// list append-only. On Postgres the column / table helpers are no-ops:
+    /// PostgresSchema.Sync derives the same changes from the EF model.
     /// </summary>
     private static void UpgradeSchema(AppDbContext db)
     {
@@ -359,6 +360,7 @@ public static class Seed
         if (wasClosed) conn.Open();
         try
         {
+            if (db.IsPostgres() && !PostgresSchema.TableExists(conn, table)) return;
             using var cmd = conn.CreateCommand();
             cmd.CommandText = $"CREATE UNIQUE INDEX IF NOT EXISTS \"{name}\" ON \"{table}\" ({columns}) WHERE {where}";
             cmd.ExecuteNonQuery();
@@ -378,6 +380,7 @@ public static class Seed
         if (wasClosed) conn.Open();
         try
         {
+            if (db.IsPostgres() && !PostgresSchema.TableExists(conn, table)) return;
             using var cmd = conn.CreateCommand();
             cmd.CommandText = $"CREATE INDEX IF NOT EXISTS \"{name}\" ON \"{table}\" ({columns})";
             cmd.ExecuteNonQuery();
@@ -395,6 +398,7 @@ public static class Seed
     /// </summary>
     private static void AddTableIfMissing(AppDbContext db, string table, string ddl)
     {
+        if (db.IsPostgres()) return; // SQLite DDL — PostgresSchema creates it from the model
         var conn = db.Database.GetDbConnection();
         var wasClosed = conn.State != System.Data.ConnectionState.Open;
         if (wasClosed) conn.Open();
@@ -412,6 +416,7 @@ public static class Seed
 
     private static void AddColumnIfMissing(AppDbContext db, string table, string column, string ddlType)
     {
+        if (db.IsPostgres()) return; // SQLite DDL — PostgresSchema adds it from the model
         var conn = db.Database.GetDbConnection();
         var wasClosed = conn.State != System.Data.ConnectionState.Open;
         if (wasClosed) conn.Open();
@@ -461,6 +466,9 @@ public static class Seed
     public static void Run(AppDbContext db)
     {
         db.Database.EnsureCreated();
+        // Postgres: tables / columns / indexes come from the EF model (PostgresSchema);
+        // the SQLite DDL below is skipped there, its portable index statements still run
+        if (db.IsPostgres()) PostgresSchema.Sync(db);
         UpgradeSchema(db);
         BackfillContactEntities(db);
 

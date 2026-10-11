@@ -104,7 +104,18 @@ public class AppDbContext : DbContext
     /// on save (Audit/AuditStampInterceptor), so the per-file audit helpers carry
     /// source, method, path and user without each being edited.</summary>
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) =>
-        optionsBuilder.AddInterceptors(ChatBranch.Data.Audit.AuditStampInterceptor.Instance);
+        optionsBuilder.AddInterceptors(ChatBranch.Data.Audit.AuditStampInterceptor.Instance)
+            // one process may hold a SQLite AND a Postgres context (the one-time import)
+            .ReplaceService<Microsoft.EntityFrameworkCore.Infrastructure.IModelCacheKeyFactory,
+                ProviderModelCacheKeyFactory>();
+
+    /// <summary>On Postgres, dates are stored like SQLite's: no time zone, read back as written.</summary>
+    protected override void ConfigureConventions(ModelConfigurationBuilder b)
+    {
+        if (!Database.IsNpgsql()) return;
+        b.Properties<DateTime>().HaveConversion<UnspecifiedDateTime>().HaveColumnType("timestamp without time zone");
+        b.Properties<DateTime?>().HaveConversion<UnspecifiedDateTime>().HaveColumnType("timestamp without time zone");
+    }
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -189,7 +200,7 @@ public class AppDbContext : DbContext
         // Documents app skill: generated PDFs / QR codes (one running number per series)
         b.Entity<Document>().ToTable("crm_document");
         b.Entity<Document>().HasIndex(x => new { x.Series, x.Seq }).IsUnique()
-            .HasFilter("[seq] > 0").HasDatabaseName("uniq_document_series_seq");
+            .HasFilter("\"seq\" > 0").HasDatabaseName("uniq_document_series_seq");
         b.Entity<Document>().HasIndex(x => x.ThreadId).HasDatabaseName("ix_document_thread");
         b.Entity<Document>().HasIndex(x => x.PublicToken).HasDatabaseName("ix_document_public_token");
         b.Entity<Integration>().ToTable("integrations_integration");
@@ -220,10 +231,10 @@ public class AppDbContext : DbContext
         // per draft (implicit approve/edit/reject rows are exempt from the filter)
         b.Entity<AiFeedback>().ToTable("crm_aifeedback");
         b.Entity<AiFeedback>().HasIndex(f => new { f.UserId, f.MessageId }).IsUnique()
-            .HasFilter("[kind] = 'explicit' AND [message_id] IS NOT NULL")
+            .HasFilter("\"kind\" = 'explicit' AND \"message_id\" IS NOT NULL")
             .HasDatabaseName("uniq_aifeedback_user_message");
         b.Entity<AiFeedback>().HasIndex(f => new { f.UserId, f.DraftId }).IsUnique()
-            .HasFilter("[kind] = 'explicit' AND [draft_id] IS NOT NULL")
+            .HasFilter("\"kind\" = 'explicit' AND \"draft_id\" IS NOT NULL")
             .HasDatabaseName("uniq_aifeedback_user_draft");
         b.Entity<AiFeedback>().HasIndex(f => f.CreatedAt).HasDatabaseName("ix_aifeedback_created");
         b.Entity<AiFeedback>().HasIndex(f => f.LessonId).HasDatabaseName("ix_aifeedback_lesson");
@@ -246,14 +257,14 @@ public class AppDbContext : DbContext
         b.Entity<Setting>()
             .HasIndex(s => new { s.Key, s.EntityId })
             .IsUnique()
-            .HasFilter("[entity_id] IS NOT NULL")
+            .HasFilter("\"entity_id\" IS NOT NULL")
             .HasDatabaseName("uniq_setting_key_entity");
         // …and exactly one GLOBAL row per key (NULLs are distinct in SQL, so a
         // plain unique index would allow two global rows — hence the filter).
         b.Entity<Setting>()
             .HasIndex(s => s.Key)
             .IsUnique()
-            .HasFilter("[entity_id] IS NULL")
+            .HasFilter("\"entity_id\" IS NULL")
             .HasDatabaseName("uniq_setting_key_global");
 
         // ---- the other partial unique constraints (global vs entity libraries) -
@@ -266,7 +277,7 @@ public class AppDbContext : DbContext
         b.Entity<Message>()
             .HasIndex(m => new { m.ThreadId, m.ExternalId })
             .IsUnique()
-            .HasFilter("[external_id] <> ''")
+            .HasFilter("\"external_id\" <> ''")
             .HasDatabaseName("uniq_message_thread_external_id");
         // receipts look a message up by its provider id alone (statuses carry no thread)
         b.Entity<Message>().HasIndex(m => m.ExternalId).HasDatabaseName("ix_message_external_id");
@@ -329,7 +340,7 @@ public class AppDbContext : DbContext
         // "Request access": one PENDING request per (contact, entity)
         b.Entity<ContactAccessRequest>().ToTable("crm_contactaccessrequest");
         b.Entity<ContactAccessRequest>().HasIndex(r => new { r.ContactId, r.EntityId })
-            .IsUnique().HasFilter("[status] = 'pending'").HasDatabaseName("uniq_contactaccess_pending");
+            .IsUnique().HasFilter("\"status\" = 'pending'").HasDatabaseName("uniq_contactaccess_pending");
         b.Entity<ContactAccessRequest>().HasIndex(r => r.Status).HasDatabaseName("ix_contactaccess_status");
         b.Entity<IdentityRequest>().ToTable("crm_identityrequest");
         b.Entity<IdentityRequest>().HasIndex(r => r.ThreadId).IsUnique().HasDatabaseName("uniq_identityrequest_thread");
@@ -406,10 +417,10 @@ public class AppDbContext : DbContext
         var col = member.Member.Name;
 
         b.Entity<T>().HasIndex(BuildKeyEntity<T>(col)).IsUnique()
-            .HasFilter("[entity_id] IS NOT NULL")
+            .HasFilter("\"entity_id\" IS NOT NULL")
             .HasDatabaseName($"uniq_{name}_entity");
         b.Entity<T>().HasIndex(col).IsUnique()
-            .HasFilter("[entity_id] IS NULL")
+            .HasFilter("\"entity_id\" IS NULL")
             .HasDatabaseName($"uniq_{name}_global");
     }
 

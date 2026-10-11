@@ -350,8 +350,11 @@ public static class ApiV1Endpoints
                 // Legacy rows of the retired Service Provider binding would block
                 // the delete on a DB whose FKs carry no ON DELETE — sweep them
                 // while the old table is still there (absent on new DBs).
-                try { await db.Database.ExecuteSqlRawAsync("DELETE FROM crm_resourcelink WHERE contact_id = {0}", id); }
-                catch { /* no legacy table */ }
+                // (SQLite only: a failed statement would abort a Postgres transaction, and a
+                // Postgres database never had the table)
+                if (!db.IsPostgres())
+                    try { await db.Database.ExecuteSqlRawAsync("DELETE FROM crm_resourcelink WHERE contact_id = {0}", id); }
+                    catch { /* no legacy table */ }
                 await db.AccountAssignments.Where(a => a.ContactId == id).ExecuteDeleteAsync();
                 await db.PendingToolActions.Where(p => p.ContactId == id).ExecuteDeleteAsync();
                 await db.ConversationSummaries.Where(s => s.ContactId == id).ExecuteDeleteAsync();
